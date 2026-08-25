@@ -16,6 +16,8 @@ const errorHandler = (await import('../middleware/errorMiddleware.js')).default;
 const { supabase } = await import('../db/supabase.js');
 const auth = await import('../services/partner/partnerAuthService.js');
 const { initSourceVerification, verifySource } = await import('../services/sourceVerification/sourceVerificationService.js');
+const { PUBLIC_TRUST_FIELDS, publicTrustViolations } =
+  await import('../services/trustDecision/canonicalTrustService.js');
 
 let db;
 function resetDb() {
@@ -29,12 +31,13 @@ function resetDb() {
   };
 }
 function builder(table) {
-  const st = { table, op: 'select', filters: {}, single: false, maybe: false, order: null, payload: null };
+  const st = { table, op: 'select', filters: {}, inFilter: null, single: false, maybe: false, order: null, payload: null };
   const chain = {
     select() { return chain; },
     insert(p) { st.op = 'insert'; st.payload = p; return chain; },
     update(p) { st.op = 'update'; st.payload = p; return chain; },
     eq(k, v) { st.filters[k] = v; return chain; },
+    in(k, v) { st.inFilter = { key: k, vals: Array.isArray(v) ? v : [v] }; return chain; },
     order(c, o) { st.order = { col: c, asc: o?.ascending ?? false }; return chain; },
     single() { st.single = true; return chain; },
     maybeSingle() { st.maybe = true; return chain; },
@@ -57,6 +60,7 @@ function run(st) {
     return ok(st.single ? u : (u ? [u] : []));
   }
   let out = rows.filter((r) => Object.entries(st.filters).every(([k, v]) => r[k] === v));
+  if (st.inFilter) out = out.filter((r) => st.inFilter.vals.includes(r[st.inFilter.key]));
   if (st.table === 'source_verification_coverage_public') {
     out = db.source_verification_results
       .filter((r) => Object.entries(st.filters).every(([k, v]) => r[k] === v))
@@ -141,11 +145,42 @@ test('source-coverage exposes mode + status only (no raw, no identity_fields)', 
   // sandbox is labelled honestly, never as a live confirmation
   assert.ok(res.body.coverage.every((c) => c.coverage_status !== 'source_connected'));
 });
-test('trust-summary is the redacted public decision (no finance dimension)', async () => {
+/**
+ * REWRITTEN — Issue #164 Phase 3. This test previously read:
+ *
+ *   assert.equal(res.body.trust.dimensions.finance_eligibility, undefined);
+ *   assert.ok(res.body.trust.overall_trust);
+ *
+ * i.e. `trust` was the live-recomputed public decision and the only guarantee asserted was "some
+ * trust object exists". That encoded the OLD behaviour this phase removes: a public decision that
+ * restates a score. A partner reading it received a number produced by a recompute at request time,
+ * while the marketplace, the passport and vehicle detail published the materialized canonical
+ * position for the same VIN — one VIN, two public trust positions, at one instant.
+ *
+ * The redaction guarantee is REAL and is kept verbatim; it simply now lives on `decision`, which is
+ * the explanation. The trust guarantee is REPLACED BY A STRICTLY STRONGER ONE: `trust` must be the
+ * canonical projection, must satisfy the shared contract checker (`publicTrustViolations`, the same
+ * one the Phase 3 guard suite and every converging surface use), must carry exactly the ten public
+ * fields, and must be the ONLY stated position anywhere in the body.
+ */
+test('trust-summary publishes the canonical position and the redacted explanation', async () => {
   const res = await request('GET', '/api/partner/v1/vehicles/CLEANVIN00000001/trust-summary', { 'x-api-key': fullKey });
   assert.equal(res.status, 200);
-  assert.equal(res.body.trust.dimensions.finance_eligibility, undefined);
-  assert.ok(res.body.trust.overall_trust);
+  // Redaction, unchanged: the finance dimension never reaches a partner.
+  assert.equal(res.body.decision.dimensions.finance_eligibility, undefined);
+  assert.ok(res.body.decision.dimensions.identity, 'the explanation is still served');
+  // The position is the canonical ten-field projection, and it honours the contract.
+  assert.deepEqual(publicTrustViolations(res.body.trust), []);
+  assert.deepEqual(Object.keys(res.body.trust).sort(), [...PUBLIC_TRUST_FIELDS].sort());
+  assert.equal(res.body.trust.vin, 'CLEANVIN00000001');
+  // This fixture vehicle has no versioned cache entry, so the honest canonical answer is "not
+  // evaluated" with a NULL score — never a 0, and never a number invented by a recompute.
+  assert.equal(res.body.trust.evaluation_state, 'not_evaluated');
+  assert.equal(res.body.trust.score, null);
+  assert.equal(res.body.trust.band, null);
+  // Exactly ONE stated position in the whole body.
+  assert.equal(res.body.trust.overall_trust, undefined);
+  assert.equal(res.body.decision.overall_trust, undefined);
 });
 test('every partner request is recorded in the append-only audit', async () => {
   const before = db.partner_api_requests.length;

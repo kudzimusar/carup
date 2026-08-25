@@ -13,9 +13,12 @@ import { supabase } from '../../db/supabase.js';
 import { emitDomainEvent } from '../eventBus/eventBusService.js';
 import {
   LISTING_SELECT_COLUMNS,
+  selectListingRows,
   buildMarketplaceListingSummary,
+  fetchCanonicalTrustByVin,
   fetchListingRelatedRows,
   shouldShowFixtures,
+  listingImageRowsForVin,
 } from './listingSummaryService.js';
 import { getFixtureExclusion } from './marketplaceClassificationRules.js';
 import { deriveSuspicionLevel } from './marketplaceTrustSummaryService.js';
@@ -173,12 +176,16 @@ export const clearListingRisk = (c, vin, b, a) => moderateListing(c, vin, 'clear
  */
 export async function listListingsForAdmin(client, filters = {}) {
   assertModerator(filters.actor || {});
-  const { data: vehicles, error } = await client.from('vehicles').select(LISTING_SELECT_COLUMNS);
+  const { data: vehicles, error } = await selectListingRows(client);
   if (error) throw error;
   const showFixtures = shouldShowFixtures();
   const candidates = (vehicles || []).filter((v) => showFixtures || getFixtureExclusion(v) === null);
   const vins = candidates.map((v) => v.vin).filter(Boolean);
-  const { evidenceByVin, partSentryByVin, ownershipByVin, imagesByVin } = await fetchListingRelatedRows(client, vins);
+  const related = await fetchListingRelatedRows(client, vins);
+  const { evidenceByVin, partSentryByVin, ownershipByVin } = related;
+  // A moderator must see the same trust position a buyer sees; without this the admin queue shows
+  // blank trust for every listing, which is indistinguishable from "we evaluated it and found none".
+  const canonicalTrustByVin = await fetchCanonicalTrustByVin(client, vins);
 
   const rows = candidates.map((vehicle) => {
     const partSentryRows = partSentryByVin.get(vehicle.vin) || [];
@@ -187,7 +194,8 @@ export async function listListingsForAdmin(client, filters = {}) {
       evidenceRows: evidenceByVin.get(vehicle.vin) || [],
       partSentryRows,
       ownershipCount: (ownershipByVin.get(vehicle.vin) || []).length,
-      imageRows: imagesByVin.get(vehicle.vin) || [],
+      imageRows: listingImageRowsForVin(related, vehicle.vin),
+      canonicalTrust: canonicalTrustByVin.get(vehicle.vin) || null,
     });
     const public_status = deriveListingPublicStatus(vehicle.status);
     const suspicion = deriveSuspicionLevel(partSentryRows);

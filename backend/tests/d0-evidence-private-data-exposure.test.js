@@ -98,13 +98,13 @@ test('the anonymous timeline route never mints a private capability', () => {
 // ── The raw row never leaves, on either door ─────────────────────────────────────────────────────
 
 test('the evidence route projects unauthorised responses', () => {
-  assert.match(EVIDENCE, /toPublicEvidenceRow\(/);
+  assert.match(EVIDENCE, /toPublicEvidence\(/);
   assert.match(EVIDENCE, /enrichedEvidence\.push\(projected\)/);
 });
 
 test('the timeline route projects BOTH arrays', () => {
-  assert.match(TIMELINE, /toPublicEvidenceRow\(/, 'evidence[] must be projected');
-  assert.match(TIMELINE, /toPublicTimelineEventRow\(/, 'timeline[] must be projected');
+  assert.match(TIMELINE, /toPublicEvidence\(/, 'evidence[] must be projected');
+  assert.match(TIMELINE, /toPublicTimelineEvent\(/, 'timeline[] must be projected');
   assert.doesNotMatch(TIMELINE, /evidence:\s*sanitizedEvidence/,
     'the raw normalized row must not be the response body');
 });
@@ -143,21 +143,21 @@ test('the storage bucket is a server decision, not a caller assertion', () => {
 // ── The projection itself ────────────────────────────────────────────────────────────────────────
 
 test('every column seen in the live leak is outside the public allow-lists', async () => {
-  const { PUBLIC_EVIDENCE_COLUMNS, PUBLIC_TIMELINE_EVENT_COLUMNS } =
-    await import('../utils/publicEvidenceProjection.js');
+  const { PUBLIC_EVIDENCE_FIELDS, PUBLIC_TIMELINE_EVENT_FIELDS } =
+    await import('../utils/publicVehicleProjection.js');
   for (const column of [
     'plate_number', 'normalized_plate_number', 'chassis_number', 'engine_number',
     'uploaded_by', 'uploader_role', 'verified_by', 'tenant_id', 'verification_notes',
     'file_path', 'storage_bucket',
   ]) {
-    assert.ok(!PUBLIC_EVIDENCE_COLUMNS.includes(column), `${column} must not be public`);
-    assert.ok(!PUBLIC_TIMELINE_EVENT_COLUMNS.includes(column), `${column} must not be a public event field`);
+    assert.ok(!PUBLIC_EVIDENCE_FIELDS.includes(column), `${column} must not be public`);
+    assert.ok(!PUBLIC_TIMELINE_EVENT_FIELDS.includes(column), `${column} must not be a public event field`);
   }
 });
 
 test('the projection drops those columns and withholds the private locator', async () => {
-  const { toPublicEvidenceRow } = await import('../utils/publicEvidenceProjection.js');
-  const out = toPublicEvidenceRow({
+  const { toPublicEvidence } = await import('../utils/publicVehicleProjection.js');
+  const out = toPublicEvidence({
     id: 'e1', vin: 'VIN1', evidence_type: 'registration_document',
     verification_status: 'verified', visibility_level: 'public_safe',
     plate_number: 'ABC1234', chassis_number: 'CH-9', engine_number: 'EN-9',
@@ -178,8 +178,8 @@ test('the projection drops those columns and withholds the private locator', asy
 });
 
 test('a public-bucket artifact still publishes its URL', async () => {
-  const { toPublicEvidenceRow } = await import('../utils/publicEvidenceProjection.js');
-  const out = toPublicEvidenceRow({
+  const { toPublicEvidence } = await import('../utils/publicVehicleProjection.js');
+  const out = toPublicEvidence({
     id: 'e2', vin: 'VIN1', storage_bucket: 'vehicle-images',
     file_url: 'https://cdn.example.test/a.png', verification_status: 'verified',
   });
@@ -188,7 +188,7 @@ test('a public-bucket artifact still publishes its URL', async () => {
 });
 
 test('publicAiSummary refuses a non-string, caller-supplied value', async () => {
-  const { publicAiSummary } = await import('../utils/publicEvidenceProjection.js');
+  const { publicAiSummary } = await import('../utils/publicVehicleProjection.js');
   assert.equal(publicAiSummary({ metadata: { ai_analysis: { public_safe_summary: 'ok' } } }), 'ok');
   assert.equal(publicAiSummary({ metadata: { ai_analysis: { public_safe_summary: { evil: 1 } } } }), null);
   assert.equal(publicAiSummary({ metadata: { ai_public_summary: 'caller supplied' } }), null,
@@ -221,25 +221,46 @@ const SERVER = (() => {
 test('the passport projects evidenceVault for unauthorised callers', () => {
   assert.doesNotMatch(SERVER, /^\s*evidenceVault,\s*$/m,
     'the raw vault must not be returned verbatim');
-  assert.match(SERVER, /evidenceVault:\s*isAuthorized \? evidenceVault : evidenceVault\.map\(toPublicEvidenceRow\)/,
+  assert.match(SERVER, /evidenceVault:\s*isAuthorized \? evidenceVault : evidenceVault\.map\(toPublicEvidence\)/,
     'an unauthorised caller must receive the allow-listed projection');
 });
 
 test('the passport reuses the one projection rather than forking a second allow-list', () => {
   assert.match(SERVER,
-    /import \{[^}]*\btoPublicEvidenceRow\b[^}]*\} from '\.\/utils\/publicEvidenceProjection\.js'/,
+    /import \{[^}]*\btoPublicEvidence\b[^}]*\} from '\.\/utils\/publicVehicleProjection\.js'/,
     'matched regardless of co-imports, so adding the timeline projector beside it does not fail this');
 });
 
 test('the passport enforces session expiry and gates x-user-id', () => {
-  // The passport carried the same two identity defects as the evidence routes.
+  // RECONCILED LOCATION. Issue #164 requires that `buildVehiclePassport` read NO request header —
+  // a builder that reads headers can be handed a forged owner audience. So the identity work moved
+  // into `optionalAuth()`, the single middleware that populates the context the passport reads.
+  // BOTH properties therefore hold, and this asserts both halves rather than one shape.
   const start = SERVER.indexOf('async function buildVehiclePassport');
   assert.ok(start > -1, 'buildVehiclePassport must exist');
   const fn = SERVER.slice(start, start + 3000);
-  assert.match(fn, /new Date\(session\.expires_at\)\s*>=\s*new Date\(\)/,
-    'an expired token must not authenticate the passport either');
-  assert.match(fn, /isPrivateEvidenceFallbackAllowed\(\)/);
+
+  // (a) the builder derives the audience from the context, and reads no header itself
+  assert.match(fn, /req\.userContext/, 'the audience must come from the resolved context');
+  assert.doesNotMatch(fn, /req\.headers\[/, 'the builder must read no request header');
   assert.doesNotMatch(fn, /activeUserId\s*=\s*fallbackUserId\s*\|\|/);
+
+  // (b) the middleware that populates it enforces expiry AND the strict fallback policy
+  const MW_SRC = readFileSync(path.resolve(here, '../middleware/authMiddleware.js'), 'utf8');
+  const optional = MW_SRC.slice(MW_SRC.indexOf('export function optionalAuth'));
+  assert.match(optional, /new Date\(session\.expires_at\)\s*>=\s*new Date\(\)/,
+    'an expired token must not authenticate the passport either');
+  assert.match(optional, /authenticationMethod:/,
+    'optionalAuth must record HOW the identity was established');
+  // The refusal itself is on the passport: it requires a session-established identity, asserted
+  // positively so a missing marker fails closed.
+  assert.match(fn, /identityAsserted !== true/,
+    'an asserted identity must not buy the passport audience');
+  // PRODUCER SIDE: the gate above is only real if the marker is always written. A path that
+  // resolves an identity without recording how would silently pass the consumer's check.
+  const optionalBody = MW_SRC.slice(MW_SRC.indexOf('export function optionalAuth'));
+  assert.match(optionalBody, /identityAsserted:\s*fallbackDerived/,
+    'optionalAuth must ALWAYS publish the flag the passport gates on');
 });
 
 // ── The locator guard must cover what the INSERT actually stores ─────────────────────────────────
@@ -268,7 +289,7 @@ test('the effective locator is validated, not merely an explicitly supplied file
 // for any event_source the sanitizer's branch chain does not override — `evidence` being one.
 
 test('the passport closes the TOP level of a public timeline event', () => {
-  assert.match(SERVER, /return toPublicTimelineEventRow\(sanitizedEvent\)/,
+  assert.match(SERVER, /return toPublicTimelineEvent\(sanitizedEvent\)/,
     'allow-listing only `details` leaves the event top level open');
 });
 
@@ -287,20 +308,20 @@ test('an evidence event publishes no private locator and no metadata through the
 });
 
 test('metadata is not even in the public timeline allow-list', async () => {
-  const { PUBLIC_TIMELINE_EVENT_COLUMNS } = await import('../utils/publicEvidenceProjection.js');
-  assert.ok(!PUBLIC_TIMELINE_EVENT_COLUMNS.includes('metadata'),
+  const { PUBLIC_TIMELINE_EVENT_FIELDS } = await import('../utils/publicVehicleProjection.js');
+  assert.ok(!PUBLIC_TIMELINE_EVENT_FIELDS.includes('metadata'),
     'metadata carries ai_ready.vehicle_identity and has no public timeline use');
   // ...while the sanitized phrasing clients render DOES survive.
   for (const kept of ['publicDescription', 'publicSummary']) {
-    assert.ok(PUBLIC_TIMELINE_EVENT_COLUMNS.includes(kept), `${kept} must survive the projection`);
+    assert.ok(PUBLIC_TIMELINE_EVENT_FIELDS.includes(kept), `${kept} must survive the projection`);
   }
 });
 
 test('the allow-lists match the Issue #164 branch exactly, so reconciling is a deletion', async () => {
   // The user requires proof of NO semantic divergence between this hotfix and the #164
   // implementation. Both lists are asserted verbatim here; if either side edits one, this fails.
-  const { PUBLIC_EVIDENCE_COLUMNS, PUBLIC_TIMELINE_EVENT_COLUMNS } =
-    await import('../utils/publicEvidenceProjection.js');
+  const { PUBLIC_EVIDENCE_FIELDS, PUBLIC_TIMELINE_EVENT_FIELDS } =
+    await import('../utils/publicVehicleProjection.js');
 
   // ONE KNOWN, DELIBERATE DELTA: `source_id`.
   //
@@ -323,16 +344,16 @@ test('the allow-lists match the Issue #164 branch exactly, so reconciling is a d
     'odometer_value', 'odometer_unit', 'declared_condition', 'component_tags',
     'linked_registry_event_id', 'timeline_event_id',
   ];
-  const KNOWN_DELTA = ['source_id'];
+  const KNOWN_DELTA = [];
 
-  const extra = PUBLIC_EVIDENCE_COLUMNS.filter((f) => !ISSUE_164_FIELDS.includes(f));
-  const missing = ISSUE_164_FIELDS.filter((f) => !PUBLIC_EVIDENCE_COLUMNS.includes(f));
+  const extra = PUBLIC_EVIDENCE_FIELDS.filter((f) => !ISSUE_164_FIELDS.includes(f));
+  const missing = ISSUE_164_FIELDS.filter((f) => !PUBLIC_EVIDENCE_FIELDS.includes(f));
   assert.deepEqual(extra, KNOWN_DELTA,
     'the only field this hotfix publishes beyond the Issue #164 list must be the recorded delta');
   assert.deepEqual(missing, [],
     'this hotfix must not publish LESS than the Issue #164 list');
 
-  assert.deepEqual([...PUBLIC_TIMELINE_EVENT_COLUMNS], [
+  assert.deepEqual([...PUBLIC_TIMELINE_EVENT_FIELDS], [
     'id', 'event_source', 'event_type', 'evidence_type', 'timestamp',
     'label', 'desc', 'details', 'publicDescription', 'publicSummary',
     'verification_status', 'file_url', 'mime_type', 'trust_score_impact',
@@ -411,7 +432,12 @@ test('both private-evidence entry points use the stricter gate', () => {
     .replace(/\/\*[\s\S]*?\*\//g, '')
     .split('\n').map((l) => l.replace(/(^|[^:])\/\/.*$/, '$1')).join('\n');
   const SERVER_SRC = stripComments(readFileSync(path.resolve(here, '../server.js'), 'utf8'));
-  for (const [name, src] of [['evidence route', CODE], ['passport', SERVER_SRC]]) {
+  // The passport's gate now lives in `optionalAuth` (see the note above), so that is where the
+  // passport's half of this assertion is made.
+  const PASSPORT = SERVER_SRC.slice(SERVER_SRC.indexOf('async function buildVehiclePassport'));
+  assert.match(PASSPORT.slice(0, 3000), /identityAsserted !== true/,
+    'the passport gates its private half on a proven identity');
+  for (const [name, src] of [['evidence route', CODE]]) {
     assert.match(src, /isPrivateEvidenceFallbackAllowed\(\)/, `${name} must use the stricter gate`);
     // Banned as a CALL in these files; authMiddleware still defines and exports it for other routes.
     assert.doesNotMatch(src, /[^a-zA-Z]isUserIdFallbackAllowed\(\)/,
@@ -482,16 +508,22 @@ test('the shared gate refuses a fallback identity and admits a session identity'
 });
 
 test('source attribution survives the public projection', async () => {
-  const { PUBLIC_EVIDENCE_COLUMNS, toPublicEvidenceRow } =
-    await import('../utils/publicEvidenceProjection.js');
+  const { PUBLIC_EVIDENCE_FIELDS, toPublicEvidence } =
+    await import('../utils/publicVehicleProjection.js');
   // Newer M1/ingestion rows carry attribution ONLY in source_id; the buyer-facing timeline resolves
   // its "Source" label from it. Dropping it removed provenance from the best-recorded rows.
-  assert.ok(PUBLIC_EVIDENCE_COLUMNS.includes('source_id'));
-  const out = toPublicEvidenceRow({
+  // SUPERSEDED BY MEASUREMENT. This asserted that `source_id` must be published, on the belief
+  // that newer M1/ingestion rows carry attribution only there. The live schema says otherwise:
+  // `source_id` is `uuid` (an internal FK) and `source_name` is `text`. Publishing a UUID delivers
+  // no attribution to a buyer while exposing an internal identifier, and Issue #164 independently
+  // classifies it among EVIDENCE_INTERNAL_COLUMNS. Attribution travels in `source_name`.
+  assert.ok(!PUBLIC_EVIDENCE_FIELDS.includes('source_id'), 'source_id is an internal uuid, not attribution');
+  const out = toPublicEvidence({
     id: 'e1', vin: 'V1', source_id: 'zimra-import', source_name: null,
     storage_bucket: 'vehicle-images', file_url: 'https://cdn.example.test/a.png',
   });
-  assert.equal(out.source_id, 'zimra-import');
+  assert.equal(out.source_id, undefined, 'the internal uuid must not reach a public consumer');
+  assert.equal(out.source_name, null, 'the readable attribution field is the one that travels');
   // ...and it is still not a licence for the private columns.
   for (const c of ['uploaded_by', 'verified_by', 'tenant_id', 'file_path', 'storage_bucket']) {
     assert.ok(!(c in out), `${c} must remain withheld`);

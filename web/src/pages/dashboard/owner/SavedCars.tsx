@@ -2,9 +2,9 @@ import { useState, useEffect, useCallback } from 'react'
 import { Link } from 'react-router-dom'
 import { Card, CardContent } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
-import { Badge } from '@/components/ui/badge'
 import { Heart, X, Gauge, Settings2, Fuel, MapPin, Loader2 } from 'lucide-react'
 import { useCarUpApi } from '@/hooks/useCarUpApi'
+import { statedMileage, statedPrice } from './ownerStatedValues'
 import type { MarketplaceListingSummary } from '@/types'
 
 export default function SavedCars() {
@@ -95,21 +95,25 @@ export default function SavedCars() {
                   >
                     <X className="w-4 h-4 text-red-500" />
                   </button>
-                  {vehicle.trust_score > 80 && (
-                    <Badge className="absolute top-3 left-3 bg-green-500 text-white text-[10px]">Verified</Badge>
-                  )}
+                  {/* A "Verified" badge drawn from `trust_score > 80` was a verification claim
+                      manufactured on this page out of a number no page is allowed to bucket. The
+                      threshold, the tier and the badge are gone; a saved card makes no trust claim
+                      at all, exactly as the marketplace card does not. */}
                 </div>
                 <div className="p-4">
                   <Link to={`/marketplace/${vehicle.vin}`}>
                     <h3 className="font-semibold text-sm hover:text-orange-500 transition-colors">{vehicle.year} {vehicle.make} {vehicle.model}</h3>
-                    <p className="text-lg font-bold text-orange-600">${vehicle.price?.toLocaleString()}</p>
+                    <p className="text-lg font-bold text-orange-600" data-testid={`saved-price-${vehicle.vin}`}>{statedPrice(vehicle.price)}</p>
                     <div className="flex flex-wrap gap-2 mt-2 text-xs text-gray-500">
-                      <span className="flex items-center gap-1"><Gauge className="w-3 h-3" />{vehicle.mileage?.toLocaleString()} km</span>
+                      <span className="flex items-center gap-1" data-testid={`saved-mileage-${vehicle.vin}`}><Gauge className="w-3 h-3" />{statedMileage(vehicle.mileage)}</span>
                       {vehicle.transmission && <span className="flex items-center gap-1"><Settings2 className="w-3 h-3" />{vehicle.transmission}</span>}
                       {vehicle.fuel_type && <span className="flex items-center gap-1"><Fuel className="w-3 h-3" />{vehicle.fuel_type}</span>}
                     </div>
-                    <div className="flex items-center gap-1 mt-2 text-xs text-gray-400">
-                      <MapPin className="w-3 h-3" />{vehicle.location || 'Zimbabwe'}
+                    {/* `|| 'Zimbabwe'` put a country under every saved car whose listing recorded no
+                        location. There is no location column on a vehicle at all today, so the only
+                        honest rendering of an absent one is to say it is absent. */}
+                    <div className="flex items-center gap-1 mt-2 text-xs text-gray-400" data-testid={`saved-location-${vehicle.vin}`}>
+                      <MapPin className="w-3 h-3" />{vehicle.location || 'Location not recorded'}
                     </div>
                   </Link>
                   <div className="mt-3 flex gap-2">

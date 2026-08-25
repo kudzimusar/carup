@@ -57,7 +57,10 @@ function run(st) {
 }
 function install() { reset(); supabase.from = (t) => builder(t); svc.initEligibility(); }
 
-const OK_CTX = { identity_status: 'complete', fraud_block: false, publication_status: 'publishable', source_coverage_connected: 1, min_source_coverage: 0 };
+// Every dimension is stated EXPLICITLY. Phase 6 (bd23975b) fails closed on unknown gates: an
+// omitted fraud/dealer/source fact is 'unknown', never 'clear'. A fixture that leaves
+// dealer_suspended out is asserting the pre-hardening defect, so the clear case must say false.
+const OK_CTX = { identity_status: 'complete', fraud_block: false, publication_status: 'publishable', dealer_suspended: false, source_coverage_connected: 1, min_source_coverage: 1 };
 
 // ── gates (pure) ────────────────────────────────────────────────────────────────
 test('gates: identity unresolved -> not_eligible', () => {
@@ -78,6 +81,33 @@ test('gates: insufficient source coverage -> manual_review', () => {
 });
 test('gates: all clear -> allowed', () => {
   assert.equal(contract.evaluateGates('insurance', OK_CTX).allowed, true);
+});
+// Phase 6: absence is not clearance. Omitting a server-owned fact must never be read as a pass.
+test('gates: omitted dealer posture -> manual_review (never implicit clear)', () => {
+  const { dealer_suspended, ...noDealer } = OK_CTX;
+  const g = contract.evaluateGates('insurance', noDealer);
+  assert.equal(g.allowed, false);
+  assert.equal(g.route, 'manual_review');
+  assert.ok(g.reasons.includes('dealer_status_unknown'));
+});
+test('gates: omitted fraud posture -> manual_review (never implicit clear)', () => {
+  const { fraud_block, ...noFraud } = OK_CTX;
+  const g = contract.evaluateGates('insurance', noFraud);
+  assert.equal(g.allowed, false);
+  assert.equal(g.route, 'manual_review');
+  assert.ok(g.reasons.includes('fraud_status_unknown'));
+});
+test('gates: omitted source coverage -> manual_review (never implicit clear)', () => {
+  const { source_coverage_connected, ...noCoverage } = OK_CTX;
+  const g = contract.evaluateGates('insurance', noCoverage);
+  assert.equal(g.allowed, false);
+  assert.equal(g.route, 'manual_review');
+  assert.ok(g.reasons.includes('source_coverage_unknown'));
+});
+test('gates: omitted identity/publication -> not_eligible (hard prerequisite)', () => {
+  assert.equal(contract.evaluateGates('insurance', {}).route, 'not_eligible');
+  const { publication_status, ...noPub } = OK_CTX;
+  assert.equal(contract.evaluateGates('insurance', noPub).route, 'not_eligible');
 });
 
 // ── webhook security ──────────────────────────────────────────────────────────

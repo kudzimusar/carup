@@ -7,9 +7,12 @@
 import { supabase } from '../../db/supabase.js';
 import {
   LISTING_SELECT_COLUMNS,
+  selectListingRows,
   buildMarketplaceListingSummary,
+  fetchCanonicalTrustByVin,
   fetchListingRelatedRows,
   filterVisibleVehicles,
+  listingImageRowsForVin,
 } from './listingSummaryService.js';
 import { ValidationError, ForbiddenError, DatabaseError } from '../../utils/errors.js';
 
@@ -63,11 +66,14 @@ export async function listSavedListings(client, actor) {
   const vins = savedRows.map((r) => r.vin).filter(Boolean);
   if (!vins.length) return { listings: [], total: 0 };
 
-  const { data: vehicles, error } = await client.from('vehicles').select(LISTING_SELECT_COLUMNS).in('vin', vins);
+  const { data: vehicles, error } = await selectListingRows(client, (q) => q.in('vin', vins));
   if (error) throw error;
   const visible = filterVisibleVehicles(vehicles);
   const visibleVins = visible.map((v) => v.vin).filter(Boolean);
-  const { evidenceByVin, partSentryByVin, ownershipByVin, imagesByVin } = await fetchListingRelatedRows(client, visibleVins);
+  const related = await fetchListingRelatedRows(client, visibleVins);
+  const { evidenceByVin, partSentryByVin, ownershipByVin } = related;
+  // A saved card must show the same trust position as the list it was saved from.
+  const canonicalTrustByVin = await fetchCanonicalTrustByVin(client, visibleVins);
 
   const listings = visible.map((vehicle) =>
     buildMarketplaceListingSummary({
@@ -75,7 +81,8 @@ export async function listSavedListings(client, actor) {
       evidenceRows: evidenceByVin.get(vehicle.vin) || [],
       partSentryRows: partSentryByVin.get(vehicle.vin) || [],
       ownershipCount: (ownershipByVin.get(vehicle.vin) || []).length,
-      imageRows: imagesByVin.get(vehicle.vin) || [],
+      imageRows: listingImageRowsForVin(related, vehicle.vin),
+      canonicalTrust: canonicalTrustByVin.get(vehicle.vin) || null,
     })
   );
   return { listings, total: listings.length };

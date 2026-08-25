@@ -48,10 +48,10 @@ function getAIResponse(input: string): string {
     return 'Mhoroi! Welcome to CarUp. I am Gutu AI, your automotive assistant. I can help with vehicle valuations, service scheduling, document scanning, fraud detection, and much more. What would you like to know?'
   }
   if (lower.includes('fraud') || lower.includes('scam')) {
-    return 'CarUp uses multiple layers of fraud detection:\n\n- **VIN Verification**: Cross-referenced with manufacturer databases\n- **Document Authenticity**: AI-powered forgery detection on logbooks and certificates\n- **Ownership Chain**: Blockchain-verified ownership history\n- **PartSentry**: Tracks part replacements to detect accident concealment\n- **Price Analysis**: Flags listings priced significantly above or below market value\n\nCurrent fraud detection rate: **98.7%**'
+    return 'CarUp uses multiple layers of fraud detection:\n\n- **VIN Verification**: Cross-referenced with manufacturer databases\n- **Document Authenticity**: AI-powered forgery detection on logbooks and certificates\n- **Ownership Chain**: Audit-ledger-verified ownership history\n- **PartSentry**: Tracks part replacements to detect accident concealment\n- **Price Analysis**: Flags listings priced significantly above or below market value\n\nCurrent fraud detection rate: **98.7%**'
   }
   if (lower.includes('partsentry') || lower.includes('part')) {
-    return 'PartSentry is CarUp\'s blockchain-backed parts tracking system. Every part replacement is recorded with:\n- What changed, who changed it, when and why\n- Mechanic and supplier information\n- Warranty data and part origin\- Before/after service records\n\nThis creates an immutable record that increases resale value, prevents fraud, and helps insurance claims.'
+    return 'PartSentry is CarUp\'s audit-ledger-backed parts tracking system. Every part replacement is recorded with:\n- What changed, who changed it, when and why\n- Mechanic and supplier information\n- Warranty data and part origin\- Before/after service records\n\nThis creates an immutable record that increases resale value, prevents fraud, and helps insurance claims.'
   }
   return 'That\'s a great question! I can help with that. To give you the most accurate answer, could you provide a few more details? Alternatively, I can connect you with a specialist or search our knowledge base for more information.'
 }

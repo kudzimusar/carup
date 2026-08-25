@@ -15,7 +15,38 @@ export interface User extends SharedAuthUser {
 
 export interface Vehicle extends Omit<SharedVehicle, 'status'> {
   id?: string;
+  /**
+   * Governed per-VIN counts from `/api/vehicles/me` — Issue #164 Phase 8, Cluster D.
+   *
+   * `null` on any member means that count was NOT read, and the surface must say so in words. My
+   * Garage previously read `documents` / `service_records` / `parts` / `insurance_records` straight
+   * off the row; none of those columns exists on `vehicles`, so `|| 0` published four unmeasured
+   * zeros per vehicle.
+   */
+  counts?: {
+    verified_documents: number | null;
+    services: number | null;
+    parts: number | null;
+    active_insurance: number | null;
+  } | null;
+  /**
+   * The canonical listing-media block, as published by `toListingMediaBlock`. Owner list surfaces
+   * read THIS, never a `image_url` column — `vehicles` has no such column, so reading it rendered
+   * the "Image unavailable" placeholder over vehicles with published photographs. Read it through
+   * `primaryListingImageUrl` (web/src/lib/listingMedia.ts) so every surface picks the same photo.
+   */
+  listing_media?: {
+    state: 'published' | 'none' | 'not_loaded';
+    items: Array<{ media_id: string; url: string; url_form: string; position: number; is_primary: boolean }>;
+    unpublishable_count: number;
+    empty_statement: string | null;
+  } | null;
   location?: string;
+  /**
+   * Why `location` is or is not there. Carried through from the marketplace summary so a card can
+   * state a governed absence in the shared vocabulary instead of inventing its own words.
+   */
+  location_state?: 'recorded' | 'not_recorded' | 'withheld' | 'not_applicable';
   image_url?: string;
   images?: string[];
   publication_status?: string;
@@ -90,7 +121,15 @@ export type {
   MarketplaceTrustSummary,
   MarketplaceVerificationSummary,
   MarketplacePricingSummary,
+  // The canonical media contract (Issue #164 Phase 5). `MarketplaceMedia` is no longer
+  // `{url, type, is_primary?}`: it extends the listing-media item, so it carries `media_id`,
+  // `url_form` and `position` exactly as the service publishes them.
+  MarketplaceMediaUrlForm,
+  MarketplaceMediaBlockState,
+  MarketplaceListingMediaItem,
+  MarketplaceListingMediaBlock,
   MarketplaceMedia,
+  MarketplacePrimaryImageState,
   MarketplaceSellerSummary,
   MarketplaceListingDetail,
   MarketplaceTransactionIntent,
@@ -1601,7 +1640,17 @@ export interface TrustDecision {
   vin: string;
   calculation_version: string;
   last_updated: string | null;
-  overall_trust: { status: string; value: string | number | null };
+  /**
+   * OPTIONAL, and never a trust claim on a public surface (Issue #164 Phase 3).
+   *
+   * The buyer-safe projection (`toPublicDecision`) carries NO `overall_trust`: the single public
+   * statement of a trust position is the canonical `trust` projection served alongside this object.
+   * Only the PRIVILEGED responses — /api/vehicles/:vin/trust-decision for admin/government/reviewer/
+   * owner/dealer, and /trust-decision/full — return the raw decision, which still carries it. Typing
+   * it as required was a lie about what a buyer actually receives, and reading it to render a score
+   * is what put "50 · moderate" beside "Not evaluated" on one listing.
+   */
+  overall_trust?: { status: string; value: string | number | null };
   dimensions: Record<string, TrustDimension>;
   known_limitations: string[];
 }
@@ -1936,8 +1985,11 @@ export interface VehiclePlateHistory {
 }
 
 export interface OwnershipSummary {
-  currentSellerDisplayName?: string;
-  currentSellerType?: string;
+  /** null means either withheld or unrecorded — disambiguate with currentSellerRecorded. */
+  currentSellerDisplayName?: string | null;
+  currentSellerType?: string | null;
+  /** A seller IS on file. With a null display name this means withheld, not absent. */
+  currentSellerRecorded?: boolean;
   previousOwnerCount: number;
   previousOwnersPublicLabel: string;
   ownerNamesRedacted: boolean;
@@ -1945,8 +1997,33 @@ export interface OwnershipSummary {
 }
 
 // 17. VehiclePassport (fully typed, no any)
+/**
+ * A governed claim leaf: the value, whether it is really recorded, and where it came from.
+ * `state` is the discriminator — a consumer that reads `value` without it is publishing an
+ * unattributed fact, which is the whole class of defect Issue #164 removes.
+ */
+export interface ClaimLeaf {
+  value?: string | number | boolean | null;
+  state?: 'recorded' | 'not_recorded' | 'withheld' | 'not_applicable';
+  source?: string | null;
+}
+
+/**
+ * The passport's sealed claim blocks. Location lives HERE and deliberately nowhere else: it is not a
+ * column on the vehicle projection, so `vehicle.location` is `undefined` for every caller. Vehicle
+ * Detail read that phantom column and rendered "Location not recorded" for a vehicle whose own
+ * passport carried Bulawayo / Bulawayo Metropolitan / Zimbabwe with `operator_recorded` provenance.
+ */
+export interface VehiclePassportClaims {
+  location?: { city?: ClaimLeaf; province?: ClaimLeaf; country?: ClaimLeaf };
+  registration?: { country?: ClaimLeaf; authority?: ClaimLeaf };
+  [block: string]: unknown;
+}
+
 export interface VehiclePassport {
   vehicle: Vehicle;
+  /** Sealed governed claims. Read these, never a same-named column on `vehicle`. */
+  claims?: VehiclePassportClaims;
   timeline: TimelineEvent[];
   evidenceTimeline?: TimelineEvent[];
   evidenceVault?: VehicleEvidence[];
@@ -1954,6 +2031,8 @@ export interface VehiclePassport {
   chainVerification: ChainVerification;
   identity: VehicleIdentity;
   plateHistory: VehiclePlateHistory[];
+  /** Rows were withheld from this audience, so an empty list is not an empty history. */
+  plateHistoryRedacted?: boolean;
   ownershipSummary: OwnershipSummary;
 }
 

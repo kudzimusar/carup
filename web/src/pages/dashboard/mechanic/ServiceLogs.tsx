@@ -114,7 +114,7 @@ export default function ServiceLogs() {
             <form onSubmit={handleSubmit} className="space-y-4 mt-4">
               <div className="bg-blue-50 text-blue-800 text-xs p-3 rounded-md flex items-start gap-2">
                 <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
-                <p>Logs submitted here are cryptographically signed and permanently stored on the PartSentry blockchain. This cannot be undone.</p>
+                <p>Logs submitted here are cryptographically signed and permanently recorded on the PartSentry audit ledger. This cannot be undone.</p>
               </div>
               <div className="grid grid-cols-2 gap-4">
                 <div className="space-y-2">

@@ -29,11 +29,12 @@ function reset() {
   };
 }
 function builder(table) {
-  const st = { table, op: 'select', filters: {}, single: false, maybe: false, order: null, payload: null };
+  const st = { table, op: 'select', filters: {}, inFilter: null, single: false, maybe: false, order: null, payload: null };
   const chain = {
     select() { return chain; }, insert(p) { st.op = 'insert'; st.payload = p; return chain; },
     update(p) { st.op = 'update'; st.payload = p; return chain; },
     eq(k, v) { st.filters[k] = v; return chain; },
+    in(k, v) { st.inFilter = { key: k, vals: Array.isArray(v) ? v : [v] }; return chain; },
     order(c, o) { st.order = { col: c, asc: o?.ascending ?? false }; return chain; },
     single() { st.single = true; return chain; }, maybeSingle() { st.maybe = true; return chain; },
     then(res, rej) { try { return Promise.resolve(run(st)).then(res, rej); } catch (e) { return rej ? rej(e) : Promise.reject(e); } },
@@ -50,6 +51,7 @@ function run(st) {
   }
   if (st.op === 'update') { let u = null; for (const r of rows) if (Object.entries(st.filters).every(([k, v]) => r[k] === v)) { Object.assign(r, st.payload); u = r; } return ok(st.single ? u : (u ? [u] : [])); }
   let out = rows.filter((r) => Object.entries(st.filters).every(([k, v]) => r[k] === v));
+  if (st.inFilter) out = out.filter((r) => st.inFilter.vals.includes(r[st.inFilter.key]));
   if (st.table === 'source_verification_coverage_public') out = [];
   if (st.order) out = out.slice().sort((a, b) => (st.order.asc ? 1 : -1) * ((a[st.order.col] > b[st.order.col]) ? 1 : -1));
   if (st.maybe) return ok(out[0] || null);

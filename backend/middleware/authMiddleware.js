@@ -1,5 +1,13 @@
 import { supabase } from '../db/supabase.js';
 
+/**
+ * The value `authenticationMethod` carries when an identity was ASSERTED by a header rather than
+ * proven by a session. Exported so a consumer gating a private capability compares against this
+ * constant instead of re-spelling the literal — a literal that has to agree across two files is a
+ * typo away from silently disabling the gate.
+ */
+export const FALLBACK_AUTH_METHOD = 'x-user-id-fallback';
+
 const PLATFORM_ADMIN_ROLES = new Set(['admin', 'platform_admin', 'super_admin']);
 
 function normalizeRole(role) {
@@ -76,7 +84,7 @@ export function resolveEffectiveRole({ userRole, tenantRole = null, requestedRol
   throw error;
 }
 
-export function authorizeRole(allowedRoles = []) {
+export function authorizeRole(allowedRoles = [], { allowUserIdFallback = true } = {}) {
   return async (req, res, next) => {
     const sessionToken = req.headers['x-session-token'] || req.headers['authorization']?.replace('Bearer ', '');
     const tenantIdHeader = req.headers['x-tenant-id'];
@@ -100,9 +108,15 @@ export function authorizeRole(allowedRoles = []) {
         activeUserId = session.user_id;
       }
 
+      // Distinguishes a PROVEN identity from an ASSERTED one. `requireProvenIdentity` refuses the
+      // latter, so this literal is load-bearing: without it that gate reads like a guard and is a
+      // no-op — which is exactly how a private-document capability stayed reachable once already.
       let authenticationMethod = activeUserId ? 'session' : null;
 
       if (!activeUserId && fallbackUserId) {
+        if (!allowUserIdFallback) {
+          return res.status(401).json({ error: 'Unauthorized. This action requires an authenticated session.' });
+        }
         if (!isUserIdFallbackAllowed()) {
           return res.status(401).json({ error: 'Unauthorized. x-user-id fallback is unavailable outside local/test mode.' });
         }
@@ -183,6 +197,15 @@ export function authorizeRole(allowedRoles = []) {
 }
 
 /**
+ * Consequential governance actions must always be backed by a validated CarUp session. This wrapper
+ * deliberately ignores the local/test x-user-id fallback even when that fallback remains available
+ * to ordinary development/test routes.
+ */
+export function authorizeSessionRole(allowedRoles = []) {
+  return authorizeRole(allowedRoles, { allowUserIdFallback: false });
+}
+
+/**
  * Optional authentication. Resolves req.userContext when a valid session (or dev x-user-id fallback)
  * is present, otherwise continues as an anonymous guest WITHOUT failing the request. Use for public
  * endpoints that personalize when signed in (e.g. marketplace inquiry attribution, listing-view events).
@@ -194,6 +217,7 @@ export function optionalAuth() {
     const fallbackUserId = req.headers['x-user-id'];
     try {
       let activeUserId = null;
+      let fallbackDerived = false;
       if (sessionToken) {
         const { data: session } = await supabase
           .from('user_sessions')
@@ -206,6 +230,11 @@ export function optionalAuth() {
       }
       if (!activeUserId && fallbackUserId && isUserIdFallbackAllowed()) {
         activeUserId = fallbackUserId;
+        // HOW the identity was established, not merely THAT it was. Consumers that gate a private
+        // capability require a PROVEN one: tightening this middleware's own policy instead would
+        // change every route that merely needs to know who is calling, which is not the same
+        // decision. See buildVehiclePassport, which refuses a fallback identity for its private half.
+        fallbackDerived = true;
       }
       if (activeUserId) {
         const { data: user } = await supabase.from('users').select('role, is_verified').eq('id', activeUserId).single();
@@ -217,6 +246,12 @@ export function optionalAuth() {
           platformRole,
           tenantId: req.headers['x-tenant-id'] || null,
           isVerified: Boolean(user?.is_verified),
+          authenticationMethod: fallbackDerived ? FALLBACK_AUTH_METHOD : 'session',
+          // A single boolean a consumer can gate on WITHOUT re-spelling the marker. The passport
+          // builder is asserted to read no request header, and the marker's own value contains a
+          // header name — so a consumer comparing against it would trip that guard while doing
+          // nothing wrong. `true` only when the identity was ASSERTED rather than proven.
+          identityAsserted: fallbackDerived,
         };
       }
     } catch {

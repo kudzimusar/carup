@@ -1,6 +1,7 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { Button } from '@/components/ui/button'
+import { summaryLocationLine } from '@/lib/governedLocation'
 import { Badge } from '@/components/ui/badge'
 import { Card, CardContent } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
@@ -20,8 +21,10 @@ import {
   Tag,
   UserRoundCheck,
 } from 'lucide-react'
-import { vehicles } from '@/data/mockData'
 import { useAuth } from '@/context/AuthContext'
+import { useCarUpApi } from '@/hooks/useCarUpApi'
+import { ListingImage } from '@/components/marketplace/ListingImage'
+import type { MarketplaceListingSummary } from '@/types'
 
 const popularSearches = [
   'Brand New',
@@ -29,9 +32,10 @@ const popularSearches = [
   'Fresh Imports',
   'Locally Used',
   'Second Hand',
-  'Duty Cleared',
-  'ZIMRA Verified',
-  'CID Clear',
+  // 'Duty Cleared', 'ZIMRA Verified' and 'CID Clear' were removed here. They are
+  // GOVERNMENT_APPROVAL_FACTS with no legitimate writer anywhere in the platform, so the tags they
+  // filter on are now suppressed server-side — these chips would return zero results while still
+  // advertising a capability CarUp cannot substantiate.
   'Low Mileage',
   'Toyota Hilux',
   'Honda Fit',
@@ -79,12 +83,22 @@ const howItWorks = [
   },
 ]
 
-function formatUsd(price: number) {
-  return `$${price.toLocaleString()}`
+// A price shows only when the amount AND a real currency are both recorded — no fabricated USD.
+function governedPrice(price: unknown, currency: unknown): string | null {
+  const amount = typeof price === 'number' && Number.isFinite(price) ? price : null
+  const ccy = typeof currency === 'string' && currency.trim() ? currency.trim() : null
+  if (amount === null || ccy === null) return null
+  return `${ccy} ${amount.toLocaleString()}`
 }
 
 function vehiclePassportPath(vin: string) {
   return `/marketplace/${encodeURIComponent(vin)}`
+}
+
+// Governed marketplace tags are the honest per-vehicle signals (e.g. 'zimra_verified'); humanise the
+// snake_case token for display, exactly as the Marketplace card does. These are NOT a trust score.
+function humanizeTag(tag: string): string {
+  return tag.split('_').map(part => part.charAt(0).toUpperCase() + part.slice(1)).join(' ')
 }
 
 export default function Landing() {
@@ -96,16 +110,37 @@ export default function Landing() {
   const [verifyBeforeBuyQuery, setVerifyBeforeBuyQuery] = useState('')
   const [sellSectionQuery, setSellSectionQuery] = useState('')
 
-  const featuredVehicles = useMemo(
-    () => vehicles.filter(vehicle => vehicle.isFeatured && vehicle.isVerified).slice(0, 6),
-    []
-  )
+  // Featured cars are the LIVE canonical published listings — never the old mock inventory with its
+  // fabricated `isFeatured`/`isVerified`/`trustScore` fields. Same VIN, same governed facts as the
+  // Marketplace (Invariant 13), because this reads the same /marketplace/listings contract.
+  const { fetchMarketplaceListings } = useCarUpApi()
+  const [featuredVehicles, setFeaturedVehicles] = useState<MarketplaceListingSummary[]>([])
+  // "Still loading" and "the read failed" are NOT "the marketplace is empty". Collapsing all three into
+  // an empty array made the page assert there are no published listings when it simply did not know.
+  const [featuredState, setFeaturedState] = useState<'loading' | 'ready' | 'unavailable'>('loading')
+  useEffect(() => {
+    let cancelled = false
+    fetchMarketplaceListings({ limit: 6, sort: 'newest' })
+      .then(res => {
+        if (cancelled) return
+        setFeaturedVehicles(Array.isArray(res?.listings) ? res.listings : [])
+        setFeaturedState('ready')
+      })
+      .catch(() => {
+        if (cancelled) return
+        setFeaturedVehicles([])
+        setFeaturedState('unavailable')
+      })
+    return () => { cancelled = true }
+  }, [fetchMarketplaceListings])
 
-  const heroVehicle = featuredVehicles[0] || vehicles[0]
+  const heroVehicle = featuredVehicles[0] ?? null
 
   const submitBuy = (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault()
-    navigate(buyQuery.trim() ? '/search' : '/marketplace')
+    // Forward the actual query to the Marketplace's `q` contract instead of discarding it.
+    const q = buyQuery.trim()
+    navigate(q ? `/marketplace?q=${encodeURIComponent(q)}` : '/marketplace')
   }
 
   const openPassport = (identifier: string) => {
@@ -289,36 +324,28 @@ export default function Landing() {
           {heroVehicle && (
             <Card className="self-start overflow-hidden border-white/15 bg-white text-gray-950 shadow-2xl" data-testid="featured-verified-car">
               <div className="relative aspect-[16/10] overflow-hidden bg-gray-100">
-                <img
-                  src={heroVehicle.images[0]}
-                  alt={`${heroVehicle.year} ${heroVehicle.make} ${heroVehicle.model}`}
-                  className="h-full w-full object-cover"
+                <ListingImage
+                  src={heroVehicle.primary_image_url}
+                  alt={[heroVehicle.year, heroVehicle.make, heroVehicle.model].filter(Boolean).join(' ') || 'Vehicle'}
+                  className="h-full w-full"
                 />
                 <div className="absolute left-3 top-3 flex flex-wrap gap-2">
-                  {heroVehicle.isVerified && (
-                    <Badge className="bg-green-600 text-white">
-                      <CheckCircle className="mr-1 h-3 w-3" />
-                      Verified
-                    </Badge>
-                  )}
-                  {heroVehicle.plate_number && (
-                    <Badge className="bg-blue-600 text-white">Plate on file</Badge>
-                  )}
+                  {(heroVehicle.marketplace_tags ?? []).slice(0, 2).map(tag => (
+                    <Badge key={tag} className="bg-gray-950/80 text-white">{humanizeTag(tag)}</Badge>
+                  ))}
                 </div>
               </div>
               <CardContent className="p-5">
-                <div className="flex items-start justify-between gap-3">
-                  <div>
-                    <p className="text-sm text-gray-500">{heroVehicle.location}</p>
-                    <h2 className="mt-1 text-xl font-bold">
-                      {heroVehicle.year} {heroVehicle.make} {heroVehicle.model}
-                    </h2>
-                  </div>
-                  <Badge variant="secondary" className="shrink-0">
-                    Trust {heroVehicle.trustScore}
-                  </Badge>
-                </div>
-                <p className="mt-3 text-2xl font-bold text-orange-600">{formatUsd(heroVehicle.price)}</p>
+                {/* Trust is shown on the vehicle Passport — never as a headline number on a card. */}
+                <p className="text-sm text-gray-500" data-testid="hero-location">
+                  {summaryLocationLine(heroVehicle.location, heroVehicle.location_state).label}
+                </p>
+                <h2 className="mt-1 text-xl font-bold">
+                  {[heroVehicle.year, heroVehicle.make, heroVehicle.model].filter(Boolean).join(' ') || 'Vehicle'}
+                </h2>
+                {governedPrice(heroVehicle.price, heroVehicle.currency) && (
+                  <p className="mt-3 text-2xl font-bold text-orange-600">{governedPrice(heroVehicle.price, heroVehicle.currency)}</p>
+                )}
                 <Button asChild className="mt-5 w-full bg-gray-950 text-white hover:bg-gray-800" data-testid="featured-view-passport">
                   <Link to={vehiclePassportPath(heroVehicle.vin)}>
                     View Passport <ArrowRight className="ml-2 h-4 w-4" />
@@ -349,10 +376,11 @@ export default function Landing() {
         <div className="section-padding mx-auto max-w-[1440px]">
           <div className="flex flex-col justify-between gap-4 md:flex-row md:items-end">
             <div>
-              <Badge className="mb-3 bg-blue-100 text-blue-700 hover:bg-blue-100">Featured Verified Cars</Badge>
-              <h2 className="text-3xl font-bold">Shop cars with visible trust signals</h2>
+              <Badge className="mb-3 bg-blue-100 text-blue-700 hover:bg-blue-100">Featured Listings</Badge>
+              <h2 className="text-3xl font-bold">Shop cars with governed trust signals</h2>
               <p className="mt-2 max-w-2xl text-gray-600">
-                Phase 1 uses existing local vehicle data and shows only supported listing labels.
+                Live published listings. Each vehicle shows only the governed signals it has earned —
+                open its Passport for the full, versioned trust assessment.
               </p>
             </div>
             <Button variant="outline" asChild>
@@ -362,50 +390,53 @@ export default function Landing() {
             </Button>
           </div>
 
+          {featuredState === 'loading' && (
+            <p className="mt-8 text-gray-500" data-testid="featured-loading">Loading featured listings…</p>
+          )}
+          {featuredState === 'unavailable' && (
+            <p className="mt-8 text-amber-700" data-testid="featured-unavailable">
+              Featured listings are unavailable right now. This is a loading failure, not an empty marketplace.
+            </p>
+          )}
+          {featuredState === 'ready' && featuredVehicles.length === 0 && (
+            <p className="mt-8 text-gray-500" data-testid="featured-empty">No published listings to feature yet.</p>
+          )}
           <div className="mt-8 grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
-            {featuredVehicles.map(vehicle => (
+            {featuredVehicles.map(vehicle => {
+              const price = governedPrice(vehicle.price, vehicle.currency)
+              return (
               <Card key={vehicle.vin} className="overflow-hidden border-0 bg-white shadow-md transition-shadow hover:shadow-lg" data-testid="featured-verified-car">
                 <div className="relative aspect-[16/10] overflow-hidden bg-gray-100">
-                  <img
-                    src={vehicle.images[0]}
-                    alt={`${vehicle.year} ${vehicle.make} ${vehicle.model}`}
-                    className="h-full w-full object-cover transition-transform duration-500 hover:scale-105"
+                  <ListingImage
+                    src={vehicle.primary_image_url}
+                    alt={[vehicle.year, vehicle.make, vehicle.model].filter(Boolean).join(' ') || 'Vehicle'}
+                    className="h-full w-full"
                   />
                   <div className="absolute left-3 top-3 flex flex-wrap gap-2">
-                    {vehicle.isVerified && (
-                      <Badge className="bg-green-600 text-white">
-                        <CheckCircle className="mr-1 h-3 w-3" />
-                        Verified
-                      </Badge>
-                    )}
-                    {vehicle.plate_number && (
-                      <Badge className="bg-blue-600 text-white">Plate on file</Badge>
-                    )}
-                    {vehicle.sellerType === 'Dealer' && (
-                      <Badge className="bg-gray-950 text-white">Dealer</Badge>
-                    )}
+                    {/* Governed per-vehicle signals only — no fabricated green "Verified" badge and no
+                        trust number. The full assessment lives on the Passport. */}
+                    {(vehicle.marketplace_tags ?? []).slice(0, 2).map(tag => (
+                      <Badge key={tag} className="bg-gray-950/80 text-white">{humanizeTag(tag)}</Badge>
+                    ))}
                   </div>
                 </div>
                 <CardContent className="p-5">
-                  <div className="flex items-start justify-between gap-3">
-                    <div>
-                      <h3 className="font-semibold">
-                        {vehicle.year} {vehicle.make} {vehicle.model}
-                      </h3>
-                      <p className="mt-1 flex items-center gap-1 text-sm text-gray-500">
-                        <MapPin className="h-3.5 w-3.5" />
-                        {vehicle.location}
-                      </p>
-                    </div>
-                    <Badge variant="secondary" className="shrink-0">
-                      Trust {vehicle.trustScore}
-                    </Badge>
-                  </div>
-                  <p className="mt-3 text-xl font-bold text-orange-600">{formatUsd(vehicle.price)}</p>
-                  <div className="mt-4 grid grid-cols-3 gap-2 text-xs text-gray-500">
-                    <span>{vehicle.mileage.toLocaleString()} km</span>
-                    <span>{vehicle.transmission}</span>
-                    <span>{vehicle.fuelType}</span>
+                  <h3 className="font-semibold">
+                    {[vehicle.year, vehicle.make, vehicle.model].filter(Boolean).join(' ') || 'Vehicle'}
+                  </h3>
+                  {/* Stated, never suppressed. Hiding the row made an absent location silent, and
+                      silence is the one rendering that lets absence read as proof. */}
+                  <p className="mt-1 flex items-center gap-1 text-sm text-gray-500">
+                    <MapPin className="h-3.5 w-3.5" />
+                    <span data-testid="listing-location">
+                      {summaryLocationLine(vehicle.location, vehicle.location_state).label}
+                    </span>
+                  </p>
+                  {price && <p className="mt-3 text-xl font-bold text-orange-600">{price}</p>}
+                  <div className="mt-4 flex flex-wrap gap-2 text-xs text-gray-500">
+                    {Number.isFinite(vehicle.mileage as number) && <span>{(vehicle.mileage as number).toLocaleString()} km</span>}
+                    {vehicle.transmission && <span>{vehicle.transmission}</span>}
+                    {vehicle.fuel_type && <span>{vehicle.fuel_type}</span>}
                   </div>
                   <Button asChild className="mt-5 w-full bg-gray-950 text-white hover:bg-gray-800" data-testid="featured-view-passport">
                     <Link to={vehiclePassportPath(vehicle.vin)}>
@@ -414,7 +445,7 @@ export default function Landing() {
                   </Button>
                 </CardContent>
               </Card>
-            ))}
+            )})}
           </div>
         </div>
       </section>
@@ -473,7 +504,7 @@ export default function Landing() {
               <h2 className="text-2xl font-bold md:text-3xl">Start with what buyers ask for most</h2>
             </div>
             <p className="max-w-lg text-sm text-gray-600">
-              These are Phase 1 quick-entry labels. Backend category filters come later.
+              Quick-search shortcuts — each opens the Marketplace with that term applied.
             </p>
           </div>
           <div className="mt-6 flex flex-wrap gap-2">
@@ -481,7 +512,7 @@ export default function Landing() {
               <button
                 key={chip}
                 type="button"
-                onClick={() => navigate('/marketplace')}
+                onClick={() => navigate(`/marketplace?q=${encodeURIComponent(chip)}`)}
                 className="rounded-full border border-gray-200 bg-white px-3 py-2 text-sm font-medium text-gray-700 shadow-sm hover:border-orange-300 hover:bg-orange-50 hover:text-orange-700"
                 data-testid="popular-search-chip"
               >

@@ -69,7 +69,8 @@ function run(st) {
 }
 function install() { reset(); supabase.from = (t) => builder(t); }
 
-const OK_CTX = { identity_status: 'complete', fraud_block: false, publication_status: 'publishable', source_coverage_connected: 1, min_source_coverage: 0 };
+// Phase 6 fails closed on unknown gates: an omitted dealer_suspended is 'unknown', not 'clear'.
+const OK_CTX = { identity_status: 'complete', fraud_block: false, publication_status: 'publishable', dealer_suspended: false, source_coverage_connected: 1, min_source_coverage: 1 };
 
 // Register a callable sandbox finance lender + return the loaded registry row.
 async function registerLender() {

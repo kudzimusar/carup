@@ -8,11 +8,24 @@ import { supabase } from './db/supabase.js';
 
 // Import Middleware
 import { authorizeRole, optionalAuth, isPrivateEvidenceFallbackAllowed } from './middleware/authMiddleware.js';
-import { toPublicEvidenceRow, toPublicTimelineEventRow } from './utils/publicEvidenceProjection.js';
 import { evaluateLoginCredentials, hashPassword } from './utils/passwordAuth.js';
 
 // Import Services
-import { getVehicleTimeline, runOdometerAudit, computeVehicleTrustScore, calculateVehicleTrustScore } from './services/trustGraph/trustGraphService.js';
+// trustGraphService is the DEPRECATED 70-baseline engine. Only its non-score signal collection is
+// used from here (see buildVehiclePassport); its score is never published, and
+// `calculateVehicleTrustScore` — the writer that stamps vehicles.trust_score with no calculation
+// version — is deliberately NOT imported, so this file cannot reach it.
+import { getVehicleTimeline, runOdometerAudit, computeVehicleTrustScore } from './services/trustGraph/trustGraphService.js';
+// The canonical trust authority (ADR-001, Issue #164 Phase 3): the ONE place any surface asks what
+// CarUp's trust position on a VIN is. Every trust number this file publishes comes from here.
+import {
+  RECOMPUTE,
+  TRUST_EVALUATION_STATES,
+  getCanonicalTrust,
+  getCanonicalTrustBatch,
+  publicTrustViolations,
+  toPublicTrust,
+} from './services/trustDecision/canonicalTrustService.js';
 import { verifyChain, addEvent } from './services/blockchain/blockchainService.js';
 import { createEscrow, updateEscrowStatus } from './services/safepay/escrowService.js';
 import { addRepairLog, getRepairHistory } from './services/partsentry/partsentryService.js';
@@ -102,6 +115,26 @@ import navigationAnalyticsRouter from './routes/navigationAnalyticsRoutes.js';
 import identityVerificationAdminRouter from './routes/identityVerificationAdminRoutes.js';
 import partsentryReviewRouter from './routes/partsentryReviewRoutes.js';
 import { normalizeVehicleStatus, publicVehicleStatusFilterValues, publiclyVisiblePublicationStatuses, isPublicVehicleStatus, isPubliclyVisiblePublication, PUBLIC_VEHICLE_COLUMNS } from './utils/vehicleStatus.js';
+import { attestedValue, CLAIM_VISIBILITY, LISTING_CLAIM_COLUMNS, PUBLIC_VEHICLE_SELECT, projectVehicle, toListingClaims, toPublicEvidence, toPublicPlateHistory, toPublicTimelineEvent } from './utils/publicVehicleProjection.js';
+// The canonical vehicle media contract (Issue #164 §10). Imported at MODULE scope and handed to
+// buildVehiclePassport as a PARAMETER — never referenced as a free name inside that function, for
+// the reason the function's own header gives: two harnesses execute its source against a fixed
+// 11-name dependency list, and a twelfth free name is a ReferenceError there rather than a failure
+// that says what changed.
+// `isPublishableMediaUrl` is imported alongside the projector so the WRITE path gates on the SAME
+// definition of publishable that the read path projects. A second copy of that rule living in the
+// handler is how the two drift, and a URL the reader refuses forever is one the writer should never
+// have accepted. See the listing-media block of POST /api/vehicles/add.
+import { toVehicleMedia, isPublishableMediaUrl, toListingMediaBlock } from './utils/vehicleMediaProjection.js';
+import {
+  LOOKUP_KINDS,
+  LOOKUP_DECISIONS,
+  NON_ENUMERABLE_LOOKUP_RESPONSE,
+  classifyLookupIdentifier,
+  resolveLookupAccess,
+  resolveSellerLookupOptIn,
+  lookupColumnsForKind,
+} from './utils/passportLookupPolicy.js';
 import { buildVehicleListingCandidate, getListingEligibility } from './services/marketplace/marketplaceListingEligibility.js';
 import { registerCommunicationListeners } from './services/communication/communicationEventListeners.js';
 import { evaluateCompleteness } from './services/evidence/completenessEvaluator.js';
@@ -434,18 +467,203 @@ app.get('/api/vehicles/:vin/details', async (req, res) => {
   try {
     const { data: vehicle, error } = await supabase
       .from('vehicles')
-      .select(`${PUBLIC_VEHICLE_COLUMNS}, tenant:tenants(name, type, status)`)
+      .select(`${PUBLIC_VEHICLE_SELECT}, tenant:tenants(name, type, status)`)
       .eq('vin', vin)
       .single();
     if (error) throw error;
     if (!isPublicVehicleStatus(vehicle.status) || !isPubliclyVisiblePublication(vehicle.publication_status)) {
       return res.status(404).json({ error: 'Vehicle not found' });
     }
-    res.json(vehicle);
+    // The public projection no longer fetches the stored trust_score (an unversioned cache): the
+    // canonical projection is attached here instead, so this endpoint cannot be the one that still
+    // hands a shopper the 84.
+    const [projected] = await withCanonicalTrust([vehicle]);
+    res.json(projected);
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
 });
+
+/**
+ * Publish a canonical trust record through the ONE public contract, guarded.
+ *
+ * `publicTrustViolations` is the shared checker the canonical service and its guard suite use, so
+ * this route cannot drift from the contract it claims to serve. A shape that fails it is NOT
+ * shipped half-published: the surface reports `unavailable` and says so, because a malformed trust
+ * projection is a fault in us, never a finding about the vehicle.
+ */
+function publishCanonicalTrust(vin, record, context) {
+  const shape = toPublicTrust(record);
+  const violations = publicTrustViolations(shape);
+  if (violations.length === 0) return shape;
+  console.error(`Canonical trust contract violated in ${context} for ${vin}: ${violations.join(', ')}`);
+  return toPublicTrust({
+    vin: vin || '',
+    evaluation_state: TRUST_EVALUATION_STATES.UNAVAILABLE,
+    known_limitations: [
+      'The canonical trust projection failed its own contract check, so no trust score is published for this vehicle.',
+    ],
+  });
+}
+
+/**
+ * The canonical trust projection for a page of vehicles, keyed by VIN. ONE cache-only query, zero
+ * recomputes, and an entry for EVERY requested VIN — so no branch below is left with a gap it might
+ * fill from the row's own `trust_score` column.
+ */
+async function canonicalTrustForVins(vins) {
+  const wanted = [...new Set((vins || []).filter(Boolean))];
+  const out = new Map();
+  if (!wanted.length) return out;
+  const records = await getCanonicalTrustBatch(wanted, { client: supabase });
+  for (const [vin, record] of records) out.set(vin, publishCanonicalTrust(vin, record, 'vehicle list'));
+  return out;
+}
+
+/**
+ * Replace the stored `trust_score` on every vehicle row leaving this file with the canonical
+ * projection, and attach that projection as `trust`.
+ *
+ * THE RULE THIS ENCODES: a vehicle-ROW read publishes the canonical cache state (cache-only — a
+ * page of rows must never trigger a page of recomputes). EVERY public surface is cache-only,
+ * including the passport: a surface that recomputed on read would publish a number the list cannot
+ * publish for the same VIN at the same instant, and the recomputing surface is the
+ * authoritative-looking one, so that disagreement is the more damaging of the two. The
+ * materialized position IS the public position; refreshCanonicalTrust is what makes it current.
+ * What can no longer happen is a row publishing an unversioned 84 nobody can attribute.
+ */
+async function withCanonicalTrust(vehicles) {
+  const rows = (vehicles || []).filter(Boolean);
+  const trustByVin = await canonicalTrustForVins(rows.map((vehicle) => vehicle.vin));
+  return rows.map((vehicle) => {
+    const trust = trustByVin.get(vehicle.vin) || null;
+    return { ...vehicle, trust_score: trust?.score ?? null, trust };
+  });
+}
+
+/**
+ * Governed per-VIN counts for the owner's garage — Issue #164 Phase 8, Cluster D.
+ *
+ * ## Why this exists
+ *
+ * My Garage rendered `{vehicle.documents?.length || 0} docs`, and the same shape for services, parts
+ * and active insurance. NONE of those keys exists: `/api/vehicles/me` is `select('*')` on `vehicles`,
+ * and the table has no `documents`, `service_records`, `parts` or `insurance_records` column
+ * (measured on canonical staging). So every `?.` short-circuited and `|| 0` published an unmeasured
+ * zero as a fact. Golden A showed "0 docs" against four verified documents and "0 parts" against a
+ * real PartSentry log.
+ *
+ * A count that was never read is not zero. Every entry here is either a real number from a real
+ * query or `null`, and `null` renders as words, never as a digit.
+ *
+ * The four sources are deliberately distinct. Parts come from `partsentry_logs` and services from
+ * `mechanic_work_orders`: the per-VIN page derived BOTH from the same timeline filter, so Golden A's
+ * single part log was published as "1 service AND 1 part" — one row counted twice.
+ */
+async function ownerGarageCounts(vins) {
+  const wanted = [...new Set((vins || []).filter(Boolean))];
+  const empty = { verified_documents: null, services: null, parts: null, active_insurance: null };
+  if (wanted.length === 0) return new Map();
+
+  // Each read is independent: one failing source must not blank the other three, and must not turn
+  // into a zero for its own.
+  const tally = async (table, columns, filter) => {
+    try {
+      let query = supabase.from(table).select(columns).in('vin', wanted);
+      if (filter) query = filter(query);
+      const { data, error } = await query;
+      if (error) return null;
+      const counts = new Map(wanted.map((vin) => [vin, 0]));
+      for (const row of data || []) counts.set(row.vin, (counts.get(row.vin) || 0) + 1);
+      return counts;
+    } catch {
+      return null;
+    }
+  };
+
+  const [documents, services, parts, insurance] = await Promise.all([
+    tally('vehicle_evidence', 'vin', (q) => q.in('verification_status', ['verified', 'confirmed', 'approved'])),
+    tally('mechanic_work_orders', 'vin'),
+    tally('partsentry_logs', 'vin'),
+    tally('insurance_records', 'vin', (q) => q.eq('active', true)),
+  ]);
+
+  return new Map(wanted.map((vin) => [vin, {
+    ...empty,
+    verified_documents: documents ? documents.get(vin) ?? 0 : null,
+    services: services ? services.get(vin) ?? 0 : null,
+    parts: parts ? parts.get(vin) ?? 0 : null,
+    active_insurance: insurance ? insurance.get(vin) ?? 0 : null,
+  }]));
+}
+
+/**
+ * Governed listing media for the owner's own vehicles — Issue #164 Phase 8, Run 4 (D5).
+ *
+ * ## Why this exists
+ *
+ * `/api/vehicles/me` is `select('*')` on `vehicles`, and `vehicles` HAS NO MEDIA COLUMN — the photos
+ * live in `listing_images`. So every owner list surface read `vehicle.image_url`, got `undefined`,
+ * and rendered the branded "Image unavailable" placeholder. Measured on Golden A: the PUBLIC listing
+ * endpoint published `listing_media.state = "published"` with five canonical images at the same
+ * moment the OWNER of those photos was told the image was unavailable.
+ *
+ * An owner may not know less true media than an anonymous buyer. This closes that gap by reading the
+ * same table the public projection reads and building the block with the SAME function
+ * (`toListingMediaBlock`) — the semantics are imported, never restated, so the two surfaces cannot
+ * drift into disagreeing about what "published" means.
+ *
+ * ## Why the null matters
+ *
+ * `toListingMediaBlock(null)` is `not_loaded`; `toListingMediaBlock([])` is `none`. A failed read
+ * therefore publishes "we did not look", never "there are none" — the same distinction
+ * `ownerGarageCounts` draws for counts, and the reason a broken query can never again be published
+ * to an owner as an absence of their own photographs.
+ */
+async function ownerListingMedia(vins) {
+  const wanted = [...new Set((vins || []).filter(Boolean))];
+  if (wanted.length === 0) return new Map();
+
+  let rows = null;
+  try {
+    const { data, error } = await supabase
+      .from('listing_images')
+      .select('id, vin, image_url, is_primary, display_order')
+      .in('vin', wanted);
+    // `error` leaves `rows` null on purpose: see the note above.
+    if (!error) rows = data || [];
+  } catch {
+    rows = null;
+  }
+
+  return new Map(wanted.map((vin) => [
+    vin,
+    toListingMediaBlock(rows === null ? null : rows.filter((row) => row.vin === vin)),
+  ]));
+}
+
+/**
+ * Order by canonical trust, highest first, with every unscored vehicle after every scored one.
+ *
+ * A vehicle with no canonical evaluation is NOT a zero and must not be ranked as one — it sorts
+ * last in its original order rather than being pushed to the bottom of a numeric scale it was
+ * never measured on.
+ */
+function rankByCanonicalTrust(vehicles) {
+  return (vehicles || [])
+    .map((vehicle, index) => ({ vehicle, index }))
+    .sort((a, b) => {
+      // Number.isFinite, matching the /api/vehicles filter: a NaN is not a rank position, and
+      // `typeof NaN === 'number'` would sort it first.
+      const aScore = Number.isFinite(a.vehicle?.trust?.score) ? a.vehicle.trust.score : null;
+      const bScore = Number.isFinite(b.vehicle?.trust?.score) ? b.vehicle.trust.score : null;
+      if (aScore === null && bScore === null) return a.index - b.index;
+      if (aScore === null) return 1;
+      if (bScore === null) return -1;
+      return bScore - aScore || a.index - b.index;
+    })
+    .map((entry) => entry.vehicle);
+}
 
 // --- PILLAR 8: ADVANCED TAXONOMY & SEARCH ---
 app.get('/api/vehicles', async (req, res) => {
@@ -455,7 +673,7 @@ app.get('/api/vehicles', async (req, res) => {
     // Sanitized projection + full visibility gate: this legacy public endpoint
     // previously returned raw rows (owner_id, tenant_id, engine/chassis numbers)
     // and ignored the publication lifecycle entirely.
-    let query = supabase.from('vehicles').select(PUBLIC_VEHICLE_COLUMNS);
+    let query = supabase.from('vehicles').select(PUBLIC_VEHICLE_SELECT);
 
     // Explicitly enforce public visibility constraint unless specifically fetching for a tenant (handled below or in another endpoint)
     query = query.in('status', publicVehicleStatusFilterValues());
@@ -468,12 +686,33 @@ app.get('/api/vehicles', async (req, res) => {
     if (drivetrain) query = query.eq('drivetrain', drivetrain);
     if (dutyPaid !== undefined) query = query.eq('duty_paid', dutyPaid === 'true');
     if (policeVerified !== undefined) query = query.eq('police_verified', policeVerified === 'true');
-    if (trustRange) query = query.gte('trust_score', parseFloat(trustRange));
-    
+    // NO `.gte('trust_score', …)` HERE. The stored column is an unversioned cache with several
+    // writers: filtering on it lets a hand-set 84 satisfy "show me vehicles above 80" and lets a
+    // legitimately-unscored vehicle be excluded by a number nobody can attribute. The threshold is
+    // applied below against the CANONICAL score instead, where "no canonical evaluation" correctly
+    // fails the filter rather than passing it on a legacy value.
+
     const { data: vehicles, error } = await query;
     if (error) return res.status(500).json({ error: error.message });
-    
-    res.json(vehicles);
+
+    // PUBLIC_VEHICLE_SELECT no longer names the raw trust_score column at all (the projection
+    // contract owns that list, and demoted it), so the only trust figure this route can publish is
+    // the one attached here from the canonical projection. One query for the whole page; a vehicle
+    // with no canonical evaluation publishes null plus the state that says why, never a stored
+    // number — there is no longer a stored number in the row to fall back to.
+    const projected = await withCanonicalTrust(vehicles);
+
+    const threshold = trustRange === undefined ? null : parseFloat(trustRange);
+    const filtered = threshold === null || !Number.isFinite(threshold)
+      ? projected
+      // A vehicle with no canonical score cannot satisfy a trust filter. It is not ranked at zero
+      // and not admitted on the strength of an unversioned number — it is simply not an answer to
+      // the question "which vehicles score at least N?". The predicate reads `trust.score`, the
+      // authority's own field, rather than the `trust_score` key beside it, so no later edit to
+      // that key can quietly put the legacy column back into the filter.
+      : projected.filter((vehicle) => Number.isFinite(vehicle.trust?.score) && vehicle.trust.score >= threshold);
+
+    res.json(filtered);
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
@@ -488,27 +727,41 @@ function normalizePlate(plate) {
 }
 
 function validatePassportLookupIdentifier(identifier) {
-  const value = String(identifier || '').trim();
-  if (value.length < 2 || value.length > 64) {
-    return null;
-  }
-  if (!/^[A-Za-z0-9][A-Za-z0-9 _-]*$/.test(value)) {
-    return null;
-  }
-  return value;
+  const classified = classifyLookupIdentifier(identifier);
+  return classified ? classified.value : null;
 }
 
-async function collectPassportLookupMatches(identifier) {
+/**
+ * Resolve an identifier to candidate VINs, searching only the columns its KIND permits.
+ * A VIN lookup searches the vin column alone, so a public caller cannot supply a plate or
+ * chassis number and discover the vehicle behind it.
+ */
+async function collectPassportLookupMatches(identifier, kind = LOOKUP_KINDS.RESTRICTED) {
   const norm = normalizePlate(identifier);
-  const queries = [
-    supabase.from('vehicles').select('vin').eq('vin', identifier),
-    supabase.from('vehicles').select('vin').eq('chassis_number', identifier),
-    supabase.from('vehicles').select('vin').eq('plate_number', identifier),
-    supabase.from('vehicles').select('vin').eq('normalized_plate_number', norm),
-    supabase.from('vehicles').select('vin').eq('temporary_identification_number', identifier),
-    supabase.from('vehicle_plate_history').select('vin').eq('plate_number', identifier),
-    supabase.from('vehicle_plate_history').select('vin').eq('normalized_plate_number', norm)
-  ];
+  const columns = lookupColumnsForKind(kind);
+
+  const queries = [];
+  if (columns.vehicles.includes('vin')) {
+    queries.push(supabase.from('vehicles').select('vin').eq('vin', identifier));
+  }
+  if (columns.vehicles.includes('chassis_number')) {
+    queries.push(supabase.from('vehicles').select('vin').eq('chassis_number', identifier));
+  }
+  if (columns.vehicles.includes('plate_number')) {
+    queries.push(supabase.from('vehicles').select('vin').eq('plate_number', identifier));
+  }
+  if (columns.vehicles.includes('normalized_plate_number')) {
+    queries.push(supabase.from('vehicles').select('vin').eq('normalized_plate_number', norm));
+  }
+  if (columns.vehicles.includes('temporary_identification_number')) {
+    queries.push(supabase.from('vehicles').select('vin').eq('temporary_identification_number', identifier));
+  }
+  if (columns.plateHistory.includes('plate_number')) {
+    queries.push(supabase.from('vehicle_plate_history').select('vin').eq('plate_number', identifier));
+  }
+  if (columns.plateHistory.includes('normalized_plate_number')) {
+    queries.push(supabase.from('vehicle_plate_history').select('vin').eq('normalized_plate_number', norm));
+  }
 
   const results = await Promise.all(queries);
   const firstError = results.find(result => result.error)?.error;
@@ -523,8 +776,103 @@ async function collectPassportLookupMatches(identifier) {
   return matchingVins;
 }
 
-// Structured helper to build and redact vehicle passport
-async function buildVehiclePassport(vin, req) {
+/**
+ * Passport read limits. The passport is the richest public read CarUp serves, so both routes are
+ * bounded independently of the global 100/min: bulk VIN sweeps and repeated identifier probing are
+ * the two ways this surface gets mined. The identifier route is tighter because a caller who is
+ * merely looking up their own car needs a handful of requests, not dozens.
+ */
+const passportLimiter = rateLimiter({ max: 30, windowMs: 60 * 1000, isSensitive: true });
+const passportLookupLimiter = rateLimiter({ max: 10, windowMs: 60 * 1000, isSensitive: true });
+
+// Roles that may read a passport at the owner audience regardless of who owns the
+// vehicle. Kept narrow: widening this widens the unredacted identity surface.
+const PASSPORT_PRIVILEGED_ROLES = new Set(['admin', 'government']);
+
+/**
+ * The canonical trust projection a passport publishes, read here rather than inside
+ * buildVehiclePassport so the passport composes over a value it was handed instead of reaching for
+ * an authority of its own — the same reason the vehicle row, the chain and the timeline are all
+ * passed through governed projections.
+ *
+ * Every public surface reads the MATERIALIZED position, cache-only — the passport, the marketplace
+ * list and detail, and the buyer-facing trust-decision route alike. None of them recomputes on
+ * read, so they cannot disagree: they either all report the same score under the same
+ * calculation_version, or all report that there is none. refreshCanonicalTrust is what makes that
+ * position current.
+ */
+async function canonicalPassportTrust(vin) {
+  // CACHE-ONLY, deliberately. Recomputing here would make the passport publish a number the
+  // marketplace list cannot publish for the same VIN at the same instant — the list is cache-only
+  // because 48 recomputes per page is not viable. Two public answers for one vehicle is the exact
+  // defect this phase exists to close, and the recomputing surface is the authoritative-looking
+  // one, so it is the more damaging of the two. The materialized position is the public position;
+  // refreshCanonicalTrust is what makes it current.
+  return publishCanonicalTrust(
+    vin,
+    await getCanonicalTrust(vin, { client: supabase, recompute: RECOMPUTE.NEVER }),
+    'vehicle passport',
+  );
+}
+
+// Structured helper to build and redact vehicle passport.
+// Caller identity MUST already be resolved by optionalAuth() on the route: this
+// function never reads x-session-token/x-user-id itself, because an unverified
+// header must not be able to buy the owner audience.
+//
+// `canonicalTrust` is the ONE trust number this body publishes: the 10-field projection from
+// canonicalTrustService (via canonicalPassportTrust above). Both routes supply it. A caller that
+// supplies nothing gets `trustReport: null` — no projection accompanied this render — which is a
+// statement about the request, never a score of zero for the vehicle.
+//
+// `listingClaimContract` is `toListingClaims` from utils/publicVehicleProjection.js, HANDED IN for
+// exactly the reason `canonicalTrust` is: the passport composes over authorities it is given rather
+// than reaching for one of its own. It is also what keeps this function's collaborator set closed —
+// two independent harnesses (backend/tests/issue164-phase0-public-projection.test.js and the Phase 4
+// review harness) execute this SOURCE against a fixed dependency list, and a free module-scope name
+// added here is a ReferenceError there rather than a test failure that says what changed. A caller
+// that supplies nothing gets `claims: null` — no claim contract accompanied this render — and the
+// governed columns are withdrawn all the same, because "we could not state it" is never a licence
+// to publish it bare.
+//
+// `attestClaim` is `attestedValue` from the same module, handed in for the same reason and subject
+// to the same closed-collaborator rule. It exists because ONE governed business fact on this row —
+// `currency` — has no leaf in the sealed claim contract, so there is no block to read it out of;
+// the marketplace summary reaches for `attestedValue` directly for exactly the same reason
+// (listingSummaryService.currencyClaim). Passing the SAME function both surfaces use is what stops
+// the passport and the marketplace card answering the currency question differently for one
+// vehicle. A caller that supplies nothing gets the currency withdrawn, not published bare.
+//
+// `mediaContract` is `toVehicleMedia` from utils/vehicleMediaProjection.js, handed in on the same
+// closed-collaborator rule as the two above. It is what closes THE ORIGINAL DEFECT of this issue:
+// the passport is Vehicle Detail's primary read and it never consulted `listing_images`, so a VIN
+// whose Marketplace card showed a photo arrived at Detail with an empty gallery, under a control
+// that then announced "No verified images uploaded yet" — a governance finding published over a
+// table the passport had never heard of, about seller marketing photos that are never verified by
+// anything. The read below fixes the plumbing; the contract fixes the sentence, by refusing to let
+// a block that was not consulted say "none".
+//
+// A caller that supplies nothing publishes NEITHER media key — no media contract accompanied this
+// render — on the rule `claims: null` and `trustReport: null` already follow. That is a statement
+// about the REQUEST. It is deliberately not an empty pair of blocks: fabricating `{state:'none'}`
+// for a projection that was never applied would re-commit the defect this parameter exists to
+// close, one level up.
+//
+// THE CONTRACT ALSO HOLDS THE PUBLICATION GATE (its Rule 1b), and that is why the gate is expressed
+// as two extra INPUTS to `mediaContract` below rather than as a branch in this function. Giving the
+// passport its own `listing_images` read made an UNPUBLISHED listing's photographs reachable by any
+// anonymous caller holding the VIN, on a surface where the marketplace answers 404 — nothing decided
+// that, it fell out of the wiring. The remedy has to live where the definition of "published" is
+// already imported, because deciding it here would mean inlining a second copy of that definition
+// into the one function whose whole subject is that there is only one.
+async function buildVehiclePassport(
+  vin,
+  req,
+  canonicalTrust = null,
+  listingClaimContract = null,
+  attestClaim = null,
+  mediaContract = null,
+) {
   const { data: vehicle, error: vehicleError } = await supabase
     .from('vehicles')
     .select('*')
@@ -533,48 +881,30 @@ async function buildVehiclePassport(vin, req) {
 
   if (vehicleError || !vehicle) return null;
 
-  // Determine requester identity. A header is a CLAIM, not a credential.
+  // AUDIENCE. Read from `req.userContext` and from NO REQUEST HEADER.
   //
-  // Same two defects the evidence routes carried: the session was accepted on `is_valid` alone, so
-  // an EXPIRED token still authenticated, and `x-user-id` was taken outright without
-  // the general fallback policy, which INFERS permission from NODE_ENV. These paths use the
-  // stricter `isPrivateEvidenceFallbackAllowed()` instead: a staging deployment running
-  // NODE_ENV=test has turned that inference into a working identity before, and what is behind
-  // this door is another person's registration document.
-  const sessionToken = req.headers['x-session-token'] || req.headers['authorization']?.replace('Bearer ', '');
-  let activeUserId = null;
-  let activeUserRole = null;
-
-  if (sessionToken) {
-    const { data: session } = await supabase
-      .from('user_sessions')
-      .select('user_id, is_valid, expires_at')
-      .eq('token', sessionToken)
-      .single();
-    if (session && session.is_valid && new Date(session.expires_at) >= new Date()) {
-      activeUserId = session.user_id;
-    }
-  }
-
-  if (!activeUserId && req.headers['x-user-id'] && isPrivateEvidenceFallbackAllowed()) {
-    activeUserId = req.headers['x-user-id'];
-  }
-
-  if (activeUserId) {
-    const { data: user } = await supabase
-      .from('users')
-      .select('role')
-      .eq('id', activeUserId)
-      .single();
-    if (user) {
-      activeUserRole = user.role;
-    }
-  }
-
-  const isAuthorized = 
-    activeUserRole === 'admin' || 
-    activeUserRole === 'government' || 
-    (activeUserId && activeUserId === vehicle.owner_id);
+  // #165's invariant: this builder must not touch headers, because a builder that reads them can be
+  // handed a forged owner audience. #175's invariant: what `isAuthorized` unlocks — the evidence
+  // vault and the un-redacted timeline — must not be purchasable with an asserted `x-user-id`.
+  //
+  // Both hold because the STRICTNESS moved into `optionalAuth()`, the one middleware that populates
+  // this context, rather than being re-implemented here. One identity path, strict policy.
+  const actor = req.userContext || null;
+  // A PROVEN identity only. `optionalAuth` resolves a header-asserted identity under the general
+  // policy, which is fine for a route that merely needs to know who is calling. It is not fine
+  // here: `isAuthorized` unlocks the evidence vault and the un-redacted timeline — a
+  // private-document capability — so an ASSERTED identity must not buy it.
+  //
+  // Gated on the boolean the middleware publishes, not on the marker's string value: this builder
+  // is asserted to read no request header, and the marker's value contains a header NAME, so
+  // comparing against it would trip that guard while doing nothing wrong. Paired with a
+  // producer-side test that `optionalAuth` ALWAYS publishes the flag — relying on a consumer
+  // default is how a gate silently becomes a no-op when a new path forgets to set it.
+  const provenIdentity = Boolean(actor?.id) && actor.identityAsserted !== true;
+  const isAuthorized = provenIdentity && (
+    PASSPORT_PRIVILEGED_ROLES.has(actor.role)
+    || actor.id === vehicle.owner_id
+  );
 
   // Fetch timeline, visual evidence, trust score report, and ledger verification
   const timeline = await getVehicleTimeline(vin);
@@ -598,7 +928,142 @@ async function buildVehiclePassport(vin, req) {
       .map((row) => `evidence:${row.id}`),
   );
   const visualTimeline = mergeEventsWithEvidence(timeline, evidenceVault);
-  const trustReport = await computeVehicleTrustScore(vin);
+
+  // ── THE TWO MEDIA MODELS, COMPOSED AND KEPT APART ─────────────────────────────────────────────
+  // LISTING MEDIA is the seller's presentation: unverified marketing photos whose job is to show
+  // the car. VERIFIED EVIDENCE is governed proof carrying provenance and a review decision. Vehicle
+  // Detail needs BOTH, and merging them is how a marketplace photo becomes "verified" by the mere
+  // act of being displayed. `toVehicleMedia` returns them as two sibling blocks with identical
+  // envelopes and item shapes that share NOT ONE KEY NAME, which is what makes the separation a
+  // property a test can execute rather than a convention a reviewer has to police.
+  //
+  // The contract's two keys are SPREAD onto the passport body rather than nested under a `media`
+  // key, for a reason that is live rather than stylistic: `marketplaceListingDetailService` already
+  // publishes a `media` key holding RAW `listing_images` ROWS, and Vehicle Detail holds both
+  // payloads at once. One name over two shapes on one page is how `toListingMediaBlock(<object>)`
+  // gets called on a projected block, returns `not_loaded` without throwing, and blanks a gallery
+  // silently — this defect exactly, through a new door. `listing_media`/`verified_evidence` name
+  // themselves and collide with nothing. Publishing one and forgetting the other is prevented by
+  // the spread being a single expression over the contract's own frozen return, whose key set
+  // issue164-phase5-media-contract.test.js asserts.
+  let listingImageRows;   // stays `undefined` unless this read actually ran and returned rows
+  if (typeof mediaContract === 'function') {
+    // Keyed by `vin`, the only key `listing_images` has (it is FK'd to vehicles(vin) ON DELETE
+    // CASCADE — referential integrity was never the problem; NOBODY JOINING IT was).
+    //
+    // The column list is narrow and deliberate: exactly the four the contract consumes.
+    //
+    // `id` IS selected and IS published, as `media_id` — the item's stable opaque identity (Rule
+    // 6b). It is the row's uuid primary key, so the same photograph answers to the same identity on
+    // every surface and across every read, which URL equality cannot promise: a URL survives being
+    // rewritten by a CDN or a resize and two site-relative paths can collide, and 3 of 3 rows here
+    // are exactly such paths. Selecting it is not a widening — `vehicle_evidence.id` has been
+    // public since Phase 0 — and it discloses nothing, because this table has no locator column to
+    // derive: it is (id, vin, image_url, is_primary, display_order, created_at) and `image_url` is
+    // already published beside it.
+    //
+    // `created_at` must NOT be selected — it is the row's INSERT time, and a date beside a photo
+    // reads as when the photo was taken. `vehicle_evidence` has `captured_at` for that, behind a
+    // review; `listing_images` has no such column and no reviewer, no uploader, no checksum and no
+    // status, which is precisely why nothing in this block may make a trust claim.
+    const { data: listingImages, error: listingImagesError } = await supabase
+      .from('listing_images')
+      .select('id, image_url, is_primary, display_order')
+      .eq('vin', vin)
+      .order('display_order', { ascending: true });
+
+    // A failed gallery read must NOT 500 the passport (unlike evidence above, whose absence would
+    // silently understate governance), and it must not be laundered into `[]` either. Leaving the
+    // value undefined yields `state: 'not_loaded'` with a NULL statement, so the surface renders
+    // nothing rather than an empty-gallery sentence about a table we could not reach. Saying "none"
+    // on the strength of a read that never succeeded is the original defect.
+    if (!listingImagesError) listingImageRows = listingImages || [];
+  }
+
+  // ── WHY THE GALLERY IS STILL READ FOR A LISTING WE MAY NOT PUBLISH ────────────────────────────
+  // The publication gate (Rule 1b) is applied by the CONTRACT, not here, and this read deliberately
+  // runs regardless of it. Three reasons, in order of weight:
+  //
+  //   1. ONE DEFINITION. Skipping the read would mean asking "is this listing published?" at this
+  //      call site, and the only way to ask it from inside this function is to inline the predicate
+  //      — `vehicle.publication_status === 'published'` — because the passport's collaborator set is
+  //      CLOSED (see the header): the canonical `publiclyVisiblePublicationStatuses()` is not among
+  //      the injected names and adding a free one is a ReferenceError in three certified harnesses.
+  //      An inlined literal is a SECOND definition of published, on the surface whose whole subject
+  //      is that there is one. The contract already imports the canonical set; it decides.
+  //   2. THE ROWS NEVER LEAVE THE PROCESS. `toGatedListingMediaBlock` discards them entirely for an
+  //      ungated caller — not counted, not summarised — so reading them leaks nothing. What must not
+  //      escape is the PROJECTION, and that is precisely what the contract refuses to build.
+  //   3. IDENTICAL WORK EITHER WAY. A draft listing and a published one issue the same queries in
+  //      the same order, so response time carries no signal about publication state or about
+  //      whether a hidden listing holds photographs. A conditional read would have introduced that
+  //      signal to save a query on 2 of 16 staging rows.
+  //
+  // ── THE TWO AUDIENCES BELOW ARE TWO DIFFERENT FACTS ───────────────────────────────────────────
+  // `audience: 'public'` is the EVIDENCE audience, and it is 'public' on every render, which is not
+  // an oversight. The evidence rows in hand were fetched above under `public_safe AND verified` for
+  // every caller, so asking the contract for the 'owner' audience would claim a widening this query
+  // never performed. The owner's unredacted vault is `evidenceVault` below, which is separately
+  // audience-gated and is not this block's business. Re-applying the same gate the SQL applied is
+  // defence in depth: the projection must never depend on a caller having remembered the filter.
+  //
+  // `listingAudience` is the LISTING audience and is a SEPARATE parameter for a reason that is the
+  // whole subject of this phase: evidence is truth about a VEHICLE and listing media is content on a
+  // LISTING. A vehicle's verified registration document does not become unverified because nobody is
+  // advertising the car, so the publication gate governs the gallery and NOTHING else. It resolves
+  // to 'owner' for exactly the callers `isAuthorized` already names — the vehicle's owner and
+  // PASSPORT_PRIVILEGED_ROLES (admin, government), each from a session `optionalAuth()` verified —
+  // so those paths keep the access they had and nothing about them changes.
+  //
+  // `vehicle.publication_status` is passed RAW, straight off the row this function already read.
+  // No second query, therefore no second failure mode: if the vehicle read fails, this function has
+  // already returned null and there is no passport at all. If the column is somehow absent from the
+  // row, the contract resolves UNDETERMINED and answers `not_loaded` — closed, and silent.
+  const vehicleMedia = typeof mediaContract === 'function'
+    ? mediaContract({
+      listingImageRows,
+      evidenceRows: evidenceVault,
+      audience: 'public',
+      listingPublicationStatus: vehicle.publication_status,
+      listingAudience: isAuthorized ? 'owner' : 'public',
+    })
+    : null;
+
+  // THE PASSPORT'S TRUST NUMBER, FROM THE CANONICAL AUTHORITY AND NOWHERE ELSE.
+  //
+  // This used to be `computeVehicleTrustScore(vin)`, the deprecated 70-baseline trustGraph engine,
+  // whose number was shipped as `trustReport` and rendered live. For one VIN that engine published
+  // 90 while the trust-decision route published 50 and the marketplace card published 84 — three
+  // numbers, one vehicle, no version stamp on any of them. The value is now the canonical
+  // projection supplied by the route (canonicalPassportTrust), carrying calculation_version and
+  // evaluation_state so a reader can tell a current score from a withheld or absent one.
+  const trustReport = canonicalTrust ?? null;
+
+  // The non-score signals the passport has always shown (ZIMRA/CVR/ZRP/odometer/ledger/service
+  // records). They are FACTS COLLECTED, not a score: the deprecated engine's own `trustScore` is
+  // discarded here rather than republished under a new name, and `evidence_trust_impact` — a raw
+  // scoring component — is dropped with it, so the passport body carries exactly one trust number.
+  const legacySignalReport = await computeVehicleTrustScore(vin);
+  const legacyMetrics = legacySignalReport && typeof legacySignalReport === 'object'
+    ? legacySignalReport.metrics
+    : null;
+  const trustSignals = legacyMetrics
+    ? {
+      cvr_synced: legacyMetrics.cvr_synced,
+      zimra_duty: legacyMetrics.zimra_duty,
+      zrp_police_cleared: legacyMetrics.zrp_police_cleared,
+      blockchain_audit_valid: legacyMetrics.blockchain_audit_valid,
+      odometer_consistent: legacyMetrics.odometer_consistent,
+      maintenance_logs_count: legacyMetrics.maintenance_logs_count,
+      stolen_alert_active: legacyMetrics.stolen_alert_active,
+      verified_evidence_count: legacyMetrics.verified_evidence_count,
+      rejected_evidence_count: legacyMetrics.rejected_evidence_count,
+      // Stated so a client cannot mistake these for the trust assessment: they are inputs that were
+      // observed, and none of them is a CarUp verdict on the vehicle.
+      signals_are_not_a_trust_score: true,
+    }
+    : null;
+
   const chainVerification = await verifyChain(vin);
 
   // Fetch plate history
@@ -615,38 +1080,183 @@ async function buildVehiclePassport(vin, req) {
     .eq('vin', vin);
   const previousOwnerCount = ownershipHistory ? ownershipHistory.length : 0;
 
-  // Resolve current seller details
-  let currentSellerDisplayName = 'Private Seller';
-  if (vehicle.current_seller_id) {
+  // Resolve current seller details. Principle 4: a seller that is not recorded, or
+  // whose name we cannot resolve, stays null — never a stand-in like 'Private Seller',
+  // which reads as a recorded fact and is indistinguishable from a real answer.
+  const currentSellerRecorded = Boolean(vehicle.current_seller_id);
+  let currentSellerDisplayName = null;
+  if (currentSellerRecorded) {
     const { data: sellerUser } = await supabase
       .from('users')
       .select('name')
       .eq('id', vehicle.current_seller_id)
       .single();
-    if (sellerUser) {
+    if (sellerUser?.name) {
       currentSellerDisplayName = sellerUser.name;
     }
   }
 
   const currentOwnerVisible = isAuthorized || !!vehicle.public_seller_display_enabled;
 
+  // ── THE PASSPORT PUBLISHES CLAIMS, NOT COLUMNS ────────────────────────────────────────────────
+  // The canonical listing claim contract for this row, at this audience. Every leaf is a stated
+  // pair {value, state, source}, and `registration.*` is provenance-gated: a country with no
+  // recognised `registration_country_source` publishes `not_recorded`, whatever sits in the column.
+  //
+  // This is the treatment every other public surface already gives these facts. The passport was the
+  // one that still published the raw row — `vehicle.registration_country: "ZW"` and
+  // `identity.registrationCountry: "ZW"`, on 13 of 16 staging rows where nobody had ever stated a
+  // country. The passport is the surface a shopper trusts MOST, which made it the worst place for it.
+  const claims = typeof listingClaimContract === 'function'
+    ? listingClaimContract(vehicle, {
+      audience: isAuthorized ? 'owner' : 'public',
+      // Resolved above even when this audience may not see it, which is the caller obligation that
+      // lets `display_label` tell `withheld` apart from `not_recorded`. The claim's consent gate is
+      // STRICTER than ownershipSummary's (`=== true` vs a coercion), so it can never publish a name
+      // the summary beside it would have withheld.
+      sellerDisplayName: currentSellerDisplayName,
+    })
+    : null;
+
+  // Built AFTER `claims` on purpose: `currentSellerType` now reads the governed leaf instead of the
+  // column, and the two must be the same value or the body contradicts itself.
   const ownershipSummary = {
-    currentSellerDisplayName: currentOwnerVisible ? currentSellerDisplayName : 'Private Seller',
-    currentSellerType: vehicle.current_seller_type || 'Private Owner',
+    // null + currentSellerRecorded true + currentOwnerVisible false => withheld.
+    // null + currentSellerRecorded false                            => not recorded.
+    currentSellerDisplayName: currentOwnerVisible ? currentSellerDisplayName : null,
+    // WAS `vehicle.current_seller_type ?? null`, and that was the fabrication §5.6 self-flagged:
+    // the column carries DB DEFAULT 'Private Owner' and holds it on 13 of 16 staging rows, so an
+    // ungated read published "this is a private sale" on the authority of the DDL. Withdrawing the
+    // column from the row projection below and leaving this line alone would have moved the same
+    // string four keys down the SAME response body, camelCased — a cosmetic strip, not a closure.
+    // `claims.seller.seller_type` is the governed home of this fact (provenance-gated on
+    // `current_seller_type_source`), so this reads that leaf and cannot disagree with it.
+    //
+    // A null here is unambiguous and needs no companion state key: `toSellerClaim` never WITHHOLDS
+    // a seller type — it has no audience gate — so the only non-recorded state this leaf can reach
+    // is `not_recorded`, which is exactly what VehicleDetail.tsx already renders a null as. The
+    // state is in `claims.seller.seller_type.state` in the same body for a reader that wants it.
+    // No claim contract handed in => null, on the same rule the governed columns are withdrawn on.
+    currentSellerType: claims?.seller?.seller_type?.value ?? null,
+    currentSellerRecorded,
     previousOwnerCount,
     previousOwnersPublicLabel: 'Redacted for privacy',
     ownerNamesRedacted: !isAuthorized,
     currentOwnerVisible
   };
 
-  // Structured Privacy Redaction Layer
-  const sanitizedTimeline = visualTimeline.map(event => {
+  // Columns the claim contract governs, withdrawn from the row projection so each fact appears
+  // ONCE, stated. Every one of them is manufactured by a column DEFAULT — 'ZW' / 'CVR' / 'Current' /
+  // 'Active' on 16 of 16 staging rows, with ZERO application writers for the last three — so the
+  // bare copies were not a stale reading of something real; they were the schema talking. A second,
+  // unstated copy of a governed fact is also the exact hazard `isStatedValue` refuses inside a pair,
+  // and it does not stop being one because it sits in a neighbouring object.
+  const CLAIM_GOVERNED_COLUMNS = [
+    'registration_country', 'registration_authority', 'registration_status', 'plate_status',
+    // ADDED — `current_seller_type`, the fifth column of this species and the one the contract doc
+    // flagged as §5.6. DEFAULT 'Private Owner', 'Private Owner' on 13 of 16 staging rows, and its
+    // governed twin is `claims.seller.seller_type` — a one-to-one correspondence, exactly like the
+    // four registration columns above. Left in the projection it published a bare "Private Owner"
+    // beside a `claims.seller.seller_type` reporting `not_recorded` for the same vehicle in the
+    // same body: one question, two answers, and the unstated one looks like the confident one.
+    'current_seller_type',
+  ];
+  // `import_source` (D7, same species: the write path stored 'local' for every submission that
+  // omitted it) is withdrawn WITHOUT a claim to replace it, because the sealed contract has no leaf
+  // for it and no `import_source_source` column exists to gate one — a value here cannot be told
+  // apart from a seller's real declaration of 'local'. It is not published as `withheld` either:
+  // nothing recorded means nothing to withhold, and a fabricated withholding is the same defect
+  // wearing the opposite mask. Widening LISTING_CLAIM_BLOCKS is a reviewed change to the contract,
+  // not something a route may do on its way past.
+  const UNCLAIMABLE_COLUMNS = ['import_source'];
+
+  // `currency` — the sixth DEFAULT-authored business fact on this row, and the ONE the sealed claim
+  // contract has no leaf for, which is why it is gated here instead of appearing in the list above.
+  // Measured on staging: DEFAULT 'USD', 'USD' on 16 of 16 rows, one distinct value, zero NULLs —
+  // the same signature that convicted `registration_authority` and `plate_status`. The marketplace
+  // summary and the pricing estimator already publish it only when a `currency_source` names who
+  // asserted it (listingSummaryService.currencyClaim, re-derived in marketplacePricingService); the
+  // passport did not, so the identical fabrication went on being served from the surface a shopper
+  // trusts most, on the one public read no mutation in this phase covered.
+  //
+  // GATED, NOT DELETED, and gated on PROVENANCE rather than on the value: 'USD' is not rejected for
+  // being the default's string — a seller who genuinely trades in USD must be able to say so, and
+  // rejecting the value would be the mirror-image fabrication. It is rejected for having no author.
+  //
+  // `price` is deliberately left ungated beside it. It carries no DB default and `/api/vehicles/add`
+  // 400s a submission without one, so a price in the column IS an application-recorded fact.
+  // Currency was the half the database was answering for.
+  const currencyClaim = typeof attestClaim === 'function'
+    ? attestClaim(vehicle.currency, vehicle.currency_source)
+    : null;
+
+  const withGovernedClaims = ({ vehicle: projected, claims: stated }) => {
+    const published = { ...projected };
+    for (const column of [...CLAIM_GOVERNED_COLUMNS, ...UNCLAIMABLE_COLUMNS]) delete published[column];
+    if (currencyClaim) {
+      // The same three keys `buildMarketplaceListingSummary` publishes, in the same order, carrying
+      // the same states — so a client reading a card and a passport for one VIN reads one shape and
+      // one answer. `currency_state` says WHY a null is null, which the bare column never did.
+      published.currency = currencyClaim.value;
+      published.currency_state = currencyClaim.state;
+      published.currency_source = currencyClaim.source;
+    } else {
+      // No attestor accompanied this render, so nothing here can tell a currency a seller stated
+      // from the one the DDL wrote. Withdrawn on the `import_source` rule rather than published
+      // bare, and NOT published as a fabricated `not_recorded` either: this branch is a statement
+      // about the request, and inventing a state for it would be the same defect wearing the
+      // opposite mask.
+      delete published.currency;
+    }
+    return { vehicle: published, claims: stated };
+  };
+
+  // Structured Privacy Redaction Layer.
+  // Free text is part of the response body: an identifier interpolated into a
+  // sentence escapes the structured redaction in `identity` just as surely as a
+  // stray column would, and a key-name leak scan cannot see it. Every identifier
+  // read below is therefore gated on isAuthorized, and an unauthorized description
+  // names the EVENT rather than emitting a placeholder where a value would sit.
+  // A plate-history row that is not marked public governs its derived timeline events too:
+  // suppressing the number while still announcing "plate flagged: <reason>" would publish the
+  // very record the row withheld. Event ids are `<source>:<plateHistoryId>`, so the withheld
+  // rows identify their own events.
+  const withheldPlateEventIds = isAuthorized
+    ? new Set()
+    : new Set(
+        (plateHistory || [])
+          .filter(row => row.record_visibility !== 'public')
+          .map(row => String(row.id))
+      );
+
+  const audienceTimeline = withheldPlateEventIds.size === 0
+    ? visualTimeline
+    : visualTimeline.filter(event => {
+        if (!String(event.event_source || '').startsWith('plate_') &&
+            event.event_source !== 'temporary_id_issued') return true;
+        return !withheldPlateEventIds.has(String(event.id || '').split(':').pop());
+      });
+
+  const sanitizedTimeline = audienceTimeline.map(event => {
+    const plateValue = isAuthorized
+      ? (event.details?.plateNumber || vehicle.plate_number || null)
+      : null;
+    const tempIdValue = isAuthorized
+      ? (event.details?.plateNumber || vehicle.temporary_identification_number || null)
+      : null;
+    // plate_verification_source is owner-audience only in the projection contract.
+    const verificationSource = event.details?.verificationSource
+      || (isAuthorized ? vehicle.plate_verification_source : null)
+      || null;
+
     // Generate publicDescription and publicSummary
     let publicDescription = event.desc || '';
     let publicSummary = event.label || '';
 
     if (event.event_source === 'cvr') {
-      publicDescription = `Registered plate ${event.details?.plateNumber || vehicle.plate_number || '—'}. Owner name redacted for privacy.`;
+      publicDescription = plateValue
+        ? `Registered plate ${plateValue}. Owner name redacted for privacy.`
+        : 'Registration recorded with CVR. Owner name redacted for privacy.';
       publicSummary = 'CVR Registration';
     } else if (event.event_source === 'ownership_transfer') {
       publicDescription = 'Ownership transferred to next owner';
@@ -654,33 +1264,54 @@ async function buildVehiclePassport(vin, req) {
     } else if (event.event_source === 'zimra') {
       publicDescription = 'Import duty customs clearance confirmed';
       publicSummary = 'ZIMRA Customs';
+    } else if (event.event_source === 'service' && String(event.id || '').startsWith('workorder:')) {
+      // WORK ORDERS ONLY, keyed on the id prefix — not every `service` event.
+      //
+      // Work orders come from a table carrying free text plus `customer_name`/`customer_id`, so their
+      // public description is fixed here as a second line of defence behind the producer's column
+      // withholding. PartSentry events share `event_source` but are structured and non-sensitive:
+      // they publish e.g. "Front brake pads (Replaced)", which the public Detail page uses. An
+      // unscoped branch here would have suppressed that real governed information — a fix broader
+      // than the property it needed, which is the same error as one that is too narrow.
+      publicDescription = 'Service record signed by a mechanic';
+      publicSummary = 'Service Record';
     } else if (event.event_source === 'insurance') {
       publicDescription = 'Insurance policy premium set';
       publicSummary = 'Insurance Insured';
     } else if (event.event_source === 'plate_assigned') {
-      publicDescription = `Number plate assigned: ${event.details?.plateNumber || vehicle.plate_number || '—'}`;
+      publicDescription = plateValue
+        ? `Number plate assigned: ${plateValue}`
+        : 'Number plate assigned';
       publicSummary = 'Plate Assigned';
     } else if (event.event_source === 'temporary_id_issued') {
-      publicDescription = `Temporary identification number issued: ${event.details?.plateNumber || vehicle.temporary_identification_number || '—'}`;
+      publicDescription = tempIdValue
+        ? `Temporary identification number issued: ${tempIdValue}`
+        : 'Temporary identification number issued';
       publicSummary = 'Temporary ID Issued';
     } else if (event.event_source === 'plate_verified') {
-      publicDescription = `Number plate ${event.details?.plateNumber || vehicle.plate_number || '—'} verified via ${event.details?.verificationSource || vehicle.plate_verification_source || 'CVR'}`;
+      const subject = plateValue ? `Number plate ${plateValue} verified` : 'Number plate verified';
+      publicDescription = verificationSource ? `${subject} via ${verificationSource}` : subject;
       publicSummary = 'Plate Verified';
     } else if (event.event_source === 'plate_changed') {
-      publicDescription = `Number plate ${event.details?.plateNumber || '—'} retired or changed`;
+      publicDescription = plateValue
+        ? `Number plate ${plateValue} retired or changed`
+        : 'Number plate retired or changed';
       publicSummary = 'Plate Changed';
     } else if (event.event_source === 'plate_flagged') {
-      publicDescription = `Number plate ${event.details?.plateNumber || '—'} flagged: ${event.details?.reason || 'No reason provided'}`;
+      const subject = plateValue ? `Number plate ${plateValue} flagged` : 'Number plate flagged';
+      publicDescription = `${subject}: ${event.details?.reason || 'No reason provided'}`;
       publicSummary = 'Plate Flagged';
     } else if (event.event_source === 'plate_suspended') {
-      publicDescription = `Number plate ${event.details?.plateNumber || '—'} suspended: ${event.details?.reason || 'No reason provided'}`;
+      const subject = plateValue ? `Number plate ${plateValue} suspended` : 'Number plate suspended';
+      publicDescription = `${subject}: ${event.details?.reason || 'No reason provided'}`;
       publicSummary = 'Plate Suspended';
     } else if (event.event_source === 'evidence') {
-      // `event.desc` is NOT safe to publish here: for an evidence-derived event it defaults to the
-      // reviewer's free text (`verification_notes`) about a person's document. The governed phrasing
-      // is derived from the evidence TYPE instead, which states the same fact without quoting a
-      // reviewer. (It read `event.desc || ...` before, so a row carrying notes published them.)
-      publicDescription = 'Verified evidence linked to this vehicle passport';
+        // `event.desc` is the reviewer's `verification_notes` — operator free text that can name
+        // an identifier — and this field is the PUBLIC description. Gating it on `isAuthorized`
+        // and reusing the same field is how a reviewed document's notes reached an anonymous
+        // caller verbatim, so the note never reaches this field for ANY audience. An owner reads
+        // reviewer notes through the owner surfaces, not the passport's public description.
+        publicDescription = 'Verified evidence linked to this vehicle passport';
       publicSummary = event.label || 'Verified Evidence';
     }
 
@@ -699,10 +1330,12 @@ async function buildVehiclePassport(vin, req) {
       sanitizedEvent.desc = publicDescriptionVal;
       sanitizedEvent.label = publicSummaryVal;
       sanitizedEvent.details = {
-        // Keep safe details
+        // Keep safe details. plateNumber is not one of them: it is the value
+        // identity.plateNumber withholds, only camelCased onto a timeline row.
+        // Blanked rather than dropped, so the client renders a withheld state;
+        // identity.identifiersRedacted says which state a null means.
         mileage: event.details?.mileage,
         stage: event.details?.stage,
-        plateNumber: event.details?.plateNumber,
         plateType: event.details?.plateType,
         status: event.details?.status,
         brakingEfficiency: event.details?.brakingEfficiency,
@@ -712,6 +1345,7 @@ async function buildVehiclePassport(vin, req) {
         termEnd: event.details?.termEnd,
         reason: event.details?.reason,
         verificationSource: event.details?.verificationSource,
+        plateNumber: null,
       };
 
       // CLOSE THE TOP LEVEL TOO — the FOURTH door.
@@ -735,14 +1369,20 @@ async function buildVehiclePassport(vin, req) {
         if (privateEvidenceEventIds.has(event.id)) sanitizedEvent.file_url = null;
         sanitizedEvent.metadata = {};
       }
-      return toPublicTimelineEventRow(sanitizedEvent);
+      return toPublicTimelineEvent(sanitizedEvent);
     }
 
     return sanitizedEvent;
   });
 
   return {
-    vehicle,
+    // `vehicle` is the audience projection with the claim-governed columns withdrawn; `claims` is
+    // the contract that states them. The projection decides which columns an audience may SEE; the
+    // claim contract decides which values are attested enough to PUBLISH, and both gates apply.
+    ...withGovernedClaims({
+      vehicle: projectVehicle(vehicle, isAuthorized ? 'owner' : 'public'),
+      claims,
+    }),
     timeline: sanitizedTimeline,
     evidenceTimeline: sanitizedTimeline.filter(event => event.event_source === 'evidence'),
     // THE THIRD ANONYMOUS DOOR.
@@ -752,33 +1392,57 @@ async function buildVehiclePassport(vin, req) {
     // published the same 54-column rows the two evidence routes were just closed against:
     // plate/chassis/engine identifiers, uploader and reviewer ids, tenant id, reviewer free text,
     // and the private storage locator. Verified live before this change.
-    evidenceVault: isAuthorized ? evidenceVault : evidenceVault.map(toPublicEvidenceRow),
+      // The media contract's blocks (`listing_media`, `verified_evidence`) reach the passport BODY
+      // through this spread. Dropping it publishes a passport with no gallery at all.
+      ...(vehicleMedia ?? {}),
+    evidenceVault: isAuthorized ? evidenceVault : evidenceVault.map(toPublicEvidence),
     trustReport,
-    chainVerification,
+    // Same signals as before, minus every score. Kept OUT of trustReport because that object's key
+    // set is the public trust contract and may not be extended.
+    trustSignals,
+    // chain[] carries each ledger event's raw uncontrolled payload, which in practice holds
+    // owner names. Unauthorized callers get the integrity verdict only, never the entries.
+    chainVerification: isAuthorized
+      ? chainVerification
+      : { verified: chainVerification.verified, count: chainVerification.count, chain: [] },
     identity: {
       vin: vehicle.vin,
-      chassisNumber: vehicle.chassis_number,
-      plateNumber: vehicle.plate_number,
-      normalizedPlateNumber: vehicle.normalized_plate_number,
-      plateStatus: vehicle.plate_status,
-      temporaryIdentificationNumber: vehicle.temporary_identification_number,
-      engineNumber: vehicle.engine_number,
-      registrationStatus: vehicle.registration_status,
-      registrationCountry: vehicle.registration_country,
-      registrationAuthority: vehicle.registration_authority,
-      plateVerifiedAt: vehicle.plate_verified_at,
-      plateVerificationSource: vehicle.plate_verification_source
+      chassisNumber: isAuthorized ? vehicle.chassis_number : null,
+      plateNumber: isAuthorized ? vehicle.plate_number : null,
+      normalizedPlateNumber: isAuthorized ? vehicle.normalized_plate_number : null,
+      temporaryIdentificationNumber: isAuthorized ? vehicle.temporary_identification_number : null,
+      engineNumber: isAuthorized ? vehicle.engine_number : null,
+      // `plateStatus`, `registrationStatus`, `registrationCountry` and `registrationAuthority` used
+      // to sit here as bare columns, and they are the four leaves of `claims.registration` — a
+      // one-to-one correspondence, so the block above is their governed home and this is where the
+      // duplicate went. They were also the four columns whose DB DEFAULTs ('Active' / 'Current' /
+      // 'ZW' / 'CVR') fill every row with an assertion no registry, operator or seller ever made,
+      // which is why publishing the value here was a fabrication and not merely a duplication.
+      // A reader that needs registration facts reads `claims.registration`, where each one arrives
+      // with the state and the source that say whether it is a fact at all.
+      plateVerifiedAt: isAuthorized ? vehicle.plate_verified_at : null,
+      plateVerificationSource: isAuthorized ? vehicle.plate_verification_source : null,
+      // A null identifier above means withheld from this audience, not unrecorded —
+      // the client must not render it as an absent fact.
+      identifiersRedacted: !isAuthorized
     },
-    plateHistory: plateHistory || [],
+    plateHistory: isAuthorized ? (plateHistory || []) : toPublicPlateHistory(plateHistory),
+    // An empty public list means one of two different things. Without this the client renders
+    // "No previous plates logged in history" over a vehicle whose history was merely withheld —
+    // the collection-level form of the withheld/unrecorded conflation identity already avoids.
+    plateHistoryRedacted: !isAuthorized
+      && (plateHistory || []).length > toPublicPlateHistory(plateHistory).length,
     ownershipSummary
   };
 }
 
-// Canonical VIN passport lookup
-app.get('/api/vehicles/:vin/passport', async (req, res) => {
+// Canonical VIN passport lookup.
+// optionalAuth() resolves identity when one is genuinely present and never blocks:
+// the passport stays publicly reachable, only its audience changes.
+app.get('/api/vehicles/:vin/passport', passportLimiter, optionalAuth(), async (req, res) => {
   const { vin } = req.params;
   try {
-    const passport = await buildVehiclePassport(vin, req);
+    const passport = await buildVehiclePassport(vin, req, await canonicalPassportTrust(vin), toListingClaims, attestedValue, toVehicleMedia);
     if (!passport) {
       return res.status(404).json({ error: 'VIN not found' });
     }
@@ -788,15 +1452,31 @@ app.get('/api/vehicles/:vin/passport', async (req, res) => {
   }
 });
 
-// Multi-identifier passport lookup route
-app.get('/api/vehicles/passport/lookup/:identifier', async (req, res) => {
-  const identifier = validatePassportLookupIdentifier(req.params.identifier);
-  if (!identifier) {
+// Multi-identifier passport lookup route. Same audience rule as /:vin/passport —
+// resolving by plate/temp id must not be a cheaper route to the owner audience.
+app.get('/api/vehicles/passport/lookup/:identifier', passportLookupLimiter, optionalAuth(), async (req, res) => {
+  const classified = classifyLookupIdentifier(req.params.identifier);
+  if (!classified) {
     return res.status(400).json({ error: 'Invalid lookup identifier' });
   }
 
+  // Plate / temporary-id / chassis lookup is gated BEFORE any query runs. Answering from the
+  // policy alone is what makes the response non-enumerable: an unauthenticated caller gets the
+  // same status, the same body and the same timing whether or not the identifier exists.
+  const access = resolveLookupAccess({
+    kind: classified.kind,
+    actor: req.userContext || null,
+    sellerOptIn: await resolveSellerLookupOptIn(classified),
+  });
+  if (access.decision !== LOOKUP_DECISIONS.ALLOW) {
+    return res
+      .status(NON_ENUMERABLE_LOOKUP_RESPONSE.status)
+      .json(NON_ENUMERABLE_LOOKUP_RESPONSE.body);
+  }
+
+  const identifier = classified.value;
   try {
-    const matchingVins = await collectPassportLookupMatches(identifier);
+    const matchingVins = await collectPassportLookupMatches(identifier, classified.kind);
 
     if (matchingVins.size === 0) {
       return res.status(404).json({ error: 'Vehicle not found' });
@@ -807,7 +1487,7 @@ app.get('/api/vehicles/passport/lookup/:identifier', async (req, res) => {
     }
 
     const resolvedVin = Array.from(matchingVins)[0];
-    const passport = await buildVehiclePassport(resolvedVin, req);
+    const passport = await buildVehiclePassport(resolvedVin, req, await canonicalPassportTrust(resolvedVin), toListingClaims, attestedValue, toVehicleMedia);
     if (!passport) {
       return res.status(404).json({ error: 'Vehicle not found' });
     }
@@ -1108,7 +1788,16 @@ app.get('/api/vehicles/:vin/recommendations', async (req, res) => {
   const { vin } = req.params;
   try {
     const result = await getSmartRecommendations(vin);
-    res.json(result);
+    // This route is public and unauthenticated. The recommendation service no longer orders by the
+    // raw trust_score column — it selects through PUBLIC_VEHICLE_SELECT and orders by created_at —
+    // so what remains for this route to do is state a trust position at all: the canonical
+    // projection supplies it, and the ranking below is by that attributable score rather than by
+    // the unversioned legacy number.
+    const rows = Array.isArray(result) ? result : (result?.recommendations || result?.vehicles || []);
+    const ranked = rankByCanonicalTrust(await withCanonicalTrust(rows));
+    res.json(Array.isArray(result)
+      ? ranked
+      : { ...result, ...(result?.recommendations ? { recommendations: ranked } : { vehicles: ranked }) });
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
@@ -1439,15 +2128,135 @@ app.post('/api/auth/register', async (req, res) => {
   }
 });
 
+/**
+ * ISSUE #164 PHASE 4 — WHAT A SUBMITTED VALUE IS ALLOWED TO BECOME.
+ *
+ * An empty or whitespace-only field is not a fact the seller stated; it is a field they left alone.
+ * Storing `''` puts something in the column that no later read can tell apart from a real value, so
+ * unknown has to stay unknown on the way IN as well — a fabricated blank is inherited by every
+ * surface downstream and no state on the read side can undo it.
+ */
+function submittedText(value) {
+  if (value === null || value === undefined) return null;
+  const text = String(value).trim();
+  return text === '' ? null : text;
+}
+
+/**
+ * WHO asserted the values on this submission, drawn from CLAIM_SOURCES.
+ *
+ * The read path publishes a location, a registration country or a seller type ONLY when a companion
+ * `*_source` column names its origin, and the database refuses a location column that carries no
+ * source at all. A source describes the origin, not our confidence: a seller filling in their own
+ * listing is `seller_declared` however true it later proves to be. Strength of evidence is the Trust
+ * contract's business (canonicalTrustService) and is deliberately not restated here.
+ */
+function submittedClaimSource(userContext = {}) {
+  const role = String(userContext.role ?? userContext.effectiveRole ?? '').trim().toLowerCase();
+  if (role === 'dealer') return 'dealer_declared';
+  if (role === 'owner') return 'seller_declared';
+  // An admin creating a listing on someone's behalf is the operator, not the seller.
+  return 'operator_recorded';
+}
+
+/**
+ * Provenance for `current_seller_type`, or null.
+ *
+ * `buildVehicleListingCandidate` sets the seller type from the authenticated ROLE — an owner account
+ * listing their own car is a private sale, a dealer account listing one is a dealer sale — and that
+ * is somebody asserting it, so it earns a source. Its remaining branch DERIVES the type from whether
+ * `owner_id` or `tenant_id` happens to be set, which is an inference about the row rather than a
+ * statement by anyone; stamping a source on that would turn the defect into a claim. Unstamped, the
+ * value still lands in the column and is simply never published.
+ */
+function declaredSellerTypeSource(userContext = {}, body = {}) {
+  const role = String(userContext.role ?? userContext.effectiveRole ?? '').trim().toLowerCase();
+  if (role === 'dealer' || role === 'owner') return submittedClaimSource(userContext);
+  return submittedText(body.current_seller_type) === null ? null : 'operator_recorded';
+}
+
+/**
+ * True when a write failed because the listing-claim columns are not on the table yet.
+ *
+ * 20260818110000_issue164_listing_location_provenance.sql is authored but UNAPPLIED, and PostgREST
+ * rejects an insert naming a column it cannot find (PGRST204 from the schema cache, 42703 from
+ * PostgreSQL itself). Without this guard, adding the columns to the payload would 500 every listing
+ * submission until the migration lands. Same shape as the `approved_by` fallback in
+ * listingSummaryService — and the response says the location was not recorded rather than going
+ * quiet about it, because accepting a value and then silently dropping it is the defect being closed.
+ */
+function isMissingListingClaimColumnError(error) {
+  const code = String(error?.code ?? '').toUpperCase();
+  if (code === 'PGRST204' || code === '42703') return true;
+  // The name-based fallback is deliberately conjoined with a "missing" phrase. On its own it would
+  // also match a CHECK violation, whose constraint names embed these column names — and treating a
+  // vocabulary violation as "the schema is old" would drop the location and report success, hiding
+  // a bug in this file behind the migration. A constraint violation must surface as one.
+  const text = [error?.message, error?.details, error?.hint].filter(Boolean).join(' ').toLowerCase();
+  const saysMissing = text.includes('could not find') || text.includes('does not exist') || text.includes('schema cache');
+  return saysMissing && LISTING_CLAIM_COLUMNS.some((column) => text.includes(column));
+}
+
 // --- VEHICLE LISTING: Create new listing (saves as draft) ---
 app.post('/api/vehicles/add', authorizeRole(['dealer', 'owner', 'admin']), async (req, res) => {
+  // STILL ACCEPTED AND STILL NOT STORED — named here rather than left as an unused destructure that
+  // reads like an oversight: `condition`, `category` and `description` reach no column from this
+  // handler. `vehicle_condition_category` is owned by the classification contract
+  // (marketplaceClassificationRules and its admin-approved backfill), so letting a seller
+  // self-declare it through this endpoint would route around that approval. Open finding, not
+  // closed by inventing a write here.
   const {
-    vin, make, model, year, color, mileage, fuel_type, transmission, condition, category,
-    price, currency, description, location, province, images,
+    vin, make, model, color, mileage, fuel_type, transmission,
+    price, currency, location, province, images,
     // Phase 4 identity fields
     engine_number, chassis_number, plate_number, temp_plate_id, import_status,
   } = req.body;
   if (!vin || !make || !model || !price) return res.status(400).json({ error: 'VIN, make, model, and price are required' });
+
+  // `mileage` is NOT NULL on public.vehicles with no default, so the column cannot hold "not known"
+  // and `mileage || 0` resolved that by writing 0 km as a fact — a reading a shopper cannot tell
+  // from a genuine delivery-mileage vehicle. Where a column cannot record unknown, the honest
+  // resolution is to refuse the write rather than to invent the value.
+  const submittedMileage = Number(submittedText(mileage));
+  if (submittedText(mileage) === null || !Number.isFinite(submittedMileage) || submittedMileage < 0) {
+    return res.status(400).json({ error: 'mileage is required and must be a non-negative number: vehicles.mileage cannot record an unknown odometer reading' });
+  }
+  // A number with no currency is not a price. `currency || 'USD'` stated a currency the seller never
+  // did, in a market that actively trades in more than one.
+  const submittedCurrency = submittedText(currency);
+  if (submittedCurrency === null) {
+    return res.status(400).json({ error: 'currency is required alongside price' });
+  }
+
+  // ── LISTING MEDIA, READ OFF THE REQUEST BEFORE ANYTHING IS WRITTEN ──────────────────────────
+  // Two accepted forms, and the difference between them is the whole of Rule 6:
+  //
+  //   'https://…'                        a URL and NOTHING ELSE. It expresses NO primacy.
+  //   { url: 'https://…', is_primary: true }   a seller who actually chose their main photo.
+  //
+  // A bare string is what every real client sends today — `SellVehicle.tsx` builds
+  // `uploadedImageUrls: string[]` from the upload endpoint and the form carries no "main photo"
+  // control at all — so on today's traffic NOTHING claims primacy, which is the correct reading of
+  // a form that never asked. Only `is_primary === true` is a claim; a missing, false or truthy-ish
+  // key is an absence, so primacy can never be acquired by accident.
+  const submittedMedia = (Array.isArray(images) ? images : []).map((entry) => {
+    const isObject = entry !== null && typeof entry === 'object' && !Array.isArray(entry);
+    return {
+      url: isObject ? entry.url : entry,
+      claimsPrimary: isObject ? entry.is_primary === true : false,
+    };
+  });
+  // TWO PRIMARIES IS NOT A CHOICE, IT IS A CONTRADICTION, and it is refused BEFORE the vehicle row
+  // is inserted so the caller gets a clean 400 rather than a half-made listing. Electing one of
+  // them here would be the same fabrication as `idx === 0`, just with more steps: the projection
+  // demotes extra claimants on the way OUT because it must cope with rows it did not write, which
+  // is not a licence for this handler to author the ambiguity in the first place. Same resolution
+  // the odometer and the currency get above — refuse the write rather than invent the value.
+  if (submittedMedia.filter((entry) => entry.claimsPrimary).length > 1) {
+    return res.status(400).json({
+      error: 'Only one image may be marked is_primary: a listing has at most one seller-chosen main photo',
+    });
+  }
 
   // Real-listing eligibility: build the exact candidate row from auth context + body, then validate so
   // fixture/demo/incomplete data cannot enter the public Marketplace (see marketplaceListingEligibility).
@@ -1457,29 +2266,116 @@ app.post('/api/vehicles/add', authorizeRole(['dealer', 'owner', 'admin']), async
     return res.status(400).json({ error: 'Listing is not marketplace-eligible', reasons: eligibility.reasons });
   }
 
+  // THE WRITE-SIDE ROOT CAUSE, CLOSED. `location` and `province` were destructured out of the body
+  // and then referenced nowhere: the seller typed where the car is, the server accepted it, dropped
+  // it, and the marketplace card printed a country literal in the space where it should have been.
+  // The card was not reading a stale column — there was no location column at all, because the write
+  // path had nowhere to put what the seller had just typed.
+  const claimSource = submittedClaimSource(req.userContext);
+  const listingCity = submittedText(location);
+  const listingProvince = submittedText(province);
+  // Never inferred from `registration_country` or from the seller's profile: where a car is
+  // registered is not where it is, and where its seller lives is not where it is. The form does not
+  // collect a country today, so the country stays unrecorded while the city is recorded — which is
+  // exactly the state the read contract exists to be able to express.
+  const listingCountry = submittedText(req.body.listing_country ?? req.body.country);
+  const hasListingLocation = listingCity !== null || listingProvince !== null || listingCountry !== null;
+  // The location was typed into the public listing form for the express purpose of appearing on the
+  // listing, so a submission that says nothing about visibility records it as published. Anything
+  // other than an explicit 'public' withholds — an out-of-vocabulary value is not a consent decision
+  // that can be read, and absence of consent is not consent. Adding a control to the form is what
+  // would make this a seller's choice rather than a default.
+  const submittedVisibility = submittedText(req.body.location_visibility);
+  const listingVisibility = submittedVisibility === null || submittedVisibility === CLAIM_VISIBILITY.PUBLIC
+    ? CLAIM_VISIBILITY.PUBLIC
+    : CLAIM_VISIBILITY.WITHHELD;
+
+  const listingClaimColumns = {
+    // No location fact without provenance — the read path refuses to publish one, and after the
+    // migration the database refuses to store one.
+    ...(hasListingLocation ? {
+      listing_city: listingCity,
+      listing_province: listingProvince,
+      listing_country: listingCountry,
+      listing_location_source: claimSource,
+      listing_location_visibility: listingVisibility,
+      listing_location_recorded_at: new Date().toISOString(),
+    } : {}),
+    // Provenance ONLY for what this submission actually asserted. `buildVehicleListingCandidate` no
+    // longer substitutes 'ZW' for an absent registration country — the candidate carries an explicit
+    // NULL, so there is nothing left to accidentally stamp — and this stays gated on the SUBMITTED
+    // text rather than on the candidate, because a source names who said it and the candidate is not
+    // a speaker. The two halves now agree: no value, no source, nothing published.
+    registration_country_source: submittedText(req.body.registration_country) === null ? null : claimSource,
+    current_seller_type_source: declaredSellerTypeSource(req.userContext, req.body),
+    // The attesting half of the currency pair. `submittedCurrency` is REQUIRED above (400 without
+    // it) and stored verbatim, so a currency on a row this handler wrote was genuinely stated by
+    // this submitter — unconditionally, which is why there is no null branch here as there is for
+    // the registration country. Without this stamp the read paths (listingSummaryService.currencyClaim,
+    // marketplacePricingService, and buildVehiclePassport's gate above) would refuse to publish a
+    // currency the seller really did declare: the migration drops the fabricating DEFAULT, and this
+    // is what stops that leaving every price permanently currency-less. Under-reporting is the
+    // gentler failure mode of the two, but it is still one.
+    currency_source: claimSource,
+  };
+
   try {
     const { data: existing } = await supabase.from('vehicles').select('vin').eq('vin', vin).single();
     if (existing) return res.status(409).json({ error: 'A vehicle with this VIN is already listed' });
 
-    const { error: insertError } = await supabase.from('vehicles').insert({
-      vin: candidate.vin, make: candidate.make, model: candidate.model, generation: '', trim: '',
-      year: candidate.year, color: color || 'White', mileage: mileage || 0,
-      fuel_type: fuel_type || 'Petrol', drivetrain: 'RWD', transmission: transmission || 'Automatic',
-      import_source: import_status === 'imported' ? 'import' : (candidate.import_source || 'local'),
+    const listingRow = {
+      vin: candidate.vin, make: candidate.make, model: candidate.model,
+      // `''` is a recorded blank, not an unrecorded field. Neither generation nor trim is collected
+      // by this endpoint, so both are unknown and are stored as unknown.
+      generation: null, trim: null,
+      year: candidate.year,
+      // NO SUBSTITUTES FOR A SPECIFICATION THE SELLER DID NOT GIVE. 'White', 'Petrol', 'Automatic'
+      // and a hardcoded 'RWD' were written for every client that omitted them, which is how a
+      // specification value ends up `recorded` and still an invention — the one defect the read
+      // contract cannot fix from its side, because these columns carry no provenance to gate on.
+      // It is closed by removing the substitution, not by weakening a state on the way out.
+      color: submittedText(color),
+      mileage: submittedMileage,
+      fuel_type: submittedText(fuel_type),
+      drivetrain: submittedText(req.body.drivetrain),
+      transmission: submittedText(transmission),
+      // `|| 'local'` was the last substitution on this row: a seller who said nothing about import
+      // had 'local' written for them, and the marketplace then read it back as a stated fact. The
+      // column is NULLABLE with no DB default, so an unstated import source is simply NULL — and
+      // unlike the registration country there is no default waiting to fill the gap, so omitting
+      // the key would work too; it is written explicitly to say so on purpose.
+      import_source: import_status === 'imported' ? 'import' : candidate.import_source,
       duty_paid: false, police_verified: false,
-      status: normalizeVehicleStatus(candidate.status), trust_score: 50, price: candidate.price, currency: currency || 'USD',
+      // A brand-new listing has NOT been evaluated, so it is stamped with no score. The explicit
+      // null matters: public.vehicles.trust_score DEFAULTS TO 80.0, so omitting the column would
+      // hand every new listing a fabricated 80 — worse than the 50 this used to write. Only
+      // canonicalTrustService.refreshCanonicalTrust may put a number in this column, and only
+      // together with the calculation_version that makes it publishable (INV-TRUST-2).
+      status: normalizeVehicleStatus(candidate.status), trust_score: null, price: candidate.price,
+      currency: submittedCurrency,
       owner_id: candidate.owner_id,
       tenant_id: candidate.tenant_id,
       current_seller_type: candidate.current_seller_type,
       registration_country: candidate.registration_country,
       // Phase 4: identity fields — stored for completeness gate evaluation
-      engine_number: engine_number || null,
-      chassis_number: chassis_number || null,
-      plate_number: plate_number || null,
-      temp_plate_id: temp_plate_id || null,
+      engine_number: submittedText(engine_number),
+      chassis_number: submittedText(chassis_number),
+      plate_number: submittedText(plate_number),
+      temp_plate_id: submittedText(temp_plate_id),
       // All vehicles start as draft; must upload and verify documents to reach 'publishable'
       publication_status: 'draft',
-    });
+    };
+
+    let listingClaimsRecorded = true;
+    let { error: insertError } = await supabase.from('vehicles').insert({ ...listingRow, ...listingClaimColumns });
+    if (insertError && isMissingListingClaimColumnError(insertError)) {
+      // The migration has not been applied yet. A single-row PostgREST insert is atomic, so the
+      // rejected attempt wrote nothing; create the listing without the claim columns and report on
+      // the response that the location was not recorded.
+      console.warn(`Listing claim columns unavailable (migration 20260818110000 not applied); location not recorded for ${candidate.vin}.`);
+      listingClaimsRecorded = false;
+      ({ error: insertError } = await supabase.from('vehicles').insert(listingRow));
+    }
     if (insertError) throw insertError;
 
     if (req.userContext.id) {
@@ -1488,24 +2384,90 @@ app.post('/api/vehicles/add', authorizeRole(['dealer', 'owner', 'admin']), async
       });
     }
 
-    // Persist listing images directly in the listing_images table
-    if (Array.isArray(images) && images.length > 0) {
-      const imageRecords = images.map((url, idx) => ({
-        vin,
-        image_url: url,
-        is_primary: idx === 0,
-        display_order: idx
-      }));
+    // ── PERSIST LISTING MEDIA, WITHOUT AUTHORING ANYTHING THE SELLER DID NOT SAY ──────────────
+    //
+    // THE UNPUBLISHABLE URL IS REFUSED AT THE DOOR, ONCE. `image_url: url` stored the request body
+    // verbatim — no scheme check, no length check, nothing — which is the source of every value the
+    // read contract then has to refuse forever. Measured against the shipped handler before this
+    // change: a submission of five images stored `javascript:alert(document.cookie)`,
+    // `data:image/png;base64,…`, a whitespace-only string and a path-relative `photo.jpg` into the
+    // column, four rows the projection can never publish; and the `idx === 0` line below stored the
+    // `javascript:` one AS THE SELLER'S MAIN PHOTO. `isPublishableMediaUrl` is imported from the
+    // projection rather than restated, so there is ONE definition of publishable in the codebase and
+    // the writer cannot drift away from the reader.
+    //
+    // REFUSED AND COUNTED, NOT REJECTED WHOLESALE. A bad photo URL does not void a real listing —
+    // the publishable images are stored and the rest are reported on the response, which is Rule 5's
+    // `unpublishable_count` idiom applied one layer up. Silently discarding them is what this phase
+    // exists to close; 400-ing the whole listing would discard the vehicle too.
+    const publishableMedia = submittedMedia.filter((entry) => isPublishableMediaUrl(entry.url));
+    const imagesUnpublishableCount = submittedMedia.length - publishableMedia.length;
+    const imageRecords = publishableMedia.map((entry, idx) => ({
+      vin,
+      image_url: String(entry.url).trim(),
+      // RULE 6, AT THE LAYER THAT WAS BREAKING IT. `is_primary: idx === 0` fabricated the seller's
+      // main-photo choice out of ARRAY ORDER and persisted it in a column no reader can distinguish
+      // from a real choice — so `primary_image_state: 'seller_primary'`, which Phase 5 publishes
+      // precisely to say "the seller chose this one", was untruthful for every listing this route
+      // ever created. Absence is now recorded as absence: with nothing claimed, no row claims, and
+      // the read path reports `first_published` — the honest label for "this is merely the first
+      // photo in display order". The DISPLAYED photo is unchanged, because the projection sorts
+      // primary-claimants first and then by `display_order`, and image 0 still carries
+      // `display_order: 0`; only the LABEL on it stops lying.
+      is_primary: entry.claimsPrimary,
+      // Dense over the PUBLISHABLE set, so a refused URL leaves no gap in the running order.
+      display_order: idx,
+    }));
+
+    // WHAT WAS ACTUALLY STORED, TRACKED. `location_recorded` eleven lines below is the pattern this
+    // follows; it is not a new idiom invented here.
+    let imagesRecorded = false;
+    let imagesRecordedCount = 0;
+    if (imageRecords.length > 0) {
       const { error: imageError } = await supabase.from('listing_images').insert(imageRecords);
       if (imageError) {
+        // Still logged for operators — but the log is no longer the ONLY place the failure exists.
         console.error('⚠️ Failed to save listing images:', imageError.message);
+      } else {
+        imagesRecorded = true;
+        imagesRecordedCount = imageRecords.length;
       }
     }
 
+    const locationRecorded = hasListingLocation && listingClaimsRecorded;
     res.status(201).json({
       success: true,
       vin,
       publication_status: 'draft',
+      // WHAT WAS ACTUALLY RECORDED, STATED. A submitted location that could not be stored reports
+      // `location_recorded: false` here, so the caller learns it at the moment it happened instead
+      // of discovering it later as a blank card — the silent discard is what this phase closes.
+      location_recorded: locationRecorded,
+      location_visibility: locationRecorded ? listingVisibility : null,
+      // AND THE SAME FOR THE PHOTOS. A failed `listing_images` insert was console.error'd and the
+      // route returned `success: true` anyway — measured on the shipped handler: zero rows stored,
+      // 201, and not one key in the body mentioning photographs. The seller was told their listing
+      // was saved and reasonably understood that to include the pictures they had just uploaded.
+      //
+      // Four separate facts, none derivable from another, which is why there are four keys and not
+      // one summary:
+      //   `images_recorded`             did ANY image reach the table. False when none were
+      //                                 submitted and false when the insert failed — both are
+      //                                 truthfully "we recorded no photos", exactly as
+      //                                 `location_recorded` treats the same pair.
+      //   `images_recorded_count`       how many rows were written, so "I sent 5, you stored 1" is
+      //                                 legible to the caller at the moment it happens.
+      //   `images_unpublishable_count`  how many submitted values this contract will not publish.
+      //                                 Without it a refused URL is a silent discard, which is the
+      //                                 defect one layer down.
+      //   `images_primary_recorded`     whether a seller-EXPRESSED primacy actually reached a stored
+      //                                 row. A seller who chose a main photo whose URL was then
+      //                                 refused must not be left believing the choice took effect,
+      //                                 and no other key here can tell them.
+      images_recorded: imagesRecorded,
+      images_recorded_count: imagesRecordedCount,
+      images_unpublishable_count: imagesUnpublishableCount,
+      images_primary_recorded: imagesRecorded && imageRecords.some((record) => record.is_primary === true),
       message: 'Vehicle saved as draft. Upload ownership documents to advance toward publication.',
     });
   } catch (error) {
@@ -1786,7 +2748,22 @@ app.get('/api/vehicles/me', authorizeRole(['owner', 'dealer', 'admin']), async (
       .eq('owner_id', req.userContext.id)
 
     if (error) throw error
-    res.json(data || [])
+    // An owner is shown their vehicle's trust position through the same authority as everyone else.
+    // The raw column here is what the owner dashboard rendered as "Trust Index %", which is the
+    // unattributable number in its most persuasive form: shown to the person who will repeat it.
+    const withTrust = await withCanonicalTrust(data)
+    // Garage counts come from real reads, so My Garage stops publishing `|| 0` against columns that
+    // do not exist. `null` means "not read", and the surface must say so in words.
+    const counts = await ownerGarageCounts(withTrust.map((vehicle) => vehicle.vin))
+    // The owner's own photographs, from the same table and the same projection the public listing
+    // uses. Without this the owner list surfaces have no media field to read at all and every card
+    // falls back to the "Image unavailable" placeholder — see ownerListingMedia.
+    const media = await ownerListingMedia(withTrust.map((vehicle) => vehicle.vin))
+    res.json(withTrust.map((vehicle) => ({
+      ...vehicle,
+      counts: counts.get(vehicle.vin) ?? null,
+      listing_media: media.get(vehicle.vin) ?? toListingMediaBlock(null),
+    })))
   } catch (error) {
     console.error('Error fetching owned vehicles:', error)
     res.status(500).json({ error: error.message })
@@ -1804,7 +2781,9 @@ app.get('/api/vehicles/saved', authorizeRole(['owner', 'dealer', 'admin']), asyn
       .eq('user_id', req.userContext.id)
 
     if (error) throw error
-    res.json(data.map(sv => sv.vehicles))
+    // Saved cards render a trust figure like any other listing, so they get the canonical
+    // projection too — the embedded row's stored trust_score is never published.
+    res.json(await withCanonicalTrust((data || []).map(sv => sv.vehicles)))
   } catch (error) {
     console.error('Error fetching saved vehicles:', error)
     res.status(500).json({ error: error.message })

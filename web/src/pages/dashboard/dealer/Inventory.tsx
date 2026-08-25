@@ -9,6 +9,7 @@ import { Link } from 'react-router-dom'
 import { toast } from 'sonner'
 import { useCarUpApi } from '@/hooks/useCarUpApi'
 import { PUBLICATION_BADGE } from '@/lib/publicationStatus'
+import { describePublicationRefusal } from '@/lib/publicationRefusal'
 import type { Vehicle } from '@/types'
 
 const STATUS_COLORS: Record<string, string> = {
@@ -33,14 +34,7 @@ export default function Inventory() {
       setInventory(prev => prev.map(v => v.vin === vin ? { ...v, publication_status: result.publication_status } : v))
       toast.success(currentlyPublished ? 'Listing unpublished.' : 'Listing published to the marketplace.')
     } catch (e: unknown) {
-      const err = e as { data?: { blocking_gaps?: Array<{ label?: string; requirement?: string } | string> }; message?: string }
-      const gaps = err?.data?.blocking_gaps
-      if (Array.isArray(gaps) && gaps.length) {
-        const names = gaps.map(g => (typeof g === 'string' ? g : g.label || g.requirement || 'requirement')).slice(0, 3).join(', ')
-        toast.error(`Not publishable yet. Missing: ${names}${gaps.length > 3 ? '…' : ''}`)
-      } else {
-        toast.error(err?.message || 'Could not update publication status.')
-      }
+      toast.error(describePublicationRefusal(e))
     } finally {
       setPublishingVin(null)
     }

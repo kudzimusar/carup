@@ -4,6 +4,27 @@ import { dispatchAutomationWebhook } from '../eventBus/automationWebhookService.
 import { logger } from '../../utils/logger.js';
 import { metricsHub } from '../metrics.js';
 
+/**
+ * The stamp columns on `vehicles` that ONLY canonicalTrustService.refreshCanonicalTrust() may set
+ * (INV-TRUST-2). Any other writer that touches `trust_score` must clear all six in the SAME update.
+ *
+ * Why nulling them is load-bearing rather than tidy: the stamp is what makes a cached score
+ * publishable. A penalty write that changes the number and leaves the stamp alone inherits the
+ * version, band, confidence and evidence basis of the score it just replaced, so the canonical read
+ * path classifies the row `fresh` and publishes the penalised number as `evaluated` — attributed to
+ * rules that never saw it, and described by a band that belongs to the score before the penalty.
+ * Cleared, the row classifies `unversioned` and is refused, which is the honest state for a score
+ * no versioned calculation produced.
+ */
+const UNSTAMPED_TRUST_CACHE = Object.freeze({
+  trust_calculation_version: null,
+  trust_evaluated_at: null,
+  trust_band: null,
+  trust_confidence: null,
+  trust_known_limitations: null,
+  trust_evidence_basis: null,
+});
+
 export class TrustEnforcementEngine {
   /**
    * Compares extracted OCR fields against the primary registry record to detect spoofing
@@ -71,10 +92,12 @@ export class TrustEnforcementEngine {
       metricsHub.recordTrustMismatch();
       metricsHub.recordTrustRecalculation();
 
-      // Update vehicle trust score
+      // Update vehicle trust score. Only refreshCanonicalTrust() may STAMP a score, so this write
+      // clears the stamp columns it does not own: a penalty that kept the previous refresh's
+      // calculation_version would be published as a canonical `evaluated` score.
       await supabase
         .from('vehicles')
-        .update({ trust_score: newScore })
+        .update({ trust_score: newScore, ...UNSTAMPED_TRUST_CACHE })
         .eq('vin', vin);
 
       // Write into trust history log
@@ -155,7 +178,12 @@ export class TrustEnforcementEngine {
 
           metricsHub.recordTrustRecalculation();
 
-          await supabase.from('vehicles').update({ trust_score: finalScore }).eq('vin', v.vin);
+          // Same rule as above: only refreshCanonicalTrust() may STAMP a score, so this
+          // propagated penalty nulls the stamp columns rather than inheriting the last refresh's.
+          await supabase
+            .from('vehicles')
+            .update({ trust_score: finalScore, ...UNSTAMPED_TRUST_CACHE })
+            .eq('vin', v.vin);
 
           await supabase.from('trust_score_history').insert({
             entity_type: 'VEHICLE',

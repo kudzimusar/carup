@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { extractApiErrorMessage, resolveApiBaseUrl, DEFAULT_PRODUCTION_API_BASE_URL } from './apiClient'
+import { extractApiErrorMessage, resolveApiBaseUrl, DEFAULT_PRODUCTION_API_BASE_URL, DEFAULT_STAGING_API_BASE_URL } from './apiClient'
 import { getErrorMessage } from './errorMessage'
 import { withMockFallback } from '../pages/Marketplace'
 
@@ -14,8 +14,21 @@ describe('resolveApiBaseUrl — which backend the frontend targets', () => {
   it('uses same-origin /api on localhost', () => {
     expect(resolveApiBaseUrl(undefined, 'localhost')).toBe('/api')
   })
-  it('falls back to the PRODUCTION backend when VITE_API_URL is unset on a non-localhost host (the staging trap)', () => {
-    expect(resolveApiBaseUrl(undefined, 'carup-staging-git-feature.vercel.app')).toBe(DEFAULT_PRODUCTION_API_BASE_URL)
+  // The "staging trap" is closed for the STABLE aliases: an unset VITE_API_URL there resolves to the
+  // STAGING backend, not production, so staging can never silently authenticate against production.
+  it('routes a stable staging host to the staging backend when VITE_API_URL is unset (staging trap closed)', () => {
+    expect(resolveApiBaseUrl(undefined, 'carup-staging.vercel.app')).toBe(DEFAULT_STAGING_API_BASE_URL)
+  })
+  // Issue #164 Phase 8, Cluster I. A per-branch PREVIEW is a different case and used to share the line
+  // above: it inherited the stable staging backend, which serves `main`. That is how the first Phase 8
+  // physical UAT came to test the PR #165 frontend against `main`'s API. A preview now fails closed.
+  // See apiClient.test.ts for the full pairing contract.
+  it('does NOT route a per-branch preview to the stable staging backend', () => {
+    expect(resolveApiBaseUrl(undefined, 'carup-staging-git-feature.vercel.app'))
+      .not.toBe(DEFAULT_STAGING_API_BASE_URL)
+  })
+  it('still falls back to PRODUCTION for an unrecognised host with no override', () => {
+    expect(resolveApiBaseUrl(undefined, 'carup.vercel.app')).toBe(DEFAULT_PRODUCTION_API_BASE_URL)
   })
 })
 

@@ -75,7 +75,7 @@ class MemoryMarketplaceClient {
   constructor() {
     this.tables = {
       marketplace_inquiries: [],
-      vehicles: [{ vin: 'listing-42', owner_id: 'seller-1', tenant_id: 'tenant-1', status: 'active' }],
+      vehicles: [{ vin: 'listing-42', owner_id: 'seller-1', current_seller_id: 'seller-1', tenant_id: 'tenant-1', status: 'active' }],
       users: [{ id: INVITEE, name: 'Invitee Buyer', email: 'invitee@example.test', phone: '+263771000001' }],
     };
   }

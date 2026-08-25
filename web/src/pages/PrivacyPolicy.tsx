@@ -98,7 +98,7 @@ export default function PrivacyPolicy() {
         'intro',
         'collect',
         'use',
-        'blockchain',
+        'audit-ledger',
         'sharing',
         'rights',
         'retention',
@@ -168,7 +168,7 @@ export default function PrivacyPolicy() {
     { id: 'intro', label: '1. Preamble & Framework', icon: Shield },
     { id: 'collect', label: '2. Information We Collect', icon: Database },
     { id: 'use', label: '3. How We Use Your Data', icon: Activity },
-    { id: 'blockchain', label: '4. Audit Ledger & Public Registry', icon: Globe },
+    { id: 'audit-ledger', label: '4. CarUp Audit Ledger', icon: Globe },
     { id: 'sharing', label: '5. Sharing & Third-Parties', icon: Share2 },
     { id: 'rights', label: '6. Your Rights & Controls', icon: Lock },
     { id: 'retention', label: '7. Data Retention & Deletion', icon: Info },
@@ -501,37 +501,37 @@ export default function PrivacyPolicy() {
             <Separator className="bg-white/5" />
 
             {/* 4. AUDIT LEDGER & PUBLIC REGISTRY DISCLOSURE */}
-            <section id="blockchain" className="scroll-mt-28 space-y-6">
+            <section id="audit-ledger" className="scroll-mt-28 space-y-6">
               <div className="flex items-center gap-3">
                 <div className="p-2 rounded-lg bg-orange-500/10 border border-orange-500/20 text-orange-500">
                   <Globe className="w-5 h-5" />
                 </div>
                 <div>
                   <h2 className="text-xl md:text-2xl font-extrabold text-white tracking-tight">
-                    4. Audit Ledger &amp; Public Registry Disclosure
+                    4. CarUp Audit Ledger Disclosure
                   </h2>
-                  <p className="text-xs text-gray-500 font-mono">SECTION_ID: BLOCKCHAIN_TRUST_LEDGER</p>
+                  <p className="text-xs text-gray-500 font-mono">SECTION_ID: CARUP_AUDIT_LEDGER</p>
                 </div>
               </div>
 
               <div className="prose prose-invert max-w-none text-xs md:text-sm text-gray-400 leading-relaxed space-y-4">
                 <p>
-                  To restore total confidence in the secondary Zimbabwean automotive market, CarUp utilizes an immutable ledger protocol. It is critical to understand what is permanently committed to this public record, and how your personal data remains isolated.
+                  CarUp records part and odometer history in a tamper-evident audit ledger that CarUp operates. It is not a distributed ledger and it is not published to any external or public network. What follows is what is committed to that record, and how your personal data stays isolated from it.
                 </p>
 
-                {/* Highly structured block for Blockchain details */}
+                {/* Audit-ledger detail. CarUp operates this record internally. */}
                 <div className="bg-[hsl(222,47%,10%)] border border-white/5 rounded-xl overflow-hidden my-6">
                   <div className="bg-gradient-to-r from-orange-500/20 to-amber-500/10 p-4 border-b border-white/5 flex items-center justify-between">
                     <span className="font-bold text-xs uppercase tracking-wide text-orange-400 flex items-center gap-1.5">
                       <Fingerprint className="w-4 h-4 shrink-0" />
-                      Cryptographic Ledger Partitioning
+                      Audit-Ledger Partitioning
                     </span>
                     <span className="text-[10px] text-orange-300 font-mono">SHA-256 SECURED</span>
                   </div>
                   <div className="grid md:grid-cols-2 divide-y md:divide-y-0 md:divide-x divide-white/5">
                     <div className="p-5 space-y-3">
                       <h5 className="font-semibold text-xs text-emerald-400 flex items-center gap-1.5">
-                        <Check className="w-3.5 h-3.5 shrink-0" /> Public Ledger (Immutably Hashed)
+                        <Check className="w-3.5 h-3.5 shrink-0" /> Marketplace-Visible Record (Hashed, Append-Only)
                       </h5>
                       <ul className="text-xs text-gray-400 space-y-2 list-none">
                         <li className="flex items-start gap-1.5">
@@ -809,10 +809,10 @@ export default function PrivacyPolicy() {
                   <div className="flex items-start justify-between gap-6">
                     <div className="space-y-1">
                       <label className="text-xs md:text-sm font-semibold text-gray-200 block">
-                        PartSentry Blockchain Hashing
+                        PartSentry Audit-Ledger Hashing
                       </label>
                       <span className="text-[11px] text-gray-500 leading-relaxed block max-w-xl">
-                        Allows historical part updates and odometer metrics to be cryptographically hashed onto the public registry ledger. Disabling this removes real-time marketplace trust verification flags.
+                        Allows historical part updates and odometer metrics to be recorded as tamper-evident hashes in the CarUp audit ledger — an internal, CarUp-operated record, not an external or public network. Disabling this removes real-time marketplace trust verification flags.
                       </span>
                     </div>
                     <Switch

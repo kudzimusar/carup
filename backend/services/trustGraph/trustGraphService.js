@@ -6,11 +6,12 @@ export async function getVehicleTimeline(vin) {
   // Fetch all timeline events in parallel from Supabase
   const [
     ownershipResult, serviceResult, insuranceResult, escrowResult,
-    zimraResult, cvrResult, vidResult, cidResult, zinaraResult, plateHistoryResult
+    zimraResult, cvrResult, vidResult, cidResult, zinaraResult, plateHistoryResult,
+    workOrderResult
   ] = await Promise.all([
     supabase.from('vehicle_ownership_history').select('id, transfer_date, previous_owner_id, new_owner_id').eq('vin', vin),
     supabase.from('partsentry_logs').select('id, timestamp, action_type, part_name, mechanic_id, mileage, description').eq('vin', vin),
-    supabase.from('insurance_records').select('policy_number, start_date, insurer_id, premium_amount, risk_score').eq('vin', vin),
+    supabase.from('insurance_records').select('policy_number, start_date, insurer_id, premium_amount, risk_score, active').eq('vin', vin),
     supabase.from('safepay_escrows').select('id, created_at, status, buyer_id, amount, current_stage').eq('vin', vin),
     supabase.from('zimra_declarations').select('*').eq('vin', vin),
     supabase.from('cvr_ownership_records').select('*').eq('vin', vin),
@@ -18,6 +19,15 @@ export async function getVehicleTimeline(vin) {
     supabase.from('cid_clearance_records').select('*').eq('vin', vin),
     supabase.from('zinara_licensing_records').select('*').eq('vin', vin),
     supabase.from('vehicle_plate_history').select('*').eq('vin', vin),
+    // Mechanic-signed service records. The timeline previously carried NONE, so its only
+    // `event_source: 'service'` events were PartSentry part logs — which is how one part log came to
+    // be published as both "1 service" and "1 part". Owner surfaces that separate the two need a real
+    // source for each, and `/api/vehicles/me` counts these same work orders.
+    // `description`, `issue_description`, `customer_name` and `customer_id` are DELIBERATELY not
+    // selected. They are user-entered free text and customer PII, and this timeline is published to
+    // anonymous callers by VIN — a complaint, a name or a phone number typed into a work order would
+    // become publicly readable. Only the controlled `status` and the recorded cost travel.
+    supabase.from('mechanic_work_orders').select('id, vin, created_at, status, mechanic_id, total_cost').eq('vin', vin),
   ]);
 
   const events = [];
@@ -34,7 +44,24 @@ export async function getVehicleTimeline(vin) {
     });
   }
 
-  // Service logs
+  // Mechanic-signed service records. Emitted under the SAME `event_source` as PartSentry (both are
+  // service-shaped events on the vehicle's timeline) but with their own `workorder:` id prefix, which
+  // is what lets a consumer tell a service from a part instead of counting one row as both.
+  // A missing table on an older instance yields no rows rather than an error.
+  for (const e of (workOrderResult?.data || [])) {
+    events.push({
+      event_source: 'service',
+      id: `workorder:${e.id}`,
+      timestamp: e.created_at,
+      label: e.status ? `Service — ${e.status}` : 'Service',
+      desc: 'Mechanic-signed service record',
+      // `cost` is the RECORDED amount. Omitting it made VehicleProfile's cost reducer treat the
+      // missing value as zero, so a vehicle with paid service work displayed as $0.
+      details: { mechanic: e.mechanic_id, cost: e.total_cost ?? null, notes: null },
+    });
+  }
+
+  // PartSentry part logs
   for (const e of (serviceResult.data || [])) {
     events.push({
       event_source: 'service',
@@ -46,7 +73,18 @@ export async function getVehicleTimeline(vin) {
     });
   }
 
-  // Insurance records
+  // Insurance records.
+  //
+  // `active` is carried because it is the ONLY governed fact that can support an "Insurance Active"
+  // claim on an owner surface. Without it a consumer can see that a policy row exists but not
+  // whether it is in force, and the owner vehicle page was rendering an unconditional green
+  // "Insurance Active" badge on vehicles with no policy at all. It is the same column
+  // `ownerGarageCounts` filters on (`insurance_records.active = true`), so both surfaces answer from
+  // one definition rather than two.
+  //
+  // Strictly `=== true`: a null or missing column is NOT active. An unauthorised caller never sees
+  // this — `details` is allow-listed for the public audience and `active` is deliberately not on
+  // that list.
   for (const e of (insuranceResult.data || [])) {
     events.push({
       event_source: 'insurance',
@@ -54,7 +92,7 @@ export async function getVehicleTimeline(vin) {
       timestamp: e.start_date,
       label: 'Insurance Insured',
       desc: 'Policy premium set',
-      details: { insurer: e.insurer_id, premium: e.premium_amount, risk: e.risk_score }
+      details: { insurer: e.insurer_id, premium: e.premium_amount, risk: e.risk_score, active: e.active === true }
     });
   }
 

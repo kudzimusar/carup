@@ -3,15 +3,23 @@ import crypto from 'crypto';
 import { supabase } from '../db/supabase.js';
 import { DatabaseError, ValidationError, ForbiddenError, NotFoundError } from '../utils/errors.js';
 import { logAuditEvent } from '../services/auditLogger.js';
+// ONE public-evidence authority. #175 shipped a deliberately self-contained
+// `publicEvidenceProjection.js` so a security hotfix would not depend on this unmerged programme;
+// with both landed, keeping two allow-lists for the same rows is how they drift. Its invariants —
+// the withheld-private state, `source_id`, `isPrivateEvidenceArtifact` and `publicAiSummary` — now
+// live in the canonical module, and that module is retired.
+//
+// `isPrivateEvidenceFallbackAllowed` (not the looser `isUserIdFallbackAllowed`) is retained: an
+// environment inference must not authorise a private-document capability.
 import { authorizeRole, isPrivateEvidenceFallbackAllowed } from '../middleware/authMiddleware.js';
 import {
-  toPublicEvidenceRow,
-  toPublicTimelineEventRow,
+  toPublicEvidence,
+  toPublicTimelineEvent,
   isPrivateEvidenceArtifact,
   publicAiSummary,
-} from '../utils/publicEvidenceProjection.js';
+} from '../utils/publicVehicleProjection.js';
 import { uploadToStorage, generateSecureReadUrl } from '../services/storage/storageService.js';
-import { calculateVehicleTrustScore } from '../services/trustGraph/trustGraphService.js';
+import { refreshCanonicalTrust } from '../services/trustDecision/canonicalTrustService.js';
 import {
   buildAiReadyMetadata,
   canUploadEvidence,
@@ -166,10 +174,26 @@ router.post('/api/vehicles/:vin/publish', authorizeRole(['owner', 'dealer', 'adm
 
   const completeness = await evaluateCompleteness(vin);
   if (!completeness.is_publishable) {
+    // The gate itself is unchanged — this stays a 400 and the vehicle stays draft.
+    //
+    // What changed is DISCLOSURE. `evaluateCompleteness` splits unmet blocking requirements into two
+    // disjoint buckets: `blocking_gaps` (status 'missing') and `pending_gaps` (status
+    // 'pending_review'). Golden B's only unmet requirement is an ownership document that HAS been
+    // uploaded and is awaiting review, so it lands in `pending_gaps` and `blocking_gaps` is `[]`.
+    // Publishing only the empty array left the owner with a refusal that named nothing — the
+    // physical UAT saw exactly the generic sentence below and no requirement at all.
+    //
+    // Both buckets are published, plus the blocking requirements with their statuses, so a client can
+    // distinguish "you have not supplied this" from "we have not finished reviewing it". Only labels
+    // and statuses travel; no reviewer identity, file path or storage locator.
     return res.status(400).json({
       error: 'Listing is not publishable yet. Resolve the blocking requirements first.',
       is_publishable: false,
       blocking_gaps: completeness.blocking_gaps ?? [],
+      pending_gaps: completeness.pending_gaps ?? [],
+      requirements: (completeness.requirements ?? [])
+        .filter((r) => r.blocking)
+        .map((r) => ({ key: r.key, label: r.label, status: r.status, blocking: true })),
       completeness_percent: completeness.completeness_percent ?? null,
     });
   }
@@ -594,17 +618,20 @@ router.get('/api/vehicles/:vin/evidence', asyncHandler(async (req, res) => {
     throw new DatabaseError(fetchErr.message);
   }
 
-  // RESPONSE — the raw row never leaves, and a signed URL is a capability, not a field.
+  // RESPONSE — the raw row never leaves this route, and a signed URL is a capability, not a field.
   //
-  // `select('*')` above returns all 54 columns. Returning that verbatim published `plate_number`,
-  // `normalized_plate_number`, `chassis_number` and `engine_number` — registry identifiers — plus
-  // `uploaded_by`, `verified_by`, `tenant_id`, `verification_notes`, `file_path` and
-  // `storage_bucket`. An unauthorised caller now receives the allow-listed projection instead.
+  // `select('*')` above returns all 54 columns. Returning that verbatim published
+  // `plate_number`, `normalized_plate_number`, `chassis_number` and `engine_number` — the exact
+  // identifiers the passport withholds as "Not shown publicly" — alongside `uploaded_by`,
+  // `verified_by`, `tenant_id`, `verification_notes`, `file_path` and `storage_bucket`. An
+  // unauthorised caller now receives the governed `PUBLIC_EVIDENCE_FIELDS` projection instead,
+  // the same allow-list the passport already uses, so the two surfaces cannot drift apart.
   //
   // The signed URL is minted ONLY for a reader this route actually authorised. It was previously
-  // generated for every `ocr-documents` row regardless of the caller, which handed anyone holding a
-  // VIN — a number printed on every windscreen — a one-hour bearer token to a registration
-  // document, police clearance or insurance certificate.
+  // generated for every `ocr-documents` row regardless of the caller, which handed anyone holding
+  // a VIN a one-hour bearer token to a registration document, police clearance or insurance
+  // certificate. `visibility_level` is a reviewer's metadata label and is NOT an access decision:
+  // a row mislabelled `public_safe` must still not export a private file.
   const enrichedEvidence = [];
   const hasAdminAccess = ['admin', 'government', 'reviewer'].includes(activeUserRole);
   for (const item of (evidence || [])) {
@@ -637,7 +664,7 @@ router.get('/api/vehicles/:vin/evidence', asyncHandler(async (req, res) => {
       continue;
     }
 
-    const projected = toPublicEvidenceRow(enriched);
+    const projected = toPublicEvidence(enriched);
     if (aiSummary) projected.metadata = { ai_public_summary: aiSummary };
     enrichedEvidence.push(projected);
   }
@@ -684,7 +711,7 @@ router.get('/api/vehicles/:vin/evidence/timeline', asyncHandler(async (req, res)
   const publicEvidence = (evidence || []).map((item) => {
     const enriched = normalizeEvidenceRecord(item);
     const aiSummary = publicAiSummary(item);
-    const projected = toPublicEvidenceRow(enriched);
+    const projected = toPublicEvidence(enriched);
     if (aiSummary) projected.metadata = { ai_public_summary: aiSummary };
     return projected;
   });
@@ -705,7 +732,7 @@ router.get('/api/vehicles/:vin/evidence/timeline', asyncHandler(async (req, res)
     event.metadata = aiSummary ? { ai_public_summary: aiSummary } : {};
     if (isPrivateEvidenceArtifact(item)) event.file_url = null;
 
-    return toPublicTimelineEventRow(event);
+    return toPublicTimelineEvent(event);
   });
 
   res.json({ vin, timeline, evidence: publicEvidence });
@@ -782,8 +809,17 @@ router.patch('/api/vehicles/:vin/evidence/:evidenceId/verify', authorizeRole(['a
     throw new DatabaseError(updateErr.message);
   }
 
-  // Recalculate trust score
-  await calculateVehicleTrustScore(vin);
+  // Evidence review is what CHANGES the governed facts, so it is where the canonical position is
+  // re-materialized. This was calculateVehicleTrustScore — the deprecated 70-baseline engine and an
+  // unversioned writer of the cache column. refreshCanonicalTrust is the single canonical writer;
+  // it stamps the score with the rules that produced it, so the surfaces can publish it at all.
+  // A refresh failure must not fail the review itself: the evidence decision is the durable fact,
+  // the cache is derived and can be re-materialized.
+  try {
+    await refreshCanonicalTrust(vin);
+  } catch (trustError) {
+    console.error(`[issue-164] canonical trust refresh failed for ${vin}:`, trustError.message);
+  }
 
   // Audit Log
   try {
@@ -868,8 +904,17 @@ router.patch('/api/vehicles/:vin/evidence/:evidenceId/reject', authorizeRole(['a
     throw new DatabaseError(updateErr.message);
   }
 
-  // Recalculate trust score
-  await calculateVehicleTrustScore(vin);
+  // Evidence review is what CHANGES the governed facts, so it is where the canonical position is
+  // re-materialized. This was calculateVehicleTrustScore — the deprecated 70-baseline engine and an
+  // unversioned writer of the cache column. refreshCanonicalTrust is the single canonical writer;
+  // it stamps the score with the rules that produced it, so the surfaces can publish it at all.
+  // A refresh failure must not fail the review itself: the evidence decision is the durable fact,
+  // the cache is derived and can be re-materialized.
+  try {
+    await refreshCanonicalTrust(vin);
+  } catch (trustError) {
+    console.error(`[issue-164] canonical trust refresh failed for ${vin}:`, trustError.message);
+  }
 
   // Audit Log
   try {

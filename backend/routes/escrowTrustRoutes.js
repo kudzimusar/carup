@@ -1,89 +1,256 @@
 /**
- * Trust-gated Escrow routes — Workstream F.
- *
- *   POST /api/vehicles/:vin/escrow                 request escrow (buyer); runs gates
- *   GET  /api/vehicles/:vin/escrow                 list sessions for a vehicle
- *   GET  /api/escrow/:id                            session + append-only history
- *   PATCH /api/escrow/:id/transition               advance the state machine
- *   POST /api/escrow/webhook                        sandbox payment webhook (signed)
+ * Issue #164 Phase 6 — Marketplace transaction / escrow routes.
+ * Clients request actions; they never submit canonical transaction/payment states.
  */
 import express from 'express';
-import { authorizeRole } from '../middleware/authMiddleware.js';
-import { requestEscrow, transitionEscrow, getSession, listSessionsForVin, ingestEscrowWebhook } from '../services/escrow/escrowTrustService.js';
-import { getTrustDecision } from '../services/trustDecision/trustDecisionService.js';
+import { authorizeRole, authorizeSessionRole } from '../middleware/authMiddleware.js';
+import {
+  getSession,
+  listSessionsForVin,
+  listSessionsForActor,
+  transitionEscrow,
+  ingestEscrowWebhook,
+} from '../services/escrow/escrowTrustService.js';
+import { reserveVehicle } from '../services/reservation/reservationService.js';
+import {
+  recomputeMarketplaceEscrowGateContext,
+  requestMarketplaceEscrow,
+  toPublicMarketplaceEscrowSession,
+} from '../services/transaction/marketplaceTransactionAuthority.js';
+import {
+  evaluateMarketplaceDepositEligibility,
+  createMarketplacePaymentIntent,
+  reconcileMarketplacePayment,
+  captureMarketplaceSandboxDeposit,
+  releaseMarketplacePayment,
+  refundMarketplacePayment,
+} from '../services/transaction/marketplacePaymentService.js';
+import { cancelMarketplacePayment } from '../services/transaction/marketplacePaymentCancellationService.js';
+import { recoverMarketplaceSettlement } from '../services/transaction/marketplaceSettlementRecoveryService.js';
+import { isMarketplaceSandboxRuntimeAllowed } from '../services/transaction/marketplacePaymentProviderSelector.js';
 
 const router = express.Router();
 
-async function gateContextFor(vin, extra = {}) {
-  try {
-    const d = await getTrustDecision(vin);
-    return {
-      identity_status: d.dimensions.identity.status,
-      fraud_block: d.dimensions.fraud_risk.status === 'high',
-      publication_status: d.dimensions.publication_eligibility.value,
-      ...extra,
-    };
-  } catch { return { identity_status: 'incomplete', ...extra }; }
+function actorFrom(req) {
+  return {
+    id: req.userContext?.id || req.userContext?.userId || null,
+    role: req.userContext?.effectiveRole || req.userContext?.role || null,
+  };
 }
+
+async function loadAuthorizedSession(req) {
+  const actor = actorFrom(req);
+  const current = await getSession(req.params.id, actor);
+  return { actor, current };
+}
+
+/**
+ * Compatibility URL, canonical authority.
+ *
+ * Older web builds send `{ duration: 7 }`; this handler deliberately never reads req.body. The
+ * reservation duration, seller, inquiry, Trust eligibility and transaction economics are all
+ * resolved by reservationService + the atomic PostgreSQL RPC. Because escrowTrustRouter is mounted
+ * before server.js's historical inline handler, this route terminates the request first and the
+ * authority-shaped legacy payload cannot reach a writer.
+ */
+router.post('/api/vehicles/:vin/reserve', authorizeRole(['buyer', 'owner', 'dealer', 'admin']), async (req, res, next) => {
+  try {
+    const result = await reserveVehicle(req.params.vin, actorFrom(req).id);
+    return res.status(result.idempotentReplay ? 200 : 201).json(result);
+  } catch (err) { return next(err); }
+});
 
 router.post('/api/vehicles/:vin/escrow', authorizeRole(['buyer', 'owner', 'dealer', 'admin']), async (req, res, next) => {
   try {
-    const ctx = await gateContextFor(req.params.vin, {
-      participant_authorized: req.body?.participant_authorized !== false,
-      required_documents_present: req.body?.required_documents_present !== false,
-      listing_snapshot_changed: req.body?.listing_snapshot_changed === true,
-      seller_suspended: req.body?.seller_suspended === true,
-    });
-    const session = await requestEscrow(req.params.vin, {
-      buyerId: req.body?.buyer_id || req.userContext?.userId,
-      sellerId: req.body?.seller_id,
-      gateContext: ctx,
-      idempotencyKey: req.headers['idempotency-key'] || req.body?.idempotency_key,
-      listingSnapshotHash: req.body?.listing_snapshot_hash,
-    }, { id: req.userContext?.userId, role: req.userContext?.role });
+    const session = await requestMarketplaceEscrow(req.params.vin, { actor: actorFrom(req) });
     res.status(201).json({ session });
-  } catch (err) {
-    if (/Vehicle not found/.test(err.message)) return res.status(404).json({ error: err.message });
-    next(err);
-  }
+  } catch (err) { next(err); }
 });
 
 router.get('/api/vehicles/:vin/escrow', authorizeRole(['buyer', 'owner', 'dealer', 'admin', 'reviewer']), async (req, res, next) => {
-  try { res.json({ sessions: await listSessionsForVin(req.params.vin) }); } catch (err) { next(err); }
+  try {
+    const sessions = await listSessionsForVin(req.params.vin, actorFrom(req));
+    res.json({ sessions: sessions.map(toPublicMarketplaceEscrowSession) });
+  } catch (err) { next(err); }
+});
+
+router.get('/api/escrow', authorizeRole(), async (req, res, next) => {
+  try {
+    const sessions = await listSessionsForActor(actorFrom(req));
+    return res.json({ sessions: sessions.map(toPublicMarketplaceEscrowSession) });
+  } catch (err) { return next(err); }
 });
 
 router.get('/api/escrow/:id', authorizeRole(['buyer', 'owner', 'dealer', 'admin', 'reviewer']), async (req, res, next) => {
   try {
-    const session = await getSession(req.params.id);
+    const session = await getSession(req.params.id, actorFrom(req));
     if (!session) return res.status(404).json({ error: 'escrow session not found' });
-    res.json({ session });
-  } catch (err) { next(err); }
+    const publicSession = toPublicMarketplaceEscrowSession(session);
+    publicSession.events = (session.events || []).map((event) => ({
+      from_status: event.from_status || null,
+      to_status: event.to_status || null,
+      reason: event.reason || null,
+      created_at: event.created_at || null,
+    }));
+    return res.json({ session: publicSession });
+  } catch (err) { return next(err); }
 });
 
-router.patch('/api/escrow/:id/transition', authorizeRole(['buyer', 'owner', 'dealer', 'admin', 'reviewer']), async (req, res, next) => {
+async function performParticipantAction(req, res, next, toStatus, {
+  recheck = false,
+  requireActorParticipant = true,
+} = {}) {
   try {
-    const session = await transitionEscrow(req.params.id, req.body?.to_status, {
-      actor: { id: req.userContext?.userId, role: req.userContext?.role },
-      reason: req.body?.reason,
-      gateContext: req.body?.gate_context,
+    const { actor, current } = await loadAuthorizedSession(req);
+    if (!current) return res.status(404).json({ error: 'escrow session not found' });
+    let gateContext;
+    if (recheck) {
+      const recomputed = await recomputeMarketplaceEscrowGateContext(current, {
+        actor,
+        requireActorParticipant,
+      });
+      gateContext = recomputed.gateContext;
+    }
+    const session = await transitionEscrow(req.params.id, toStatus, {
+      actor,
+      reason: typeof req.body?.reason === 'string' ? req.body.reason.slice(0, 500) : null,
+      gateContext,
     });
-    res.json({ session });
-  } catch (err) {
-    if (/not found/.test(err.message)) return res.status(404).json({ error: err.message });
-    if (/invalid escrow transition|gate failed/.test(err.message)) return res.status(409).json({ error: err.message });
-    next(err);
-  }
+    return res.json({ session: toPublicMarketplaceEscrowSession(session) });
+  } catch (err) { return next(err); }
+}
+
+router.post('/api/escrow/:id/initiate', authorizeRole(['buyer', 'owner', 'dealer', 'admin']), (req, res, next) =>
+  performParticipantAction(req, res, next, 'initiated', { recheck: true }));
+
+/**
+ * Cancellation has two authorities depending on whether provider state exists:
+ * - pre-payment: CarUp can atomically cancel the transaction/reservation itself;
+ * - provider-linked: CarUp asks the already-bound PaymentProvider to cancel, then reconciles the
+ *   provider-confirmed `cancelled` result. A browser never submits `to_status`, provider, or intent.
+ */
+router.post('/api/escrow/:id/cancel', authorizeRole(['buyer', 'owner', 'dealer', 'admin', 'reviewer']), async (req, res, next) => {
+  try {
+    const { actor, current } = await loadAuthorizedSession(req);
+    if (!current) return res.status(404).json({ error: 'escrow session not found' });
+    if (current.payment_intent_id) {
+      const result = await cancelMarketplacePayment(req.params.id, { actor });
+      const refreshed = await getSession(req.params.id, actor);
+      return res.json({
+        session: refreshed ? toPublicMarketplaceEscrowSession(refreshed) : null,
+        payment: result,
+      });
+    }
+    return performParticipantAction(req, res, next, 'cancelled');
+  } catch (err) { return next(err); }
 });
 
-router.post('/api/escrow/webhook', express.json({ verify: (req, _res, buf) => { req.rawBody = buf.toString(); } }), async (req, res, next) => {
+router.post('/api/escrow/:id/dispute', authorizeRole(['buyer', 'owner', 'dealer', 'admin', 'reviewer']), (req, res, next) =>
+  performParticipantAction(req, res, next, 'disputed'));
+router.post('/api/escrow/:id/inspection/start', authorizeRole(['admin', 'reviewer']), (req, res, next) =>
+  performParticipantAction(req, res, next, 'inspection_pending'));
+router.post('/api/escrow/:id/release/approve', authorizeSessionRole(['admin', 'reviewer']), (req, res, next) =>
+  performParticipantAction(req, res, next, 'release_approved', {
+    recheck: true,
+    requireActorParticipant: false,
+  }));
+
+router.post('/api/escrow/:id/deposit/eligibility', authorizeRole(['buyer', 'owner', 'dealer', 'admin']), async (req, res, next) => {
+  try { return res.json(await evaluateMarketplaceDepositEligibility(req.params.id, { actor: actorFrom(req) })); }
+  catch (err) { return next(err); }
+});
+router.post('/api/escrow/:id/payment-intent', authorizeRole(['buyer', 'owner', 'dealer', 'admin']), async (req, res, next) => {
   try {
-    const result = await ingestEscrowWebhook({
-      payloadString: req.rawBody || JSON.stringify(req.body || {}),
-      signature: req.headers['x-signature'], timestamp: req.headers['x-timestamp'],
-      idempotencyKey: req.headers['idempotency-key'], body: req.body,
-    });
-    res.status(result.applied ? 200 : (result.signature_valid ? 202 : 401)).json(result);
-  } catch (err) { next(err); }
+    const result = await createMarketplacePaymentIntent(req.params.id, { actor: actorFrom(req) });
+    return res.status(result.idempotentReplay ? 200 : 201).json(result);
+  } catch (err) { return next(err); }
+});
+
+/**
+ * Synthetic UAT-only provider action. It advances the already-bound durable SafeTrade sandbox from
+ * requires_authorization -> authorized -> captured, then reconciles `funds_held` through the same
+ * canonical provider-state RPC used by all adapters.
+ *
+ * It is intentionally absent in production semantics: production returns 404 before touching the
+ * transaction/provider. The action is buyer-owned end to end: platform/admin roles do not gain a
+ * synthetic payment authorization capability merely for UAT convenience.
+ */
+router.post('/api/escrow/:id/sandbox/capture', authorizeRole(['buyer', 'owner']), async (req, res, next) => {
+  try {
+    if (!isMarketplaceSandboxRuntimeAllowed(process.env)) {
+      return res.status(404).json({
+        error: 'Sandbox UAT payment action is unavailable.',
+        code: 'SANDBOX_UAT_ACTION_UNAVAILABLE',
+      });
+    }
+    const { actor, current } = await loadAuthorizedSession(req);
+    if (!current) return res.status(404).json({ error: 'escrow session not found' });
+    if (current.buyer_id !== actor.id) {
+      return res.status(403).json({ error: 'Only the transaction buyer may authorize the sandbox deposit.' });
+    }
+    return res.json(await captureMarketplaceSandboxDeposit(req.params.id, { actor }));
+  } catch (err) { return next(err); }
+});
+
+router.post('/api/escrow/:id/payment/reconcile', authorizeRole(['buyer', 'owner', 'dealer', 'admin', 'reviewer']), async (req, res, next) => {
+  try { return res.json(await reconcileMarketplacePayment(req.params.id, { actor: actorFrom(req) })); }
+  catch (err) { return next(err); }
+});
+router.post('/api/escrow/:id/release', authorizeSessionRole(['admin', 'reviewer']), async (req, res, next) => {
+  try { return res.json(await releaseMarketplacePayment(req.params.id, { actor: actorFrom(req) })); }
+  catch (err) { return next(err); }
+});
+router.post('/api/escrow/:id/release/recover', authorizeSessionRole(['admin', 'reviewer']), async (req, res, next) => {
+  try { return res.json(await recoverMarketplaceSettlement(req.params.id, { actor: actorFrom(req) })); }
+  catch (err) { return next(err); }
+});
+router.post('/api/escrow/:id/refund', authorizeSessionRole(['admin', 'reviewer']), async (req, res, next) => {
+  try { return res.json(await refundMarketplacePayment(req.params.id, { actor: actorFrom(req) })); }
+  catch (err) { return next(err); }
+});
+
+router.patch('/api/escrow/:id/transition', authorizeRole(['buyer', 'owner', 'dealer', 'admin', 'reviewer']), (_req, res) => {
+  res.status(409).json({ error: 'Direct escrow status transitions are disabled. Request a governed transaction action instead.', code: 'DIRECT_TRANSACTION_STATE_WRITE_DISABLED' });
+});
+router.post('/api/escrow/webhook', express.json({ verify: (req, _res, buf) => { req.rawBody = buf.toString(); } }), async (_req, res) => {
+  const result = await ingestEscrowWebhook();
+  return res.status(410).json(result);
+});
+
+// Compatibility adapter: stale web clients may still POST seller/amount/currency here. Ignore every
+// one of those fields and resolve the transaction/payment entirely from VIN + authenticated actor.
+// This preserves the old URL without preserving its authority.
+router.post('/api/safepay/create', authorizeRole(), async (req, res, next) => {
+  try {
+    const transaction = await requestMarketplaceEscrow(req.body?.vin, { actor: actorFrom(req) });
+    const payment = await createMarketplacePaymentIntent(transaction.transaction_intent_id, { actor: actorFrom(req) });
+    return res.status(payment.idempotentReplay ? 200 : 201).json(payment);
+  } catch (err) { return next(err); }
+});
+
+// Historical clients used `/api/safepay/list`. Preserve only the URL and array response shape: the
+// source of truth is the same participant-scoped `escrow_trust_sessions` projection as `/api/escrow`.
+// No legacy safepay_escrows row, participant email/phone, provider secret, or private id is exposed.
+router.get('/api/safepay/list', authorizeRole(), async (req, res, next) => {
+  try {
+    const sessions = await listSessionsForActor(actorFrom(req));
+    return res.json(sessions.map(toPublicMarketplaceEscrowSession));
+  } catch (err) { return next(err); }
+});
+
+router.post('/api/safepay/:id/update', authorizeRole(), (_req, res) => {
+  res.status(409).json({ error: 'Direct SafePay status updates are disabled. Request a governed transaction action instead.', code: 'LEGACY_SAFEPAY_STATE_WRITE_DISABLED' });
+});
+
+// The historical SafePay webhook carried its own HMAC/fallback-secret authority and wrote legacy
+// status. Provider verification/reconciliation now lives exclusively in marketplacePaymentService.
+// Keep this stale URL fail-closed so old integrations cannot silently hit the inline server handler.
+router.post('/api/safepay/webhook', (_req, res) => {
+  res.status(410).json({
+    applied: false,
+    reason: 'legacy_safepay_webhook_retired_use_payment_provider',
+    code: 'LEGACY_SAFEPAY_WEBHOOK_DISABLED',
+  });
 });
 
 export default router;

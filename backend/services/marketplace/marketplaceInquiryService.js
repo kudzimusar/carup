@@ -1,12 +1,12 @@
 /**
  * Marketplace inquiry service — the single buyer-intent capture path.
  *
- * Every buyer action (purchase interest, quote, inspection, import/container interest, diaspora request)
- * becomes a structured marketplace_inquiries row. Captures referral attribution and emits a referral
- * event (best-effort) but NEVER mints rewards. Diaspora/import/container inquiries store ONLY the
- * inquiry intent + contact — never shipment/container sensitive data (honors PR #58 boundary).
+ * Every buyer action becomes a structured marketplace_inquiries row. Vehicle-bound inquiries route
+ * to the same governed `current_seller_id` relationship used by Issue #164 Phase 4/6 transaction
+ * authority. Ownership (`owner_id`) is deliberately not a seller fallback: an owner may delegate a
+ * sale, and a vehicle with no current seller must not silently route buyer intent to somebody else.
  *
- * Privacy: public/guest responses expose NO guest contact, seller id, or risk metadata. Seller/admin
+ * Privacy: public/guest responses expose no guest contact, seller id, or risk metadata. Seller/admin
  * projections expose only what the authorized role needs to follow up.
  */
 
@@ -29,7 +29,6 @@ const MAX_NAME_LEN = 160;
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const PHONE_RE = /^[+]?[0-9 ()-]{6,20}$/;
 
-/** Vehicle-bound inquiry types whose listing_id must resolve to a real, visible vehicle VIN. */
 const VEHICLE_BOUND_TYPES = new Set([
   'vehicle_purchase_interest',
   'vehicle_inspection_request',
@@ -44,9 +43,6 @@ function clampStr(value, max) {
   return s.slice(0, max);
 }
 
-// Only these keys are persisted from the client metadata blob. Everything else (including any
-// shipment/container fields a diaspora inquiry might try to smuggle in, or extra PII) is dropped, so
-// the PR #58 boundary and the no-PII-leak invariant hold at-rest, not just at the column level.
 const ALLOWED_METADATA_KEYS = ['utm_source', 'utm_medium', 'utm_campaign', 'source_page', 'referrer', 'preferred_contact'];
 function sanitizeInquiryMetadata(metadata) {
   if (!metadata || typeof metadata !== 'object' || Array.isArray(metadata)) return {};
@@ -59,7 +55,6 @@ function sanitizeInquiryMetadata(metadata) {
   return out;
 }
 
-/** Lightweight, public-safe risk heuristic. Off-platform payment pushes -> watch. */
 export function assessInquiryRisk(message) {
   const text = String(message || '').toLowerCase();
   const offPlatform = ['western union', 'moneygram', 'pay outside', 'bitcoin', 'crypto wallet', 'gift card', 'send money to'];
@@ -111,7 +106,6 @@ function toAdminInquiry(row) {
   };
 }
 
-/** Look up a buyer's consented contact (name/email/phone) for seller reply. Best-effort; never throws. */
 async function lookupUserContact(client, userId) {
   try {
     const { data, error } = await client.from('users').select('name, email, phone').eq('id', userId).maybeSingle();
@@ -123,9 +117,16 @@ async function lookupUserContact(client, userId) {
   }
 }
 
-async function resolveListingSeller(client, vin) {
+/**
+ * Resolve routing from the governed seller relationship. The query intentionally does not select
+ * owner_id, making an ownership fallback impossible in this service rather than merely discouraged.
+ */
+export async function resolveListingSeller(client, vin) {
   try {
-    const { data, error } = await client.from('vehicles').select('vin, owner_id, tenant_id, status').eq('vin', vin);
+    const { data, error } = await client
+      .from('vehicles')
+      .select('vin, current_seller_id, tenant_id, status, publication_status')
+      .eq('vin', vin);
     if (error) throw error;
     const row = Array.isArray(data) ? data[0] : data;
     return row || null;
@@ -135,21 +136,9 @@ async function resolveListingSeller(client, vin) {
   }
 }
 
-/**
- * Create an inquiry. Guests allowed (capture contact); authenticated buyers attach buyer_id.
- * @param {object} client supabase client
- * @param {object} payload MarketplaceInquiryInput
- * @param {object} [actor] req.userContext (optional; guest if absent)
- * @param {object} [deps] { referralBridge, emitDomainEvent, emitCommunicationEvent }
- */
 export async function createInquiry(client, payload = {}, actor = null, deps = {}) {
   const referralBridge = deps.referralBridge || marketplaceReferralBridge;
   const persistDomainEvent = deps.emitDomainEvent || emitDomainEvent;
-  // The canonical communication handoff is an outbox write like any other, so it must
-  // resolve through the same seam. Falling back to the module-level emitter here would
-  // let this call escape a caller-supplied emitDomainEvent and reach the live Supabase
-  // client — the one write in this function that ignores its own injected collaborators.
-  // emitCommunicationEvent stays available for callers that need to route it separately.
   const persistCommunicationEvent = deps.emitCommunicationEvent || persistDomainEvent;
 
   const inquiryType = String(payload.inquiry_type || '').trim();
@@ -160,25 +149,17 @@ export async function createInquiry(client, payload = {}, actor = null, deps = {
   const sourceChannel = MARKETPLACE_SOURCE_CHANNELS.includes(payload.source_channel) ? payload.source_channel : 'web';
   const listingId = clampStr(payload.listing_id, 64);
   const message = clampStr(payload.message, MAX_MESSAGE_LEN);
-
   const guestName = clampStr(payload.guest_name, MAX_NAME_LEN);
   const guestEmail = clampStr(payload.guest_email, MAX_NAME_LEN);
   const guestPhone = clampStr(payload.guest_phone, 40);
 
-  // Authenticated buyers needn't supply contact; guests must give a reachable contact.
   const buyerId = actor?.id || actor?.userId || null;
-  if (!buyerId) {
-    if (!guestEmail && !guestPhone) {
-      throw new ValidationError('Provide an email or phone so the seller can respond.');
-    }
+  if (!buyerId && !guestEmail && !guestPhone) {
+    throw new ValidationError('Provide an email or phone so the seller can respond.');
   }
   if (guestEmail && !EMAIL_RE.test(guestEmail)) throw new ValidationError('Invalid email address.');
   if (guestPhone && !PHONE_RE.test(guestPhone)) throw new ValidationError('Invalid phone number.');
 
-  // Contact-for-this-inquiry: preserve what the buyer submitted; for an AUTHENTICATED buyer, enrich any
-  // missing field from their profile so the seller ALWAYS has a reply channel (the mobile Express
-  // Interest flow sends no contact at all, and the web modal may submit a partial prefill). Stored on
-  // the inquiry (service-role table) and surfaced ONLY to the owning seller / admin — never publicly.
   let contactName = guestName;
   let contactEmail = guestEmail;
   let contactPhone = guestPhone;
@@ -189,14 +170,16 @@ export async function createInquiry(client, payload = {}, actor = null, deps = {
     contactPhone = contactPhone || profile?.phone || null;
   }
 
-  // Vehicle-bound inquiries must point at a real, visible vehicle; capture seller routing fields.
   let sellerId = null;
   let sellerTenantId = null;
   if (listingId && VEHICLE_BOUND_TYPES.has(inquiryType)) {
     const sellerRow = await resolveListingSeller(client, listingId);
     if (!sellerRow) throw new NotFoundError('Listing not found for inquiry.');
-    sellerId = sellerRow.owner_id || null;
+    sellerId = clampStr(sellerRow.current_seller_id, 160);
     sellerTenantId = sellerRow.tenant_id || null;
+    if (!sellerId) {
+      throw new ValidationError('This listing has no governed current seller relationship.');
+    }
   }
 
   const isDiaspora = DIASPORA_INQUIRY_TYPES.includes(inquiryType);
@@ -212,7 +195,6 @@ export async function createInquiry(client, payload = {}, actor = null, deps = {
     seller_id: sellerId,
     seller_tenant_id: sellerTenantId,
     inquiry_type: inquiryType,
-    // Diaspora inquiries intentionally carry NO shipment/container fields — message + intent only.
     message,
     referral_code: clampStr(payload.referral_code, 64),
     campaign_code: clampStr(payload.campaign_code, 64),
@@ -235,11 +217,9 @@ export async function createInquiry(client, payload = {}, actor = null, deps = {
     throw new DatabaseError('Failed to record inquiry.', { reason: error.message });
   }
 
-  // Communications 2.0 reliability invariant: a Marketplace inquiry is not allowed
-  // to succeed silently without its durable canonical-conversation event. The event
-  // worker can retry conversation materialization, but only if this outbox write
-  // exists. Fail closed and expose the inquiry id for controlled recovery if the
-  // outbox write itself fails.
+  // Communications 2.0 invariant: a successful Marketplace inquiry must have its durable canonical
+  // conversation event. The inquiry row may already exist if this outbox write fails, so fail closed
+  // and return a recovery id rather than pretending the journey succeeded.
   try {
     await persistCommunicationEvent(null, 'marketplace.inquiry.created', {
       inquiryId: inserted.id,
@@ -253,11 +233,6 @@ export async function createInquiry(client, payload = {}, actor = null, deps = {
       campaign_code: row.campaign_code || null,
     }, sellerTenantId || null);
   } catch (error) {
-    // The inquiry row may already exist because the current Supabase REST path cannot
-    // share the raw outbox transaction. Do not pretend the user journey succeeded;
-    // retain the id for explicit recovery/audit instead of silently dropping the
-    // conversation event. A future DB-transaction/RPC consolidation can make this
-    // physical write fully atomic without changing the canonical contract.
     throw new DatabaseError('Failed to enqueue canonical communication for inquiry.', {
       reason: error.message,
       inquiry_id: inserted.id,
@@ -265,10 +240,6 @@ export async function createInquiry(client, payload = {}, actor = null, deps = {
     });
   }
 
-  // Referral V1 Stage-4 invariant: a valid referral-attributed inquiry must bridge
-  // to exactly one qualifiable lead before this request succeeds. The outbox row is
-  // written first as an idempotent recovery path; the synchronous bridge gives the
-  // caller the lead id immediately and prevents "successful inquiry, lost lead".
   let referralLeadEventId = null;
   let referralBridgeResult = null;
   if (row.referral_code) {
@@ -283,13 +254,13 @@ export async function createInquiry(client, payload = {}, actor = null, deps = {
       });
       referralLeadEventId = referralBridgeResult?.lead_event_id || null;
     } catch (error) {
-      throw new DatabaseError('Failed to create referral lead for attributed inquiry.', { reason: error.message, inquiry_id: inserted.id });
+      throw new DatabaseError('Failed to create referral lead for attributed inquiry.', {
+        reason: error.message,
+        inquiry_id: inserted.id,
+      });
     }
   }
 
-  // Best-effort referral event emission — never blocks or fails a non-referral inquiry.
-  // For referral-coded inquiries this reuses the bridge validation result, so one
-  // inquiry produces one code-validation event rather than bridge + emission duplicates.
   const eventType = INQUIRY_TYPE_TO_REFERRAL_EVENT[inquiryType] || 'marketplace_inquiry_created';
   await referralBridge.emitMarketplaceReferralEvent({
     eventType,
@@ -303,37 +274,25 @@ export async function createInquiry(client, payload = {}, actor = null, deps = {
     validation: referralBridgeResult?.validation || null,
   });
 
-  // Additive: expose the bridged referral lead id (null when no valid code) without changing the
-  // existing public inquiry shape.
   return { ...toPublicInquiry(inserted), referral_lead_event_id: referralLeadEventId };
 }
 
-// Values embedded in a PostgREST .or() expression tree. Actor ids are
-// server-derived (session/user context, never request input), but an id
-// containing , ( ) . could still change the expression shape — such an id
-// falls back to the unfiltered fetch, where the in-memory filter still scopes.
 const SAFE_OR_VALUE = /^[A-Za-z0-9_:@-]+$/;
 
-/** Seller/dealer view of inquiries they own (by seller_id or tenant). */
 export async function listInquiriesForSeller(client, actor) {
   if (!actor?.id) throw new ForbiddenError('Authentication required.');
-  // Push the ownership predicate into the database: other sellers' guest PII
-  // never leaves the DB and the read stays index-friendly instead of scanning
-  // the whole table. Only include the tenant leg when the actor has a tenant.
   const legs = [`seller_id.eq.${actor.id}`];
   if (actor.tenantId) legs.push(`seller_tenant_id.eq.${actor.tenantId}`);
-  const canPushDown =
-    SAFE_OR_VALUE.test(String(actor.id)) && (!actor.tenantId || SAFE_OR_VALUE.test(String(actor.tenantId)));
+  const canPushDown = SAFE_OR_VALUE.test(String(actor.id))
+    && (!actor.tenantId || SAFE_OR_VALUE.test(String(actor.tenantId)));
   const rows = await fetchInquiries(client, canPushDown ? (query) => query.or(legs.join(',')) : undefined);
-  // Defense-in-depth: re-apply the scope in memory so a client that ignores
-  // .or() (or the fallback path above) can never widen the seller view.
   const mine = rows.filter(
-    (r) => (r.seller_id && r.seller_id === actor.id) || (actor.tenantId && r.seller_tenant_id === actor.tenantId)
+    (r) => (r.seller_id && r.seller_id === actor.id)
+      || (actor.tenantId && r.seller_tenant_id === actor.tenantId),
   );
   return mine.map(toSellerInquiry);
 }
 
-/** Admin/operator view with optional status/type filters. Re-checks reviewer authority server-side. */
 export async function listInquiriesForAdmin(client, filters = {}, actor = filters.actor) {
   assertReviewer(actor);
   const rows = await fetchInquiries(client);
@@ -360,22 +319,17 @@ async function fetchInquiries(client, refine) {
   }
 }
 
-/** Admin/operator: assign an inquiry to an operator. */
 export async function assignInquiry(client, inquiryId, operatorId, actor) {
   assertReviewer(actor);
   return patchInquiry(client, inquiryId, { assigned_operator: operatorId || null, status: 'assigned' });
 }
 
-/** Admin/operator: change inquiry status. */
 export async function updateInquiryStatus(client, inquiryId, status, actor) {
   assertReviewer(actor);
   if (!MARKETPLACE_INQUIRY_STATUSES.includes(status)) throw new ValidationError('Invalid inquiry status.');
   return patchInquiry(client, inquiryId, { status });
 }
 
-// Canonical platform-level reviewer set, identical to marketplace moderation, so the route guard and
-// the service re-check agree. Keyed on the PLATFORM/base role only (never the header-derived effective
-// role) so a tenant-scoped elevation cannot grant cross-tenant inquiry management over guest PII.
 const MARKETPLACE_REVIEWER_ROLES = ['admin', 'platform_admin', 'super_admin', 'government'];
 function assertReviewer(actor) {
   const role = String(actor?.platformRole || actor?.baseRole || '').toLowerCase();
@@ -387,8 +341,6 @@ function assertReviewer(actor) {
 async function patchInquiry(client, inquiryId, patch) {
   if (!inquiryId) throw new ValidationError('inquiry id is required.');
   try {
-    // maybeSingle(): a zero-row update resolves to { data: null, error: null } on real Supabase, so the
-    // intended 404 (below) is reachable rather than being rewrapped as a 500 DatabaseError.
     const { data, error } = await client
       .from(TABLE)
       .update({ ...patch, updated_at: new Date().toISOString() })

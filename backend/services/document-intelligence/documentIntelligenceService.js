@@ -5,6 +5,26 @@ import { dispatchAutomationWebhook } from '../eventBus/automationWebhookService.
 import { logger } from '../../utils/logger.js';
 import { metricsHub } from '../metrics.js';
 
+/**
+ * The stamp columns on `vehicles` that ONLY canonicalTrustService.refreshCanonicalTrust() may set
+ * (INV-TRUST-2). Any other writer that touches `trust_score` must clear all six in the SAME update.
+ *
+ * Why nulling them is load-bearing rather than tidy: the stamp is what makes a cached score
+ * publishable. A write that changes the number and leaves the stamp alone inherits the version,
+ * band, confidence and evidence basis of the score it just replaced, so the canonical read path
+ * classifies the row `fresh` and publishes the new number as `evaluated` — attributed to rules
+ * that never saw it. Cleared, the row classifies `unversioned` and is refused, which is the honest
+ * state for a score no versioned calculation produced.
+ */
+const UNSTAMPED_TRUST_CACHE = Object.freeze({
+  trust_calculation_version: null,
+  trust_evaluated_at: null,
+  trust_band: null,
+  trust_confidence: null,
+  trust_known_limitations: null,
+  trust_evidence_basis: null,
+});
+
 export class DocumentIntelligenceService {
   /**
    * Mock/sample identity OCR output is allowed ONLY inside the test suite, and
@@ -379,7 +399,15 @@ export class DocumentIntelligenceService {
       // H. Recalculate dynamic trust score (+20 for verified documentation)
       const baseScore = vehicle.trust_score || 80.0;
       const finalScore = Math.min(100.0, baseScore + 20.0);
-      await supabase.from('vehicles').update({ trust_score: finalScore, status: 'Available' }).eq('vin', vin);
+      // Only refreshCanonicalTrust() may STAMP a score. This write owns the number and none of the
+      // provenance behind it, so it clears the stamp in the same update — otherwise a write landing
+      // after a legitimate refresh would keep that refresh's calculation_version and be published as
+      // canonical, with a band and confidence still describing the score it replaced.
+      await supabase.from('vehicles').update({
+        trust_score: finalScore,
+        status: 'Available',
+        ...UNSTAMPED_TRUST_CACHE,
+      }).eq('vin', vin);
 
       // Emit internal DOCUMENT_VERIFICATION_APPROVED event
       dispatchAutomationWebhook('DOCUMENT_VERIFICATION_APPROVED', { ocrDocumentId, actorId, vin, newTrustScore: finalScore });

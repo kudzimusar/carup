@@ -150,7 +150,6 @@ export default function LendingQueue() {
                             <span className="font-bold text-indigo-600">{app.trust_score}%</span>
                           </div>
                           <Progress value={app.trust_score} className="h-1.5 bg-gray-100" indicatorClassName="bg-indigo-600" />
-                          <p className="text-[9px] text-green-600 font-semibold mt-1">ZIMRA Duty Cleared</p>
                         </div>
                       </td>
                       <td className="px-6 py-4">

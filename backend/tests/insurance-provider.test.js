@@ -85,7 +85,9 @@ async function grantConsent(vin, profile, fields = ['vin', 'make']) {
   return c.id;
 }
 function install() { reset(); supabase.from = (t) => builder(t); }
-const OK_CTX = { identity_status: 'complete', fraud_block: false, publication_status: 'publishable' };
+// Phase 6 fails closed on unknown gates: dealer posture and source coverage must be stated
+// server-side, never inferred from absence. See eligibilityContract.evaluateGates.
+const OK_CTX = { identity_status: 'complete', fraud_block: false, publication_status: 'publishable', dealer_suspended: false, source_coverage_connected: 1, min_source_coverage: 1 };
 
 // ── consent ─────────────────────────────────────────────────────────────────────
 test('consent required: no consentRef -> manual_review, provider NOT called', async () => {
@@ -308,4 +310,29 @@ test('admin: provider-health board reports mode + kill switch + health', async (
   assert.equal(board[0].insurer_profile_id, profile.id);
   assert.equal(board[0].activation_mode, 'sandbox');
   assert.equal(board[0].kill_switch_enabled, false);
+});
+
+// ── Phase 6: insurance gate posture is server-owned and three-state ──────────────
+// Regression: insurerRoutes.gateContextFor read `d.dimensions.dealer?.suspended`, but the canonical
+// trust decision emits the dimension as `dealer_compliance` (with a `status`), never `dealer`. The
+// expression was therefore always false, so a SUSPENDED dealer silently cleared the insurance gate,
+// and an unresolved fraud/coverage posture was likewise coerced to "clear". Phase 6 forbids reading
+// absence as clearance. This mirrors issue164-phase6-lender-gate-authority for the insurance route.
+test('Phase 6: insurance gate context is derived from canonical dimensions, unknown stays unknown', async () => {
+  const fs = await import('node:fs');
+  const src = fs.readFileSync(new URL('../routes/insurerRoutes.js', import.meta.url), 'utf8');
+  const start = src.indexOf('async function gateContextFor');
+  const end = src.indexOf('// ── owner/dealer', start);
+  assert.ok(start >= 0 && end > start, 'gateContextFor block must be locatable');
+  const block = src.slice(start, end);
+
+  // Reads the dimension that actually exists, not the phantom `dealer` key.
+  assert.match(block, /dimensions\.dealer_compliance/);
+  assert.equal(/dimensions\.dealer\?/.test(block), false, 'no such dimension: dealer');
+  // Three-state: unresolved posture reaches evaluateGates as null, never an implicit false.
+  assert.match(block, /dealerStatus === 'suspended'/);
+  assert.match(block, /fraudStatus === 'high' \? true : fraudStatus === 'clear' \? false : null/);
+  assert.equal(/connected \?\? 0/.test(block), false, 'unknown coverage must be null, not 0');
+  // The browser may never assert gate truth on this route.
+  assert.equal(/req\.body\?.*(dealer_suspended|fraud_block|publication_status|identity_status)/.test(block), false);
 });

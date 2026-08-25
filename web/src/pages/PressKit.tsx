@@ -12,14 +12,12 @@ import {
   FileText, 
   MapPin, 
   Mail, 
-  Phone, 
   Calendar, 
   ChevronRight,
   Sparkles,
   Info,
   Clock,
   Send,
-  Sliders,
   Palette,
   Image,
   Award,
@@ -40,50 +38,12 @@ interface PressRelease {
   fullContent: string[]
 }
 
-const pressReleases: PressRelease[] = [
-  {
-    id: 'pr-1',
-    title: 'CarUp Integrates ZINARA Third-Party Registry System for Instant Vehicle Logbook OCR Verification in Zimbabwe',
-    date: 'May 12, 2026',
-    category: 'Product Launch',
-    readTime: '4 min read',
-    summary: 'A major regulatory integration enabling Harare and Bulawayo drivers to securely sync vehicle logbooks and police clearances with Gutu AI for instantaneous trust scoring.',
-    fullContent: [
-      'HARARE, ZIMBABWE — CarUp, Zimbabwe\'s premier automotive intelligence platform, today announced the official integration of its Gutu AI engine with the Zimbabwe National Road Administration (ZINARA) vehicle validation protocols and advanced OCR logbook scanning systems.',
-      'This landmark integration allows vehicle owners, premium dealerships, and corporate fleet managers across Zimbabwe to instantly upload scans of their official vehicle logbooks, physical police clearance certificates, and licensing documents. Gutu AI\'s advanced optical character recognition (OCR) immediately matches these with the database, establishing a tamper-proof digital profile in less than 30 seconds.',
-      '"With this launch, we are ending the era of fraudulent vehicle histories in Zimbabwe," said Tendai Moyo, Founder and CEO of CarUp. "Every year, thousands of buyers are defrauded using fake registration logbooks or altered mileage records. By linking our blockchain-backed trust system directly with ZINARA metadata verification, we provide an absolute shield of authenticity."',
-      'The feature is immediately available for all registered users on the CarUp dashboard, with premium support offered to verified dealer networks in Harare, Bulawayo, Gweru, and Mutare. Insurers and financial institutions can also query these records with owner permission, speeding up loan approval times for car financing from weeks to mere minutes.'
-    ]
-  },
-  {
-    id: 'pr-2',
-    title: 'CarUp Launches PartSentry: Zimbabwe\'s First Cryptographic Parts Lifecycle Ledger to Combat Counterfeiting',
-    date: 'March 24, 2026',
-    category: 'Partnership',
-    readTime: '5 min read',
-    summary: 'Partnering with 300+ certified garages nationwide, PartSentry makes car repair records tamper-proof, shielding consumers from sub-standard aftermarket parts fraud.',
-    fullContent: [
-      'HARARE, ZIMBABWE — CarUp has officially launched PartSentry, a pioneering cryptographic ledger designed to track the source, warranty, and installation history of automotive spare parts across Zimbabwe.',
-      'Designed to combat the rampant flow of counterfeit and sub-standard vehicle components in the local market, PartSentry creates a digital twin for critical replacement parts—such as brake systems, timing belts, and suspension parts. When a verified mechanic in the CarUp network installs a part, the unique serial number is scanned and committed to the vehicle\'s permanent digital passport.',
-      'PartSentry launches with over 300 certified garage partners, including prominent service centres in Harare\'s Graniteside and Southerton industrial areas, as well as Bulawayo\'s Belmont district. This decentralized network ensures that subsequent buyers can verify whether a car has been serviced with genuine OEM parts or low-grade replicas.',
-      'Chipo Sibanda, Brand & PR Officer at CarUp, commented: "A vehicle is only as safe as its weakest part. By digitizing the repair invoice and locking spare part serials in a secure cryptographic ledger, we give car buyers full insight into maintenance records. This not only raises the safety standards on Zimbabwean roads but also protects the resale value of well-maintained vehicles."'
-    ]
-  },
-  {
-    id: 'pr-3',
-    title: 'Seed Funding Expansion: CarUp Secures Capital to Expand Automotive Intelligence Across SADC Region',
-    date: 'January 15, 2026',
-    category: 'Corporate',
-    readTime: '3 min read',
-    summary: 'Following rapid growth in the local Zimbabwean market, CarUp secures premium backing to deploy verified vehicle profiles and pricing intelligence in South Africa, Botswana, and Zambia.',
-    fullContent: [
-      'HARARE, ZIMBABWE — CarUp is proud to announce the closing of its latest seed funding expansion round, backed by leading regional venture capital firms and international automotive tech investors.',
-      'The newly acquired capital will be used to accelerate product development for the Gutu AI engine, enhance blockchain infrastructure for vehicle passports, and fund regional expansion across the Southern African Development Community (SADC) region—specifically targeting South Africa, Botswana, and Zambia.',
-      'Since its inception in 2024, CarUp has registered over 12,000 verified vehicles, connected 850+ dealerships, and established trust frameworks with major local insurers and commercial banks. The expansion will allow cross-border car buyers—particularly those importing vehicles through the Durban or Beira ports—to trace a vehicle\'s history before it crosses customs borders.',
-      '"Regional integration is the logical next step," explained Tendai Moyo. "Vehicles move constantly between South Africa, Zimbabwe, and Zambia. Having a disjointed registry system invites criminal networks to exploit the gaps. CarUp will serve as the unifying ledger of trust, ensuring that a vehicle\'s history remains transparent no matter where it is driven, sold, or serviced in Southern Africa."'
-    ]
-  }
-]
+// The three press releases previously hardcoded here were fabricated corporate announcements: an
+// official ZINARA registry integration, a parts-ledger partnership, and a closed seed funding round,
+// complete with invented executive quotes and metrics ("12,000 verified vehicles", "850+ dealerships",
+// "trust frameworks with major local insurers"). None of it happened. Announcements are published here
+// only when they are real, so the list is empty rather than carrying invented ones.
+const pressReleases: PressRelease[] = []
 
 export default function PressKit() {
   const [activeTab, setActiveTab] = useState<'logos' | 'colors' | 'mockups'>('logos')
@@ -92,7 +52,7 @@ export default function PressKit() {
   
   // Inquiry Form State
   const [formSubmitted, setFormSubmitted] = useState(false)
-  const [formLoading, setFormLoading] = useState(false)
+  const formLoading = false
   const [formData, setFormData] = useState({
     name: '',
     outlet: '',
@@ -103,7 +63,7 @@ export default function PressKit() {
   })
 
   // Mock download states
-  const [downloadingAsset, setDownloadingAsset] = useState<string | null>(null)
+  const downloadingAsset: string | null = null
 
   const handleCopyColor = (hex: string, label: string) => {
     navigator.clipboard.writeText(hex)
@@ -112,37 +72,18 @@ export default function PressKit() {
     setTimeout(() => setCopiedColor(null), 2000)
   }
 
+  // No brand-asset files are committed to this repository, so there is nothing to download. This
+  // used to fabricate a Blob containing the words "Simulated brand asset package content", rename it
+  // `<asset>_bundle.zip` and click it — after toasting "downloaded successfully". A journalist would
+  // have shipped that file believing it held CarUp's logo pack. Until real assets are published, the
+  // vault shows them and says the download is not ready.
   const handleDownload = (assetName: string) => {
-    setDownloadingAsset(assetName)
-    toast.info(`Preparing ${assetName} download package...`)
-    
-    setTimeout(() => {
-      setDownloadingAsset(null)
-      toast.success(`${assetName} downloaded successfully!`)
-      // Simulate download triggering
-      const element = document.createElement("a")
-      const file = new Blob(["Simulated brand asset package content"], {type: 'text/plain'})
-      element.href = URL.createObjectURL(file)
-      element.download = `${assetName.toLowerCase().replace(/[^a-z0-9]/g, '_')}_bundle.zip`
-      document.body.appendChild(element)
-      element.click()
-      document.body.removeChild(element)
-    }, 1500)
+    toast.info(`${assetName} is not available for download yet. Email press@carup.co.zw for assets.`)
   }
 
   const handleFormSubmit = (e: React.FormEvent) => {
     e.preventDefault()
-    if (!formData.name || !formData.email || !formData.message) {
-      toast.error('Please fill in all required fields.')
-      return
-    }
-
-    setFormLoading(true)
-    setTimeout(() => {
-      setFormLoading(false)
-      setFormSubmitted(true)
-      toast.success('Your media inquiry has been transmitted successfully!')
-    }, 1800)
+    toast.info('This form is not connected yet — nothing was sent. Please email press@carup.co.zw.')
   }
 
   const handleCopyContact = () => {
@@ -174,7 +115,7 @@ export default function PressKit() {
                 </span>
               </h1>
               <p className="text-lg md:text-xl text-slate-400 font-normal leading-relaxed max-w-2xl">
-                Access official brand assets, corporate narratives, verified stats, and the latest press announcements for Zimbabwe's premier automotive intelligence platform.
+                Brand assets and corporate background for Zimbabwe's automotive intelligence platform.
               </p>
             </div>
             
@@ -241,10 +182,15 @@ export default function PressKit() {
                 Establishing the Ledger of Trust for Southern African Vehicles
               </h2>
               <p className="text-slate-300 leading-relaxed font-normal">
-                Founded in Harare in 2024, CarUp emerged to address a persistent and high-friction issue in Zimbabwe\'s automotive landscape: the absolute deficit of vehicle transaction transparency and verified historical integrity. 
+                Founded in Harare in 2024, CarUp emerged to address a persistent and high-friction issue in Zimbabwe’s automotive landscape: the absolute deficit of vehicle transaction transparency and verified historical integrity.
               </p>
               <p className="text-slate-400 leading-relaxed font-normal">
-                By synthesizing state-of-the-art Optical Character Recognition (OCR), AI-driven valuation models, and decentralized blockchain verification, CarUp has engineered a ecosystem that establishes a bulletproof digital identity for every car. From import clearance and licensing records with the <strong className="text-slate-200">Zimbabwe National Road Administration (ZINARA)</strong> to service journals, spare parts tracking, and ownership registers, our mission is simple: to make vehicle transactions transparent, reliable, and completely secure.
+                CarUp builds one governed record per vehicle. Documents an owner supplies are reviewed
+                before anything derived from them is published; a trust decision carries the version of
+                the rules that produced it, the confidence behind it and its known limitations; and a
+                fact CarUp does not hold is shown as not recorded rather than filled in. CarUp is not
+                connected to any government registry, publishes no vehicle valuation, and claims no
+                integration it has not built.
               </p>
               <div className="flex flex-col sm:flex-row gap-4 pt-4">
                 <div className="flex items-center gap-3.5 bg-slate-900/60 border border-slate-800 rounded-xl px-5 py-3.5">
@@ -253,7 +199,7 @@ export default function PressKit() {
                   </div>
                   <div>
                     <h4 className="font-semibold text-white text-sm">Trust First</h4>
-                    <p className="text-xs text-slate-400">Digital histories that cannot be forged.</p>
+                    <p className="text-xs text-slate-400">Every published claim traces to a reviewed record.</p>
                   </div>
                 </div>
                 <div className="flex items-center gap-3.5 bg-slate-900/60 border border-slate-800 rounded-xl px-5 py-3.5">
@@ -286,7 +232,7 @@ export default function PressKit() {
                     </div>
                     <div>
                       <span className="text-xs font-semibold text-slate-500 uppercase tracking-wider block mb-1">Tagline</span>
-                      <p className="text-base text-slate-200 font-medium italic">"Building the Decentralized Trust Ledger for Africa's Roads"</p>
+                      <p className="text-base text-slate-200 font-medium italic">"One vehicle. One truth. One public contract."</p>
                     </div>
                     <div>
                       <span className="text-xs font-semibold text-slate-500 uppercase tracking-wider block mb-1">Core Pillars</span>
@@ -336,30 +282,10 @@ export default function PressKit() {
                 desc: 'Launched in Harare, Zimbabwe to solve vehicle registry friction.',
                 icon: Clock
               },
-              {
-                value: '12,000+',
-                label: 'Verified Cars Registered',
-                desc: 'Vehicles issued with a cryptographically secure digital passport.',
-                icon: FileText
-              },
-              {
-                value: '85,000+',
-                label: 'Active System Users',
-                desc: 'Individual drivers, fleet managers, and corporate stakeholders.',
-                icon: Globe
-              },
-              {
-                value: '98.7%',
-                label: 'Fraud Detection Rate',
-                desc: 'Successful prevention of cloned plates, logbook falsification, and odometer fraud.',
-                icon: Sparkles
-              },
-              {
-                value: '1,170+',
-                label: 'Partner Ecosystem Networks',
-                desc: 'Includes ZINARA validators, 850+ dealers, and 320+ certified mechanics.',
-                icon: Sliders
-              },
+              // Removed: fabricated scale and partnership metrics ("12,000+ verified cars",
+              // "85,000+ active users", a "98.7% fraud detection rate", and a "1,170+ partner
+              // ecosystem" said to include ZINARA validators, 850+ dealers and 320+ mechanics).
+              // None was measured, and the partner figure asserted relationships that do not exist.
               {
                 value: 'Harare, ZW',
                 label: 'Corporate Headquarters',
@@ -446,21 +372,21 @@ export default function PressKit() {
                 {
                   name: 'CarUp Premium Primary Logo',
                   desc: 'Our standard brand signature. Features the amber mark combined with the custom dark-navy type.',
-                  specs: 'SVG, PNG, EPS | Vector & High-Res Transparent (5MB)',
+                  specs: 'Primary wordmark',
                   theme: 'Amber & Navy Duo-tone',
                   bgClass: 'bg-gradient-to-br from-[hsl(222,47%,8%)] to-[hsl(222,47%,16%)]'
                 },
                 {
                   name: 'CarUp Light Monochrome Logo',
                   desc: 'Reversed white-ink variation designed exclusively for high-contrast dark backgrounds.',
-                  specs: 'SVG, PNG | Optimized for Web & Print (1.2MB)',
+                  specs: 'Monochrome wordmark',
                   theme: 'Stark Monochrome White',
                   bgClass: 'bg-black/40'
                 },
                 {
                   name: 'CarUp Icon & Trust Mark Only',
                   desc: 'The standalone shield-car-sparkle signature. Ideal for app icon simulations, avatars, and tight layouts.',
-                  specs: 'SVG, PNG, ICO | Multi-resolution optimized (800KB)',
+                  specs: 'App icon',
                   theme: 'Amber Trust Icon',
                   bgClass: 'bg-gradient-to-br from-[hsl(222,47%,8%)] to-[hsl(222,47%,16%)]'
                 }
@@ -471,7 +397,7 @@ export default function PressKit() {
                     <div className={`h-44 ${logo.bgClass} flex items-center justify-center p-6 border-b border-slate-800 relative group`}>
                       <div className="absolute inset-0 bg-black/10 opacity-0 group-hover:opacity-100 transition-opacity duration-300 flex items-center justify-center">
                         <span className="text-[10px] text-orange-400 bg-slate-900/90 border border-slate-800 px-2.5 py-1 rounded-full uppercase tracking-wider font-semibold">
-                          Asset Verified
+                          Brand asset
                         </span>
                       </div>
                       
@@ -664,23 +590,20 @@ export default function PressKit() {
                 {
                   title: 'Gutu AI Logbook Scanning Interface',
                   specs: 'Mobile Mockup | High Resolution 1080 x 2400 (PNG)',
-                  size: '2.4 MB',
                   previewText: 'Mobile Mockup',
                   desc: 'High-fidelity preview demonstrating Gutu AI scanning a physical Zimbabwean registration book, highlighting verified OCR fields in real-time.'
                 },
                 {
                   title: 'PartSentry Cryptographic Ledger Ledger',
-                  specs: 'Desktop Dashboard | High Resolution 1920 x 1080 (PNG)',
-                  size: '4.8 MB',
+                  specs: 'Desktop dashboard',
                   previewText: 'Desktop Mockup',
-                  desc: 'Comprehensive dashboard screenshot detailing spare parts lifecycle logs, mechanic signature certifications, and permanent blockchain seal data.'
+                  desc: 'Comprehensive dashboard screenshot detailing spare parts lifecycle logs, mechanic signature certifications, and audit ledger seal data.'
                 },
                 {
                   title: 'CarUp Digital Vehicle Trust Score Passport',
                   specs: 'Print Ready PDF Layout | Standard A4 Format (PNG & PDF)',
-                  size: '6.1 MB',
                   previewText: 'Document Layout',
-                  desc: 'A gorgeous export design of the verified vehicle passport. Shows official trust score rating, ownership chain logs, and ZINARA sync badge.'
+                  desc: 'A gorgeous export design of the verified vehicle passport. Shows the governed trust assessment and ownership chain logs.'
                 }
               ].map((mockup, index) => (
                 <Card key={index} className="bg-[hsl(222,47%,9%)] border-slate-800 text-slate-100 overflow-hidden hover:border-slate-700 transition-all duration-300 flex flex-col justify-between group">
@@ -705,7 +628,7 @@ export default function PressKit() {
                             {mockup.previewText}
                           </span>
                           <span className="text-[9px] text-orange-400 font-bold tracking-wide">
-                            CU_VERIFIED_ASSET
+                            CARUP_BRAND_ASSET
                           </span>
                         </div>
                       </div>
@@ -718,9 +641,9 @@ export default function PressKit() {
                   </div>
 
                   <div className="p-6 pt-0 border-t border-slate-800/50 mt-auto flex flex-col gap-3">
+                    {/* Dimensions and file sizes were invented alongside the files they described. */}
                     <div className="flex justify-between text-[10px] text-slate-500 uppercase tracking-wider font-semibold">
-                      <span>Dimensions: {mockup.specs.split('|')[1]}</span>
-                      <span>{mockup.size}</span>
+                      <span>{mockup.specs}</span>
                     </div>
                     <Button 
                       onClick={() => handleDownload(mockup.title)}
@@ -744,11 +667,19 @@ export default function PressKit() {
             </Badge>
             <h2 className="text-3xl sm:text-4xl font-bold text-white">Recent Press Announcements</h2>
             <p className="text-slate-400 mt-3 text-base">
-              The official timeline of product milestones, strategic mergers, regulatory syncs, and financial funding updates.
+              Official CarUp announcements.
             </p>
           </div>
 
           <div className="space-y-6">
+            {pressReleases.length === 0 && (
+              <Card className="bg-[hsl(222,47%,9%)] border-slate-800 text-slate-100" data-testid="press-releases-empty">
+                <CardContent className="p-8 text-center">
+                  <p className="text-slate-300 font-medium">No press releases published yet.</p>
+                  <p className="text-sm text-slate-400 mt-2">Announcements appear here once they are issued.</p>
+                </CardContent>
+              </Card>
+            )}
             {pressReleases.map((release) => (
               <Card 
                 key={release.id} 
@@ -811,45 +742,34 @@ export default function PressKit() {
                 </p>
               </div>
 
-              {/* Contact Cards */}
+              {/* Contact card — ONE role-based address, and no invented people.
+                  Two named "PR officers" used to live here, each with a real-format @carup.co.zw
+                  address, a direct mobile number and a green "Online / Direct" presence dot. Neither
+                  exists. A journalist on deadline would have written to a person who cannot answer,
+                  and read a presence indicator that indicated nothing. */}
               <div className="space-y-4">
-                {[
-                  {
-                    name: 'Rudo Mutasa',
-                    role: 'Head of Corporate Communications & Media Relations',
-                    email: 'rudo.mutasa@carup.co.zw',
-                    phone: '+263 772 400 121'
-                  },
-                  {
-                    name: 'Chipo Sibanda',
-                    role: 'Brand & PR Officer',
-                    email: 'chipo.sibanda@carup.co.zw',
-                    phone: '+263 773 345 678'
-                  }
-                ].map((person, index) => (
-                  <Card key={index} className="bg-[hsl(222,47%,9%)] border-slate-800 text-slate-100 overflow-hidden hover:border-slate-800/80 shadow-md">
-                    <CardContent className="p-6 space-y-3 relative">
-                      <div className="absolute top-4 right-4 w-2 h-2 rounded-full bg-green-500" title="Online / Direct" />
-                      <div>
-                        <h4 className="font-bold text-white text-base leading-tight">{person.name}</h4>
-                        <span className="text-[10px] text-orange-400 tracking-wider uppercase font-semibold block mt-0.5">
-                          {person.role}
-                        </span>
+                <Card className="bg-[hsl(222,47%,9%)] border-slate-800 text-slate-100 overflow-hidden shadow-md">
+                  <CardContent className="p-6 space-y-3" data-testid="press-contact">
+                    <div>
+                      <h4 className="font-bold text-white text-base leading-tight">CarUp Press Office</h4>
+                      <span className="text-[10px] text-orange-400 tracking-wider uppercase font-semibold block mt-0.5">
+                        Media enquiries
+                      </span>
+                    </div>
+                    <div className="space-y-1.5 text-xs text-slate-400 pt-2 border-t border-slate-800/50">
+                      <div className="flex items-center gap-2">
+                        <Mail className="w-3.5 h-3.5 text-slate-500 shrink-0" />
+                        <a href="mailto:press@carup.co.zw" className="hover:text-orange-400 transition-colors">
+                          press@carup.co.zw
+                        </a>
                       </div>
-                      
-                      <div className="space-y-1.5 text-xs text-slate-400 pt-2 border-t border-slate-800/50">
-                        <div className="flex items-center gap-2">
-                          <Mail className="w-3.5 h-3.5 text-slate-500 shrink-0" />
-                          <a href={`mailto:${person.email}`} className="hover:text-orange-400 transition-colors">{person.email}</a>
-                        </div>
-                        <div className="flex items-center gap-2">
-                          <Phone className="w-3.5 h-3.5 text-slate-500 shrink-0" />
-                          <span>{person.phone}</span>
-                        </div>
-                      </div>
-                    </CardContent>
-                  </Card>
-                ))}
+                    </div>
+                    <p className="text-[11px] text-slate-500 leading-relaxed pt-1">
+                      Enquiries are read by CarUp’s communications team. We do not publish a response
+                      time we cannot commit to.
+                    </p>
+                  </CardContent>
+                </Card>
               </div>
 
               {/* PR Headquarter Location Card */}
@@ -892,7 +812,7 @@ export default function PressKit() {
                       <div className="space-y-2">
                         <h3 className="text-2xl font-bold text-white">Media Inquiry Received</h3>
                         <p className="text-slate-400 max-w-md mx-auto text-sm leading-relaxed">
-                          Thank you for connecting. Our communications office has received your query. A PR officer will review and reach out within 2 hours.
+                          This form is not connected yet, so nothing was sent. Please email press@carup.co.zw and a member of the communications team will pick it up.
                         </p>
                       </div>
                       <Button

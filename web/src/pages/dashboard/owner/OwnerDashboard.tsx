@@ -16,14 +16,35 @@ import {
   CheckCircle,
   MessageSquare,
   WifiOff,
-  Smartphone,
   Wallet,
   Upload
 } from 'lucide-react'
+import { ListingImage } from '@/components/marketplace/ListingImage'
+import { primaryListingImageUrl } from '@/lib/listingMedia'
 import { useCarUpApi } from '@/hooks/useCarUpApi'
 import { useAuth } from '@/context/AuthContext'
 import type { Vehicle, Notification, Escrow } from '@/types'
+import { readOwnerTrustClaim, statedMileage } from './ownerStatedValues'
 
+// ── The canonical trust claim on the owner's list surfaces (Issue #164, Phases 3 & 4) ───────
+/**
+ * Phase 3 made `canonicalTrustService` the only authority that may state a vehicle's trust
+ * position, and every list endpoint an owner sees — `/api/vehicles/me`, `/api/vehicles/saved`,
+ * the marketplace listing summaries — now carries its projection verbatim on `trust`. These
+ * dashboard rows still read the flat `trust_score` and drew `<Progress value={trust_score} />`
+ * beside it. With no evaluation that number is null, so the row rendered "Trust Index: %" over a
+ * track filled to 0%: a vehicle CarUp has never assessed, presented as one it assessed and found
+ * worthless. That is the same absence-as-proof Phase 3 removed from VehicleDetail and
+ * VehicleProfile, left live on four further pages.
+ *
+ * `evaluation_state` is the required discriminator, which is what makes the deprecated
+ * `{vin, trustScore, metrics}` body parse as no trust record rather than as a score of 90.
+ *
+ * Exported because MyGarage and MyListings are this same surface in another layout. One
+ * definition of what a trust claim is, three call sites — a per-page copy is how the surfaces
+ * drifted apart in the first place. All four pages are statically imported by App.tsx into one
+ * bundle, so the shared import adds no chunk.
+ */
 export default function OwnerDashboard() {
   const { fetchSafePayEscrows, fetchOwnedVehicles, fetchNotifications } = useCarUpApi()
   const { user } = useAuth()
@@ -31,18 +52,33 @@ export default function OwnerDashboard() {
   const [vehicles, setVehicles] = useState<Vehicle[]>([])
   const [liveNotifications, setLiveNotifications] = useState<Notification[]>([])
 
+  // Loading and failure are distinct from "you own nothing". Both reads previously left `vehicles` at
+  // its initial [], and a rejection had no handler at all — so a real owner whose read failed would be
+  // told their garage is empty. Only a SUCCESSFUL empty response may support that claim.
+  const [vehiclesState, setVehiclesState] = useState<'loading' | 'ready' | 'unavailable'>('loading')
+  const [notificationsState, setNotificationsState] = useState<'loading' | 'ready' | 'unavailable'>('loading')
   useEffect(() => {
     let mounted = true
-    fetchOwnedVehicles().then(data => { if (mounted) setVehicles(data) })
-    fetchNotifications().then(data => { if (mounted) setLiveNotifications(data) })
+    fetchOwnedVehicles()
+      .then(data => { if (mounted) { setVehicles(Array.isArray(data) ? data : []); setVehiclesState('ready') } })
+      .catch(() => { if (mounted) { setVehicles([]); setVehiclesState('unavailable') } })
+    fetchNotifications()
+      .then(data => { if (mounted) { setLiveNotifications(Array.isArray(data) ? data : []); setNotificationsState('ready') } })
+      .catch(() => { if (mounted) { setLiveNotifications([]); setNotificationsState('unavailable') } })
     return () => { mounted = false }
   }, [fetchOwnedVehicles, fetchNotifications])
 
   const recentNotifications = liveNotifications.slice(0, 3)
 
-  // Onboarding & settings states
+  // Onboarding & settings states.
+  //
+  // The WhatsApp verification alert that used to live here held its own `whatsappLinked` state,
+  // initialised to `true`. No endpoint reports whether this account's WhatsApp is linked, so every
+  // owner was told their channel was verified on the strength of a default; and its "Verify Now"
+  // button set that flag locally and raised "WhatsApp communication verified successfully" without
+  // contacting anything. Both the status and the verification were fabricated, so both are gone
+  // rather than restated more carefully.
   const [lowBandwidth, setLowBandwidth] = useState(false)
-  const [whatsappLinked, setWhatsappLinked] = useState(true)
 
   // SafePay escrow is the only authoritative money source this dashboard has. There is no
   // per-user wallet/ledger endpoint and no per-user trust-score endpoint, so those cards must
@@ -74,6 +110,45 @@ export default function OwnerDashboard() {
     return () => { mounted = false }
   }, [fetchSafePayEscrows])
 
+  // ── Needs Your Attention ───────────────────────────────────────────────────
+  // Ported from the Owner-experience work, rebuilt on the canonical contracts. Every item is derived
+  // ONLY from counts of real, caller-scoped reads and from the CANONICAL trust claim — never from the
+  // raw `vehicles.trust_score` column, and never from an invented average. An empty rail means there
+  // is genuinely nothing outstanding, not that the check was skipped.
+  const unreadNotifications = notificationsState === 'ready' ? liveNotifications.filter((n) => !n.read).length : 0
+  const awaitingTrust = vehicles.filter((v) => readOwnerTrustClaim(v).state !== 'evaluated').length
+  const attentionItems: Array<{ key: string; label: string; detail: string; to: string; cta: string }> = []
+  // Every item below is gated on a SUCCESSFUL read. While loading, or after a failed read, the rail
+  // stays silent rather than asserting something about a garage it could not see.
+  if (vehiclesState === 'ready' && vehicles.length === 0) {
+    attentionItems.push({
+      key: 'no-vehicles', label: 'Add your first vehicle',
+      detail: 'Your garage is empty. Add a vehicle to start building its Passport.',
+      to: '/dashboard/sell-vehicle', cta: 'Add vehicle',
+    })
+  } else if (vehiclesState === 'ready' && awaitingTrust > 0) {
+    attentionItems.push({
+      key: 'awaiting-trust',
+      label: `${awaitingTrust} ${awaitingTrust === 1 ? 'vehicle has' : 'vehicles have'} no completed trust assessment`,
+      detail: 'CarUp evaluates a vehicle once its governed evidence is in place. Upload or complete the outstanding documents.',
+      to: '/dashboard/garage', cta: 'Open garage',
+    })
+  } else if (vehiclesState === 'unavailable') {
+    attentionItems.push({
+      key: 'garage-unavailable', label: 'Your garage could not be loaded',
+      detail: 'This is a loading failure, not an empty garage. Retry shortly.',
+      to: '/dashboard/garage', cta: 'Retry',
+    })
+  }
+  if (unreadNotifications > 0) {
+    attentionItems.push({
+      key: 'unread',
+      label: `${unreadNotifications} unread ${unreadNotifications === 1 ? 'notification' : 'notifications'}`,
+      detail: 'Recent activity on your vehicles and conversations.',
+      to: '/dashboard/communications', cta: 'Open communications',
+    })
+  }
+
   return (
     <div className="space-y-6 max-w-7xl mx-auto">
       {/* Header */}
@@ -92,7 +167,9 @@ export default function OwnerDashboard() {
               checked={lowBandwidth} 
               onChange={() => {
                 setLowBandwidth(!lowBandwidth);
-                toast.success(lowBandwidth ? 'High-quality graphics restored.' : 'Low-bandwidth mode enabled. Images compressed.');
+                // The toggle hides images; it does not compress them, and saying so was a claim
+                // about work the page never did.
+                toast.success(lowBandwidth ? 'Images restored.' : 'Low-bandwidth mode enabled. Images are not loaded.');
               }}
               className="rounded text-orange-500 focus:ring-orange-400 cursor-pointer h-4 w-4"
             />
@@ -107,22 +184,25 @@ export default function OwnerDashboard() {
         </div>
       </div>
 
-      {/* WhatsApp verification status alert */}
-      {!whatsappLinked && (
-        <Card className="border-0 bg-orange-50 border-l-4 border-orange-500 text-orange-800 p-4">
-          <div className="flex items-start gap-3 justify-between">
-            <div className="flex gap-2">
-              <Smartphone className="w-5 h-5 text-orange-500 shrink-0" />
-              <div>
-                <p className="font-semibold text-sm">Verify WhatsApp Communications</p>
-                <p className="text-xs text-orange-600">Connect your account with Gutu AI WhatsApp bot (+263 773 345 678) to get instant alerts on ZIMRA clearance, mileage milestones, and escrow releases.</p>
+      {/* Needs Your Attention — real outstanding items only; hidden entirely when there are none. */}
+      {attentionItems.length > 0 && (
+        <Card className="border-0 card-shadow border-l-4 border-l-orange-400" data-testid="owner-needs-attention">
+          <CardHeader className="pb-2">
+            <CardTitle className="text-base">Needs your attention</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            {attentionItems.map((item) => (
+              <div key={item.key} className="flex flex-wrap items-center justify-between gap-3 p-3 bg-orange-50/60 rounded-lg">
+                <div className="min-w-0">
+                  <p className="text-sm font-medium text-gray-900">{item.label}</p>
+                  <p className="text-xs text-gray-600 mt-0.5">{item.detail}</p>
+                </div>
+                <Button size="sm" variant="outline" asChild>
+                  <Link to={item.to}>{item.cta}</Link>
+                </Button>
               </div>
-            </div>
-            <Button size="sm" className="bg-orange-500 hover:bg-orange-600 text-white" onClick={() => {
-              setWhatsappLinked(true);
-              toast.success('WhatsApp communication verified successfully.');
-            }}>Verify Now</Button>
-          </div>
+            ))}
+          </CardContent>
         </Card>
       )}
 
@@ -209,25 +289,48 @@ export default function OwnerDashboard() {
               </Button>
             </CardHeader>
             <CardContent className="space-y-4">
-              {vehicles.slice(0, 3).map((vehicle) => (
+              {vehicles.slice(0, 3).map((vehicle) => {
+                const trust = readOwnerTrustClaim(vehicle)
+                return (
                 <Link key={vehicle.vin} to={`/dashboard/garage/${vehicle.vin}`} className="flex items-center gap-4 p-3 rounded-lg hover:bg-gray-50 transition-colors group">
-                  {!lowBandwidth && <img src={vehicle.image_url || 'https://images.unsplash.com/photo-1605810230434-7631ac76ec81?w=800&q=80'} alt="" className="w-20 h-14 rounded-lg object-cover" />}
+                  {/* An unrelated stock car is a claim about this vehicle's condition. ListingImage
+                      renders a neutral "Image unavailable" placeholder instead. */}
+                  {!lowBandwidth && (
+                    <ListingImage
+                      src={primaryListingImageUrl(vehicle.listing_media)}
+                      alt={`${vehicle.year} ${vehicle.make} ${vehicle.model}`}
+                      className="w-20 h-14 rounded-lg overflow-hidden shrink-0"
+                    />
+                  )}
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2">
                       <h3 className="font-semibold text-sm text-gray-800">{vehicle.year} {vehicle.make} {vehicle.model}</h3>
                       <Badge variant="outline" className="text-[10px]">{vehicle.vin}</Badge>
                     </div>
                     <div className="flex items-center gap-3 mt-1 text-xs text-gray-500">
-                      <span className="flex items-center gap-1"><Gauge className="w-3 h-3" />{vehicle.mileage?.toLocaleString()} km</span>
-                      <span>Trust Index: <b>{vehicle.trust_score}%</b></span>
+                      <span className="flex items-center gap-1"><Gauge className="w-3 h-3" />{statedMileage(vehicle.mileage)}</span>
                     </div>
-                    <div className="mt-2">
-                      <Progress value={vehicle.trust_score} className="h-1" indicatorClassName="bg-orange-500" />
+                    <div className="mt-2" data-testid={`trust-claim-${vehicle.vin}`}>
+                      {trust.score !== null ? (
+                        <>
+                          <span className="text-xs text-gray-500">
+                            Trust Index: <b data-testid={`trust-claim-score-${vehicle.vin}`}>{trust.score} / 100</b> · {trust.headline}
+                          </span>
+                          <Progress value={trust.score} className="h-1 mt-1" indicatorClassName="bg-orange-500" />
+                        </>
+                      ) : (
+                        /* No bar at all. A track drawn at 0% is a measurement, and none was made —
+                           the empty track WAS the fabrication, not the missing number beside it. */
+                        <span className="text-xs italic text-gray-400" data-testid={`trust-claim-state-${vehicle.vin}`}>
+                          Trust Index: {trust.headline}
+                        </span>
+                      )}
                     </div>
                   </div>
                   <ArrowRight className="w-4 h-4 text-gray-400 group-hover:text-orange-500 transition-colors" />
                 </Link>
-              ))}
+                )
+              })}
             </CardContent>
           </Card>
 

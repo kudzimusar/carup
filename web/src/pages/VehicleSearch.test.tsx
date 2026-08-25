@@ -40,6 +40,11 @@ const liveListing: MarketplaceListingSummary = {
   marketplace_tags: [],
   trust_score: 80,
   primary_image_url: null,
+  // Issue #164 Phase 5: the cover image's URL is no longer publishable without the label that says
+  // where it came from. `not_loaded` is the honest pair for a null URL in a fixture that models a
+  // listing whose gallery was never read — `none` would assert this seller added no photos.
+  primary_image_state: 'not_loaded',
+  primary_image_unpublishable_count: 0,
   plate_verified: true,
   passport_verified: true,
   evidence_count: 3,

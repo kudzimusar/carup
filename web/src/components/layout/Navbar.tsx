@@ -26,7 +26,6 @@ import {
 import MobileNavDrawer from '@/components/layout/MobileNavDrawer'
 import { useApp } from '@/App'
 import { useAuth } from '@/context/AuthContext'
-import { notifications } from '@/data/mockData'
 import { useCarUpApi } from '@/hooks/useCarUpApi'
 import { getDashboardRoute, getRoleMetadata, getAllRoles, getVisiblePublicNavigationItems } from '@/config/featureRegistry'
 import type { NavigationContext, MarketplaceCoverageResponse } from '@/config/featureRegistry'
@@ -115,14 +114,55 @@ export default function Navbar() {
   const navigate = useNavigate()
   const { user, switchRole, logout } = useAuth()
   const { currency, setCurrency } = useApp()
-  const { fetchMarketplaceNavCoverage } = useCarUpApi()
+  const { fetchMarketplaceNavCoverage, fetchNotifications } = useCarUpApi()
   const [navCoverage, setNavCoverage] = useState<NavCoverageResponse | null>(null)
   useEffect(() => {
     let cancelled = false
     fetchMarketplaceNavCoverage().then(c => { if (!cancelled) setNavCoverage(c) }).catch(() => {})
     return () => { cancelled = true }
   }, [fetchMarketplaceNavCoverage])
-  const unreadCount = notifications.filter(n => !n.read).length
+
+  // Real, per-user notifications — never the old static mock list (which showed 5 fabricated items,
+  // one a fake "blockchain verification", to every visitor). Unauthenticated visitors have none.
+  // A failed read is UNKNOWN, not zero. `/notifications/me` authorizes only owner/dealer/admin, so a
+  // bank/insurance/mechanic/government session is rejected outright — and a transient failure looks the
+  // same. Converting either to [] made the navbar state "No notifications yet", which is a claim the
+  // browser cannot support. The three states are kept distinct.
+  //
+  // The result is STAMPED with the identity it was fetched for. Switching role without unmounting
+  // (the portal switcher does exactly that) would otherwise keep showing the previous role's
+  // notifications — rows the new role is not authorized to see — until the denied request rejected,
+  // or forever if it hung. Binding the payload to its identity makes the reset *derived*: the moment
+  // the active identity changes, the stale rows stop matching and the panel reverts to loading, with
+  // no state write inside the effect.
+  const identityKey = user ? `${user.id ?? user.email ?? 'user'}:${user.role ?? ''}` : null
+  const [fetchedNotifications, setFetchedNotifications] = useState<{
+    key: string | null
+    rows: Array<{ id: string; read?: boolean; title?: string; message?: string }>
+    state: 'ready' | 'unavailable'
+  }>({ key: null, rows: [], state: 'ready' })
+  useEffect(() => {
+    if (!identityKey) return
+    let cancelled = false
+    fetchNotifications()
+      .then(rows => {
+        if (cancelled) return
+        setFetchedNotifications({ key: identityKey, rows: Array.isArray(rows) ? rows : [], state: 'ready' })
+      })
+      .catch(() => {
+        if (cancelled) return
+        setFetchedNotifications({ key: identityKey, rows: [], state: 'unavailable' })
+      })
+    return () => { cancelled = true }
+  }, [identityKey, fetchNotifications])
+
+  // Only a payload fetched for the CURRENT identity may be displayed.
+  const notificationsMatchIdentity = !!identityKey && fetchedNotifications.key === identityKey
+  const notificationsState: 'loading' | 'ready' | 'unavailable' =
+    notificationsMatchIdentity ? fetchedNotifications.state : 'loading'
+  const liveNotifications = notificationsMatchIdentity ? fetchedNotifications.rows : []
+  // Only a successful read may drive a count; an unknown inbox shows no badge rather than a false 0.
+  const unreadCount = user && notificationsState === 'ready' ? liveNotifications.filter(n => !n.read).length : 0
 
   const activeDashboardPath = getDashboardRoute((user?.role || 'owner') as UserRole)
   const sellerPath = user ? '/dashboard/sell-vehicle' : '/register'
@@ -231,7 +271,21 @@ export default function Navbar() {
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end" className="w-80">
                 <div className="px-3 py-2 font-semibold text-sm border-b">Notifications</div>
-                {notifications.slice(0, 5).map((n) => (
+                {!user && (
+                  <div className="px-3 py-4 text-xs text-gray-500">Sign in to see your notifications.</div>
+                )}
+                {user && notificationsState === 'loading' && (
+                  <div className="px-3 py-4 text-xs text-gray-500">Loading your notifications…</div>
+                )}
+                {user && notificationsState === 'unavailable' && (
+                  <div className="px-3 py-4 text-xs text-amber-700" data-testid="navbar-notifications-unavailable">
+                    Notifications are unavailable right now. This is a loading failure, not an empty inbox.
+                  </div>
+                )}
+                {user && notificationsState === 'ready' && liveNotifications.length === 0 && (
+                  <div className="px-3 py-4 text-xs text-gray-500">No notifications yet.</div>
+                )}
+                {liveNotifications.slice(0, 5).map((n) => (
                   <DropdownMenuItem key={n.id} className="flex flex-col items-start gap-1 p-3 cursor-pointer">
                     <div className="flex items-center gap-2 w-full">
                       <span className={`w-2 h-2 rounded-full ${n.read ? 'bg-gray-300' : 'bg-orange-500'}`} />

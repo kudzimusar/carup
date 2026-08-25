@@ -24,20 +24,39 @@ import {
 const router = express.Router();
 
 // Derive gate inputs from the unified trust decision (identity/fraud/publication/dealer/source),
-// consistent with eligibilityRoutes. Fail-closed if the decision cannot be computed.
+// consistent with eligibilityRoutes. Every risk/compliance dimension is THREE-STATE: true (blocked),
+// false (server-confirmed clear) or null (unresolved). Phase 6 forbids reading absence as clearance —
+// an unresolved dealer or fraud posture must reach evaluateGates as null so it routes to manual
+// review, never as an implicit `false` that silently clears the gate.
 async function gateContextFor(vin) {
   try {
     const d = await getTrustDecision(vin);
+    // The canonical decision exposes dealer posture as the `dealer_compliance` dimension's status.
+    const dealerStatus = d.dimensions.dealer_compliance?.status || null;
+    const fraudStatus = d.dimensions.fraud_risk?.status || null;
     return {
-      identity_status: d.dimensions.identity.status,
-      fraud_block: d.dimensions.fraud_risk.status === 'high',
-      publication_status: d.dimensions.publication_eligibility.value,
-      dealer_suspended: d.dimensions.dealer?.suspended === true,
-      source_coverage_connected: d.dimensions.source_coverage.connected ?? 0,
-      min_source_coverage: 0,
+      identity_status: d.dimensions.identity?.status || null,
+      fraud_block: fraudStatus === 'high' ? true : fraudStatus === 'clear' ? false : null,
+      publication_status:
+        d.dimensions.publication_eligibility?.status
+        || d.dimensions.publication_eligibility?.value
+        || null,
+      dealer_suspended: dealerStatus === 'suspended'
+        ? true
+        : dealerStatus && dealerStatus !== 'not_evaluated' ? false : null,
+      source_coverage_connected: d.dimensions.source_coverage?.connected ?? null,
+      min_source_coverage: 1,
     };
   } catch {
-    return { identity_status: 'incomplete' };
+    // Fail closed: every unresolved dimension stays unknown and evaluateGates routes accordingly.
+    return {
+      identity_status: null,
+      fraud_block: null,
+      publication_status: null,
+      dealer_suspended: null,
+      source_coverage_connected: null,
+      min_source_coverage: 1,
+    };
   }
 }
 

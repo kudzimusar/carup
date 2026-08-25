@@ -36,7 +36,7 @@ const REAL_VIN = '1HGBH41JXMN109186';
 const DEALER_VIN = '1FMCU0GD9JUA12345';
 
 function publicVehicle(overrides = {}) {
-  return {
+  const row = {
     vin: REAL_VIN, make: 'Toyota', model: 'Corolla', year: 2018, mileage: 42000,
     price: 9500, currency: 'USD', status: 'Available', trust_score: 78,
     owner_id: '550e8400-e29b-41d4-a716-446655440000', tenant_id: null,
@@ -44,6 +44,13 @@ function publicVehicle(overrides = {}) {
     duty_paid: true, police_verified: true, passport_verified: false, created_at: NOW,
     ...overrides,
   };
+  // Selling authority is server-governed via current_seller_id and is deliberately
+  // NOT the same fact as owner_id (legal title) — settlement may close a listing but
+  // must never rewrite ownership. A fixture that does not deliberately diverge the two
+  // holds the ordinary case: the listing owner is also the governed current seller.
+  // Tests that need divergence (or an ungoverned listing) pass current_seller_id explicitly.
+  if (!('current_seller_id' in overrides)) row.current_seller_id = row.owner_id;
+  return row;
 }
 
 // ---------------------------------------------------------------------------
@@ -97,8 +104,12 @@ test('trust summary emits only backend-backed badges and public-safe copy', () =
   const listingSummary = buildMarketplaceListingSummary({ vehicle, evidenceRows: [{ verification_status: 'verified', visibility_level: 'public_safe' }] });
   const trust = buildTrustSummary({ vehicle, listingSummary, evidenceRows: [{ verification_status: 'verified', visibility_level: 'public_safe' }], partSentryRows: [] });
 
-  assert.ok(trust.trust_badges.includes('passport_verified'));
-  assert.ok(trust.trust_badges.includes('zimra_verified'));
+  assert.ok(trust.trust_badges.includes('passport_verified'), 'a backed badge still publishes');
+  // zimra_verified is a GOVERNMENT_APPROVAL_FACT with no legitimate writer anywhere in this repo,
+  // so the row asserting it earns no badge. Stricter than the inclusion check this replaced: the
+  // fixture still sets `zimra_verified: true`, and the badge must STILL be absent.
+  assert.equal(trust.trust_badges.includes('zimra_verified'), false,
+    'an unbacked government-approval claim must not reach public badge copy');
   assert.ok(trust.public_badge_copy.length === trust.trust_badges.length);
   assert.equal(trust.risk_status, 'clear');
   assert.equal(trust.evidence_status, 'verified');
@@ -177,10 +188,29 @@ test('pricing summary adds import components for import listings', () => {
 // Listing detail privacy + 404
 // ---------------------------------------------------------------------------
 
+/**
+ * ISSUE #164 PHASE 5 — FIXTURE CORRECTED, ASSERTION NOT WEAKENED.
+ *
+ * The `listing_images` fixture below was `{ vin, image_url, is_primary, display_order }` with NO
+ * `id`. `listing_images.id` is `uuid NOT NULL DEFAULT gen_random_uuid()` — the primary key — so the
+ * table cannot produce such a row and this fixture was never faithful to it. That did not matter
+ * while the marketplace projection dropped the id; once the canonical contract made identity a
+ * publication requirement (Rule 6b), an id-less row became unpublishable and this test failed on
+ * `detail.media.length === 1`.
+ *
+ * Reproduced before correcting: `media.length` was 0.
+ *
+ * The fix is the FIXTURE, not the assertion. Deleting or relaxing `media.length === 1` would have
+ * converted a test about "the detail publishes the seller's photo" into a test about an empty
+ * gallery — which is the defect this phase closed. The original assertions are all intact below;
+ * three were ADDED, pinning the identity and the canonical envelope that now travel with it.
+ */
+const LISTING_IMAGE_ID = '3f1c9b2e-5a44-4c7e-8b19-2d6f0a7e4c31';
+
 test('listing detail returns sanitized payload (no owner_id/tenant_id) with trust summary', async () => {
   const store = {
     vehicles: [publicVehicle()],
-    listing_images: [{ vin: REAL_VIN, image_url: 'https://img/1.jpg', is_primary: true, display_order: 0 }],
+    listing_images: [{ id: LISTING_IMAGE_ID, vin: REAL_VIN, image_url: 'https://img/1.jpg', is_primary: true, display_order: 0 }],
     vehicle_evidence: [{ vin: REAL_VIN, verification_status: 'verified', visibility_level: 'public_safe' }],
   };
   const detail = await getMarketplaceListingDetail(buildMockSupabase(store), REAL_VIN);
@@ -191,6 +221,11 @@ test('listing detail returns sanitized payload (no owner_id/tenant_id) with trus
   assert.ok(detail.trust_summary && Array.isArray(detail.trust_summary.trust_badges));
   assert.ok(detail.verification_summary && detail.pricing_summary);
   assert.ok(detail.media.length === 1 && detail.media[0].url === 'https://img/1.jpg');
+  // ADDED: the photograph is addressable, and it is the ROW's id — not a slot ordinal.
+  assert.equal(detail.media[0].media_id, LISTING_IMAGE_ID);
+  // ADDED: the canonical envelope is the authority on this payload, and it agrees with the view.
+  assert.equal(detail.listing_media.state, 'published');
+  assert.equal(detail.listing_media.items[0].media_id, LISTING_IMAGE_ID);
   assert.ok(detail.safety_warnings.some((w) => /Do not pay outside CarUp/.test(w)));
   assert.equal(detail.trust_summary.admin_explanation, undefined);
 });
@@ -204,9 +239,9 @@ test('listing detail 404s a non-public (Sold) listing and an unknown vin', async
 // QA Round 2 — prove the backend does NOT filter the seeded staging QA vehicles (rules out cause #3).
 const QA_VINS = ['JTDKARFP0H3000731', 'WBA8E9C50HK000732', 'MAJFP1CD0HC000733'];
 const QA_VEHICLES = [
-  { vin: 'JTDKARFP0H3000731', make: 'Toyota', model: 'Corolla', year: 2018, mileage: 68000, price: 9500, currency: 'USD', status: 'Available', owner_id: 'qa-staging-seller-73', tenant_id: null, registration_country: 'ZW', import_source: 'Local', current_seller_type: 'Private Owner', duty_paid: true, police_verified: true, trust_score: 74, created_at: NOW },
+  { vin: 'JTDKARFP0H3000731', make: 'Toyota', model: 'Corolla', year: 2018, mileage: 68000, price: 9500, currency: 'USD', status: 'Available', owner_id: 'qa-staging-seller-73', tenant_id: null, registration_country: 'ZW', import_source: 'Local', current_seller_type: 'Private Owner', duty_paid: true, police_verified: true, safe_pay_ready: true, trust_score: 74, created_at: NOW },
   { vin: 'WBA8E9C50HK000732', make: 'BMW', model: '320i', year: 2020, mileage: 41000, price: 24000, currency: 'USD', status: 'Available', owner_id: 'qa-staging-seller-73', tenant_id: null, registration_country: 'ZW', import_source: 'Japan', current_seller_type: 'Private Owner', duty_paid: true, police_verified: true, zimra_verified: true, safe_pay_ready: true, inspection_ready: true, trust_score: 90, created_at: NOW },
-  { vin: 'MAJFP1CD0HC000733', make: 'Ford', model: 'Ranger', year: 2019, mileage: 88000, price: 21000, currency: 'USD', status: 'Available', owner_id: 'qa-staging-seller-73', tenant_id: null, registration_country: 'ZW', import_source: 'Local', current_seller_type: 'Private Owner', duty_paid: true, police_verified: true, trust_score: 80, created_at: NOW },
+  { vin: 'MAJFP1CD0HC000733', make: 'Ford', model: 'Ranger', year: 2019, mileage: 88000, price: 21000, currency: 'USD', status: 'Available', owner_id: 'qa-staging-seller-73', tenant_id: null, registration_country: 'ZW', import_source: 'Local', current_seller_type: 'Private Owner', duty_paid: true, police_verified: true, safe_pay_ready: true, trust_score: 80, created_at: NOW },
 ];
 
 test('seeded staging QA vehicles are returned by the marketplace list (total>=3, all VINs present)', async () => {
@@ -239,40 +274,47 @@ test('each seeded QA detail resolves and never leaks owner_id/tenant_id; suppres
 
 test('multi-tag filter uses AND semantics (CSV value)', async () => {
   const sb = () => buildMockSupabase({ vehicles: QA_VEHICLES });
-  // duty_cleared is carried by all 3 seeded QA vehicles.
-  assert.equal((await listMarketplaceListings(sb(), { tag: 'duty_cleared' })).total, 3);
+  // safe_pay_ready is carried by all 3 seeded QA vehicles. (This was duty_cleared, which is now
+  // suppressed as an unbacked government-approval claim; the FILTER MECHANICS under test here are
+  // unchanged, so the fixture tag moved to one that is still legitimately derivable.)
+  assert.equal((await listMarketplaceListings(sb(), { tag: 'safe_pay_ready' })).total, 3);
+  // ...and the suppressed tag now matches NOTHING, which is the stronger statement.
+  assert.equal((await listMarketplaceListings(sb(), { tag: 'duty_cleared' })).total, 0);
+  assert.equal((await listMarketplaceListings(sb(), { tag: 'zimra_verified' })).total, 0);
+  assert.equal((await listMarketplaceListings(sb(), { tag: 'cid_clear' })).total, 0);
   // low_mileage (<=50k km) is only the BMW (41k); Toyota 68k + Ranger 88k are excluded.
   assert.deepEqual((await listMarketplaceListings(sb(), { tag: 'low_mileage' })).listings.map((l) => l.vin), ['WBA8E9C50HK000732']);
   // AND: a listing must carry BOTH tags -> only the BMW qualifies.
-  assert.deepEqual((await listMarketplaceListings(sb(), { tag: 'duty_cleared,low_mileage' })).listings.map((l) => l.vin), ['WBA8E9C50HK000732']);
+  assert.deepEqual((await listMarketplaceListings(sb(), { tag: 'safe_pay_ready,low_mileage' })).listings.map((l) => l.vin), ['WBA8E9C50HK000732']);
   // AND with a tag none carry (all QA sellers are private, never dealer_verified) -> empty (no silent OR fallback).
   assert.equal((await listMarketplaceListings(sb(), { tag: 'low_mileage,dealer_verified' })).total, 0);
 });
 
 test('multi-tag filter accepts a repeated-param array (Express ?tag=a&tag=b style)', async () => {
-  const res = await listMarketplaceListings(buildMockSupabase({ vehicles: QA_VEHICLES }), { tag: ['duty_cleared', 'zimra_verified'] });
+  const res = await listMarketplaceListings(buildMockSupabase({ vehicles: QA_VEHICLES }), { tag: ['safe_pay_ready', 'inspection_ready'] });
   assert.deepEqual(res.listings.map((l) => l.vin), ['WBA8E9C50HK000732']);
 });
 
 test('a condition category and a trust tag both apply together (no conflation)', async () => {
   const catVehicles = [
     { ...QA_VEHICLES[0], vehicle_condition_category: 'brand_new' },   // Toyota, 68k km (NOT low_mileage)
-    { ...QA_VEHICLES[1], vehicle_condition_category: 'second_hand' }, // BMW, 41k km + zimra_verified
+    { ...QA_VEHICLES[1], vehicle_condition_category: 'second_hand' }, // BMW, 41k km + inspection_ready
   ];
   const sb = () => buildMockSupabase({ vehicles: catVehicles });
   // Category alone selects only the brand_new Toyota.
   assert.deepEqual((await listMarketplaceListings(sb(), { category: 'brand_new' })).listings.map((l) => l.vin), ['JTDKARFP0H3000731']);
   // Category AND a tag it carries -> still the Toyota.
-  assert.deepEqual((await listMarketplaceListings(sb(), { category: 'brand_new', tag: 'duty_cleared' })).listings.map((l) => l.vin), ['JTDKARFP0H3000731']);
+  assert.deepEqual((await listMarketplaceListings(sb(), { category: 'brand_new', tag: 'safe_pay_ready' })).listings.map((l) => l.vin), ['JTDKARFP0H3000731']);
   // Category AND a tag it lacks -> empty (category does not loosen the tag AND).
   assert.equal((await listMarketplaceListings(sb(), { category: 'brand_new', tag: 'low_mileage' })).total, 0);
   // The other condition with its own tag resolves independently.
-  assert.deepEqual((await listMarketplaceListings(sb(), { category: 'second_hand', tag: 'zimra_verified' })).listings.map((l) => l.vin), ['WBA8E9C50HK000732']);
+  assert.deepEqual((await listMarketplaceListings(sb(), { category: 'second_hand', tag: 'inspection_ready' })).listings.map((l) => l.vin), ['WBA8E9C50HK000732']);
 });
 
 test('legacy category=<trust-slug> still narrows by that tag (backward compatible)', async () => {
-  // zimra_verified is a TRUST slug, not a condition — folded into the AND tag list -> only the BMW.
-  const res = await listMarketplaceListings(buildMockSupabase({ vehicles: QA_VEHICLES }), { category: 'zimra_verified' });
+  // inspection_ready is a TRUST slug, not a condition — folded into the AND tag list -> only the BMW.
+  // (Was zimra_verified, now suppressed; the backward-compatibility MECHANIC is what this pins.)
+  const res = await listMarketplaceListings(buildMockSupabase({ vehicles: QA_VEHICLES }), { category: 'inspection_ready' });
   assert.deepEqual(res.listings.map((l) => l.vin), ['WBA8E9C50HK000732']);
 });
 

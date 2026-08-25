@@ -8,9 +8,12 @@ import {
   CONDITION_CATEGORIES,
   MARKETPLACE_TAGS,
   LISTING_SELECT_COLUMNS,
+  selectListingRows,
   buildMarketplaceListingSummary,
+  fetchCanonicalTrustByVin,
   fetchListingRelatedRows,
   filterVisibleVehicles,
+  listingImageRowsForVin,
 } from './listingSummaryService.js';
 import { getMarketplaceListingDetail } from './marketplaceListingDetailService.js';
 import { buildPricingSummary } from './marketplacePricingService.js';
@@ -65,16 +68,13 @@ export async function compareListings(client, vins = []) {
  */
 export async function getMarketplaceRecommendations(client, vin, { limit = RECOMMENDATION_LIMIT } = {}) {
   if (!vin) throw new ValidationError('vin is required for recommendations.');
-  const { data: anchorRows, error: anchorErr } = await client
-    .from('vehicles')
-    .select(LISTING_SELECT_COLUMNS)
-    .eq('vin', vin);
+  const { data: anchorRows, error: anchorErr } = await selectListingRows(client, (q) => q.eq('vin', vin));
   if (anchorErr) throw anchorErr;
   const anchor = Array.isArray(anchorRows) ? anchorRows[0] : anchorRows;
   if (!anchor) return { listings: [], total: 0 };
 
   const price = Number(anchor.price) || 0;
-  const { data: candidates, error } = await client.from('vehicles').select(LISTING_SELECT_COLUMNS).eq('make', anchor.make);
+  const { data: candidates, error } = await selectListingRows(client, (q) => q.eq('make', anchor.make));
   if (error) throw error;
 
   const visible = filterVisibleVehicles(candidates).filter((v) => v.vin !== vin);
@@ -86,7 +86,11 @@ export async function getMarketplaceRecommendations(client, vin, { limit = RECOM
     : visible;
 
   const vins = banded.map((v) => v.vin).filter(Boolean);
-  const { evidenceByVin, partSentryByVin, ownershipByVin, imagesByVin } = await fetchListingRelatedRows(client, vins);
+  const related = await fetchListingRelatedRows(client, vins);
+  const { evidenceByVin, partSentryByVin, ownershipByVin } = related;
+  // This surface is public. Without the canonical entry every listing publishes a null score while
+  // the marketplace list publishes a real one for the same VIN — the same-VIN split, one file over.
+  const canonicalTrustByVin = await fetchCanonicalTrustByVin(client, vins);
 
   const listings = banded
     .map((vehicle) =>
@@ -95,10 +99,19 @@ export async function getMarketplaceRecommendations(client, vin, { limit = RECOM
         evidenceRows: evidenceByVin.get(vehicle.vin) || [],
         partSentryRows: partSentryByVin.get(vehicle.vin) || [],
         ownershipCount: (ownershipByVin.get(vehicle.vin) || []).length,
-        imageRows: imagesByVin.get(vehicle.vin) || [],
+        imageRows: listingImageRowsForVin(related, vehicle.vin),
+        canonicalTrust: canonicalTrustByVin.get(vehicle.vin) || null,
       })
     )
-    .sort((a, b) => b.trust_score - a.trust_score)
+    // An unscored vehicle is not a zero: it ranks after every scored one, in its original order.
+    .sort((a, b) => {
+      const as = Number.isFinite(a.trust_score) ? a.trust_score : null;
+      const bs = Number.isFinite(b.trust_score) ? b.trust_score : null;
+      if (as === null && bs === null) return 0;
+      if (as === null) return 1;
+      if (bs === null) return -1;
+      return bs - as;
+    })
     .slice(0, limit);
 
   return { listings, total: listings.length };

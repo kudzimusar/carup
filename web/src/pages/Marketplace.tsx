@@ -23,6 +23,7 @@ import { useIsMobile } from '@/hooks/use-mobile'
 import { toast } from 'sonner'
 import type { MarketplaceListingSummary, Vehicle, MarketplaceInquiryType } from '@/types'
 import { captureReferralFromUrl } from '@/lib/marketplaceReferral'
+import { summaryLocationLine } from '@/lib/governedLocation'
 import { InquiryModal } from '@/components/marketplace/InquiryModal'
 import { BuyerAssistantDrawer } from '@/components/marketplace/BuyerAssistantDrawer'
 import { ListingImage } from '@/components/marketplace/ListingImage'
@@ -91,16 +92,38 @@ function normalizeText(value?: string | null) {
   return (value || '').toLowerCase()
 }
 
-function normalizePlate(value?: string | null) {
-  return (value || '').toUpperCase().replace(/[^A-Z0-9]/g, '')
+/**
+ * The persisted `trust_score` on a listing summary is a CACHE, not an authority (Issue #164
+ * principle 2): it carries no calculation version, no evaluated-at and no evidence basis, so the
+ * card cannot tell a governed score from a stale or unfounded one. It is neither rendered NOR
+ * sorted on here — the governed assessment is published on the vehicle passport, which every card
+ * links to.
+ *
+ * RANKING IS A CLAIM, which is why there is no client-side trust sort at all. `sort=trust` goes to
+ * the listings API, and `listingSummaryService.sortSummaries()` ranks ONLY listings the canonical
+ * authority actually scored; everything unscored keeps newest-first order. Re-sorting that page
+ * here by the stored column would put the hand-set 84 back on top of a page the backend had just
+ * ordered honestly — the same defect, one layer up. The server's order is the order.
+ */
+
+/** What the ordering on the returned page ACTUALLY is, as the listings API reports it. */
+type TrustRanking = { requested?: string; applied?: string; note?: string }
+
+function readTrustRanking(payload: unknown): TrustRanking | null {
+  const ranking = (payload as { ranking?: unknown } | null | undefined)?.ranking
+  if (!ranking || typeof ranking !== 'object' || Array.isArray(ranking)) return null
+  const r = ranking as Record<string, unknown>
+  return {
+    requested: typeof r.requested === 'string' ? r.requested : undefined,
+    applied: typeof r.applied === 'string' ? r.applied : undefined,
+    note: typeof r.note === 'string' ? r.note : undefined,
+  }
 }
 
-function getTrustScore(vehicle: Vehicle) {
-  return vehicle.trust_score ?? vehicle.trustScore ?? 0
-}
-
-function getFuelType(vehicle: Vehicle) {
-  return vehicle.fuel_type || vehicle.fuelType || 'Petrol'
+function getFuelType(vehicle: Vehicle): string | null {
+  // No 'Petrol' default — an unstated fuel type is not Petrol. Absent → null (chip hidden; never
+  // matches a specific fuel filter).
+  return vehicle.fuel_type || vehicle.fuelType || null
 }
 
 // Phase 5: removed broad isVerifiedVehicle helper — plate verification and police checks
@@ -137,17 +160,23 @@ function hasVerifiedParts(vehicle: Vehicle) {
   return Boolean(vehicle.verified_parts_count || vehicle.parts?.some(part => part.type === 'OEM'))
 }
 
-function isDealerListing(vehicle: Vehicle) {
-  const sellerType = normalizeText(vehicle.sellerType || vehicle.current_seller_type)
-  return Boolean(vehicle.tenant || sellerType.includes('dealer') || sellerType.includes('dealership'))
+function getSellerLabel(vehicle: Vehicle): string {
+  // The seller's OWN governed display label (summary.seller_display_label → sellerName), consent-gated
+  // upstream. No fabricated 'CarUp Dealer' / 'Private seller' stand-in when the seller published none.
+  const label = normalizeText(vehicle.sellerName)
+  return label ? (vehicle.sellerName as string) : 'Seller not disclosed'
 }
 
-function getSellerLabel(vehicle: Vehicle) {
-  if (isDealerListing(vehicle)) {
-    // 'Verified dealer' removed: dealer registration does not equal full verification
-    return vehicle.tenant?.name || vehicle.sellerName || 'CarUp Dealer'
-  }
-  return 'Private seller'
+/**
+ * Plate posture for a listing card. The plate itself is never in a public payload
+ * (PRIVATE_VEHICLE_FIELDS in backend/utils/publicVehicleProjection.js), so the posture is read
+ * from the non-identifying signals the API does return. No signal is an explicit unknown, never
+ * a blank line the buyer could mistake for "no plate".
+ */
+function getPlateStatusLabel(vehicle: Vehicle) {
+  if ((vehicle as Vehicle & { plate_verified?: boolean }).plate_verified) return 'Plate verified'
+  if (normalizeText(vehicle.plate_status)) return 'Plate on file'
+  return 'Plate status unknown'
 }
 
 function getVehicleLabels(vehicle: Vehicle) {
@@ -163,10 +192,15 @@ function getVehicleLabels(vehicle: Vehicle) {
   // 'Certified Pre-Owned' is a dealer-certified condition, not a CarUp verification claim.
   if (condition === 'certified pre-owned' || conditionCategory === 'certified_dealer') labels.push('Certified Pre-Owned')
   // Source-specific trust signals (plate and police are separate, not whole-vehicle verification)
-  if ((vehicle as Vehicle & { plate_verified_at?: string }).plate_verified_at) labels.push('Plate Confirmed')
-  if ((vehicle as Vehicle & { police_verified?: boolean }).police_verified) labels.push('Police Checked')
+  if ((vehicle as Vehicle & { plate_verified?: boolean }).plate_verified) labels.push('Plate Confirmed')
   if ((vehicle as Vehicle & { passport_verified?: boolean }).passport_verified) labels.push('Evidence Reviewed')
-  if ((vehicle as Vehicle & { duty_paid?: boolean }).duty_paid) labels.push('Duty Cleared')
+  // 'Police Checked' (from police_verified) and 'Duty Cleared' (from duty_paid) were derived here,
+  // a THIRD publication route independent of marketplace_tags. Both are removed.
+  //
+  // police_verified is the sharper of the two: its ONLY writer in this repository records "was
+  // reported stolen, then recovered", so the label asserted a clean police check on the strength of
+  // a theft report — the inverse of what the column means. duty_paid has no writer that sets it
+  // true at all. Neither can be restored by a legacy boolean; they need a governed source record.
   if (importSource || conditionCategory === 'recently_imported') labels.push('Recently Imported', 'Fresh Import')
   if (registrationCountry === 'zimbabwe' || conditionCategory === 'locally_used') labels.push('Locally Used')
   if ((vehicle.mileage || 0) > 0 && (vehicle.mileage || 0) <= 50000) labels.push('Low Mileage')
@@ -218,7 +252,14 @@ function setFavorites(ids: string[]) {
   localStorage.setItem('carup_favorites', JSON.stringify(ids))
 }
 
-function marketplaceSummaryToVehicle(summary: MarketplaceListingSummary): Vehicle {
+/**
+ * Adapt one public listing summary to the card model. Every field here must already exist on the
+ * summary: the public listing contract is the only source of truth for a listing, so nothing is
+ * substituted for a missing value (Issue #164 principles 4 and 5). Registry identifiers
+ * (plate/chassis) are absent from that contract by design — `plate_verified`/`plate_status` carry
+ * the plate trust signal instead.
+ */
+function marketplaceSummaryToVehicle(summary: MarketplaceListingSummary): Vehicle & { plate_verified: boolean } {
   return {
     vin: summary.vin,
     make: summary.make,
@@ -227,21 +268,23 @@ function marketplaceSummaryToVehicle(summary: MarketplaceListingSummary): Vehicl
     mileage: summary.mileage,
     fuel_type: summary.fuel_type || undefined,
     transmission: summary.transmission || undefined,
-    status: summary.status,
+    status: summary.status || undefined,
+    // Carried ONLY because `trust_score` is still required on the shared `Vehicle` type
+    // (shared/types/index.ts). Nothing in this file renders it and nothing sorts on it. Making it
+    // optional there, so the card model can drop it outright, is the remaining cleanup — it is a
+    // shared-type change and does not belong to this page.
     trust_score: summary.trust_score,
     price: summary.price,
     currency: summary.currency,
     created_at: summary.created_at || undefined,
-    location: summary.location || 'Zimbabwe',
+    location: summary.location || undefined,
+    location_state: summary.location_state,
     images: summary.primary_image_url ? [summary.primary_image_url] : undefined,
-    plate_number: summary.plate_number || undefined,
-    normalized_plate_number: summary.normalized_plate_number || undefined,
-    chassis_number: summary.chassis_number || undefined,
     vehicle_condition_category: summary.condition_category,
     marketplace_tags: summary.marketplace_tags,
     passport_verified: summary.passport_verified,
     plate_status: summary.plate_status || undefined,
-    plate_verified_at: summary.plate_verified ? summary.created_at || new Date(0).toISOString() : undefined,
+    plate_verified: summary.plate_verified,
     evidence_count: summary.evidence_count,
     partsentry_checked: summary.partsentry_checked,
     repair_history_count: summary.repair_history_count,
@@ -250,8 +293,10 @@ function marketplaceSummaryToVehicle(summary: MarketplaceListingSummary): Vehicl
     zimra_verified: summary.zimra_verified,
     police_verified: summary.cid_clear,
     cid_clear: summary.cid_clear,
-    sellerType: summary.seller_type === 'dealer' ? 'Dealership' : 'Private Owner',
-    sellerName: summary.seller_display_label,
+    // No 'Private Owner' fabrication when the governed seller_type is absent — pass through the
+    // governed distinction or leave it undisclosed.
+    sellerType: summary.seller_type === 'dealer' ? 'Dealership' : (summary.seller_type ? 'Private Owner' : undefined),
+    sellerName: summary.seller_display_label || undefined,
     current_seller_type: summary.seller_type,
     public_seller_display_enabled: summary.seller_public_profile_enabled,
   }
@@ -426,6 +471,10 @@ export default function Marketplace() {
   const [liveVehicles, setLiveVehicles] = useState<Vehicle[]>([])
   const [loadingVehicles, setLoadingVehicles] = useState(true)
   const [loadError, setLoadError] = useState(false)
+  // What the returned page is actually ordered by. A shopper who picks "Highest Trust Score" while
+  // no listing carries a canonical evaluation gets newest-first, and must be told so rather than
+  // left to read the first card as the most trustworthy.
+  const [trustRanking, setTrustRanking] = useState<TrustRanking | null>(null)
   const [favorites, setFavoritesState] = useState<string[]>(getFavorites)
 
   // Saved listings are SERVER-backed and account-scoped for authenticated users (existing
@@ -536,6 +585,7 @@ export default function Marketplace() {
     fetchMarketplaceListings(apiFilters)
       .then((data) => {
         if (cancelled) return
+        setTrustRanking(readTrustRanking(data))
         if (data && Array.isArray(data.listings)) {
           setLiveVehicles(withMockFallback(data.listings.map(marketplaceSummaryToVehicle), mockVehicles as unknown as Vehicle[]))
         } else {
@@ -545,6 +595,9 @@ export default function Marketplace() {
       .catch(async (err) => {
         if (cancelled) return
         console.error('Failed to fetch marketplace listing summaries:', err)
+        // The fallback endpoint reports no ranking, so no ordering claim is carried over from the
+        // request that failed.
+        setTrustRanking(null)
         try {
           const data = await fetchVehicles(apiFilters)
           if (cancelled) return
@@ -595,15 +648,13 @@ export default function Marketplace() {
   const filtered = liveVehicles.filter((v: Vehicle) => {
     const loc = v.location || ''
     const q = searchQuery.toLowerCase()
-    const normalizedQuery = normalizePlate(searchQuery)
+    // Plate/chassis are not searchable client-side: they are absent from the public listing
+    // contract, and matching on them would turn the grid into an identifier oracle.
     const searchableText = [
       v.make,
       v.model,
       loc,
       v.vin,
-      v.plate_number,
-      v.normalized_plate_number,
-      v.chassis_number,
       v.condition,
       v.category,
       v.sellerName,
@@ -613,11 +664,7 @@ export default function Marketplace() {
       hasPartSentrySignal(v) ? 'partsentry repair part history checked' : '',
       getRepairHistoryCount(v) > 0 ? 'repair history service logs work orders' : '',
     ].map(value => value || '').join(' ').toLowerCase()
-    const matchSearch = !searchQuery ||
-      searchableText.includes(q) ||
-      normalizePlate(v.plate_number).includes(normalizedQuery) ||
-      normalizePlate(v.normalized_plate_number).includes(normalizedQuery) ||
-      normalizePlate(v.chassis_number).includes(normalizedQuery)
+    const matchSearch = !searchQuery || searchableText.includes(q)
     const matchCat = selectedCategory === 'All' || v.category === selectedCategory
     const matchMarketplaceCategory = matchesConditionChip(v, marketplaceCategory)
     const matchTrustTags = matchesAllTrustTags(v, trustTags)
@@ -634,7 +681,8 @@ export default function Marketplace() {
     if (sortBy === 'price-low') return (a.price || 0) - (b.price || 0)
     if (sortBy === 'price-high') return (b.price || 0) - (a.price || 0)
     if (sortBy === 'newest') return new Date(b.created_at || 0).getTime() - new Date(a.created_at || 0).getTime()
-    if (sortBy === 'trust') return getTrustScore(b) - getTrustScore(a)
+    // No `sortBy === 'trust'` branch. Trust ordering is the backend's, computed from canonical
+    // scores only; re-ranking it here on the unversioned cached column would undo exactly that.
     return 0
   })
 
@@ -681,7 +729,9 @@ export default function Marketplace() {
         <div className="section-padding mx-auto max-w-[1440px] py-8">
           <h1 className="text-3xl font-bold mb-2">Vehicle Marketplace</h1>
           <p className="text-gray-600">
-            Browse {liveVehicles.length} verified vehicles across Zimbabwe, with parts and repair trust signals where data exists.
+            {/* Not "verified vehicles across Zimbabwe" — the population is neither all verified nor
+                asserted to be all in Zimbabwe. Each vehicle carries its own governed trust signals. */}
+            Browse {liveVehicles.length} published {liveVehicles.length === 1 ? 'listing' : 'listings'}, with governed trust, parts and repair signals shown per vehicle where data exists.
           </p>
           <div className="mt-4 flex flex-wrap items-center gap-2" data-testid="marketplace-entry-actions">
             <BuyerAssistantDrawer />
@@ -939,6 +989,19 @@ export default function Marketplace() {
           </div>
         )}
 
+        {/* The requested trust ordering was not the ordering applied. Saying so is the point: a
+            silently newest-first page under a "Highest Trust Score" control invites the shopper to
+            read position as trust, which is the ranking claim this programme removed. */}
+        {!loadingVehicles && trustRanking?.requested === 'trust' && trustRanking.applied !== 'trust' && (
+          <div
+            className="mb-4 rounded-lg border border-gray-200 bg-gray-50 px-4 py-2 text-xs text-gray-600"
+            data-testid="marketplace-trust-ranking-notice"
+          >
+            {trustRanking.note
+              || 'No listing on this page carries a canonical trust evaluation, so these results are not ordered by trust.'}
+          </div>
+        )}
+
         {/* Result summary + count */}
         <div className="mb-4 flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
           <p className="text-sm font-medium text-gray-800" data-testid="marketplace-results-summary">
@@ -974,14 +1037,8 @@ export default function Marketplace() {
               const vehicleName = `${vehicle.year || ''} ${vehicle.make || ''} ${vehicle.model || ''}`.trim()
               const vehicleLabels = getVehicleLabels(vehicle)
               const cardLabels = vehicleLabels.slice(0, 4)
-              const trustScore = getTrustScore(vehicle)
-              // Insufficient evidence: trust score below threshold means we show a caution indicator,
-              // not suppress the listing — buyers see conservative signal, not a false positive.
-              const hasInsufficientEvidence = trustScore > 0 && trustScore < 30
               const passportHref = `/marketplace/${encodeURIComponent(vehicle.vin || vehicle.id || '')}`
-              const plateStatus = vehicle.plate_number
-                ? vehicle.plate_verified_at ? 'Plate verified' : 'Plate on file'
-                : ''
+              const plateStatus = getPlateStatusLabel(vehicle)
               return (
                 <Link
                   key={vehicle.vin || vehicle.id || ''}
@@ -998,7 +1055,7 @@ export default function Marketplace() {
                         imgClassName="group-hover:scale-105 transition-transform duration-500"
                       />
                       <div className="absolute top-3 left-3 flex flex-wrap gap-2">
-                        {(vehicle as Vehicle & { plate_verified_at?: string }).plate_verified_at && (
+                        {(vehicle as Vehicle & { plate_verified?: boolean }).plate_verified && (
                           <Badge className="bg-green-600 text-white text-[10px]" data-testid="marketplace-plate-confirmed-badge">
                             <CheckCircle className="w-3 h-3 mr-1" /> Plate Confirmed
                           </Badge>
@@ -1008,9 +1065,9 @@ export default function Marketplace() {
                             Police Checked
                           </Badge>
                         )}
-                        {trustScore >= 75 && (
-                          <Badge className="bg-orange-500 text-white text-[10px]">High Trust</Badge>
-                        )}
+                        {/* No "High Trust" badge: it was awarded by a client-side score threshold
+                            against an unversioned cache, which is a trust claim this card has no
+                            authority to make. The governed assessment is on the passport. */}
                         {isReserved && (
                           <Badge className="bg-amber-500 text-white text-[10px]">Reserved</Badge>
                         )}
@@ -1059,17 +1116,12 @@ export default function Marketplace() {
                       </div>
                     </div>
                     <CardContent className="p-4">
+                      {/* No score, no "High Trust" and no "Low Evidence" tier on the card. The public
+                          listing contract carries only the unversioned cached number, which cannot
+                          support any of those claims, and inventing a threshold to replace them
+                          would repeat the fault. Trust is stated once, where it is governed. */}
                       <div className="flex items-start justify-between mb-1">
                         <h3 className="font-semibold text-sm line-clamp-1">{vehicleName}</h3>
-                        {hasInsufficientEvidence ? (
-                          <Badge variant="outline" className="ml-2 shrink-0 border-amber-300 text-amber-700 text-[10px]" data-testid="marketplace-low-evidence-badge">
-                            Low Evidence
-                          </Badge>
-                        ) : trustScore > 0 ? (
-                          <Badge variant="secondary" className="ml-2 shrink-0" data-testid="marketplace-trust-score">
-                            Trust {trustScore}
-                          </Badge>
-                        ) : null}
                       </div>
                       <p className="text-xl font-bold text-orange-600">${(vehicle.price || 0).toLocaleString()}</p>
                       <div className="mt-2 flex flex-wrap gap-1.5">
@@ -1085,15 +1137,26 @@ export default function Marketplace() {
                         ))}
                       </div>
                       <div className="flex flex-wrap gap-2 mt-2 text-xs text-gray-500">
-                        <span className="flex items-center gap-1"><Gauge className="w-3 h-3" />{(vehicle.mileage || 0).toLocaleString()} km</span>
-                        <span className="flex items-center gap-1"><Settings2 className="w-3 h-3" />{vehicle.transmission || 'Auto'}</span>
-                        <span className="flex items-center gap-1"><Fuel className="w-3 h-3" />{getFuelType(vehicle)}</span>
+                        {/* Only recorded specs are shown — no '0 km' / 'Auto' / 'Petrol' stand-ins for
+                            an unstated value. A genuine 0 km import still shows (finite check). */}
+                        {Number.isFinite(vehicle.mileage as number) && (
+                          <span className="flex items-center gap-1"><Gauge className="w-3 h-3" />{(vehicle.mileage as number).toLocaleString()} km</span>
+                        )}
+                        {vehicle.transmission && (
+                          <span className="flex items-center gap-1"><Settings2 className="w-3 h-3" />{vehicle.transmission}</span>
+                        )}
+                        {getFuelType(vehicle) && (
+                          <span className="flex items-center gap-1"><Fuel className="w-3 h-3" />{getFuelType(vehicle)}</span>
+                        )}
                       </div>
-                      {plateStatus && (
-                        <p className="mt-2 text-xs font-medium text-blue-700" data-testid="marketplace-plate-status">
-                          {plateStatus}
-                        </p>
-                      )}
+                      <p className="mt-2 text-xs font-medium text-blue-700" data-testid="marketplace-plate-status">
+                        {plateStatus}
+                      </p>
+                      {/* Identical on every card by design: it explains why no card shows a score,
+                          so a missing badge is not read as an adverse signal about this listing. */}
+                      <p className="mt-1 text-xs text-gray-500" data-testid="marketplace-trust-deferred">
+                        Trust assessment shown on the vehicle passport
+                      </p>
                       <Separator className="my-3" />
                       <div className="flex items-center justify-between gap-3">
                         <div className="flex items-center gap-1.5">
@@ -1101,7 +1164,10 @@ export default function Marketplace() {
                           <span className="text-xs text-gray-600 line-clamp-1">{getSellerLabel(vehicle)}</span>
                         </div>
                         <span className="flex items-center gap-1 text-xs text-gray-400">
-                          <MapPin className="w-3 h-3" />{vehicle.location || 'Zimbabwe'}
+                          <MapPin className="w-3 h-3" />
+                          <span data-testid="listing-location">
+                            {summaryLocationLine(vehicle.location, vehicle.location_state).label}
+                          </span>
                         </span>
                       </div>
                       <Button

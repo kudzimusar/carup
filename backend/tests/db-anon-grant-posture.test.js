@@ -150,8 +150,19 @@ function netAnonSelectPosture(table) {
         if (!namesTable && !schemaWide && !isMembership && !isIndirectSurface) continue;
 
         if (isIndirectSurface) {
-          // Never cleared by a revoke on the TABLE: the privilege that matters belongs to the
-          // function or the view, not to the table it reads.
+          // A revoke on the TABLE never clears this — the privilege that matters belongs to the
+          // function or view, not to the table it reads. But a revoke on the OBJECT ITSELF does,
+          // and refusing to see one turns a correctly-written migration into a permanent finding.
+          //
+          // Cleared only by an explicit REVOKE on a FUNCTION in the SAME FILE that names PUBLIC or
+          // anon. Deliberately narrow: `GRANT ... TO service_role` alone does NOT clear it, because
+          // CREATE FUNCTION grants EXECUTE to PUBLIC by default and granting one role does not
+          // remove that default — which is the whole trap this rule exists to catch.
+          const revokesObjectFromAnon = new RegExp(
+            String.raw`\bREVOKE\b[\s\S]*?\bON\s+FUNCTION\b[\s\S]*?\bFROM\b[^;]*\b(?:PUBLIC|anon)\b`, 'i',
+          ).test(sql);
+          if (revokesObjectFromAnon) continue;
+
           findings.push({
             file, migrationIndex, columnScoped: false, grantees: ['__indirect__'],
             neverCleared: true,

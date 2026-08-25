@@ -41,23 +41,84 @@ function buildProductionApiBaseUrl(): string {
 }
 
 export const DEFAULT_PRODUCTION_API_BASE_URL = buildProductionApiBaseUrl()
+export const DEFAULT_STAGING_API_BASE_URL = 'https://carup-backend-staging.vercel.app/api'
+
+/**
+ * Fail-closed sentinel for a per-branch PREVIEW frontend that was built without a paired backend.
+ *
+ * Issue #164 Phase 8: the first physical UAT ran the PR #165 preview frontend against
+ * `carup-backend-staging.vercel.app`, which serves `main` — not the candidate. Every backend-dependent
+ * UAT step therefore measured `main`'s contract while appearing to certify the candidate, and four
+ * steps failed for a defect the candidate had already fixed.
+ *
+ * A preview must never silently borrow another candidate's backend. `.invalid` is reserved by
+ * RFC 2606 and can never resolve, so an unpaired preview fails loudly on its first request instead of
+ * producing plausible-but-wrong evidence. `PreviewProvenanceBanner` turns that failure into an
+ * explanation. This is deliberately NOT the empty string: several call sites read
+ * `BASE_URL || DEFAULT_PRODUCTION_API_BASE_URL`, and an empty base there would fall through to
+ * PRODUCTION — the exact class of accident this constant exists to prevent.
+ */
+export const UNPAIRED_PREVIEW_API_BASE_URL = 'https://unpaired-preview.carup.invalid/api'
+
 const LOCAL_HOSTS = ['localhost', '127.0.0.1', '0.0.0.0']
+
+/** The staging frontend's STABLE aliases. These track `main`, and so pair with `main`'s backend. */
+const STABLE_STAGING_FRONTEND_HOSTS = ['carup-staging.vercel.app', 'staging.carup.dev']
+
+/**
+ * True only for the stable staging aliases. Matched on the exact hostname, never a substring, so a
+ * look-alike such as `carup-staging.evil.example.com` can never satisfy it.
+ */
+export function isStableStagingFrontendHost(hostname?: string | null): boolean {
+  const host = (hostname || '').trim().toLowerCase()
+  return !!host && STABLE_STAGING_FRONTEND_HOSTS.includes(host)
+}
+
+/**
+ * True for Vercel's per-branch / per-deployment previews of the staging frontend project
+ * (`carup-staging-git-<branch>-<team>.vercel.app`, `carup-staging-<hash>.vercel.app`).
+ *
+ * These serve a CANDIDATE commit, so they pair with that candidate's own backend preview — never with
+ * the stable staging backend.
+ */
+export function isPreviewFrontendHost(hostname?: string | null): boolean {
+  const host = (hostname || '').trim().toLowerCase()
+  if (!host || isStableStagingFrontendHost(host)) return false
+  return host.startsWith('carup-staging-') && host.endsWith('.vercel.app')
+}
+
+/**
+ * True for any host owned by the staging frontend project — stable alias or preview.
+ * Retained as the environment-isolation predicate: no host in this set may ever reach PRODUCTION.
+ */
+export function isStagingFrontendHost(hostname?: string | null): boolean {
+  return isStableStagingFrontendHost(hostname) || isPreviewFrontendHost(hostname)
+}
 
 /**
  * Resolve the API base URL, with explicit configuration taking precedence so each environment
  * targets its own backend:
- *   1. `VITE_API_URL` (set per Vercel project — staging → staging backend, prod → prod backend)
+ *   1. `VITE_API_URL` (set per Vercel project, or injected per branch by `vite.config.ts` from
+ *      `web/preview-backend-pairing.json`) → that backend
  *   2. local dev on a localhost host with no override → same-origin `/api`
- *   3. any other host with no override → the production backend (safe default)
+ *   3. a STABLE staging alias with no override → the stable staging backend (main ↔ main)
+ *   4. a per-branch PREVIEW host with no override → the fail-closed sentinel
+ *   5. any other host with no override → the production backend (safe default)
  *
- * Previously the non-localhost branch was hardcoded to production, so the staging frontend always
- * read the production backend and ignored `VITE_API_URL`. Honoring the env var lets staging call the
- * staging backend while leaving production behavior unchanged.
+ * Steps 3–4 are environment-isolation safety nets. If `VITE_API_URL` is ever missing or mis-set on a
+ * staging deployment, the original fallthrough sent the staging frontend — and every credential typed
+ * into it — to the PRODUCTION backend. Staging must never silently authenticate against production.
+ *
+ * Step 4 is the Issue #164 Phase 8 correction. Collapsing previews into step 3 (the original
+ * behaviour) satisfied environment isolation but broke CANDIDATE isolation: a preview silently tested
+ * `main`'s backend. Both properties are required, so previews get their own fail-closed branch.
  */
 export function resolveApiBaseUrl(configuredUrl?: string | null, hostname?: string): string {
   const configured = configuredUrl?.trim()
   if (configured) return normalizeApiBase(configured)
   if (hostname && LOCAL_HOSTS.includes(hostname)) return '/api'
+  if (isStableStagingFrontendHost(hostname)) return DEFAULT_STAGING_API_BASE_URL
+  if (isPreviewFrontendHost(hostname)) return UNPAIRED_PREVIEW_API_BASE_URL
   return DEFAULT_PRODUCTION_API_BASE_URL
 }
 

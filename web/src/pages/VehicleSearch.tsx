@@ -14,6 +14,7 @@ import {
 import { Search, CheckCircle, Gauge, Fuel, Settings2, MapPin, Loader2, AlertTriangle, ShieldCheck } from 'lucide-react'
 import { useCarUpApi } from '@/hooks/useCarUpApi'
 import { looksLikeIdentifier } from '@/lib/marketplaceParams'
+import { summaryLocationLine } from '@/lib/governedLocation'
 import { ListingImage } from '@/components/marketplace/ListingImage'
 import type { MarketplaceListingSummary, Vehicle } from '@/types'
 
@@ -23,6 +24,40 @@ function labelize(slug: string): string {
     .filter(Boolean)
     .map(word => word.charAt(0).toUpperCase() + word.slice(1))
     .join(' ')
+}
+
+// ── Unknown stays unknown on a public result card (Issue #164 Phase 4) ──────────────────────
+/**
+ * A recorded 0 is a fact and prints; only null/undefined is missing, and missing is named. These
+ * cards rendered `(price ?? 0)` and `(mileage ?? 0)`, so a listing whose price or odometer had
+ * never been recorded advertised "$0" and "0 km" — the two most persuasive numbers on the card,
+ * both invented, both indistinguishable to a shopper from a genuinely free, genuinely unused car.
+ */
+function statedPrice(amount: unknown): string {
+  return typeof amount === 'number' && Number.isFinite(amount) ? `$${amount.toLocaleString()}` : 'Price not recorded'
+}
+
+function statedMileage(km: unknown): string {
+  return typeof km === 'number' && Number.isFinite(km) ? `${km.toLocaleString()} km` : 'Mileage not recorded'
+}
+
+/**
+ * What a listing card may say about who is selling.
+ *
+ * The card previously fell back to `seller_type === 'dealer' ? 'Dealer' : 'Private seller'`, so
+ * every listing carried a seller classification even when none was asserted — and the "private
+ * seller" half was reached by an else branch, meaning any unrecorded seller type was published as
+ * a positive claim that the seller is a private individual. A seller class is the seller's fact,
+ * not this page's inference from a column.
+ *
+ * The only label a listing may carry is the name the seller themselves published, and only while
+ * `seller_public_profile_enabled` says they published it. Withheld and unrecorded read differently:
+ * a seller who opted out has not failed to record anything.
+ */
+function statedSellerLabel(listing: MarketplaceListingSummary): string {
+  if (listing.seller_public_profile_enabled !== true) return 'Seller identity not published'
+  const label = String(listing.seller_display_label || '').trim()
+  return label || 'Seller name not recorded'
 }
 
 export default function VehicleSearch() {
@@ -69,8 +104,11 @@ export default function VehicleSearch() {
       setLoading(true)
       setLoadError(false)
 
-      // 1. Identifier-shaped queries try the passport lookup first: an exact VIN /
-      //    chassis / plate / temporary ID match deep-links straight to the listing.
+      // 1. Identifier-shaped queries try the passport lookup. An exact VIN resolves for anyone;
+      //    plate / chassis / temporary ID resolve only for a signed-in caller, and otherwise come
+      //    back 401 with a body that is identical for every identifier. The catch below therefore
+      //    means "not resolvable by you", NOT "no such vehicle", which is why the page falls
+      //    through to plain browse rather than reporting the identifier as unknown.
       let matched: Vehicle | null = null
       if (looksLikeIdentifier(committedQuery)) {
         try {
@@ -94,8 +132,9 @@ export default function VehicleSearch() {
       setPassportMatch(matched)
       setPassportListed(matchedListed)
 
-      // 2. Browse results always come from the live marketplace listings API; the
-      //    backend search haystack covers make/model/VIN/plate/chassis/seller.
+      // 2. Browse results always come from the live marketplace listings API. Its haystack is
+      //    vin/make/model/condition/seller only — `summaryMatchesSearch` omits plate and chassis
+      //    on purpose, so browse cannot be used as an identifier oracle either.
       try {
         const data = await fetchMarketplaceListings({
           q: committedQuery || undefined,
@@ -134,7 +173,21 @@ export default function VehicleSearch() {
       <div className="bg-gradient-to-br from-[hsl(222,47%,11%)] to-[hsl(222,47%,18%)] text-white py-16">
         <div className="section-padding mx-auto max-w-[1440px]">
           <h1 className="text-3xl md:text-4xl font-bold mb-4">Verify Vehicle or Part History</h1>
-          <p className="text-gray-300 mb-3">Search by VIN, chassis, plate, or temporary ID</p>
+          {/* The page advertised "Search by VIN, chassis, plate, or temporary ID". Only the first
+              of those is true for a signed-out visitor: passportLookupPolicy.js makes VIN the sole
+              PUBLIC_LOOKUP_KIND, and marketplace browse deliberately excludes plate and chassis
+              from its haystack so it cannot be used to confirm that a registration exists. A plate
+              typed here while signed out returns the same nothing whether or not the plate is real,
+              which the copy has to say — otherwise a shopper reads that silence as "no such car". */}
+          <p className="text-gray-300 mb-3" data-testid="vehicle-search-scope">
+            Search by VIN, or browse by make and model
+          </p>
+          <p className="mb-3 max-w-3xl text-sm leading-6 text-gray-300" data-testid="vehicle-search-lookup-policy">
+            Exact VIN lookup is open to everyone. Looking a vehicle up by plate, chassis number or
+            temporary ID requires a signed-in CarUp account — signed out, those searches return the
+            same result whether or not the vehicle exists, so an empty result is not evidence that
+            it does not.
+          </p>
           <p className="mb-8 max-w-3xl text-sm leading-6 text-gray-300">
             PartSentry helps identify swapped, stolen, or undocumented parts by connecting repair logs,
             work orders, mechanics, and parts history to the vehicle Passport where records exist.
@@ -143,7 +196,7 @@ export default function VehicleSearch() {
             <div className="relative flex-1 min-w-[300px]">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
               <Input
-                placeholder="Enter VIN, chassis, plate, or temporary ID..."
+                placeholder="Enter a VIN, or a make and model..."
                 value={query}
                 onChange={(e) => setQuery(e.target.value)}
                 className="pl-10 bg-white/10 border-white/20 text-white placeholder:text-gray-400"
@@ -234,28 +287,36 @@ export default function VehicleSearch() {
                         className="w-full h-full"
                         imgClassName="group-hover:scale-105 transition-transform duration-500"
                       />
+                      {/* `passport_verified` means evidence on this vehicle has been reviewed. A
+                          bare "Verified" badge promoted that one source into a whole-vehicle
+                          assurance; Marketplace.tsx already publishes the source-specific claim. */}
                       {vehicle.passport_verified && (
                         <Badge className="absolute top-3 left-3 bg-green-500 text-white text-[10px]">
-                          <CheckCircle className="w-3 h-3 mr-1" /> Verified
+                          <CheckCircle className="w-3 h-3 mr-1" /> Evidence Reviewed
                         </Badge>
                       )}
                     </div>
                     <CardContent className="p-4">
                       <h3 className="font-semibold text-sm">{vehicle.year} {vehicle.make} {vehicle.model}</h3>
-                      <p className="text-lg font-bold text-orange-600 mt-1">${(vehicle.price ?? 0).toLocaleString()}</p>
+                      <p className="text-lg font-bold text-orange-600 mt-1" data-testid={`search-price-${vehicle.vin}`}>{statedPrice(vehicle.price)}</p>
                       <div className="flex flex-wrap gap-2 mt-2 text-xs text-gray-500">
-                        <span className="flex items-center gap-1"><Gauge className="w-3 h-3" />{(vehicle.mileage ?? 0).toLocaleString()} km</span>
+                        <span className="flex items-center gap-1" data-testid={`search-mileage-${vehicle.vin}`}><Gauge className="w-3 h-3" />{statedMileage(vehicle.mileage)}</span>
                         {vehicle.transmission && <span className="flex items-center gap-1"><Settings2 className="w-3 h-3" />{vehicle.transmission}</span>}
                         {vehicle.fuel_type && <span className="flex items-center gap-1"><Fuel className="w-3 h-3" />{vehicle.fuel_type}</span>}
                       </div>
                       <Separator className="my-3" />
                       <div className="flex items-center justify-between">
-                        <span className="text-xs text-gray-600">
-                          {vehicle.seller_display_label || (vehicle.seller_type === 'dealer' ? 'Dealer' : 'Private seller')}
+                        <span className="text-xs text-gray-600" data-testid={`search-seller-${vehicle.vin}`}>
+                          {statedSellerLabel(vehicle)}
                         </span>
-                        {vehicle.location && (
-                          <span className="flex items-center gap-1 text-xs text-gray-400"><MapPin className="w-3 h-3" />{vehicle.location}</span>
-                        )}
+                        {/* A card with no location said nothing at all, which reads as "nearby".
+                            An absent listing location is stated. */}
+                        <span className="flex items-center gap-1 text-xs text-gray-400" data-testid={`search-location-${vehicle.vin}`}>
+                          <MapPin className="w-3 h-3" />
+                          <span data-testid="listing-location">
+                            {summaryLocationLine(vehicle.location, vehicle.location_state).label}
+                          </span>
+                        </span>
                       </div>
                       <span className="mt-4 inline-flex w-full items-center justify-center rounded-md bg-gray-950 px-3 py-2 text-sm font-semibold text-white" data-testid="vehicle-search-view-passport">
                         View Passport

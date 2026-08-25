@@ -1,26 +1,58 @@
+import crypto from 'node:crypto';
 import { supabase } from '../../db/supabase.js';
-import { emitDomainEvent } from '../eventBus/eventBusService.js';
+import { requestMarketplaceEscrow } from '../transaction/marketplaceTransactionAuthority.js';
+import { ConflictError, UnauthorizedError } from '../../utils/errors.js';
 
-export async function reserveVehicle(vin, buyerId, durationDays = 7) {
-  const { data: vehicle } = await supabase.from('vehicles').select('status, price, tenant_id').eq('vin', vin).single();
-  if (!vehicle) throw new Error('Vehicle record not found');
-  if (vehicle.status !== 'Available') throw new Error('Vehicle is not available for reservation');
-  
-  const expiresAt = new Date();
-  expiresAt.setDate(expiresAt.getDate() + durationDays);
-  
-  // 1. Update vehicle state in database
-  const { error } = await supabase.from('vehicles').update({ status: 'Reserved' }).eq('vin', vin);
-  if (error) throw new Error(`Vehicle update failed: ${error.message}`);
-  
-  // 2. Emit Domain Event via Transactional Outbox Pattern
-  await emitDomainEvent(null, 'VEHICLE_RESERVED', {
-    vin,
-    buyerId,
-    durationDays,
-    expiresAt: expiresAt.toISOString(),
-    price: vehicle.price
-  }, vehicle.tenant_id);
-
-  return { vin, buyerId, reserved: true, expiresAt: expiresAt.toISOString() };
+/**
+ * Issue #164 Phase 6 reservation entry point.
+ *
+ * The HTTP caller supplies only VIN + authenticated identity. Transaction lineage,
+ * seller, listing economics, Trust eligibility and reservation duration are server-owned.
+ * PostgreSQL performs the reservation/cache/outbox mutation atomically.
+ */
+export function buildCanonicalReservationKey(transactionIntentId, buyerId) {
+  return crypto.createHash('sha256')
+    .update(JSON.stringify({ contract: 'marketplace-reservation-v1', transactionIntentId, buyerId }))
+    .digest('hex');
 }
+
+export async function reserveVehicle(vin, buyerId) {
+  const actorId = String(buyerId || '').trim();
+  if (!actorId) throw new UnauthorizedError('A verified buyer identity is required to reserve a vehicle.');
+
+  const transaction = await requestMarketplaceEscrow(vin, {
+    actor: { id: actorId, role: 'buyer' },
+  });
+  if (transaction.status !== 'eligible') {
+    throw new ConflictError(`Transaction is not eligible for reservation (${transaction.status || 'unknown'}).`);
+  }
+
+  const reservationKey = buildCanonicalReservationKey(transaction.transaction_intent_id, actorId);
+  const { data, error } = await supabase.rpc('issue164_reserve_vehicle_atomic', {
+    p_transaction_intent_id: transaction.transaction_intent_id,
+    p_actor_id: actorId,
+    p_idempotency_key: reservationKey,
+  });
+  if (error) {
+    const message = String(error.message || 'Reservation failed.');
+    if (/already has an active reservation|not eligible|not available|lineage|legacy reserved/i.test(message)) {
+      throw new ConflictError(message);
+    }
+    throw new Error(`Reservation transaction failed: ${message}`);
+  }
+
+  const row = Array.isArray(data) ? data[0] : data;
+  if (!row?.reservation_id) throw new Error('Reservation transaction returned no canonical reservation.');
+  return {
+    vin: row.vin,
+    reservationId: row.reservation_id,
+    transactionIntentId: row.transaction_intent_id,
+    status: row.status,
+    reserved: row.status === 'active',
+    reservedAt: row.reserved_at,
+    expiresAt: row.expires_at,
+    idempotentReplay: Boolean(row.idempotent_replay),
+  };
+}
+
+export default { reserveVehicle, buildCanonicalReservationKey };

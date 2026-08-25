@@ -9,6 +9,10 @@ import {
   CSRF_ERROR_MESSAGE,
   resolveApiBaseUrl,
   DEFAULT_PRODUCTION_API_BASE_URL,
+  DEFAULT_STAGING_API_BASE_URL,
+  UNPAIRED_PREVIEW_API_BASE_URL,
+  isPreviewFrontendHost,
+  isStableStagingFrontendHost,
   type AuthHeaders,
 } from './apiClient'
 
@@ -227,11 +231,65 @@ describe('resolveApiBaseUrl', () => {
     expect(resolveApiBaseUrl('   ', 'localhost')).toBe('/api') // whitespace-only is ignored
   })
 
-  it('falls back to the production backend for non-localhost hosts with no override', () => {
-    expect(resolveApiBaseUrl(undefined, 'carup-staging.vercel.app')).toBe(DEFAULT_PRODUCTION_API_BASE_URL)
+  it('falls back to the production backend for unrecognised hosts with no override', () => {
     expect(resolveApiBaseUrl(null, 'carup.vercel.app')).toBe(DEFAULT_PRODUCTION_API_BASE_URL)
-    expect(resolveApiBaseUrl(undefined, 'staging.carup.dev')).toBe(DEFAULT_PRODUCTION_API_BASE_URL)
     expect(resolveApiBaseUrl(undefined, undefined)).toBe(DEFAULT_PRODUCTION_API_BASE_URL)
+  })
+
+  // Environment isolation: a staging frontend must never silently authenticate against production
+  // when VITE_API_URL is missing. It resolves to the staging backend instead of falling through.
+  it('routes a STABLE STAGING frontend host to the staging backend when no override is set', () => {
+    expect(resolveApiBaseUrl(undefined, 'carup-staging.vercel.app')).toBe(DEFAULT_STAGING_API_BASE_URL)
+    expect(resolveApiBaseUrl(undefined, 'staging.carup.dev')).toBe(DEFAULT_STAGING_API_BASE_URL)
+  })
+
+  // ── Issue #164 Phase 8, Cluster I — candidate provenance ──────────────────────────────────────
+  // REGRESSION. Until this contract changed, a per-branch preview fell through to
+  // DEFAULT_STAGING_API_BASE_URL alongside the stable aliases. That is how the first Phase 8 physical
+  // UAT came to run the PR #165 frontend against `main`'s backend: 18 steps failed, four of them for a
+  // contract defect the candidate had ALREADY fixed, and the run certified nothing. A preview must
+  // fail closed instead of silently borrowing another candidate's backend.
+  it('does NOT route a per-branch PREVIEW host to the stable staging backend', () => {
+    const previews = [
+      'carup-staging-git-feature.vercel.app',
+      'carup-staging-git-integration-canonical-vehicle-tr-7bafc7-11-11.vercel.app',
+      'carup-staging-abc123.vercel.app',
+    ]
+    for (const host of previews) {
+      const resolved = resolveApiBaseUrl(undefined, host)
+      expect(resolved).not.toBe(DEFAULT_STAGING_API_BASE_URL)
+      expect(resolved).not.toBe(DEFAULT_PRODUCTION_API_BASE_URL)
+      expect(resolved).toBe(UNPAIRED_PREVIEW_API_BASE_URL)
+    }
+  })
+
+  it('resolves an unpaired preview to a reserved host that can never resolve', () => {
+    // RFC 2606 reserves `.invalid`, so an unpaired preview fails loudly on its first request rather
+    // than reaching any real backend.
+    expect(UNPAIRED_PREVIEW_API_BASE_URL).toMatch(/\.invalid\//)
+    expect(UNPAIRED_PREVIEW_API_BASE_URL).not.toBe('')
+  })
+
+  it('lets an explicitly configured backend pair a preview with its own candidate', () => {
+    expect(resolveApiBaseUrl(
+      'https://carup-backend-staging-git-integration-canonical-ve-df06b3-11-11.vercel.app',
+      'carup-staging-git-integration-canonical-vehicle-tr-7bafc7-11-11.vercel.app',
+    )).toBe('https://carup-backend-staging-git-integration-canonical-ve-df06b3-11-11.vercel.app/api')
+  })
+
+  it('separates stable staging aliases from previews without overlap', () => {
+    expect(isStableStagingFrontendHost('carup-staging.vercel.app')).toBe(true)
+    expect(isPreviewFrontendHost('carup-staging.vercel.app')).toBe(false)
+    expect(isStableStagingFrontendHost('carup-staging-git-feature.vercel.app')).toBe(false)
+    expect(isPreviewFrontendHost('carup-staging-git-feature.vercel.app')).toBe(true)
+    // A look-alike is neither, and so still falls through to the production default.
+    expect(isStableStagingFrontendHost('carup-staging.evil.example.com')).toBe(false)
+    expect(isPreviewFrontendHost('carup-staging.evil.example.com')).toBe(false)
+  })
+
+  it('does not treat a look-alike host as staging (exact host match only)', () => {
+    expect(resolveApiBaseUrl(undefined, 'carup-staging.evil.example.com')).toBe(DEFAULT_PRODUCTION_API_BASE_URL)
+    expect(resolveApiBaseUrl(undefined, 'notcarup-staging.vercel.app')).toBe(DEFAULT_PRODUCTION_API_BASE_URL)
   })
 
   it('resolves the production fallback to the canonical carup.dev API host', () => {

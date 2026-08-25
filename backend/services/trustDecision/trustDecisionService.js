@@ -13,7 +13,10 @@
  * The aggregation core `assembleDecision(inputs)` is pure (no I/O) so it is fully unit
  * testable; `getTrustDecision(vin)` fetches the dimension inputs and calls it.
  */
-import { supabase } from '../../db/supabase.js';
+async function getDefaultClient() {
+  const { supabase } = await import('../../db/supabase.js');
+  return supabase;
+}
 import { evaluateCompleteness } from '../evidence/completenessEvaluator.js';
 import { getCoverage } from '../sourceVerification/sourceVerificationService.js';
 
@@ -148,7 +151,9 @@ function renderDealer(dealerCompliance) {
 function publicationDimension(completeness, fraudInput, dealerCompliance) {
   if (!completeness) return notEvaluated('publication');
   const reasons = [];
-  if (!completeness.is_publishable) for (const g of (completeness.blocking_gaps || [])) reasons.push(`blocking:${g}`);
+  // blocking_gaps are {key,label}; this dimension is PUBLIC in toPublicDecision and its reason
+  // codes are rendered, so interpolating the object publishes "blocking:[object Object]".
+  if (!completeness.is_publishable) for (const g of (completeness.blocking_gaps || [])) reasons.push(`blocking:${g?.key ?? g}`);
   if (fraudInput && fraudInput.blocks_publication) reasons.push('fraud_block');
   if (dealerCompliance && dealerCompliance.suspension_state === 'suspended') reasons.push('dealer_suspended');
   const blocked = reasons.length > 0;
@@ -182,7 +187,9 @@ export function assembleDecision(inputs) {
     identity: identityDimension(vehicle, sourceConflictsList),
     evidence_completeness: completeness
       ? dim(completeness.is_publishable ? 'complete' : 'incomplete', `${completeness.completeness_percent}%`,
-          (completeness.blocking_gaps || []).map((g) => `blocking:${g}`),
+          // blocking_gaps are {key,label} objects; interpolating the object yields
+          // "blocking:[object Object]", and these reason codes are rendered to buyers.
+          (completeness.blocking_gaps || []).map((g) => `blocking:${g?.key ?? g}`),
           { rest: { pending_gaps: completeness.pending_gaps || [] } })
       : notEvaluated('completeness'),
     evidence_confidence: completeness
@@ -286,7 +293,12 @@ export function toPublicDecision(decision) {
     vin: decision.vin,
     calculation_version: decision.calculation_version,
     last_updated: decision.last_updated,
-    overall_trust: { status: decision.overall_trust.status, value: decision.overall_trust.value },
+    // NO overall_trust. The canonical `trust` projection (canonicalTrustService.toPublicTrust) is
+    // the single public statement of the position; carrying a second, live-recomputed score here
+    // put both answers in one response body — buyers saw "50 · moderate" beside "Not evaluated"
+    // for the same VIN at the same instant. This buyer-safe view explains a position through its
+    // dimensions and reason codes; it does not restate it. The privileged branch keeps the full
+    // decision, overall_trust included.
     dimensions: publicDims,
     known_limitations: decision.known_limitations,
   };
@@ -294,28 +306,31 @@ export function toPublicDecision(decision) {
 
 /** Fetch dimension inputs for a VIN and assemble the decision. */
 export async function getTrustDecision(vin, opts = {}) {
+  const client = opts.client ?? (await getDefaultClient());
   let vehicle = opts.vehicle || null;
   if (!vehicle) {
-    try {
-      const { data } = await supabase
-        .from('vehicles')
-        .select('vin, make, model, year, chassis_number, engine_number, plate_number, temp_plate_id, tenant_id')
-        .eq('vin', vin)
-        .maybeSingle();
-      vehicle = data || {};
-    } catch { vehicle = {}; }
+    const { data, error } = await client
+      .from('vehicles')
+      .select('vin, make, model, year, chassis_number, engine_number, plate_number, temp_plate_id, tenant_id')
+      .eq('vin', vin)
+      .maybeSingle();
+    if (error) throw new Error(`Vehicle read error: ${error.message}`);
+    vehicle = data || {};
   }
-  let completeness = null;
-  try { completeness = await evaluateCompleteness(vin); } catch { /* dimension stays not_evaluated */ }
-  let coverage = [];
-  try { coverage = await getCoverage(vin); } catch { /* coverage stays empty */ }
+  const completeness = opts.completeness !== undefined
+    ? opts.completeness
+    : await evaluateCompleteness(vin, { client });
 
-  // Each external dimension is fetched defensively — a failure leaves it not_evaluated,
-  // never fabricates a clear/eligible state.
-  const fraudInput = opts.fraudInput !== undefined ? opts.fraudInput : await fetchFraudSummary(vin);
-  const insurance = opts.insurance !== undefined ? opts.insurance : await fetchEligibility('insurance', vin);
-  const finance = opts.finance !== undefined ? opts.finance : await fetchEligibility('finance', vin);
-  const escrow = opts.escrow !== undefined ? opts.escrow : await fetchEscrow(vin);
+  const coverage = opts.coverage !== undefined
+    ? opts.coverage
+    : await getCoverage(vin, { client });
+
+  // Each external dimension is fetched defensively — DB errors throw to fail closed,
+  // while legitimate absence (0 rows) returns null cleanly.
+  const fraudInput = opts.fraudInput !== undefined ? opts.fraudInput : await fetchFraudSummary(vin, client);
+  const insurance = opts.insurance !== undefined ? opts.insurance : await fetchEligibility('insurance', vin, client);
+  const finance = opts.finance !== undefined ? opts.finance : await fetchEligibility('finance', vin, client);
+  const escrow = opts.escrow !== undefined ? opts.escrow : await fetchEscrow(vin, client);
 
   return assembleDecision({
     vin,
@@ -331,32 +346,29 @@ export async function getTrustDecision(vin, opts = {}) {
   });
 }
 
-async function fetchFraudSummary(vin) {
-  try {
-    const { data } = await supabase.from('fraud_cases')
-      .select('status, highest_severity, blocks_publication').eq('vin', vin).eq('status', 'open');
-    if (!data || data.length === 0) return null;
-    const order = { low: 1, medium: 2, high: 3, critical: 4 };
-    const highest = data.reduce((acc, c) => (order[c.highest_severity] > order[acc] ? c.highest_severity : acc), 'low');
-    return { open_cases: data.length, highest_severity: highest, blocks_publication: data.some((c) => c.blocks_publication) };
-  } catch { return null; }
+async function fetchFraudSummary(vin, client) {
+  const { data, error } = await client.from('fraud_cases')
+    .select('status, highest_severity, blocks_publication').eq('vin', vin).eq('status', 'open');
+  if (error) throw new Error(`Fraud summary read error: ${error.message}`);
+  if (!data || data.length === 0) return null;
+  const order = { low: 1, medium: 2, high: 3, critical: 4 };
+  const highest = data.reduce((acc, c) => (order[c.highest_severity] > order[acc] ? c.highest_severity : acc), 'low');
+  return { open_cases: data.length, highest_severity: highest, blocks_publication: data.some((c) => c.blocks_publication) };
 }
 
-async function fetchEligibility(capability, vin) {
-  try {
-    const { data } = await supabase.from('eligibility_requests')
-      .select('status, conditions, mode, validity_until, created_at').eq('vin', vin).eq('capability', capability)
-      .order('created_at', { ascending: false });
-    return (data && data[0]) || null;
-  } catch { return null; }
+async function fetchEligibility(capability, vin, client) {
+  const { data, error } = await client.from('eligibility_requests')
+    .select('status, conditions, mode, validity_until, created_at').eq('vin', vin).eq('capability', capability)
+    .order('created_at', { ascending: false });
+  if (error) throw new Error(`Eligibility read error on ${capability}: ${error.message}`);
+  return (data && data[0]) || null;
 }
 
-async function fetchEscrow(vin) {
-  try {
-    const { data } = await supabase.from('escrow_trust_sessions')
-      .select('status, created_at').eq('vin', vin).order('created_at', { ascending: false });
-    return (data && data[0]) || null;
-  } catch { return null; }
+async function fetchEscrow(vin, client) {
+  const { data, error } = await client.from('escrow_trust_sessions')
+    .select('*').eq('vin', vin).order('created_at', { ascending: false });
+  if (error) throw new Error(`Escrow read error: ${error.message}`);
+  return (data && data[0]) || null;
 }
 
 export default { CALCULATION_VERSION, assembleDecision, toPublicDecision, getTrustDecision };

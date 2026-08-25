@@ -1,23 +1,32 @@
-import { Button } from '@/components/ui/button'
-import { Input } from '@/components/ui/input'
 import { Card, CardContent } from '@/components/ui/card'
-import { Badge } from '@/components/ui/badge'
-import { Star, MapPin, Phone, Clock, CheckCircle, Search } from 'lucide-react'
-import { garages } from '@/data/mockData'
+import { Input } from '@/components/ui/input'
+import { Search, Wrench } from 'lucide-react'
 import { useState } from 'react'
 
+/**
+ * Garage Directory — honest empty state.
+ *
+ * This page previously listed invented service centres from `mockData.garages` — fabricated names,
+ * ratings, opening hours, phone numbers and a green "Verified" check — plus a "Book Service" action,
+ * as though CarUp had verified and onboarded them. No governed garage registry backs this surface, so
+ * every entry was a fabricated business fact on a public page.
+ *
+ * The fabricated records are removed rather than replaced with other invented names. The page and its
+ * search remain so the surface can be wired to the governed mechanic/garage registry when one is
+ * published; until then it says so plainly instead of showing unverified entries.
+ */
 export default function GarageDirectory() {
   const [search, setSearch] = useState('')
-  const filtered = garages.filter(g =>
-    !search || g.name.toLowerCase().includes(search.toLowerCase()) || g.location.toLowerCase().includes(search.toLowerCase())
-  )
+  // No governed garage registry is published yet, so there is nothing to filter.
+  const garages: Array<{ id: string; name: string }> = []
+  const filtered = garages.filter(g => !search || g.name.toLowerCase().includes(search.toLowerCase()))
 
   return (
     <div className="min-h-screen bg-gray-50">
       <div className="bg-white border-b">
         <div className="section-padding mx-auto max-w-[1440px] py-10">
           <h1 className="text-3xl font-bold mb-2">Garage Directory</h1>
-          <p className="text-gray-600 mb-6">Find verified mechanics and service centers</p>
+          <p className="text-gray-600 mb-6">Mechanics and service centres that CarUp has onboarded and verified.</p>
           <div className="relative max-w-md">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
             <Input placeholder="Search garages by name or location..." value={search} onChange={e => setSearch(e.target.value)} className="pl-10" />
@@ -25,53 +34,18 @@ export default function GarageDirectory() {
         </div>
       </div>
       <div className="section-padding mx-auto max-w-[1440px] py-8">
-        <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-6">
-          {filtered.map((garage) => (
-            <Card key={garage.id} className="border-0 card-shadow hover-lift">
-              <CardContent className="p-0">
-                <div className="relative h-40 overflow-hidden rounded-t-xl">
-                  <img src={garage.image} alt="" className="w-full h-full object-cover" />
-                  {garage.isVerified && (
-                    <Badge className="absolute top-3 left-3 bg-green-500 text-white">
-                      <CheckCircle className="w-3 h-3 mr-1" /> Verified
-                    </Badge>
-                  )}
-                </div>
-                <div className="p-5">
-                  <div className="flex items-center justify-between mb-2">
-                    <h3 className="font-semibold text-lg">{garage.name}</h3>
-                    <div className="flex items-center gap-1">
-                      <Star className="w-4 h-4 fill-amber-400 text-amber-400" />
-                      <span className="text-sm font-medium">{garage.rating}</span>
-                    </div>
-                  </div>
-                  <p className="text-sm text-gray-500 mb-3 flex items-center gap-1"><MapPin className="w-3.5 h-3.5" />{garage.location}, {garage.province}</p>
-                  <p className="text-sm text-gray-600 mb-4 line-clamp-2">{garage.description}</p>
-                  <div className="flex flex-wrap gap-2 mb-4">
-                    {garage.services.slice(0, 4).map(s => (
-                      <Badge key={s} variant="secondary" className="text-xs font-normal">{s}</Badge>
-                    ))}
-                  </div>
-                  <div className="grid grid-cols-2 gap-3 mb-4 text-sm">
-                    <div className="bg-gray-50 rounded-lg p-2 text-center">
-                      <p className="font-semibold">{garage.mechanics}</p>
-                      <p className="text-xs text-gray-500">Mechanics</p>
-                    </div>
-                    <div className="bg-gray-50 rounded-lg p-2 text-center">
-                      <p className="font-semibold">{garage.reviewCount}</p>
-                      <p className="text-xs text-gray-500">Reviews</p>
-                    </div>
-                  </div>
-                  <div className="space-y-1.5 text-sm mb-4">
-                    <div className="flex items-center gap-2"><Phone className="w-4 h-4 text-gray-400" />{garage.phone}</div>
-                    <div className="flex items-center gap-2"><Clock className="w-4 h-4 text-gray-400" />{garage.openingHours}</div>
-                  </div>
-                  <Button className="w-full">Book Service</Button>
-                </div>
-              </CardContent>
-            </Card>
-          ))}
-        </div>
+        {filtered.length === 0 && (
+          <Card className="border-0 card-shadow" data-testid="garage-directory-empty">
+            <CardContent className="p-10 text-center">
+              <Wrench className="w-8 h-8 text-gray-300 mx-auto mb-3" />
+              <h2 className="font-semibold text-gray-800">No verified garages listed yet</h2>
+              <p className="text-sm text-gray-500 mt-2 max-w-md mx-auto">
+                CarUp lists a garage here only once it has been onboarded and verified. None has been
+                published yet, so this directory is empty rather than showing unverified entries.
+              </p>
+            </CardContent>
+          </Card>
+        )}
       </div>
     </div>
   )
