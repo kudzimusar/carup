@@ -52,8 +52,8 @@ const EVIDENCE_ROUTE = (() => {
 test('x-user-id is gated by the governed fallback policy, not trusted outright', () => {
   assert.match(
     EVIDENCE_ROUTE,
-    /isUserIdFallbackAllowed\(\)/,
-    'x-user-id must pass isUserIdFallbackAllowed() — false in production/staging',
+    /isPrivateEvidenceFallbackAllowed\(\)/,
+    'x-user-id must pass the STRICT private-evidence fallback policy (a superset of the general one)',
   );
   // The pre-fix line was: `let activeUserId = fallbackUserId || null;`
   assert.doesNotMatch(
@@ -153,16 +153,13 @@ test('visibility_level is not treated as an access decision for the private file
 });
 
 test('an unauthorised caller gets no locator at all — not even the bucket-relative path', () => {
-  assert.match(
-    EVIDENCE_ROUTE,
-    /projected\.file_url\s*=\s*null/,
-    'the private file_url must be nulled, or file_path leaks under another name',
-  );
-  assert.match(
-    EVIDENCE_ROUTE,
-    /file_availability\s*=\s*'withheld_private'/,
-    'withholding must be stated, not silently blank',
-  );
+  // Reconciliation: the withholding moved INTO the canonical projection, so every consumer
+    // inherits it instead of each route re-implementing it.
+    const PROJ = readFileSync(path.resolve(here, '../utils/publicVehicleProjection.js'), 'utf8');
+    assert.match(PROJ, /projected\.file_url\s*=\s*null/,
+      'the canonical projection must null the private locator');
+    assert.match(PROJ, /file_availability\s*=\s*'withheld_private'/,
+      'and say so explicitly, so "no artifact" and "withheld" stay distinguishable');
 });
 
 // ── The raw row never leaves ─────────────────────────────────────────────────────────────────────
@@ -237,7 +234,7 @@ test('only the sanitized AI summary is re-attached, never the metadata object', 
   // second path Phase 0 closed on the timeline. Preserving the public summary must not reopen it.
   assert.match(
     EVIDENCE_ROUTE,
-    /metadata\s*=\s*\{\s*ai_public_summary:\s*aiPublicSummary\s*\}/,
+    /metadata\s*=\s*\{\s*ai_public_summary:\s*aiSummary\s*\}/,
     'the summary must be lifted out by name into a fresh object',
   );
   assert.doesNotMatch(

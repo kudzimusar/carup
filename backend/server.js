@@ -7,7 +7,7 @@ import crypto from 'crypto';
 import { supabase } from './db/supabase.js';
 
 // Import Middleware
-import { authorizeRole, optionalAuth } from './middleware/authMiddleware.js';
+import { authorizeRole, optionalAuth, isPrivateEvidenceFallbackAllowed } from './middleware/authMiddleware.js';
 import { evaluateLoginCredentials, hashPassword } from './utils/passwordAuth.js';
 
 // Import Services
@@ -881,13 +881,29 @@ async function buildVehiclePassport(
 
   if (vehicleError || !vehicle) return null;
 
-  // Audience decision. req.userContext is set only when optionalAuth() matched a
-  // live, unexpired, is_valid session (or accepted the x-user-id fallback, which
-  // isUserIdFallbackAllowed() refuses outside local/test). No context => public.
+  // AUDIENCE. Read from `req.userContext` and from NO REQUEST HEADER.
+  //
+  // #165's invariant: this builder must not touch headers, because a builder that reads them can be
+  // handed a forged owner audience. #175's invariant: what `isAuthorized` unlocks — the evidence
+  // vault and the un-redacted timeline — must not be purchasable with an asserted `x-user-id`.
+  //
+  // Both hold because the STRICTNESS moved into `optionalAuth()`, the one middleware that populates
+  // this context, rather than being re-implemented here. One identity path, strict policy.
   const actor = req.userContext || null;
-  const isAuthorized = Boolean(actor?.id) && (
-    PASSPORT_PRIVILEGED_ROLES.has(actor.role) ||
-    actor.id === vehicle.owner_id
+  // A PROVEN identity only. `optionalAuth` resolves a header-asserted identity under the general
+  // policy, which is fine for a route that merely needs to know who is calling. It is not fine
+  // here: `isAuthorized` unlocks the evidence vault and the un-redacted timeline — a
+  // private-document capability — so an ASSERTED identity must not buy it.
+  //
+  // Gated on the boolean the middleware publishes, not on the marker's string value: this builder
+  // is asserted to read no request header, and the marker's value contains a header NAME, so
+  // comparing against it would trip that guard while doing nothing wrong. Paired with a
+  // producer-side test that `optionalAuth` ALWAYS publishes the flag — relying on a consumer
+  // default is how a gate silently becomes a no-op when a new path forgets to set it.
+  const provenIdentity = Boolean(actor?.id) && actor.identityAsserted !== true;
+  const isAuthorized = provenIdentity && (
+    PASSPORT_PRIVILEGED_ROLES.has(actor.role)
+    || actor.id === vehicle.owner_id
   );
 
   // Fetch timeline, visual evidence, trust score report, and ledger verification
@@ -903,6 +919,14 @@ async function buildVehiclePassport(
   if (evidenceError) throw evidenceError;
 
   const evidenceVault = (verifiedEvidence || []).map(normalizeEvidenceRecord);
+  // Which evidence-derived timeline events point at a PRIVATE artifact. `evidenceToTimelineItem`
+  // prefixes the row id with `evidence:`, and the timeline event carries no `storage_bucket` of its
+  // own, so the bucket has to be resolved here from the raw rows.
+  const privateEvidenceEventIds = new Set(
+    (verifiedEvidence || [])
+      .filter((row) => row?.storage_bucket === 'ocr-documents')
+      .map((row) => `evidence:${row.id}`),
+  );
   const visualTimeline = mergeEventsWithEvidence(timeline, evidenceVault);
 
   // ── THE TWO MEDIA MODELS, COMPOSED AND KEPT APART ─────────────────────────────────────────────
@@ -1282,11 +1306,12 @@ async function buildVehiclePassport(
       publicDescription = `${subject}: ${event.details?.reason || 'No reason provided'}`;
       publicSummary = 'Plate Suspended';
     } else if (event.event_source === 'evidence') {
-      // event.desc is the reviewer's verification_notes, which is operator free text and can
-      // name an identifier. Authorized callers may read it; the public gets the evidence class.
-      publicDescription = isAuthorized
-        ? (event.desc || 'Verified evidence linked to this vehicle passport')
-        : 'Verified evidence linked to this vehicle passport';
+        // `event.desc` is the reviewer's `verification_notes` — operator free text that can name
+        // an identifier — and this field is the PUBLIC description. Gating it on `isAuthorized`
+        // and reusing the same field is how a reviewed document's notes reached an anonymous
+        // caller verbatim, so the note never reaches this field for ANY audience. An owner reads
+        // reviewer notes through the owner surfaces, not the passport's public description.
+        publicDescription = 'Verified evidence linked to this vehicle passport';
       publicSummary = event.label || 'Verified Evidence';
     }
 
@@ -1322,10 +1347,28 @@ async function buildVehiclePassport(
         verificationSource: event.details?.verificationSource,
         plateNumber: null,
       };
-      // Close the TOP level too. An evidence-derived event carries its source row's columns up
-      // here — metadata (which holds ai_ready.vehicle_identity: vin, plate, chassis, engine) and
-      // verification_notes among them — so allow-listing only `details` left a second path to
-      // exactly the identifiers the evidence vault had just been closed against.
+
+      // CLOSE THE TOP LEVEL TOO — the FOURTH door.
+      //
+      // Allow-listing only `details` left the event's own top level open, and an evidence-derived
+      // event carries its source row's columns up there. Verified live on the deployed passport
+      // before this change:
+      //
+      //   timeline[] evidence event → file_url: "<VIN>/golden-registration_document.pdf"
+      //
+      // i.e. the private bucket-relative locator, published to an anonymous caller through the
+      // timeline after the vault beside it had been closed. `metadata` rides up the same way and
+      // carries `ai_ready.vehicle_identity` (vin, plate, chassis, engine) on a real row, and `desc`
+      // defaults to the reviewer's `verification_notes` for any event_source the branch chain above
+      // does not override — `evidence` being one of them.
+      if (event.event_source === 'evidence') {
+        // Only a PRIVATE artifact loses its locator. Nulling every evidence event's `file_url` also
+        // stripped verified `public_safe` images in the PUBLIC `vehicle-images` bucket, which the
+        // other projections deliberately keep so clients can render them — a fix mis-sized against
+        // the property it claims, which would have silently emptied the passport's imagery.
+        if (privateEvidenceEventIds.has(event.id)) sanitizedEvent.file_url = null;
+        sanitizedEvent.metadata = {};
+      }
       return toPublicTimelineEvent(sanitizedEvent);
     }
 
@@ -1342,42 +1385,17 @@ async function buildVehiclePassport(
     }),
     timeline: sanitizedTimeline,
     evidenceTimeline: sanitizedTimeline.filter(event => event.event_source === 'evidence'),
-    // `listing_media` and `verified_evidence` — two blocks, never one array. The gallery lives in
-    // the first and makes no verification claim; governed artifacts live in the second and keep
-    // Phase 0's allow-list unforked (`toPublicEvidence` is imported by the contract, not restated),
-    // so no uploader id, reviewer id, tenant, storage path, reviewer note or raw metadata reaches
-    // either block for any audience. Each block states its OWN empty case, so "no photos are
-    // published here" and "nothing here is verified" can never again be the same sentence. BOTH
-    // KEYS ABSENT means no media contract accompanied this render — see the header; it is not an
-    // empty gallery.
+    // THE THIRD ANONYMOUS DOOR.
     //
-    // The GALLERY is additionally gated on the LISTING's publication state for an unauthorized
-    // caller (contract Rule 1b): an unpublished listing publishes the block a published-and-empty
-    // one publishes, byte for byte, so the response answers neither "are there photos here?" nor
-    // "is this listing live?". The EVIDENCE block is NOT gated that way and must never be — a
-    // verified document is a fact about the VEHICLE and does not stop being true because nobody is
-    // advertising the car. Two facts, two gates.
-    ...(vehicleMedia ?? {}),
-    // Unchanged, and deliberately NOT replaced by `verified_evidence`: this is the vault an OWNER
-    // reads unredacted, a different question from what the public media block composes.
-    // `toPublicEvidence` drops `storage_bucket` and `file_path`, but it KEEPS `file_url` — and for a
-    // document evidence row `file_url` IS the bucket-relative object path, because `uploadToStorage`
-    // returns `data.path` for every bucket except `vehicle-images`. So the allow-list alone still
-    // published the private locator here, through the one field it is right to keep for a public
-    // artifact. The bucket has to be read off the RAW row, before projection, since the projection
-    // is what removes the column that answers "is this private?".
-    evidenceVault: isAuthorized ? evidenceVault : evidenceVault.map((row) => {
-      const projected = toPublicEvidence(row);
-      if (row?.storage_bucket === 'ocr-documents') {
-        projected.file_url = null;
-        projected.file_availability = 'withheld_private';
-      }
-      return projected;
-    }),
-    // The canonical 10-field projection — vin, score (null when there is nothing canonical to
-    // publish), band, evaluation_state, confidence, evidence_basis, calculation_version,
-    // evaluated_at, known_limitations, source. The key is unchanged so existing clients keep
-    // resolving it; the VALUE is no longer the deprecated engine's unversioned number.
+    // `verifiedEvidence` above is `select('*')`, and this array was returned unchanged to every
+    // caller — so `/api/vehicles/:vin/passport` and `/api/vehicles/passport/lookup/:identifier`
+    // published the same 54-column rows the two evidence routes were just closed against:
+    // plate/chassis/engine identifiers, uploader and reviewer ids, tenant id, reviewer free text,
+    // and the private storage locator. Verified live before this change.
+      // The media contract's blocks (`listing_media`, `verified_evidence`) reach the passport BODY
+      // through this spread. Dropping it publishes a passport with no gallery at all.
+      ...(vehicleMedia ?? {}),
+    evidenceVault: isAuthorized ? evidenceVault : evidenceVault.map(toPublicEvidence),
     trustReport,
     // Same signals as before, minus every score. Kept OUT of trustReport because that object's key
     // set is the public trust contract and may not be extended.

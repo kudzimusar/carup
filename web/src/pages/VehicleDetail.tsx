@@ -2204,11 +2204,16 @@ export default function VehicleDetail() {
                                 {publicEvidence.filter(e => e.linked_registry_event_id === String(event.id) || e.timeline_event_id === String(event.id)).length > 0 && (
                                   <div className="mt-3 flex gap-2 overflow-x-auto pb-1">
                                     {publicEvidence.filter(e => e.linked_registry_event_id === String(event.id) || e.timeline_event_id === String(event.id)).map(item => {
-                                      const isDoc = item.mime_type?.includes('pdf') || item.file_url.endsWith('.pdf') || item.evidence_type.includes('document');
+                                      const isDoc = item.mime_type?.includes('pdf') || item.file_url?.endsWith('.pdf') || item.evidence_type.includes('document');
                                       return (
                                         <div key={item.id} className="flex-shrink-0 w-16 h-16 rounded-md overflow-hidden border border-gray-200" data-testid={`history-thumbnail-${item.id}`}>
-                                          {isDoc ? (
-                                            <div className="w-full h-full bg-gray-50 flex items-center justify-center">
+                                          {/* A withheld artifact has no image; without this the
+                                              history strip rendered a broken thumbnail. */}
+                                          {!item.file_url || isDoc ? (
+                                            <div
+                                              className="w-full h-full bg-gray-50 flex items-center justify-center"
+                                              data-testid={!item.file_url ? 'history-thumbnail-withheld' : undefined}
+                                            >
                                               <FileText className="w-6 h-6 text-gray-400" />
                                             </div>
                                           ) : (

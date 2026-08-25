@@ -3,8 +3,21 @@ import crypto from 'crypto';
 import { supabase } from '../db/supabase.js';
 import { DatabaseError, ValidationError, ForbiddenError, NotFoundError } from '../utils/errors.js';
 import { logAuditEvent } from '../services/auditLogger.js';
-import { authorizeRole, isUserIdFallbackAllowed } from '../middleware/authMiddleware.js';
-import { toPublicEvidence, toPublicTimelineEvent } from '../utils/publicVehicleProjection.js';
+// ONE public-evidence authority. #175 shipped a deliberately self-contained
+// `publicEvidenceProjection.js` so a security hotfix would not depend on this unmerged programme;
+// with both landed, keeping two allow-lists for the same rows is how they drift. Its invariants —
+// the withheld-private state, `source_id`, `isPrivateEvidenceArtifact` and `publicAiSummary` — now
+// live in the canonical module, and that module is retired.
+//
+// `isPrivateEvidenceFallbackAllowed` (not the looser `isUserIdFallbackAllowed`) is retained: an
+// environment inference must not authorise a private-document capability.
+import { authorizeRole, isPrivateEvidenceFallbackAllowed } from '../middleware/authMiddleware.js';
+import {
+  toPublicEvidence,
+  toPublicTimelineEvent,
+  isPrivateEvidenceArtifact,
+  publicAiSummary,
+} from '../utils/publicVehicleProjection.js';
 import { uploadToStorage, generateSecureReadUrl } from '../services/storage/storageService.js';
 import { refreshCanonicalTrust } from '../services/trustDecision/canonicalTrustService.js';
 import {
@@ -330,28 +343,41 @@ async function insertEvidenceFromRequest(req, vin, { requireVehicleId = false } 
   //
   // So an authenticated owner could file evidence against a vehicle they legitimately own while
   // pointing `file_path` at another vehicle's private document in `ocr-documents`, then read their
-  // own row back and receive a valid one-hour signed URL for it — a confused deputy, with this route
-  // as the deputy. Ownership of the row is not ownership of the artifact.
+  // own row back and receive a valid one-hour signed URL for it. Ownership of the row is not
+  // ownership of the artifact.
   //
-  // The locator is therefore bound to the VIN that was just authorized. Traversal and absolute paths
-  // are refused outright rather than normalised, because a path that needs normalising to look safe
-  // is a path this route should not be accepting.
-  if (filePath) {
+  // Traversal and absolute paths are refused outright rather than normalised: a path that needs
+  // normalising to look safe is a path this route should not be accepting.
+  // Validate the EFFECTIVE locator, which is what the insert actually stores.
+  //
+  // The row is written with `file_path: filePath || fileUrl`, so guarding only an explicitly
+  // supplied `file_path` left the fallback wide open: omit `file_path` entirely, put the victim's
+  // object path in `file_url`, pick a document type so the bucket resolves to `ocr-documents`, and
+  // the stored row points at someone else's private document with nothing having been checked.
+  // The guard therefore runs on the same expression the insert uses.
+  //
+  // A remote https URL is not a bucket locator and is not what this check governs — only a
+  // storage-relative path can address an object in our bucket, so absolute URLs are left alone here
+  // and constrained by the bucket check below.
+  const effectiveLocator = filePath || fileUrl;
+  const looksLikeStoragePath = typeof effectiveLocator === 'string'
+    && !/^[a-z][a-z0-9+.-]*:\/\//i.test(effectiveLocator);
+  if (looksLikeStoragePath) {
     const requiredPrefix = `${vin.toUpperCase()}/`;
-    const normalizedPath = String(filePath);
+    const candidate = String(effectiveLocator);
     if (
-      normalizedPath.includes('..')
-      || normalizedPath.startsWith('/')
-      || !normalizedPath.toUpperCase().startsWith(requiredPrefix)
+      candidate.includes('..')
+      || candidate.startsWith('/')
+      || !candidate.toUpperCase().startsWith(requiredPrefix)
     ) {
       throw new ValidationError(
-        `file_path must be scoped to this vehicle: expected it to begin with "${requiredPrefix}"`,
+        `the evidence locator must be scoped to this vehicle: expected it to begin with "${requiredPrefix}"`,
       );
     }
   }
 
   // The bucket is a server decision, not a caller assertion: letting a caller name `ocr-documents`
-  // is what turns a public-image create into a private-document reference.
+  // is what turns a public-image create into a private-document reference the read path will sign.
   if (bucketName) {
     const expectedBucket = (isDocumentEvidence(normalized.evidenceType)
       || ['private', 'restricted', 'government_only'].includes(visibilityLevel))
@@ -501,20 +527,19 @@ router.get('/api/vehicles/:vin/evidence', asyncHandler(async (req, res) => {
 
   // IDENTITY — a header is a CLAIM, not a credential.
   //
-  // This block previously read `x-user-id` and `x-tenant-id` straight off the wire into the
-  // variables `isAuthorized` is computed from. One unauthenticated header was therefore enough to
-  // read another owner's evidence: `x-user-id: <owner id>` on a vehicle whose only document was
-  // still PENDING returned that row plus a one-hour signed URL into the private `ocr-documents`
-  // bucket. Physically reproduced on the preview before this change.
-  //
-  // Three separate holes are closed here, and each is load-bearing on its own:
+  // Three independent holes are closed here, and each was sufficient on its own:
   //   1. the session lookup accepted a row on `is_valid` alone, so an EXPIRED token still
-  //      authenticated — `authMiddleware` has always also checked `expires_at`;
-  //   2. `x-user-id` bypassed `isUserIdFallbackAllowed()`, the policy every other entry point
-  //      honours (false in production/staging, true only for local/test harnesses);
-  //   3. tenancy came from `x-tenant-id`, which `isAuthorized` then compared against the
-  //      vehicle's own `tenant_id`. `users` has no `tenant_id` column, so the authentic source is
-  //      the `tenant_users` membership table, read for the AUTHENTICATED user and nothing else.
+  //      authenticated. Measured on staging: 874 sessions carry is_valid = true and exactly ONE is
+  //      genuinely unexpired. `authMiddleware` has always also checked `expires_at`; this route was
+  //      the outlier.
+  //   2. `x-user-id` was taken as identity outright, bypassing `isUserIdFallbackAllowed()` — the
+  //      policy every other entry point honours (false in production/staging, true only for
+  //      local/test harnesses). One header was therefore a complete authentication bypass:
+  //      `x-user-id: <some owner id>` on a vehicle whose only document was still PENDING returned
+  //      that row plus a one-hour signed URL into the private bucket.
+  //   3. tenancy came from `x-tenant-id` — attacker-controlled — and was then compared against the
+  //      vehicle's own `tenant_id` to grant access. `users` has no `tenant_id` column, so the
+  //      authentic source is the `tenant_users` membership table, read for the AUTHENTICATED user.
   const sessionToken = req.headers['x-session-token'] || req.headers['authorization']?.replace('Bearer ', '');
   let activeUserId = null;
   let activeUserRole = null;
@@ -531,7 +556,7 @@ router.get('/api/vehicles/:vin/evidence', asyncHandler(async (req, res) => {
     }
   }
 
-  if (!activeUserId && req.headers['x-user-id'] && isUserIdFallbackAllowed()) {
+  if (!activeUserId && req.headers['x-user-id'] && isPrivateEvidenceFallbackAllowed()) {
     activeUserId = req.headers['x-user-id'];
   }
 
@@ -567,6 +592,8 @@ router.get('/api/vehicles/:vin/evidence', asyncHandler(async (req, res) => {
     activeUserRole === 'admin' ||
     activeUserRole === 'government' ||
     (activeUserId && activeUserId === vehicle.owner_id) ||
+    // `Boolean(vehicle.tenant_id && ...)` so a NULL-tenant vehicle cannot be unlocked by a caller
+    // who also has no tenant: `null === null` would otherwise authorize everyone.
     Boolean(vehicle.tenant_id && activeTenantIds.includes(vehicle.tenant_id));
 
   let query = supabase
@@ -609,20 +636,11 @@ router.get('/api/vehicles/:vin/evidence', asyncHandler(async (req, res) => {
   const hasAdminAccess = ['admin', 'government', 'reviewer'].includes(activeUserRole);
   for (const item of (evidence || [])) {
     const enriched = normalizeEvidenceRecord(item);
-    const isPrivateArtifact = item.storage_bucket === 'ocr-documents';
+    const isPrivateArtifact = isPrivateEvidenceArtifact(item);
 
-    // Captured BEFORE the sanitation below, which deletes `metadata.ai_analysis` IN PLACE.
-    // `normalizeEvidenceRecord` is a shallow copy, so `enriched.metadata` and `item.metadata` are
-    // the SAME object — reading the summary after that delete finds nothing on either.
-    //
-    // Sourced from the validated analysis rather than the caller-writable `metadata.ai_public_summary`
-    // key: `validateEvidenceUploadPayload` accepts `req.body.metadata` on a bare `typeof === 'object'`
-    // check and `buildAiReadyMetadata` spreads it, so an uploader could otherwise place an arbitrary
-    // OBJECT — including keys named after private columns — into an anonymous response.
-    const aiPublicSummaryRaw = item?.metadata?.ai_analysis?.public_safe_summary;
-    const aiPublicSummary = typeof aiPublicSummaryRaw === 'string' && aiPublicSummaryRaw
-      ? aiPublicSummaryRaw
-      : null;
+    // Captured BEFORE the sanitation below, which deletes `metadata.ai_analysis` IN PLACE:
+    // `normalizeEvidenceRecord` is a shallow copy, so `enriched.metadata` IS `item.metadata`.
+    const aiSummary = publicAiSummary(item);
 
     if (isAuthorized && isPrivateArtifact && item.file_path) {
       try {
@@ -646,25 +664,8 @@ router.get('/api/vehicles/:vin/evidence', asyncHandler(async (req, res) => {
       continue;
     }
 
-    // Unauthorised: allow-listed projection, and the private artifact is named as withheld rather
-    // than described by its storage locator. Without this, `file_url` would still carry the raw
-    // bucket-relative `file_path` — the same leak by another name.
     const projected = toPublicEvidence(enriched);
-    if (isPrivateArtifact) {
-      projected.file_url = null;
-      projected.file_availability = 'withheld_private';
-    }
-
-    // The public AI summary survives the projection — but ONLY as the one sanitized scalar.
-    //
-    // `metadata` is not in PUBLIC_EVIDENCE_FIELDS for a reason: its `ai_ready.vehicle_identity`
-    // block carries the VIN, plate, chassis and engine numbers, which is the second path Phase 0
-    // closed on the timeline for exactly this reason. Re-attaching the whole object to preserve the
-    // summary would reopen it. So the summary is lifted out by name and the object is left behind.
-    if (aiPublicSummary) {
-      projected.metadata = { ai_public_summary: aiPublicSummary };
-    }
-
+    if (aiSummary) projected.metadata = { ai_public_summary: aiSummary };
     enrichedEvidence.push(projected);
   }
 
@@ -698,38 +699,29 @@ router.get('/api/vehicles/:vin/evidence/timeline', asyncHandler(async (req, res)
 
   // THIS ROUTE HAS NO AUTHENTICATION AT ALL, SO EVERY BYTE HERE IS PUBLIC.
   //
-  // It was the second door to the leak the sibling `/evidence` route had just been closed against:
-  // both arrays were built from `select('*')` and returned essentially verbatim, so appending
-  // `/timeline` to the URL still yielded the full 54-column row — `uploaded_by`, `verified_by`,
-  // `tenant_id`, `verification_notes`, `plate_number`, `chassis_number`, `engine_number`,
-  // `storage_bucket` and `file_path` — to an anonymous caller. Deleting `metadata.ai_analysis` was
-  // the only sanitation, and it addressed none of that.
+  // It was the SECOND DOOR to the same leak: both arrays were built from `select('*')` and returned
+  // essentially verbatim, so appending `/timeline` to the URL yielded the full 54-column row even
+  // after the sibling route was closed. Deleting `metadata.ai_analysis` was the only sanitation and
+  // it addressed none of the identifier columns.
   //
-  // Both arrays now go through the same governed projections the passport uses, so a future column
-  // added to `vehicle_evidence` is withheld here by default rather than published by default.
+  // The `timeline[]` array leaked INDEPENDENTLY of `evidence[]`: `evidenceToTimelineItem` sets
+  // `desc` to the REVIEWER'S FREE TEXT (`verification_notes`), `details.uploadedBy` to an internal
+  // identity, and carries `metadata` — which holds `ai_ready.vehicle_identity`: vin, plate, chassis
+  // and engine — straight up onto the event.
   const publicEvidence = (evidence || []).map((item) => {
     const enriched = normalizeEvidenceRecord(item);
+    const aiSummary = publicAiSummary(item);
     const projected = toPublicEvidence(enriched);
-    if (item.storage_bucket === 'ocr-documents') {
-      // The artifact is private: name the withholding, never the locator.
-      projected.file_url = null;
-      projected.file_availability = 'withheld_private';
-    }
-    const aiPublicSummary = item?.metadata?.ai_analysis?.public_safe_summary;
-    if (typeof aiPublicSummary === 'string') {
-      projected.metadata = { ai_public_summary: aiPublicSummary };
-    }
+    if (aiSummary) projected.metadata = { ai_public_summary: aiSummary };
     return projected;
   });
 
   const timeline = (evidence || []).map((item) => {
-    const enriched = normalizeEvidenceRecord(item);
-    const event = evidenceToTimelineItem(enriched);
+    const aiSummary = publicAiSummary(item);
+    const event = evidenceToTimelineItem(normalizeEvidenceRecord(item));
 
-    // `evidenceToTimelineItem` carries its source row's columns up to the event: `desc` defaults to
-    // the REVIEWER'S FREE TEXT (`verification_notes`), `details.uploadedBy` is an internal identity,
-    // and `metadata` can hold `ai_ready.vehicle_identity` (vin, plate, chassis, engine). It is
-    // shared with authorised callers, so it is sanitised HERE rather than narrowed for everyone.
+    // `evidenceToTimelineItem` is shared with authorised callers, so it is sanitised HERE rather
+    // than narrowed for everyone.
     event.desc = `${evidenceTypeLabel(item.evidence_type)} reviewed and verified by CarUp`;
     event.details = {
       capturedAt: item.captured_at,
@@ -737,9 +729,8 @@ router.get('/api/vehicles/:vin/evidence/timeline', asyncHandler(async (req, res)
       checksum: item.checksum || item.image_hash,
       linkedRegistryEventId: item.linked_registry_event_id,
     };
-    const aiPublicSummary = item?.metadata?.ai_analysis?.public_safe_summary;
-    event.metadata = typeof aiPublicSummary === 'string' ? { ai_public_summary: aiPublicSummary } : {};
-    if (item.storage_bucket === 'ocr-documents') event.file_url = null;
+    event.metadata = aiSummary ? { ai_public_summary: aiSummary } : {};
+    if (isPrivateEvidenceArtifact(item)) event.file_url = null;
 
     return toPublicTimelineEvent(event);
   });

@@ -243,6 +243,11 @@ export const PUBLIC_EVIDENCE_FIELDS = Object.freeze([
   'verification_status', 'visibility_level',
   'file_url', 'mime_type', 'file_size',
   'trust_score_impact', 'trust_impact',
+  // `source_name` only. #175 additionally published `source_id`, on the belief that newer
+  // M1/ingestion rows carry attribution ONLY there. Measured against the live schema, that is not
+  // what the column is: `source_id` is `uuid` (an internal FK) while `source_name` is `text`. A UUID
+  // gives a buyer no attribution and is an internal identifier, so it stays withheld and the
+  // human-readable name carries the attribution.
   'source_name', 'checksum', 'image_hash',
   'odometer_value', 'odometer_unit', 'declared_condition', 'component_tags',
   'linked_registry_event_id', 'timeline_event_id',
@@ -296,9 +301,45 @@ export function isPublicPlateHistoryRow(row) {
   return row?.record_visibility === 'public';
 }
 
-/** Project a `vehicle_evidence` row for an anonymous caller. */
+/** True when the artifact lives in the private document bucket. */
+export function isPrivateEvidenceArtifact(row) {
+  return row?.storage_bucket === 'ocr-documents';
+}
+
+/**
+ * Project a `vehicle_evidence` row for an anonymous caller.
+ *
+ * PUBLISH THE FACT, WITHHOLD THE FILE. The private locator is replaced by an explicit withheld state
+ * rather than left blank: a caller that receives `file_url: null` with no explanation cannot tell
+ * "no artifact" from "an artifact we will not hand you", and those are different facts.
+ *
+ * `visibility_level` is a reviewer's metadata LABEL and is never treated as an access decision here:
+ * a row mislabelled `public_safe` must still not export a private file.
+ */
 export function toPublicEvidence(evidence) {
-  return pick(evidence, PUBLIC_EVIDENCE_FIELDS);
+  const projected = pick(evidence, PUBLIC_EVIDENCE_FIELDS);
+  if (isPrivateEvidenceArtifact(evidence)) {
+    projected.file_url = null;
+    projected.file_availability = 'withheld_private';
+  }
+  return projected;
+}
+
+/**
+ * The one sanitized string an anonymous caller may see from `metadata`.
+ *
+ * Sourced from the AI analysis the SERVER produced, never from the caller-writable
+ * `metadata.ai_public_summary` key: the upload path accepts `req.body.metadata` on a bare
+ * `typeof === 'object'` check and spreads it into the stored column, so an uploader could otherwise
+ * place an arbitrary OBJECT — including keys named after private columns — under that name and have
+ * it republished verbatim.
+ *
+ * Callers must read this from the RAW row BEFORE any in-place sanitation: `normalizeEvidenceRecord`
+ * is a shallow copy, so deleting `metadata.ai_analysis` from the copy deletes it from the original.
+ */
+export function publicAiSummary(row) {
+  const value = row?.metadata?.ai_analysis?.public_safe_summary;
+  return typeof value === 'string' && value ? value : null;
 }
 
 /** Project the publicly visible plate-history rows for an anonymous caller. */

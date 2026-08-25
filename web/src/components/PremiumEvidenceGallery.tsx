@@ -96,7 +96,11 @@ export function PremiumEvidenceGallery({ evidence }: PremiumEvidenceGalleryProps
           <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-4">
             {items.map((item) => {
               const globalIndex = publicEvidence.findIndex((e) => e.id === item.id);
-              const isDocument = item.mime_type?.includes('pdf') || item.file_url.endsWith('.pdf') || item.evidence_type.includes('document');
+              // `file_url` is NULL for a withheld private artifact, so it can never be dereferenced here.
+              // Golden A's fixture is all-PDF, so `mime_type` short-circuits first and masked this —
+              // an accepted JPEG/PNG document in the private bucket would have crashed the page.
+              const isWithheld = !item.file_url;
+              const isDocument = item.mime_type?.includes('pdf') || item.file_url?.endsWith('.pdf') || item.evidence_type.includes('document');
 
               return (
                 <div 
@@ -105,7 +109,23 @@ export function PremiumEvidenceGallery({ evidence }: PremiumEvidenceGalleryProps
                   onClick={() => openLightbox(globalIndex)}
                   data-testid="evidence-timeline-item"
                 >
-                  {isDocument ? (
+                  {isWithheld ? (
+                    /* The RECORD is published; the FILE is not. Saying so beats an <img src={null}>,
+                       which renders a broken-image glyph and reads as "this evidence is damaged"
+                       rather than "CarUp reviewed this and is not publishing the document". */
+                    <div
+                      className="w-full h-full bg-gray-50 flex flex-col items-center justify-center p-4"
+                      data-testid="evidence-file-withheld"
+                    >
+                      <FileText className="w-10 h-10 text-gray-300 mb-2" />
+                      <p className="text-xs text-center text-gray-500 font-medium line-clamp-2">
+                        {formatLabel(item.evidence_type)}
+                      </p>
+                      <p className="mt-1 text-[10px] text-center text-gray-400 leading-tight">
+                        Reviewed · file not published
+                      </p>
+                    </div>
+                  ) : isDocument ? (
                     <div className="w-full h-full bg-gray-50 flex flex-col items-center justify-center p-4">
                       <FileText className="w-10 h-10 text-orange-400 mb-2" />
                       <p className="text-xs text-center text-gray-500 font-medium line-clamp-2">
@@ -114,7 +134,7 @@ export function PremiumEvidenceGallery({ evidence }: PremiumEvidenceGalleryProps
                     </div>
                   ) : (
                     <img
-                      src={item.file_url}
+                      src={item.file_url ?? undefined}
                       alt={formatLabel(item.evidence_type)}
                       className="w-full h-full object-cover transition-transform duration-300 group-hover:scale-105"
                       loading="lazy"
@@ -159,12 +179,27 @@ export function PremiumEvidenceGallery({ evidence }: PremiumEvidenceGalleryProps
           <div className="flex-1 relative flex items-center justify-center bg-black overflow-hidden group">
             {selectedItem && (
               <>
-                {(selectedItem.mime_type?.includes('pdf') || selectedItem.file_url.endsWith('.pdf') || selectedItem.evidence_type.includes('document')) ? (
+                {!selectedItem.file_url ? (
+                  /* A withheld artifact has nothing to open. Offering "Open PDF in New Tab" on a
+                     null href would navigate the user to the current page and look like a fault. */
+                  <div
+                    className="w-full h-full flex flex-col items-center justify-center bg-gray-900 p-8"
+                    data-testid="lightbox-file-withheld"
+                  >
+                    <FileText className="w-24 h-24 text-gray-600 mb-4" />
+                    <p className="text-white text-lg font-medium mb-2">
+                      {formatLabel(selectedItem.evidence_type)}
+                    </p>
+                    <p className="text-gray-400 text-sm text-center max-w-md">
+                      CarUp reviewed this document and verified it. The file itself is not published.
+                    </p>
+                  </div>
+                ) : (selectedItem.mime_type?.includes('pdf') || selectedItem.file_url?.endsWith('.pdf') || selectedItem.evidence_type.includes('document')) ? (
                   <div className="w-full h-full flex flex-col items-center justify-center bg-gray-900 p-8">
                     <FileText className="w-24 h-24 text-gray-500 mb-4" />
                     <p className="text-white text-lg font-medium mb-6">Document Viewer</p>
                     <a 
-                      href={selectedItem.file_url} 
+                      href={selectedItem.file_url ?? undefined}
                       target="_blank" 
                       rel="noopener noreferrer"
                       className="bg-orange-500 hover:bg-orange-600 text-white px-6 py-2 rounded-full font-medium transition-colors"
@@ -174,7 +209,7 @@ export function PremiumEvidenceGallery({ evidence }: PremiumEvidenceGalleryProps
                   </div>
                 ) : (
                   <img
-                    src={selectedItem.file_url}
+                    src={selectedItem.file_url ?? undefined}
                     alt={formatLabel(selectedItem.evidence_type)}
                     className="max-w-full max-h-full object-contain cursor-zoom-in"
                     // Optionally wrap with a pan/zoom library, but for Phase 2 basic is fine
@@ -269,19 +304,26 @@ export function PremiumEvidenceGallery({ evidence }: PremiumEvidenceGalleryProps
               <p className="text-xs text-zinc-500 mb-3">Gallery ({selectedIndex !== null ? selectedIndex + 1 : 0} of {publicEvidence.length})</p>
               <div className="flex gap-2 overflow-x-auto pb-2 custom-scrollbar">
                 {publicEvidence.map((item, idx) => {
-                  const isDoc = item.mime_type?.includes('pdf') || item.file_url.endsWith('.pdf') || item.evidence_type.includes('document');
+                  // A withheld artifact has no image to show. Without this the strip rendered
+                  // `<img src={null}>` and produced a broken thumbnail beside the correct withheld
+                  // tile — the third of three strips in this component, and the one I missed.
+                  const isWithheldThumb = !item.file_url;
+                  const isDoc = item.mime_type?.includes('pdf') || item.file_url?.endsWith('.pdf') || item.evidence_type.includes('document');
                   return (
                     <button
                       key={item.id}
                       onClick={() => setSelectedIndex(idx)}
                       className={`flex-shrink-0 w-16 h-16 rounded-md overflow-hidden border-2 transition-all ${idx === selectedIndex ? 'border-orange-500 opacity-100' : 'border-transparent opacity-50 hover:opacity-100'}`}
                     >
-                      {isDoc ? (
-                        <div className="w-full h-full bg-zinc-800 flex items-center justify-center">
-                          <FileText className="w-6 h-6 text-zinc-500" />
+                      {isWithheldThumb || isDoc ? (
+                        <div
+                          className="w-full h-full bg-zinc-800 flex items-center justify-center"
+                          data-testid={isWithheldThumb ? 'thumb-file-withheld' : undefined}
+                        >
+                          <FileText className={`w-6 h-6 ${isWithheldThumb ? 'text-zinc-600' : 'text-zinc-500'}`} />
                         </div>
                       ) : (
-                        <img src={item.file_url} className="w-full h-full object-cover" alt="" />
+                        <img src={item.file_url ?? undefined} className="w-full h-full object-cover" alt="" />
                       )}
                     </button>
                   );

@@ -1,9 +1,58 @@
 import { supabase } from '../db/supabase.js';
 
+/**
+ * The value `authenticationMethod` carries when an identity was ASSERTED by a header rather than
+ * proven by a session. Exported so a consumer gating a private capability compares against this
+ * constant instead of re-spelling the literal — a literal that has to agree across two files is a
+ * typo away from silently disabling the gate.
+ */
+export const FALLBACK_AUTH_METHOD = 'x-user-id-fallback';
+
 const PLATFORM_ADMIN_ROLES = new Set(['admin', 'platform_admin', 'super_admin']);
 
 function normalizeRole(role) {
   return role ? String(role).toLowerCase() : null;
+}
+
+/**
+ * A STRICTER fallback rule for routes that can expose PRIVATE EVIDENCE.
+ *
+ * `isUserIdFallbackAllowed()` infers permission from `NODE_ENV`, and that inference has been wrong in
+ * production-adjacent environments before: a staging deployment running `NODE_ENV=test` turns the
+ * spoofable `x-user-id` header into a working identity. For most routes that is a contained
+ * development convenience. For the evidence and passport paths it is not — those return another
+ * person's registration document, police clearance and insurance certificate, and mint signed URLs
+ * into the private bucket.
+ *
+ * So these paths do not accept an inference. They require the operator to have said so explicitly,
+ * which no NODE_ENV misconfiguration can do by accident.
+ */
+/**
+ * Refuse an identity that was ASSERTED by a header rather than PROVEN by a session, unless the
+ * operator has explicitly opted in.
+ *
+ * Factored out because it is now needed at the FOURTH private-document capability issuer, and each
+ * one was found separately, after the previous "fix". Routes that mint a signed URL into the
+ * private `ocr-documents` bucket are the ones that matter: registration documents, police
+ * clearances, insurance certificates, and identity evidence (passport/ID/selfie).
+ *
+ * Compose it AFTER `authorizeRole(...)`, which establishes `req.userContext`. The role check is
+ * unchanged; this adds a second question — not "who do you claim to be" but "how do we know".
+ */
+export function requireProvenIdentity() {
+  return (req, res, next) => {
+    if (req.userContext?.authenticationMethod === 'x-user-id-fallback'
+      && !isPrivateEvidenceFallbackAllowed()) {
+      return res.status(401).json({
+        error: 'Unauthorized. This resource requires a real session, not the x-user-id fallback.',
+      });
+    }
+    return next();
+  };
+}
+
+export function isPrivateEvidenceFallbackAllowed(env = process.env) {
+  return env.CARUP_ALLOW_X_USER_ID_FALLBACK === 'true';
 }
 
 export function isUserIdFallbackAllowed(env = process.env) {
@@ -44,7 +93,6 @@ export function authorizeRole(allowedRoles = [], { allowUserIdFallback = true } 
 
     try {
       let activeUserId = null;
-      let authenticationMethod = null;
 
       // 1. Validate Session Token
       if (sessionToken) {
@@ -58,8 +106,12 @@ export function authorizeRole(allowedRoles = [], { allowUserIdFallback = true } 
           return res.status(401).json({ error: 'Unauthorized. Session is invalid or expired.' });
         }
         activeUserId = session.user_id;
-        authenticationMethod = 'session';
       }
+
+      // Distinguishes a PROVEN identity from an ASSERTED one. `requireProvenIdentity` refuses the
+      // latter, so this literal is load-bearing: without it that gate reads like a guard and is a
+      // no-op — which is exactly how a private-document capability stayed reachable once already.
+      let authenticationMethod = activeUserId ? 'session' : null;
 
       if (!activeUserId && fallbackUserId) {
         if (!allowUserIdFallback) {
@@ -69,6 +121,10 @@ export function authorizeRole(allowedRoles = [], { allowUserIdFallback = true } 
           return res.status(401).json({ error: 'Unauthorized. x-user-id fallback is unavailable outside local/test mode.' });
         }
         activeUserId = fallbackUserId;
+        // Recorded so a downstream route can refuse an identity that was ASSERTED rather than
+        // proven. Without this marker a route that checks for it is a no-op that READS like a
+        // guard — which is exactly how a private-document capability stayed reachable after being
+        // "fixed" once already.
         authenticationMethod = 'x-user-id-fallback';
       }
 
@@ -161,6 +217,7 @@ export function optionalAuth() {
     const fallbackUserId = req.headers['x-user-id'];
     try {
       let activeUserId = null;
+      let fallbackDerived = false;
       if (sessionToken) {
         const { data: session } = await supabase
           .from('user_sessions')
@@ -173,6 +230,11 @@ export function optionalAuth() {
       }
       if (!activeUserId && fallbackUserId && isUserIdFallbackAllowed()) {
         activeUserId = fallbackUserId;
+        // HOW the identity was established, not merely THAT it was. Consumers that gate a private
+        // capability require a PROVEN one: tightening this middleware's own policy instead would
+        // change every route that merely needs to know who is calling, which is not the same
+        // decision. See buildVehiclePassport, which refuses a fallback identity for its private half.
+        fallbackDerived = true;
       }
       if (activeUserId) {
         const { data: user } = await supabase.from('users').select('role, is_verified').eq('id', activeUserId).single();
@@ -184,6 +246,12 @@ export function optionalAuth() {
           platformRole,
           tenantId: req.headers['x-tenant-id'] || null,
           isVerified: Boolean(user?.is_verified),
+          authenticationMethod: fallbackDerived ? FALLBACK_AUTH_METHOD : 'session',
+          // A single boolean a consumer can gate on WITHOUT re-spelling the marker. The passport
+          // builder is asserted to read no request header, and the marker's own value contains a
+          // header name — so a consumer comparing against it would trip that guard while doing
+          // nothing wrong. `true` only when the identity was ASSERTED rather than proven.
+          identityAsserted: fallbackDerived,
         };
       }
     } catch {

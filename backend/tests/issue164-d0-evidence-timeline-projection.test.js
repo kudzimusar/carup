@@ -58,8 +58,27 @@ test('the evidence array is projected, never returned raw', () => {
 });
 
 test('a private artifact publishes no locator from the timeline route either', () => {
-  assert.match(TIMELINE_ROUTE, /projected\.file_url\s*=\s*null/);
-  assert.match(TIMELINE_ROUTE, /file_availability\s*=\s*'withheld_private'/);
+  // Reconciliation: the timeline route nulls the locator on the EVENT via
+  // `isPrivateEvidenceArtifact`, and the evidence array's withholding is performed by the canonical
+  // projection. Both halves are asserted where each now lives, plus at runtime below.
+  assert.match(TIMELINE_ROUTE, /isPrivateEvidenceArtifact\(item\)\)\s*event\.file_url\s*=\s*null/,
+    'the timeline event must lose the locator for a private artifact');
+
+  const PROJ3 = readFileSync(path.resolve(here, '../utils/publicVehicleProjection.js'), 'utf8');
+  assert.match(PROJ3, /projected\.file_url\s*=\s*null/);
+  assert.match(PROJ3, /file_availability\s*=\s*'withheld_private'/);
+});
+
+test('RUNTIME: the canonical projection withholds a private artifact locator', async () => {
+  const { toPublicEvidence } = await import('../utils/publicVehicleProjection.js');
+  const out = toPublicEvidence({
+    id: 'e1', vin: 'V1', storage_bucket: 'ocr-documents',
+    file_url: 'V1/registration.pdf', file_path: 'V1/registration.pdf',
+  });
+  assert.equal(out.file_url, null, 'the bucket-relative path must not travel as file_url');
+  assert.equal(out.file_availability, 'withheld_private', 'and the withholding must be stated');
+  assert.equal('file_path' in out, false);
+  assert.equal('storage_bucket' in out, false);
 });
 
 test('no signed URL is minted on this anonymous route', () => {
@@ -93,7 +112,7 @@ test('metadata is reduced to the sanitized summary, never passed through', () =>
   // metadata can carry ai_ready.vehicle_identity — vin, plate, chassis, engine.
   assert.match(
     TIMELINE_ROUTE,
-    /event\.metadata\s*=\s*typeof aiPublicSummary === 'string'\s*\?\s*\{\s*ai_public_summary: aiPublicSummary\s*\}\s*:\s*\{\}/,
+    /event\.metadata\s*=\s*aiSummary\s*\?\s*\{\s*ai_public_summary:\s*aiSummary\s*\}\s*:\s*\{\}/,
     'only a validated string summary may travel',
   );
 });
@@ -101,9 +120,11 @@ test('metadata is reduced to the sanitized summary, never passed through', () =>
 test('the AI summary is read from the validated analysis field and type-checked', () => {
   // Reading the caller-writable `metadata.ai_public_summary` directly would let an uploader place an
   // arbitrary object — including nested private field names — into an anonymous response.
-  const reads = TIMELINE_ROUTE.match(/ai_analysis\?\.public_safe_summary/g) || [];
+  const reads = TIMELINE_ROUTE.match(/publicAiSummary\(/g) || [];
   assert.ok(reads.length >= 2, 'both arrays must source the summary from the validated analysis');
-  const typeChecks = TIMELINE_ROUTE.match(/typeof aiPublicSummary === 'string'/g) || [];
+  const PROJ_SRC = readFileSync(path.resolve(here, '../utils/publicVehicleProjection.js'), 'utf8');
+  // The type check moved into publicAiSummary(), which returns a string or null.
+  const typeChecks = PROJ_SRC.match(/typeof value === 'string'/g) || [];
   assert.ok(typeChecks.length >= 2, 'both arrays must require a string');
 });
 
@@ -140,11 +161,13 @@ test('the passport withholds the private locator from evidenceVault too', () => 
   // `toPublicEvidence` drops storage_bucket and file_path but KEEPS file_url — and for a document
   // row file_url IS the bucket-relative object path, because uploadToStorage returns data.path for
   // every bucket except vehicle-images. The allow-list alone therefore still published the locator.
-  assert.doesNotMatch(
-    code,
-    /evidenceVault:\s*isAuthorized \? evidenceVault : evidenceVault\.map\(toPublicEvidence\)/,
-    'the bare projection is insufficient: it keeps file_url, which is the private path',
-  );
+  // Reconciliation: `toPublicEvidence` is no longer bare — it withholds the private locator
+    // itself, so mapping through it IS the correct form. Asserted where it now lives.
+    const PROJ2 = readFileSync(path.resolve(here, '../utils/publicVehicleProjection.js'), 'utf8');
+    assert.match(PROJ2, /isPrivateEvidenceArtifact\(evidence\)/,
+      'the projection must detect a private artifact');
+    assert.match(PROJ2, /projected\.file_url\s*=\s*null/,
+      'and null its locator, or file_path leaks under another name');
   assert.match(
     code,
     /row\?\.storage_bucket === 'ocr-documents'/,
@@ -163,6 +186,6 @@ test('no surface reattaches the caller-writable metadata key directly', () => {
     /=\s*enriched\.metadata\?\.ai_public_summary/,
     'the summary must come from the validated ai_analysis.public_safe_summary, never the raw key',
   );
-  const sourced = CODE.match(/ai_analysis\?\.public_safe_summary/g) || [];
-  assert.ok(sourced.length >= 3, 'every republishing surface must source it from the analysis');
+  const sourced = CODE.match(/publicAiSummary\(/g) || [];
+  assert.ok(sourced.length >= 3, 'every republishing surface must source it through publicAiSummary');
 });

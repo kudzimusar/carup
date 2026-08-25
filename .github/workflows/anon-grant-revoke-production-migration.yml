@@ -1,0 +1,158 @@
+name: 'Anon Grant Revoke — Production Migration (20260825090000 + 20260825090100)'
+
+# Production cutover for PR #176 (Issue #164 security lane): remove anonymous SELECT from
+# public.vehicles and public.vehicle_evidence.
+#
+# WHAT THIS CLOSES. Measured read-only against production before this workflow existed, using that
+# project's own anon key and printing column NAMES and counts only:
+#
+#     GET /rest/v1/vehicles?select=*&limit=1
+#       -> HTTP 206 · content-range 0-0/352 · 45 columns
+#          owner_id, current_seller_id, plate_number, chassis_number, engine_number,
+#          normalized_plate_number, tenant_id
+#
+# 352 REAL CUSTOMER ROWS, every column, to anyone holding an anon credential. RLS is ROW security,
+# not a column contract: `vehicles_public_read` is `USING (true)` so every row is admitted, and the
+# separate column grant then hands over every column of each one. vehicle_evidence carries the same
+# grant on all 54 columns but is empty in production — a loaded surface rather than an active leak.
+#
+# MODE:
+#   preflight — READ ONLY. `BEGIN TRANSACTION READ ONLY` asserted from the server, then ROLLBACK.
+#               Reports the live anon posture and writes nothing.
+#   apply     — writes. Requires confirm_apply=YES_I_AUTHORIZE_THE_PRODUCTION_REVOKE AND the
+#               protected `production` environment approval.
+#
+# The confirmation was previously a free-text phrase. It was replaced because it is brittle in
+# exactly the way that matters: a dispatch that dropped one leading word failed AFTER the approval,
+# and the phrase is echoed UNMASKED into the Actions log, so it never functioned as a secret. The
+# real authorization boundary is, and remains, the protected environment approval.
+#
+# RUN PREFLIGHT FIRST AND READ ITS RECEIPT. apply is not a retry of preflight.
+#
+# NOT A MIGRATION RUNNER. There is no "apply everything pending" path. The runner enumerates nothing
+# and reads exactly two files, both pinned by SHA256 and verified before any connection is opened.
+# It additionally refuses any file whose Up section contains no REVOKE at all, or that contains
+# CREATE TABLE — this cutover is read-side only.
+#
+# FAIL-CLOSED VERIFICATION. A ledger row is not the outcome; the removed privilege is. After apply,
+# anon must hold neither table-level nor COLUMN-level SELECT on either target. The column check is
+# the one that matters: a column-level grant survives a table-level revoke and never appears in
+# information_schema.table_privileges — which is exactly how this class of hole hides.
+#
+# PREREQUISITES (production environment, already configured for the existing cutovers):
+#     PRODUCTION_DATABASE_URL   — production Postgres connection string
+#     PRODUCTION_PROJECT_REF    — 20-char production project ref (identity pin)
+#     PRODUCTION_CA_CERT        — optional PEM trust-anchor override
+#
+# The production project ref is NOT written anywhere in this repository (CR-1): it arrives via the
+# secret, and the runner refuses a connection string that does not contain it, or that references
+# the staging project.
+
+on:
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: 'preflight = read-only posture evidence; apply = authorized revoke'
+        required: true
+        type: choice
+        default: preflight
+        options:
+          - preflight
+          - apply
+      confirm_apply:
+        description: 'Required for apply: select YES_I_AUTHORIZE_THE_PRODUCTION_REVOKE'
+        required: false
+        type: choice
+        default: NO
+        options:
+          - NO
+          - YES_I_AUTHORIZE_THE_PRODUCTION_REVOKE
+
+permissions:
+  contents: read
+
+concurrency:
+  group: anon-grant-revoke-production-migration
+  cancel-in-progress: false
+
+env:
+  # The single reviewed commit whose runner and migration files are executed. Advancing this pin is
+  # a reviewable pull request, never an edit to this workflow alone.
+  CANDIDATE_SHA: 365006f861eea4a782015624d2e83ac8c72c5743
+  PG_DRIVER_VERSION: 8.21.0
+
+jobs:
+  preflight-or-apply:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    environment: production
+    # github.actor is the ORIGINAL dispatcher and survives re-runs by other collaborators;
+    # github.triggering_actor is whoever actually triggered this run. BOTH must be on the allow-list.
+    #
+    # The list is the two REQUIRED REVIEWERS already configured on the protected `production`
+    # environment. Allowing both to DISPATCH grants no additional privilege: the environment gate
+    # still demands an approval from one of them before the job may read a production secret. The
+    # previous single-name gate silently SKIPPED a correct dispatch from the other operator, which
+    # reads identically to "nothing happened" and cost several round-trips to diagnose.
+    if: >-
+      github.ref == 'refs/heads/main'
+      && contains(fromJSON('["kudzimusar","11-eleven-skm"]'), github.actor)
+      && contains(fromJSON('["kudzimusar","11-eleven-skm"]'), github.triggering_actor)
+
+    steps:
+      - name: Check out the pinned candidate commit
+        uses: actions/checkout@v4
+        with:
+          ref: 365006f861eea4a782015624d2e83ac8c72c5743
+          persist-credentials: false
+
+      - name: Assert the checked-out commit is the pinned candidate
+        run: |
+          actual="$(git rev-parse HEAD)"
+          if [ "$actual" != "$CANDIDATE_SHA" ]; then
+            echo "::error::checked out $actual, expected the pinned candidate $CANDIDATE_SHA"
+            exit 1
+          fi
+          echo "Running the reviewed candidate $CANDIDATE_SHA"
+
+      - name: Refuse if either migration carries the production project ref
+        # CR-1 forbids the ref outside documentation. This re-asserts it at dispatch time against the
+        # pinned source, so a drifted candidate cannot smuggle it into an executable path.
+        run: |
+          for f in database/migrations/20260825090000_revoke_anon_vehicle_evidence_select.sql \
+                   database/migrations/20260825090100_revoke_anon_vehicles_select.sql; do
+            if grep -qE 'vhmnajoeicasa[i]giophh' "$f"; then
+              echo "::error::$f contains the production project ref; refusing."
+              exit 1
+            fi
+          done
+          echo 'Neither migration names the production project.'
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      # Dependency installation executes third-party package code; the database credential is
+      # deliberately not in scope for this step.
+      - name: Install the pinned pg driver only
+        run: npm install --no-save --no-audit --no-fund --ignore-scripts "pg@${PG_DRIVER_VERSION}"
+
+      - name: Require the production secrets
+        env:
+          PRODUCTION_DATABASE_URL: ${{ secrets.PRODUCTION_DATABASE_URL }}
+          PRODUCTION_PROJECT_REF: ${{ secrets.PRODUCTION_PROJECT_REF }}
+        run: |
+          if [ -z "$PRODUCTION_DATABASE_URL" ] || [ -z "$PRODUCTION_PROJECT_REF" ]; then
+            echo '::error::PRODUCTION_DATABASE_URL and PRODUCTION_PROJECT_REF must be configured on the production environment; cannot run.'
+            exit 1
+          fi
+          echo 'Production secrets are present.'
+
+      - name: 'Run the anon-grant-revoke production runner'
+        env:
+          PRODUCTION_DATABASE_URL: ${{ secrets.PRODUCTION_DATABASE_URL }}
+          PRODUCTION_PROJECT_REF: ${{ secrets.PRODUCTION_PROJECT_REF }}
+          PRODUCTION_CA_CERT: ${{ secrets.PRODUCTION_CA_CERT }}
+          MODE: ${{ inputs.mode }}
+          CONFIRM_APPLY: ${{ inputs.confirm_apply }}
+        run: node backend/scripts/production-apply-anon-grant-revoke.mjs
