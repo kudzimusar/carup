@@ -1,0 +1,172 @@
+name: 'Issue #164 Trust Provenance — Production Migration (20260817140000)'
+
+# Issue #164 canonical-trust schema activation. Applies exactly ONE migration:
+#
+#     20260817140000_issue164_trust_cache_provenance.sql
+#
+# WHY ONE, WHEN SIXTEEN ARE MISSING. All sixteen authorized Issue #164 migrations are absent from
+# production's ledger. This cutover deliberately applies only this one. It is the only one required
+# for canonical trust, and the others are NOT safe to apply blind: three of the six Phase 6
+# transaction tables (escrow_trust_sessions, escrow_trust_events, escrow_trust_webhook_events)
+# ALREADY EXIST on production, unledgered and carrying live rows, so a CREATE would either fail or
+# silently no-op onto a shape nobody verified. That is a separate, reviewable cutover.
+#
+# Measured: this migration's text references no other Issue #164 table.
+#
+# WHAT IT DOES. Six NULLABLE columns on public.vehicles. No defaults. No backfill. No rewrite.
+#
+# WHAT IT MUST NOT DO. Production holds 352 LEGACY trust_score values with no provenance. They must
+# stay byte-identical AND UNVERSIONED — an unversioned score is exactly what canonicalTrustService
+# refuses to publish, so leaving them unstamped is what demotes them. Stamping the current version
+# onto them would launder unattributable historical values into canonical truth.
+#
+# The migration proves this itself with an md5 over (vin=trust_score) taken before and after, and
+# RAISES rather than commits if it moves. The runner re-asserts it from OUTSIDE the transaction,
+# because a guarantee made only by the thing being changed is not an independent guarantee.
+#
+# THE INVARIANT, STATED CORRECTLY:
+#
+#     THE MIGRATION MUST NOT CREATE TRUST STAMPS.
+#
+# NOT "production must remain forever unstamped". After activation, refreshCanonicalTrust() is
+# SUPPOSED to stamp governed vehicles. So the zero-stamp assertion is made where it is actually true
+# and actually provable: INSIDE the migration transaction, BEFORE COMMIT, where the ALTER's
+# ACCESS EXCLUSIVE lock makes it race-free. A later verify-only run REPORTS the stamped count and
+# never requires it to be zero — requiring that would report a working system as a failed cutover.
+#
+# MODE:
+#   preflight   — READ ONLY. BEGIN TRANSACTION READ ONLY asserted from the SERVER, then ROLLBACK.
+#   apply       — requires confirm_apply AND the protected `production` environment approval, then
+#                 dispatches on the LEDGER, decided before anything is written:
+#                   · not ledgered -> FIRST APPLY (writes; refuses any pre-existing partial state)
+#                   · ledgered     -> VERIFY-ONLY (read-only transaction; proves it wrote nothing)
+#
+# ORDER OF OPERATIONS. Every file, checksum and SQL-shape assertion runs BEFORE the connection is
+# constructed, preflight included — so a drifted candidate cannot collect a green read-only receipt
+# either.
+#
+# SHAPE, NOT NAMES. Six columns with the right names but a drifted type, a NOT NULL, or a DEFAULT
+# satisfy a name count while breaking the contract — and a DEFAULT would fabricate provenance on
+# every future insert, which is the laundering this cutover exists to prevent. Both apply paths
+# assert type, nullability and default per column against the migration's own declaration — and
+# additionally that no column is GENERATED or an IDENTITY, because either reports the expected
+# type/nullability/default while rejecting the explicit writes canonical refreshes must make.
+#
+# MEASURE UNDER THE LOCK. Application writes are not migration changes. Every legacy-score reading
+# is taken inside the migration transaction while it holds ACCESS EXCLUSIVE, so a legitimate
+# refreshCanonicalTrust() landing the instant after COMMIT can never be misreported as the migration
+# having rewritten history. Post-commit, only stable DDL facts are asserted.
+#
+# ADDITIVE-ONLY GUARD. The runner refuses a file with no ADD COLUMN, or containing UPDATE/DELETE
+# against vehicles, or DROP TABLE — checked before any connection is opened.
+#
+# PREREQUISITES (production environment, already configured):
+#     PRODUCTION_DATABASE_URL · PRODUCTION_PROJECT_REF · PRODUCTION_CA_CERT (optional)
+
+on:
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: 'preflight = read-only trust posture; apply = authorized schema activation'
+        required: true
+        type: choice
+        default: preflight
+        options:
+          - preflight
+          - apply
+      confirm_apply:
+        description: 'Required for apply: select YES_I_AUTHORIZE_THE_TRUST_SCHEMA_ACTIVATION'
+        required: false
+        type: choice
+        default: NO
+        options:
+          - NO
+          - YES_I_AUTHORIZE_THE_TRUST_SCHEMA_ACTIVATION
+
+permissions:
+  contents: read
+
+concurrency:
+  group: issue164-trust-provenance-production-migration
+  cancel-in-progress: false
+
+env:
+  # The single reviewed commit whose runner and migration files are executed. Advancing this pin is
+  # a reviewable pull request, never an edit to this workflow alone.
+  CANDIDATE_SHA: 043f9ccf8037bc50ede547ae2548be18d8374629
+  PG_DRIVER_VERSION: 8.21.0
+
+jobs:
+  preflight-or-apply:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    environment: production
+    # github.actor is the ORIGINAL dispatcher and survives re-runs by other collaborators;
+    # github.triggering_actor is whoever actually triggered this run. BOTH must be on the allow-list.
+    #
+    # The list is the two REQUIRED REVIEWERS already configured on the protected `production`
+    # environment. Allowing both to DISPATCH grants no additional privilege: the environment gate
+    # still demands an approval from one of them before the job may read a production secret. The
+    # previous single-name gate silently SKIPPED a correct dispatch from the other operator, which
+    # reads identically to "nothing happened" and cost several round-trips to diagnose.
+    if: >-
+      github.ref == 'refs/heads/main'
+      && contains(fromJSON('["kudzimusar","11-eleven-skm"]'), github.actor)
+      && contains(fromJSON('["kudzimusar","11-eleven-skm"]'), github.triggering_actor)
+
+    steps:
+      - name: Check out the pinned candidate commit
+        uses: actions/checkout@v4
+        with:
+          ref: 043f9ccf8037bc50ede547ae2548be18d8374629
+          persist-credentials: false
+
+      - name: Assert the checked-out commit is the pinned candidate
+        run: |
+          actual="$(git rev-parse HEAD)"
+          if [ "$actual" != "$CANDIDATE_SHA" ]; then
+            echo "::error::checked out $actual, expected the pinned candidate $CANDIDATE_SHA"
+            exit 1
+          fi
+          echo "Running the reviewed candidate $CANDIDATE_SHA"
+
+      - name: Refuse if the migration carries the production project ref
+        # CR-1 forbids the ref outside documentation. Re-asserted at dispatch time against the
+        # pinned source, so a drifted candidate cannot smuggle it into an executable path.
+        run: |
+          for f in database/migrations/20260817140000_issue164_trust_cache_provenance.sql; do
+            if grep -qE 'vhmnajoeicasa[i]giophh' "$f"; then
+              echo "::error::$f contains the production project ref; refusing."
+              exit 1
+            fi
+          done
+          echo 'The migration does not name the production project.'
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      # Dependency installation executes third-party package code; the database credential is
+      # deliberately not in scope for this step.
+      - name: Install the pinned pg driver only
+        run: npm install --no-save --no-audit --no-fund --ignore-scripts "pg@${PG_DRIVER_VERSION}"
+
+      - name: Require the production secrets
+        env:
+          PRODUCTION_DATABASE_URL: ${{ secrets.PRODUCTION_DATABASE_URL }}
+          PRODUCTION_PROJECT_REF: ${{ secrets.PRODUCTION_PROJECT_REF }}
+        run: |
+          if [ -z "$PRODUCTION_DATABASE_URL" ] || [ -z "$PRODUCTION_PROJECT_REF" ]; then
+            echo '::error::PRODUCTION_DATABASE_URL and PRODUCTION_PROJECT_REF must be configured on the production environment; cannot run.'
+            exit 1
+          fi
+          echo 'Production secrets are present.'
+
+      - name: 'Run the Issue #164 trust-provenance production runner'
+        env:
+          PRODUCTION_DATABASE_URL: ${{ secrets.PRODUCTION_DATABASE_URL }}
+          PRODUCTION_PROJECT_REF: ${{ secrets.PRODUCTION_PROJECT_REF }}
+          PRODUCTION_CA_CERT: ${{ secrets.PRODUCTION_CA_CERT }}
+          MODE: ${{ inputs.mode }}
+          CONFIRM_APPLY: ${{ inputs.confirm_apply }}
+        run: node backend/scripts/production-apply-issue164-trust-provenance.mjs
