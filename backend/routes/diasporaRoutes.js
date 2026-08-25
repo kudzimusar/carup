@@ -27,6 +27,7 @@ import { createReputationRecord, listReputationRecords } from '../services/diasp
 import { CONTAINER_STATUSES, RESERVATION_STATUSES } from '../constants/diaspora/diasporaStatuses.js';
 import { DocumentIntelligenceService } from '../services/document-intelligence/documentIntelligenceService.js';
 import { generateSecureReadUrl } from '../services/storage/storageService.js';
+import { requireProvenIdentity } from '../middleware/authMiddleware.js';
 
 const router = express.Router();
 const asyncHandler = (fn) => (req, res, next) => Promise.resolve(fn(req, res, next)).catch(next);
@@ -189,7 +190,10 @@ router.post('/trade-documents', auth, asyncHandler(documentCreateHandler));
 router.get('/documents/:id', auth, asyncHandler(async (req, res) => res.json(await getTradeDocument(req.params.id, req.userContext))));
 router.get('/trade-documents/:id', auth, asyncHandler(async (req, res) => res.json(await getTradeDocument(req.params.id, req.userContext))));
 router.post('/documents/:id/extractions', auth, asyncHandler(async (req, res) => res.status(201).json(await recordDocumentExtraction(req.params.id, req.body, req.userContext, req))));
-router.post('/documents/:id/run-ocr', reviewerAuth, asyncHandler(async (req, res) => {
+// Signs an object in the private `ocr-documents` bucket (passport, national ID, customs and
+// registration paperwork), so the identity behind the reviewer role must be PROVEN, not asserted by
+// a spoofable header. Found by the enumeration test rather than by reading — the FIFTH such site.
+router.post('/documents/:id/run-ocr', reviewerAuth, requireProvenIdentity(), asyncHandler(async (req, res) => {
   const documentId = req.params.id;
   const userContext = req.userContext;
 

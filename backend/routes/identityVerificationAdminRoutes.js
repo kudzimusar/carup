@@ -1,5 +1,5 @@
 import express from 'express';
-import { authorizeRole } from '../middleware/authMiddleware.js';
+import { authorizeRole, requireProvenIdentity } from '../middleware/authMiddleware.js';
 import {
   getVerificationSessionForReview,
   getEvidencePreviewUrl,
@@ -58,6 +58,9 @@ router.post(
 router.get(
   '/api/admin/identity/verification-sessions/:sessionId/evidence/:side/preview',
   authorizeRole(['admin']),
+  // This signs an object in the SAME private ocr-documents bucket — passport, national ID and
+  // selfie evidence. An admin id asserted by a spoofable header must not be able to mint it.
+  requireProvenIdentity(),
   asyncHandler(async (req, res) => {
     const preview = await getEvidencePreviewUrl(
       undefined,

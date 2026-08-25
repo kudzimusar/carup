@@ -7,7 +7,8 @@ import crypto from 'crypto';
 import { supabase } from './db/supabase.js';
 
 // Import Middleware
-import { authorizeRole, optionalAuth } from './middleware/authMiddleware.js';
+import { authorizeRole, optionalAuth, isPrivateEvidenceFallbackAllowed } from './middleware/authMiddleware.js';
+import { toPublicEvidenceRow, toPublicTimelineEventRow } from './utils/publicEvidenceProjection.js';
 import { evaluateLoginCredentials, hashPassword } from './utils/passwordAuth.js';
 
 // Import Services
@@ -532,22 +533,31 @@ async function buildVehiclePassport(vin, req) {
 
   if (vehicleError || !vehicle) return null;
 
-  // Determine requester identity
+  // Determine requester identity. A header is a CLAIM, not a credential.
+  //
+  // Same two defects the evidence routes carried: the session was accepted on `is_valid` alone, so
+  // an EXPIRED token still authenticated, and `x-user-id` was taken outright without
+  // the general fallback policy, which INFERS permission from NODE_ENV. These paths use the
+  // stricter `isPrivateEvidenceFallbackAllowed()` instead: a staging deployment running
+  // NODE_ENV=test has turned that inference into a working identity before, and what is behind
+  // this door is another person's registration document.
   const sessionToken = req.headers['x-session-token'] || req.headers['authorization']?.replace('Bearer ', '');
-  const fallbackUserId = req.headers['x-user-id'];
-  let activeUserId = fallbackUserId || null;
+  let activeUserId = null;
   let activeUserRole = null;
 
   if (sessionToken) {
     const { data: session } = await supabase
       .from('user_sessions')
-      .select('user_id')
+      .select('user_id, is_valid, expires_at')
       .eq('token', sessionToken)
-      .eq('is_valid', true)
       .single();
-    if (session) {
+    if (session && session.is_valid && new Date(session.expires_at) >= new Date()) {
       activeUserId = session.user_id;
     }
+  }
+
+  if (!activeUserId && req.headers['x-user-id'] && isPrivateEvidenceFallbackAllowed()) {
+    activeUserId = req.headers['x-user-id'];
   }
 
   if (activeUserId) {
@@ -579,6 +589,14 @@ async function buildVehiclePassport(vin, req) {
   if (evidenceError) throw evidenceError;
 
   const evidenceVault = (verifiedEvidence || []).map(normalizeEvidenceRecord);
+  // Which evidence-derived timeline events point at a PRIVATE artifact. `evidenceToTimelineItem`
+  // prefixes the row id with `evidence:`, and the timeline event carries no `storage_bucket` of its
+  // own, so the bucket has to be resolved here from the raw rows.
+  const privateEvidenceEventIds = new Set(
+    (verifiedEvidence || [])
+      .filter((row) => row?.storage_bucket === 'ocr-documents')
+      .map((row) => `evidence:${row.id}`),
+  );
   const visualTimeline = mergeEventsWithEvidence(timeline, evidenceVault);
   const trustReport = await computeVehicleTrustScore(vin);
   const chainVerification = await verifyChain(vin);
@@ -658,7 +676,11 @@ async function buildVehiclePassport(vin, req) {
       publicDescription = `Number plate ${event.details?.plateNumber || '—'} suspended: ${event.details?.reason || 'No reason provided'}`;
       publicSummary = 'Plate Suspended';
     } else if (event.event_source === 'evidence') {
-      publicDescription = event.desc || 'Verified evidence linked to this vehicle passport';
+      // `event.desc` is NOT safe to publish here: for an evidence-derived event it defaults to the
+      // reviewer's free text (`verification_notes`) about a person's document. The governed phrasing
+      // is derived from the evidence TYPE instead, which states the same fact without quoting a
+      // reviewer. (It read `event.desc || ...` before, so a row carrying notes published them.)
+      publicDescription = 'Verified evidence linked to this vehicle passport';
       publicSummary = event.label || 'Verified Evidence';
     }
 
@@ -691,6 +713,29 @@ async function buildVehiclePassport(vin, req) {
         reason: event.details?.reason,
         verificationSource: event.details?.verificationSource,
       };
+
+      // CLOSE THE TOP LEVEL TOO — the FOURTH door.
+      //
+      // Allow-listing only `details` left the event's own top level open, and an evidence-derived
+      // event carries its source row's columns up there. Verified live on the deployed passport
+      // before this change:
+      //
+      //   timeline[] evidence event → file_url: "<VIN>/golden-registration_document.pdf"
+      //
+      // i.e. the private bucket-relative locator, published to an anonymous caller through the
+      // timeline after the vault beside it had been closed. `metadata` rides up the same way and
+      // carries `ai_ready.vehicle_identity` (vin, plate, chassis, engine) on a real row, and `desc`
+      // defaults to the reviewer's `verification_notes` for any event_source the branch chain above
+      // does not override — `evidence` being one of them.
+      if (event.event_source === 'evidence') {
+        // Only a PRIVATE artifact loses its locator. Nulling every evidence event's `file_url` also
+        // stripped verified `public_safe` images in the PUBLIC `vehicle-images` bucket, which the
+        // other projections deliberately keep so clients can render them — a fix mis-sized against
+        // the property it claims, which would have silently emptied the passport's imagery.
+        if (privateEvidenceEventIds.has(event.id)) sanitizedEvent.file_url = null;
+        sanitizedEvent.metadata = {};
+      }
+      return toPublicTimelineEventRow(sanitizedEvent);
     }
 
     return sanitizedEvent;
@@ -700,7 +745,14 @@ async function buildVehiclePassport(vin, req) {
     vehicle,
     timeline: sanitizedTimeline,
     evidenceTimeline: sanitizedTimeline.filter(event => event.event_source === 'evidence'),
-    evidenceVault,
+    // THE THIRD ANONYMOUS DOOR.
+    //
+    // `verifiedEvidence` above is `select('*')`, and this array was returned unchanged to every
+    // caller — so `/api/vehicles/:vin/passport` and `/api/vehicles/passport/lookup/:identifier`
+    // published the same 54-column rows the two evidence routes were just closed against:
+    // plate/chassis/engine identifiers, uploader and reviewer ids, tenant id, reviewer free text,
+    // and the private storage locator. Verified live before this change.
+    evidenceVault: isAuthorized ? evidenceVault : evidenceVault.map(toPublicEvidenceRow),
     trustReport,
     chainVerification,
     identity: {

@@ -6,6 +6,47 @@ function normalizeRole(role) {
   return role ? String(role).toLowerCase() : null;
 }
 
+/**
+ * A STRICTER fallback rule for routes that can expose PRIVATE EVIDENCE.
+ *
+ * `isUserIdFallbackAllowed()` infers permission from `NODE_ENV`, and that inference has been wrong in
+ * production-adjacent environments before: a staging deployment running `NODE_ENV=test` turns the
+ * spoofable `x-user-id` header into a working identity. For most routes that is a contained
+ * development convenience. For the evidence and passport paths it is not — those return another
+ * person's registration document, police clearance and insurance certificate, and mint signed URLs
+ * into the private bucket.
+ *
+ * So these paths do not accept an inference. They require the operator to have said so explicitly,
+ * which no NODE_ENV misconfiguration can do by accident.
+ */
+/**
+ * Refuse an identity that was ASSERTED by a header rather than PROVEN by a session, unless the
+ * operator has explicitly opted in.
+ *
+ * Factored out because it is now needed at the FOURTH private-document capability issuer, and each
+ * one was found separately, after the previous "fix". Routes that mint a signed URL into the
+ * private `ocr-documents` bucket are the ones that matter: registration documents, police
+ * clearances, insurance certificates, and identity evidence (passport/ID/selfie).
+ *
+ * Compose it AFTER `authorizeRole(...)`, which establishes `req.userContext`. The role check is
+ * unchanged; this adds a second question — not "who do you claim to be" but "how do we know".
+ */
+export function requireProvenIdentity() {
+  return (req, res, next) => {
+    if (req.userContext?.authenticationMethod === 'x-user-id-fallback'
+      && !isPrivateEvidenceFallbackAllowed()) {
+      return res.status(401).json({
+        error: 'Unauthorized. This resource requires a real session, not the x-user-id fallback.',
+      });
+    }
+    return next();
+  };
+}
+
+export function isPrivateEvidenceFallbackAllowed(env = process.env) {
+  return env.CARUP_ALLOW_X_USER_ID_FALLBACK === 'true';
+}
+
 export function isUserIdFallbackAllowed(env = process.env) {
   return env.CARUP_ALLOW_X_USER_ID_FALLBACK === 'true' ||
     env.NODE_ENV === 'test' ||
@@ -59,11 +100,18 @@ export function authorizeRole(allowedRoles = []) {
         activeUserId = session.user_id;
       }
 
+      let authenticationMethod = activeUserId ? 'session' : null;
+
       if (!activeUserId && fallbackUserId) {
         if (!isUserIdFallbackAllowed()) {
           return res.status(401).json({ error: 'Unauthorized. x-user-id fallback is unavailable outside local/test mode.' });
         }
         activeUserId = fallbackUserId;
+        // Recorded so a downstream route can refuse an identity that was ASSERTED rather than
+        // proven. Without this marker a route that checks for it is a no-op that READS like a
+        // guard — which is exactly how a private-document capability stayed reachable after being
+        // "fixed" once already.
+        authenticationMethod = 'x-user-id-fallback';
       }
 
       if (!activeUserId) {
@@ -123,6 +171,7 @@ export function authorizeRole(allowedRoles = []) {
         tenantId: tenantIdHeader || null,
         requestedRole,
         isVerified: Boolean(user.is_verified),
+        authenticationMethod,
       };
 
       next();

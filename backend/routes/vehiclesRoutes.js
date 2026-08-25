@@ -3,7 +3,13 @@ import crypto from 'crypto';
 import { supabase } from '../db/supabase.js';
 import { DatabaseError, ValidationError, ForbiddenError, NotFoundError } from '../utils/errors.js';
 import { logAuditEvent } from '../services/auditLogger.js';
-import { authorizeRole } from '../middleware/authMiddleware.js';
+import { authorizeRole, isPrivateEvidenceFallbackAllowed } from '../middleware/authMiddleware.js';
+import {
+  toPublicEvidenceRow,
+  toPublicTimelineEventRow,
+  isPrivateEvidenceArtifact,
+  publicAiSummary,
+} from '../utils/publicEvidenceProjection.js';
 import { uploadToStorage, generateSecureReadUrl } from '../services/storage/storageService.js';
 import { calculateVehicleTrustScore } from '../services/trustGraph/trustGraphService.js';
 import {
@@ -13,6 +19,7 @@ import {
   documentEvidenceTypes,
   evidenceStatusTrustImpact,
   evidenceToTimelineItem,
+  evidenceTypeLabel,
   isDocumentEvidence,
   isSupportedMimeType,
   normalizeEvidenceRecord,
@@ -302,6 +309,63 @@ async function insertEvidenceFromRequest(req, vin, { requireVehicleId = false } 
     throw new ValidationError('file_url is required');
   }
 
+  // A STORAGE LOCATOR MUST BELONG TO THE VEHICLE IT IS FILED UNDER.
+  //
+  // The branch above derives `file_path` from the VIN and pins the bucket — but ONLY when the caller
+  // uploads bytes (`req.body.file`). A remote-file create supplies `file_url` with no `file` key,
+  // skips that block entirely, and previously kept the caller's own `file_path` and
+  // `storage_bucket` verbatim. Ownership was checked on the ROW's vehicle, never on the OBJECT the
+  // row pointed at.
+  //
+  // So an authenticated owner could file evidence against a vehicle they legitimately own while
+  // pointing `file_path` at another vehicle's private document in `ocr-documents`, then read their
+  // own row back and receive a valid one-hour signed URL for it. Ownership of the row is not
+  // ownership of the artifact.
+  //
+  // Traversal and absolute paths are refused outright rather than normalised: a path that needs
+  // normalising to look safe is a path this route should not be accepting.
+  // Validate the EFFECTIVE locator, which is what the insert actually stores.
+  //
+  // The row is written with `file_path: filePath || fileUrl`, so guarding only an explicitly
+  // supplied `file_path` left the fallback wide open: omit `file_path` entirely, put the victim's
+  // object path in `file_url`, pick a document type so the bucket resolves to `ocr-documents`, and
+  // the stored row points at someone else's private document with nothing having been checked.
+  // The guard therefore runs on the same expression the insert uses.
+  //
+  // A remote https URL is not a bucket locator and is not what this check governs — only a
+  // storage-relative path can address an object in our bucket, so absolute URLs are left alone here
+  // and constrained by the bucket check below.
+  const effectiveLocator = filePath || fileUrl;
+  const looksLikeStoragePath = typeof effectiveLocator === 'string'
+    && !/^[a-z][a-z0-9+.-]*:\/\//i.test(effectiveLocator);
+  if (looksLikeStoragePath) {
+    const requiredPrefix = `${vin.toUpperCase()}/`;
+    const candidate = String(effectiveLocator);
+    if (
+      candidate.includes('..')
+      || candidate.startsWith('/')
+      || !candidate.toUpperCase().startsWith(requiredPrefix)
+    ) {
+      throw new ValidationError(
+        `the evidence locator must be scoped to this vehicle: expected it to begin with "${requiredPrefix}"`,
+      );
+    }
+  }
+
+  // The bucket is a server decision, not a caller assertion: letting a caller name `ocr-documents`
+  // is what turns a public-image create into a private-document reference the read path will sign.
+  if (bucketName) {
+    const expectedBucket = (isDocumentEvidence(normalized.evidenceType)
+      || ['private', 'restricted', 'government_only'].includes(visibilityLevel))
+      ? 'ocr-documents'
+      : 'vehicle-images';
+    if (bucketName !== expectedBucket) {
+      throw new ValidationError(
+        `storage_bucket "${bucketName}" does not match this evidence type and visibility (expected "${expectedBucket}")`,
+      );
+    }
+  }
+
   const metadata = buildAiReadyMetadata({
     metadata: normalized.metadata,
     evidenceType: normalized.evidenceType,
@@ -437,23 +501,39 @@ router.post('/api/evidence/upload', authorizeRole(), asyncHandler(async (req, re
 router.get('/api/vehicles/:vin/evidence', asyncHandler(async (req, res) => {
   const { vin } = req.params;
 
-  // Fetch session / identity if available (allow optional authentication)
+  // IDENTITY — a header is a CLAIM, not a credential.
+  //
+  // Three independent holes are closed here, and each was sufficient on its own:
+  //   1. the session lookup accepted a row on `is_valid` alone, so an EXPIRED token still
+  //      authenticated. Measured on staging: 874 sessions carry is_valid = true and exactly ONE is
+  //      genuinely unexpired. `authMiddleware` has always also checked `expires_at`; this route was
+  //      the outlier.
+  //   2. `x-user-id` was taken as identity outright, bypassing `isUserIdFallbackAllowed()` — the
+  //      policy every other entry point honours (false in production/staging, true only for
+  //      local/test harnesses). One header was therefore a complete authentication bypass:
+  //      `x-user-id: <some owner id>` on a vehicle whose only document was still PENDING returned
+  //      that row plus a one-hour signed URL into the private bucket.
+  //   3. tenancy came from `x-tenant-id` — attacker-controlled — and was then compared against the
+  //      vehicle's own `tenant_id` to grant access. `users` has no `tenant_id` column, so the
+  //      authentic source is the `tenant_users` membership table, read for the AUTHENTICATED user.
   const sessionToken = req.headers['x-session-token'] || req.headers['authorization']?.replace('Bearer ', '');
-  const fallbackUserId = req.headers['x-user-id'];
-  let activeUserId = fallbackUserId || null;
+  let activeUserId = null;
   let activeUserRole = null;
-  let activeTenantId = req.headers['x-tenant-id'] || null;
+  let activeTenantIds = [];
 
   if (sessionToken) {
     const { data: session } = await supabase
       .from('user_sessions')
-      .select('user_id')
+      .select('user_id, is_valid, expires_at')
       .eq('token', sessionToken)
-      .eq('is_valid', true)
       .single();
-    if (session) {
+    if (session && session.is_valid && new Date(session.expires_at) >= new Date()) {
       activeUserId = session.user_id;
     }
+  }
+
+  if (!activeUserId && req.headers['x-user-id'] && isPrivateEvidenceFallbackAllowed()) {
+    activeUserId = req.headers['x-user-id'];
   }
 
   if (activeUserId) {
@@ -465,6 +545,12 @@ router.get('/api/vehicles/:vin/evidence', asyncHandler(async (req, res) => {
     if (user) {
       activeUserRole = user.role;
     }
+
+    const { data: memberships } = await supabase
+      .from('tenant_users')
+      .select('tenant_id')
+      .eq('user_id', activeUserId);
+    activeTenantIds = (memberships || []).map((m) => m.tenant_id).filter(Boolean);
   }
 
   // Fetch vehicle details to verify ownership
@@ -478,11 +564,13 @@ router.get('/api/vehicles/:vin/evidence', asyncHandler(async (req, res) => {
     throw new NotFoundError('Vehicle not found');
   }
 
-  const isAuthorized = 
-    activeUserRole === 'admin' || 
-    activeUserRole === 'government' || 
+  const isAuthorized =
+    activeUserRole === 'admin' ||
+    activeUserRole === 'government' ||
     (activeUserId && activeUserId === vehicle.owner_id) ||
-    (activeTenantId && activeTenantId === vehicle.tenant_id);
+    // `Boolean(vehicle.tenant_id && ...)` so a NULL-tenant vehicle cannot be unlocked by a caller
+    // who also has no tenant: `null === null` would otherwise authorize everyone.
+    Boolean(vehicle.tenant_id && activeTenantIds.includes(vehicle.tenant_id));
 
   let query = supabase
     .from('vehicle_evidence')
@@ -506,12 +594,28 @@ router.get('/api/vehicles/:vin/evidence', asyncHandler(async (req, res) => {
     throw new DatabaseError(fetchErr.message);
   }
 
-  // Generate timed read URLs for private bucket items
+  // RESPONSE — the raw row never leaves, and a signed URL is a capability, not a field.
+  //
+  // `select('*')` above returns all 54 columns. Returning that verbatim published `plate_number`,
+  // `normalized_plate_number`, `chassis_number` and `engine_number` — registry identifiers — plus
+  // `uploaded_by`, `verified_by`, `tenant_id`, `verification_notes`, `file_path` and
+  // `storage_bucket`. An unauthorised caller now receives the allow-listed projection instead.
+  //
+  // The signed URL is minted ONLY for a reader this route actually authorised. It was previously
+  // generated for every `ocr-documents` row regardless of the caller, which handed anyone holding a
+  // VIN — a number printed on every windscreen — a one-hour bearer token to a registration
+  // document, police clearance or insurance certificate.
   const enrichedEvidence = [];
   const hasAdminAccess = ['admin', 'government', 'reviewer'].includes(activeUserRole);
   for (const item of (evidence || [])) {
     const enriched = normalizeEvidenceRecord(item);
-    if (item.storage_bucket === 'ocr-documents' && item.file_path) {
+    const isPrivateArtifact = isPrivateEvidenceArtifact(item);
+
+    // Captured BEFORE the sanitation below, which deletes `metadata.ai_analysis` IN PLACE:
+    // `normalizeEvidenceRecord` is a shallow copy, so `enriched.metadata` IS `item.metadata`.
+    const aiSummary = publicAiSummary(item);
+
+    if (isAuthorized && isPrivateArtifact && item.file_path) {
       try {
         enriched.file_url = await generateSecureReadUrl('ocr-documents', item.file_path, 3600);
       } catch (err) {
@@ -527,7 +631,15 @@ router.get('/api/vehicles/:vin/evidence', asyncHandler(async (req, res) => {
         delete enriched.metadata.ai_analysis;
       }
     }
-    enrichedEvidence.push(enriched);
+
+    if (isAuthorized) {
+      enrichedEvidence.push(enriched);
+      continue;
+    }
+
+    const projected = toPublicEvidenceRow(enriched);
+    if (aiSummary) projected.metadata = { ai_public_summary: aiSummary };
+    enrichedEvidence.push(projected);
   }
 
   res.json(enrichedEvidence);
@@ -558,29 +670,45 @@ router.get('/api/vehicles/:vin/evidence/timeline', asyncHandler(async (req, res)
     throw new DatabaseError(fetchErr.message);
   }
 
+  // THIS ROUTE HAS NO AUTHENTICATION AT ALL, SO EVERY BYTE HERE IS PUBLIC.
+  //
+  // It was the SECOND DOOR to the same leak: both arrays were built from `select('*')` and returned
+  // essentially verbatim, so appending `/timeline` to the URL yielded the full 54-column row even
+  // after the sibling route was closed. Deleting `metadata.ai_analysis` was the only sanitation and
+  // it addressed none of the identifier columns.
+  //
+  // The `timeline[]` array leaked INDEPENDENTLY of `evidence[]`: `evidenceToTimelineItem` sets
+  // `desc` to the REVIEWER'S FREE TEXT (`verification_notes`), `details.uploadedBy` to an internal
+  // identity, and carries `metadata` — which holds `ai_ready.vehicle_identity`: vin, plate, chassis
+  // and engine — straight up onto the event.
+  const publicEvidence = (evidence || []).map((item) => {
+    const enriched = normalizeEvidenceRecord(item);
+    const aiSummary = publicAiSummary(item);
+    const projected = toPublicEvidenceRow(enriched);
+    if (aiSummary) projected.metadata = { ai_public_summary: aiSummary };
+    return projected;
+  });
+
   const timeline = (evidence || []).map((item) => {
-    const enriched = normalizeEvidenceRecord(item);
-    if (enriched.metadata && enriched.metadata.ai_analysis) {
-      if (enriched.verification_status === 'verified' && enriched.metadata.ai_analysis.public_safe_summary) {
-        enriched.metadata.ai_public_summary = enriched.metadata.ai_analysis.public_safe_summary;
-      }
-      delete enriched.metadata.ai_analysis;
-    }
-    return evidenceToTimelineItem(enriched);
+    const aiSummary = publicAiSummary(item);
+    const event = evidenceToTimelineItem(normalizeEvidenceRecord(item));
+
+    // `evidenceToTimelineItem` is shared with authorised callers, so it is sanitised HERE rather
+    // than narrowed for everyone.
+    event.desc = `${evidenceTypeLabel(item.evidence_type)} reviewed and verified by CarUp`;
+    event.details = {
+      capturedAt: item.captured_at,
+      uploadedAt: item.uploaded_at,
+      checksum: item.checksum || item.image_hash,
+      linkedRegistryEventId: item.linked_registry_event_id,
+    };
+    event.metadata = aiSummary ? { ai_public_summary: aiSummary } : {};
+    if (isPrivateEvidenceArtifact(item)) event.file_url = null;
+
+    return toPublicTimelineEventRow(event);
   });
 
-  const sanitizedEvidence = (evidence || []).map((item) => {
-    const enriched = normalizeEvidenceRecord(item);
-    if (enriched.metadata && enriched.metadata.ai_analysis) {
-      if (enriched.verification_status === 'verified' && enriched.metadata.ai_analysis.public_safe_summary) {
-        enriched.metadata.ai_public_summary = enriched.metadata.ai_analysis.public_safe_summary;
-      }
-      delete enriched.metadata.ai_analysis;
-    }
-    return enriched;
-  });
-
-  res.json({ vin, timeline, evidence: sanitizedEvidence });
+  res.json({ vin, timeline, evidence: publicEvidence });
 }));
 
 router.get('/api/evidence/review', authorizeRole(reviewRoles), asyncHandler(async (req, res) => {

@@ -2,7 +2,7 @@ import express from 'express';
 import crypto from 'crypto';
 import path from 'path';
 import { uploadToStorage, generateSecureReadUrl, generateSecureUploadUrl } from './storageService.js';
-import { authorizeRole } from '../../middleware/authMiddleware.js';
+import { authorizeRole, requireProvenIdentity } from '../../middleware/authMiddleware.js';
 import { supabase } from '../../db/supabase.js';
 import { logAuditEvent } from '../auditLogger.js';
 
@@ -377,7 +377,10 @@ router.get('/upload/signed-url', authorizeRole(['owner', 'dealer', 'admin']), as
 /**
  * GET /api/media/document/signed-url - Retrieve a timed read token for a private document
  */
-router.get('/document/signed-url', authorizeRole(['admin', 'government', 'owner']), async (req, res) => {
+router.get('/document/signed-url', authorizeRole(['admin', 'government', 'owner']), requireProvenIdentity(), async (req, res) => {
+  // The role check above says WHO may read; requireProvenIdentity says HOW that identity must have
+  // been established. Issuing a private-document capability is not something an environment
+  // inference may authorise.
   const { path: docPath } = req.query;
 
   if (!docPath) {

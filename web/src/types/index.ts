@@ -1721,7 +1721,13 @@ export interface VehicleEvidence {
   event_date?: string | null;
   source_id?: string | null;
   perceptual_hash?: string | null;
-  file_url: string;
+  /**
+   * NULL when the artifact is withheld — a verified document in the private `ocr-documents` bucket
+   * whose FACT is published but whose FILE is not. Nullable on purpose: it makes every consumer's
+   * assumption type-checked rather than discovered at runtime by a null dereference on a page load.
+   */
+  file_url: string | null;
+  file_availability?: 'viewable' | 'withheld_private';
   uploaded_by: string;
   uploader_role: string;
   captured_at: string;
