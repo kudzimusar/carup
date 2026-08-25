@@ -865,11 +865,33 @@ five product surfaces; local storage carries only `carup_nav_cohort`.
 | `git diff --check` | clean |
 | Lint | unchanged vs documented baseline (CI runs `npm run lint \|\| true`) |
 | GitHub CI on `41d942a8` | **17 pass, 4 skipping, 0 failures** |
-| Exact-head Codex review | **pending at time of writing** |
+| Exact-head Codex review | **landed** — one P2, adjudicated non-blocking (see below) |
+
+## Exact-head Codex review — landed, one P2
+
+Codex reviewed `41d942a88b` at 2026-08-25T02:40:09Z and raised **one** fresh finding: **P2 — "Clear
+prior vehicle facts before loading a new VIN"** (`VehicleProfile.tsx:266`). An in-place `/dashboard/
+garage/:id` change does not unmount the component, so `passportData` and `evidenceList` can briefly
+describe *different* vehicles while their two requests resolve independently — allowing a badge from
+the previous vehicle to render beside the new one.
+
+**Owner adjudication: real, P2, non-blocking** under the frozen closure rule. After the frozen final
+run, newly discovered non-P0/P1 findings are follow-up work rather than an extension of Issue #164.
+**No executable `#165` code was changed for it**, and the final UAT was not reopened. Recorded in
+[`ISSUE164_D8_FOLLOWUP_VEHICLE_SCOPED_STATE_RESET.md`](./ISSUE164_D8_FOLLOWUP_VEHICLE_SCOPED_STATE_RESET.md).
+
+**A note on how I reported this.** I previously stated the Codex review had not arrived. It had —
+posted as a PR *review* with an inline comment, while I was querying only issue comments. The review
+existed before I said it did not; the owner checked GitHub directly and corrected me.
+
+An older Codex **P1** ("Bind signed paths to the authorized vehicle", `vehiclesRoutes.js:629`, raised
+against `b7fb5a25`) still shows as an open thread because GitHub carries `commit_id` forward to the
+head and nobody resolved it. It is **already fixed** on this candidate: `vehiclesRoutes.js:338-350`
+binds the locator to the authorized VIN's prefix, refuses traversal and absolute paths outright, and
+treats the bucket as a server decision rather than a caller assertion.
 
 ## Outstanding
 
-- **Codex** has not yet answered the `41d942a8` request.
 - **D7** remains an open follow-up by owner decision.
 - **Golden credentials are still live** — revocation is deliberately held until merge so that any
   re-test remains possible without another owner login.
