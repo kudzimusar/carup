@@ -125,7 +125,7 @@ import { attestedValue, CLAIM_VISIBILITY, LISTING_CLAIM_COLUMNS, PUBLIC_VEHICLE_
 // definition of publishable that the read path projects. A second copy of that rule living in the
 // handler is how the two drift, and a URL the reader refuses forever is one the writer should never
 // have accepted. See the listing-media block of POST /api/vehicles/add.
-import { toVehicleMedia, isPublishableMediaUrl } from './utils/vehicleMediaProjection.js';
+import { toVehicleMedia, isPublishableMediaUrl, toListingMediaBlock } from './utils/vehicleMediaProjection.js';
 import {
   LOOKUP_KINDS,
   LOOKUP_DECISIONS,
@@ -595,6 +595,51 @@ async function ownerGarageCounts(vins) {
     parts: parts ? parts.get(vin) ?? 0 : null,
     active_insurance: insurance ? insurance.get(vin) ?? 0 : null,
   }]));
+}
+
+/**
+ * Governed listing media for the owner's own vehicles — Issue #164 Phase 8, Run 4 (D5).
+ *
+ * ## Why this exists
+ *
+ * `/api/vehicles/me` is `select('*')` on `vehicles`, and `vehicles` HAS NO MEDIA COLUMN — the photos
+ * live in `listing_images`. So every owner list surface read `vehicle.image_url`, got `undefined`,
+ * and rendered the branded "Image unavailable" placeholder. Measured on Golden A: the PUBLIC listing
+ * endpoint published `listing_media.state = "published"` with five canonical images at the same
+ * moment the OWNER of those photos was told the image was unavailable.
+ *
+ * An owner may not know less true media than an anonymous buyer. This closes that gap by reading the
+ * same table the public projection reads and building the block with the SAME function
+ * (`toListingMediaBlock`) — the semantics are imported, never restated, so the two surfaces cannot
+ * drift into disagreeing about what "published" means.
+ *
+ * ## Why the null matters
+ *
+ * `toListingMediaBlock(null)` is `not_loaded`; `toListingMediaBlock([])` is `none`. A failed read
+ * therefore publishes "we did not look", never "there are none" — the same distinction
+ * `ownerGarageCounts` draws for counts, and the reason a broken query can never again be published
+ * to an owner as an absence of their own photographs.
+ */
+async function ownerListingMedia(vins) {
+  const wanted = [...new Set((vins || []).filter(Boolean))];
+  if (wanted.length === 0) return new Map();
+
+  let rows = null;
+  try {
+    const { data, error } = await supabase
+      .from('listing_images')
+      .select('id, vin, image_url, is_primary, display_order')
+      .in('vin', wanted);
+    // `error` leaves `rows` null on purpose: see the note above.
+    if (!error) rows = data || [];
+  } catch {
+    rows = null;
+  }
+
+  return new Map(wanted.map((vin) => [
+    vin,
+    toListingMediaBlock(rows === null ? null : rows.filter((row) => row.vin === vin)),
+  ]));
 }
 
 /**
@@ -2692,7 +2737,15 @@ app.get('/api/vehicles/me', authorizeRole(['owner', 'dealer', 'admin']), async (
     // Garage counts come from real reads, so My Garage stops publishing `|| 0` against columns that
     // do not exist. `null` means "not read", and the surface must say so in words.
     const counts = await ownerGarageCounts(withTrust.map((vehicle) => vehicle.vin))
-    res.json(withTrust.map((vehicle) => ({ ...vehicle, counts: counts.get(vehicle.vin) ?? null })))
+    // The owner's own photographs, from the same table and the same projection the public listing
+    // uses. Without this the owner list surfaces have no media field to read at all and every card
+    // falls back to the "Image unavailable" placeholder — see ownerListingMedia.
+    const media = await ownerListingMedia(withTrust.map((vehicle) => vehicle.vin))
+    res.json(withTrust.map((vehicle) => ({
+      ...vehicle,
+      counts: counts.get(vehicle.vin) ?? null,
+      listing_media: media.get(vehicle.vin) ?? toListingMediaBlock(null),
+    })))
   } catch (error) {
     console.error('Error fetching owned vehicles:', error)
     res.status(500).json({ error: error.message })

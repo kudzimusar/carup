@@ -117,7 +117,7 @@ session was fabricated, minted, or forged to work around that.
 | 25 | Golden B owner | *Needs your attention* | Real outstanding work; must not say "no completed trust assessment" | Neither *"no completed trust assessment"* nor *"awaiting assessment"* appears. Trust is published as `50 / 100 · Moderate trust`, matching the governed value. *"Notifications 0 new"* is a **measured** zero (DB: 0 unread for this recipient) | **PASS** | `step25-goldenB-dashboard.png` |
 | 26 | Golden B owner | My Garage → Golden B | Recorded status or *Status not recorded*; no invented "Active" | `vehicle-status-CARUPGLDNB0000002` = **`available`** — the literal recorded `vehicles.status`, not an invented *"Active"*. All four counts are true zeros: 0 verified documents (the one evidence row is `pending`), 0 services, 0 policies, 0 parts | **PASS** | `step26-goldenB-garage.png` |
 | 27 | Golden B owner | `/dashboard/garage/CARUPGLDNB0000002` | Pending evidence shows as pending; no valuation, no stock image, no fabricated date | *"Registration Document — 8/24/2026 — **pending**"* ✓. No valuation term. Header image is real Supabase media (`…/vehicle-images/CARUPGLDNB0000002/golden-exterior-front.png`, loaded 960px) — no stock/Unsplash/placeholder host. *"Purchased — Not recorded"*, no fabricated date | **PASS** | `step27-28-goldenB-publish-refused-silently.png` |
-| 28 | Golden B owner | Attempt to publish | Refused, naming the blocking requirement; stays draft | Physically clicked `publish-toggle-CARUPGLDNB0000002`. **Refused** — `POST /api/vehicles/…/publish` → **400**; listing **stays `draft`** (re-read from DB after the attempt). The API names the requirement precisely: `pending_gaps:[{ownership_document, "Ownership / Registration Document"}]`, `status: pending_review`, `completeness_percent: 80`. **But the UI surfaces nothing** — a 4-second 100 ms poll for `[role=alert]`, `[role=status]`, toast nodes and body text found **no user-visible message**. The refusal is correct and silent. **D6** | **FAIL** | `step27-28-goldenB-publish-refused-silently.png` |
+| 28 | Golden B owner | Attempt to publish | Refused, naming the blocking requirement; stays draft | Physically clicked `publish-toggle-CARUPGLDNB0000002`. **Refused** — `POST /api/vehicles/…/publish` → **400**; listing **stays `draft`** (re-read from DB). The API names the requirement exactly: `pending_gaps:[{ownership_document, "Ownership / Registration Document"}]`, `pending_review`, `completeness_percent: 80`. **The UI surfaces it too:** a `sonner` toast reading *"Not publishable yet. Awaiting CarUp verification: Ownership / Registration Document. Nothing more is needed from you until that review completes."* — measured visible at `top:24 left:900 356×112`, present across 33 consecutive 100 ms samples from t=2.8 s to t=6.1 s after the click | **PASS** | in-browser DOM capture; `step27-28-goldenB-publish-refused-silently.png` |
 
 ## Cross-cutting
 
@@ -582,12 +582,19 @@ than re-run.
 
 | | |
 |---|---|
-| **PASS** | **30** / 32 |
-| **FAIL** | **2** / 32 — Steps **15** and **28** |
+| **PASS** | **31** / 32 |
+| **FAIL** | **1** / 32 — Step **15** |
 | **BLOCKED** | **0** / 32 |
-| **Overall** | **NOT A RELEASE PASS** — two genuine product defects, plus **D4**, a fabricated verification claim found while grading Step 27 |
+| **Overall** | **NOT A RELEASE PASS** — one genuine product defect (D5), plus **D4**, a fabricated verification claim found while grading Step 27 |
 
-The thirteen blocked steps resolved to **11 PASS / 2 FAIL**. Nothing was carried over on trust: each
+> **Correction — Step 28 was my measurement error, not a defect.** It was first recorded FAIL on the
+> grounds that the refusal was silent. It is not: the toast renders correctly with the blocking
+> requirement named. I had clicked in one tool call and polled in a *separate* one, so my observation
+> window opened after the toast's ~4 s lifetime had already elapsed — the software was right and the
+> instrument was wrong. Re-measured inside a single uninterrupted window, the toast is present and
+> visible for 3.3 s of continuous sampling. **D6 is withdrawn**; no code was changed for it.
+
+The thirteen blocked steps resolved to **12 PASS / 1 FAIL**. Nothing was carried over on trust: each
 was physically executed in a real browser against a session the owner authenticated personally.
 
 ## How the session boundary was honoured
@@ -652,17 +659,30 @@ Pre-existing, not a #165 regression — but the same family of defect as the fal
 Cluster D fixed on this very surface, and an inversion of the governing rule: *an existing governed
 fact must never publish as absent.*
 
-### D6 — the publish refusal is correct and silent (Step 28)
+### D6 — WITHDRAWN. Not a defect; my instrument was wrong
 
-The server contract is right: `POST /api/vehicles/CARUPGLDNB0000002/publish` → **400**, the listing
-stays `draft` (re-read from the database), and the body names the blocker exactly —
-`pending_gaps: [{ "key": "ownership_document", "label": "Ownership / Registration Document" }]`,
-`status: "pending_review"`, `completeness_percent: 80`.
+Originally raised as "the server is right and silent". The server *is* right — `POST /publish` → 400,
+the listing stays `draft`, and the body names the blocker exactly. The claim that nothing reached the
+user was **false**.
 
-**None of it reaches the user.** A 4-second poll at 100 ms intervals across `[role=alert]`,
-`[role=status]`, toast nodes and body text found no user-visible message. The owner clicks *"Publish
-to Marketplace"* and observes nothing at all. Step 28 requires the refusal to *name the blocking
-requirement*; the API does, the interface does not.
+A `sonner` toast renders with precisely the right sentence:
+
+> *"Not publishable yet. Awaiting CarUp verification: Ownership / Registration Document. Nothing more
+> is needed from you until that review completes."*
+
+Re-measured inside a single uninterrupted browser window: it appears ~2.77 s after the click (the
+request round-trip), is measured **visible** at `top:24 left:900 356×112`, and is present across 33
+consecutive 100 ms samples from t=2.8 s to t=6.1 s.
+
+**Why the first measurement was wrong.** I clicked in one tool call and polled in a *separate* one.
+Several seconds pass between tool calls, so my observation window opened after the toast's ~4 s
+lifetime had already elapsed. A negative result from an instrument that was not looking during the
+event is not evidence of absence. `MyListings.tsx:87` already had
+`toast.error(describePublicationRefusal(e))`, and `describePublicationRefusal` already read
+`pending_gaps` — the code was correct the whole time.
+
+**No code was changed for D6.** Recorded here rather than quietly dropped, because the FAIL is in the
+committed record at `a3e13bfe` and a reader deserves to know it was retracted and why.
 
 ### D7 — evidence count disagrees with the evidence list (observation)
 
@@ -676,3 +696,77 @@ The count and the list disagree on the same screen.
 Steps 15 and 28 are **product defects on an unmerged branch** — nothing is in production. D4 is P1 and
 pre-existing; D5, D6 and D7 are P2. None is a security issue, and none alters the two frozen security
 hotfixes (#175, #176), which are unaffected by this run.
+
+---
+
+# Run 4 remediation — the closure candidate
+
+Owner closure scope: **D4 + D5**, plus D7 only if it fell out mechanically. It did not (see below).
+**D6 was withdrawn** — it was my measurement error, not a defect, and no code was changed for it.
+
+## D4 — claim badges now render only when a governed fact supports them
+
+`web/src/pages/dashboard/owner/VehicleProfile.tsx`
+
+Each badge is bound to the narrowest fact that can honestly support it, read from the definition the
+rest of the platform already uses:
+
+| Badge | Governed fact it now requires |
+|---|---|
+| `Logbook Verified` | a `registration_document` / `ownership_transfer_document` whose `verification_status` is in `('verified','confirmed','approved')` — the same set `ownerGarageCounts` counts |
+| `Insurance Active` | a timeline insurance event carrying `details.active === true`, i.e. `insurance_records.active` — the same column `ownerGarageCounts` filters on |
+| `PartSentry Active` | at least one `partsentry:`-prefixed timeline row — the same rows that produce the parts history and the parts count |
+
+`Ledger Synced` was already conditional and is unchanged.
+
+**No badge has a "false" rendering.** An unsupported claim is simply not made, because *"not verified"*
+and *"verified false"* are different facts and only the first is known.
+
+To make `Insurance Active` answerable at all, `backend/services/trustGraph/trustGraphService.js` now
+selects `active` and carries `active: e.active === true` on the insurance event. Strict `=== true`, so
+a null never reads as active. An unauthorised caller never sees it — the public `details` allow-list
+does not include `active`, so this adds nothing to the public passport.
+
+## D5 — the owner sees their own published media
+
+`/api/vehicles/me` is `select('*')` on `vehicles`, and `vehicles` **has no media column**; the photos
+live in `listing_images`. Every owner surface read `vehicle.image_url`, got `undefined`, and rendered
+the "Image unavailable" placeholder.
+
+- `backend/server.js` — new `ownerListingMedia(vins)` batches `listing_images` for the owner's VINs
+  and builds each block with **`toListingMediaBlock`**, the *same* function the public listing uses.
+  The semantics are imported, never restated, so the two surfaces cannot drift on what "published"
+  means. `/api/vehicles/me` now publishes `listing_media` per vehicle.
+- A **failed read passes `null`**, which is `not_loaded` — never `[]`, which would be `none`. A broken
+  query can never again be published to an owner as an absence of their own photographs.
+- `web/src/lib/listingMedia.ts` — one selection helper (`primaryListingImageUrl`), so My Garage, My
+  Listings, the dashboard row and the detail header all choose the same photograph. `VehicleProfile`
+  previously derived this inline; it now uses the shared helper.
+
+Invariant met: **published listing media == media visible on governed owner surfaces**, subject only
+to access policy. No stock imagery; no placeholder where real canonical media exists.
+
+## D7 — not fixed here, by rule
+
+It needs a product-policy decision (*is a verified `inspection_photo` a "document"?*), and the
+canonical classification cannot settle it: `evidence_class_taxonomy` holds 59 rows, but only **1 of
+20** `vehicle_evidence` rows has `evidence_class` populated. Choosing a definition today would be
+inventing the policy. Recorded with exact counts in
+[`ISSUE164_D7_FOLLOWUP_EVIDENCE_DOCUMENT_CLASSIFICATION.md`](./ISSUE164_D7_FOLLOWUP_EVIDENCE_DOCUMENT_CLASSIFICATION.md).
+
+## Regression tests
+
+`web/src/pages/dashboard/owner/VehicleProfile.claims.test.tsx` (6) — including the **Golden-B negative
+case**: pending logbook, no insurance, no parts ⇒ none of the three badges renders. Plus `active:false`,
+a missing `active`, and a rejected logbook. A source-level guard asserts the **producer** — that each
+badge sits behind its condition — so a future unconditional badge fails even without a render.
+
+**Mutation-proved:** restoring the unconditional `Logbook Verified` badge fails 3 tests (the Golden-B
+case, the rejected-logbook case, and the source guard). Reverted; 6/6 green.
+
+`backend/tests/issue164-owner-listing-media.test.js` (6) — the endpoint attaches the block; the owner
+path imports the public builder rather than restating it and does not re-derive primacy or ordering;
+a failed read yields `not_loaded`, never `none`; and `null`/`undefined`/`[]` map to the correct states.
+
+`web/src/lib/listingMedia.test.ts` (9) — primacy, fallback ordering, blank URLs, malformed input, and
+`not_loaded` never being reported as `none`.

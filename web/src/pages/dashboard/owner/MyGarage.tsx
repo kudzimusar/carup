@@ -6,6 +6,7 @@ import { Progress } from '@/components/ui/progress'
 import { Plus, ArrowRight, Gauge, Calendar, FileText, Shield } from 'lucide-react'
 import { useState, useEffect } from 'react'
 import { ListingImage } from '@/components/marketplace/ListingImage'
+import { primaryListingImageUrl } from '@/lib/listingMedia'
 import { useCarUpApi } from '@/hooks/useCarUpApi'
 import { readOwnerTrustClaim, statedDate, statedMileage, statedPrice, statedCount } from './ownerStatedValues'
 import type { Vehicle } from '@/types'
@@ -42,7 +43,7 @@ export default function MyGarage() {
                   {/* Was an Unsplash stock car for every vehicle without a photo — a picture of a
                       different car is a claim about this one. */}
                   <ListingImage
-                    src={vehicle.image_url}
+                    src={primaryListingImageUrl(vehicle.listing_media)}
                     alt={`${vehicle.year} ${vehicle.make} ${vehicle.model}`}
                     className="w-full h-full"
                   />

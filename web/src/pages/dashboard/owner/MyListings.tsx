@@ -6,6 +6,7 @@ import { Badge } from '@/components/ui/badge'
 import { Plus, Eye, DollarSign, TrendingUp, Loader2, Car, MessageSquare } from 'lucide-react'
 import { toast } from 'sonner'
 import { ListingImage } from '@/components/marketplace/ListingImage'
+import { primaryListingImageUrl } from '@/lib/listingMedia'
 import { useCarUpApi } from '@/hooks/useCarUpApi'
 import { SellerInquiriesCard } from '@/components/marketplace/SellerInquiriesCard'
 import { PUBLICATION_BADGE } from '@/lib/publicationStatus'
@@ -168,7 +169,7 @@ export default function MyListings() {
                   <div className="flex gap-4">
                     {/* No stock-photo stand-in: an unrelated car is a claim about this listing. */}
                     <ListingImage
-                      src={listing.image_url}
+                      src={primaryListingImageUrl(listing.listing_media)}
                       alt={`${listing.year} ${listing.make} ${listing.model}`}
                       className="w-32 h-24 rounded-lg overflow-hidden flex-shrink-0"
                     />

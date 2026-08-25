@@ -20,6 +20,7 @@ import {
   Upload
 } from 'lucide-react'
 import { ListingImage } from '@/components/marketplace/ListingImage'
+import { primaryListingImageUrl } from '@/lib/listingMedia'
 import { useCarUpApi } from '@/hooks/useCarUpApi'
 import { useAuth } from '@/context/AuthContext'
 import type { Vehicle, Notification, Escrow } from '@/types'
@@ -296,7 +297,7 @@ export default function OwnerDashboard() {
                       renders a neutral "Image unavailable" placeholder instead. */}
                   {!lowBandwidth && (
                     <ListingImage
-                      src={vehicle.image_url}
+                      src={primaryListingImageUrl(vehicle.listing_media)}
                       alt={`${vehicle.year} ${vehicle.make} ${vehicle.model}`}
                       className="w-20 h-14 rounded-lg overflow-hidden shrink-0"
                     />

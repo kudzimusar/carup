@@ -29,6 +29,18 @@ export interface Vehicle extends Omit<SharedVehicle, 'status'> {
     parts: number | null;
     active_insurance: number | null;
   } | null;
+  /**
+   * The canonical listing-media block, as published by `toListingMediaBlock`. Owner list surfaces
+   * read THIS, never a `image_url` column — `vehicles` has no such column, so reading it rendered
+   * the "Image unavailable" placeholder over vehicles with published photographs. Read it through
+   * `primaryListingImageUrl` (web/src/lib/listingMedia.ts) so every surface picks the same photo.
+   */
+  listing_media?: {
+    state: 'published' | 'none' | 'not_loaded';
+    items: Array<{ media_id: string; url: string; url_form: string; position: number; is_primary: boolean }>;
+    unpublishable_count: number;
+    empty_statement: string | null;
+  } | null;
   location?: string;
   /**
    * Why `location` is or is not there. Carried through from the marketplace summary so a card can

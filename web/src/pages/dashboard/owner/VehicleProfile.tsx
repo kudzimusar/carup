@@ -22,6 +22,7 @@ import type {
 import EvidenceUploadModal from '@/components/EvidenceUploadModal'
 import VehicleLifeStageTimeline from '@/components/VehicleLifeStageTimeline'
 import { ListingImage } from '@/components/marketplace/ListingImage'
+import { primaryListingImageUrl } from '@/lib/listingMedia'
 import { statedMileage, statedPrice, statedDate } from './ownerStatedValues'
 
 // ── The canonical trust projection (Issue #164, ADR-001) ────────────────────
@@ -174,14 +175,11 @@ export default function VehicleProfile() {
    * a published gallery. Prefer the seller's primary photo, else the first published item, and fall
    * back to `image_url` only if the block carries nothing.
    */
-  const listingMediaItems: Array<{ url?: string; is_primary?: boolean }> =
-    Array.isArray((passportData as { listing_media?: { items?: unknown } })?.listing_media?.items)
-      ? ((passportData as unknown as { listing_media: { items: Array<{ url?: string; is_primary?: boolean }> } }).listing_media.items)
-      : []
-  const primaryListingImage =
-    listingMediaItems.find((i) => i.is_primary === true)?.url
-    ?? listingMediaItems[0]?.url
-    ?? null
+  // Selection lives in one place (web/src/lib/listingMedia.ts) so this header, the garage card, the
+  // listings row and the dashboard row cannot disagree about which photograph is primary.
+  const primaryListingImage = primaryListingImageUrl(
+    (passportData as { listing_media?: unknown }).listing_media,
+  )
   const vehicle = {
     make: pv.make || null,
     model: pv.model || null,
@@ -246,6 +244,36 @@ export default function VehicleProfile() {
         cost: numOrNull(e.details?.cost)
       }))
   }
+
+  /**
+   * GOVERNED FACTS BEHIND THE THREE CLAIM BADGES.
+   *
+   * Each is the narrowest fact that can honestly support its badge, read from the same canonical
+   * definition the rest of the platform uses. A badge that cannot be grounded is not rendered.
+   */
+
+  // The verified set is `ownerGarageCounts`' set (backend/server.js), not a second opinion: a
+  // document counts as verified here exactly when it counts there.
+  const VERIFIED_EVIDENCE_STATUSES = ['verified', 'confirmed', 'approved']
+
+  // "Logbook" is the ownership/registration artifact. `pending`, `rejected` and an absent document
+  // are all NOT verified, and none of them renders the badge.
+  const LOGBOOK_EVIDENCE_TYPES = ['registration_document', 'ownership_transfer_document']
+  const hasVerifiedLogbook = (evidenceList || []).some(
+    (item) =>
+      LOGBOOK_EVIDENCE_TYPES.includes(item.evidence_type)
+      && VERIFIED_EVIDENCE_STATUSES.includes(String(item.verification_status ?? '')),
+  )
+
+  // A policy ROW is not an ACTIVE policy. `details.active` is `insurance_records.active`, carried
+  // through the trust graph for exactly this decision; `=== true` so a null never reads as active.
+  const hasActiveInsurance = (passportData.timeline || []).some(
+    (e) => e.event_source === 'insurance' && (e.details as { active?: boolean } | undefined)?.active === true,
+  )
+
+  // Grounded in the same `partsentry:`-prefixed timeline rows that produce the parts history and
+  // the "parts" garage count — one PartSentry log, counted once, in all three places.
+  const hasPartSentryActivity = vehicle.partsHistory.length > 0
 
   // The canonical projection the passport published. `readPublicTrust` returns null for anything
   // that is not one — including the deprecated `{trustScore, metrics}` body — so there is no path
@@ -336,18 +364,39 @@ export default function VehicleProfile() {
                 )}
               </div>
 
-              <div className="flex flex-wrap gap-2">
-                <Badge variant="secondary" className="bg-green-50 text-green-700">
-                  <CheckCircle className="w-3 h-3 mr-1" /> Logbook Verified
-                </Badge>
-                <Badge variant="secondary" className="bg-blue-50 text-blue-700">
-                  <Shield className="w-3 h-3 mr-1" /> Insurance Active
-                </Badge>
-                <Badge variant="secondary" className="bg-purple-50 text-purple-700">
-                  <Star className="w-3 h-3 mr-1" /> PartSentry Active
-                </Badge>
+              {/*
+                * Every badge here is a POSITIVE VERIFICATION CLAIM, so each renders only when a
+                * governed fact positively supports it.
+                *
+                * All three of these used to render unconditionally, with no data binding of any
+                * kind. On a vehicle whose logbook is still `pending`, with no insurance policy and
+                * no PartSentry log, this block asserted "Logbook Verified" in green with a
+                * checkmark — directly beneath the governed trust panel above, which on the same
+                * screen states "No governed vehicle fact is backed by an authoritative record."
+                * One card, two contradictory claims, and the fabricated one was the reassuring one.
+                *
+                * No badge has a "false" rendering. Absence of a governed fact means the claim is
+                * simply not made — it is not restated as a negative, because "not verified" and
+                * "verified false" are different facts and only the first is known here.
+                */}
+              <div className="flex flex-wrap gap-2" data-testid="vehicle-claim-badges">
+                {hasVerifiedLogbook && (
+                  <Badge variant="secondary" className="bg-green-50 text-green-700" data-testid="badge-logbook-verified">
+                    <CheckCircle className="w-3 h-3 mr-1" /> Logbook Verified
+                  </Badge>
+                )}
+                {hasActiveInsurance && (
+                  <Badge variant="secondary" className="bg-blue-50 text-blue-700" data-testid="badge-insurance-active">
+                    <Shield className="w-3 h-3 mr-1" /> Insurance Active
+                  </Badge>
+                )}
+                {hasPartSentryActivity && (
+                  <Badge variant="secondary" className="bg-purple-50 text-purple-700" data-testid="badge-partsentry-active">
+                    <Star className="w-3 h-3 mr-1" /> PartSentry Active
+                  </Badge>
+                )}
                 {passportData?.chainVerification?.verified && (
-                  <Badge variant="secondary" className="bg-orange-50 text-orange-700 animate-pulse-glow">
+                  <Badge variant="secondary" className="bg-orange-50 text-orange-700 animate-pulse-glow" data-testid="badge-ledger-synced">
                     <CheckCircle className="w-3 h-3 mr-1" /> Ledger Synced
                   </Badge>
                 )}
