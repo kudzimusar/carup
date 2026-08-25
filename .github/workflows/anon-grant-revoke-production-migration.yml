@@ -19,8 +19,13 @@ name: 'Anon Grant Revoke — Production Migration (20260825090000 + 202608250901
 # MODE:
 #   preflight — READ ONLY. `BEGIN TRANSACTION READ ONLY` asserted from the server, then ROLLBACK.
 #               Reports the live anon posture and writes nothing.
-#   apply     — writes. Requires the exact authorization phrase AND the protected `production`
-#               environment approval.
+#   apply     — writes. Requires confirm_apply=YES_I_AUTHORIZE_THE_PRODUCTION_REVOKE AND the
+#               protected `production` environment approval.
+#
+# The confirmation was previously a free-text phrase. It was replaced because it is brittle in
+# exactly the way that matters: a dispatch that dropped one leading word failed AFTER the approval,
+# and the phrase is echoed UNMASKED into the Actions log, so it never functioned as a secret. The
+# real authorization boundary is, and remains, the protected environment approval.
 #
 # RUN PREFLIGHT FIRST AND READ ITS RECEIPT. apply is not a retry of preflight.
 #
@@ -54,11 +59,14 @@ on:
         options:
           - preflight
           - apply
-      authorization:
-        description: 'Required for apply: the exact phrase REVOKE ANONYMOUS SELECT ON PRODUCTION VEHICLES'
+      confirm_apply:
+        description: 'Required for apply: select YES_I_AUTHORIZE_THE_PRODUCTION_REVOKE'
         required: false
-        type: string
-        default: ''
+        type: choice
+        default: NO
+        options:
+          - NO
+          - YES_I_AUTHORIZE_THE_PRODUCTION_REVOKE
 
 permissions:
   contents: read
@@ -70,7 +78,7 @@ concurrency:
 env:
   # The single reviewed commit whose runner and migration files are executed. Advancing this pin is
   # a reviewable pull request, never an edit to this workflow alone.
-  CANDIDATE_SHA: 361ee43430a055fe6a54426140cf532b27b001f7
+  CANDIDATE_SHA: 365006f861eea4a782015624d2e83ac8c72c5743
   PG_DRIVER_VERSION: 8.21.0
 
 jobs:
@@ -79,16 +87,23 @@ jobs:
     timeout-minutes: 15
     environment: production
     # github.actor is the ORIGINAL dispatcher and survives re-runs by other collaborators;
-    # github.triggering_actor is whoever actually triggered this run. Both must be the owner, so a
-    # write-access collaborator cannot re-run an owner-dispatched apply whose frozen inputs still
-    # carry the phrase.
-    if: github.ref == 'refs/heads/main' && github.actor == 'kudzimusar' && github.triggering_actor == 'kudzimusar'
+    # github.triggering_actor is whoever actually triggered this run. BOTH must be on the allow-list.
+    #
+    # The list is the two REQUIRED REVIEWERS already configured on the protected `production`
+    # environment. Allowing both to DISPATCH grants no additional privilege: the environment gate
+    # still demands an approval from one of them before the job may read a production secret. The
+    # previous single-name gate silently SKIPPED a correct dispatch from the other operator, which
+    # reads identically to "nothing happened" and cost several round-trips to diagnose.
+    if: >-
+      github.ref == 'refs/heads/main'
+      && contains(fromJSON('["kudzimusar","11-eleven-skm"]'), github.actor)
+      && contains(fromJSON('["kudzimusar","11-eleven-skm"]'), github.triggering_actor)
 
     steps:
       - name: Check out the pinned candidate commit
         uses: actions/checkout@v4
         with:
-          ref: 361ee43430a055fe6a54426140cf532b27b001f7
+          ref: 365006f861eea4a782015624d2e83ac8c72c5743
           persist-credentials: false
 
       - name: Assert the checked-out commit is the pinned candidate
@@ -139,5 +154,5 @@ jobs:
           PRODUCTION_PROJECT_REF: ${{ secrets.PRODUCTION_PROJECT_REF }}
           PRODUCTION_CA_CERT: ${{ secrets.PRODUCTION_CA_CERT }}
           MODE: ${{ inputs.mode }}
-          AUTHORIZATION_PHRASE: ${{ inputs.authorization }}
+          CONFIRM_APPLY: ${{ inputs.confirm_apply }}
         run: node backend/scripts/production-apply-anon-grant-revoke.mjs
