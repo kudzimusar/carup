@@ -74,23 +74,30 @@ session was fabricated, minted, or forged to work around that.
 
 ## Golden A — authenticated Owner
 
-> **No authenticated Golden session is reachable from the automation browser.** `/dashboard`
-> physically redirected to `/login?returnTo=%2Fdashboard`; `localStorage` held only `carup_nav_cohort`;
-> no cookies. The owner's proven login lives in the owner's own browser, not this one. Per the standing
-> boundary, **no session was fabricated, minted, forged via `x-user-id`, and no `password_hash` was
-> read or changed.** These are **BLOCKED**, neither PASS nor FAIL.
+> **Run 4 (2026-08-25) — EXECUTED.** The owner typed the Golden A password directly into the
+> Playwright-controlled Chrome profile (`ms-playwright-mcp/mcp-chrome-ff5022f`); the earlier attempt
+> had landed in the owner's personal Chrome, which was never read. The session was proved against the
+> **paired** backend before any step was graded: `GET /api/auth/me` → **200**,
+> `id: golden-a-owner-stg`, role `owner`. Per the standing boundary, **no session was fabricated,
+> minted, or forged via `x-user-id`, and no `password_hash` was read or changed.**
+>
+> **Pairing proof:** preview frontend `4389b459e06ed82a…` == paired backend `build.commit_sha`
+> `4389b459e06ed82a…` (branch `integration/canonical-vehicle-truth-closure`, env `preview`), while the
+> shared staging backend is a *different* SHA (`87033020`, `main`, env `production`) — so stray traffic
+> is detectable rather than silent. **Zero requests reached the shared backend** on every page
+> (`performance.getEntriesByType('resource')` sweep: paired 8–14, shared **0**).
 
 | # | Persona | Surface | Expected | Observed | Result | Evidence |
 |---:|---|---|---|---|:---:|---|
-| 12 | Golden A owner | Owner Dashboard | Real bell count; never a confident `0` on a failed read | Not exercised — no session | **BLOCKED** | `/dashboard` → `/login?returnTo=%2Fdashboard` |
-| 13 | Golden A owner | *Needs your attention* | No "awaiting assessment" for evaluated Golden A | Not exercised — no session | **BLOCKED** | as above |
-| 14 | Golden A owner | Wallet / Trust Index tiles | *Not available*; no fabricated balance or trend | Not exercised — no session | **BLOCKED** | as above |
-| 15 | Golden A owner | My Garage | Asking Price, stated mileage, real media, **counts not false zeros** | Not exercised — no session | **BLOCKED** | as above |
-| 16 | Golden A owner | `/dashboard/garage/CARUPGLDNA0000001` | No valuation language; header image is real listing media | Not exercised — no session | **BLOCKED** | as above |
-| 17 | Golden A owner | Specs / purchase date | Recorded or *Not recorded*; `Purchased` must not be `created_at` | Not exercised — no session | **BLOCKED** | as above |
-| 18 | Golden A owner | Service / parts history | Parts and services must not double-count one PartSentry row | Not exercised — no session | **BLOCKED** | as above |
-| 19 | Golden A owner | Owner Trust vs public Trust | Identical **60** / same version | Not exercised — no session | **BLOCKED** | as above |
-| 20 | Golden A owner | Owner top-bar search | `Hilux` → `/search?q=Hilux`; also narrow viewport (OBS-14) | Not exercised — no session | **BLOCKED** | as above |
+| 12 | Golden A owner | Owner Dashboard | Real bell count; never a confident `0` on a failed read | Bell = **1** (`owner-notification-count`); DB ground truth 1 unread. `/api/notifications/me` → **200**, so the count is *measured*, not an or-zero default | **PASS** | `step12-14-goldenA-dashboard.png` |
+| 13 | Golden A owner | *Needs your attention* | No "awaiting assessment" for evaluated Golden A | *"1 unread notification — Recent activity on your vehicles and conversations."* Neither *"awaiting assessment"* nor *"no completed trust assessment"* appears | **PASS** | `step12-14-goldenA-dashboard.png` |
+| 14 | Golden A owner | Wallet / Trust Index tiles | *Not available*; no fabricated balance or trend | Wallet USD **and** ZiG: *"Not available — No wallet established for this account"*; Trust Index *"Not calculated — Verification pending"*; *"Valuation history is not available for your account yet."* Escrows `$0 / 0 active` is a **measured** zero — `/api/safepay/list` **200** and DB has 0 rows | **PASS** | `step12-14-goldenA-dashboard.png` |
+| 15 | Golden A owner | My Garage | Asking Price, stated mileage, real media, **counts not false zeros** | Asking Price `$21,500` ✓ (DB 21500), `78,450 km` ✓, and every count matches DB exactly: 4 verified documents / 0 services / 1 part / 1 policy. **But media is absent: `listing-image-placeholder`, *"Image unavailable"*, zero `<img>` — while 5 published images exist** (`listing_images`=5, all canonical `vehicle-images` URLs, rendered fine on the public page). **D5** | **FAIL** | `step15-goldenA-garage-image-unavailable.png` |
+| 16 | Golden A owner | `/dashboard/garage/CARUPGLDNA0000001` | No valuation language; header image is real listing media | No valuation term present (`valuation`, `estimated value`, `market value`, `appraisal`, `book value`, `trade-in` all absent). Header image is real listing media: `…/vehicle-images/CARUPGLDNA0000001/golden-exterior-front.png`, loaded at 960px | **PASS** | `step16-19-goldenA-garage-detail.png` |
+| 17 | Golden A owner | Specs / purchase date | Recorded or *Not recorded*; `Purchased` must not be `created_at` | *"Purchased — Not recorded"*. `created_at` is 8/24/2026 and is **not** published as the purchase date | **PASS** | `step16-19-goldenA-garage-detail.png` |
+| 18 | Golden A owner | Service / parts history | Parts and services must not double-count one PartSentry row | *"Total Services 0 / Total Parts 1"* — the single `partsentry_logs` row is counted **once**, as a part. Staging has no service table at all, so 0 is correct | **PASS** | `step16-19-goldenA-garage-detail.png` |
+| 19 | Golden A owner | Owner Trust vs public Trust | Identical **60** / same version | Owner: `60 / 100` · Moderate trust · Low confidence · `trust-decision-1.0.0`. Public passport `trustReport`: score 60, band moderate, state evaluated, confidence low, version `trust-decision-1.0.0`. **Identical** | **PASS** | `step16-19-goldenA-garage-detail.png` |
+| 20 | Golden A owner | Owner top-bar search | `Hilux` → `/search?q=Hilux`; also narrow viewport (OBS-14) | Desktop (1280): typed `Hilux` into `owner-topbar-search` → navigated to **`/search?q=Hilux`**. Narrow (390): `owner-topbar-search-mobile` visible (36×36) → `/search`, typed `Hilux` → **1 result** (2019 Toyota Hilux, $21,500, 78,450 km), no horizontal overflow | **PASS** | `step20-goldenA-search-hilux.png`, `obs14-goldenA-narrow-search.png` |
 
 ## Golden B — unauthenticated Buyer
 
@@ -103,14 +110,14 @@ session was fabricated, minted, or forged to work around that.
 
 ## Golden B — authenticated Owner
 
-> Same boundary as Steps 12–20. **BLOCKED — AUTHENTICATED GOLDEN-B SESSION REQUIRED.**
+> **Run 4 (2026-08-25) — EXECUTED.** Golden A was signed out first (token cleared; `localStorage` back to `carup_nav_cohort` only), then the owner entered the Golden B password in the same automation profile. Session proved against the **paired** backend before grading: `GET /api/auth/me` → **200**, `id: golden-b-owner-stg`, role `owner`. Zero requests reached the shared staging backend.
 
 | # | Persona | Surface | Expected | Observed | Result | Evidence |
 |---:|---|---|---|---|:---:|---|
-| 25 | Golden B owner | *Needs your attention* | Real outstanding work; must not say "no completed trust assessment" | Not exercised — no session | **BLOCKED** | `/dashboard` → `/login` |
-| 26 | Golden B owner | My Garage → Golden B | Recorded status or *Status not recorded*; no invented "Active" | Not exercised — no session | **BLOCKED** | as above |
-| 27 | Golden B owner | `/dashboard/garage/CARUPGLDNB0000002` | Pending evidence shows as pending; no valuation, no stock image, no fabricated date | Not exercised — no session | **BLOCKED** | as above |
-| 28 | Golden B owner | Attempt to publish | Refused, naming the blocking requirement; stays draft | Not exercised — no session | **BLOCKED** | as above |
+| 25 | Golden B owner | *Needs your attention* | Real outstanding work; must not say "no completed trust assessment" | Neither *"no completed trust assessment"* nor *"awaiting assessment"* appears. Trust is published as `50 / 100 · Moderate trust`, matching the governed value. *"Notifications 0 new"* is a **measured** zero (DB: 0 unread for this recipient) | **PASS** | `step25-goldenB-dashboard.png` |
+| 26 | Golden B owner | My Garage → Golden B | Recorded status or *Status not recorded*; no invented "Active" | `vehicle-status-CARUPGLDNB0000002` = **`available`** — the literal recorded `vehicles.status`, not an invented *"Active"*. All four counts are true zeros: 0 verified documents (the one evidence row is `pending`), 0 services, 0 policies, 0 parts | **PASS** | `step26-goldenB-garage.png` |
+| 27 | Golden B owner | `/dashboard/garage/CARUPGLDNB0000002` | Pending evidence shows as pending; no valuation, no stock image, no fabricated date | *"Registration Document — 8/24/2026 — **pending**"* ✓. No valuation term. Header image is real Supabase media (`…/vehicle-images/CARUPGLDNB0000002/golden-exterior-front.png`, loaded 960px) — no stock/Unsplash/placeholder host. *"Purchased — Not recorded"*, no fabricated date | **PASS** | `step27-28-goldenB-publish-refused-silently.png` |
+| 28 | Golden B owner | Attempt to publish | Refused, naming the blocking requirement; stays draft | Physically clicked `publish-toggle-CARUPGLDNB0000002`. **Refused** — `POST /api/vehicles/…/publish` → **400**; listing **stays `draft`** (re-read from DB after the attempt). The API names the requirement precisely: `pending_gaps:[{ownership_document, "Ownership / Registration Document"}]`, `status: pending_review`, `completeness_percent: 80`. **But the UI surfaces nothing** — a 4-second 100 ms poll for `[role=alert]`, `[role=status]`, toast nodes and body text found **no user-visible message**. The refusal is correct and silent. **D6** | **FAIL** | `step27-28-goldenB-publish-refused-silently.png` |
 
 ## Cross-cutting
 
@@ -127,8 +134,8 @@ session was fabricated, minted, or forged to work around that.
 |---|---|---|:---:|---|
 | OBS-02 | Detail price/action panel does not obstruct content while scrolling | At 390×844 the only `sticky`/`fixed` element is the site header (384×65, 7.6% of viewport). No obstructing action panel | **PASS** | `uat-obs06-obs-overflow-mobile-detail.png` |
 | OBS-06 | Disabled Call/WhatsApp/Reserve **legible** and clearly disabled | All three `disabled=true` + `aria-disabled=true`. Rendered white text on the panel's `linear-gradient(rgb(15,23,41) → rgb(24,37,67))` ≈ **8.9:1** contrast — legible. *(An initial computed-style reading of 1.03 was a measurement artifact: `backgroundColor` does not capture a `background-image` gradient. Corrected by physical screenshot + gradient inspection.)* | **PASS** | `uat-obs06-obs-overflow-mobile-detail.png` |
-| OBS-14 | Owner search available on a narrow viewport | Owner surface — no session | **BLOCKED** | — |
-| OBS-16 | My Listings mobile: CTA inside card, no horizontal overflow | Owner surface — no session | **BLOCKED** | — |
+| OBS-14 | Owner search available on a narrow viewport | At 390×844 the desktop field is hidden and `owner-topbar-search-mobile` is visible (36×36); it opens `/search`, and typing `Hilux` returned 1 correct result with no horizontal overflow | **PASS** | `obs14-goldenA-narrow-search.png` |
+| OBS-16 | My Listings mobile: CTA inside card, no horizontal overflow | At 390×844: `scrollWidth` 384 ≤ 390 (no overflow), zero elements extending past the viewport, and both CTAs (*View listing*, *Unpublish*) measured **inside** their card bounds | **PASS** | `obs16-goldenA-listings-mobile.png` |
 | **OBS-20 (new)** | Public Detail must not overflow horizontally on mobile | At 390×844, `documentElement.scrollWidth = 448` → **58px horizontal overflow**, reproduced on a fresh load; 171 elements exceed the viewport. Root cause isolated to the `plate-advisory-withheld` block (`flex items-center`, width 432 at left 16) — a flexbox `min-width:auto` overflow needing `min-w-0` on the text child. All other containers correctly measure 384 | **FAIL** | `uat-obs06-obs-overflow-mobile-detail.png` |
 
 ## Non-regression invariants — status on this run
@@ -549,7 +556,7 @@ the fallback is never selected against this server. Its transport (`evidenceVaul
 `PUBLIC_EVIDENCE_FIELDS`) also carries no `file_availability` for a withheld branch to match. No
 change made; recorded rather than silently skipped.
 
-## Running tally
+## Running tally — Run 3 (`efe7e3ee`)
 
 | | |
 |---|---|
@@ -559,3 +566,113 @@ change made; recorded rather than silently skipped.
 
 All four originally-failing steps (1, 8, 30, 31) now pass on physical re-observation. **32/32 is still
 not claimed:** thirteen steps have never been exercised, and no session was fabricated to change that.
+
+---
+
+# Run 4 — candidate `4389b459` — the authenticated steps, finally executed
+
+**Date:** 2026-08-25 · **Preview:** `carup-maz9q7js7-11-11.vercel.app` ·
+**Paired backend:** `carup-backend-staging-git-integration-canonical-ve-df06b3-11-11.vercel.app`
+
+`efe7e3ee → 4389b459` is **documentation only** (this result sheet plus one screenshot; no product
+code changed), so Run 3's 19 passes describe the same code under test and are carried forward rather
+than re-run.
+
+## Final tally — all 32 steps exercised
+
+| | |
+|---|---|
+| **PASS** | **30** / 32 |
+| **FAIL** | **2** / 32 — Steps **15** and **28** |
+| **BLOCKED** | **0** / 32 |
+| **Overall** | **NOT A RELEASE PASS** — two genuine product defects, plus **D4**, a fabricated verification claim found while grading Step 27 |
+
+The thirteen blocked steps resolved to **11 PASS / 2 FAIL**. Nothing was carried over on trust: each
+was physically executed in a real browser against a session the owner authenticated personally.
+
+## How the session boundary was honoured
+
+The first attempt failed for an honest reason worth recording: Playwright drives its own Chrome
+profile (`ms-playwright-mcp/mcp-chrome-ff5022f`), so the owner's sign-in landed in their personal
+Chrome and the automation browser was still anonymous. That was detected, not papered over — three
+independent checks agreed (`/dashboard` → `/login`, the paired backend returning
+`401 {"error":"Unauthorized. No active user context."}` on a credentialed request, and a single-tab
+listing). **No session was fabricated, minted, or forged via `x-user-id`; no `password_hash` was read
+or changed; no cookies were imported from the owner's own profile.** The owner then typed each
+password directly into the automation window.
+
+## Environment integrity
+
+| Check | Result |
+|---|---|
+| Frontend SHA (`/carup-provenance.json`) | `4389b459e06ed82a724598e3f676d23ab6ca623e` |
+| Paired backend `build.commit_sha` | `4389b459e06ed82a724598e3f676d23ab6ca623e` — **exact match** |
+| Shared staging backend | `87033020` (`main`, env `production`) — a **different** SHA, so stray traffic is detectable |
+| Requests to the shared backend | **0** on every page (resource-timing sweep; paired 8–14 per page) |
+| Golden A identity | `/api/auth/me` → 200, `golden-a-owner-stg`, role `owner` |
+| Golden B identity | `/api/auth/me` → 200, `golden-b-owner-stg`, role `owner` |
+
+## New findings from Run 4
+
+### D4 — hard-coded verification badges (**P1, governance**)
+
+`web/src/pages/dashboard/owner/VehicleProfile.tsx:339–352` renders three claim badges with **no data
+binding whatsoever**:
+
+```jsx
+<Badge className="bg-green-50 text-green-700"><CheckCircle /> Logbook Verified</Badge>
+<Badge className="bg-blue-50 text-blue-700"><Shield /> Insurance Active</Badge>
+<Badge className="bg-purple-50 text-purple-700"><Star /> PartSentry Active</Badge>
+{passportData?.chainVerification?.verified && (<Badge>… Ledger Synced</Badge>)}
+```
+
+Only `Ledger Synced` is conditional. On **Golden B** — whose logbook is `pending`, with **no**
+insurance record and **no** PartSentry log — the page asserts, in green with a checkmark, *"Logbook
+Verified"*.
+
+This is the exact failure mode Issue #164 exists to eliminate, and it is rendered **directly beneath**
+the governed trust block this programme added, which on the same screen states *"No governed vehicle
+fact is backed by an authoritative record."* One card makes both claims at once.
+
+**Pre-existing on `main` (lines 179–185), not introduced here** — but #165 rewrote this very file
+(+209/−58) to canonicalize its trust surface and left the fabricated badges standing.
+
+### D5 — the owner cannot see their own published media (Step 15)
+
+`/api/vehicles/me` is `select('*')` on `vehicles`, and media lives in `listing_images`, so the owner
+list payload carries **no media keys at all** (`mediaKeys: []`). The client then correctly renders
+`listing-image-placeholder` / *"Image unavailable"* — the client is not at fault.
+
+Measured on the same vehicle at the same moment, the public endpoint returns `listing_media.state =
+"published"` with **5** items and `primary_image_state: "first_published"`. So the public sees five
+photos and the owner is told the image is unavailable. Reproduced on **My Garage**, **My Listings**
+and the **owner dashboard**, for both Golden A (5 images) and Golden B (2 images).
+
+Pre-existing, not a #165 regression — but the same family of defect as the false counts that #165's
+Cluster D fixed on this very surface, and an inversion of the governing rule: *an existing governed
+fact must never publish as absent.*
+
+### D6 — the publish refusal is correct and silent (Step 28)
+
+The server contract is right: `POST /api/vehicles/CARUPGLDNB0000002/publish` → **400**, the listing
+stays `draft` (re-read from the database), and the body names the blocker exactly —
+`pending_gaps: [{ "key": "ownership_document", "label": "Ownership / Registration Document" }]`,
+`status: "pending_review"`, `completeness_percent: 80`.
+
+**None of it reaches the user.** A 4-second poll at 100 ms intervals across `[role=alert]`,
+`[role=status]`, toast nodes and body text found no user-visible message. The owner clicks *"Publish
+to Marketplace"* and observes nothing at all. Step 28 requires the refusal to *name the blocking
+requirement*; the API does, the interface does not.
+
+### D7 — evidence count disagrees with the evidence list (observation)
+
+Golden A's garage card badge reads *"4 verified documents"* (correct — DB has four `verified` rows:
+`inspection_photo`, `insurance_document`, `police_clearance_document`, `registration_document`), but
+the vehicle page's *Evidence & Media* section renders only **three**; `inspection_photo` is omitted.
+The count and the list disagree on the same screen.
+
+## What Run 4 does not change
+
+Steps 15 and 28 are **product defects on an unmerged branch** — nothing is in production. D4 is P1 and
+pre-existing; D5, D6 and D7 are P2. None is a security issue, and none alters the two frozen security
+hotfixes (#175, #176), which are unaffected by this run.
