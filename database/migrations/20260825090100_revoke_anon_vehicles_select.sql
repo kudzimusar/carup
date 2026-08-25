@@ -21,6 +21,35 @@
 --     — the passport withholds all five as "Not shown publicly", and PostgREST
 --     handed them over anyway.
 --
+-- PRODUCTION STATE AT THE TIME OF WRITING -- THIS ONE IS A LIVE BREACH
+-- --------------------------------------------------------------------
+-- Verified read-only against project vhmnajoeicasaigiophh with that project's
+-- own anon key, printing column NAMES and counts only -- never a row value:
+--
+--   GET /rest/v1/vehicles?select=*&limit=1
+--     -> HTTP 206, content-range 0-0/352, 45 COLUMNS, including
+--          owner_id, current_seller_id, plate_number, chassis_number,
+--          engine_number, normalized_plate_number, tenant_id
+--
+-- Those are 352 REAL CUSTOMER ROWS, not fixtures. Unlike vehicle_evidence
+-- (empty in production), this table is leaking now.
+--
+-- WHY THIS TABLE AND NOT THE OTHERS
+-- ---------------------------------
+-- Many public tables carry a stray anon SELECT grant, but RLS is enabled and NO
+-- policy admits anon, so they return 200 with zero rows -- `users` (29 rows) and
+-- `safepay_escrows` (468 rows) were both probed and returned nothing.
+-- `vehicles` is the exception: `vehicles_public_read` is `USING (true)` for role
+-- `public`, so RLS admits EVERY row, and the column grant then hands over every
+-- column of each one. Grant plus permissive policy is what makes this live.
+--
+-- The probe methodology was validated with a discriminating control: three
+-- tables anon genuinely cannot read (ocr_documents, user_sessions,
+-- trust_audit_events) each returned HTTP 401 / SQLSTATE 42501 "permission denied
+-- for table ...". A denial is therefore OBSERVABLE, so the post-migration check
+-- can distinguish "revoked" from "empty" -- an all-zero result is not accepted
+-- as success on its own.
+
 -- WHY RLS DID NOT PREVENT THIS, AND WHY TIGHTENING IT WOULD NOT HAVE
 -- ------------------------------------------------------------------
 -- `vehicles_public_read` is `USING (true)` — every row, drafts included — and
