@@ -29,8 +29,8 @@
  *
  *   preflight — READ ONLY. `BEGIN TRANSACTION READ ONLY` asserted from the server, then ROLLBACK.
  *               Reports the live anon posture and writes nothing. Run this first and read it.
- *   apply     — writes. Requires the exact authorization phrase AND, through the workflow, the
- *               protected `production` environment approval.
+ *   apply     — writes. Requires confirm_apply=YES_I_AUTHORIZE_THE_PRODUCTION_REVOKE AND, through
+ *               the workflow, the protected `production` environment approval.
  *
  * `apply` is not a retry of `preflight`.
  *
@@ -50,7 +50,20 @@ import { createHash } from 'crypto';
 import pg from 'pg';
 
 const STAGING_REF = 'eoyenigwevnxwwhyhaer'; // refused if present in the URL
-const AUTH_PHRASE = 'REVOKE ANONYMOUS SELECT ON PRODUCTION VEHICLES';
+
+/**
+ * Explicit apply confirmation.
+ *
+ * This was a free-text phrase, and it failed in the way free-text confirmations fail: a dispatch
+ * that dropped one leading word was rejected AFTER the human approval had already been granted,
+ * costing several round-trips to diagnose. The phrase was also echoed UNMASKED into the Actions log
+ * on every run, so it never functioned as a secret and added no authorization strength.
+ *
+ * The real authorization boundary is the protected `production` environment approval, which is
+ * unchanged. This value is a deliberate second action, not a credential — so it is a fixed token
+ * chosen from a dropdown, which cannot be mistyped or truncated.
+ */
+const CONFIRM_TOKEN = 'YES_I_AUTHORIZE_THE_PRODUCTION_REVOKE';
 
 /**
  * The two files, frozen. `sha12` is the first 12 hex of the SHA256 of the whole file as merged to
@@ -87,8 +100,16 @@ if (!url.includes(prodRef)) fail('connection string does not reference PRODUCTIO
 if (url.includes(STAGING_REF)) fail('connection string references the STAGING project; refusing.');
 
 const MODE = process.env.MODE === 'apply' ? 'apply' : 'preflight';
-if (MODE === 'apply' && process.env.AUTHORIZATION_PHRASE !== AUTH_PHRASE) {
-  fail(`apply mode requires the exact owner authorization phrase. Expected: "${AUTH_PHRASE}"`);
+if (MODE === 'apply') {
+  // Normalised before comparison: surrounding whitespace and non-breaking spaces are stripped so a
+  // copy/paste artifact can never be the reason a production remediation does not run.
+  const supplied = String(process.env.CONFIRM_APPLY || '')
+    .replace(/[\u00a0\u2007\u202f]/g, ' ')
+    .trim();
+  if (supplied !== CONFIRM_TOKEN) {
+    fail(`apply mode requires confirm_apply=${CONFIRM_TOKEN}; received a different selection `
+       + `(length ${supplied.length}). Re-dispatch with that option selected.`);
+  }
 }
 
 function tlsConfig() {
