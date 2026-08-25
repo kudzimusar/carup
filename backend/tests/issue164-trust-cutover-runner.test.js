@@ -36,7 +36,10 @@ class FakeClient {
     // Columns are modelled as DEFINITIONS, not names, so a test can express the drift that a name
     // count cannot see: wrong type, NOT NULL, or a DEFAULT.
     this.columns = new Map();
-    for (const c of columns) this.columns.set(c, { udt_name: R.EXPECTED_COLUMN_SHAPE[c], is_nullable: 'YES', column_default: null });
+    for (const c of columns) {
+      this.columns.set(c, { udt_name: R.EXPECTED_COLUMN_SHAPE[c], is_nullable: 'YES', column_default: null,
+                            is_generated: 'NEVER', is_identity: 'NO' });
+    }
     for (const [c, def] of Object.entries(shapeOverride)) {
       if (this.columns.has(c)) this.columns.set(c, { ...this.columns.get(c), ...def });
     }
@@ -87,7 +90,7 @@ class FakeClient {
       for (const c of R.TRUST_STAMP_COLUMNS) {
         if (!this.columns.has(c)) {
           this.columns.set(c, { udt_name: R.EXPECTED_COLUMN_SHAPE[c], is_nullable: 'YES', column_default: null,
-                                ...(this.shapeOverride[c] || {}) });
+                                is_generated: 'NEVER', is_identity: 'NO', ...(this.shapeOverride[c] || {}) });
         }
       }
       if (this.migrationEffect) this.migrationEffect(this.vehicles);
@@ -96,7 +99,7 @@ class FakeClient {
     if (/to_regclass/i.test(sql)) return { rows: [{ t: 'vehicles' }] };
     if (/current_database/i.test(sql)) return { rows: [{ db: 'postgres' }] };
 
-    if (/select column_name, udt_name, is_nullable, column_default/i.test(sql)) {
+    if (/select column_name, udt_name, is_nullable, column_default, is_generated, is_identity/i.test(sql)) {
       return {
         rows: params[0].filter((n) => this.columns.has(n)).sort()
           .map((n) => ({ column_name: n, ...this.columns.get(n) })),
@@ -357,14 +360,16 @@ test('shapeFailures names every violation individually rather than returning a c
   const rows = [
     { column_name: 'trust_calculation_version', udt_name: 'text', is_nullable: 'YES', column_default: null },
     { column_name: 'trust_evaluated_at', udt_name: 'text', is_nullable: 'NO', column_default: 'now()' },
-    { column_name: 'trust_band', udt_name: 'text', is_nullable: 'YES', column_default: null },
-    { column_name: 'trust_confidence', udt_name: 'text', is_nullable: 'YES', column_default: null },
+    { column_name: 'trust_band', udt_name: 'text', is_nullable: 'YES', column_default: null, is_generated: 'ALWAYS' },
+    { column_name: 'trust_confidence', udt_name: 'text', is_nullable: 'YES', column_default: null, is_identity: 'YES' },
     { column_name: 'trust_known_limitations', udt_name: 'jsonb', is_nullable: 'YES', column_default: null },
   ];
   const f = R.shapeFailures(rows);
   assert.ok(f.some((m) => /trust_evaluated_at is text, expected timestamptz/.test(m)));
   assert.ok(f.some((m) => /trust_evaluated_at is NOT NULL/.test(m)));
   assert.ok(f.some((m) => /trust_evaluated_at carries a DEFAULT/.test(m)));
+  assert.ok(f.some((m) => /trust_band is a GENERATED column/.test(m)));
+  assert.ok(f.some((m) => /trust_confidence is an IDENTITY column/.test(m)));
   assert.ok(f.some((m) => /trust_evidence_basis is missing/.test(m)));
   assert.equal(R.shapeFailures(
     Object.entries(R.EXPECTED_COLUMN_SHAPE).map(([column_name, udt_name]) =>
@@ -427,4 +432,41 @@ test('first apply takes ACCESS EXCLUSIVE before it measures anything', async () 
   assert.ok(lockAt > -1, 'the transaction must take the table lock explicitly');
   assert.ok(lockAt < firstMeasureAt, 'the lock must precede the first data measurement');
   assert.ok(firstMeasureAt < migrationAt, 'the before-reading must precede the migration');
+});
+
+// ── 7. generated / identity columns — exact-head review P1, round three ──────────────────────────
+
+/**
+ * A `trust_band text GENERATED ALWAYS AS (...) STORED` reports the expected udt_name, nullability
+ * YES and a null column_default — every check above passes — yet Postgres rejects explicit
+ * assignment to it, and refreshCanonicalTrust() writes all six stamp fields. Without is_generated
+ * in the contract, verify-only green-lights a schema on which every canonical refresh fails.
+ */
+test('VERIFY-ONLY rejects a GENERATED column that type/null/default checks cannot see', async () => {
+  const prepared = R.prepareMigration();
+  const c = new FakeClient({
+    columns: [...R.TRUST_STAMP_COLUMNS], ledgered: true, vehicles: PROD_VEHICLES, up: prepared.up,
+    shapeOverride: { trust_band: { is_generated: 'ALWAYS' } },   // type, nullability, default all still "correct"
+  });
+  await assert.rejects(() => R.runVerifyOnly(c, prepared, silent),
+    (e) => e instanceof R.CutoverRefusal && /trust_band is a GENERATED column/.test(e.message));
+  assert.deepEqual(c.writes, []);
+});
+
+test('VERIFY-ONLY rejects an IDENTITY column for the same reason', async () => {
+  const prepared = R.prepareMigration();
+  const c = new FakeClient({
+    columns: [...R.TRUST_STAMP_COLUMNS], ledgered: true, vehicles: PROD_VEHICLES, up: prepared.up,
+    shapeOverride: { trust_calculation_version: { is_identity: 'YES' } },
+  });
+  await assert.rejects(() => R.runVerifyOnly(c, prepared, silent),
+    (e) => e instanceof R.CutoverRefusal && /trust_calculation_version is an IDENTITY column/.test(e.message));
+});
+
+test('columnShape queries is_generated and is_identity — the source actually asks for them', () => {
+  const src = readFileSync(
+    fileURLToPath(new URL('../scripts/production-apply-issue164-trust-provenance.mjs', import.meta.url)), 'utf8');
+  // The producer, not only the consumer: shapeFailures() can only reject what columnShape() fetched.
+  assert.match(src, /select column_name, udt_name, is_nullable, column_default, is_generated, is_identity/,
+    'the information_schema query must fetch is_generated and is_identity');
 });

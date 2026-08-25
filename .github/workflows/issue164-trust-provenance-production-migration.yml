@@ -48,7 +48,9 @@ name: 'Issue #164 Trust Provenance — Production Migration (20260817140000)'
 # SHAPE, NOT NAMES. Six columns with the right names but a drifted type, a NOT NULL, or a DEFAULT
 # satisfy a name count while breaking the contract — and a DEFAULT would fabricate provenance on
 # every future insert, which is the laundering this cutover exists to prevent. Both apply paths
-# assert type, nullability and default per column against the migration's own declaration.
+# assert type, nullability and default per column against the migration's own declaration — and
+# additionally that no column is GENERATED or an IDENTITY, because either reports the expected
+# type/nullability/default while rejecting the explicit writes canonical refreshes must make.
 #
 # MEASURE UNDER THE LOCK. Application writes are not migration changes. Every legacy-score reading
 # is taken inside the migration transaction while it holds ACCESS EXCLUSIVE, so a legitimate
@@ -91,7 +93,7 @@ concurrency:
 env:
   # The single reviewed commit whose runner and migration files are executed. Advancing this pin is
   # a reviewable pull request, never an edit to this workflow alone.
-  CANDIDATE_SHA: 2974596a1ab1503fedcc824c2f77f9e9f3fe38df
+  CANDIDATE_SHA: __PIN__
   PG_DRIVER_VERSION: 8.21.0
 
 jobs:
@@ -116,7 +118,7 @@ jobs:
       - name: Check out the pinned candidate commit
         uses: actions/checkout@v4
         with:
-          ref: 2974596a1ab1503fedcc824c2f77f9e9f3fe38df
+          ref: __PIN__
           persist-credentials: false
 
       - name: Assert the checked-out commit is the pinned candidate

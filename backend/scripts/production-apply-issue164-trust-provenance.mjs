@@ -173,10 +173,17 @@ export async function stampedCount(client) {
   return s[0].c;
 }
 
-/** The live definition of each stamp column: type, nullability and default. */
+/**
+ * The live definition of each stamp column: type, nullability, default — and whether the column is
+ * GENERATED or an IDENTITY. The last two matter because they are invisible to the first three: a
+ * `trust_band text GENERATED ALWAYS AS (...) STORED` reports the expected udt_name, is nullable,
+ * and has a null column_default, yet Postgres rejects every explicit assignment to it — so
+ * refreshCanonicalTrust(), which writes all six stamp fields, would fail on a schema this check
+ * had green-lit.
+ */
 export async function columnShape(client) {
   const { rows } = await client.query(
-    `select column_name, udt_name, is_nullable, column_default
+    `select column_name, udt_name, is_nullable, column_default, is_generated, is_identity
        from information_schema.columns
       where table_schema='public' and table_name='vehicles' and column_name = any($1::text[])
       order by column_name`, [TRUST_STAMP_COLUMNS]);
@@ -194,6 +201,15 @@ export function shapeFailures(rows) {
     if (String(r.is_nullable).toUpperCase() !== 'YES') out.push(`${name} is NOT NULL; the contract requires nullable`);
     if (r.column_default !== null && r.column_default !== undefined) {
       out.push(`${name} carries a DEFAULT (${r.column_default}) — a default fabricates provenance on every insert`);
+    }
+    // A generated or identity column reports the expected type, nullability and a null default —
+    // and rejects every explicit write. canonicalTrustService assigns all six stamp fields, so
+    // either one turns a green verify into a schema canonical refreshes cannot write to.
+    if (String(r.is_generated ?? 'NEVER').toUpperCase() !== 'NEVER') {
+      out.push(`${name} is a GENERATED column — canonical refreshes must be able to write it explicitly`);
+    }
+    if (String(r.is_identity ?? 'NO').toUpperCase() !== 'NO') {
+      out.push(`${name} is an IDENTITY column — canonical refreshes must be able to write it explicitly`);
     }
   }
   return out;
@@ -371,7 +387,8 @@ export async function runVerifyOnly(client, prepared, log = console.log) {
 
     log('\n  column shape, as required:');
     for (const r of await columnShape(client)) {
-      log(`    ${r.column_name.padEnd(26)} ${r.udt_name.padEnd(12)} nullable=${r.is_nullable} default=${r.column_default ?? 'none'}`);
+      log(`    ${r.column_name.padEnd(26)} ${r.udt_name.padEnd(12)} nullable=${r.is_nullable} `
+        + `default=${r.column_default ?? 'none'} generated=${r.is_generated ?? 'NEVER'} identity=${r.is_identity ?? 'NO'}`);
     }
     log(`\n  ${p.stamped_rows} of ${p.total_vehicles} vehicles carry a canonical trust version.`);
     log('  That count is REPORTED, not constrained: after activation, refreshCanonicalTrust() is');
