@@ -262,5 +262,62 @@ test('environment: production identity, confirmation, and the generic-secret tra
   // The repo holds generic SUPABASE_URL secrets that are NOT proven to be production. A Supabase
   // API URL that does not name the production ref must be refused even when everything else is right.
   assert.throws(() => R.resolveMode({ ...good, PRODUCTION_SUPABASE_URL: 'https://someotherproject.supabase.co' }),
-    (e) => e instanceof R.RefreshRefusal && /does not reference the production project/.test(e.message));
+    (e) => e instanceof R.RefreshRefusal && /expected exactly aaaaaaaaaaaaaaaaaaaa\.supabase\.co/.test(e.message));
+});
+
+// ── credential exfiltration via lookalike hosts ──────────────────────────────────────────────────
+
+/**
+ * Found by exact-head review. The identity pin was `url.includes(ref)`, and a substring test is not
+ * a host test: `https://<ref>.supabase.co.attacker.example` contains the ref, as does
+ * `https://attacker.example/?x=<ref>`. Either would have satisfied it and then received the
+ * production service-role key. The database URL had the same hole and would have leaked the
+ * database password the same way.
+ */
+const REF = 'aaaaaaaaaaaaaaaaaaaa';
+const baseEnv = {
+  PRODUCTION_DATABASE_URL: `postgres://u:p@db.${REF}.supabase.co:5432/postgres`,
+  PRODUCTION_PROJECT_REF: REF,
+  PRODUCTION_SUPABASE_SERVICE_ROLE_KEY: 'svc',
+};
+
+test('the Supabase API origin must be EXACTLY https://<ref>.supabase.co', () => {
+  assert.doesNotThrow(() => R.assertApiOrigin(`https://${REF}.supabase.co`, REF));
+  for (const [url, rx] of [
+    [`https://${REF}.supabase.co.attacker.example`, /expected exactly/],   // suffix
+    [`https://evil-${REF}.supabase.co`,             /expected exactly/],   // prefix
+    [`https://attacker.example/?x=${REF}`,          /expected exactly/],   // query-string
+    [`https://attacker.example/${REF}`,             /expected exactly/],   // path
+    [`https://${REF}.supabase.co.evil.co`,          /expected exactly/],
+    [`http://${REF}.supabase.co`,                   /must be https/],      // downgrade
+    [`https://${REF}.supabase.co:8443`,             /carries port/],
+    ['not a url',                                   /not a parseable URL/],
+  ]) {
+    assert.throws(() => R.assertApiOrigin(url, REF),
+      (e) => e instanceof R.RefreshRefusal && rx.test(e.message), `expected refusal for ${url}`);
+  }
+});
+
+test('the database credential may only be sent to a Supabase-owned host', () => {
+  // Both legitimate shapes: direct (ref in the host) and pooler (ref in the username).
+  assert.doesNotThrow(() => R.assertDbHost(`postgres://u:p@db.${REF}.supabase.co:5432/postgres`, REF));
+  assert.doesNotThrow(() => R.assertDbHost(`postgres://postgres.${REF}:p@aws-0-eu-central-1.pooler.supabase.com:6543/postgres`, REF));
+
+  for (const [url, rx] of [
+    [`postgres://u:p@db.${REF}.supabase.co.attacker.example:5432/postgres`, /is not a Supabase host/],
+    [`postgres://u:p@attacker.example:5432/${REF}`,                          /is not a Supabase host/],
+    [`postgres://u:p@notsupabase.co:5432/postgres?ref=${REF}`,               /is not a Supabase host/],
+    ['postgres://u:p@db.supabase.co:5432/postgres',                          /does not reference PRODUCTION_PROJECT_REF/],
+  ]) {
+    assert.throws(() => R.assertDbHost(url, REF),
+      (e) => e instanceof R.RefreshRefusal && rx.test(e.message), `expected refusal for ${url}`);
+  }
+});
+
+test('resolveMode refuses a lookalike API host end to end', () => {
+  assert.equal(R.resolveMode(baseEnv).mode, 'preflight');
+  assert.throws(() => R.resolveMode({ ...baseEnv, PRODUCTION_SUPABASE_URL: `https://${REF}.supabase.co.attacker.example` }),
+    (e) => e instanceof R.RefreshRefusal && /expected exactly/.test(e.message));
+  assert.throws(() => R.resolveMode({ ...baseEnv, PRODUCTION_DATABASE_URL: `postgres://u:p@evil.example/${REF}` }),
+    (e) => e instanceof R.RefreshRefusal && /is not a Supabase host/.test(e.message));
 });

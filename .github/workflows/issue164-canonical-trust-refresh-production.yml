@@ -47,8 +47,12 @@ name: 'Issue #164 Canonical Trust Refresh — Production (UATPRD17830287622)'
 #     PRODUCTION_CA_CERT                      — optional PEM trust anchor
 #
 # The repository also holds generic SUPABASE_URL / SUPABASE_SERVICE_ROLE_KEY secrets which are NOT
-# proven to point at production. They are deliberately NOT referenced here, and the runner refuses
-# any Supabase API URL that does not name PRODUCTION_PROJECT_REF — so one cannot be used by mistake.
+# proven to point at production. They are deliberately NOT referenced here.
+#
+# CREDENTIALS GO TO A HOST, NOT TO A SUBSTRING. Both URLs are PARSED and judged on their hostname.
+# The Data API origin must be exactly https://<ref>.supabase.co; the database host must be a
+# Supabase-owned domain. A substring test would have accepted https://<ref>.supabase.co.attacker.example
+# and then posted the production service-role key to it.
 
 on:
   workflow_dispatch:
@@ -80,7 +84,7 @@ concurrency:
 env:
   # The single reviewed commit whose runner is executed. Advancing this pin is a reviewable pull
   # request, never an edit to this workflow alone.
-  CANDIDATE_SHA: d6bca372395daf85d5a20c6a8d8bcfe48342efec
+  CANDIDATE_SHA: __PIN__
 
 jobs:
   preflight-or-apply:
@@ -101,7 +105,7 @@ jobs:
       - name: Check out the pinned candidate commit
         uses: actions/checkout@v4
         with:
-          ref: d6bca372395daf85d5a20c6a8d8bcfe48342efec
+          ref: __PIN__
           persist-credentials: false
 
       - name: Assert the checked-out commit is the pinned candidate

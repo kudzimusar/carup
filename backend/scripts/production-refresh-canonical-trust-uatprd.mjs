@@ -282,6 +282,50 @@ export async function runApply(pg, deps, log = console.log) {
 
 // ── entry point ──────────────────────────────────────────────────────────────────────────────────
 
+/**
+ * Supabase's own domains. A credential may be sent to these and nowhere else.
+ *
+ * A SUBSTRING TEST IS NOT A HOST TEST. `https://<ref>.supabase.co.attacker.example` contains the
+ * project ref, as does `https://attacker.example/?x=<ref>`. Either would satisfy `url.includes(ref)`
+ * and then receive the production service-role key or the database password. Both URLs are
+ * therefore PARSED, and the decision is made on the hostname.
+ */
+const SUPABASE_DOMAINS = Object.freeze(['supabase.co', 'supabase.com']);
+
+function hostOf(raw, what) {
+  let u;
+  try { u = new URL(raw); } catch { return refuse(`${what} is not a parseable URL; refusing.`); }
+  return u;
+}
+
+/** The Data API origin must be exactly https://<ref>.supabase.co — no prefix, suffix or port games. */
+export function assertApiOrigin(apiUrl, ref) {
+  const u = hostOf(apiUrl, 'the Supabase API URL');
+  if (u.protocol !== 'https:') refuse(`the Supabase API URL must be https, got ${u.protocol}; refusing.`);
+  if (u.hostname !== `${ref}.supabase.co`) {
+    refuse(`the Supabase API host is ${u.hostname}, expected exactly ${ref}.supabase.co; refusing.`);
+  }
+  if (u.port && u.port !== '443') refuse(`the Supabase API URL carries port ${u.port}; refusing.`);
+  return u;
+}
+
+/**
+ * The database host must be a real Supabase host, and the ref must appear in the URL.
+ *
+ * The hostname is not required to CONTAIN the ref, because the pooler form carries it in the
+ * username (postgres.<ref>@aws-0-<region>.pooler.supabase.com) while the direct form carries it in
+ * the host (db.<ref>.supabase.co). Requiring a Supabase-owned host is what stops the credential
+ * leaving; requiring the ref somewhere is what pins the project.
+ */
+export function assertDbHost(dbUrl, ref) {
+  const u = hostOf(dbUrl, 'PRODUCTION_DATABASE_URL');
+  const host = u.hostname.toLowerCase();
+  const owned = SUPABASE_DOMAINS.some((d) => host === d || host.endsWith(`.${d}`));
+  if (!owned) refuse(`the database host ${host} is not a Supabase host; refusing to send the credential there.`);
+  if (!dbUrl.includes(ref)) refuse('connection string does not reference PRODUCTION_PROJECT_REF; refusing.');
+  return u;
+}
+
 export function resolveMode(env) {
   const dbUrl = env.PRODUCTION_DATABASE_URL;
   const ref = env.PRODUCTION_PROJECT_REF;
@@ -291,12 +335,12 @@ export function resolveMode(env) {
   if (!dbUrl) refuse('PRODUCTION_DATABASE_URL is not set.');
   if (!ref || !/^[a-z0-9]{20}$/.test(ref)) refuse('PRODUCTION_PROJECT_REF (20-char Supabase ref) is required.');
   if (ref === STAGING_REF) refuse('PRODUCTION_PROJECT_REF is the staging ref; refusing.');
-  if (!dbUrl.includes(ref)) refuse('connection string does not reference PRODUCTION_PROJECT_REF; refusing.');
+  assertDbHost(dbUrl, ref);
   if (dbUrl.includes(STAGING_REF)) refuse('connection string references the STAGING project; refusing.');
   if (!svcKey) refuse('PRODUCTION_SUPABASE_SERVICE_ROLE_KEY is not set — the canonical writer cannot run without it.');
   // The repo also holds generic SUPABASE_URL/SUPABASE_SERVICE_ROLE_KEY secrets which are NOT proven
-  // to be production. Binding the API URL to the production ref is what stops one being used here.
-  if (!apiUrl.includes(ref)) refuse(`the Supabase API URL does not reference the production project; refusing.`);
+  // to be production. Binding the API ORIGIN to the production ref is what stops one being used here.
+  assertApiOrigin(apiUrl, ref);
   if (apiUrl.includes(STAGING_REF)) refuse('the Supabase API URL references the STAGING project; refusing.');
 
   const mode = env.MODE === 'apply' ? 'apply' : 'preflight';
