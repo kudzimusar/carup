@@ -84,7 +84,7 @@ concurrency:
 env:
   # The single reviewed commit whose runner is executed. Advancing this pin is a reviewable pull
   # request, never an edit to this workflow alone.
-  CANDIDATE_SHA: __PIN__
+  CANDIDATE_SHA: 04acad3caef9d4d2b414aaf9f26f1e8b61d9b15d
 
 jobs:
   preflight-or-apply:
@@ -105,7 +105,7 @@ jobs:
       - name: Check out the pinned candidate commit
         uses: actions/checkout@v4
         with:
-          ref: __PIN__
+          ref: 04acad3caef9d4d2b414aaf9f26f1e8b61d9b15d
           persist-credentials: false
 
       - name: Assert the checked-out commit is the pinned candidate
