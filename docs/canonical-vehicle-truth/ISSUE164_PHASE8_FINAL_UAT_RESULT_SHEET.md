@@ -770,3 +770,106 @@ a failed read yields `not_loaded`, never `none`; and `null`/`undefined`/`[]` map
 
 `web/src/lib/listingMedia.test.ts` (9) — primacy, fallback ordering, blank URLs, malformed input, and
 `not_loaded` never being reported as `none`.
+
+---
+
+# Run 5 — the release receipt — candidate `41d942a8`
+
+**Date:** 2026-08-25 · **Result: 32 PASS / 0 FAIL / 0 BLOCKED**
+
+This is a **complete 32-step re-run against the exact remediated head**, not a patch of the two rows
+that failed in Run 4. Every step was physically executed in a real browser on the paired preview.
+
+## Environment integrity
+
+| Check | Result |
+|---|---|
+| UAT origin | `carup-git-integration-canonical-vehicle-truth-closure-11-11.vercel.app` (stable branch alias) |
+| Frontend SHA (`/carup-provenance.json`) | `41d942a88b25f9372c598a346d1486dfc455b400` |
+| Paired backend `build.commit_sha` | `41d942a88b25f9372c598a346d1486dfc455b400` — **exact match** |
+| Shared staging backend | `87033020` (`main`, env `production`) — a **different** SHA, so stray traffic is detectable |
+| Calls to the shared backend | **0** on every page measured (resource-timing sweep) |
+| Golden A identity | `/api/auth/me` → 200, `golden-a-owner-stg`, role `owner` |
+| Golden B identity | `/api/auth/me` → 200, `golden-b-owner-stg`, role `owner` |
+
+Both sessions were created by the owner typing each password directly into the automation Chrome
+profile. **No session was fabricated, minted, or forged via `x-user-id`; no `password_hash` was read
+or changed; no cookies were imported from the owner's own browser.**
+
+## The two Run-4 failures, re-tested physically
+
+### D4 — Golden B no longer claims what it cannot support
+
+The decisive negative case. On `CARUPGLDNB0000002` — logbook `pending`, no insurance record, no
+PartSentry log:
+
+| Badge | Before | Now |
+|---|---|---|
+| `Logbook Verified` | rendered, green, with a checkmark | **absent** |
+| `Insurance Active` | rendered, blue | **absent** |
+| `PartSentry Active` | rendered, purple | **absent** |
+| `Ledger Synced` | conditional | still conditional, still rendering |
+
+The strings themselves are gone from the page, not merely the test ids. On **Golden A**, where a
+verified registration document, an active policy and a PartSentry log all exist, all three render —
+so the binding is proven in both directions rather than just switched off.
+
+### D5 — the owner sees their own photographs
+
+`/api/vehicles/me` now returns `listing_media: { state: "published", items: 5, unpublishable_count: 0 }`
+for Golden A. Measured on every owner surface:
+
+| Surface | Before | Now |
+|---|---|---|
+| Owner dashboard row | "Image unavailable" | real `golden-exterior-front.png`, loaded, **0 placeholders** |
+| My Garage card | "Image unavailable" | real image at 960 px, **0 placeholders** |
+| My Listings row | "Image unavailable" | real image, **0 placeholders** |
+
+Golden B (2 images) renders its real photograph too. Counts remain exact — 4 verified documents /
+0 services / 1 part / 1 policy for Golden A, all zeros for Golden B.
+
+### Step 28 — corrected, and it passes
+
+Re-measured inside a single uninterrupted window: **42 consecutive samples** of a visible toast from
+t=1.9 s to t=6.1 s reading *"Not publishable yet. Awaiting CarUp verification: Ownership /
+Registration Document. Nothing more is needed from you until that review completes."* The listing
+stays `draft`, re-read from the database after the attempt. See the D6 withdrawal above.
+
+## All 32 steps
+
+| Group | Steps | Result |
+|---|---|:--:|
+| Golden A — anonymous buyer | 1–11 | **11 PASS** |
+| Golden A — authenticated owner | 12–20 | **9 PASS** |
+| Golden B — anonymous buyer | 21–24 | **4 PASS** |
+| Golden B — authenticated owner | 25–28 | **4 PASS** |
+| Cross-cutting | 29–32 | **4 PASS** |
+| Responsive (OBS-14, OBS-16) | — | **2 PASS** |
+
+Selected physical observations on this candidate: 5 media thumbs with gallery `1 / 5` and **4**
+verified evidence items in a separate section; `Reg. Country` / `Reg. Authority` both *Not recorded*;
+`Seller Information — Not shown publicly` with Call/WhatsApp disabled; **zero** `owner_id` /
+`tenant_id` / `current_seller_id` and zero value-leaks across five public payloads; Golden B absent
+from marketplace search (`0 vehicles found`) with its listing **404** while its passport renders trust
+**50** and never leaks the word `pending`; `/press` and `/blog` free of literal escape sequences,
+entities and mojibake while correct typography is present; **zero** occurrences of "blockchain" across
+five product surfaces; local storage carries only `carup_nav_cohort`.
+
+## Gates on this exact head
+
+| Gate | Result |
+|---|---|
+| Backend suite (repo root, CI-parity env) | **4233 pass / 0 fail / 12 skipped** |
+| Web typecheck `--project web/tsconfig.app.json` | clean |
+| CR-1 secret scan | clean (1960 tracked files) |
+| `git diff --check` | clean |
+| Lint | unchanged vs documented baseline (CI runs `npm run lint \|\| true`) |
+| GitHub CI on `41d942a8` | **17 pass, 4 skipping, 0 failures** |
+| Exact-head Codex review | **pending at time of writing** |
+
+## Outstanding
+
+- **Codex** has not yet answered the `41d942a8` request.
+- **D7** remains an open follow-up by owner decision.
+- **Golden credentials are still live** — revocation is deliberately held until merge so that any
+  re-test remains possible without another owner login.
