@@ -69,6 +69,19 @@ export const BASELINE = Object.freeze({
   trust_evidence_basis: null,
 });
 export const NONTARGET_CHECKSUM = '0d4ed34f9697df66f87855cce2cdbdc3';
+
+/**
+ * A fingerprint over everything the DECISION READS for the target — not the cached outputs, the
+ * INPUTS: the vehicle's own governed columns (minus the seven trust outputs, which are what apply is
+ * allowed to change), plus its evidence, source-verification coverage, fraud cases, escrow trust
+ * sessions and eligibility requests.
+ *
+ * Pinning the seven output columns is not enough. If an input moves between certification and apply,
+ * the outputs still look exactly as certified while the decision that gets persisted is one nobody
+ * reviewed. Whole rows are hashed rather than named columns, so a change to a column this runner
+ * never thought about is still caught.
+ */
+export const DECISION_INPUT_FINGERPRINT = '5862fb069e716bf1703eb6d400b091ad';
 export const NONTARGET_ROWS = 351;
 export const EXPECTED_STAMPED_BEFORE = 0;
 export const EXPECTED_UNVERSIONED_BEFORE = 352;
@@ -115,7 +128,24 @@ export async function measureTrustState(pg, vin = TARGET_VIN) {
            (select count(*)::int from public.vehicles
               where trust_score is not null and trust_calculation_version is null) as unversioned,
            (select count(*)::int from public.vehicles)                            as total_vehicles,
-           (select count(*)::int from supabase_migrations.schema_migrations)      as ledger_rows`,
+           (select count(*)::int from supabase_migrations.schema_migrations)      as ledger_rows,
+           (select md5(
+              md5(coalesce((select string_agg(t::text, ',' order by t::text) from (
+                     select to_jsonb(x) - 'trust_score' - 'trust_calculation_version'
+                            - 'trust_evaluated_at' - 'trust_band' - 'trust_confidence'
+                            - 'trust_known_limitations' - 'trust_evidence_basis' as t
+                       from public.vehicles x where x.vin = $1) s), ''))
+           || md5(coalesce((select string_agg(to_jsonb(x)::text, ',' order by to_jsonb(x)::text)
+                     from public.vehicle_evidence x where x.vin = $1), ''))
+           || md5(coalesce((select string_agg(to_jsonb(x)::text, ',' order by to_jsonb(x)::text)
+                     from public.source_verification_coverage_public x where x.vin = $1), ''))
+           || md5(coalesce((select string_agg(to_jsonb(x)::text, ',' order by to_jsonb(x)::text)
+                     from public.fraud_cases x where x.vin = $1), ''))
+           || md5(coalesce((select string_agg(to_jsonb(x)::text, ',' order by to_jsonb(x)::text)
+                     from public.escrow_trust_sessions x where x.vin = $1), ''))
+           || md5(coalesce((select string_agg(to_jsonb(x)::text, ',' order by to_jsonb(x)::text)
+                     from public.eligibility_requests x where x.vin = $1), ''))
+           ))                                                                     as decision_inputs`,
     [vin]);
   return rows[0];
 }
@@ -129,6 +159,7 @@ export function reportState(label, s, log = console.log) {
       log(`    ${k.padEnd(26)} ${v === null ? 'null' : JSON.stringify(v)}`);
     }
   }
+  log(`  decision inputs          : ${s.decision_inputs}`);
   log(`  non-target rows          : ${s.nontarget_rows}`);
   log(`  non-target trust checksum: ${s.nontarget_checksum}`);
   log(`  canonically stamped      : ${s.stamped}`);
@@ -151,6 +182,11 @@ export function assertBaseline(s) {
     f.push(`non-target trust checksum is ${s.nontarget_checksum}, certified ${NONTARGET_CHECKSUM}`);
   }
   if (s.nontarget_rows !== NONTARGET_ROWS) f.push(`non-target row count is ${s.nontarget_rows}, certified ${NONTARGET_ROWS}`);
+  if (s.decision_inputs !== DECISION_INPUT_FINGERPRINT) {
+    f.push(`the DECISION INPUTS for the target have changed (${s.decision_inputs}, certified `
+         + `${DECISION_INPUT_FINGERPRINT}) — evidence, coverage, fraud, escrow, eligibility or a `
+         + `governed vehicle column moved, so apply would persist a decision nobody certified`);
+  }
   if (s.stamped !== EXPECTED_STAMPED_BEFORE) f.push(`${s.stamped} vehicles already stamped, certified ${EXPECTED_STAMPED_BEFORE}`);
   if (s.unversioned !== EXPECTED_UNVERSIONED_BEFORE) f.push(`${s.unversioned} scored-but-unversioned, certified ${EXPECTED_UNVERSIONED_BEFORE}`);
   if (f.length) {
@@ -166,6 +202,7 @@ export function assertUnchanged(before, after, context) {
   if (before.stamped !== after.stamped) f.push(`stamped count moved ${before.stamped} -> ${after.stamped}`);
   if (before.unversioned !== after.unversioned) f.push(`unversioned count moved ${before.unversioned} -> ${after.unversioned}`);
   if (before.ledger_rows !== after.ledger_rows) f.push(`the migrations ledger changed ${before.ledger_rows} -> ${after.ledger_rows}; this is not a migration`);
+  if (before.decision_inputs !== after.decision_inputs) f.push('a decision INPUT changed');
   if (f.length) refuse(`${context} — ${f.join('; ')}.`);
 }
 
@@ -259,6 +296,14 @@ export async function runApply(pg, deps, log = console.log) {
   assertBaseline(before);
   log('\n  ok  production still matches the certified baseline; proceeding.');
 
+  // PROPOSE, THEN PERSIST, THEN COMPARE. The pinned input fingerprint catches drift between
+  // certification and apply; this catches drift DURING apply. The decision is computed once as a dry
+  // run, then for real, and the persisted values must match what was proposed moments earlier —
+  // otherwise what landed in production is not what this run showed anybody.
+  const proposed = await deps.refreshCanonicalTrust(TARGET_VIN, { dryRun: true });
+  if (proposed?.written === true) refuse('the dry run inside apply reported a write. Refusing.');
+  describePatch(proposed?.record, proposed?.patch, log);
+
   log(`\n  calling refreshCanonicalTrust('${TARGET_VIN}') — the real production writer…`);
   const result = await deps.refreshCanonicalTrust(TARGET_VIN);
   log(`  written=${result?.written} reason=${result?.reason ?? '(none)'} state=${result?.record?.evaluation_state ?? '(none)'}`);
@@ -271,6 +316,7 @@ export async function runApply(pg, deps, log = console.log) {
 
   assertTargetAdvanced(after, deps.CALCULATION_VERSION);
   assertBlastRadius(before, after);
+  assertPersistedMatchesProposed(proposed?.patch, after.target, log);
 
   log('\nok  the target is canonically stamped by the real writer;');
   log(`    all ${NONTARGET_ROWS} non-target rows are byte-identical (${after.nontarget_checksum});`);
@@ -278,6 +324,25 @@ export async function runApply(pg, deps, log = console.log) {
   log('    the migrations ledger was not touched.');
   log('APPLY COMPLETE.');
   return { before, after, result };
+}
+
+/**
+ * What was persisted must be what was proposed. `trust_evaluated_at` is excluded by design — the
+ * real apply stamps its own timestamp, and requiring the dry run's would guarantee a false failure.
+ */
+export function assertPersistedMatchesProposed(patch, target, log = console.log) {
+  if (!patch || typeof patch !== 'object') return;   // a writer that proposes nothing is caught elsewhere
+  const norm = (v) => (v === null || v === undefined ? null : (typeof v === 'object' ? JSON.stringify(v) : String(v)));
+  const drift = [];
+  for (const [k, v] of Object.entries(patch)) {
+    if (k === 'trust_evaluated_at' || !(k in target)) continue;
+    if (norm(v) !== norm(target[k])) drift.push(`${k}: proposed ${norm(v)}, persisted ${norm(target[k])}`);
+  }
+  if (drift.length) {
+    refuse(`PERSISTED DECISION DOES NOT MATCH THE ONE PROPOSED SECONDS EARLIER — ${drift.join('; ')}. `
+         + 'An input moved mid-apply; what landed in production was never shown.');
+  }
+  log('  ok  the persisted decision equals the one proposed moments earlier (bar the apply timestamp).');
 }
 
 // ── entry point ──────────────────────────────────────────────────────────────────────────────────
@@ -322,7 +387,19 @@ export function assertDbHost(dbUrl, ref) {
   const host = u.hostname.toLowerCase();
   const owned = SUPABASE_DOMAINS.some((d) => host === d || host.endsWith(`.${d}`));
   if (!owned) refuse(`the database host ${host} is not a Supabase host; refusing to send the credential there.`);
-  if (!dbUrl.includes(ref)) refuse('connection string does not reference PRODUCTION_PROJECT_REF; refusing.');
+
+  // THE REF MUST BE WHERE POSTGRES ACTUALLY ROUTES. A raw `dbUrl.includes(ref)` is satisfied by the
+  // ref sitting in the password, path or query string while the connection routes somewhere else
+  // entirely — postgres://postgres.<other>:p@aws-0-eu.pooler.supabase.com/postgres?x=<prod-ref>
+  // reads as production and connects to <other>. Only two shapes are accepted, and in both the ref
+  // is read from the field Postgres routes on.
+  const direct = host === `db.${ref}.supabase.co`;
+  const pooler = host.endsWith('.pooler.supabase.com')
+    && decodeURIComponent(u.username || '').toLowerCase() === `postgres.${ref}`;
+  if (!direct && !pooler) {
+    refuse(`the database URL is pinned to neither db.${ref}.supabase.co nor a pooler user postgres.${ref} `
+         + `(host=${host}, user=${decodeURIComponent(u.username || '') || '(none)'}); refusing.`);
+  }
   return u;
 }
 

@@ -35,6 +35,13 @@ name: 'Issue #164 Canonical Trust Refresh — Production (UATPRD17830287622)'
 #     target trust_score 80, all six stamp fields NULL
 #     canonically stamped 0 · scored-but-unversioned 352
 #     NON-TARGET trust checksum 0d4ed34f9697df66f87855cce2cdbdc3 over 351 rows
+#     DECISION-INPUT fingerprint 5862fb069e716bf1703eb6d400b091ad
+#
+# THE INPUTS ARE PINNED, NOT ONLY THE OUTPUTS. Pinning the seven cached trust columns is not enough:
+# if evidence, source coverage, a fraud case, escrow state, an eligibility request or a governed
+# vehicle column moves between certification and apply, the outputs still look exactly as certified
+# while the decision that gets persisted is one nobody reviewed. Apply also computes the decision as
+# a dry run, persists, and requires the persisted values to equal what it proposed seconds earlier.
 #
 # A LOW SCORE IS A PASS. The target has zero evidence, so score 0 / low / insufficient_evidence with
 # populated known_limitations is the correct canonical answer, not a defect.
@@ -84,7 +91,7 @@ concurrency:
 env:
   # The single reviewed commit whose runner is executed. Advancing this pin is a reviewable pull
   # request, never an edit to this workflow alone.
-  CANDIDATE_SHA: 04acad3caef9d4d2b414aaf9f26f1e8b61d9b15d
+  CANDIDATE_SHA: __PIN__
 
 jobs:
   preflight-or-apply:
@@ -105,7 +112,7 @@ jobs:
       - name: Check out the pinned candidate commit
         uses: actions/checkout@v4
         with:
-          ref: 04acad3caef9d4d2b414aaf9f26f1e8b61d9b15d
+          ref: __PIN__
           persist-credentials: false
 
       - name: Assert the checked-out commit is the pinned candidate

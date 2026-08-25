@@ -28,8 +28,9 @@ const GOOD_AFTER = {
 /** A fake production database. `state` is mutated only by the fake writer, never by the runner. */
 class FakeDb {
   constructor({ target = { vin: VIN, ...R.BASELINE }, checksum = R.NONTARGET_CHECKSUM,
-                rows = R.NONTARGET_ROWS, stamped = 0, unversioned = 352, total = 352, ledger = 61 } = {}) {
-    Object.assign(this, { target, checksum, rows, stamped, unversioned, total, ledger });
+                rows = R.NONTARGET_ROWS, stamped = 0, unversioned = 352, total = 352, ledger = 61,
+                inputs = R.DECISION_INPUT_FINGERPRINT } = {}) {
+    Object.assign(this, { target, checksum, rows, stamped, unversioned, total, ledger, inputs });
     this.statements = [];
   }
   get writes() { return this.statements.filter((s) => /^\s*(insert|update|delete|alter|drop|truncate)\b/i.test(s)); }
@@ -42,7 +43,7 @@ class FakeDb {
       return { rows: [{
         target: this.target, nontarget_checksum: this.checksum, nontarget_rows: this.rows,
         stamped: this.stamped, unversioned: this.unversioned, total_vehicles: this.total,
-        ledger_rows: this.ledger,
+        ledger_rows: this.ledger, decision_inputs: this.inputs,
       }] };
     }
     throw new Error(`unmodelled statement: ${sql.slice(0, 70)}`);
@@ -51,7 +52,8 @@ class FakeDb {
 
 /** A fake canonical writer. Records the VINs asked for; honours dryRun. */
 function fakeWriter(db, { after = GOOD_AFTER, written = true, record = { evaluation_state: 'evaluated' },
-                          patch = { trust_score: 12 }, persistOnDryRun = false } = {}) {
+                          patch = null, persistOnDryRun = false } = {}) {
+  patch = patch ?? { ...after };
   const calls = [];
   const fn = async (vin, opts = {}) => {
     calls.push({ vin, opts });
@@ -159,9 +161,10 @@ test('APPLY: one refresh, one VIN, one row stamped, 351 untouched', async () => 
   const w = fakeWriter(db);
   const { after } = await R.runApply(db, deps(w), silent);
 
-  assert.equal(w.calls.length, 1);
-  assert.equal(w.calls[0].vin, VIN);
-  assert.notEqual(w.calls[0].opts?.dryRun, true, 'apply must not be a dry run');
+  assert.equal(w.calls.length, 2, 'apply proposes, then persists');
+  assert.ok(w.calls.every((c) => c.vin === VIN), 'every call must name the pinned VIN');
+  assert.equal(w.calls[0].opts?.dryRun, true, 'the first call proposes');
+  assert.notEqual(w.calls[1].opts?.dryRun, true, 'the second call persists');
   assert.deepEqual(db.writes, [], 'the runner itself issues no SQL write — the writer does the writing');
   assert.equal(after.stamped, 1);
   assert.equal(after.unversioned, 351);
@@ -178,10 +181,11 @@ test('a low score with insufficient_evidence is a PASS, not a failure', async ()
 
 test('BLAST RADIUS: a single non-target row changing is a production incident', async () => {
   const db = new FakeDb();
-  const w = async (vin) => {
+  const w = async (vin, opts = {}) => {
+    if (opts.dryRun) return { record: {}, patch: { ...GOOD_AFTER }, written: false, reason: 'dry_run' };
     db.target = { ...GOOD_AFTER }; db.stamped += 1; db.unversioned -= 1;
     db.checksum = 'ffffffffffffffffffffffffffffffff';   // one other row moved
-    return { record: {}, patch: {}, written: true };
+    return { record: {}, patch: { ...GOOD_AFTER }, written: true };
   };
   await assert.rejects(() => R.runApply(db, deps(w), silent),
     (e) => e instanceof R.RefreshRefusal && /PRODUCTION INCIDENT: a non-target trust field changed/.test(e.message));
@@ -189,9 +193,10 @@ test('BLAST RADIUS: a single non-target row changing is a production incident', 
 
 test('BLAST RADIUS: a second VIN acquiring a version is refused', async () => {
   const db = new FakeDb();
-  const w = async () => {
+  const w = async (vin, opts = {}) => {
+    if (opts.dryRun) return { record: {}, patch: { ...GOOD_AFTER }, written: false, reason: 'dry_run' };
     db.target = { ...GOOD_AFTER }; db.stamped += 2; db.unversioned -= 2;
-    return { record: {}, patch: {}, written: true };
+    return { record: {}, patch: { ...GOOD_AFTER }, written: true };
   };
   await assert.rejects(() => R.runApply(db, deps(w), silent),
     (e) => e instanceof R.RefreshRefusal && /canonically stamped is 2, expected exactly 1/.test(e.message));
@@ -199,9 +204,10 @@ test('BLAST RADIUS: a second VIN acquiring a version is refused', async () => {
 
 test('BLAST RADIUS: writing the migrations ledger is refused — this is not a migration', async () => {
   const db = new FakeDb();
-  const w = async () => {
+  const w = async (vin, opts = {}) => {
+    if (opts.dryRun) return { record: {}, patch: { ...GOOD_AFTER }, written: false, reason: 'dry_run' };
     db.target = { ...GOOD_AFTER }; db.stamped += 1; db.unversioned -= 1; db.ledger += 1;
-    return { record: {}, patch: {}, written: true };
+    return { record: {}, patch: { ...GOOD_AFTER }, written: true };
   };
   await assert.rejects(() => R.runApply(db, deps(w), silent),
     (e) => e instanceof R.RefreshRefusal && /not a migration/.test(e.message));
@@ -307,7 +313,7 @@ test('the database credential may only be sent to a Supabase-owned host', () => 
     [`postgres://u:p@db.${REF}.supabase.co.attacker.example:5432/postgres`, /is not a Supabase host/],
     [`postgres://u:p@attacker.example:5432/${REF}`,                          /is not a Supabase host/],
     [`postgres://u:p@notsupabase.co:5432/postgres?ref=${REF}`,               /is not a Supabase host/],
-    ['postgres://u:p@db.supabase.co:5432/postgres',                          /does not reference PRODUCTION_PROJECT_REF/],
+    ['postgres://u:p@db.supabase.co:5432/postgres',                          /pinned to neither/],
   ]) {
     assert.throws(() => R.assertDbHost(url, REF),
       (e) => e instanceof R.RefreshRefusal && rx.test(e.message), `expected refusal for ${url}`);
@@ -320,4 +326,73 @@ test('resolveMode refuses a lookalike API host end to end', () => {
     (e) => e instanceof R.RefreshRefusal && /expected exactly/.test(e.message));
   assert.throws(() => R.resolveMode({ ...baseEnv, PRODUCTION_DATABASE_URL: `postgres://u:p@evil.example/${REF}` }),
     (e) => e instanceof R.RefreshRefusal && /is not a Supabase host/.test(e.message));
+});
+
+// ── decision INPUTS are pinned, not just outputs — exact-head review, round two ──────────────────
+
+/**
+ * Pinning the seven cached OUTPUT columns is not enough. If evidence, source coverage, a fraud case,
+ * escrow state, an eligibility request, or a governed vehicle column moves between certification and
+ * apply, the outputs still look exactly as certified while the decision that gets persisted is one
+ * nobody reviewed.
+ */
+test('APPLY refuses when the decision INPUTS have moved since certification', async () => {
+  const db = new FakeDb({ inputs: 'ffffffffffffffffffffffffffffffff' });
+  const w = fakeWriter(db);
+  await assert.rejects(() => R.runApply(db, deps(w), silent),
+    (e) => e instanceof R.RefreshRefusal && /the DECISION INPUTS for the target have changed/.test(e.message));
+  assert.equal(w.calls.length, 0, 'it must refuse before invoking the writer');
+});
+
+test('PREFLIGHT refuses when the decision inputs have moved, and when a dry run changes them', async () => {
+  await assert.rejects(() => R.runPreflight(new FakeDb({ inputs: 'aaaa' }), deps(fakeWriter(new FakeDb())), silent),
+    (e) => e instanceof R.RefreshRefusal && /DECISION INPUTS/.test(e.message));
+
+  const db = new FakeDb();
+  const mutatesInputs = async () => { db.inputs = 'cccccccccccccccccccccccccccccccc'; return { record: {}, patch: {}, written: false, reason: 'dry_run' }; };
+  await assert.rejects(() => R.runPreflight(db, deps(mutatesInputs), silent),
+    (e) => e instanceof R.RefreshRefusal && /PREFLIGHT MUTATED PRODUCTION/.test(e.message));
+});
+
+test('APPLY refuses when what was persisted is not what was proposed seconds earlier', async () => {
+  const db = new FakeDb();
+  let call = 0;
+  // The dry run proposes a score of 12; the real write lands 97 because an input moved mid-apply.
+  const shifty = async (vin, opts = {}) => {
+    call++;
+    if (opts.dryRun) return { record: {}, patch: { ...GOOD_AFTER, trust_score: 12 }, written: false, reason: 'dry_run' };
+    db.target = { ...GOOD_AFTER, trust_score: 97 }; db.stamped += 1; db.unversioned -= 1;
+    return { record: {}, patch: { ...GOOD_AFTER, trust_score: 97 }, written: true };
+  };
+  await assert.rejects(() => R.runApply(db, deps(shifty), silent),
+    (e) => e instanceof R.RefreshRefusal
+        && /PERSISTED DECISION DOES NOT MATCH/.test(e.message)
+        && /trust_score: proposed 12, persisted 97/.test(e.message));
+});
+
+test('the apply-time timestamp is allowed to differ from the proposed one', () => {
+  const target = { ...GOOD_AFTER, trust_evaluated_at: '2026-08-26T09:99:99.000Z' };
+  assert.doesNotThrow(() => R.assertPersistedMatchesProposed({ ...GOOD_AFTER }, target, () => {}));
+});
+
+// ── the pooler ref must be where Postgres actually routes ────────────────────────────────────────
+
+/**
+ * `dbUrl.includes(ref)` is satisfied by the ref sitting in the password, path or query string while
+ * the connection routes to a different project entirely. Postgres routes a pooler connection on the
+ * USERNAME, so that is where the ref must be read from.
+ */
+test('the pooler form binds the ref to the parsed username, not to the raw string', () => {
+  assert.doesNotThrow(() => R.assertDbHost(`postgres://postgres.${REF}:p@aws-0-eu-central-1.pooler.supabase.com:6543/postgres`, REF));
+  assert.doesNotThrow(() => R.assertDbHost(`postgres://u:p@db.${REF}.supabase.co:5432/postgres`, REF));
+
+  for (const [url, why] of [
+    [`postgres://postgres.bbbbbbbbbbbbbbbbbbbb:p@aws-0-eu.pooler.supabase.com/postgres?x=${REF}`, 'ref in the query string, routes elsewhere'],
+    [`postgres://postgres.bbbbbbbbbbbbbbbbbbbb:${REF}@aws-0-eu.pooler.supabase.com/postgres`, 'ref in the password'],
+    [`postgres://postgres.bbbbbbbbbbbbbbbbbbbb:p@aws-0-eu.pooler.supabase.com/${REF}`, 'ref in the path'],
+    [`postgres://u:p@db.bbbbbbbbbbbbbbbbbbbb.supabase.co/postgres?x=${REF}`, 'direct host of another project'],
+  ]) {
+    assert.throws(() => R.assertDbHost(url, REF),
+      (e) => e instanceof R.RefreshRefusal && /pinned to neither/.test(e.message), `expected refusal: ${why}`);
+  }
 });
