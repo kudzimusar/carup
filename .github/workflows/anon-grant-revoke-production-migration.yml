@@ -26,7 +26,7 @@ name: 'Anon Grant Revoke — Production Migration (20260825090000 + 202608250901
 #
 # NOT A MIGRATION RUNNER. There is no "apply everything pending" path. The runner enumerates nothing
 # and reads exactly two files, both pinned by SHA256 and verified before any connection is opened.
-# It additionally refuses any file whose Up section contains no REVERSE-side REVOKE, or that contains
+# It additionally refuses any file whose Up section contains no REVOKE at all, or that contains
 # CREATE TABLE — this cutover is read-side only.
 #
 # FAIL-CLOSED VERIFICATION. A ledger row is not the outcome; the removed privilege is. After apply,
