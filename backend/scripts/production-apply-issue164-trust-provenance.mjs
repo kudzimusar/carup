@@ -36,12 +36,23 @@
  * a legitimate canonical refresh a cutover failure on the next verify-only run. It is enforced
  * instead where it is actually true and actually provable:
  *
- *   · FIRST APPLY  — the count is taken INSIDE the migration transaction, BEFORE COMMIT. The ALTER
- *                    holds ACCESS EXCLUSIVE on public.vehicles until commit, so no concurrent
- *                    refresh can stamp a row between the migration and the assertion. The check is
- *                    therefore race-free, and it measures exactly one thing: what the migration did.
+ *   · FIRST APPLY  — the count is taken INSIDE the migration transaction, BEFORE COMMIT. The
+ *                    transaction takes ACCESS EXCLUSIVE on public.vehicles up front, so no
+ *                    concurrent refresh can stamp a row between the migration and the assertion.
+ *                    The check is race-free, and measures exactly one thing: what the migration did.
  *   · VERIFY-ONLY  — stamped rows are REPORTED, never required to be zero. What is required is the
- *                    ledger row, the six-column shape, and that this invocation wrote nothing.
+ *                    ledger row, the column SHAPE, and that this invocation wrote nothing.
+ *
+ * ## Two corollaries, both learned from review
+ *
+ * SHAPE, NOT NAMES. Six columns with the right names but a drifted type, a NOT NULL, or a DEFAULT
+ * satisfy a name count and break the contract — a DEFAULT would fabricate provenance on every
+ * future insert. Both apply paths assert type, nullability and default per column.
+ *
+ * MEASURE UNDER THE LOCK. Application writes are not migration changes. Every legacy-score reading
+ * is taken inside the migration transaction while it holds the table, so a legitimate
+ * refreshCanonicalTrust() landing straight after COMMIT can never be misreported as the migration
+ * having rewritten history. Post-commit, only stable DDL facts are asserted.
  *
  * ## Modes
  *
@@ -68,11 +79,25 @@ export const MIGRATION = Object.freeze({
   sha12: 'cf0cc7f2c4f5',
 });
 
-/** The six nullable stamp columns this migration adds. */
-export const TRUST_STAMP_COLUMNS = Object.freeze([
-  'trust_calculation_version', 'trust_evaluated_at', 'trust_band',
-  'trust_confidence', 'trust_known_limitations', 'trust_evidence_basis',
-]);
+/**
+ * The six stamp columns and their REQUIRED shape — the migration's `c_names`/`c_types` pairing,
+ * verified against staging where the migration has actually run.
+ *
+ * Counting names is not enough. A column that exists but drifted to the wrong type, or picked up a
+ * NOT NULL, or — worst — acquired a DEFAULT, satisfies a name count while breaking the contract:
+ * canonical cache writes or reads fail on a type mismatch, and a DEFAULT would fabricate provenance
+ * on every future insert, which is precisely the laundering this cutover exists to prevent.
+ */
+export const EXPECTED_COLUMN_SHAPE = Object.freeze({
+  trust_calculation_version: 'text',
+  trust_evaluated_at: 'timestamptz',
+  trust_band: 'text',
+  trust_confidence: 'text',
+  trust_known_limitations: 'jsonb',
+  trust_evidence_basis: 'jsonb',
+});
+
+export const TRUST_STAMP_COLUMNS = Object.freeze(Object.keys(EXPECTED_COLUMN_SHAPE));
 
 /** A refusal is a deliberate fail-closed outcome, distinguishable from an unexpected crash. */
 export class CutoverRefusal extends Error {
@@ -148,6 +173,37 @@ export async function stampedCount(client) {
   return s[0].c;
 }
 
+/** The live definition of each stamp column: type, nullability and default. */
+export async function columnShape(client) {
+  const { rows } = await client.query(
+    `select column_name, udt_name, is_nullable, column_default
+       from information_schema.columns
+      where table_schema='public' and table_name='vehicles' and column_name = any($1::text[])
+      order by column_name`, [TRUST_STAMP_COLUMNS]);
+  return rows;
+}
+
+/** Every way the live schema can fail the contract, named individually rather than as a count. */
+export function shapeFailures(rows) {
+  const byName = new Map(rows.map((r) => [r.column_name, r]));
+  const out = [];
+  for (const [name, type] of Object.entries(EXPECTED_COLUMN_SHAPE)) {
+    const r = byName.get(name);
+    if (!r) { out.push(`${name} is missing`); continue; }
+    if (r.udt_name !== type) out.push(`${name} is ${r.udt_name}, expected ${type}`);
+    if (String(r.is_nullable).toUpperCase() !== 'YES') out.push(`${name} is NOT NULL; the contract requires nullable`);
+    if (r.column_default !== null && r.column_default !== undefined) {
+      out.push(`${name} carries a DEFAULT (${r.column_default}) — a default fabricates provenance on every insert`);
+    }
+  }
+  return out;
+}
+
+export async function assertColumnShape(client, context) {
+  const failures = shapeFailures(await columnShape(client));
+  if (failures.length) refuse(`${context} — schema shape is wrong: ${failures.join('; ')}.`);
+}
+
 export async function trustPosture(client) {
   const { rows } = await client.query(`
     select
@@ -191,10 +247,16 @@ export async function runPreflight(client, prepared, log = console.log) {
     reportPosture('PRODUCTION PREFLIGHT (read-only) — current trust posture', p, log);
     log(`\n  migration ${prepared.version} ledgered : ${ledgered ? 'yes' : 'no'}`);
     log(`  candidate checksum verified pre-connection : sha256:12 ${prepared.sum}`);
-    log(ledgered
-      ? '\n  apply would take the VERIFY-ONLY path: schema shape and ledger are re-proved, nothing is written.'
-      : `\n  apply would take the FIRST-APPLY path: ${TRUST_STAMP_COLUMNS.length - p.stamp_columns_present} of `
+    if (ledgered) {
+      log('\n  apply would take the VERIFY-ONLY path: ledger and column SHAPE are re-proved, nothing is written.');
+      const failures = shapeFailures(await columnShape(client));
+      log(failures.length
+        ? `  WARNING — the live shape already violates the contract: ${failures.join('; ')}`
+        : '  the live column shape already matches the contract.');
+    } else {
+      log(`\n  apply would take the FIRST-APPLY path: ${TRUST_STAMP_COLUMNS.length - p.stamp_columns_present} of `
         + `${TRUST_STAMP_COLUMNS.length} stamp columns are missing.`);
+    }
     log(`  legacy scores that must survive byte-identical: ${p.legacy_scored_rows} rows, checksum ${p.legacy_score_checksum}.`);
   } finally {
     await client.query('ROLLBACK');
@@ -205,13 +267,21 @@ export async function runPreflight(client, prepared, log = console.log) {
 /**
  * FIRST APPLY. The migration has never been recorded, so the schema must be untouched: anything else
  * is an unexpected partial state and is refused rather than reconciled by a script.
+ *
+ * EVERY DATA MEASUREMENT HAPPENS UNDER THE LOCK. The transaction takes ACCESS EXCLUSIVE on
+ * public.vehicles up front — the same lock the ALTER would take anyway, just acquired a moment
+ * earlier — so the before and after readings are separated by nothing except the migration itself.
+ * Measuring after COMMIT instead would let a legitimate refreshCanonicalTrust() write land between
+ * the commit and the reading and be misreported as "the migration changed legacy scores", which
+ * would announce a failed cutover after a successful one. Application writes are not migration
+ * changes, and the runner must not confuse the two in either direction.
  */
 export async function runFirstApply(client, prepared, log = console.log) {
-  const before = await trustPosture(client);
-  reportPosture('pre-apply', before, log);
+  const advisory = await trustPosture(client);
+  reportPosture('pre-apply (advisory, outside the lock)', advisory, log);
 
-  if (before.stamp_columns_present !== 0) {
-    refuse(`unexpected partial state: ${prepared.version} is not ledgered, yet ${before.stamp_columns_present} of `
+  if (advisory.stamp_columns_present !== 0) {
+    refuse(`unexpected partial state: ${prepared.version} is not ledgered, yet ${advisory.stamp_columns_present} of `
          + `${TRUST_STAMP_COLUMNS.length} stamp columns already exist. Someone applied this out of band. `
          + 'Reconciling that needs human review, not a script. Refusing.');
   }
@@ -219,12 +289,14 @@ export async function runFirstApply(client, prepared, log = console.log) {
   log(`\nApplying #${prepared.version} (${prepared.name}, sha256:12 ${prepared.sum}) in one transaction…`);
   await client.query('BEGIN');
   try {
+    await client.query('LOCK TABLE public.vehicles IN ACCESS EXCLUSIVE MODE');
+    const before = await trustPosture(client);
+
     await client.query(prepared.up);
 
-    // THE INVARIANT, MEASURED WHERE IT IS TRUE. The ALTER holds ACCESS EXCLUSIVE on public.vehicles
-    // until this transaction commits, so nothing else can have stamped a row in between. A non-zero
-    // count here means the MIGRATION created stamps — a default, a backfill — and that is the one
-    // thing this cutover exists to prevent.
+    // THE INVARIANT, MEASURED WHERE IT IS TRUE. Nothing else can hold the table, so a non-zero count
+    // here means the MIGRATION created stamps — a default, a backfill — and that is the one thing
+    // this cutover exists to prevent.
     const introduced = await stampedCount(client);
     if (introduced === null) {
       refuse('post-migration, trust_calculation_version still does not exist — the migration did not take effect.');
@@ -234,11 +306,25 @@ export async function runFirstApply(client, prepared, log = console.log) {
            + 'An additive migration must stamp nothing. Rolling back.');
     }
 
+    // Legacy data, re-read under the same lock: any difference is attributable to the migration.
+    const after = await trustPosture(client);
+    if (after.legacy_score_checksum !== before.legacy_score_checksum) {
+      refuse(`the migration changed legacy trust_score data (${before.legacy_score_checksum} -> ${after.legacy_score_checksum}). Rolling back.`);
+    }
+    if (after.legacy_scored_rows !== before.legacy_scored_rows) {
+      refuse(`the migration moved the scored row count ${before.legacy_scored_rows} -> ${after.legacy_scored_rows}. Rolling back.`);
+    }
+
+    await assertColumnShape(client, 'post-migration, before commit');
+
     await client.query(
       'INSERT INTO supabase_migrations.schema_migrations (version, statements, name) VALUES ($1, $2, $3)',
       [prepared.version, [prepared.up], prepared.name]);
     await client.query('COMMIT');
-    log(`  ok  the migration introduced 0 trust stamps (measured before commit, under the ALTER's lock)`);
+
+    log(`  ok  the migration introduced 0 trust stamps`);
+    log(`  ok  legacy scores byte-identical under the lock (${after.legacy_score_checksum}, ${after.legacy_scored_rows} rows)`);
+    log(`  ok  all six columns match the declared shape`);
     log(`#${prepared.version} applied and recorded.`);
   } catch (e) {
     await client.query('ROLLBACK');
@@ -246,23 +332,18 @@ export async function runFirstApply(client, prepared, log = console.log) {
     refuse(`#${prepared.version} failed and rolled back: ${e.message}`);
   }
 
-  const after = await trustPosture(client);
-  reportPosture('post-apply', after, log);
-
+  // POST-COMMIT: DDL facts only. These are stable — no application write can change them — so
+  // asserting on them cannot produce the spurious failure that a post-commit data reading would.
   const failures = [];
   if (!(await isLedgered(client))) failures.push(`#${prepared.version} was not recorded`);
-  if (after.stamp_columns_present !== TRUST_STAMP_COLUMNS.length) {
-    failures.push(`only ${after.stamp_columns_present}/${TRUST_STAMP_COLUMNS.length} stamp columns present`);
-  }
-  if (after.legacy_score_checksum !== before.legacy_score_checksum) {
-    failures.push(`legacy trust_score data CHANGED (${before.legacy_score_checksum} -> ${after.legacy_score_checksum})`);
-  }
-  if (after.legacy_scored_rows !== before.legacy_scored_rows) {
-    failures.push(`scored row count moved ${before.legacy_scored_rows} -> ${after.legacy_scored_rows}`);
-  }
+  failures.push(...shapeFailures(await columnShape(client)));
   if (failures.length) refuse(`POST-APPLY VERIFICATION FAILED — ${failures.join('; ')}.`);
 
-  log('\nok  six stamp columns present; legacy scores byte-identical; the migration stamped nothing.');
+  reportPosture('post-apply (informational — application writes here are not migration changes)',
+    await trustPosture(client), log);
+
+  log('\nok  ledger recorded; six columns match the declared shape; the migration stamped nothing');
+  log('    and left every legacy score byte-identical.');
   log('APPLY COMPLETE. refreshCanonicalTrust() can now write canonical trust for governed vehicles.');
   log('    Legacy unversioned scores remain unpublishable by design.');
 }
@@ -270,8 +351,14 @@ export async function runFirstApply(client, prepared, log = console.log) {
 /**
  * VERIFY-ONLY. The migration is already recorded, so a legitimate canonical refresh may since have
  * stamped governed vehicles. That is the system working, not a cutover failure: the count is
- * reported, never required to be zero. The whole pass runs in a server-asserted READ ONLY
- * transaction, which is what proves this invocation wrote nothing.
+ * reported, never required to be zero.
+ *
+ * This path exists to RE-PROVE THE SCHEMA, so it checks the actual definition of each column — type,
+ * nullability, default — not merely that six names exist. A `trust_evidence_basis` silently
+ * recreated as `text` instead of `jsonb` passes a name count and breaks every canonical cache read.
+ *
+ * The whole pass runs in a server-asserted READ ONLY transaction, which is what proves this
+ * invocation wrote nothing.
  */
 export async function runVerifyOnly(client, prepared, log = console.log) {
   await assertServerReadOnly(client);
@@ -279,17 +366,18 @@ export async function runVerifyOnly(client, prepared, log = console.log) {
     const p = await trustPosture(client);
     reportPosture('verify-only (read-only) — already ledgered', p, log);
 
-    const failures = [];
-    if (!(await isLedgered(client))) failures.push(`#${prepared.version} is not recorded`);
-    if (p.stamp_columns_present !== TRUST_STAMP_COLUMNS.length) {
-      failures.push(`only ${p.stamp_columns_present}/${TRUST_STAMP_COLUMNS.length} stamp columns present`);
-    }
-    if (failures.length) refuse(`VERIFY-ONLY FAILED — ${failures.join('; ')}.`);
+    if (!(await isLedgered(client))) refuse(`VERIFY-ONLY FAILED — #${prepared.version} is not recorded.`);
+    await assertColumnShape(client, 'VERIFY-ONLY FAILED');
 
+    log('\n  column shape, as required:');
+    for (const r of await columnShape(client)) {
+      log(`    ${r.column_name.padEnd(26)} ${r.udt_name.padEnd(12)} nullable=${r.is_nullable} default=${r.column_default ?? 'none'}`);
+    }
     log(`\n  ${p.stamped_rows} of ${p.total_vehicles} vehicles carry a canonical trust version.`);
     log('  That count is REPORTED, not constrained: after activation, refreshCanonicalTrust() is');
     log('  supposed to stamp governed vehicles. Requiring zero here would call a working system broken.');
-    log('\nok  ledger present; six stamp columns present; this invocation wrote nothing (server-asserted READ ONLY).');
+    log('\nok  ledger present; all six columns match the declared shape; this invocation wrote nothing');
+    log('    (server-asserted READ ONLY).');
   } finally {
     await client.query('ROLLBACK');
   }

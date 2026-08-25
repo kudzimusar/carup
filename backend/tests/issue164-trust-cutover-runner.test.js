@@ -31,8 +31,17 @@ const CHECKSUM_OK = 'cf0cc7f2c4f5';
  * way to certify "this invocation wrote nothing".
  */
 class FakeClient {
-  constructor({ columns = [], ledgered = false, vehicles = [], migrationEffect = null, up = '' } = {}) {
-    this.columns = new Set(columns);
+  constructor({ columns = [], ledgered = false, vehicles = [], migrationEffect = null, up = '',
+                shapeOverride = {}, onLock = null } = {}) {
+    // Columns are modelled as DEFINITIONS, not names, so a test can express the drift that a name
+    // count cannot see: wrong type, NOT NULL, or a DEFAULT.
+    this.columns = new Map();
+    for (const c of columns) this.columns.set(c, { udt_name: R.EXPECTED_COLUMN_SHAPE[c], is_nullable: 'YES', column_default: null });
+    for (const [c, def] of Object.entries(shapeOverride)) {
+      if (this.columns.has(c)) this.columns.set(c, { ...this.columns.get(c), ...def });
+    }
+    this.shapeOverride = shapeOverride;
+    this.onLock = onLock;
     this.ledgered = ledgered;
     this.vehicles = vehicles.map((v) => ({ ...v }));
     this.migrationEffect = migrationEffect;
@@ -49,6 +58,11 @@ class FakeClient {
   async query(sql, params) {
     this.statements.push(sql);
 
+    if (/^LOCK TABLE public\.vehicles IN ACCESS EXCLUSIVE MODE$/i.test(sql)) {
+      this.locked = true;
+      if (this.onLock) this.onLock(this);
+      return { rows: [] };
+    }
     if (/^BEGIN TRANSACTION READ ONLY$/i.test(sql)) { this.readOnly = true; return { rows: [] }; }
     if (/^BEGIN$/i.test(sql)) { this.readOnly = false; return { rows: [] }; }
     if (/^(COMMIT|ROLLBACK)$/i.test(sql)) { this.readOnly = false; return { rows: [] }; }
@@ -70,13 +84,24 @@ class FakeClient {
     if (this.up && sql === this.up) {
       // The migration's real effect: six nullable columns. `migrationEffect` lets a test simulate a
       // BAD migration that also stamps rows, which is the thing the pre-commit assertion must catch.
-      for (const c of R.TRUST_STAMP_COLUMNS) this.columns.add(c);
+      for (const c of R.TRUST_STAMP_COLUMNS) {
+        if (!this.columns.has(c)) {
+          this.columns.set(c, { udt_name: R.EXPECTED_COLUMN_SHAPE[c], is_nullable: 'YES', column_default: null,
+                                ...(this.shapeOverride[c] || {}) });
+        }
+      }
       if (this.migrationEffect) this.migrationEffect(this.vehicles);
       return { rows: [] };
     }
     if (/to_regclass/i.test(sql)) return { rows: [{ t: 'vehicles' }] };
     if (/current_database/i.test(sql)) return { rows: [{ db: 'postgres' }] };
 
+    if (/select column_name, udt_name, is_nullable, column_default/i.test(sql)) {
+      return {
+        rows: params[0].filter((n) => this.columns.has(n)).sort()
+          .map((n) => ({ column_name: n, ...this.columns.get(n) })),
+      };
+    }
     if (/column_name='trust_calculation_version'/i.test(sql)) {
       return { rows: [{ c: this.columns.has('trust_calculation_version') ? 1 : 0 }] };
     }
@@ -238,7 +263,9 @@ test('verify-only still fails closed on a broken schema shape', async () => {
   const prepared = R.prepareMigration();
   const c = new FakeClient({ columns: ['trust_band'], ledgered: true, vehicles: PROD_VEHICLES, up: prepared.up });
   await assert.rejects(() => R.runVerifyOnly(c, prepared, silent),
-    (e) => e instanceof R.CutoverRefusal && /only 1\/6 stamp columns present/.test(e.message));
+    (e) => e instanceof R.CutoverRefusal
+        && /VERIFY-ONLY FAILED — schema shape is wrong/.test(e.message)
+        && /trust_calculation_version is missing/.test(e.message));
 });
 
 test('a server that does not honour READ ONLY is refused', async () => {
@@ -271,4 +298,133 @@ test('preflight writes nothing and reports which path apply would take', async (
     assert.match(lines.join('\n'), new RegExp(`sha256:12 ${CHECKSUM_OK}`),
       'preflight must report the same pre-connection-verified candidate that apply would run');
   }
+});
+
+// ── 5. shape, not names — exact-head review P1 ───────────────────────────────────────────────────
+
+/**
+ * Verify-only exists to RE-PROVE the schema after the migration is recorded. Counting six names
+ * does not do that: a column recreated with the wrong type, or that picked up a NOT NULL or a
+ * DEFAULT, passes a name count and breaks the contract. A DEFAULT is the worst of the three — it
+ * would fabricate provenance on every future insert, which is exactly the laundering this cutover
+ * exists to prevent.
+ */
+test('VERIFY-ONLY rejects a drifted column TYPE that a name count would pass', async () => {
+  const prepared = R.prepareMigration();
+  const c = new FakeClient({
+    columns: [...R.TRUST_STAMP_COLUMNS], ledgered: true, vehicles: PROD_VEHICLES, up: prepared.up,
+    shapeOverride: { trust_known_limitations: { udt_name: 'text' } },   // jsonb -> text
+  });
+  await assert.rejects(() => R.runVerifyOnly(c, prepared, silent),
+    (e) => e instanceof R.CutoverRefusal && /trust_known_limitations is text, expected jsonb/.test(e.message));
+  assert.deepEqual(c.writes, [], 'a failing verify-only still must not write');
+});
+
+test('VERIFY-ONLY rejects a column that acquired a DEFAULT — provenance must never be fabricated', async () => {
+  const prepared = R.prepareMigration();
+  const c = new FakeClient({
+    columns: [...R.TRUST_STAMP_COLUMNS], ledgered: true, vehicles: PROD_VEHICLES, up: prepared.up,
+    shapeOverride: { trust_calculation_version: { column_default: "'trust-decision-1.0.0'::text" } },
+  });
+  await assert.rejects(() => R.runVerifyOnly(c, prepared, silent),
+    (e) => e instanceof R.CutoverRefusal && /carries a DEFAULT/.test(e.message));
+});
+
+test('VERIFY-ONLY rejects a column that became NOT NULL', async () => {
+  const prepared = R.prepareMigration();
+  const c = new FakeClient({
+    columns: [...R.TRUST_STAMP_COLUMNS], ledgered: true, vehicles: PROD_VEHICLES, up: prepared.up,
+    shapeOverride: { trust_evaluated_at: { is_nullable: 'NO' } },
+  });
+  await assert.rejects(() => R.runVerifyOnly(c, prepared, silent),
+    (e) => e instanceof R.CutoverRefusal && /is NOT NULL; the contract requires nullable/.test(e.message));
+});
+
+test('FIRST APPLY refuses if the migration produced the wrong shape, before commit', async () => {
+  const prepared = R.prepareMigration();
+  const c = new FakeClient({
+    columns: [], ledgered: false, vehicles: PROD_VEHICLES, up: prepared.up,
+    shapeOverride: { trust_evidence_basis: { udt_name: 'text' } },
+  });
+  await assert.rejects(() => R.runFirstApply(c, prepared, silent),
+    (e) => e instanceof R.CutoverRefusal && /trust_evidence_basis is text, expected jsonb/.test(e.message));
+  assert.ok(c.statements.includes('ROLLBACK'));
+  assert.ok(!c.statements.includes('COMMIT'), 'a wrong shape must never commit');
+  assert.equal(c.ledgered, false);
+});
+
+test('shapeFailures names every violation individually rather than returning a count', () => {
+  const rows = [
+    { column_name: 'trust_calculation_version', udt_name: 'text', is_nullable: 'YES', column_default: null },
+    { column_name: 'trust_evaluated_at', udt_name: 'text', is_nullable: 'NO', column_default: 'now()' },
+    { column_name: 'trust_band', udt_name: 'text', is_nullable: 'YES', column_default: null },
+    { column_name: 'trust_confidence', udt_name: 'text', is_nullable: 'YES', column_default: null },
+    { column_name: 'trust_known_limitations', udt_name: 'jsonb', is_nullable: 'YES', column_default: null },
+  ];
+  const f = R.shapeFailures(rows);
+  assert.ok(f.some((m) => /trust_evaluated_at is text, expected timestamptz/.test(m)));
+  assert.ok(f.some((m) => /trust_evaluated_at is NOT NULL/.test(m)));
+  assert.ok(f.some((m) => /trust_evaluated_at carries a DEFAULT/.test(m)));
+  assert.ok(f.some((m) => /trust_evidence_basis is missing/.test(m)));
+  assert.equal(R.shapeFailures(
+    Object.entries(R.EXPECTED_COLUMN_SHAPE).map(([column_name, udt_name]) =>
+      ({ column_name, udt_name, is_nullable: 'YES', column_default: null }))).length, 0,
+    'the contract-satisfying shape must produce no failures');
+});
+
+// ── 6. measure under the lock — exact-head review P2 ─────────────────────────────────────────────
+
+/**
+ * A legitimate refreshCanonicalTrust() write landing immediately after COMMIT must not be
+ * misreported as "the migration rewrote legacy scores". Application writes are not migration
+ * changes. Every legacy-score reading is therefore taken inside the transaction while it holds
+ * ACCESS EXCLUSIVE, and post-commit only stable DDL facts are asserted.
+ */
+test('a legitimate refresh landing right after COMMIT does NOT fail the cutover', async () => {
+  const prepared = R.prepareMigration();
+  const c = new FakeClient({ columns: [], ledgered: false, vehicles: PROD_VEHICLES, up: prepared.up });
+
+  const realQuery = c.query.bind(c);
+  c.query = async (sql, params) => {
+    const res = await realQuery(sql, params);
+    if (/^COMMIT$/i.test(sql)) {
+      // The instant the lock drops, an evidence-review request stamps a governed vehicle and
+      // rescores it — exactly the production path in vehiclesRoutes.
+      c.vehicles.push({ vin: 'CARUPGLDNA0000001', trust_score: 72, version: 'trust-decision-1.0.0' });
+      c.vehicles[0].trust_score = 99;
+    }
+    return res;
+  };
+
+  await R.runFirstApply(c, prepared, silent);   // must NOT throw
+
+  assert.equal(c.ledgered, true, 'the cutover succeeded and stays succeeded');
+  assert.equal(c.vehicles.filter((v) => v.version != null).length, 1,
+    'the legitimate stamp survives and is reported, not treated as a failure');
+});
+
+test('the migration rewriting a legacy score IS caught — under the lock, before commit', async () => {
+  const prepared = R.prepareMigration();
+  const c = new FakeClient({
+    columns: [], ledgered: false, vehicles: PROD_VEHICLES, up: prepared.up,
+    migrationEffect: (rows) => { rows[0].trust_score = 100; },
+  });
+  await assert.rejects(() => R.runFirstApply(c, prepared, silent),
+    (e) => e instanceof R.CutoverRefusal && /the migration changed legacy trust_score data/.test(e.message));
+  assert.ok(c.statements.includes('ROLLBACK'));
+  assert.ok(!c.statements.includes('COMMIT'));
+});
+
+test('first apply takes ACCESS EXCLUSIVE before it measures anything', async () => {
+  const prepared = R.prepareMigration();
+  const c = new FakeClient({ columns: [], ledgered: false, vehicles: PROD_VEHICLES, up: prepared.up });
+  await R.runFirstApply(c, prepared, silent);
+
+  const inTxn = c.statements.slice(c.statements.indexOf('BEGIN'));
+  const lockAt = inTxn.findIndex((s) => /LOCK TABLE public\.vehicles IN ACCESS EXCLUSIVE MODE/i.test(s));
+  const firstMeasureAt = inTxn.findIndex((s) => /legacy_score_checksum/i.test(s));
+  const migrationAt = inTxn.indexOf(prepared.up);
+  assert.ok(lockAt > -1, 'the transaction must take the table lock explicitly');
+  assert.ok(lockAt < firstMeasureAt, 'the lock must precede the first data measurement');
+  assert.ok(firstMeasureAt < migrationAt, 'the before-reading must precede the migration');
 });

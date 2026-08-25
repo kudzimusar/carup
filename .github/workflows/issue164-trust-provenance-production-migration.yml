@@ -45,6 +45,16 @@ name: 'Issue #164 Trust Provenance — Production Migration (20260817140000)'
 # constructed, preflight included — so a drifted candidate cannot collect a green read-only receipt
 # either.
 #
+# SHAPE, NOT NAMES. Six columns with the right names but a drifted type, a NOT NULL, or a DEFAULT
+# satisfy a name count while breaking the contract — and a DEFAULT would fabricate provenance on
+# every future insert, which is the laundering this cutover exists to prevent. Both apply paths
+# assert type, nullability and default per column against the migration's own declaration.
+#
+# MEASURE UNDER THE LOCK. Application writes are not migration changes. Every legacy-score reading
+# is taken inside the migration transaction while it holds ACCESS EXCLUSIVE, so a legitimate
+# refreshCanonicalTrust() landing the instant after COMMIT can never be misreported as the migration
+# having rewritten history. Post-commit, only stable DDL facts are asserted.
+#
 # ADDITIVE-ONLY GUARD. The runner refuses a file with no ADD COLUMN, or containing UPDATE/DELETE
 # against vehicles, or DROP TABLE — checked before any connection is opened.
 #
@@ -81,7 +91,7 @@ concurrency:
 env:
   # The single reviewed commit whose runner and migration files are executed. Advancing this pin is
   # a reviewable pull request, never an edit to this workflow alone.
-  CANDIDATE_SHA: e080ec2b1f6421286e4c5e5c3128db38db6ce4e2
+  CANDIDATE_SHA: __PIN__
   PG_DRIVER_VERSION: 8.21.0
 
 jobs:
@@ -106,7 +116,7 @@ jobs:
       - name: Check out the pinned candidate commit
         uses: actions/checkout@v4
         with:
-          ref: e080ec2b1f6421286e4c5e5c3128db38db6ce4e2
+          ref: __PIN__
           persist-credentials: false
 
       - name: Assert the checked-out commit is the pinned candidate
