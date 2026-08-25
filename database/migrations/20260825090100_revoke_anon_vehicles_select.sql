@@ -23,8 +23,10 @@
 --
 -- PRODUCTION STATE AT THE TIME OF WRITING -- THIS ONE IS A LIVE BREACH
 -- --------------------------------------------------------------------
--- Verified read-only against project vhmnajoeicasaigiophh with that project's
--- own anon key, printing column NAMES and counts only -- never a row value:
+-- Verified read-only against the production project with that project's own anon
+-- key, printing column NAMES and counts only -- never a row value. The project ref
+-- is deliberately NOT named here: CR-1 forbids it outside documentation, and it is
+-- recorded in docs/security/PRODUCTION_ANON_GRANT_INVENTORY.md:
 --
 --   GET /rest/v1/vehicles?select=*&limit=1
 --     -> HTTP 206, content-range 0-0/352, 45 COLUMNS, including

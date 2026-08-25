@@ -29,8 +29,10 @@
 -- would publish it to every visitor. What the correction changes is LIKELIHOOD,
 -- not the existence of the hole: anyone holding the key reads every column.
 
--- PRODUCTION STATE AT THE TIME OF WRITING (project vhmnajoeicasaigiophh,
--- read-only, structural evidence only -- no customer document was opened):
+-- PRODUCTION STATE AT THE TIME OF WRITING (the production project, read-only,
+-- structural evidence only -- no customer document was opened). The project ref is
+-- deliberately NOT named here: CR-1 forbids it outside documentation, and it is
+-- recorded in docs/security/PRODUCTION_ANON_GRANT_INVENTORY.md:
 --   · anon holds SELECT on all 54 COLUMNS of this table (pg catalog:
 --     has_column_privilege), and the anon SELECT policy is present;
 --   · the table currently holds 0 rows, so nothing is leaking TODAY;
