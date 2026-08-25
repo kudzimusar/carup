@@ -24,9 +24,26 @@ name: 'Issue #164 Trust Provenance — Production Migration (20260817140000)'
 # RAISES rather than commits if it moves. The runner re-asserts it from OUTSIDE the transaction,
 # because a guarantee made only by the thing being changed is not an independent guarantee.
 #
+# THE INVARIANT, STATED CORRECTLY:
+#
+#     THE MIGRATION MUST NOT CREATE TRUST STAMPS.
+#
+# NOT "production must remain forever unstamped". After activation, refreshCanonicalTrust() is
+# SUPPOSED to stamp governed vehicles. So the zero-stamp assertion is made where it is actually true
+# and actually provable: INSIDE the migration transaction, BEFORE COMMIT, where the ALTER's
+# ACCESS EXCLUSIVE lock makes it race-free. A later verify-only run REPORTS the stamped count and
+# never requires it to be zero — requiring that would report a working system as a failed cutover.
+#
 # MODE:
-#   preflight — READ ONLY. BEGIN TRANSACTION READ ONLY, posture reported, ROLLBACK.
-#   apply     — writes. Requires confirm_apply AND the protected `production` environment approval.
+#   preflight   — READ ONLY. BEGIN TRANSACTION READ ONLY asserted from the SERVER, then ROLLBACK.
+#   apply       — requires confirm_apply AND the protected `production` environment approval, then
+#                 dispatches on the LEDGER, decided before anything is written:
+#                   · not ledgered -> FIRST APPLY (writes; refuses any pre-existing partial state)
+#                   · ledgered     -> VERIFY-ONLY (read-only transaction; proves it wrote nothing)
+#
+# ORDER OF OPERATIONS. Every file, checksum and SQL-shape assertion runs BEFORE the connection is
+# constructed, preflight included — so a drifted candidate cannot collect a green read-only receipt
+# either.
 #
 # ADDITIVE-ONLY GUARD. The runner refuses a file with no ADD COLUMN, or containing UPDATE/DELETE
 # against vehicles, or DROP TABLE — checked before any connection is opened.
@@ -64,7 +81,7 @@ concurrency:
 env:
   # The single reviewed commit whose runner and migration files are executed. Advancing this pin is
   # a reviewable pull request, never an edit to this workflow alone.
-  CANDIDATE_SHA: 3c040d4fb9792adc2b4f92290ceeef1b4033cff0
+  CANDIDATE_SHA: __PIN__
   PG_DRIVER_VERSION: 8.21.0
 
 jobs:
@@ -89,7 +106,7 @@ jobs:
       - name: Check out the pinned candidate commit
         uses: actions/checkout@v4
         with:
-          ref: 3c040d4fb9792adc2b4f92290ceeef1b4033cff0
+          ref: __PIN__
           persist-credentials: false
 
       - name: Assert the checked-out commit is the pinned candidate
