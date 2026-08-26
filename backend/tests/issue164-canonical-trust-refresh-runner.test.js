@@ -36,7 +36,15 @@ class FakeDb {
   get writes() { return this.statements.filter((s) => /^\s*(insert|update|delete|alter|drop|truncate)\b/i.test(s)); }
   async query(sql, params) {
     this.statements.push(sql);
+    if (/to_regclass\(\$1\)/i.test(sql)) {
+      // trust_fact_requests is absent from production; its absence is part of what is pinned.
+      return { rows: [{ t: String(params?.[0]).includes('trust_fact_requests') ? null : params[0] }] };
+    }
     if (/to_regclass/i.test(sql)) return { rows: [{ t: 'vehicles' }] };
+    if (/from public\.vehicles x where x\.vin/i.test(sql)) return { rows: [{ h: 'vh' }] };
+    if (/string_agg\(to_jsonb\(x\)::text/i.test(sql) && /from public\.[a-z_]+ x where x\.vin/i.test(sql)) {
+      return { rows: [{ h: 'h' }] };
+    }
     if (/current_database/i.test(sql)) return { rows: [{ db: 'postgres' }] };
     if (/nontarget_checksum/i.test(sql)) {
       assert.equal(params[0], VIN, 'measurement must be scoped to the pinned VIN');
@@ -395,4 +403,75 @@ test('the pooler form binds the ref to the parsed username, not to the raw strin
     assert.throws(() => R.assertDbHost(url, REF),
       (e) => e instanceof R.RefreshRefusal && /pinned to neither/.test(e.message), `expected refusal: ${why}`);
   }
+});
+
+// ── JSONB key order, and inputs moving during apply — exact-head review, round three ────────────
+
+/**
+ * `trust_evidence_basis` is a JSONB column. Postgres does not preserve the JavaScript object's key
+ * order when it returns the value through `row_to_json`, so a textual comparison reports drift
+ * between two identical objects — and that failure lands AFTER the production write has already
+ * succeeded, reporting a failed cutover for a write that worked. Comparison must be structural.
+ */
+test('a JSONB value that comes back with different key order is NOT drift', () => {
+  const proposed = { trust_evidence_basis: { governed_facts_total: 7, governed_facts_substantiated: 0, connected_sources: 0 } };
+  // Same content, keys in the order Postgres happened to serialize them.
+  const persisted = { trust_evidence_basis: { connected_sources: 0, governed_facts_substantiated: 0, governed_facts_total: 7 } };
+  assert.doesNotThrow(() => R.assertPersistedMatchesProposed(proposed, persisted, () => {}));
+
+  // Nested objects and arrays too.
+  assert.doesNotThrow(() => R.assertPersistedMatchesProposed(
+    { trust_evidence_basis: { a: { x: 1, y: 2 }, list: [{ p: 1, q: 2 }] } },
+    { trust_evidence_basis: { a: { y: 2, x: 1 }, list: [{ q: 2, p: 1 }] } }, () => {}));
+});
+
+test('a genuine JSONB content difference IS still drift', () => {
+  assert.throws(() => R.assertPersistedMatchesProposed(
+    { trust_evidence_basis: { governed_facts_total: 7 } },
+    { trust_evidence_basis: { governed_facts_total: 8 } }, () => {}),
+    (e) => e instanceof R.RefreshRefusal && /PERSISTED DECISION DOES NOT MATCH/.test(e.message));
+  // Array ORDER is content, not formatting: a reordered list must not be waved through.
+  assert.throws(() => R.assertPersistedMatchesProposed(
+    { trust_known_limitations: ['a', 'b'] },
+    { trust_known_limitations: ['b', 'a'] }, () => {}), R.RefreshRefusal);
+});
+
+/**
+ * If an input moves after the writer's last read but before the post-apply measurement, the
+ * persisted patch still equals the earlier proposal and every other check passes — while the cache
+ * that just landed is already stale against the production state this run measured.
+ */
+test('APPLY refuses to declare success when an input moved during the write', async () => {
+  const db = new FakeDb();
+  const w = async (vin, opts = {}) => {
+    if (opts.dryRun) return { record: {}, patch: { ...GOOD_AFTER }, written: false, reason: 'dry_run' };
+    db.target = { ...GOOD_AFTER }; db.stamped += 1; db.unversioned -= 1;
+    db.inputs = 'dddddddddddddddddddddddddddddddd';   // a fraud case is inserted mid-apply
+    return { record: {}, patch: { ...GOOD_AFTER }, written: true };
+  };
+  await assert.rejects(() => R.runApply(db, deps(w), silent),
+    (e) => e instanceof R.RefreshRefusal && /the decision INPUTS moved during apply/.test(e.message));
+});
+
+test('the fingerprint covers every VIN-scoped decision input, including the fact tables', async () => {
+  // The nine FACT_INPUT_TABLES reached through resolveVehicleFacts determine trust_evidence_basis
+  // and trust_known_limitations, so they belong in the pin as much as vehicle_evidence does.
+  for (const t of ['vehicle_evidence', 'source_verification_coverage_public', 'fraud_cases',
+                   'escrow_trust_sessions', 'eligibility_requests', 'zimra_declarations',
+                   'cid_clearance_records', 'cvr_ownership_records', 'vid_inspections',
+                   'insurance_records', 'zinara_licensing_records', 'trust_fact_requests',
+                   'trust_audit_events', 'source_verification_results']) {
+    assert.ok(R.DECISION_INPUT_TABLES.includes(t), `${t} must be part of the pinned fingerprint`);
+  }
+  const { FACT_INPUT_TABLES } = await import('../services/evidence/vehicleFactResolver.js');
+  for (const t of FACT_INPUT_TABLES) {
+    assert.ok(R.DECISION_INPUT_TABLES.includes(t), `FACT_INPUT_TABLES member ${t} is missing from the pin`);
+  }
+});
+
+test('an ABSENT input table contributes a marker, so a table appearing later changes the digest', async () => {
+  const db = new FakeDb();
+  const digest = await R.decisionInputDigest(db, VIN);
+  assert.ok(digest.includes('absent'), 'the absent trust_fact_requests must contribute a marker');
+  assert.equal(digest.split('absent').length - 1, 1, 'exactly one table is absent in this model');
 });

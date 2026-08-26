@@ -81,7 +81,27 @@ export const NONTARGET_CHECKSUM = '0d4ed34f9697df66f87855cce2cdbdc3';
  * reviewed. Whole rows are hashed rather than named columns, so a change to a column this runner
  * never thought about is still caught.
  */
-export const DECISION_INPUT_FINGERPRINT = '5862fb069e716bf1703eb6d400b091ad';
+export const DECISION_INPUT_FINGERPRINT = '2e25e368c18e43c6e8a264b138523f1a';
+
+/**
+ * Every VIN-scoped table the decision reads, in fixed order.
+ *
+ * The first five are read directly by getTrustDecision / getCanonicalTrust. The remaining nine are
+ * FACT_INPUT_TABLES from vehicleFactResolver, reached through resolveVehicleFacts — they determine
+ * trust_evidence_basis and trust_known_limitations, so a row moving there moves the decision just as
+ * surely as a piece of evidence does.
+ *
+ * An ABSENT table contributes the literal 'absent' rather than being skipped, so a table APPEARING
+ * later changes the fingerprint instead of silently widening the input set. trust_fact_requests is
+ * absent from production today; that absence is part of what is pinned.
+ */
+export const DECISION_INPUT_TABLES = Object.freeze([
+  'vehicle_evidence', 'source_verification_coverage_public', 'fraud_cases',
+  'escrow_trust_sessions', 'eligibility_requests',
+  'zimra_declarations', 'cid_clearance_records', 'cvr_ownership_records', 'vid_inspections',
+  'insurance_records', 'zinara_licensing_records', 'trust_fact_requests', 'trust_audit_events',
+  'source_verification_results',
+]);
 export const NONTARGET_ROWS = 351;
 export const EXPECTED_STAMPED_BEFORE = 0;
 export const EXPECTED_UNVERSIONED_BEFORE = 352;
@@ -129,26 +149,35 @@ export async function measureTrustState(pg, vin = TARGET_VIN) {
               where trust_score is not null and trust_calculation_version is null) as unversioned,
            (select count(*)::int from public.vehicles)                            as total_vehicles,
            (select count(*)::int from supabase_migrations.schema_migrations)      as ledger_rows,
-           (select md5(
-              md5(coalesce((select string_agg(t::text, ',' order by t::text) from (
-                     select to_jsonb(x) - 'trust_score' - 'trust_calculation_version'
-                            - 'trust_evaluated_at' - 'trust_band' - 'trust_confidence'
-                            - 'trust_known_limitations' - 'trust_evidence_basis' as t
-                       from public.vehicles x where x.vin = $1) s), ''))
-           || md5(coalesce((select string_agg(to_jsonb(x)::text, ',' order by to_jsonb(x)::text)
-                     from public.vehicle_evidence x where x.vin = $1), ''))
-           || md5(coalesce((select string_agg(to_jsonb(x)::text, ',' order by to_jsonb(x)::text)
-                     from public.source_verification_coverage_public x where x.vin = $1), ''))
-           || md5(coalesce((select string_agg(to_jsonb(x)::text, ',' order by to_jsonb(x)::text)
-                     from public.fraud_cases x where x.vin = $1), ''))
-           || md5(coalesce((select string_agg(to_jsonb(x)::text, ',' order by to_jsonb(x)::text)
-                     from public.escrow_trust_sessions x where x.vin = $1), ''))
-           || md5(coalesce((select string_agg(to_jsonb(x)::text, ',' order by to_jsonb(x)::text)
-                     from public.eligibility_requests x where x.vin = $1), ''))
-           ))                                                                     as decision_inputs`,
-    [vin]);
+           (select md5($2::text)) as decision_inputs`,
+    [vin, await decisionInputDigest(pg, vin)]);
   return rows[0];
 }
+
+/**
+ * The digest of every decision input, assembled table by table so an absent table can contribute a
+ * marker instead of failing the whole statement at parse time.
+ */
+export async function decisionInputDigest(pg, vin) {
+  const parts = [];
+  const { rows: v } = await pg.query(
+    `select md5(coalesce((select string_agg(t::text, ',' order by t::text) from (
+        select to_jsonb(x) - 'trust_score' - 'trust_calculation_version' - 'trust_evaluated_at'
+               - 'trust_band' - 'trust_confidence' - 'trust_known_limitations' - 'trust_evidence_basis' as t
+          from public.vehicles x where x.vin = $1) s), '')) h`, [vin]);
+  parts.push(v[0].h);
+
+  for (const table of DECISION_INPUT_TABLES) {
+    const { rows: reg } = await pg.query('select to_regclass($1)::text t', [`public.${table}`]);
+    if (!reg[0].t) { parts.push('absent'); continue; }
+    const { rows: h } = await pg.query(
+      `select md5(coalesce((select string_agg(to_jsonb(x)::text, ',' order by to_jsonb(x)::text)
+          from public.${table} x where x.vin = $1), '')) h`, [vin]);
+    parts.push(h[0].h);
+  }
+  return parts.join('');
+}
+
 
 export function reportState(label, s, log = console.log) {
   log(`\n── ${label} ──`);
@@ -318,6 +347,17 @@ export async function runApply(pg, deps, log = console.log) {
   assertBlastRadius(before, after);
   assertPersistedMatchesProposed(proposed?.patch, after.target, log);
 
+  // AND THE INPUTS MUST STILL BE THE CERTIFIED ONES. If an input moved after the writer's last read
+  // but before this measurement, the persisted patch still equals the earlier proposal and every
+  // other check passes — while the cache that just landed is already stale against the production
+  // state this run measured. Success is not declared over a cache known to be behind.
+  if (after.decision_inputs !== DECISION_INPUT_FINGERPRINT || after.decision_inputs !== before.decision_inputs) {
+    refuse(`the decision INPUTS moved during apply (certified ${DECISION_INPUT_FINGERPRINT}, `
+         + `pre-apply ${before.decision_inputs}, post-apply ${after.decision_inputs}). The write `
+         + 'succeeded but the cache is already stale against measured production state; re-certify.');
+  }
+  log('  ok  the decision inputs are unchanged from the certified fingerprint.');
+
   log('\nok  the target is canonically stamped by the real writer;');
   log(`    all ${NONTARGET_ROWS} non-target rows are byte-identical (${after.nontarget_checksum});`);
   log(`    stamped ${before.stamped} -> ${after.stamped}; unversioned ${before.unversioned} -> ${after.unversioned};`);
@@ -332,7 +372,21 @@ export async function runApply(pg, deps, log = console.log) {
  */
 export function assertPersistedMatchesProposed(patch, target, log = console.log) {
   if (!patch || typeof patch !== 'object') return;   // a writer that proposes nothing is caught elsewhere
-  const norm = (v) => (v === null || v === undefined ? null : (typeof v === 'object' ? JSON.stringify(v) : String(v)));
+
+  // STRUCTURAL, NOT TEXTUAL. trust_evidence_basis is a JSONB column: Postgres does not preserve the
+  // JavaScript object's key order when it hands the value back through row_to_json, so comparing
+  // JSON.stringify output reports drift between two identical objects. That failure would land
+  // AFTER the production write had already succeeded — reporting a failed cutover for a write that
+  // worked. Keys are therefore canonicalized recursively before comparison.
+  const canon = (v) => {
+    if (Array.isArray(v)) return v.map(canon);
+    if (v && typeof v === 'object') {
+      return Object.fromEntries(Object.keys(v).sort().map((k) => [k, canon(v[k])]));
+    }
+    return v;
+  };
+  const norm = (v) => (v === null || v === undefined ? null
+    : (typeof v === 'object' ? JSON.stringify(canon(v)) : String(v)));
   const drift = [];
   for (const [k, v] of Object.entries(patch)) {
     if (k === 'trust_evaluated_at' || !(k in target)) continue;
