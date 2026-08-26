@@ -26,20 +26,25 @@ jobs:
     name: Vehicle Detail / reference regression
     runs-on: ubuntu-latest
     timeout-minutes: 20
+    env:
+      EXPECTED_HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
 
     steps:
       - name: Checkout exact candidate
         uses: actions/checkout@v4
+        with:
+          ref: ${{ env.EXPECTED_HEAD_SHA }}
+
+      - name: Assert exact candidate checkout
+        run: test "$(git rev-parse HEAD)" = "$EXPECTED_HEAD_SHA"
 
       - name: Setup Node.js 20
         uses: actions/setup-node@v4
         with:
           node-version: '20'
-          cache: npm
-          cache-dependency-path: web/package-lock.json
 
       - name: Install web dependencies
-        run: npm --prefix web ci
+        run: npm --prefix web install --no-audit --no-fund
 
       - name: Run Marketplace unit regressions
         run: >-
