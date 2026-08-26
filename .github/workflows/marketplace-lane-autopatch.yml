@@ -28,19 +28,9 @@ jobs:
           service = Path('backend/services/marketplace/listingSummaryService.js')
           src = service.read_text()
 
-          helper_needle = """function summaryMatchesTags(summary, tags) {
-            if (!tags || !tags.length) return true;
-            return tags.every(tag => summary.marketplace_tags.includes(tag));
-          }
-
-          /**
-           * Parse a `tag` filter"""
-          helper_replacement = """function summaryMatchesTags(summary, tags) {
-            if (!tags || !tags.length) return true;
-            return tags.every(tag => summary.marketplace_tags.includes(tag));
-          }
-
-          /** Exact-match a canonical public text facet. Missing/withheld values never match. */
+          tag_start = src.index('function summaryMatchesTags(summary, tags) {')
+          insert_at = src.index('/**\n * Parse a `tag` filter', tag_start)
+          facet_helpers = """/** Exact-match a canonical public text facet. Missing values never match. */
           export function summaryMatchesTextFacet(summary, value, field) {
             if (value === undefined || value === null || normalizeText(value) === '' || normalizeText(value) === 'all') return true;
             const actual = summary?.[field];
@@ -61,20 +51,16 @@ jobs:
             return leaves.some(leaf => leaf?.state === FIELD_STATES.RECORDED && normalizeText(leaf?.value) === wanted);
           }
 
-          /**
-           * Parse a `tag` filter"""
-          if helper_needle not in src:
-              raise SystemExit('helper insertion anchor not found')
-          src = src.replace(helper_needle, helper_replacement, 1)
+          """
+          if 'summaryMatchesLocationFacet' not in src:
+              src = src[:insert_at] + facet_helpers + src[insert_at:]
 
-          filter_needle = """  const filtered = summaries
-            .filter(summary => summaryMatchesSearch(summary, params.q))
-            .filter(summary => summaryMatchesCondition(summary, requestedCondition))
-            .filter(summary => summaryMatchesTags(summary, requestedTags));
-
-          const sorted = sortSummaries(filtered, params.sort);"""
+          list_start = src.index('export async function listMarketplaceListings')
+          filter_start = src.index('  const filtered = summaries', list_start)
+          sorted_line = '  const sorted = sortSummaries(filtered, params.sort);'
+          filter_end = src.index(sorted_line, filter_start) + len(sorted_line)
           filter_replacement = """  // All buyer-facing facets operate on canonical public summaries BEFORE sort/limit. This avoids
-            // the classic first-page bug where a valid vehicle outside the initial 48 could never be discovered.
+            // the first-page bug where a valid vehicle outside the initial 48 could never be discovered.
             const filtered = summaries
               .filter(summary => summaryMatchesSearch(summary, params.q))
               .filter(summary => summaryMatchesCondition(summary, requestedCondition))
@@ -84,16 +70,13 @@ jobs:
               .filter(summary => summaryMatchesTextFacet(summary, params.transmission, 'transmission'));
 
             const sorted = sortSummaries(filtered, params.sort);"""
-          if filter_needle not in src:
-              raise SystemExit('filter replacement anchor not found')
-          src = src.replace(filter_needle, filter_replacement, 1)
+          src = src[:filter_start] + filter_replacement + src[filter_end:]
           service.write_text(src)
 
           marketplace = Path('web/src/pages/Marketplace.tsx')
           web = marketplace.read_text()
-          if 'ListingWithTrust' not in web:
-              raise SystemExit('Marketplace type alias anchor not found')
-          web = web.replace('ListingWithTrust', 'CanonicalListing')
+          if 'ListingWithTrust' in web:
+              web = web.replace('ListingWithTrust', 'CanonicalListing')
           marketplace.write_text(web)
           PY
 
