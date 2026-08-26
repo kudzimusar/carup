@@ -62,7 +62,7 @@ function titleCase(value: string | null | undefined) {
     .replace(/\b\w/g, (letter) => letter.toUpperCase())
 }
 
-export function formatMarketplacePrice(price: number | null, currency: string | null) {
+function formatMarketplacePrice(price: number | null, currency: string | null) {
   if (typeof price !== 'number' || !Number.isFinite(price)) return 'Price not recorded'
   if (!currency) return `${price.toLocaleString()} · currency not recorded`
   if (currency.toUpperCase() === 'USD') return `$${price.toLocaleString()}`
