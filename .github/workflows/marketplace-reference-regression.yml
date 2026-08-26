@@ -1,4 +1,5 @@
 name: Marketplace Reference Regression
+# Exact-head certification gate; this comment intentionally carries no runtime semantics.
 
 on:
   pull_request:
