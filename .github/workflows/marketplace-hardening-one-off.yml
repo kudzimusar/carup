@@ -1,0 +1,540 @@
+name: Marketplace Continuity Hardening One-Off
+
+on:
+  push:
+    branches:
+      - feat/marketplace-reliability-reference-ux
+    paths:
+      - .github/workflows/marketplace-hardening-one-off.yml
+
+permissions:
+  contents: write
+
+jobs:
+  harden:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: feat/marketplace-reliability-reference-ux
+          fetch-depth: 0
+
+      - name: Apply continuity hardening
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import json
+
+          def replace_once(path, old, new, label):
+              p = Path(path)
+              text = p.read_text()
+              count = text.count(old)
+              if count != 1:
+                  raise SystemExit(f'{label}: expected exactly one anchor, found {count}')
+              p.write_text(text.replace(old, new, 1))
+
+          # 1) The stronger implementation deleted the unsupported Police Checked claim entirely;
+          # repair the stale regression test so CI enforces the stronger rule instead of restoring it.
+          replace_once(
+              'web/src/pages/VehicleDetail.media.test.tsx',
+              """  it('does not stamp the Police Checked badge onto the seller’s photo', async () => {
+            // The badge is a registry claim about the VEHICLE. Overlaid on the gallery it read as a claim
+            // about the picture underneath it, which is the conflation this phase removes. It still renders
+            // — it moved to the identity row — so this is a placement assertion, not a deletion.
+            servePassport(passportFixture({ evidenceVault: [], policeVerified: true }))
+            await renderSettled()
+            await waitFor(() => expect(screen.getByTestId('police-checked-badge')).toBeTruthy())
+
+            expect(screen.getByTestId('listing-media-block').innerHTML).not.toContain('Police Checked')
+          })
+""",
+              """  it('publishes no unsupported Police Checked approval claim anywhere on the buyer page', async () => {
+            // `police_verified` is a legacy boolean without authoritative public provenance. The hardened
+            // buyer contract suppresses the approval claim entirely rather than merely moving it off the
+            // seller photo. A future reintroduction must come through a governed evidence/fact contract.
+            servePassport(passportFixture({ evidenceVault: [], policeVerified: true }))
+            await renderSettled()
+            await waitFor(() => expect(screen.getByTestId('listing-media-block')).toBeTruthy())
+
+            expect(screen.queryByTestId('police-checked-badge')).toBeNull()
+            expect(document.body.textContent).not.toContain('Police Checked')
+            expect(screen.getByTestId('listing-media-block').innerHTML).not.toContain('Police Checked')
+          })
+""",
+              'VehicleDetail stale Police Checked regression',
+          )
+
+          # 2) Central buyer-presentation guards. These are deliberately tiny and pure so both the page
+          # adapter and the card can fail closed without inventing a second business-data contract.
+          Path('web/src/lib/marketplacePresentation.ts').write_text("""const PUBLISHABLE_PRIMARY_IMAGE_STATES = new Set(['seller_primary', 'first_published'])
+const ADVERSE_PLATE_STATES = new Set(['flagged', 'suspended'])
+
+export function canRenderMarketplacePrimaryImage(state: unknown, url: unknown): url is string {
+  return typeof url === 'string'
+    && url.trim() !== ''
+    && typeof state === 'string'
+    && PUBLISHABLE_PRIMARY_IMAGE_STATES.has(state)
+}
+
+export function primaryImageForListing(listing: {
+  primary_image_state?: unknown
+  primary_image_url?: unknown
+}): string | null {
+  return canRenderMarketplacePrimaryImage(listing.primary_image_state, listing.primary_image_url)
+    ? listing.primary_image_url.trim()
+    : null
+}
+
+export function isAdversePlateStatus(status: unknown): boolean {
+  return typeof status === 'string' && ADVERSE_PLATE_STATES.has(status.trim().toLowerCase())
+}
+
+export function plateStatusLabel(listing: { plate_status?: unknown; plate_verified?: unknown }): string {
+  const status = typeof listing.plate_status === 'string' ? listing.plate_status.trim() : ''
+  const normalized = status.toLowerCase()
+  if (normalized === 'flagged') return 'Plate flagged'
+  if (normalized === 'suspended') return 'Plate suspended'
+  if (listing.plate_verified === true) return 'Plate confirmed'
+  if (status) return `Plate ${status.replace(/[_-]+/g, ' ').toLowerCase()}`
+  return 'Plate status unknown'
+}
+""")
+
+          Path('web/src/lib/marketplacePresentation.test.ts').write_text("""import { describe, expect, it } from 'vitest'
+import {
+  canRenderMarketplacePrimaryImage,
+  isAdversePlateStatus,
+  plateStatusLabel,
+  primaryImageForListing,
+} from './marketplacePresentation'
+
+describe('marketplace buyer presentation guards', () => {
+  it('fails closed when a URL disagrees with the canonical primary-image state', () => {
+    expect(primaryImageForListing({ primary_image_state: 'none', primary_image_url: 'https://cdn.test/leak.jpg' })).toBeNull()
+    expect(primaryImageForListing({ primary_image_state: 'not_loaded', primary_image_url: '/stale.jpg' })).toBeNull()
+    expect(primaryImageForListing({ primary_image_state: 'seller_primary', primary_image_url: '/good.jpg' })).toBe('/good.jpg')
+    expect(canRenderMarketplacePrimaryImage('first_published', 'https://cdn.test/good.jpg')).toBe(true)
+  })
+
+  it('gives adverse plate lifecycle state priority over a positive verification boolean', () => {
+    expect(isAdversePlateStatus('Flagged')).toBe(true)
+    expect(isAdversePlateStatus('Suspended')).toBe(true)
+    expect(plateStatusLabel({ plate_status: 'Flagged', plate_verified: true })).toBe('Plate flagged')
+    expect(plateStatusLabel({ plate_status: 'Suspended', plate_verified: true })).toBe('Plate suspended')
+    expect(plateStatusLabel({ plate_status: 'Active', plate_verified: true })).toBe('Plate confirmed')
+    expect(plateStatusLabel({ plate_status: 'Active', plate_verified: false })).toBe('Plate active')
+  })
+})
+""")
+
+          # 3) Web Marketplace consumes those guards. Adverse status must not coexist with a green
+          # confirmation badge, and an inconsistent stale image URL must never reach <img>.
+          replace_once(
+              'web/src/pages/Marketplace.tsx',
+              """import type { ActiveFilterKey, MarketplaceSort, MarketplaceUrlState } from '@/lib/marketplaceParams'
+""",
+              """import type { ActiveFilterKey, MarketplaceSort, MarketplaceUrlState } from '@/lib/marketplaceParams'
+          import { isAdversePlateStatus, plateStatusLabel, primaryImageForListing } from '@/lib/marketplacePresentation'
+""",
+              'Marketplace presentation import',
+          )
+          replace_once(
+              'web/src/pages/Marketplace.tsx',
+              """function plateStatusLabel(listing: MarketplaceListingSummary) {
+            if (listing.plate_verified) return 'Plate confirmed'
+            if (listing.plate_status?.trim()) return 'Plate on file'
+            return 'Plate status unknown'
+          }
+
+""",
+              '',
+              'Marketplace local plate label',
+          )
+          replace_once(
+              'web/src/pages/Marketplace.tsx',
+              '                    primaryImage: listing.primary_image_url || null,\n',
+              '                    primaryImage: primaryImageForListing(listing),\n',
+              'Marketplace primary image adapter',
+          )
+          replace_once(
+              'web/src/pages/Marketplace.tsx',
+              '                    plateVerified: listing.plate_verified,\n',
+              '                    plateVerified: listing.plate_verified === true && !isAdversePlateStatus(listing.plate_status),\n',
+              'Marketplace adverse plate badge guard',
+          )
+
+          replace_once(
+              'web/src/components/marketplace/MarketplaceListingCard.tsx',
+              """import { ListingImage } from '@/components/marketplace/ListingImage'
+""",
+              """import { ListingImage } from '@/components/marketplace/ListingImage'
+          import { canRenderMarketplacePrimaryImage } from '@/lib/marketplacePresentation'
+""",
+              'card image guard import',
+          )
+          replace_once(
+              'web/src/components/marketplace/MarketplaceListingCard.tsx',
+              """}: MarketplaceListingCardProps) {
+            return (
+""",
+              """}: MarketplaceListingCardProps) {
+            const renderablePrimaryImage = canRenderMarketplacePrimaryImage(vehicle.primaryImageState, vehicle.primaryImage)
+              ? vehicle.primaryImage
+              : null
+
+            return (
+""",
+              'card renderable image guard',
+          )
+          replace_once(
+              'web/src/components/marketplace/MarketplaceListingCard.tsx',
+              '            src={vehicle.primaryImage}\n',
+              '            src={renderablePrimaryImage}\n',
+              'card guarded image source',
+          )
+
+          # 4) Shared listing type must describe the values the canonical builder ACTUALLY emits.
+          # Unknown year/price/currency/mileage and unrecorded seller/location are legal nulls.
+          shared = Path('shared/types/index.ts')
+          s = shared.read_text()
+          for old, new, label in [
+              ('  year: number;\n', '  year: number | null;\n', 'shared year nullability'),
+              ('  price: number;\n', '  price: number | null;\n', 'shared price nullability'),
+              ('  currency: string;\n', '  currency: string | null;\n', 'shared currency nullability'),
+              ('  mileage: number;\n', '  mileage: number | null;\n', 'shared mileage nullability'),
+              ("  seller_type: 'dealer' | 'private' | string;\n", "  seller_type: 'dealer' | 'private' | string | null;\n", 'shared seller type nullability'),
+              ('  seller_display_label: string;\n', '  seller_display_label: string | null;\n', 'shared seller label nullability'),
+              ('  location?: string;\n', '  location?: string | null;\n', 'shared location nullability'),
+          ]:
+              count = s.count(old)
+              if count != 1:
+                  raise SystemExit(f'{label}: expected exactly one anchor, found {count}')
+              s = s.replace(old, new, 1)
+          shared.write_text(s)
+
+          # 5) Native contract: reuse the shared canonical Trust type instead of maintaining a second
+          # manual ten-field declaration; resolve canonical media URLs for React Native and fail closed
+          # when primary_image_state disagrees with a stale URL.
+          replace_once(
+              'mobile/utils/marketplaceApi.ts',
+              """import { getVerificationApiBaseUrl, fetchCsrfToken } from './verificationApi';
+""",
+              """import { getVerificationApiBaseUrl, fetchCsrfToken } from './verificationApi';
+          import type {
+            MarketplacePublicTrust,
+            MarketplaceTrustEvaluationState,
+            MarketplaceTrustEvidenceBasis,
+          } from '@shared/types';
+""",
+              'mobile shared Trust import',
+          )
+          p = Path('mobile/utils/marketplaceApi.ts')
+          m = p.read_text()
+          start = m.index('/**\n * Exact public trust projection published by canonicalTrustService.toPublicTrust().')
+          end = m.index('export interface MobileTransactionIntent', start)
+          replacement = """/** Shared aliases bind native rendering to the same ten-field public Trust contract as web. */
+          export type MobileTrustEvaluationState = MarketplaceTrustEvaluationState;
+          export type MobileTrustEvidenceBasis = MarketplaceTrustEvidenceBasis;
+          export type MobilePublicTrust = MarketplacePublicTrust;
+
+          """
+          m = m[:start] + replacement + m[end:]
+          media_anchor = """export type MobilePrimaryImageState = 'seller_primary' | 'first_published' | 'none' | 'not_loaded';
+          export type MobileReservationState = 'active' | 'expired' | 'none' | 'unavailable' | 'inconsistent';
+
+"""
+          if m.count(media_anchor) != 1:
+              raise SystemExit('mobile media helper anchor not found exactly once')
+          media_helpers = media_anchor + """const PUBLISHABLE_PRIMARY_IMAGE_STATES = new Set<MobilePrimaryImageState>(['seller_primary', 'first_published']);
+
+          function inferMediaUrlForm(url: string): MobileMediaUrlForm | null {
+            if (url.startsWith('//')) return 'protocol_relative';
+            if (url.startsWith('/')) return 'site_relative';
+            if (/^https:\/\//i.test(url)) return 'absolute_https';
+            if (/^http:\/\//i.test(url)) return 'absolute_http';
+            return null;
+          }
+
+          export function resolveMarketplaceMediaUrl(
+            url: string | null | undefined,
+            expectedForm: MobileMediaUrlForm | null = null,
+            baseUrl: string = getVerificationApiBaseUrl(),
+          ): string | null {
+            if (typeof url !== 'string' || !url.trim()) return null;
+            const trimmed = url.trim();
+            const inferred = inferMediaUrlForm(trimmed);
+            if (!inferred || (expectedForm && expectedForm !== inferred)) return null;
+            if (inferred === 'absolute_https' || inferred === 'absolute_http') return trimmed;
+            try {
+              const base = new URL(baseUrl);
+              return new URL(trimmed, base.origin).toString();
+            } catch {
+              return null;
+            }
+          }
+
+          export function resolveMarketplacePrimaryImage(
+            listing: { primary_image_state: MobilePrimaryImageState; primary_image_url?: string | null },
+            baseUrl: string = getVerificationApiBaseUrl(),
+          ): string | null {
+            if (!PUBLISHABLE_PRIMARY_IMAGE_STATES.has(listing.primary_image_state)) return null;
+            return resolveMarketplaceMediaUrl(listing.primary_image_url, null, baseUrl);
+          }
+
+"""
+          m = m.replace(media_anchor, media_helpers, 1)
+          p.write_text(m)
+
+          # Native list uses the resolver; a site-relative staging asset must become an absolute URI.
+          replace_once(
+              'mobile/app/(tabs)/marketplace.tsx',
+              """  getMarketplaceListings,
+            type MobileListingSummary,
+            type MobilePublicTrust,
+""",
+              """  getMarketplaceListings,
+            resolveMarketplacePrimaryImage,
+            type MobileListingSummary,
+            type MobilePublicTrust,
+""",
+              'mobile list resolver import',
+          )
+          replace_once(
+              'mobile/app/(tabs)/marketplace.tsx',
+              """    const isReserved = item.reservation_summary?.reserved === true;
+
+            return (
+""",
+              """    const isReserved = item.reservation_summary?.reserved === true;
+            const primaryImageUrl = resolveMarketplacePrimaryImage(item);
+
+            return (
+""",
+              'mobile list primary image variable',
+          )
+          replace_once(
+              'mobile/app/(tabs)/marketplace.tsx',
+              """            {item.primary_image_url ? (
+                      <Image
+                        source={{ uri: item.primary_image_url }}
+""",
+              """            {primaryImageUrl ? (
+                      <Image
+                        source={{ uri: primaryImageUrl }}
+""",
+              'mobile list guarded image source',
+          )
+
+          # Native detail trusts the server's elected primary image instead of re-electing items[0],
+          # and it never prints "Invalid Date" for a malformed timestamp.
+          replace_once(
+              'mobile/app/vehicle/[vin].tsx',
+              """  getMarketplaceListingDetail,
+            createMarketplaceInquiry,
+            type MobileListingDetail,
+""",
+              """  getMarketplaceListingDetail,
+            createMarketplaceInquiry,
+            resolveMarketplacePrimaryImage,
+            type MobileListingDetail,
+""",
+              'mobile detail resolver import',
+          )
+          replace_once(
+              'mobile/app/vehicle/[vin].tsx',
+              """function formatMileage(mileage: number | null) {
+            return typeof mileage === 'number' && Number.isFinite(mileage)
+              ? `${mileage.toLocaleString()} km`
+              : 'Mileage not recorded';
+          }
+
+""",
+              """function formatMileage(mileage: number | null) {
+            return typeof mileage === 'number' && Number.isFinite(mileage)
+              ? `${mileage.toLocaleString()} km`
+              : 'Mileage not recorded';
+          }
+
+          function formatEvaluationDate(value: string | null | undefined) {
+            const timestamp = Date.parse(value || '');
+            return Number.isFinite(timestamp) ? new Date(timestamp).toLocaleDateString() : null;
+          }
+
+""",
+              'mobile evaluated date helper',
+          )
+          replace_once(
+              'mobile/app/vehicle/[vin].tsx',
+              """function TrustCard({ trust }: { trust?: MobilePublicTrust | null }) {
+            const evaluatedScore = trust?.evaluation_state === 'evaluated'
+""",
+              """function TrustCard({ trust }: { trust?: MobilePublicTrust | null }) {
+            const evaluatedDate = formatEvaluationDate(trust?.evaluated_at);
+            const evaluatedScore = trust?.evaluation_state === 'evaluated'
+""",
+              'mobile evaluated date binding',
+          )
+          replace_once(
+              'mobile/app/vehicle/[vin].tsx',
+              """        {trust?.evaluated_at ? (
+                  <Text className=\"mt-3 text-[10px] text-slate-500\">Evaluated {new Date(trust.evaluated_at).toLocaleDateString()}</Text>
+                ) : null}
+""",
+              """        {evaluatedDate ? (
+                  <Text className=\"mt-3 text-[10px] text-slate-500\">Evaluated {evaluatedDate}</Text>
+                ) : null}
+""",
+              'mobile safe evaluated date render',
+          )
+          replace_once(
+              'mobile/app/vehicle/[vin].tsx',
+              """  const mediaItem = vehicle.listing_media?.items?.[0] || null;
+            const heroUrl = mediaItem?.url || vehicle.primary_image_url || null;
+""",
+              """  // The backend has already elected the canonical primary. Re-electing items[0] here can
+            // contradict the seller's is_primary choice and bypass primary_image_state on inconsistent payloads.
+            const heroUrl = resolveMarketplacePrimaryImage(vehicle);
+""",
+              'mobile detail canonical hero',
+          )
+
+          # 6) Native regression proof for URL resolution + state gating.
+          Path('mobile/tests/marketplace-media-contract.test.ts').write_text("""import assert from 'node:assert/strict';
+          import {
+            resolveMarketplaceMediaUrl,
+            resolveMarketplacePrimaryImage,
+          } from '../utils/marketplaceApi';
+
+          const base = 'https://api.carup.dev/api';
+
+          assert.equal(
+            resolveMarketplaceMediaUrl('/uat/owner/hilux.svg', 'site_relative', base),
+            'https://api.carup.dev/uat/owner/hilux.svg',
+          );
+          assert.equal(
+            resolveMarketplaceMediaUrl('//cdn.carup.dev/hilux.jpg', 'protocol_relative', base),
+            'https://cdn.carup.dev/hilux.jpg',
+          );
+          assert.equal(resolveMarketplaceMediaUrl('data:image/png;base64,AAAA', null, base), null);
+          assert.equal(resolveMarketplaceMediaUrl('/good.jpg', 'absolute_https', base), null);
+          assert.equal(
+            resolveMarketplacePrimaryImage({ primary_image_state: 'none', primary_image_url: '/stale.jpg' }, base),
+            null,
+          );
+          assert.equal(
+            resolveMarketplacePrimaryImage({ primary_image_state: 'seller_primary', primary_image_url: '/good.jpg' }, base),
+            'https://api.carup.dev/good.jpg',
+          );
+
+          console.log('marketplace media contract: PASS');
+""")
+
+          package_path = Path('mobile/package.json')
+          package = json.loads(package_path.read_text())
+          native_script = package['scripts']['test:native']
+          addition = 'tsx tests/marketplace-media-contract.test.ts'
+          if addition not in native_script:
+              package['scripts']['test:native'] = native_script + ' && ' + addition
+          package_path.write_text(json.dumps(package, indent=2) + '\n')
+
+          # 7) Browser regression proof for the omissions found during the continuity audit.
+          e2e = Path('web/e2e/marketplace-reference-ux.spec.ts')
+          et = e2e.read_text()
+          marker = "test('stale/unavailable trust, missing price, media-state mismatch and adverse plate status fail closed'"
+          if marker not in et:
+              et += """
+
+          test('stale/unavailable trust, missing price, media-state mismatch and adverse plate status fail closed', async ({ page }) => {
+            await commonMocks(page)
+            await page.route(/\\/api\\/marketplace\\/listings(\\?|$)/, (route: Route) => route.fulfill({
+              json: {
+                total: 2,
+                limit: 48,
+                listings: [
+                  listing(VIN_A, {
+                    price: null,
+                    currency: null,
+                    trust_score: 99,
+                    trust: { score: null, band: null, evaluation_state: 'stale', confidence: 'low', calculation_version: 'old', known_limitations: [] },
+                    primary_image_url: 'https://cdn.carup.dev/should-not-render.jpg',
+                    primary_image_state: 'not_loaded',
+                    plate_verified: true,
+                    plate_status: 'Flagged',
+                  }),
+                  listing(VIN_B, {
+                    make: 'Honda', model: 'Fit', trust_score: 97,
+                    trust: { score: null, band: null, evaluation_state: 'unavailable', confidence: 'not_evaluated', calculation_version: null, known_limitations: [] },
+                  }),
+                ],
+              },
+            }))
+
+            await page.goto('/marketplace')
+            const cards = page.getByTestId('marketplace-vehicle-card')
+            const first = cards.nth(0)
+            const second = cards.nth(1)
+            await expect(first.getByTestId('marketplace-card-price')).toContainText('Price not recorded')
+            await expect(first.getByTestId('marketplace-card-trust')).toContainText('Evaluation update pending')
+            await expect(second.getByTestId('marketplace-card-trust')).toContainText('Trust temporarily unavailable')
+            await expect(first).not.toContainText('99')
+            await expect(second).not.toContainText('97')
+            await expect(first.locator('img[src*="should-not-render"]')).toHaveCount(0)
+            await expect(first.getByTestId('marketplace-plate-status')).toHaveText('Plate flagged')
+            await expect(first.getByTestId('marketplace-plate-confirmed-badge')).toHaveCount(0)
+          })
+
+          test('location, fuel and transmission facets are forwarded to the canonical backend', async ({ page }) => {
+            await commonMocks(page)
+            const observed: string[] = []
+            await page.route(/\\/api\\/marketplace\\/listings(\\?|$)/, (route: Route) => {
+              const url = new URL(route.request().url())
+              observed.push(url.search)
+              return route.fulfill({ json: { total: 1, limit: 48, listings: [listing(VIN_A)] } })
+            })
+
+            await page.goto('/marketplace?location=Harare&fuel=Diesel&transmission=Automatic')
+            await expect(page.getByTestId('marketplace-vehicle-card').first()).toBeVisible()
+            await expect.poll(() => observed.some(search => {
+              const params = new URLSearchParams(search)
+              return params.get('location') === 'Harare'
+                && params.get('fuel') === 'Diesel'
+                && params.get('transmission') === 'Automatic'
+            })).toBe(true)
+          })
+"""
+          e2e.write_text(et)
+
+          # Self-clean: the one-off workflow must not remain in the feature tree.
+          Path('.github/workflows/marketplace-hardening-one-off.yml').unlink()
+          PY
+
+          git diff --check
+          git status --short
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Targeted web typecheck and regression tests
+        shell: bash
+        run: |
+          npm run typecheck --workspace=web
+          npm run test:unit --workspace=web -- src/pages/VehicleDetail.media.test.tsx src/lib/marketplaceParams.test.ts src/lib/marketplacePresentation.test.ts
+
+      - name: Native typecheck and contract tests
+        shell: bash
+        run: |
+          npm run ts:check --workspace=mobile
+          npm run test:native --workspace=mobile
+
+      - name: Backend facet regression
+        run: node --test backend/tests/marketplace-reference-facets.test.js
+
+      - name: Commit hardened Marketplace slice
+        shell: bash
+        run: |
+          git config user.name "carup-marketplace-bot"
+          git config user.email "actions@users.noreply.github.com"
+          git add -A
+          git commit -m "fix(marketplace): harden canonical buyer presentation contracts"
+          git push origin HEAD:feat/marketplace-reliability-reference-ux
