@@ -187,6 +187,7 @@ export class CommunicationDeliveryWorker {
         html_part_rendered: rendered.html_part_rendered,
         text_part_rendered: rendered.text_part_rendered,
         cta_href_canonical: rendered.cta_href_canonical,
+        cta_route: rendered.cta_route,
         leadership_identity_rendered: rendered.leadership_identity_rendered,
         render_fallback_used: rendered.render_fallback_used,
       };

@@ -5,6 +5,7 @@ import {
   EMAIL_CLASSIFICATION_ERRORS,
   normalizeEmailClassification,
 } from '../emailExperience/emailClassification.js';
+import { senderPersonaFor } from '../emailExperience/emailSenderPersona.js';
 import {
   assertNoMarketingUnsubscribePresentation,
   unsubscribeHrefFor,
@@ -309,13 +310,75 @@ export class ResendEmailAdapter extends HttpCommunicationAdapter {
 
   fromAddress(input) {
     // Auth/security Email is sent from the security sender; everything else from the default.
-    const authKey = input?.content?.data?.auth_template_key;
-    if (authKey) {
+    //
+    // G4 added `classification === 'security'` alongside the auth template key. They agree on every
+    // message that exists today — the only producer of `security` also sets an auth template key —
+    // but they were keyed on different things, so a future security Email without an auth template
+    // would have gone out from the notifications sender while the renderer's persona said Security.
+    // Aligning them makes the consistency check below structural rather than hopeful.
+    const data = input?.content?.data || {};
+    if (data.auth_template_key || normalizeEmailClassification(data.classification) === 'security') {
       return envValue(this.env, 'RESEND_AUTH_FROM_EMAIL') || 'CarUp Security <auth@mail.carup.dev>';
     }
     const from = envValue(this.env, 'RESEND_FROM_EMAIL');
     const name = envValue(this.env, 'RESEND_FROM_NAME') || 'CarUp';
     return from && !from.includes('<') ? `${name} <${from}>` : from;
+  }
+
+  /**
+   * Send-side provenance, derived from the object actually handed to Resend.
+   *
+   * Every `*_sent` field reads `body`, never the renderer's intent and never what this code was
+   * supposed to have produced. That distinction is the whole point: Brevo's provenance exists
+   * because a delivered marketing message once carried no unsubscribe control while every check
+   * said it did, and the checks were reading the code rather than the payload.
+   *
+   * Nothing secret is recorded. Not the recipient, not the Reply-To value, not the subject text, not
+   * a token-bearing URL, not the body. Booleans and non-secret identifiers only — this object is
+   * persisted onto `message_delivery_attempts` and outlives every credential in it.
+   */
+  sendProvenance(body, { input, htmlSource, personaConsistent, idempotencyKeySent, outcome }) {
+    const renderer = rendererProvenance(input);
+    const attempted = outcome !== 'provider_accepted';
+    const present = (value) => typeof value === 'string' && value.length > 0;
+    return {
+      // What the RENDERER produced. Carried through untouched.
+      renderer_version: renderer.renderer_version ?? null,
+      classification: renderer.classification ?? normalizeEmailClassification(input?.content?.data?.classification),
+      classification_source: renderer.classification_source ?? null,
+      template_key: renderer.template_key ?? null,
+      template_version: renderer.template_version ?? null,
+      footer_family: renderer.footer_family ?? null,
+      sender_persona: renderer.sender_persona ?? null,
+      leadership_identity_rendered: renderer.leadership_identity_rendered ?? false,
+      render_fallback_used: renderer.render_fallback_used ?? null,
+      html_part_rendered: renderer.html_part_rendered ?? null,
+      cta_href_canonical: renderer.cta_href_canonical ?? null,
+      cta_route: renderer.cta_route ?? null,
+
+      // What went ON THE WIRE. Read from `body`, after every mutation of it.
+      send_outcome: outcome,
+      ...(attempted
+        // A rejected request was attempted, not sent. Named so it can never be read as acceptance.
+        ? {
+          html_part_in_request: present(body.html),
+          text_part_in_request: present(body.text),
+          reply_to_in_request: Boolean(body.reply_to),
+        }
+        : {
+          html_part_sent: present(body.html),
+          text_part_sent: present(body.text),
+          reply_to_set: Boolean(body.reply_to),
+        }),
+      subject_present: present(body.subject),
+      html_source: htmlSource,
+      // TRUE only when the renderer deliberately produced no HTML and the certified auth path
+      // supplied what was sent. Not merely because an auth template key exists — if that render
+      // failed, no HTML was sent and claiming otherwise would hide the degradation.
+      auth_compatibility_html_used: htmlSource === 'auth_compatibility',
+      sender_persona_consistent: personaConsistent,
+      idempotency_key_sent: idempotencyKeySent,
+    };
   }
 
   async send(input = {}) {
@@ -339,7 +402,14 @@ export class ResendEmailAdapter extends HttpCommunicationAdapter {
       },
     };
 
-    const html = resolveAuthHtml(input) || emailHtml(input);
+    // Which layer produced the HTML matters, so both are resolved and the winner is recorded.
+    // `auth_compatibility_html_used` is the only evidence that the certified auth renderer ran, and
+    // it cannot be inferred from an auth template key alone: if that render failed, no HTML was
+    // sent and the message degraded to text, which is a different fact worth seeing.
+    const authHtml = resolveAuthHtml(input);
+    const renderedHtml = emailHtml(input);
+    const html = authHtml || renderedHtml;
+    const htmlSource = authHtml ? 'auth_compatibility' : (renderedHtml ? 'renderer' : null);
     if (html) body.html = html;
 
     // The exactly-one contract, read in the other direction. Resend carries every NON-marketing
@@ -348,6 +418,8 @@ export class ResendEmailAdapter extends HttpCommunicationAdapter {
     // on it. Refused rather than stripped — silently rewriting content is the behaviour G3 removed.
     const notPermitted = assertNoMarketingUnsubscribePresentation({ html: body.html, text: body.text });
     if (!notPermitted.ok) {
+      // A pre-send refusal carries NO send provenance. Nothing was attempted, so there is nothing
+      // truthful to say about a request body.
       return {
         accepted: false,
         retryable: false,
@@ -359,8 +431,41 @@ export class ResendEmailAdapter extends HttpCommunicationAdapter {
     const replyTo = input?.content?.data?.reply_to || envValue(this.env, 'RESEND_REPLY_TO');
     if (replyTo) body.reply_to = replyTo;
 
+    // The renderer names a sender persona; this adapter independently computes a `From`. If those
+    // disagree the message would go out under an identity nobody chose — a security notice from the
+    // marketing sender, or the reverse. Refuse rather than send under the wrong name.
+    //
+    // Only checked when a canonical classification exists to check against; the router refuses a
+    // missing one before this point, so this is not a hole.
+    const classification = normalizeEmailClassification(input?.content?.data?.classification);
+    const persona = classification ? senderPersonaFor(classification, this.env) : null;
+    const declaredPersona = rendererProvenance(input).sender_persona || null;
+    let personaConsistent = null;
+    if (persona) {
+      personaConsistent = bareEmailAddress(body.from) === bareEmailAddress(persona.address)
+        && (!declaredPersona || declaredPersona === persona.key);
+      if (!personaConsistent) {
+        return {
+          accepted: false,
+          retryable: false,
+          errorCode: 'sender_persona_mismatch',
+          errorMessage: `The transport sender does not match the canonical persona for '${classification}'; refusing to send under an identity nobody selected.`,
+        };
+      }
+    }
+
+    const idempotencyKeySent = Boolean(headers['Idempotency-Key']);
+
     const response = await this.requestJson('https://api.resend.com/emails', { headers, body });
-    if (!response.ok) return this.providerFailure(response);
+    if (!response.ok) {
+      return {
+        ...this.providerFailure(response),
+        providerMetadata: this.sendProvenance(body, {
+          input, htmlSource, personaConsistent, idempotencyKeySent,
+          outcome: 'request_attempted_provider_rejected',
+        }),
+      };
+    }
 
     const providerRequestId = response.body?.id || stableRequestId('resend', input);
     // Resend exposes the RFC Message-ID on the send response; fall back to its own id so reply
@@ -372,6 +477,12 @@ export class ResendEmailAdapter extends HttpCommunicationAdapter {
       providerRequestId,
       providerMessageId: rfcMessageId || providerRequestId,
       providerStatus: 'accepted',
+      // Derived from `body` AFTER every field on it was settled, so the evidence describes the same
+      // object that was transmitted rather than an earlier version of it.
+      providerMetadata: this.sendProvenance(body, {
+        input, htmlSource, personaConsistent, idempotencyKeySent,
+        outcome: 'provider_accepted',
+      }),
     };
   }
 }
@@ -538,6 +649,32 @@ export class BrevoMarketingAdapter extends HttpCommunicationAdapter {
       },
     };
   }
+}
+
+
+/**
+ * G4 — send-side provenance helpers.
+ *
+ * `bareEmailAddress` exists because `From` is a display string (`CarUp Security <auth@…>`) while a
+ * persona is an address. Comparing the two forms directly reports a mismatch that is not one.
+ */
+function bareEmailAddress(value) {
+  const raw = String(value || '').trim();
+  const match = raw.match(/<([^>]+)>/);
+  return (match ? match[1] : raw).trim().toLowerCase() || null;
+}
+
+/**
+ * Renderer provenance as the worker attached it, or an empty record.
+ *
+ * Carried through UNCHANGED. It describes what the canonical renderer PRODUCED, which during the
+ * auth compatibility period is a different fact from what was SENT — `html_part_rendered: false`
+ * and `html_part_sent: true` are both true of the same message, and collapsing them would erase the
+ * only evidence that the certified auth path executed.
+ */
+function rendererProvenance(input) {
+  const provenance = input?.content?.data?.email_render_provenance;
+  return provenance && typeof provenance === 'object' ? provenance : {};
 }
 
 /**

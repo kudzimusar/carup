@@ -21,6 +21,7 @@
  * R2 equivalence is proven at G6, so an auth notification returns its canonical text and NO html,
  * leaving the Resend adapter's existing `resolveAuthHtml()` compatibility path untouched.
  */
+import { isCanonicalWebOrigin } from '../../../config/canonicalWebOrigin.js';
 import {
   EMAIL_CLASSIFICATION_ERRORS,
   resolveEmailClassification,
@@ -66,6 +67,36 @@ function actionFrom(payload = {}) {
   const url = firstPresent(payload.action_url, payload.cta_url, payload.actionUrl);
   if (!url) return null;
   return { label: firstPresent(payload.action_label, payload.cta_label) || 'Open CarUp', url: String(url) };
+}
+
+/**
+ * Non-secret provenance for the call to action.
+ *
+ * G2 shipped `cta_href_canonical` as the FULL action URL, which was an evidence-safety defect: an
+ * auth action URL carries an opaque single-use reset token, and this object is persisted onto
+ * `message_delivery_attempts` where it is read by operators and retained. A durable audit record is
+ * one of the worst places for a live credential — it outlives the token's own expiry and is read by
+ * more people than the inbox ever was.
+ *
+ * The field is now a BOOLEAN — "did the action point at a CarUp canonical origin?" — with the route
+ * beside it. Together they prove canonical-origin use and say which flow it was, and neither can
+ * carry a secret: the query string, where every token lives, is discarded.
+ *
+ * The Email itself is unchanged. The customer still receives the complete, working link.
+ */
+function ctaProvenance(action) {
+  if (!action?.url) return { cta_href_canonical: false, cta_route: null };
+  let parsed = null;
+  try {
+    parsed = new URL(action.url);
+  } catch {
+    return { cta_href_canonical: false, cta_route: null };
+  }
+  return {
+    cta_href_canonical: isCanonicalWebOrigin(parsed.origin),
+    // Path only. Never the query, and never a fragment.
+    cta_route: parsed.pathname || '/',
+  };
 }
 
 function refusal(errorCode, errorMessage, provenance = {}) {
@@ -119,7 +150,9 @@ export function renderEmailForNotification(notification = {}, { env = process.en
       ...baseProvenance,
       html_part_rendered: false,
       text_part_rendered: Boolean(bodyText),
-      cta_href_canonical: null,
+      // The auth action URL carries a live single-use token and is deliberately NOT recorded here.
+      // The route alone proves which flow ran.
+      ...ctaProvenance(actionFrom(payload)),
       render_fallback_used: RENDER_FALLBACKS.AUTH_COMPATIBILITY,
     };
   }
@@ -184,7 +217,7 @@ export function renderEmailForNotification(notification = {}, { env = process.en
     ...baseProvenance,
     html_part_rendered: Boolean(html),
     text_part_rendered: Boolean(text),
-    cta_href_canonical: action?.url || null,
+    ...ctaProvenance(action),
     render_fallback_used: fallback,
     ...(isMarketing ? { unsubscribe_presentation: { version: 'v1', url: unsubscribeUrl, blocks: 1 } } : {}),
   };

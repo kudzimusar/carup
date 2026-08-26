@@ -73,7 +73,11 @@ test('P5 a URL is encoded as a URL, then attribute-escaped once on insertion', (
   assert.ok(r.html.includes('href="https://carup.dev/x?a=1&amp;b=2"'), 'HTML representation');
   assert.ok(!r.html.includes('&amp;amp;'));
   assert.ok(r.text.includes('https://carup.dev/x?a=1&b=2'), 'the URL itself, in the text part');
-  assert.equal(r.cta_href_canonical, 'https://carup.dev/x?a=1&b=2', 'provenance carries the URL, not its HTML form');
+  // G4 reclassification: `cta_href_canonical` was the full URL, which is an evidence-safety defect —
+  // an auth action URL carries a live reset token and this object is persisted onto a delivery
+  // attempt. It is now a boolean plus the route, neither of which can carry a secret.
+  assert.equal(r.cta_href_canonical, true, 'the action points at a CarUp canonical origin');
+  assert.equal(r.cta_route, '/x', 'the route, never the query where tokens live');
 });
 
 test('P6 the markup boundary treats an unmarked value as text and only safeHtml as markup', () => {
@@ -329,13 +333,15 @@ test('M1 the renderer publishes deterministic provenance for G4', () => {
   assert.equal(r.sender_persona, 'carup_notifications');
   assert.equal(r.html_part_rendered, true);
   assert.equal(r.text_part_rendered, true);
-  assert.equal(r.cta_href_canonical, 'https://carup.dev/x');
+  assert.equal(r.cta_href_canonical, true);
+  assert.equal(r.cta_route, '/x');
   assert.equal(r.leadership_identity_rendered, false);
   assert.equal(r.render_fallback_used, RENDER_FALLBACKS.NONE);
 
   // Truthful, not decorative: a message with no CTA reports none.
   const noCta = render({ classification: 'transactional' });
-  assert.equal(noCta.cta_href_canonical, null);
+  assert.equal(noCta.cta_href_canonical, false);
+  assert.equal(noCta.cta_route, null);
   assert.equal(noCta.html_part_rendered, true);
 });
 
@@ -354,7 +360,7 @@ test('M2 provenance carries no secret and no raw database row', async () => {
     assert.ok(!provenance.includes(forbidden), `provenance must not carry ${forbidden}`);
   }
   assert.deepEqual(Object.keys(sent.content.data.email_render_provenance).sort(), [
-    'classification', 'classification_source', 'cta_href_canonical', 'footer_family',
+    'classification', 'classification_source', 'cta_href_canonical', 'cta_route', 'footer_family',
     'html_part_rendered', 'leadership_identity_rendered', 'render_fallback_used',
     'renderer_version', 'sender_persona', 'template_key', 'template_version', 'text_part_rendered',
   ]);
