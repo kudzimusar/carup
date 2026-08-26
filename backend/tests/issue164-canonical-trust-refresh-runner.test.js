@@ -36,6 +36,8 @@ class FakeDb {
   get writes() { return this.statements.filter((s) => /^\s*(insert|update|delete|alter|drop|truncate)\b/i.test(s)); }
   async query(sql, params) {
     this.statements.push(sql);
+    if (/^BEGIN TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY$/i.test(sql)) { this.snapshot = true; return { rows: [] }; }
+    if (/^(COMMIT|ROLLBACK)$/i.test(sql)) { this.snapshot = false; return { rows: [] }; }
     if (/to_regclass\(\$1\)/i.test(sql)) {
       // trust_fact_requests is absent from production; its absence is part of what is pinned.
       return { rows: [{ t: String(params?.[0]).includes('trust_fact_requests') ? null : params[0] }] };
@@ -474,4 +476,43 @@ test('an ABSENT input table contributes a marker, so a table appearing later cha
   const digest = await R.decisionInputDigest(db, VIN);
   assert.ok(digest.includes('absent'), 'the absent trust_fact_requests must contribute a marker');
   assert.equal(digest.split('absent').length - 1, 1, 'exactly one table is absent in this model');
+});
+
+// ── the measurement must be one coherent snapshot ────────────────────────────────────────────────
+
+/**
+ * The digest is assembled from a query per input table, and the target state is read by another. Run
+ * outside a snapshot, a row changing partway through yields a fingerprint describing no state
+ * production was ever in — `vehicles` hashed before the change, a fact table after it — and apply
+ * could then declare success over a cache that is already stale.
+ */
+test('every read in a measurement happens inside one REPEATABLE READ READ ONLY snapshot', async () => {
+  const db = new FakeDb();
+  await R.measureTrustState(db, VIN);
+
+  const begin = db.statements.findIndex((x) => /BEGIN TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY/i.test(x));
+  const end = db.statements.findIndex((x) => /^ROLLBACK$/i.test(x));
+  assert.ok(begin > -1, 'the measurement must open a snapshot');
+  assert.ok(end > begin, 'and close it');
+
+  const reads = db.statements
+    .map((x, i) => ({ x, i }))
+    .filter(({ x }) => /select|to_regclass|md5/i.test(x));
+  assert.ok(reads.length > 10, 'the measurement really is many queries');
+  for (const { x, i } of reads) {
+    assert.ok(i > begin && i < end, `read outside the snapshot: ${x.slice(0, 60)}`);
+  }
+  assert.deepEqual(db.writes, [], 'a measurement never writes');
+});
+
+test('the snapshot is released even when a measurement query throws', async () => {
+  const db = new FakeDb();
+  let n = 0;
+  const real = db.query.bind(db);
+  db.query = async (sql, params) => {
+    if (/to_regclass\(\$1\)/i.test(sql) && ++n === 3) throw new Error('connection reset');
+    return real(sql, params);
+  };
+  await assert.rejects(() => R.measureTrustState(db, VIN), /connection reset/);
+  assert.ok(db.statements.some((x) => /^ROLLBACK$/i.test(x)), 'the snapshot must still be rolled back');
 });

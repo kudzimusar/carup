@@ -122,6 +122,22 @@ const refuse = (m) => { throw new RefreshRefusal(m); };
  * of a non-target row must be caught regardless of which field moved.
  */
 export async function measureTrustState(pg, vin = TARGET_VIN) {
+  // ONE SNAPSHOT, NOT THIRTY. The digest is assembled from a query per input table, and the target
+  // state is read by yet another. Run loose, a row changing partway through yields a fingerprint
+  // that describes no state production was ever in: `vehicles` hashed before the change, a fact
+  // table after it. REPEATABLE READ pins every statement in this measurement to a single snapshot,
+  // so the fingerprint and the state it is compared against are coherent with each other.
+  //
+  // READ ONLY as well — asserted by the server, so a measurement can never write.
+  await pg.query('BEGIN TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY');
+  try {
+    return await measureWithinSnapshot(pg, vin);
+  } finally {
+    await pg.query('ROLLBACK');
+  }
+}
+
+async function measureWithinSnapshot(pg, vin) {
   const { rows } = await pg.query(`
     with tgt as (
       select vin, trust_score, trust_calculation_version, trust_evaluated_at, trust_band,
