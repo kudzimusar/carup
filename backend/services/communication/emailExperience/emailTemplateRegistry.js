@@ -12,6 +12,7 @@
  * that tests can assert against.
  */
 import { buildLeadershipWelcomeDocument } from './referenceLeadershipWelcome.js';
+import { buildMarketplaceConversationDocument } from './referenceMarketplaceConversation.js';
 
 export const CONSENT_REQUIREMENTS = Object.freeze({
   /** Sent because the recipient did something. No opt-in applies and no unsubscribe may appear. */
@@ -62,6 +63,25 @@ export const EMAIL_TEMPLATE_REGISTRY = Object.freeze({
     mediaPolicy: 'text_wordmark_only',
     leadershipRequired: true,
     build: buildLeadershipWelcomeDocument,
+  }),
+
+  marketplace_conversation: Object.freeze({
+    reference: 'R3',
+    templateKey: 'marketplace_conversation_v1',
+    version: 1,
+    family: 'conversational',
+    classification: 'conversational',
+    senderPersona: 'carup_conversations',
+    transport: 'resend',
+    workflow: 'marketplace',
+    recipientRole: 'conversation_participant',
+    consentRequirement: CONSENT_REQUIREMENTS.NONE_CONVERSATION,
+    regulatedDataPolicy: REGULATED_DATA_POLICY.MINIMISE_POINT_AT_SURFACE,
+    primaryAction: 'open_conversations',
+    footerFamily: 'transactional',
+    mediaPolicy: 'canonical_listing_media_only',
+    leadershipRequired: false,
+    build: buildMarketplaceConversationDocument,
   }),
 
   password_reset: Object.freeze({

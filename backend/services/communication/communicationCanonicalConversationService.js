@@ -60,7 +60,14 @@ export class CommunicationCanonicalConversationService extends CommunicationConv
     };
   }
 
-  async routeMessage(thread, senderParticipant, message) {
+  async routeMessage(thread, senderParticipant, message, options = {}) {
+    // The audience-safe listing summary, when a caller has one. Deliberately INJECTED rather than
+    // fetched here: assembling it inside the conversation service would put a raw vehicle row one
+    // property access away from an Email body, and the public projection exists precisely so that
+    // cannot happen by accident.
+    const marketplaceListingSummary = options.listingSummary && typeof options.listingSummary === 'object'
+      ? options.listingSummary
+      : null;
     const recipients = (await this.activeParticipants(thread.id))
       .filter((participant) => participant.id !== senderParticipant.id)
       .filter(canRead)
@@ -112,6 +119,16 @@ export class CommunicationCanonicalConversationService extends CommunicationConv
         external_conversation_id: binding.external_conversation_id || null,
         address,
         external_id: identity.external_id,
+        // R3 — the canonical reference this conversation Email is rendered as.
+        reference_template: 'marketplace_conversation',
+        // Bounded, escaped at the HTML boundary, and never the full history. `content_text` is the
+        // canonical message body; the renderer truncates it.
+        message_excerpt: message.content_text || null,
+        // `marketplace_listing_id` on a thread holds the VIN. The renderer uses it only to build a
+        // public listing link; the audience-safe listing SUMMARY is attached by the caller when it
+        // has one, and is never assembled from a raw vehicle row here.
+        vin: thread.marketplace_listing_id || null,
+        ...(marketplaceListingSummary ? { listing_summary: marketplaceListingSummary } : {}),
       };
       if (binding.channel === 'whatsapp' || binding.channel === 'sms') payload.phone_number = address;
       if (binding.channel === 'email') payload.email = address;
