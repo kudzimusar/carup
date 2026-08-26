@@ -751,6 +751,27 @@ function summaryMatchesTags(summary, tags) {
   return tags.every(tag => summary.marketplace_tags.includes(tag));
 }
 
+/** Exact-match a canonical public text facet. Missing values never match. */
+export function summaryMatchesTextFacet(summary, value, field) {
+  if (value === undefined || value === null || normalizeText(value) === '' || normalizeText(value) === 'all') return true;
+  const actual = summary?.[field];
+  if (!isRecordedValue(actual)) return false;
+  return normalizeText(actual) === normalizeText(value);
+}
+
+/**
+ * Location is provenance-gated. Match only recorded canonical location leaves, never a
+ * raw registration/seller fallback. A composed full label may also match exactly.
+ */
+export function summaryMatchesLocationFacet(summary, value) {
+  if (value === undefined || value === null || normalizeText(value) === '' || normalizeText(value) === 'all') return true;
+  if (summary?.location_state !== FIELD_STATES.RECORDED) return false;
+  const wanted = normalizeText(value);
+  if (normalizeText(summary?.location) === wanted) return true;
+  const leaves = Object.values(summary?.claims?.location || {});
+  return leaves.some(leaf => leaf?.state === FIELD_STATES.RECORDED && normalizeText(leaf?.value) === wanted);
+}
+
 /**
  * Parse a `tag` filter into a deduped list of normalized trust slugs. Accepts a repeated-param array
  * (Express yields an array for `?tag=a&tag=b`) OR a CSV string (`?tag=a,b`). 'all'/empty are dropped.
@@ -1168,10 +1189,15 @@ export async function listMarketplaceListings(supabaseClient, params = {}) {
     canonicalTrust: trustByVin.get(vehicle.vin) || null,
   }));
 
+  // All buyer-facing facets operate on canonical public summaries BEFORE sort/limit. This avoids
+  // the first-page bug where a valid vehicle outside the initial 48 could never be discovered.
   const filtered = summaries
     .filter(summary => summaryMatchesSearch(summary, params.q))
     .filter(summary => summaryMatchesCondition(summary, requestedCondition))
-    .filter(summary => summaryMatchesTags(summary, requestedTags));
+    .filter(summary => summaryMatchesTags(summary, requestedTags))
+    .filter(summary => summaryMatchesLocationFacet(summary, params.location))
+    .filter(summary => summaryMatchesTextFacet(summary, params.fuel, 'fuel_type'))
+    .filter(summary => summaryMatchesTextFacet(summary, params.transmission, 'transmission'));
 
   const sorted = sortSummaries(filtered, params.sort);
 

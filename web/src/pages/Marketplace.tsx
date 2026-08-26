@@ -75,7 +75,7 @@ export function withMockFallback<T>(live: T[], mock: T[], allowMock: boolean = A
 }
 
 type TrustRanking = { requested?: string; applied?: string; note?: string }
-type ListingWithTrust = MarketplaceListingSummary
+type CanonicalListing = MarketplaceListingSummary
 type MockVehicle = (typeof mockVehicles)[number]
 
 const CONDITION_LABELS: Record<string, string> = {
@@ -124,7 +124,7 @@ function readTrustRanking(payload: unknown): TrustRanking | null {
  * canonical Trust projection, so the reference card presents an unevaluated/unknown Trust state
  * rather than laundering mock `trustScore` into a public claim.
  */
-function mockVehicleToListing(vehicle: MockVehicle): ListingWithTrust {
+function mockVehicleToListing(vehicle: MockVehicle): CanonicalListing {
   return {
     vin: vehicle.vin,
     make: vehicle.make,
@@ -326,7 +326,7 @@ export default function Marketplace() {
   useEffect(() => { captureReferralFromUrl() }, [])
 
   const [compareVins, setCompareVins] = useState<string[]>([])
-  const [liveListings, setLiveListings] = useState<ListingWithTrust[]>([])
+  const [liveListings, setLiveListings] = useState<CanonicalListing[]>([])
   const [loadingVehicles, setLoadingVehicles] = useState(true)
   const [loadError, setLoadError] = useState(false)
   const [trustRanking, setTrustRanking] = useState<TrustRanking | null>(null)
@@ -397,7 +397,7 @@ export default function Marketplace() {
       .then(data => {
         if (cancelled) return
         setTrustRanking(readTrustRanking(data))
-        const listings = Array.isArray(data?.listings) ? data.listings as ListingWithTrust[] : []
+        const listings = Array.isArray(data?.listings) ? data.listings as CanonicalListing[] : []
         setLiveListings(withMockFallback(listings, mockVehicles.map(mockVehicleToListing)))
       })
       .catch(error => {
