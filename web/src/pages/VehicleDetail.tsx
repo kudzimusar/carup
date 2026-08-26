@@ -1744,7 +1744,7 @@ export default function VehicleDetail() {
 
         <div className="grid lg:grid-cols-3 gap-6">
           {/* ── Left column ─────────────────────────────────────────────── */}
-          <div className="lg:col-span-2 space-y-6">
+          <div className="min-w-0 lg:col-span-2 space-y-6">
 
             {/* Plate Advisory Banner */}
             {passport && (

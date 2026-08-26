@@ -158,11 +158,16 @@ test('desktop staging: published-only discovery preserves Marketplace → Vehicl
   expect(await detailImage.getAttribute('src'), 'same primary photo across discovery and detail').toBe(cardImageUrl)
 
   await expect(page.getByTestId('trust-score-badge')).toBeVisible()
-  expect(
-    (await page.getByTestId('identity-field-withheld').count())
-      + (await page.getByTestId('plate-advisory-withheld').count()),
-    'public identity redaction evidence',
-  ).toBeGreaterThan(0)
+  // Public Marketplace detail deliberately renders before optional passport enrichment. Privacy
+  // certification therefore binds to the public response and the seller-redaction surface that are
+  // authoritative at first render, rather than racing a passport-only marker that may arrive later.
+  const sellerSummary = detailBody.seller_summary as {
+    display_label?: string | null
+    public_profile_enabled?: boolean
+  } | undefined
+  expect(sellerSummary?.public_profile_enabled, 'golden private seller public profile').toBe(false)
+  expect(sellerSummary?.display_label, 'golden private seller public display label').toBeNull()
+  await expect(page.getByTestId('seller-name')).toHaveText('Not shown publicly')
   await expect(page.getByText('Not recorded').first()).toBeVisible()
 
   await page.screenshot({ path: testInfo.outputPath('desktop-vehicle-detail.png'), fullPage: true })
@@ -263,9 +268,38 @@ test('mobile staging keeps filters actionable and Vehicle Detail inside the view
   await goldenCard.getByTestId('marketplace-view-passport').click()
   await expect(page).toHaveURL(new RegExp(`/marketplace/${GOLDEN_VIN}$`))
   await expect(page.getByTestId('listing-media-block')).toBeVisible()
-  await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth + 1), {
-    message: 'mobile Vehicle Detail must not overflow horizontally',
-  }).toBe(true)
+  try {
+    await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth + 1), {
+      message: 'mobile Vehicle Detail must not overflow horizontally',
+    }).toBe(true)
+  } catch (error) {
+    const overflow = await page.evaluate(() => ({
+      viewportWidth: window.innerWidth,
+      documentScrollWidth: document.documentElement.scrollWidth,
+      elements: Array.from(document.querySelectorAll<HTMLElement>('body *'))
+        .map((element) => {
+          const rect = element.getBoundingClientRect()
+          return {
+            tag: element.tagName,
+            testId: element.dataset.testid || null,
+            className: typeof element.className === 'string' ? element.className : '',
+            text: (element.textContent || '').trim().replace(/\s+/g, ' ').slice(0, 160),
+            left: rect.left,
+            right: rect.right,
+            width: rect.width,
+            clientWidth: element.clientWidth,
+            scrollWidth: element.scrollWidth,
+          }
+        })
+        .filter((entry) => entry.right > window.innerWidth + 1)
+        .slice(0, 40),
+    }))
+    await testInfo.attach('mobile-horizontal-overflow.json', {
+      body: Buffer.from(JSON.stringify(overflow, null, 2)),
+      contentType: 'application/json',
+    })
+    throw error
+  }
 
   await page.screenshot({ path: testInfo.outputPath('mobile-vehicle-detail.png'), fullPage: true })
   await assertCriticalBrowserHealth(testInfo, diagnostics)
