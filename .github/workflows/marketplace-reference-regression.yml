@@ -4,13 +4,20 @@ on:
   pull_request:
     branches: [main]
     paths:
-      - 'shared/marketplace.ts'
+      - 'backend/services/marketplace/**'
+      - 'backend/tests/marketplace-*.test.js'
+      - 'shared/types/**'
+      - 'mobile/app/(tabs)/marketplace.tsx'
+      - 'mobile/app/vehicle/**'
+      - 'mobile/utils/marketplaceApi.ts'
+      - 'mobile/tests/marketplace-*.test.ts'
       - 'web/src/pages/Marketplace.tsx'
       - 'web/src/pages/VehicleDetail.tsx'
-      - 'web/src/pages/VehicleDetail.test.tsx'
-      - 'web/src/components/marketplace/MarketplaceListingCard.tsx'
-      - 'web/src/components/marketplace/MarketplaceListingCard.test.tsx'
-      - 'web/e2e/marketplace-reference.spec.ts'
+      - 'web/src/pages/VehicleDetail.*.test.tsx'
+      - 'web/src/components/marketplace/**'
+      - 'web/src/lib/marketplace*.ts'
+      - 'web/src/lib/marketplace*.test.ts'
+      - 'web/e2e/marketplace-*.spec.ts'
       - '.github/workflows/marketplace-reference-regression.yml'
   workflow_dispatch:
 
@@ -23,11 +30,13 @@ concurrency:
 
 jobs:
   reference-regression:
-    name: Vehicle Detail / reference regression
+    name: Exact-head reference + staging certification
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 35
     env:
       EXPECTED_HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+      STAGING_FRONTEND_URL: https://carup-staging-git-feat-marketplace-reliability-ref-ce3e97-11-11.vercel.app
+      STAGING_BACKEND_URL: https://carup-backend-staging-git-feat-marketplace-reliabi-a387a3-11-11.vercel.app
 
     steps:
       - name: Checkout exact candidate
@@ -46,17 +55,19 @@ jobs:
       - name: Install web dependencies
         run: npm --prefix web install --no-audit --no-fund
 
-      - name: Run Marketplace unit regressions
+      - name: Run expanded Marketplace and Vehicle Detail unit regressions
         run: >-
           npm --prefix web run test:unit --
-          src/components/marketplace/MarketplaceListingCard.test.tsx
-          src/pages/VehicleDetail.test.tsx
+          src/lib/marketplaceParams.test.ts
+          src/lib/marketplacePresentation.test.ts
+          src/pages/VehicleDetail.media.test.tsx
+          src/pages/VehicleDetail.trust.test.tsx
 
       - name: Install Playwright Chromium
         working-directory: web
         run: npx playwright install --with-deps chromium
 
-      - name: Start Vite reference server
+      - name: Start local Vite reference server
         run: |
           npm --prefix web run dev -- --host 127.0.0.1 > /tmp/carup-marketplace-vite.log 2>&1 &
           echo $! > /tmp/carup-marketplace-vite.pid
@@ -69,11 +80,63 @@ jobs:
           cat /tmp/carup-marketplace-vite.log
           exit 1
 
-      - name: Run Marketplace Playwright reference suite
+      - name: Run Marketplace mocked reference suite
         env:
           PLAYWRIGHT_BASE_URL: http://127.0.0.1:5173
-        run: npm --prefix web run test:e2e:ci -- e2e/marketplace-reference.spec.ts
+        run: npm --prefix web run test:e2e:ci -- e2e/marketplace-reference-ux.spec.ts
 
-      - name: Print Vite log on failure
+      - name: Wait for exact-head staging deployment
+        run: |
+          for attempt in {1..60}; do
+            frontend_ok=0
+            backend_ok=0
+
+            if curl --fail --silent --show-error "$STAGING_FRONTEND_URL/marketplace" >/dev/null; then
+              frontend_ok=1
+            fi
+
+            if curl --fail --silent --show-error "$STAGING_BACKEND_URL/api/health" > /tmp/marketplace-staging-health.json; then
+              if node -e '
+                const fs = require("fs");
+                const health = JSON.parse(fs.readFileSync("/tmp/marketplace-staging-health.json", "utf8"));
+                const expected = process.env.EXPECTED_HEAD_SHA;
+                if (health.source_sha === expected && health.build_sha === expected && health.provenance_match === true) process.exit(0);
+                console.error(JSON.stringify({ expected, source_sha: health.source_sha, build_sha: health.build_sha, provenance_match: health.provenance_match }));
+                process.exit(1);
+              '; then
+                backend_ok=1
+              fi
+            fi
+
+            if [ "$frontend_ok" -eq 1 ] && [ "$backend_ok" -eq 1 ]; then
+              cat /tmp/marketplace-staging-health.json
+              exit 0
+            fi
+
+            sleep 10
+          done
+
+          echo "Exact-head staging did not become ready."
+          cat /tmp/marketplace-staging-health.json 2>/dev/null || true
+          exit 1
+
+      - name: Run unmocked staging functional and visual certification
+        env:
+          PLAYWRIGHT_BASE_URL: ${{ env.STAGING_FRONTEND_URL }}
+          MARKETPLACE_EXPECTED_SHA: ${{ env.EXPECTED_HEAD_SHA }}
+        run: npm --prefix web run test:e2e:ci -- e2e/marketplace-staging-certification.spec.ts
+
+      - name: Upload Marketplace certification evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: marketplace-certification-${{ env.EXPECTED_HEAD_SHA }}
+          path: |
+            web/test-results/**
+            web/playwright-report/**
+          if-no-files-found: warn
+          retention-days: 14
+
+      - name: Print local Vite log on failure
         if: failure()
         run: cat /tmp/carup-marketplace-vite.log || true
