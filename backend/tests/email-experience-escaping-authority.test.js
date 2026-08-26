@@ -88,16 +88,21 @@ test('FALLBACK: the descriptor survives intact', () => {
 /**
  * Send a marketing body through the real chain and return the payload that reached the wire.
  *
- * G3 moved HTML synthesis out of the Brevo adapter: the Email Experience presentation authority
- * composes finished content, and transport validates and passes it through. The HTML boundary these
- * tests exercise therefore lives in `marketingUnsubscribePresentation.js` now — the boundary moved,
- * the contract did not. Composing here keeps this an end-to-end assertion about what a customer
- * actually receives, rather than a unit test of whichever module currently owns the escaping.
+ * G3 moved HTML synthesis out of the Brevo adapter, and G2 moved it again into the canonical
+ * renderer: the Email Experience layer composes finished content, and transport validates and passes
+ * it through. The HTML boundary these tests exercise therefore lives in `emailMarkup.js` now — the
+ * boundary moved twice, the contract did not. Composing through the real renderer keeps this an
+ * end-to-end assertion about what a customer actually receives, rather than a unit test of whichever
+ * module currently owns the escaping.
  */
 async function synthesizedHtml(text, unsubscribeUrl = 'https://carup.dev/api/communications/unsubscribe?token=t') {
   const { BrevoMarketingAdapter } = await import('../services/communication/adapters/providerAdapters.js');
-  const { applyMarketingUnsubscribePresentation } = await import('../services/communication/emailExperience/marketingUnsubscribePresentation.js');
-  const composed = applyMarketingUnsubscribePresentation({ text, unsubscribeUrl });
+  const { renderEmailForNotification } = await import('../services/communication/emailExperience/renderEmail.js');
+  const composed = renderEmailForNotification(
+    { title: 'S', message: text, payload: { classification: 'marketing', unsubscribe_url: unsubscribeUrl } },
+    { env: {} },
+  );
+  if (!composed.ok) throw new Error(`renderer refused: ${composed.errorCode}`);
 
   let captured = null;
   const adapter = new BrevoMarketingAdapter({
@@ -116,7 +121,7 @@ async function synthesizedHtml(text, unsubscribeUrl = 'https://carup.dev/api/com
         classification: 'marketing', email: 'x@example.test',
         campaign_id: 'c', campaign_delivery_id: 'd',
         unsubscribe_url: unsubscribeUrl,
-        unsubscribe_presentation: composed.provenance,
+        unsubscribe_presentation: composed.unsubscribe_presentation,
       },
     },
   });
@@ -155,7 +160,8 @@ test('HTML BOUNDARY: markup in a value cannot become executable HTML', async () 
 test('ANTI-VACUITY: the HTML-safety tests actually exercise a synthesized HTML part', async () => {
   const sent = await synthesizedHtml('Plain body about Trust & Safety.');
   assert.ok(typeof sent.htmlContent === 'string' && sent.htmlContent.length > 0, 'an HTML part must exist');
-  assert.match(sent.htmlContent, /<p style="margin:0 0 14px;">/, 'it must be the synthesized HTML, not the raw body');
+  assert.match(sent.htmlContent, /^<!doctype html>/i, 'it must be the rendered Email document, not the raw body');
+  assert.match(sent.htmlContent, /max-width:600px/, 'and the canonical shell, not an ad-hoc wrapper');
   assert.notEqual(sent.htmlContent, sent.textContent, 'text and HTML must be distinct representations');
   assert.ok(sent.htmlContent.includes('Trust &amp; Safety'), 'and the HTML part is where escaping happens');
   assert.ok(sent.textContent.includes('Trust & Safety'), 'while the text part stays literal');

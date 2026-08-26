@@ -2,7 +2,7 @@ import { createDefaultAdapterRegistry } from './adapters/providerAdapters.js';
 import { COMMUNICATION_EVENTS, calculateBackoffMs, classifyError, normalizeChannel, nowIso } from './communicationUtils.js';
 import { COMMUNICATION_AUDIT_EVENTS, logCommunicationAuditEvent } from './communicationAuditLog.js';
 import { RECIPIENT_RESOLUTION_REASONS, resolveNotificationRecipient } from './emailExperience/recipientResolution.js';
-import { applyMarketingUnsubscribePresentation } from './emailExperience/marketingUnsubscribePresentation.js';
+import { renderEmailForNotification } from './emailExperience/renderEmail.js';
 import {
   MARKETING_CONSENT_DISPOSITIONS,
   MARKETING_CONSENT_STATES,
@@ -14,10 +14,16 @@ import {
 const ADDRESS_REQUIRED_CHANNELS = new Set(['email', 'sms', 'whatsapp']);
 
 export class CommunicationDeliveryWorker {
-  constructor({ repository, adapterRegistry = null, notificationService = null, workerId = 'communication-worker' } = {}) {
+  constructor({
+    repository, adapterRegistry = null, notificationService = null,
+    emailRenderer = null, workerId = 'communication-worker',
+  } = {}) {
     this.repository = repository;
     this.adapterRegistry = adapterRegistry || createDefaultAdapterRegistry();
     this.notificationService = notificationService;
+    // G2 — the one canonical Email rendering boundary, injected so a test can substitute a failing
+    // renderer and prove the degradation and refusal paths are real rather than asserted.
+    this.emailRenderer = emailRenderer || renderEmailForNotification;
     this.workerId = workerId;
   }
 
@@ -143,32 +149,47 @@ export class CommunicationDeliveryWorker {
         : this.markDeadLetter(notification, failure);
     }
 
-    // Prepare compliant content BEFORE dispatch.
+    // G2 — prepare canonical content BEFORE dispatch, through the ONE rendering boundary.
     //
-    // G3 moved the visible unsubscribe control out of the Brevo adapter, which used to author it
-    // inside the same function that called the provider. Composition belongs here, ahead of
-    // transport, so the adapter can validate content it did not write. G2's canonical renderer
-    // replaces this call site; the ordering it sits in does not change.
+    // This replaced the G3 interim composer, which only ever produced marketing content. Every Email
+    // family now passes through the same renderer, and non-email channels do not reach it at all —
+    // an in_app or push notification has no presentation to render and must stay byte-identical to
+    // what it was before G2.
     //
-    // Marketing only. A security, conversational, transactional or service Email must never acquire
-    // a marketing unsubscribe footer merely because it shares a provider or a component.
+    // The renderer decides both directions of failure itself: non-marketing degrades to the
+    // canonical plain text, marketing refuses. The worker's job is to honour a refusal without
+    // calling a provider.
+    let preparedSubject = notification.title;
     let preparedBody = notification.message || '';
     let preparedHtml = notification.payload?.html || null;
-    let unsubscribePresentation = null;
-    const classification = String(notification.payload?.classification || '').toLowerCase();
-    if (classification === 'marketing' && notification.payload?.unsubscribe_url) {
-      const presentation = applyMarketingUnsubscribePresentation({
-        html: preparedHtml,
-        text: preparedBody,
-        unsubscribeUrl: notification.payload.unsubscribe_url,
-      });
-      if (presentation.ok) {
-        preparedBody = presentation.text;
-        preparedHtml = presentation.html;
-        unsubscribePresentation = presentation.provenance;
+    let renderProvenance = null;
+    if (channel === 'email') {
+      const rendered = this.emailRenderer(notification, { env: process.env });
+      if (!rendered.ok) {
+        // A refusal here never reaches a provider. It is durable — an unclassified or
+        // non-compliant Email does not become classified or compliant by being retried.
+        return this.markDeadLetter(notification, {
+          errorCode: rendered.errorCode,
+          errorMessage: rendered.errorMessage,
+        });
       }
-      // A composition that cannot produce a control is NOT silently sent: the adapter refuses
-      // unfinished marketing content independently, so this needs no second refusal here.
+      preparedSubject = rendered.subject || preparedSubject;
+      preparedBody = rendered.text;
+      preparedHtml = rendered.html || null;
+      renderProvenance = {
+        renderer_version: rendered.renderer_version,
+        classification: rendered.classification,
+        classification_source: rendered.classification_source,
+        template_key: rendered.template_key,
+        template_version: rendered.template_version,
+        footer_family: rendered.footer_family,
+        sender_persona: rendered.sender_persona,
+        html_part_rendered: rendered.html_part_rendered,
+        text_part_rendered: rendered.text_part_rendered,
+        cta_href_canonical: rendered.cta_href_canonical,
+        leadership_identity_rendered: rendered.leadership_identity_rendered,
+        render_fallback_used: rendered.render_fallback_used,
+      };
     }
 
     const attemptNumber = alreadyClaimed ? Number(notification.attempt_count || 1) : Number(notification.attempt_count || 0) + 1;
@@ -199,11 +220,15 @@ export class CommunicationDeliveryWorker {
           expoPushToken: notification.payload?.expo_push_token || notification.payload?.push_token,
         },
         content: {
-          subject: notification.title,
+          subject: preparedSubject,
+          // `body` AND `text` both carry the renderer's final plain text. `textBody()` reads
+          // `content.body || content.text`, so leaving `body` as the pre-render message would let an
+          // adapter transmit the stale copy while the renderer's text went nowhere.
           body: preparedBody,
+          text: preparedBody,
           ...(preparedHtml ? { html: preparedHtml } : {}),
-          data: unsubscribePresentation
-            ? { ...(notification.payload || {}), unsubscribe_presentation: unsubscribePresentation }
+          data: renderProvenance
+            ? { ...(notification.payload || {}), email_render_provenance: renderProvenance }
             : (notification.payload || {}),
         },
         idempotencyKey: notification.dedupe_key,

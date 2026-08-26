@@ -335,6 +335,7 @@ export class CommunicationCampaignService {
           variables: variablesFor(campaign, user, variant),
           language: campaign.language || 'en',
           transactional: false,
+          classification: campaign.classification || 'marketing',
           fallbackChannels: [],
           priority: 'low',
           dedupeParts: ['campaign', campaign.id, user.id, variant?.key || 'control', campaign.channel],

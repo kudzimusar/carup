@@ -1,4 +1,5 @@
-import { CommunicationNotificationService } from './communicationNotificationService.js';
+import { CLASSIFICATION_SOURCES } from './emailExperience/emailClassification.js';
+import { CommunicationNotificationService, classificationMetadata, withClassification } from './communicationNotificationService.js';
 import { buildDedupeKey, normalizeChannel, nowIso } from './communicationUtils.js';
 import { logCommunicationAuditEvent } from './communicationAuditLog.js';
 
@@ -63,6 +64,11 @@ export class CommunicationCanonicalNotificationService extends CommunicationNoti
       variables: this.variablesForEvent(eventType, payload),
       priority: policy.priority,
       transactional: policy.transactional,
+      // G2 — the canonical classification travels with the notification. This subclass
+      // reimplements queueNotification rather than delegating, so it has to carry it itself; a base
+      // class that looks correct is not the code that runs.
+      classification: policy.classification || null,
+      classificationSource: CLASSIFICATION_SOURCES.POLICY,
       fallbackChannels,
       quietHoursBypass: policy.quietHoursBypass,
       dedupeParts: [
@@ -98,6 +104,12 @@ export class CommunicationCanonicalNotificationService extends CommunicationNoti
       primary_user_id: input.recipientUserId,
       primary_channel: channel,
     })).thread;
+    // A governed template declares its own classification in `communication_templates`. When a
+    // producer supplied none, that declaration IS the canonical answer — it is a registered,
+    // approval-gated value, not an inference.
+    if (!input.classification && rendered.classification) {
+      input = { ...input, classification: rendered.classification, classificationSource: CLASSIFICATION_SOURCES.GOVERNED_TEMPLATE };
+    }
     const dedupeKey = buildDedupeKey(input.dedupeParts || [thread.id, input.notificationType, input.recipientUserId, channel, input.templateKey]);
     const existingNotification = await this.repository.findOne('notification_queue', { dedupe_key: dedupeKey });
     if (existingNotification) {
@@ -152,7 +164,7 @@ export class CommunicationCanonicalNotificationService extends CommunicationNoti
       channel,
       provider: input.provider || null,
       template_key: input.templateKey || rendered.templateKey,
-      payload: input.payload || {},
+      payload: withClassification(input.payload, input.classification),
       priority: input.priority || 'normal',
       status: 'queued',
       dedupe_key: dedupeKey,
@@ -163,7 +175,7 @@ export class CommunicationCanonicalNotificationService extends CommunicationNoti
       read: false,
       created_at: nowIso(),
       updated_at: nowIso(),
-      metadata: {
+      metadata: classificationMetadata({
         transactional: input.transactional !== false,
         governed_template: Boolean(rendered.governed),
         template_id: rendered.templateId || null,
@@ -175,7 +187,7 @@ export class CommunicationCanonicalNotificationService extends CommunicationNoti
         routing_mode: fallbackChannels.length
           ? 'single_primary_with_ordered_fallback'
           : 'single_route',
-      },
+      }, input.payload, input.classification, input.classificationSource),
     };
     if (input.id) notificationRow.id = input.id;
     try {

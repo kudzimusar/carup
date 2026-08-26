@@ -12,11 +12,28 @@ import {
 import {
   UNSUBSCRIBE_PRESENTATION_ERRORS,
   assertNoMarketingUnsubscribePresentation,
-  applyMarketingUnsubscribePresentation,
   unsubscribeHtmlBlock,
   unsubscribeTextBlock,
   validateMarketingUnsubscribePresentation,
 } from '../services/communication/emailExperience/marketingUnsubscribePresentation.js';
+import { renderEmailForNotification } from '../services/communication/emailExperience/renderEmail.js';
+
+/**
+ * Finished marketing content, from the canonical G2 renderer.
+ *
+ * G2 reclassification: these tests used `applyMarketingUnsubscribePresentation`, the interim
+ * composer that existed only while no renderer did. It is retired — the canonical shell now renders
+ * the marketing family and composes G3's block through `emailFooters.js`. The G3 contracts asserted
+ * below are unchanged; the content now comes from the real producer.
+ */
+function composeMarketing(text, unsubscribeUrl = UNSUB) {
+  const rendered = renderEmailForNotification(
+    { title: 'CarUp Weekly', message: text, payload: { classification: 'marketing', unsubscribe_url: unsubscribeUrl } },
+    { env: {} },
+  );
+  if (!rendered.ok) throw new Error(`renderer refused the fixture: ${rendered.errorCode}`);
+  return rendered;
+}
 
 /**
  * G3 — one unsubscribe owner, and fail-closed marketing consent.
@@ -210,11 +227,15 @@ test('J7 a MARKETING unsubscribe never blocks security or transactional Email', 
   });
   const { worker, providerCalls } = workerWith(repository);
 
-  for (const classification of ['security', 'auth', 'transactional', 'conversational', 'service']) {
-    await worker.deliverNotification({ id: `s-${classification}`, channel: 'email', payload: { classification, email: 'gone@example.test' } });
+  // The four canonical non-marketing families. G2 retired 'auth' — account protection is `security`.
+  for (const classification of ['security', 'transactional', 'conversational', 'service']) {
+    await worker.deliverNotification({
+      id: `s-${classification}`, channel: 'email', message: 'Account notice.',
+      payload: { classification, email: 'gone@example.test' },
+    });
   }
 
-  assert.equal(providerCalls(), 5, 'every non-marketing family still sends');
+  assert.equal(providerCalls(), 4, 'every non-marketing family still sends');
   assert.equal(suppressionQueries.length, 0, 'the marketing consent store is not even consulted for them');
 });
 
@@ -277,7 +298,7 @@ test('K1 ZERO canonical unsubscribe blocks → refuse, provider not called', asy
 });
 
 test('K2 EXACTLY ONE canonical unsubscribe block → accepted', async () => {
-  const composed = applyMarketingUnsubscribePresentation({ text: SENTINEL, unsubscribeUrl: UNSUB });
+  const composed = composeMarketing(SENTINEL);
   const { result, captured, calls } = await brevoSend({ body: composed.text, html: composed.html });
 
   assert.equal(result.accepted, true);
@@ -289,7 +310,7 @@ test('K2 EXACTLY ONE canonical unsubscribe block → accepted', async () => {
 });
 
 test('K3 TWO canonical unsubscribe blocks → refuse, provider not called', async () => {
-  const once = applyMarketingUnsubscribePresentation({ text: SENTINEL, unsubscribeUrl: UNSUB });
+  const once = composeMarketing(SENTINEL);
   // A second block, as a duplicated footer or a renderer that ran twice would produce.
   const twice = {
     html: `${once.html}${unsubscribeHtmlBlock(UNSUB)}`,
@@ -303,7 +324,7 @@ test('K3 TWO canonical unsubscribe blocks → refuse, provider not called', asyn
 });
 
 test('K4 the adapter does not alter the supplied body — byte-for-byte pass-through', async () => {
-  const composed = applyMarketingUnsubscribePresentation({ text: SENTINEL, unsubscribeUrl: UNSUB });
+  const composed = composeMarketing(SENTINEL);
   const { captured, result } = await brevoSend({ body: composed.text, html: composed.html });
 
   assert.equal(captured.textContent, composed.text, 'transport must not rewrite the text part');
@@ -316,7 +337,7 @@ test('K4 the adapter does not alter the supplied body — byte-for-byte pass-thr
 
 test('K5 the marker distinguishes the canonical control from copy that merely says "unsubscribe"', () => {
   const editorial = 'You can unsubscribe from CarUp marketing email at any time. Unsubscribe means unsubscribe.';
-  const composed = applyMarketingUnsubscribePresentation({ text: editorial, unsubscribeUrl: UNSUB });
+  const composed = composeMarketing(editorial);
   const verdict = validateMarketingUnsubscribePresentation({
     html: composed.html, text: composed.text, unsubscribeUrl: UNSUB, headerUrl: UNSUB,
   });
@@ -324,11 +345,21 @@ test('K5 the marker distinguishes the canonical control from copy that merely sa
   assert.equal(verdict.counts.markers, 1);
 });
 
-test('K6 composition is idempotent — applying it twice does not create a second control', () => {
-  const once = applyMarketingUnsubscribePresentation({ text: SENTINEL, unsubscribeUrl: UNSUB });
-  const twice = applyMarketingUnsubscribePresentation({ html: once.html, text: once.text, unsubscribeUrl: UNSUB });
-  assert.equal(twice.html, once.html);
-  assert.equal(twice.text, once.text);
+test('K6 the renderer REFUSES rather than emitting a second control', () => {
+  // Editorial copy that quotes the unsubscribe link — a "manage your preferences" newsletter is
+  // exactly this. The renderer proves compliance itself rather than leaving it to transport, so the
+  // refusal happens before anything is queued for a provider at all.
+  const rendered = renderEmailForNotification(
+    { title: 'CarUp Weekly', message: `Prefer fewer emails? Use ${UNSUB} to stop them.`, payload: { classification: 'marketing', unsubscribe_url: UNSUB } },
+    { env: {} },
+  );
+  assert.equal(rendered.ok, false);
+  assert.equal(rendered.errorCode, UNSUBSCRIBE_PRESENTATION_ERRORS.DUPLICATED);
+
+  // And the ordinary case still produces exactly one.
+  const clean = composeMarketing(SENTINEL);
+  assert.equal(clean.html.split('data-carup-unsubscribe=').length - 1, 1);
+  assert.equal(clean.text.split(UNSUB).length - 1, 1);
 });
 
 test('K7 the E7 control survives: marketing with no unsubscribe URL is refused before any provider call', async () => {
@@ -341,7 +372,7 @@ test('K7 the E7 control survives: marketing with no unsubscribe URL is refused b
 });
 
 test('K8 a control that links somewhere other than the canonical URL is refused', async () => {
-  const composed = applyMarketingUnsubscribePresentation({ text: SENTINEL, unsubscribeUrl: 'https://carup.dev/api/communications/unsubscribe?token=OTHER' });
+  const composed = composeMarketing(SENTINEL, 'https://carup.dev/api/communications/unsubscribe?token=OTHER');
   const { result, calls } = await brevoSend({ body: composed.text.replace('token=OTHER', 'token=tok-g3'), html: composed.html });
   assert.equal(result.accepted, false);
   assert.equal(result.errorCode, UNSUBSCRIBE_PRESENTATION_ERRORS.INCONSISTENT);
@@ -356,7 +387,7 @@ test('G1 the visible href, the plain-text URL and the List-Unsubscribe target ar
   // Two query parameters, so the HTML representation genuinely differs from the URL itself.
   const url = 'https://carup.dev/api/communications/unsubscribe?token=tok-g3&campaign=c1';
   const data = marketingData({ unsubscribe_url: url, unsubscribe_mailto: 'unsubscribe+tok-g3@mail.carup.dev' });
-  const composed = applyMarketingUnsubscribePresentation({ text: SENTINEL, unsubscribeUrl: url });
+  const composed = composeMarketing(SENTINEL, url);
   const { captured, result } = await brevoSend({ body: composed.text, html: composed.html, data });
 
   // HTML representation: escaped exactly once (G1).
@@ -375,7 +406,7 @@ test('G1 the visible href, the plain-text URL and the List-Unsubscribe target ar
 });
 
 test('G2 a header target that disagrees with the visible control is refused', () => {
-  const composed = applyMarketingUnsubscribePresentation({ text: SENTINEL, unsubscribeUrl: UNSUB });
+  const composed = composeMarketing(SENTINEL);
   const verdict = validateMarketingUnsubscribePresentation({
     html: composed.html, text: composed.text, unsubscribeUrl: UNSUB,
     headerUrl: 'https://carup.dev/api/communications/unsubscribe?token=DIFFERENT',
@@ -386,7 +417,7 @@ test('G2 a header target that disagrees with the visible control is refused', ()
 
 test('G3 the mailto fallback may exist but the HTTPS action stays authoritative', async () => {
   const data = marketingData({ unsubscribe_mailto: 'unsubscribe+tok-g3@mail.carup.dev' });
-  const composed = applyMarketingUnsubscribePresentation({ text: SENTINEL, unsubscribeUrl: UNSUB });
+  const composed = composeMarketing(SENTINEL);
   const { captured } = await brevoSend({ body: composed.text, html: composed.html, data });
   assert.ok(captured.headers['List-Unsubscribe'].startsWith(`<${UNSUB}>`), 'the https URI comes first');
   assert.ok(captured.headers['List-Unsubscribe'].includes('<mailto:'), 'the RFC 2369 fallback is retained');
@@ -400,7 +431,7 @@ test('H1 a non-marketing Email gains no marketing unsubscribe presentation', asy
   const { repository } = repositoryStub({ suppressions: [] });
   const { worker, sent } = workerWith(repository);
 
-  for (const classification of ['security', 'auth', 'conversational', 'transactional', 'service']) {
+  for (const classification of ['security', 'conversational', 'transactional', 'service']) {
     await worker.deliverNotification({
       id: `n-${classification}`, channel: 'email', message: 'Your CarUp account was accessed.',
       // Even carrying an unsubscribe_url, which a shared component could otherwise pick up.
@@ -408,14 +439,15 @@ test('H1 a non-marketing Email gains no marketing unsubscribe presentation', asy
     });
   }
 
-  assert.equal(sent.length, 5);
+  assert.equal(sent.length, 4);
   for (const input of sent) {
-    assert.equal(input.content.body, 'Your CarUp account was accessed.', 'the body is untouched');
-    assert.ok(!input.content.html, 'no marketing HTML carrier is synthesized today');
+    // G2 gave these families a real HTML part. The rule is therefore stated in its durable form:
+    // not "they have no HTML", but "whatever HTML they have carries no marketing control".
+    assert.ok(input.content.body.includes('Your CarUp account was accessed.'), 'the meaning survives');
     assert.ok(!String(input.content.html || '').includes('data-carup-unsubscribe'),
-      'and the durable form of the rule: whatever HTML these families gain, it carries no marketing control');
-    assert.ok(!input.content.body.includes(UNSUB), 'nor does the text part');
-    assert.ok(!input.content.data.unsubscribe_presentation, 'no marketing presentation is declared');
+      'no marketing unsubscribe control in a non-marketing Email');
+    assert.ok(!input.content.body.includes(UNSUB), 'nor in the text part');
+    assert.ok(!/Unsubscribe from CarUp marketing email/.test(String(input.content.html || '')));
   }
 });
 
@@ -461,7 +493,7 @@ test('H2 marketing unsubscribe is not a general footer — non-marketing keeps i
 // ============================================================================
 
 test('L1 providerMetadata reports what was put on the wire, field by field', async () => {
-  const composed = applyMarketingUnsubscribePresentation({ text: SENTINEL, unsubscribeUrl: UNSUB });
+  const composed = composeMarketing(SENTINEL);
   const { result, captured } = await brevoSend({ body: composed.text, html: composed.html });
   const m = result.providerMetadata;
 

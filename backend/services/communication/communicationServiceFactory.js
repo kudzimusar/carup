@@ -20,6 +20,7 @@ import { createMarketingUnsubscribeService } from './marketingUnsubscribeService
 import { ResendInboundResolver } from './resendWebhookService.js';
 import { createResendInboundContentService } from './resendInboundContentService.js';
 import { CommunicationDeliveryWorker } from './communicationDeliveryWorker.js';
+import { renderEmailForNotification } from './emailExperience/renderEmail.js';
 import { CommunicationPreferenceService } from './communicationPreferenceService.js';
 import { CommunicationMetaWhatsAppGovernedAdapter } from './communicationMetaWhatsAppGovernedAdapter.js';
 import { createDefaultAdapterRegistry, assertRealTelegramAdapter } from './adapters/providerAdapters.js';
@@ -128,6 +129,9 @@ export function createCommunicationServices({ repository = null, adapterRegistry
     repository: repo,
     adapterRegistry: registry,
     notificationService,
+    // G2 — the canonical Email renderer, injected here so there is one wiring point for every route
+    // and worker rather than an import buried in the dispatch path.
+    emailRenderer: renderEmailForNotification,
   });
   const orchestrator = createCommunicationOrchestrator({
     repository: repo,

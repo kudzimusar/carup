@@ -15,10 +15,9 @@
  * for it. It also made "exactly one unsubscribe control" unverifiable: the component that would
  * have to detect a duplicate was the component adding one.
  *
- * This module is deliberately NOT a renderer. It owns one control. G2's canonical renderer will
- * consume it — `emailFooters.js` composes the marketing family footer around this block — and will
- * replace `wrapPlainTextAsHtml` below, which exists only so a marketing send has somewhere to put a
- * clickable control while the renderer does not yet exist.
+ * This module is deliberately NOT a renderer. It owns one control. G2's canonical renderer consumes
+ * it: `emailFooters.js` composes the marketing family footer around this block, so the block a
+ * customer clicks is the same block the Brevo adapter validates.
  *
  * It MUST NOT query providers, decide suppression state, send anything, or grow into a second
  * general-purpose renderer.
@@ -113,57 +112,15 @@ export function unsubscribeTextBlock(unsubscribeUrl) {
   return `—\n${UNSUBSCRIBE_COPY.textPrompt}\n${unsubscribeUrl}\n\n${UNSUBSCRIBE_COPY.essentialNotice}`;
 }
 
-/**
- * Minimal HTML carrier for a marketing body that has none.
+/*
+ * RETIRED IN G2 — `wrapPlainTextAsHtml` and `applyMarketingUnsubscribePresentation`.
  *
- * Marketing must always have an HTML part, because a text-only body cannot render a clickable
- * control — that is precisely how a marketing message reached a real inbox with no actionable
- * unsubscribe. This is NOT the renderer: it is the smallest wrapper that makes the control
- * clickable, and G2 replaces it wholesale.
+ * They existed only because no renderer did: a marketing send needed somewhere to put a clickable
+ * control while `renderEmail.js` was still a plan. The canonical Email shell now renders the
+ * marketing family and composes this module's block through `emailFooters.js`, so the interim
+ * carrier would be a second, divergent way to produce marketing HTML. This module kept what it
+ * genuinely owns — the block, its marker, and the contract that validates it.
  */
-function wrapPlainTextAsHtml(text) {
-  const paragraphs = String(text || '').trim().split(/\n{2,}/)
-    .map((p) => `<p style="margin:0 0 14px;">${escapeHtml(p).replace(/\n/g, '<br>')}</p>`)
-    .join('');
-  return `<div style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;font-size:15px;line-height:1.6;color:#0f172a;">${paragraphs}</div>`;
-}
-
-/**
- * Produce finished marketing content carrying exactly one canonical unsubscribe control.
- *
- * Returns `{ html, text, provenance }`. The provenance is a declaration, not proof — the transport
- * layer re-counts the payload itself, so a caller cannot talk its way past validation.
- *
- * Idempotent by construction: content that already carries the marker is returned untouched rather
- * than gaining a second block, so a double-application is a no-op instead of a compliance failure.
- */
-export function applyMarketingUnsubscribePresentation({ html = null, text = '', unsubscribeUrl = null } = {}) {
-  if (!unsubscribeUrl) {
-    return { ok: false, errorCode: UNSUBSCRIBE_PRESENTATION_ERRORS.MISSING_URL, html, text };
-  }
-  const baseText = String(text || '').trim();
-  const alreadyHtml = typeof html === 'string' && html.includes(MARKER);
-  const alreadyText = occurrences(baseText, unsubscribeUrl) > 0;
-
-  const finalHtml = alreadyHtml
-    ? html
-    : `${typeof html === 'string' && html.trim() ? html : wrapPlainTextAsHtml(baseText)}${unsubscribeHtmlBlock(unsubscribeUrl)}`;
-  const finalText = alreadyText
-    ? baseText
-    : `${baseText}\n\n${unsubscribeTextBlock(unsubscribeUrl)}`;
-
-  return {
-    ok: true,
-    html: finalHtml,
-    text: finalText,
-    provenance: {
-      version: UNSUBSCRIBE_PRESENTATION_VERSION,
-      url: unsubscribeUrl,
-      html_marker: MARKER,
-      blocks: 1,
-    },
-  };
-}
 
 /**
  * Validate finished marketing content against the exactly-one contract.
@@ -269,4 +226,4 @@ export function assertNoMarketingUnsubscribePresentation({ html = null, text = n
   };
 }
 
-export default applyMarketingUnsubscribePresentation;
+export default validateMarketingUnsubscribePresentation;

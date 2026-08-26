@@ -132,6 +132,9 @@ export class CommunicationCanonicalConversationService extends CommunicationConv
         notificationType: 'conversation_message',
         title: 'CarUp conversation',
         transactional: true,
+        // A message a human wrote, delivered to a human, inside a thread they can reply to. This is
+        // the conversational family — the acknowledgement that a thread exists is not.
+        classification: 'conversational',
         dedupeParts: ['conversation-message', message.id, recipient.id, binding.channel, identity.id],
         payload,
         fallbackChannels,

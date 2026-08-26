@@ -1,7 +1,20 @@
 import { CommunicationTemplateService } from './communicationTemplateService.js';
 import { CommunicationPreferenceService } from './communicationPreferenceService.js';
 import { buildDedupeKey, normalizeChannel, nowIso } from './communicationUtils.js';
+import { CLASSIFICATION_SOURCES } from './emailExperience/emailClassification.js';
 
+/**
+ * G2 — every policy declares its canonical Email classification EXPLICITLY.
+ *
+ * All nine are transactional: each is a status change or an acknowledgement about something the
+ * recipient already did or owns. None is a conversation (no human is on the other end of them) and
+ * none is marketing. `service` is deliberately not used — the owner's rule is that a family is
+ * SELECTED by a producer, never arrived at because something else was missing.
+ *
+ * The default policy below carries NO classification on purpose. An unrecognised domain event that
+ * reaches Email is refused rather than defaulted, because `missing => transactional` is exactly the
+ * absence-as-semantics defect this gate removes.
+ */
 export const NOTIFICATION_POLICIES = Object.freeze({
   'marketplace.inquiry.created': {
     notificationType: 'marketplace_inquiry',
@@ -10,6 +23,7 @@ export const NOTIFICATION_POLICIES = Object.freeze({
     channels: ['in_app', 'push', 'email'],
     fallbackChannels: ['whatsapp', 'sms'],
     templateKey: 'marketplace_inquiry_received_v1',
+    classification: 'transactional',
     transactional: true,
   },
   ESCROW_CREATED: {
@@ -19,6 +33,7 @@ export const NOTIFICATION_POLICIES = Object.freeze({
     channels: ['in_app', 'push', 'email', 'whatsapp'],
     fallbackChannels: ['sms'],
     templateKey: 'escrow_status_v1',
+    classification: 'transactional',
     transactional: true,
     quietHoursBypass: true,
   },
@@ -29,6 +44,7 @@ export const NOTIFICATION_POLICIES = Object.freeze({
     channels: ['in_app', 'push', 'email', 'whatsapp'],
     fallbackChannels: ['sms'],
     templateKey: 'escrow_status_v1',
+    classification: 'transactional',
     transactional: true,
     quietHoursBypass: true,
   },
@@ -39,6 +55,7 @@ export const NOTIFICATION_POLICIES = Object.freeze({
     channels: ['in_app', 'push', 'email'],
     fallbackChannels: ['sms'],
     templateKey: 'finance_status_v1',
+    classification: 'transactional',
     transactional: true,
   },
   // Decision-specific finance events share the finance_status_v1 rendering but
@@ -52,6 +69,7 @@ export const NOTIFICATION_POLICIES = Object.freeze({
     channels: ['in_app', 'push', 'email'],
     fallbackChannels: ['sms'],
     templateKey: 'finance_status_v1',
+    classification: 'transactional',
     transactional: true,
   },
   'finance.application.declined': {
@@ -61,6 +79,7 @@ export const NOTIFICATION_POLICIES = Object.freeze({
     channels: ['in_app', 'push', 'email'],
     fallbackChannels: ['sms'],
     templateKey: 'finance_status_v1',
+    classification: 'transactional',
     transactional: true,
   },
   // threadType note for the three policies below: message_threads.thread_type carries the DB
@@ -83,6 +102,7 @@ export const NOTIFICATION_POLICIES = Object.freeze({
     fallbackChannels: [],
     policyChannelsOnly: true,
     templateKey: 'verification_decision_v1',
+    classification: 'transactional',
     transactional: true,
   },
   'marketplace.listing.moderated': {
@@ -93,6 +113,7 @@ export const NOTIFICATION_POLICIES = Object.freeze({
     fallbackChannels: [],
     policyChannelsOnly: true,
     templateKey: 'listing_moderation_v1',
+    classification: 'transactional',
     transactional: true,
   },
   'evidence.review.decided': {
@@ -103,9 +124,38 @@ export const NOTIFICATION_POLICIES = Object.freeze({
     fallbackChannels: [],
     policyChannelsOnly: true,
     templateKey: 'evidence_review_v1',
+    classification: 'transactional',
     transactional: true,
   },
 });
+
+/**
+ * Carry the canonical classification onto the payload the worker and adapters actually read.
+ *
+ * A producer that already put one on its payload keeps it — the campaign path and the auth recovery
+ * route both do, and silently overwriting a producer's explicit choice with a parameter would make
+ * the two disagree in exactly the way `resolveEmailClassification` is built to refuse.
+ */
+export function withClassification(payload, classification) {
+  const base = payload || {};
+  if (!classification) return base;
+  if (String(base.classification ?? '').trim() !== '') return base;
+  return { ...base, classification };
+}
+
+/**
+ * Record WHERE the classification came from.
+ *
+ * `metadata.classification` is provenance, not a second authority: it is written from the same value
+ * as the payload, so the two can only disagree if a row was written outside this service or
+ * mutated afterwards — and that disagreement is refused at the Email boundary rather than resolved
+ * by preferring one of them.
+ */
+export function classificationMetadata(base, payload, classification, source) {
+  const effective = String(payload?.classification ?? '').trim() || classification || null;
+  if (!effective) return base;
+  return { ...base, classification: effective, classification_source: source || CLASSIFICATION_SOURCES.PRODUCER };
+}
 
 export class CommunicationNotificationService {
   constructor({ repository, threadService, templateService = null, preferenceService = null } = {}) {
@@ -124,6 +174,9 @@ export class CommunicationNotificationService {
       fallbackChannels: ['email'],
       templateKey: 'message_acknowledgement_v1',
       transactional: true,
+      // NO classification. An unrecognised event that reaches Email is refused at the boundary,
+      // not silently assigned a family and a provider.
+      classification: null,
     }), ...override };
   }
 
@@ -192,6 +245,8 @@ export class CommunicationNotificationService {
         variables: this.variablesForEvent(eventType, payload),
         priority: policy.priority,
         transactional: policy.transactional,
+        classification: policy.classification || null,
+        classificationSource: CLASSIFICATION_SOURCES.POLICY,
         // Prefer the outbox record id (per-event) as the dedupe discriminator; the payload
         // fallbacks cover every emitter's subject id (incl. sessionId/evidenceId/vin for
         // verification, evidence-review, and listing-moderation events) so distinct events
@@ -251,7 +306,7 @@ export class CommunicationNotificationService {
       channel,
       provider: input.provider || null,
       template_key: input.templateKey || rendered.templateKey,
-      payload: input.payload || {},
+      payload: withClassification(input.payload, input.classification),
       priority: input.priority || 'normal',
       status: 'queued',
       dedupe_key: dedupeKey,
@@ -262,7 +317,12 @@ export class CommunicationNotificationService {
       read: false,
       created_at: nowIso(),
       updated_at: nowIso(),
-      metadata: { transactional: input.transactional !== false },
+      metadata: classificationMetadata(
+        { transactional: input.transactional !== false },
+        input.payload,
+        input.classification,
+        input.classificationSource,
+      ),
     };
     if (input.id) notificationRow.id = input.id;
     try {
@@ -380,7 +440,7 @@ export class CommunicationNotificationService {
       channel,
       provider: input.provider || message.provider || null,
       template_key: input.templateKey || 'admin_reply_v1',
-      payload: input.payload || {},
+      payload: withClassification(input.payload, input.classification),
       priority: input.priority || thread.priority || 'normal',
       status: suppressionReason ? 'suppressed' : 'queued',
       dedupe_key: dedupeKey,
@@ -391,11 +451,12 @@ export class CommunicationNotificationService {
       read: false,
       created_at: nowIso(),
       updated_at: nowIso(),
-      metadata: {
-        transactional,
-        source: 'existing_message',
-        suppression_reason: suppressionReason,
-      },
+      metadata: classificationMetadata(
+        { transactional, source: 'existing_message', suppression_reason: suppressionReason },
+        input.payload,
+        input.classification,
+        input.classificationSource,
+      ),
     };
     if (input.id) notificationRow.id = input.id;
     const notification = await this.insertNotificationIdempotently(notificationRow);

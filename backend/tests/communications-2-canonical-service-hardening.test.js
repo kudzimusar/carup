@@ -155,7 +155,9 @@ test('terminal provider failure advances exactly one canonical message to the ne
       type: 'conversation_message', notification_type: 'conversation_message',
       title: 'CarUp conversation', message: 'Same semantic seller reply', channel: 'whatsapp',
       status: 'queued', dedupe_key: 'primary-fallback', priority: 'normal', max_attempts: 1,
-      payload: { phone_number: '263771234567' },
+      // G2: a conversation_message is `conversational`. The fallback row inherits it by spreading
+      // the parent payload, which is how the email fallback below gets a canonical family.
+      payload: { phone_number: '263771234567', classification: 'conversational' },
       metadata: {
         transactional: true,
         fallback_channels: ['email', 'in_app'],

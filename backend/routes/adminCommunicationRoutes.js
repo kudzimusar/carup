@@ -588,6 +588,8 @@ export async function recordAdminThreadReply({ services, thread, actor, body = {
         channel: replyChannel,
         notificationType: 'admin_reply',
         templateKey: 'admin_reply_v1',
+        // A human replying inside a thread. This IS the conversation.
+        classification: 'conversational',
         priority: thread.priority || 'normal',
         humanApproved: true,
         dedupeParts: ['admin_reply', thread.id, clientMessageId, thread.primary_user_id],
@@ -617,6 +619,7 @@ export async function recordAdminThreadReply({ services, thread, actor, body = {
           channel: replyChannel,
           notificationType: 'admin_reply',
           templateKey: 'admin_reply_v1',
+          classification: 'conversational',
           priority: thread.priority || 'normal',
           humanApproved: true,
           // Keyed on the recipient USER (never the address), now sourced from the addressed
@@ -642,6 +645,7 @@ export async function recordAdminThreadReply({ services, thread, actor, body = {
           provider: identity.provider || message.provider || null,
           notificationType: 'admin_reply',
           templateKey: 'admin_reply_v1',
+          classification: 'conversational',
           priority: thread.priority || 'normal',
           humanApproved: true,
           dedupeParts: ['admin_reply', thread.id, clientMessageId, identity.id],

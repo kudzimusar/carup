@@ -231,11 +231,17 @@ test('the password-changed notice states that sessions were signed out', () => {
 
 test('auth/security Email routes to Resend and NEVER to Brevo', async () => {
   const router = new EmailTransportRouter({ env: { RESEND_API_KEY: 'k', RESEND_FROM_EMAIL: 'a@mail.carup.dev' } });
-  for (const classification of ['security', 'auth', 'transactional', 'conversational', 'service']) {
+  for (const classification of ['security', 'transactional', 'conversational', 'service']) {
     const selected = router.selectAdapter({ content: { data: { classification } } });
     assert.equal(selected.adapter.provider, 'resend', `${classification} must route to Resend`);
     assert.notEqual(selected.adapter.provider, 'brevo');
   }
+  // G2 reclassification: 'auth' used to reach Resend, but only because it fell through the
+  // marketing check — it was never a canonical classification, it was an unrecognised string that
+  // happened to land somewhere sensible. Account protection IS `security`; there is no sixth value.
+  const auth = router.selectAdapter({ content: { data: { classification: 'auth' } } });
+  assert.equal(auth.adapter, null, "'auth' is not a canonical classification");
+  assert.equal(auth.errorCode, 'email_classification_invalid');
 });
 
 test('marketing never rides the transactional transport', () => {

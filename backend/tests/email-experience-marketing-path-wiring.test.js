@@ -124,8 +124,9 @@ test('WIRING: the queued payload routes to the MARKETING transport, not the tran
   const router = new EmailTransportRouter({
     env: { RESEND_API_KEY: 'r', RESEND_FROM_EMAIL: 'notifications@mail.carup.dev', BREVO_API_KEY: 'b', BREVO_FROM_EMAIL: 'news@marketing.carup.dev' },
   });
-  // A payload with no classification silently defaults to 'transactional'.
-  assert.equal(router.selectAdapter({ content: { data: {} } }).adapter.provider, 'resend');
+  // G2: a payload with no classification used to default to 'transactional' and pick Resend.
+  // Absence no longer chooses a provider.
+  assert.equal(router.selectAdapter({ content: { data: {} } }).adapter, null);
   assert.equal(router.selectAdapter({ content: { data: { classification: 'marketing' } } }).adapter.provider, 'brevo');
 });
 

@@ -180,7 +180,8 @@ test('WORKER: a policy-driven notification now resolves its address on the FIRST
   const { w, sent } = await worker({ users: [{ id: 'u1', email: 'resolved@example.test' }] });
   await w.deliverNotification({
     id: 1, channel: 'email', recipient_user_id: 'u1', max_attempts: 5, attempt_count: 1,
-    payload: { event_type: 'marketplace.inquiry.created', safe_payload: {} },
+    // G2: a real policy producer stamps the canonical classification onto the payload.
+    payload: { event_type: 'marketplace.inquiry.created', safe_payload: {}, classification: 'transactional' },
   }, { alreadyClaimed: true });
   assert.equal(sent.length, 1, 'the provider must be called on the primary attempt');
   assert.equal(sent[0].recipient.email, 'resolved@example.test');

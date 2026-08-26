@@ -81,6 +81,8 @@ export function authRecoveryRouter({
       language: 'en',
       priority: 'high',
       transactional: true,
+      // Account protection is `security`. There is deliberately no `auth` classification.
+      classification: 'security',
       fallbackChannels: [],
       variables,
       dedupeParts: ['auth', templateKey, user.id, variables.dedupe_nonce],

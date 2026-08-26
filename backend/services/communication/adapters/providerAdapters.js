@@ -2,6 +2,10 @@ import crypto from 'crypto';
 import { FakeCommunicationAdapter } from './fakeCommunicationAdapter.js';
 import { renderAuthEmail } from '../authEmailTemplates.js';
 import {
+  EMAIL_CLASSIFICATION_ERRORS,
+  normalizeEmailClassification,
+} from '../emailExperience/emailClassification.js';
+import {
   assertNoMarketingUnsubscribePresentation,
   unsubscribeHrefFor,
   validateMarketingUnsubscribePresentation,
@@ -569,11 +573,30 @@ export class EmailTransportRouter {
     return null;
   }
 
-  /** Governed classification -> adapter. Marketing never rides the transactional transport. */
+  /**
+   * Governed classification -> adapter. Marketing never rides the transactional transport.
+   *
+   * G2: this used to default a missing classification to `'transactional'`, which meant absence
+   * silently CHOSE A PROVIDER. That is how a real marketing campaign rode the transactional
+   * transport with no unsubscribe control: nobody decided it should: nothing was set, and the
+   * default decided for them. A provider is now never chosen by a default.
+   */
   selectAdapter(input = {}) {
-    const classification = String(
-      input?.content?.data?.classification || input?.classification || 'transactional',
-    ).toLowerCase();
+    const raw = input?.content?.data?.classification ?? input?.classification;
+    const present = String(raw ?? '').trim() !== '';
+    const classification = normalizeEmailClassification(raw);
+
+    if (!classification) {
+      return {
+        adapter: null,
+        classification: present ? String(raw) : null,
+        reason: present ? 'classification_invalid' : 'classification_missing',
+        errorCode: present ? EMAIL_CLASSIFICATION_ERRORS.INVALID : EMAIL_CLASSIFICATION_ERRORS.MISSING,
+        errorMessage: present
+          ? `'${raw}' is not a canonical CarUp Email classification; refusing to choose a transport.`
+          : 'This Email carries no canonical classification; refusing to choose a transport by default.',
+      };
+    }
     if (MARKETING_EMAIL_CLASSIFICATIONS.has(classification)) {
       return { adapter: this.brevo, classification, reason: 'marketing_to_brevo' };
     }
@@ -588,13 +611,13 @@ export class EmailTransportRouter {
   }
 
   async send(input = {}) {
-    const { adapter, classification, reason } = this.selectAdapter(input);
+    const { adapter, classification, reason, errorCode, errorMessage } = this.selectAdapter(input);
     if (!adapter) {
       return {
         accepted: false,
         retryable: false,
-        errorCode: 'provider_not_configured',
-        errorMessage: `No Email transport is configured for classification '${classification}'.`,
+        errorCode: errorCode || 'provider_not_configured',
+        errorMessage: errorMessage || `No Email transport is configured for classification '${classification}'.`,
       };
     }
     const result = await adapter.send(input);
