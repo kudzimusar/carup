@@ -5,7 +5,7 @@ import { CommunicationDeliveryWorker } from '../services/communication/communica
 import { renderAuthEmail } from '../services/communication/authEmailTemplates.js';
 import { EMAIL_BRAND_IDENTITY } from '../services/communication/emailExperience/emailBrandIdentity.js';
 import { EMAIL_BRAND_TOKENS } from '../services/communication/emailExperience/emailBrandTokens.js';
-import { CANONICAL_EMAIL_ROUTES, canonicalEmailLink } from '../services/communication/emailExperience/canonicalEmailLinks.js';
+import { CANONICAL_EMAIL_ROUTES, canonicalEmailLink, unavailableRoutes } from '../services/communication/emailExperience/canonicalEmailLinks.js';
 import { escapeAttr, escapeHtml, html, renderHtml, safeHtml } from '../services/communication/emailExperience/emailMarkup.js';
 import { footerFamilyFor } from '../services/communication/emailExperience/emailFooters.js';
 import {
@@ -178,20 +178,34 @@ test('P14 brand tokens are the certified auth values, so no family drifts', () =
 // ============================================================================
 
 test('P15 no Email links to a route that is not routed in the frontend', () => {
-  assert.equal(CANONICAL_EMAIL_ROUTES.support.available, false, '/support is approved and NOT YET REAL (G12)');
-  assert.equal(CANONICAL_EMAIL_ROUTES.security.available, false, '/security is approved and NOT YET REAL (G12)');
-  assert.equal(canonicalEmailLink('support', {}), null);
-  assert.equal(canonicalEmailLink('security', {}), null);
+  // G12 reclassification. This asserted /support and /security were NOT linked, which was true while
+  // they were approved-but-unrouted. G12 built both routes, so the same RULE — never link an
+  // unrouted path — now produces the opposite expectation. The rule itself is pinned generically in
+  // email-experience-public-prerequisites.test.js (`C4`), which reads the real router.
+  assert.equal(unavailableRoutes().length, 0, 'every declared route is routed');
+
+  for (const [key, route] of Object.entries(CANONICAL_EMAIL_ROUTES)) {
+    assert.equal(Boolean(canonicalEmailLink(key, {})), route.available,
+      `${key} must resolve to a link exactly when it is routed`);
+  }
 
   for (const classification of ['security', 'transactional', 'conversational', 'service', 'marketing']) {
     const r = render({ classification, unsubscribe_url: UNSUB });
     const blob = `${r.html}\n${r.text}`;
-    assert.ok(!blob.includes('carup.dev/support'), `${classification} must not link to an unrouted /support`);
-    assert.ok(!blob.includes('carup.dev/security'), `${classification} must not link to an unrouted /security`);
-    // ...while the routes that DO exist are linked, so this is not passing by rendering nothing.
+    // Every family links the real legal pages, so this cannot pass by rendering nothing.
     assert.ok(blob.includes('carup.dev/privacy'), `${classification} links the real /privacy`);
     assert.ok(blob.includes('carup.dev/terms'));
+    // And nothing links to a path the router does not have.
+    assert.ok(!blob.includes('carup.dev/preferences'), 'no preference route exists');
+    assert.ok(!blob.includes('carup.dev/unsubscribe-centre'));
   }
+
+  // The security family stays restrained: legal pages only, no support invitation.
+  const security = render({ classification: 'security' });
+  assert.ok(!security.text.includes('carup.dev/support'), 'a security Email does not invite a support round trip');
+  // The transactional family DOES now carry the real Support link.
+  const transactional = render({ classification: 'transactional' });
+  assert.ok(transactional.text.includes('carup.dev/support'));
 });
 
 test('P15b the support CONTACT is a certified alias, which is not the same as a route', () => {

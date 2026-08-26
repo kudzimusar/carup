@@ -31,7 +31,7 @@ class MemoryReferralRepository {
 
 function createHarness() {
   const repository = new MemoryReferralRepository();
-  const referralService = new ReferralEngineService({ repository, now: () => new Date('2026-06-12T00:00:00.000Z'), shareOptions: { baseUrl: 'https://carup.test', whatsappNumber: '263771000000', telegramBot: 'CarUpBot' } });
+  const referralService = new ReferralEngineService({ repository, now: () => new Date('2026-06-12T00:00:00.000Z'), shareOptions: { baseUrl: 'https://staging.carup.dev', whatsappNumber: '263771000000', telegramBot: 'CarUpBot' } });
   const marketingSeo = new ReferralMarketingSeoService({ referralService, now: () => new Date('2026-06-12T00:00:00.000Z') });
   return { repository, referralService, marketingSeo };
 }
@@ -54,6 +54,17 @@ async function seedCampaign(referralService) {
 
 const operatorActor = Object.freeze({ actor_user_id: 'marketing-operator-1', actor_role: 'marketing_manager', actor_tenant_id: 'tenant-1', actor_type: 'agent', gateway_trusted: true, surface: 'web', session_id: 'marketing-session' });
 const memberActor = Object.freeze({ actor_user_id: 'member-1', actor_role: 'member', actor_tenant_id: 'tenant-1', actor_type: 'user', gateway_trusted: false, surface: 'web', session_id: 'member-session' });
+
+/**
+ * G12 reclassification: `base_url` was `https://carup.test` — an arbitrary external host — and these
+ * tests asserted the generated public URL started with it. That encoded the defect G12 closed: a
+ * caller-supplied host being published verbatim in a durable, forwardable marketing link.
+ *
+ * `resolveOutboundShareOrigin` now honours a supplied origin ONLY when it is already a canonical
+ * CarUp origin, so the fixture uses the governed staging origin. Every other assertion here — kit
+ * creation, SEO/UTM structure, canonical tag, internal links, disclosure — is unchanged, and the
+ * rejection of a non-canonical host is proven in email-experience-public-prerequisites.test.js.
+ */
 
 test('Phase 6 docs, routes, and service cover AI marketing and SEO requirements', () => {
   assert.equal(roadmapFile.includes('Generate campaign pages, share kits, proof stories, FAQ drafts, and channel messages from campaign data.'), true);
@@ -90,12 +101,12 @@ test('rule catalog exposes required content objects, SEO metadata, disclosure, a
 test('campaign kit creates stored draft assets with SEO, UTM, canonical, internal links, and disclosure', async () => {
   const { repository, referralService, marketingSeo } = createHarness();
   const { campaign, code } = await seedCampaign(referralService);
-  const kit = await marketingSeo.createCampaignKit({ campaign_id: campaign.id, referral_code: code.code, base_url: 'https://carup.test' }, operatorActor);
+  const kit = await marketingSeo.createCampaignKit({ campaign_id: campaign.id, referral_code: code.code, base_url: 'https://staging.carup.dev' }, operatorActor);
   assert.equal(kit.success, true);
   assert.equal(kit.assets.length >= 8, true);
   assert.equal(kit.assets.every((asset) => asset.status === MARKETING_ASSET_STATUSES.DRAFT), true);
   const landing = kit.assets.find((asset) => asset.asset_type === MARKETING_ASSET_TYPES.CORRIDOR_LANDING_PAGE);
-  assert.equal(landing.seo.canonical_url.startsWith('https://carup.test/'), true);
+  assert.equal(landing.seo.canonical_url.startsWith('https://staging.carup.dev/'), true);
   assert.equal(landing.seo.canonical_tag.includes('rel="canonical"'), true);
   assert.equal(landing.seo.tracked_url.includes('utm_campaign='), true);
   assert.equal(landing.seo.internal_links.includes('/referrals'), true);
@@ -108,7 +119,7 @@ test('campaign kit creates stored draft assets with SEO, UTM, canonical, interna
 test('SEO page draft can be generated from referral code context and preserves attribution', async () => {
   const { referralService, marketingSeo } = createHarness();
   const { code } = await seedCampaign(referralService);
-  const response = await marketingSeo.draftSeoPage({ referral_code: code.code, asset_type: 'container_campaign_page', base_url: 'https://carup.test' }, operatorActor);
+  const response = await marketingSeo.draftSeoPage({ referral_code: code.code, asset_type: 'container_campaign_page', base_url: 'https://staging.carup.dev' }, operatorActor);
   assert.equal(response.success, true);
   assert.equal(response.asset.seo.attribution.referral_code, 'PHASE6-MARKET-001');
   assert.equal(response.asset.seo.clean_url.includes('/referrals/import/container-space/'), true);
@@ -118,7 +129,7 @@ test('SEO page draft can be generated from referral code context and preserves a
 test('rejecting a marketing asset requires a reason', async () => {
   const { referralService, marketingSeo } = createHarness();
   const { code } = await seedCampaign(referralService);
-  const draft = await marketingSeo.draftSeoPage({ referral_code: code.code, asset_type: 'container_campaign_page', base_url: 'https://carup.test' }, operatorActor);
+  const draft = await marketingSeo.draftSeoPage({ referral_code: code.code, asset_type: 'container_campaign_page', base_url: 'https://staging.carup.dev' }, operatorActor);
   const assetId = draft.asset.id;
   await assert.rejects(() => marketingSeo.transitionAssetStatus(assetId, { status: 'rejected' }, operatorActor), ValidationError);
   const rejected = await marketingSeo.transitionAssetStatus(assetId, { status: 'rejected', reason: 'off-brand copy' }, operatorActor);
@@ -149,7 +160,7 @@ test('proof story and FAQ drafts are review-safe and evidence-driven', async () 
 test('asset status workflow enforces approval, scheduling, publication, and attribution-preserving links', async () => {
   const { repository, referralService, marketingSeo } = createHarness();
   const { campaign } = await seedCampaign(referralService);
-  const draft = await marketingSeo.draftSeoPage({ campaign_id: campaign.id, asset_type: 'corridor_landing_page', base_url: 'https://carup.test' }, operatorActor);
+  const draft = await marketingSeo.draftSeoPage({ campaign_id: campaign.id, asset_type: 'corridor_landing_page', base_url: 'https://staging.carup.dev' }, operatorActor);
   await assert.rejects(() => marketingSeo.transitionAssetStatus(draft.asset.id, { status: 'published' }, memberActor), ForbiddenError);
   const approved = await marketingSeo.transitionAssetStatus(draft.asset.id, { status: 'approved', reason: 'copy verified' }, operatorActor);
   assert.equal(approved.asset.metadata.status, 'approved');

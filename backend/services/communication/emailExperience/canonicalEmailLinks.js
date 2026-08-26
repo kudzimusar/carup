@@ -20,14 +20,19 @@ import { resolveCanonicalWebOrigin } from '../../../config/canonicalWebOrigin.js
 /**
  * Routes reconciled against `web/src/App.tsx`.
  *
- * `available: false` is a statement about the FRONTEND, not about approval. G12 flips /support and
- * /security to true when the routes are built; nothing else should change here.
+ * `available: false` is a statement about the FRONTEND, not about approval. A route must exist in
+ * the router before anything links to it: `web/vercel.json` rewrites unmatched paths to
+ * `index.html`, so an unrouted path answers HTTP 200 with the SPA shell — a soft 404 no status
+ * check can see and no monitoring can fire on.
  */
 export const CANONICAL_EMAIL_ROUTES = Object.freeze({
   privacy: { path: '/privacy', label: 'Privacy', available: true },
   terms: { path: '/terms', label: 'Terms', available: true },
-  support: { path: '/support', label: 'Support', available: false },   // G12
-  security: { path: '/security', label: 'Security', available: false }, // G12
+  // G12 built both routes. `available` flipped only after `web/src/App.tsx` gained real `/support`
+  // and `/security` routes with their own page components — owner approval of a URL was never the
+  // same thing as the page existing.
+  support: { path: '/support', label: 'Support', available: true },
+  security: { path: '/security', label: 'Security', available: true },
 });
 
 /** Routes approved but not yet routed. Exported so a test can assert nothing links to them. */

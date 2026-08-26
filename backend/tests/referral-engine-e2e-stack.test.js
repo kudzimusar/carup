@@ -34,7 +34,7 @@ class MemoryReferralRepository {
 
 function createStack() {
   const now = () => new Date('2026-06-12T00:00:00.000Z');
-  const shareOptions = { baseUrl: 'https://carup.test', whatsappNumber: '263771000000', telegramBot: 'CarUpBot' };
+  const shareOptions = { baseUrl: 'https://staging.carup.dev', whatsappNumber: '263771000000', telegramBot: 'CarUpBot' };
   const repository = new MemoryReferralRepository();
   const referralService = new ReferralEngineService({ repository, now, shareOptions });
   const agentGateway = new ReferralAgentGatewayService({ referralService, now, shareOptions });
@@ -53,6 +53,17 @@ const channelActor = Object.freeze({ actor_user_id: 'channel-user-1', actor_role
 const marketingActor = Object.freeze({ actor_user_id: 'marketing-1', actor_role: 'marketing_manager', actor_tenant_id: 'tenant-1', actor_type: 'agent', gateway_trusted: true, surface: 'web', session_id: 'marketing-session' });
 const memberActor = Object.freeze({ actor_user_id: 'random-member', actor_role: 'member', actor_tenant_id: 'tenant-1', actor_type: 'user', gateway_trusted: false, surface: 'web', session_id: 'member-session' });
 const trustActor = Object.freeze({ actor_user_id: 'trust-1', actor_role: 'trust_manager', actor_tenant_id: 'tenant-1', actor_type: 'agent', gateway_trusted: true, surface: 'admin', session_id: 'trust-session' });
+
+/**
+ * G12 reclassification: `base_url` was `https://carup.test` — an arbitrary external host — and these
+ * tests asserted the generated public URL started with it. That encoded the defect G12 closed: a
+ * caller-supplied host being published verbatim in a durable, forwardable marketing link.
+ *
+ * `resolveOutboundShareOrigin` now honours a supplied origin ONLY when it is already a canonical
+ * CarUp origin, so the fixture uses the governed staging origin. Every other assertion here — kit
+ * creation, SEO/UTM structure, canonical tag, internal links, disclosure — is unchanged, and the
+ * rejection of a non-canonical host is proven in email-experience-public-prerequisites.test.js.
+ */
 
 test('Flow A: local marketplace referral chain preserves attribution, blocks self-referral and duplicate rewards', async () => {
   const { repository, referralService, channelGateway, localMarketplace } = createStack();
@@ -172,10 +183,10 @@ test('Flow C: AI marketing kit is review-safe and disclosure/attribution cannot 
   const code = await referralService.createReferralCode({ campaign_id: campaign.id, owner_user_id: 'ambassador-1', code: 'e2e-market-001', code_type: REFERRAL_CODE_TYPES.MEMBER, channel: 'whatsapp' }, operatorActor);
 
   // 1-2. Campaign kit -> stored draft assets with SEO, UTM, canonical, internal links, disclosure.
-  const kit = await marketingSeo.createCampaignKit({ campaign_id: campaign.id, referral_code: code.code, base_url: 'https://carup.test' }, marketingActor);
+  const kit = await marketingSeo.createCampaignKit({ campaign_id: campaign.id, referral_code: code.code, base_url: 'https://staging.carup.dev' }, marketingActor);
   assert.equal(kit.assets.length >= 8, true);
   const landing = kit.assets.find((asset) => asset.asset_type === MARKETING_ASSET_TYPES.CORRIDOR_LANDING_PAGE);
-  assert.equal(landing.seo.canonical_url.startsWith('https://carup.test/'), true);
+  assert.equal(landing.seo.canonical_url.startsWith('https://staging.carup.dev/'), true);
   assert.equal(landing.seo.tracked_url.includes('utm_campaign='), true);
   assert.equal(landing.seo.internal_links.includes('/referrals'), true);
   assert.equal(landing.disclosure.includes('promoter or referrer may receive a benefit'), true);
@@ -186,7 +197,7 @@ test('Flow C: AI marketing kit is review-safe and disclosure/attribution cannot 
   assert.equal(channelMessages.assets.every((asset) => asset.body.message.includes('Disclosure:')), true);
 
   // 4. Approve -> schedule -> publish as a marketing manager.
-  const draft = await marketingSeo.draftSeoPage({ campaign_id: campaign.id, asset_type: 'corridor_landing_page', base_url: 'https://carup.test' }, marketingActor);
+  const draft = await marketingSeo.draftSeoPage({ campaign_id: campaign.id, asset_type: 'corridor_landing_page', base_url: 'https://staging.carup.dev' }, marketingActor);
   await marketingSeo.transitionAssetStatus(draft.asset.id, { status: 'approved', reason: 'copy verified' }, marketingActor);
   await marketingSeo.transitionAssetStatus(draft.asset.id, { status: 'scheduled', scheduled_at: '2026-07-01T09:00:00.000Z' }, marketingActor);
   const published = await marketingSeo.transitionAssetStatus(draft.asset.id, { status: 'published' }, marketingActor);
@@ -194,7 +205,7 @@ test('Flow C: AI marketing kit is review-safe and disclosure/attribution cannot 
   assert.equal(published.asset.metadata.public_url.includes('utm_campaign='), true);
 
   // 5. A non-marketing actor cannot publish.
-  const draft2 = await marketingSeo.draftSeoPage({ campaign_id: campaign.id, asset_type: 'corridor_landing_page', base_url: 'https://carup.test' }, marketingActor);
+  const draft2 = await marketingSeo.draftSeoPage({ campaign_id: campaign.id, asset_type: 'corridor_landing_page', base_url: 'https://staging.carup.dev' }, marketingActor);
   await assert.rejects(() => marketingSeo.transitionAssetStatus(draft2.asset.id, { status: 'published' }, memberActor), ForbiddenError);
 
   // 6. Unsafe patches cannot replace status / SEO attribution or remove disclosure.
