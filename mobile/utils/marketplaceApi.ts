@@ -19,57 +19,25 @@ export class MarketplaceApiError extends Error {
   }
 }
 
-/**
- * ── THE CANONICAL VEHICLE MEDIA CONTRACT ON MOBILE (Issue #164 Phase 5) ───────────────────────
- *
- * These mirror `shared/types/marketplace.ts`. They are RESTATED rather than imported because this
- * file's whole point is to be the one place mobile talks to the marketplace API, and its existing
- * types are already local restatements (`MobileListingSummary`, `MobileTrustSummary`) — importing
- * only these two would leave the file half-shared and half-local, which is worse than either.
- *
- * NOTHING ON THIS SCREEN READS THEM YET, and that is stated rather than implied: `app/vehicle/
- * [vin].tsx` renders the trust summary, the audits and the price and displays NO image at all, and
- * `app/(tabs)/marketplace.tsx` renders no image either. Declaring the true shape is still the right
- * move — a mobile gallery built against `{url, type, is_primary?}` would have to invent a key for
- * the photograph, which is precisely the fork Rule 6b exists to prevent.
- */
 export type MobileMediaUrlForm = 'absolute_https' | 'absolute_http' | 'protocol_relative' | 'site_relative';
-
 export type MobileMediaBlockState = 'published' | 'none' | 'not_loaded';
 
 export interface MobileListingMediaItem {
-  /** Rule 6b: `listing_images.id`, lowercased. Names the PHOTOGRAPH; `position` names only a slot. */
   media_id: string;
-  /** Rule 5: an unvalidated string somebody recorded. `url_form` is the only guarantee about it. */
   url: string;
   url_form: MobileMediaUrlForm;
-  /** The projection's dense 0-based ordinal AFTER sorting, not the raw `display_order`. */
   position: number;
-  /** Rule 6: `true` only where a row claims it. No primary is elected when the seller named none. */
   is_primary: boolean;
 }
 
 export interface MobileListingMediaBlock {
-  /** Rule 1: `not_loaded` means this read path did not look, and claims NOTHING in either direction. */
   state: MobileMediaBlockState;
   items: MobileListingMediaItem[];
   unpublishable_count: number;
-  /** Belongs to `none` alone. Null under `published` and under `not_loaded`. */
   empty_statement: string | null;
 }
 
-/**
- * WHERE THE CARD'S COVER IMAGE CAME FROM. `seller_primary` is the only state under which a surface
- * may describe it as the seller's main photo; `first_published` means nobody chose it; and `none`
- * and `not_loaded` are DIFFERENT FACTS — consulted-and-empty against never-consulted.
- */
 export type MobilePrimaryImageState = 'seller_primary' | 'first_published' | 'none' | 'not_loaded';
-
-/**
- * Issue #164 Phase 6 — restatement of the shared public reservation envelope. These are the ONLY
- * five states mobile may render. No reservation/transaction/counterparty/provider identifiers are
- * part of this shape, and `reserved:null` means unknown/fail-closed rather than available.
- */
 export type MobileReservationState = 'active' | 'expired' | 'none' | 'unavailable' | 'inconsistent';
 
 export interface MobileReservationSummary {
@@ -78,6 +46,35 @@ export interface MobileReservationSummary {
   reserved_at: string | null;
   expires_at: string | null;
   reason: string | null;
+}
+
+/**
+ * Exact public trust projection published by canonicalTrustService.toPublicTrust().
+ * A numeric score is legitimate ONLY when evaluation_state === 'evaluated'. A legacy cached score
+ * can still exist in the compatibility `trust_score` key, but mobile never treats that key as an
+ * authority and never falls back to it when this projection is absent/non-evaluated.
+ */
+export type MobileTrustEvaluationState = 'evaluated' | 'stale' | 'not_evaluated' | 'unavailable';
+
+export interface MobileTrustEvidenceBasis {
+  governed_facts_total: number | null;
+  governed_facts_substantiated: number | null;
+  governed_facts_adverse: number | null;
+  connected_sources: number | null;
+  unbacked_legacy_claims: number | null;
+}
+
+export interface MobilePublicTrust {
+  vin: string;
+  score: number | null;
+  band: string | null;
+  evaluation_state: MobileTrustEvaluationState;
+  confidence: string | null;
+  evidence_basis: MobileTrustEvidenceBasis | null;
+  calculation_version: string | null;
+  evaluated_at: string | null;
+  known_limitations: string[];
+  source: 'computed' | 'cache' | 'none' | string;
 }
 
 export interface MobileTransactionIntent {
@@ -95,11 +92,19 @@ export interface MobileListingSummary {
   vin: string;
   make: string;
   model: string;
-  year: number;
-  price: number;
-  currency: string;
-  mileage: number;
-  trust_score: number;
+  /** Unknown stays unknown: the canonical listing builder can legally publish null for these facts. */
+  year: number | null;
+  price: number | null;
+  currency: string | null;
+  mileage: number | null;
+  fuel_type?: string | null;
+  transmission?: string | null;
+  location?: string | null;
+  location_state?: 'recorded' | 'not_recorded' | 'withheld' | 'not_applicable';
+  /** Compatibility key only. Never a trust authority; may be null for every legacy/not-evaluated row. */
+  trust_score: number | null;
+  /** The only public trust authority mobile may render. */
+  trust?: MobilePublicTrust | null;
   /** Null means reservation-backed lifecycle truth could not be safely resolved. */
   status: string | null;
   condition_category?: string;
@@ -107,8 +112,17 @@ export interface MobileListingSummary {
   primary_image_url?: string | null;
   primary_image_state: MobilePrimaryImageState;
   primary_image_unpublishable_count: number;
-  seller_type?: string;
-  seller_display_label?: string;
+  plate_verified?: boolean;
+  plate_status?: string | null;
+  passport_verified?: boolean;
+  evidence_count?: number;
+  partsentry_checked?: boolean;
+  repair_history_count?: number;
+  verified_parts_count?: number;
+  seller_type?: string | null;
+  seller_display_label?: string | null;
+  seller_public_profile_enabled?: boolean;
+  created_at?: string | null;
   /** Present on public Marketplace list API responses; optional on local builder-like test values. */
   reservation_summary?: MobileReservationSummary;
 }
@@ -117,6 +131,7 @@ export interface MobileListingsResponse {
   listings: MobileListingSummary[];
   total: number;
   limit?: number;
+  ranking?: { requested?: string; applied?: string; note?: string };
 }
 
 export interface MobileTrustSummary {
@@ -131,18 +146,7 @@ export interface MobileTrustSummary {
 
 export interface MobileListingDetail extends MobileListingSummary {
   description?: string | null;
-  /**
-   * THE AUTHORITY on this payload's gallery. Read this, not `media`: an array cannot express
-   * `not_loaded` — it arrives as `[]`, indistinguishable from "no photos" — and cannot carry
-   * `unpublishable_count`. Answering from `media` about a payload that has an envelope is how a
-   * surface comes to report a negative about a table it never successfully read.
-   */
   listing_media?: MobileListingMediaBlock;
-  /**
-   * The compatibility view, derived entry-for-entry from `listing_media.items` plus the legacy
-   * `type` key. It was declared here as `{url, type, is_primary?}` — a strict SUBSET of what the
-   * service publishes, which has carried `media_id`, `url_form` and `position` since Phase 5.
-   */
   media?: (MobileListingMediaItem & { type: string })[];
   trust_summary: MobileTrustSummary;
   verification_summary?: Record<string, unknown>;
