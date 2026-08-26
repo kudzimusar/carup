@@ -194,6 +194,7 @@ export class CommunicationDeliveryWorker {
         cta_route: rendered.cta_route,
         leadership_identity_rendered: rendered.leadership_identity_rendered,
         render_fallback_used: rendered.render_fallback_used,
+        auth_equivalence_verified: rendered.auth_equivalence_verified ?? false,
       };
     }
 

@@ -352,6 +352,10 @@ export class ResendEmailAdapter extends HttpCommunicationAdapter {
       sender_persona: renderer.sender_persona ?? null,
       leadership_identity_rendered: renderer.leadership_identity_rendered ?? false,
       render_fallback_used: renderer.render_fallback_used ?? null,
+      // G6: true only when a migrated auth template's canonical render passed the equivalence
+      // contract. This is the field that shows the R2 migration actually happened, rather than
+      // being assumed from the presence of the code that performs it.
+      auth_equivalence_verified: renderer.auth_equivalence_verified ?? false,
       html_part_rendered: renderer.html_part_rendered ?? null,
       cta_href_canonical: renderer.cta_href_canonical ?? null,
       cta_route: renderer.cta_route ?? null,
@@ -408,8 +412,14 @@ export class ResendEmailAdapter extends HttpCommunicationAdapter {
     // sent and the message degraded to text, which is a different fact worth seeing.
     const authHtml = resolveAuthHtml(input);
     const renderedHtml = emailHtml(input);
-    const html = authHtml || renderedHtml;
-    const htmlSource = authHtml ? 'auth_compatibility' : (renderedHtml ? 'renderer' : null);
+    // G6 inverted this precedence. The certified auth renderer used to win unconditionally, which
+    // would have made the R2 migration invisible: the canonical artefact would be produced, verified
+    // equivalent, and then silently discarded at the transport boundary. The RENDERER now wins when
+    // it produced HTML — for a migrated auth template it has already proven equivalence — and
+    // `resolveAuthHtml` remains the fallback for everything not yet migrated, and for a canonical
+    // render that was refused.
+    const html = renderedHtml || authHtml;
+    const htmlSource = renderedHtml ? 'renderer' : (authHtml ? 'auth_compatibility' : null);
     if (html) body.html = html;
 
     // The exactly-one contract, read in the other direction. Resend carries every NON-marketing

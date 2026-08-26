@@ -374,6 +374,9 @@ test('M2 provenance carries no secret and no raw database row', async () => {
     assert.ok(!provenance.includes(forbidden), `provenance must not carry ${forbidden}`);
   }
   assert.deepEqual(Object.keys(sent.content.data.email_render_provenance).sort(), [
+    // G6 added auth_equivalence_verified: the field that shows a migrated auth template's canonical
+    // render passed the equivalence contract, rather than that being assumed.
+    'auth_equivalence_verified',
     'classification', 'classification_source', 'cta_href_canonical', 'cta_route', 'footer_family',
     'html_part_rendered', 'leadership_identity_rendered', 'render_fallback_used',
     'renderer_version', 'sender_persona', 'template_key', 'template_version', 'text_part_rendered',

@@ -105,9 +105,14 @@ function assertConsistentWithWire(metadata, body) {
 // ============================================================================
 
 test('O1 auth success: renderer produced NO html, and auth-compatibility html WAS sent', async () => {
+  // G6 reclassification. This used `reset_password`, which G6 migrated to the canonical renderer —
+  // so it is no longer an example of the compatibility path. `confirm_signup` is deliberately NOT
+  // migrated, so it is the honest example of the property this test guards: the renderer defers,
+  // the certified artefact ships, and both facts are recorded truthfully at the same time.
+  // The migrated R2 case is proven in email-experience-auth-equivalence.test.js (D1/D2).
   const input = notificationFor(
-    { classification: 'security', auth_template_key: 'reset_password', action_url: RESET_URL },
-    { title: 'Reset your CarUp password', message: 'A password reset was requested for your CarUp account.' },
+    { classification: 'security', auth_template_key: 'confirm_signup', action_url: RESET_URL },
+    { title: 'Confirm your CarUp account', message: 'Confirm this email address to activate your account.' },
   );
   assert.equal(input.rendered.html_part_rendered, false, 'precondition: G2 defers to the certified path');
   assert.equal(input.rendered.render_fallback_used, 'auth_compatibility');

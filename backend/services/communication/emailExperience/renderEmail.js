@@ -22,6 +22,8 @@
  * leaving the Resend adapter's existing `resolveAuthHtml()` compatibility path untouched.
  */
 import { isCanonicalWebOrigin } from '../../../config/canonicalWebOrigin.js';
+import { AUTH_EMAIL_COPY, renderAuthEmail } from '../authEmailTemplates.js';
+import { checkAuthEquivalence } from './authEquivalence.js';
 import {
   EMAIL_CLASSIFICATION_ERRORS,
   resolveEmailClassification,
@@ -41,7 +43,18 @@ export const RENDER_FALLBACKS = Object.freeze({
   NONE: null,
   PLAIN_TEXT_DEGRADED: 'plain_text_degraded',
   AUTH_COMPATIBILITY: 'auth_compatibility',
+  /** G6: the canonical auth render did not hold equivalence, so the certified artefact was used. */
+  AUTH_EQUIVALENCE_FAILED: 'auth_equivalence_failed',
 });
+
+/**
+ * Auth templates migrated to the canonical renderer, one at a time.
+ *
+ * R2 (password reset) is migrated in G6. `confirm_signup` and `password_changed` stay on the
+ * certified path until each has its own equivalence proof — migrating three P0 flows because one of
+ * them was proven is the kind of shortcut that turns a careful migration into an outage.
+ */
+export const CANONICALLY_RENDERED_AUTH_TEMPLATES = Object.freeze(['reset_password']);
 
 /**
  * Why this Email arrived, per family. Every line has to be true of every message in that family, so
@@ -104,6 +117,76 @@ function refusal(errorCode, errorMessage, provenance = {}) {
 }
 
 /**
+ * G6 — render a migrated auth Email canonically, and only return it if it is EQUIVALENT.
+ *
+ * Both renderers run. That is deliberate: the certified artefact is the specification, so the only
+ * honest way to say "the canonical one is equivalent" is to produce both and compare them on every
+ * send. A guarantee asserted once in a test file protects the build; a guarantee evaluated on every
+ * send protects the customer.
+ *
+ * Returns the canonical result, or a reason to use the certified path. It never throws: a fault here
+ * degrades to the artefact a human already accepted, and a password reset is not something to lose
+ * to a refactor.
+ *
+ * The two decline reasons are kept apart on purpose. NOT ELIGIBLE means the canonical artefact was
+ * never attempted — a producer supplied no action URL, so there is nothing to compare. EQUIVALENCE
+ * FAILED means it WAS produced and did not hold a property the certified one holds. Collapsing them
+ * would send whoever reads the audit trail looking for a rendering bug that is really a missing
+ * field, or worse, the reverse.
+ */
+function renderMigratedAuthEmail({ authKey, payload, classification, baseProvenance, env }) {
+  const copy = AUTH_EMAIL_COPY[authKey];
+  const actionUrl = firstPresent(payload.action_url, payload.cta_url, payload.actionUrl);
+  if (!copy || !actionUrl) return { eligible: false };
+
+  try {
+    const certified = renderAuthEmail(authKey, env, payload);
+    const document = {
+      classification,
+      preheaderText: copy.preheader,
+      heading: copy.heading,
+      bodyText: copy.intro,
+      action: { label: copy.actionLabel, url: String(actionUrl) },
+      note: copy.securityNote,
+      reasonReceived: copy.reasonReceived,
+      unsubscribeUrl: null,
+    };
+    const html = renderEmailHtml(document, { env });
+    const text = renderEmailText(document, { env });
+
+    const equivalence = checkAuthEquivalence({
+      certified,
+      certifiedSubject: certified.subject,
+      canonicalHtml: html,
+      canonicalText: text,
+      canonicalSubject: copy.subject,
+      actionUrl: String(actionUrl),
+      copy,
+    });
+    if (!equivalence.ok) return { eligible: true, ok: false, failures: equivalence.failures };
+
+    return {
+      ok: true,
+      subject: copy.subject,
+      text,
+      html,
+      classification,
+      ...baseProvenance,
+      template_key: certified.templateKey || baseProvenance.template_key,
+      html_part_rendered: true,
+      text_part_rendered: true,
+      ...ctaProvenance({ url: String(actionUrl) }),
+      render_fallback_used: RENDER_FALLBACKS.NONE,
+      auth_equivalence_verified: true,
+    };
+  } catch {
+    // A thrown canonical render is an equivalence failure in every sense that matters: it was
+    // attempted and did not produce a usable artefact.
+    return { eligible: true, ok: false, failures: ['render_threw'] };
+  }
+}
+
+/**
  * Render one notification into its canonical Email representation.
  *
  * Returns `{ ok: true, subject, text, html, classification, ...provenance }` or
@@ -138,9 +221,19 @@ export function renderEmailForNotification(notification = {}, { env = process.en
     leadership_identity_rendered: false,
   };
 
-  // AUTH COMPATIBILITY (§I). The certified auth renderer keeps producing the HTML until G6 proves
-  // equivalence; this path deliberately produces none, so nothing races it.
+  // AUTH. Two paths, and which one runs is decided by whether equivalence actually holds.
   if (payload.auth_template_key) {
+    const authKey = String(payload.auth_template_key);
+    let equivalenceFailed = false;
+    if (CANONICALLY_RENDERED_AUTH_TEMPLATES.includes(authKey)) {
+      const migrated = renderMigratedAuthEmail({ authKey, payload, classification, baseProvenance, env });
+      if (migrated?.ok) return migrated;
+      // Fall through to the certified artefact rather than ship a password reset nobody checked.
+      equivalenceFailed = migrated?.eligible === true;
+    }
+    // Not yet migrated (or the canonical render was refused). The certified renderer supplies the
+    // HTML at the transport boundary, exactly as before, and this path deliberately produces none so
+    // nothing races it.
     return {
       ok: true,
       subject,
@@ -153,7 +246,9 @@ export function renderEmailForNotification(notification = {}, { env = process.en
       // The auth action URL carries a live single-use token and is deliberately NOT recorded here.
       // The route alone proves which flow ran.
       ...ctaProvenance(actionFrom(payload)),
-      render_fallback_used: RENDER_FALLBACKS.AUTH_COMPATIBILITY,
+      render_fallback_used: equivalenceFailed
+        ? RENDER_FALLBACKS.AUTH_EQUIVALENCE_FAILED
+        : RENDER_FALLBACKS.AUTH_COMPATIBILITY,
     };
   }
 
