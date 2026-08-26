@@ -1098,6 +1098,17 @@ export default function VehicleDetail() {
   const [lookupNeedsSignIn, setLookupNeedsSignIn] = useState(false)
 
   const [currentImageIdx, setCurrentImageIdx] = useState(0)
+  // A syntactically publishable media address can still fail at delivery time. Keep that
+  // browser-runtime failure separate from the canonical media block: it is neither `none` nor
+  // `not_loaded`, and it must not turn into a broken-image glyph or a claim about the seller.
+  const [failedListingMedia, setFailedListingMedia] = useState<{ vin: string | undefined; urls: string[] }>({ vin: id, urls: [] })
+  const failedListingMediaUrls = failedListingMedia.vin === id ? failedListingMedia.urls : []
+  const markListingMediaFailed = useCallback((url: string) => {
+    setFailedListingMedia((previous) => {
+      const urls = previous.vin === id ? previous.urls : []
+      return urls.includes(url) ? previous : { vin: id, urls: [...urls, url] }
+    })
+  }, [id])
   const [isFav, setIsFav]         = useState(() => getFavorites().includes(id || ''))
   // Session-only acknowledgement that this browser submitted a reservation request. It never
   // asserts reserved state on its own — `status` from the server is the only source of "Reserved".
@@ -1563,8 +1574,15 @@ export default function VehicleDetail() {
     readListingMediaBlock(passportMedia?.listing_media),
     marketplaceBlock,
   )
-  const galleryItems = listingMedia.items
-  const hasListingPhotos = listingMedia.state === 'published'
+  // Runtime delivery failures do not mutate the canonical media contract. They only decide
+  // which already-published item the browser can present in this render. If every published address
+  // fails, the page renders a distinct delivery-failure state rather than pretending the gallery
+  // was empty or unread.
+  const galleryItems = listingMedia.items.filter((item) => !failedListingMediaUrls.includes(item.url))
+  const allListingMediaFailed = listingMedia.state === 'published'
+    && listingMedia.items.length > 0
+    && galleryItems.length === 0
+  const hasListingPhotos = listingMedia.state === 'published' && galleryItems.length > 0
   // The index survives a payload changing under it; a stale index must never index past the array
   // and blank the gallery.
   const activeImageIdx = galleryItems.length > 0
@@ -1810,6 +1828,7 @@ export default function VehicleDetail() {
                       data-testid="vehicle-image"
                       data-url-form={activeImage.url_form}
                       data-media-id={activeImage.media_id ?? undefined}
+                      onError={() => markListingMediaFailed(activeImage.url)}
                     />
                     {/* Rule 6: shown only where a row claims it. No primary is elected when the
                         seller named none — that choice is theirs to make or leave unmade. */}
@@ -1847,10 +1866,19 @@ export default function VehicleDetail() {
                   <div
                     className="w-full aspect-[16/9] bg-gray-100 flex flex-col items-center justify-center gap-2 px-6 text-center text-gray-400"
                     data-testid="no-images-placeholder"
-                    data-media-state={listingMedia.state}
+                    data-media-state={allListingMediaFailed ? 'published_unavailable' : listingMedia.state}
                   >
                     <Car className="w-14 h-14 opacity-30" aria-hidden="true" />
-                    {listingMedia.state === 'none' ? (
+                    {allListingMediaFailed ? (
+                      <div data-testid="listing-media-load-failed">
+                        <p className="text-sm font-medium text-gray-600">Listing photo unavailable</p>
+                        <p className="mt-1 text-xs text-gray-400">
+                          CarUp received a published photo address for this listing, but the browser could
+                          not load it. That is a delivery failure, not a statement about the vehicle or
+                          whether the seller added photos.
+                        </p>
+                      </div>
+                    ) : listingMedia.state === 'none' ? (
                       <div data-testid="listing-media-empty">
                         {/* The block's own sentence, not one authored here. A gallery that invents
                             its own empty-state wording is how the previous one came to publish a
@@ -1937,13 +1965,13 @@ export default function VehicleDetail() {
                       the photograph, so the node follows the picture rather than the slot. The
                       composite falls back only for the marketplace transport, which carries no
                       identity to key on. */}
-                  {galleryItems.map((item) => (
-                    <button key={item.media_id ?? `${item.position}-${item.url}`} onClick={() => setCurrentImageIdx(item.position)}
+                  {galleryItems.map((item, galleryIndex) => (
+                    <button key={item.media_id ?? `${item.position}-${item.url}`} onClick={() => setCurrentImageIdx(galleryIndex)}
                       data-testid="listing-media-thumb"
                       data-media-id={item.media_id ?? undefined}
-                      aria-label={`Show photo ${item.position + 1}`}
-                      className={`flex-shrink-0 w-20 h-14 rounded-lg overflow-hidden border-2 transition-colors ${item.position === activeImageIdx ? 'border-orange-500' : 'border-transparent'}`}>
-                      <img src={item.url} alt="" className="w-full h-full object-cover" />
+                      aria-label={`Show photo ${galleryIndex + 1}`}
+                      className={`flex-shrink-0 w-20 h-14 rounded-lg overflow-hidden border-2 transition-colors ${galleryIndex === activeImageIdx ? 'border-orange-500' : 'border-transparent'}`}>
+                      <img src={item.url} alt="" className="w-full h-full object-cover" onError={() => markListingMediaFailed(item.url)} />
                     </button>
                   ))}
                 </div>
