@@ -2571,8 +2571,13 @@ export default function VehicleDetail() {
                   {vehicle.sellerAvatar && <img src={vehicle.sellerAvatar} alt="" className="w-12 h-12 rounded-full object-cover" />}
                   <div>
                     <p className="font-medium" data-testid="seller-name">
-                      {vehicle.sellerName
-                        ?? (passport?.ownershipSummary?.currentSellerRecorded ? 'Not shown publicly' : 'Not recorded')}
+                      {/* Marketplace seller-profile consent is authoritative as soon as detail loads.
+                          Do not wait for passport enrichment before honoring a disabled public profile:
+                          that race exposed "Not recorded" for a seller whose public identity is withheld. */}
+                      {detail?.seller_summary?.public_profile_enabled === false
+                        ? 'Not shown publicly'
+                        : vehicle.sellerName
+                          ?? (passport?.ownershipSummary?.currentSellerRecorded ? 'Not shown publicly' : 'Not recorded')}
                     </p>
                     {vehicle.sellerType && (
                       <Badge variant="outline" className="text-[10px] mt-0.5">{vehicle.sellerType}</Badge>

@@ -375,6 +375,24 @@ describe('VehicleDetail — a photo on the Marketplace card is a photo on this p
     expect(screen.getByTestId('vehicle-image').getAttribute('src')).toBe(CARD_IMAGE)
   })
 
+  it('honors Marketplace seller privacy before optional passport enrichment settles', async () => {
+    // Deployed staging exposed this exact first-render state: Marketplace detail was already public
+    // and declared the private seller profile disabled while passport enrichment was still pending.
+    // The UI must not turn that timing difference into an assertion that the seller name is absent.
+    lookupVehiclePassport.mockImplementation(() => new Promise(() => {}))
+    fetchMarketplaceListingDetail.mockResolvedValue({
+      ...detailFixture([image(CARD_IMAGE)]),
+      seller_summary: { display_label: null, seller_type: 'private', public_profile_enabled: false },
+    })
+
+    await renderSettled()
+    await waitFor(() => expect(screen.getByTestId('seller-name')).toBeTruthy())
+
+    expect(screen.getByTestId('seller-name').textContent).toBe('Not shown publicly')
+    expect(fetchMarketplaceListingDetail).toHaveBeenCalled()
+    expect(fetchVehicle).not.toHaveBeenCalled()
+  })
+
   it('takes the gallery from the listing rows, never from the passport vehicle’s images key', async () => {
     // `vehicle.images` is planted with a value the page must not use. It is not a real passport key;
     // reading it is what produced an empty gallery, and reading it again would produce a wrong one.

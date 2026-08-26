@@ -237,7 +237,7 @@ export interface MarketplaceMedia extends MarketplaceListingMediaItem {
 }
 
 export interface MarketplaceSellerSummary {
-  display_label: string;
+  display_label: string | null;
   seller_type: 'dealer' | 'private' | string;
   public_profile_enabled: boolean;
   location?: string;
