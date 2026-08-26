@@ -1,0 +1,74 @@
+name: Marketplace Reference Regression
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'shared/marketplace.ts'
+      - 'web/src/pages/Marketplace.tsx'
+      - 'web/src/pages/VehicleDetail.tsx'
+      - 'web/src/pages/VehicleDetail.test.tsx'
+      - 'web/src/components/marketplace/MarketplaceListingCard.tsx'
+      - 'web/src/components/marketplace/MarketplaceListingCard.test.tsx'
+      - 'web/e2e/marketplace-reference.spec.ts'
+      - '.github/workflows/marketplace-reference-regression.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: marketplace-reference-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  reference-regression:
+    name: Vehicle Detail / reference regression
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Checkout exact candidate
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+
+      - name: Install web dependencies
+        run: npm --prefix web ci
+
+      - name: Run Marketplace unit regressions
+        run: >-
+          npm --prefix web run test:unit --
+          src/components/marketplace/MarketplaceListingCard.test.tsx
+          src/pages/VehicleDetail.test.tsx
+
+      - name: Install Playwright Chromium
+        working-directory: web
+        run: npx playwright install --with-deps chromium
+
+      - name: Start Vite reference server
+        run: |
+          npm --prefix web run dev -- --host 127.0.0.1 > /tmp/carup-marketplace-vite.log 2>&1 &
+          echo $! > /tmp/carup-marketplace-vite.pid
+          for attempt in {1..30}; do
+            if curl --fail --silent --show-error http://127.0.0.1:5173/marketplace >/dev/null; then
+              exit 0
+            fi
+            sleep 1
+          done
+          cat /tmp/carup-marketplace-vite.log
+          exit 1
+
+      - name: Run Marketplace Playwright reference suite
+        env:
+          PLAYWRIGHT_BASE_URL: http://127.0.0.1:5173
+        run: npm --prefix web run test:e2e:ci -- e2e/marketplace-reference.spec.ts
+
+      - name: Print Vite log on failure
+        if: failure()
+        run: cat /tmp/carup-marketplace-vite.log || true
