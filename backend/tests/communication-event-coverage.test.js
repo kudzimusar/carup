@@ -2,10 +2,17 @@
  * Communication event coverage gate (seam-E E3 regression guard).
  *
  * Every event type the communication engine subscribes to MUST have a real
- * emitter — a quoted literal inside an emit/publish-style call under
- * backend/services or backend/routes. Subscribing to events nothing emits is
- * dead code that silently drops product notifications; this gate makes such
- * drift a CI failure instead of a production surprise.
+ * emitter. Subscribing to events nothing emits is dead code that silently drops
+ * product notifications; this gate makes such drift a CI failure instead of a
+ * production surprise.
+ *
+ * An emitter is a quoted literal inside an emit/publish-style call under
+ * backend/services or backend/routes, OR an INSERT INTO domain_events inside a
+ * SQL migration. The second form is not a loophole: Issue #164 Phase 6 moved the
+ * marketplace transaction emitters into `issue164_transition_session_atomic` so
+ * the state transition and its event commit in ONE transaction, which is a
+ * stronger emitter than a JS call that can succeed after the transition fails.
+ * Requiring JS would have meant rejecting the better implementation.
  *
  * Also covers the serverless outbox drain (seam-E E1): the worker-secret
  * guarded /api/internal/events/process route pair plus its Vercel cron, and
@@ -44,6 +51,25 @@ function collectJsFiles(dir, out = []) {
 const scannedFiles = SCAN_ROOTS.flatMap((root) => collectJsFiles(root))
   .map((file) => ({ file, source: fs.readFileSync(file, 'utf8') }));
 
+/** Migrations that write `domain_events` directly. */
+const MIGRATIONS_DIR = path.join(path.dirname(backendDir), 'database', 'migrations');
+const migrationSources = fs.existsSync(MIGRATIONS_DIR)
+  ? fs.readdirSync(MIGRATIONS_DIR).filter((f) => f.endsWith('.sql'))
+    .map((f) => fs.readFileSync(path.join(MIGRATIONS_DIR, f), 'utf8'))
+  : [];
+
+/**
+ * True when a SQL migration inserts this event type into `domain_events`.
+ *
+ * Deliberately requires BOTH the domain_events insert and the literal in the same file, so a
+ * migration that merely mentions the string does not count as emitting it.
+ */
+function emittedBySql(eventType) {
+  const escaped = eventType.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const literal = new RegExp(`['"]${escaped}['"]`);
+  return migrationSources.some((source) => /INSERT\s+INTO\s+(public\.)?domain_events/i.test(source) && literal.test(source));
+}
+
 /**
  * True when the event type appears as a quoted literal argument of an
  * emit/publish/persist *Event call, e.g.:
@@ -59,18 +85,19 @@ function emitterRegexFor(eventType) {
   );
 }
 
-test('every subscribed communication event type has a real emitter under backend/services or backend/routes', () => {
+test('every subscribed communication event type has a real emitter (JS or SQL)', () => {
   assert.ok(COMMUNICATION_EVENT_TYPES.length > 0, 'COMMUNICATION_EVENT_TYPES must not be empty');
   const missing = [];
   for (const eventType of COMMUNICATION_EVENT_TYPES) {
     const regex = emitterRegexFor(eventType);
-    const emitted = scannedFiles.some(({ source }) => regex.test(source));
+    const emitted = scannedFiles.some(({ source }) => regex.test(source)) || emittedBySql(eventType);
     if (!emitted) missing.push(eventType);
   }
   assert.deepEqual(
     missing,
     [],
-    `Subscribed event type(s) with no emitDomainEvent/publishMemoryEvent literal emitter: ${missing.join(', ')}. ` +
+    `Subscribed event type(s) with no emitter — neither an emitDomainEvent/publishMemoryEvent literal ` +
+    `nor a domain_events INSERT in a migration: ${missing.join(', ')}. ` +
     'Either add a real emitter or remove the subscription from COMMUNICATION_EVENT_TYPES.'
   );
 });

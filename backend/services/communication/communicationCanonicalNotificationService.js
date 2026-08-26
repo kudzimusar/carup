@@ -1,5 +1,5 @@
 import { CLASSIFICATION_SOURCES } from './emailExperience/emailClassification.js';
-import { CommunicationNotificationService, classificationMetadata, withClassification } from './communicationNotificationService.js';
+import { CommunicationNotificationService, classificationMetadata, referencePayloadFor, withClassification } from './communicationNotificationService.js';
 import { buildDedupeKey, normalizeChannel, nowIso } from './communicationUtils.js';
 import { logCommunicationAuditEvent } from './communicationAuditLog.js';
 
@@ -81,6 +81,10 @@ export class CommunicationCanonicalNotificationService extends CommunicationNoti
       payload: {
         event_type: eventType,
         safe_payload: payload,
+        // The LIVE subclass reimplements this method rather than delegating, so the reference
+        // payload has to be carried here too. A base class that looks correct is not the code that
+        // runs — that has bitten this programme in G2, G3 and G5.
+        ...referencePayloadFor(eventType, payload),
         communication_routing: {
           primary_channel: primaryChannel,
           fallback_channels: fallbackChannels,

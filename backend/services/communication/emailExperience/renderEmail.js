@@ -279,6 +279,16 @@ export function renderEmailForNotification(notification = {}, { env = process.en
   const referenceDocument = reference
     ? buildReferenceDocument(payload.reference_template, { payload, classification, env })
     : null;
+  if (reference?.build && !referenceDocument) {
+    // A reference that cannot describe its own input refuses. R4 does this for a transaction state
+    // nobody mapped: an unrecognised stage is one nobody decided what to say about, and inventing
+    // reassuring prose for it is how a false financial claim gets written by accident.
+    return refusal(
+      'reference_state_not_describable',
+      `Reference '${payload.reference_template}' cannot truthfully describe the supplied state; refusing rather than guessing.`,
+      baseProvenance,
+    );
+  }
 
   const document = referenceDocument || {
     classification,

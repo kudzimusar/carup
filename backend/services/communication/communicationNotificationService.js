@@ -127,6 +127,42 @@ export const NOTIFICATION_POLICIES = Object.freeze({
     classification: 'transactional',
     transactional: true,
   },
+
+  // R4 — SafeTrade / marketplace transaction stages.
+  //
+  // These are REAL canonical events, emitted by `issue164_transition_session_atomic` into
+  // `domain_events` when the transaction authority moves a session. They were emitted and never
+  // subscribed, so the customer was never told. Subscribing them is wiring, not invention.
+  //
+  // Every one is `transactional`: a stage change on a journey the recipient is party to. None is a
+  // payment claim — `referenceSafeTradeTransaction.js` decides what may be SAID about each state,
+  // and refuses any state nobody mapped.
+  MARKETPLACE_PAYMENT_INITIATED: {
+    notificationType: 'safetrade_transaction', threadType: 'escrow', priority: 'high',
+    channels: ['in_app', 'email'], fallbackChannels: [],
+    templateKey: 'safetrade_transaction_v1', classification: 'transactional', transactional: true,
+  },
+  MARKETPLACE_INSPECTION_PENDING: {
+    notificationType: 'safetrade_transaction', threadType: 'escrow', priority: 'high',
+    channels: ['in_app', 'email'], fallbackChannels: [],
+    templateKey: 'safetrade_transaction_v1', classification: 'transactional', transactional: true,
+  },
+  MARKETPLACE_RELEASE_APPROVED: {
+    notificationType: 'safetrade_transaction', threadType: 'escrow', priority: 'high',
+    channels: ['in_app', 'email'], fallbackChannels: [],
+    templateKey: 'safetrade_transaction_v1', classification: 'transactional', transactional: true,
+  },
+  MARKETPLACE_TRANSACTION_DISPUTED: {
+    notificationType: 'safetrade_transaction', threadType: 'escrow', priority: 'high',
+    channels: ['in_app', 'email'], fallbackChannels: [],
+    templateKey: 'safetrade_transaction_v1', classification: 'transactional', transactional: true,
+    quietHoursBypass: true,
+  },
+  MARKETPLACE_TRANSACTION_CANCELLED: {
+    notificationType: 'safetrade_transaction', threadType: 'escrow', priority: 'normal',
+    channels: ['in_app', 'email'], fallbackChannels: [],
+    templateKey: 'safetrade_transaction_v1', classification: 'transactional', transactional: true,
+  },
 });
 
 /**
@@ -155,6 +191,33 @@ export function classificationMetadata(base, payload, classification, source) {
   const effective = String(payload?.classification ?? '').trim() || classification || null;
   if (!effective) return base;
   return { ...base, classification: effective, classification_source: source || CLASSIFICATION_SOURCES.PRODUCER };
+}
+
+/**
+ * Extra payload a reference template needs, derived from the domain event.
+ *
+ * Kept narrow and explicit. A domain event's `safe_payload` is a producer's own shape; a reference
+ * template reads named fields, so the mapping between the two lives here rather than being guessed
+ * at inside a renderer.
+ */
+const SAFETRADE_EVENT_TYPES = new Set([
+  'MARKETPLACE_PAYMENT_INITIATED', 'MARKETPLACE_INSPECTION_PENDING', 'MARKETPLACE_RELEASE_APPROVED',
+  'MARKETPLACE_TRANSACTION_DISPUTED', 'MARKETPLACE_TRANSACTION_CANCELLED',
+]);
+
+export function referencePayloadFor(eventType, payload = {}) {
+  if (!SAFETRADE_EVENT_TYPES.has(eventType)) return {};
+  // The audience-safe transaction projection only. No amount, no currency, no provider identifier —
+  // all exist upstream and none belongs in a forwardable Email.
+  const session = payload.session || payload.transaction_session || payload;
+  return {
+    reference_template: 'safetrade_transaction',
+    transaction_session: {
+      transaction_intent_id: session.transaction_intent_id || session.id || null,
+      vin: session.vin || payload.vin || null,
+      status: session.status || payload.status || null,
+    },
+  };
 }
 
 export class CommunicationNotificationService {
@@ -252,7 +315,11 @@ export class CommunicationNotificationService {
         // verification, evidence-review, and listing-moderation events) so distinct events
         // for the same user never collapse into one dedupe key.
         dedupeParts: [eventType, event.id || event.dedupe_key || event.event_id || payload.id || payload.inquiryId || payload.escrowId || payload.applicationId || payload.sessionId || payload.evidenceId || payload.vin, recipientUserId, policy.templateKey, channel],
-        payload: { event_type: eventType, safe_payload: payload },
+        payload: {
+          event_type: eventType,
+          safe_payload: payload,
+          ...referencePayloadFor(eventType, payload),
+        },
       }));
     }
     return queued;

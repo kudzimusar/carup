@@ -13,6 +13,7 @@
  */
 import { buildLeadershipWelcomeDocument } from './referenceLeadershipWelcome.js';
 import { buildMarketplaceConversationDocument } from './referenceMarketplaceConversation.js';
+import { buildSafeTradeTransactionDocument } from './referenceSafeTradeTransaction.js';
 
 export const CONSENT_REQUIREMENTS = Object.freeze({
   /** Sent because the recipient did something. No opt-in applies and no unsubscribe may appear. */
@@ -82,6 +83,27 @@ export const EMAIL_TEMPLATE_REGISTRY = Object.freeze({
     mediaPolicy: 'canonical_listing_media_only',
     leadershipRequired: false,
     build: buildMarketplaceConversationDocument,
+  }),
+
+  safetrade_transaction: Object.freeze({
+    reference: 'R4',
+    templateKey: 'safetrade_transaction_v1',
+    version: 1,
+    family: 'transactional',
+    classification: 'transactional',
+    // A status notification about a journey the recipient is party to — NOT a conversation, so it
+    // carries no G5 credential, and NOT marketing, so it carries no unsubscribe.
+    senderPersona: 'carup_notifications',
+    transport: 'resend',
+    workflow: 'safetrade',
+    recipientRole: 'transaction_party',
+    consentRequirement: CONSENT_REQUIREMENTS.NONE_LIFECYCLE,
+    regulatedDataPolicy: REGULATED_DATA_POLICY.MINIMISE_POINT_AT_SURFACE,
+    primaryAction: 'open_journey',
+    footerFamily: 'transactional',
+    mediaPolicy: 'text_wordmark_only',
+    leadershipRequired: false,
+    build: buildSafeTradeTransactionDocument,
   }),
 
   password_reset: Object.freeze({
