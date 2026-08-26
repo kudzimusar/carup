@@ -14,6 +14,7 @@
 import { buildLeadershipWelcomeDocument } from './referenceLeadershipWelcome.js';
 import { buildMarketplaceConversationDocument } from './referenceMarketplaceConversation.js';
 import { buildSafeTradeTransactionDocument } from './referenceSafeTradeTransaction.js';
+import { buildCarUpWeeklyDocument } from './referenceCarUpWeekly.js';
 
 export const CONSENT_REQUIREMENTS = Object.freeze({
   /** Sent because the recipient did something. No opt-in applies and no unsubscribe may appear. */
@@ -104,6 +105,29 @@ export const EMAIL_TEMPLATE_REGISTRY = Object.freeze({
     mediaPolicy: 'text_wordmark_only',
     leadershipRequired: false,
     build: buildSafeTradeTransactionDocument,
+  }),
+
+  carup_weekly: Object.freeze({
+    reference: 'R6',
+    templateKey: 'carup_weekly_v1',
+    version: 1,
+    family: 'marketing',
+    classification: 'marketing',
+    senderPersona: 'carup_weekly',
+    transport: 'brevo',
+    workflow: 'growth',
+    recipientRole: 'marketing_subscriber',
+    consentRequirement: CONSENT_REQUIREMENTS.MARKETING_OPT_IN,
+    regulatedDataPolicy: REGULATED_DATA_POLICY.NOT_APPLICABLE,
+    primaryAction: 'browse_marketplace',
+    footerFamily: 'marketing',
+    mediaPolicy: 'canonical_listing_media_only',
+    leadershipRequired: false,
+    // Truth model, recorded so nobody later "improves" it into a claim: this issue is edited by
+    // people. The repository has no saved searches, watchlists, price-drop tracking or behavioural
+    // recommendation wired to Email, so R6 asserts none of them.
+    curationModel: 'human_curated',
+    build: buildCarUpWeeklyDocument,
   }),
 
   password_reset: Object.freeze({
