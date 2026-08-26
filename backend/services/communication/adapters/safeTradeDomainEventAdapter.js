@@ -132,9 +132,16 @@ export function canonicalSafeTradeStatus(payload = {}) {
  */
 async function readSessionParticipants(transactionId, repository) {
   if (!transactionId || !repository?.findOne) return null;
-  const session = await repository
-    .findOne('escrow_trust_sessions', { id: transactionId })
-    .catch(() => null);
+  // A LOOKUP FAULT IS NOT A MISSING SESSION.
+  //
+  // `repository.findOne` already draws that line: it returns null when no row matches and THROWS
+  // when the query itself failed. Swallowing the throw here would turn a transient database blip
+  // into `SESSION_UNRESOLVED`, the orchestrator would return an empty result, `eventWorker` would
+  // see a clean return and mark the outbox row `processed` — and neither principal would ever be
+  // told. That is the exact shape of the C1 defect this adapter exists to remove, so letting the
+  // error propagate is the whole point: the outbox retries, and dead-letters only after
+  // MAX_ATTEMPTS, which is a visible failure rather than a silent one.
+  const session = await repository.findOne('escrow_trust_sessions', { id: transactionId });
   if (!session) return null;
   return {
     vin: trimmed(session.vin),

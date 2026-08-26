@@ -383,6 +383,43 @@ test('E3 an unresolvable transaction session refuses rather than guessing', asyn
   assert.equal(adapted.refused, SAFETRADE_ADAPTER_REFUSALS.SESSION_UNRESOLVED);
 });
 
+test('E3b a TRANSIENT lookup fault PROPAGATES — it must never look like a missing session', async () => {
+  // The distinction that decides whether a customer is told. `repository.findOne` returns null for
+  // a genuine miss and THROWS when the query failed. If the adapter swallowed the throw, the
+  // orchestrator would return an empty result, eventWorker would mark the outbox row `processed`,
+  // and both principals would be silently dropped — the very failure C1 exists to remove.
+  // Propagating instead lets the outbox retry and, eventually, dead-letter visibly.
+  const w = world();
+  const faulting = {
+    ...w.repository,
+    findOne: async (table, filters) => {
+      if (table === 'escrow_trust_sessions') throw new Error('escrow_trust_sessions lookup failed: connection reset');
+      return w.repository.findOne(table, filters);
+    },
+  };
+  await assert.rejects(
+    () => normalizeSafeTradeDomainEvent({
+      eventType: 'MARKETPLACE_RELEASE_APPROVED', payload: transitionPayload('release_approved'), repository: faulting,
+    }),
+    /lookup failed/,
+    'a database fault must reach the outbox, not be converted into a refusal',
+  );
+});
+
+test('E3c the fault propagates all the way through the orchestrator seam', async () => {
+  const w = world();
+  w.repository.findOne = async (table) => {
+    if (table === 'escrow_trust_sessions') throw new Error('escrow_trust_sessions lookup failed: timeout');
+    return null;
+  };
+  await assert.rejects(
+    () => drive(w, 'MARKETPLACE_FUNDS_HELD', paymentPayload('captured')),
+    /lookup failed/,
+    'the orchestrator must not absorb it either — a clean return marks the event processed',
+  );
+  assert.equal(w.inserted.length, 0);
+});
+
 test('E4 an UNMAPPED provider state is refused, never passed through verbatim', async () => {
   const w = world({ sessionStatus: null });
   const adapted = await normalizeSafeTradeDomainEvent({
