@@ -364,6 +364,13 @@ function deliveryPayloadForIdentity(identity = {}) {
   return payload;
 }
 
+/**
+ * The external contact this thread is with, and the participant that represents them.
+ *
+ * G5 returns the PARTICIPANT alongside the identity. It was already selected here; discarding it
+ * forced the delivery worker to re-derive which participant an Email belonged to, and an
+ * authenticated reply credential bound to a guess is not authenticated.
+ */
 async function resolveExternalReplyIdentity({ repository, thread }) {
   if (!repository || !thread?.id) return null;
   const participants = await repository.list('message_participants', { thread_id: thread.id });
@@ -371,7 +378,8 @@ async function resolveExternalReplyIdentity({ repository, thread }) {
     || participants.find((entry) => entry.participant_type === 'external_contact' && entry.external_identity_id)
     || participants.find((entry) => entry.external_identity_id);
   if (!participant?.external_identity_id) return null;
-  return repository.findOne('channel_identities', { id: participant.external_identity_id });
+  const identity = await repository.findOne('channel_identities', { id: participant.external_identity_id });
+  return identity ? { identity, participant } : null;
 }
 
 // Participants that exist to hold thread state rather than to be written to. Addressing one of
@@ -631,12 +639,16 @@ export async function recordAdminThreadReply({ services, thread, actor, body = {
             admin_reply: true,
             ...deliveryPayloadForIdentity(identity),
           },
+          // G5 — the participant actually being addressed, so an authenticated Reply-To binds to
+          // them rather than to whoever the thread happens to list first.
+          metadata: { recipient_participant_id: participant.id },
         })).notification;
       }
     }
     if (!internal && !notification && !thread.primary_user_id) {
-      const identity = await resolveExternalReplyIdentity({ repository, thread });
-      if (identity) {
+      const external = await resolveExternalReplyIdentity({ repository, thread });
+      if (external) {
+        const { identity, participant } = external;
         notification = (await services.notificationService.queueExistingMessage({
           recipientIdentityId: identity.id,
           thread,
@@ -654,6 +666,7 @@ export async function recordAdminThreadReply({ services, thread, actor, body = {
             admin_reply: true,
             ...deliveryPayloadForIdentity(identity),
           },
+          metadata: { recipient_participant_id: participant.id },
         })).notification;
       }
     }

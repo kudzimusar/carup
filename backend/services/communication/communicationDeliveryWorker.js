@@ -16,7 +16,7 @@ const ADDRESS_REQUIRED_CHANNELS = new Set(['email', 'sms', 'whatsapp']);
 export class CommunicationDeliveryWorker {
   constructor({
     repository, adapterRegistry = null, notificationService = null,
-    emailRenderer = null, workerId = 'communication-worker',
+    emailRenderer = null, replyTokenService = null, workerId = 'communication-worker',
   } = {}) {
     this.repository = repository;
     this.adapterRegistry = adapterRegistry || createDefaultAdapterRegistry();
@@ -24,6 +24,10 @@ export class CommunicationDeliveryWorker {
     // G2 — the one canonical Email rendering boundary, injected so a test can substitute a failing
     // renderer and prove the degradation and refusal paths are real rather than asserted.
     this.emailRenderer = emailRenderer || renderEmailForNotification;
+    // G5 — authenticated conversation Reply-To. Minted HERE, at the dispatch boundary, because this
+    // is the only place where classification is proven, the recipient is resolved, the canonical
+    // thread/participant context is present, and transport is about to happen.
+    this.replyTokenService = replyTokenService;
     this.workerId = workerId;
   }
 
@@ -193,6 +197,64 @@ export class CommunicationDeliveryWorker {
       };
     }
 
+    // G5 — an authenticated Reply-To for genuine conversational Email, and nothing else.
+    //
+    // A conversational Email without one is not a smaller failure than not sending it: it LOOKS
+    // replyable and is not. That exact state was observed — a human replied to
+    // notifications@mail.carup.dev, the message carried no token and no RFC reference, and their
+    // reply was permanently unroutable. So this fails closed in every direction rather than
+    // degrading to an address that swallows the answer.
+    let replyToAddress = null;
+    let replyTokenId = null;
+    if (channel === 'email' && renderProvenance?.classification === 'conversational') {
+      const context = {
+        threadId: notification.thread_id || null,
+        participantId: notification.metadata?.recipient_participant_id || null,
+        tenantId: notification.tenant_id || null,
+        // Only a binding that is itself an EMAIL binding. A fallback notification carries the
+        // originating channel's binding in the same metadata, and an Email credential validated
+        // against a WhatsApp binding is a credential validated against the wrong thing.
+        bindingId: notification.metadata?.recipient_binding_channel === 'email'
+          ? (notification.metadata?.recipient_binding_id || null)
+          : null,
+      };
+      if (!this.replyTokenService) {
+        return this.markDeadLetter(notification, {
+          errorCode: 'reply_token_service_unavailable',
+          errorMessage: 'Conversational Email requires an authenticated Reply-To and no reply-token service is wired.',
+        });
+      }
+      // A NULL tenant is the platform tenant and is canonicalised by the token service; a missing
+      // thread or participant is genuinely missing context.
+      if (!context.threadId || !context.participantId) {
+        // Durable: a missing canonical binding is not a fault that retrying can resolve, and
+        // guessing the participant would defeat the credential entirely.
+        return this.markDeadLetter(notification, {
+          errorCode: 'conversation_reply_context_missing',
+          errorMessage: 'Conversational Email has no canonical thread/participant/tenant context to bind an authenticated Reply-To to.',
+        });
+      }
+      try {
+        const issued = await this.replyTokenService.issue(context);
+        replyToAddress = issued.address;
+        replyTokenId = issued.record?.id || null;
+      } catch (error) {
+        const failure = {
+          errorCode: error?.code === 'reply_token_secret_missing'
+            ? 'reply_token_secret_missing'
+            : 'reply_token_unavailable',
+          errorMessage: error?.code === 'reply_token_secret_missing'
+            ? 'Conversational Email cannot be given an authenticated Reply-To: the reply-token secret is not configured.'
+            : `Conversational Email could not be given an authenticated Reply-To (${error?.message || 'token store failure'}).`,
+        };
+        // A missing secret is configuration, not weather. Everything else is a store fault worth
+        // re-asking about. Neither reaches a provider.
+        return error?.code === 'reply_token_secret_missing'
+          ? this.markDeadLetter(notification, failure)
+          : this.markRetry(notification, failure);
+      }
+    }
+
     const attemptNumber = alreadyClaimed ? Number(notification.attempt_count || 1) : Number(notification.attempt_count || 0) + 1;
     if (!alreadyClaimed) {
       await this.repository.updateById('notification_queue', notification.id, {
@@ -228,9 +290,14 @@ export class CommunicationDeliveryWorker {
           body: preparedBody,
           text: preparedBody,
           ...(preparedHtml ? { html: preparedHtml } : {}),
-          data: renderProvenance
-            ? { ...(notification.payload || {}), email_render_provenance: renderProvenance }
-            : (notification.payload || {}),
+          // EPHEMERAL. This object exists for the provider call and is never written back: the raw
+          // Reply-To is a live routing credential, and the queue row, the canonical message and the
+          // delivery attempt all keep only the hash or the record id.
+          data: {
+            ...(notification.payload || {}),
+            ...(renderProvenance ? { email_render_provenance: renderProvenance } : {}),
+            ...(replyToAddress ? { reply_to: replyToAddress } : {}),
+          },
         },
         idempotencyKey: notification.dedupe_key,
         correlationId: notification.event_id || notification.id,
@@ -251,7 +318,12 @@ export class CommunicationDeliveryWorker {
       channel,
       provider_request_id: result.providerRequestId || null,
       provider_message_id: result.providerMessageId || null,
-      request_metadata: { idempotency_key: notification.dedupe_key },
+      // The token RECORD id, never the credential. It is enough to prove
+      // attempt -> token -> thread/participant without the audit trail becoming replayable.
+      request_metadata: {
+        idempotency_key: notification.dedupe_key,
+        ...(replyTokenId ? { email_reply_token_id: replyTokenId } : {}),
+      },
       response_metadata: {
         provider_status: result.providerStatus || null,
         ...(result.providerMetadata ? { provider_metadata: result.providerMetadata } : {}),

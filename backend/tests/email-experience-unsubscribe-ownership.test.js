@@ -101,6 +101,24 @@ function repositoryStub({ suppressions = [], listThrows = null, users = {} } = {
   };
 }
 
+
+/**
+ * A reply-token service stand-in.
+ *
+ * G5 reclassification: conversational Email now requires an authenticated Reply-To and fails closed
+ * without one, so a fixture that includes the conversational family must supply the canonical
+ * context and a token authority. What each test below actually asserts is unchanged.
+ */
+function stubReplyTokenService() {
+  return { issue: async () => ({ address: 'conversation+STUBTOKEN000000000000@mail.carup.dev', record: { id: 'tok-stub' } }) };
+}
+
+/** The canonical context a real conversational producer attaches. */
+const CONVERSATION_CONTEXT = {
+  thread_id: 'th-1', tenant_id: 'platform',
+  metadata: { recipient_participant_id: 'p-1', recipient_binding_id: 'b-1', recipient_binding_channel: 'email' },
+};
+
 function workerWith(repository) {
   let providerCalls = 0;
   const sent = [];
@@ -110,7 +128,7 @@ function workerWith(repository) {
       send: async (input) => { providerCalls += 1; sent.push(input); return { accepted: true }; },
     }),
   };
-  const worker = new CommunicationDeliveryWorker({ repository, adapterRegistry });
+  const worker = new CommunicationDeliveryWorker({ repository, adapterRegistry, replyTokenService: stubReplyTokenService() });
   return { worker, sent, providerCalls: () => providerCalls };
 }
 
@@ -231,6 +249,7 @@ test('J7 a MARKETING unsubscribe never blocks security or transactional Email', 
   for (const classification of ['security', 'transactional', 'conversational', 'service']) {
     await worker.deliverNotification({
       id: `s-${classification}`, channel: 'email', message: 'Account notice.',
+      ...CONVERSATION_CONTEXT,
       payload: { classification, email: 'gone@example.test' },
     });
   }
@@ -434,6 +453,7 @@ test('H1 a non-marketing Email gains no marketing unsubscribe presentation', asy
   for (const classification of ['security', 'conversational', 'transactional', 'service']) {
     await worker.deliverNotification({
       id: `n-${classification}`, channel: 'email', message: 'Your CarUp account was accessed.',
+      ...CONVERSATION_CONTEXT,
       // Even carrying an unsubscribe_url, which a shared component could otherwise pick up.
       payload: { classification, email: 'user@example.test', unsubscribe_url: UNSUB },
     });

@@ -138,7 +138,18 @@ export class CommunicationCanonicalConversationService extends CommunicationConv
         dedupeParts: ['conversation-message', message.id, recipient.id, binding.channel, identity.id],
         payload,
         fallbackChannels,
-        metadata: { recipient_participant_id: recipient.id },
+        // G5 — the exact canonical context the delivery worker needs to bind an authenticated
+        // Reply-To. Both are known HERE and nowhere later; making the worker re-derive them would
+        // mean guessing which participant an Email belongs to, which is the one thing an
+        // authenticated reply address exists to prevent.
+        metadata: {
+          recipient_participant_id: recipient.id,
+          recipient_binding_id: binding.id || null,
+          // The binding's OWN channel travels with it. A notification that falls back from WhatsApp
+          // to Email inherits this metadata wholesale, and binding an Email reply credential to a
+          // WhatsApp binding would make the inbound resolver revalidate the wrong object.
+          recipient_binding_channel: normalizeChannel(binding.channel) || null,
+        },
       });
       const result = {
         channel: binding.channel,

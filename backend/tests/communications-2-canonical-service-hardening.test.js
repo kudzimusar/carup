@@ -163,6 +163,10 @@ test('terminal provider failure advances exactly one canonical message to the ne
         fallback_channels: ['email', 'in_app'],
         attempted_channels: ['whatsapp'],
         routing_mode: 'single_primary_with_ordered_fallback',
+        // G5: a real conversational producer attaches the exact recipient participant. The email
+        // fallback row inherits this metadata, which is how the fallback Email gets an
+        // authenticated Reply-To bound to the same person the WhatsApp message was for.
+        recipient_participant_id: 'participant-fallback',
       },
     }],
   });
@@ -200,6 +204,7 @@ test('terminal provider failure advances exactly one canonical message to the ne
     repository,
     adapterRegistry: registry,
     notificationService,
+    replyTokenService: { issue: async () => ({ address: 'conversation+FALLBACKTOKEN0000000@mail.carup.dev', record: { id: 'tok-fallback' } }) },
     workerId: 'fallback-test-worker',
   });
 

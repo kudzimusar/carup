@@ -113,7 +113,7 @@ export function createCommunicationServices({ repository = null, adapterRegistry
   // E4 inbound reply routing. Both of these take the raw Supabase client (they issue .from().select()
   // directly), not the repository wrapper. Until they were injected here, handleResendInboundWebhook
   // rejected every signed inbound reply with "Resend inbound routing is not configured."
-  const replyTokenService = createEmailReplyTokenService({ supabase: repo.client });
+  const replyTokenService = createEmailReplyTokenService({ supabase: repo.client, env: process.env });
   const inboundResolver = new ResendInboundResolver({ supabase: repo.client, replyTokenService });
   // Resend's email.received carries metadata only; the real body is fetched by email_id.
   const inboundContentService = createResendInboundContentService({});
@@ -132,6 +132,9 @@ export function createCommunicationServices({ repository = null, adapterRegistry
     // G2 — the canonical Email renderer, injected here so there is one wiring point for every route
     // and worker rather than an import buried in the dispatch path.
     emailRenderer: renderEmailForNotification,
+    // G5 — the same service the inbound resolver uses, so outbound minting and inbound resolution
+    // can never drift onto two different token authorities.
+    replyTokenService,
   });
   const orchestrator = createCommunicationOrchestrator({
     repository: repo,
