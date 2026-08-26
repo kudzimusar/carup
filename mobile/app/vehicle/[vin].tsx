@@ -1,18 +1,100 @@
 import React, { useState } from 'react';
-import { View, Text, ScrollView, Pressable, ActivityIndicator, Alert } from 'react-native';
+import { View, Text, ScrollView, Pressable, ActivityIndicator, Alert, Image } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useQuery } from '@tanstack/react-query';
 import { useAuthStore } from '../../store/authStore';
-import { getMarketplaceListingDetail, createMarketplaceInquiry, type MobileListingDetail } from '../../utils/marketplaceApi';
+import {
+  getMarketplaceListingDetail,
+  createMarketplaceInquiry,
+  type MobileListingDetail,
+  type MobilePublicTrust,
+} from '../../utils/marketplaceApi';
 import { NativeFeatureBoundary } from '../../components/navigation/NativeFeatureBoundary';
+
+function titleCase(value: string | null | undefined) {
+  if (!value) return null;
+  return value.replace(/[_-]+/g, ' ').replace(/\b\w/g, letter => letter.toUpperCase());
+}
+
+function vehicleTitle(vehicle: MobileListingDetail) {
+  return [vehicle.year, vehicle.make, vehicle.model]
+    .filter(value => value !== null && value !== undefined && value !== '')
+    .join(' ');
+}
+
+function formatPrice(price: number | null, currency: string | null) {
+  if (typeof price !== 'number' || !Number.isFinite(price)) return 'Price not recorded';
+  if (!currency?.trim()) return `${price.toLocaleString()} · currency not recorded`;
+  const normalized = currency.trim().toUpperCase();
+  if (normalized === 'USD') return `$${price.toLocaleString()}`;
+  return `${normalized} ${price.toLocaleString()}`;
+}
+
+function formatMileage(mileage: number | null) {
+  return typeof mileage === 'number' && Number.isFinite(mileage)
+    ? `${mileage.toLocaleString()} km`
+    : 'Mileage not recorded';
+}
+
+function TrustCard({ trust }: { trust?: MobilePublicTrust | null }) {
+  const evaluatedScore = trust?.evaluation_state === 'evaluated'
+    && typeof trust.score === 'number'
+    && Number.isFinite(trust.score)
+    ? trust.score
+    : null;
+
+  if (evaluatedScore !== null) {
+    return (
+      <View className="rounded-2xl border border-orange-200 bg-orange-50 p-5">
+        <View className="flex-row items-start justify-between gap-4">
+          <View className="min-w-0 flex-1">
+            <Text className="text-[10px] font-bold uppercase tracking-widest text-orange-700">CarUp Trust</Text>
+            <Text className="mt-1 text-xl font-extrabold text-slate-950">
+              {titleCase(trust?.band) || 'Evaluated'}
+            </Text>
+            <Text className="mt-1 text-xs leading-5 text-slate-600">
+              Canonical evaluation{trust?.confidence ? ` · ${titleCase(trust.confidence)} confidence` : ''}
+            </Text>
+          </View>
+          <View className="h-20 w-20 items-center justify-center rounded-2xl bg-slate-950">
+            <Text className="text-2xl font-extrabold text-white">{evaluatedScore}</Text>
+            <Text className="mt-0.5 text-[9px] font-semibold uppercase tracking-wider text-orange-400">of 100</Text>
+          </View>
+        </View>
+        {trust?.evaluated_at ? (
+          <Text className="mt-3 text-[10px] text-slate-500">Evaluated {new Date(trust.evaluated_at).toLocaleDateString()}</Text>
+        ) : null}
+      </View>
+    );
+  }
+
+  const stateLabel = trust?.evaluation_state === 'not_evaluated'
+    ? 'Not evaluated yet'
+    : trust?.evaluation_state === 'stale'
+      ? 'Evaluation update pending'
+      : trust?.evaluation_state === 'unavailable'
+        ? 'Trust temporarily unavailable'
+        : 'Trust not loaded';
+
+  return (
+    <View className="rounded-2xl border border-slate-200 bg-white p-5">
+      <Text className="text-[10px] font-bold uppercase tracking-widest text-slate-500">CarUp Trust</Text>
+      <Text className="mt-1 text-lg font-bold text-slate-900">{stateLabel}</Text>
+      <Text className="mt-1 text-xs leading-5 text-slate-500">
+        No numerical score is shown unless the canonical Trust authority reports a current evaluation.
+      </Text>
+      {trust?.known_limitations?.length ? (
+        <Text className="mt-3 text-[10px] leading-4 text-slate-500">{trust.known_limitations[0]}</Text>
+      ) : null}
+    </View>
+  );
+}
 
 function VehicleDetailScreenInner() {
   const router = useRouter();
   const { vin } = useLocalSearchParams();
   const token = useAuthStore((state) => state.token);
-
-  // Backend-governed marketplace detail (trust_summary) - same contract as web.
-  const { data: marketplaceDetail, isLoading, error } = useQuery<MobileListingDetail>({
+  const { data: marketplaceDetail, isLoading, error, refetch } = useQuery<MobileListingDetail>({
     queryKey: ['marketplace-detail', vin],
     queryFn: () => getMarketplaceListingDetail(String(vin)),
     enabled: !!vin,
@@ -27,7 +109,7 @@ function VehicleDetailScreenInner() {
     setInquiring(true);
     try {
       await createMarketplaceInquiry({ listing_id: String(vin), inquiry_type: 'vehicle_purchase_interest' });
-      Alert.alert('Inquiry sent', 'The CarUp team will help connect you safely. Never pay outside CarUp.');
+      Alert.alert('Inquiry sent', 'Your inquiry is now in CarUp. Keep the conversation and any payment steps inside CarUp.');
     } catch (e) {
       Alert.alert('Could not send inquiry', e instanceof Error ? e.message : 'Please try again.');
     } finally {
@@ -37,7 +119,7 @@ function VehicleDetailScreenInner() {
 
   if (isLoading) {
     return (
-      <View className="flex-1 bg-slate-50 justify-center items-center">
+      <View className="flex-1 items-center justify-center bg-slate-50">
         <ActivityIndicator size="large" color="#f97316" />
       </View>
     );
@@ -45,168 +127,141 @@ function VehicleDetailScreenInner() {
 
   if (error || !marketplaceDetail) {
     return (
-      <View className="flex-1 bg-slate-50 justify-center items-center px-6">
-        <Text className="text-red-500 text-sm font-semibold mb-4 text-center">
-          Error retrieving marketplace vehicle details.
+      <View className="flex-1 items-center justify-center bg-slate-50 px-6">
+        <Text className="mb-2 text-center text-lg font-bold text-slate-900">Vehicle details unavailable</Text>
+        <Text className="mb-6 text-center text-sm leading-5 text-slate-500">
+          CarUp could not load the canonical Marketplace record for this vehicle.
         </Text>
-        <Pressable onPress={() => router.back()} className="bg-slate-900 px-6 py-3 rounded-xl">
-          <Text className="text-white text-xs font-semibold">Go Back</Text>
-        </Pressable>
+        <View className="flex-row gap-3">
+          <Pressable onPress={() => refetch()} className="rounded-xl bg-orange-500 px-5 py-3">
+            <Text className="text-xs font-semibold text-white">Try Again</Text>
+          </Pressable>
+          <Pressable onPress={() => router.back()} className="rounded-xl border border-slate-300 bg-white px-5 py-3">
+            <Text className="text-xs font-semibold text-slate-700">Go Back</Text>
+          </Pressable>
+        </View>
       </View>
     );
   }
 
   const vehicle = marketplaceDetail;
   const trustSummary = marketplaceDetail.trust_summary;
-  const riskLevel = trustSummary.risk_status || 'clear';
+  const title = vehicleTitle(vehicle) || `${vehicle.make} ${vehicle.model}`;
+  const mediaItem = vehicle.listing_media?.items?.[0] || null;
+  const heroUrl = mediaItem?.url || vehicle.primary_image_url || null;
+  const reservation = vehicle.reservation_summary;
+  const isReserved = reservation?.reserved === true;
+  const locationLabel = vehicle.location?.trim()
+    || (vehicle.location_state === 'withheld' ? 'Location withheld' : 'Location not recorded');
 
   return (
     <View className="flex-1 bg-slate-50">
-      {/* Header Back Button Navigation */}
-      <View className="bg-slate-900 px-6 pt-12 pb-4 flex-row items-center justify-between">
-        <Pressable onPress={() => router.back()} className="py-2 pr-4">
-          <Text className="text-white text-base font-semibold">← Back</Text>
+      <View className="flex-row items-center justify-between bg-slate-950 px-5 pb-4 pt-12">
+        <Pressable onPress={() => router.back()} className="min-h-[44px] justify-center pr-4" accessibilityRole="button">
+          <Text className="text-sm font-semibold text-white">← Marketplace</Text>
         </Pressable>
-        <Text className="text-white font-bold text-base">Trust Passport</Text>
-        <View className="w-10" />
+        <Text className="text-sm font-bold text-white">Vehicle & Passport</Text>
+        <View className="w-20" />
       </View>
 
-      <ScrollView showsVerticalScrollIndicator={false} className="flex-1 px-6 py-6">
-        {/* Main Title Block */}
-        <View className="mb-6">
-          <Text className="text-slate-400 text-xxs uppercase font-semibold tracking-widest">
-            {vehicle.vin}
-          </Text>
-          <Text className="text-slate-900 text-3xl font-extrabold mt-1">
-            {vehicle.year} {vehicle.make} {vehicle.model}
-          </Text>
-          <Text className="text-slate-500 text-sm mt-1">
-            {vehicle.mileage.toLocaleString()} km
-          </Text>
+      <ScrollView showsVerticalScrollIndicator={false} className="flex-1">
+        <View className="bg-slate-100">
+          {heroUrl ? (
+            <Image source={{ uri: heroUrl }} resizeMode="cover" className="aspect-[16/10] w-full" accessibilityLabel={`${title} listing photo`} />
+          ) : (
+            <View className="aspect-[16/10] items-center justify-center px-6">
+              <Text className="text-5xl">🚙</Text>
+              <Text className="mt-3 text-center text-xs font-medium text-slate-500">
+                {vehicle.primary_image_state === 'not_loaded' ? 'Listing media not loaded' : 'No published listing photo'}
+              </Text>
+            </View>
+          )}
+          {isReserved ? (
+            <View className="absolute left-4 top-4 rounded-full bg-amber-500 px-3 py-1.5">
+              <Text className="text-[10px] font-bold text-white">Reserved</Text>
+            </View>
+          ) : null}
         </View>
 
-        {/* Dynamic Trust Score Visualizer Gauge */}
-        <View className="bg-white p-6 rounded-2xl border border-slate-100 shadow-sm mb-6 flex-row items-center justify-between">
-          <View className="flex-1 pr-4">
-            <Text className="text-slate-900 text-lg font-bold">Vehicle Trust Index</Text>
-            <Text className="text-slate-500 text-xs mt-1">
-              Platform credibility score computed via cryptographic ledger entries and odometer integrity scans.
-            </Text>
-            <View className="flex-row gap-2 mt-3 flex-wrap">
-              <View className="bg-emerald-50 border border-emerald-100 rounded-full px-2.5 py-1">
-                <Text className="text-emerald-600 text-xxs font-bold">
-                  Backend Verified
-                </Text>
+        <View className="px-5 py-6">
+          <Text className="text-[10px] font-semibold uppercase tracking-widest text-slate-400">VIN {vehicle.vin}</Text>
+          <Text className="mt-1 text-3xl font-extrabold leading-9 text-slate-950">{title}</Text>
+          <Text className="mt-2 text-2xl font-extrabold text-slate-950">{formatPrice(vehicle.price, vehicle.currency)}</Text>
+
+          <View className="mt-3 flex-row flex-wrap gap-2">
+            <View className="rounded-full bg-white px-3 py-1.5"><Text className="text-xs text-slate-600">{formatMileage(vehicle.mileage)}</Text></View>
+            {vehicle.fuel_type ? <View className="rounded-full bg-white px-3 py-1.5"><Text className="text-xs text-slate-600">{vehicle.fuel_type}</Text></View> : null}
+            {vehicle.transmission ? <View className="rounded-full bg-white px-3 py-1.5"><Text className="text-xs text-slate-600">{vehicle.transmission}</Text></View> : null}
+          </View>
+
+          <View className="mt-6">
+            <TrustCard trust={vehicle.trust} />
+          </View>
+
+          <View className="mt-5 rounded-2xl border border-slate-200 bg-white p-5">
+            <Text className="text-sm font-bold text-slate-900">Listing facts</Text>
+            <View className="mt-4 gap-3">
+              <View className="flex-row items-start justify-between gap-4">
+                <Text className="text-xs text-slate-500">Seller</Text>
+                <Text className="max-w-[65%] text-right text-xs font-semibold text-slate-800">{vehicle.seller_display_label || 'Seller not disclosed'}</Text>
               </View>
-              <View className="bg-slate-50 border border-slate-100 rounded-full px-2.5 py-1">
-                <Text className="text-slate-600 text-xxs font-bold">Risk: {riskLevel}</Text>
+              <View className="flex-row items-start justify-between gap-4">
+                <Text className="text-xs text-slate-500">Location</Text>
+                <Text className="max-w-[65%] text-right text-xs font-semibold text-slate-800">{locationLabel}</Text>
+              </View>
+              <View className="flex-row items-start justify-between gap-4">
+                <Text className="text-xs text-slate-500">Reservation</Text>
+                <Text className="max-w-[65%] text-right text-xs font-semibold text-slate-800">{titleCase(reservation?.state) || 'Unavailable'}</Text>
+              </View>
+              <View className="flex-row items-start justify-between gap-4">
+                <Text className="text-xs text-slate-500">Evidence</Text>
+                <Text className="max-w-[65%] text-right text-xs font-semibold text-slate-800">{titleCase(trustSummary?.evidence_status) || 'Not loaded'}</Text>
+              </View>
+              <View className="flex-row items-start justify-between gap-4">
+                <Text className="text-xs text-slate-500">PartSentry</Text>
+                <Text className="max-w-[65%] text-right text-xs font-semibold text-slate-800">{titleCase(trustSummary?.partsentry_public_status) || 'Not loaded'}</Text>
               </View>
             </View>
           </View>
 
-          {/* Simple Radial Badge Gauge representation in Native Tailwind */}
-          <View className="bg-slate-950 p-6 rounded-full w-24 h-24 items-center justify-center border-4 border-orange-500 shadow-md">
-            <Text className="text-white text-xl font-extrabold">{vehicle.trust_score.toFixed(0)}</Text>
-            <Text className="text-orange-500 text-xxs font-semibold uppercase tracking-wider mt-0.5">Score</Text>
-          </View>
-        </View>
-
-        {/* Backend-governed marketplace trust summary (same contract as web) */}
-        {trustSummary && (
-          <View className="bg-white p-5 rounded-2xl border border-slate-100 shadow-sm mb-6">
-            <Text className="text-slate-900 text-base font-bold mb-3">Trust Summary</Text>
-            {trustSummary.risk_status !== 'clear' && (
-              <View className="bg-amber-50 border border-amber-100 rounded-lg px-3 py-2 mb-3">
-                <Text className="text-amber-700 text-xs">{trustSummary.safe_public_copy}</Text>
-              </View>
-            )}
-            {trustSummary.public_badge_copy.length > 0 ? (
-              <View className="flex-row flex-wrap gap-2">
-                {trustSummary.public_badge_copy.map((copy) => (
-                  <View key={copy} className="bg-emerald-50 border border-emerald-100 rounded-full px-2.5 py-1">
-                    <Text className="text-emerald-700 text-xxs font-bold">{copy}</Text>
-                  </View>
-                ))}
-              </View>
-            ) : (
-              <Text className="text-slate-400 text-xs">No public trust badges for this listing yet.</Text>
-            )}
-            <Text className="text-slate-400 text-xxs mt-3">
-              PartSentry: {trustSummary.partsentry_public_status} · Evidence: {trustSummary.evidence_status}
-            </Text>
-          </View>
-        )}
-
-        {/* Verification Checks Block */}
-        <View className="bg-white p-5 rounded-2xl border border-slate-100 shadow-sm mb-6">
-          <Text className="text-slate-900 text-base font-bold mb-4">Ecosystem Audits</Text>
-          
-          <View className="space-y-4">
-            {/* Odometer integrity check */}
-            <View className="flex-row items-center justify-between">
-              <View className="flex-1 pr-4">
-                <Text className="text-slate-800 text-sm font-semibold">Odometer Progression</Text>
-                <Text className="text-slate-400 text-xxs mt-0.5">Sequential mileage check</Text>
-              </View>
-              <Text className="text-xs font-bold text-slate-500">Backend governed</Text>
+          {trustSummary?.safe_public_copy ? (
+            <View className="mt-5 rounded-2xl border border-slate-200 bg-white p-5">
+              <Text className="text-sm font-bold text-slate-900">CarUp public safety note</Text>
+              <Text className="mt-2 text-xs leading-5 text-slate-600">{trustSummary.safe_public_copy}</Text>
             </View>
+          ) : null}
 
-            {/* ZIMRA duty check */}
-            <View className="flex-row items-center justify-between mt-3">
-              <View className="flex-1 pr-4">
-                <Text className="text-slate-800 text-sm font-semibold">Import Customs Duty</Text>
-                <Text className="text-slate-400 text-xxs mt-0.5">ZIMRA tax clearance</Text>
-              </View>
-              <Text className="text-xs font-bold text-slate-500">{trustSummary.evidence_status}</Text>
+          {vehicle.safety_warnings?.length ? (
+            <View className="mt-5 rounded-2xl border border-amber-200 bg-amber-50 p-5">
+              <Text className="text-sm font-bold text-amber-900">Safety information</Text>
+              {vehicle.safety_warnings.map(warning => (
+                <Text key={warning} className="mt-2 text-xs leading-5 text-amber-800">• {warning}</Text>
+              ))}
             </View>
+          ) : null}
 
-            {/* Police security flag */}
-            <View className="flex-row items-center justify-between mt-3">
-              <View className="flex-1 pr-4">
-                <Text className="text-slate-800 text-sm font-semibold">Police Safety Network</Text>
-                <Text className="text-slate-400 text-xxs mt-0.5">CVR / C.I.D. stolen flags check</Text>
-              </View>
-              <Text className="text-xs font-bold text-slate-500">{trustSummary.suspicion_status}</Text>
-            </View>
-          </View>
-        </View>
-
-        {/* Ledger Event Timeline Section */}
-        <View className="bg-white p-5 rounded-2xl border border-slate-100 shadow-sm mb-12">
-          <Text className="text-slate-900 text-base font-bold mb-4">Immutable Ledger History</Text>
-
-          <Text className="text-slate-400 text-xs">Marketplace trust details are governed by the backend listing summary.</Text>
+          <View className="h-8" />
         </View>
       </ScrollView>
 
-      {/* Dynamic Checkout safe area button footer */}
-      <View className="bg-white border-t border-slate-100 px-6 pt-4 pb-8 flex-row justify-between items-center shadow-md">
-        <View>
-          <Text className="text-slate-400 text-xxs uppercase tracking-wider">Purchase Total</Text>
-          <Text className="text-slate-900 text-2xl font-extrabold mt-0.5">
-            {vehicle.currency === 'USD' ? '$' : ''}{vehicle.price.toLocaleString()} {vehicle.currency !== 'USD' ? vehicle.currency : ''}
-          </Text>
+      <View className="flex-row items-center justify-between gap-4 border-t border-slate-200 bg-white px-5 pb-8 pt-4">
+        <View className="min-w-0 flex-1">
+          <Text className="text-[10px] uppercase tracking-wider text-slate-400">Listing price</Text>
+          <Text numberOfLines={1} className="mt-0.5 text-lg font-extrabold text-slate-950">{formatPrice(vehicle.price, vehicle.currency)}</Text>
         </View>
-
         <Pressable
           onPress={handleInquire}
           disabled={inquiring}
-          className="bg-orange-500 px-8 py-3.5 rounded-xl shadow-md active:opacity-90"
+          className="min-h-[48px] justify-center rounded-xl bg-orange-500 px-6 active:opacity-90"
+          accessibilityRole="button"
         >
-          <Text className="text-white text-base font-bold">{inquiring ? 'Sending…' : 'Express Interest'}</Text>
+          <Text className="text-sm font-bold text-white">{inquiring ? 'Sending…' : 'Ask Seller'}</Text>
         </Pressable>
       </View>
     </View>
   );
 }
 
-/**
- * Marketplace-protected route boundary (Milestone C). A deep link / direct nav to
- * `/vehicle/[vin]` is gated by the SAME governed decision as the Marketplace
- * surface (product.marketplace). When Marketplace is disabled / accessible:false
- * the boundary renders the safe state instead of the detail screen. The native
- * screen exists, so hasNativeScreen is true.
- */
 export default function VehicleDetailScreen() {
   return (
     <NativeFeatureBoundary route="/vehicle/[vin]" featureId="product.marketplace" hasNativeScreen>
