@@ -1,5 +1,5 @@
 name: Marketplace Reference Regression
-# Exact-head certification gate; final deployed-blocker closure trigger, no runtime semantics.
+# Exact-head certification gate; seller-privacy closure trigger, no runtime semantics.
 
 on:
   pull_request:
