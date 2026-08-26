@@ -1364,7 +1364,14 @@ export default function VehicleDetail() {
         // Fallback: a real public marketplace listing must always open a real detail page. If the
         // passport lookup didn't resolve a vehicle, hydrate from the marketplace detail so the page
         // renders instead of showing "Vehicle Not Found".
-        setVehicle((prev) => prev ?? vehicleFromMarketplaceDetail(d))
+        // A public Marketplace detail is sufficient to render the public listing. Passport lookup is
+        // a richer enrichment path, not a prerequisite: staging proved that endpoint can remain pending
+        // while the governed Marketplace detail has already returned successfully. Do not hold the
+        // entire buyer page behind that independent read or a valid listing becomes an infinite spinner.
+        // Preserve a richer vehicle already resolved for THIS VIN; replace any stale previous-route VIN.
+        setVehicle((prev) => prev?.vin === d.vin ? prev : vehicleFromMarketplaceDetail(d))
+        setLoanAmount((d.price ?? 0).toString())
+        setLoading(false)
       })
       .catch(() => { if (mounted) setDetail(null) })
       .finally(() => { if (mounted) setDetailLoading(false) })

@@ -361,6 +361,20 @@ describe('VehicleDetail — a photo on the Marketplace card is a photo on this p
     expect(screen.queryByTestId('no-images-placeholder')).toBeNull()
   })
 
+  it('renders a public marketplace listing even when passport lookup never settles', async () => {
+    // Deployed staging exposed this exact race: marketplace detail returned 200 while the richer
+    // passport lookup stayed pending. A public listing must remain usable from its governed detail
+    // response rather than leaving the buyer behind the page-wide loading spinner indefinitely.
+    lookupVehiclePassport.mockImplementation(() => new Promise(() => {}))
+
+    await renderSettled()
+    await waitFor(() => expect(screen.getByTestId('vehicle-image')).toBeTruthy())
+
+    expect(fetchMarketplaceListingDetail).toHaveBeenCalled()
+    expect(fetchVehicle).not.toHaveBeenCalled()
+    expect(screen.getByTestId('vehicle-image').getAttribute('src')).toBe(CARD_IMAGE)
+  })
+
   it('takes the gallery from the listing rows, never from the passport vehicle’s images key', async () => {
     // `vehicle.images` is planted with a value the page must not use. It is not a real passport key;
     // reading it is what produced an empty gallery, and reading it again would produce a wrong one.
