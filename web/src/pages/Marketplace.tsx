@@ -1,56 +1,60 @@
-import { useState, useEffect, useCallback, useMemo } from 'react'
-import { Link, useSearchParams, useNavigate } from 'react-router-dom'
+import { useCallback, useEffect, useMemo, useState } from 'react'
+import { Link, useNavigate, useSearchParams } from 'react-router-dom'
+import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
-import { Badge } from '@/components/ui/badge'
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from '@/components/ui/select'
 import { Slider } from '@/components/ui/slider'
 import {
-  Sheet, SheetContent, SheetTrigger, SheetHeader, SheetTitle, SheetFooter,
+  Sheet, SheetContent, SheetFooter, SheetHeader, SheetTitle, SheetTrigger,
 } from '@/components/ui/sheet'
 import {
-  Search,
-  SlidersHorizontal,
-  X,
-  Loader2,
-  ShieldCheck,
+  CarFront,
   GitCompare,
   Globe2,
-  Sparkles,
-  CarFront,
+  Loader2,
   Route,
+  Search,
+  ShieldCheck,
+  SlidersHorizontal,
+  Sparkles,
   Wrench,
+  X,
 } from 'lucide-react'
+import { toast } from 'sonner'
 import { vehicles as mockVehicles, zimbabweLocations } from '@/data/mockData'
 import { useCarUpApi } from '@/hooks/useCarUpApi'
 import { useAuth } from '@/context/AuthContext'
 import { useIsMobile } from '@/hooks/use-mobile'
-import { toast } from 'sonner'
-import type { MarketplaceListingSummary, Vehicle, MarketplaceInquiryType } from '@/types'
+import type {
+  MarketplaceInquiryType,
+  MarketplaceListingSummary,
+  MarketplacePublicTrust,
+  Vehicle,
+} from '@/types'
 import { captureReferralFromUrl } from '@/lib/marketplaceReferral'
 import { summaryLocationLine } from '@/lib/governedLocation'
 import { InquiryModal } from '@/components/marketplace/InquiryModal'
 import { BuyerAssistantDrawer } from '@/components/marketplace/BuyerAssistantDrawer'
 import {
   MarketplaceListingCard,
-  type MarketplaceCardTrust,
   type MarketplaceListingCardModel,
 } from '@/components/marketplace/MarketplaceListingCard'
 import {
-  paramsToState,
-  stateToParams,
-  stateToApiFilters,
+  ALL,
+  CATEGORY_CHIPS,
+  TRUST_QUICK_FILTERS,
+  TRUST_TAG_CHIPS,
   getActiveFilterChips,
   getResultSummary,
-  TRUST_QUICK_FILTERS,
-  CATEGORY_CHIPS,
-  TRUST_TAG_CHIPS,
   isCategoryChip,
-  ALL,
+  paramsToState,
+  stateToApiFilters,
+  stateToParams,
 } from '@/lib/marketplaceParams'
-import type { MarketplaceUrlState, MarketplaceSort, ActiveFilterKey } from '@/lib/marketplaceParams'
+import type { ActiveFilterKey, MarketplaceSort, MarketplaceUrlState } from '@/lib/marketplaceParams'
 
 const DIASPORA_INQUIRY_TYPES: MarketplaceInquiryType[] = [
   'import_quote_request',
@@ -61,8 +65,6 @@ const DIASPORA_INQUIRY_TYPES: MarketplaceInquiryType[] = [
 ]
 
 const MAX_COMPARE = 4
-const categories = ['All', 'Sedan', 'SUV', 'Hatchback', 'Pickup', 'Luxury', 'Commercial']
-const conditions = ['All', 'New', 'Used', 'Certified Pre-Owned']
 const makes = ['All', 'Toyota', 'BMW', 'Mercedes-Benz', 'Nissan', 'Mazda', 'Volkswagen', 'Ford', 'Honda', 'Land Rover', 'Audi']
 const fuelTypes = ['All', 'Petrol', 'Diesel', 'Hybrid', 'Electric']
 const transmissions = ['All', 'Automatic', 'Manual']
@@ -78,13 +80,40 @@ export function withMockFallback<T>(live: T[], mock: T[], allowMock: boolean = A
 }
 
 type TrustRanking = { requested?: string; applied?: string; note?: string }
-type MarketplaceCardVehicle = Vehicle & {
-  plate_verified?: boolean
-  canonicalTrust?: MarketplaceCardTrust | null
-  reservation_summary?: { state?: string; reserved?: boolean | null }
-  primary_image_state?: string | null
+
+type ListingWithTrust = MarketplaceListingSummary & {
+  trust?: MarketplacePublicTrust | null
 }
-type MarketplaceListingSummaryWire = MarketplaceListingSummary & { trust?: MarketplaceCardTrust | null }
+
+const CONDITION_LABELS: Record<string, string> = {
+  brand_new: 'Brand New',
+  recently_imported: 'Recently Imported',
+  locally_used: 'Locally Used',
+  second_hand: 'Second Hand',
+  certified_dealer: 'Certified Pre-Owned',
+}
+
+function humanizeTag(tag: string) {
+  return tag.split('_').map(part => part.charAt(0).toUpperCase() + part.slice(1)).join(' ')
+}
+
+function listingLabels(listing: MarketplaceListingSummary) {
+  const labels = new Set<string>()
+  const condition = CONDITION_LABELS[listing.condition_category]
+  if (condition) labels.add(condition)
+  for (const tag of listing.marketplace_tags || []) labels.add(humanizeTag(tag))
+  return Array.from(labels)
+}
+
+function sellerLabel(listing: MarketplaceListingSummary) {
+  return listing.seller_display_label?.trim() || 'Seller not disclosed'
+}
+
+function plateStatusLabel(listing: MarketplaceListingSummary) {
+  if (listing.plate_verified) return 'Plate confirmed'
+  if (listing.plate_status?.trim()) return 'Plate on file'
+  return 'Plate status unknown'
+}
 
 function readTrustRanking(payload: unknown): TrustRanking | null {
   const ranking = (payload as { ranking?: unknown } | null | undefined)?.ranking
@@ -97,136 +126,55 @@ function readTrustRanking(payload: unknown): TrustRanking | null {
   }
 }
 
-function normalizeText(value?: string | null) {
-  return (value || '').toLowerCase()
-}
-
-function getFuelType(vehicle: Vehicle): string | null {
-  return vehicle.fuel_type || vehicle.fuelType || null
-}
-
-function getVehicleEvidenceCount(vehicle: Vehicle) {
-  const candidate = vehicle as Vehicle & {
-    evidence_count?: number
-    evidenceCount?: number
-    evidence_summary?: { count?: number }
-  }
-  return candidate.evidence_count ?? candidate.evidenceCount ?? candidate.evidence_summary?.count ?? 0
-}
-
-function getRepairHistoryCount(vehicle: Vehicle) {
-  return (vehicle.repair_history_count || 0) + (vehicle.service_history?.length || 0) + (vehicle.service_records?.length || 0)
-}
-
-function hasPartSentrySignal(vehicle: Vehicle) {
-  const candidate = vehicle as Vehicle & {
-    partsentry_checked?: boolean
-    partSentryChecked?: boolean
-    partsentry_status?: string
-  }
-  return Boolean(candidate.partsentry_checked || candidate.partSentryChecked || candidate.partsentry_status === 'checked')
-}
-
-function hasVerifiedParts(vehicle: Vehicle) {
-  return Boolean(vehicle.verified_parts_count || vehicle.parts?.some(part => part.type === 'OEM'))
-}
-
-function getSellerLabel(vehicle: Vehicle): string {
-  const label = normalizeText(vehicle.sellerName)
-  return label ? (vehicle.sellerName as string) : 'Seller not disclosed'
-}
-
-function getPlateStatusLabel(vehicle: Vehicle) {
-  if ((vehicle as MarketplaceCardVehicle).plate_verified) return 'Plate confirmed'
-  if (normalizeText(vehicle.plate_status)) return 'Plate on file'
-  return 'Plate status unknown'
-}
-
-function getVehicleLabels(vehicle: Vehicle) {
-  const labels: string[] = []
-  const condition = normalizeText(vehicle.condition)
-  const conditionCategory = normalizeText(vehicle.vehicle_condition_category)
-  const importSource = normalizeText((vehicle as Vehicle & { import_source?: string }).import_source)
-  const registrationCountry = normalizeText(vehicle.registration_country)
-
-  if (condition === 'new' || conditionCategory === 'brand_new') labels.push('Brand New')
-  if (condition === 'used' || conditionCategory === 'second_hand') labels.push('Second Hand')
-  if (condition === 'certified pre-owned' || conditionCategory === 'certified_dealer') labels.push('Certified Pre-Owned')
-  if ((vehicle as MarketplaceCardVehicle).plate_verified) labels.push('Plate Confirmed')
-  if ((vehicle as Vehicle & { passport_verified?: boolean }).passport_verified) labels.push('Evidence Reviewed')
-  if (importSource || conditionCategory === 'recently_imported') labels.push('Recently Imported', 'Fresh Import')
-  if (registrationCountry === 'zimbabwe' || registrationCountry === 'zw' || conditionCategory === 'locally_used') labels.push('Locally Used')
-  if (typeof vehicle.mileage === 'number' && vehicle.mileage > 0 && vehicle.mileage <= 50000) labels.push('Low Mileage')
-  if (getVehicleEvidenceCount(vehicle) > 0) labels.push('Evidence Available')
-  if (hasPartSentrySignal(vehicle)) labels.push('PartSentry Checked')
-  if (getRepairHistoryCount(vehicle) > 0) labels.push('Repair History Available')
-  if (hasVerifiedParts(vehicle)) labels.push('Verified Parts')
-
-  const backendTags = vehicle.marketplace_tags || []
-  const backendTagLabels = backendTags.map(tag => tag.split('_').map(part => part.charAt(0).toUpperCase() + part.slice(1)).join(' '))
-  return Array.from(new Set([...labels, ...backendTagLabels]))
-}
-
-function matchesConditionChip(vehicle: Vehicle, chip: string) {
-  if (chip === 'All' || chip === 'Parts & Accessories') return true
-  return getVehicleLabels(vehicle).includes(chip)
-}
-
-function matchesAllTrustTags(vehicle: Vehicle, tags: string[]) {
-  if (!tags.length) return true
-  const labels = getVehicleLabels(vehicle)
-  return tags.every(tag => labels.includes(tag))
-}
-
-function marketplaceSummaryToVehicle(summary: MarketplaceListingSummary): MarketplaceCardVehicle {
-  const wire = summary as MarketplaceListingSummaryWire
+/**
+ * Dev-only adapter. Production/staging never use this path. Mock rows intentionally carry no
+ * canonical Trust projection, so the reference card presents an unevaluated/unknown Trust state
+ * rather than laundering the mock Vehicle.trust_score into a public claim.
+ */
+function mockVehicleToListing(vehicle: Vehicle): ListingWithTrust {
+  const status = typeof vehicle.status === 'string' ? vehicle.status : 'Available'
   return {
-    vin: summary.vin,
-    make: summary.make,
-    model: summary.model,
-    year: summary.year,
-    mileage: summary.mileage,
-    fuel_type: summary.fuel_type || undefined,
-    transmission: summary.transmission || undefined,
-    status: summary.status || undefined,
-    // Vehicle's legacy type still requires this field. It is carried only for compatibility and is
-    // never rendered or ranked by this page. Canonical public Trust lives on `wire.trust`.
-    trust_score: summary.trust_score,
-    price: summary.price,
-    currency: summary.currency,
-    created_at: summary.created_at || undefined,
-    location: summary.location || undefined,
-    location_state: summary.location_state,
-    images: summary.primary_image_url ? [summary.primary_image_url] : undefined,
-    primary_image_state: summary.primary_image_state,
-    vehicle_condition_category: summary.condition_category,
-    marketplace_tags: summary.marketplace_tags,
-    passport_verified: summary.passport_verified,
-    plate_status: summary.plate_status || undefined,
-    plate_verified: summary.plate_verified,
-    evidence_count: summary.evidence_count,
-    partsentry_checked: summary.partsentry_checked,
-    repair_history_count: summary.repair_history_count,
-    verified_parts_count: summary.verified_parts_count,
-    duty_paid: summary.duty_cleared,
-    zimra_verified: summary.zimra_verified,
-    police_verified: summary.cid_clear,
-    cid_clear: summary.cid_clear,
-    sellerType: summary.seller_type === 'dealer' ? 'Dealership' : (summary.seller_type ? 'Private Owner' : undefined),
-    sellerName: summary.seller_display_label || undefined,
-    current_seller_type: summary.seller_type,
-    public_seller_display_enabled: summary.seller_public_profile_enabled,
-    canonicalTrust: wire.trust || null,
-    reservation_summary: summary.reservation_summary,
-  } as MarketplaceCardVehicle
+    vin: vehicle.vin,
+    make: vehicle.make,
+    model: vehicle.model,
+    year: vehicle.year,
+    price: vehicle.price,
+    currency: vehicle.currency,
+    mileage: vehicle.mileage,
+    fuel_type: vehicle.fuel_type || null,
+    transmission: vehicle.transmission || null,
+    status,
+    condition_category: 'unknown',
+    marketplace_tags: [],
+    trust_score: null,
+    trust: null,
+    primary_image_url: vehicle.images?.[0] || null,
+    primary_image_state: vehicle.images?.[0] ? 'first_published' : 'none',
+    primary_image_unpublishable_count: 0,
+    plate_verified: false,
+    plate_status: null,
+    passport_verified: false,
+    evidence_count: 0,
+    partsentry_checked: false,
+    repair_history_count: 0,
+    verified_parts_count: 0,
+    duty_cleared: false,
+    zimra_verified: false,
+    cid_clear: false,
+    seller_type: vehicle.current_seller_type || '',
+    seller_display_label: vehicle.sellerName || '',
+    seller_public_profile_enabled: Boolean(vehicle.public_seller_display_enabled),
+    location: vehicle.location || undefined,
+    location_state: vehicle.location ? 'recorded' : 'not_recorded',
+    created_at: vehicle.created_at || null,
+  }
 }
 
 async function shareListing(vin: string, name: string) {
   const url = `${window.location.origin}/marketplace/${encodeURIComponent(vin)}`
   try {
-    if (navigator.share) {
-      await navigator.share({ title: name, text: `Check out ${name} on CarUp`, url })
-    } else {
+    if (navigator.share) await navigator.share({ title: name, text: `Check out ${name} on CarUp`, url })
+    else {
       await navigator.clipboard.writeText(url)
       toast.success('Listing link copied to clipboard')
     }
@@ -249,63 +197,43 @@ function setFavorites(ids: string[]) {
 
 interface FilterControlsProps {
   selectedMake: string
-  setSelectedMake: (value: string) => void
-  selectedCategory: string
-  setSelectedCategory: (value: string) => void
-  selectedCondition: string
-  setSelectedCondition: (value: string) => void
+  onMake: (value: string) => void
   selectedLocation: string
-  setSelectedLocation: (value: string) => void
+  onLocation: (value: string) => void
   selectedFuel: string
-  setSelectedFuel: (value: string) => void
-  selectedTrans: string
-  setSelectedTrans: (value: string) => void
+  onFuel: (value: string) => void
+  selectedTransmission: string
+  onTransmission: (value: string) => void
   priceRange: number[]
   setPriceRange: (value: number[]) => void
 }
 
-function FilterControls(props: FilterControlsProps) {
-  const {
-    selectedMake, setSelectedMake,
-    selectedCategory, setSelectedCategory,
-    selectedCondition, setSelectedCondition,
-    selectedLocation, setSelectedLocation,
-    selectedFuel, setSelectedFuel,
-    selectedTrans, setSelectedTrans,
-    priceRange, setPriceRange,
-  } = props
-
+function FilterControls({
+  selectedMake,
+  onMake,
+  selectedLocation,
+  onLocation,
+  selectedFuel,
+  onFuel,
+  selectedTransmission,
+  onTransmission,
+  priceRange,
+  setPriceRange,
+}: FilterControlsProps) {
   return (
     <div className="grid gap-4">
       <div>
         <label className="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-slate-500">Make</label>
-        <Select value={selectedMake} onValueChange={setSelectedMake}>
+        <Select value={selectedMake} onValueChange={onMake}>
           <SelectTrigger data-testid="marketplace-make-filter" className="bg-white"><SelectValue /></SelectTrigger>
           <SelectContent>{makes.map(make => <SelectItem key={make} value={make}>{make}</SelectItem>)}</SelectContent>
         </Select>
       </div>
 
-      <div className="grid grid-cols-2 gap-3 lg:grid-cols-1">
-        <div>
-          <label className="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-slate-500">Body type</label>
-          <Select value={selectedCategory} onValueChange={setSelectedCategory}>
-            <SelectTrigger className="bg-white"><SelectValue /></SelectTrigger>
-            <SelectContent>{categories.map(category => <SelectItem key={category} value={category}>{category}</SelectItem>)}</SelectContent>
-          </Select>
-        </div>
-        <div>
-          <label className="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-slate-500">Condition</label>
-          <Select value={selectedCondition} onValueChange={setSelectedCondition}>
-            <SelectTrigger className="bg-white"><SelectValue /></SelectTrigger>
-            <SelectContent>{conditions.map(condition => <SelectItem key={condition} value={condition}>{condition}</SelectItem>)}</SelectContent>
-          </Select>
-        </div>
-      </div>
-
       <div>
         <label className="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-slate-500">Location</label>
-        <Select value={selectedLocation} onValueChange={setSelectedLocation}>
-          <SelectTrigger className="bg-white"><SelectValue /></SelectTrigger>
+        <Select value={selectedLocation} onValueChange={onLocation}>
+          <SelectTrigger className="bg-white" data-testid="marketplace-location-filter"><SelectValue /></SelectTrigger>
           <SelectContent>
             <SelectItem value="All">All locations</SelectItem>
             {zimbabweLocations.map(location => <SelectItem key={location} value={location}>{location}</SelectItem>)}
@@ -316,15 +244,15 @@ function FilterControls(props: FilterControlsProps) {
       <div className="grid grid-cols-2 gap-3 lg:grid-cols-1">
         <div>
           <label className="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-slate-500">Fuel</label>
-          <Select value={selectedFuel} onValueChange={setSelectedFuel}>
-            <SelectTrigger className="bg-white"><SelectValue /></SelectTrigger>
+          <Select value={selectedFuel} onValueChange={onFuel}>
+            <SelectTrigger className="bg-white" data-testid="marketplace-fuel-filter"><SelectValue /></SelectTrigger>
             <SelectContent>{fuelTypes.map(fuel => <SelectItem key={fuel} value={fuel}>{fuel}</SelectItem>)}</SelectContent>
           </Select>
         </div>
         <div>
           <label className="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-slate-500">Transmission</label>
-          <Select value={selectedTrans} onValueChange={setSelectedTrans}>
-            <SelectTrigger className="bg-white"><SelectValue /></SelectTrigger>
+          <Select value={selectedTransmission} onValueChange={onTransmission}>
+            <SelectTrigger className="bg-white" data-testid="marketplace-transmission-filter"><SelectValue /></SelectTrigger>
             <SelectContent>{transmissions.map(transmission => <SelectItem key={transmission} value={transmission}>{transmission}</SelectItem>)}</SelectContent>
           </Select>
         </div>
@@ -346,7 +274,7 @@ function FilterControls(props: FilterControlsProps) {
             aria-label="Minimum price"
             data-testid="marketplace-price-min-filter"
             value={priceRange[0] > 0 ? priceRange[0] : ''}
-            onChange={(event) => {
+            onChange={event => {
               const parsed = Number(event.target.value)
               const min = Number.isFinite(parsed) && parsed > 0 ? Math.min(parsed, priceRange[1]) : 0
               setPriceRange([min, priceRange[1]])
@@ -360,7 +288,7 @@ function FilterControls(props: FilterControlsProps) {
             aria-label="Maximum price"
             data-testid="marketplace-price-max-filter"
             value={priceRange[1] < 100000 ? priceRange[1] : ''}
-            onChange={(event) => {
+            onChange={event => {
               const parsed = Number(event.target.value)
               const max = Number.isFinite(parsed) && parsed > 0 ? Math.max(parsed, priceRange[0]) : 100000
               setPriceRange([priceRange[0], max])
@@ -369,13 +297,17 @@ function FilterControls(props: FilterControlsProps) {
         </div>
         <Slider value={priceRange} onValueChange={setPriceRange} max={100000} step={1000} />
       </div>
+
+      <div className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 text-[11px] leading-4 text-slate-500">
+        Body style will appear here when CarUp has a governed public body-style field. The production Marketplace does not expose a filter that can only operate on mock/local data.
+      </div>
     </div>
   )
 }
 
 function SkeletonCard() {
   return (
-    <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white animate-pulse">
+    <div className="animate-pulse overflow-hidden rounded-2xl border border-slate-200 bg-white">
       <div className="aspect-[16/10] bg-slate-200" />
       <div className="space-y-3 p-4">
         <div className="h-4 w-3/4 rounded bg-slate-200" />
@@ -391,7 +323,6 @@ export default function Marketplace() {
   const [searchParams, setSearchParams] = useSearchParams()
   const {
     fetchMarketplaceListings,
-    fetchVehicles,
     saveMarketplaceListing,
     unsaveMarketplaceListing,
     fetchSavedMarketplaceListings,
@@ -403,7 +334,7 @@ export default function Marketplace() {
   useEffect(() => { captureReferralFromUrl() }, [])
 
   const [compareVins, setCompareVins] = useState<string[]>([])
-  const [liveVehicles, setLiveVehicles] = useState<MarketplaceCardVehicle[]>([])
+  const [liveListings, setLiveListings] = useState<ListingWithTrust[]>([])
   const [loadingVehicles, setLoadingVehicles] = useState(true)
   const [loadError, setLoadError] = useState(false)
   const [trustRanking, setTrustRanking] = useState<TrustRanking | null>(null)
@@ -411,24 +342,11 @@ export default function Marketplace() {
   const [mobileFiltersOpen, setMobileFiltersOpen] = useState(false)
 
   const url = useMemo(() => paramsToState(searchParams), [searchParams])
-  const selectedMake = url.selectedMake
-  const marketplaceCategory = url.selectedCategory
-  const trustTags = url.selectedTags
-  const sortBy = url.sortBy
-  const committedSearchQuery = url.searchQuery
-  const committedMinPrice = url.priceRange[0]
-  const committedMaxPrice = url.priceRange[1]
-
   const [searchQuery, setSearchQuery] = useState(url.searchQuery)
   const [priceRange, setPriceRange] = useState<number[]>(url.priceRange)
-  const [selectedCategory, setSelectedCategory] = useState('All')
-  const [selectedCondition, setSelectedCondition] = useState('All')
-  const [selectedFuel, setSelectedFuel] = useState('All')
-  const [selectedTrans, setSelectedTrans] = useState('All')
-  const [selectedLocation, setSelectedLocation] = useState('All')
 
   const updateUrl = useCallback((patch: Partial<MarketplaceUrlState>, replace = false) => {
-    setSearchParams(prev => stateToParams({ ...paramsToState(prev), ...patch }), { replace })
+    setSearchParams(previous => stateToParams({ ...paramsToState(previous), ...patch }), { replace })
   }, [setSearchParams])
 
   const mutateUrl = useCallback((mutate: (state: MarketplaceUrlState) => Partial<MarketplaceUrlState>, replace = false) => {
@@ -436,16 +354,6 @@ export default function Marketplace() {
     setSearchParams(stateToParams({ ...current, ...mutate(current) }), { replace })
   }, [setSearchParams])
 
-  const setMakeFilter = (value: string) => updateUrl({ selectedMake: value })
-  const setCategoryFilter = (value: string) => mutateUrl(state => ({ selectedCategory: state.selectedCategory === value ? ALL : value }))
-  const toggleTrustTag = (label: string) => mutateUrl(state => ({
-    selectedTags: state.selectedTags.includes(label)
-      ? state.selectedTags.filter(tag => tag !== label)
-      : [...state.selectedTags, label],
-  }))
-  const setSortFilter = (value: string) => updateUrl({ sortBy: value as MarketplaceSort })
-
-  // Browser back/forward and copied deep links always win over local drafts.
   useEffect(() => {
     /* eslint-disable react-hooks/set-state-in-effect */
     setSearchQuery(previous => (previous.trim() === url.searchQuery ? previous : url.searchQuery))
@@ -455,26 +363,18 @@ export default function Marketplace() {
     /* eslint-enable react-hooks/set-state-in-effect */
   }, [url])
 
-  // Search is both instant on the currently loaded page AND committed to the URL/API after a short
-  // pause. The previous implementation never re-fetched on q, so a match outside the first page of
-  // results could not be found even though the backend supports q. This closes that reliability gap.
   useEffect(() => {
     if (searchQuery.trim() === url.searchQuery) return
-    const timer = setTimeout(() => {
-      mutateUrl(() => ({ searchQuery: searchQuery.trim() }), true)
-    }, 300)
+    const timer = setTimeout(() => mutateUrl(() => ({ searchQuery: searchQuery.trim() }), true), 300)
     return () => clearTimeout(timer)
   }, [searchQuery, url.searchQuery, mutateUrl])
 
   useEffect(() => {
     if (priceRange[0] === url.priceRange[0] && priceRange[1] === url.priceRange[1]) return
-    const timer = setTimeout(() => {
-      mutateUrl(() => ({ priceRange: [priceRange[0], priceRange[1]] }), true)
-    }, 350)
+    const timer = setTimeout(() => mutateUrl(() => ({ priceRange: [priceRange[0], priceRange[1]] }), true), 350)
     return () => clearTimeout(timer)
   }, [priceRange, url.priceRange, mutateUrl])
 
-  // Account-scoped saved listings for authenticated users; browser-local only for guests.
   useEffect(() => {
     if (!isAuthenticated) {
       setFavoritesState(getFavorites())
@@ -485,22 +385,16 @@ export default function Marketplace() {
       .then(response => {
         if (active) setFavoritesState((response.listings || []).map(listing => listing.vin).filter(Boolean))
       })
-      .catch(() => { /* retain current view; never copy authed state to guest localStorage */ })
+      .catch(() => { /* retain current view; never copy authenticated state to guest localStorage */ })
     return () => { active = false }
   }, [isAuthenticated, fetchSavedMarketplaceListings])
 
-  // Structural/public filters are re-evaluated by the backend. Search q is deliberately included so
-  // discovery is not limited to whichever page happened to be loaded before the buyer typed.
+  // ONE public contract. Marketplace no longer falls back to /api/vehicles when this request fails:
+  // that path lacks the listing-specific ranking/media/reservation contract and creates two answers
+  // for the same shopping surface. Production fails closed; explicit dev mode may show mock inventory.
   useEffect(() => {
     let cancelled = false
-    const apiFilters = stateToApiFilters({
-      searchQuery: committedSearchQuery,
-      selectedMake,
-      selectedCategory: marketplaceCategory,
-      selectedTags: trustTags,
-      priceRange: [committedMinPrice, committedMaxPrice],
-      sortBy,
-    }) as Record<string, string | number | boolean | undefined>
+    const apiFilters = stateToApiFilters(url) as Record<string, string | number | boolean | undefined>
 
     /* eslint-disable react-hooks/set-state-in-effect */
     setLoadingVehicles(true)
@@ -508,50 +402,25 @@ export default function Marketplace() {
     /* eslint-enable react-hooks/set-state-in-effect */
 
     fetchMarketplaceListings(apiFilters)
-      .then((data) => {
+      .then(data => {
         if (cancelled) return
         setTrustRanking(readTrustRanking(data))
-        if (data && Array.isArray(data.listings)) {
-          setLiveVehicles(withMockFallback(
-            data.listings.map(marketplaceSummaryToVehicle),
-            mockVehicles as unknown as MarketplaceCardVehicle[],
-          ))
-        } else {
-          setLiveVehicles(withMockFallback([], mockVehicles as unknown as MarketplaceCardVehicle[]))
-        }
+        const listings = Array.isArray(data?.listings) ? data.listings as ListingWithTrust[] : []
+        setLiveListings(withMockFallback(listings, mockVehicles.map(mockVehicleToListing)))
       })
-      .catch(async (error) => {
+      .catch(error => {
         if (cancelled) return
-        console.error('Failed to fetch marketplace listing summaries:', error)
+        console.error('Failed to fetch canonical marketplace listing summaries:', error)
         setTrustRanking(null)
-        try {
-          const data = await fetchVehicles(apiFilters)
-          if (cancelled) return
-          setLiveVehicles(withMockFallback(data as MarketplaceCardVehicle[], mockVehicles as unknown as MarketplaceCardVehicle[]))
-          setLoadError(true)
-        } catch (fallbackError) {
-          if (cancelled) return
-          console.error('Failed to fetch marketplace vehicles:', fallbackError)
-          setLiveVehicles(withMockFallback([], mockVehicles as unknown as MarketplaceCardVehicle[]))
-          setLoadError(true)
-        }
+        setLoadError(true)
+        setLiveListings(withMockFallback([], mockVehicles.map(mockVehicleToListing)))
       })
       .finally(() => {
         if (!cancelled) setLoadingVehicles(false)
       })
 
     return () => { cancelled = true }
-  }, [
-    selectedMake,
-    marketplaceCategory,
-    trustTags,
-    committedSearchQuery,
-    committedMinPrice,
-    committedMaxPrice,
-    sortBy,
-    fetchMarketplaceListings,
-    fetchVehicles,
-  ])
+  }, [url, fetchMarketplaceListings])
 
   const toggleCompare = useCallback((event: React.MouseEvent, vin: string) => {
     event.preventDefault()
@@ -595,84 +464,42 @@ export default function Marketplace() {
     toast[isSaved ? 'info' : 'success'](isSaved ? 'Removed from saved cars' : `${vehicleName} saved!`)
   }, [favorites, isAuthenticated, saveMarketplaceListing, unsaveMarketplaceListing])
 
-  const filtered = liveVehicles.filter((vehicle) => {
-    const location = vehicle.location || ''
+  // Draft search/price filtering keeps the UI responsive during debounce. All structural facets are
+  // already applied by the backend over the full eligible population before its result limit.
+  const visibleListings = useMemo(() => liveListings.filter(listing => {
     const query = searchQuery.trim().toLowerCase()
-    // Public discovery can use VIN, but never plate/chassis because those identifiers are not in the
-    // public listing contract and the grid must not become an anonymous registry oracle.
-    const searchableText = [
-      vehicle.make,
-      vehicle.model,
-      location,
-      vehicle.vin,
-      vehicle.condition,
-      vehicle.category,
-      vehicle.sellerName,
-      vehicle.sellerType,
-      vehicle.current_seller_type,
-      vehicle.tenant?.name,
-      hasPartSentrySignal(vehicle) ? 'partsentry repair part history checked' : '',
-      getRepairHistoryCount(vehicle) > 0 ? 'repair history service logs work orders' : '',
-    ].map(value => value || '').join(' ').toLowerCase()
-
-    const matchSearch = !query || searchableText.includes(query)
-    const matchBody = selectedCategory === 'All' || vehicle.category === selectedCategory
-    const matchMarketplaceCategory = matchesConditionChip(vehicle, marketplaceCategory)
-    const matchTrustTags = matchesAllTrustTags(vehicle, trustTags)
-    const matchMake = selectedMake === 'All' || vehicle.make === selectedMake
-    const matchCondition = selectedCondition === 'All' || vehicle.condition === selectedCondition
-    const matchFuel = selectedFuel === 'All' || getFuelType(vehicle) === selectedFuel
-    const matchTransmission = selectedTrans === 'All' || vehicle.transmission === selectedTrans
-    const matchLocation = selectedLocation === 'All' || location === selectedLocation
-    const numericPrice = typeof vehicle.price === 'number' && Number.isFinite(vehicle.price) ? vehicle.price : null
-    const matchPrice = numericPrice === null
+    const searchable = [
+      listing.vin,
+      listing.make,
+      listing.model,
+      listing.location,
+      listing.seller_display_label,
+      listing.seller_type,
+      listing.condition_category,
+      ...(listing.marketplace_tags || []),
+    ].filter(Boolean).join(' ').toLowerCase()
+    const matchesSearch = !query || searchable.includes(query)
+    const price = typeof listing.price === 'number' && Number.isFinite(listing.price) ? listing.price : null
+    const matchesPrice = price === null
       ? priceRange[0] === 0 && priceRange[1] === 100000
-      : numericPrice >= priceRange[0] && numericPrice <= priceRange[1]
-
-    return matchSearch && matchBody && matchMarketplaceCategory && matchTrustTags && matchMake
-      && matchCondition && matchFuel && matchTransmission && matchLocation && matchPrice
-  })
-
-  const sorted = [...filtered].sort((a, b) => {
-    if (sortBy === 'price-low') return (a.price || 0) - (b.price || 0)
-    if (sortBy === 'price-high') return (b.price || 0) - (a.price || 0)
-    if (sortBy === 'newest') return new Date(b.created_at || 0).getTime() - new Date(a.created_at || 0).getTime()
-    // Trust order belongs to the backend canonical authority. Preserve the returned order.
-    return 0
-  })
+      : price >= priceRange[0] && price <= priceRange[1]
+    return matchesSearch && matchesPrice
+  }), [liveListings, searchQuery, priceRange])
 
   const filterState: MarketplaceUrlState = {
+    ...url,
     searchQuery,
-    selectedMake,
-    selectedCategory: marketplaceCategory,
-    selectedTags: trustTags,
     priceRange: [priceRange[0], priceRange[1]],
-    sortBy,
   }
-
-  const activeFilterCount = [
-    selectedCategory !== 'All',
-    selectedMake !== 'All',
-    selectedCondition !== 'All',
-    selectedFuel !== 'All',
-    selectedTrans !== 'All',
-    selectedLocation !== 'All',
-    marketplaceCategory !== 'All',
-    priceRange[0] > 0 || priceRange[1] < 100000,
-  ].filter(Boolean).length + trustTags.length
+  const activeChips = getActiveFilterChips(filterState)
+  const activeFilterCount = activeChips.filter(chip => chip.key !== 'sort').length
 
   const resetFilters = () => {
-    setSelectedCategory('All')
-    setSelectedCondition('All')
-    setSelectedFuel('All')
-    setSelectedTrans('All')
-    setSelectedLocation('All')
     setSearchQuery('')
     setPriceRange([0, 100000])
     setSearchParams(new URLSearchParams(), { replace: false })
   }
 
-  const activeChips = getActiveFilterChips(filterState)
   const removeChip = (key: ActiveFilterKey, value?: string) => {
     if (key === 'make') updateUrl({ selectedMake: ALL })
     else if (key === 'q') {
@@ -680,21 +507,36 @@ export default function Marketplace() {
       updateUrl({ searchQuery: '' }, true)
     } else if (key === 'category') updateUrl({ selectedCategory: ALL })
     else if (key === 'tag') mutateUrl(state => ({ selectedTags: state.selectedTags.filter(tag => tag !== value) }))
+    else if (key === 'fuel') updateUrl({ selectedFuel: ALL })
+    else if (key === 'transmission') updateUrl({ selectedTransmission: ALL })
+    else if (key === 'location') updateUrl({ selectedLocation: ALL })
     else if (key === 'price') {
       setPriceRange([0, 100000])
       updateUrl({ priceRange: [0, 100000] }, true)
     } else if (key === 'sort') updateUrl({ sortBy: 'newest' })
   }
 
+  const setCategoryFilter = (value: string) => mutateUrl(state => ({
+    selectedCategory: state.selectedCategory === value ? ALL : value,
+  }))
+  const toggleTrustTag = (label: string) => mutateUrl(state => ({
+    selectedTags: state.selectedTags.includes(label)
+      ? state.selectedTags.filter(tag => tag !== label)
+      : [...state.selectedTags, label],
+  }))
+
   const filterControls = (
     <FilterControls
-      selectedMake={selectedMake} setSelectedMake={setMakeFilter}
-      selectedCategory={selectedCategory} setSelectedCategory={setSelectedCategory}
-      selectedCondition={selectedCondition} setSelectedCondition={setSelectedCondition}
-      selectedLocation={selectedLocation} setSelectedLocation={setSelectedLocation}
-      selectedFuel={selectedFuel} setSelectedFuel={setSelectedFuel}
-      selectedTrans={selectedTrans} setSelectedTrans={setSelectedTrans}
-      priceRange={priceRange} setPriceRange={setPriceRange}
+      selectedMake={url.selectedMake}
+      onMake={value => updateUrl({ selectedMake: value })}
+      selectedLocation={url.selectedLocation}
+      onLocation={value => updateUrl({ selectedLocation: value })}
+      selectedFuel={url.selectedFuel}
+      onFuel={value => updateUrl({ selectedFuel: value })}
+      selectedTransmission={url.selectedTransmission}
+      onTransmission={value => updateUrl({ selectedTransmission: value })}
+      priceRange={priceRange}
+      setPriceRange={setPriceRange}
     />
   )
 
@@ -706,7 +548,7 @@ export default function Marketplace() {
             <p className="text-sm font-semibold text-slate-900">Vehicle condition</p>
             <p className="mt-0.5 text-xs leading-4 text-slate-500">Choose one classification.</p>
           </div>
-          {marketplaceCategory !== ALL && (
+          {url.selectedCategory !== ALL && (
             <Button variant="ghost" size="sm" className="h-7 px-2 text-xs" onClick={() => updateUrl({ selectedCategory: ALL })} data-testid="marketplace-clear-condition">
               Clear
             </Button>
@@ -714,18 +556,16 @@ export default function Marketplace() {
         </div>
         <div className="flex flex-wrap gap-1.5">
           {['All', ...CONDITION_CHIPS].map(chip => {
-            const active = chip === 'All' ? marketplaceCategory === ALL : marketplaceCategory === chip
+            const active = chip === 'All' ? url.selectedCategory === ALL : url.selectedCategory === chip
             return (
               <button
                 key={chip}
                 type="button"
                 aria-pressed={active}
                 onClick={() => (chip === 'All' ? updateUrl({ selectedCategory: ALL }) : setCategoryFilter(chip))}
-                className={`rounded-full border px-2.5 py-1.5 text-[11px] font-semibold transition ${
-                  active
-                    ? 'border-orange-500 bg-orange-50 text-orange-800'
-                    : 'border-slate-200 bg-white text-slate-600 hover:border-orange-300 hover:text-slate-900'
-                }`}
+                className={`rounded-full border px-2.5 py-1.5 text-[11px] font-semibold transition ${active
+                  ? 'border-orange-500 bg-orange-50 text-orange-800'
+                  : 'border-slate-200 bg-white text-slate-600 hover:border-orange-300 hover:text-slate-900'}`}
                 data-testid="marketplace-category-chip"
               >
                 {chip}
@@ -743,7 +583,7 @@ export default function Marketplace() {
             </p>
             <p className="mt-0.5 text-xs leading-4 text-slate-500">Stack filters; every selected signal must match.</p>
           </div>
-          {trustTags.length > 0 && (
+          {url.selectedTags.length > 0 && (
             <Button variant="ghost" size="sm" className="h-7 px-2 text-xs" onClick={() => updateUrl({ selectedTags: [] })} data-testid="marketplace-clear-trust">
               Clear
             </Button>
@@ -751,18 +591,16 @@ export default function Marketplace() {
         </div>
         <div className="flex flex-wrap gap-1.5">
           {TRUST_CHIPS.map(chip => {
-            const active = trustTags.includes(chip)
+            const active = url.selectedTags.includes(chip)
             return (
               <button
                 key={chip}
                 type="button"
                 aria-pressed={active}
                 onClick={() => toggleTrustTag(chip)}
-                className={`rounded-full border px-2.5 py-1.5 text-[11px] font-semibold transition ${
-                  active
-                    ? 'border-orange-500 bg-orange-50 text-orange-800'
-                    : 'border-slate-200 bg-white text-slate-600 hover:border-orange-300 hover:text-slate-900'
-                }`}
+                className={`rounded-full border px-2.5 py-1.5 text-[11px] font-semibold transition ${active
+                  ? 'border-orange-500 bg-orange-50 text-orange-800'
+                  : 'border-slate-200 bg-white text-slate-600 hover:border-orange-300 hover:text-slate-900'}`}
                 data-testid="marketplace-trust-chip"
               >
                 {chip}
@@ -837,7 +675,7 @@ export default function Marketplace() {
             </div>
 
             <div className="flex items-center gap-2">
-              <Select value={sortBy} onValueChange={setSortFilter}>
+              <Select value={url.sortBy} onValueChange={value => updateUrl({ sortBy: value as MarketplaceSort })}>
                 <SelectTrigger className="h-11 min-w-[170px] border-slate-200 bg-white" data-testid="marketplace-sort-select">
                   <SelectValue />
                 </SelectTrigger>
@@ -858,9 +696,7 @@ export default function Marketplace() {
                     </Button>
                   </SheetTrigger>
                   <SheetContent side="left" className="w-[92%] max-w-sm overflow-y-auto bg-[#f8fafc]" data-testid="marketplace-mobile-filter-drawer">
-                    <SheetHeader>
-                      <SheetTitle>Refine vehicles</SheetTitle>
-                    </SheetHeader>
+                    <SheetHeader><SheetTitle>Refine vehicles</SheetTitle></SheetHeader>
                     <div className="space-y-6 px-4 pb-4">
                       {filterControls}
                       <div className="border-t border-slate-200 pt-5">{taxonomyControls}</div>
@@ -882,20 +718,18 @@ export default function Marketplace() {
               <Sparkles className="h-3.5 w-3.5 text-orange-600" /> Quick filters
             </span>
             {TRUST_QUICK_FILTERS.map(filter => {
-              const isCategory = isCategoryChip(filter.label)
-              const active = isCategory ? marketplaceCategory === filter.label : trustTags.includes(filter.label)
+              const category = isCategoryChip(filter.label)
+              const active = category ? url.selectedCategory === filter.label : url.selectedTags.includes(filter.label)
               return (
                 <button
                   key={filter.label}
                   type="button"
                   data-testid={filter.testId}
                   aria-pressed={active}
-                  onClick={() => (isCategory ? setCategoryFilter(filter.label) : toggleTrustTag(filter.label))}
-                  className={`shrink-0 rounded-full border px-3 py-1.5 text-xs font-semibold transition ${
-                    active
-                      ? 'border-orange-500 bg-orange-50 text-orange-800'
-                      : 'border-slate-200 bg-white text-slate-600 hover:border-orange-300 hover:text-slate-900'
-                  }`}
+                  onClick={() => (category ? setCategoryFilter(filter.label) : toggleTrustTag(filter.label))}
+                  className={`shrink-0 rounded-full border px-3 py-1.5 text-xs font-semibold transition ${active
+                    ? 'border-orange-500 bg-orange-50 text-orange-800'
+                    : 'border-slate-200 bg-white text-slate-600 hover:border-orange-300 hover:text-slate-900'}`}
                 >
                   {filter.label}
                 </button>
@@ -930,11 +764,9 @@ export default function Marketplace() {
               <div className="mb-4 flex items-center justify-between gap-3">
                 <div>
                   <p className="text-sm font-semibold text-slate-950">Refine vehicles</p>
-                  <p className="mt-0.5 text-xs text-slate-500">Fast filters, without hiding uncertainty.</p>
+                  <p className="mt-0.5 text-xs text-slate-500">Every active facet applies before result limiting.</p>
                 </div>
-                {activeFilterCount > 0 && (
-                  <Badge variant="secondary" className="bg-slate-100 text-slate-700">{activeFilterCount}</Badge>
-                )}
+                {activeFilterCount > 0 && <Badge variant="secondary" className="bg-slate-100 text-slate-700">{activeFilterCount}</Badge>}
               </div>
               <div data-testid="marketplace-filter-sidebar" className="space-y-6">
                 {filterControls}
@@ -947,7 +779,7 @@ export default function Marketplace() {
           <main className="min-w-0">
             {loadError && !loadingVehicles && (
               <div className="mb-4 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-xs leading-5 text-amber-900" data-testid="marketplace-error-state">
-                The listing-summary service was unavailable. CarUp is showing the safe vehicle fallback where available; no private fields or fabricated cards are added.
+                Marketplace data is temporarily unavailable. CarUp has not substituted another public vehicle endpoint or fabricated production inventory.
               </div>
             )}
 
@@ -960,15 +792,12 @@ export default function Marketplace() {
             <div className="mb-4 flex flex-col gap-2 border-b border-slate-200 pb-4 sm:flex-row sm:items-end sm:justify-between">
               <div>
                 <p className="text-sm font-medium text-slate-800" data-testid="marketplace-results-summary">{getResultSummary(filterState)}</p>
-                <p className="mt-1 text-xs text-slate-500">
-                  Published listings only. Trust and vehicle facts retain their governed states.
-                </p>
+                <p className="mt-1 text-xs text-slate-500">Published listings only. Trust and vehicle facts retain their governed states.</p>
               </div>
               <p className="text-sm text-slate-600" data-testid="marketplace-results-count">
                 {loadingVehicles
                   ? <span className="flex items-center gap-2"><Loader2 className="h-4 w-4 animate-spin" />Loading vehicles…</span>
-                  : <><span className="font-semibold text-slate-950">{sorted.length}</span> {sorted.length === 1 ? 'vehicle' : 'vehicles'} found</>
-                }
+                  : <><span className="font-semibold text-slate-950">{visibleListings.length}</span> {visibleListings.length === 1 ? 'vehicle' : 'vehicles'} found</>}
               </p>
             </div>
 
@@ -976,7 +805,7 @@ export default function Marketplace() {
               <div className="grid gap-5 sm:grid-cols-2 xl:grid-cols-3" data-testid="marketplace-loading-state">
                 {Array.from({ length: 6 }).map((_, index) => <SkeletonCard key={index} />)}
               </div>
-            ) : sorted.length === 0 ? (
+            ) : visibleListings.length === 0 ? (
               <div className="rounded-2xl border border-dashed border-slate-300 bg-white px-6 py-16 text-center" data-testid="marketplace-empty-state">
                 <Search className="mx-auto mb-4 h-10 w-10 text-slate-300" />
                 <h3 className="text-lg font-semibold text-slate-900">No matching vehicles</h3>
@@ -987,31 +816,29 @@ export default function Marketplace() {
               </div>
             ) : (
               <div className="grid gap-5 sm:grid-cols-2 xl:grid-cols-3" data-testid="marketplace-results-grid">
-                {sorted.map(vehicle => {
-                  const vin = vehicle.vin || vehicle.id || ''
-                  const vehicleName = `${vehicle.year || ''} ${vehicle.make || ''} ${vehicle.model || ''}`.trim()
-                  const labels = getVehicleLabels(vehicle)
+                {visibleListings.map(listing => {
+                  const vin = listing.vin
+                  const vehicleName = [listing.year, listing.make, listing.model].filter(value => value !== null && value !== undefined && value !== '').join(' ')
+                  const labels = listingLabels(listing)
                   const href = `/marketplace/${encodeURIComponent(vin)}`
-                  const reservationReserved = vehicle.reservation_summary?.reserved === true
-                  const statusReserved = vehicle.status === 'reserved' || vehicle.status === 'Reserved'
                   const model: MarketplaceListingCardModel = {
                     vin,
-                    name: vehicleName,
-                    price: typeof vehicle.price === 'number' && Number.isFinite(vehicle.price) ? vehicle.price : null,
-                    currency: typeof vehicle.currency === 'string' && vehicle.currency.trim() ? vehicle.currency : null,
-                    primaryImage: vehicle.images?.[0] || vehicle.primary_image_url || null,
-                    primaryImageState: vehicle.primary_image_state || null,
-                    mileage: typeof vehicle.mileage === 'number' && Number.isFinite(vehicle.mileage) ? vehicle.mileage : null,
-                    transmission: vehicle.transmission || null,
-                    fuel: getFuelType(vehicle),
-                    sellerLabel: getSellerLabel(vehicle),
-                    locationLabel: summaryLocationLine(vehicle.location, vehicle.location_state).label,
-                    plateStatus: getPlateStatusLabel(vehicle),
-                    plateVerified: Boolean(vehicle.plate_verified),
-                    reserved: reservationReserved || statusReserved,
-                    partSentryChecked: hasPartSentrySignal(vehicle),
-                    labels: labels.length > 0 ? labels : [vehicle.condition || vehicle.category || 'Published listing'],
-                    trust: vehicle.canonicalTrust || null,
+                    name: vehicleName || `${listing.make} ${listing.model}`,
+                    price: typeof listing.price === 'number' && Number.isFinite(listing.price) ? listing.price : null,
+                    currency: typeof listing.currency === 'string' && listing.currency.trim() ? listing.currency : null,
+                    primaryImage: listing.primary_image_url || null,
+                    primaryImageState: listing.primary_image_state,
+                    mileage: typeof listing.mileage === 'number' && Number.isFinite(listing.mileage) ? listing.mileage : null,
+                    transmission: listing.transmission || null,
+                    fuel: listing.fuel_type || null,
+                    sellerLabel: sellerLabel(listing),
+                    locationLabel: summaryLocationLine(listing.location, listing.location_state).label,
+                    plateStatus: plateStatusLabel(listing),
+                    plateVerified: listing.plate_verified,
+                    reserved: listing.reservation_summary?.reserved === true,
+                    partSentryChecked: listing.partsentry_checked,
+                    labels: labels.length > 0 ? labels : ['Published listing'],
+                    trust: listing.trust || null,
                   }
 
                   return (
@@ -1021,12 +848,12 @@ export default function Marketplace() {
                       href={href}
                       isFavorite={favorites.includes(vin)}
                       isCompared={compareVins.includes(vin)}
-                      onFavorite={event => toggleFavorite(event, vin, vehicleName)}
+                      onFavorite={event => toggleFavorite(event, vin, model.name)}
                       onCompare={event => toggleCompare(event, vin)}
                       onShare={event => {
                         event.preventDefault()
                         event.stopPropagation()
-                        shareListing(vin, vehicleName)
+                        shareListing(vin, model.name)
                       }}
                     />
                   )
@@ -1049,7 +876,7 @@ export default function Marketplace() {
               onClick={() => navigate(`/marketplace/compare?vins=${compareVins.join(',')}`)}
               data-testid="marketplace-compare-go"
             >
-              <GitCompare className="mr-1 h-4 w-4" /> Compare
+              <GitCompare className="mr-1 h-4 w-4" />Compare
             </Button>
           </div>
         </div>
