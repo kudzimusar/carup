@@ -2,9 +2,11 @@
 
 **Programme:** CarUp Kimi — Post-Reunification Functional Gap Closure  
 **Workstream:** Communications — Customer Email Experience  
-**Status:** **PROPOSED CANONICAL PLAN — REVIEW REQUIRED — IMPLEMENTATION NOT YET AUTHORIZED**  
+**Status:** **CANONICAL PLAN — OWNER DECISIONS FROZEN — RECONCILED AGAINST CANONICAL MAIN**  
+**Runtime implementation:** a SEPARATE lane, opened only after this plan merges.  
 **Repository:** `kudzimusar/carup`  
-**Canonical base when this plan was written:** `main@940c22353fbd759652791bf1c286812856092f85`  
+**Canonical base when written:** `main@940c2235`  
+**Reconciled against canonical main:** `9592020c2481ba1037effd085c7139fb071d9103` (Vehicle Truth PR #165 MERGED, merge `78303ed6`)  
 **Transport foundation:** CarUp Email 1.0 merged through PR #163  
 **Date:** 2026-08-18
 
@@ -61,6 +63,60 @@ At implementation time, agents MUST reconcile this plan against live `main`, liv
 Live evidence may correct stale implementation details, but it MUST NOT silently change the intent, experience principles or product boundaries of this canonical plan.
 
 If live evidence requires a material design/architecture deviation, the agent MUST document the conflict and request an explicit plan amendment rather than inventing a competing system.
+
+### 0.2a Canonical Vehicle Truth dependency — SATISFIED
+
+Vehicle Truth (Issue #164, PR #165) is **MERGED**. Email Experience consumes its contracts and **must not
+build a second version of any of them**.
+
+```text
+publicVehicleProjection.js            what may be shown, per audience
+canonicalTrustService.js              trust evaluation state, score, band, confidence, evidence basis
+trustDecisionService.js               trust decision semantics
+marketplaceTrustSummaryService.js     trust badge / verification indicator
+listingSummaryService.js              vehicle card summary fields
+marketplaceListingDetailService.js    conversation vehicle context
+marketplaceListingEligibility.js      whether a listing may be shown at all
+vehicleFactResolver.js                governed facts and their states
+passportLookupPolicy.js               Passport exposure policy (exact-VIN public, non-enumerable)
+vehicleStatus.js                      listing status
+seller/location canonicalization      vehicle card seller + location
+```
+
+**Forbidden:** a second Trust calculation · a second vehicle-fact model · a second seller projection · a
+second evidence interpretation · a second payment/transaction truth.
+
+#### The two closed vocabularies Email MUST use verbatim
+
+`FIELD_STATES` (`publicVehicleProjection.js`) — the state of any individual fact:
+
+```text
+recorded        a real value exists and this audience may see it
+not_recorded    no value exists.  NOT "false", NOT "zero", NOT "none"
+withheld        a value may or may not exist; this audience is not cleared to learn which
+not_applicable  the field cannot apply to this vehicle, so its absence is not a gap
+```
+
+`TRUST_EVALUATION_STATES` (`canonicalTrustService.js`) — the state of the trust evaluation:
+
+```text
+evaluated       a governed evaluation produced a publishable score + band
+stale           evaluated under a superseded CALCULATION_VERSION; score is WITHHELD (null)
+not_evaluated   no governed evaluation has occurred
+unavailable     the evaluation could not be obtained
+```
+
+**A numerical Trust score may render ONLY when `evaluation_state === 'evaluated'` and `score` is non-null.**
+The service itself demotes an `evaluated` result that cannot produce a valid score+band pair to
+`not_evaluated` and records a limitation, so a renderer that trusts the state can never half-publish.
+
+> `not_evaluated` is **not** zero, **not** failure, and **not** `unavailable`. Rendering it as any of those
+> would republish an absence as a fact — the exact defect Vehicle Truth exists to prevent. Legacy hand-set
+> production scores are precisely this case: canonical state `not_evaluated`, raw historical score never
+> republished, and score/version/band/confidence absent until a governed evaluation actually runs.
+
+Audience-safe trust fields are `PUBLIC_TRUST_FIELDS`; explanations come from `known_limitations`, never from
+copy the renderer invents.
 
 ### 0.3 Normative language
 
@@ -136,7 +192,7 @@ A Vehicle Passport update MUST communicate evidence and trust.
 
 A weekly vehicle newsletter MUST feel editorial, visual and worth opening.
 
-A CEO welcome email MUST feel personal, purposeful and human.
+A Leadership welcome email MUST feel personal, purposeful and human.
 
 One generic template with different text is explicitly insufficient.
 
@@ -190,7 +246,7 @@ This programme MUST NOT:
 - activate production Communications;
 - proxy `api.carup.dev` as a side effect;
 - enable DNSSEC as a side effect;
-- invent CEO/founder identity, legal entity name, registered office, physical address, social account or regulatory contact data;
+- invent leadership identity, legal entity name, registered office, physical address, social account or regulatory contact data;
 - enable product flows that do not exist merely because a template design exists;
 - turn security or transactional emails into promotional newsletters;
 - use leadership branding to disguise marketing as essential communication.
@@ -248,13 +304,19 @@ A descriptive line explaining what CarUp is. The current working direction is:
 Automotive Intelligence & Trust Network
 ```
 
-This wording is **provisional until owner-frozen**.
+**OWNER-FROZEN (B1).** No longer provisional. This is the authoritative descriptor.
 
 ### Consumer payoff / tagline
 
 A shorter emotional line suitable for selected marketing, lifecycle and footer contexts.
 
-The implementation MUST NOT invent this. It requires owner approval before production use.
+**OWNER-FROZEN (B1):**
+
+```text
+Know the car. Trust the journey.
+```
+
+This is the authoritative consumer tagline.
 
 Possible categories to explore during brand freeze include confidence, trust, vehicle knowledge, journey and ownership, but the final wording is an owner decision.
 
@@ -265,14 +327,22 @@ Leadership/lifecycle templates require a real, owner-approved public identity.
 The system must support:
 
 ```text
-CEO_DISPLAY_NAME
-CEO_PUBLIC_TITLE
-CEO_OPTIONAL_SIGNATURE_ASSET
-CEO_OPTIONAL_HEADSHOT_ASSET
+LEADERSHIP_DISPLAY_NAME
+LEADERSHIP_PUBLIC_TITLE
+LEADERSHIP_SIGNATURE_ASSET
+LEADERSHIP_HEADSHOT_ASSET
 LEADERSHIP_REPLY_TO
 ```
 
-No agent may infer the CEO/founder name from repository usernames, account ownership or internal metadata.
+**OWNER-FROZEN (B2):** `S.K Musarurwa` — `Co-Founder & Head of Development` — `CarUp Technologies`.
+`LEADERSHIP_REPLY_TO = info@carup.dev`. `HEADSHOT_APPROVED=NO`, `SIGNATURE_ASSET_APPROVED=NO`.
+
+> **ABSOLUTE RULE: never render or describe S.K Musarurwa as CEO.** The approved title is
+> Co-Founder & Head of Development. `Kingston Musarurwa / Founder / COO` is owner-supplied identity and is
+> NOT yet an approved published surface.
+
+No agent may infer a leadership name from repository usernames, account ownership or internal metadata. In
+particular `web/src/pages/About.tsx` publishes FABRICATED demo personas and must never be read as identity.
 
 The implementation MUST remain blocked from customer-facing named leadership emails until the owner supplies and approves the public name/title/identity.
 
@@ -398,7 +468,7 @@ The following canonical persona model governs customer-facing display names.
 | General service | **CarUp** / **CarUp Support** | Resend | support |
 | Weekly editorial | **CarUp Weekly** | Brevo | preference/support route |
 | General marketing | **CarUp** | Brevo | preference/support route |
-| Leadership/lifecycle | **[Approved CEO Name] at CarUp** or **CarUp Leadership** | Resend for service onboarding; Brevo only when the message is truly marketing | monitored human/operational reply target |
+| Leadership/lifecycle | **S.K Musarurwa at CarUp** or **CarUp Leadership** | Resend for service onboarding; Brevo only when the message is truly marketing | monitored human/operational reply target |
 
 ## 6.1 Sender-address constraint
 
@@ -635,14 +705,16 @@ Examples:
 Example structure:
 
 ```text
-Your vehicle trust profile improved
+New evidence was added to your Vehicle Passport
 
 Toyota Hilux
-Trust Score 86 -> 91
+Trust status: evidence backed        <- from evaluation_state, NEVER an invented number
 
-+ Service history verified
-+ Ownership evidence added
-+ Inspection evidence confirmed
+Service history      recorded
+Ownership evidence   recorded
+Inspection report    not_recorded
+Previous owner       withheld
+Import clearance     not_applicable
 
 [ View Vehicle Passport ]
 
@@ -706,7 +778,7 @@ It must be intentionally edited and designed.
 
 Examples:
 
-- CEO welcome;
+- Leadership welcome;
 - why CarUp exists;
 - role-specific onboarding;
 - first-listing milestone;
@@ -721,7 +793,7 @@ Examples:
 
 Named leadership SHOULD be used selectively so it retains meaning.
 
-CEO/founder identity SHOULD NOT appear as the signer of:
+Leadership identity SHOULD NOT appear as the signer of:
 
 - password resets;
 - OTP/security codes;
@@ -732,9 +804,9 @@ CEO/founder identity SHOULD NOT appear as the signer of:
 
 Those should come from accountable CarUp functions.
 
-### CEO Welcome requirement
+### Leadership Welcome requirement
 
-A CEO Welcome template is a **reference template and first implementation batch requirement**.
+A **Leadership Welcome / Founder Welcome** template is a reference template and first implementation batch requirement.
 
 It should include:
 
@@ -765,7 +837,7 @@ Immediate security message from **CarUp Security**.
 
 Purpose: verify or secure the account.
 
-No CEO commentary, no promotions.
+No leadership commentary, no promotions.
 
 ## 9.2 Step 2 — Leadership welcome
 
@@ -776,7 +848,7 @@ Purpose: introduce the company mission and human leadership.
 Subject direction:
 
 ```text
-Welcome to CarUp — a note from our CEO
+Welcome to CarUp — a note from our Co-Founder
 Welcome to CarUp — why we built it
 ```
 
@@ -1218,7 +1290,7 @@ Selected lifecycle moments should communicate that real people are responsible f
 
 ## 15.2 Required first leadership template
 
-**CEO Welcome** is mandatory in the first reference batch.
+**Leadership Welcome** is mandatory in the first reference batch.
 
 It must communicate:
 
@@ -1237,8 +1309,8 @@ The canonical component should support:
 Warm regards,
 
 [Optional signature image]
-[CEO name]
-Chief Executive Officer
+S.K Musarurwa
+Co-Founder & Head of Development
 CarUp
 [Optional small headshot]
 ```
@@ -1249,7 +1321,7 @@ Title/name must be owner-approved.
 
 Leadership email should be deliberately infrequent.
 
-Overuse reduces credibility and makes the CEO identity feel like a marketing alias.
+Overuse reduces credibility and makes the leadership identity feel like a marketing alias.
 
 ---
 
@@ -1494,7 +1566,7 @@ account_recovery                       if/when supported
 ## 22.2 Leadership / onboarding
 
 ```text
-ceo_welcome
+leadership_welcome
 buyer_getting_started
 seller_getting_started
 vehicle_owner_getting_started
@@ -1629,7 +1701,7 @@ Before broad migration, the team must implement and physically review six repres
 
 These six are the design-system proving ground.
 
-## R1 — CEO Welcome
+## R1 — Leadership Welcome / Founder Welcome
 
 Proves:
 
@@ -1793,7 +1865,17 @@ Physical certification must inspect:
 
 # 26. Benchmark quality rubric
 
-A customer-facing template should score at least **90/100** before production rollout.
+**OWNER-FROZEN QUALITY CONTRACT:**
+
+```text
+OVERALL_SCORE_REQUIRED  >= 90/100
+ACCESSIBILITY           >= 8/10
+AUTOMATIC_FAILS         zero
+```
+
+A mandatory failure **overrides the numeric score**. A template scoring 95 with one failing accessibility
+invariant still fails. This must not be weakened to make any template pass — R6's prototype scored 88 and
+stays recorded as 88.
 
 | Area | Points |
 |---|---:|
@@ -1853,8 +1935,8 @@ Owner decisions required before customer-facing production implementation:
 
 - corporate descriptor;
 - consumer tagline/payoff line;
-- CEO/founder public display name and title;
-- optional CEO signature/headshot assets;
+- leadership public display name and title;
+- optional leadership signature/headshot assets;
 - legal entity name;
 - postal/registered address where required;
 - approved social/profile links, if any;
@@ -2058,8 +2140,8 @@ Do not display all aliases in all emails.
 
 Before production leadership/editorial rollout, the owner should freeze:
 
-- approved CEO/founder public identity;
-- whether CEO welcome carries a headshot;
+- approved leadership public identity;
+- whether the Leadership Welcome carries a headshot;
 - whether it carries a signature image;
 - public leadership bio/profile URL if any;
 - official social channels;
@@ -2080,7 +2162,7 @@ Agents MUST NOT:
 
 - invent a new email visual language;
 - copy a third-party brand/template wholesale;
-- use the CEO identity in every template;
+- use the leadership identity in every template;
 - introduce a second consent authority;
 - make Brevo transactional;
 - make Resend marketing by default;
@@ -2119,7 +2201,7 @@ Email Experience & Design System 1.0 is complete only when all of the following 
 
 ## Reference templates
 
-- [ ] CEO Welcome passes.
+- [ ] Leadership Welcome passes.
 - [ ] Password Reset passes.
 - [ ] Marketplace Conversation passes.
 - [ ] SafeTrade Transaction passes.
@@ -2178,10 +2260,10 @@ CONSUMER_TAGLINE=
 Owner provides/approves:
 
 ```text
-CEO_DISPLAY_NAME=
-CEO_PUBLIC_TITLE=
-CEO_HEADSHOT_APPROVED=YES/NO
-CEO_SIGNATURE_ASSET_APPROVED=YES/NO
+LEADERSHIP_DISPLAY_NAME=
+LEADERSHIP_PUBLIC_TITLE=
+LEADERSHIP_HEADSHOT_APPROVED=NO   # FROZEN
+LEADERSHIP_SIGNATURE_ASSET_APPROVED=NO   # FROZEN
 LEADERSHIP_REPLY_TO=
 ```
 
@@ -2257,3 +2339,76 @@ FUTURE REFINEMENT     amendments or later versions
 ```
 
 That separation is intentional. It prevents short-term implementation convenience from gradually degrading the customer experience standard.
+
+---
+
+# 38. Owner amendment record (2026-08-19)
+
+Applied on reconciliation against canonical `main@9592020c`. These supersede the original text wherever they
+conflict.
+
+## B1 — brand, FROZEN
+
+```text
+CORPORATE_DESCRIPTOR = Automotive Intelligence & Trust Network
+CONSUMER_TAGLINE     = Know the car. Trust the journey.
+```
+
+## B2 — leadership, FROZEN
+
+```text
+LEADERSHIP_DISPLAY_NAME = S.K Musarurwa
+LEADERSHIP_PUBLIC_TITLE = Co-Founder & Head of Development
+COMPANY                 = CarUp Technologies
+LEADERSHIP_REPLY_TO     = info@carup.dev
+HEADSHOT_APPROVED       = NO
+SIGNATURE_ASSET_APPROVED= NO
+```
+
+Renames applied throughout: `CEO Welcome` → **Leadership Welcome / Founder Welcome** · `ceo_welcome` →
+`leadership_welcome` · `CEO_DISPLAY_NAME` → `LEADERSHIP_DISPLAY_NAME` · `CEO_PUBLIC_TITLE` →
+`LEADERSHIP_PUBLIC_TITLE`.
+
+`Kingston Musarurwa / Founder / COO` is owner-supplied identity, **not** yet an approved published surface.
+
+## B3 — legal/public identity, FROZEN
+
+```text
+LEGAL_ENTITY_NAME        = CarUp Technologies      (no Ltd / Pvt Ltd / Private Limited)
+PUBLIC LOCATION          = HQ: Tokyo, Japan · Regional Offices: Harare, Zimbabwe
+REGISTERED_LEGAL_ADDRESS = DEFERRED_UNTIL_VERIFIED
+APPROVED_SOCIAL_URLS     = NONE
+CANONICAL URLS           = https://carup.dev/{privacy,terms,support,security}
+```
+
+## Staff aliases
+
+`kudzie@carup.dev` · `king@carup.dev` · `questions@carup.dev` —
+`INBOUND_ROUTING_CERTIFIED=YES` (owner physical evidence, negative control rejected).
+`OUTBOUND_SENDING_CONFIGURED=NO` — never automated `From` identities. `questions@` does **not** replace
+`support@`.
+
+## Six reference decisions
+
+| Ref | Decision |
+|---|---|
+| **R1** Leadership Welcome | direction APPROVED. Sign-off reads *"Reply to this email — it reaches our team."* — it must not promise that S.K Musarurwa personally reads every response. |
+| **R2** Password Reset | direction APPROVED. |
+| **R3** Marketplace Conversation | direction APPROVED. Runtime remains dependent on outbound Reply-To token minting (G5). |
+| **R4** SafeTrade | cautious factual presentation APPROVED. Never claim money moved unless the canonical transaction state proves it. |
+| **R5** Vehicle Passport / Trust | direction APPROVED, now bound to the merged Vehicle Truth contracts and the §0.2a vocabularies. No invented scores. |
+| **R6** CarUp Weekly | editorial structure APPROVED. Human-curated is the truthful initial model. No saved-search, watchlist, price-drop, AI-recommendation or behavioural personalization unless current source proves the capability exists. Prototype score remains **88** — not upgraded. |
+
+## Evidence prepared on the preparation branch
+
+`feat/email-experience-design-system-1-0` holds the X0 inventory, implementation dependencies, identity and
+staff-alias freezes, contact mapping, X2/X3 specification, runtime gap closure blueprint, X2 resumption
+packet, public identity reconciliation plan and safe remediation packet, plus the six visual prototypes and
+twelve screenshots. That branch is documentation only and is **not** merged wholesale — it is the evidence
+source for the implementation lane.
+
+## Scope boundary
+
+This plan is a **specification**. Runtime implementation happens on ONE separate lane opened from canonical
+main after this plan merges, beginning at **G0 recipient resolution**. Production Communications remains
+separately inactive and owner-gated.
