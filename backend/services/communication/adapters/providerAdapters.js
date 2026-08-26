@@ -470,6 +470,12 @@ export class BrevoMarketingAdapter extends HttpCommunicationAdapter {
     // Always send an HTML part for marketing: a text-only body cannot render an actionable control,
     // which is precisely how the defect above reached a real inbox.
     body.htmlContent = appendUnsubscribeHtml(emailHtml(input), textBody(input), unsubscribeUrl);
+    // The receipt below must look for the href AS THE HTML CARRIES IT. The URL is escaped once on
+    // the way into the anchor, so searching for the raw URL only happens to match while the token
+    // is the sole query parameter. Add a second one and `&` becomes `&amp;`, and the receipt would
+    // report a missing unsubscribe control that is in fact present — a compliance receipt lying in
+    // the direction that looks like a violation.
+    const unsubscribeHref = escapeHtmlText(unsubscribeUrl);
 
     const response = await this.requestJson('https://api.brevo.com/v3/smtp/email', { headers, body });
     if (!response.ok) return this.providerFailure(response);
@@ -488,7 +494,7 @@ export class BrevoMarketingAdapter extends HttpCommunicationAdapter {
         marketing_unsubscribe_url_present: true,
         marketing_html_part_sent: typeof body.htmlContent === 'string' && body.htmlContent.length > 0,
         marketing_html_anchor_present: typeof body.htmlContent === 'string'
-          && body.htmlContent.includes(`href="${unsubscribeUrl}"`),
+          && body.htmlContent.includes(`href="${unsubscribeHref}"`),
         marketing_text_link_present: typeof body.textContent === 'string'
           && body.textContent.includes(unsubscribeUrl),
         list_unsubscribe_header_sent: Boolean(body.headers?.['List-Unsubscribe']),

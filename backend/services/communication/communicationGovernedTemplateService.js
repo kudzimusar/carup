@@ -1,16 +1,9 @@
 import { CommunicationTemplateService } from './communicationTemplateService.js';
+import { substituteVariables } from './templateVariableSubstitution.js';
 
-function escapeValue(value) {
-  return String(value ?? '')
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&#39;');
-}
-
+// Escaping is owned by the representation, not by substitution — see templateVariableSubstitution.js.
 function replaceVariables(text, variables) {
-  return String(text || '').replace(/\{\{([a-zA-Z0-9_]+)\}\}/g, (_match, key) => escapeValue(variables[key] ?? ''));
+  return substituteVariables(text, variables);
 }
 
 function governanceError(code, message, details = {}) {
