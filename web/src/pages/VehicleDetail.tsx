@@ -2094,13 +2094,8 @@ export default function VehicleDetail() {
                           {passport.identity.registrationStatus}
                         </Badge>
                       )}
-                      {/* Moved off the photo. This is a registry claim about the VEHICLE; overlaid
-                          on the gallery it read as a claim about the seller's picture, which is
-                          exactly the conflation Phase 5 exists to remove. It belongs beside the
-                          other vehicle-status badges. */}
-                      {vehicle.police_verified && (
-                        <Badge className="bg-blue-700 text-white text-[10px] font-semibold" data-testid="police-checked-badge">Police Checked</Badge>
-                      )}
+                      {/* Government-approval claims (CID/police/ZIMRA/duty) are deliberately absent here.
+                          Legacy booleans without authoritative public provenance cannot produce buyer-facing approval badges. */}
                     </div>
 
                     <div className="flex items-center gap-2 mt-3 text-sm text-gray-500">
