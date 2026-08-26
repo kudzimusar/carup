@@ -19,39 +19,31 @@ jobs:
           ref: feat/marketplace-reliability-reference-ux
           fetch-depth: 0
 
-      - name: Remove unsupported approval claim and self-clean
+      - name: Apply bounded Vehicle Detail convergence
         shell: bash
         run: |
           python3 - <<'PY'
           from pathlib import Path
-
-          path = Path('web/src/pages/VehicleDetail.tsx')
-          src = path.read_text()
-          block = """                      {/* Moved off the photo. This is a registry claim about the VEHICLE; overlaid
-                          on the gallery it read as a claim about the seller's picture, which is
-                          exactly the conflation Phase 5 exists to remove. It belongs beside the
-                          other vehicle-status badges. */}
-                      {vehicle.police_verified && (
-                        <Badge className=\"bg-blue-700 text-white text-[10px] font-semibold\" data-testid=\"police-checked-badge\">Police Checked</Badge>
-                      )}
-"""
-          if block not in src:
-              raise SystemExit('unsupported Police Checked block anchor not found')
-          src = src.replace(block, """                      {/* Government-approval claims (CID/police/ZIMRA/duty) are deliberately absent here.
-                          The legacy booleans have no authoritative public provenance and therefore cannot
-                          produce a buyer-facing approval badge. Canonical evidence/verification panels below
-                          remain the only place governed facts may be rendered. */}
-""", 1)
-          path.write_text(src)
+          p = Path('web/src/pages/VehicleDetail.tsx')
+          s = p.read_text()
+          start = s.index('                      {/* Moved off the photo. This is a registry claim about the VEHICLE; overlaid')
+          end_marker = '                      )}\n'
+          end = s.index(end_marker, start) + len(end_marker)
+          replacement = '                      {/* Government-approval claims (CID/police/ZIMRA/duty) are deliberately absent here.\n                          Legacy booleans without authoritative public provenance cannot produce buyer-facing approval badges. */}\n'
+          s = s[:start] + replacement + s[end:]
+          p.write_text(s)
           PY
 
-          git rm .github/workflows/marketplace-detail-one-off.yml
           git diff --check
-          git diff -- web/src/pages/VehicleDetail.tsx .github/workflows/marketplace-detail-one-off.yml
+          git diff -- web/src/pages/VehicleDetail.tsx
 
-      - name: Commit bounded Vehicle Detail convergence
+      - name: Commit bounded patch
         shell: bash
         run: |
+          if git diff --quiet; then
+            echo "No changes to commit"
+            exit 0
+          fi
           git config user.name "carup-marketplace-bot"
           git config user.email "actions@users.noreply.github.com"
           git add web/src/pages/VehicleDetail.tsx
