@@ -1,0 +1,175 @@
+name: 'Issue #164 Canonical Trust Refresh — Production (UATPRD17830287622)'
+
+# The final Issue #164 activation step: materialize canonical Trust for ONE governed production UAT
+# vehicle by invoking the REAL canonical writer, refreshCanonicalTrust().
+#
+# IT CHANGES NO GOVERNED FACT. No evidence is uploaded, no review event is created, no account is
+# elevated. It re-materializes a derived position that has never been computed, and nothing else.
+#
+# WHY A WORKFLOW AND NOT A SESSION. refreshCanonicalTrust() is the sole canonical writer
+# (INV-TRUST-2). In production it is reachable from exactly two HTTP call sites — evidence verify
+# and evidence reject — both requiring admin/government AND an existing evidence row. The target has
+# ZERO evidence rows and its owner holds role `owner`, so no authenticated session can reach the
+# writer. The only session-based alternative would be to upload evidence and review it, fabricating
+# a governed fact to force a score. This exists so that nothing has to be fabricated.
+#
+# THE VIN IS A CONSTANT IN THE RUNNER. No input, no argument, no environment variable, no list, no
+# batch, no "all vehicles" path. Moving it is a reviewable pull request, not a dispatch option.
+#
+# NOT A MIGRATION. Nothing is written to supabase_migrations.schema_migrations, and the runner
+# refuses if the ledger row count moves.
+#
+# TWO INDEPENDENT CHANNELS. The WRITE goes through the Supabase service client, exactly as
+# production does. The MEASUREMENT goes through a direct Postgres connection. A proof that reads
+# back through the same channel that wrote is a weaker proof.
+#
+# MODE:
+#   preflight — writes NOTHING. Asserts production identity and the pinned certified baseline,
+#               invokes the canonical decision in DRY RUN for the target only, prints the proposed
+#               patch, then INDEPENDENTLY re-measures to prove no field moved.
+#   apply     — re-reads the whole baseline, refuses on ANY drift, performs one refresh, then proves
+#               the target advanced and that all 351 non-target rows are byte-identical.
+#
+# PINNED CERTIFIED BASELINE (measured read-only 2026-08-25; apply refuses unless production still
+# matches it exactly — production that has moved is production nobody has certified):
+#     target trust_score 80, all six stamp fields NULL
+#     canonically stamped 0 · scored-but-unversioned 352
+#     NON-TARGET trust checksum 0d4ed34f9697df66f87855cce2cdbdc3 over 351 rows
+#     DECISION-INPUT fingerprint 2e25e368c18e43c6e8a264b138523f1a (14 VIN-scoped tables + the vehicle row)
+#
+# THE INPUTS ARE PINNED, NOT ONLY THE OUTPUTS. Pinning the seven cached trust columns is not enough:
+# if evidence, source coverage, a fraud case, escrow state, an eligibility request or a governed
+# vehicle column moves between certification and apply, the outputs still look exactly as certified
+# while the decision that gets persisted is one nobody reviewed. Apply also computes the decision as
+# a dry run, persists, and requires the persisted values to equal what it proposed seconds earlier,
+# and re-checks the fingerprint after the write. Every measurement runs inside a single
+# REPEATABLE READ READ ONLY snapshot, so the fingerprint and the state it is compared against are
+# coherent with each other rather than assembled across thirty independent reads.
+#
+# A LOW SCORE IS A PASS. The target has zero evidence, so score 0 / low / insufficient_evidence with
+# populated known_limitations is the correct canonical answer, not a defect.
+#
+# PREREQUISITES (production environment):
+#     PRODUCTION_DATABASE_URL                 — measurement channel
+#     PRODUCTION_PROJECT_REF                  — 20-char identity pin
+#     PRODUCTION_SUPABASE_SERVICE_ROLE_KEY    — write channel, REQUIRED (see note below)
+#     PRODUCTION_SUPABASE_URL                 — optional; derived from the ref when absent
+#     PRODUCTION_CA_CERT                      — optional PEM trust anchor
+#
+# The repository also holds generic SUPABASE_URL / SUPABASE_SERVICE_ROLE_KEY secrets which are NOT
+# proven to point at production. They are deliberately NOT referenced here.
+#
+# CREDENTIALS GO TO A HOST, NOT TO A SUBSTRING. Both URLs are PARSED and judged on their hostname.
+# The Data API origin must be exactly https://<ref>.supabase.co; the database host must be a
+# Supabase-owned domain. A substring test would have accepted https://<ref>.supabase.co.attacker.example
+# and then posted the production service-role key to it.
+
+on:
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: 'preflight = read-only baseline + dry-run patch; apply = one governed refresh'
+        required: true
+        type: choice
+        default: preflight
+        options:
+          - preflight
+          - apply
+      confirm_apply:
+        description: 'Required for apply: select YES_I_AUTHORIZE_THE_CANONICAL_TRUST_REFRESH'
+        required: false
+        type: choice
+        default: 'NO'
+        options:
+          - 'NO'
+          - YES_I_AUTHORIZE_THE_CANONICAL_TRUST_REFRESH
+
+permissions:
+  contents: read
+
+concurrency:
+  group: issue164-canonical-trust-refresh-production
+  cancel-in-progress: false
+
+env:
+  # The single reviewed commit whose runner is executed. Advancing this pin is a reviewable pull
+  # request, never an edit to this workflow alone.
+  CANDIDATE_SHA: 253342e679250423522f12469e9c120abe781eef
+
+jobs:
+  preflight-or-apply:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    environment: production
+    # github.actor is the ORIGINAL dispatcher and survives re-runs by other collaborators;
+    # github.triggering_actor is whoever actually triggered this run. BOTH must be on the allow-list,
+    # which is the two required reviewers already configured on the protected `production`
+    # environment. Allowing both to DISPATCH grants no extra privilege: the environment gate still
+    # demands an approval from one of them before any production secret is readable.
+    if: >-
+      github.ref == 'refs/heads/main'
+      && contains(fromJSON('["kudzimusar","11-eleven-skm"]'), github.actor)
+      && contains(fromJSON('["kudzimusar","11-eleven-skm"]'), github.triggering_actor)
+
+    steps:
+      - name: Check out the pinned candidate commit
+        uses: actions/checkout@v4
+        with:
+          ref: 253342e679250423522f12469e9c120abe781eef
+          persist-credentials: false
+
+      - name: Assert the checked-out commit is the pinned candidate
+        run: |
+          actual="$(git rev-parse HEAD)"
+          if [ "$actual" != "$CANDIDATE_SHA" ]; then
+            echo "::error::checked out $actual, expected the pinned candidate $CANDIDATE_SHA"
+            exit 1
+          fi
+          echo "Running the reviewed candidate $CANDIDATE_SHA"
+
+      - name: Assert the runner still targets exactly one hard-pinned VIN
+        # Re-asserted at dispatch time against the pinned source: the VIN must be a literal constant,
+        # and no argument, environment override or batch path may have appeared.
+        run: |
+          f=backend/scripts/production-refresh-canonical-trust-uatprd.mjs
+          grep -q "export const TARGET_VIN = 'UATPRD17830287622';" "$f" || {
+            echo "::error::$f no longer pins TARGET_VIN to the reviewed vehicle."; exit 1; }
+          if grep -qE "process\.argv\[2\]|env\.(TARGET_)?VIN\b" "$f"; then
+            echo "::error::$f exposes the VIN to an argument or environment override."; exit 1
+          fi
+          echo 'The runner targets exactly one hard-pinned VIN.'
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      # The canonical writer is real application code, so its real dependencies are installed.
+      - name: Install dependencies
+        run: npm ci --no-audit --no-fund
+
+      - name: Require the production secrets
+        env:
+          PRODUCTION_DATABASE_URL: ${{ secrets.PRODUCTION_DATABASE_URL }}
+          PRODUCTION_PROJECT_REF: ${{ secrets.PRODUCTION_PROJECT_REF }}
+          PRODUCTION_SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.PRODUCTION_SUPABASE_SERVICE_ROLE_KEY }}
+        run: |
+          missing=""
+          [ -z "$PRODUCTION_DATABASE_URL" ] && missing="$missing PRODUCTION_DATABASE_URL"
+          [ -z "$PRODUCTION_PROJECT_REF" ] && missing="$missing PRODUCTION_PROJECT_REF"
+          [ -z "$PRODUCTION_SUPABASE_SERVICE_ROLE_KEY" ] && missing="$missing PRODUCTION_SUPABASE_SERVICE_ROLE_KEY"
+          if [ -n "$missing" ]; then
+            echo "::error::missing production environment secret(s):$missing — the canonical writer cannot run. Add them to the protected production environment."
+            exit 1
+          fi
+          echo 'Production secrets are present.'
+
+      - name: 'Run the canonical trust refresh runner'
+        env:
+          PRODUCTION_DATABASE_URL: ${{ secrets.PRODUCTION_DATABASE_URL }}
+          PRODUCTION_PROJECT_REF: ${{ secrets.PRODUCTION_PROJECT_REF }}
+          PRODUCTION_SUPABASE_URL: ${{ secrets.PRODUCTION_SUPABASE_URL }}
+          PRODUCTION_SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.PRODUCTION_SUPABASE_SERVICE_ROLE_KEY }}
+          PRODUCTION_CA_CERT: ${{ secrets.PRODUCTION_CA_CERT }}
+          MODE: ${{ inputs.mode }}
+          CONFIRM_APPLY: ${{ inputs.confirm_apply }}
+        run: node backend/scripts/production-refresh-canonical-trust-uatprd.mjs
