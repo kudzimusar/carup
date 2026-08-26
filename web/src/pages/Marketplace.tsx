@@ -28,12 +28,7 @@ import { vehicles as mockVehicles, zimbabweLocations } from '@/data/mockData'
 import { useCarUpApi } from '@/hooks/useCarUpApi'
 import { useAuth } from '@/context/AuthContext'
 import { useIsMobile } from '@/hooks/use-mobile'
-import type {
-  MarketplaceInquiryType,
-  MarketplaceListingSummary,
-  MarketplacePublicTrust,
-  Vehicle,
-} from '@/types'
+import type { MarketplaceInquiryType, MarketplaceListingSummary } from '@/types'
 import { captureReferralFromUrl } from '@/lib/marketplaceReferral'
 import { summaryLocationLine } from '@/lib/governedLocation'
 import { InquiryModal } from '@/components/marketplace/InquiryModal'
@@ -80,10 +75,8 @@ export function withMockFallback<T>(live: T[], mock: T[], allowMock: boolean = A
 }
 
 type TrustRanking = { requested?: string; applied?: string; note?: string }
-
-type ListingWithTrust = MarketplaceListingSummary & {
-  trust?: MarketplacePublicTrust | null
-}
+type ListingWithTrust = MarketplaceListingSummary
+type MockVehicle = (typeof mockVehicles)[number]
 
 const CONDITION_LABELS: Record<string, string> = {
   brand_new: 'Brand New',
@@ -129,10 +122,9 @@ function readTrustRanking(payload: unknown): TrustRanking | null {
 /**
  * Dev-only adapter. Production/staging never use this path. Mock rows intentionally carry no
  * canonical Trust projection, so the reference card presents an unevaluated/unknown Trust state
- * rather than laundering the mock Vehicle.trust_score into a public claim.
+ * rather than laundering mock `trustScore` into a public claim.
  */
-function mockVehicleToListing(vehicle: Vehicle): ListingWithTrust {
-  const status = typeof vehicle.status === 'string' ? vehicle.status : 'Available'
+function mockVehicleToListing(vehicle: MockVehicle): ListingWithTrust {
   return {
     vin: vehicle.vin,
     make: vehicle.make,
@@ -141,9 +133,9 @@ function mockVehicleToListing(vehicle: Vehicle): ListingWithTrust {
     price: vehicle.price,
     currency: vehicle.currency,
     mileage: vehicle.mileage,
-    fuel_type: vehicle.fuel_type || null,
-    transmission: vehicle.transmission || null,
-    status,
+    fuel_type: vehicle.fuelType,
+    transmission: vehicle.transmission,
+    status: vehicle.status || 'Available',
     condition_category: 'unknown',
     marketplace_tags: [],
     trust_score: null,
@@ -161,12 +153,12 @@ function mockVehicleToListing(vehicle: Vehicle): ListingWithTrust {
     duty_cleared: false,
     zimra_verified: false,
     cid_clear: false,
-    seller_type: vehicle.current_seller_type || '',
-    seller_display_label: vehicle.sellerName || '',
-    seller_public_profile_enabled: Boolean(vehicle.public_seller_display_enabled),
-    location: vehicle.location || undefined,
-    location_state: vehicle.location ? 'recorded' : 'not_recorded',
-    created_at: vehicle.created_at || null,
+    seller_type: vehicle.sellerType === 'Dealer' ? 'dealer' : 'private',
+    seller_display_label: vehicle.sellerName,
+    seller_public_profile_enabled: true,
+    location: vehicle.location,
+    location_state: 'recorded',
+    created_at: vehicle.listingDate || null,
   }
 }
 
