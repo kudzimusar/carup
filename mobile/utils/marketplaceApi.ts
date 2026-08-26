@@ -9,6 +9,11 @@
  * it renders backend-supplied projections and posts actions through governed endpoints.
  */
 import { getVerificationApiBaseUrl, fetchCsrfToken } from './verificationApi';
+import type {
+  MarketplacePublicTrust,
+  MarketplaceTrustEvaluationState,
+  MarketplaceTrustEvidenceBasis,
+} from '@shared/types';
 
 export class MarketplaceApiError extends Error {
   statusCode: number | null;
@@ -40,6 +45,42 @@ export interface MobileListingMediaBlock {
 export type MobilePrimaryImageState = 'seller_primary' | 'first_published' | 'none' | 'not_loaded';
 export type MobileReservationState = 'active' | 'expired' | 'none' | 'unavailable' | 'inconsistent';
 
+const PUBLISHABLE_PRIMARY_IMAGE_STATES = new Set<MobilePrimaryImageState>(['seller_primary', 'first_published']);
+
+function inferMediaUrlForm(url: string): MobileMediaUrlForm | null {
+  if (url.startsWith('//')) return 'protocol_relative';
+  if (url.startsWith('/')) return 'site_relative';
+  if (/^https:\/\//i.test(url)) return 'absolute_https';
+  if (/^http:\/\//i.test(url)) return 'absolute_http';
+  return null;
+}
+
+export function resolveMarketplaceMediaUrl(
+  url: string | null | undefined,
+  expectedForm: MobileMediaUrlForm | null = null,
+  baseUrl: string = getVerificationApiBaseUrl(),
+): string | null {
+  if (typeof url !== 'string' || !url.trim()) return null;
+  const trimmed = url.trim();
+  const inferred = inferMediaUrlForm(trimmed);
+  if (!inferred || (expectedForm && expectedForm !== inferred)) return null;
+  if (inferred === 'absolute_https' || inferred === 'absolute_http') return trimmed;
+  try {
+    const base = new URL(baseUrl);
+    return new URL(trimmed, base.origin).toString();
+  } catch {
+    return null;
+  }
+}
+
+export function resolveMarketplacePrimaryImage(
+  listing: { primary_image_state: MobilePrimaryImageState; primary_image_url?: string | null },
+  baseUrl: string = getVerificationApiBaseUrl(),
+): string | null {
+  if (!PUBLISHABLE_PRIMARY_IMAGE_STATES.has(listing.primary_image_state)) return null;
+  return resolveMarketplaceMediaUrl(listing.primary_image_url, null, baseUrl);
+}
+
 export interface MobileReservationSummary {
   state: MobileReservationState;
   reserved: boolean | null;
@@ -48,34 +89,10 @@ export interface MobileReservationSummary {
   reason: string | null;
 }
 
-/**
- * Exact public trust projection published by canonicalTrustService.toPublicTrust().
- * A numeric score is legitimate ONLY when evaluation_state === 'evaluated'. A legacy cached score
- * can still exist in the compatibility `trust_score` key, but mobile never treats that key as an
- * authority and never falls back to it when this projection is absent/non-evaluated.
- */
-export type MobileTrustEvaluationState = 'evaluated' | 'stale' | 'not_evaluated' | 'unavailable';
-
-export interface MobileTrustEvidenceBasis {
-  governed_facts_total: number | null;
-  governed_facts_substantiated: number | null;
-  governed_facts_adverse: number | null;
-  connected_sources: number | null;
-  unbacked_legacy_claims: number | null;
-}
-
-export interface MobilePublicTrust {
-  vin: string;
-  score: number | null;
-  band: string | null;
-  evaluation_state: MobileTrustEvaluationState;
-  confidence: string | null;
-  evidence_basis: MobileTrustEvidenceBasis | null;
-  calculation_version: string | null;
-  evaluated_at: string | null;
-  known_limitations: string[];
-  source: 'computed' | 'cache' | 'none' | string;
-}
+/** Shared aliases bind native rendering to the same ten-field public Trust contract as web. */
+export type MobileTrustEvaluationState = MarketplaceTrustEvaluationState;
+export type MobileTrustEvidenceBasis = MarketplaceTrustEvidenceBasis;
+export type MobilePublicTrust = MarketplacePublicTrust;
 
 export interface MobileTransactionIntent {
   transaction_intent_id: string | null;

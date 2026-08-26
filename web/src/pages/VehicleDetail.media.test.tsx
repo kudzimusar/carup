@@ -428,14 +428,16 @@ describe('VehicleDetail — listing media is never labelled verified', () => {
     })
   }
 
-  it('does not stamp the Police Checked badge onto the seller’s photo', async () => {
-    // The badge is a registry claim about the VEHICLE. Overlaid on the gallery it read as a claim
-    // about the picture underneath it, which is the conflation this phase removes. It still renders
-    // — it moved to the identity row — so this is a placement assertion, not a deletion.
+  it('publishes no unsupported Police Checked approval claim anywhere on the buyer page', async () => {
+    // `police_verified` is a legacy boolean without authoritative public provenance. The hardened
+    // buyer contract suppresses the approval claim entirely. A future public approval claim must
+    // arrive through a governed evidence/fact contract rather than this compatibility boolean.
     servePassport(passportFixture({ evidenceVault: [], policeVerified: true }))
     await renderSettled()
-    await waitFor(() => expect(screen.getByTestId('police-checked-badge')).toBeTruthy())
+    await waitFor(() => expect(screen.getByTestId('listing-media-block')).toBeTruthy())
 
+    expect(screen.queryByTestId('police-checked-badge')).toBeNull()
+    expect(document.body.textContent).not.toContain('Police Checked')
     expect(screen.getByTestId('listing-media-block').innerHTML).not.toContain('Police Checked')
   })
 

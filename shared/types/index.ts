@@ -114,10 +114,10 @@ export interface MarketplaceListingSummary {
   vin: string;
   make: string;
   model: string;
-  year: number;
-  price: number;
-  currency: string;
-  mileage: number;
+  year: number | null;
+  price: number | null;
+  currency: string | null;
+  mileage: number | null;
   fuel_type?: string | null;
   transmission?: string | null;
   /**
@@ -153,10 +153,10 @@ export interface MarketplaceListingSummary {
   duty_cleared: boolean;
   zimra_verified: boolean;
   cid_clear: boolean;
-  seller_type: 'dealer' | 'private' | string;
-  seller_display_label: string;
+  seller_type: 'dealer' | 'private' | string | null;
+  seller_display_label: string | null;
   seller_public_profile_enabled: boolean;
-  location?: string;
+  location?: string | null;
   location_state?: 'recorded' | 'not_recorded' | 'withheld' | 'not_applicable';
   created_at?: string | null;
   /**

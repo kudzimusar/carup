@@ -6,6 +6,7 @@ import { useAuthStore } from '../../store/authStore';
 import {
   getMarketplaceListingDetail,
   createMarketplaceInquiry,
+  resolveMarketplacePrimaryImage,
   type MobileListingDetail,
   type MobilePublicTrust,
 } from '../../utils/marketplaceApi';
@@ -36,7 +37,13 @@ function formatMileage(mileage: number | null) {
     : 'Mileage not recorded';
 }
 
+function formatEvaluationDate(value: string | null | undefined) {
+  const timestamp = Date.parse(value || '');
+  return Number.isFinite(timestamp) ? new Date(timestamp).toLocaleDateString() : null;
+}
+
 function TrustCard({ trust }: { trust?: MobilePublicTrust | null }) {
+  const evaluatedDate = formatEvaluationDate(trust?.evaluated_at);
   const evaluatedScore = trust?.evaluation_state === 'evaluated'
     && typeof trust.score === 'number'
     && Number.isFinite(trust.score)
@@ -61,8 +68,8 @@ function TrustCard({ trust }: { trust?: MobilePublicTrust | null }) {
             <Text className="mt-0.5 text-[9px] font-semibold uppercase tracking-wider text-orange-400">of 100</Text>
           </View>
         </View>
-        {trust?.evaluated_at ? (
-          <Text className="mt-3 text-[10px] text-slate-500">Evaluated {new Date(trust.evaluated_at).toLocaleDateString()}</Text>
+        {evaluatedDate ? (
+          <Text className="mt-3 text-[10px] text-slate-500">Evaluated {evaluatedDate}</Text>
         ) : null}
       </View>
     );
@@ -147,8 +154,9 @@ function VehicleDetailScreenInner() {
   const vehicle = marketplaceDetail;
   const trustSummary = marketplaceDetail.trust_summary;
   const title = vehicleTitle(vehicle) || `${vehicle.make} ${vehicle.model}`;
-  const mediaItem = vehicle.listing_media?.items?.[0] || null;
-  const heroUrl = mediaItem?.url || vehicle.primary_image_url || null;
+  // The backend has already elected the canonical primary. Re-electing items[0] here can
+  // contradict the seller's is_primary choice and bypass primary_image_state on inconsistent payloads.
+  const heroUrl = resolveMarketplacePrimaryImage(vehicle);
   const reservation = vehicle.reservation_summary;
   const isReserved = reservation?.reserved === true;
   const locationLabel = vehicle.location?.trim()

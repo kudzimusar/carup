@@ -157,3 +157,62 @@ test('mobile exposes the same filter system through an explicit drawer', async (
   await page.getByTestId('marketplace-mobile-filter-close').click()
   await expect(page.getByTestId('marketplace-mobile-filter-drawer')).toBeHidden()
 })
+
+
+test('stale/unavailable trust, missing price, media-state mismatch and adverse plate status fail closed', async ({ page }) => {
+  await commonMocks(page)
+  await page.route(/\/api\/marketplace\/listings(\?|$)/, (route: Route) => route.fulfill({
+    json: {
+      total: 2,
+      limit: 48,
+      listings: [
+        listing(VIN_A, {
+          price: null,
+          currency: null,
+          trust_score: 99,
+          trust: { score: null, band: null, evaluation_state: 'stale', confidence: 'low', calculation_version: 'old', known_limitations: [] },
+          primary_image_url: 'https://cdn.carup.dev/should-not-render.jpg',
+          primary_image_state: 'not_loaded',
+          plate_verified: true,
+          plate_status: 'Flagged',
+        }),
+        listing(VIN_B, {
+          make: 'Honda', model: 'Fit', trust_score: 97,
+          trust: { score: null, band: null, evaluation_state: 'unavailable', confidence: 'not_evaluated', calculation_version: null, known_limitations: [] },
+        }),
+      ],
+    },
+  }))
+
+  await page.goto('/marketplace')
+  const cards = page.getByTestId('marketplace-vehicle-card')
+  const first = cards.nth(0)
+  const second = cards.nth(1)
+  await expect(first.getByTestId('marketplace-card-price')).toContainText('Price not recorded')
+  await expect(first.getByTestId('marketplace-card-trust')).toContainText('Evaluation update pending')
+  await expect(second.getByTestId('marketplace-card-trust')).toContainText('Trust temporarily unavailable')
+  await expect(first).not.toContainText('99')
+  await expect(second).not.toContainText('97')
+  await expect(first.locator('img[src*="should-not-render"]')).toHaveCount(0)
+  await expect(first.getByTestId('marketplace-plate-status')).toHaveText('Plate flagged')
+  await expect(first.getByTestId('marketplace-plate-confirmed-badge')).toHaveCount(0)
+})
+
+test('location, fuel and transmission facets are forwarded to the canonical backend', async ({ page }) => {
+  await commonMocks(page)
+  const observed: string[] = []
+  await page.route(/\/api\/marketplace\/listings(\?|$)/, (route: Route) => {
+    const url = new URL(route.request().url())
+    observed.push(url.search)
+    return route.fulfill({ json: { total: 1, limit: 48, listings: [listing(VIN_A)] } })
+  })
+
+  await page.goto('/marketplace?location=Harare&fuel=Diesel&transmission=Automatic')
+  await expect(page.getByTestId('marketplace-vehicle-card').first()).toBeVisible()
+  await expect.poll(() => observed.some(search => {
+    const params = new URLSearchParams(search)
+    return params.get('location') === 'Harare'
+      && params.get('fuel') === 'Diesel'
+      && params.get('transmission') === 'Automatic'
+  })).toBe(true)
+})

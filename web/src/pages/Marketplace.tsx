@@ -50,6 +50,7 @@ import {
   stateToParams,
 } from '@/lib/marketplaceParams'
 import type { ActiveFilterKey, MarketplaceSort, MarketplaceUrlState } from '@/lib/marketplaceParams'
+import { isAdversePlateStatus, plateStatusLabel, primaryImageForListing } from '@/lib/marketplacePresentation'
 
 const DIASPORA_INQUIRY_TYPES: MarketplaceInquiryType[] = [
   'import_quote_request',
@@ -100,12 +101,6 @@ function listingLabels(listing: MarketplaceListingSummary) {
 
 function sellerLabel(listing: MarketplaceListingSummary) {
   return listing.seller_display_label?.trim() || 'Seller not disclosed'
-}
-
-function plateStatusLabel(listing: MarketplaceListingSummary) {
-  if (listing.plate_verified) return 'Plate confirmed'
-  if (listing.plate_status?.trim()) return 'Plate on file'
-  return 'Plate status unknown'
 }
 
 function readTrustRanking(payload: unknown): TrustRanking | null {
@@ -818,7 +813,7 @@ export default function Marketplace() {
                     name: vehicleName || `${listing.make} ${listing.model}`,
                     price: typeof listing.price === 'number' && Number.isFinite(listing.price) ? listing.price : null,
                     currency: typeof listing.currency === 'string' && listing.currency.trim() ? listing.currency : null,
-                    primaryImage: listing.primary_image_url || null,
+                    primaryImage: primaryImageForListing(listing),
                     primaryImageState: listing.primary_image_state,
                     mileage: typeof listing.mileage === 'number' && Number.isFinite(listing.mileage) ? listing.mileage : null,
                     transmission: listing.transmission || null,
@@ -826,7 +821,7 @@ export default function Marketplace() {
                     sellerLabel: sellerLabel(listing),
                     locationLabel: summaryLocationLine(listing.location, listing.location_state).label,
                     plateStatus: plateStatusLabel(listing),
-                    plateVerified: listing.plate_verified,
+                    plateVerified: listing.plate_verified === true && !isAdversePlateStatus(listing.plate_status),
                     reserved: listing.reservation_summary?.reserved === true,
                     partSentryChecked: listing.partsentry_checked,
                     labels: labels.length > 0 ? labels : ['Published listing'],

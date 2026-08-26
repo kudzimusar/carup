@@ -2,6 +2,7 @@ import { Link } from 'react-router-dom'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { ListingImage } from '@/components/marketplace/ListingImage'
+import { canRenderMarketplacePrimaryImage } from '@/lib/marketplacePresentation'
 import {
   CheckCircle2,
   Fuel,
@@ -132,6 +133,10 @@ export function MarketplaceListingCard({
   onCompare,
   onShare,
 }: MarketplaceListingCardProps) {
+  const renderablePrimaryImage = canRenderMarketplacePrimaryImage(vehicle.primaryImageState, vehicle.primaryImage)
+    ? vehicle.primaryImage
+    : null
+
   return (
     <article
       className="group flex h-full flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-[0_1px_2px_rgba(15,23,42,0.04)] transition duration-200 hover:-translate-y-0.5 hover:border-slate-300 hover:shadow-[0_16px_36px_rgba(15,23,42,0.10)]"
@@ -145,7 +150,7 @@ export function MarketplaceListingCard({
           data-testid="marketplace-view-passport"
         >
           <ListingImage
-            src={vehicle.primaryImage}
+            src={renderablePrimaryImage}
             alt={vehicle.name}
             className="h-full w-full"
             imgClassName="transition-transform duration-500 group-hover:scale-[1.025]"

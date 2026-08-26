@@ -5,6 +5,7 @@ import { useQuery } from '@tanstack/react-query';
 import { useRouter } from 'expo-router';
 import {
   getMarketplaceListings,
+  resolveMarketplacePrimaryImage,
   type MobileListingSummary,
   type MobilePublicTrust,
 } from '../../utils/marketplaceApi';
@@ -104,6 +105,7 @@ function MarketplaceScreenInner() {
   const renderVehicleCard = ({ item }: { item: Vehicle }) => {
     const name = [item.year, item.make, item.model].filter(value => value !== null && value !== undefined && value !== '').join(' ');
     const isReserved = item.reservation_summary?.reserved === true;
+    const primaryImageUrl = resolveMarketplacePrimaryImage(item);
 
     return (
       <View className="mb-5 overflow-hidden rounded-2xl border border-slate-200 bg-white">
@@ -114,9 +116,9 @@ function MarketplaceScreenInner() {
           className="active:opacity-95"
         >
           <View className="aspect-[16/10] bg-slate-100">
-            {item.primary_image_url ? (
+            {primaryImageUrl ? (
               <Image
-                source={{ uri: item.primary_image_url }}
+                source={{ uri: primaryImageUrl }}
                 resizeMode="cover"
                 className="h-full w-full"
                 accessibilityLabel={`${name || `${item.make} ${item.model}`} listing photo`}
