@@ -83,7 +83,7 @@ jobs:
       - name: Run Marketplace mocked reference suite
         env:
           PLAYWRIGHT_BASE_URL: http://127.0.0.1:5173
-        run: npm --prefix web run test:e2e:ci -- e2e/marketplace-reference-ux.spec.ts
+        run: npm --prefix web run test:qa -- e2e/marketplace-reference-ux.spec.ts
 
       - name: Wait for exact-head staging deployment
         run: |
@@ -125,7 +125,7 @@ jobs:
         env:
           PLAYWRIGHT_BASE_URL: ${{ env.STAGING_FRONTEND_URL }}
           MARKETPLACE_EXPECTED_SHA: ${{ env.EXPECTED_HEAD_SHA }}
-        run: npm --prefix web run test:e2e:ci -- e2e/marketplace-staging-certification.spec.ts
+        run: npm --prefix web run test:qa -- e2e/marketplace-staging-certification.spec.ts
 
       - name: Upload Marketplace certification evidence
         if: always()
