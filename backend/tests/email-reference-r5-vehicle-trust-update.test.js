@@ -144,11 +144,16 @@ test('B3 there is NO fallback to any other audience', () => {
 // C. THE REAL PRODUCER
 // ============================================================================
 
-function emitHarness({ owner = 'owner-1', ownerRow = { id: 'owner-1', status: 'active', deleted_at: null } } = {}) {
+function emitHarness({ owner = 'owner-1', ownerRow = { id: 'owner-1', status: 'active', deleted_at: null }, announced = null } = {}) {
   const emitted = [];
   return {
     emitted,
-    client: db({ vehicles: [{ vin: VIN, owner_id: owner }], users: ownerRow ? [ownerRow] : [] }),
+    client: db({
+      // R5-D1: the durable announcement marker. `null` means nothing has been announced yet, which
+      // is what makes a never-delivered change outstanding rather than silently settled.
+      vehicles: [{ vin: VIN, owner_id: owner, trust_presentation_announced_fingerprint: announced }],
+      users: ownerRow ? [ownerRow] : [],
+    }),
     pgClient: { query: async (_sql, params) => { emitted.push({ event_type: params[0], payload: JSON.parse(params[1]) }); return { rows: [{ id: 'e1' }] }; } },
   };
 }
@@ -167,14 +172,30 @@ test('C1 a material change with a resolvable owner EMITS', async () => {
   assert.equal(emitted[0].payload.trust.evaluation_state, 'evaluated');
 });
 
-test('C2 NO emission when the customer-visible position is unchanged', async () => {
-  const { client, pgClient, emitted } = emitHarness();
+test('C2 NO emission when the position was ALREADY ANNOUNCED', async () => {
+  // R5-D1 reclassification. This asserted no-emission from a cache diff alone, which is exactly the
+  // semantics that lost events: a change written but never announced looked settled. The durable
+  // marker is now the authority, so "unchanged" means "already told them", not "the cache matches".
+  const { trustPresentationFingerprint } = await import('../services/trustDecision/trustPresentationChangeProducer.js');
+  const announced = trustPresentationFingerprint(trustRecord());
+  const { client, pgClient, emitted } = emitHarness({ announced });
+
   const verdict = await emitTrustPresentationChange({
     vin: VIN, previousRecord: trustRecord(), nextRecord: trustRecord({ evaluated_at: '2026-12-01T00:00:00.000Z' }), client, pgClient,
   });
-  assert.equal(verdict.emitted, false);
-  assert.equal(verdict.reason, 'no_material_change');
+  assert.equal(verdict.emitted, false, 'a fresh timestamp is not news');
+  assert.equal(verdict.reason, 'already_announced');
   assert.equal(emitted.length, 0);
+});
+
+test('C2b a change that was WRITTEN but never announced is still outstanding', async () => {
+  // The other half of the same rule, and the one the old semantics got wrong.
+  const { client, pgClient, emitted } = emitHarness({ announced: null });
+  const verdict = await emitTrustPresentationChange({
+    vin: VIN, previousRecord: trustRecord(), nextRecord: trustRecord(), client, pgClient,
+  });
+  assert.equal(verdict.emitted, true, 'nothing was ever announced, so there is something to say');
+  assert.equal(emitted.length, 1);
 });
 
 test('C3 NO emission when the owner cannot be deterministically resolved', async () => {

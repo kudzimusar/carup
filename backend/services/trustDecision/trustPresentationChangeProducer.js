@@ -16,12 +16,17 @@
  * one deterministic human, and guessing a recipient for a message about someone's vehicle is worse
  * than sending nothing.
  */
+import crypto from 'node:crypto';
+
 import { emitDomainEvent } from '../eventBus/eventBusService.js';
 import { PUBLIC_TRUST_FIELDS, toPublicTrust } from './canonicalTrustService.js';
 
 /** One event identity, not a family of overlapping ones. */
 export const TRUST_PRESENTATION_CHANGED_EVENT = 'vehicle.trust.presentation_changed';
 export const TRUST_PRESENTATION_CONTRACT_VERSION = 1;
+
+/** Where the durable announcement marker lives. */
+export const ANNOUNCED_FINGERPRINT_COLUMN = 'trust_presentation_announced_fingerprint';
 
 /**
  * The fields whose change is customer-visible.
@@ -34,6 +39,29 @@ export const TRUST_PRESENTATION_CONTRACT_VERSION = 1;
 export const MATERIAL_TRUST_FIELDS = Object.freeze(
   PUBLIC_TRUST_FIELDS.filter((field) => field !== 'evaluated_at' && field !== 'vin'),
 );
+
+/**
+ * The fingerprint of a public Trust presentation.
+ *
+ * R5-D1. This is what makes a lost announcement recoverable, and it is also the idempotency key.
+ *
+ * The comparison that matters is "what did we TELL the owner?", not "what did we last write?". The
+ * original implementation compared the new cache against the previous cache, so if the outbox insert
+ * failed after the cache write, the next refresh saw no material change and the event was lost
+ * PERMANENTLY. Comparing against the ANNOUNCED fingerprint means an announcement that never happened
+ * is still outstanding, and will be retried until it succeeds.
+ *
+ * Built from the material fields only, in a fixed order, so the same transition always produces the
+ * same value — reconciling it twice emits once.
+ */
+export function trustPresentationFingerprint(record) {
+  if (!record) return null;
+  const projection = toPublicTrust(record);
+  const material = MATERIAL_TRUST_FIELDS
+    .map((field) => `${field}=${stableValue(projection[field])}`)
+    .join('\u001f');
+  return crypto.createHash('sha256').update(`${TRUST_PRESENTATION_CONTRACT_VERSION}\u001e${projection.vin}\u001e${material}`, 'utf8').digest('hex');
+}
 
 function stableValue(value) {
   if (value === undefined) return null;
@@ -97,11 +125,30 @@ export async function emitTrustPresentationChange({
 } = {}) {
   if (!vin || !nextRecord) return { emitted: false, reason: 'no_record' };
 
+  const fingerprint = trustPresentationFingerprint(nextRecord);
+
+  // The durable marker is the authority on whether this presentation has been announced. A
+  // `previousRecord` comparison alone would treat a never-announced change as already handled the
+  // moment the cache was written — which is exactly how R5-D1 lost events.
+  const announced = await readAnnouncedFingerprint(vin, client);
+  if (announced && announced === fingerprint) {
+    return { emitted: false, reason: 'already_announced', fingerprint };
+  }
+
+  // `changed` is still computed for the audit line — it names WHAT moved. But an outstanding
+  // announcement is emitted even when the cache did not move since the previous read, because the
+  // question is whether the owner was told, not whether the value changed twice.
   const changed = materialTrustChanges(previousRecord, nextRecord);
-  if (!changed.length) return { emitted: false, reason: 'no_material_change' };
+  const outstanding = announced !== fingerprint;
+  if (!changed.length && !outstanding) return { emitted: false, reason: 'no_material_change', fingerprint };
+  if (!changed.length && announced === null && !previousRecord) {
+    // Nothing has ever been announced and there is no prior position: treat every material field as
+    // new rather than as unchanged.
+    changed.push(...MATERIAL_TRUST_FIELDS);
+  }
 
   const recipientUserId = await resolveCurrentVehicleOwner(vin, client);
-  if (!recipientUserId) return { emitted: false, reason: 'no_resolvable_owner', changed };
+  if (!recipientUserId) return { emitted: false, reason: 'no_resolvable_owner', changed, fingerprint };
 
   const previousPublic = previousRecord ? toPublicTrust(previousRecord) : null;
   const nextPublic = toPublicTrust(nextRecord);
@@ -116,6 +163,9 @@ export async function emitTrustPresentationChange({
     vin,
     recipientUserId,
     contract_version: TRUST_PRESENTATION_CONTRACT_VERSION,
+    // The deterministic identity of this presentation. A consumer can dedupe on it, and
+    // reconciliation of the same transition produces the same value.
+    presentation_fingerprint: fingerprint,
     changed_fields: changed,
     // Audience-safe projections only. No private evidence, no vehicle row, no legacy trust_score.
     previous_trust: previousPublic
@@ -124,7 +174,71 @@ export async function emitTrustPresentationChange({
     trust: nextPublic,
   }, tenantId);
 
-  return { emitted: true, recipientUserId, changed };
+  // The marker is written ONLY after the event is durably persisted. If the emit above throws, the
+  // marker stays stale and the announcement remains outstanding — which is the whole point.
+  await markAnnounced(vin, fingerprint, client);
+
+  return { emitted: true, recipientUserId, changed, fingerprint };
+}
+
+/** The fingerprint of the presentation last announced for this vehicle, or null. */
+async function readAnnouncedFingerprint(vin, client) {
+  if (!client) return null;
+  try {
+    const { data, error } = await client
+      .from('vehicles')
+      .select(ANNOUNCED_FINGERPRINT_COLUMN)
+      .eq('vin', vin)
+      .maybeSingle();
+    if (error || !data) return null;
+    return data[ANNOUNCED_FINGERPRINT_COLUMN] || null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Record that this presentation was announced.
+ *
+ * A failure here is safe in the direction that matters: the marker stays stale, the announcement
+ * looks outstanding, and reconciliation retries. That produces at most a duplicate attempt, which
+ * `already_announced` then absorbs — and a duplicate attempt is a far better failure than a
+ * customer never being told their vehicle's trust position changed.
+ */
+async function markAnnounced(vin, fingerprint, client) {
+  if (!client || !fingerprint) return false;
+  try {
+    const { error } = await client
+      .from('vehicles')
+      .update({ [ANNOUNCED_FINGERPRINT_COLUMN]: fingerprint })
+      .eq('vin', vin);
+    return !error;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Re-announce a Trust presentation whose event never reached the outbox.
+ *
+ * The recovery path R5-D1 requires. It reads the canonical position, compares it against the durable
+ * marker, and emits when they disagree — so a change that was written but never announced is
+ * eventually announced, exactly once, without a second Trust writer and without recomputing anything.
+ */
+export async function reconcileTrustPresentation(vin, { client, getRecord, tenantId = null, pgClient = null } = {}) {
+  if (!vin || !client || typeof getRecord !== 'function') return { emitted: false, reason: 'not_reconcilable' };
+  const record = await getRecord(vin);
+  if (!record) return { emitted: false, reason: 'no_record' };
+  return emitTrustPresentationChange({
+    vin,
+    // No previous position is supplied: the durable marker, not a cache diff, decides whether this
+    // is outstanding. That is precisely the distinction the original implementation collapsed.
+    previousRecord: null,
+    nextRecord: record,
+    client,
+    tenantId,
+    pgClient,
+  });
 }
 
 export default emitTrustPresentationChange;
