@@ -1,6 +1,10 @@
 import { createDefaultAdapterRegistry } from './adapters/providerAdapters.js';
 import { COMMUNICATION_EVENTS, calculateBackoffMs, classifyError, normalizeChannel, nowIso } from './communicationUtils.js';
 import { COMMUNICATION_AUDIT_EVENTS, logCommunicationAuditEvent } from './communicationAuditLog.js';
+import { RECIPIENT_RESOLUTION_REASONS, resolveNotificationRecipient } from './emailExperience/recipientResolution.js';
+
+/** Channels whose delivery requires an external address the platform must resolve. */
+const ADDRESS_REQUIRED_CHANNELS = new Set(['email', 'sms', 'whatsapp']);
 
 export class CommunicationDeliveryWorker {
   constructor({ repository, adapterRegistry = null, notificationService = null, workerId = 'communication-worker' } = {}) {
@@ -66,6 +70,43 @@ export class CommunicationDeliveryWorker {
     const adapter = this.adapterRegistry.get(channel);
     if (!adapter) {
       return this.markDeadLetter(notification, { errorCode: 'adapter_missing', errorMessage: `No adapter registered for ${channel}` });
+    }
+
+    // G0 — resolve the recipient BEFORE dispatch.
+    //
+    // Policy-driven notifications carry only `{ event_type, safe_payload }`, so the adapter used to
+    // hard-fail `recipient_missing` on the primary attempt and the message survived only via the
+    // fallback route's enrichment. Producers keep passing identifiers; the address is resolved once,
+    // here, immediately before the provider call.
+    //
+    // Fails CLOSED: an unresolved recipient never reaches a provider, and is recorded with its own
+    // error code so it stays distinguishable from a provider failure.
+    //
+    // Scoped to channels that genuinely need an EXTERNAL address. `in_app` and `push` are delivered
+    // without one — guarding them would dead-letter working deliveries, which an over-broad first
+    // version of this check did.
+    const resolved = ADDRESS_REQUIRED_CHANNELS.has(channel)
+      ? await resolveNotificationRecipient({ notification, repository: this.repository, channel })
+      : { ok: true, address: null, identityId: null, userId: null, verified: false };
+    if (!resolved.ok) {
+      const failure = {
+        errorCode: `recipient_unresolved:${resolved.reason}`,
+        errorMessage: `No deliverable ${channel} recipient could be resolved for this notification (${resolved.reason}).`,
+      };
+      // A lookup fault is transient — retry it. Everything else is a durable absence of an address,
+      // which retrying cannot conjure, so it dead-letters instead of burning attempts.
+      return resolved.reason === RECIPIENT_RESOLUTION_REASONS.LOOKUP_FAILED
+        ? this.markRetry(notification, failure)
+        : this.markDeadLetter(notification, failure);
+    }
+    // Carry the resolved address on the payload the adapter reads, without mutating the stored row.
+    if (resolved.address) {
+    const resolvedPayload = { ...(notification.payload || {}) };
+    if (channel === 'email') resolvedPayload.email = resolved.address;
+    else if (channel === 'sms' || channel === 'whatsapp') resolvedPayload.phone_number = resolved.address;
+    else if (channel === 'telegram') resolvedPayload.telegram_chat_id = resolved.address;
+    resolvedPayload.address = resolvedPayload.address || resolved.address;
+    notification = { ...notification, payload: resolvedPayload };
     }
 
     // Last line of defence before a marketing message reaches a provider.
@@ -215,6 +256,32 @@ export class CommunicationDeliveryWorker {
       errorMessage: error.message || 'Provider adapter threw during delivery',
       thrown: true,
     };
+  }
+
+  /**
+   * Schedule a retry for a TRANSIENT pre-dispatch failure.
+   *
+   * Extracted so a fault that happened before the provider was ever called can use the same backoff
+   * and audit trail as a retryable provider failure, instead of being dead-lettered as if the
+   * condition were permanent.
+   */
+  async markRetry(notification, result = {}) {
+    const attempt = Number(notification.attempt_count || 1);
+    if (attempt >= Number(notification.max_attempts || 5)) return this.markDeadLetter(notification, result);
+    const nextRetryAt = new Date(Date.now() + calculateBackoffMs(attempt)).toISOString();
+    await this.repository.updateById('notification_queue', notification.id, {
+      status: 'retry_scheduled',
+      next_attempt_at: nextRetryAt,
+      last_error_code: result.errorCode || 'retryable_failure',
+      last_error_message: result.errorMessage || 'Retryable failure',
+      locked_at: null,
+      locked_by: null,
+    });
+    await this.auditNotification(notification, COMMUNICATION_AUDIT_EVENTS.RETRY_SCHEDULED, {
+      summary: `Retry scheduled for ${nextRetryAt}`,
+      metadata: { attempt, next_retry_at: nextRetryAt, error_code: result.errorCode || null },
+    });
+    return { notificationId: notification.id, status: 'retry_scheduled', nextRetryAt };
   }
 
   async markDeadLetter(notification, result = {}) {
