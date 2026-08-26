@@ -58,16 +58,27 @@ function inferMediaUrlForm(url: string): MobileMediaUrlForm | null {
 export function resolveMarketplaceMediaUrl(
   url: string | null | undefined,
   expectedForm: MobileMediaUrlForm | null = null,
-  baseUrl: string = getVerificationApiBaseUrl(),
+  schemeSourceUrl?: string,
 ): string | null {
   if (typeof url !== 'string' || !url.trim()) return null;
   const trimmed = url.trim();
   const inferred = inferMediaUrlForm(trimmed);
   if (!inferred || (expectedForm && expectedForm !== inferred)) return null;
+
+  // Absolute media is already self-resolving and must not depend on API configuration.
   if (inferred === 'absolute_https' || inferred === 'absolute_http') return trimmed;
+
+  // A single-leading-slash URL is defined by the canonical media contract as relative to the
+  // VIEWING origin. Native has no viewing origin. Resolving it against the API host invents an
+  // origin the backend never asserted (and staging proves that host returns 404), so fail closed.
+  if (inferred === 'site_relative') return null;
+
+  // Protocol-relative media needs only a scheme. Borrowing http/https from the configured API is
+  // safe because it does not change the media host; unlike site-relative URLs, no host is invented.
   try {
-    const base = new URL(baseUrl);
-    return new URL(trimmed, base.origin).toString();
+    const source = new URL(schemeSourceUrl || getVerificationApiBaseUrl());
+    if (source.protocol !== 'https:' && source.protocol !== 'http:') return null;
+    return `${source.protocol}${trimmed}`;
   } catch {
     return null;
   }
@@ -75,10 +86,10 @@ export function resolveMarketplaceMediaUrl(
 
 export function resolveMarketplacePrimaryImage(
   listing: { primary_image_state: MobilePrimaryImageState; primary_image_url?: string | null },
-  baseUrl: string = getVerificationApiBaseUrl(),
+  schemeSourceUrl?: string,
 ): string | null {
   if (!PUBLISHABLE_PRIMARY_IMAGE_STATES.has(listing.primary_image_state)) return null;
-  return resolveMarketplaceMediaUrl(listing.primary_image_url, null, baseUrl);
+  return resolveMarketplaceMediaUrl(listing.primary_image_url, null, schemeSourceUrl);
 }
 
 export interface MobileReservationSummary {
