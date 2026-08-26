@@ -1,0 +1,90 @@
+{
+  "generated_from": "renderEmailForNotification (runtime)",
+  "note": "B4 CANDIDATES. Not owner-approved. R5 is absent — see EMAIL_EXPERIENCE_G10_R5_PRODUCER_GAP.md.",
+  "references": [
+    {
+      "id": "R1-leadership-welcome",
+      "label": "R1 Leadership Welcome",
+      "classification": "transactional",
+      "template_key": "leadership_welcome_v1",
+      "footer_family": "transactional",
+      "sender_persona": "carup_notifications",
+      "render_fallback_used": null,
+      "auth_equivalence_verified": false,
+      "html_bytes": 7868,
+      "text_bytes": 1403
+    },
+    {
+      "id": "R2-password-reset",
+      "label": "R2 Password Reset",
+      "classification": "security",
+      "template_key": "auth_password_reset_v1",
+      "footer_family": "security",
+      "sender_persona": "carup_security",
+      "render_fallback_used": null,
+      "auth_equivalence_verified": true,
+      "html_bytes": 4349,
+      "text_bytes": 683
+    },
+    {
+      "id": "R3-marketplace-conversation",
+      "label": "R3 Marketplace Conversation",
+      "classification": "conversational",
+      "template_key": "marketplace_conversation_v1",
+      "footer_family": "transactional",
+      "sender_persona": "carup_conversations",
+      "render_fallback_used": null,
+      "auth_equivalence_verified": false,
+      "html_bytes": 6851,
+      "text_bytes": 1018
+    },
+    {
+      "id": "R4-safetrade-eligible",
+      "label": "R4 SafeTrade — eligible",
+      "classification": "transactional",
+      "template_key": "safetrade_transaction_v1",
+      "footer_family": "transactional",
+      "sender_persona": "carup_notifications",
+      "render_fallback_used": null,
+      "auth_equivalence_verified": false,
+      "html_bytes": 7134,
+      "text_bytes": 959
+    },
+    {
+      "id": "R4-safetrade-funds-held",
+      "label": "R4 SafeTrade — provider-confirmed funds held",
+      "classification": "transactional",
+      "template_key": "safetrade_transaction_v1",
+      "footer_family": "transactional",
+      "sender_persona": "carup_notifications",
+      "render_fallback_used": null,
+      "auth_equivalence_verified": false,
+      "html_bytes": 7086,
+      "text_bytes": 911
+    },
+    {
+      "id": "R4-safetrade-sandbox",
+      "label": "R4 SafeTrade — sandbox",
+      "classification": "transactional",
+      "template_key": "safetrade_transaction_v1",
+      "footer_family": "transactional",
+      "sender_persona": "carup_notifications",
+      "render_fallback_used": null,
+      "auth_equivalence_verified": false,
+      "html_bytes": 7029,
+      "text_bytes": 845
+    },
+    {
+      "id": "R6-carup-weekly-no-media",
+      "label": "R6 CarUp Weekly — truthful no-media variant",
+      "classification": "marketing",
+      "template_key": "carup_weekly_v1",
+      "footer_family": "marketing",
+      "sender_persona": "carup_weekly",
+      "render_fallback_used": null,
+      "auth_equivalence_verified": false,
+      "html_bytes": 9813,
+      "text_bytes": 1612
+    }
+  ]
+}

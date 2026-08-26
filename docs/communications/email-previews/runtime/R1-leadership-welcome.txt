@@ -1,0 +1,41 @@
+Welcome to CarUp
+
+Hi Fixture,
+
+Your email address is verified, so your CarUp account is ready.
+
+CarUp exists because buying a used vehicle asks you to trust a stranger about facts you cannot check. We are building the Automotive Intelligence & Trust Network to change what that decision feels like: every vehicle carries a record of what is actually known about it, and every gap in that record is shown as a gap rather than hidden.
+
+Where to start
+--------------
+
+Browse the Marketplace
+  Vehicles listed on CarUp, with what has been recorded about each one shown alongside it.
+Read a Vehicle Passport before you commit
+  Every vehicle carries a record of what CarUp has evidence for — and, just as importantly, what it does not.
+Ask a seller a question
+  Conversations happen on CarUp, so what was agreed stays attached to the vehicle it was about.
+
+Open the Marketplace:
+https://carup.dev/marketplace
+
+Talking to us
+-------------
+
+Reply to this email — it reaches our team. For account or listing questions, https://carup.dev/support is the fastest route.
+
+S.K Musarurwa
+Co-Founder & Head of Development
+CarUp Technologies
+
+—
+
+You are receiving this because you verified this email address on CarUp.
+
+Need help? support@carup.dev
+
+Privacy: https://carup.dev/privacy
+Terms: https://carup.dev/terms
+Support: https://carup.dev/support
+
+CarUp Technologies · Automotive Intelligence & Trust Network
