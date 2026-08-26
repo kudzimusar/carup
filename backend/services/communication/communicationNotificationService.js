@@ -163,6 +163,37 @@ export const NOTIFICATION_POLICIES = Object.freeze({
     channels: ['in_app', 'email'], fallbackChannels: [],
     templateKey: 'safetrade_transaction_v1', classification: 'transactional', transactional: true,
   },
+  // The provider-confirmed outcomes, emitted by `issue164_record_payment_state_atomic`. These are
+  // the stages a customer most needs to hear about, and leaving them unsubscribed would have meant
+  // telling someone their journey started and never telling them it settled.
+  MARKETPLACE_FUNDS_HELD: {
+    notificationType: 'safetrade_transaction', threadType: 'escrow', priority: 'high',
+    channels: ['in_app', 'email'], fallbackChannels: [],
+    templateKey: 'safetrade_transaction_v1', classification: 'transactional', transactional: true,
+  },
+  MARKETPLACE_TRANSACTION_SETTLED: {
+    notificationType: 'safetrade_transaction', threadType: 'escrow', priority: 'high',
+    channels: ['in_app', 'email'], fallbackChannels: [],
+    templateKey: 'safetrade_transaction_v1', classification: 'transactional', transactional: true,
+  },
+  MARKETPLACE_TRANSACTION_REFUNDED: {
+    notificationType: 'safetrade_transaction', threadType: 'escrow', priority: 'high',
+    channels: ['in_app', 'email'], fallbackChannels: [],
+    templateKey: 'safetrade_transaction_v1', classification: 'transactional', transactional: true,
+  },
+  MARKETPLACE_TRANSACTION_FAILED: {
+    notificationType: 'safetrade_transaction', threadType: 'escrow', priority: 'high',
+    channels: ['in_app', 'email'], fallbackChannels: [],
+    templateKey: 'safetrade_transaction_v1', classification: 'transactional', transactional: true,
+  },
+  MARKETPLACE_PAYMENT_FAILED: {
+    notificationType: 'safetrade_transaction', threadType: 'escrow', priority: 'high',
+    channels: ['in_app', 'email'], fallbackChannels: [],
+    templateKey: 'safetrade_transaction_v1', classification: 'transactional', transactional: true,
+  },
+  // MARKETPLACE_PAYMENT_RECONCILED is deliberately NOT subscribed. Reconciliation is an internal
+  // bookkeeping step with no customer-facing stage change, and `referenceSafeTradeTransaction.js`
+  // has no presentation for it — which is the correct answer, not a gap to fill.
 });
 
 /**
@@ -203,6 +234,8 @@ export function classificationMetadata(base, payload, classification, source) {
 const SAFETRADE_EVENT_TYPES = new Set([
   'MARKETPLACE_PAYMENT_INITIATED', 'MARKETPLACE_INSPECTION_PENDING', 'MARKETPLACE_RELEASE_APPROVED',
   'MARKETPLACE_TRANSACTION_DISPUTED', 'MARKETPLACE_TRANSACTION_CANCELLED',
+  'MARKETPLACE_FUNDS_HELD', 'MARKETPLACE_TRANSACTION_SETTLED', 'MARKETPLACE_TRANSACTION_REFUNDED',
+  'MARKETPLACE_TRANSACTION_FAILED', 'MARKETPLACE_PAYMENT_FAILED',
 ]);
 
 export function referencePayloadFor(eventType, payload = {}) {

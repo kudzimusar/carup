@@ -159,6 +159,9 @@ test('D1 the canonical marketplace transaction events are now subscribed', () =>
   for (const eventType of [
     'MARKETPLACE_PAYMENT_INITIATED', 'MARKETPLACE_INSPECTION_PENDING', 'MARKETPLACE_RELEASE_APPROVED',
     'MARKETPLACE_TRANSACTION_DISPUTED', 'MARKETPLACE_TRANSACTION_CANCELLED',
+    // The provider-confirmed outcomes — the stages a customer most needs to hear about.
+    'MARKETPLACE_FUNDS_HELD', 'MARKETPLACE_TRANSACTION_SETTLED', 'MARKETPLACE_TRANSACTION_REFUNDED',
+    'MARKETPLACE_TRANSACTION_FAILED', 'MARKETPLACE_PAYMENT_FAILED',
   ]) {
     assert.ok(COMMUNICATION_EVENT_TYPES.includes(eventType), `${eventType} must be subscribed`);
     const policy = NOTIFICATION_POLICIES[eventType];
@@ -170,6 +173,9 @@ test('D1 the canonical marketplace transaction events are now subscribed', () =>
   // The retired SafePay events stay unsubscribed.
   assert.ok(!COMMUNICATION_EVENT_TYPES.includes('ESCROW_CREATED'));
   assert.ok(!COMMUNICATION_EVENT_TYPES.includes('ESCROW_UPDATED'));
+  // Reconciliation is internal bookkeeping with no customer-facing stage change, and the reference
+  // has no presentation for it — the correct answer, not a gap.
+  assert.ok(!COMMUNICATION_EVENT_TYPES.includes('MARKETPLACE_PAYMENT_RECONCILED'));
 });
 
 test('D2 the event payload maps to the audience-safe transaction projection only', () => {
