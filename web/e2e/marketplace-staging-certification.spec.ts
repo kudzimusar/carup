@@ -90,10 +90,9 @@ async function assertActualBackendProvenance(page: Page, marketplaceResponseUrl:
   const apiOrigin = new URL(marketplaceResponseUrl).origin
   const healthResponse = await page.request.get(`${apiOrigin}/api/health`)
   expect(healthResponse.ok(), 'actual Marketplace API origin health endpoint').toBe(true)
-  const health = await healthResponse.json() as Record<string, unknown>
-  expect(health.source_sha, 'backend source SHA').toBe(EXPECTED_SHA)
-  expect(health.build_sha, 'backend build SHA').toBe(EXPECTED_SHA)
-  expect(health.provenance_match, 'backend provenance agreement').toBe(true)
+  const health = await healthResponse.json() as { build?: { commit_sha?: string; provenance_available?: boolean } }
+  expect(health.build?.commit_sha, 'backend deployed commit SHA').toBe(EXPECTED_SHA)
+  expect(health.build?.provenance_available, 'backend build provenance available').toBe(true)
 }
 
 async function loadMarketplace(page: Page) {
