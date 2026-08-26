@@ -9,6 +9,8 @@ import {
   createAuthActionTokenService,
 } from '../services/auth/authActionTokenService.js';
 import { AUTH_ROUTES, buildAuthActionUrl } from '../services/communication/authEmailTemplates.js';
+import { referenceEntry } from '../services/communication/emailExperience/emailTemplateRegistry.js';
+import { LEADERSHIP_REPLY_TO } from '../services/communication/emailExperience/referenceLeadershipWelcome.js';
 import { createCommunicationServices } from '../services/communication/communicationServiceFactory.js';
 
 /**
@@ -91,6 +93,47 @@ export function authRecoveryRouter({
         classification: 'security',
         auth_template_key: authTemplateKey,
         ...variables,
+      },
+    });
+  }
+
+  /**
+   * Queue the Leadership Welcome for a freshly verified account.
+   *
+   * Idempotent per user through the canonical queue: `dedupeParts` produce a durable `dedupe_key`,
+   * and `queueNotification` returns the existing row rather than inserting a second. Replayed or
+   * concurrent verification attempts therefore cannot produce two welcome Emails — the guarantee
+   * lives in the database, not in process memory, which is the only place it would survive a
+   * restart or a second worker.
+   */
+  async function queueLeadershipWelcome(userId) {
+    if (!userId) return null;
+    const { data: user } = await db.from('users').select('id, email, name').eq('id', userId).maybeSingle();
+    if (!user?.email) return null;
+
+    const { notificationService } = comms();
+    const entry = referenceEntry('leadership_welcome');
+    return notificationService.queueNotification({
+      recipientUserId: user.id,
+      notificationType: 'leadership_welcome',
+      channel: 'email',
+      templateKey: entry.templateKey,
+      language: 'en',
+      priority: 'normal',
+      transactional: true,
+      classification: entry.classification,
+      fallbackChannels: [],
+      variables: {},
+      // One welcome per account, for the lifetime of the account.
+      dedupeParts: ['leadership_welcome', user.id],
+      payload: {
+        email: user.email,
+        classification: entry.classification,
+        reference_template: 'leadership_welcome',
+        // The canonical name resolver renders this in title case, or degrades to a
+        // non-personalised greeting. It never fabricates a first name.
+        recipient_name: user.name || null,
+        reply_to: LEADERSHIP_REPLY_TO,
       },
     });
   }
@@ -241,6 +284,19 @@ export function authRecoveryRouter({
         console.error('[auth] verify-email failed:', error.message);
         return res.status(500).json({ error: 'Could not verify this email address. Please request a new link.' });
       }
+
+      // R1 — the Leadership Welcome, queued only now.
+      //
+      // The trigger is VERIFICATION, not registration. An unverified address may not belong to the
+      // person who typed it, and a welcome is the wrong first thing to send somewhere nobody has
+      // proven they can receive mail.
+      //
+      // Deliberately after the verification succeeded and deliberately non-blocking: a welcome Email
+      // must never be able to turn a successful verification into an error the customer sees, and
+      // must never change the account-verification security semantics.
+      await queueLeadershipWelcome(consumed.token.user_id).catch((welcomeError) => {
+        console.error('[auth] leadership welcome could not be queued:', welcomeError.message);
+      });
 
       return res.status(200).json({ success: true, message: 'Your email address has been verified.' });
     },

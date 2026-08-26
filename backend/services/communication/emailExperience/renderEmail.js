@@ -24,6 +24,7 @@
 import { isCanonicalWebOrigin } from '../../../config/canonicalWebOrigin.js';
 import { AUTH_EMAIL_COPY, renderAuthEmail } from '../authEmailTemplates.js';
 import { checkAuthEquivalence } from './authEquivalence.js';
+import { buildReferenceDocument, referenceEntry } from './emailTemplateRegistry.js';
 import {
   EMAIL_CLASSIFICATION_ERRORS,
   resolveEmailClassification,
@@ -263,7 +264,23 @@ export function renderEmailForNotification(notification = {}, { env = process.en
   }
 
   const action = actionFrom(payload);
-  const document = {
+
+  // A REGISTERED REFERENCE builds its own document; everything else gets the generic one. The
+  // registry is the authority on which family, persona and footer a reference belongs to, so a
+  // template cannot quietly be rendered as a different family from the one it was declared as.
+  const reference = payload.reference_template ? referenceEntry(payload.reference_template) : null;
+  if (reference && reference.classification !== classification) {
+    return refusal(
+      EMAIL_CLASSIFICATION_ERRORS.CONFLICT,
+      `Reference '${payload.reference_template}' is registered as '${reference.classification}' but this notification is classified '${classification}'.`,
+      baseProvenance,
+    );
+  }
+  const referenceDocument = reference
+    ? buildReferenceDocument(payload.reference_template, { payload, classification, env })
+    : null;
+
+  const document = referenceDocument || {
     classification,
     preheaderText: firstPresent(payload.preheader, bodyText.slice(0, 140)),
     heading: subject,
@@ -303,6 +320,10 @@ export function renderEmailForNotification(notification = {}, { env = process.en
     if (!verdict.ok) return refusal(verdict.errorCode, verdict.errorMessage, baseProvenance);
   }
 
+  const referenceAction = referenceDocument
+    ? (referenceDocument.action || (referenceDocument.blocks || []).find((b) => b?.type === 'action') || null)
+    : action;
+
   return {
     ok: true,
     subject,
@@ -310,9 +331,12 @@ export function renderEmailForNotification(notification = {}, { env = process.en
     html,
     classification,
     ...baseProvenance,
+    ...(reference ? { template_key: reference.templateKey, template_version: reference.version } : {}),
+    ...(referenceDocument?.replyTo ? { reply_to: referenceDocument.replyTo } : {}),
+    leadership_identity_rendered: Boolean(referenceDocument?.leadershipIdentityRendered),
     html_part_rendered: Boolean(html),
     text_part_rendered: Boolean(text),
-    ...ctaProvenance(action),
+    ...ctaProvenance(referenceAction ? { url: referenceAction.url } : null),
     render_fallback_used: fallback,
     ...(isMarketing ? { unsubscribe_presentation: { version: 'v1', url: unsubscribeUrl, blocks: 1 } } : {}),
   };

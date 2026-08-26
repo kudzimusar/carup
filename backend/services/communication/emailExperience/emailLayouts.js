@@ -10,9 +10,41 @@
  * the ones `authEmailTemplates.js` already proved in real inboxes.
  */
 import { EMAIL_BRAND_TOKENS as T, EMAIL_FONT_STACK } from './emailBrandTokens.js';
-import { button, heading, masthead, panel, paragraphs, preheader } from './emailComponents.js';
+import {
+  button, card, divider, heading, masthead, panel, paragraphs, preheader, quote,
+  sectionHeading, signature, statusList,
+} from './emailComponents.js';
 import { renderFooterHtml } from './emailFooters.js';
 import { html, joinHtml, renderHtml, safeHtml } from './emailMarkup.js';
+
+/**
+ * The block vocabulary shared by every reference template.
+ *
+ * Deliberately small and typed. A reference declares WHAT it wants to say; the layout decides how it
+ * looks. That is what keeps six templates from becoming six divergent shells, and it is why the
+ * plain-text renderer can produce the same meaning from the same declaration rather than from a
+ * stripped-down copy of the HTML.
+ *
+ * An unrecognised block renders nothing rather than throwing: a P0 security Email must not be lost
+ * because a reference declared a type this layout does not know.
+ */
+function renderBlocks(blocks = []) {
+  return joinHtml((Array.isArray(blocks) ? blocks : []).map((block) => {
+    if (!block || typeof block !== 'object') return safeHtml('');
+    switch (block.type) {
+      case 'paragraph': return paragraphs(block.text);
+      case 'sectionHeading': return sectionHeading(block.text);
+      case 'panel': return html`<div style="margin:16px 0;">${panel(block.text)}</div>`;
+      case 'quote': return quote(block);
+      case 'card': return card(block);
+      case 'statusList': return statusList(block.items);
+      case 'signature': return signature(block);
+      case 'divider': return divider();
+      case 'action': return html`<div style="margin:8px 0 16px 0;">${button({ label: block.label, href: block.url })}</div>`;
+      default: return safeHtml('');
+    }
+  }));
+}
 
 /**
  * Render one Email document to HTML.
@@ -25,11 +57,13 @@ export function renderEmailHtml(document = {}, { env = process.env } = {}) {
   const {
     classification, preheaderText, heading: headingText, bodyText,
     action = null, note = null, reasonReceived = null, unsubscribeUrl = null,
+    blocks = [],
   } = document;
 
   const content = joinHtml([
     heading(headingText),
     paragraphs(bodyText),
+    renderBlocks(blocks),
     action ? html`<div style="margin:8px 0 4px 0;">${button({ label: action.label, href: action.url })}</div>` : safeHtml(''),
     note ? html`<div style="margin:20px 0 0 0;">${panel(note)}</div>` : safeHtml(''),
   ]);

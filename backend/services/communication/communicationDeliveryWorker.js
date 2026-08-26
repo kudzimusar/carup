@@ -163,6 +163,7 @@ export class CommunicationDeliveryWorker {
     // The renderer decides both directions of failure itself: non-marketing degrades to the
     // canonical plain text, marketing refuses. The worker's job is to honour a refusal without
     // calling a provider.
+    let renderedReplyTo = null;
     let preparedSubject = notification.title;
     let preparedBody = notification.message || '';
     let preparedHtml = notification.payload?.html || null;
@@ -180,6 +181,10 @@ export class CommunicationDeliveryWorker {
       preparedSubject = rendered.subject || preparedSubject;
       preparedBody = rendered.text;
       preparedHtml = rendered.html || null;
+      // A reference may declare a monitored HUMAN reply address (R1 uses info@carup.dev). That is a
+      // published alias, not a credential, and it is a different thing from G5's authenticated
+      // conversation Reply-To — which is minted below and always wins where it applies.
+      if (rendered.reply_to) renderedReplyTo = rendered.reply_to;
       renderProvenance = {
         renderer_version: rendered.renderer_version,
         classification: rendered.classification,
@@ -297,7 +302,9 @@ export class CommunicationDeliveryWorker {
           data: {
             ...(notification.payload || {}),
             ...(renderProvenance ? { email_render_provenance: renderProvenance } : {}),
-            ...(replyToAddress ? { reply_to: replyToAddress } : {}),
+            // G5's authenticated conversation address wins where it applies; otherwise a
+            // reference's declared human reply address is used.
+            ...(replyToAddress || renderedReplyTo ? { reply_to: replyToAddress || renderedReplyTo } : {}),
           },
         },
         idempotencyKey: notification.dedupe_key,

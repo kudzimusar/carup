@@ -88,4 +88,86 @@ export function finePrint(text) {
   return html`<p style="margin:0 0 8px 0;font-size:12px;line-height:1.6;color:${T.MUTED};font-family:${safeHtml(EMAIL_FONT_STACK)};">${text}</p>`;
 }
 
+/**
+ * A leadership sign-off.
+ *
+ * Text only. No headshot and no signature artwork exist, and the approved title is NOT CEO — the
+ * About page's "Founder & CEO" is seeded demo data reused as a mock seller avatar, and signing a
+ * customer Email with it is an automatic-fail condition.
+ */
+export function signature({ name, title, organisation }) {
+  if (!name) return safeHtml('');
+  return html`<div style="margin-top:24px;padding-top:16px;border-top:1px solid ${T.BORDER};font-family:${safeHtml(EMAIL_FONT_STACK)};">
+<p style="margin:0;font-size:15px;font-weight:600;color:${T.INK};">${name}</p>
+${title ? html`<p style="margin:2px 0 0;font-size:13px;line-height:1.6;color:${T.MUTED};">${title}</p>` : safeHtml('')}
+${organisation ? html`<p style="margin:2px 0 0;font-size:13px;line-height:1.6;color:${T.MUTED};">${organisation}</p>` : safeHtml('')}
+</div>`;
+}
+
+/** A section heading inside the body, below the h1. */
+export function sectionHeading(text) {
+  if (!text) return safeHtml('');
+  return html`<h2 style="margin:28px 0 10px 0;font-size:17px;line-height:1.35;font-weight:700;color:${T.INK};font-family:${safeHtml(EMAIL_FONT_STACK)};">${text}</h2>`;
+}
+
+/**
+ * A quoted excerpt — a message someone wrote.
+ *
+ * Bounded and escaped like any other value. A conversation excerpt is the most user-controlled text
+ * in the whole system: it is written by one customer and rendered into an Email read by another.
+ */
+export function quote({ text, attribution = null }) {
+  if (!text) return safeHtml('');
+  return html`<blockquote style="margin:0 0 16px 0;padding:14px 16px;background:${T.CANVAS};border-left:3px solid ${T.ACTION};border-radius:0 8px 8px 0;font-family:${safeHtml(EMAIL_FONT_STACK)};">
+<p style="margin:0;font-size:15px;line-height:1.6;color:${T.BODY};">${text}</p>
+${attribution ? html`<p style="margin:8px 0 0;font-size:12px;color:${T.MUTED};">${attribution}</p>` : safeHtml('')}
+</blockquote>`;
+}
+
+/**
+ * A mobile-safe card: title, optional subtitle, label/value rows, optional image and footnote.
+ *
+ * `imageUrl` is rendered only when a caller supplies one. Nothing here constructs an asset URL —
+ * `emailMediaPolicy.js` refuses unapproved assets, and a card with no image is the truthful form
+ * rather than a placeholder.
+ */
+export function card({ title, subtitle = null, rows = [], imageUrl = null, imageAlt = '', footnote = null }) {
+  const cells = joinHtml((rows || []).filter((row) => row && row.label).map((row) => html`<tr>
+<td style="padding:6px 0;font-size:13px;line-height:1.5;color:${T.MUTED};white-space:nowrap;">${row.label}</td>
+<td style="padding:6px 0 6px 16px;font-size:13px;line-height:1.5;color:${T.INK};font-weight:600;">${row.value == null || row.value === '' ? 'Not recorded' : row.value}</td>
+</tr>`));
+  return html`<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="width:100%;border:1px solid ${T.BORDER};border-radius:10px;margin:0 0 16px 0;">
+${imageUrl ? html`<tr><td style="padding:0;"><img src="${imageUrl}" alt="${imageAlt}" width="536" style="display:block;width:100%;max-width:100%;height:auto;border-radius:10px 10px 0 0;"></td></tr>` : safeHtml('')}
+<tr><td style="padding:16px;font-family:${safeHtml(EMAIL_FONT_STACK)};">
+<p style="margin:0;font-size:16px;font-weight:700;line-height:1.35;color:${T.INK};">${title}</p>
+${subtitle ? html`<p style="margin:4px 0 0;font-size:13px;line-height:1.5;color:${T.MUTED};">${subtitle}</p>` : safeHtml('')}
+${rows?.length ? html`<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="width:100%;margin-top:12px;">${cells}</table>` : safeHtml('')}
+${footnote ? html`<p style="margin:12px 0 0;font-size:12px;line-height:1.6;color:${T.MUTED};">${footnote}</p>` : safeHtml('')}
+</td></tr></table>`;
+}
+
+/**
+ * A list of governed states.
+ *
+ * `state` is a canonical vocabulary value, never a number invented to look complete. The dot colour
+ * distinguishes "we know this" from "we do not", because those are different facts and an Email that
+ * renders them identically is the reason a customer would trust a gap.
+ */
+const STATE_COLOUR = Object.freeze({
+  positive: '#15803D', neutral: T.MUTED, attention: T.ACTION, unknown: '#94A3B8',
+});
+
+export function statusList(items = []) {
+  const rows = (items || []).filter((item) => item && item.label).map((item) => html`<tr>
+<td width="10" style="padding:7px 10px 7px 0;vertical-align:top;">
+<span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:${safeHtml(STATE_COLOUR[item.tone] || STATE_COLOUR.unknown)};"></span>
+</td>
+<td style="padding:5px 0;font-family:${safeHtml(EMAIL_FONT_STACK)};">
+<p style="margin:0;font-size:14px;line-height:1.5;color:${T.INK};font-weight:600;">${item.label}</p>
+${item.detail ? html`<p style="margin:2px 0 0;font-size:13px;line-height:1.55;color:${T.MUTED};">${item.detail}</p>` : safeHtml('')}
+</td></tr>`);
+  if (!rows.length) return safeHtml('');
+  return html`<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="width:100%;margin:0 0 16px 0;">${joinHtml(rows)}</table>`;
+}
+
 export { EMAIL_BRAND_IDENTITY };
