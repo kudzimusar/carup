@@ -34,6 +34,8 @@ export const COMMUNICATION_EVENT_TYPES = [
   'MARKETPLACE_TRANSACTION_REFUNDED',
   'MARKETPLACE_TRANSACTION_FAILED',
   'MARKETPLACE_PAYMENT_FAILED',
+  // R5 — the canonical Trust presentation change.
+  'vehicle.trust.presentation_changed',
 ];
 
 let registered = false;

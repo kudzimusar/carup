@@ -344,6 +344,15 @@ export function renderEmailForNotification(notification = {}, { env = process.en
     ...(reference ? { template_key: reference.templateKey, template_version: reference.version } : {}),
     ...(referenceDocument?.replyTo ? { reply_to: referenceDocument.replyTo } : {}),
     leadership_identity_rendered: Boolean(referenceDocument?.leadershipIdentityRendered),
+    // R5 provenance: which canonical Trust state was presented, and whether a NUMBER was published.
+    // Recorded because "did that Email show a score?" must be answerable from the record, not
+    // inferred from the state — they are different questions and only one of them is safe to guess.
+    ...(referenceDocument?.trustEvaluationState
+      ? {
+        trust_evaluation_state: referenceDocument.trustEvaluationState,
+        trust_score_published: Boolean(referenceDocument.trustScorePublished),
+      }
+      : {}),
     html_part_rendered: Boolean(html),
     text_part_rendered: Boolean(text),
     ...ctaProvenance(referenceAction ? { url: referenceAction.url } : null),

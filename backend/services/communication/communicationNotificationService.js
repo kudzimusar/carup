@@ -191,6 +191,17 @@ export const NOTIFICATION_POLICIES = Object.freeze({
     channels: ['in_app', 'email'], fallbackChannels: [],
     templateKey: 'safetrade_transaction_v1', classification: 'transactional', transactional: true,
   },
+  // R5 — a customer-visible Vehicle Trust position changed. Emitted by
+  // `trustPresentationChangeProducer.js` immediately after the canonical Trust write, and only when
+  // the audience-safe projection materially moved AND a current owner resolves.
+  //
+  // `service`: platform-initiated, about something the recipient owns. Not the outcome of an action
+  // they just took, which is what separates it from `transactional`.
+  'vehicle.trust.presentation_changed': {
+    notificationType: 'vehicle_trust_update', threadType: 'account', priority: 'normal',
+    channels: ['in_app', 'email'], fallbackChannels: [],
+    templateKey: 'vehicle_trust_update_v1', classification: 'service', transactional: true,
+  },
   // MARKETPLACE_PAYMENT_RECONCILED is deliberately NOT subscribed. Reconciliation is an internal
   // bookkeeping step with no customer-facing stage change, and `referenceSafeTradeTransaction.js`
   // has no presentation for it — which is the correct answer, not a gap to fill.
@@ -239,6 +250,17 @@ const SAFETRADE_EVENT_TYPES = new Set([
 ]);
 
 export function referencePayloadFor(eventType, payload = {}) {
+  if (eventType === 'vehicle.trust.presentation_changed') {
+    // The audience-safe Trust projection the producer already computed, plus public vehicle
+    // identity. `recipientUserId` addresses a person and is NOT copied into the payload — it must
+    // never become content, and the queue row already carries the recipient separately.
+    return {
+      reference_template: 'vehicle_trust_update',
+      vin: payload.vin || payload.trust?.vin || null,
+      trust: payload.trust || null,
+      ...(payload.vehicle ? { vehicle: payload.vehicle } : {}),
+    };
+  }
   if (!SAFETRADE_EVENT_TYPES.has(eventType)) return {};
   // The audience-safe transaction projection only. No amount, no currency, no provider identifier —
   // all exist upstream and none belongs in a forwardable Email.

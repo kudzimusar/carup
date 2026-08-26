@@ -15,6 +15,7 @@ import { buildLeadershipWelcomeDocument } from './referenceLeadershipWelcome.js'
 import { buildMarketplaceConversationDocument } from './referenceMarketplaceConversation.js';
 import { buildSafeTradeTransactionDocument } from './referenceSafeTradeTransaction.js';
 import { buildCarUpWeeklyDocument } from './referenceCarUpWeekly.js';
+import { buildVehicleTrustUpdateDocument } from './referenceVehicleTrustUpdate.js';
 
 export const CONSENT_REQUIREMENTS = Object.freeze({
   /** Sent because the recipient did something. No opt-in applies and no unsubscribe may appear. */
@@ -105,6 +106,27 @@ export const EMAIL_TEMPLATE_REGISTRY = Object.freeze({
     mediaPolicy: 'text_wordmark_only',
     leadershipRequired: false,
     build: buildSafeTradeTransactionDocument,
+  }),
+
+  vehicle_trust_update: Object.freeze({
+    reference: 'R5',
+    templateKey: 'vehicle_trust_update_v1',
+    version: 1,
+    family: 'service',
+    classification: 'service',
+    // WHY service: platform-INITIATED, about something the recipient owns, and not the outcome of
+    // an action they just took. That is the distinction `service` was reserved for.
+    senderPersona: 'carup_service',
+    transport: 'resend',
+    workflow: 'vehicle_trust',
+    recipientRole: 'vehicle_owner',
+    consentRequirement: CONSENT_REQUIREMENTS.NONE_LIFECYCLE,
+    regulatedDataPolicy: REGULATED_DATA_POLICY.MINIMISE_POINT_AT_SURFACE,
+    primaryAction: 'view_vehicle_record',
+    footerFamily: 'transactional',
+    mediaPolicy: 'text_wordmark_only',
+    leadershipRequired: false,
+    build: buildVehicleTrustUpdateDocument,
   }),
 
   carup_weekly: Object.freeze({
