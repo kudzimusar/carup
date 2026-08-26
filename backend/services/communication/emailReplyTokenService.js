@@ -200,15 +200,58 @@ export class EmailReplyTokenService {
     if (reusable) {
       // Refresh the window so an active conversation does not expire mid-flight. The ADDRESS does
       // not change — that is the point.
-      const patch = { expires_at: expiresAt };
+      //
+      // C4 — the Supabase client RESOLVES with `{ error }` rather than throwing, and this call used
+      // to ignore its result entirely while the lookup twenty lines above carefully checked its own.
+      // So a failed write was invisible and the service reported an extended expiry that the
+      // database had never accepted.
+      //
+      // The send is NOT failed over this. The token was selected by `.gt('expires_at', nowIso)`, so
+      // it is live and remains usable until its own expiry — hard-failing a conversation Email over
+      // a bookkeeping write would be a far worse outcome than a window that was not extended. What
+      // changes is that the caller is told the truth about what is actually stored.
+      //
+      // The two writes are issued SEPARATELY on purpose: `binding_id` is FK-constrained, and a
+      // violation there must not silently discard the expiry refresh that shares its statement.
+      let persistedExpiresAt = reusable.row.expires_at;
+      const failures = [];
+
+      const { error: expiryError } = await this.supabase
+        .from('email_reply_tokens')
+        .update({ expires_at: expiresAt })
+        .eq('id', reusable.row.id);
+      if (expiryError) failures.push('expiry');
+      else persistedExpiresAt = expiresAt;
+
       // A binding may legitimately become known later. Thread and participant authority never move.
-      if (bindingId && !reusable.row.binding_id) patch.binding_id = bindingId;
-      await this.supabase.from('email_reply_tokens').update(patch).eq('id', reusable.row.id);
+      let persistedBindingId = reusable.row.binding_id || null;
+      if (bindingId && !reusable.row.binding_id) {
+        const { error: bindingError } = await this.supabase
+          .from('email_reply_tokens')
+          .update({ binding_id: bindingId })
+          .eq('id', reusable.row.id);
+        if (bindingError) failures.push('binding');
+        else persistedBindingId = bindingId;
+      }
+
       return {
         rawToken: reusable.rawToken,
         address: buildReplyToAddress(reusable.rawToken, this.env),
         reused: true,
-        record: { id: reusable.row.id, thread_id: threadId, participant_id: participantId, tenant_id: tenant, expires_at: expiresAt },
+        // Whether the refresh actually landed, and which half did not. A CODE only — never the raw
+        // token, never the Reply-To address, never the provider error text, any of which would put a
+        // credential or a recipient into a log line.
+        refreshPersisted: failures.length === 0,
+        refreshFailed: failures.length ? failures.join('+') : null,
+        record: {
+          id: reusable.row.id,
+          thread_id: threadId,
+          participant_id: participantId,
+          tenant_id: tenant,
+          // The STORED truth, not the value we hoped to store.
+          expires_at: persistedExpiresAt,
+          binding_id: persistedBindingId,
+        },
       };
     }
 

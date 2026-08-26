@@ -210,27 +210,46 @@ export class CommunicationCanonicalNotificationService extends CommunicationNoti
     }
   }
 
+  /**
+   * C2-RACE — the queued row must never be claimable in an incomplete state.
+   *
+   * THE DEFECT this closes. This method used to INSERT the row via `super`, then patch the routing
+   * metadata in a SECOND statement. `CommunicationRepository` is a thin PostgREST wrapper with no
+   * transaction support, so the insert commits before the patch is even sent, and the row is
+   * eligible the instant it commits: `claim_due_communication_notifications` selects
+   * `status IN ('queued','retry_scheduled') AND COALESCE(next_attempt_at, scheduled_at, ...) <= now()`,
+   * and the inserted row has status 'queued', next_attempt_at NULL, scheduled_at now().
+   *
+   * The delivery worker runs in a DIFFERENT process — pg_cron hits
+   * POST /api/internal/communications/process every minute — so no event-loop ordering protects the
+   * window. A claim landing inside it finds `recipient_participant_id` absent and dead-letters the
+   * message `conversation_reply_context_missing`, which is DURABLE by design and never retried. The
+   * customer's conversation Email is then lost permanently. It was reproduced, not theorised.
+   *
+   * THE FIX is to remove the window rather than to time around it: compose the complete metadata
+   * BEFORE the row exists and let the single INSERT carry it. A claim can then only ever see a
+   * complete row, whatever the worker's schedule, whatever the network latency. No barrier, no
+   * deferred due-time, no reliance on cron cadence — there is simply no incomplete state to observe.
+   */
   async queueExistingMessage(input = {}) {
-    const result = await super.queueExistingMessage(input);
     const fallbackChannels = uniqueChannels(input.fallbackChannels);
     const extraMetadata = input.metadata && typeof input.metadata === 'object' ? input.metadata : {};
-    if (!fallbackChannels.length && !Object.keys(extraMetadata).length) return result;
+    if (!fallbackChannels.length && !Object.keys(extraMetadata).length) {
+      return super.queueExistingMessage(input);
+    }
 
-    const existingMetadata = result.notification?.metadata || {};
-    const channel = normalizeChannel(result.notification?.channel || input.channel);
-    const updated = await this.repository.updateById('notification_queue', result.notification.id, {
-      metadata: {
-        ...existingMetadata,
-        ...extraMetadata,
-        fallback_channels: fallbackChannels,
-        attempted_channels: uniqueChannels([...(existingMetadata.attempted_channels || []), channel]),
-        routing_mode: fallbackChannels.length
-          ? 'single_primary_with_ordered_fallback'
-          : existingMetadata.routing_mode || 'single_route',
-      },
-      updated_at: nowIso(),
-    });
-    return { ...result, notification: updated || result.notification };
+    const channel = normalizeChannel(input.channel);
+    // Everything the worker needs to route and to bind a G5 Reply-To, assembled up front. The base
+    // class merges `input.metadata` into the row it inserts, so this arrives atomically with it.
+    const composedMetadata = {
+      ...extraMetadata,
+      fallback_channels: fallbackChannels,
+      attempted_channels: uniqueChannels([channel]),
+      routing_mode: fallbackChannels.length
+        ? 'single_primary_with_ordered_fallback'
+        : 'single_route',
+    };
+    return super.queueExistingMessage({ ...input, metadata: composedMetadata });
   }
 
   async resolveFallbackRoute(notification, channel, thread) {

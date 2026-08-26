@@ -115,6 +115,16 @@ export async function resolveCurrentVehicleOwner(vin, client) {
 }
 
 /**
+ * Whether the durable announcement marker was actually recorded.
+ *
+ * `recorded` — the event is durable AND the marker names it. Nothing is outstanding.
+ * `pending`  — the event is durable but the marker write did not land. The announcement HAPPENED;
+ *              only the bookkeeping is behind, so reconciliation must repair it. This is not a
+ *              failure of the announcement and must never be reported as one, nor as a full success.
+ */
+export const TRUST_MARKER_STATES = Object.freeze({ RECORDED: 'recorded', PENDING: 'pending' });
+
+/**
  * Emit the Trust presentation change, when there is one and someone to tell.
  *
  * Returns a verdict rather than throwing. A Trust refresh is a background correctness operation;
@@ -130,7 +140,15 @@ export async function emitTrustPresentationChange({
   // The durable marker is the authority on whether this presentation has been announced. A
   // `previousRecord` comparison alone would treat a never-announced change as already handled the
   // moment the cache was written — which is exactly how R5-D1 lost events.
-  const announced = await readAnnouncedFingerprint(vin, client);
+  const marker = await readAnnouncedFingerprint(vin, client);
+  // UNKNOWN IS NOT PERMISSION. Without a readable marker there is no way to tell an outstanding
+  // announcement from one already delivered, and guessing "not yet" re-announces to a real owner.
+  // Declining defers the announcement; the marker stays outstanding and reconciliation delivers it
+  // once the store is readable again. This is the same fail-closed rule G3 applies to consent.
+  if (!marker.known) {
+    return { emitted: false, reason: 'announcement_state_unavailable', fingerprint };
+  }
+  const announced = marker.fingerprint;
   if (announced && announced === fingerprint) {
     return { emitted: false, reason: 'already_announced', fingerprint };
   }
@@ -176,24 +194,55 @@ export async function emitTrustPresentationChange({
 
   // The marker is written ONLY after the event is durably persisted. If the emit above throws, the
   // marker stays stale and the announcement remains outstanding — which is the whole point.
-  await markAnnounced(vin, fingerprint, client);
+  //
+  // C3-C: the marker write can ALSO fail on its own, and that is a different fact from the emit
+  // failing. Reporting an unqualified success there was the defect: the event is durable, the
+  // marker is not, and a caller told "announced" has no way to know a repair is still outstanding.
+  // The two states are now named, and the return value is no longer discarded.
+  const marked = await markAnnounced(vin, fingerprint, client);
 
-  return { emitted: true, recipientUserId, changed, fingerprint };
+  // The durable event is NEVER rolled back because the marker failed. It is a real thing that
+  // really happened; deleting it to tidy the bookkeeping would destroy the announcement itself.
+  // Instead the marker stays outstanding and reconciliation repairs it — which is safe precisely
+  // because `vehicle.trust.presentation_changed` is now database-idempotent on its fingerprint
+  // (C3-A/C3-B), so the retry recovers the SAME event rather than creating a second one.
+  return {
+    emitted: true,
+    marker: marked ? TRUST_MARKER_STATES.RECORDED : TRUST_MARKER_STATES.PENDING,
+    recipientUserId,
+    changed,
+    fingerprint,
+  };
 }
 
 /** The fingerprint of the presentation last announced for this vehicle, or null. */
+/**
+ * Read the durable marker.
+ *
+ * Returns `{ known, fingerprint }`, because "this vehicle has never been announced" and "I could
+ * not find out whether it has been announced" are different facts and collapsing them is what makes
+ * a duplicate storm possible.
+ *
+ * The case that forces the distinction is real and imminent: if the application is deployed before
+ * `trust_presentation_announced_fingerprint` exists, EVERY read errors. Treating that as "never
+ * announced" would re-announce every material Trust change on every refresh, for as long as the
+ * window lasts — not a rare race, a 100% duplication rate. Reporting `known: false` lets the caller
+ * decline to emit, which defers announcements until the column exists rather than flooding.
+ */
 async function readAnnouncedFingerprint(vin, client) {
-  if (!client) return null;
+  if (!client) return { known: false, fingerprint: null };
   try {
     const { data, error } = await client
       .from('vehicles')
       .select(ANNOUNCED_FINGERPRINT_COLUMN)
       .eq('vin', vin)
       .maybeSingle();
-    if (error || !data) return null;
-    return data[ANNOUNCED_FINGERPRINT_COLUMN] || null;
+    // An error is UNKNOWN. A successful read with no row is a genuine "no such vehicle", and a
+    // successful read with a null column is a genuine "never announced" — both are known answers.
+    if (error) return { known: false, fingerprint: null };
+    return { known: true, fingerprint: data?.[ANNOUNCED_FINGERPRINT_COLUMN] || null };
   } catch {
-    return null;
+    return { known: false, fingerprint: null };
   }
 }
 

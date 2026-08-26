@@ -574,7 +574,19 @@ export class CommunicationNotificationService {
       created_at: nowIso(),
       updated_at: nowIso(),
       metadata: classificationMetadata(
-        { transactional, source: 'existing_message', suppression_reason: suppressionReason },
+        {
+          transactional,
+          source: 'existing_message',
+          suppression_reason: suppressionReason,
+          // C2-RACE — the caller's routing context travels WITH the insert.
+          //
+          // It used to be patched in afterwards by the canonical subclass, which meant the row was
+          // claimable by the delivery worker for one full HTTP round trip while missing the
+          // participant id a conversational Email needs. A claim inside that window dead-lettered
+          // the message permanently as `conversation_reply_context_missing`. Merging here means the
+          // row is complete the moment it exists, so the incomplete state cannot be observed.
+          ...(input.metadata && typeof input.metadata === 'object' ? input.metadata : {}),
+        },
         input.payload,
         input.classification,
         input.classificationSource,

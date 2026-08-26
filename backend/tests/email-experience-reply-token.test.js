@@ -405,3 +405,119 @@ test('the address domain follows the configured inbound domain', () => {
   assert.match(buildReplyToAddress('abc', { RESEND_INBOUND_DOMAIN: 'mail.example.test' }), /@mail\.example\.test$/);
   assert.match(buildReplyToAddress('abc', {}), /@mail\.carup\.dev$/);
 });
+
+// ============================================================================
+// C4 — the refresh must not report state the database never accepted
+// ============================================================================
+
+/**
+ * The Supabase client RESOLVES with `{ error }`; it does not throw. `issue()` used to discard that
+ * result entirely on the reuse path — while the lookup twenty lines above carefully checked its own
+ * — so a failed write was invisible and the service returned an `expires_at` the database had
+ * rejected. T6b/T6c only ever exercised the happy path, so nothing detected it.
+ *
+ * The token itself is unaffected: it was selected by `.gt('expires_at', now)`, so it is live and
+ * stays usable until its own expiry. The send must therefore continue. What must change is that the
+ * caller is told what is actually stored.
+ */
+function failingWrites(db, { failExpiry = false, failBinding = false } = {}) {
+  const original = db.from.bind(db);
+  return {
+    ...db,
+    from: (table) => {
+      const api = original(table);
+      if (table !== 'email_reply_tokens') return api;
+      const wrapped = Object.create(api);
+      wrapped.update = (patch) => {
+        const shouldFail = (failExpiry && 'expires_at' in patch) || (failBinding && 'binding_id' in patch);
+        const inner = api.update(patch);
+        if (!shouldFail) return inner;
+        // Reject the write the way PostgREST does: resolve with an error, mutate nothing.
+        const rejecting = Object.create(inner);
+        rejecting.eq = () => rejecting;
+        rejecting.then = (res, rej) => Promise.resolve({ data: null, error: { code: '42501', message: 'simulated write rejection' } }).then(res, rej);
+        return rejecting;
+      };
+      return wrapped;
+    },
+  };
+}
+
+test('C4-1 a failed EXPIRY refresh reports the stored expiry, not the one it hoped to store', async () => {
+  const db = memorySupabase();
+  let clock = new Date('2026-01-01T00:00:00.000Z');
+  const first = await serviceFor(db, { now: () => clock }).issue(PAIR);
+  const storedExpiry = db.store.email_reply_tokens[0].expires_at;
+
+  clock = new Date('2026-02-01T00:00:00.000Z');
+  const second = await serviceFor(failingWrites(db, { failExpiry: true }), { now: () => clock }).issue(PAIR);
+
+  // The send continues — the credential is still live and still the same address.
+  assert.equal(second.address, first.address);
+  assert.equal(second.reused, true);
+  // ...but nothing claims an extension that never happened.
+  assert.equal(second.refreshPersisted, false);
+  assert.equal(second.refreshFailed, 'expiry');
+  assert.equal(second.record.expires_at, storedExpiry, 'the REPORTED expiry must equal the STORED expiry');
+  assert.equal(db.store.email_reply_tokens[0].expires_at, storedExpiry, 'and the row really is unchanged');
+});
+
+test('C4-2 a failed BINDING refresh does not pretend the row carries that binding', async () => {
+  const db = memorySupabase();
+  await serviceFor(db).issue({ ...PAIR, bindingId: null });
+  assert.equal(db.store.email_reply_tokens[0].binding_id ?? null, null);
+
+  const out = await serviceFor(failingWrites(db, { failBinding: true })).issue({ ...PAIR, bindingId: 'bind-late' });
+  assert.equal(out.refreshPersisted, false);
+  assert.equal(out.refreshFailed, 'binding');
+  assert.equal(out.record.binding_id, null, 'a binding that was rejected must not be reported as attached');
+  assert.equal(db.store.email_reply_tokens[0].binding_id ?? null, null);
+});
+
+test('C4-3 a failed binding write does NOT take the expiry refresh down with it', async () => {
+  // The two writes are separate statements precisely so an FK violation on the binding cannot
+  // silently discard the expiry extension that would otherwise have shared its patch.
+  const db = memorySupabase();
+  let clock = new Date('2026-01-01T00:00:00.000Z');
+  await serviceFor(db, { now: () => clock }).issue({ ...PAIR, bindingId: null });
+  const before = db.store.email_reply_tokens[0].expires_at;
+
+  clock = new Date('2026-02-01T00:00:00.000Z');
+  const out = await serviceFor(failingWrites(db, { failBinding: true }), { now: () => clock }).issue({ ...PAIR, bindingId: 'bind-late' });
+
+  assert.ok(new Date(db.store.email_reply_tokens[0].expires_at) > new Date(before), 'the expiry refresh still landed');
+  assert.equal(out.record.expires_at, db.store.email_reply_tokens[0].expires_at);
+  assert.equal(out.refreshFailed, 'binding');
+});
+
+test('C4-4 a still-valid token is NEVER revoked because a refresh write failed', async () => {
+  const db = memorySupabase();
+  const first = await serviceFor(db).issue(PAIR);
+  await serviceFor(failingWrites(db, { failExpiry: true, failBinding: true })).issue({ ...PAIR, bindingId: 'bind-late' });
+
+  const rows = db.store.email_reply_tokens;
+  assert.equal(rows.length, 1, 'no replacement token may be minted over a bookkeeping failure');
+  assert.equal(rows[0].revoked_at ?? null, null);
+  assert.equal(hashReplyToken(first.rawToken), rows[0].token_hash, 'the delivered address remains the live credential');
+});
+
+test('C4-5 the failure signal carries no credential and no recipient', async () => {
+  const db = memorySupabase();
+  await serviceFor(db).issue(PAIR);
+  const out = await serviceFor(failingWrites(db, { failExpiry: true })).issue(PAIR);
+  const serialized = JSON.stringify({ refreshPersisted: out.refreshPersisted, refreshFailed: out.refreshFailed, record: out.record });
+  assert.equal(serialized.includes(out.rawToken), false, 'the raw token must never reach an observability field');
+  assert.equal(serialized.includes(out.address), false, 'nor the Reply-To address');
+  assert.equal(serialized.includes('simulated write rejection'), false, 'nor raw provider error text');
+});
+
+test('C4-6 the clean path still reports a persisted refresh', async () => {
+  const db = memorySupabase();
+  let clock = new Date('2026-01-01T00:00:00.000Z');
+  await serviceFor(db, { now: () => clock }).issue(PAIR);
+  clock = new Date('2026-02-01T00:00:00.000Z');
+  const out = await serviceFor(db, { now: () => clock }).issue(PAIR);
+  assert.equal(out.refreshPersisted, true);
+  assert.equal(out.refreshFailed, null);
+  assert.equal(out.record.expires_at, db.store.email_reply_tokens[0].expires_at);
+});

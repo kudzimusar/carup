@@ -44,6 +44,34 @@ function deterministicVariant(campaignId, userId, variants = []) {
   return expanded[digest.readUInt32BE(0) % expanded.length] || active[0];
 }
 
+/**
+ * C5 — the delivery id, derived from the identity that is already deterministic.
+ *
+ * THE DEFECT this closes. `idempotencyKey` is deterministic (`campaign:<id>:<user>:<variant>`) and
+ * `queueNotification` dedupes deterministically, but the delivery id was `randomUUID()`. So when a
+ * run failed AFTER the notification was queued and BEFORE the delivery row was inserted, the retry
+ * found no delivery row, minted a NEW id, and received the already-deduplicated notification whose
+ * payload still carried the OLD one. Brevo was then told `campaign_delivery_id=<old>` while the
+ * deliveries table recorded `<new>`, and provider-side reconciliation could never join the two.
+ *
+ * `communication_campaign_deliveries.id` is `uuid NOT NULL`, so the value has to be a real UUID
+ * rather than a hash string. This is a UUIDv5-shaped derivation: a namespaced digest with the
+ * version and RFC 4122 variant bits set. SHA-256 truncated to 16 bytes is used rather than v5's
+ * SHA-1 — same shape and same determinism, stronger primitive, and nothing here depends on
+ * interoperating with another implementation's v5 output.
+ *
+ * The same logical delivery therefore yields the same id on every attempt, and a different campaign,
+ * recipient, variant or channel yields a different one.
+ */
+export function deterministicCampaignDeliveryId(idempotencyKey) {
+  const digest = createHash('sha256').update(`communication_campaign_delivery:${idempotencyKey}`).digest();
+  const bytes = Buffer.from(digest.subarray(0, 16));
+  bytes[6] = (bytes[6] & 0x0f) | 0x50;
+  bytes[8] = (bytes[8] & 0x3f) | 0x80;
+  const hex = bytes.toString('hex');
+  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
+}
+
 function addCount(target, key, amount = 1) {
   const label = String(key || 'unknown');
   target[label] = Number(target[label] || 0) + amount;
@@ -323,7 +351,9 @@ export class CommunicationCampaignService {
         // The marketing adapter refuses `campaign_context_missing` without it, and provider-side
         // reconciliation looks deliveries up by it — so the id on the wire and the id in the
         // deliveries table have to be the same value, which means it has to exist first.
-        const deliveryId = randomUUID();
+        // C5 — DERIVED, not random, so a retry after a partial failure reuses the same id and the
+        // value on the wire always matches the value reconciliation will look for.
+        const deliveryId = deterministicCampaignDeliveryId(idempotencyKey);
         const queued = await this.notificationService.queueNotification({
           recipientUserId: route.recipientUserId,
           recipientIdentityId: route.recipientIdentityId,

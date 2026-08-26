@@ -68,4 +68,62 @@ CREATE INDEX IF NOT EXISTS idx_vehicles_trust_unannounced
   ON public.vehicles (vin)
   WHERE trust_presentation_announced_fingerprint IS NULL;
 
+-- ---------------------------------------------------------------------------
+-- C3-A — durable database idempotency for the Trust announcement event.
+-- ---------------------------------------------------------------------------
+-- The marker above makes a LOST announcement recoverable. It does not make a REPEATED one harmless,
+-- and those are different failures. If the outbox insert succeeds but the marker write does not,
+-- the next refresh legitimately re-emits — and without a dedupe key that second insert becomes a
+-- second row, a second notification, and a second Email about a Trust change the owner was already
+-- told about.
+--
+-- `communication_domain_event_dedupe_key()` already exists and already derives a key, but only for
+-- marketplace.inquiry.created. Every other event type — including this one — is left with a NULL
+-- dedupe_key, and `idx_domain_events_dedupe_key` is a PARTIAL unique index over NOT NULL keys, so a
+-- NULL key is exempt from it by construction.
+--
+-- The fingerprint is the identity that already exists. `trustPresentationFingerprint()` hashes the
+-- audience-safe projection, so the same material presentation yields the same value and a
+-- timestamp-only recomputation yields no event at all. Reusing it here means the database enforces
+-- exactly the idempotency the producer already reasons about, rather than a second notion of
+-- sameness that could drift from it.
+--
+-- Marketplace behaviour is preserved BYTE-FOR-BYTE: the same branch, the same key format, the same
+-- NULLIF guard. This function is additive.
+CREATE OR REPLACE FUNCTION public.communication_domain_event_dedupe_key()
+RETURNS TRIGGER
+LANGUAGE plpgsql
+SET search_path = public
+AS $$
+DECLARE
+  v_inquiry_id TEXT;
+  v_fingerprint TEXT;
+BEGIN
+  IF NEW.event_type = 'marketplace.inquiry.created' THEN
+    v_inquiry_id := NULLIF(NEW.payload ->> 'inquiryId', '');
+    IF v_inquiry_id IS NOT NULL THEN
+      NEW.dedupe_key := 'marketplace.inquiry.created:' || v_inquiry_id;
+    END IF;
+  ELSIF NEW.event_type = 'vehicle.trust.presentation_changed' THEN
+    -- No fingerprint means no identity. Leaving dedupe_key NULL keeps the row insertable rather
+    -- than rejecting a Trust announcement over a missing idempotency hint — losing the event is a
+    -- worse outcome than repeating it, and the producer will not emit without a fingerprint anyway.
+    v_fingerprint := NULLIF(NEW.payload ->> 'presentation_fingerprint', '');
+    IF v_fingerprint IS NOT NULL THEN
+      NEW.dedupe_key := 'vehicle.trust.presentation_changed:' || v_fingerprint;
+    END IF;
+  END IF;
+  RETURN NEW;
+END;
+$$;
+
+-- The trigger itself is unchanged and already installed by 20260811132100; it is re-asserted here
+-- only so that applying this package to an environment that somehow lacks it is still correct.
+DROP TRIGGER IF EXISTS trg_domain_events_communication_dedupe
+  ON public.domain_events;
+CREATE TRIGGER trg_domain_events_communication_dedupe
+  BEFORE INSERT ON public.domain_events
+  FOR EACH ROW
+  EXECUTE FUNCTION public.communication_domain_event_dedupe_key();
+
 COMMIT;

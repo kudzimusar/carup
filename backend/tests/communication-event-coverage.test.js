@@ -231,3 +231,106 @@ test('seam-E notification policies resolve with required fields and registered t
     assert.ok(COMMUNICATION_EVENT_TYPES.includes(eventType), `${eventType} must be subscribed`);
   }
 });
+
+/**
+ * C1 — "an emitter literal exists" is not enough, and this gate proved it the expensive way.
+ *
+ * All ten SafeTrade events passed the test above from the day they were subscribed. Every one had a
+ * real SQL emitter, and every one was silently dropped in production, because the check answered
+ * "is this event EMITTED?" when the question that matters is "does emitting it actually reach a
+ * customer?". A subscription whose events can never be addressed is dead code with a green test.
+ *
+ * So the gate now also asks, for the governed families where it is decidable statically:
+ *
+ *   emittable  -> a real emitter exists                      (the test above)
+ *   addressable -> a recipient can be resolved for it        (payload carries one, or an adapter
+ *                                                             resolves one from canonical authority)
+ *   canonicalizable -> a policy exists that names a template and classification
+ *
+ * It deliberately does not attempt to prove renderability here — that needs real payloads and lives
+ * in the per-reference suites. This is the blind spot C1 exposed, not a general framework.
+ */
+
+/**
+ * Every payload key of every `INSERT INTO domain_events ... jsonb_build_object(...)` in one SQL
+ * source, matched by BALANCED PARENTHESES so nested calls like `btrim(p_provider)` do not truncate
+ * the scan.
+ */
+function domainEventPayloadKeys(source) {
+  const keys = [];
+  const re = /INSERT\s+INTO\s+(?:public\.)?domain_events/gi;
+  let match = re.exec(source);
+  while (match) {
+    const after = source.slice(match.index);
+    const jb = after.indexOf('jsonb_build_object(');
+    if (jb !== -1 && jb < 2000) {
+      const open = jb + 'jsonb_build_object('.length;
+      let depth = 1;
+      let i = open;
+      for (; i < after.length && depth > 0; i += 1) {
+        if (after[i] === '(') depth += 1;
+        else if (after[i] === ')') depth -= 1;
+      }
+      const body = after.slice(open, i - 1);
+      let level = 0;
+      let expectKey = true;
+      for (const token of body.match(/'[^']*'|[(),]|[^,()]+/g) || []) {
+        if (token === '(') { level += 1; continue; }
+        if (token === ')') { level -= 1; continue; }
+        if (token === ',') { if (level === 0) expectKey = !expectKey; continue; }
+        if (level === 0 && expectKey && /^'[A-Za-z_]+'$/.test(token.trim())) keys.push(token.trim().slice(1, -1));
+      }
+    }
+    match = re.exec(source);
+  }
+  return keys;
+}
+
+test('C1 GATE: every subscribed event is ADDRESSABLE, not merely emittable', async () => {
+  const { NOTIFICATION_POLICIES } = await import('../services/communication/communicationNotificationService.js');
+  const { SAFETRADE_ADAPTED_EVENT_TYPES } = await import('../services/communication/adapters/safeTradeDomainEventAdapter.js');
+
+  // The recipient keys queueFromDomainEvent will accept straight off a payload.
+  const RECIPIENT_KEYS = /recipientUserId|recipient_user_id|userId|user_id|buyerId|buyer_id|sellerId|seller_id/;
+
+  const unaddressable = [];
+  for (const eventType of COMMUNICATION_EVENT_TYPES) {
+    // An adapter that resolves participants from canonical authority makes the event addressable
+    // even though its emitter carries no principal. That is exactly the SafeTrade case.
+    if (SAFETRADE_ADAPTED_EVENT_TYPES.has(eventType)) continue;
+
+    // Otherwise SOME emitter of this event must put a recipient on the payload. For SQL emitters we
+    // check the emitting migration; for JS emitters, the emitting file.
+    const escaped = eventType.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const literal = new RegExp(`['"\x60]${escaped}['"\x60]`);
+    // The PAYLOAD keys, not "the file mentions buyer_id somewhere". The SafeTrade session migration
+    // contains `p_actor_id=v_tx.buyer_id` in its permission guard, so a file-level scan calls it
+    // addressable when the emitted payload carries no principal at all — the very illusion this
+    // gate exists to destroy.
+    const sqlCarriesRecipient = migrationSources.some((source) => literal.test(source)
+      && domainEventPayloadKeys(source).some((key) => RECIPIENT_KEYS.test(key)));
+    const jsCarriesRecipient = scannedFiles.some(({ source }) => emitterRegexFor(eventType).test(source)
+      && RECIPIENT_KEYS.test(source));
+    // Conversation-canonicalised events are addressed by the conversation service, not by payload.
+    const conversationRouted = eventType === 'marketplace.inquiry.created';
+    if (!sqlCarriesRecipient && !jsCarriesRecipient && !conversationRouted) unaddressable.push(eventType);
+  }
+
+  assert.deepEqual(unaddressable, [],
+    `subscribed but UNADDRESSABLE — these would be emitted and silently dropped: ${unaddressable.join(', ')}`);
+
+  // ...and every subscribed type must have a policy that can actually canonicalize it.
+  const uncanonicalizable = COMMUNICATION_EVENT_TYPES.filter((eventType) => {
+    const policy = NOTIFICATION_POLICIES[eventType];
+    return !policy || !policy.templateKey || !policy.classification;
+  });
+  assert.deepEqual(uncanonicalizable, [],
+    `subscribed but with no governed policy/template/classification: ${uncanonicalizable.join(', ')}`);
+});
+
+test('C1 GATE: an event adapted by the SafeTrade adapter must actually BE subscribed', async () => {
+  const { SAFETRADE_ADAPTED_EVENT_TYPES } = await import('../services/communication/adapters/safeTradeDomainEventAdapter.js');
+  const subscribed = new Set(COMMUNICATION_EVENT_TYPES);
+  const orphaned = [...SAFETRADE_ADAPTED_EVENT_TYPES].filter((e) => !subscribed.has(e));
+  assert.deepEqual(orphaned, [], `adapted but not subscribed — the adapter would never run: ${orphaned.join(', ')}`);
+});

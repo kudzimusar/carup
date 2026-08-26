@@ -12,6 +12,7 @@ import {
   describableSafeTradeStatuses,
   stagePresentation,
 } from '../services/communication/emailExperience/referenceSafeTradeTransaction.js';
+import { normalizeSafeTradeDomainEvent } from '../services/communication/adapters/safeTradeDomainEventAdapter.js';
 import { renderEmailForNotification } from '../services/communication/emailExperience/renderEmail.js';
 
 /**
@@ -216,12 +217,25 @@ test('D3 the LIVE notification service carries the reference onto the queued pay
     templateService: { render: async () => ({ subject: 'S', body: 'B', templateKey: 'safetrade_transaction_v1', data: {} }) },
   });
 
-  await service.queueFromDomainEvent({
-    id: 'evt-r4', event_type: 'MARKETPLACE_RELEASE_APPROVED',
-    payload: {
-      recipientUserId: 'u-1',
-      session: { transaction_intent_id: 'FIXTURE-TXN-0003', vin: 'FIXTUREVIN0000003', status: 'release_approved' },
+  // C1 — this drives the CANONICALIZED payload, i.e. the shape the SafeTrade adapter produces,
+  // not a payload invented here. The earlier version of this test passed `recipientUserId: 'u-1'`
+  // and a `session` object directly to queueFromDomainEvent; no SQL emitter produces either, so it
+  // proved the policy worked on a shape that never occurs while all ten real events were being
+  // dropped in production. The REAL emitter dialect -> recipient -> R4 chain is proven in
+  // backend/tests/email-reference-r4-safetrade-real-emitter.test.js, which parses the payload keys
+  // out of the emitter SQL so it cannot drift. What remains here is the policy/reference assertion.
+  const adapted = await normalizeSafeTradeDomainEvent({
+    eventType: 'MARKETPLACE_RELEASE_APPROVED',
+    payload: { transactionIntentId: 'FIXTURE-TXN-0003', vin: 'FIXTUREVIN0000003', fromStatus: 'inspection_pending', toStatus: 'release_approved' },
+    repository: {
+      findOne: async (table, filters) => (table === 'escrow_trust_sessions' && filters.id === 'FIXTURE-TXN-0003'
+        ? { id: 'FIXTURE-TXN-0003', vin: 'FIXTUREVIN0000003', status: 'release_approved', tenant_id: 'platform', buyer_id: 'u-1', seller_id: null }
+        : null),
     },
+  });
+  assert.equal(adapted.events.length, 1);
+  await service.queueFromDomainEvent({
+    id: 'evt-r4', event_type: 'MARKETPLACE_RELEASE_APPROVED', payload: adapted.events[0].payload,
   });
 
   assert.equal(rows.length, 1);
