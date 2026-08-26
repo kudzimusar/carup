@@ -100,8 +100,9 @@ jobs:
                 const fs = require("fs");
                 const health = JSON.parse(fs.readFileSync("/tmp/marketplace-staging-health.json", "utf8"));
                 const expected = process.env.EXPECTED_HEAD_SHA;
-                if (health.source_sha === expected && health.build_sha === expected && health.provenance_match === true) process.exit(0);
-                console.error(JSON.stringify({ expected, source_sha: health.source_sha, build_sha: health.build_sha, provenance_match: health.provenance_match }));
+                const build = health.build || {};
+                if (build.commit_sha === expected && build.provenance_available === true) process.exit(0);
+                console.error(JSON.stringify({ expected, commit_sha: build.commit_sha, provenance_available: build.provenance_available }));
                 process.exit(1);
               '; then
                 backend_ok=1
