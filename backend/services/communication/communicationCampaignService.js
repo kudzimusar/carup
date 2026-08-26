@@ -197,8 +197,17 @@ export class CommunicationCampaignService {
       return { allowed: true, recipientUserId: user.id, recipientIdentityId: null, provider: null, payload: {} };
     }
 
-    const identities = await this.repository.list('channel_identities', { user_id: user.id, channel: campaign.channel }, { limit: 20 }).catch(() => []);
-    const identity = identities
+    // G3. This used to be `.catch(() => [])`, which is a fail-open with an ACTIVE FALLBACK — worse
+    // than a bare one. A `channel_identities` fault did not merely skip the opted_out/revoked and
+    // verified filters below; it then substituted `user.email` and mailed marketing to an address
+    // whose channel identity may say opted_out. Failing to read consent is not consent.
+    let identities;
+    try {
+      identities = await this.repository.list('channel_identities', { user_id: user.id, channel: campaign.channel }, { limit: 20 });
+    } catch (_error) {
+      return { allowed: false, reason: 'channel_consent_state_unavailable', prefs };
+    }
+    const identity = (identities || [])
       .filter((row) => !['opted_out', 'revoked'].includes(row.consent_status))
       .filter((row) => row.verified !== false)
       .sort((a, b) => (Date.parse(b.last_seen_at || b.updated_at || 0) || 0) - (Date.parse(a.last_seen_at || a.updated_at || 0) || 0))[0] || null;
@@ -310,6 +319,11 @@ export class CommunicationCampaignService {
             campaignId: campaign.id,
           });
         }
+        // Mint the delivery id BEFORE queueing, not when the row is written below.
+        // The marketing adapter refuses `campaign_context_missing` without it, and provider-side
+        // reconciliation looks deliveries up by it — so the id on the wire and the id in the
+        // deliveries table have to be the same value, which means it has to exist first.
+        const deliveryId = randomUUID();
         const queued = await this.notificationService.queueNotification({
           recipientUserId: route.recipientUserId,
           recipientIdentityId: route.recipientIdentityId,
@@ -326,7 +340,14 @@ export class CommunicationCampaignService {
           dedupeParts: ['campaign', campaign.id, user.id, variant?.key || 'control', campaign.channel],
           payload: {
             ...route.payload,
+            // The governed classification, carried onto the payload the transport layer actually
+            // reads. It lived only on the campaign row, so every marketing safeguard keyed on
+            // `payload.classification` — provider routing, send-time consent, the unsubscribe
+            // requirement, the fail-closed marketing adapter — was unreachable from a real
+            // campaign. Implemented is not the same as wired.
+            classification: campaign.classification || 'marketing',
             campaign_id: campaign.id,
+            campaign_delivery_id: deliveryId,
             campaign_code: campaign.campaign_code,
             variant: variant?.key || 'control',
             attribution: campaign.attribution || {},
@@ -335,7 +356,7 @@ export class CommunicationCampaignService {
           },
         });
         await this.repository.insert('communication_campaign_deliveries', {
-          id: randomUUID(), campaign_id: campaign.id, tenant_id: campaign.tenant_id || null, user_id: user.id,
+          id: deliveryId, campaign_id: campaign.id, tenant_id: campaign.tenant_id || null, user_id: user.id,
           participant_id: participant?.id || null, thread_id: thread.id, message_id: queued.message?.id || null,
           notification_id: queued.notification?.id == null ? null : String(queued.notification.id),
           channel: campaign.channel, variant_key: variant?.key || 'control', idempotency_key: idempotencyKey,

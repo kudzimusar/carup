@@ -85,8 +85,20 @@ test('FALLBACK: the descriptor survives intact', () => {
 
 // ---------- C. the HTML boundary escapes ONCE ----------
 
+/**
+ * Send a marketing body through the real chain and return the payload that reached the wire.
+ *
+ * G3 moved HTML synthesis out of the Brevo adapter: the Email Experience presentation authority
+ * composes finished content, and transport validates and passes it through. The HTML boundary these
+ * tests exercise therefore lives in `marketingUnsubscribePresentation.js` now — the boundary moved,
+ * the contract did not. Composing here keeps this an end-to-end assertion about what a customer
+ * actually receives, rather than a unit test of whichever module currently owns the escaping.
+ */
 async function synthesizedHtml(text, unsubscribeUrl = 'https://carup.dev/api/communications/unsubscribe?token=t') {
   const { BrevoMarketingAdapter } = await import('../services/communication/adapters/providerAdapters.js');
+  const { applyMarketingUnsubscribePresentation } = await import('../services/communication/emailExperience/marketingUnsubscribePresentation.js');
+  const composed = applyMarketingUnsubscribePresentation({ text, unsubscribeUrl });
+
   let captured = null;
   const adapter = new BrevoMarketingAdapter({
     env: { BREVO_API_KEY: 'k', BREVO_FROM_EMAIL: 'news@marketing.carup.dev' },
@@ -98,14 +110,17 @@ async function synthesizedHtml(text, unsubscribeUrl = 'https://carup.dev/api/com
   const result = await adapter.send({
     content: {
       subject: 'S',
-      body: text,
+      body: composed.text,
+      html: composed.html,
       data: {
         classification: 'marketing', email: 'x@example.test',
         campaign_id: 'c', campaign_delivery_id: 'd',
         unsubscribe_url: unsubscribeUrl,
+        unsubscribe_presentation: composed.provenance,
       },
     },
   });
+  if (!captured) throw new Error(`no provider call was made: ${result.errorCode}`);
   return { ...captured, receipt: result.providerMetadata };
 }
 

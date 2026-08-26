@@ -2,6 +2,13 @@ import { createDefaultAdapterRegistry } from './adapters/providerAdapters.js';
 import { COMMUNICATION_EVENTS, calculateBackoffMs, classifyError, normalizeChannel, nowIso } from './communicationUtils.js';
 import { COMMUNICATION_AUDIT_EVENTS, logCommunicationAuditEvent } from './communicationAuditLog.js';
 import { RECIPIENT_RESOLUTION_REASONS, resolveNotificationRecipient } from './emailExperience/recipientResolution.js';
+import { applyMarketingUnsubscribePresentation } from './emailExperience/marketingUnsubscribePresentation.js';
+import {
+  MARKETING_CONSENT_DISPOSITIONS,
+  MARKETING_CONSENT_STATES,
+  MARKETING_CONSENT_UNAVAILABLE_CODE,
+  evaluateMarketingConsent,
+} from './marketingConsentState.js';
 
 /** Channels whose delivery requires an external address the platform must resolve. */
 const ADDRESS_REQUIRED_CHANNELS = new Set(['email', 'sms', 'whatsapp']);
@@ -47,22 +54,19 @@ export class CommunicationDeliveryWorker {
   }
 
   /**
-   * Canonical suppression check for a marketing notification, evaluated at SEND time.
+   * Canonical marketing consent, evaluated at SEND time against the G0-resolved address.
    *
-   * Scoped to marketing (and 'all'): an unsubscribe from marketing must never block security, auth
-   * or transactional Email. Returns the suppression reason, or null when the send may proceed.
+   * Delegates to `marketingConsentState.js` — the single consent authority — and never decides
+   * anything itself. Scoped to marketing (and 'all'): an unsubscribe from marketing must never block
+   * security, auth or transactional Email.
    */
-  async marketingSuppressionFor(notification) {
-    const classification = String(notification?.payload?.classification || '').toLowerCase();
-    if (classification !== 'marketing') return null;
-    const channel = normalizeChannel(notification.channel) || notification.channel;
-    const address = String(
-      notification?.payload?.email || notification?.payload?.address || notification?.payload?.to || '',
-    ).trim().toLowerCase();
-    if (!address) return null;
-    const rows = await this.repository.list('communication_suppressions', { channel, address });
-    const active = (rows || []).find((row) => !row.released_at && ['marketing', 'all'].includes(row.scope));
-    return active ? active.reason : null;
+  async marketingConsentFor(notification, address) {
+    return evaluateMarketingConsent({
+      notification,
+      repository: this.repository,
+      channel: normalizeChannel(notification.channel) || notification.channel,
+      address,
+    });
   }
 
   async deliverNotification(notification, { alreadyClaimed = false } = {}) {
@@ -115,12 +119,56 @@ export class CommunicationDeliveryWorker {
     // notification_queue directly — a backfill, a script, a future code path — would sail past it and
     // mail somebody who has unsubscribed. That is the one failure mode a consent system must not
     // have, so the check is repeated here, immediately before dispatch, against canonical state.
-    const suppression = await this.marketingSuppressionFor(notification).catch(() => null);
-    if (suppression) {
+    //
+    // G3 — and it FAILS CLOSED. This call used to end in `.catch(() => null)`, which made a database
+    // timeout, a dropped connection, a missing table and a revoked grant all indistinguishable from
+    // "not suppressed". Every way of failing to KNOW whether someone had unsubscribed was converted
+    // into permission to mail them. UNKNOWN CONSENT STATE IS NOT PERMISSION.
+    const consent = await this.marketingConsentFor(notification, resolved.address);
+    if (consent.state === MARKETING_CONSENT_STATES.SUPPRESSED) {
       return this.markDeadLetter(notification, {
         errorCode: 'recipient_suppressed',
-        errorMessage: `Recipient is suppressed in canonical CarUp consent state (${suppression}); refusing to send marketing.`,
+        errorMessage: `Recipient is suppressed in canonical CarUp consent state (${consent.reason}); refusing to send marketing.`,
       });
+    }
+    if (consent.state === MARKETING_CONSENT_STATES.UNAVAILABLE) {
+      // Reported as ITSELF, never folded into recipient_suppressed. Recording a fault of ours as a
+      // customer's unsubscribe would put a decision in the audit trail that nobody made.
+      const failure = {
+        errorCode: `${MARKETING_CONSENT_UNAVAILABLE_CODE}:${consent.disposition}`,
+        errorMessage: `Canonical marketing consent state could not be established (${consent.detail}); refusing to send marketing.`,
+      };
+      return consent.disposition === MARKETING_CONSENT_DISPOSITIONS.TRANSIENT
+        ? this.markRetry(notification, failure)
+        : this.markDeadLetter(notification, failure);
+    }
+
+    // Prepare compliant content BEFORE dispatch.
+    //
+    // G3 moved the visible unsubscribe control out of the Brevo adapter, which used to author it
+    // inside the same function that called the provider. Composition belongs here, ahead of
+    // transport, so the adapter can validate content it did not write. G2's canonical renderer
+    // replaces this call site; the ordering it sits in does not change.
+    //
+    // Marketing only. A security, conversational, transactional or service Email must never acquire
+    // a marketing unsubscribe footer merely because it shares a provider or a component.
+    let preparedBody = notification.message || '';
+    let preparedHtml = notification.payload?.html || null;
+    let unsubscribePresentation = null;
+    const classification = String(notification.payload?.classification || '').toLowerCase();
+    if (classification === 'marketing' && notification.payload?.unsubscribe_url) {
+      const presentation = applyMarketingUnsubscribePresentation({
+        html: preparedHtml,
+        text: preparedBody,
+        unsubscribeUrl: notification.payload.unsubscribe_url,
+      });
+      if (presentation.ok) {
+        preparedBody = presentation.text;
+        preparedHtml = presentation.html;
+        unsubscribePresentation = presentation.provenance;
+      }
+      // A composition that cannot produce a control is NOT silently sent: the adapter refuses
+      // unfinished marketing content independently, so this needs no second refusal here.
     }
 
     const attemptNumber = alreadyClaimed ? Number(notification.attempt_count || 1) : Number(notification.attempt_count || 0) + 1;
@@ -152,8 +200,11 @@ export class CommunicationDeliveryWorker {
         },
         content: {
           subject: notification.title,
-          body: notification.message || '',
-          data: notification.payload || {},
+          body: preparedBody,
+          ...(preparedHtml ? { html: preparedHtml } : {}),
+          data: unsubscribePresentation
+            ? { ...(notification.payload || {}), unsubscribe_presentation: unsubscribePresentation }
+            : (notification.payload || {}),
         },
         idempotencyKey: notification.dedupe_key,
         correlationId: notification.event_id || notification.id,

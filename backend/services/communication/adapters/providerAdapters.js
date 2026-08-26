@@ -1,6 +1,11 @@
 import crypto from 'crypto';
 import { FakeCommunicationAdapter } from './fakeCommunicationAdapter.js';
 import { renderAuthEmail } from '../authEmailTemplates.js';
+import {
+  assertNoMarketingUnsubscribePresentation,
+  unsubscribeHrefFor,
+  validateMarketingUnsubscribePresentation,
+} from '../emailExperience/marketingUnsubscribePresentation.js';
 
 const DEFAULT_TIMEOUT_MS = 10_000;
 
@@ -61,37 +66,13 @@ function emailHtml(input) {
   return input?.content?.html || input?.content?.data?.html || null;
 }
 
-function escapeHtmlText(value) {
-  return String(value == null ? '' : value)
-    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
-}
-
-/** Visible, actionable unsubscribe footer for the plain-text part of a marketing Email. */
-function appendUnsubscribeText(text, unsubscribeUrl) {
-  const body = String(text || '').trim();
-  return `${body}\n\n—\nDon't want CarUp marketing email? Unsubscribe here:\n${unsubscribeUrl}\n\nYou will still receive essential account, security and transaction email.`;
-}
-
-/**
- * Visible, actionable unsubscribe footer for the HTML part.
- *
- * When a template supplies no HTML, one is built from the plain text rather than omitting the HTML
- * part — a text-only marketing message has nowhere to put a clickable control.
+/*
+ * G3 — the visual unsubscribe footer used to be authored HERE, by three functions that mutated
+ * outgoing marketing content on its way to the provider. That is gone. Customer-facing copy is not
+ * a transport concern, and a component that adds an unsubscribe block cannot also be trusted to
+ * detect a duplicate one. The Brevo adapter now VALIDATES finished content and passes it through
+ * unchanged; `emailExperience/marketingUnsubscribePresentation.js` owns what the reader sees.
  */
-function appendUnsubscribeHtml(html, fallbackText, unsubscribeUrl) {
-  const href = escapeHtmlText(unsubscribeUrl);
-  const footer = `<div style="margin-top:28px;padding-top:16px;border-top:1px solid #e2e8f0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;font-size:13px;line-height:1.6;color:#475569;">`
-    + `<p style="margin:0 0 8px;">You are receiving this because you opted in to CarUp marketing email.</p>`
-    + `<p style="margin:0;"><a href="${href}" style="color:#C2410C;font-weight:600;text-decoration:underline;">Unsubscribe from CarUp marketing email</a></p>`
-    + `<p style="margin:8px 0 0;color:#64748b;">You will still receive essential account, security and transaction email.</p>`
-    + `</div>`;
-  if (html) return `${html}${footer}`;
-  const paragraphs = String(fallbackText || '').trim().split(/\n{2,}/)
-    .map((p) => `<p style="margin:0 0 14px;">${escapeHtmlText(p).replace(/\n/g, '<br>')}</p>`)
-    .join('');
-  return `<div style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;font-size:15px;line-height:1.6;color:#0f172a;">${paragraphs}${footer}</div>`;
-}
 
 /**
  * Render branded auth/security HTML for a notification that names an auth template.
@@ -357,6 +338,20 @@ export class ResendEmailAdapter extends HttpCommunicationAdapter {
     const html = resolveAuthHtml(input) || emailHtml(input);
     if (html) body.html = html;
 
+    // The exactly-one contract, read in the other direction. Resend carries every NON-marketing
+    // family, and none of them may present a marketing unsubscribe control: it would offer a reader
+    // an opt-out from security mail that does not exist, and a client honouring one-click could act
+    // on it. Refused rather than stripped — silently rewriting content is the behaviour G3 removed.
+    const notPermitted = assertNoMarketingUnsubscribePresentation({ html: body.html, text: body.text });
+    if (!notPermitted.ok) {
+      return {
+        accepted: false,
+        retryable: false,
+        errorCode: notPermitted.errorCode,
+        errorMessage: notPermitted.errorMessage,
+      };
+    }
+
     const replyTo = input?.content?.data?.reply_to || envValue(this.env, 'RESEND_REPLY_TO');
     if (replyTo) body.reply_to = replyTo;
 
@@ -447,35 +442,63 @@ export class BrevoMarketingAdapter extends HttpCommunicationAdapter {
     }
     const unsubscribeMailto = data.unsubscribe_mailto || null;
 
+    // TRANSPORT COMPLIANCE. RFC 8058: the https URI is the one-click target; the mailto is the
+    // fallback for clients that only understand the original RFC 2369 form. These headers are a
+    // MIME/provider concern and stay adapter-owned — unlike the visible control, which does not.
+    const listUnsubscribeHeader = unsubscribeMailto
+      ? `<${unsubscribeUrl}>, <mailto:${unsubscribeMailto}>`
+      : `<${unsubscribeUrl}>`;
+    // Read the https target back OUT of the header that was actually built, rather than reusing the
+    // variable that went in. The visible href, the plain-text URL and the transport target are one
+    // identity; checking the header against itself would prove nothing about that.
+    const headerHttpsTarget = (listUnsubscribeHeader.match(/<(https?:\/\/[^>]+)>/) || [])[1] || null;
+
+    // Content arrives FINISHED. The adapter validates the exactly-one contract and refuses, but adds
+    // nothing visible. Deliberately independent of the composer: it counts what is in this payload,
+    // so a hand-built send, a future renderer, or a caller that skipped composition entirely is
+    // refused on the same terms. This is the defence-in-depth choke point E7 established.
+    const textContent = textBody(input);
+    const htmlContent = emailHtml(input);
+    const presentation = validateMarketingUnsubscribePresentation({
+      html: htmlContent,
+      text: textContent,
+      unsubscribeUrl,
+      headerUrl: headerHttpsTarget,
+      provenance: data.unsubscribe_presentation || null,
+    });
+    if (!presentation.ok) {
+      return {
+        accepted: false,
+        retryable: false,
+        errorCode: presentation.errorCode,
+        errorMessage: presentation.errorMessage,
+      };
+    }
+
     const headers = jsonHeaders({ 'api-key': envValue(this.env, 'BREVO_API_KEY'), accept: 'application/json' });
     const body = {
       sender: this.senderFrom(),
       to: [{ email: to }],
       subject: subjectText(input, 'CarUp'),
-      textContent: appendUnsubscribeText(textBody(input), unsubscribeUrl),
+      // Pass-through. No footer, no wrapper, no rewriting.
+      textContent,
+      htmlContent,
       // Every provider object maps back to canonical CarUp identifiers.
       tags: [`campaign:${campaignId}`, `delivery:${campaignDeliveryId}`],
       headers: {
         'X-CarUp-Campaign-Id': String(campaignId),
         'X-CarUp-Campaign-Delivery-Id': String(campaignDeliveryId),
         'X-CarUp-Notification-Id': String(input.notificationId || ''),
-        // RFC 8058. The https URI is the one-click target; the mailto is the fallback for clients
-        // that only understand the original RFC 2369 form.
-        'List-Unsubscribe': unsubscribeMailto
-          ? `<${unsubscribeUrl}>, <mailto:${unsubscribeMailto}>`
-          : `<${unsubscribeUrl}>`,
+        'List-Unsubscribe': listUnsubscribeHeader,
         'List-Unsubscribe-Post': 'List-Unsubscribe=One-Click',
       },
     };
-    // Always send an HTML part for marketing: a text-only body cannot render an actionable control,
-    // which is precisely how the defect above reached a real inbox.
-    body.htmlContent = appendUnsubscribeHtml(emailHtml(input), textBody(input), unsubscribeUrl);
     // The receipt below must look for the href AS THE HTML CARRIES IT. The URL is escaped once on
     // the way into the anchor, so searching for the raw URL only happens to match while the token
     // is the sole query parameter. Add a second one and `&` becomes `&amp;`, and the receipt would
     // report a missing unsubscribe control that is in fact present — a compliance receipt lying in
     // the direction that looks like a violation.
-    const unsubscribeHref = escapeHtmlText(unsubscribeUrl);
+    const unsubscribeHref = unsubscribeHrefFor(unsubscribeUrl);
 
     const response = await this.requestJson('https://api.brevo.com/v3/smtp/email', { headers, body });
     if (!response.ok) return this.providerFailure(response);
@@ -490,6 +513,9 @@ export class BrevoMarketingAdapter extends HttpCommunicationAdapter {
       // Without this, "did the delivered message actually carry a visible unsubscribe action?" can
       // only be inferred from the code that was *believed* to be running — and that inference was
       // physically wrong once, when an older deployment executed the send.
+      //
+      // Every field below is computed from `body` — the object handed to the provider — never from
+      // what this code was supposed to have done.
       providerMetadata: {
         marketing_unsubscribe_url_present: true,
         marketing_html_part_sent: typeof body.htmlContent === 'string' && body.htmlContent.length > 0,
@@ -499,6 +525,12 @@ export class BrevoMarketingAdapter extends HttpCommunicationAdapter {
           && body.textContent.includes(unsubscribeUrl),
         list_unsubscribe_header_sent: Boolean(body.headers?.['List-Unsubscribe']),
         list_unsubscribe_post_header_sent: body.headers?.['List-Unsubscribe-Post'] === 'List-Unsubscribe=One-Click',
+        // G3: the exactly-one contract, and the fact that transport added nothing visible.
+        marketing_unsubscribe_blocks: presentation.counts?.markers ?? null,
+        marketing_unsubscribe_presentation_validated: true,
+        marketing_content_unmodified_by_transport:
+          body.textContent === textBody(input) && body.htmlContent === emailHtml(input),
+        list_unsubscribe_target_matches_visible_url: body.headers?.['List-Unsubscribe']?.includes(`<${unsubscribeUrl}>`) === true,
       },
     };
   }

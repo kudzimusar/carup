@@ -293,11 +293,22 @@ export class CommunicationNotificationService {
     if (channel === 'in_app') return null;
     const address = String(input.recipientAddress || input.address || input.email || '').trim().toLowerCase();
     if (!address) return null;
-    const scopes = input.transactional === false ? ['marketing', 'all'] : ['all'];
-    const rows = await this.repository.list('communication_suppressions', {
-      channel,
-      address,
-    }).catch(() => []);
+    const marketing = input.transactional === false;
+    const scopes = marketing ? ['marketing', 'all'] : ['all'];
+    let rows;
+    try {
+      rows = await this.repository.list('communication_suppressions', { channel, address });
+    } catch (error) {
+      // G3. This used to be `.catch(() => [])`, which turned every failure to ESTABLISH consent
+      // state into "not suppressed" — the same fail-open the send-time gate had.
+      //
+      // Fail closed for MARKETING only, and deliberately not for anything else: holding a password
+      // reset because a suppression lookup timed out would lock someone out of their account over a
+      // consent question that does not apply to security mail. Marketing is refused here and again
+      // at send time by `marketingConsentState.js`, which is the authoritative gate.
+      if (marketing) return 'suppressed_consent_state_unavailable';
+      return null;
+    }
     const active = (rows || []).find((row) => !row.released_at && scopes.includes(row.scope));
     return active ? `suppressed_${active.reason}` : null;
   }
