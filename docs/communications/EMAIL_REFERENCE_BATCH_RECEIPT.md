@@ -9,7 +9,7 @@ Branch `feat/email-experience-design-system-1-0-implementation`, starting from `
 | G7 | R1 Leadership Welcome | `f1be1dd8` | complete |
 | G8 | R3 Marketplace Conversation | `2fc2323a` | complete |
 | G9 | R4 SafeTrade Transaction | `498c9acf` (+ `da3853e6`) | complete |
-| G10 | R5 Vehicle Passport / Trust | `ecc7ebf1` | **STOPPED — `R5_PRODUCER_GAP`** |
+| G10 | R5 Vehicle Passport / Trust | `ecc7ebf1` gap → `801d30cc` **closed** | complete |
 | G11 | R6 CarUp Weekly | `591e6f62` | complete |
 
 R2 was completed earlier at G6 (`baf82319`) and is included in the preview pack.
@@ -19,24 +19,24 @@ R2 was completed earlier at G6 (`baf82319`) and is included in the preview pack.
 `emailExperience/emailTemplateRegistry.js`. Not a competing template database —
 `communication_templates` remains the approval authority for governed sends.
 
-| | R1 | R2 | R3 | R4 | R6 |
-|---|---|---|---|---|---|
-| template key | `leadership_welcome_v1` | `auth_password_reset_v1` | `marketplace_conversation_v1` | `safetrade_transaction_v1` | `carup_weekly_v1` |
-| version | 1 | 1 | 1 | 1 | 1 |
-| family | leadership | security | conversational | transactional | marketing |
-| classification | transactional | security | conversational | transactional | marketing |
-| sender persona | `carup_notifications` | `carup_security` | `carup_conversations` | `carup_notifications` | `carup_weekly` |
-| transport | resend | resend | resend | resend | **brevo** |
-| workflow | account_lifecycle | authentication | marketplace | safetrade | growth |
-| recipient role | account_holder | account_holder | conversation_participant | transaction_party | marketing_subscriber |
-| consent | none_lifecycle | none_security | none_conversation | none_lifecycle | **marketing_opt_in** |
-| regulated data | not_applicable | minimise | minimise | minimise | not_applicable |
-| primary action | open_marketplace | reset_password | open_conversations | open_journey | browse_marketplace |
-| footer family | transactional | security | transactional | transactional | marketing |
-| media policy | text wordmark | text wordmark | canonical listing media | text wordmark | canonical listing media |
-| leadership | **yes** | no | no | no | no |
+| | R1 | R2 | R3 | R4 | R5 | R6 |
+|---|---|---|---|---|---|---|
+| template key | `leadership_welcome_v1` | `auth_password_reset_v1` | `marketplace_conversation_v1` | `safetrade_transaction_v1` | `vehicle_trust_update_v1` | `carup_weekly_v1` |
+| version | 1 | 1 | 1 | 1 | 1 | 1 |
+| family | leadership | security | conversational | transactional | service | marketing |
+| classification | transactional | security | conversational | transactional | **service** | marketing |
+| sender persona | `carup_notifications` | `carup_security` | `carup_conversations` | `carup_notifications` | `carup_service` | `carup_weekly` |
+| transport | resend | resend | resend | resend | resend | **brevo** |
+| workflow | account_lifecycle | authentication | marketplace | safetrade | vehicle_trust | growth |
+| recipient role | account_holder | account_holder | conversation_participant | transaction_party | **vehicle_owner** | marketing_subscriber |
+| consent | none_lifecycle | none_security | none_conversation | none_lifecycle | none_lifecycle | **marketing_opt_in** |
+| regulated data | not_applicable | minimise | minimise | minimise | minimise | not_applicable |
+| primary action | open_marketplace | reset_password | open_conversations | open_journey | view_vehicle_record | browse_marketplace |
+| footer family | transactional | security | transactional | transactional | transactional | marketing |
+| media policy | text wordmark | text wordmark | canonical listing media | text wordmark | text wordmark | canonical listing media |
+| leadership | **yes** | no | no | no | no | no |
 
-R5 has **no registry entry**, deliberately. A registry entry would assert a template exists.
+All six references are registered.
 
 ## Real producers
 
@@ -46,6 +46,7 @@ R5 has **no registry entry**, deliberately. A registry entry would assert a temp
 | R2 | `authRecoveryRouter.queueAuthEmail` | pre-existing; G6 added the equivalence guard |
 | R3 | `communicationCanonicalConversationService.routeMessage` | carries `reference_template`, excerpt, VIN and the injected public listing summary |
 | R4 | `issue164_transition_session_atomic` + `issue164_record_payment_state_atomic` | **10 events** newly subscribed; all were already emitted and never listened to |
+| R5 | `trustPresentationChangeProducer.emitTrustPresentationChange`, called by `refreshCanonicalTrust` immediately after a successful canonical write | emits `vehicle.trust.presentation_changed` only when the audience-safe projection materially moved AND a current active owner resolves |
 | R6 | `communicationCampaignService.executeCampaign` | unchanged lifecycle: active governed marketing template → approval → execute |
 
 ## Benchmark — honest scores
@@ -54,11 +55,12 @@ Scored against the canonical 100-point benchmark. **No score was inflated to cro
 
 | Reference | Score | Accessibility | Automatic fails | Note |
 |---|---|---|---|---|
-| R1 | **91** | 9/10 | none | The support URL renders as plain text in one paragraph rather than a link — the only thing keeping it off the mid-90s. |
-| R2 | **92** | 9/10 | none | Certified layout, equivalence-guarded on every send. |
-| R3 | **90** | 9/10 | none | Held at 90 by the CTA limitation: no thread deep-link route exists, so the action goes to the conversations surface. |
-| R4 | **90** | 9/10 | none | Deliberately restrained. It could look richer only by carrying financial detail it must not carry. |
-| R6 | **88** | 8/10 | none | **Unchanged from the prototype score, honestly.** Listing URLs render as raw text footnotes rather than links, and the no-media variant is visually plainer than the prototype implied. It has not earned more. |
+| R1 | **92** | 9/10 | none | The uncertified "fastest route" comparative claim is gone; Support is now a descriptive link. |
+| R2 | **93** | 9/10 | none | The footer now carries the real Security and Support destinations G12 built. All 16 equivalence invariants still hold. |
+| R3 | **91** | 9/10 | none | Descriptive "View vehicle record" link replaces the naked URL. Still held below the mid-90s by the CTA limitation: **no thread deep-link route exists**, so the action goes to the conversations surface. |
+| R4 | **91** | 9/10 | none | The action label and destination now agree. Deliberately restrained — it could look richer only by carrying financial detail it must not carry. |
+| R5 | **91** | 9/10 | none | Four canonical states, each visually distinct. No dedicated Passport deep-link route exists, so the action goes to the owner vehicle profile. |
+| R6 | **91** | 9/10 | none | **Raised from 88, and earned.** Editorial dark masthead, accent-bordered cards, descriptive per-vehicle links, real section hierarchy. **No media was faked and no listing invented** — the no-media variant is now a supported design rather than a degraded one. |
 
 **Automatic-fail conditions, all clear across all five:** no broken canonical link · no fabricated
 identity or data · no sensitive overexposure · correct sender and reply-to · exactly one unsubscribe

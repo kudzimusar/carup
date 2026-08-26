@@ -11,7 +11,7 @@
       "sender_persona": "carup_notifications",
       "render_fallback_used": null,
       "auth_equivalence_verified": false,
-      "html_bytes": 7868,
+      "html_bytes": 8113,
       "text_bytes": 1403
     },
     {
@@ -23,8 +23,8 @@
       "sender_persona": "carup_security",
       "render_fallback_used": null,
       "auth_equivalence_verified": true,
-      "html_bytes": 4349,
-      "text_bytes": 683
+      "html_bytes": 4655,
+      "text_bytes": 755
     },
     {
       "id": "R3-marketplace-conversation",
@@ -35,7 +35,7 @@
       "sender_persona": "carup_conversations",
       "render_fallback_used": null,
       "auth_equivalence_verified": false,
-      "html_bytes": 6851,
+      "html_bytes": 7040,
       "text_bytes": 1018
     },
     {
@@ -47,8 +47,8 @@
       "sender_persona": "carup_notifications",
       "render_fallback_used": null,
       "auth_equivalence_verified": false,
-      "html_bytes": 7134,
-      "text_bytes": 959
+      "html_bytes": 7171,
+      "text_bytes": 982
     },
     {
       "id": "R4-safetrade-funds-held",
@@ -59,8 +59,8 @@
       "sender_persona": "carup_notifications",
       "render_fallback_used": null,
       "auth_equivalence_verified": false,
-      "html_bytes": 7086,
-      "text_bytes": 911
+      "html_bytes": 7123,
+      "text_bytes": 934
     },
     {
       "id": "R4-safetrade-sandbox",
@@ -71,8 +71,56 @@
       "sender_persona": "carup_notifications",
       "render_fallback_used": null,
       "auth_equivalence_verified": false,
-      "html_bytes": 7029,
-      "text_bytes": 845
+      "html_bytes": 7066,
+      "text_bytes": 868
+    },
+    {
+      "id": "R5-vehicle-trust-evaluated",
+      "label": "R5 Vehicle Trust — evaluated",
+      "classification": "service",
+      "template_key": "vehicle_trust_update_v1",
+      "footer_family": "transactional",
+      "sender_persona": "carup_service",
+      "render_fallback_used": null,
+      "auth_equivalence_verified": false,
+      "html_bytes": 8789,
+      "text_bytes": 986
+    },
+    {
+      "id": "R5-vehicle-trust-not_evaluated",
+      "label": "R5 Vehicle Trust — not_evaluated",
+      "classification": "service",
+      "template_key": "vehicle_trust_update_v1",
+      "footer_family": "transactional",
+      "sender_persona": "carup_service",
+      "render_fallback_used": null,
+      "auth_equivalence_verified": false,
+      "html_bytes": 8621,
+      "text_bytes": 1030
+    },
+    {
+      "id": "R5-vehicle-trust-stale",
+      "label": "R5 Vehicle Trust — stale",
+      "classification": "service",
+      "template_key": "vehicle_trust_update_v1",
+      "footer_family": "transactional",
+      "sender_persona": "carup_service",
+      "render_fallback_used": null,
+      "auth_equivalence_verified": false,
+      "html_bytes": 8652,
+      "text_bytes": 1046
+    },
+    {
+      "id": "R5-vehicle-trust-unavailable",
+      "label": "R5 Vehicle Trust — unavailable",
+      "classification": "service",
+      "template_key": "vehicle_trust_update_v1",
+      "footer_family": "transactional",
+      "sender_persona": "carup_service",
+      "render_fallback_used": null,
+      "auth_equivalence_verified": false,
+      "html_bytes": 8641,
+      "text_bytes": 1041
     },
     {
       "id": "R6-carup-weekly-no-media",
@@ -83,8 +131,8 @@
       "sender_persona": "carup_weekly",
       "render_fallback_used": null,
       "auth_equivalence_verified": false,
-      "html_bytes": 9813,
-      "text_bytes": 1612
+      "html_bytes": 10167,
+      "text_bytes": 1366
     }
   ]
 }

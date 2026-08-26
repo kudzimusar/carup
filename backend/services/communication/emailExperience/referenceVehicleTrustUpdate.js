@@ -112,7 +112,9 @@ export function buildVehicleTrustUpdateDocument({ payload = {}, classification, 
   const limitations = Array.isArray(trust.known_limitations) ? trust.known_limitations.filter(Boolean) : [];
 
   const blocks = [
-    { type: 'statusList', items: [{ label: presentation.headline, tone: presentation.tone, detail: presentation.detail }] },
+    // The headline only. `bodyText` above already carries the detail, and saying it twice in two
+    // different visual treatments reads as a template that lost track of itself.
+    { type: 'statusList', items: [{ label: presentation.headline, tone: presentation.tone }] },
     {
       type: 'card',
       title: titleParts.length ? titleParts.join(' ') : 'Your vehicle',

@@ -87,11 +87,16 @@ export function buildSafeTradeTransactionDocument({ payload = {}, classification
   const blocks = [
     { type: 'statusList', items: [{ label: stage.headline, tone: stage.tone, detail: stage.detail }] },
     { type: 'card', title: 'SafeTrade journey', subtitle: vin ? `VIN ${vin}` : null, rows },
+    // The label and the destination now agree. It said "Open this journey" and went to the vehicle
+    // listing — there is no SafeTrade journey route in the application, and naming the button after
+    // a page that does not exist is a promise the click cannot keep. The listing IS the strongest
+    // truthful destination, so the action says so.
     {
       type: 'action',
-      label: 'Open this journey on CarUp',
+      label: vin ? 'View this vehicle on CarUp' : 'Open CarUp',
       url: vin ? `${origin}/marketplace/listing/${encodeURIComponent(vin)}` : `${origin}/dashboard/communications`,
     },
+    ...(supportUrl ? [{ type: 'link', prefix: 'Questions about this journey?', label: 'Contact CarUp Support', url: supportUrl }] : []),
     {
       type: 'panel',
       text: stage.sandbox
@@ -107,7 +112,7 @@ export function buildSafeTradeTransactionDocument({ payload = {}, classification
     bodyText: [greeting(payload.recipient_name), '', stage.detail].join('\n'),
     blocks,
     action: null,
-    note: supportUrl ? `Questions about this journey? ${supportUrl}` : null,
+    note: null,
     reasonReceived: 'You are receiving this because you are part of this SafeTrade journey on CarUp.',
     unsubscribeUrl: null,
     safeTradeAssertsFunds: Boolean(stage.assertsFunds),

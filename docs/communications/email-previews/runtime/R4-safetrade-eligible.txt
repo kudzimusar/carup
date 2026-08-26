@@ -13,12 +13,12 @@ Reference: FIXTURE-TXN-0001
 Stage: Eligible for SafeTrade
 Vehicle: VIN FIXTUREVIN0000001
 
-Open this journey on CarUp:
+View this vehicle on CarUp:
 https://carup.dev/marketplace/listing/FIXTUREVIN0000001
 
-CarUp records the stage of a SafeTrade journey. Always confirm payment details on CarUp itself, and never send money to someone because an email asked you to.
+Questions about this journey? Contact CarUp Support: https://carup.dev/support
 
-Questions about this journey? https://carup.dev/support
+CarUp records the stage of a SafeTrade journey. Always confirm payment details on CarUp itself, and never send money to someone because an email asked you to.
 
 —
 

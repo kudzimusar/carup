@@ -104,6 +104,22 @@ ${organisation ? html`<p style="margin:2px 0 0;font-size:13px;line-height:1.6;co
 </div>`;
 }
 
+/**
+ * The editorial masthead — the approved dark direction for CarUp Weekly.
+ *
+ * Still a TEXT wordmark: no logo artwork exists, and a dark band is a design choice rather than a
+ * place to put one. It gives the marketing family a masthead a reader recognises at a glance,
+ * which is what separates an issue of something from a notification that happens to be long.
+ */
+export function editorialMasthead({ title, standfirst = null }) {
+  return html`<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="width:100%;background:${T.INK};border-radius:12px 12px 0 0;">
+<tr><td style="padding:26px 32px;font-family:${safeHtml(EMAIL_FONT_STACK)};">
+<div style="font-size:13px;font-weight:700;letter-spacing:0.14em;text-transform:uppercase;color:#FDBA74;">Car<span style="color:#FFFFFF;">Up</span></div>
+<div style="margin-top:8px;font-size:26px;line-height:1.2;font-weight:800;color:#FFFFFF;letter-spacing:-0.02em;">${title}</div>
+${standfirst ? html`<div style="margin-top:8px;font-size:14px;line-height:1.6;color:#CBD5E1;">${standfirst}</div>` : safeHtml('')}
+</td></tr></table>`;
+}
+
 /** A section heading inside the body, below the h1. */
 export function sectionHeading(text) {
   if (!text) return safeHtml('');
@@ -131,17 +147,18 @@ ${attribution ? html`<p style="margin:8px 0 0;font-size:12px;color:${T.MUTED};">
  * `emailMediaPolicy.js` refuses unapproved assets, and a card with no image is the truthful form
  * rather than a placeholder.
  */
-export function card({ title, subtitle = null, rows = [], imageUrl = null, imageAlt = '', footnote = null }) {
+export function card({ title, subtitle = null, rows = [], imageUrl = null, imageAlt = '', footnote = null, link = null, accent = false }) {
   const cells = joinHtml((rows || []).filter((row) => row && row.label).map((row) => html`<tr>
 <td style="padding:6px 0;font-size:13px;line-height:1.5;color:${T.MUTED};white-space:nowrap;">${row.label}</td>
 <td style="padding:6px 0 6px 16px;font-size:13px;line-height:1.5;color:${T.INK};font-weight:600;">${row.value == null || row.value === '' ? 'Not recorded' : row.value}</td>
 </tr>`));
-  return html`<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="width:100%;border:1px solid ${T.BORDER};border-radius:10px;margin:0 0 16px 0;">
+  return html`<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="width:100%;border:1px solid ${T.BORDER};${accent ? `border-left:3px solid ${T.ACTION};` : ''}border-radius:10px;margin:0 0 20px 0;background:${T.SURFACE};">
 ${imageUrl ? html`<tr><td style="padding:0;"><img src="${imageUrl}" alt="${imageAlt}" width="536" style="display:block;width:100%;max-width:100%;height:auto;border-radius:10px 10px 0 0;"></td></tr>` : safeHtml('')}
 <tr><td style="padding:16px;font-family:${safeHtml(EMAIL_FONT_STACK)};">
 <p style="margin:0;font-size:16px;font-weight:700;line-height:1.35;color:${T.INK};">${title}</p>
 ${subtitle ? html`<p style="margin:4px 0 0;font-size:13px;line-height:1.5;color:${T.MUTED};">${subtitle}</p>` : safeHtml('')}
 ${rows?.length ? html`<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="width:100%;margin-top:12px;">${cells}</table>` : safeHtml('')}
+${link?.label && link?.url ? html`<p style="margin:14px 0 0;font-size:14px;line-height:1.5;"><a href="${link.url}" style="color:${T.ACTION};font-weight:600;text-decoration:underline;">${link.label}</a></p>` : safeHtml('')}
 ${footnote ? html`<p style="margin:12px 0 0;font-size:12px;line-height:1.6;color:${T.MUTED};">${footnote}</p>` : safeHtml('')}
 </td></tr></table>`;
 }
@@ -168,6 +185,18 @@ ${item.detail ? html`<p style="margin:2px 0 0;font-size:13px;line-height:1.55;co
 </td></tr>`);
   if (!rows.length) return safeHtml('');
   return html`<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="width:100%;margin:0 0 16px 0;">${joinHtml(rows)}</table>`;
+}
+
+/**
+ * A descriptive link.
+ *
+ * HTML gets an anchor whose text says where it goes; plain text gets the URL, because a text part
+ * has no anchor to hide it behind. A naked `https://…` in an HTML Email is not more honest — it is
+ * less readable AND less checkable, since a reader cannot see the destination described at all.
+ */
+export function linkLine({ label, url, prefix = null }) {
+  if (!label || !url) return safeHtml('');
+  return html`<p style="margin:0 0 12px 0;font-size:14px;line-height:1.6;color:${T.BODY};font-family:${safeHtml(EMAIL_FONT_STACK)};">${prefix ? html`${prefix} ` : safeHtml('')}<a href="${url}" style="color:${T.ACTION};font-weight:600;text-decoration:underline;">${label}</a></p>`;
 }
 
 export { EMAIL_BRAND_IDENTITY };

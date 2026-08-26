@@ -106,6 +106,32 @@ const REFERENCES = [
       },
     },
   },
+  ...['evaluated', 'not_evaluated', 'stale', 'unavailable'].map((state) => ({
+    id: `R5-vehicle-trust-${state}`,
+    label: `R5 Vehicle Trust — ${state}`,
+    notification: {
+      title: 'Your Vehicle Passport was updated', message: '',
+      payload: {
+        classification: 'service', reference_template: 'vehicle_trust_update',
+        email: 'fixture.owner@fixture.invalid', recipient_name: 'Fixture Owner',
+        vehicle: { year: 2018, make: 'Toyota', model: 'Aqua', mileage: 88000 },
+        trust: {
+          vin: FIXTURE_LISTING.vin,
+          evaluation_state: state,
+          // A score is present on the RECORD for evaluated and stale. Only `evaluated` publishes it —
+          // which is precisely what the stale preview exists to let the owner see.
+          score: state === 'evaluated' || state === 'stale' ? 78 : null,
+          band: state === 'evaluated' || state === 'stale' ? 'moderate' : null,
+          confidence: state === 'evaluated' ? 'medium' : 'not_evaluated',
+          evidence_basis: { governed_facts_total: 7, governed_facts_substantiated: 3, governed_facts_adverse: 0, connected_sources: 1, unbacked_legacy_claims: 0 },
+          calculation_version: 'trust-decision-1.0.0',
+          evaluated_at: '2026-08-26T00:00:00.000Z',
+          known_limitations: ['No live government or partner source is connected for this vehicle yet.'],
+          source: 'cache',
+        },
+      },
+    },
+  })),
   {
     id: 'R6-carup-weekly-no-media',
     label: 'R6 CarUp Weekly — truthful no-media variant',

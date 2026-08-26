@@ -13,12 +13,12 @@ Reference: FIXTURE-TXN-0003
 Stage: Sandbox: funds recorded as held
 Vehicle: VIN FIXTUREVIN0000001
 
-Open this journey on CarUp:
+View this vehicle on CarUp:
 https://carup.dev/marketplace/listing/FIXTUREVIN0000001
 
-This is a sandbox journey used for testing. No real money has moved, and nothing here is a payment record.
+Questions about this journey? Contact CarUp Support: https://carup.dev/support
 
-Questions about this journey? https://carup.dev/support
+This is a sandbox journey used for testing. No real money has moved, and nothing here is a payment record.
 
 —
 

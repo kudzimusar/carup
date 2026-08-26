@@ -54,6 +54,10 @@ function blockToText(block) {
       return [block.name, block.title, block.organisation].filter(Boolean).join('\n') || null;
     case 'action':
       return block.label && block.url ? `${block.label}:\n${block.url}` : null;
+    case 'link':
+      return block.label && block.url
+        ? `${block.prefix ? `${block.prefix} ` : ''}${block.label}: ${block.url}`
+        : null;
     case 'divider':
       return '—';
     default:

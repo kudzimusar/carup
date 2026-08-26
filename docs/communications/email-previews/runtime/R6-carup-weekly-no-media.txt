@@ -2,8 +2,6 @@ CarUp Weekly
 
 Three vehicles we looked at closely this week, and one thing worth knowing before you buy anything with an import history.
 
-CarUp Weekly is edited by people at CarUp — a selection, not an algorithm.
-
 This week on CarUp
 ------------------
 
@@ -12,18 +10,15 @@ Full service history recorded against the vehicle.
 Mileage: 88,000 km
 Asking price: USD 9,500
 Seller: Fixture Motors
-https://carup.dev/marketplace/listing/FIXTUREVIN0000001
 
 2016 Honda Fit
 Import documentation recorded; registration still pending.
 Mileage: 112,000 km
 Asking price: USD 7,200
-https://carup.dev/marketplace/listing/FIXTUREVIN0000002
 
 2020 Nissan Note
 No inspection recorded yet — worth asking about.
 Asking price: USD 11,800
-https://carup.dev/marketplace/listing/FIXTUREVIN0000003
 
 Browse the Marketplace:
 https://carup.dev/marketplace

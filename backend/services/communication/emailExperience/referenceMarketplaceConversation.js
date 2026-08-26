@@ -98,8 +98,9 @@ export function buildMarketplaceConversationDocument({ payload = {}, classificat
       // rather than a fabricated photograph.
       imageUrl: listing?.primary_image_url && listing?.primary_image_state !== 'none' ? listing.primary_image_url : null,
       imageAlt: listing?.primary_image_url ? title : '',
-      footnote: listingUrl ? `View the full record: ${listingUrl}` : null,
+      footnote: null,
     },
+    ...(listingUrl ? [{ type: 'link', label: 'View vehicle record', url: listingUrl }] : []),
     { type: 'action', label: 'Open your CarUp conversations', url: conversationsUrl },
     {
       type: 'panel',

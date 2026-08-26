@@ -11,8 +11,8 @@
  */
 import { EMAIL_BRAND_TOKENS as T, EMAIL_FONT_STACK } from './emailBrandTokens.js';
 import {
-  button, card, divider, heading, masthead, panel, paragraphs, preheader, quote,
-  sectionHeading, signature, statusList,
+  button, card, divider, editorialMasthead, heading, linkLine, masthead, panel, paragraphs,
+  preheader, quote, sectionHeading, signature, statusList,
 } from './emailComponents.js';
 import { renderFooterHtml } from './emailFooters.js';
 import { html, joinHtml, renderHtml, safeHtml } from './emailMarkup.js';
@@ -40,6 +40,7 @@ function renderBlocks(blocks = []) {
       case 'statusList': return statusList(block.items);
       case 'signature': return signature(block);
       case 'divider': return divider();
+      case 'link': return linkLine(block);
       case 'action': return html`<div style="margin:8px 0 16px 0;">${button({ label: block.label, href: block.url })}</div>`;
       default: return safeHtml('');
     }
@@ -60,8 +61,11 @@ export function renderEmailHtml(document = {}, { env = process.env } = {}) {
     blocks = [],
   } = document;
 
+  // The marketing family carries its masthead as the issue's own header, so the shared h1 would be
+  // the same words twice.
+  const editorial = classification === 'marketing';
   const content = joinHtml([
-    heading(headingText),
+    editorial ? safeHtml('') : heading(headingText),
     paragraphs(bodyText),
     renderBlocks(blocks),
     action ? html`<div style="margin:8px 0 4px 0;">${button({ label: action.label, href: action.url })}</div>` : safeHtml(''),
@@ -81,8 +85,10 @@ ${preheader(preheaderText)}
 <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="background:${T.CANVAS};">
 <tr><td align="center" style="padding:32px 16px;">
 <table role="presentation" width="${T.MAX_WIDTH}" cellpadding="0" cellspacing="0" border="0" style="width:100%;max-width:${T.MAX_WIDTH}px;background:${T.SURFACE};border:1px solid ${T.BORDER};border-radius:12px;">
-<tr><td style="padding:32px 32px 8px 32px;font-family:${safeHtml(EMAIL_FONT_STACK)};">${masthead()}</td></tr>
-<tr><td style="padding:16px 32px 0 32px;font-family:${safeHtml(EMAIL_FONT_STACK)};">${content}</td></tr>
+${editorial
+    ? html`<tr><td style="padding:0;">${editorialMasthead({ title: headingText || 'CarUp Weekly', standfirst: document.standfirst || null })}</td></tr>`
+    : html`<tr><td style="padding:32px 32px 8px 32px;font-family:${safeHtml(EMAIL_FONT_STACK)};">${masthead()}</td></tr>`}
+<tr><td style="padding:${editorial ? '24px' : '16px'} 32px 0 32px;font-family:${safeHtml(EMAIL_FONT_STACK)};">${content}</td></tr>
 <tr><td style="padding:24px 32px 32px 32px;font-family:${safeHtml(EMAIL_FONT_STACK)};">${renderFooterHtml({ classification, reasonReceived, unsubscribeUrl, env })}</td></tr>
 </table>
 </td></tr>

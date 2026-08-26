@@ -50,7 +50,12 @@ function highlightBlock(highlight = {}, origin) {
     rows,
     imageUrl: usableMedia ? listing.primary_image_url : null,
     imageAlt: usableMedia ? titleParts.join(' ') : '',
-    footnote: vin ? `${origin}/marketplace/listing/${encodeURIComponent(vin)}` : null,
+    // A descriptive link, not a naked URL. With images disabled the card still reads as a complete
+    // entry with somewhere to go, which is the whole point of the no-media form being a supported
+    // design rather than a degraded one.
+    link: vin ? { label: 'View vehicle record', url: `${origin}/marketplace/listing/${encodeURIComponent(vin)}` } : null,
+    accent: true,
+    footnote: null,
   };
 }
 
@@ -91,11 +96,13 @@ export function buildCarUpWeeklyDocument({ payload = {}, classification, env = p
     classification,
     preheaderText: intro ? intro.slice(0, 140) : 'This week on CarUp.',
     heading: issue.title || 'CarUp Weekly',
+    // The masthead standfirst — the editorial voice, above the fold.
+    standfirst: 'Edited by people at CarUp. A selection, not an algorithm.',
     // Human curated, and it says so. Not a disclaimer — a description of what this actually is.
     // Phrased as a positive statement of what this IS. A denial ("not based on your searches")
     // would put the very claim it disowns in front of the reader, and a customer skimming an Email
     // remembers the noun, not the negation.
-    bodyText: [intro, '', 'CarUp Weekly is edited by people at CarUp — a selection, not an algorithm.'].filter((line) => line !== null).join('\n'),
+    bodyText: intro,
     blocks,
     action: null,
     note: null,

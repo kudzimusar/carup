@@ -93,10 +93,10 @@ export function buildLeadershipWelcomeDocument({ payload = {}, classification, e
       { type: 'statusList', items: nextSteps(env) },
       { type: 'action', label: 'Open the Marketplace', url: marketplaceUrl },
       { type: 'sectionHeading', text: 'Talking to us' },
-      {
-        type: 'paragraph',
-        text: `${LEADERSHIP_RESPONSE_INVITATION}${supportUrl ? ` For account or listing questions, ${supportUrl} is the fastest route.` : ''}`,
-      },
+      { type: 'paragraph', text: LEADERSHIP_RESPONSE_INVITATION },
+      // "the fastest route" was a comparative claim nothing certifies — CarUp has no measured
+      // response times to compare. The link says where it goes and asserts nothing about speed.
+      ...(supportUrl ? [{ type: 'link', prefix: 'For account or listing questions,', label: 'visit CarUp Support', url: supportUrl }] : []),
       {
         type: 'signature',
         name: LEADERSHIP_IDENTITY.name,

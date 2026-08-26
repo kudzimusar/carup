@@ -200,9 +200,14 @@ test('P15 no Email links to a route that is not routed in the frontend', () => {
     assert.ok(!blob.includes('carup.dev/unsubscribe-centre'));
   }
 
-  // The security family stays restrained: legal pages only, no support invitation.
+  // The security family carries CarUp's own Security and Support pages. The restraint that matters
+  // is about REPLYING — the footer still says do not reply — not about linking pages a worried
+  // reader needs. Withholding them does not make someone safer; it makes them search, which is
+  // exactly where a fake support page wins.
   const security = render({ classification: 'security' });
-  assert.ok(!security.text.includes('carup.dev/support'), 'a security Email does not invite a support round trip');
+  assert.ok(security.text.includes('carup.dev/security'));
+  assert.ok(security.text.includes('carup.dev/support'));
+  assert.ok(/do not reply/i.test(security.text), 'and it still does not invite a reply');
   // The transactional family DOES now carry the real Support link.
   const transactional = render({ classification: 'transactional' });
   assert.ok(transactional.text.includes('carup.dev/support'));

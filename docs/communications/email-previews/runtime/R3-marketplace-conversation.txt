@@ -12,7 +12,8 @@ VIN FIXTUREVIN0000001
 Mileage: 88,000 km
 Asking price: USD 9,500
 Seller: Fixture Motors
-View the full record: https://carup.dev/marketplace/listing/FIXTUREVIN0000001
+
+View vehicle record: https://carup.dev/marketplace/listing/FIXTUREVIN0000001
 
 Open your CarUp conversations:
 https://carup.dev/dashboard/communications

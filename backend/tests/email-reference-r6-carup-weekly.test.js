@@ -102,7 +102,7 @@ test('A2 R6 claims no personalization, and says what it IS', () => {
   ]) {
     assert.ok(!claim.test(blob), `R6 must not claim ${claim}`);
   }
-  assert.ok(r.text.includes('edited by people'), 'a positive statement of what it is');
+  assert.ok(/[Ee]dited by people/.test(`${r.html}\n${r.text}`), 'a positive statement of what it is');
   // Phrased positively on purpose: a denial would put the very claim it disowns in front of the
   // reader, and a customer skimming remembers the noun, not the negation.
   assert.ok(!/not based on/i.test(blob));

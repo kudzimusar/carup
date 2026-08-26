@@ -45,16 +45,26 @@ function shell(inner) {
 }
 
 /**
- * SECURITY — restrained by design.
+ * SECURITY — restrained, and now genuinely useful.
  *
- * No contact invitation, no marketing, nothing to click except the legal pages. A security Email
- * that invites a reply teaches the reader that replying is how you resolve an account alert, which
- * is precisely the habit a phishing message relies on.
+ * The original rule was "nothing to click except the legal pages", on the reasoning that a security
+ * Email inviting contact teaches the reader that responding to the message is how you resolve an
+ * account alert — the habit a phishing message relies on.
+ *
+ * That reasoning still holds for a REPLY, and this footer still says do not reply. It does not hold
+ * for links to CarUp's own pages: a reader who has just been told their password was reset most
+ * needs somewhere to go if it was not them, and `/security` is the page telling them what CarUp
+ * will never ask for. Withholding it does not make them safer — it makes them search, which is
+ * exactly where a fake support page wins.
+ *
+ * Both routes became real in G12. Before that they would have been soft 404s, which is why this
+ * footer could not carry them. Privacy and Terms stay: a security notice is not the place to quietly
+ * drop the legal pages every other family carries.
  */
 function securityFooter({ reasonReceived, env }) {
   return shell(joinHtml([
     finePrint(reasonReceived),
-    linkRow(availableEmailLinks(['privacy', 'terms'], env)),
+    linkRow(availableEmailLinks(['security', 'support', 'privacy', 'terms'], env)),
     finePrint(`${EMAIL_BRAND_IDENTITY.legalEntity} · This is an automated security message. Please do not reply.`),
   ]));
 }
@@ -111,7 +121,7 @@ export function renderFooterText({ classification, reasonReceived = null, unsubs
 
   if (family === 'security') {
     lines.push(`${EMAIL_BRAND_IDENTITY.legalEntity} · This is an automated security message. Please do not reply.`);
-    const links = availableEmailLinks(['privacy', 'terms'], env);
+    const links = availableEmailLinks(['security', 'support', 'privacy', 'terms'], env);
     if (links.length) lines.push(links.map((l) => `${l.label}: ${l.url}`).join('\n'));
     return lines.join('\n\n');
   }
