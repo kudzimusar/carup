@@ -21,4 +21,5 @@ This directory holds the phase receipts for the **CarUp Intelligence 1.0 — Dat
 | I4 | `I4_ROLLUPS_AND_READ_MODELS.md` | **complete** — reconciliation proven; staging migration applied |
 | I5 | `I5_AUTHORIZATION_AND_PRIVACY_PROJECTIONS.md` | **complete** — boundaries proven; gap G5 closed for Intelligence |
 | I6 | `I6_COMPLETENESS_AND_REVIEW_REMEDIATION.md` | **complete** — LC1/LO1 shipped; I2–I5 adversarial review resolved and pinned by 28 regression tests |
-| I7 | Seller/Owner Intelligence surfaces | next |
+| — | `SECURITY_CLOSURE_G1_G2_G3.md` | **complete** @ `96eccff2` — G1/G2/G3 closed and proven live (moderator gate) |
+| I7 | Seller/Owner Intelligence surfaces | next (unblocked) |
