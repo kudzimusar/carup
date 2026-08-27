@@ -41,6 +41,25 @@ const EVIDENCE_TYPE_TO_LIFECYCLE = Object.freeze({
 
 const PUBLIC_SAFE_SUSPICION = new Set(['', 'none', 'cleared']);
 
+const CATEGORY_SOURCES = Object.freeze({
+  import: ['evidence'],
+  auction: ['evidence'],
+  accident: ['evidence'],
+  repair: ['evidence', 'partsentry'],
+  service: ['partsentry', 'mechanic_work_orders'],
+  inspection: ['evidence', 'vid_inspections'],
+  ownership_transfer: ['evidence', 'ownership_ledger'],
+  registration: ['evidence'],
+  insurance: ['evidence', 'insurance_registry'],
+  clearance: ['evidence'],
+  dealer_listing: ['evidence', 'listing_snapshots'],
+  current_condition: ['evidence', 'current_listing'],
+});
+
+function readStateEnvelope(rows, state = 'available') {
+  return { state, rows: Array.isArray(rows) ? rows : rows ? [rows] : [] };
+}
+
 function dateOf(row) {
   return row?.event_date || row?.captured_at || row?.uploaded_at || row?.timestamp
     || row?.transfer_date || row?.inspected_at || row?.start_date || row?.created_at || null;
@@ -64,14 +83,34 @@ export function lifecycleCategoryForEvidence(row = {}) {
   return normalizeCategory(row.evidence_class);
 }
 
-async function optionalRows(client, table, vin, columns = '*') {
+async function readRows(client, table, vin, columns = '*') {
   try {
     const { data, error } = await client.from(table).select(columns).eq('vin', vin);
-    if (error) return [];
-    return Array.isArray(data) ? data : data ? [data] : [];
+    if (error) return readStateEnvelope([], 'unavailable');
+    return readStateEnvelope(data, 'available');
   } catch {
-    return [];
+    return readStateEnvelope([], 'unavailable');
   }
+}
+
+function categoryCountState(category, count, sourceStates) {
+  const sources = CATEGORY_SOURCES[category] || [];
+  const states = sources.map((source) => sourceStates[source] || 'unavailable');
+  const available = states.filter((state) => state === 'available').length;
+  const state = available === states.length
+    ? 'complete'
+    : available === 0
+      ? 'unavailable'
+      : 'partial';
+  return { value: count, state };
+}
+
+function aggregateCoverageState(sourceNames, sourceStates) {
+  const states = sourceNames.map((source) => sourceStates[source] || 'unavailable');
+  const available = states.filter((state) => state === 'available').length;
+  if (available === states.length) return 'complete';
+  if (available === 0) return 'unavailable';
+  return 'partial';
 }
 
 function event({
@@ -128,22 +167,45 @@ export async function buildCanonicalVehicleLifecycle(client, vin, {
   const privileged = ['admin', 'government', 'reviewer'].includes(audience);
 
   const [
-    evidenceRows,
-    ownershipRows,
-    partRows,
-    workOrderRows,
-    insuranceRows,
-    inspectionRows,
-    listingRows,
+    evidenceRead,
+    ownershipRead,
+    partRead,
+    workOrderRead,
+    insuranceRead,
+    inspectionRead,
+    listingRead,
   ] = await Promise.all([
-    optionalRows(client, 'vehicle_evidence', vin),
-    optionalRows(client, 'vehicle_ownership_history', vin, 'id, transfer_date'),
-    optionalRows(client, 'partsentry_logs', vin, 'id, timestamp, action_type, mileage, public_card_eligible, suspicion_status, verification_status, part_verification_status'),
-    optionalRows(client, 'mechanic_work_orders', vin, 'id, created_at, status'),
-    optionalRows(client, 'insurance_records', vin, 'id, policy_number, start_date, active'),
-    optionalRows(client, 'vid_inspections', vin, 'id, inspected_at, inspection_status, odometer_reading'),
-    listings ?? optionalRows(client, 'listing_snapshots', vin),
+    readRows(client, 'vehicle_evidence', vin),
+    readRows(client, 'vehicle_ownership_history', vin, 'id, transfer_date'),
+    readRows(client, 'partsentry_logs', vin, 'id, timestamp, action_type, mileage, public_card_eligible, suspicion_status, verification_status, part_verification_status'),
+    readRows(client, 'mechanic_work_orders', vin, 'id, created_at, status'),
+    readRows(client, 'insurance_records', vin, 'id, policy_number, start_date, active'),
+    readRows(client, 'vid_inspections', vin, 'id, inspected_at, inspection_status, odometer_reading'),
+    listings !== null && listings !== undefined
+      ? Promise.resolve(readStateEnvelope(listings, 'available'))
+      : readRows(client, 'listing_snapshots', vin),
   ]);
+
+  const evidenceRows = evidenceRead.rows;
+  const ownershipRows = ownershipRead.rows;
+  const partRows = partRead.rows;
+  const workOrderRows = workOrderRead.rows;
+  const insuranceRows = insuranceRead.rows;
+  const inspectionRows = inspectionRead.rows;
+  const listingRows = listingRead.rows;
+
+  const sourceStates = {
+    evidence: evidenceRead.state,
+    ownership_ledger: ownershipRead.state,
+    partsentry: partRead.state,
+    mechanic_work_orders: workOrderRead.state,
+    insurance_registry: insuranceRead.state,
+    vid_inspections: inspectionRead.state,
+    listing_snapshots: listingRead.state,
+    // The caller already read the vehicle identity before invoking this projection. A missing
+    // mileage value is a legitimate empty observation, not an unavailable source.
+    current_listing: 'available',
+  };
 
   const evidence = privileged
     ? evidenceRows
@@ -238,7 +300,7 @@ export async function buildCanonicalVehicleLifecycle(client, vin, {
     }));
   }
 
-  const normalizedListings = Array.isArray(listingRows) ? listingRows : [];
+  const normalizedListings = listingRows;
   for (const row of normalizedListings) {
     const mileage = safeNumber(row.advertised_mileage);
     if (mileage === null) continue;
@@ -280,6 +342,13 @@ export async function buildCanonicalVehicleLifecycle(client, vin, {
   const counts = Object.fromEntries(LIFECYCLE_CATEGORIES.map((category) => [category, 0]));
   for (const item of timeline) counts[item.category] = (counts[item.category] || 0) + 1;
 
+  const countStates = Object.fromEntries(
+    LIFECYCLE_CATEGORIES.map((category) => [
+      category,
+      categoryCountState(category, counts[category] || 0, sourceStates),
+    ]),
+  );
+
   const mileageObservations = timeline
     .filter((item) => item.mileage !== null)
     .map((item) => ({
@@ -312,7 +381,13 @@ export async function buildCanonicalVehicleLifecycle(client, vin, {
     mileage: {
       observations: mileageObservations,
       anomaly: mileageAnomaly,
+      coverage_state: aggregateCoverageState(
+        ['evidence', 'partsentry', 'vid_inspections', 'listing_snapshots', 'current_listing'],
+        sourceStates,
+      ),
     },
+    count_states: countStates,
+    source_states: sourceStates,
     source_diversity: sourceDiversity,
   };
 }
