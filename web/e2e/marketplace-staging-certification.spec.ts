@@ -446,6 +446,38 @@ test('mobile Home preserves flow with no horizontal overlap or overflow', async 
   await assertCriticalBrowserHealth(testInfo, diagnostics)
 })
 
+test('Verify shares the live Marketplace vehicle-story system and preserves lookup policy', async ({ page }, testInfo) => {
+  await page.setViewportSize({ width: 1440, height: 1000 })
+  const diagnostics = installDiagnostics(page)
+  const [listResponse] = await Promise.all([
+    page.waitForResponse(candidate => new URL(candidate.url()).pathname === '/api/marketplace/listings'),
+    page.goto('/search', { waitUntil: 'domcontentloaded' }),
+  ])
+  expect(listResponse.ok(), 'Verify live Marketplace browse').toBe(true)
+
+  await expect(page.getByTestId('vehicle-search-page')).toBeVisible()
+  await expect(page.getByTestId('vehicle-search-command')).toBeVisible()
+  await expect(page.getByTestId('vehicle-search-policy')).toBeVisible()
+  await expect(page.getByTestId('vehicle-search-lookup-policy')).toContainText(/empty result/i)
+
+  const firstResult = page.getByTestId('vehicle-search-result').first()
+  await expect(firstResult).toBeVisible()
+  await expect(firstResult.getByTestId('marketplace-card-trust')).toBeVisible()
+  await expect(firstResult.getByTestId('marketplace-view-passport')).toHaveAttribute('href', /\/marketplace\/listing\//)
+
+  await page.screenshot({ path: testInfo.outputPath('desktop-verify.png'), fullPage: true })
+
+  await page.setViewportSize({ width: 390, height: 844 })
+  await page.reload({ waitUntil: 'domcontentloaded' })
+  await expect(page.getByTestId('vehicle-search-command')).toBeVisible()
+  await expect(page.getByTestId('compact-bottom-nav')).toBeVisible()
+  await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth + 1), {
+    message: 'mobile Verify must not overflow horizontally',
+  }).toBe(true)
+  await page.screenshot({ path: testInfo.outputPath('mobile-verify.png'), fullPage: true })
+  await assertCriticalBrowserHealth(testInfo, diagnostics)
+})
+
 test('guest can build a listing to private preview before authentication', async ({ page }, testInfo) => {
   await page.setViewportSize({ width: 1000, height: 900 })
   await page.goto('/sell', { waitUntil: 'domcontentloaded' })
