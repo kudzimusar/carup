@@ -185,16 +185,16 @@ export default function Landing() {
               </p>
 
               <div className="mt-7 flex flex-wrap gap-2" aria-label="Primary CarUp journeys">
-                <Button asChild className="rounded-full bg-orange-500 px-5 text-white hover:bg-orange-400">
+                <Button asChild className="rounded-none border-l-4 border-white bg-orange-500 px-5 text-white hover:bg-orange-400">
                   <Link to="/marketplace">Buy Cars</Link>
                 </Button>
-                <Button asChild variant="outline" className="rounded-full border-slate-600 bg-transparent px-5 text-white hover:bg-slate-800 hover:text-white">
+                <Button asChild variant="outline" className="rounded-none border-slate-600 bg-transparent px-5 text-white hover:border-orange-400 hover:bg-slate-900 hover:text-white">
                   <Link to="/sell">Sell Cars</Link>
                 </Button>
-                <Button asChild variant="outline" className="rounded-full border-slate-600 bg-transparent px-5 text-white hover:bg-slate-800 hover:text-white">
+                <Button asChild variant="outline" className="rounded-none border-slate-600 bg-transparent px-5 text-white hover:border-orange-400 hover:bg-slate-900 hover:text-white">
                   <Link to="/search">Verify Cars</Link>
                 </Button>
-                <Button asChild variant="outline" className="rounded-full border-slate-600 bg-transparent px-5 text-white hover:bg-slate-800 hover:text-white">
+                <Button asChild variant="outline" className="rounded-none border-slate-600 bg-transparent px-5 text-white hover:border-orange-400 hover:bg-slate-900 hover:text-white">
                   <Link to="/marketplace/parts">Trade Parts</Link>
                 </Button>
               </div>
@@ -203,7 +203,7 @@ export default function Landing() {
                 <label htmlFor="home-buy-search" className="mb-2 block text-xs font-semibold uppercase tracking-[0.14em] text-slate-400">
                   Start anywhere — make, model, location, VIN or seller
                 </label>
-                <div className="grid gap-2 rounded-[22px] bg-white p-2 shadow-[0_24px_70px_rgba(0,0,0,0.28)] sm:grid-cols-[minmax(0,1fr)_auto]">
+                <div className="grid gap-2 border-l-4 border-orange-500 bg-white p-2 shadow-[0_24px_70px_rgba(0,0,0,0.28)] sm:grid-cols-[minmax(0,1fr)_auto]">
                   <div className="relative">
                     <Search className="absolute left-4 top-1/2 h-5 w-5 -translate-y-1/2 text-slate-400" />
                     <Input
@@ -215,7 +215,7 @@ export default function Landing() {
                       data-testid="home-buy-search"
                     />
                   </div>
-                  <Button type="submit" className="h-13 rounded-2xl bg-slate-950 px-6 font-bold text-white hover:bg-orange-600" data-testid="home-search-submit">
+                  <Button type="submit" className="h-13 rounded-none bg-slate-950 px-6 font-bold text-white hover:bg-orange-600" data-testid="home-search-submit">
                     Search Marketplace
                   </Button>
                 </div>
@@ -224,7 +224,7 @@ export default function Landing() {
               <div className="mt-5 flex flex-wrap items-center gap-3">
                 <BuyerAssistantDrawer
                   triggerLabel="Ask Gutu AI"
-                  triggerClassName="rounded-full border-orange-400/40 bg-orange-400/10 text-orange-100 hover:bg-orange-400/20 hover:text-white"
+                  triggerClassName="rounded-none border-orange-400/40 bg-orange-400/10 text-orange-100 hover:bg-orange-400/20 hover:text-white"
                 />
                 <p className="max-w-md text-xs leading-5 text-slate-400">
                   Ask by text or voice about a budget, vehicle type, import journey or what to verify before paying.
@@ -305,7 +305,7 @@ export default function Landing() {
         <div className="section-padding mx-auto max-w-[1440px]">
           <div className="flex flex-col justify-between gap-4 md:flex-row md:items-end">
             <div>
-              <Badge className="mb-3 bg-blue-100 text-blue-700 hover:bg-blue-100">Featured Listings</Badge>
+              <Badge className="mb-3 rounded-none bg-blue-100 text-blue-700 hover:bg-blue-100">Featured Listings</Badge>
               <h2 className="text-3xl font-bold">Shop cars with governed trust signals</h2>
               <p className="mt-2 max-w-2xl text-gray-600">
                 Live published listings. Each vehicle shows only the governed signals it has earned —
@@ -334,7 +334,7 @@ export default function Landing() {
             {featuredVehicles.map(vehicle => {
               const price = governedPrice(vehicle.price, vehicle.currency)
               return (
-              <Card key={vehicle.vin} className="overflow-hidden border-0 bg-white shadow-md transition-shadow hover:shadow-lg" data-testid="featured-verified-car">
+              <Card key={vehicle.vin} className="overflow-hidden rounded-none border border-slate-200 border-t-4 border-t-slate-950 bg-white shadow-[0_10px_28px_rgba(15,23,42,0.06)] transition hover:border-t-orange-500 hover:shadow-[0_18px_44px_rgba(15,23,42,0.12)]" data-testid="featured-verified-car">
                 <div className="relative aspect-[16/10] overflow-hidden bg-gray-100">
                   <ListingImage
                     src={vehicle.primary_image_url}
@@ -383,7 +383,7 @@ export default function Landing() {
         <div className="section-padding mx-auto grid max-w-[1440px] gap-6 lg:grid-cols-2">
           <Card className="border-0 bg-[hsl(222,47%,10%)] text-white shadow-md">
             <CardContent className="p-6 md:p-8">
-              <Badge className="mb-4 bg-white/10 text-white hover:bg-white/10">Sell with a Passport</Badge>
+              <Badge className="mb-4 rounded-none bg-white/10 text-white hover:bg-white/10">Sell with a Passport</Badge>
               <h2 className="text-3xl font-bold">Sell your car with a trusted Passport</h2>
               <p className="mt-3 text-gray-300">
                 Start with the current seller verification handoff and create a listing through CarUp.
@@ -405,7 +405,7 @@ export default function Landing() {
 
           <Card className="border-0 shadow-md">
             <CardContent className="p-6 md:p-8">
-              <Badge className="mb-4 bg-green-100 text-green-700 hover:bg-green-100">Verify before you buy</Badge>
+              <Badge className="mb-4 rounded-none bg-green-100 text-green-700 hover:bg-green-100">Verify before you buy</Badge>
               <h2 className="text-3xl font-bold">Already found a car elsewhere?</h2>
               <p className="mt-3 text-gray-600">Check its CarUp Passport before you pay.</p>
               <form onSubmit={submitVerifyBeforeBuy} className="mt-6 flex flex-col gap-3 sm:flex-row">
@@ -429,7 +429,7 @@ export default function Landing() {
         <div className="section-padding mx-auto max-w-[1440px]">
           <div className="flex flex-col justify-between gap-3 sm:flex-row sm:items-end">
             <div>
-              <Badge className="mb-3 bg-orange-100 text-orange-700 hover:bg-orange-100">Popular Zimbabwe Categories</Badge>
+              <Badge className="mb-3 rounded-none bg-orange-100 text-orange-700 hover:bg-orange-100">Popular Zimbabwe Categories</Badge>
               <h2 className="text-2xl font-bold md:text-3xl">Start with what buyers ask for most</h2>
             </div>
             <p className="max-w-lg text-sm text-gray-600">
@@ -455,12 +455,12 @@ export default function Landing() {
       <section className="bg-white py-16">
         <div className="section-padding mx-auto max-w-[1440px]">
           <div className="max-w-2xl">
-            <Badge className="mb-3 bg-orange-100 text-orange-700 hover:bg-orange-100">How CarUp Works</Badge>
+            <Badge className="mb-3 rounded-none bg-orange-100 text-orange-700 hover:bg-orange-100">How CarUp Works</Badge>
             <h2 className="text-3xl font-bold">From search to transfer, keep the trust record visible</h2>
           </div>
           <div className="mt-8 grid gap-5 md:grid-cols-4">
             {howItWorks.map((item, index) => (
-              <Card key={item.title} className="border border-gray-100 shadow-sm">
+              <Card key={item.title} className="rounded-none border border-slate-200 border-t-4 border-t-orange-500 shadow-none">
                 <CardContent className="p-5">
                   <div className="flex h-11 w-11 items-center justify-center rounded-lg bg-orange-50 text-orange-600">
                     <item.icon className="h-5 w-5" />
@@ -479,7 +479,7 @@ export default function Landing() {
         <div className="section-padding mx-auto max-w-[1440px]">
           <div className="flex flex-col justify-between gap-6 md:flex-row md:items-end">
             <div>
-              <Badge className="mb-3 bg-orange-500/20 text-orange-100 hover:bg-orange-500/20">
+              <Badge className="mb-3 rounded-none bg-orange-500/20 text-orange-100 hover:bg-orange-500/20">
                 Why CarUp is safer
               </Badge>
               <h2 className="max-w-2xl text-3xl font-bold">
