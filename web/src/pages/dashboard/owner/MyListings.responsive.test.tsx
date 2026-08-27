@@ -53,11 +53,13 @@ describe('OBS-06 — unavailable direct actions must become legible governed nex
     expect(VEHICLE_DETAIL).toContain('href={sellerWhatsAppLink}')
   })
 
-  it('reservation never becomes an unauthorized direct action', () => {
-    expect(VEHICLE_DETAIL).toContain('data-testid="reserve-vehicle"')
+  it('reservation stays a governed request until the server proves transaction state', () => {
     expect(VEHICLE_DETAIL).toContain('data-testid="reservation-request-entry"')
-    expect(VEHICLE_DETAIL).toContain('resolvedSellerId && isAuthenticated ?')
     expect(VEHICLE_DETAIL).toContain("intentMetadata={{ buyer_intent: 'reservation_request', safepay_requested: true }}")
+    expect(VEHICLE_DETAIL).toContain('data-testid="reserved-state"')
+    expect(VEHICLE_DETAIL).not.toContain('data-testid="reserve-vehicle"')
+    expect(VEHICLE_DETAIL).not.toContain('vehicle.tenant_id ?? vehicle.sellerId')
+    expect(VEHICLE_DETAIL).not.toContain('createSafePayEscrow')
   })
 })
 
