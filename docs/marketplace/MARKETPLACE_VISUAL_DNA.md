@@ -79,6 +79,25 @@ The Marketplace customer journey uses a distinct flagship composition rather tha
 
 These patterns are informed by current automotive-marketplace and ecommerce UX research (image-first listing presentation, larger-grid search results, unified filter/sort tools, and high-salience decision data), but are implemented as CarUp-specific components rather than copied brand treatments.
 
+## Connected public surfaces
+
+The Marketplace visual system is not allowed to stop at `/marketplace`.
+
+### Home — sales, marketing and communication front door
+- Home sells the breadth of CarUp, while Marketplace sells the vehicle.
+- A live Marketplace vehicle can anchor the hero, but Home must not duplicate Marketplace search/result composition.
+- Primary conversion journeys expose Buy, Sell and Verify immediately.
+- Secondary journeys expose Diaspora/imports, finance, insurance, garages/service and parts without hiding them behind generic “products” navigation.
+- Live inventory on Home reuses the same `MarketplaceListingCard` vehicle-story component as Marketplace.
+- Home includes one communication layer: Gutu AI for guided discovery, Help for self-service and Contact for human handoff. It must not advertise provider channels that staging/runtime cannot actually support.
+
+### Verify — trust-oriented showroom companion
+- `/search` uses the same current vehicle-story component as Marketplace rather than an older card treatment.
+- Exact VIN lookup remains visually and semantically distinct from protected identifier lookup.
+- An empty protected lookup is never styled or worded as proof that a vehicle does not exist.
+- Browse results remain published Marketplace inventory and retain canonical Trust/missing-data semantics.
+- Desktop and mobile Verify must remain visually continuous with Marketplace while keeping verification policy more prominent than merchandising.
+
 ## Design-tool workflow
 
 For future visual expansion:
