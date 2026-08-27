@@ -134,6 +134,14 @@ export interface MarketplaceListingSummary {
    * confidence, provenance and limitations; this key is never a fallback to vehicles.trust_score.
    */
   trust_score: number | null;
+  /** Backend-governed premium qualification. Gold is never inferred from score alone. */
+  carup_gold?: {
+    state: 'qualified' | 'not_qualified' | 'not_evaluable';
+    tier: 'gold' | null;
+    label: 'CarUp Gold' | null;
+    policy_version: string;
+    reason_codes: string[];
+  };
   /** The canonical Trust authority for the listing card. Null means the authority was not read. */
   trust?: MarketplacePublicTrust | null;
   /**
