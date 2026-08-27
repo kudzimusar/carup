@@ -2553,7 +2553,7 @@ export default function VehicleDetail() {
                       <Button className="w-full bg-orange-500 hover:bg-orange-600 gap-1"><Phone className="w-4 h-4" /> Call</Button>
                     </a>
                     <a href={sellerWhatsAppLink} target="_blank" rel="noopener noreferrer" className="flex-1">
-                      <Button variant="outline" className="w-full border-white/30 text-white hover:bg-white/10 gap-1"><MessageSquare className="w-4 h-4" /> WhatsApp</Button>
+                      <Button variant="outline" className="w-full border-white/30 bg-transparent text-white hover:bg-white/10 hover:text-white gap-1"><MessageSquare className="w-4 h-4" /> WhatsApp</Button>
                     </a>
                   </div>
                 ) : (
@@ -2610,7 +2610,7 @@ export default function VehicleDetail() {
                       defaultInquiryType="vehicle_purchase_interest"
                       triggerLabel="Ask about financing"
                       triggerVariant="outline"
-                      triggerClassName="w-full border-white/20 text-white hover:bg-white/10"
+                      triggerClassName="w-full border-white/20 bg-transparent text-white hover:bg-white/10 hover:text-white"
                       defaultMessage="I am interested in financing this vehicle. Please tell me which governed lender path is available and what information I need to provide."
                       intentMetadata={{ buyer_intent: 'financing_interest' }}
                       onSubmitted={() => setFinanceInterestRequested(true)}
