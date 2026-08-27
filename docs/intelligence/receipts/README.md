@@ -22,4 +22,4 @@ This directory holds the phase receipts for the **CarUp Intelligence 1.0 — Dat
 | I5 | `I5_AUTHORIZATION_AND_PRIVACY_PROJECTIONS.md` | **complete** — boundaries proven; gap G5 closed for Intelligence |
 | I6 | `I6_COMPLETENESS_AND_REVIEW_REMEDIATION.md` | **complete** — LC1/LO1 shipped; I2–I5 adversarial review resolved and pinned by 28 regression tests |
 | — | `SECURITY_CLOSURE_G1_G2_G3.md` | **complete** @ `96eccff2` — G1/G2/G3 closed and proven live (moderator gate) |
-| I7 | `I7_SELLER_OWNER_INTELLIGENCE.md` | in progress — Marketplace Pulse shipped; listing insights next |
+| I7 | `I7_SELLER_OWNER_INTELLIGENCE.md` | **web complete** — Pulse + listing insights shipped; mobile parity sequenced behind PR #182 |

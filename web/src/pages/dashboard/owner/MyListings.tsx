@@ -6,6 +6,7 @@ import { Badge } from '@/components/ui/badge'
 import { Plus, Eye, DollarSign, TrendingUp, Loader2, Car, MessageSquare } from 'lucide-react'
 import { toast } from 'sonner'
 import { ListingImage } from '@/components/marketplace/ListingImage'
+import ListingInsights from '@/components/intelligence/ListingInsights'
 import { primaryListingImageUrl } from '@/lib/listingMedia'
 import { useCarUpApi } from '@/hooks/useCarUpApi'
 import { SellerInquiriesCard } from '@/components/marketplace/SellerInquiriesCard'
@@ -64,6 +65,7 @@ export default function MyListings() {
     unpublishVehicleListing,
   } = useCarUpApi()
   const [listingStatuses, setListingStatuses] = useState<Record<string, string>>({})
+  const [insightsFor, setInsightsFor] = useState<string | null>(null)
   const [markingId, setMarkingId] = useState<string | null>(null)
   const [publishingVin, setPublishingVin] = useState<string | null>(null)
   const [publicationStatuses, setPublicationStatuses] = useState<Record<string, string>>({})
@@ -265,6 +267,29 @@ export default function MyListings() {
                           )
                         })()}
                         {isSold && <Badge className="text-xs text-gray-400 font-normal">Sale completed</Badge>}
+                      </div>
+
+                      {/* Intelligence I7 — full listing insights, opened on demand so a
+                          listing page does not fetch analytics nobody asked for. Kept
+                          OUTSIDE the action row above, whose layout is pinned by a
+                          sibling lane's responsive test. */}
+                      <div className="mt-3">
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          className="text-xs gap-1 px-2"
+                          data-testid={`toggle-insights-${listing.vin}`}
+                          aria-expanded={insightsFor === listing.vin}
+                          onClick={() => setInsightsFor(insightsFor === listing.vin ? null : listing.vin)}
+                        >
+                          <TrendingUp className="w-3 h-3" />
+                          {insightsFor === listing.vin ? 'Hide insights' : 'Full insights'}
+                        </Button>
+                        {insightsFor === listing.vin && (
+                          <div className="mt-3" data-testid={`listing-insights-panel-${listing.vin}`}>
+                            <ListingInsights vin={listing.vin} />
+                          </div>
+                        )}
                       </div>
                     </div>
                   </div>
