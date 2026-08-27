@@ -117,7 +117,7 @@ test('search commits q to the backend after debounce so discovery is not limited
   })
 
   await page.goto('/marketplace')
-  await expect(page.getByText('Toyota Hilux')).toBeVisible()
+  await expect(page.getByTestId('marketplace-results-grid').getByText('Toyota Hilux')).toBeVisible()
 
   const search = page.getByTestId('marketplace-search-input')
   await search.fill('Honda')
