@@ -1,6 +1,6 @@
-> Certification evidence in §3 was captured against staging at parent head
-> `35752b16`. The lane head recorded at the top of §7 is the commit that carries
-> this receipt and the I19 source.
+> Certification evidence in §3.1–3.5 was captured against staging at parent head
+> `35752b16`. CI evidence in §3.6 is from lane head `dabbd8f6`, which carries the
+> I19 source plus the lint-gate fix.
 
 # I19 — Reports, Certification and Stakeholder Manualization
 
@@ -145,7 +145,38 @@ demonstration business data was seeded at any point.
 | Web typecheck | clean |
 | Web build | clean |
 
-### 3.6 Auth and scope
+### 3.6 CI on the lane head
+
+All six workflows pass on `dabbd8f6`: **CI**, Referral Engine CI, Navigation
+Intelligence CI, Communication Command Center CI, Diaspora Phases 3-7 Validation
+(Diaspora Deployed Staging UAT is skipped by its own trigger conditions).
+
+Two things had to be fixed or understood to get there, both recorded rather than
+quietly re-run:
+
+**The blocking lint-regression gate failed** on the I19 head with 29 net-new
+findings — 13 `react-hooks/set-state-in-effect` (the synchronous loading reset in
+each fetch effect) and 16 `@typescript-eslint/no-explicit-any` (my fetchers typed
+`Promise<any>`). Both were genuinely mine and both are fixed: the reset now carries
+the repo's established disable with a justification (it clears a stale payload so
+a viewer never sees the previous period's figures under this period's label), and
+the fetchers return `Promise<unknown>` with each component asserting its own
+envelope at the boundary. The gate now reports `NET_NEW_ERRORS=0`.
+
+**Two flakes were observed, neither a regression:**
+
+- `intelligence-listing-completeness.test.js` failed once in CI with
+  `failureType: uncaughtException`, `error: 'Unable to deserialize cloned data due
+  to invalid or unsupported version.'` — a Node test-runner IPC deserialization
+  fault at the file level, not an assertion. It passed on re-run and has never
+  reproduced locally across many full-suite runs.
+- `VehicleSearch.test.tsx` failed once locally at 2596 ms under concurrent test
+  files, then passed in isolation and on a full re-run (recorded in the I18
+  receipt).
+
+Both are worth watching; neither indicates a defect in this lane.
+
+### 3.7 Auth and scope
 
 Enforced and tested at every projection: no route accepts a caller-supplied
 seller, tenant, organization, bank or subject parameter; scope is resolved from the
