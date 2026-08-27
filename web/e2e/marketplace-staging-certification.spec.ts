@@ -23,6 +23,7 @@ type Listing = {
   transmission?: string | null
   location?: string | null
   primary_image_url?: string | null
+  primary_image_state?: string | null
   claims?: {
     publication?: {
       publication_status?: { value?: string | null }
@@ -125,6 +126,11 @@ test('desktop staging: published-only discovery preserves Marketplace → Vehicl
   }
 
   await expect(page.getByText(/Published listings only/i)).toBeVisible()
+  await expect(page.getByRole('heading', { name: /Find the right car/i })).toBeVisible()
+  await expect(page.getByTestId('marketplace-ai-assistant-open')).toBeVisible()
+  await expect(page.getByTestId('marketplace-parts-link')).toBeVisible()
+  await expect(page.getByTestId('marketplace-services-link')).toBeVisible()
+  await expect(page.getByTestId('marketplace-inquiry-open')).toContainText('Import to Zimbabwe')
   const goldenCard = page.getByTestId('marketplace-vehicle-card').filter({
     has: page.locator(`[data-testid="marketplace-view-passport"][href="/marketplace/${GOLDEN_VIN}"]`),
   })
@@ -150,8 +156,18 @@ test('desktop staging: published-only discovery preserves Marketplace → Vehicl
   expect(findForbiddenKeys(detailBody), 'private/internal keys in public detail response').toEqual([])
 
   await expect(page).toHaveURL(new RegExp(`/marketplace/${GOLDEN_VIN}$`))
+  await expect(page.getByTestId('vehicle-detail-intelligence-hero')).toBeVisible()
   await expect(page.getByTestId('marketplace-detail-panels')).toBeVisible()
   await expect(page.getByTestId('listing-media-block')).toBeVisible()
+  await expect(page.getByTestId('vehicle-detail-compare')).toHaveAttribute('href', `/marketplace/compare?vins=${GOLDEN_VIN}`)
+  await page.getByTestId('vehicle-detail-share').click()
+  await expect(page.getByTestId('marketplace-share-sheet')).toBeVisible()
+  for (const label of ['WhatsApp', 'Facebook', 'X', 'Email', 'Copy']) {
+    await expect(page.getByTestId('marketplace-share-sheet').getByText(label, { exact: true })).toBeVisible()
+  }
+  await page.keyboard.press('Escape')
+  await expect(page.getByTestId('marketplace-share-sheet')).toBeHidden()
+  await expect(page.getByTestId('vehicle-intelligence-story')).toBeVisible({ timeout: 15_000 })
   const detailImage = page.getByTestId('vehicle-image')
   await expect(detailImage).toBeVisible()
   await expect.poll(() => detailImage.evaluate((image: HTMLImageElement) => image.naturalWidth)).toBeGreaterThan(0)
@@ -209,14 +225,14 @@ test('staging facets are executed by the backend against real listing data', asy
   await assertCriticalBrowserHealth(testInfo, diagnostics)
 })
 
-test('site-relative staging media resolves or degrades to an explicit delivery-failure state', async ({ page }, testInfo) => {
+test('published staging media resolves or degrades to an explicit delivery-failure state', async ({ page }, testInfo) => {
   const diagnostics = installDiagnostics(page)
   const { body } = await loadMarketplace(page)
-  const relative = (body.listings ?? []).find((listing) => listing.primary_image_url?.startsWith('/'))
-  expect(relative, 'a real site-relative staging media fixture').toBeTruthy()
+  const withMedia = (body.listings ?? []).find((listing) => Boolean(listing.primary_image_url))
+  expect(withMedia, 'a real staging listing with published media').toBeTruthy()
 
   const card = page.getByTestId('marketplace-vehicle-card').filter({
-    has: page.locator(`[data-testid="marketplace-view-passport"][href="/marketplace/${relative!.vin}"]`),
+    has: page.locator(`[data-testid="marketplace-view-passport"][href="/marketplace/${withMedia!.vin}"]`),
   })
   await expect(card).toHaveCount(1)
   await card.scrollIntoViewIfNeeded()
@@ -230,7 +246,7 @@ test('site-relative staging media resolves or degrades to an explicit delivery-f
   }, { message: 'Marketplace card must never settle on a broken image glyph' }).toBe(true)
 
   await card.getByTestId('marketplace-view-passport').click()
-  await expect(page).toHaveURL(new RegExp(`/marketplace/${relative!.vin}$`))
+  await expect(page).toHaveURL(new RegExp(`/marketplace/${withMedia!.vin}$`))
   await expect(page.getByTestId('listing-media-block')).toBeVisible()
 
   await expect.poll(async () => {
@@ -238,7 +254,7 @@ test('site-relative staging media resolves or degrades to an explicit delivery-f
     const image = page.getByTestId('vehicle-image')
     if (!(await image.isVisible().catch(() => false))) return false
     return (await image.evaluate((element: HTMLImageElement) => element.naturalWidth)) > 0
-  }, { message: 'Vehicle Detail must resolve site-relative media or fail closed with explicit delivery state' }).toBe(true)
+  }, { message: 'Vehicle Detail must resolve published media or fail closed with explicit delivery state' }).toBe(true)
 
   if (await page.getByTestId('listing-media-load-failed').isVisible().catch(() => false)) {
     await expect(page.getByTestId('vehicle-image')).toHaveCount(0)
@@ -246,7 +262,55 @@ test('site-relative staging media resolves or degrades to an explicit delivery-f
     await expect(page.getByTestId('listing-media-not-loaded')).toHaveCount(0)
   }
 
-  await page.screenshot({ path: testInfo.outputPath('desktop-site-relative-media.png'), fullPage: true })
+  await page.screenshot({ path: testInfo.outputPath('desktop-published-media.png'), fullPage: true })
+  await assertCriticalBrowserHealth(testInfo, diagnostics)
+})
+
+test('desktop comparison never exposes transport nulls or broken image glyphs', async ({ page }, testInfo) => {
+  await page.setViewportSize({ width: 1280, height: 900 })
+  const diagnostics = installDiagnostics(page)
+  const compareResponse = page.waitForResponse((candidate) => {
+    const url = new URL(candidate.url())
+    return url.pathname === '/api/marketplace/compare' && candidate.request().method() === 'POST'
+  })
+  await page.goto(`/marketplace/compare?vins=${GOLDEN_VIN},JTNBU4EE0J9UAT101`, { waitUntil: 'domcontentloaded' })
+  const response = await compareResponse
+  expect(response.ok(), 'real compare response').toBe(true)
+
+  await expect(page.getByTestId('marketplace-compare-page')).toBeVisible()
+  await expect(page.getByText(/Null\s+[0-9]/i)).toHaveCount(0)
+  await expect(page.getByText(/currency not recorded/i)).toBeVisible()
+
+  const imageContainers = page.getByTestId('marketplace-compare-page').locator('thead th').filter({ has: page.locator('a') })
+  expect(await imageContainers.count()).toBeGreaterThanOrEqual(2)
+  for (let index = 0; index < await imageContainers.count(); index += 1) {
+    const header = imageContainers.nth(index)
+    await expect.poll(async () => {
+      const placeholder = header.getByTestId('listing-image-placeholder')
+      if (await placeholder.isVisible().catch(() => false)) return true
+      const image = header.locator('img').first()
+      if (!(await image.isVisible().catch(() => false))) return false
+      return (await image.evaluate((element: HTMLImageElement) => element.naturalWidth)) > 0
+    }, { message: `comparison vehicle ${index + 1} must not show a broken image glyph` }).toBe(true)
+  }
+
+  await page.screenshot({ path: testInfo.outputPath('desktop-compare.png'), fullPage: true })
+  await assertCriticalBrowserHealth(testInfo, diagnostics)
+})
+
+test('tablet staging switches to the compact app shell instead of the desktop footer', async ({ page }, testInfo) => {
+  await page.setViewportSize({ width: 820, height: 1180 })
+  const diagnostics = installDiagnostics(page)
+  await loadMarketplace(page)
+
+  await expect(page.getByTestId('compact-bottom-nav')).toBeVisible()
+  await expect(page.locator('footer')).toBeHidden()
+  await expect(page.getByRole('heading', { name: /Find the right car/i })).toBeVisible()
+  await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth + 1), {
+    message: 'tablet Marketplace must not overflow horizontally',
+  }).toBe(true)
+
+  await page.screenshot({ path: testInfo.outputPath('tablet-marketplace.png'), fullPage: true })
   await assertCriticalBrowserHealth(testInfo, diagnostics)
 })
 
@@ -254,6 +318,8 @@ test('mobile staging keeps filters actionable and Vehicle Detail inside the view
   await page.setViewportSize({ width: 390, height: 844 })
   const diagnostics = installDiagnostics(page)
   await loadMarketplace(page)
+  await expect(page.getByTestId('compact-bottom-nav')).toBeVisible()
+  await expect(page.locator('footer')).toBeHidden()
 
   await page.getByTestId('marketplace-mobile-filter-button').click()
   await expect(page.getByTestId('marketplace-mobile-filter-drawer')).toBeVisible()
@@ -268,6 +334,8 @@ test('mobile staging keeps filters actionable and Vehicle Detail inside the view
   await goldenCard.getByTestId('marketplace-view-passport').click()
   await expect(page).toHaveURL(new RegExp(`/marketplace/${GOLDEN_VIN}$`))
   await expect(page.getByTestId('listing-media-block')).toBeVisible()
+  await expect(page.getByTestId('vehicle-detail-intelligence-hero')).toBeVisible()
+  await expect(page.getByTestId('compact-bottom-nav')).toBeVisible()
   try {
     await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth + 1), {
       message: 'mobile Vehicle Detail must not overflow horizontally',
