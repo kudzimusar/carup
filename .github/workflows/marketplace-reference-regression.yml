@@ -10,6 +10,7 @@ on:
       - 'backend/scripts/marketplace-reference-media-staging.mjs'
       - 'backend/utils/vehicleMediaProjection.js'
       - 'backend/tests/marketplace-*.test.js'
+      - 'backend/tests/issue164-phase5-media-identity-containment.test.js'
       - 'shared/types/**'
       - 'mobile/app/(tabs)/marketplace.tsx'
       - 'mobile/app/vehicle/**'
