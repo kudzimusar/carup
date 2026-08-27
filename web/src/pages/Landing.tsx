@@ -259,6 +259,7 @@ export default function Landing() {
                     alt={[heroVehicle.year, heroVehicle.make, heroVehicle.model].filter(Boolean).join(' ') || 'Live marketplace vehicle'}
                     className="h-full w-full"
                     imgClassName="transition duration-700 ease-out group-hover:scale-[1.035]"
+                    loading="eager"
                   />
                   <div className="absolute inset-0 bg-gradient-to-t from-black/85 via-black/5 to-black/10" />
                   <div className="absolute left-5 top-5 border border-white/20 bg-black/35 px-3 py-1.5 text-[10px] font-black uppercase tracking-[0.16em] backdrop-blur-sm">
