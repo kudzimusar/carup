@@ -993,7 +993,7 @@ describe('VehicleDetail — Phase 0/3/4 still hold on the page this phase edited
 
     expect(screen.getByTestId('seller-contact-unavailable')).toBeTruthy()
     expect(screen.queryByTestId('reserve-vehicle')).toBeNull()
-    expect(screen.getByTestId('reservation-request-entry').textContent).toMatch(/request reservation/i)
+    expect(screen.queryByTestId('reserved-state')).toBeNull()
   })
 
   it('keeps the de-fabricated seller state', async () => {
