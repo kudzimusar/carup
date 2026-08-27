@@ -880,18 +880,32 @@ export default function Marketplace() {
       </div>
 
       {compareVins.length > 0 && (
-        <div className="fixed inset-x-3 bottom-3 z-40 mx-auto flex max-w-xl items-center justify-between gap-3 rounded-2xl border border-slate-200 bg-white px-3 py-2.5 shadow-[0_18px_50px_rgba(15,23,42,0.20)] sm:inset-x-auto sm:left-1/2 sm:-translate-x-1/2 sm:rounded-full sm:px-4" data-testid="marketplace-compare-bar">
-          <span className="min-w-0 truncate text-sm font-medium text-slate-700">{compareVins.length} selected to compare</span>
+        <div
+          className="fixed inset-x-3 bottom-[calc(5rem+env(safe-area-inset-bottom))] z-[60] mx-auto flex max-w-xl items-center justify-between gap-3 border border-slate-800 bg-[#08111f] px-3 py-3 text-white shadow-[0_22px_60px_rgba(15,23,42,0.35)] sm:inset-x-auto sm:left-1/2 sm:-translate-x-1/2 sm:px-4 lg:bottom-6"
+          data-testid="marketplace-compare-bar"
+          aria-live="polite"
+        >
+          <div className="min-w-0">
+            <p className="truncate text-sm font-bold text-white">
+              {compareVins.length} selected to compare
+            </p>
+            <p className="mt-0.5 text-[11px] text-slate-400">
+              {compareVins.length < 2 ? 'Select one more vehicle to compare.' : 'Ready to compare side by side.'}
+            </p>
+          </div>
           <div className="flex shrink-0 items-center gap-1.5">
-            <Button variant="ghost" size="sm" onClick={() => setCompareVins([])}>Clear</Button>
+            <Button variant="ghost" size="sm" className="text-slate-300 hover:bg-white/10 hover:text-white" onClick={() => setCompareVins([])}>
+              Clear
+            </Button>
             <Button
               size="sm"
-              className="bg-orange-600 hover:bg-orange-700"
+              className="min-w-[9.5rem] rounded-none bg-orange-500 font-bold text-white hover:bg-orange-600 disabled:bg-slate-700 disabled:text-slate-400"
               disabled={compareVins.length < 2}
               onClick={() => navigate(`/marketplace/compare?vins=${compareVins.join(',')}`)}
               data-testid="marketplace-compare-go"
             >
-              <GitCompare className="mr-1 h-4 w-4" />Compare
+              <GitCompare className="mr-1 h-4 w-4" />
+              {compareVins.length < 2 ? 'Compare vehicles' : `Compare ${compareVins.length} vehicles`}
             </Button>
           </div>
         </div>
