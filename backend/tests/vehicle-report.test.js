@@ -16,7 +16,7 @@ const router = (await import('../routes/reportRoutes.js')).default;
 const errorHandler = (await import('../middleware/errorMiddleware.js')).default;
 const { supabase } = await import('../db/supabase.js');
 
-function makeMock(seed = {}) {
+function makeMock(seed = {}, { failTables = [] } = {}) {
   const db = {
     vehicles: [], vehicle_evidence: [], listing_snapshots: [], temporal_findings: [],
     disclosure_conflicts: [], report_versions: [], users: [], vehicle_ownership_history: [],
@@ -34,6 +34,7 @@ function makeMock(seed = {}) {
     return chain;
   }
   function run(st) {
+    if (failTables.includes(st.t)) return { data: null, error: { message: `${st.t} unavailable` } };
     const ok = (data) => ({ data, error: null }); const rows = (db[st.t] = db[st.t] || []);
     if (st.op === 'insert') { const list = Array.isArray(st.payload) ? st.payload : [st.payload]; const ins = list.map((p, i) => ({ id: p.id || `${st.t}-${rows.length + i + 1}`, created_at: new Date().toISOString(), ...p })); rows.push(...ins); return ok(st.single ? ins[0] : ins); }
     if (st.op === 'update') { const u = []; for (const r of rows) if (Object.entries(st.filters).every(([k, v]) => r[k] === v)) { Object.assign(r, st.payload); u.push(r); } return ok(u); }
@@ -110,6 +111,32 @@ test('canonical lifecycle prevents administrative documents becoming accidents a
   assert.equal(report.evidence_index.find((item) => item.evidence_id === 'insurance-doc')?.lifecycle_category, 'insurance');
   assert.equal(report.evidence_index.find((item) => item.evidence_id === 'police-doc')?.lifecycle_category, 'clearance');
   assert.ok(report.lifecycle_projection?.version);
+});
+
+test('canonical lifecycle reports partial/unavailable coverage instead of converting collaborator failures to zero', async () => {
+  const seeded = seed();
+  seeded.vehicle_evidence.push(
+    { id: 'repair-evidence', vin: 'V1', evidence_type: 'repair_photo', evidence_class: 'repair', verification_status: 'verified', visibility_level: 'public_safe', captured_at: '2026-08-20', source_id: 'garage-upload' },
+  );
+
+  const sb = makeMock(seeded, { failTables: ['partsentry_logs', 'vehicle_ownership_history'] });
+  const report = await reportSvc.assembleReport(sb, 'V1', { audience: 'public' });
+
+  assert.equal(report.lifecycle_projection.source_states.partsentry, 'unavailable');
+  assert.equal(report.lifecycle_projection.source_states.ownership_ledger, 'unavailable');
+  assert.deepEqual(report.lifecycle_projection.count_states.repair, { value: 1, state: 'partial' });
+  assert.deepEqual(report.lifecycle_projection.count_states.ownership_transfer, { value: 0, state: 'partial' });
+
+  // Public report fields refuse an exact numeric claim when not all contributing sources were read.
+  assert.equal(report.sections.accident_repair.repair, null);
+  assert.equal(report.sections.ownership_transfer, null);
+  // Accident depends only on public evidence, which loaded successfully, so zero remains a real zero
+  // for current coverage rather than being globally suppressed.
+  assert.equal(report.sections.accident_repair.accident, 0);
+
+  assert.ok(report.completeness.classes_unavailable.includes('repair'));
+  assert.ok(report.completeness.classes_unavailable.includes('ownership_transfer'));
+  assert.ok(report.limitations.some((item) => /does not convert an unread source into a zero count/i.test(item)));
 });
 
 test('assembleReport (admin) sees pending + restricted', async () => {
