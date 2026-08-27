@@ -325,9 +325,6 @@ function FilterControls({
         <Slider value={priceRange} onValueChange={setPriceRange} max={100000} step={1000} />
       </div>
 
-      <div className="border-l-2 border-slate-300 pl-3 text-[11px] leading-4 text-slate-500">
-        Body style is collected by the taxonomy but is not yet a public Marketplace facet because the canonical vehicle row has no governed body-style field. CarUp does not infer one from make/model where multiple bodies exist.
-      </div>
     </div>
   )
 }
@@ -651,30 +648,33 @@ export default function Marketplace() {
   )
 
   return (
-    <div className="min-h-screen bg-[#f6f7f9] text-slate-950" data-testid="marketplace-page">
-      <section className="border-b border-slate-200 bg-white" data-testid="marketplace-compact-header">
-        <div className="section-padding mx-auto flex max-w-[1440px] flex-col gap-3 py-4 sm:flex-row sm:items-center sm:justify-between">
+    <div className="min-h-screen bg-white text-slate-950" data-testid="marketplace-page">
+      <section className="relative overflow-hidden border-b border-white/10 bg-[#08111f] text-white [background-image:radial-gradient(circle_at_78%_18%,rgba(249,115,22,0.20),transparent_28%),radial-gradient(circle_at_15%_110%,rgba(14,165,233,0.10),transparent_34%)]" data-testid="marketplace-compact-header">
+        <div className="section-padding relative mx-auto flex max-w-[1440px] flex-col gap-6 py-8 sm:py-10 lg:flex-row lg:items-end lg:justify-between">
           <div>
-            <div className="flex items-center gap-2 text-xs font-black uppercase tracking-[0.16em] text-orange-600">
+            <div className="flex items-center gap-2 text-[11px] font-black uppercase tracking-[0.22em] text-orange-400">
               <CarFront className="h-4 w-4" /> Marketplace
             </div>
-            <h1 className="mt-1 text-2xl font-black tracking-tight text-slate-950 sm:text-3xl">
-              Shop vehicles and automotive services
+            <h1 className="mt-2 max-w-3xl text-4xl font-black leading-[0.98] tracking-[-0.045em] text-white sm:text-5xl">
+              Find the car. <span className="text-orange-400">Know what stands behind it.</span>
             </h1>
+            <p className="mt-3 max-w-2xl text-sm leading-6 text-slate-300">
+              Published inventory, seller-stated facts and canonical CarUp Trust stay distinct so you can shop quickly without losing the evidence behind the decision.
+            </p>
           </div>
-          <nav className="flex gap-1 overflow-x-auto pb-1 text-sm font-semibold" aria-label="Marketplace categories">
-            <Link to="/marketplace" className="shrink-0 border-b-2 border-orange-500 px-3 py-2 text-slate-950">Cars</Link>
-            <Link to="/marketplace/parts" className="shrink-0 border-b-2 border-transparent px-3 py-2 text-slate-500 hover:text-slate-950">Parts</Link>
-            <Link to="/marketplace/services" className="shrink-0 border-b-2 border-transparent px-3 py-2 text-slate-500 hover:text-slate-950">Garages</Link>
-            <Link to="/diaspora" className="shrink-0 border-b-2 border-transparent px-3 py-2 text-slate-500 hover:text-slate-950">Imports</Link>
-            <Link to="/insurance" className="shrink-0 border-b-2 border-transparent px-3 py-2 text-slate-500 hover:text-slate-950">Insurance</Link>
-            <Link to="/pricing" className="shrink-0 border-b-2 border-transparent px-3 py-2 text-slate-500 hover:text-slate-950">Finance</Link>
+          <nav className="flex gap-1 overflow-x-auto pb-1 text-sm font-semibold lg:justify-end" aria-label="Marketplace categories">
+            <Link to="/marketplace" className="shrink-0 border-b-2 border-orange-400 px-3 py-2 text-white">Cars</Link>
+            <Link to="/marketplace/parts" className="shrink-0 border-b-2 border-transparent px-3 py-2 text-slate-400 hover:border-slate-500 hover:text-white">Parts</Link>
+            <Link to="/marketplace/services" className="shrink-0 border-b-2 border-transparent px-3 py-2 text-slate-400 hover:border-slate-500 hover:text-white">Garages</Link>
+            <Link to="/diaspora" className="shrink-0 border-b-2 border-transparent px-3 py-2 text-slate-400 hover:border-slate-500 hover:text-white">Imports</Link>
+            <Link to="/insurance" className="shrink-0 border-b-2 border-transparent px-3 py-2 text-slate-400 hover:border-slate-500 hover:text-white">Insurance</Link>
+            <Link to="/pricing" className="shrink-0 border-b-2 border-transparent px-3 py-2 text-slate-400 hover:border-slate-500 hover:text-white">Finance</Link>
           </nav>
         </div>
       </section>
 
-      <div className="section-padding mx-auto max-w-[1440px] py-5 sm:py-7">
-        <section className="rounded-2xl border border-slate-200 bg-white p-3 shadow-[0_8px_24px_rgba(15,23,42,0.05)] sm:p-4">
+      <div className="section-padding relative mx-auto max-w-[1440px] pb-10 pt-0 sm:pb-12">
+        <section className="relative z-10 -mt-5 border-y border-slate-200 bg-white px-0 py-4 shadow-[0_22px_55px_rgba(15,23,42,0.12)] sm:-mt-6 sm:px-4">
           <div className="flex flex-col gap-3 lg:flex-row lg:items-center">
             <div className="relative min-w-0 flex-1">
               <Search className="absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
@@ -682,14 +682,14 @@ export default function Marketplace() {
                 placeholder="Search make, model, VIN, location or seller..."
                 value={searchQuery}
                 onChange={event => setSearchQuery(event.target.value)}
-                className="h-11 border-slate-200 bg-slate-50 pl-10 text-sm focus-visible:ring-orange-500"
+                className="h-14 rounded-none border-0 border-b-2 border-slate-200 bg-transparent pl-10 text-base shadow-none focus-visible:border-orange-500 focus-visible:ring-0"
                 data-testid="marketplace-search-input"
               />
             </div>
 
             <div className="flex items-center gap-2">
               <Select value={url.sortBy} onValueChange={value => updateUrl({ sortBy: value as MarketplaceSort })}>
-                <SelectTrigger className="h-11 min-w-[170px] border-slate-200 bg-white" data-testid="marketplace-sort-select">
+                <SelectTrigger className="h-14 min-w-[180px] rounded-none border-0 border-b-2 border-slate-200 bg-white shadow-none focus:ring-orange-500" data-testid="marketplace-sort-select">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
@@ -703,7 +703,7 @@ export default function Marketplace() {
               {isMobile && (
                 <Sheet open={mobileFiltersOpen} onOpenChange={setMobileFiltersOpen}>
                   <SheetTrigger asChild>
-                    <Button variant="outline" className="h-11 border-slate-200" data-testid="marketplace-mobile-filter-button">
+                    <Button variant="outline" className="h-14 rounded-none border-slate-300 bg-slate-950 px-4 text-white hover:bg-orange-600 hover:text-white" data-testid="marketplace-mobile-filter-button">
                       <SlidersHorizontal className="mr-2 h-4 w-4" /> Filters
                       {activeFilterCount > 0 && <Badge className="ml-2 bg-slate-950 text-[10px] text-white">{activeFilterCount}</Badge>}
                     </Button>
@@ -771,9 +771,9 @@ export default function Marketplace() {
           </div>
         )}
 
-        <div className="mt-5 grid gap-6 lg:grid-cols-[270px_minmax(0,1fr)]">
+        <div className="mt-8 grid gap-8 lg:grid-cols-[250px_minmax(0,1fr)]">
           {!isMobile && (
-            <aside className="self-start rounded-2xl border border-slate-200 bg-white p-4 lg:sticky lg:top-4" aria-label="Marketplace filters">
+            <aside className="self-start border-r border-slate-200 bg-white pr-6 lg:sticky lg:top-4" aria-label="Marketplace filters">
               <div className="mb-4 flex items-center justify-between gap-3">
                 <div>
                   <p className="text-sm font-semibold text-slate-950">Refine vehicles</p>
@@ -785,7 +785,7 @@ export default function Marketplace() {
                 {filterControls}
                 <div className="border-t border-slate-200 pt-5">{taxonomyControls}</div>
               </div>
-              <Button variant="outline" className="mt-5 w-full" onClick={resetFilters}>Reset filters</Button>
+              <Button variant="ghost" className="mt-5 w-full justify-start rounded-none border-t border-slate-200 px-0 pt-4 text-slate-600 hover:bg-transparent hover:text-orange-700" onClick={resetFilters}>Reset filters</Button>
             </aside>
           )}
 
@@ -815,11 +815,11 @@ export default function Marketplace() {
             </div>
 
             {loadingVehicles ? (
-              <div className="grid gap-5 sm:grid-cols-2 xl:grid-cols-3" data-testid="marketplace-loading-state">
+              <div className="grid gap-x-6 gap-y-10 sm:grid-cols-2 2xl:grid-cols-3" data-testid="marketplace-loading-state">
                 {Array.from({ length: 6 }).map((_, index) => <SkeletonCard key={index} />)}
               </div>
             ) : visibleListings.length === 0 ? (
-              <div className="rounded-2xl border border-dashed border-slate-300 bg-white px-6 py-16 text-center" data-testid="marketplace-empty-state">
+              <div className="border-y border-dashed border-slate-300 bg-white px-6 py-16 text-center" data-testid="marketplace-empty-state">
                 <Search className="mx-auto mb-4 h-10 w-10 text-slate-300" />
                 <h3 className="text-lg font-semibold text-slate-900">No matching vehicles</h3>
                 <p className="mx-auto mt-2 max-w-md text-sm leading-6 text-slate-500">
@@ -828,7 +828,7 @@ export default function Marketplace() {
                 <Button variant="outline" className="mt-5" onClick={resetFilters}>Clear all filters</Button>
               </div>
             ) : (
-              <div className="grid gap-5 sm:grid-cols-2 xl:grid-cols-3" data-testid="marketplace-results-grid">
+              <div className="grid gap-x-6 gap-y-10 sm:grid-cols-2 2xl:grid-cols-3" data-testid="marketplace-results-grid">
                 {visibleListings.map(listing => {
                   const vin = listing.vin
                   const vehicleName = [listing.year, listing.make, listing.model].filter(value => value !== null && value !== undefined && value !== '').join(' ')
