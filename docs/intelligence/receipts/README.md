@@ -25,4 +25,5 @@ This directory holds the phase receipts for the **CarUp Intelligence 1.0 — Dat
 | I7 | `I7_SELLER_OWNER_INTELLIGENCE.md` | **web complete** — Pulse + listing insights; mobile parity sequenced behind PR #182 |
 | I8 | `I8_DEALER_INTELLIGENCE.md` | **complete** — every dealer fabrication removed and pinned |
 | I9 | `I9_MECHANIC_GARAGE_PROJECTION_MODEL.md` | **complete** — model frozen first, then implemented; scopes proven separate |
-| I10 | Insurance Intelligence | next |
+| I10 | `I10_INSURANCE_INTELLIGENCE.md` | **complete** — commercial/risk boundary enforced; fabricated risk surface neutralized |
+| I11 | Finance Intelligence | next |

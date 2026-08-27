@@ -12,6 +12,7 @@
 import express from 'express';
 import { authorizeRole } from '../middleware/authMiddleware.js';
 import { supabase } from '../db/supabase.js';
+import { getInsuranceDemandIntelligence } from '../services/intelligence/insuranceIntelligenceService.js';
 import {
   getMechanicIntelligence,
   getGarageIntelligence,
@@ -175,6 +176,27 @@ router.get(
     try {
       const windowDays = resolveWindowDays(req.query.window);
       const data = await getGarageIntelligence(supabase, req.userContext, { windowDays });
+      return res.json({ ok: true, ...data });
+    } catch (error) {
+      return handleProjectionError(res, error);
+    }
+  }),
+);
+
+/**
+ * Insurance COMMERCIAL demand — deliberately not the risk domain.
+ *
+ * Scope comes from verified insurer membership; a platform admin sees the platform
+ * view. Risk, underwriting, claims and fraud are not served here, and the payload
+ * states that boundary so a demand figure cannot be quietly reused as a risk one.
+ */
+router.get(
+  '/api/insurance/demand-intelligence',
+  authorizeRole(['insurance', 'admin']),
+  asyncHandler(async (req, res) => {
+    try {
+      const windowDays = resolveWindowDays(req.query.window);
+      const data = await getInsuranceDemandIntelligence(supabase, req.userContext, { windowDays });
       return res.json({ ok: true, ...data });
     } catch (error) {
       return handleProjectionError(res, error);
