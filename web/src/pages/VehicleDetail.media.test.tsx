@@ -1004,6 +1004,17 @@ describe('VehicleDetail — Phase 0/3/4 still hold on the page this phase edited
     expect(DETAIL_CODE).toContain("intentMetadata={{ buyer_intent: 'reservation_request', safepay_requested: true }}")
   })
 
+  it('routes financing interest without inventing lender, currency or approval semantics', async () => {
+    await renderSettled()
+    await waitFor(() => expect(screen.getByTestId('financing-request-entry')).toBeTruthy())
+
+    expect(DETAIL_CODE).toContain("intentMetadata={{ buyer_intent: 'financing_interest' }}")
+    expect(DETAIL_CODE).not.toContain('submitFinancing')
+    expect(DETAIL_CODE).not.toContain('Loan Amount (USD)')
+    expect(DETAIL_CODE).not.toContain("CarUp's banking partners")
+    expect(DETAIL_CODE).not.toContain('/pricing?vin=')
+  })
+
   it('keeps the de-fabricated seller state', async () => {
     await renderSettled()
     await waitFor(() => expect(screen.getByTestId('seller-name')).toBeTruthy())
