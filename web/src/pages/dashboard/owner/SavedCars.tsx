@@ -104,6 +104,10 @@ export default function SavedCars() {
                 }}
                 dataTestId="saved-marketplace-vehicle"
                 ctaLabel="Re-open vehicle & Passport"
+                priceTestId={`saved-price-${vehicle.vin}`}
+                mileageTestId={`saved-mileage-${vehicle.vin}`}
+                locationTestId={`saved-location-${vehicle.vin}`}
+                showMissingMileage
               />
             ))}
           </div>
