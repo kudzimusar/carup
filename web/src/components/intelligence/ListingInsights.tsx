@@ -64,13 +64,27 @@ export default function ListingInsights({
       setState('failed')
       return () => { cancelled = true }
     }
-    Promise.resolve(fetchListingIntelligence(vin, windowDays))
-      .then((data: IntelligenceEnvelope) => {
+    // The call itself is guarded, not just the promise: a fetcher that throws
+    // SYNCHRONOUSLY would otherwise escape the .catch below and break the effect,
+    // taking the host surface down with it.
+    let pending: Promise<IntelligenceEnvelope>
+    try {
+      pending = Promise.resolve(fetchListingIntelligence(vin, windowDays))
+    } catch {
+      setState('failed')
+      return () => { cancelled = true }
+    }
+    // Two-argument then(): the rejection handler is attached in the SAME tick as
+    // the fulfilment one, so a promise that is already rejected can never be seen
+    // as unhandled before this binds.
+    pending.then(
+      (data: IntelligenceEnvelope) => {
         if (cancelled) return
         setPayload(data)
         setState('ready')
-      })
-      .catch(() => { if (!cancelled) setState('failed') })
+      },
+      () => { if (!cancelled) setState('failed') },
+    )
     return () => { cancelled = true }
   }, [fetchListingIntelligence, vin, windowDays])
 

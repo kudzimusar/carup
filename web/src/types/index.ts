@@ -1454,8 +1454,11 @@ export interface Promotion {
   type: string;
   value: string;
   status: 'active' | 'scheduled' | 'expired';
-  views: number;
-  clicks: number;
+  // Optional because CarUp records no promotion impression or click anywhere. A
+  // required number here forced every call site to invent a 0, which reads as a
+  // measurement of zero rather than as the absence of measurement it actually is.
+  views?: number;
+  clicks?: number;
   startDate: string;
   endDate: string;
   discount_amount?: number;

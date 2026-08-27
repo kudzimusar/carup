@@ -10,15 +10,20 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from 
 import { Label } from '@/components/ui/label'
 import type { Promotion } from '@/types'
 
-const mockPromotions: Promotion[] = [
-  { id: 1, title: 'Weekend Special: 5% Off All SUVs', type: 'percentage', value: '5%', status: 'active', views: 245, clicks: 32, startDate: '2026-05-20', endDate: '2026-05-25' },
-  { id: 2, title: 'Free Roadworthy Certificate', type: 'free_service', value: '$50', status: 'active', views: 189, clicks: 21, startDate: '2026-05-18', endDate: '2026-05-30' },
-  { id: 3, title: 'Trade-In Bonus: Extra $500', type: 'fixed', value: '$500', status: 'scheduled', views: 0, clicks: 0, startDate: '2026-06-01', endDate: '2026-06-15' },
-]
+/**
+ * There is deliberately no seeded promotion list here.
+ *
+ * Three fabricated campaigns used to be the INITIAL state and were then
+ * CONCATENATED into successful API results, so every dealer saw two "active"
+ * promotions with 245 and 189 views that did not exist — and a real dealer with
+ * one real promotion saw four. Mock data that survives a successful read is
+ * indistinguishable from data.
+ */
 
 export default function Promotions() {
   const { fetchDealerPromotions, createDealerPromotion, loading } = useCarUpApi()
-  const [promotions, setPromotions] = useState<Promotion[]>(mockPromotions)
+  const [promotions, setPromotions] = useState<Promotion[]>([])
+  const [loadState, setLoadState] = useState<'loading' | 'ready' | 'failed'>('loading')
   const [isModalOpen, setIsModalOpen] = useState(false)
   const [isSubmitting, setIsSubmitting] = useState(false)
 
@@ -31,7 +36,7 @@ export default function Promotions() {
 
   useEffect(() => {
     fetchDealerPromotions().then(data => {
-      if (data && data.length > 0) {
+      if (Array.isArray(data)) {
         const formatted = data.map((d: Promotion) => ({
           id: d.id,
           title: d.title,
@@ -43,10 +48,12 @@ export default function Promotions() {
           startDate: d.start_date ? new Date(d.start_date).toISOString().split('T')[0] : d.startDate || new Date().toISOString().split('T')[0],
           endDate: d.end_date ? new Date(d.end_date).toISOString().split('T')[0] : d.endDate || new Date().toISOString().split('T')[0]
         }))
-        setPromotions([...formatted, ...mockPromotions])
+        setPromotions(formatted)
       }
+      setLoadState('ready')
     }).catch(() => {
-      // API offline or not migrated, use mock
+      // A failed read is NOT "no promotions". Saying so is the whole point.
+      setLoadState('failed')
     })
   }, [fetchDealerPromotions])
 
@@ -69,8 +76,8 @@ export default function Promotions() {
           type: 'fixed',
           value: `$${formData.discount_amount}`,
           status: 'active',
-          views: 0,
-          clicks: 0,
+          views: undefined,
+          clicks: undefined,
           startDate: formData.start_date,
           endDate: formData.end_date
         }, ...promotions])
@@ -130,11 +137,32 @@ export default function Promotions() {
         </Dialog>
       </div>
 
+      {/* "Total Views 434" and "Click Rate 12.2%" were literals — the sum of the
+          mock rows' views, and a rate with no numerator or denominator behind it.
+          CarUp records no promotion impressions or clicks at all, so the only
+          honest tile is a count of the promotions themselves. */}
       <div className="grid sm:grid-cols-3 gap-4">
-        <Card className="border-0 card-shadow"><CardContent className="p-5"><p className="text-sm text-gray-500">Active Promotions</p><p className="text-2xl font-bold">{promotions.filter(p => p.status === 'active').length}</p></CardContent></Card>
-        <Card className="border-0 card-shadow"><CardContent className="p-5"><p className="text-sm text-gray-500">Total Views</p><p className="text-2xl font-bold">434</p></CardContent></Card>
-        <Card className="border-0 card-shadow"><CardContent className="p-5"><p className="text-sm text-gray-500">Click Rate</p><p className="text-2xl font-bold text-green-600">12.2%</p></CardContent></Card>
+        <Card className="border-0 card-shadow"><CardContent className="p-5">
+          <p className="text-sm text-gray-500">Active promotions</p>
+          <p className="text-2xl font-bold" data-testid="promotions-active-count">
+            {loadState === 'ready' ? promotions.filter(p => p.status === 'active').length : '—'}
+          </p>
+        </CardContent></Card>
+        <Card className="border-0 card-shadow"><CardContent className="p-5">
+          <p className="text-sm text-gray-500">Views</p>
+          <p className="text-base italic text-gray-500" data-testid="promotions-views-unavailable">Not tracked</p>
+        </CardContent></Card>
+        <Card className="border-0 card-shadow"><CardContent className="p-5">
+          <p className="text-sm text-gray-500">Click rate</p>
+          <p className="text-base italic text-gray-500" data-testid="promotions-clicks-unavailable">Not tracked</p>
+        </CardContent></Card>
       </div>
+
+      {loadState === 'failed' && (
+        <p className="text-sm text-gray-600" data-testid="promotions-load-failed">
+          Your promotions could not be loaded. This is not an empty list.
+        </p>
+      )}
 
       <div className="space-y-4">
         {promotions.map((promo) => (
@@ -146,8 +174,11 @@ export default function Promotions() {
               </div>
               <div className="flex flex-wrap gap-4 text-sm text-gray-500 bg-gray-50 p-2 rounded-md">
                 <span className="flex items-center gap-1.5"><DollarSign className="w-4 h-4 text-gray-400" />Value: <span className="font-medium text-gray-900">{promo.value}</span></span>
-                <span className="flex items-center gap-1.5"><Eye className="w-4 h-4 text-gray-400" />{promo.views} views</span>
-                <span className="flex items-center gap-1.5"><TrendingUp className="w-4 h-4 text-gray-400" />{promo.clicks} clicks</span>
+                {/* No promotion view or click is recorded anywhere in CarUp, so a
+                    "0 views" here would be a measurement of zero where no
+                    measurement is taken. */}
+                <span className="flex items-center gap-1.5 italic"><Eye className="w-4 h-4 text-gray-400" />Views not tracked</span>
+                <span className="flex items-center gap-1.5 italic"><TrendingUp className="w-4 h-4 text-gray-400" />Clicks not tracked</span>
                 <span className="flex items-center gap-1.5"><Calendar className="w-4 h-4 text-gray-400" />{promo.startDate} - {promo.endDate}</span>
               </div>
             </CardContent>

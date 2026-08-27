@@ -46,7 +46,17 @@ export default function MarketplacePulse({ windowDays = 7 }: { windowDays?: 7 | 
       setState('failed')
       return () => { cancelled = true }
     }
-    Promise.resolve(fetchSellerIntelligence(windowDays))
+    // The call itself is guarded, not just the promise: a fetcher that throws
+    // SYNCHRONOUSLY would otherwise escape the .catch below and break the effect,
+    // taking the host surface down with it.
+    let pending: Promise<IntelligenceEnvelope>
+    try {
+      pending = Promise.resolve(fetchSellerIntelligence(windowDays))
+    } catch {
+      setState('failed')
+      return () => { cancelled = true }
+    }
+    pending
       .then((data: IntelligenceEnvelope) => {
         if (cancelled) return
         setPayload(data)

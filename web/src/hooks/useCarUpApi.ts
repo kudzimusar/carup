@@ -632,6 +632,9 @@ export function useCarUpApi() {
     request(`/marketplace/my-analytics?window=${windowDays}`), [request])
   const fetchListingIntelligence = useCallback(async (vin: string, windowDays: 7 | 30 | 90 = 7): Promise<any> =>
     request(`/marketplace/my-listings/${encodeURIComponent(vin)}/analytics?window=${windowDays}`), [request])
+  /** Tenant scope is resolved from verified session membership; there is no tenant parameter. */
+  const fetchDealerIntelligence = useCallback(async (windowDays: 7 | 30 | 90 = 7): Promise<any> =>
+    request(`/dealer/analytics?window=${windowDays}`), [request])
   const marketplaceAiModerationSummary = useCallback(async (payload: { vin?: string; listingSummary?: unknown; trustSummary?: unknown }): Promise<any> =>
     request('/admin/marketplace/ai/moderation-summary', { method: 'POST', body: JSON.stringify(payload) }), [request])
 
@@ -2566,6 +2569,7 @@ export function useCarUpApi() {
   return {
     fetchSellerIntelligence,
     fetchListingIntelligence,
+    fetchDealerIntelligence,
     uploadKycDocument,
     uploadEvidence,
     linkEvidenceToEvent,

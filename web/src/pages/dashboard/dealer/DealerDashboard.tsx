@@ -1,40 +1,37 @@
 import { useState, useEffect } from 'react'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
-import { Progress } from '@/components/ui/progress'
 import { toast } from 'sonner'
 import {
   Car, Users, TrendingUp, DollarSign, ArrowRight,
   MapPin, BarChart3, Settings, Loader2
 } from 'lucide-react'
 import { Link } from 'react-router-dom'
-import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer } from 'recharts'
 import { useCarUpApi } from '@/hooks/useCarUpApi'
 import { SellerInquiriesCard } from '@/components/marketplace/SellerInquiriesCard'
 import type { Vehicle } from '@/types'
+import DealerIntelligence from '@/components/intelligence/DealerIntelligence'
 
-const salesData = [
-  { month: 'Jan', sales: 8 },
-  { month: 'Feb', sales: 10 },
-  { month: 'Mar', sales: 12 },
-  { month: 'Apr', sales: 9 },
-  { month: 'May', sales: 14 },
-]
 
 export default function DealerDashboard() {
-  const { fetchVehicles, loading } = useCarUpApi()
+  const { fetchDealerInventory, loading } = useCarUpApi()
 
   // Branch switcher state
   const [selectedBranch, setSelectedBranch] = useState('Harare')
   const [liveInventory, setLiveInventory] = useState<Vehicle[]>([])
+  const [inventoryState, setInventoryState] = useState<'loading' | 'ready' | 'failed'>('loading')
 
   useEffect(() => {
     // Live inventory only. Falling back to mock vehicles made an empty or failing read look like real
     // stock, and an error is not an inventory — an empty list is the honest result in both cases.
-    fetchVehicles()
-      .then(data => { setLiveInventory(Array.isArray(data) ? data : []) })
-      .catch(() => { setLiveInventory([]) })
-  }, [fetchVehicles])
+    // TENANT-SCOPED inventory. This previously read the PUBLIC platform-wide
+    // vehicle list, so "Total Inventory" counted every published vehicle on CarUp
+    // and "branch stock" filtered other dealers' cars by location. A failed read
+    // is reported rather than rendered as an empty lot.
+    fetchDealerInventory()
+      .then(data => { setLiveInventory(Array.isArray(data) ? data : []); setInventoryState('ready') })
+      .catch(() => { setLiveInventory([]); setInventoryState('failed') })
+  }, [fetchDealerInventory])
 
   // A vehicle with no recorded location is NOT in Harare — an unlocated vehicle is unlocated, so it is
   // no longer filed under the default branch.
@@ -98,7 +95,7 @@ export default function DealerDashboard() {
           // Only inventory is a real count. Leads / monthly sales / revenue had no data source and were
           // read from a fabricated `dashboardStats.dealer` block; there is no CRM or sales read model
           // behind this dashboard, so they say "Not available" rather than invent business performance.
-          { label: 'Total Inventory', value: liveInventory.length, icon: Car, color: 'text-blue-500', bg: 'bg-blue-50' },
+          { label: 'Total Inventory', value: inventoryState === 'ready' ? liveInventory.length : 'Not available', icon: Car, color: 'text-blue-500', bg: 'bg-blue-50' },
           { label: 'Leads', value: 'Not available', icon: Users, color: 'text-orange-500', bg: 'bg-orange-50' },
           { label: 'Monthly Sales', value: 'Not available', icon: TrendingUp, color: 'text-green-500', bg: 'bg-green-50' },
           { label: 'Revenue (USD)', value: 'Not available', icon: DollarSign, color: 'text-purple-500', bg: 'bg-purple-50' },
@@ -210,36 +207,25 @@ export default function DealerDashboard() {
 
         {/* Sidebar */}
         <div className="space-y-6">
-          <Card className="border-0 card-shadow bg-white">
-            <CardHeader className="pb-3"><CardTitle className="text-lg">Sales Performance</CardTitle></CardHeader>
-            <CardContent>
-              <ResponsiveContainer width="100%" height={160}>
-                <BarChart data={salesData}>
-                  <XAxis dataKey="month" axisLine={false} tickLine={false} tick={{ fontSize: 12 }} />
-                  <YAxis axisLine={false} tickLine={false} tick={{ fontSize: 12 }} />
-                  <Tooltip />
-                  <Bar dataKey="sales" fill="#f97316" radius={[4, 4, 0, 0]} barSize={25} />
-                </BarChart>
-              </ResponsiveContainer>
-            </CardContent>
-          </Card>
+          {/* The "Sales Performance" chart plotted a static Jan–May series
+              (8/10/12/9/14) identical for every dealer. CarUp holds no
+              authoritative record of a dealer's completed sales, so there is
+              nothing to plot — governed marketplace performance is shown instead,
+              and the absence of sales data is stated rather than drawn. */}
+          <DealerIntelligence windowDays={30} />
 
-          {/* Inventory Aging Analysis */}
+          {/* Inventory aging was three fixed Progress bars — 60% / 30% / 10% —
+              hardcoded for every dealer and labelled "(Harare)" whichever branch
+              was selected. `vehicles` carries no governed publication date (only
+              the row-insert timestamp), so days-on-market cannot be computed
+              without inventing it. The absence is named instead. */}
           <Card className="border-0 card-shadow bg-white">
-            <CardHeader className="pb-3"><CardTitle className="text-lg">Inventory Aging (Harare)</CardTitle></CardHeader>
-            <CardContent className="space-y-4">
-              <div>
-                <div className="flex justify-between text-xs mb-1"><span>0 - 15 Days</span><span className="font-semibold text-gray-700">60%</span></div>
-                <Progress value={60} className="h-1 bg-gray-100" indicatorClassName="bg-green-500" />
-              </div>
-              <div>
-                <div className="flex justify-between text-xs mb-1"><span>16 - 30 Days</span><span className="font-semibold text-gray-700">30%</span></div>
-                <Progress value={30} className="h-1 bg-gray-100" indicatorClassName="bg-amber-500" />
-              </div>
-              <div>
-                <div className="flex justify-between text-xs mb-1"><span>31+ Days</span><span className="font-semibold text-gray-700">10%</span></div>
-                <Progress value={10} className="h-1 bg-gray-100" indicatorClassName="bg-red-500" />
-              </div>
+            <CardHeader className="pb-3"><CardTitle className="text-lg">Inventory aging</CardTitle></CardHeader>
+            <CardContent>
+              <p className="text-sm text-gray-600" data-testid="dealer-inventory-aging-unavailable">
+                Not available. CarUp does not record a governed publication date for a listing,
+                so days on market cannot be measured. This is not zero.
+              </p>
             </CardContent>
           </Card>
 
