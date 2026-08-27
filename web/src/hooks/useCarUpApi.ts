@@ -635,6 +635,12 @@ export function useCarUpApi() {
   /** Tenant scope is resolved from verified session membership; there is no tenant parameter. */
   const fetchDealerIntelligence = useCallback(async (windowDays: 7 | 30 | 90 = 7): Promise<any> =>
     request(`/dealer/analytics?window=${windowDays}`), [request])
+  /** PERSON scope: the practitioner's own work, never the organization's. */
+  const fetchMechanicIntelligence = useCallback(async (windowDays: 7 | 30 | 90 = 30): Promise<any> =>
+    request(`/mechanic/analytics?window=${windowDays}`), [request])
+  /** ORGANIZATION scope: the whole tenant, resolved from verified membership. */
+  const fetchGarageIntelligence = useCallback(async (windowDays: 7 | 30 | 90 = 30): Promise<any> =>
+    request(`/garage/analytics?window=${windowDays}`), [request])
   const marketplaceAiModerationSummary = useCallback(async (payload: { vin?: string; listingSummary?: unknown; trustSummary?: unknown }): Promise<any> =>
     request('/admin/marketplace/ai/moderation-summary', { method: 'POST', body: JSON.stringify(payload) }), [request])
 
@@ -2570,6 +2576,8 @@ export function useCarUpApi() {
     fetchSellerIntelligence,
     fetchListingIntelligence,
     fetchDealerIntelligence,
+    fetchMechanicIntelligence,
+    fetchGarageIntelligence,
     uploadKycDocument,
     uploadEvidence,
     linkEvidenceToEvent,

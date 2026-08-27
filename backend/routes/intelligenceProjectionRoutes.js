@@ -13,6 +13,10 @@ import express from 'express';
 import { authorizeRole } from '../middleware/authMiddleware.js';
 import { supabase } from '../db/supabase.js';
 import {
+  getMechanicIntelligence,
+  getGarageIntelligence,
+} from '../services/intelligence/serviceIntelligenceService.js';
+import {
   getListingInsights,
   getSellerPulse,
   getDealerIntelligence,
@@ -129,6 +133,48 @@ router.get(
   asyncHandler(async (req, res) => {
     try {
       const data = await getGovernmentIntelligence(supabase, req.userContext);
+      return res.json({ ok: true, ...data });
+    } catch (error) {
+      return handleProjectionError(res, error);
+    }
+  }),
+);
+
+/**
+ * Mechanic intelligence — PERSON scope.
+ *
+ * Scoped to the practitioner's own id. It never widens to their organization: an
+ * unattributed work order is not this mechanic's work.
+ */
+router.get(
+  '/api/mechanic/analytics',
+  authorizeRole(['mechanic', 'admin']),
+  asyncHandler(async (req, res) => {
+    try {
+      const windowDays = resolveWindowDays(req.query.window);
+      const data = await getMechanicIntelligence(supabase, req.userContext, { windowDays });
+      return res.json({ ok: true, ...data });
+    } catch (error) {
+      return handleProjectionError(res, error);
+    }
+  }),
+);
+
+/**
+ * Garage intelligence — TENANT / ORGANIZATION scope.
+ *
+ * Gated on the roles that can belong to a garage organization, and scoped to the
+ * VERIFIED tenant on the session. There is deliberately no organization parameter,
+ * and a caller with no verified tenant is refused rather than shown their own work
+ * relabelled as the organization's.
+ */
+router.get(
+  '/api/garage/analytics',
+  authorizeRole(['mechanic', 'dealer', 'admin']),
+  asyncHandler(async (req, res) => {
+    try {
+      const windowDays = resolveWindowDays(req.query.window);
+      const data = await getGarageIntelligence(supabase, req.userContext, { windowDays });
       return res.json({ ok: true, ...data });
     } catch (error) {
       return handleProjectionError(res, error);
