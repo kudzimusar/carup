@@ -2052,9 +2052,15 @@ export interface VehicleLifecycleProjection {
   audience: string;
   events: VehicleLifecycleEvent[];
   counts: Record<string, number>;
+  count_states?: Record<string, {
+    value: number;
+    state: 'complete' | 'partial' | 'unavailable';
+  }>;
+  source_states?: Record<string, 'available' | 'unavailable'>;
   mileage: {
     observations: VehicleLifecycleMileageObservation[];
     anomaly: boolean;
+    coverage_state?: 'complete' | 'partial' | 'unavailable';
   };
   source_diversity: number;
 }
