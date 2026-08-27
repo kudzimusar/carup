@@ -875,6 +875,7 @@ export default function Marketplace() {
                     partSentryChecked: listing.partsentry_checked,
                     labels: labels.length > 0 ? labels : ['Published listing'],
                     trust: listing.trust || null,
+                    carupGold: listing.carup_gold?.state === 'qualified',
                   }
 
                   return (
