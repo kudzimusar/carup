@@ -7,6 +7,8 @@ on:
     paths:
       - 'backend/services/marketplace/**'
       - 'backend/services/report/**'
+      - 'backend/routes/escrowTrustRoutes.js'
+      - 'backend/services/reservation/**'
       - 'backend/server.js'
       - 'backend/fixtures/marketplace-reference-media-v1.json'
       - 'backend/scripts/marketplace-reference-media-staging.mjs'
@@ -30,6 +32,11 @@ on:
       - 'web/src/components/marketplace/**'
       - 'web/src/components/VehicleHistoryReport.tsx'
       - 'web/src/components/layout/**'
+      - 'web/src/hooks/useCarUpApi.ts'
+      - 'web/src/lib/returnTo.ts'
+      - 'web/src/lib/returnTo.test.ts'
+      - 'web/src/pages/SellFlow.resilience.test.ts'
+      - 'web/src/pages/dashboard/owner/MyListings.responsive.test.tsx'
       - 'web/src/data/vehicleTaxonomy.ts'
       - 'web/src/data/vehicleTaxonomy.test.ts'
       - 'web/src/lib/guestSellDraft.ts'
@@ -90,6 +97,7 @@ jobs:
           backend/tests/vehicle-report.test.js
           backend/tests/issue164-phase5-media-contract.test.js
           backend/tests/issue164-phase5-passport-media-wiring.test.js
+          backend/tests/issue164-phase6-transaction-authority.test.js
 
       - name: Run expanded Marketplace and Vehicle Detail unit regressions
         run: >-
@@ -97,7 +105,9 @@ jobs:
           src/data/vehicleTaxonomy.test.ts
           src/lib/marketplaceParams.test.ts
           src/lib/marketplacePresentation.test.ts
+          src/lib/returnTo.test.ts
           src/pages/SellFlow.resilience.test.ts
+          src/pages/dashboard/owner/MyListings.responsive.test.tsx
           src/pages/VehicleDetail.media.test.tsx
           src/pages/VehicleDetail.trust.test.tsx
 
