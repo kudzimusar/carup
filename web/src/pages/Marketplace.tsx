@@ -1007,35 +1007,56 @@ export default function Marketplace() {
 
       {compareVins.length > 0 && (
         <div
-          className="fixed inset-x-3 bottom-[calc(5rem+env(safe-area-inset-bottom))] z-[60] mx-auto flex max-w-xl items-center justify-between gap-3 border border-slate-800 bg-[#08111f] px-3 py-3 text-white shadow-[0_22px_60px_rgba(15,23,42,0.35)] sm:inset-x-auto sm:left-1/2 sm:-translate-x-1/2 sm:px-4 lg:bottom-6"
+          className="fixed inset-x-3 bottom-[calc(5rem+env(safe-area-inset-bottom))] z-[60] mx-auto max-w-5xl border border-slate-700 bg-[#08111f]/[0.98] px-3 py-3 text-white shadow-[0_26px_80px_rgba(2,6,23,0.55)] backdrop-blur-xl lg:bottom-6"
           data-testid="marketplace-compare-bar"
           aria-live="polite"
         >
-          <div className="min-w-0">
-            <p className="truncate text-sm font-bold text-white">
-              {compareVins.length} selected to compare
-            </p>
-            <p className="mt-0.5 text-[11px] text-slate-400">
-              {compareVins.length < 2 ? 'Select one more vehicle to compare.' : 'Ready to compare side by side.'}
-            </p>
-          </div>
-          <div className="flex shrink-0 items-center gap-1.5">
-            <Button variant="ghost" size="sm" className="text-slate-300 hover:bg-white/10 hover:text-white" onClick={() => setCompareVins([])}>
-              Clear
-            </Button>
-            <Button
-              size="sm"
-              className="min-w-[9.5rem] rounded-none bg-orange-500 font-bold text-white hover:bg-orange-600 disabled:bg-slate-700 disabled:text-slate-400"
-              disabled={compareVins.length < 2}
-              onClick={() => navigate(`/marketplace/compare?vins=${compareVins.join(',')}`)}
-              data-testid="marketplace-compare-go"
-            >
-              <GitCompare className="mr-1 h-4 w-4" />
-              {compareVins.length < 2 ? 'Compare vehicles' : `Compare ${compareVins.length} vehicles`}
-            </Button>
+          <div className="flex items-center gap-3">
+            <div className="hidden min-w-0 flex-1 items-center gap-2 overflow-hidden sm:flex">
+              {compareSelections.map(listing => (
+                <div key={listing.vin} className="flex min-w-0 max-w-[190px] flex-1 items-center gap-2 border-r border-white/10 pr-2 last:border-r-0">
+                  <ListingImage
+                    src={primaryImageForListing(listing)}
+                    alt={[listing.year, listing.make, listing.model].filter(Boolean).join(' ') || 'Selected vehicle'}
+                    className="h-11 w-16 shrink-0 overflow-hidden bg-slate-800"
+                    imgClassName="object-cover"
+                  />
+                  <div className="min-w-0">
+                    <p className="truncate text-[11px] font-black text-white">
+                      {[listing.year, listing.make, listing.model].filter(Boolean).join(' ')}
+                    </p>
+                    <p className="mt-0.5 truncate text-[10px] text-slate-400">
+                      {marketplacePriceLabel(listing.price, listing.currency)}
+                    </p>
+                  </div>
+                </div>
+              ))}
+            </div>
+
+            <div className="min-w-0 flex-1 sm:hidden">
+              <p className="truncate text-sm font-black text-white">{compareVins.length} selected to compare</p>
+              <p className="mt-0.5 text-[10px] text-slate-400">
+                {compareVins.length < 2 ? 'Select one more vehicle.' : 'Your side-by-side shortlist is ready.'}
+              </p>
+            </div>
+
+            <div className="ml-auto flex shrink-0 items-center gap-1.5">
+              <Button variant="ghost" size="sm" className="hidden rounded-none text-slate-300 hover:bg-white/10 hover:text-white sm:inline-flex" onClick={() => setCompareVins([])}>
+                Clear
+              </Button>
+              <Button
+                size="sm"
+                className="min-w-[9.5rem] rounded-none bg-orange-500 font-black text-white hover:bg-orange-600 disabled:bg-slate-700 disabled:text-slate-400"
+                disabled={compareVins.length < 2}
+                onClick={() => navigate(`/marketplace/compare?vins=${compareVins.join(',')}`)}
+                data-testid="marketplace-compare-go"
+              >
+                <GitCompare className="mr-1 h-4 w-4" />
+                {compareVins.length < 2 ? 'Select one more' : `Compare ${compareVins.length} vehicles`}
+              </Button>
+            </div>
           </div>
         </div>
-      )}
-    </div>
+      )}    </div>
   )
 }
