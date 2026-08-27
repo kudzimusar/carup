@@ -14,4 +14,5 @@ This directory holds the phase receipts for the **CarUp Intelligence 1.0 — Dat
 
 | Phase | Receipt | Status |
 |---|---|---|
-| I0 | `I0_STAKEHOLDER_PROCESS_DATA_AUTHORITY_INVENTORY.md` | in progress |
+| I0 | `I0_STAKEHOLDER_PROCESS_DATA_AUTHORITY_INVENTORY.md` (+ evidence appendices in `i0-appendices/`) | **complete** |
+| I1 | `I1_CANONICAL_METRIC_AND_EVENT_CONTRACT.md` | in progress |
