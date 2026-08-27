@@ -4,6 +4,7 @@ import { Button } from '@/components/ui/button'
 import { ListingImage } from '@/components/marketplace/ListingImage'
 import { canRenderMarketplacePrimaryImage } from '@/lib/marketplacePresentation'
 import {
+  ArrowUpRight,
   CheckCircle2,
   Fuel,
   Gauge,
@@ -80,23 +81,24 @@ function TrustPreview({ trust }: { trust?: MarketplaceCardTrust | null }) {
   if (hasCanonicalScore) {
     return (
       <div
-        className="relative border-y border-slate-200 bg-transparent py-3"
+        className="relative overflow-hidden bg-[#0a1220] px-4 py-3 text-white"
         data-testid="marketplace-card-trust"
       >
-        <div className="relative flex items-center justify-between gap-3">
+        <div className="absolute inset-y-0 left-0 w-1 bg-orange-500" />
+        <div className="flex items-center justify-between gap-4">
           <div className="min-w-0">
-            <div className="flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-[0.12em] text-orange-800">
-              <ShieldCheck className="h-3.5 w-3.5" /> Canonical Trust
+            <div className="flex items-center gap-1.5 text-[9px] font-black uppercase tracking-[0.18em] text-orange-300">
+              <ShieldCheck className="h-3.5 w-3.5" /> CarUp Trust lens
             </div>
             <div className="mt-1 flex items-baseline gap-2">
-              <span className="text-sm font-semibold text-slate-950">{titleCase(trust?.band) || 'Evaluated'}</span>
-              <span className="text-xs text-slate-500">{score}/100</span>
+              <span className="text-lg font-black">{score}<span className="text-xs font-semibold text-slate-400">/100</span></span>
+              <span className="text-xs font-semibold text-slate-300">{titleCase(trust?.band) || 'Evaluated'}</span>
             </div>
           </div>
           {trust?.confidence && (
-            <div className="text-right">
-              <div className="text-[10px] uppercase tracking-wide text-slate-400">Confidence</div>
-              <div className="text-xs font-medium text-slate-700">{titleCase(trust.confidence)}</div>
+            <div className="border-l border-white/10 pl-4 text-right">
+              <div className="text-[9px] uppercase tracking-[0.14em] text-slate-500">Confidence</div>
+              <div className="mt-0.5 text-xs font-bold text-white">{titleCase(trust.confidence)}</div>
             </div>
           )}
         </div>
@@ -114,14 +116,16 @@ function TrustPreview({ trust }: { trust?: MarketplaceCardTrust | null }) {
 
   return (
     <div
-      className="border-y border-slate-200 bg-transparent py-3"
+      className="border-y border-slate-200 bg-slate-50 px-4 py-3"
       data-testid="marketplace-card-trust"
     >
-      <div className="flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-[0.12em] text-slate-500">
-        <ShieldCheck className="h-3.5 w-3.5" /> CarUp Trust
+      <div className="flex items-center gap-1.5 text-[9px] font-black uppercase tracking-[0.18em] text-slate-500">
+        <ShieldCheck className="h-3.5 w-3.5" /> CarUp Trust lens
       </div>
-      <p className="mt-1 text-sm font-medium text-slate-800">{copy}</p>
-      <p className="mt-0.5 text-[11px] leading-4 text-slate-500">No legacy score is substituted.</p>
+      <div className="mt-1 flex items-end justify-between gap-3">
+        <p className="text-sm font-bold text-slate-900">{copy}</p>
+        <p className="text-[10px] text-slate-500">No substitute score</p>
+      </div>
     </div>
   )
 }
@@ -141,10 +145,10 @@ export function MarketplaceListingCard({
 
   return (
     <article
-      className="group flex h-full flex-col bg-white transition duration-300 hover:-translate-y-1"
+      className={`group relative flex h-full flex-col bg-white transition duration-500 hover:-translate-y-1.5 ${isCompared ? 'ring-2 ring-orange-500 ring-offset-4' : ''}`}
       data-testid="marketplace-vehicle-card"
     >
-      <div className="relative aspect-[4/3] overflow-hidden bg-[linear-gradient(135deg,#e8edf3,#dce3eb)] shadow-[0_16px_38px_rgba(15,23,42,0.14)] transition-shadow duration-300 group-hover:shadow-[0_24px_56px_rgba(15,23,42,0.22)]">
+      <div className="relative aspect-[16/10] overflow-hidden bg-[linear-gradient(135deg,#e8edf3,#dce3eb)] shadow-[0_18px_44px_rgba(15,23,42,0.16)] transition-shadow duration-500 group-hover:shadow-[0_30px_70px_rgba(15,23,42,0.24)]">
         <Link
           to={href}
           className="block h-full w-full focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange-500 focus-visible:ring-inset"
@@ -228,45 +232,41 @@ export function MarketplaceListingCard({
           className="rounded-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange-500"
           aria-label={`Open ${vehicle.name}`}
         >
-          <h3 className="line-clamp-2 min-h-[2.5rem] text-xl font-black leading-6 tracking-[-0.025em] text-slate-950 transition-colors group-hover:text-orange-700">
+          <h3 className="line-clamp-2 min-h-[2.75rem] text-2xl font-black leading-[1.05] tracking-[-0.04em] text-slate-950 transition-colors group-hover:text-orange-700">
             {vehicle.name}
           </h3>
         </Link>
 
-        <p className="mt-2 text-2xl font-black tracking-[-0.04em] text-slate-950" data-testid="marketplace-card-price">
+        <p className="mt-3 text-2xl font-black tracking-[-0.045em] text-slate-950 sm:text-3xl" data-testid="marketplace-card-price">
           {formatMarketplacePrice(vehicle.price, vehicle.currency)}
         </p>
 
-        <div className="mt-2 flex flex-wrap gap-x-3 gap-y-1.5 text-xs text-slate-500">
+        <div className="mt-4 grid grid-cols-3 border-y border-slate-200 text-xs text-slate-600">
           {typeof vehicle.mileage === 'number' && Number.isFinite(vehicle.mileage) && (
-            <span className="flex items-center gap-1"><Gauge className="h-3.5 w-3.5" />{vehicle.mileage.toLocaleString()} km</span>
+            <span className="flex min-h-12 items-center gap-1.5 border-r border-slate-200 pr-2"><Gauge className="h-3.5 w-3.5 text-orange-500" />{vehicle.mileage.toLocaleString()} km</span>
           )}
           {vehicle.transmission && (
-            <span className="flex items-center gap-1"><Settings2 className="h-3.5 w-3.5" />{vehicle.transmission}</span>
+            <span className="flex min-h-12 items-center gap-1.5 border-r border-slate-200 px-2"><Settings2 className="h-3.5 w-3.5 text-orange-500" />{vehicle.transmission}</span>
           )}
           {vehicle.fuel && (
-            <span className="flex items-center gap-1"><Fuel className="h-3.5 w-3.5" />{vehicle.fuel}</span>
+            <span className="flex min-h-12 items-center gap-1.5 pl-2"><Fuel className="h-3.5 w-3.5 text-orange-500" />{vehicle.fuel}</span>
           )}
         </div>
 
-        <div className="mt-4 flex flex-wrap gap-1.5 border-t border-slate-100 pt-3">
-          {vehicle.labels.slice(0, 3).map((label) => (
-            <Badge
-              key={label}
-              variant="outline"
-              className="rounded-none border-slate-200 bg-slate-50 px-2 py-0.5 text-[10px] font-medium text-slate-600"
-              data-testid="marketplace-condition-tag"
-            >
+        <div className="mt-3 flex min-h-5 flex-wrap items-center gap-x-2 gap-y-1 text-[10px] font-bold uppercase tracking-[0.1em] text-slate-500">
+          {vehicle.labels.slice(0, 3).map((label, index) => (
+            <span key={label} className="inline-flex items-center gap-2" data-testid="marketplace-condition-tag">
+              {index > 0 && <span className="h-1 w-1 bg-orange-500" aria-hidden="true" />}
               {label}
-            </Badge>
+            </span>
           ))}
         </div>
 
-        <div className="mt-3">
+        <div className="mt-4">
           <TrustPreview trust={vehicle.trust} />
         </div>
 
-        <div className="mt-4 grid gap-1.5 text-xs text-slate-500">
+        <div className="mt-4 grid gap-2 text-xs text-slate-500">
           <div className="flex min-w-0 items-center gap-1.5">
             <MapPin className="h-3.5 w-3.5 shrink-0" />
             <span className="truncate" data-testid="listing-location">{vehicle.locationLabel}</span>
@@ -277,10 +277,14 @@ export function MarketplaceListingCard({
           </div>
         </div>
 
-        <div className="mt-auto pt-4">
-          <Button asChild className="h-11 w-full rounded-none border border-slate-950 bg-white font-bold text-slate-950 shadow-none transition-colors hover:border-orange-600 hover:bg-orange-600 hover:text-white">
-            <Link to={href}>View vehicle &amp; Passport</Link>
-          </Button>
+        <div className="mt-auto pt-5">
+          <Link
+            to={href}
+            className="group/link flex items-center justify-between border-t border-slate-950 pt-3 text-sm font-black text-slate-950 transition-colors hover:text-orange-700"
+          >
+            <span>Explore vehicle &amp; Passport</span>
+            <ArrowUpRight className="h-4 w-4 transition-transform group-hover/link:-translate-y-0.5 group-hover/link:translate-x-0.5" />
+          </Link>
         </div>
       </div>
     </article>
