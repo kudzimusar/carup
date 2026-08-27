@@ -663,27 +663,87 @@ export default function Marketplace() {
 
   return (
     <div className="min-h-screen bg-white text-slate-950" data-testid="marketplace-page">
-      <section className="relative overflow-hidden border-b border-white/10 bg-[#08111f] text-white [background-image:radial-gradient(circle_at_78%_18%,rgba(249,115,22,0.20),transparent_28%),radial-gradient(circle_at_15%_110%,rgba(14,165,233,0.10),transparent_34%)]" data-testid="marketplace-compact-header">
-        <div className="section-padding relative mx-auto flex max-w-[1440px] flex-col gap-6 py-8 sm:py-10 lg:flex-row lg:items-end lg:justify-between">
-          <div>
-            <div className="flex items-center gap-2 text-[11px] font-black uppercase tracking-[0.22em] text-orange-400">
-              <CarFront className="h-4 w-4" /> Marketplace
+      <section
+        className="relative overflow-hidden bg-[#070b12] text-white"
+        data-testid="marketplace-compact-header"
+      >
+        <div className="pointer-events-none absolute inset-0 opacity-70 [background-image:radial-gradient(circle_at_18%_20%,rgba(249,115,22,0.16),transparent_24%),linear-gradient(120deg,transparent_0%,transparent_58%,rgba(255,255,255,0.04)_58%,rgba(255,255,255,0.04)_59%,transparent_59%)]" />
+        <div className="section-padding relative mx-auto max-w-[1440px] pb-20 pt-5 sm:pb-24 lg:pb-28 lg:pt-7">
+          <div className="flex items-center justify-between gap-5 border-b border-white/10 pb-4">
+            <div className="flex items-center gap-2 text-[10px] font-black uppercase tracking-[0.24em] text-orange-400">
+              <CarFront className="h-4 w-4" /> CarUp Marketplace
             </div>
-            <h1 className="mt-2 max-w-3xl text-4xl font-black leading-[0.98] tracking-[-0.045em] text-white sm:text-5xl">
-              Find the car. <span className="text-orange-400">Know what stands behind it.</span>
-            </h1>
-            <p className="mt-3 max-w-2xl text-sm leading-6 text-slate-300">
-              Published inventory, seller-stated facts and canonical CarUp Trust stay distinct so you can shop quickly without losing the evidence behind the decision.
-            </p>
+            <nav className="flex max-w-[72vw] gap-1 overflow-x-auto text-xs font-semibold sm:text-sm" aria-label="Marketplace categories">
+              <Link to="/marketplace" className="shrink-0 border-b border-orange-400 px-2.5 py-2 text-white">Cars</Link>
+              <Link to="/marketplace/parts" className="shrink-0 border-b border-transparent px-2.5 py-2 text-slate-400 hover:text-white">Parts</Link>
+              <Link to="/marketplace/services" className="shrink-0 border-b border-transparent px-2.5 py-2 text-slate-400 hover:text-white">Garages</Link>
+              <Link to="/diaspora" className="shrink-0 border-b border-transparent px-2.5 py-2 text-slate-400 hover:text-white">Imports</Link>
+              <Link to="/insurance" className="hidden shrink-0 border-b border-transparent px-2.5 py-2 text-slate-400 hover:text-white sm:block">Insurance</Link>
+              <Link to="/pricing" className="hidden shrink-0 border-b border-transparent px-2.5 py-2 text-slate-400 hover:text-white sm:block">Finance</Link>
+            </nav>
           </div>
-          <nav className="flex gap-1 overflow-x-auto pb-1 text-sm font-semibold lg:justify-end" aria-label="Marketplace categories">
-            <Link to="/marketplace" className="shrink-0 border-b-2 border-orange-400 px-3 py-2 text-white">Cars</Link>
-            <Link to="/marketplace/parts" className="shrink-0 border-b-2 border-transparent px-3 py-2 text-slate-400 hover:border-slate-500 hover:text-white">Parts</Link>
-            <Link to="/marketplace/services" className="shrink-0 border-b-2 border-transparent px-3 py-2 text-slate-400 hover:border-slate-500 hover:text-white">Garages</Link>
-            <Link to="/diaspora" className="shrink-0 border-b-2 border-transparent px-3 py-2 text-slate-400 hover:border-slate-500 hover:text-white">Imports</Link>
-            <Link to="/insurance" className="shrink-0 border-b-2 border-transparent px-3 py-2 text-slate-400 hover:border-slate-500 hover:text-white">Insurance</Link>
-            <Link to="/pricing" className="shrink-0 border-b-2 border-transparent px-3 py-2 text-slate-400 hover:border-slate-500 hover:text-white">Finance</Link>
-          </nav>
+
+          <div className="grid gap-8 pt-8 lg:grid-cols-[0.78fr_1.22fr] lg:items-end lg:gap-12 lg:pt-12">
+            <div className="relative z-10 lg:pb-5">
+              <p className="text-xs font-black uppercase tracking-[0.2em] text-slate-400">Zimbabwe&apos;s vehicle showroom + trust layer</p>
+              <h1 className="mt-4 max-w-3xl text-5xl font-black leading-[0.9] tracking-[-0.055em] text-white sm:text-6xl lg:text-7xl">
+                Find the car.
+                <span className="mt-1 block text-orange-400">Know what stands behind it.</span>
+              </h1>
+              <p className="mt-6 max-w-xl text-sm leading-6 text-slate-300 sm:text-base sm:leading-7">
+                Shop published vehicles with the commercial facts up front and CarUp&apos;s governed Trust,
+                evidence and lifecycle context close enough to act on — without turning seller claims into verified facts.
+              </p>
+              <div className="mt-7 flex flex-wrap gap-x-6 gap-y-2 border-t border-white/10 pt-4 text-xs text-slate-400">
+                <span><strong className="text-white">Published</strong> inventory only</span>
+                <span><strong className="text-white">Canonical</strong> Trust states</span>
+                <span><strong className="text-white">4 cars</strong> max compare</span>
+              </div>
+            </div>
+
+            <div className="relative min-h-[300px] sm:min-h-[390px] lg:min-h-[470px]" data-testid="marketplace-showroom-spotlight">
+              <div className="absolute -right-8 top-0 h-[88%] w-[92%] border border-white/10 [clip-path:polygon(9%_0,100%_0,100%_88%,82%_100%,0_91%,0_14%)]" />
+              {spotlightListing ? (
+                <Link
+                  to={`/marketplace/${encodeURIComponent(spotlightListing.vin)}`}
+                  className="group absolute inset-x-0 top-3 block h-[82%] overflow-hidden bg-slate-900 shadow-[0_38px_100px_rgba(0,0,0,0.52)] [clip-path:polygon(8%_0,100%_0,100%_88%,82%_100%,0_91%,0_14%)]"
+                  aria-label={`Open ${[spotlightListing.year, spotlightListing.make, spotlightListing.model].filter(Boolean).join(' ')}`}
+                >
+                  <ListingImage
+                    src={primaryImageForListing(spotlightListing)}
+                    alt={[spotlightListing.year, spotlightListing.make, spotlightListing.model].filter(Boolean).join(' ') || 'Marketplace vehicle'}
+                    className="h-full w-full"
+                    imgClassName="transition duration-700 ease-out group-hover:scale-[1.035]"
+                  />
+                  <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/5 to-black/10" />
+                  <div className="absolute left-5 top-5 border border-white/25 bg-black/35 px-3 py-1.5 text-[10px] font-black uppercase tracking-[0.16em] text-white backdrop-blur-sm">
+                    Live inventory
+                  </div>
+                  <div className="absolute inset-x-0 bottom-0 flex items-end justify-between gap-5 p-5 sm:p-7">
+                    <div className="min-w-0">
+                      <p className="text-xs font-semibold uppercase tracking-[0.14em] text-orange-300">Showroom spotlight</p>
+                      <p className="mt-1 truncate text-2xl font-black tracking-[-0.035em] text-white sm:text-3xl">
+                        {[spotlightListing.year, spotlightListing.make, spotlightListing.model].filter(Boolean).join(' ')}
+                      </p>
+                      <p className="mt-2 text-sm text-slate-300">
+                        {summaryLocationLine(spotlightListing.location, spotlightListing.location_state).label}
+                      </p>
+                    </div>
+                    <div className="shrink-0 text-right">
+                      <p className="text-2xl font-black text-white">{marketplacePriceLabel(spotlightListing.price, spotlightListing.currency)}</p>
+                      <span className="mt-2 inline-flex items-center gap-2 text-xs font-bold text-orange-300">
+                        Open vehicle <ArrowRight className="h-4 w-4 transition group-hover:translate-x-1" />
+                      </span>
+                    </div>
+                  </div>
+                </Link>
+              ) : (
+                <div className="absolute inset-x-0 top-3 flex h-[82%] items-center justify-center bg-slate-900 text-sm text-slate-500 [clip-path:polygon(8%_0,100%_0,100%_88%,82%_100%,0_91%,0_14%)]">
+                  {loadingVehicles ? 'Loading live showroom…' : 'No published vehicle to spotlight'}
+                </div>
+              )}
+            </div>
+          </div>
         </div>
       </section>
 
