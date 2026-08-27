@@ -78,10 +78,10 @@ function TrustPreview({ trust }: { trust?: MarketplaceCardTrust | null }) {
   if (hasCanonicalScore) {
     return (
       <div
-        className="rounded-xl border border-orange-200 bg-orange-50/70 px-3 py-2.5"
+        className="relative overflow-hidden rounded-2xl border border-orange-200/80 bg-[linear-gradient(135deg,#fff7ed,#fffaf5)] px-4 py-3 shadow-[inset_0_1px_0_rgba(255,255,255,0.8)]"
         data-testid="marketplace-card-trust"
       >
-        <div className="flex items-center justify-between gap-3">
+        <div className="relative flex items-center justify-between gap-3">
           <div className="min-w-0">
             <div className="flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-[0.12em] text-orange-800">
               <ShieldCheck className="h-3.5 w-3.5" /> Canonical Trust
@@ -139,10 +139,10 @@ export function MarketplaceListingCard({
 
   return (
     <article
-      className="group flex h-full flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-[0_1px_2px_rgba(15,23,42,0.04)] transition duration-200 hover:-translate-y-0.5 hover:border-slate-300 hover:shadow-[0_16px_36px_rgba(15,23,42,0.10)]"
+      className="group flex h-full flex-col overflow-hidden rounded-[24px] border border-slate-200/90 bg-white shadow-[0_14px_38px_rgba(15,23,42,0.07)] transition duration-300 hover:-translate-y-1 hover:border-orange-200 hover:shadow-[0_26px_60px_rgba(15,23,42,0.14)]"
       data-testid="marketplace-vehicle-card"
     >
-      <div className="relative aspect-[16/10] overflow-hidden bg-slate-100">
+      <div className="relative aspect-[16/10] overflow-hidden bg-[linear-gradient(135deg,#eef2f7,#e2e8f0)]">
         <Link
           to={href}
           className="block h-full w-full focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange-500 focus-visible:ring-inset"
@@ -210,18 +210,18 @@ export function MarketplaceListingCard({
         </div>
       </div>
 
-      <div className="flex flex-1 flex-col p-4">
+      <div className="relative flex flex-1 flex-col p-5">
         <Link
           to={href}
           className="rounded-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange-500"
           aria-label={`Open ${vehicle.name}`}
         >
-          <h3 className="line-clamp-2 min-h-[2.5rem] text-[15px] font-semibold leading-5 text-slate-950 group-hover:text-orange-700">
+          <h3 className="line-clamp-2 min-h-[2.5rem] text-[17px] font-bold leading-5 tracking-tight text-slate-950 group-hover:text-orange-700">
             {vehicle.name}
           </h3>
         </Link>
 
-        <p className="mt-1 text-xl font-bold tracking-tight text-slate-950" data-testid="marketplace-card-price">
+        <p className="mt-1.5 text-2xl font-black tracking-[-0.025em] text-slate-950" data-testid="marketplace-card-price">
           {formatMarketplacePrice(vehicle.price, vehicle.currency)}
         </p>
 
@@ -266,7 +266,7 @@ export function MarketplaceListingCard({
         </div>
 
         <div className="mt-auto pt-4">
-          <Button asChild className="w-full bg-slate-950 text-white hover:bg-slate-800">
+          <Button asChild className="h-11 w-full rounded-xl bg-slate-950 font-semibold text-white shadow-[0_8px_18px_rgba(15,23,42,0.16)] hover:bg-orange-600">
             <Link to={href}>View vehicle &amp; Passport</Link>
           </Button>
         </div>
