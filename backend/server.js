@@ -1080,19 +1080,23 @@ async function buildVehiclePassport(
 
   const chainVerification = await verifyChain(vin);
 
-  // Fetch plate history
-  const { data: plateHistory } = await supabase
+  // Collection reads carry explicit availability. A database/read failure must never collapse
+  // into []/0: that would turn "CarUp could not read this source" into a factual clean-history claim.
+  const { data: plateHistoryData, error: plateHistoryError } = await supabase
     .from('vehicle_plate_history')
     .select('*')
     .eq('vin', vin)
     .order('created_at', { ascending: false });
+  const plateHistory = plateHistoryError ? [] : (plateHistoryData || []);
+  const plateHistoryState = plateHistoryError ? 'unavailable' : 'available';
 
-  // Get previous owners count
-  const { data: ownershipHistory } = await supabase
+  const { data: ownershipHistoryData, error: ownershipHistoryError } = await supabase
     .from('vehicle_ownership_history')
     .select('*')
     .eq('vin', vin);
-  const previousOwnerCount = ownershipHistory ? ownershipHistory.length : 0;
+  const ownershipHistory = ownershipHistoryError ? [] : (ownershipHistoryData || []);
+  const previousOwnerCount = ownershipHistoryError ? null : ownershipHistory.length;
+  const previousOwnerCountState = ownershipHistoryError ? 'unavailable' : 'available';
 
   // Resolve current seller details. Principle 4: a seller that is not recorded, or
   // whose name we cannot resolve, stays null — never a stand-in like 'Private Seller',
@@ -1154,6 +1158,7 @@ async function buildVehiclePassport(
     currentSellerType: claims?.seller?.seller_type?.value ?? null,
     currentSellerRecorded,
     previousOwnerCount,
+    previousOwnerCountState,
     previousOwnersPublicLabel: 'Redacted for privacy',
     ownerNamesRedacted: !isAuthorized,
     currentOwnerVisible
@@ -1441,12 +1446,13 @@ async function buildVehiclePassport(
       // the client must not render it as an absent fact.
       identifiersRedacted: !isAuthorized
     },
-    plateHistory: isAuthorized ? (plateHistory || []) : toPublicPlateHistory(plateHistory),
-    // An empty public list means one of two different things. Without this the client renders
-    // "No previous plates logged in history" over a vehicle whose history was merely withheld —
-    // the collection-level form of the withheld/unrecorded conflation identity already avoids.
-    plateHistoryRedacted: !isAuthorized
-      && (plateHistory || []).length > toPublicPlateHistory(plateHistory).length,
+    plateHistory: isAuthorized ? plateHistory : toPublicPlateHistory(plateHistory),
+    plateHistoryState,
+    // An empty public list can mean loaded-empty, privacy filtering, or a failed source read.
+    // plateHistoryState disambiguates the outage; this flag disambiguates privacy.
+    plateHistoryRedacted: plateHistoryState === 'available'
+      && !isAuthorized
+      && plateHistory.length > toPublicPlateHistory(plateHistory).length,
     ownershipSummary
   };
 }
