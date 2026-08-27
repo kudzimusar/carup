@@ -1688,7 +1688,8 @@ export default function VehicleDetail() {
           <ArrowLeft className="w-4 h-4" /> Back
         </Button>
 
-        <div className="mb-0" data-testid="vehicle-detail-gallery-first">
+        <div className="mb-10 grid min-w-0 gap-6 lg:grid-cols-[minmax(0,1.65fr)_minmax(320px,0.72fr)] lg:items-start" data-testid="vehicle-detail-showroom">
+        <div className="min-w-0" data-testid="vehicle-detail-gallery-first">
           {/* ── LISTING MEDIA — the seller's presentation of the car ─────────────────
               Marketing photos. Nothing in this block asserts governance, because nothing in
               `listing_images` could support such an assertion. Note what is NOT here any more:
@@ -1887,7 +1888,7 @@ export default function VehicleDetail() {
         </div>
 
         <section
-          className="mb-8 grid gap-6 bg-[#08111f] px-5 py-7 text-white sm:px-7 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-end"
+          className="h-fit bg-[#08111f] px-5 py-6 text-white shadow-[0_28px_70px_rgba(15,23,42,0.22)] sm:px-7 sm:py-7 lg:sticky lg:top-5"
           data-testid="vehicle-detail-intelligence-hero"
         >
           <div>
@@ -1904,18 +1905,39 @@ export default function VehicleDetail() {
               )}
             </div>
           </div>
-          <div className="flex flex-wrap items-end gap-7 lg:justify-end">
-            <div>
-              <p className="text-[10px] font-bold uppercase tracking-[0.16em] text-slate-400">Asking price</p>
-              <p className="mt-1 text-2xl font-black text-white">{governedPrice(vehicle.price, vehicle.currency)}</p>
+          <div className="mt-7 grid grid-cols-2 border-y border-white/10 py-5">
+            <div className="pr-4">
+              <p className="text-[9px] font-black uppercase tracking-[0.16em] text-slate-500">Asking price</p>
+              <p className="mt-1 text-2xl font-black tracking-[-0.035em] text-white">{governedPrice(vehicle.price, vehicle.currency)}</p>
             </div>
-            <div>
-              <p className="text-[10px] font-bold uppercase tracking-[0.16em] text-slate-400">Canonical Trust</p>
-              <p className="mt-1 text-2xl font-black text-white">{trust.score !== null ? `${trust.score}/100` : trust.headline}</p>
-              {trust.score !== null && <p className="mt-0.5 text-xs text-slate-400">{trust.headline}</p>}
+            <div className="border-l border-white/10 pl-4">
+              <p className="text-[9px] font-black uppercase tracking-[0.16em] text-slate-500">Canonical Trust</p>
+              <p className="mt-1 text-2xl font-black tracking-[-0.035em] text-white">{trust.score !== null ? `${trust.score}/100` : trust.headline}</p>
+              {trust.score !== null && <p className="mt-0.5 text-[10px] text-slate-400">{trust.headline}</p>}
             </div>
           </div>
+
+          {detail && (
+            <div className="mt-6 space-y-2" data-testid="vehicle-detail-primary-actions">
+              <InquiryModal
+                listingId={detail.vin}
+                inquiryTypes={['vehicle_purchase_interest', 'vehicle_inspection_request']}
+                triggerLabel="Ask about this vehicle"
+                triggerClassName="w-full h-12 rounded-none bg-orange-500 font-black text-white hover:bg-orange-600"
+              />
+              <InquiryModal
+                listingId={detail.vin}
+                inquiryTypes={['vehicle_inspection_request']}
+                defaultInquiryType="vehicle_inspection_request"
+                triggerLabel="Request an inspection"
+                triggerVariant="outline"
+                triggerClassName="w-full h-11 rounded-none border-white/25 bg-transparent text-white hover:bg-white/10 hover:text-white"
+              />
+              <p className="pt-2 text-[10px] leading-4 text-slate-500">CarUp keeps the inquiry inside the governed Communications path. Never pay outside CarUp.</p>
+            </div>
+          )}
         </section>
+        </div>
 
         {/* Backend-governed marketplace panels (trust, all-in price, inquiry, safety) */}
         {detail && (
