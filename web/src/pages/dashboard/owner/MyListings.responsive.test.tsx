@@ -51,6 +51,12 @@ describe('OBS-06 — unavailable direct actions must become legible governed nex
     expect(VEHICLE_DETAIL).toContain('sellerContactNumber && sellerWhatsAppLink ?')
     expect(VEHICLE_DETAIL).toContain('tel:${sellerContactNumber}')
     expect(VEHICLE_DETAIL).toContain('href={sellerWhatsAppLink}')
+    expect(VEHICLE_DETAIL).toContain('border-white/30 bg-transparent text-white hover:bg-white/10 hover:text-white')
+  })
+
+  it('financing inquiry remains legible on the dark action panel', () => {
+    expect(VEHICLE_DETAIL).toContain('triggerLabel="Ask about financing"')
+    expect(VEHICLE_DETAIL).toContain('border-white/20 bg-transparent text-white hover:bg-white/10 hover:text-white')
   })
 
   it('reservation stays a governed request until the server proves transaction state', () => {
