@@ -621,6 +621,17 @@ export function useCarUpApi() {
     request(`/admin/marketplace/inquiries/${encodeURIComponent(id)}/status`, { method: 'PATCH', body: JSON.stringify({ status }) }), [request])
   const fetchMarketplaceAnalytics = useCallback(async (): Promise<any> =>
     request('/admin/marketplace/analytics'), [request])
+
+  /**
+   * CarUp Intelligence (I5/I7). Both endpoints resolve their own scope from the
+   * verified session — there is deliberately no seller or tenant parameter to
+   * pass — and every metric comes back inside an availability envelope, so a
+   * caller cannot render an unmeasured figure as zero.
+   */
+  const fetchSellerIntelligence = useCallback(async (windowDays: 7 | 30 | 90 = 7): Promise<any> =>
+    request(`/marketplace/my-analytics?window=${windowDays}`), [request])
+  const fetchListingIntelligence = useCallback(async (vin: string, windowDays: 7 | 30 | 90 = 7): Promise<any> =>
+    request(`/marketplace/my-listings/${encodeURIComponent(vin)}/analytics?window=${windowDays}`), [request])
   const marketplaceAiModerationSummary = useCallback(async (payload: { vin?: string; listingSummary?: unknown; trustSummary?: unknown }): Promise<any> =>
     request('/admin/marketplace/ai/moderation-summary', { method: 'POST', body: JSON.stringify(payload) }), [request])
 
@@ -2553,6 +2564,8 @@ export function useCarUpApi() {
     request<ReferralServiceResponse>(`/referrals/trust/audit-export${referralQuery(filters)}`), [request])
 
   return {
+    fetchSellerIntelligence,
+    fetchListingIntelligence,
     uploadKycDocument,
     uploadEvidence,
     linkEvidenceToEvent,
