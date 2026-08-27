@@ -1,3 +1,5 @@
+import { canonicalMake as canonicalTaxonomyMake } from '@/data/vehicleTaxonomy'
+
 /**
  * Marketplace URL <-> state contract (CarUp Navigation Intelligence).
  *
@@ -114,10 +116,7 @@ export const TRUST_TAG_CHIPS: string[] = Object.entries(CHIP_SLUG_KIND)
 export function isCategoryChip(label: string): boolean { return CHIP_SLUG_KIND[label]?.kind === 'category' }
 export function isTrustChip(label: string): boolean { return CHIP_SLUG_KIND[label]?.kind === 'tag' }
 
-const KNOWN_MAKES = [
-  'Toyota', 'BMW', 'Mercedes-Benz', 'Nissan', 'Mazda',
-  'Volkswagen', 'Ford', 'Honda', 'Land Rover', 'Audi',
-]
+
 
 const SORT_LABELS: Record<MarketplaceSort, string> = {
   newest: 'Newest',
@@ -138,8 +137,7 @@ export const TRUST_QUICK_FILTERS: Array<{ label: string; testId: string }> = [
 function canonicalizeMake(value: string): string {
   const trimmed = value.trim()
   if (!trimmed) return ALL
-  const match = KNOWN_MAKES.find(make => make.toLowerCase() === trimmed.toLowerCase())
-  return match ?? trimmed
+  return canonicalTaxonomyMake(trimmed)
 }
 
 function textFacet(value: string | null): string {
