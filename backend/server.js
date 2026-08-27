@@ -112,6 +112,7 @@ import trustFactRouter from './routes/trustFactRoutes.js';
 import identityVerificationRouter from './routes/identityVerificationRoutes.js';
 import featureGovernanceRouter from './routes/featureGovernanceRoutes.js';
 import navigationAnalyticsRouter from './routes/navigationAnalyticsRoutes.js';
+import intelligenceActivityRouter from './routes/intelligenceActivityRoutes.js';
 import identityVerificationAdminRouter from './routes/identityVerificationAdminRoutes.js';
 import partsentryReviewRouter from './routes/partsentryReviewRoutes.js';
 import { normalizeVehicleStatus, publicVehicleStatusFilterValues, publiclyVisiblePublicationStatuses, isPublicVehicleStatus, isPubliclyVisiblePublication, PUBLIC_VEHICLE_COLUMNS } from './utils/vehicleStatus.js';
@@ -333,6 +334,7 @@ app.use(trustFactRouter);
 app.use(identityVerificationRouter);
 app.use(featureGovernanceRouter);
 app.use(navigationAnalyticsRouter);
+app.use(intelligenceActivityRouter);
 app.use(identityVerificationAdminRouter);
 app.use(partsentryReviewRouter);
 
