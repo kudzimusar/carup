@@ -74,21 +74,28 @@ export default function GuestSell() {
   }
 
   const addImages = (event: React.ChangeEvent<HTMLInputElement>) => {
-    const files = Array.from(event.target.files || []).slice(0, Math.max(0, 10 - form.images.length))
-    files.forEach(file => {
-      if (!file.type.startsWith('image/')) return
+    const remaining = Math.max(0, 10 - form.images.length)
+    const files = Array.from(event.target.files || [])
+      .filter(file => file.type.startsWith('image/'))
+      .slice(0, remaining)
+    if (files.length === 0) return
+
+    // Read the selected batch concurrently but apply it once, in selection order. Individual
+    // FileReader callbacks may finish out of order; appending from each callback can silently
+    // reshuffle which photo becomes the first/primary preview.
+    Promise.all(files.map(file => new Promise<string>((resolve) => {
       const reader = new FileReader()
-      reader.onload = () => {
-        const src = String(reader.result || '')
-        if (src) {
-          setForm(previous => ({
-            ...previous,
-            images: [...previous.images, src].slice(0, 10),
-          }))
-          setDraftSaved(false)
-        }
-      }
+      reader.onload = () => resolve(String(reader.result || ''))
+      reader.onerror = () => resolve('')
       reader.readAsDataURL(file)
+    }))).then(results => {
+      const images = results.filter(Boolean)
+      if (images.length === 0) return
+      setForm(previous => ({
+        ...previous,
+        images: [...previous.images, ...images].slice(0, 10),
+      }))
+      setDraftSaved(false)
     })
   }
 
