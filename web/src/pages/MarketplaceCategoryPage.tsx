@@ -164,7 +164,7 @@ export default function MarketplaceCategoryPage({ kind }: { kind: 'part' | 'serv
         ) : isEmpty ? (
           <div className="rounded-xl border border-gray-100 bg-white p-10 text-center" data-testid="marketplace-category-empty">
             <Icon className="mx-auto mb-3 h-10 w-10 text-gray-300" />
-            <h3 className="text-lg font-semibold">{kind === 'part' ? 'Parts listings are onboarding' : 'Service providers are onboarding'}</h3>
+            <h3 className="text-lg font-semibold">{kind === 'part' ? 'No governed parts listings are live yet' : 'Service providers are onboarding'}</h3>
             <p className="mx-auto mt-1 max-w-md text-sm text-gray-500">
               {kind === 'part'
                 ? 'Verified, PartSentry-governed parts will appear here as suppliers are onboarded. In the meantime, request a quote and our team will source safely.'
