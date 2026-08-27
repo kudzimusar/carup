@@ -12,15 +12,9 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Separator } from '@/components/ui/separator'
 import { Input } from '@/components/ui/input'
 import {
-  Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription
-} from '@/components/ui/dialog'
-import {
-  Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
-} from '@/components/ui/select'
-import {
   Car, CheckCircle, Shield, ShieldCheck, Gauge, Fuel, Settings2, MapPin, Calendar,
   Phone, MessageSquare, Heart, Share2, ArrowLeft, AlertTriangle, Search,
-  FileCheck, Star, Loader2, Lock, CreditCard, ChevronLeft, ChevronRight,
+  FileCheck, Star, Loader2, Lock, ChevronLeft, ChevronRight,
   XCircle, HelpCircle, Wrench, UserCheck, TrendingDown, ClipboardCheck,
   Clock, Image as ImageIcon, FileText, FileSearch, Link2, Copy, GitCompare
 } from 'lucide-react'
@@ -1318,7 +1312,7 @@ export default function VehicleDetail() {
             // date>" reached a page whose own passport carried the governed location. The location
             // comes from `claims.location`; there is no governed listing date, so none is shown.
           })
-          setLoanAmount((d.price ?? 0).toString())
+          
           setLoading(false)
           return
         }
@@ -1356,7 +1350,7 @@ export default function VehicleDetail() {
             // date>" reached a page whose own passport carried the governed location. The location
             // comes from `claims.location`; there is no governed listing date, so none is shown.
           })
-          setLoanAmount((d.price ?? 0).toString())
+          
         }
 
         if (passportData.status === 'fulfilled' && passportData.value) {
@@ -1394,7 +1388,7 @@ export default function VehicleDetail() {
         // entire buyer page behind that independent read or a valid listing becomes an infinite spinner.
         // Preserve a richer vehicle already resolved for THIS VIN; replace any stale previous-route VIN.
         setVehicle((prev) => prev?.vin === d.vin ? prev : vehicleFromMarketplaceDetail(d))
-        setLoanAmount((d.price ?? 0).toString())
+        
         setLoading(false)
       })
       .catch(() => { if (mounted) setDetail(null) })
@@ -1660,17 +1654,17 @@ export default function VehicleDetail() {
   const serviceRecordCount = trustSignals?.maintenance_logs_count ?? null
 
   return (
-    <div className="min-h-screen bg-[#f4f6f9]">
+    <div className="min-h-screen bg-white text-slate-950">
       {/* Breadcrumb */}
-      <div className="bg-white border-b">
+      <div className="border-b border-slate-800 bg-[#08111f] text-white">
         <div className="section-padding mx-auto max-w-[1440px] py-4">
           <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-            <div className="flex items-center gap-2 text-sm text-gray-500">
-              <Link to="/" className="hover:text-orange-500">Home</Link>
+            <div className="flex items-center gap-2 text-sm text-slate-400">
+              <Link to="/" className="hover:text-orange-400">Home</Link>
               <span>/</span>
-              <Link to="/marketplace" className="hover:text-orange-500">Marketplace</Link>
+              <Link to="/marketplace" className="hover:text-orange-400">Marketplace</Link>
               <span>/</span>
-              <span className="text-gray-900">{vehicle.make} {vehicle.model}</span>
+              <span className="text-white">{vehicle.make} {vehicle.model}</span>
             </div>
             
             <form onSubmit={handleLookupSubmit} className="flex gap-2 max-w-sm w-full">
@@ -1680,21 +1674,21 @@ export default function VehicleDetail() {
                   placeholder="Enter VIN, chassis, plate, or temporary ID"
                   value={lookupQuery}
                   onChange={(e) => setLookupQuery(e.target.value)}
-                  className="pl-9 h-9 text-xs bg-gray-50"
+                  className="h-10 rounded-none border-slate-700 bg-slate-950 pl-9 text-xs text-white placeholder:text-slate-500 focus-visible:ring-orange-500"
                 />
               </div>
-              <Button type="submit" size="sm" className="bg-orange-500 hover:bg-orange-600 text-xs">Lookup</Button>
+              <Button type="submit" size="sm" className="h-10 rounded-none bg-orange-500 px-4 text-xs font-bold text-white hover:bg-orange-600">Lookup</Button>
             </form>
           </div>
         </div>
       </div>
 
-      <div className="section-padding mx-auto max-w-[1440px] py-6">
+      <div className="section-padding mx-auto max-w-[1440px] py-7 sm:py-9">
         <Button variant="ghost" size="sm" className="mb-4 gap-1" onClick={() => navigate(-1)}>
           <ArrowLeft className="w-4 h-4" /> Back
         </Button>
 
-        <div className="mb-6" data-testid="vehicle-detail-gallery-first">
+        <div className="mb-0" data-testid="vehicle-detail-gallery-first">
           {/* ── LISTING MEDIA — the seller's presentation of the car ─────────────────
               Marketing photos. Nothing in this block asserts governance, because nothing in
               `listing_images` could support such an assertion. Note what is NOT here any more:
@@ -1713,7 +1707,7 @@ export default function VehicleDetail() {
                 : 'Photos supplied by the seller to advertise this vehicle. CarUp does not review them and makes no claim about what they show.'}
             </p>
 
-            <div className="relative rounded-xl overflow-hidden bg-white card-shadow" data-testid="image-gallery">
+            <div className="relative overflow-hidden bg-[#070d16] shadow-[0_28px_80px_rgba(15,23,42,0.24)]" data-testid="image-gallery">
               {hasListingPhotos && activeImage ? (
                 <>
                   {/* Rule 6b: `data-media-id` is the identity of the photograph on screen, so a
@@ -1724,7 +1718,7 @@ export default function VehicleDetail() {
                   <img
                     src={activeImage.url}
                     alt={`${vehicle.make} ${vehicle.model}`}
-                    className="w-full aspect-[16/9] object-cover"
+                    className="aspect-[16/9] w-full object-cover sm:aspect-[2/1]"
                     data-testid="vehicle-image"
                     data-url-form={activeImage.url_form}
                     data-media-id={activeImage.media_id ?? undefined}
@@ -1745,18 +1739,18 @@ export default function VehicleDetail() {
                       <button
                         onClick={() => setCurrentImageIdx((activeImageIdx - 1 + galleryItems.length) % galleryItems.length)}
                         aria-label="Previous photo"
-                        className="absolute left-3 top-1/2 -translate-y-1/2 w-9 h-9 rounded-full bg-black/40 text-white flex items-center justify-center hover:bg-black/60"
+                        className="absolute left-4 top-1/2 flex h-11 w-11 -translate-y-1/2 items-center justify-center rounded-full border border-white/30 bg-black/45 text-white backdrop-blur-sm transition hover:bg-orange-500"
                       >
                         <ChevronLeft className="w-5 h-5" />
                       </button>
                       <button
                         onClick={() => setCurrentImageIdx((activeImageIdx + 1) % galleryItems.length)}
                         aria-label="Next photo"
-                        className="absolute right-3 top-1/2 -translate-y-1/2 w-9 h-9 rounded-full bg-black/40 text-white flex items-center justify-center hover:bg-black/60"
+                        className="absolute right-4 top-1/2 flex h-11 w-11 -translate-y-1/2 items-center justify-center rounded-full border border-white/30 bg-black/45 text-white backdrop-blur-sm transition hover:bg-orange-500"
                       >
                         <ChevronRight className="w-5 h-5" />
                       </button>
-                      <div className="absolute bottom-3 right-3 bg-black/50 text-white text-xs px-2 py-1 rounded-full">
+                      <div className="absolute bottom-4 right-4 border border-white/20 bg-black/55 px-3 py-1 text-xs font-semibold text-white backdrop-blur-sm">
                         {activeImageIdx + 1} / {galleryItems.length}
                       </div>
                     </>
@@ -1829,18 +1823,18 @@ export default function VehicleDetail() {
                 {isReservedOnServer && <Badge className="bg-amber-500 text-white">Reserved</Badge>}
               </div>
               <div className="absolute top-4 right-4 flex gap-2">
-                <button onClick={toggleFavorite} aria-label="Save this vehicle" className="w-10 h-10 rounded-full bg-white/90 flex items-center justify-center hover:bg-white">
+                <button onClick={toggleFavorite} aria-label="Save this vehicle" className="flex h-10 w-10 items-center justify-center rounded-full border border-white/70 bg-white/90 transition hover:scale-105 hover:bg-white">
                   <Heart className={`w-5 h-5 ${isFav ? 'fill-red-500 text-red-500' : 'text-gray-600'}`} />
                 </button>
                 <Link
                   to={compareHref}
                   aria-label="Compare this vehicle"
-                  className="w-10 h-10 rounded-full bg-white/90 flex items-center justify-center hover:bg-white"
+                  className="flex h-10 w-10 items-center justify-center rounded-full border border-white/70 bg-white/90 transition hover:scale-105 hover:bg-white"
                   data-testid="vehicle-detail-compare"
                 >
                   <GitCompare className="w-5 h-5 text-gray-600" />
                 </Link>
-                <button onClick={handleShare} aria-label="Share this listing" data-testid="vehicle-detail-share" className="w-10 h-10 rounded-full bg-white/90 flex items-center justify-center hover:bg-white">
+                <button onClick={handleShare} aria-label="Share this listing" data-testid="vehicle-detail-share" className="flex h-10 w-10 items-center justify-center rounded-full border border-white/70 bg-white/90 transition hover:scale-105 hover:bg-white">
                   <Share2 className="w-5 h-5 text-gray-600" />
                 </button>
               </div>
@@ -1870,7 +1864,7 @@ export default function VehicleDetail() {
 
             {/* Thumbnails */}
             {galleryItems.length > 1 && (
-              <div className="flex gap-2 overflow-x-auto pb-1">
+              <div className="flex gap-3 overflow-x-auto border-b border-slate-200 pb-4 pt-1">
                 {/* Rule 6b, and the reason the identity is not decorative: React reconciles on
                     this key. Keyed on `position` the previous thumbnail's DOM node — and its
                     decoded bitmap — is reused for a DIFFERENT photograph whenever the payload
@@ -1883,7 +1877,7 @@ export default function VehicleDetail() {
                     data-testid="listing-media-thumb"
                     data-media-id={item.media_id ?? undefined}
                     aria-label={`Show photo ${galleryIndex + 1}`}
-                    className={`flex-shrink-0 w-20 h-14 rounded-lg overflow-hidden border-2 transition-colors ${galleryIndex === activeImageIdx ? 'border-orange-500' : 'border-transparent'}`}>
+                    className={`h-20 w-28 flex-shrink-0 overflow-hidden border-b-4 transition-all ${galleryIndex === activeImageIdx ? 'border-orange-500 opacity-100' : 'border-transparent opacity-65 hover:opacity-100'}`}>
                     <img src={item.url} alt="" className="w-full h-full object-cover" onError={() => markListingMediaFailed(item.url)} />
                   </button>
                 ))}
@@ -1893,17 +1887,17 @@ export default function VehicleDetail() {
         </div>
 
         <section
-          className="mb-6 grid gap-5 border-y border-slate-200 py-5 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-end"
+          className="mb-8 grid gap-6 bg-[#08111f] px-5 py-7 text-white sm:px-7 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-end"
           data-testid="vehicle-detail-intelligence-hero"
         >
           <div>
-            <div className="flex items-center gap-2 text-[11px] font-black uppercase tracking-[0.18em] text-orange-600">
+            <div className="flex items-center gap-2 text-[11px] font-black uppercase tracking-[0.2em] text-orange-400">
               <ShieldCheck className="h-4 w-4" /> CarUp Vehicle Passport
             </div>
-            <h1 className="mt-2 text-3xl font-black tracking-[-0.035em] text-slate-950 sm:text-4xl">
+            <h1 className="mt-2 text-4xl font-black leading-none tracking-[-0.045em] text-white sm:text-5xl">
               {vehicle.year ?? ''} {vehicle.make} {vehicle.model}
             </h1>
-            <div className="mt-2 flex flex-wrap gap-x-5 gap-y-2 text-sm text-slate-600">
+            <div className="mt-3 flex flex-wrap gap-x-5 gap-y-2 text-sm text-slate-300">
               <span className="inline-flex items-center gap-1.5"><MapPin className="h-4 w-4 text-orange-500" /> {locationLine.label}</span>
               {typeof vehicle.mileage === 'number' && Number.isFinite(vehicle.mileage) && (
                 <span className="inline-flex items-center gap-1.5"><Gauge className="h-4 w-4 text-orange-500" /> {vehicle.mileage.toLocaleString()} km</span>
@@ -1912,13 +1906,13 @@ export default function VehicleDetail() {
           </div>
           <div className="flex flex-wrap items-end gap-7 lg:justify-end">
             <div>
-              <p className="text-[10px] font-bold uppercase tracking-[0.14em] text-slate-400">Asking price</p>
-              <p className="mt-1 text-2xl font-black text-slate-950">{governedPrice(vehicle.price, vehicle.currency)}</p>
+              <p className="text-[10px] font-bold uppercase tracking-[0.16em] text-slate-400">Asking price</p>
+              <p className="mt-1 text-2xl font-black text-white">{governedPrice(vehicle.price, vehicle.currency)}</p>
             </div>
             <div>
-              <p className="text-[10px] font-bold uppercase tracking-[0.14em] text-slate-400">Canonical Trust</p>
-              <p className="mt-1 text-2xl font-black text-slate-950">{trust.score !== null ? `${trust.score}/100` : trust.headline}</p>
-              {trust.score !== null && <p className="mt-0.5 text-xs text-slate-500">{trust.headline}</p>}
+              <p className="text-[10px] font-bold uppercase tracking-[0.16em] text-slate-400">Canonical Trust</p>
+              <p className="mt-1 text-2xl font-black text-white">{trust.score !== null ? `${trust.score}/100` : trust.headline}</p>
+              {trust.score !== null && <p className="mt-0.5 text-xs text-slate-400">{trust.headline}</p>}
             </div>
           </div>
         </section>
@@ -1934,7 +1928,7 @@ export default function VehicleDetail() {
             </div>
             <div className="space-y-4">
               <AllInPricePanel pricing={detail.pricing_summary} />
-              <div className="rounded-xl border border-gray-100 bg-white p-4 shadow-sm">
+              <div className="border-y border-slate-200 bg-white py-4">
                 <h3 className="mb-2 text-sm font-semibold text-gray-900">Contact &amp; inquire</h3>
                 <div className="flex flex-col gap-2">
                   <InquiryModal
