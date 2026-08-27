@@ -123,7 +123,7 @@ test('search commits q to the backend after debounce so discovery is not limited
   await search.fill('Honda')
 
   await expect(page).toHaveURL(/q=Honda/)
-  await expect(page.getByText('Honda Fit')).toBeVisible()
+  await expect(page.getByTestId('marketplace-results-grid').getByText('Honda Fit')).toBeVisible()
   expect(observedQueries).toContain('Honda')
 })
 
