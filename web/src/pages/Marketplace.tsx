@@ -921,6 +921,7 @@ export default function Marketplace() {
               <p className="text-[10px] font-black uppercase tracking-[0.2em] text-orange-600">Available now</p>
               <h2 className="mt-1 text-3xl font-black tracking-[-0.04em] text-slate-950 sm:text-4xl">Published vehicles</h2>
               <p className="mt-2 text-sm text-slate-500" data-testid="marketplace-results-summary">{getResultSummary(filterState)}</p>
+              <p className="mt-1 text-[11px] font-semibold uppercase tracking-[0.1em] text-slate-400">Published listings only · Trust and vehicle facts retain their governed states.</p>
             </div>
             <div className="flex items-end gap-5">
               <p className="text-sm text-slate-500" data-testid="marketplace-results-count">
