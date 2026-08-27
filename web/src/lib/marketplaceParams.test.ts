@@ -64,6 +64,12 @@ describe('paramsToState', () => {
     expect(paramsToState(p('make=land%20rover')).selectedMake).toBe('Land Rover')
   })
 
+  it('canonicalizes catalogue aliases while preserving unknown makes as free text', () => {
+    expect(paramsToState(p('make=vw')).selectedMake).toBe('Volkswagen')
+    expect(paramsToState(p('make=Mercedes')).selectedMake).toBe('Mercedes-Benz')
+    expect(paramsToState(p('make=Unknown%20Coachworks')).selectedMake).toBe('Unknown Coachworks')
+  })
+
   it('returns defaults for an empty query string', () => {
     expect(paramsToState(p(''))).toEqual(DEFAULT_MARKETPLACE_STATE)
   })
