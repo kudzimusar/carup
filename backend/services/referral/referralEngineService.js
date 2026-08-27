@@ -54,6 +54,31 @@ export function createStructuredError(code, message, details = {}) {
   return { code, message, details };
 }
 
+/**
+ * Actor context built ONLY from a verified session.
+ *
+ * `buildActorContext` below falls back to `x-user-id` / `x-stakeholder-role` /
+ * `x-tenant-id` / `x-actor-type` headers, which is harmless behind
+ * `authorizeRole` (where a verified `userContext` always exists) but is a forgery
+ * channel on any public route. Public paths must use THIS builder: an
+ * unauthenticated caller is recorded as anonymous, never as a user, role or
+ * tenant they merely claimed.
+ */
+export function buildVerifiedActorContext(req = {}) {
+  const ctx = req.userContext || null;
+  // An identity taken from the spoofable x-user-id fallback is not a proven one.
+  const proven = ctx && ctx.identityAsserted !== true;
+  return {
+    actor_user_id: proven ? (ctx.id || ctx.userId || null) : null,
+    actor_role: proven ? (ctx.effectiveRole || ctx.role || null) : null,
+    actor_tenant_id: proven ? (ctx.tenantId || null) : null,
+    // A person acted either way; we simply may not know which one. `system` would
+    // falsely claim CarUp generated the event, and the column's CHECK offers no
+    // `anonymous` value, so an unidentified human stays a `user` with a null id.
+    actor_type: ACTOR_TYPES.USER,
+  };
+}
+
 export function buildActorContext(req = {}) {
   const ctx = req.userContext || {};
   return {
@@ -68,6 +93,46 @@ function assertEnum(value, values, label) {
   if (!values.includes(value)) {
     throw new ValidationError(`${label} is invalid.`, { value, allowed: values });
   }
+}
+
+/**
+ * The only event types an untrusted caller may report. Each describes something a
+ * visitor genuinely did with a link they were given; none of them asserts a
+ * business outcome, a reward, or a state another party owns.
+ */
+export const PUBLIC_REFERRAL_EVENT_TYPES = new Set([
+  REFERRAL_EVENT_TYPES.LINK_OPENED,
+  REFERRAL_EVENT_TYPES.QR_SCANNED,
+  REFERRAL_EVENT_TYPES.BARCODE_SCANNED,
+]);
+
+/** Channels a public report may claim. */
+export const PUBLIC_REFERRAL_CHANNELS = new Set([
+  REFERRAL_CHANNELS.WEB, REFERRAL_CHANNELS.QR, REFERRAL_CHANNELS.BARCODE,
+]);
+
+/** A bounded, shape-checked code — never free text from a public caller. */
+function boundedPublicCode(value, max = 64) {
+  if (typeof value !== 'string') return null;
+  const trimmed = value.trim();
+  if (!trimmed || trimmed.length > max) return null;
+  return /^[A-Za-z0-9_.:@-]+$/.test(trimmed) ? trimmed : null;
+}
+
+/**
+ * Metadata from a public caller: a couple of bounded codes, nothing else. The
+ * unconstrained `cleanMetadata` used elsewhere accepts any object, which on a
+ * public route is an open channel into a durable ledger.
+ */
+const PUBLIC_METADATA_KEYS = ['surface', 'medium', 'variant'];
+function publicEventMetadata(metadata) {
+  if (!metadata || typeof metadata !== 'object' || Array.isArray(metadata)) return {};
+  const out = {};
+  for (const key of PUBLIC_METADATA_KEYS) {
+    const bounded = boundedPublicCode(metadata[key], 48);
+    if (bounded) out[key] = bounded;
+  }
+  return out;
 }
 
 function cleanMetadata(metadata) {
@@ -394,6 +459,71 @@ export class ReferralEngineService {
       actor_type: actor.actor_type || input.actor_type || ACTOR_TYPES.SYSTEM,
       metadata: cleanMetadata(input.metadata),
       occurred_at: asIso(input.occurred_at, this.currentIso()),
+    };
+    return this.repository.insert(REFERRAL_TABLES.events, payload);
+  }
+
+  /**
+   * Record a referral event reported by an UNTRUSTED caller.
+   *
+   * Anonymous referral reporting is legitimate — a visitor opening a shared link
+   * or scanning a QR code is exactly the signal the referral programme exists to
+   * measure — but the caller must not be able to author privileged state. So
+   * every consequential field is derived on the server:
+   *
+   *   - the event type must be one of a small PUBLIC allowlist;
+   *   - `tenant_id`, `code_id` and `campaign_id` come from the referral CODE ROW,
+   *     looked up here, never from the request;
+   *   - the actor comes from a verified session, or is anonymous;
+   *   - `occurred_at` is the server clock;
+   *   - metadata is bounded and allowlisted.
+   *
+   * A caller may therefore say "this code was opened, over this channel" and
+   * nothing else. It cannot mint an event for another tenant, attribute activity
+   * to another user, backdate it, or claim a privileged actor type.
+   */
+  async recordPublicReferralEvent(input = {}, req = {}) {
+    const eventType = String(input.event_type || '').trim();
+    if (!PUBLIC_REFERRAL_EVENT_TYPES.has(eventType)) {
+      throw new ValidationError('event_type is not publicly reportable.', {
+        event_type: eventType,
+        allowed: [...PUBLIC_REFERRAL_EVENT_TYPES],
+      });
+    }
+
+    const normalized = normalizeReferralCode(input.code);
+    if (!normalized) throw new ValidationError('code is required.');
+    const code = await this.repository.findOne(REFERRAL_TABLES.codes, { code: normalized });
+    // An unknown code is not an error a caller may use to probe: it simply cannot
+    // produce an event, because there is no tenant to attribute it to.
+    if (!code) throw new ValidationError('Referral code was not found.', { code: normalized });
+
+    const actor = buildVerifiedActorContext(req);
+    const channel = PUBLIC_REFERRAL_CHANNELS.has(String(input.channel))
+      ? String(input.channel)
+      : REFERRAL_CHANNELS.WEB;
+
+    const payload = {
+      // Derived from the CODE, so a caller cannot write into another tenant.
+      tenant_id: code.tenant_id || DEFAULT_PLATFORM_TENANT,
+      event_type: eventType,
+      code_id: code.id,
+      campaign_id: code.campaign_id || null,
+      coupon_id: null,
+      wallet_transaction_id: null,
+      subject_type: null,
+      subject_id: null,
+      channel,
+      source: boundedPublicCode(input.source),
+      session_id: boundedPublicCode(input.session_id),
+      // Verified session only. An anonymous visitor stays anonymous.
+      actor_user_id: actor.actor_user_id,
+      // Always `user`: a human followed a link. Identified or not, this is not a
+      // platform-generated event and must not be able to look like one.
+      actor_type: ACTOR_TYPES.USER,
+      metadata: publicEventMetadata(input.metadata),
+      // Server clock: a caller may not backdate or postdate its own activity.
+      occurred_at: this.currentIso(),
     };
     return this.repository.insert(REFERRAL_TABLES.events, payload);
   }

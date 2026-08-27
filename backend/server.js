@@ -1878,37 +1878,95 @@ app.get('/api/organizations/my-org', authorizeRole(), async (req, res) => {
   }
 });
 
-// Fetch organization branches
-app.get('/api/organizations/:id/branches', async (req, res) => {
+/**
+ * Fetch organization branches.
+ *
+ * Same class as the staff route below and hardened alongside it: it was
+ * unauthenticated and returned an organization's full branch records — including
+ * addresses and internal identifiers — for any id. Neither route has a frontend
+ * consumer, so requiring membership costs nothing and closes an enumeration
+ * surface.
+ */
+app.get('/api/organizations/:id/branches', authorizeRole(), async (req, res, next) => {
   const { id } = req.params;
   try {
+    await assertOrganizationMembership(req, id);
     const { data: branches, error } = await supabase
       .from('organization_branches')
-      .select('*')
+      .select('id, organization_id, name, city, country, status')
       .eq('organization_id', id);
     if (error) throw error;
     res.json(branches);
   } catch (error) {
-    res.status(500).json({ error: error.message });
+    next(error);
   }
 });
 
-// Fetch staff / users inside organization
-app.get('/api/organizations/:id/users', async (req, res) => {
+/**
+ * Prove the caller may see an organization's internal records.
+ *
+ * A platform admin may; anyone else must be a verified member of the tenant the
+ * organization maps to. Mirrors the check `/audit-logs` already performs, so the
+ * three organization routes share one rule rather than three near-copies.
+ */
+async function assertOrganizationMembership(req, organizationId) {
+  const isPlatformAdmin = ['admin', 'platform_admin', 'super_admin']
+    .includes(String(req.userContext?.platformRole || req.userContext?.role || ''));
+  if (isPlatformAdmin) return;
+
+  const { data: org } = await supabase
+    .from('organizations')
+    .select('tenant_id')
+    .eq('id', organizationId)
+    .single();
+  if (!org || !org.tenant_id) {
+    throw new ForbiddenError('Forbidden. Organization not found or not mapped.');
+  }
+  const { data: tenantUser } = await supabase
+    .from('tenant_users')
+    .select('tenant_id')
+    .eq('user_id', req.userContext.id)
+    .eq('tenant_id', org.tenant_id)
+    .single();
+  if (!tenantUser) {
+    throw new ForbiddenError('Forbidden. You do not belong to this organization.');
+  }
+}
+
+/**
+ * Fetch staff inside an organization.
+ *
+ * This route had NO auth middleware and returned every staff member's name, email
+ * and avatar for any organization id a caller cared to type — a directory of a
+ * company's employees, enumerable by anyone. It now requires an authenticated
+ * caller who is either a platform admin or a verified member of the organization's
+ * tenant, using the same membership proof `/audit-logs` already performs.
+ *
+ * The projection is also minimized: an internal staff directory does not need to
+ * publish email addresses to every colleague-facing screen, so contact details are
+ * withheld and only the fields a staff list actually renders are returned.
+ */
+app.get('/api/organizations/:id/users', authorizeRole(), async (req, res, next) => {
   const { id } = req.params;
   try {
+    await assertOrganizationMembership(req, id);
+
     const { data: users, error } = await supabase
       .from('organization_users')
       .select(`
-        *,
-        users!inner(name, email, avatar),
+        id,
+        organization_id,
+        user_id,
+        status,
+        joined_at,
+        users!inner(name, avatar),
         organization_roles!inner(name, level)
       `)
       .eq('organization_id', id);
     if (error) throw error;
     res.json(users);
   } catch (error) {
-    res.status(500).json({ error: error.message });
+    next(error);
   }
 });
 

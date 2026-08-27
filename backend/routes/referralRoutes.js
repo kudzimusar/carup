@@ -1,6 +1,7 @@
 import express from 'express';
 import { supabase } from '../db/supabase.js';
-import { authorizeRole, isUserIdFallbackAllowed } from '../middleware/authMiddleware.js';
+import { authorizeRole, isUserIdFallbackAllowed, optionalAuth } from '../middleware/authMiddleware.js';
+import { rateLimiter } from '../middleware/securityMiddleware.js';
 import { ForbiddenError, ValidationError } from '../utils/errors.js';
 import { ACTOR_TYPES } from '../constants/referral/referralConstants.js';
 import { ReferralEngineService, buildActorContext } from '../services/referral/referralEngineService.js';
@@ -17,12 +18,46 @@ const OPERATOR_ROLES = ['admin', 'platform_admin', 'super_admin', 'dealer', 'sel
 const TRUST_DECISION_ROLES = ['admin', 'platform_admin', 'super_admin', 'trust_manager', 'compliance_manager'];
 const WEBHOOK_CHANNELS = new Set(['whatsapp', 'telegram', 'facebook', 'instagram']);
 
+/**
+ * The public event report is the one referral surface an unauthenticated caller
+ * may write to, so it is bounded per IP. Generous enough for a real visitor
+ * following links, far too small to manufacture an attribution history.
+ */
+const referralPublicEventLimiter = rateLimiter({ max: 30, windowMs: 60 * 1000, isSensitive: false });
+
 const asyncHandler = (fn) => (req, res, next) => {
   Promise.resolve(fn(req, res, next)).catch(next);
 };
 
 function isPlatformAdmin(ctx = {}) {
   return ADMIN_ROLES.includes(String(ctx.platformRole || ctx.role || '').toLowerCase());
+}
+
+/**
+ * Resolve the tenant an operator request may read, server-side.
+ *
+ * Two rules, and the second is the one that was missing:
+ *
+ *  1. A PLATFORM ADMIN may pass `tenant_id` to NARROW to one tenant, or omit it
+ *     for a platform-wide view. That is their remit.
+ *
+ *  2. For everyone else the VERIFIED tenant on the session always wins, and a
+ *     query parameter is ignored entirely — it can never widen access. Crucially,
+ *     an operator with NO verified tenant is REFUSED rather than falling through
+ *     to `undefined`, which previously removed the filter altogether and returned
+ *     every tenant's rows to a plain `dealer`.
+ */
+function resolveOperatorTenantScope(req) {
+  const ctx = req.userContext || {};
+  if (isPlatformAdmin(ctx)) {
+    const requested = typeof req.query?.tenant_id === 'string' ? req.query.tenant_id.trim() : '';
+    return requested || undefined;
+  }
+  const verified = ctx.tenantId ? String(ctx.tenantId) : null;
+  if (!verified) {
+    throw new ForbiddenError('A verified tenant context is required for this view.');
+  }
+  return verified;
 }
 
 function createActor(req, fallbackType = ACTOR_TYPES.USER) {
@@ -113,7 +148,7 @@ export function createReferralRouter({ client = supabase, service = null, agentG
   }));
 
   router.get('/campaigns', authorizeRole(OPERATOR_ROLES), asyncHandler(async (req, res) => {
-    const filters = { tenant_id: req.query.tenant_id || req.userContext?.tenantId || undefined, status: req.query.status || undefined, campaign_type: req.query.campaign_type || undefined, priority_scope: req.query.priority_scope || undefined };
+    const filters = { tenant_id: resolveOperatorTenantScope(req), status: req.query.status || undefined, campaign_type: req.query.campaign_type || undefined, priority_scope: req.query.priority_scope || undefined };
     const campaigns = await referralService.listCampaigns(filters);
     res.json({ success: true, campaigns });
   }));
@@ -130,7 +165,7 @@ export function createReferralRouter({ client = supabase, service = null, agentG
 
   router.get('/codes', authorizeRole(OPERATOR_ROLES), asyncHandler(async (req, res) => {
     const result = await referralService.listCodes({
-      tenant_id: req.query.tenant_id || req.userContext?.tenantId || undefined,
+      tenant_id: resolveOperatorTenantScope(req),
       campaign_id: req.query.campaign_id || undefined,
       status: req.query.status || undefined,
       code_type: req.query.code_type || undefined,
@@ -152,8 +187,23 @@ export function createReferralRouter({ client = supabase, service = null, agentG
     res.status(result.valid ? 200 : 422).json({ success: result.valid, ...result });
   }));
 
-  router.post('/events', asyncHandler(async (req, res) => {
-    const event = await referralService.recordReferralEvent(req.body, createActor(req, req.headers['x-actor-type'] || ACTOR_TYPES.USER));
+  /**
+   * Public referral event report.
+   *
+   * Anonymous reporting stays possible — a visitor opening a shared link or
+   * scanning a QR code is the signal the referral programme exists to measure —
+   * but the caller now authors nothing consequential. The event type must be on a
+   * public allowlist; tenant, code and campaign are derived from the referral code
+   * row on the server; the actor comes from a verified session or is anonymous;
+   * the timestamp is the server clock; metadata is bounded.
+   *
+   * Previously this route was unauthenticated AND unconstrained: any caller could
+   * insert an arbitrary event_type against any tenant, attribute it to any user
+   * via x-user-id/x-actor-type, and backdate it — which made the entire
+   * attribution ledger forgeable.
+   */
+  router.post('/events', referralPublicEventLimiter, optionalAuth(), asyncHandler(async (req, res) => {
+    const event = await referralService.recordPublicReferralEvent(req.body, req);
     res.status(201).json({ success: true, event });
   }));
 
@@ -249,7 +299,7 @@ export function createReferralRouter({ client = supabase, service = null, agentG
 
   router.get('/local-marketplace/leads', authorizeRole(OPERATOR_ROLES), asyncHandler(async (req, res) => {
     const result = await localMarketplaceService.listLeads({
-      tenant_id: req.query.tenant_id || req.userContext?.tenantId || undefined,
+      tenant_id: resolveOperatorTenantScope(req),
       campaign_id: req.query.campaign_id || undefined,
       status: req.query.status || undefined,
       participant_type: req.query.participant_type || undefined,
@@ -288,7 +338,7 @@ export function createReferralRouter({ client = supabase, service = null, agentG
 
   router.get('/import-campaigns/routes', authorizeRole(OPERATOR_ROLES), asyncHandler(async (req, res) => {
     const result = await importCampaignService.listRoutes({
-      tenant_id: req.query.tenant_id || req.userContext?.tenantId || undefined,
+      tenant_id: resolveOperatorTenantScope(req),
       route_key: req.query.route_key || undefined,
       flow: req.query.flow || undefined,
       status: req.query.status || undefined,
@@ -431,10 +481,14 @@ export function createReferralRouter({ client = supabase, service = null, agentG
 
   router.get('/trust/disputes', authorizeRole(OPERATOR_ROLES), asyncHandler(async (req, res) => {
     const result = await trustReviewService.listDisputes({
-      tenant_id: req.query.tenant_id || req.userContext?.tenantId || undefined,
+      tenant_id: resolveOperatorTenantScope(req),
       status: req.query.status || undefined,
       wallet_transaction_id: req.query.wallet_transaction_id || undefined,
-      user_id: req.query.user_id || undefined,
+      // A non-admin may only ever see their OWN disputes; naming another user is
+      // ignored rather than honoured.
+      user_id: isPlatformAdmin(req.userContext || {})
+        ? (req.query.user_id || undefined)
+        : (req.userContext?.id || undefined),
       dispute_event_id: req.query.dispute_event_id || undefined,
       limit: req.query.limit,
       offset: req.query.offset,
@@ -465,7 +519,7 @@ export function createReferralRouter({ client = supabase, service = null, agentG
 
   router.get('/coupons', authorizeRole(OPERATOR_ROLES), asyncHandler(async (req, res) => {
     const result = await referralService.listCoupons({
-      tenant_id: req.query.tenant_id || req.userContext?.tenantId || undefined,
+      tenant_id: resolveOperatorTenantScope(req),
       campaign_id: req.query.campaign_id || undefined,
       status: req.query.status || undefined,
       discount_type: req.query.discount_type || undefined,
@@ -509,7 +563,7 @@ export function createReferralRouter({ client = supabase, service = null, agentG
   }));
 
   router.get('/admin/events', authorizeRole(ADMIN_ROLES), asyncHandler(async (req, res) => {
-    const events = await referralService.getAdminTimeline({ tenant_id: req.query.tenant_id || req.userContext?.tenantId || undefined, campaign_id: req.query.campaign_id || undefined, code_id: req.query.code_id || undefined, event_type: req.query.event_type || undefined, limit: Number(req.query.limit || 200) });
+    const events = await referralService.getAdminTimeline({ tenant_id: resolveOperatorTenantScope(req), campaign_id: req.query.campaign_id || undefined, code_id: req.query.code_id || undefined, event_type: req.query.event_type || undefined, limit: Number(req.query.limit || 200) });
     res.json({ success: true, events });
   }));
 
