@@ -218,6 +218,18 @@ function createRollupClient({ events = [], inquiries = [], reservations = [], sa
         eq() { return api },
         order() { return api },
         limit() { return Promise.resolve({ data: written.runs.slice(-1), error: null }) },
+        // Reads are paginated now; the fake returns the whole set on page 0 and
+        // an empty page after, which is what a short single page looks like.
+        range(from) {
+          const rows = {
+            marketplace_activity_events: events,
+            marketplace_inquiries: inquiries,
+            vehicle_reservations: reservations,
+            saved_vehicles: saved,
+            vehicles,
+          }[table] ?? [];
+          return Promise.resolve({ data: from === 0 ? rows : [], error: null });
+        },
         insert(row) { if (table === 'intelligence_rollup_runs') written.runs.push(row); return Promise.resolve({ data: row, error: null }) },
         update() { return { eq: () => ({ eq: () => ({ eq: () => Promise.resolve({ data: null, error: null }) }) }) } },
         upsert(rows) {
@@ -327,7 +339,11 @@ test('a failed rollup reports failure rather than writing a partial day', async 
         return { insert: () => Promise.resolve({}), update: () => ({ eq: () => ({ eq: () => ({ eq: () => Promise.resolve({}) }) }) }) };
       }
       return {
-        select: () => ({ gte: () => ({ lt: () => Promise.resolve({ data: null, error: { message: 'ledger unavailable' } }) }) }),
+        select: () => ({
+          gte: () => ({
+            lt: () => ({ range: () => Promise.resolve({ data: null, error: { message: 'ledger unavailable' } }) }),
+          }),
+        }),
       };
     },
   };

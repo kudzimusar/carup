@@ -32,6 +32,32 @@ export const ROLLUP_CALCULATION_VERSION = 'rollup@1';
 const LEDGER = 'marketplace_activity_events';
 const RUNS = 'intelligence_rollup_runs';
 
+/** PostgREST returns at most 1000 rows per request unless a range is given. */
+const PAGE_SIZE = 1000;
+/** A hard ceiling so a runaway read cannot exhaust memory; exceeding it FAILS the day. */
+const MAX_PAGES = 200;
+
+/**
+ * Read every row a query matches, page by page.
+ *
+ * An unpaged read of a busy day returns the first 1000 rows and looks successful,
+ * which would understate every number for that day while the run still reported
+ * `completed` — silent truncation presented as fact. Exhausting MAX_PAGES throws,
+ * so the day fails loudly rather than publishing a partial answer.
+ */
+export async function readAllPages(buildQuery, { pageSize = PAGE_SIZE, maxPages = MAX_PAGES } = {}) {
+  const rows = [];
+  for (let page = 0; page < maxPages; page += 1) {
+    const from = page * pageSize;
+    const { data, error } = await buildQuery().range(from, from + pageSize - 1);
+    if (error) throw error;
+    const batch = Array.isArray(data) ? data : [];
+    rows.push(...batch);
+    if (batch.length < pageSize) return rows;
+  }
+  throw new Error(`rollup read exceeded ${maxPages} pages; refusing to publish a truncated day`);
+}
+
 /** UTC day bounds. The contract fixes UTC as the rollup clock; display-timezone mapping is a presentation concern. */
 export function dayBounds(metricDate) {
   const start = new Date(`${metricDate}T00:00:00.000Z`);
@@ -157,26 +183,38 @@ export function computePlatformMetrics(events) {
  */
 export async function readInquiryAuthority(client, metricDate) {
   const { start, end } = dayBounds(metricDate);
-  const { data, error } = await client
+  const rows = await readAllPages(() => client
     .from('marketplace_inquiries')
-    .select('id, listing_id, seller_id, seller_tenant_id, inquiry_type, status, created_at')
+    .select('id, listing_id, listing_type, seller_id, seller_tenant_id, inquiry_type, status, created_at')
     .gte('created_at', start)
-    .lt('created_at', end);
-  if (error) throw error;
-  const rows = (Array.isArray(data) ? data : [])
-    .filter((row) => !['spam', 'rejected'].includes(String(row.status || '')));
-  return rows;
+    .lt('created_at', end));
+  return rows.filter((row) => {
+    // Spam and rejected are never a seller's leads.
+    if (['spam', 'rejected'].includes(String(row.status || ''))) return false;
+    // Vehicle listings only. Part/garage/import/container/trade-in inquiries carry
+    // non-VIN listing ids; counting them would inflate platform leads and create
+    // listing rollup rows keyed by something that is not a listing.
+    const type = row.listing_type == null ? 'vehicle' : String(row.listing_type);
+    return type === 'vehicle';
+  });
 }
 
+/**
+ * Reservations established in the window.
+ *
+ * Contract §7 counts ACTIVE reservations; a reservation created and cancelled the
+ * same day is not one established. A read failure THROWS rather than returning an
+ * empty array: swallowing it would write `reservations: 0` into a run still marked
+ * `completed`, which is a fabricated zero.
+ */
 export async function readReservationAuthority(client, metricDate) {
   const { start, end } = dayBounds(metricDate);
-  const { data, error } = await client
+  const rows = await readAllPages(() => client
     .from('vehicle_reservations')
-    .select('id, vin, created_at')
+    .select('id, vin, status, created_at')
     .gte('created_at', start)
-    .lt('created_at', end);
-  if (error) return [];
-  return Array.isArray(data) ? data : [];
+    .lt('created_at', end));
+  return rows.filter((row) => String(row.status || '') === 'active');
 }
 
 /**
@@ -186,10 +224,12 @@ export async function readReservationAuthority(client, metricDate) {
  * even for windows that predate the ledger.
  */
 export async function readWatchlistSnapshot(client) {
-  const { data, error } = await client.from('saved_vehicles').select('vin');
-  if (error) return new Map();
+  // Paginated and throwing: a truncated snapshot would drop most listings out of
+  // the map, and every one of them would then render `not_applicable` as though
+  // the saved count were unknowable rather than simply unread.
+  const rows = await readAllPages(() => client.from('saved_vehicles').select('vin'));
   const counts = new Map();
-  for (const row of Array.isArray(data) ? data : []) {
+  for (const row of rows) {
     if (!row?.vin) continue;
     counts.set(row.vin, (counts.get(row.vin) || 0) + 1);
   }
@@ -219,13 +259,11 @@ export async function rollupDay(metricDate, { client = defaultClient, calculatio
   try { await client.from(RUNS).insert(run); } catch { /* the run ledger must never block the rollup */ }
 
   try {
-    const { data, error } = await client
+    const events = await readAllPages(() => client
       .from(LEDGER)
       .select('event_type, listing_id, vehicle_reference, tenant_id, authenticated_user_id, pseudonymous_session_key, exclusion_flags, metadata, occurred_at')
       .gte('occurred_at', start)
-      .lt('occurred_at', end);
-    if (error) throw error;
-    const events = Array.isArray(data) ? data : [];
+      .lt('occurred_at', end));
 
     const [inquiryRows, reservationRows, watchlist] = await Promise.all([
       readInquiryAuthority(client, metricDate),
@@ -289,11 +327,14 @@ export async function rollupDay(metricDate, { client = defaultClient, calculatio
 
     const bySeller = new Map();
     const byTenant = new Map();
-    for (const [vin, listingEvents] of byListing.entries()) {
+    // Iterate EVERY listing in play — including those whose only activity that day
+    // was an authoritative lead — rather than only listings with ledger events.
+    for (const vin of listingIds) {
+      const listingEvents = byListing.get(vin) || [];
       const owner = ownerByVin.get(vin);
-      if (owner?.ownerUserId) {
-        if (!bySeller.has(owner.ownerUserId)) bySeller.set(owner.ownerUserId, { events: [], tenantId: owner.tenantId, listings: new Set() });
-        const bucket = bySeller.get(owner.ownerUserId);
+      if (owner?.sellerUserId) {
+        if (!bySeller.has(owner.sellerUserId)) bySeller.set(owner.sellerUserId, { events: [], tenantId: owner.tenantId, listings: new Set() });
+        const bucket = bySeller.get(owner.sellerUserId);
         bucket.events.push(...listingEvents);
         bucket.listings.add(vin);
       }
@@ -302,6 +343,16 @@ export async function rollupDay(metricDate, { client = defaultClient, calculatio
         const bucket = byTenant.get(owner.tenantId);
         bucket.events.push(...listingEvents);
         bucket.listings.add(vin);
+      }
+    }
+    // A lead can name a seller/tenant whose listing we could not resolve. Seed a
+    // bucket so their leads are still reported rather than silently discarded.
+    for (const row of inquiryRows) {
+      if (row.seller_id && !bySeller.has(String(row.seller_id))) {
+        bySeller.set(String(row.seller_id), { events: [], tenantId: row.seller_tenant_id ? String(row.seller_tenant_id) : null, listings: new Set() });
+      }
+      if (row.seller_tenant_id && !byTenant.has(String(row.seller_tenant_id))) {
+        byTenant.set(String(row.seller_tenant_id), { events: [], listings: new Set() });
       }
     }
 
@@ -415,12 +466,21 @@ async function readListingOwners(client, vins) {
   try {
     const { data, error } = await client
       .from('vehicles')
-      .select('vin, owner_id, tenant_id')
+      .select('vin, owner_id, current_seller_id, tenant_id')
       .in('vin', vins);
     if (error) return owners;
     for (const row of Array.isArray(data) ? data : []) {
+      // `current_seller_id` IS the seller relationship — marketplace_inquiries.seller_id
+      // is written from it, and #164 Phase 6 states owner_id is not read for selling.
+      // Keying the seller grain on owner_id silently missed the inquiry map for the
+      // 84% of staging vehicles where the two differ, zeroing every seller lead count.
+      const sellerUserId = row.current_seller_id ? String(row.current_seller_id) : null;
+      const ownerUserId = row.owner_id ? String(row.owner_id) : null;
       owners.set(row.vin, {
-        ownerUserId: row.owner_id ? String(row.owner_id) : null,
+        // Fall back to the owner only when no seller is assigned, so a private
+        // seller who is also the owner still gets their grain.
+        sellerUserId: sellerUserId || ownerUserId,
+        ownerUserId,
         tenantId: row.tenant_id ? String(row.tenant_id) : null,
       });
     }

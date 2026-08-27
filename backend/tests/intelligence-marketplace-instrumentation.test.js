@@ -48,6 +48,10 @@ function createFakeClient({ vehicles = [{ vin: VIN, owner_id: OWNER, tenant_id: 
   const savedRows = [...saved];
   const client = {
     inserted, stats, savedRows,
+    rpc(fn, args) {
+      if (fn === 'intelligence_bump_ingestion_stats') stats.push(args);
+      return Promise.resolve({ data: null, error: null });
+    },
     from(table) {
       const api = {
         _table: table, _filters: {}, _deleting: false,
@@ -70,6 +74,8 @@ function createFakeClient({ vehicles = [{ vin: VIN, owner_id: OWNER, tenant_id: 
         },
         eq(column, value) { api._filters[column] = value; return api; },
         gte() { return api; },
+        lt() { return api; },
+        range() { return Promise.resolve({ data: [], error: null }); },
         order() { return Promise.resolve({ data: [], error: null }); },
         maybeSingle() {
           if (table === 'vehicles') {
@@ -201,7 +207,7 @@ test('an open with no client context is SKIPPED and COUNTED, never collapsed int
   assert.equal(client.inserted.length, 0, 'a contextless open must not become an event');
   // The undercount is measurable rather than invisible.
   assert.equal(client.stats.length, 1);
-  assert.equal(client.stats[0].opened_without_context, 1);
+  assert.equal(client.stats[0].p_opened_without_context, 1);
 });
 
 test('two opens in one page view are one view; a new page view is a new view', async () => {
@@ -338,6 +344,7 @@ test('an inquiry with no id refuses to write rather than inventing a key', async
 test('every emitter swallows failure: a broken ledger never breaks the marketplace', async () => {
   const exploding = {
     from() { throw new Error('database on fire'); },
+    rpc() { throw new Error('database on fire'); },
   };
   const results = await Promise.all([
     emitSearchPerformed(reqWithContext(), { query: { make: 'Toyota' }, resultCount: 1, client: exploding }),

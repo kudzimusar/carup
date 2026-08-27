@@ -81,6 +81,8 @@ function createClient({
         select() { return api },
         eq(col, val) { filters[col] = val; return api },
         in(col, vals) { filters[col] = vals; return api },
+        // Ownership resolution uses an or() filter (owned OR sold by this user).
+        or(expr) { filters.__or = expr; return api },
         order() { return api },
         limit() {
           if (failTable === table) return Promise.resolve({ data: null, error: { message: `${table} unavailable` } });
@@ -96,7 +98,10 @@ function createClient({
         then(resolve) {
           if (failTable === table) return resolve({ data: null, error: { message: `${table} unavailable` } });
           let rows = dataFor[table] || [];
-          if (table === 'vehicles' && filters.owner_id) {
+          if (table === 'vehicles' && filters.__or) {
+            const ids = [...String(filters.__or).matchAll(/\.eq\.([^,]+)/g)].map((m) => m[1]);
+            rows = rows.filter((v) => ids.includes(v.owner_id) || ids.includes(v.current_seller_id));
+          } else if (table === 'vehicles' && filters.owner_id) {
             rows = rows.filter((v) => v.owner_id === filters.owner_id);
           }
           if (filters.tenant_id && table === 'tenant_daily_metrics') {

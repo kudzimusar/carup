@@ -31,7 +31,14 @@
  *     (gap G5) is not reproduced here.
  */
 import { supabase as defaultClient } from '../../db/supabase.js';
-import { ROLLUP_CALCULATION_VERSION, rollupFreshness } from './rollupService.js';
+import { ROLLUP_CALCULATION_VERSION, rollupFreshness, dayBounds } from './rollupService.js';
+import {
+  computeListingCompleteness,
+  computeLostOpportunity,
+  nextBestActions,
+} from './listingCompletenessService.js';
+import { LISTING_SELECT_COLUMNS_WITH_CLAIMS } from '../marketplace/listingSummaryService.js';
+import { getCanonicalTrust } from '../trustDecision/canonicalTrustService.js';
 
 /** Minimum denominator before a conversion rate is reported at all (contract §7). */
 export const MIN_CONVERSION_DENOMINATOR = 20;
@@ -98,7 +105,22 @@ export function rate(numerator, denominator, { min = MIN_CONVERSION_DENOMINATOR 
   if (!Number.isFinite(denominator) || denominator < min) {
     return { availability: AVAILABILITY.INSUFFICIENT_DATA, reason: `denominator_below_${min}`, value: null, unit: 'percent' };
   }
-  return { availability: AVAILABILITY.VALUE, value: Math.round((numerator / denominator) * 1000) / 10, unit: 'percent' };
+  // A stage count can legitimately exceed the stage before it: a lead that arrived
+  // by WhatsApp or through an operator never passed through a listing view, and a
+  // listing opened from a saved list had no preceding impression. Publishing
+  // "136% of viewers enquired" would be nonsense, so the ratio is capped and the
+  // fact that it was capped is stated rather than hidden.
+  const raw = (numerator / denominator) * 100;
+  if (raw > 100) {
+    return {
+      availability: AVAILABILITY.VALUE,
+      value: 100,
+      unit: 'percent',
+      capped: true,
+      note: 'More actions were recorded at this stage than at the one before it — some arrived through a channel that skips it.',
+    };
+  }
+  return { availability: AVAILABILITY.VALUE, value: Math.round(raw * 10) / 10, unit: 'percent' };
 }
 
 function sumRows(rows, field) {
@@ -123,18 +145,41 @@ function windowUnique(rows, field) {
  * Resolve the listings a caller actually owns. This is the authorization
  * boundary for every seller-facing projection: it is a query, not a claim.
  */
+/**
+ * A PostgREST `or()` filter is a string the caller's id is interpolated into, so an
+ * id containing a comma or parenthesis could rewrite the predicate. Same guard the
+ * inquiry service already uses; an id that fails it falls back to two safe reads.
+ */
+const SAFE_OR_VALUE = /^[A-Za-z0-9_:@-]+$/;
+
 export async function resolveOwnedListings(client, actor) {
   const userId = actor?.id ? String(actor.id) : null;
   if (!userId) throw new AuthorizationError('Authentication required.');
-  const { data, error } = await client
-    .from('vehicles')
-    .select('vin, owner_id, tenant_id')
-    .eq('owner_id', userId);
-  if (error) throw new Error('listing_ownership_unreadable');
-  return (Array.isArray(data) ? data : []).map((row) => ({
+
+  const toScope = (rows) => (Array.isArray(rows) ? rows : []).map((row) => ({
     vin: row.vin,
     tenantId: row.tenant_id ? String(row.tenant_id) : null,
   }));
+
+  // Owned OR sold by this user: the two relationships differ for most listings,
+  // and checking only one locks the other party out of their own analytics.
+  if (SAFE_OR_VALUE.test(userId)) {
+    const { data, error } = await client
+      .from('vehicles')
+      .select('vin, owner_id, current_seller_id, tenant_id')
+      .or(`owner_id.eq.${userId},current_seller_id.eq.${userId}`);
+    if (error) throw new Error('listing_ownership_unreadable');
+    return toScope(data);
+  }
+
+  const [owned, sold] = await Promise.all([
+    client.from('vehicles').select('vin, owner_id, current_seller_id, tenant_id').eq('owner_id', userId),
+    client.from('vehicles').select('vin, owner_id, current_seller_id, tenant_id').eq('current_seller_id', userId),
+  ]);
+  if (owned?.error || sold?.error) throw new Error('listing_ownership_unreadable');
+  const merged = new Map();
+  for (const row of [...(owned.data || []), ...(sold.data || [])]) merged.set(row.vin, row);
+  return toScope([...merged.values()]);
 }
 
 /**
@@ -150,14 +195,18 @@ export async function assertListingOwnership(client, actor, vin) {
   if (!vin) throw new NotFoundError('Listing not found.');
   const { data, error } = await client
     .from('vehicles')
-    .select('vin, owner_id, tenant_id')
+    .select('vin, owner_id, current_seller_id, tenant_id')
     .eq('vin', vin)
     .maybeSingle();
   if (error) throw new Error('listing_lookup_unreadable');
   if (!data) throw new NotFoundError('Listing not found.');
+  // Either relationship grants access: the owner of the vehicle, or the party
+  // actually selling it. These differ for most CarUp listings, and checking only
+  // owner_id locked the governed seller out of their own listing's analytics.
   const ownsDirectly = data.owner_id && String(data.owner_id) === userId;
+  const sellsDirectly = data.current_seller_id && String(data.current_seller_id) === userId;
   const sameTenant = data.tenant_id && actor?.tenantId && String(data.tenant_id) === String(actor.tenantId);
-  if (!ownsDirectly && !sameTenant) throw new NotFoundError('Listing not found.');
+  if (!ownsDirectly && !sellsDirectly && !sameTenant) throw new NotFoundError('Listing not found.');
   return { vin: data.vin, tenantId: data.tenant_id ? String(data.tenant_id) : null };
 }
 
@@ -219,13 +268,20 @@ async function readPlatformRollups(client, dates) {
 }
 
 /**
- * Freshness across the window's most recent day. A surface uses this to say
- * "as of …" or to fall back to unavailable — never to present a stale or missing
- * rollup as a current zero.
+ * Freshness of the most recent day that could reasonably be complete.
+ *
+ * Deliberately NOT today: today is still accumulating, so a nightly job that
+ * correctly rolled up yesterday would leave today `never_computed` and every
+ * seller, dealer and admin request would report `unavailable` every day. The
+ * window still INCLUDES today's partial data where it exists; freshness simply
+ * does not demand a finished rollup for a day that is not over.
  */
 async function windowFreshness(client, dates) {
-  const latest = dates[dates.length - 1];
-  return rollupFreshness(latest, { client });
+  const completable = dates.length > 1 ? dates[dates.length - 2] : dates[dates.length - 1];
+  const yesterday = await rollupFreshness(completable, { client });
+  if (yesterday?.available) return yesterday;
+  // Fall back to today: a same-day backfill run is legitimate freshness too.
+  return rollupFreshness(dates[dates.length - 1], { client });
 }
 
 function emptyWindowEnvelope(reason) {
@@ -302,7 +358,88 @@ export async function getListingInsights(client, actor, vin, { windowDays = 7 } 
     },
     // Stated so a seller can tell an honest zero from a gap in measurement.
     coverage: { days_with_data: rows.length, days_requested: windowDays },
+    // I6: what to improve, and what it has demonstrably cost. Read separately so a
+    // metrics failure cannot suppress actionable guidance that needs no metrics.
+    ...(await readListingGuidance(client, listing.vin, dates)),
   };
+}
+
+/**
+ * Completeness, lost opportunity and next-best-action for one listing.
+ *
+ * Deliberately non-fatal: guidance is computed from the listing's own fields and
+ * the day's searches, so it survives a rollup outage. If even this cannot be
+ * read, the block reports itself unavailable rather than implying a perfect
+ * listing with nothing to improve.
+ */
+export async function readListingGuidance(client, vin, dates) {
+  try {
+    const [vehicleRes, imagesRes, evidenceRes, serviceRes] = await Promise.all([
+      // The CANONICAL listing projection, not `select('*')`. Issue #164 fixed the
+      // number of vehicle column allow-lists at two; reusing one of them means
+      // this read cannot pull engine/chassis/plate into memory and cannot become
+      // a third place where a private column leaks.
+      client.from('vehicles').select(LISTING_SELECT_COLUMNS_WITH_CLAIMS).eq('vin', vin).maybeSingle(),
+      client.from('listing_images').select('image_url, is_primary').eq('vin', vin),
+      client.from('vehicle_evidence').select('id').eq('vin', vin),
+      client.from('partsentry_logs').select('id').eq('vin', vin),
+    ]);
+    const vehicle = vehicleRes?.data || null;
+    if (!vehicle) return { guidance: unavailable('listing_not_readable') };
+
+    // Trust comes from the canonical service, never from the row. The vehicles
+    // trust columns are an unversioned cache, and #164 exists because projecting
+    // them published `trust_score: 84` beside a report saying `not_evaluated`.
+    let trust = { state: 'not_evaluated', band: null, score: null };
+    try {
+      const canonical = await getCanonicalTrust(vin, { client });
+      if (canonical) {
+        trust = {
+          state: canonical.state ?? canonical.evaluation_state ?? 'not_evaluated',
+          band: canonical.band ?? null,
+          score: canonical.score ?? null,
+        };
+      }
+    } catch {
+      // Unknown stays unknown: a trust read failure must never become a low score.
+      trust = { state: 'not_evaluated', band: null, score: null };
+    }
+
+    const completeness = computeListingCompleteness({
+      vehicle,
+      imageRows: imagesRes?.data || [],
+      evidenceCount: (evidenceRes?.data || []).length,
+      serviceCount: (serviceRes?.data || []).length,
+      trust,
+    });
+
+    let searchEvents = [];
+    try {
+      const { start } = dayBounds(dates[0]);
+      const { end } = dayBounds(dates[dates.length - 1]);
+      const { data } = await client
+        .from('marketplace_activity_events')
+        .select('metadata')
+        .eq('event_type', 'marketplace_search_performed')
+        .gte('occurred_at', start)
+        .lt('occurred_at', end);
+      searchEvents = Array.isArray(data) ? data : [];
+    } catch {
+      // No searches readable: lost opportunity reports zero considered, which is
+      // honest, rather than a fabricated missed-search count.
+      searchEvents = [];
+    }
+
+    const lostOpportunity = computeLostOpportunity({ vehicle, searchEvents });
+
+    return {
+      completeness,
+      lost_opportunity: lostOpportunity,
+      next_best_actions: nextBestActions({ completeness, lostOpportunity }),
+    };
+  } catch {
+    return { guidance: unavailable('guidance_unreadable') };
+  }
 }
 
 /**

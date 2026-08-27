@@ -114,6 +114,7 @@ import featureGovernanceRouter from './routes/featureGovernanceRoutes.js';
 import navigationAnalyticsRouter from './routes/navigationAnalyticsRoutes.js';
 import intelligenceActivityRouter from './routes/intelligenceActivityRoutes.js';
 import intelligenceProjectionRouter from './routes/intelligenceProjectionRoutes.js';
+import intelligenceRollupRouter from './routes/intelligenceRollupRoutes.js';
 import identityVerificationAdminRouter from './routes/identityVerificationAdminRoutes.js';
 import partsentryReviewRouter from './routes/partsentryReviewRoutes.js';
 import { normalizeVehicleStatus, publicVehicleStatusFilterValues, publiclyVisiblePublicationStatuses, isPublicVehicleStatus, isPubliclyVisiblePublication, PUBLIC_VEHICLE_COLUMNS } from './utils/vehicleStatus.js';
@@ -337,6 +338,7 @@ app.use(featureGovernanceRouter);
 app.use(navigationAnalyticsRouter);
 app.use(intelligenceActivityRouter);
 app.use(intelligenceProjectionRouter);
+app.use(intelligenceRollupRouter);
 app.use(identityVerificationAdminRouter);
 app.use(partsentryReviewRouter);
 

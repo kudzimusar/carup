@@ -152,6 +152,37 @@ export const METADATA_ENUMS = Object.freeze({
   outcome: ['started', 'completed', 'abandoned', 'failed', 'resumed'],
   process: ['listing_creation', 'inquiry_form', 'reservation_flow'],
   sold_source: ['vehicles_status', 'listing_status'],
+  share_channel: ['whatsapp', 'email', 'sms', 'copy_link', 'native', 'telegram', 'facebook', 'x', 'other'],
+  affordance: ['contact_seller', 'call', 'whatsapp', 'message', 'inquiry_form', 'other'],
+});
+
+/**
+ * Shape constraints for the remaining string keys.
+ *
+ * Every allowlisted string must be either an enum member above or match a format
+ * here. Without this, keys like `country`, `step` or `validation_error_code`
+ * accepted ANY 128-character string — a free-text channel into an internal store
+ * the privacy contract says holds bounded codes only. A shopper's email pasted
+ * into such a field would be retained for 24 months.
+ */
+export const METADATA_FORMATS = Object.freeze({
+  // ISO-3166 alpha-2/alpha-3 style codes only.
+  country: /^[A-Za-z]{2,3}$/,
+  // A coarse region/province slug: letters, digits, hyphen and underscore.
+  region: /^[A-Za-z0-9_-]{1,48}$/,
+  currency: /^[A-Za-z]{3}$/,
+  normalized_query_hash: /^[a-f0-9]{8,64}$/,
+  inquiry_type: /^[a-z][a-z0-9_]{2,48}$/,
+  inquiry_status: /^[a-z][a-z0-9_]{2,32}$/,
+  session_status: /^[a-z][a-z0-9_]{2,32}$/,
+  reservation_status: /^[a-z][a-z0-9_]{2,32}$/,
+  publication_status: /^[a-z][a-z0-9_]{2,32}$/,
+  from_status: /^[A-Za-z][A-Za-z0-9_]{2,32}$/,
+  to_status: /^[A-Za-z][A-Za-z0-9_]{2,32}$/,
+  old_currency: /^[A-Za-z]{3}$/,
+  new_currency: /^[A-Za-z]{3}$/,
+  step: /^[a-z][a-z0-9_]{1,48}$/,
+  validation_error_code: /^[a-z][a-z0-9_]{1,48}$/,
 });
 
 /** Exclusion flags (contract §5.3/§5.4). */
@@ -166,7 +197,13 @@ export const EXCLUSION_FLAGS = Object.freeze([
  * is excluded only from seller-facing counts and benchmarks — I4 applies that
  * narrower rule; it stays in internal diagnostics.
  */
-export const ROLLUP_EXCLUDED_FLAGS = Object.freeze(['staff', 'fixture', 'bot_suspect', 'late_beyond_window']);
+export const ROLLUP_EXCLUDED_FLAGS = Object.freeze([
+  'staff', 'fixture', 'bot_suspect', 'late_beyond_window',
+  // Certification traffic must never be counted as real business activity. I19
+  // counts it deliberately by reading the ledger directly; a seller's dashboard
+  // never does.
+  'synthetic',
+]);
 export const SELLER_FACING_EXCLUDED_FLAGS = Object.freeze([...ROLLUP_EXCLUDED_FLAGS, 'self_traffic']);
 
 export function isClientEmittable(eventType) {

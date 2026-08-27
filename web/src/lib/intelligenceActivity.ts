@@ -32,6 +32,18 @@ import {
   type AuthHeaders,
 } from './apiClient'
 
+/**
+ * Resolve the backend origin the same way every other CarUp client does.
+ *
+ * The resolved base ALREADY ends in `/api`, so callers append `/intelligence/...`
+ * and never `/api/intelligence/...`.
+ */
+function resolveActivityBaseUrl(): string {
+  const configured = (import.meta as unknown as { env?: Record<string, string> })?.env?.VITE_API_URL
+  const hostname = typeof globalThis.window !== 'undefined' ? globalThis.window.location?.hostname : undefined
+  return resolveApiBaseUrl(configured, hostname)
+}
+
 const SCHEMA_VERSION = 1
 const SESSION_STORAGE_KEY = 'carup.intel.session'
 const QUEUE_CAP = 100
@@ -195,14 +207,18 @@ export async function flush(fetchImpl: typeof fetch = fetch): Promise<void> {
     session_key: getSessionKey(),
     events: batch,
   }
-  const baseUrl = resolveApiBaseUrl()
+  // Both arguments are REQUIRED. Called bare, resolveApiBaseUrl falls through
+  // every environment branch and returns the PRODUCTION base — which would send a
+  // staging tester's session token to production and write staging behaviour into
+  // production rollups. This mirrors navigationAnalytics.ts's resolution exactly.
+  const baseUrl = resolveActivityBaseUrl()
   for (let attempt = 0; attempt <= MAX_RETRIES; attempt += 1) {
     try {
       // The ingestion route sits behind the global CSRF middleware, so reuse the
       // canonical identity-bound token machinery rather than inventing a second
       // token system. sendBeacon cannot carry the header, so it is not used.
       const csrfToken = await fetchCsrfToken(baseUrl, authHeadersRef, fetchImpl)
-      const response = await fetchImpl(`${baseUrl}/api/intelligence/activity`, {
+      const response = await fetchImpl(`${baseUrl}/intelligence/activity`, {
         method: 'POST',
         credentials: 'include',
         headers: {
@@ -216,11 +232,15 @@ export async function flush(fetchImpl: typeof fetch = fetch): Promise<void> {
       if (response.ok) return
       if (response.status === 403) resetCsrfTokenCache()
     } catch {
-      // Network failure: retry a bounded number of times, then drop. Dropping is
-      // preferable to an unbounded retry loop that competes with the product's
-      // own requests; the backend counts what it never received.
+      // Network failure: retry a bounded number of times, then give the batch
+      // back to the queue below rather than dropping it here.
     }
   }
+  // Every attempt failed. The batch was removed from the queue before the first
+  // try, so without this it would be silently lost — the exact invisible loss this
+  // programme exists to prevent. Put it back at the FRONT (it is the oldest
+  // behaviour) and let the queue cap bound the memory.
+  queue = [...batch, ...queue].slice(0, QUEUE_CAP)
 }
 
 export function startActivityClient(): void {

@@ -63,6 +63,11 @@ function createFakeClient({ vehicles = [], failInsert = false, duplicateKeys = n
   const client = {
     inserted,
     stats,
+    // Counters are now an ATOMIC rpc rather than read-modify-write.
+    rpc(fn, args) {
+      if (fn === 'intelligence_bump_ingestion_stats') stats.push(args);
+      return Promise.resolve({ data: null, error: null });
+    },
     from(table) {
       const api = {
         _table: table,
@@ -70,6 +75,8 @@ function createFakeClient({ vehicles = [], failInsert = false, duplicateKeys = n
         select() { return api; },
         eq(column, value) { api._filters[column] = value; return api; },
         gte() { return api; },
+        lt() { return api; },
+        range() { return Promise.resolve({ data: [], error: null }); },
         order() { return Promise.resolve({ data: [], error: null }); },
         maybeSingle() {
           if (table === 'vehicles') {

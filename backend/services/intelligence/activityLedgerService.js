@@ -32,6 +32,7 @@ import {
   EVENT_TYPES,
   METADATA_ALLOWLIST,
   METADATA_ENUMS,
+  METADATA_FORMATS,
   SOURCE_SURFACES,
   SOURCE_PLATFORMS,
   isClientEmittable,
@@ -112,7 +113,12 @@ export function projectMetadata(eventType, raw) {
     }
     if (typeof value === 'string') {
       const bounded = boundedCode(value, 128);
-      if (bounded) out[key] = bounded;
+      // A string is stored ONLY if it matches a declared format. Anything else is
+      // dropped: an allowlisted key with no shape constraint was a free-text
+      // channel into an internal store the privacy contract says holds bounded
+      // codes only.
+      const format = METADATA_FORMATS[key];
+      if (bounded && format && format.test(bounded)) out[key] = bounded;
       continue;
     }
     if (Array.isArray(value)) {
@@ -366,7 +372,12 @@ function derivePlatform(req) {
 
 export function deriveActorContext(req) {
   const ctx = req?.userContext || null;
-  const userId = ctx?.id ? String(ctx.id) : null;
+  // `identityAsserted` marks an identity taken from the spoofable x-user-id
+  // fallback rather than a real session. Writing it as `authenticated` would
+  // fabricate 24 months of behavioural history about a named person, so such a
+  // request is recorded as the anonymous traffic it actually is.
+  const proven = ctx && ctx.identityAsserted !== true;
+  const userId = proven && ctx?.id ? String(ctx.id) : null;
   return {
     actorScope: userId ? 'authenticated' : 'anonymous',
     userId,
@@ -385,7 +396,9 @@ export function deriveActorContext(req) {
  * exactly — and on nobody else being able to inject them.
  */
 export function syntheticAuthorized(req) {
-  const secret = process.env.COMMUNICATION_WORKER_SECRET || process.env.INTELLIGENCE_WORKER_SECRET;
+  // Only its OWN secret, never the communications worker's: a secret issued for
+  // one trust domain must not authorize another.
+  const secret = process.env.INTELLIGENCE_WORKER_SECRET;
   const provided = req?.headers?.['x-carup-worker-secret'];
   if (secret && typeof provided === 'string' && provided.length > 0) {
     try {
@@ -394,7 +407,10 @@ export function syntheticAuthorized(req) {
       if (a.length === b.length && crypto.timingSafeEqual(a, b)) return true;
     } catch { /* fall through */ }
   }
-  return process.env.NODE_ENV !== 'production';
+  // NO NODE_ENV inference. CarUp has already run NODE_ENV=test inside a staging
+  // PRODUCTION environment, which turned every such check into an open door.
+  // Declaring events synthetic requires an explicit, deliberate opt-in.
+  return process.env.CARUP_ALLOW_SYNTHETIC_ACTIVITY === 'true';
 }
 
 // ── Batch ingestion (client events) ──────────────────────────────────────────
@@ -554,22 +570,19 @@ export async function recordIngestionStats(client, summary, at = new Date()) {
   const windowStart = new Date(at);
   windowStart.setUTCMinutes(0, 0, 0);
   try {
-    const { data } = await client
-      .from(STATS_TABLE)
-      .select('*')
-      .eq('window_start', windowStart.toISOString())
-      .maybeSingle();
-    const merged = {
-      window_start: windowStart.toISOString(),
-      events_received: (data?.events_received || 0) + (summary.received || 0),
-      events_accepted: (data?.events_accepted || 0) + (summary.accepted || 0),
-      events_rejected: (data?.events_rejected || 0) + (summary.rejected || 0),
-      events_duplicate: (data?.events_duplicate || 0) + (summary.duplicates || 0),
-      events_flagged: (data?.events_flagged || 0) + (summary.flagged || 0),
-      opened_without_context: (data?.opened_without_context || 0) + (summary.opened_without_context || 0),
-      storage_failures: (data?.storage_failures || 0) + (summary.storage_failures || 0),
-    };
-    await client.from(STATS_TABLE).upsert(merged, { onConflict: 'window_start' });
+    // ATOMIC increment. A read-modify-write lost counts under concurrency — two
+    // ingests in the same hour both read N and both wrote N+1 — in exactly the
+    // module whose whole purpose is making loss visible.
+    await client.rpc('intelligence_bump_ingestion_stats', {
+      p_window_start: windowStart.toISOString(),
+      p_received: summary.received || 0,
+      p_accepted: summary.accepted || 0,
+      p_rejected: summary.rejected || 0,
+      p_duplicate: summary.duplicates || 0,
+      p_flagged: summary.flagged || 0,
+      p_opened_without_context: summary.opened_without_context || 0,
+      p_storage_failures: summary.storage_failures || 0,
+    });
   } catch {
     // Counters must never break ingestion.
   }
@@ -615,6 +628,34 @@ export async function recordServerEvent({
   const at = occurredAt instanceof Date ? occurredAt : new Date();
   const resolvedScope = scope || await resolveObjectScope(client, vin || listingId, null);
 
+  /**
+   * Exclusion flags for a SERVER-emitted event.
+   *
+   * Previously this class was written with an empty array, which made the whole
+   * exclusion machinery inert for the headline metrics: `marketplace_listing_opened`
+   * is the only input to views/unique_viewers, so a dealer refreshing their own
+   * listing inflated their own reported demand, fixture VINs counted as real
+   * demand, and self_traffic_views was a permanent zero. The rollup filters were
+   * correct all along; nothing ever set a flag for them to filter on.
+   */
+  const getFixtureExclusion = await loadFixtureRule();
+  let isFixtureObject = false;
+  if (getFixtureExclusion && (resolvedScope?.row || vin)) {
+    try { isFixtureObject = Boolean(getFixtureExclusion(resolvedScope?.row || { vin })); } catch { isFixtureObject = false; }
+  }
+  const derivedFlags = computeExclusionFlags({
+    userAgent: actor.userAgent || '',
+    actorUserId: actor.userId ? String(actor.userId) : null,
+    actorRole: actor.role || null,
+    actorTenantId: actor.tenantId ? String(actor.tenantId) : null,
+    objectOwnerUserId: resolvedScope?.ownerUserId ?? null,
+    objectTenantId: resolvedScope?.tenantId ?? null,
+    isFixtureObject,
+    syntheticAuthorized: actor.syntheticAuthorized === true,
+    declaredSynthetic: actor.declaredSynthetic === true,
+    timeFlags: [],
+  });
+
   const row = {
     schema_version: SUPPORTED_SCHEMA_VERSION,
     event_type: eventType,
@@ -639,7 +680,7 @@ export async function recordServerEvent({
     page_view_id: opaqueKey(pageViewId),
     idempotency_key: sha256([eventType, ...idempotencyMaterial]),
     privacy_class: privacyClassOf(eventType),
-    exclusion_flags: Array.from(new Set(exclusionFlags)).sort(),
+    exclusion_flags: Array.from(new Set([...derivedFlags, ...exclusionFlags])).sort(),
     metadata: projectMetadata(eventType, metadata),
   };
 

@@ -50,7 +50,10 @@ router.post(
   '/api/intelligence/activity',
   activityRateLimiter,
   activityBodyParser,
-  optionalAuth,
+  // optionalAuth is a FACTORY. Passed uncalled, Express invokes it as the
+  // middleware itself; it ignores (req,res,next), returns a function, and next()
+  // is never called — every ingestion POST hangs until socket timeout.
+  optionalAuth(),
   asyncHandler(async (req, res) => {
     const declaredBytes = req.headers['content-length']
       ? Number(req.headers['content-length'])

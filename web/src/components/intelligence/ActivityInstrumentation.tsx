@@ -15,7 +15,7 @@
  *    the pseudonymous session on logout so a shared device does not carry one
  *    person's behaviour into the next person's session.
  */
-import { useEffect } from 'react'
+import { useEffect, useRef } from 'react'
 import { useLocation } from 'react-router-dom'
 import { setActivityContextProvider } from '../../lib/apiClient'
 import {
@@ -49,14 +49,25 @@ export default function ActivityInstrumentation() {
     rotatePageView()
   }, [pathname])
 
+  // `isAuthenticated` is false for every GUEST, not only after a logout, so
+  // resetting on the bare value would mint a new session key on every anonymous
+  // page load — breaking anonymous unique counts and severing the view→inquiry
+  // stage link that the whole funnel depends on. Only a true→false TRANSITION is
+  // a logout.
+  const wasAuthenticated = useRef(false)
+
   useEffect(() => {
     if (!isAuthenticated) {
-      // Logout: drop the pseudonymous session so the next person on this device
-      // starts a genuinely new one.
-      resetActivityIdentity()
-      setActivityAuthHeaders(null)
+      if (wasAuthenticated.current) {
+        // A real logout: drop the pseudonymous session so the next person on this
+        // shared device starts a genuinely new one.
+        resetActivityIdentity()
+        setActivityAuthHeaders(null)
+        wasAuthenticated.current = false
+      }
       return
     }
+    wasAuthenticated.current = true
     const headers: Record<string, string> = {}
     if (token) headers['x-session-token'] = token
     if (user?.id) headers['x-user-id'] = user.id

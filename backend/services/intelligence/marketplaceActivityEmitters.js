@@ -63,13 +63,23 @@ export function isPrefetch(headers = {}) {
   return headers['x-carup-prefetch'] === '1';
 }
 
+/**
+ * The actor facts a server-emitted observation needs.
+ *
+ * `userAgent`, `role` and `tenantId` are carried so `recordServerEvent` can stamp
+ * exclusion flags: without them a dealer refreshing their own listing, a staff
+ * account, and a crawler all counted as genuine shopper demand.
+ */
 function actorFrom(req, platform) {
   const ctx = req?.userContext || null;
+  // An identity taken from the spoofable x-user-id fallback is not a proven one.
+  const proven = ctx && ctx.identityAsserted !== true;
   return {
-    userId: ctx?.id ? String(ctx.id) : null,
+    userId: proven && ctx?.id ? String(ctx.id) : null,
     role: ctx?.platformRole || ctx?.role || null,
     tenantId: ctx?.tenantId ? String(ctx.tenantId) : null,
     platform: platform || 'server',
+    userAgent: typeof req?.headers?.['user-agent'] === 'string' ? req.headers['user-agent'] : '',
   };
 }
 
@@ -147,7 +157,14 @@ export async function emitSearchPerformed(req, { query, resultCount, client = de
 
     const actor = actorFrom(req, ctx.platform);
     const referral = referralFrom(req);
-    const material = [ctx.sessionKey, queryHash || '', filterKeys.join(','), JSON.stringify(filters), ctx.pageViewId || ''];
+    // The UTC date is part of the key: the unique index is global, so without it
+    // the same device searching "Toyota" tomorrow would dedupe against today and
+    // demand would be understated without bound.
+    const utcDay = new Date().toISOString().slice(0, 10);
+    const material = [
+      ctx.sessionKey, utcDay, queryHash || '', filterKeys.join(','),
+      JSON.stringify(filters), ctx.pageViewId || '',
+    ];
     const common = {
       objectType: 'search',
       objectId: null,
@@ -243,7 +260,7 @@ export async function emitListingSaved({ userId, vin, savedAt, req = null, clien
       vin,
       listingId: vin,
       idempotencyMaterial: [userId, vin, 'saved', savedAt],
-      actor: { userId, platform: ctx.platform },
+      actor: { ...actorFrom(req, ctx.platform), userId },
       sessionKey: ctx.sessionKey,
       pageViewId: ctx.pageViewId,
       client,
@@ -270,7 +287,7 @@ export async function emitListingUnsaved({ userId, vin, savedAt, req = null, cli
       vin,
       listingId: vin,
       idempotencyMaterial: [userId, vin, 'unsaved', savedAt],
-      actor: { userId, platform: ctx.platform },
+      actor: { ...actorFrom(req, ctx.platform), userId },
       sessionKey: ctx.sessionKey,
       pageViewId: ctx.pageViewId,
       client,
@@ -298,7 +315,9 @@ export async function emitInquiryCreated(inquiry, { req = null, client = default
     if (!inquiryId) return { recorded: false, reason: 'missing_inquiry_id' };
     const vin = inquiry.listing_id ? String(inquiry.listing_id) : null;
     const ctx = req ? clientContextFrom(req) : { sessionKey: null, pageViewId: null, platform: 'server' };
-    const actor = req ? actorFrom(req, ctx.platform) : { userId: inquiry.buyer_id || null, platform: 'server' };
+    const actor = req
+      ? actorFrom(req, ctx.platform)
+      : { userId: inquiry.buyer_id || null, platform: 'server', userAgent: '', role: null, tenantId: null };
     // Scope is known from the authority row itself — the inquiry already carries
     // the seller's tenant, so no extra read is needed and no guess is possible.
     const scope = {
