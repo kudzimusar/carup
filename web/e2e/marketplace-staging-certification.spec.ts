@@ -126,11 +126,12 @@ test('desktop staging: published-only discovery preserves Marketplace → Vehicl
   }
 
   await expect(page.getByText(/Published listings only/i)).toBeVisible()
-  await expect(page.getByRole('heading', { name: /Find the right car/i })).toBeVisible()
-  await expect(page.getByTestId('marketplace-ai-assistant-open')).toBeVisible()
-  await expect(page.getByTestId('marketplace-parts-link')).toBeVisible()
-  await expect(page.getByTestId('marketplace-services-link')).toBeVisible()
-  await expect(page.getByTestId('marketplace-inquiry-open')).toContainText('Import to Zimbabwe')
+  await expect(page.getByRole('heading', { name: /Shop vehicles and automotive services/i })).toBeVisible()
+  // Marketplace is inventory-first. Ecosystem explanation + Gutu AI belong to Home, not this surface.
+  await expect(page.getByTestId('marketplace-ai-assistant-open')).toHaveCount(0)
+  await expect(page.locator('a[href="/marketplace/parts"]').first()).toContainText('Parts')
+  await expect(page.locator('a[href="/marketplace/services"]').first()).toContainText('Garages')
+  await expect(page.locator('a[href="/diaspora"]').first()).toContainText('Imports')
   const goldenCard = page.getByTestId('marketplace-vehicle-card').filter({
     has: page.locator(`[data-testid="marketplace-view-passport"][href="/marketplace/${GOLDEN_VIN}"]`),
   })
@@ -159,6 +160,10 @@ test('desktop staging: published-only discovery preserves Marketplace → Vehicl
   await expect(page.getByTestId('vehicle-detail-intelligence-hero')).toBeVisible()
   await expect(page.getByTestId('marketplace-detail-panels')).toBeVisible()
   await expect(page.getByTestId('listing-media-block')).toBeVisible()
+  // Gallery-first means the car is physically above the Passport summary, not merely present.
+  const galleryBox = await page.getByTestId('listing-media-block').boundingBox()
+  const passportBox = await page.getByTestId('vehicle-detail-intelligence-hero').boundingBox()
+  expect(galleryBox?.y ?? Number.POSITIVE_INFINITY, 'gallery vertical position').toBeLessThan(passportBox?.y ?? Number.NEGATIVE_INFINITY)
   await expect(page.getByTestId('vehicle-detail-compare')).toHaveAttribute('href', `/marketplace/compare?vins=${GOLDEN_VIN}`)
   await page.getByTestId('vehicle-detail-share').click()
   await expect(page.getByTestId('marketplace-share-sheet')).toBeVisible()
@@ -185,6 +190,51 @@ test('desktop staging: published-only discovery preserves Marketplace → Vehicl
   expect(sellerSummary?.display_label, 'golden private seller public display label').toBeNull()
   await expect(page.getByTestId('seller-name')).toHaveText('Not shown publicly')
   await expect(page.getByText('Not recorded').first()).toBeVisible()
+  await expect(page.getByRole('button', { name: /Contact through CarUp/i })).toBeVisible()
+
+  // One VIN, one lifecycle truth. Both the Passport and History Report must expose the same
+  // normalized ownership/service/inspection/mileage story for Golden A.
+  const apiOrigin = new URL(detailResponse.url()).origin
+  const [passportResponse, reportResponse] = await Promise.all([
+    page.request.get(`${apiOrigin}/api/vehicles/${GOLDEN_VIN}/passport`),
+    page.request.get(`${apiOrigin}/api/vehicles/${GOLDEN_VIN}/report`),
+  ])
+  expect(passportResponse.ok(), 'golden public Passport').toBe(true)
+  expect(reportResponse.ok(), 'golden public History Report').toBe(true)
+  const passportBody = await passportResponse.json() as {
+    lifecycle?: {
+      projection_version?: string
+      counts?: Record<string, number>
+      mileage?: { observations?: Array<{ value?: number }> }
+    }
+  }
+  const reportBody = await reportResponse.json() as {
+    sections?: {
+      accident_repair?: { accident?: number; repair?: number }
+      ownership_transfer?: number
+      inspection?: number
+    }
+    mileage_history?: { observations?: Array<{ value?: number }> }
+    lifecycle_projection?: { version?: string; counts?: Record<string, number> }
+  }
+  expect(passportBody.lifecycle?.projection_version).toBeTruthy()
+  expect(passportBody.lifecycle?.counts?.ownership_transfer ?? 0, 'Passport ownership transfers').toBeGreaterThanOrEqual(1)
+  expect(passportBody.lifecycle?.counts?.repair ?? 0, 'Passport repair records').toBeGreaterThanOrEqual(1)
+  expect(passportBody.lifecycle?.counts?.inspection ?? 0, 'Passport inspection records').toBeGreaterThanOrEqual(1)
+  expect(passportBody.lifecycle?.counts?.accident ?? 0, 'administrative docs must not fabricate accidents').toBe(0)
+  expect(passportBody.lifecycle?.mileage?.observations?.some(item => item.value === 78450)).toBe(true)
+
+  expect(reportBody.lifecycle_projection?.version).toBe(passportBody.lifecycle?.projection_version)
+  expect(reportBody.sections?.ownership_transfer ?? 0).toBe(passportBody.lifecycle?.counts?.ownership_transfer)
+  expect(reportBody.sections?.accident_repair?.repair ?? 0).toBe(passportBody.lifecycle?.counts?.repair)
+  expect(reportBody.sections?.accident_repair?.accident ?? 0).toBe(passportBody.lifecycle?.counts?.accident)
+  expect(reportBody.sections?.inspection ?? 0).toBe(passportBody.lifecycle?.counts?.inspection)
+  expect(reportBody.mileage_history?.observations?.some(item => item.value === 78450)).toBe(true)
+
+  await page.getByRole('tab', { name: 'Vehicle History' }).click()
+  await expect(page.getByTestId('history-timeline')).toHaveAttribute('data-history-source', 'canonical-lifecycle')
+  await expect(page.locator('[data-lifecycle-category="ownership_transfer"]').first()).toBeVisible()
+  await expect(page.locator('[data-lifecycle-category="repair"]').first()).toBeVisible()
 
   await page.screenshot({ path: testInfo.outputPath('desktop-vehicle-detail.png'), fullPage: true })
   await assertCriticalBrowserHealth(testInfo, diagnostics)
@@ -305,12 +355,107 @@ test('tablet staging switches to the compact app shell instead of the desktop fo
 
   await expect(page.getByTestId('compact-bottom-nav')).toBeVisible()
   await expect(page.locator('footer')).toBeHidden()
-  await expect(page.getByRole('heading', { name: /Find the right car/i })).toBeVisible()
+  await expect(page.getByRole('heading', { name: /Shop vehicles and automotive services/i })).toBeVisible()
   await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth + 1), {
     message: 'tablet Marketplace must not overflow horizontally',
   }).toBe(true)
 
   await page.screenshot({ path: testInfo.outputPath('tablet-marketplace.png'), fullPage: true })
+  await assertCriticalBrowserHealth(testInfo, diagnostics)
+})
+
+test('desktop Home owns the ecosystem story and Gutu AI without duplicating Marketplace IA', async ({ page }, testInfo) => {
+  await page.setViewportSize({ width: 1440, height: 1000 })
+  const diagnostics = installDiagnostics(page)
+  const [listResponse] = await Promise.all([
+    page.waitForResponse(candidate => new URL(candidate.url()).pathname === '/api/marketplace/listings'),
+    page.goto('/', { waitUntil: 'domcontentloaded' }),
+  ])
+  expect(listResponse.ok(), 'Home live Marketplace preview').toBe(true)
+  await expect(page.getByTestId('home-hero')).toBeVisible()
+  await expect(page.getByRole('heading', { name: /Buy\. Sell\. Verify\./i })).toBeVisible()
+  await expect(page.getByTestId('home-primary-search')).toBeVisible()
+  await expect(page.getByTestId('marketplace-ai-assistant-open')).toContainText('Ask Gutu AI')
+  await expect(page.getByTestId('home-ecosystem-promotions')).toBeVisible()
+  await expect(page.locator('a[href="/sell"]').first()).toContainText(/Sell Cars/i)
+  await expect(page.getByTestId('marketplace-compact-header')).toHaveCount(0)
+  await page.screenshot({ path: testInfo.outputPath('desktop-home.png'), fullPage: true })
+  await assertCriticalBrowserHealth(testInfo, diagnostics)
+})
+
+test('mobile Home preserves flow with no horizontal overlap or overflow', async ({ page }, testInfo) => {
+  await page.setViewportSize({ width: 390, height: 844 })
+  const diagnostics = installDiagnostics(page)
+  await Promise.all([
+    page.waitForResponse(candidate => new URL(candidate.url()).pathname === '/api/marketplace/listings'),
+    page.goto('/', { waitUntil: 'domcontentloaded' }),
+  ])
+  await expect(page.getByTestId('home-hero')).toBeVisible()
+  await expect(page.getByTestId('home-primary-search')).toBeVisible()
+  await expect(page.getByTestId('compact-bottom-nav')).toBeVisible()
+  await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth + 1), {
+    message: 'mobile Home must not overflow horizontally',
+  }).toBe(true)
+  const searchBox = await page.getByTestId('home-primary-search').boundingBox()
+  const gutuBox = await page.getByTestId('marketplace-ai-assistant-open').boundingBox()
+  expect(searchBox).toBeTruthy()
+  expect(gutuBox).toBeTruthy()
+  expect((gutuBox?.y ?? 0) >= (searchBox?.y ?? 0), 'Gutu AI must remain in document flow below/after the search').toBe(true)
+  await page.screenshot({ path: testInfo.outputPath('mobile-home.png'), fullPage: true })
+  await assertCriticalBrowserHealth(testInfo, diagnostics)
+})
+
+test('guest can build a listing to private preview before authentication', async ({ page }, testInfo) => {
+  await page.setViewportSize({ width: 1000, height: 900 })
+  await page.goto('/sell', { waitUntil: 'domcontentloaded' })
+  await expect(page).toHaveURL(/\/sell$/)
+  await expect(page.getByTestId('guest-sell-page')).toBeVisible()
+  await expect(page.getByTestId('guest-sell-vehicle-step')).toBeVisible()
+
+  await page.getByTestId('guest-sell-make').fill('Toyota')
+  await page.getByTestId('guest-sell-model').fill('Hilux')
+  await page.getByTestId('guest-sell-year').fill('2019')
+  await page.getByTestId('guest-sell-color').fill('Silver')
+  await page.getByTestId('guest-sell-vin').fill('JT123456789012345')
+  await page.getByRole('button', { name: 'Continue' }).click()
+  await expect(page.getByTestId('guest-sell-listing-step')).toBeVisible()
+
+  await page.locator('input[type="number"]').first().fill('78450')
+  const combos = page.getByRole('combobox')
+  await combos.nth(0).click(); await page.getByRole('option', { name: 'Used', exact: true }).click()
+  await combos.nth(1).click(); await page.getByRole('option', { name: 'Pickup', exact: true }).click()
+  await combos.nth(2).click(); await page.getByRole('option', { name: 'Diesel', exact: true }).click()
+  await combos.nth(3).click(); await page.getByRole('option', { name: 'Automatic', exact: true }).click()
+  await combos.nth(4).click(); await page.getByRole('option', { name: 'USD', exact: true }).click()
+  await page.locator('input[type="number"]').nth(1).fill('25000')
+  await combos.nth(5).click(); await page.getByRole('option', { name: 'Harare', exact: true }).click()
+  await page.locator('textarea').fill('Well maintained vehicle offered for sale. Buyer should inspect the recorded history and condition before commitment.')
+  await page.getByRole('button', { name: 'Continue' }).click()
+  await expect(page.getByTestId('guest-sell-photos-step')).toBeVisible()
+  await page.getByRole('button', { name: 'Continue' }).click()
+  await expect(page.getByTestId('guest-sell-preview-step')).toBeVisible()
+  await expect(page).toHaveURL(/\/sell$/)
+  await expect(page.getByText(/still only a browser draft/i)).toBeVisible()
+  await page.screenshot({ path: testInfo.outputPath('guest-sell-preview.png'), fullPage: true })
+})
+
+test('Parts Marketplace collects normalized vehicle fitment without fabricating inventory', async ({ page }, testInfo) => {
+  await page.setViewportSize({ width: 1200, height: 900 })
+  const diagnostics = installDiagnostics(page)
+  const [partsResponse] = await Promise.all([
+    page.waitForResponse(candidate => new URL(candidate.url()).pathname === '/api/marketplace/parts'),
+    page.goto('/marketplace/parts', { waitUntil: 'domcontentloaded' }),
+  ])
+  expect(partsResponse.ok(), 'governed parts endpoint').toBe(true)
+  await expect(page.getByTestId('parts-fitment-selector')).toBeVisible()
+  const selector = page.getByTestId('parts-fitment-selector')
+  const inputs = selector.locator('input')
+  await inputs.nth(0).fill('Toyota')
+  await inputs.nth(1).fill('Hilux')
+  await inputs.nth(2).fill('2019')
+  await expect(page.getByText(/No governed parts listings are live yet/i)).toBeVisible()
+  await expect(selector.getByRole('button', { name: /Find matching parts/i })).toBeVisible()
+  await page.screenshot({ path: testInfo.outputPath('desktop-parts-fitment.png'), fullPage: true })
   await assertCriticalBrowserHealth(testInfo, diagnostics)
 })
 
