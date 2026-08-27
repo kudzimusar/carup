@@ -50,8 +50,11 @@ const veh = (o = {}) => ({
   make: 'Toyota', model: 'Corolla', year: 2019,
 });
 
+/** `marketplace_inquiries` keys its seller as `seller_id`. The fixture previously
+ *  used `current_seller_id` — the vehicles column — which is exactly why the unit
+ *  tests passed while every live request failed. */
 const inq = (o = {}) => ({
-  id: o.id || 'i1', current_seller_id: o.current_seller_id === undefined ? 'u1' : o.current_seller_id,
+  id: o.id || 'i1', seller_id: o.seller_id === undefined ? 'u1' : o.seller_id,
   status: o.status || 'new', created_at: o.created_at || today,
 });
 
@@ -128,7 +131,7 @@ test('the context tells the assistant to report an unavailable fact as unavailab
 test('the context is built from the session, with no subject parameter', async () => {
   const client = createClient({
     vehicles: [veh({ vin: 'mine', owner_id: 'u1' }), veh({ vin: 'theirs', owner_id: 'u2' })],
-    inquiries: [inq({ id: 'mine', current_seller_id: 'u1' }), inq({ id: 'theirs', current_seller_id: 'u2' })],
+    inquiries: [inq({ id: 'mine', seller_id: 'u1' }), inq({ id: 'theirs', seller_id: 'u2' })],
   });
   const ctx = await buildAuthorizedContext(client, OWNER);
   const byKey = Object.fromEntries(ctx.facts.map((f) => [f.key, f]));

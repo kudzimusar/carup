@@ -335,8 +335,13 @@ export async function getSellerRecommendations(client = defaultClient, actor = n
       .or(`owner_id.eq.${actorId},current_seller_id.eq.${actorId}`));
     inquiries = await readAllPages(() => client
       .from('marketplace_inquiries')
-      .select('id, current_seller_id, status, created_at')
-      .eq('current_seller_id', actorId));
+      // `marketplace_inquiries` keys the seller as `seller_id`. `current_seller_id`
+      // is the VEHICLES column that this one is written FROM — using it here made
+      // every read fail against the real schema. It failed CLOSED (unavailable
+      // with the reason) rather than reporting a false zero, which is why a live
+      // certification run was needed to surface it at all.
+      .select('id, seller_id, status, created_at')
+      .eq('seller_id', actorId));
   } catch (error) {
     return {
       subject_type: 'seller',
