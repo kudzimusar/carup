@@ -1712,54 +1712,231 @@ export default function VehicleDetail() {
           <ArrowLeft className="w-4 h-4" /> Back
         </Button>
 
-        <section
-          className="relative mb-6 overflow-hidden rounded-[28px] border border-slate-800 bg-[#07101f] px-5 py-6 text-white shadow-[0_24px_70px_rgba(15,23,42,0.20)] sm:px-7 sm:py-7"
-          data-testid="vehicle-detail-intelligence-hero"
-        >
-          <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_82%_10%,rgba(249,115,22,0.23),transparent_34%),radial-gradient(circle_at_8%_110%,rgba(14,165,233,0.12),transparent_30%)]" />
-          <div className="relative grid gap-6 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-end">
-            <div>
-              <div className="flex flex-wrap items-center gap-2">
-                <span className="inline-flex items-center gap-1.5 rounded-full border border-orange-400/25 bg-orange-400/10 px-3 py-1 text-[10px] font-bold uppercase tracking-[0.16em] text-orange-300">
-                  <ShieldCheck className="h-3.5 w-3.5" /> CarUp Vehicle Passport
-                </span>
+        <div className="mb-6" data-testid="vehicle-detail-gallery-first">
+          {/* ── LISTING MEDIA — the seller's presentation of the car ─────────────────
+              Marketing photos. Nothing in this block asserts governance, because nothing in
+              `listing_images` could support such an assertion. Note what is NOT here any more:
+              the "Police Checked" badge used to be stamped across the top-left of this photo,
+              which put a registry verification claim physically on top of a seller's snapshot.
+              It is a fact about the VEHICLE, not about the picture, and it now sits with the
+              other vehicle-status badges in the identity row below. */}
+          <section className="space-y-3" data-testid="listing-media-block">
+            <div className="flex items-center gap-2">
+              <ImageIcon className="w-4 h-4 text-gray-400" aria-hidden="true" />
+              <h2 className="text-sm font-semibold text-gray-900">Listing photos</h2>
+            </div>
+            <p className="text-xs text-gray-500" data-testid="listing-media-caption">
+              {listingMedia.items.some((item) => item.synthetic_demo)
+                ? 'Synthetic reference media for this staging demonstration. These images are not verified evidence and do not affect CarUp Trust.'
+                : 'Photos supplied by the seller to advertise this vehicle. CarUp does not review them and makes no claim about what they show.'}
+            </p>
+
+            <div className="relative rounded-xl overflow-hidden bg-white card-shadow" data-testid="image-gallery">
+              {hasListingPhotos && activeImage ? (
+                <>
+                  {/* Rule 6b: `data-media-id` is the identity of the photograph on screen, so a
+                      test — and a support conversation about "the third photo on this listing" —
+                      can name THIS picture rather than whichever one is currently in slot 2. The
+                      attribute is absent entirely when the transport carried no identity; it is
+                      never a fabricated value. */}
+                  <img
+                    src={activeImage.url}
+                    alt={`${vehicle.make} ${vehicle.model}`}
+                    className="w-full aspect-[16/9] object-cover"
+                    data-testid="vehicle-image"
+                    data-url-form={activeImage.url_form}
+                    data-media-id={activeImage.media_id ?? undefined}
+                    onError={() => markListingMediaFailed(activeImage.url)}
+                  />
+                  {/* Rule 6: shown only where a row claims it. No primary is elected when the
+                      seller named none — that choice is theirs to make or leave unmade. */}
+                  {activeImage.is_primary && (
+                    <span
+                      className="absolute bottom-3 left-3 rounded-full bg-black/50 px-2 py-1 text-xs text-white"
+                      data-testid="listing-media-primary"
+                    >
+                      Seller’s main photo
+                    </span>
+                  )}
+                  {galleryItems.length > 1 && (
+                    <>
+                      <button
+                        onClick={() => setCurrentImageIdx((activeImageIdx - 1 + galleryItems.length) % galleryItems.length)}
+                        aria-label="Previous photo"
+                        className="absolute left-3 top-1/2 -translate-y-1/2 w-9 h-9 rounded-full bg-black/40 text-white flex items-center justify-center hover:bg-black/60"
+                      >
+                        <ChevronLeft className="w-5 h-5" />
+                      </button>
+                      <button
+                        onClick={() => setCurrentImageIdx((activeImageIdx + 1) % galleryItems.length)}
+                        aria-label="Next photo"
+                        className="absolute right-3 top-1/2 -translate-y-1/2 w-9 h-9 rounded-full bg-black/40 text-white flex items-center justify-center hover:bg-black/60"
+                      >
+                        <ChevronRight className="w-5 h-5" />
+                      </button>
+                      <div className="absolute bottom-3 right-3 bg-black/50 text-white text-xs px-2 py-1 rounded-full">
+                        {activeImageIdx + 1} / {galleryItems.length}
+                      </div>
+                    </>
+                  )}
+                </>
+              ) : (
+                <div
+                  className="w-full aspect-[16/9] bg-gray-100 flex flex-col items-center justify-center gap-2 px-6 text-center text-gray-400"
+                  data-testid="no-images-placeholder"
+                  data-media-state={allListingMediaFailed ? 'published_unavailable' : listingMedia.state}
+                >
+                  <Car className="w-14 h-14 opacity-30" aria-hidden="true" />
+                  {allListingMediaFailed ? (
+                    <div data-testid="listing-media-load-failed">
+                      <p className="text-sm font-medium text-gray-600">Listing photo unavailable</p>
+                      <p className="mt-1 text-xs text-gray-400">
+                        CarUp received a published photo address for this listing, but the browser could
+                        not load it. That is a delivery failure, not a statement about the vehicle or
+                        whether the seller added photos.
+                      </p>
+                    </div>
+                  ) : listingMedia.state === 'none' ? (
+                    <div data-testid="listing-media-empty">
+                      {/* The block's own sentence, not one authored here. A gallery that invents
+                          its own empty-state wording is how the previous one came to publish a
+                          governance finding over a seller's advertising photos. */}
+                      <p className="text-sm font-medium text-gray-600">{listingMedia.empty_statement}</p>
+                      {/* THE SUPPORTING LINE HAD TO CHANGE WITH THE SENTENCE ABOVE IT, and this is
+                          the more important half. It used to read "The seller has not added any
+                          photos." — which is the EXACT claim the contract withdrew in Rule 1b, and
+                          leaving it here would have restored the falsehood one line below the
+                          correction: a gated block (an unpublished listing that DOES hold
+                          photographs) would have rendered the contract's honest "none published"
+                          and then had this page assert, on its own authority, that the seller
+                          added nothing. It also breaks the byte-identity the gate depends on the
+                          other way round — a surface that describes the three indistinguishable
+                          cases differently re-opens the enumeration the gate closed.
+                          This line now says only what the block says: nothing is published here,
+                          and no reading about the seller follows from that. */}
+                      <p className="mt-1 text-xs text-gray-400">
+                        That is a statement about what this page publishes, and about nothing else.
+                        Nothing follows from it about what the seller did.
+                      </p>
+                    </div>
+                  ) : (
+                    <div data-testid="listing-media-not-loaded">
+                      {/* RULE 1. This page reads the listing gallery through the governed
+                          marketplace detail; when that does not resolve, `listing_images` was
+                          never consulted and no negative about it may be published. */}
+                      <p className="text-sm font-medium text-gray-600">
+                        CarUp did not read this listing’s photo gallery on this page.
+                      </p>
+                      <p className="mt-1 text-xs text-gray-400">
+                        That is a fact about this request, not a finding about the listing. Nothing is
+                        stated either way about whether the seller added photos.
+                      </p>
+                    </div>
+                  )}
+                </div>
+              )}
+              <div className="absolute top-4 left-4 flex gap-2">
+                {/* No "Featured" badge: it was awarded by a client-side score threshold, which is a
+                    merchandising claim the page has no authority to make. "Reserved" stays — it is
+                    a listing state, not a claim about the photograph under it. */}
                 {detail?.carup_gold?.state === 'qualified' && (
-                  <span className="rounded-full bg-gradient-to-r from-amber-400 to-yellow-300 px-3 py-1 text-[10px] font-black uppercase tracking-[0.14em] text-slate-950">
+                  <Badge className="border border-amber-200 bg-[linear-gradient(135deg,#f59e0b,#facc15)] font-black uppercase tracking-[0.1em] text-slate-950 shadow-lg" data-testid="vehicle-detail-carup-gold">
                     ★ CarUp Gold
-                  </span>
+                  </Badge>
                 )}
+                {isReservedOnServer && <Badge className="bg-amber-500 text-white">Reserved</Badge>}
               </div>
-              <h1 className="mt-4 text-3xl font-black tracking-[-0.035em] sm:text-4xl lg:text-5xl">
-                {vehicle.year ?? ''} {vehicle.make} {vehicle.model}
-              </h1>
-              <div className="mt-3 flex flex-wrap gap-x-5 gap-y-2 text-sm text-slate-300">
-                <span className="inline-flex items-center gap-1.5"><MapPin className="h-4 w-4 text-orange-400" /> {locationLine.label}</span>
-                {typeof vehicle.mileage === 'number' && Number.isFinite(vehicle.mileage) && (
-                  <span className="inline-flex items-center gap-1.5"><Gauge className="h-4 w-4 text-orange-400" /> {vehicle.mileage.toLocaleString()} km</span>
-                )}
+              <div className="absolute top-4 right-4 flex gap-2">
+                <button onClick={toggleFavorite} aria-label="Save this vehicle" className="w-10 h-10 rounded-full bg-white/90 flex items-center justify-center hover:bg-white">
+                  <Heart className={`w-5 h-5 ${isFav ? 'fill-red-500 text-red-500' : 'text-gray-600'}`} />
+                </button>
+                <Link
+                  to={compareHref}
+                  aria-label="Compare this vehicle"
+                  className="w-10 h-10 rounded-full bg-white/90 flex items-center justify-center hover:bg-white"
+                  data-testid="vehicle-detail-compare"
+                >
+                  <GitCompare className="w-5 h-5 text-gray-600" />
+                </Link>
+                <button onClick={handleShare} aria-label="Share this listing" data-testid="vehicle-detail-share" className="w-10 h-10 rounded-full bg-white/90 flex items-center justify-center hover:bg-white">
+                  <Share2 className="w-5 h-5 text-gray-600" />
+                </button>
               </div>
             </div>
 
-            <div className="grid grid-cols-2 gap-3 sm:min-w-[360px]">
-              <div className="rounded-2xl border border-white/10 bg-white/[0.055] p-4 backdrop-blur">
-                <p className="text-[10px] uppercase tracking-[0.14em] text-slate-400">Asking price</p>
-                <p className="mt-1 text-xl font-black">{governedPrice(vehicle.price, vehicle.currency)}</p>
-                <p className="mt-1 text-[10px] text-slate-500">Published listing price</p>
+            {/* Rule 5: counted, never silently dropped. A short gallery that hides what it could
+                not render is passing our defect off as the seller's omission.
+
+                THE SENTENCE NAMES NO SINGLE CAUSE, AND THAT IS A CORRECTION. It used to end "the
+                stored address is not a form CarUp will publish" — a definite finding about ONE
+                field, published over a number that has never only counted that field. The
+                backend's `unpublishable_count` already merged url failures with identity failures
+                (`form === null || mediaId === null || identitiesTaken.has(mediaId)` — one
+                increment, three causes), and the count arrives here already merged, so the page
+                cannot know which applied and may not say. Rule 6b's uniqueness check on this page
+                adds a fourth contributor to the same number. One count, one honest sentence: the
+                record could not be published, and the reason is not something this surface
+                determined. */}
+            {listingMedia.unpublishable_count > 0 && (
+              <p className="text-xs text-amber-700" data-testid="listing-media-unpublishable">
+                {listingMedia.unpublishable_count} recorded photo(s) could not be shown here, because
+                what CarUp holds for them — the stored address, or the name that tells one photograph
+                from another — is not in a form it will publish. That is a fault in the record, not a
+                statement about the vehicle.
+              </p>
+            )}
+
+            {/* Thumbnails */}
+            {galleryItems.length > 1 && (
+              <div className="flex gap-2 overflow-x-auto pb-1">
+                {/* Rule 6b, and the reason the identity is not decorative: React reconciles on
+                    this key. Keyed on `position` the previous thumbnail's DOM node — and its
+                    decoded bitmap — is reused for a DIFFERENT photograph whenever the payload
+                    re-orders, which is how a gallery briefly shows the wrong car. `media_id` names
+                    the photograph, so the node follows the picture rather than the slot. The
+                    composite falls back only for the marketplace transport, which carries no
+                    identity to key on. */}
+                {galleryItems.map((item, galleryIndex) => (
+                  <button key={item.media_id ?? `${item.position}-${item.url}`} onClick={() => setCurrentImageIdx(galleryIndex)}
+                    data-testid="listing-media-thumb"
+                    data-media-id={item.media_id ?? undefined}
+                    aria-label={`Show photo ${galleryIndex + 1}`}
+                    className={`flex-shrink-0 w-20 h-14 rounded-lg overflow-hidden border-2 transition-colors ${galleryIndex === activeImageIdx ? 'border-orange-500' : 'border-transparent'}`}>
+                    <img src={item.url} alt="" className="w-full h-full object-cover" onError={() => markListingMediaFailed(item.url)} />
+                  </button>
+                ))}
               </div>
-              <div className="rounded-2xl border border-white/10 bg-white/[0.055] p-4 backdrop-blur">
-                <p className="text-[10px] uppercase tracking-[0.14em] text-slate-400">Canonical Trust</p>
-                {trust.score !== null ? (
-                  <>
-                    <p className="mt-1 text-xl font-black">{trust.score}/100</p>
-                    <p className="mt-1 text-[10px] text-slate-400">{trust.headline}</p>
-                  </>
-                ) : (
-                  <>
-                    <p className="mt-1 text-sm font-bold">{trust.headline}</p>
-                    <p className="mt-1 text-[10px] text-slate-500">No legacy score substituted</p>
-                  </>
-                )}
-              </div>
+            )}
+          </section>
+        </div>
+
+        <section
+          className="mb-6 grid gap-5 border-y border-slate-200 py-5 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-end"
+          data-testid="vehicle-detail-intelligence-hero"
+        >
+          <div>
+            <div className="flex items-center gap-2 text-[11px] font-black uppercase tracking-[0.18em] text-orange-600">
+              <ShieldCheck className="h-4 w-4" /> CarUp Vehicle Passport
+            </div>
+            <h1 className="mt-2 text-3xl font-black tracking-[-0.035em] text-slate-950 sm:text-4xl">
+              {vehicle.year ?? ''} {vehicle.make} {vehicle.model}
+            </h1>
+            <div className="mt-2 flex flex-wrap gap-x-5 gap-y-2 text-sm text-slate-600">
+              <span className="inline-flex items-center gap-1.5"><MapPin className="h-4 w-4 text-orange-500" /> {locationLine.label}</span>
+              {typeof vehicle.mileage === 'number' && Number.isFinite(vehicle.mileage) && (
+                <span className="inline-flex items-center gap-1.5"><Gauge className="h-4 w-4 text-orange-500" /> {vehicle.mileage.toLocaleString()} km</span>
+              )}
+            </div>
+          </div>
+          <div className="flex flex-wrap items-end gap-7 lg:justify-end">
+            <div>
+              <p className="text-[10px] font-bold uppercase tracking-[0.14em] text-slate-400">Asking price</p>
+              <p className="mt-1 text-2xl font-black text-slate-950">{governedPrice(vehicle.price, vehicle.currency)}</p>
+            </div>
+            <div>
+              <p className="text-[10px] font-bold uppercase tracking-[0.14em] text-slate-400">Canonical Trust</p>
+              <p className="mt-1 text-2xl font-black text-slate-950">{trust.score !== null ? `${trust.score}/100` : trust.headline}</p>
+              {trust.score !== null && <p className="mt-0.5 text-xs text-slate-500">{trust.headline}</p>}
             </div>
           </div>
         </section>
@@ -1860,201 +2037,7 @@ export default function VehicleDetail() {
               })()
             )}
 
-            {/* ── LISTING MEDIA — the seller's presentation of the car ─────────────────
-                Marketing photos. Nothing in this block asserts governance, because nothing in
-                `listing_images` could support such an assertion. Note what is NOT here any more:
-                the "Police Checked" badge used to be stamped across the top-left of this photo,
-                which put a registry verification claim physically on top of a seller's snapshot.
-                It is a fact about the VEHICLE, not about the picture, and it now sits with the
-                other vehicle-status badges in the identity row below. */}
-            <section className="space-y-3" data-testid="listing-media-block">
-              <div className="flex items-center gap-2">
-                <ImageIcon className="w-4 h-4 text-gray-400" aria-hidden="true" />
-                <h2 className="text-sm font-semibold text-gray-900">Listing photos</h2>
-              </div>
-              <p className="text-xs text-gray-500" data-testid="listing-media-caption">
-                {listingMedia.items.some((item) => item.synthetic_demo)
-                  ? 'Synthetic reference media for this staging demonstration. These images are not verified evidence and do not affect CarUp Trust.'
-                  : 'Photos supplied by the seller to advertise this vehicle. CarUp does not review them and makes no claim about what they show.'}
-              </p>
 
-              <div className="relative rounded-xl overflow-hidden bg-white card-shadow" data-testid="image-gallery">
-                {hasListingPhotos && activeImage ? (
-                  <>
-                    {/* Rule 6b: `data-media-id` is the identity of the photograph on screen, so a
-                        test — and a support conversation about "the third photo on this listing" —
-                        can name THIS picture rather than whichever one is currently in slot 2. The
-                        attribute is absent entirely when the transport carried no identity; it is
-                        never a fabricated value. */}
-                    <img
-                      src={activeImage.url}
-                      alt={`${vehicle.make} ${vehicle.model}`}
-                      className="w-full aspect-[16/9] object-cover"
-                      data-testid="vehicle-image"
-                      data-url-form={activeImage.url_form}
-                      data-media-id={activeImage.media_id ?? undefined}
-                      onError={() => markListingMediaFailed(activeImage.url)}
-                    />
-                    {/* Rule 6: shown only where a row claims it. No primary is elected when the
-                        seller named none — that choice is theirs to make or leave unmade. */}
-                    {activeImage.is_primary && (
-                      <span
-                        className="absolute bottom-3 left-3 rounded-full bg-black/50 px-2 py-1 text-xs text-white"
-                        data-testid="listing-media-primary"
-                      >
-                        Seller’s main photo
-                      </span>
-                    )}
-                    {galleryItems.length > 1 && (
-                      <>
-                        <button
-                          onClick={() => setCurrentImageIdx((activeImageIdx - 1 + galleryItems.length) % galleryItems.length)}
-                          aria-label="Previous photo"
-                          className="absolute left-3 top-1/2 -translate-y-1/2 w-9 h-9 rounded-full bg-black/40 text-white flex items-center justify-center hover:bg-black/60"
-                        >
-                          <ChevronLeft className="w-5 h-5" />
-                        </button>
-                        <button
-                          onClick={() => setCurrentImageIdx((activeImageIdx + 1) % galleryItems.length)}
-                          aria-label="Next photo"
-                          className="absolute right-3 top-1/2 -translate-y-1/2 w-9 h-9 rounded-full bg-black/40 text-white flex items-center justify-center hover:bg-black/60"
-                        >
-                          <ChevronRight className="w-5 h-5" />
-                        </button>
-                        <div className="absolute bottom-3 right-3 bg-black/50 text-white text-xs px-2 py-1 rounded-full">
-                          {activeImageIdx + 1} / {galleryItems.length}
-                        </div>
-                      </>
-                    )}
-                  </>
-                ) : (
-                  <div
-                    className="w-full aspect-[16/9] bg-gray-100 flex flex-col items-center justify-center gap-2 px-6 text-center text-gray-400"
-                    data-testid="no-images-placeholder"
-                    data-media-state={allListingMediaFailed ? 'published_unavailable' : listingMedia.state}
-                  >
-                    <Car className="w-14 h-14 opacity-30" aria-hidden="true" />
-                    {allListingMediaFailed ? (
-                      <div data-testid="listing-media-load-failed">
-                        <p className="text-sm font-medium text-gray-600">Listing photo unavailable</p>
-                        <p className="mt-1 text-xs text-gray-400">
-                          CarUp received a published photo address for this listing, but the browser could
-                          not load it. That is a delivery failure, not a statement about the vehicle or
-                          whether the seller added photos.
-                        </p>
-                      </div>
-                    ) : listingMedia.state === 'none' ? (
-                      <div data-testid="listing-media-empty">
-                        {/* The block's own sentence, not one authored here. A gallery that invents
-                            its own empty-state wording is how the previous one came to publish a
-                            governance finding over a seller's advertising photos. */}
-                        <p className="text-sm font-medium text-gray-600">{listingMedia.empty_statement}</p>
-                        {/* THE SUPPORTING LINE HAD TO CHANGE WITH THE SENTENCE ABOVE IT, and this is
-                            the more important half. It used to read "The seller has not added any
-                            photos." — which is the EXACT claim the contract withdrew in Rule 1b, and
-                            leaving it here would have restored the falsehood one line below the
-                            correction: a gated block (an unpublished listing that DOES hold
-                            photographs) would have rendered the contract's honest "none published"
-                            and then had this page assert, on its own authority, that the seller
-                            added nothing. It also breaks the byte-identity the gate depends on the
-                            other way round — a surface that describes the three indistinguishable
-                            cases differently re-opens the enumeration the gate closed.
-                            This line now says only what the block says: nothing is published here,
-                            and no reading about the seller follows from that. */}
-                        <p className="mt-1 text-xs text-gray-400">
-                          That is a statement about what this page publishes, and about nothing else.
-                          Nothing follows from it about what the seller did.
-                        </p>
-                      </div>
-                    ) : (
-                      <div data-testid="listing-media-not-loaded">
-                        {/* RULE 1. This page reads the listing gallery through the governed
-                            marketplace detail; when that does not resolve, `listing_images` was
-                            never consulted and no negative about it may be published. */}
-                        <p className="text-sm font-medium text-gray-600">
-                          CarUp did not read this listing’s photo gallery on this page.
-                        </p>
-                        <p className="mt-1 text-xs text-gray-400">
-                          That is a fact about this request, not a finding about the listing. Nothing is
-                          stated either way about whether the seller added photos.
-                        </p>
-                      </div>
-                    )}
-                  </div>
-                )}
-                <div className="absolute top-4 left-4 flex gap-2">
-                  {/* No "Featured" badge: it was awarded by a client-side score threshold, which is a
-                      merchandising claim the page has no authority to make. "Reserved" stays — it is
-                      a listing state, not a claim about the photograph under it. */}
-                  {detail?.carup_gold?.state === 'qualified' && (
-                    <Badge className="border border-amber-200 bg-[linear-gradient(135deg,#f59e0b,#facc15)] font-black uppercase tracking-[0.1em] text-slate-950 shadow-lg" data-testid="vehicle-detail-carup-gold">
-                      ★ CarUp Gold
-                    </Badge>
-                  )}
-                  {isReservedOnServer && <Badge className="bg-amber-500 text-white">Reserved</Badge>}
-                </div>
-                <div className="absolute top-4 right-4 flex gap-2">
-                  <button onClick={toggleFavorite} aria-label="Save this vehicle" className="w-10 h-10 rounded-full bg-white/90 flex items-center justify-center hover:bg-white">
-                    <Heart className={`w-5 h-5 ${isFav ? 'fill-red-500 text-red-500' : 'text-gray-600'}`} />
-                  </button>
-                  <Link
-                    to={compareHref}
-                    aria-label="Compare this vehicle"
-                    className="w-10 h-10 rounded-full bg-white/90 flex items-center justify-center hover:bg-white"
-                    data-testid="vehicle-detail-compare"
-                  >
-                    <GitCompare className="w-5 h-5 text-gray-600" />
-                  </Link>
-                  <button onClick={handleShare} aria-label="Share this listing" data-testid="vehicle-detail-share" className="w-10 h-10 rounded-full bg-white/90 flex items-center justify-center hover:bg-white">
-                    <Share2 className="w-5 h-5 text-gray-600" />
-                  </button>
-                </div>
-              </div>
-
-              {/* Rule 5: counted, never silently dropped. A short gallery that hides what it could
-                  not render is passing our defect off as the seller's omission.
-
-                  THE SENTENCE NAMES NO SINGLE CAUSE, AND THAT IS A CORRECTION. It used to end "the
-                  stored address is not a form CarUp will publish" — a definite finding about ONE
-                  field, published over a number that has never only counted that field. The
-                  backend's `unpublishable_count` already merged url failures with identity failures
-                  (`form === null || mediaId === null || identitiesTaken.has(mediaId)` — one
-                  increment, three causes), and the count arrives here already merged, so the page
-                  cannot know which applied and may not say. Rule 6b's uniqueness check on this page
-                  adds a fourth contributor to the same number. One count, one honest sentence: the
-                  record could not be published, and the reason is not something this surface
-                  determined. */}
-              {listingMedia.unpublishable_count > 0 && (
-                <p className="text-xs text-amber-700" data-testid="listing-media-unpublishable">
-                  {listingMedia.unpublishable_count} recorded photo(s) could not be shown here, because
-                  what CarUp holds for them — the stored address, or the name that tells one photograph
-                  from another — is not in a form it will publish. That is a fault in the record, not a
-                  statement about the vehicle.
-                </p>
-              )}
-
-              {/* Thumbnails */}
-              {galleryItems.length > 1 && (
-                <div className="flex gap-2 overflow-x-auto pb-1">
-                  {/* Rule 6b, and the reason the identity is not decorative: React reconciles on
-                      this key. Keyed on `position` the previous thumbnail's DOM node — and its
-                      decoded bitmap — is reused for a DIFFERENT photograph whenever the payload
-                      re-orders, which is how a gallery briefly shows the wrong car. `media_id` names
-                      the photograph, so the node follows the picture rather than the slot. The
-                      composite falls back only for the marketplace transport, which carries no
-                      identity to key on. */}
-                  {galleryItems.map((item, galleryIndex) => (
-                    <button key={item.media_id ?? `${item.position}-${item.url}`} onClick={() => setCurrentImageIdx(galleryIndex)}
-                      data-testid="listing-media-thumb"
-                      data-media-id={item.media_id ?? undefined}
-                      aria-label={`Show photo ${galleryIndex + 1}`}
-                      className={`flex-shrink-0 w-20 h-14 rounded-lg overflow-hidden border-2 transition-colors ${galleryIndex === activeImageIdx ? 'border-orange-500' : 'border-transparent'}`}>
-                      <img src={item.url} alt="" className="w-full h-full object-cover" onError={() => markListingMediaFailed(item.url)} />
-                    </button>
-                  ))}
-                </div>
-              )}
-            </section>
 
             {/* ── VERIFIED EVIDENCE — governed artifacts, deliberately not a gallery ────
                 The convergence: both blocks are composed on this page, adjacent, and neither can be
