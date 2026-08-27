@@ -22,7 +22,7 @@ import {
   Phone, MessageSquare, Heart, Share2, ArrowLeft, AlertTriangle, Search,
   FileCheck, Star, Loader2, Lock, CreditCard, ChevronLeft, ChevronRight,
   XCircle, HelpCircle, Wrench, UserCheck, TrendingDown, ClipboardCheck,
-  Clock, Image as ImageIcon, FileText, FileSearch, Link2, Copy
+  Clock, Image as ImageIcon, FileText, FileSearch, Link2, Copy, GitCompare
 } from 'lucide-react'
 import { formatPrice } from '@/data/mockData'
 import { useCarUpApi } from '@/hooks/useCarUpApi'
@@ -51,6 +51,7 @@ import { AllInPricePanel } from '@/components/marketplace/AllInPricePanel'
 import { SafetyWarnings } from '@/components/marketplace/SafetyWarnings'
 import { InquiryModal } from '@/components/marketplace/InquiryModal'
 import DisputePanel from '@/components/DisputePanel'
+import { MarketplaceShareSheet } from '@/components/marketplace/MarketplaceShareSheet'
 import { captureReferralFromUrl, getStoredAttribution } from '@/lib/marketplaceReferral'
 import { governedLocationLine, summaryLocationLine, type LocationClaim } from '@/lib/governedLocation'
 
@@ -1430,15 +1431,15 @@ export default function VehicleDetail() {
     localStorage.setItem('carup_favorites', JSON.stringify(updated))
   }, [vehicle, id, isAuthenticated, isFav, saveMarketplaceListing, unsaveMarketplaceListing])
 
-  const handleShare = useCallback(async () => {
-    const url = window.location.href
-    if (navigator.share) {
-      try { await navigator.share({ title: `${vehicle?.year ?? ''} ${vehicle?.make ?? ''} ${vehicle?.model ?? ''}`, url }) } catch { /* user cancelled */ }
-    } else {
-      await navigator.clipboard.writeText(url).catch(() => {})
-      toast.success('Link copied to clipboard!')
-    }
-  }, [vehicle])
+  const [shareOpen, setShareOpen] = useState(false)
+
+  const handleShare = useCallback(() => {
+    setShareOpen(true)
+  }, [])
+
+  const compareHref = vehicle?.vin
+    ? `/marketplace/compare?vins=${encodeURIComponent(vehicle.vin)}`
+    : '/marketplace/compare'
 
   const handleReserve = async () => {
     if (!vehicle) return
@@ -1934,6 +1935,14 @@ export default function VehicleDetail() {
                   <button onClick={toggleFavorite} aria-label="Save this vehicle" className="w-10 h-10 rounded-full bg-white/90 flex items-center justify-center hover:bg-white">
                     <Heart className={`w-5 h-5 ${isFav ? 'fill-red-500 text-red-500' : 'text-gray-600'}`} />
                   </button>
+                  <Link
+                    to={compareHref}
+                    aria-label="Compare this vehicle"
+                    className="w-10 h-10 rounded-full bg-white/90 flex items-center justify-center hover:bg-white"
+                    data-testid="vehicle-detail-compare"
+                  >
+                    <GitCompare className="w-5 h-5 text-gray-600" />
+                  </Link>
                   <button onClick={handleShare} aria-label="Share this listing" className="w-10 h-10 rounded-full bg-white/90 flex items-center justify-center hover:bg-white">
                     <Share2 className="w-5 h-5 text-gray-600" />
                   </button>
@@ -2839,6 +2848,13 @@ export default function VehicleDetail() {
           </div>
         </div>
       </div>
+
+      <MarketplaceShareSheet
+        open={shareOpen}
+        onOpenChange={setShareOpen}
+        title={`${vehicle.year ?? ''} ${vehicle.make ?? ''} ${vehicle.model ?? ''}`.trim()}
+        url={typeof window !== 'undefined' ? window.location.href : ''}
+      />
 
       {/* ── Reserve Modal ─────────────────────────────────────────────────── */}
       <Dialog open={showReserveModal} onOpenChange={setShowReserveModal}>
