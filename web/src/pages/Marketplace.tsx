@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Link, useNavigate, useSearchParams } from 'react-router-dom'
-import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import {
@@ -25,7 +24,6 @@ import { toast } from 'sonner'
 import { vehicles as mockVehicles, zimbabweLocations } from '@/data/mockData'
 import { useCarUpApi } from '@/hooks/useCarUpApi'
 import { useAuth } from '@/context/AuthContext'
-import { useIsMobile } from '@/hooks/use-mobile'
 import type { MarketplaceListingSummary } from '@/types'
 import { captureReferralFromUrl } from '@/lib/marketplaceReferral'
 import { summaryLocationLine } from '@/lib/governedLocation'
@@ -361,7 +359,6 @@ export default function Marketplace() {
     fetchSavedMarketplaceListings,
   } = useCarUpApi()
   const { isAuthenticated } = useAuth()
-  const isMobile = useIsMobile()
   const navigate = useNavigate()
 
   useEffect(() => { captureReferralFromUrl() }, [])
