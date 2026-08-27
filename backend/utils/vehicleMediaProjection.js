@@ -656,6 +656,9 @@ export function toListingMediaBlock(rows) {
       url: String(row.image_url).trim(),
       form,
       claimsPrimary: row?.is_primary === true,
+      // Synthetic reference media lives under a dedicated CarUp storage prefix. This marker is
+      // presentation provenance only; it confers no verification status and is never a Trust input.
+      syntheticDemo: String(row.image_url).includes('/marketplace-reference-synthetic/'),
       // Coerced only for ORDERING. A non-numeric display_order sorts last rather than poisoning
       // the comparator with NaN; it is never published, so no fabricated value escapes.
       order: Number.isFinite(Number(row?.display_order)) ? Number(row.display_order) : Number.MAX_SAFE_INTEGER,
