@@ -711,6 +711,7 @@ export default function Marketplace() {
                     alt={[spotlightListing.year, spotlightListing.make, spotlightListing.model].filter(Boolean).join(' ') || 'Marketplace vehicle'}
                     className="h-full w-full"
                     imgClassName="transition duration-700 ease-out group-hover:scale-[1.035]"
+                    loading="eager"
                   />
                   <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/5 to-black/10" />
                   <div className="absolute left-5 top-5 border border-white/25 bg-black/35 px-3 py-1.5 text-[10px] font-black uppercase tracking-[0.16em] text-white backdrop-blur-sm">
