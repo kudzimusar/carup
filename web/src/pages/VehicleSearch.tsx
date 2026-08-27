@@ -21,7 +21,6 @@ import {
 } from 'lucide-react'
 import { useCarUpApi } from '@/hooks/useCarUpApi'
 import { looksLikeIdentifier } from '@/lib/marketplaceParams'
-import { summaryLocationLine } from '@/lib/governedLocation'
 import { MarketplaceListingCard } from '@/components/marketplace/MarketplaceListingCard'
 import { marketplaceListingToCardModel } from '@/lib/marketplaceCardModel'
 import type { MarketplaceListingSummary, Vehicle } from '@/types'
