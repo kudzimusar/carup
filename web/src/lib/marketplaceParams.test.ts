@@ -27,6 +27,9 @@ describe('paramsToState', () => {
     expect(state).toEqual({
       searchQuery: 'hilux',
       selectedMake: 'Toyota',
+      selectedModel: 'All',
+      selectedYear: 'All',
+      selectedColor: 'All',
       selectedCategory: 'Recently Imported',
       selectedTags: [],
       selectedFuel: 'Diesel',
@@ -74,9 +77,24 @@ describe('paramsToState', () => {
     expect(paramsToState(p(''))).toEqual(DEFAULT_MARKETPLACE_STATE)
   })
 
-  it('ignores unsupported body/condition/color parameters rather than creating local-only facets', () => {
-    const state = paramsToState(p('body=suv&condition=New&color=red'))
-    expect(state).toEqual(DEFAULT_MARKETPLACE_STATE)
+  it('supports model/year/colour while still ignoring unsupported body/condition params', () => {
+    const state = paramsToState(p('make=Toyota&model=Hilux&year=2019&color=Silver&body=pickup&condition=New'))
+    expect(state.selectedMake).toBe('Toyota')
+    expect(state.selectedModel).toBe('Hilux')
+    expect(state.selectedYear).toBe('2019')
+    expect(state.selectedColor).toBe('Silver')
+    expect(state.selectedCategory).toBe('All')
+  })
+
+  it('canonicalizes model aliases against the selected make', () => {
+    const state = paramsToState(p('make=Honda&model=Jazz'))
+    expect(state.selectedMake).toBe('Honda')
+    expect(state.selectedModel).toBe('Fit')
+  })
+
+  it('rejects an invalid year facet without inventing one', () => {
+    expect(paramsToState(p('year=1800')).selectedYear).toBe('All')
+    expect(paramsToState(p('year=banana')).selectedYear).toBe('All')
   })
 
   it('ignores an unknown slug rather than activating a phantom chip', () => {
@@ -118,6 +136,9 @@ describe('stateToParams', () => {
       ...DEFAULT_MARKETPLACE_STATE,
       searchQuery: 'fit',
       selectedMake: 'Honda',
+      selectedModel: 'Fit',
+      selectedYear: '2019',
+      selectedColor: 'Silver',
       selectedTags: ['Passport Verified'],
       selectedFuel: 'Hybrid',
       selectedTransmission: 'Automatic',
@@ -127,6 +148,9 @@ describe('stateToParams', () => {
     }
     const params = stateToParams(state)
     expect(params.get('make')).toBe('Honda')
+    expect(params.get('model')).toBe('Fit')
+    expect(params.get('year')).toBe('2019')
+    expect(params.get('color')).toBe('Silver')
     expect(params.get('q')).toBe('fit')
     expect(params.get('tag')).toBe('passport_verified')
     expect(params.get('fuel')).toBe('Hybrid')
@@ -170,6 +194,7 @@ describe('round-trip params <-> state', () => {
     { ...DEFAULT_MARKETPLACE_STATE, selectedMake: 'Mazda', selectedCategory: 'Brand New', priceRange: [5000, 100000] },
     { ...DEFAULT_MARKETPLACE_STATE, searchQuery: 'cab', selectedTags: ['PartSentry Checked'], selectedFuel: 'Diesel', selectedLocation: 'Bulawayo', priceRange: [0, 25000], sortBy: 'price-high' },
     { ...DEFAULT_MARKETPLACE_STATE, selectedMake: 'Toyota', selectedCategory: 'Brand New', selectedTags: ['Passport Verified', 'Low Mileage'], selectedTransmission: 'Manual' },
+    { ...DEFAULT_MARKETPLACE_STATE, selectedMake: 'Honda', selectedModel: 'Fit', selectedYear: '2019', selectedColor: 'Silver' },
   ]
   it.each(cases)('paramsToState(stateToParams(s)) === s', (state) => {
     expect(paramsToState(stateToParams(state))).toEqual(state)
@@ -182,6 +207,9 @@ describe('stateToApiFilters', () => {
       ...DEFAULT_MARKETPLACE_STATE,
       searchQuery: 'toyota',
       selectedMake: 'Toyota',
+      selectedModel: 'Hilux',
+      selectedYear: '2019',
+      selectedColor: 'Silver',
       selectedTags: ['Passport Verified'],
       selectedFuel: 'Diesel',
       selectedTransmission: 'Manual',
@@ -192,6 +220,9 @@ describe('stateToApiFilters', () => {
     expect(filters).toEqual({
       q: 'toyota',
       make: 'Toyota',
+      model: 'Hilux',
+      year: 2019,
+      color: 'Silver',
       tag: 'passport_verified',
       fuel: 'Diesel',
       transmission: 'Manual',
@@ -250,6 +281,9 @@ describe('getActiveFilterChips', () => {
       ...DEFAULT_MARKETPLACE_STATE,
       searchQuery: 'fit',
       selectedMake: 'Honda',
+      selectedModel: 'Fit',
+      selectedYear: '2019',
+      selectedColor: 'Silver',
       selectedCategory: 'Brand New',
       selectedTags: ['Passport Verified', 'Fresh Import'],
       selectedFuel: 'Hybrid',
@@ -259,7 +293,7 @@ describe('getActiveFilterChips', () => {
       sortBy: 'trust',
     })
     expect(chips.map(chip => chip.key)).toEqual([
-      'make', 'q', 'category', 'tag', 'tag', 'fuel', 'transmission', 'location', 'price', 'sort',
+      'make', 'model', 'year', 'color', 'q', 'category', 'tag', 'tag', 'fuel', 'transmission', 'location', 'price', 'sort',
     ])
     expect(chips.filter(chip => chip.key === 'tag').map(chip => chip.value)).toEqual(['Passport Verified', 'Fresh Import'])
     expect(chips.find(chip => chip.key === 'price')?.label).toBe('Under $10,000')
@@ -275,13 +309,16 @@ describe('getResultSummary', () => {
     expect(getResultSummary({
       ...DEFAULT_MARKETPLACE_STATE,
       selectedMake: 'Toyota',
+      selectedModel: 'Hilux',
+      selectedYear: '2019',
+      selectedColor: 'Silver',
       selectedTags: ['Passport Verified'],
       selectedFuel: 'Diesel',
       selectedTransmission: 'Automatic',
       selectedLocation: 'Harare',
       priceRange: [0, 10000],
       sortBy: 'trust',
-    })).toBe('Showing Passport Verified Toyota Diesel Automatic vehicles in Harare under $10,000, sorted by trust.')
+    })).toBe('Showing Passport Verified Toyota Hilux 2019 Silver Diesel Automatic vehicles in Harare under $10,000, sorted by trust.')
   })
 
   it('joins a category and multiple trust tags', () => {
