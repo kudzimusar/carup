@@ -32,4 +32,5 @@ This directory holds the phase receipts for the **CarUp Intelligence 1.0 — Dat
 | I14 | `I14_REFERRAL_MARKETING_INTELLIGENCE.md` | **complete** — includes **G4 P0 closure** (attribution forgery on 4 ungated referral routes); ROI refused for want of a cost side; accrued kept apart from paid |
 | I15 | `I15_GOVERNMENT_REGULATORY_INTELLIGENCE.md` | **complete** — CarUp-assessed vs registry-confirmed held apart; national tiles, invented officer MFA log and seeded duty result removed; fake report download closed |
 | I16 | `I16_COMMAND_CENTRE.md` | **complete** — composes rather than recomputes; sourceless sections declared; admin seeded stats, $145,000 escrow literal and named-company "Online" copilots removed |
-| I17 | Proactive Next-Best-Action | next |
+| I17 | `I17_NEXT_BEST_ACTION.md` | **complete** — deterministic rules that abstain rather than advise from an unmeasured figure; suppression persisted (staging migration, RLS verified) |
+| I18 | Gutu AI Intelligence | next |

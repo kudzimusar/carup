@@ -23,6 +23,10 @@ import { getReferralIntelligence } from '../services/intelligence/referralIntell
 import { getGovernmentProvenanceIntelligence } from '../services/intelligence/governmentIntelligenceService.js';
 import { getCommandCentre } from '../services/intelligence/commandCentreService.js';
 import {
+  getSellerRecommendations,
+  getPlatformRecommendations,
+} from '../services/intelligence/recommendationService.js';
+import {
   getMechanicIntelligence,
   getGarageIntelligence,
 } from '../services/intelligence/serviceIntelligenceService.js';
@@ -344,6 +348,39 @@ router.get(
     try {
       const windowDays = resolveWindowDays(req.query.window);
       const data = await getCommandCentre(supabase, req.userContext, { windowDays });
+      return res.json({ ok: true, ...data });
+    } catch (error) {
+      return handleProjectionError(res, error);
+    }
+  }),
+);
+
+/**
+ * Next-best-action for the signed-in seller.
+ *
+ * The subject IS the session: there is no caller-supplied scope, so a seller
+ * cannot request advice about somebody else's listings or leads.
+ */
+router.get(
+  '/api/marketplace/my-recommendations',
+  authorizeRole([]),
+  asyncHandler(async (req, res) => {
+    try {
+      const data = await getSellerRecommendations(supabase, req.userContext);
+      return res.json({ ok: true, ...data });
+    } catch (error) {
+      return handleProjectionError(res, error);
+    }
+  }),
+);
+
+/** Platform next-best-action. Administrators only. */
+router.get(
+  '/api/admin/intelligence/recommendations',
+  authorizeRole(['admin']),
+  asyncHandler(async (req, res) => {
+    try {
+      const data = await getPlatformRecommendations(supabase, req.userContext);
       return res.json({ ok: true, ...data });
     } catch (error) {
       return handleProjectionError(res, error);

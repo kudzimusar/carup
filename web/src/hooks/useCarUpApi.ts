@@ -638,6 +638,9 @@ export function useCarUpApi() {
   /** PERSON scope: the practitioner's own work, never the organization's. */
   const fetchMechanicIntelligence = useCallback(async (windowDays: 7 | 30 | 90 = 30): Promise<any> =>
     request(`/mechanic/analytics?window=${windowDays}`), [request])
+  /** Next-best-action for the signed-in seller. The subject is the session. */
+  const fetchMyRecommendations = useCallback(async (): Promise<any> =>
+    request('/marketplace/my-recommendations'), [request])
   /** The platform command centre. Composes the governed projections; admin only. */
   const fetchCommandCentre = useCallback(async (windowDays: 7 | 30 | 90 = 30): Promise<any> =>
     request(`/admin/intelligence/command-centre?window=${windowDays}`), [request])
@@ -2603,6 +2606,7 @@ export function useCarUpApi() {
     fetchReferralIntelligence,
     fetchGovernmentProvenance,
     fetchCommandCentre,
+    fetchMyRecommendations,
     fetchPlatformPartsIntelligence,
     fetchMechanicIntelligence,
     fetchGarageIntelligence,
