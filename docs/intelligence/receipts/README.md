@@ -17,4 +17,4 @@ This directory holds the phase receipts for the **CarUp Intelligence 1.0 — Dat
 | I0 | `I0_STAKEHOLDER_PROCESS_DATA_AUTHORITY_INVENTORY.md` (+ evidence appendices in `i0-appendices/`) | **complete** |
 | I1 | `I1_CANONICAL_METRIC_AND_EVENT_CONTRACT.md` (+ verification lenses in `i1-appendices/`) | **frozen** |
 | I2 | `I2_FIRST_PARTY_ACTIVITY_LEDGER.md` | **complete** — staging migration applied and proven |
-| I3 | marketplace instrumentation (web + mobile) | in progress |
+| I3 | `I3_MARKETPLACE_INSTRUMENTATION.md` | I3a (server-side) **complete** — live controlled counts reconcile; I3b/I3c (web/mobile clients) in progress |
