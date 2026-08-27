@@ -287,13 +287,17 @@ test('PartsTracking does not mangle the authoritative part id', () => {
 // ── The routes exist, are gated, and take no caller scope ──────────────────
 
 test('the parts routes are mounted, role-gated and derive their own scope', () => {
-  const routes = read('backend/routes/intelligenceProjectionRoutes.js');
+  // Comments are stripped first: a LATER route's doc comment sits before the
+  // next `router.get`, so slicing raw source reads its prose as this route's gate.
+  const routes = codeOnly(read('backend/routes/intelligenceProjectionRoutes.js'));
 
   const person = routes.split("'/api/parts/intelligence'")[1].split('router.get')[0];
   assert.match(person, /authorizeRole\(\['mechanic', 'admin'\]\)/);
   assert.ok(person.includes('req.userContext'));
 
-  const platform = routes.split("'/api/admin/parts/intelligence'")[1].split('export default')[0];
+  // Bounded at the next route, not at `export default` — otherwise a later
+  // route's own text is read as part of this one's gate.
+  const platform = routes.split("'/api/admin/parts/intelligence'")[1].split('router.get')[0];
   assert.match(platform, /authorizeRole\(\['admin'\]\)/);
   assert.ok(!platform.includes('government'), 'gap G5 must not be repeated on a parts surface');
 

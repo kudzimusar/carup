@@ -3,6 +3,8 @@ import type React from 'react'
 import { Link, Navigate, useNavigate, useParams, useLocation } from 'react-router-dom'
 import { AlertCircle, ArrowRight, CheckCircle2, ClipboardCheck, FileText, Loader2, Package, Plus, ShieldCheck, Ship, Timer, Upload, XCircle, CheckCircle, Eye } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
+import { UnavailableNote } from '@/components/diaspora/DataStateNotes'
+import TradeIntelligence from '@/components/intelligence/TradeIntelligence'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
@@ -702,6 +704,12 @@ export function DiasporaImportList() {
             <Link to="/diaspora/imports/new">New import order</Link>
           </Button>
         </div>
+        {/* The governed trade projection: demand, corridors, quotes and the
+            milestone/escrow position, none of which is money that moved. */}
+        <div className="mt-6">
+          <TradeIntelligence windowDays={30} />
+        </div>
+
         {loading && <div className="mt-8 text-orange-600" data-testid="diaspora-import-list-loading">Loading import orders...</div>}
         {error && <Alert className="mt-8 border-red-200" data-testid="diaspora-import-list-error"><AlertCircle className="h-4 w-4" /><AlertTitle>Unable to load</AlertTitle><AlertDescription>{error}</AlertDescription></Alert>}
         {!loading && !error && (
@@ -1244,9 +1252,10 @@ function ShipmentContent({ orderId }: { orderId?: string }) {
   } = useCarUpApi()
 
   const [order, setOrder] = useState<DiasporaImportOrder | null>(null)
-  const [reservations, setReservations] = useState<DiasporaCargoReservation[]>([])
-  const [shipments, setShipments] = useState<DiasporaShipment[]>([])
-  const [containers, setContainers] = useState<DiasporaContainerShipment[]>([])
+  // null = could not be read; [] = genuinely none. The two are different claims.
+  const [reservations, setReservations] = useState<DiasporaCargoReservation[] | null>([])
+  const [shipments, setShipments] = useState<DiasporaShipment[] | null>([])
+  const [containers, setContainers] = useState<DiasporaContainerShipment[] | null>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [actionError, setActionError] = useState('')
@@ -1264,9 +1273,11 @@ function ShipmentContent({ orderId }: { orderId?: string }) {
     try {
       const [o, r, s, c] = await Promise.all([
         fetchDiasporaImportOrder(orderId),
-        fetchDiasporaReservations(orderId).catch(() => [] as DiasporaCargoReservation[]),
-        fetchDiasporaShipments(orderId).catch(() => [] as DiasporaShipment[]),
-        fetchDiasporaOpenContainers().catch(() => [] as DiasporaContainerShipment[]),
+        // `null` means unreadable; `[]` means genuinely none. Collapsing the two
+        // reported a failed shipment read as "no shipment has been scheduled".
+        fetchDiasporaReservations(orderId).catch(() => null),
+        fetchDiasporaShipments(orderId).catch(() => null),
+        fetchDiasporaOpenContainers().catch(() => null),
       ])
       setOrder(o)
       setReservations(r)
@@ -1289,9 +1300,12 @@ function ShipmentContent({ orderId }: { orderId?: string }) {
     void reload()
   }, [authLoading, isAuthenticated, orderId, reload])
 
-  const shipment = shipments[0]
-  const activeReservation = reservations.find(r => r.reservation_status !== 'REJECTED' && r.reservation_status !== 'CANCELLED')
-  const canRequest = !activeReservation && containers.length > 0
+  const shipment = shipments?.[0]
+  const activeReservation = reservations?.find(r => r.reservation_status !== 'REJECTED' && r.reservation_status !== 'CANCELLED')
+  // A container list that could not be read is not an absence of containers, so
+  // the control is not silently withdrawn on a failed fetch.
+  const containersUnreadable = containers === null
+  const canRequest = !activeReservation && (containers?.length ?? 0) > 0
 
   const submitReservation = async (event: React.FormEvent) => {
     event.preventDefault()
@@ -1352,7 +1366,7 @@ function ShipmentContent({ orderId }: { orderId?: string }) {
     }
   }
 
-  const timeline = buildShipmentTimeline(order, reservations)
+  const timeline = buildShipmentTimeline(order, reservations ?? [])
 
   return (
     <div className="mx-auto max-w-5xl px-4 py-8 sm:px-6 lg:px-8" data-testid="diaspora-import-shipment-route">
@@ -1437,6 +1451,12 @@ function ShipmentContent({ orderId }: { orderId?: string }) {
                 <div>Estimated departure: {formatDate(shipment.departure_date)}</div>
                 <div>Estimated arrival: {formatDate(shipment.estimated_arrival_date)}</div>
               </div>
+            ) : shipments === null ? (
+              <div className="mt-3">
+                <UnavailableNote testId="diaspora-shipment-unavailable">
+                  Shipment details could not be loaded. This is not a report that no shipment exists.
+                </UnavailableNote>
+              </div>
             ) : (
               <p className="mt-3 text-sm text-gray-500" data-testid="diaspora-shipment-empty">
                 No shipment has been scheduled for this order yet. Shipment tracking appears here once logistics coordination begins.
@@ -1447,7 +1467,13 @@ function ShipmentContent({ orderId }: { orderId?: string }) {
           {/* Reservation status */}
           <section className="rounded-lg border border-gray-200 bg-white p-5">
             <h2 className="text-base font-semibold text-gray-900">Container reservation</h2>
-            {reservations.length > 0 ? (
+            {reservations === null ? (
+              <div className="mt-3">
+                <UnavailableNote testId="diaspora-reservation-unavailable">
+                  Reservations could not be loaded. This is not a report that none exist.
+                </UnavailableNote>
+              </div>
+            ) : reservations.length > 0 ? (
               <div className="mt-3 space-y-3">
                 {reservations.map(reservation => (
                   <div key={reservation.id} className="rounded-md border border-gray-100 bg-gray-50 p-3" data-testid="diaspora-reservation-row">
@@ -1491,7 +1517,7 @@ function ShipmentContent({ orderId }: { orderId?: string }) {
                   data-testid="diaspora-reservation-container-select"
                 >
                   <option value="">Select a container…</option>
-                  {containers.map(c => (
+                  {(containers ?? []).map(c => (
                     <option key={c.id} value={c.id} data-testid="diaspora-container-option">
                       {routeLabel(c.origin_city, c.origin_country)} → {routeLabel(c.destination_city, c.destination_country)} · dep {formatDate(c.departure_date)} · {c.available_capacity_volume ?? '—'} m³ free
                     </option>
@@ -1524,7 +1550,16 @@ function ShipmentContent({ orderId }: { orderId?: string }) {
             </section>
           )}
 
-          {!activeReservation && containers.length === 0 && (
+          {/* An unreadable container list must not read as "none are open",
+              because that quietly removes the buyer's ability to reserve. */}
+          {!activeReservation && containersUnreadable && (
+            <UnavailableNote testId="diaspora-containers-unavailable">
+              Open containers could not be loaded, so reservation is unavailable right now. This is not
+              a report that no containers are accepting reservations.
+            </UnavailableNote>
+          )}
+
+          {!activeReservation && !containersUnreadable && containers?.length === 0 && (
             <p className="text-sm text-gray-500" data-testid="diaspora-no-containers">
               No open containers are currently accepting reservations. Check back once a coordinator opens booking.
             </p>
@@ -1560,12 +1595,16 @@ export function DiasporaComplianceAdmin() {
   const [createOrderId, setCreateOrderId] = useState('')
   const [actionMessage, setActionMessage] = useState('')
   const [actionError, setActionError] = useState('')
+  const [unreadable, setUnreadable] = useState(false)
   const role = user?.role || ''
   const canView = useMemo(() => isAuthenticated && adminRoles.has(role), [isAuthenticated, role])
 
   const refresh = useCallback(() => {
     fetchDiasporaComplianceReviews()
-      .then(setRows)
+      .then((data) => { setRows(data); setUnreadable(false) })
+      // There was no catch here at all, so a failed read left the queue empty and
+      // told a reviewer "No compliance reviews found" — and rejected unhandled.
+      .catch(() => { setRows([]); setUnreadable(true) })
       .finally(() => setLoading(false))
   }, [fetchDiasporaComplianceReviews])
 
@@ -1647,7 +1686,13 @@ export function DiasporaComplianceAdmin() {
         <div className="mt-6 text-orange-600" data-testid="diaspora-compliance-table-loading">Loading compliance reviews...</div>
       ) : (
         <div className="mt-6 divide-y divide-gray-100 rounded-lg border border-gray-200 bg-white" data-testid="diaspora-compliance-table">
-          {rows.length === 0 ? (
+          {unreadable ? (
+            <div className="px-4 py-8 text-center" data-testid="diaspora-compliance-unavailable">
+              <UnavailableNote testId="diaspora-compliance-unavailable-note">
+                The compliance review queue could not be loaded. This is not a report that the queue is empty.
+              </UnavailableNote>
+            </div>
+          ) : rows.length === 0 ? (
             <div className="px-4 py-8 text-center text-gray-500" data-testid="diaspora-compliance-empty">No compliance reviews found.</div>
           ) : rows.map(row => (
             <div key={row.id} className="flex flex-wrap items-center justify-between gap-4 px-4 py-3" data-testid="diaspora-compliance-row">

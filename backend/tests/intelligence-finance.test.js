@@ -335,11 +335,11 @@ test('CollateralMap invents no vehicles on either an empty or a failed read', ()
 // ── The route exists, is protected, and derives its own scope ───────────────
 
 test('the finance demand route is mounted, role-gated and takes no caller scope', () => {
-  const routes = read('backend/routes/intelligenceProjectionRoutes.js');
+  const routes = codeOnly(read('backend/routes/intelligenceProjectionRoutes.js'));
   const server = read('backend/server.js');
   assert.ok(server.includes('app.use(intelligenceProjectionRouter)'));
 
-  const block = routes.split("'/api/finance/demand-intelligence'")[1].split('export default')[0];
+  const block = routes.split("'/api/finance/demand-intelligence'")[1].split('router.get')[0];
   assert.match(block, /authorizeRole\(\['admin', 'finance', 'bank'\]\)/);
   // Scope is read from the verified session, never from the request.
   assert.ok(block.includes('req.userContext'));
@@ -349,8 +349,8 @@ test('the finance demand route is mounted, role-gated and takes no caller scope'
 });
 
 test('the finance route serves the commercial service, and no credit-domain service exists to serve', () => {
-  const routes = read('backend/routes/intelligenceProjectionRoutes.js');
-  const handler = routes.split("'/api/finance/demand-intelligence'")[1].split('export default')[0];
+  const routes = codeOnly(read('backend/routes/intelligenceProjectionRoutes.js'));
+  const handler = routes.split("'/api/finance/demand-intelligence'")[1].split('router.get')[0];
   assert.ok(handler.includes('getFinanceDemandIntelligence'));
 
   // The commercial service is the only finance projection there is: nothing in

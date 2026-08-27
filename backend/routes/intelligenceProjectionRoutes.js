@@ -18,6 +18,7 @@ import {
   getMechanicPartsIntelligence,
   getPlatformPartsIntelligence,
 } from '../services/intelligence/partsIntelligenceService.js';
+import { getTradeIntelligence } from '../services/intelligence/tradeIntelligenceService.js';
 import {
   getMechanicIntelligence,
   getGarageIntelligence,
@@ -260,6 +261,28 @@ router.get(
     try {
       const windowDays = resolveWindowDays(req.query.window);
       const data = await getPlatformPartsIntelligence(supabase, req.userContext, { windowDays });
+      return res.json({ ok: true, ...data });
+    } catch (error) {
+      return handleProjectionError(res, error);
+    }
+  }),
+);
+
+/**
+ * Diaspora / trade intelligence.
+ *
+ * Scope is derived server-side and mirrors the authoritative import-order list.
+ * The gate deliberately omits `government`: the existing order list admits that
+ * role to the whole table, and handing an institutional role platform-wide
+ * commercial trade intelligence is gap G5, which is not repeated here.
+ */
+router.get(
+  '/api/trade/intelligence',
+  authorizeRole(['owner', 'dealer', 'admin']),
+  asyncHandler(async (req, res) => {
+    try {
+      const windowDays = resolveWindowDays(req.query.window);
+      const data = await getTradeIntelligence(supabase, req.userContext, { windowDays });
       return res.json({ ok: true, ...data });
     } catch (error) {
       return handleProjectionError(res, error);

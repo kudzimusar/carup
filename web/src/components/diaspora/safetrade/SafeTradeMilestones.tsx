@@ -11,33 +11,46 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import {
   formatMoney,
   milestoneStatusLabel,
-  milestoneHeldTotal,
+  milestoneTotalsByCurrency,
 } from './safeTradeHelpers'
 import { SAFETRADE_SANDBOX_LABEL } from '@/config/safeTradeFlag'
 import type { SafeTradeMilestone } from '@/types'
+import { UnavailableNote } from '@/components/diaspora/DataStateNotes'
 
 export interface SafeTradeMilestonesProps {
   milestones: SafeTradeMilestone[]
   currency?: string
   testId?: string
+  /** null means the milestone list could not be read — not that there are none. */
+  unavailable?: boolean
 }
 
-export function SafeTradeMilestones({ milestones, currency = 'USD', testId = 'safetrade-milestones' }: SafeTradeMilestonesProps) {
-  const total = milestoneHeldTotal(milestones)
+export function SafeTradeMilestones({ milestones, currency = 'USD', testId = 'safetrade-milestones', unavailable = false }: SafeTradeMilestonesProps) {
+  const { totals, unpriced } = milestoneTotalsByCurrency(milestones, currency)
 
   return (
     <Card data-testid={testId} aria-label="SafeTrade milestones">
       <CardHeader className="pb-3">
         <div className="flex flex-wrap items-center justify-between gap-2">
           <CardTitle className="text-base">Milestones</CardTitle>
-          <span className="text-xs text-gray-500" data-testid={`${testId}-total`}>
-            Plan total {formatMoney(total, currency)}
-          </span>
+          {/* No plan total is shown when the list could not be read: a total of
+              zero would assert an empty plan. */}
+          {!unavailable && (
+            <span className="text-xs text-gray-500" data-testid={`${testId}-total`}>
+              {totals.length === 0
+                ? 'Plan total not recorded'
+                : `Plan total ${totals.map((t) => formatMoney(t.amount, t.currency)).join(' + ')}`}
+            </span>
+          )}
         </div>
         <p className="text-xs text-gray-500" data-testid={`${testId}-sandbox`}>{SAFETRADE_SANDBOX_LABEL}</p>
       </CardHeader>
       <CardContent>
-        {milestones.length === 0 ? (
+        {unavailable ? (
+          <UnavailableNote testId={`${testId}-unavailable`}>
+            The milestone plan could not be loaded. This case may well have milestones.
+          </UnavailableNote>
+        ) : milestones.length === 0 ? (
           <p className="text-sm text-gray-500" data-testid={`${testId}-empty`}>No milestones have been defined for this case yet.</p>
         ) : (
           <ul className="divide-y divide-gray-100" role="list">
@@ -63,6 +76,11 @@ export function SafeTradeMilestones({ milestones, currency = 'USD', testId = 'sa
               </li>
             ))}
           </ul>
+        )}
+        {!unavailable && unpriced > 0 && (
+          <p className="mt-2 text-[11px] text-gray-500" data-testid={`${testId}-unpriced`}>
+            {unpriced} milestone{unpriced === 1 ? '' : 's'} with no recorded amount {unpriced === 1 ? 'is' : 'are'} excluded from the total.
+          </p>
         )}
       </CardContent>
     </Card>

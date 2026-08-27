@@ -225,13 +225,16 @@ describe('UI-10 · operator tools are role-scoped in the UI (and re-checked serv
     expect(screen.getByTestId('trade-graph-rebuild')).toBeTruthy()
   })
 
-  it('keeps the dashboard usable when the dead-letter read fails', async () => {
+  it('keeps the dashboard usable when the dead-letter read fails, without claiming a clear pipeline', async () => {
     state.user = { id: 'admin-1', role: 'admin' }
     state.deadLetterError = new Error('dead letter read failed')
     renderPage()
     // The summary is still true and still useful; only the panel degrades.
     expect(await screen.findByTestId('total-nodes')).toBeTruthy()
-    expect(screen.getByTestId('dead-letters-empty')).toBeTruthy()
+    // The panel used to render "No unprocessed events" here, asserting a clean
+    // event pipeline that had not been checked.
+    expect(screen.getByTestId('trade-graph-dead-letters-unavailable')).toBeTruthy()
+    expect(screen.queryByTestId('dead-letters-empty')).toBeNull()
   })
 
   it('explains why a dead letter has no payload instead of rendering an empty detail', async () => {

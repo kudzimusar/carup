@@ -28,4 +28,5 @@ This directory holds the phase receipts for the **CarUp Intelligence 1.0 — Dat
 | I10 | `I10_INSURANCE_INTELLIGENCE.md` | **complete** — commercial/risk boundary enforced; fabricated risk surface neutralized |
 | I11 | `I11_FINANCE_INTELLIGENCE.md` | **complete** — commercial/credit boundary enforced; bank portfolio, APR, collateral and Trust→credit-grade fabrications removed |
 | I12 | `I12_PARTS_SUPPLIER_INTELLIGENCE.md` | **complete** — RFQ + provenance served; compatibility/supplier performance refused for want of a catalogue or supplier principal; PartsTracking de-fabricated |
-| I13 | Diaspora / Trade Intelligence | next |
+| I13 | `I13_DIASPORA_TRADE_INTELLIGENCE.md` | **complete** — demand/funnel served; settled value, SafeTrade outcomes and shipment demand refused; 12 diaspora fake-zeros and a cross-currency total removed |
+| I14 | Referral & Marketing Intelligence | next |

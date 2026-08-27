@@ -37,6 +37,7 @@ export default function DiasporaSubscription() {
   const [status, setStatus] = useState<SubscriptionStatus | null>(null)
   const [entitlements, setEntitlements] = useState<EffectiveEntitlementsEnvelope | null>(null)
   const [usage, setUsage] = useState<UsageResponse | null>(null)
+  const [usageUnreadable, setUsageUnreadable] = useState(false)
   const [loading, setLoading] = useState(false)
   const [loadError, setLoadError] = useState<StructuredEntitlementDenial | null>(null)
   const [actionDenial, setActionDenial] = useState<StructuredEntitlementDenial | null>(null)
@@ -58,7 +59,10 @@ export default function DiasporaSubscription() {
       setStatus(statusRes)
       // Best-effort enrichments — a failure here must not blank the whole page (partial state).
       try { setEntitlements(await api.getDiasporaEntitlements()) } catch { /* keep prior */ }
-      try { setUsage(await api.getDiasporaUsage()) } catch { setUsage(null) }
+      try { setUsage(await api.getDiasporaUsage()); setUsageUnreadable(false) }
+      // `null` alone was indistinguishable from an empty period, so a failed read
+      // rendered as "no metered usage to report".
+      catch { setUsage(null); setUsageUnreadable(true) }
     } catch (err) {
       setLoadError(parseEntitlementDenial(err, { requestedOperation: 'load subscription' }))
     } finally {
@@ -235,7 +239,7 @@ export default function DiasporaSubscription() {
               )}
             </section>
 
-            <UsageDashboard usage={usage} />
+            <UsageDashboard usage={usage} unavailable={usageUnreadable} />
           </div>
 
           <div className="space-y-6">

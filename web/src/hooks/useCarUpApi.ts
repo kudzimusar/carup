@@ -638,6 +638,9 @@ export function useCarUpApi() {
   /** PERSON scope: the practitioner's own work, never the organization's. */
   const fetchMechanicIntelligence = useCallback(async (windowDays: 7 | 30 | 90 = 30): Promise<any> =>
     request(`/mechanic/analytics?window=${windowDays}`), [request])
+  /** Diaspora trade demand. Scope mirrors the authoritative import-order list. */
+  const fetchTradeIntelligence = useCallback(async (windowDays: 7 | 30 | 90 = 30): Promise<any> =>
+    request(`/trade/intelligence?window=${windowDays}`), [request])
   /** PERSON scope: this practitioner's PartSentry records + their org's stock. */
   const fetchPartsIntelligence = useCallback(async (windowDays: 7 | 30 | 90 = 30): Promise<any> =>
     request(`/parts/intelligence?window=${windowDays}`), [request])
@@ -2587,6 +2590,7 @@ export function useCarUpApi() {
     fetchDealerIntelligence,
     fetchFinanceIntelligence,
     fetchPartsIntelligence,
+    fetchTradeIntelligence,
     fetchPlatformPartsIntelligence,
     fetchMechanicIntelligence,
     fetchGarageIntelligence,

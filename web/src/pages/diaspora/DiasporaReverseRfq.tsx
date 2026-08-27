@@ -197,7 +197,7 @@ export default function DiasporaReverseRfq() {
                   <TableHeader><TableRow><TableHead>Item</TableHead><TableHead>Status</TableHead><TableHead></TableHead></TableRow></TableHeader>
                   <TableBody>
                     {orders.length === 0 ? (
-                      <TableRow><TableCell colSpan={3} className="h-12 text-center text-gray-500" data-testid="diaspora-buyer-order-empty">No orders yet.</TableCell></TableRow>
+                      <TableRow><TableCell colSpan={3} className="h-12 text-center text-gray-500" data-testid="diaspora-buyer-order-empty">{buyerError ? 'Orders could not be loaded. This is not a report that you have none.' : 'No orders yet.'}</TableCell></TableRow>
                     ) : orders.map((order) => (
                       <TableRow key={order.id} data-testid="diaspora-buyer-order-row">
                         <TableCell className="font-medium">{order.requested_make || order.order_type} {order.requested_model || ''}</TableCell>
@@ -282,7 +282,7 @@ export default function DiasporaReverseRfq() {
                   <TableHeader><TableRow><TableHead>Demand</TableHead><TableHead>Origin</TableHead><TableHead>Quote</TableHead></TableRow></TableHeader>
                   <TableBody>
                     {rfqs.length === 0 ? (
-                      <TableRow><TableCell colSpan={3} className="h-12 text-center text-gray-500" data-testid="diaspora-rfq-marketplace-empty">No open RFQs.</TableCell></TableRow>
+                      <TableRow><TableCell colSpan={3} className="h-12 text-center text-gray-500" data-testid="diaspora-rfq-marketplace-empty">{sellerError ? 'Open RFQs could not be loaded. This is not a report that there are none.' : 'No open RFQs.'}</TableCell></TableRow>
                     ) : rfqs.map((order) => (
                       <TableRow key={order.id} data-testid="diaspora-rfq-open-row">
                         <TableCell className="font-medium">{order.requested_make || order.order_type} {order.requested_model || ''}</TableCell>
