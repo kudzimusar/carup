@@ -1,6 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { Card, CardContent } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -187,13 +186,12 @@ export default function MarketplaceCategoryPage({ kind }: { kind: 'part' | 'serv
         ) : kind === 'part' ? (
           <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4" data-testid="marketplace-parts-grid">
             {parts.map((p) => (
-              <Card key={p.id} className="border-0 card-shadow" data-testid="marketplace-part-card">
-                <CardContent className="p-4">
+              <article key={p.id} className="border border-slate-200 border-t-4 border-t-slate-950 bg-white p-5 shadow-[0_10px_28px_rgba(15,23,42,0.06)]" data-testid="marketplace-part-card">
                   <div className="flex items-start justify-between">
                     <h3 className="font-semibold text-sm line-clamp-1">{p.part_name || 'Part'}</h3>
                     {/* PartSentry governance: verified badge ONLY when backend public-card eligibility is true */}
                     {p.partsentry_public_status === 'eligible' && p.verified_parts && (
-                      <Badge className="bg-emerald-600 text-white text-[10px]" data-testid="marketplace-part-verified-badge">Verified Parts</Badge>
+                      <Badge className="rounded-none bg-emerald-600 text-white text-[10px]" data-testid="marketplace-part-verified-badge">Verified Parts</Badge>
                     )}
                   </div>
                   <p className="mt-1 text-xs text-gray-500">{p.part_category} · {p.condition || 'unknown'}</p>
@@ -230,19 +228,17 @@ export default function MarketplaceCategoryPage({ kind }: { kind: 'part' | 'serv
                         : 'Please confirm compatibility and quote this part.'}
                     />
                   </div>
-                </CardContent>
-              </Card>
+              </article>
             ))}
           </div>
         ) : (
           <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3" data-testid="marketplace-services-grid">
             {services.map((s) => (
-              <Card key={s.id} className="border-0 card-shadow" data-testid="marketplace-service-card">
-                <CardContent className="p-4">
+              <article key={s.id} className="border border-slate-200 border-l-4 border-l-orange-500 bg-white p-5 shadow-[0_10px_28px_rgba(15,23,42,0.06)]" data-testid="marketplace-service-card">
                   <div className="flex items-start justify-between">
                     <h3 className="font-semibold text-sm">{s.display_name}</h3>
                     {s.verification_status === 'verified' && (
-                      <Badge className="bg-emerald-600 text-white text-[10px]">Verified</Badge>
+                      <Badge className="rounded-none bg-emerald-600 text-white text-[10px]">Verified</Badge>
                     )}
                   </div>
                   <p className="mt-1 text-xs text-gray-500">{(s.service_categories || []).join(', ')}</p>
@@ -250,8 +246,7 @@ export default function MarketplaceCategoryPage({ kind }: { kind: 'part' | 'serv
                   <div className="mt-3">
                     <InquiryModal inquiryTypes={[cfg.inquiryType]} defaultInquiryType={cfg.inquiryType} triggerLabel={cfg.inquiryLabel} triggerVariant="outline" triggerClassName="w-full" />
                   </div>
-                </CardContent>
-              </Card>
+              </article>
             ))}
           </div>
         )}
