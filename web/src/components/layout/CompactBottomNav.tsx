@@ -17,7 +17,7 @@ export default function CompactBottomNav() {
   const { user, isAuthenticated } = useAuth()
 
   const sellHref = !isAuthenticated
-    ? '/register'
+    ? '/sell'
     : user?.role === 'dealer'
       ? '/dealer/inventory'
       : user?.role === 'owner'
@@ -30,8 +30,8 @@ export default function CompactBottomNav() {
     { label: 'Home', href: '/', icon: Home, active: location.pathname === '/' },
     { label: 'Market', href: '/marketplace', icon: CarFront, active: location.pathname.startsWith('/marketplace') },
     { label: 'Verify', href: '/search', icon: Search, active: location.pathname.startsWith('/search') },
-    { label: 'Sell', href: sellHref, icon: Tag, active: location.pathname.includes('sell-vehicle') || location.pathname.includes('/inventory') },
-    { label: 'Account', href: accountHref, icon: CircleUserRound, active: isAuthenticated && location.pathname === accountHref },
+    { label: 'Sell', href: sellHref, icon: Tag, active: location.pathname === '/sell' || location.pathname.includes('sell-vehicle') || location.pathname.includes('/inventory') },
+    { label: 'Account', href: accountHref, icon: CircleUserRound, active: location.pathname.startsWith('/login') || location.pathname.startsWith('/register') || (isAuthenticated && location.pathname === accountHref) },
   ]
 
   return (
