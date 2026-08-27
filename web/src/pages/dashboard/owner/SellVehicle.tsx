@@ -11,9 +11,9 @@ import { zimbabweLocations, zimbabweProvinces } from '@/data/mockData'
 import { useCarUpApi } from '@/hooks/useCarUpApi'
 import { VehicleCompletenessPanel } from '@/components/VehicleCompletenessPanel'
 import { clearGuestSellDraft, readGuestSellDraft } from '@/lib/guestSellDraft'
+import { BODY_STYLES, VEHICLE_COLORS, VEHICLE_MAKES, modelsForMake } from '@/data/vehicleTaxonomy'
 
-const MAKES = ['Toyota', 'BMW', 'Mercedes-Benz', 'Nissan', 'Mazda', 'Volkswagen', 'Ford', 'Honda', 'Land Rover', 'Audi', 'Other']
-const YEARS = Array.from({ length: 37 }, (_, i) => String(2026 - i))
+const YEARS = Array.from({ length: 60 }, (_, i) => String(new Date().getFullYear() + 1 - i))
 const STEPS = ['Vehicle Details', 'Location & Pricing', 'Images & Features', 'Review & Save Draft']
 
 /**
@@ -88,6 +88,7 @@ export default function SellVehicle() {
   const [submitting, setSubmitting] = useState(false)
   const [savedVin, setSavedVin] = useState<string | null>(null)
   const [guestDraftLoaded, setGuestDraftLoaded] = useState(false)
+  const modelOptions = modelsForMake(form.make).map(item => item.name)
 
   useEffect(() => {
     const draft = readGuestSellDraft()
@@ -294,15 +295,14 @@ export default function SellVehicle() {
               <div className="grid sm:grid-cols-2 gap-4">
                 <div>
                   <label className="text-sm font-medium mb-1.5 block">Make *</label>
-                  <Select value={form.make} onValueChange={v => set('make', v)}>
-                    <SelectTrigger className={errors.make ? 'border-red-400' : ''} data-testid="vehicle-make-input"><SelectValue placeholder="Select make" /></SelectTrigger>
-                    <SelectContent>{MAKES.map(m => <SelectItem key={m} value={m}>{m}</SelectItem>)}</SelectContent>
-                  </Select>
+                  <Input list="carup-seller-makes" value={form.make} onChange={e => set('make', e.target.value)} placeholder="e.g. Toyota" className={errors.make ? 'border-red-400' : ''} data-testid="vehicle-make-input" />
+                  <datalist id="carup-seller-makes">{VEHICLE_MAKES.map(make => <option key={make} value={make} />)}</datalist>
                   {errors.make && <p className="text-xs text-red-500 mt-1">{errors.make}</p>}
                 </div>
                 <div>
                   <label className="text-sm font-medium mb-1.5 block">Model *</label>
-                  <Input value={form.model} onChange={e => set('model', e.target.value)} placeholder="e.g. Hilux GD-6" className={errors.model ? 'border-red-400' : ''} data-testid="vehicle-model-input" />
+                  <Input list="carup-seller-models" value={form.model} onChange={e => set('model', e.target.value)} placeholder="e.g. Hilux" className={errors.model ? 'border-red-400' : ''} data-testid="vehicle-model-input" />
+                  <datalist id="carup-seller-models">{modelOptions.map(model => <option key={model} value={model} />)}</datalist>
                   {errors.model && <p className="text-xs text-red-500 mt-1">{errors.model}</p>}
                 </div>
                 <div>
@@ -314,7 +314,8 @@ export default function SellVehicle() {
                 </div>
                 <div>
                   <label className="text-sm font-medium mb-1.5 block">Color *</label>
-                  <Input value={form.color} onChange={e => set('color', e.target.value)} placeholder="e.g. Pearl White" className={errors.color ? 'border-red-400' : ''} />
+                  <Input list="carup-seller-colours" value={form.color} onChange={e => set('color', e.target.value)} placeholder="e.g. Pearl White" className={errors.color ? 'border-red-400' : ''} />
+                  <datalist id="carup-seller-colours">{VEHICLE_COLORS.map(colour => <option key={colour} value={colour} />)}</datalist>
                   {errors.color && <p className="text-xs text-red-500 mt-1">{errors.color}</p>}
                 </div>
               </div>
@@ -396,7 +397,7 @@ export default function SellVehicle() {
                   <Select value={form.category} onValueChange={v => set('category', v)}>
                     <SelectTrigger className={errors.category ? 'border-red-400' : ''}><SelectValue placeholder="Select" /></SelectTrigger>
                     <SelectContent>
-                      {['Sedan', 'SUV', 'Hatchback', 'Pickup', 'Luxury', 'Commercial'].map(c => <SelectItem key={c} value={c}>{c}</SelectItem>)}
+                      {BODY_STYLES.map(bodyStyle => <SelectItem key={bodyStyle} value={bodyStyle}>{bodyStyle}</SelectItem>)}
                     </SelectContent>
                   </Select>
                 </div>
