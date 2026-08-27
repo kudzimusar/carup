@@ -195,6 +195,11 @@ export interface MarketplaceListingMediaItem {
    * consumer never has to arbitrate between two "main photos".
    */
   is_primary: boolean;
+  /**
+   * True only for generated staging/reference listing media. This is an advertising/demo
+   * provenance marker, never a verification/evidence claim and never a Trust input.
+   */
+  synthetic_demo: boolean;
 }
 
 /**
