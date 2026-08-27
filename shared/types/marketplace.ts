@@ -41,6 +41,17 @@ export type MarketplacePartSentryPublicStatus =
   | 'review_required'
   | 'suppressed';
 
+export interface MarketplacePartFitment {
+  taxonomy_version: string;
+  make: string;
+  model: string;
+  year_from: number | null;
+  year_to: number | null;
+  body_style?: string | null;
+  engine_code?: string | null;
+  variant?: string | null;
+}
+
 export type MarketplaceEvidenceStatus = 'none' | 'partial' | 'verified' | 'review_required';
 
 export type MarketplaceIdentityStatus = 'unverified' | 'pending_review' | 'verified' | 'rejected';
