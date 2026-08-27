@@ -13,14 +13,11 @@ import {
 import {
   CarFront,
   GitCompare,
-  Globe2,
   Loader2,
-  Route,
   Search,
   ShieldCheck,
   SlidersHorizontal,
   Sparkles,
-  Wrench,
   X,
 } from 'lucide-react'
 import { toast } from 'sonner'
@@ -31,8 +28,6 @@ import { useIsMobile } from '@/hooks/use-mobile'
 import type { MarketplaceInquiryType, MarketplaceListingSummary } from '@/types'
 import { captureReferralFromUrl } from '@/lib/marketplaceReferral'
 import { summaryLocationLine } from '@/lib/governedLocation'
-import { InquiryModal } from '@/components/marketplace/InquiryModal'
-import { BuyerAssistantDrawer } from '@/components/marketplace/BuyerAssistantDrawer'
 import {
   MarketplaceListingCard,
   type MarketplaceListingCardModel,
@@ -51,14 +46,6 @@ import {
 } from '@/lib/marketplaceParams'
 import type { ActiveFilterKey, MarketplaceSort, MarketplaceUrlState } from '@/lib/marketplaceParams'
 import { isAdversePlateStatus, plateStatusLabel, primaryImageForListing } from '@/lib/marketplacePresentation'
-
-const DIASPORA_INQUIRY_TYPES: MarketplaceInquiryType[] = [
-  'import_quote_request',
-  'container_space_interest',
-  'diaspora_vehicle_request',
-  'diaspora_parts_request',
-  'family_purchase_support',
-]
 
 const MAX_COMPARE = 4
 const makes = ['All', 'Toyota', 'BMW', 'Mercedes-Benz', 'Nissan', 'Mazda', 'Volkswagen', 'Ford', 'Honda', 'Land Rover', 'Audi']
@@ -601,98 +588,24 @@ export default function Marketplace() {
 
   return (
     <div className="min-h-screen bg-[#f6f7f9] text-slate-950" data-testid="marketplace-page">
-      <section className="relative overflow-hidden border-b border-slate-800 bg-[#07101f] text-white">
-        <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_18%_20%,rgba(249,115,22,0.24),transparent_34%),radial-gradient(circle_at_82%_10%,rgba(14,165,233,0.16),transparent_30%),linear-gradient(135deg,transparent_0%,rgba(255,255,255,0.035)_48%,transparent_100%)]" />
-        <div className="pointer-events-none absolute -right-24 top-8 h-80 w-80 rounded-full border border-white/5" />
-        <div className="pointer-events-none absolute -right-4 top-28 h-56 w-56 rounded-full border border-orange-400/10" />
-
-        <div className="section-padding relative mx-auto max-w-[1440px] py-10 sm:py-14 lg:py-16">
-          <div className="grid gap-10 lg:grid-cols-[minmax(0,1fr)_390px] lg:items-center">
-            <div>
-              <div className="mb-4 inline-flex items-center gap-2 rounded-full border border-orange-400/25 bg-orange-400/10 px-3 py-1.5 text-[11px] font-semibold uppercase tracking-[0.18em] text-orange-300">
-                <CarFront className="h-4 w-4" /> CarUp Marketplace
-              </div>
-              <h1 className="max-w-4xl text-4xl font-black tracking-[-0.035em] sm:text-5xl lg:text-6xl lg:leading-[1.02]">
-                Find the right car.
-                <span className="block bg-gradient-to-r from-orange-300 via-orange-500 to-amber-300 bg-clip-text text-transparent">
-                  Know what CarUp knows.
-                </span>
-              </h1>
-              <p className="mt-5 max-w-2xl text-sm leading-7 text-slate-300 sm:text-base lg:text-lg">
-                Shop published vehicles with clear pricing, governed vehicle facts and canonical Trust states — without turning unknown data into a claim.
-              </p>
-
-              <div className="mt-6 flex flex-wrap items-center gap-2" data-testid="marketplace-entry-actions">
-                <BuyerAssistantDrawer triggerClassName="border-orange-400/40 bg-orange-500 text-white shadow-[0_10px_30px_rgba(249,115,22,0.25)] hover:bg-orange-400 hover:text-white" />
-                <Button asChild variant="outline" className="border-slate-600 bg-white/5 text-white backdrop-blur hover:bg-white/10 hover:text-white" data-testid="marketplace-parts-link">
-                  <Link to="/marketplace/parts"><Wrench className="mr-2 h-4 w-4" />Parts</Link>
-                </Button>
-                <Button asChild variant="outline" className="border-slate-600 bg-white/5 text-white backdrop-blur hover:bg-white/10 hover:text-white" data-testid="marketplace-services-link">
-                  <Link to="/marketplace/services"><Route className="mr-2 h-4 w-4" />Garages &amp; Services</Link>
-                </Button>
-                <InquiryModal
-                  inquiryTypes={DIASPORA_INQUIRY_TYPES}
-                  defaultInquiryType="import_quote_request"
-                  triggerLabel="Import to Zimbabwe"
-                  triggerVariant="outline"
-                  triggerClassName="border-slate-600 bg-white/5 text-white backdrop-blur hover:bg-white/10 hover:text-white"
-                />
-              </div>
-
-              <div className="mt-8 grid max-w-3xl grid-cols-1 gap-2 sm:grid-cols-3" aria-label="Marketplace trust principles">
-                {[
-                  ['Evidence-first', 'Claims show their source or stay unknown'],
-                  ['Buyer-safe', 'Privacy and adverse states fail closed'],
-                  ['Living passport', 'History grows as verified records arrive'],
-                ].map(([title, copy]) => (
-                  <div key={title} className="rounded-2xl border border-white/10 bg-white/[0.045] p-3.5 backdrop-blur-sm">
-                    <div className="flex items-center gap-2 text-xs font-semibold text-white">
-                      <ShieldCheck className="h-4 w-4 text-orange-400" /> {title}
-                    </div>
-                    <p className="mt-1.5 text-[11px] leading-5 text-slate-400">{copy}</p>
-                  </div>
-                ))}
-              </div>
+      <section className="border-b border-slate-200 bg-white" data-testid="marketplace-compact-header">
+        <div className="section-padding mx-auto flex max-w-[1440px] flex-col gap-3 py-4 sm:flex-row sm:items-center sm:justify-between">
+          <div>
+            <div className="flex items-center gap-2 text-xs font-black uppercase tracking-[0.16em] text-orange-600">
+              <CarFront className="h-4 w-4" /> Marketplace
             </div>
-
-            <div className="relative">
-              <div className="rounded-[28px] border border-white/10 bg-white/[0.055] p-5 shadow-[0_30px_80px_rgba(0,0,0,0.35)] backdrop-blur-xl">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-orange-300">CarUp Intelligence</p>
-                    <p className="mt-1 text-xl font-bold">Trust is evidence-led</p>
-                  </div>
-                  <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-orange-500/15 text-orange-300 ring-1 ring-orange-400/20">
-                    <ShieldCheck className="h-6 w-6" />
-                  </div>
-                </div>
-                <div className="mt-5 space-y-3">
-                  <div className="rounded-2xl bg-[#0b1627] p-4 ring-1 ring-white/5">
-                    <div className="flex items-end justify-between gap-4">
-                      <div>
-                        <p className="text-xs text-slate-400">Canonical Trust</p>
-                        <p className="mt-1 text-lg font-bold">Score + confidence + evidence</p>
-                      </div>
-                      <Sparkles className="h-5 w-5 text-orange-400" />
-                    </div>
-                    <p className="mt-2 text-xs leading-5 text-slate-400">A number appears only when the canonical authority has evaluated the vehicle. No legacy fallback.</p>
-                  </div>
-                  <div className="grid grid-cols-2 gap-3">
-                    <div className="rounded-2xl border border-white/8 bg-white/[0.035] p-3">
-                      <Globe2 className="h-4 w-4 text-sky-400" />
-                      <p className="mt-2 text-xs font-semibold">Zimbabwe + Diaspora</p>
-                      <p className="mt-1 text-[10px] text-slate-500">One buying journey</p>
-                    </div>
-                    <div className="rounded-2xl border border-white/8 bg-white/[0.035] p-3">
-                      <Route className="h-4 w-4 text-orange-400" />
-                      <p className="mt-2 text-xs font-semibold">Vehicle story</p>
-                      <p className="mt-1 text-[10px] text-slate-500">History, evidence, gaps</p>
-                    </div>
-                  </div>
-                </div>
-              </div>
-            </div>
+            <h1 className="mt-1 text-2xl font-black tracking-tight text-slate-950 sm:text-3xl">
+              Shop vehicles and automotive services
+            </h1>
           </div>
+          <nav className="flex gap-1 overflow-x-auto pb-1 text-sm font-semibold" aria-label="Marketplace categories">
+            <Link to="/marketplace" className="shrink-0 border-b-2 border-orange-500 px-3 py-2 text-slate-950">Cars</Link>
+            <Link to="/marketplace/parts" className="shrink-0 border-b-2 border-transparent px-3 py-2 text-slate-500 hover:text-slate-950">Parts</Link>
+            <Link to="/marketplace/services" className="shrink-0 border-b-2 border-transparent px-3 py-2 text-slate-500 hover:text-slate-950">Garages</Link>
+            <Link to="/diaspora" className="shrink-0 border-b-2 border-transparent px-3 py-2 text-slate-500 hover:text-slate-950">Imports</Link>
+            <Link to="/insurance" className="shrink-0 border-b-2 border-transparent px-3 py-2 text-slate-500 hover:text-slate-950">Insurance</Link>
+            <Link to="/pricing" className="shrink-0 border-b-2 border-transparent px-3 py-2 text-slate-500 hover:text-slate-950">Finance</Link>
+          </nav>
         </div>
       </section>
 
