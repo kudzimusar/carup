@@ -46,12 +46,14 @@ import {
 } from '@/lib/marketplaceParams'
 import type { ActiveFilterKey, MarketplaceSort, MarketplaceUrlState } from '@/lib/marketplaceParams'
 import { isAdversePlateStatus, plateStatusLabel, primaryImageForListing } from '@/lib/marketplacePresentation'
-import { VEHICLE_MAKES } from '@/data/vehicleTaxonomy'
+import { VEHICLE_COLORS, VEHICLE_MAKES, VEHICLE_TAXONOMY, modelsForMake } from '@/data/vehicleTaxonomy'
 
 const MAX_COMPARE = 4
 const makes = ['All', ...VEHICLE_MAKES]
 const fuelTypes = ['All', 'Petrol', 'Diesel', 'Hybrid', 'Electric']
 const transmissions = ['All', 'Automatic', 'Manual']
+const marketplaceYears = Array.from({ length: new Date().getFullYear() - 1959 }, (_, index) => String(new Date().getFullYear() + 1 - index))
+const allTaxonomyModels = Array.from(new Set(VEHICLE_TAXONOMY.flatMap(make => make.models.map(model => model.name)))).sort()
 const CONDITION_CHIPS = [...CATEGORY_CHIPS, 'Parts & Accessories']
 const TRUST_CHIPS = TRUST_TAG_CHIPS
 
@@ -173,6 +175,12 @@ function setFavorites(ids: string[]) {
 interface FilterControlsProps {
   selectedMake: string
   onMake: (value: string) => void
+  selectedModel: string
+  onModel: (value: string) => void
+  selectedYear: string
+  onYear: (value: string) => void
+  selectedColor: string
+  onColor: (value: string) => void
   selectedLocation: string
   onLocation: (value: string) => void
   selectedFuel: string
@@ -186,6 +194,12 @@ interface FilterControlsProps {
 function FilterControls({
   selectedMake,
   onMake,
+  selectedModel,
+  onModel,
+  selectedYear,
+  onYear,
+  selectedColor,
+  onColor,
   selectedLocation,
   onLocation,
   selectedFuel,
@@ -203,6 +217,44 @@ function FilterControls({
           <SelectTrigger data-testid="marketplace-make-filter" className="bg-white"><SelectValue /></SelectTrigger>
           <SelectContent>{makes.map(make => <SelectItem key={make} value={make}>{make}</SelectItem>)}</SelectContent>
         </Select>
+      </div>
+
+      <div>
+        <label className="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-slate-500">Model</label>
+        <Input
+          list="marketplace-model-options"
+          value={selectedModel === ALL ? '' : selectedModel}
+          onChange={event => onModel(event.target.value.trim() || ALL)}
+          placeholder={selectedMake === ALL ? 'Any model' : `Any ${selectedMake} model`}
+          data-testid="marketplace-model-filter"
+        />
+        <datalist id="marketplace-model-options">
+          {(selectedMake === ALL ? allTaxonomyModels : modelsForMake(selectedMake).map(model => model.name))
+            .map(model => <option key={model} value={model} />)}
+        </datalist>
+      </div>
+
+      <div className="grid grid-cols-2 gap-3 lg:grid-cols-1">
+        <div>
+          <label className="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-slate-500">Year</label>
+          <Select value={selectedYear} onValueChange={onYear}>
+            <SelectTrigger className="bg-white" data-testid="marketplace-year-filter"><SelectValue /></SelectTrigger>
+            <SelectContent>
+              <SelectItem value={ALL}>All years</SelectItem>
+              {marketplaceYears.map(year => <SelectItem key={year} value={year}>{year}</SelectItem>)}
+            </SelectContent>
+          </Select>
+        </div>
+        <div>
+          <label className="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-slate-500">Colour</label>
+          <Select value={selectedColor} onValueChange={onColor}>
+            <SelectTrigger className="bg-white" data-testid="marketplace-color-filter"><SelectValue /></SelectTrigger>
+            <SelectContent>
+              <SelectItem value={ALL}>All colours</SelectItem>
+              {VEHICLE_COLORS.map(color => <SelectItem key={color} value={color}>{color}</SelectItem>)}
+            </SelectContent>
+          </Select>
+        </div>
       </div>
 
       <div>
@@ -273,8 +325,8 @@ function FilterControls({
         <Slider value={priceRange} onValueChange={setPriceRange} max={100000} step={1000} />
       </div>
 
-      <div className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 text-[11px] leading-4 text-slate-500">
-        Body style will appear here when CarUp has a governed public body-style field. The production Marketplace does not expose a filter that can only operate on mock/local data.
+      <div className="border-l-2 border-slate-300 pl-3 text-[11px] leading-4 text-slate-500">
+        Body style is collected by the taxonomy but is not yet a public Marketplace facet because the canonical vehicle row has no governed body-style field. CarUp does not infer one from make/model where multiple bodies exist.
       </div>
     </div>
   )
@@ -447,6 +499,8 @@ export default function Marketplace() {
       listing.vin,
       listing.make,
       listing.model,
+      listing.year,
+      listing.color,
       listing.location,
       listing.seller_display_label,
       listing.seller_type,
@@ -476,7 +530,10 @@ export default function Marketplace() {
   }
 
   const removeChip = (key: ActiveFilterKey, value?: string) => {
-    if (key === 'make') updateUrl({ selectedMake: ALL })
+    if (key === 'make') updateUrl({ selectedMake: ALL, selectedModel: ALL })
+    else if (key === 'model') updateUrl({ selectedModel: ALL })
+    else if (key === 'year') updateUrl({ selectedYear: ALL })
+    else if (key === 'color') updateUrl({ selectedColor: ALL })
     else if (key === 'q') {
       setSearchQuery('')
       updateUrl({ searchQuery: '' }, true)
@@ -503,7 +560,13 @@ export default function Marketplace() {
   const filterControls = (
     <FilterControls
       selectedMake={url.selectedMake}
-      onMake={value => updateUrl({ selectedMake: value })}
+      onMake={value => updateUrl({ selectedMake: value, selectedModel: ALL })}
+      selectedModel={url.selectedModel}
+      onModel={value => updateUrl({ selectedModel: value })}
+      selectedYear={url.selectedYear}
+      onYear={value => updateUrl({ selectedYear: value })}
+      selectedColor={url.selectedColor}
+      onColor={value => updateUrl({ selectedColor: value })}
       selectedLocation={url.selectedLocation}
       onLocation={value => updateUrl({ selectedLocation: value })}
       selectedFuel={url.selectedFuel}
