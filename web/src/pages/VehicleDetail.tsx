@@ -1114,7 +1114,7 @@ function governedPrice(price: unknown, currency: unknown): string {
 export default function VehicleDetail() {
   const { id } = useParams()
   const navigate = useNavigate()
-  const { reserveVehicle, createSafePayEscrow, submitFinancing, fetchVehicle, fetchVehiclePassport, lookupVehiclePassport, fetchMarketplaceListingDetail, saveMarketplaceListing, unsaveMarketplaceListing, fetchSavedMarketplaceListings, fetchEvidenceTaxonomy, fetchEvidenceSources, fetchTemporalFindings, fetchDisclosureConflicts, fetchVehicleReport, generateReportVersion, createReportShareLink, fetchVehicleTrustDecision } = useCarUpApi()
+  const { submitFinancing, fetchVehicle, fetchVehiclePassport, lookupVehiclePassport, fetchMarketplaceListingDetail, saveMarketplaceListing, unsaveMarketplaceListing, fetchSavedMarketplaceListings, fetchEvidenceTaxonomy, fetchEvidenceSources, fetchTemporalFindings, fetchDisclosureConflicts, fetchVehicleReport, generateReportVersion, createReportShareLink, fetchVehicleTrustDecision } = useCarUpApi()
   const { isAuthenticated, user, loading: authLoading } = useAuth()
 
   // Buyers/owners can generate a snapshot + share link; backend enforces the role.
@@ -1147,9 +1147,6 @@ export default function VehicleDetail() {
   // asserts reserved state on its own — `status` from the server is the only source of "Reserved".
   const [reserveRequested, setReserveRequested] = useState(false)
   const [isFinanced, setIsFinanced] = useState(false)
-
-  const [showReserveModal, setShowReserveModal] = useState(false)
-  const [reserveLoading, setReserveLoading]     = useState(false)
 
   const [showFinanceModal, setShowFinanceModal] = useState(false)
   const [financeLoading, setFinanceLoading]     = useState(false)
@@ -1473,29 +1470,6 @@ export default function VehicleDetail() {
     ? `/marketplace/compare?vins=${encodeURIComponent(vehicle.vin)}`
     : '/marketplace/compare'
 
-  const handleReserve = async () => {
-    if (!vehicle) return
-    // An escrow needs a real counterparty. Without one we fail closed rather than opening a
-    // payment instrument against a placeholder.
-    const sellerId = vehicle.tenant_id ?? vehicle.sellerId ?? null
-    if (!sellerId) {
-      toast.error('SafePay escrow is opened by CarUp once a verified inquiry confirms the seller. Send an inquiry to begin.')
-      return
-    }
-    setReserveLoading(true)
-    try {
-      await reserveVehicle(vehicle.vin ?? '', 7)
-      await createSafePayEscrow(vehicle.vin ?? '', sellerId, 500)
-      setReserveRequested(true)
-      setShowReserveModal(false)
-      toast.success('Reservation requested. SafePay escrow of $500 initiated.', { duration: 5000 })
-    } catch (e: unknown) {
-      toast.error(e instanceof Error ? e.message : 'Failed to initiate Escrow. Make sure you are logged in.')
-    } finally {
-      setReserveLoading(false)
-    }
-  }
-
   const handleFinance = async () => {
     if (!vehicle) return
     // The applicant is the signed-in user; there is no fallback identity to apply on behalf of.
@@ -1656,9 +1630,11 @@ export default function VehicleDetail() {
     ? `https://wa.me/${sellerContactNumber.replace(/[^0-9]/g, '')}?text=Hi%2C%20I%20am%20interested%20in%20your%20${vehicle.year ?? ''}%20${vehicle.make ?? ''}%20${vehicle.model ?? ''}%20listed%20on%20CarUp.`
     : null
 
-  // Transaction identity. Reserved state is read from the server listing status; the escrow
-  // counterparty must resolve to a real seller or the reserve path stays closed.
-  const resolvedSellerId    = vehicle.tenant_id ?? vehicle.sellerId ?? null
+  // Transaction state is server-owned. Vehicle Detail may acknowledge an already-reserved
+  // listing, but it does not infer transaction eligibility from tenant/seller identifiers. A
+  // reservation request first enters the governed inquiry path; canonical seller lineage, current
+  // inquiry, listing economics and Trust gates are resolved by the server before any reservation
+  // or payment step.
   const isReservedOnServer  = vehicle.status === 'reserved' || vehicle.status === 'Reserved'
   const canApplyForFinancing = isAuthenticated && Boolean(user?.id)
 
@@ -2629,14 +2605,6 @@ export default function VehicleDetail() {
                   <div className="w-full flex items-center justify-center gap-2 bg-white/10 border border-white/20 rounded-lg py-3 text-gray-200 font-semibold text-sm" data-testid="reserve-requested-state">
                     <Clock className="w-4 h-4" /> Reservation requested — awaiting confirmation
                   </div>
-                ) : resolvedSellerId && isAuthenticated ? (
-                  <Button
-                    className="w-full gap-2 bg-white font-semibold text-gray-900 hover:bg-gray-100"
-                    onClick={() => setShowReserveModal(true)}
-                    data-testid="reserve-vehicle"
-                  >
-                    <Lock className="w-4 h-4" /> Reserve with SafePay
-                  </Button>
                 ) : (
                   <div data-testid="reservation-request-entry">
                     <InquiryModal
@@ -2650,7 +2618,7 @@ export default function VehicleDetail() {
                       onSubmitted={() => setReserveRequested(true)}
                     />
                     <p className="mt-2 text-xs text-gray-400">
-                      A request starts the verified conversation first. Escrow opens only after CarUp can identify the parties and authorize the transaction.
+                      CarUp resolves the current seller, purchase inquiry, listing terms and Trust gates before a reservation or SafePay step can open.
                     </p>
                   </div>
                 )}
@@ -2679,7 +2647,7 @@ export default function VehicleDetail() {
                     </p>
                   </div>
                 )}
-                <p className="text-xs text-gray-400 text-center mt-3">🔒 Protected by CarUp SafePay Escrow</p>
+                <p className="text-xs text-gray-400 text-center mt-3">🔒 SafePay opens only after CarUp verifies transaction eligibility</p>
               </CardContent>
             </Card>
 
@@ -2966,35 +2934,6 @@ export default function VehicleDetail() {
         title={`${vehicle.year ?? ''} ${vehicle.make ?? ''} ${vehicle.model ?? ''}`.trim()}
         url={typeof window !== 'undefined' ? window.location.href : ''}
       />
-
-      {/* ── Reserve Modal ─────────────────────────────────────────────────── */}
-      <Dialog open={showReserveModal} onOpenChange={setShowReserveModal}>
-        <DialogContent className="sm:max-w-md">
-          <DialogHeader>
-            <DialogTitle className="flex items-center gap-2"><Lock className="w-5 h-5 text-orange-500" /> Reserve this Vehicle</DialogTitle>
-            <DialogDescription>Secure your interest with a CarUp SafePay reservation</DialogDescription>
-          </DialogHeader>
-          <div className="space-y-4 py-2">
-            <div className="bg-gray-50 rounded-lg p-4">
-              <p className="font-semibold">{vehicle.year ?? ''} {vehicle.make ?? ''} {vehicle.model ?? ''}</p>
-              <p className="text-2xl font-bold text-orange-600 mt-1">{governedPrice(vehicle.price, vehicle.currency)}</p>
-            </div>
-            <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 text-sm text-blue-800 space-y-1">
-              <p className="font-semibold">What happens next:</p>
-              <p>✓ Vehicle held exclusively for you for 7 days</p>
-              <p>✓ Refundable deposit of <strong>$500</strong> held in SafePay escrow</p>
-              <p>✓ Seller notified immediately via WhatsApp</p>
-              <p>✓ Funds released only on successful transfer</p>
-            </div>
-            <div className="flex gap-3">
-              <Button variant="outline" className="flex-1" onClick={() => setShowReserveModal(false)} disabled={reserveLoading}>Cancel</Button>
-              <Button className="flex-1 bg-orange-500 hover:bg-orange-600" onClick={handleReserve} disabled={reserveLoading || !resolvedSellerId}>
-                {reserveLoading ? <><Loader2 className="w-4 h-4 mr-2 animate-spin" />Processing...</> : 'Confirm Reservation'}
-              </Button>
-            </div>
-          </div>
-        </DialogContent>
-      </Dialog>
 
       {/* ── Finance Modal ─────────────────────────────────────────────────── */}
       <Dialog open={showFinanceModal} onOpenChange={setShowFinanceModal}>
