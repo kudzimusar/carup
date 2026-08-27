@@ -96,7 +96,9 @@ describe('VehicleSearch de-mock (no fabricated inventory)', () => {
   it('links browse results to the marketplace listing detail route', async () => {
     renderSearch()
     await waitFor(() => expect(screen.getByTestId('vehicle-search-result')).toBeTruthy())
-    expect(screen.getByTestId('vehicle-search-result').getAttribute('href')).toBe('/marketplace/listing/JTDKARFP0H3000731')
+    const card = screen.getByTestId('vehicle-search-result')
+    const link = card.querySelector('[data-testid="marketplace-view-passport"]')
+    expect(link?.getAttribute('href')).toBe('/marketplace/listing/JTDKARFP0H3000731')
   })
 
   it('shows a truthful empty state when the live API returns no listings', async () => {
