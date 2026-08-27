@@ -123,6 +123,7 @@ export interface MarketplaceListingSummary {
   make: string;
   model: string;
   year: number | null;
+  color?: string | null;
   price: number | null;
   currency: string | null;
   mileage: number | null;
