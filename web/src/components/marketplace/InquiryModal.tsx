@@ -14,6 +14,7 @@ import { toast } from 'sonner'
 import { useCarUpApi } from '@/hooks/useCarUpApi'
 import { useAuth } from '@/context/AuthContext'
 import { inquiryAttributionFields } from '@/lib/marketplaceReferral'
+import { track as trackActivity } from '@/lib/intelligenceActivity'
 import { getErrorMessage } from '@/lib/errorMessage'
 import type { MarketplaceInquiryType } from '@/types'
 
@@ -54,6 +55,25 @@ export function InquiryModal({
   const { user } = useAuth()
   const { createMarketplaceInquiry } = useCarUpApi()
   const [open, setOpen] = useState(false)
+
+  /**
+   * Opening the contact form is the START of the lead funnel, and it is the only
+   * step a shopper can abandon without leaving any authoritative trace: the
+   * inquiry row only exists once they submit. Recording the start is what makes
+   * "how many people tried to contact this seller and gave up" answerable.
+   * Fire-and-forget — a shopper is never made to wait on telemetry.
+   */
+  const handleOpenChange = (next: boolean) => {
+    if (next && !open) {
+      trackActivity({
+        event_type: 'marketplace_inquiry_started',
+        listing_id: listingId || null,
+        source_surface: 'marketplace_detail',
+        metadata: { inquiry_type: inquiryType },
+      })
+    }
+    setOpen(next)
+  }
   const [submitting, setSubmitting] = useState(false)
   const [inquiryType, setInquiryType] = useState<MarketplaceInquiryType>(defaultInquiryType || inquiryTypes[0])
   const [name, setName] = useState(user?.name || '')
@@ -101,7 +121,7 @@ export function InquiryModal({
   }
 
   return (
-    <Dialog open={open} onOpenChange={setOpen}>
+    <Dialog open={open} onOpenChange={handleOpenChange}>
       <DialogTrigger asChild>
         <Button variant={triggerVariant} className={triggerClassName} data-testid="marketplace-inquiry-open">
           <MessageSquare className="mr-2 h-4 w-4" />

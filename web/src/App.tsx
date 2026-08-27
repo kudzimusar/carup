@@ -28,6 +28,7 @@ import Pricing from './pages/Pricing'
 import About from './pages/About'
 import Contact from './pages/Contact'
 import ScrollToTop from './components/layout/ScrollToTop'
+import ActivityInstrumentation from './components/intelligence/ActivityInstrumentation'
 
 // New Footer Pages
 import Careers from './pages/Careers'
@@ -231,6 +232,7 @@ export default function App() {
       )}
       <Toaster position="top-right" />
       <ScrollToTop />
+      <ActivityInstrumentation />
       <FeatureGovernanceLoader>
       <Routes>
         {/* Public Routes */}
