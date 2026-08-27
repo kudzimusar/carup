@@ -1930,6 +1930,11 @@ export default function VehicleDetail() {
                   {/* No "Featured" badge: it was awarded by a client-side score threshold, which is a
                       merchandising claim the page has no authority to make. "Reserved" stays — it is
                       a listing state, not a claim about the photograph under it. */}
+                  {detail?.carup_gold?.state === 'qualified' && (
+                    <Badge className="border border-amber-200 bg-[linear-gradient(135deg,#f59e0b,#facc15)] font-black uppercase tracking-[0.1em] text-slate-950 shadow-lg" data-testid="vehicle-detail-carup-gold">
+                      ★ CarUp Gold
+                    </Badge>
+                  )}
                   {isReservedOnServer && <Badge className="bg-amber-500 text-white">Reserved</Badge>}
                 </div>
                 <div className="absolute top-4 right-4 flex gap-2">
