@@ -638,6 +638,7 @@ export function buildMarketplaceListingSummary({
     vin: vehicle.vin,
     make: vehicle.make,
     model: vehicle.model,
+    color: isRecordedValue(vehicle.color) ? String(vehicle.color).trim() : null,
     // EVERY BUSINESS FACT BELOW IS THE COLUMN OR IT IS NULL. `numericValue(x, 0)` published a
     // fabricated 0 for an unrecorded year, price and odometer — a $0, 0 km, year-0 listing that a
     // shopper cannot tell from a real one — and `|| 'USD'` / `|| 'Available'` stated a currency and
@@ -735,6 +736,8 @@ function summaryMatchesSearch(summary, query) {
     summary.vin,
     summary.make,
     summary.model,
+    summary.year,
+    summary.color,
     summary.condition_category,
     summary.seller_type,
     summary.seller_display_label,
@@ -1007,6 +1010,7 @@ export const LISTING_SELECT_COLUMNS = `
       make,
       model,
       year,
+      color,
       mileage,
       fuel_type,
       transmission,
@@ -1139,6 +1143,12 @@ export async function listMarketplaceListings(supabaseClient, params = {}) {
   const limit = safeLimit(params.limit);
   const minPrice = params.minPrice !== undefined ? numericValue(params.minPrice) : null;
   const maxPrice = params.maxPrice !== undefined ? numericValue(params.maxPrice) : null;
+  const requestedYear = params.year !== undefined && params.year !== null && String(params.year).trim() !== ''
+    ? Number(params.year)
+    : null;
+  const validYear = Number.isInteger(requestedYear) && requestedYear >= 1900 && requestedYear <= new Date().getFullYear() + 1
+    ? requestedYear
+    : null;
 
   // QA Round 4: ONE mutually-exclusive condition/category + MANY stackable trust tags (AND).
   const requestedTags = parseTagList(params.tag);
@@ -1162,6 +1172,9 @@ export async function listMarketplaceListings(supabaseClient, params = {}) {
   const shapeListQuery = (query) => {
     let q = query;
     if (params.make) q = q.eq('make', params.make);
+    if (params.model) q = q.eq('model', params.model);
+    if (validYear !== null) q = q.eq('year', validYear);
+    if (params.color) q = q.eq('color', params.color);
     if (minPrice !== null) q = q.gte('price', minPrice);
     if (maxPrice !== null) q = q.lte('price', maxPrice);
     if (requestedCondition && CONDITION_CATEGORIES.includes(requestedCondition)) {
@@ -1197,6 +1210,9 @@ export async function listMarketplaceListings(supabaseClient, params = {}) {
   // the first-page bug where a valid vehicle outside the initial 48 could never be discovered.
   const filtered = summaries
     .filter(summary => summaryMatchesSearch(summary, params.q))
+    .filter(summary => summaryMatchesTextFacet(summary, params.model, 'model'))
+    .filter(summary => validYear === null || summary.year === validYear)
+    .filter(summary => summaryMatchesTextFacet(summary, params.color, 'color'))
     .filter(summary => summaryMatchesCondition(summary, requestedCondition))
     .filter(summary => summaryMatchesTags(summary, requestedTags))
     .filter(summary => summaryMatchesLocationFacet(summary, params.location))
