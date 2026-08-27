@@ -1,17 +1,17 @@
 import { useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { ArrowLeft, ArrowRight, Camera, Check, LogIn, ShieldCheck, Tag, X } from 'lucide-react'
+import { ArrowLeft, ArrowRight, Camera, LogIn, ShieldCheck, X } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { useAuth } from '@/context/AuthContext'
 import { zimbabweLocations, zimbabweProvinces } from '@/data/mockData'
+import { BODY_STYLES, VEHICLE_COLORS, VEHICLE_MAKES, modelsForMake } from '@/data/vehicleTaxonomy'
 import { saveGuestSellDraft } from '@/lib/guestSellDraft'
 import { toast } from 'sonner'
 
 const CURRENCIES = ['USD', 'ZiG']
 const CONDITIONS = ['New', 'Used', 'Certified Pre-Owned']
-const CATEGORIES = ['Sedan', 'SUV', 'Hatchback', 'Pickup', 'Wagon', 'Coupe', 'Van', 'Commercial', 'Other']
 const FUELS = ['Petrol', 'Diesel', 'Hybrid', 'Electric', 'Plug-in Hybrid', 'Other']
 const TRANSMISSIONS = ['Automatic', 'Manual', 'CVT', 'Other']
 
@@ -36,6 +36,7 @@ export default function GuestSell() {
   const [feature, setFeature] = useState('')
   const [errors, setErrors] = useState<Record<string, string>>({})
   const [draftSaved, setDraftSaved] = useState(false)
+  const modelOptions = useMemo(() => modelsForMake(form.make).map(item => item.name), [form.make])
 
   const set = <K extends keyof GuestForm>(key: K, value: GuestForm[K]) => {
     setForm(previous => ({ ...previous, [key]: value }))
@@ -152,10 +153,19 @@ export default function GuestSell() {
                 <p className="mt-1 text-sm text-slate-500">Nothing is published from this step.</p>
               </div>
               <div className="grid gap-4 sm:grid-cols-2">
-                <Field label="Make" error={errors.make}><Input value={form.make} onChange={e => set('make', e.target.value)} placeholder="Toyota" data-testid="guest-sell-make" /></Field>
-                <Field label="Model" error={errors.model}><Input value={form.model} onChange={e => set('model', e.target.value)} placeholder="Hilux" data-testid="guest-sell-model" /></Field>
+                <Field label="Make" error={errors.make}>
+                  <Input list="carup-guest-makes" value={form.make} onChange={e => set('make', e.target.value)} placeholder="Toyota" data-testid="guest-sell-make" />
+                  <datalist id="carup-guest-makes">{VEHICLE_MAKES.map(make => <option key={make} value={make} />)}</datalist>
+                </Field>
+                <Field label="Model" error={errors.model}>
+                  <Input list="carup-guest-models" value={form.model} onChange={e => set('model', e.target.value)} placeholder="Hilux" data-testid="guest-sell-model" />
+                  <datalist id="carup-guest-models">{modelOptions.map(model => <option key={model} value={model} />)}</datalist>
+                </Field>
                 <Field label="Year" error={errors.year}><Input type="number" value={form.year} onChange={e => set('year', e.target.value)} placeholder="2019" data-testid="guest-sell-year" /></Field>
-                <Field label="Colour" error={errors.color}><Input value={form.color} onChange={e => set('color', e.target.value)} placeholder="Silver" data-testid="guest-sell-color" /></Field>
+                <Field label="Colour" error={errors.color}>
+                  <Input list="carup-guest-colours" value={form.color} onChange={e => set('color', e.target.value)} placeholder="Silver" data-testid="guest-sell-color" />
+                  <datalist id="carup-guest-colours">{VEHICLE_COLORS.map(colour => <option key={colour} value={colour} />)}</datalist>
+                </Field>
               </div>
               <Field label="VIN" error={errors.vin}>
                 <Input value={form.vin} onChange={e => set('vin', e.target.value.toUpperCase())} maxLength={17} placeholder="17-character VIN" className="font-mono" data-testid="guest-sell-vin" />
@@ -178,7 +188,7 @@ export default function GuestSell() {
               <div className="grid gap-4 sm:grid-cols-3">
                 <Field label="Mileage (km)" error={errors.mileage}><Input type="number" value={form.mileage} onChange={e => set('mileage', e.target.value)} /></Field>
                 <SelectField label="Condition" value={form.condition} error={errors.condition} onValue={v => set('condition', v)} options={CONDITIONS} />
-                <SelectField label="Body style" value={form.category} error={errors.category} onValue={v => set('category', v)} options={CATEGORIES} />
+                <SelectField label="Body style" value={form.category} error={errors.category} onValue={v => set('category', v)} options={[...BODY_STYLES]} />
                 <SelectField label="Fuel" value={form.fuelType} error={errors.fuelType} onValue={v => set('fuelType', v)} options={FUELS} />
                 <SelectField label="Transmission" value={form.transmission} error={errors.transmission} onValue={v => set('transmission', v)} options={TRANSMISSIONS} />
                 <SelectField label="Currency" value={form.currency} error={errors.currency} onValue={v => set('currency', v)} options={CURRENCIES} />
