@@ -13,6 +13,7 @@ import express from 'express';
 import { authorizeRole } from '../middleware/authMiddleware.js';
 import { supabase } from '../db/supabase.js';
 import { getInsuranceDemandIntelligence } from '../services/intelligence/insuranceIntelligenceService.js';
+import { getFinanceDemandIntelligence } from '../services/intelligence/financeIntelligenceService.js';
 import {
   getMechanicIntelligence,
   getGarageIntelligence,
@@ -197,6 +198,27 @@ router.get(
     try {
       const windowDays = resolveWindowDays(req.query.window);
       const data = await getInsuranceDemandIntelligence(supabase, req.userContext, { windowDays });
+      return res.json({ ok: true, ...data });
+    } catch (error) {
+      return handleProjectionError(res, error);
+    }
+  }),
+);
+
+/**
+ * Finance COMMERCIAL demand — deliberately not the credit-risk domain.
+ *
+ * Scope from verified lender membership; a platform admin sees the platform view.
+ */
+router.get(
+  '/api/finance/demand-intelligence',
+  // Same role set the finance application routes already accept, so a lender who
+  // can read the queue can also read its demand view.
+  authorizeRole(['admin', 'finance', 'bank']),
+  asyncHandler(async (req, res) => {
+    try {
+      const windowDays = resolveWindowDays(req.query.window);
+      const data = await getFinanceDemandIntelligence(supabase, req.userContext, { windowDays });
       return res.json({ ok: true, ...data });
     } catch (error) {
       return handleProjectionError(res, error);

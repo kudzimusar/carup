@@ -26,4 +26,5 @@ This directory holds the phase receipts for the **CarUp Intelligence 1.0 — Dat
 | I8 | `I8_DEALER_INTELLIGENCE.md` | **complete** — every dealer fabrication removed and pinned |
 | I9 | `I9_MECHANIC_GARAGE_PROJECTION_MODEL.md` | **complete** — model frozen first, then implemented; scopes proven separate |
 | I10 | `I10_INSURANCE_INTELLIGENCE.md` | **complete** — commercial/risk boundary enforced; fabricated risk surface neutralized |
+| I11 | `I11_FINANCE_INTELLIGENCE.md` | **complete** — commercial/credit boundary enforced; bank portfolio, APR, collateral and Trust→credit-grade fabrications removed |
 | I11 | Finance Intelligence | next |

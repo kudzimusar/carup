@@ -112,9 +112,23 @@ export function metricQualifier(metric?: MetricEnvelope | null): string | null {
   return null
 }
 
-/** Whether the whole payload carries readable intelligence at all. */
-export function envelopeIsReadable(payload?: IntelligenceEnvelope | null): boolean {
-  return Boolean(payload && payload.availability === 'value' && payload.metrics)
+/**
+ * Whether the whole payload carries readable intelligence at all.
+ *
+ * Most projections carry a single `metrics` block. The domain projections that
+ * must keep their figures apart — finance demand, for one, which may not let a
+ * commercial count sit beside a credit one — name their blocks instead, so those
+ * callers say which block has to be present.
+ */
+export function envelopeIsReadable(
+  payload?: IntelligenceEnvelope | null,
+  requiredBlock: string = 'metrics',
+): boolean {
+  return Boolean(
+    payload
+    && payload.availability === 'value'
+    && (payload as Record<string, unknown>)[requiredBlock],
+  )
 }
 
 /**
