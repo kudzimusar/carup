@@ -18,7 +18,7 @@ import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from '@/components/ui/select'
 import {
-  Car, CheckCircle, Shield, Gauge, Fuel, Settings2, MapPin, Calendar,
+  Car, CheckCircle, Shield, ShieldCheck, Gauge, Fuel, Settings2, MapPin, Calendar,
   Phone, MessageSquare, Heart, Share2, ArrowLeft, AlertTriangle, Search,
   FileCheck, Star, Loader2, Lock, CreditCard, ChevronLeft, ChevronRight,
   XCircle, HelpCircle, Wrench, UserCheck, TrendingDown, ClipboardCheck,
@@ -598,6 +598,7 @@ function readListingMediaBlock(raw: unknown): MediaBlock<ListingMediaItem> | nul
       url_form: form,
       position: items.length,
       is_primary: isPrimary,
+      synthetic_demo: entry.synthetic_demo === true || String(entry.url).includes('/marketplace-reference-synthetic/'),
     })
   }
   // The SENTENCE is ours, not the server's. `empty_statement` arrives on the wire, but rendering a
@@ -1732,7 +1733,7 @@ export default function VehicleDetail() {
                 {vehicle.year ?? ''} {vehicle.make} {vehicle.model}
               </h1>
               <div className="mt-3 flex flex-wrap gap-x-5 gap-y-2 text-sm text-slate-300">
-                <span className="inline-flex items-center gap-1.5"><MapPin className="h-4 w-4 text-orange-400" /> {locationLine}</span>
+                <span className="inline-flex items-center gap-1.5"><MapPin className="h-4 w-4 text-orange-400" /> {locationLine.label}</span>
                 {typeof vehicle.mileage === 'number' && Number.isFinite(vehicle.mileage) && (
                   <span className="inline-flex items-center gap-1.5"><Gauge className="h-4 w-4 text-orange-400" /> {vehicle.mileage.toLocaleString()} km</span>
                 )}
