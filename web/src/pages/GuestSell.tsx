@@ -126,39 +126,39 @@ export default function GuestSell() {
   }, [form])
 
   return (
-    <div className="min-h-screen bg-[#f5f6f8] pb-8" data-testid="guest-sell-page">
-      <header className="border-b border-slate-200 bg-white">
+    <div className="min-h-screen bg-white pb-10 text-slate-950" data-testid="guest-sell-page">
+      <header className="relative overflow-hidden border-b border-slate-800 bg-[#08111f] text-white [background-image:radial-gradient(circle_at_85%_20%,rgba(249,115,22,0.18),transparent_30%)]">
         <div className="section-padding mx-auto max-w-5xl py-6">
-          <Link to="/marketplace" className="inline-flex items-center gap-1 text-sm font-semibold text-slate-500 hover:text-slate-950">
+          <Link to="/marketplace" className="inline-flex items-center gap-1 text-sm font-semibold text-slate-400 hover:text-white">
             <ArrowLeft className="h-4 w-4" /> Back to marketplace
           </Link>
           <div className="mt-5 flex flex-wrap items-end justify-between gap-4">
             <div>
-              <p className="text-xs font-black uppercase tracking-[0.18em] text-orange-600">Sell on CarUp</p>
-              <h1 className="mt-1 text-3xl font-black tracking-tight text-slate-950 sm:text-4xl">Build your listing before you sign up.</h1>
-              <p className="mt-2 max-w-2xl text-sm leading-6 text-slate-600">
+              <p className="text-xs font-black uppercase tracking-[0.2em] text-orange-400">Sell on CarUp</p>
+              <h1 className="mt-2 max-w-3xl text-4xl font-black leading-[0.98] tracking-[-0.045em] text-white sm:text-5xl">Build the car story first. <span className="text-orange-400">Create the account when it matters.</span></h1>
+              <p className="mt-4 max-w-2xl text-sm leading-6 text-slate-300">
                 Tell CarUp about the vehicle, add photos and preview the listing. We ask for an account only when you want CarUp to persist the draft under your identity.
               </p>
             </div>
             <div className="min-w-32">
-              <p className="text-xs font-semibold text-slate-500">Draft completeness</p>
-              <p className="text-2xl font-black text-slate-950">{completeness}%</p>
+              <p className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-400">Draft completeness</p>
+              <p className="text-3xl font-black text-white">{completeness}%</p>
             </div>
           </div>
         </div>
       </header>
 
-      <main className="section-padding mx-auto max-w-5xl py-7">
-        <div className="mb-7 grid grid-cols-4 gap-2" aria-label="Sell progress">
+      <main className="section-padding mx-auto max-w-5xl py-8 sm:py-10">
+        <div className="mb-8 grid grid-cols-4 gap-3 border-b border-slate-200 pb-5" aria-label="Sell progress">
           {['Vehicle', 'Listing', 'Photos', 'Preview'].map((label, index) => (
             <div key={label}>
-              <div className={`h-1.5 ${index <= step ? 'bg-orange-500' : 'bg-slate-200'}`} />
+              <div className={`h-1 ${index <= step ? 'bg-orange-500' : 'bg-slate-200'}`} />
               <p className={`mt-2 text-[11px] font-bold ${index === step ? 'text-slate-950' : 'text-slate-400'}`}>{label}</p>
             </div>
           ))}
         </div>
 
-        <section className="bg-white p-5 shadow-[0_16px_45px_rgba(15,23,42,0.07)] sm:p-7">
+        <section className="border-y border-slate-200 bg-white py-6 sm:py-8">
           {step === 0 && (
             <div className="space-y-5" data-testid="guest-sell-vehicle-step">
               <div>
@@ -227,7 +227,7 @@ export default function GuestSell() {
                 <h2 className="text-xl font-black">Show buyers the car.</h2>
                 <p className="mt-1 text-sm text-slate-500">Listing photos are advertising media, not verified evidence.</p>
               </div>
-              <label className="block cursor-pointer border-2 border-dashed border-slate-300 p-8 text-center hover:border-orange-400">
+              <label className="block cursor-pointer border-y border-dashed border-slate-300 bg-slate-50 p-10 text-center transition hover:border-orange-400 hover:bg-orange-50/30">
                 <Camera className="mx-auto h-8 w-8 text-orange-500" />
                 <p className="mt-2 text-sm font-bold">Add up to 10 photos</p>
                 <p className="mt-1 text-xs text-slate-500">Nothing is uploaded to CarUp until you authenticate and save.</p>
@@ -236,7 +236,7 @@ export default function GuestSell() {
               {form.images.length > 0 && (
                 <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
                   {form.images.map((src, index) => (
-                    <div key={`${src.slice(0, 24)}-${index}`} className="relative aspect-[4/3] overflow-hidden bg-slate-100">
+                    <div key={`${src.slice(0, 24)}-${index}`} className="relative aspect-[4/3] overflow-hidden bg-slate-100 shadow-[0_12px_28px_rgba(15,23,42,0.12)]">
                       <img src={src} alt={`Draft vehicle photo ${index + 1}`} className="h-full w-full object-cover" />
                       <button type="button" onClick={() => set('images', form.images.filter((_, i) => i !== index))} className="absolute right-2 top-2 bg-slate-950/80 p-1 text-white" aria-label={`Remove photo ${index + 1}`}><X className="h-4 w-4" /></button>
                     </div>
@@ -263,8 +263,8 @@ export default function GuestSell() {
                 <h2 className="mt-1 text-2xl font-black">{form.year} {form.make} {form.model}</h2>
                 <p className="mt-1 text-sm text-slate-500">{form.location || 'Location not entered'} · {Number(form.mileage || 0).toLocaleString()} km</p>
               </div>
-              {form.images[0] && <img src={form.images[0]} alt="Listing preview" className="aspect-[16/9] w-full object-cover" />}
-              <div className="grid gap-px bg-slate-200 sm:grid-cols-3">
+              {form.images[0] && <img src={form.images[0]} alt="Listing preview" className="aspect-[16/9] w-full object-cover shadow-[0_24px_60px_rgba(15,23,42,0.16)] sm:aspect-[2/1]" />}
+              <div className="grid border-y border-slate-200 sm:grid-cols-3">
                 <PreviewFact label="Price" value={form.currency && form.price ? `${form.currency} ${Number(form.price).toLocaleString()}` : 'Not entered'} />
                 <PreviewFact label="Condition" value={form.condition || 'Not entered'} />
                 <PreviewFact label="Fuel / transmission" value={[form.fuelType, form.transmission].filter(Boolean).join(' · ') || 'Not entered'} />
@@ -310,5 +310,5 @@ function SelectField({ label, value, error, onValue, options }: { label: string;
 }
 
 function PreviewFact({ label, value }: { label: string; value: string }) {
-  return <div className="bg-white p-4"><p className="text-[10px] font-bold uppercase tracking-wide text-slate-400">{label}</p><p className="mt-1 font-black text-slate-950">{value}</p></div>
+  return <div className="border-b border-slate-200 py-4 sm:border-b-0 sm:border-r sm:px-4 last:border-r-0"><p className="text-[10px] font-bold uppercase tracking-wide text-slate-400">{label}</p><p className="mt-1 font-black text-slate-950">{value}</p></div>
 }
