@@ -227,6 +227,7 @@ type ListingMediaItem = {
   url_form: MediaUrlForm
   position: number
   is_primary: boolean
+  synthetic_demo: boolean
 }
 
 /**
@@ -325,7 +326,7 @@ function toListingMediaBlock(rows: WireMarketplaceMedia[] | null | undefined): M
   if (!Array.isArray(rows)) return notLoadedBlock()
 
   let unpublishable = 0
-  const candidates: Array<{ mediaId: string | null; url: string; form: MediaUrlForm; claimsPrimary: boolean; index: number }> = []
+  const candidates: Array<{ mediaId: string | null; url: string; form: MediaUrlForm; claimsPrimary: boolean; syntheticDemo: boolean; index: number }> = []
   const identitiesTaken = new Set<string>()
   rows.forEach((row, index) => {
     // Video and document entries are not gallery photos. They are not "unpublishable" either — the
@@ -353,6 +354,7 @@ function toListingMediaBlock(rows: WireMarketplaceMedia[] | null | undefined): M
       url: String(row.url).trim(),
       form,
       claimsPrimary: row.is_primary === true,
+      syntheticDemo: row.synthetic_demo === true || String(row.url).includes('/marketplace-reference-synthetic/'),
       index,
     })
   })
@@ -383,7 +385,7 @@ function toListingMediaBlock(rows: WireMarketplaceMedia[] | null | undefined): M
     // those photos would blank the gallery of every such vehicle — the original defect, re-entered
     // through the identity door. A photograph we cannot name is still a photograph the seller
     // added; only the ability to NAME it is missing, and the page says which.
-    return { media_id: candidate.mediaId, url: candidate.url, url_form: candidate.form, position, is_primary: isPrimary }
+    return { media_id: candidate.mediaId, url: candidate.url, url_form: candidate.form, position, is_primary: isPrimary, synthetic_demo: candidate.syntheticDemo }
   })
 
   return sealBlock(items.length ? 'published' : 'none', items, unpublishable, LISTING_MEDIA_EMPTY_STATEMENT)
@@ -1818,8 +1820,9 @@ export default function VehicleDetail() {
                 <h2 className="text-sm font-semibold text-gray-900">Listing photos</h2>
               </div>
               <p className="text-xs text-gray-500" data-testid="listing-media-caption">
-                Photos supplied by the seller to advertise this vehicle. CarUp does not review them and
-                makes no claim about what they show.
+                {listingMedia.items.some((item) => item.synthetic_demo)
+                  ? 'Synthetic reference media for this staging demonstration. These images are not verified evidence and do not affect CarUp Trust.'
+                  : 'Photos supplied by the seller to advertise this vehicle. CarUp does not review them and makes no claim about what they show.'}
               </p>
 
               <div className="relative rounded-xl overflow-hidden bg-white card-shadow" data-testid="image-gallery">
