@@ -284,13 +284,12 @@ export default function Landing() {
                 </div>
               </form>
 
-              <div className="mt-5 flex flex-wrap items-center gap-3">
-                <BuyerAssistantDrawer
-                  triggerLabel="Ask Gutu AI"
-                  triggerClassName="rounded-none border-orange-400/40 bg-orange-400/10 text-orange-100 hover:bg-orange-400/20 hover:text-white"
-                />
-                <Link to="/contact" className="inline-flex items-center gap-2 text-xs font-bold text-slate-300 hover:text-white">
-                  <MessageCircle className="h-4 w-4 text-orange-400" /> Talk to CarUp
+              <div className="mt-5 flex flex-wrap items-center gap-4">
+                <a href="#talk-to-carup" className="inline-flex items-center gap-2 border-b border-orange-400 pb-1 text-xs font-black text-orange-200 hover:text-white">
+                  <MessageCircle className="h-4 w-4 text-orange-400" /> Ask CarUp what to do next
+                </a>
+                <Link to="/contact" className="inline-flex items-center gap-2 text-xs font-bold text-slate-400 hover:text-white">
+                  Human help <ArrowRight className="h-3.5 w-3.5" />
                 </Link>
               </div>
             </div>
@@ -523,7 +522,7 @@ export default function Landing() {
         </div>
       </section>
 
-      <section className="relative overflow-hidden bg-orange-500 text-slate-950" data-testid="home-communications">
+      <section id="talk-to-carup" className="relative scroll-mt-20 overflow-hidden bg-orange-500 text-slate-950" data-testid="home-communications">
         <div className="pointer-events-none absolute right-[-5%] top-[-40%] text-[22rem] font-black leading-none text-black/[0.045]">C</div>
         <div className="section-padding relative mx-auto grid max-w-[1440px] gap-10 py-14 sm:py-16 lg:grid-cols-[1.1fr_0.9fr] lg:items-end">
           <div>
