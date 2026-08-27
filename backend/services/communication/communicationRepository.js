@@ -150,7 +150,24 @@ export class CommunicationRepository {
     return data || [];
   }
 
-  /** Update by an arbitrary single-column key — the reconciliation flags key vehicles by `vin`. */
+  /**
+   * Conditional delete returning the AFFECTED ROW COUNT.
+   *
+   * The count is the point: the reconciliation queue retires work with an atomic compare-and-delete
+   * on (id, generation, fingerprint), and "0 rows affected" is the signal that a newer generation
+   * arrived mid-flight and must survive. A delete that cannot report that is unusable here.
+   */
+  async deleteWhere(table, filters) {
+    let query = this.client.from(table).delete();
+    for (const [key, value] of Object.entries(filters)) {
+      query = value === null ? query.is(key, null) : query.eq(key, value);
+    }
+    const { data, error } = await query.select('id');
+    if (error) throw new Error(`${table} delete failed: ${error.message}`);
+    return (data || []).length;
+  }
+
+  /** Update by an arbitrary single-column key. */
   async updateWhere(table, filters, patch) {
     let query = this.client.from(table).update(patch);
     for (const [key, value] of Object.entries(filters)) query = query.eq(key, value);
@@ -475,6 +492,14 @@ export class MemoryCommunicationRepository {
     }
     if (options.limit) rows = rows.slice(0, Number(options.limit));
     return rows;
+  }
+
+  async deleteWhere(table, filters) {
+    const rows = this.rows(table);
+    const matches = rows.filter((row) => Object.entries(filters)
+      .every(([k, v]) => (v === null ? row[k] == null : String(row[k] ?? '') === String(v ?? ''))));
+    for (const row of matches) rows.splice(rows.indexOf(row), 1);
+    return matches.length;
   }
 
   async updateWhere(table, filters, patch) {

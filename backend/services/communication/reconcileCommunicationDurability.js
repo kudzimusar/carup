@@ -1,107 +1,84 @@
 import { emitDomainEvent } from '../eventBus/eventBusService.js';
 import { EMAIL_VERIFIED_EVENT } from './producers/leadershipWelcomeProducer.js';
-import {
-  ANNOUNCED_FINGERPRINT_COLUMN,
-  reconcileTrustPresentation,
-} from '../trustDecision/trustPresentationChangeProducer.js';
+import { reconcileTrustPresentation } from '../trustDecision/trustPresentationChangeProducer.js';
 
 /**
- * The durability reconciliation controller.
+ * The durability reconciliation controller — reading a PRIVATE work queue.
  *
- * THE DEFECT CLASS this closes: recovery existed, and nothing scheduled it.
+ * THE DEFECT CLASS this closes: recovery existed, and nothing scheduled it. Two designs preceded
+ * this one. The first INFERRED outstanding work from timestamps, which made a routine Trust
+ * recompute look like news and let a settled prefix starve the batch. The second stored explicit
+ * boolean flags ON THE PUBLIC TABLES, which failed on privilege reality — PostgreSQL privileges are
+ * additive, and live staging grants anon/authenticated table-level UPDATE on public.users, so a
+ * column-level revoke on a users flag was inert and a client could manufacture or suppress a
+ * Welcome. Its final clear was also unconditional, so a material change landing mid-reconciliation
+ * had its freshly-declared work silently wiped.
  *
- *   - `reconcileTrustPresentation()` was written for R5-D1, hardened again in C3, fully tested — and
- *     called only from test files. Zero production callers. `idx_vehicles_trust_unannounced` was
- *     added to the migration specifically to make its scan cheap, so the index existed for a scanner
- *     that did not.
- *   - R1's durable `user.email.verified` event closes every failure after the outbox insert, but if
- *     the insert ITSELF fails the welcome is still lost, because nothing reconstructs it.
+ * Work therefore lives in `communication_reconciliation_work`: a service-only table (RLS on, every
+ * client privilege revoked) whose rows are created by DATABASE TRIGGERS in the same transaction as
+ * the state change that created the work. Historical state creates no rows — the triggers fire only
+ * on post-migration transitions and the migration performs no backfill — so baseline is a property
+ * of construction. The scans here select pending work directly and apply the LIMIT to it; there is
+ * no public-table prefix scan and no JavaScript post-filter for a settled row to starve.
  *
- * A recovery mechanism that nothing invokes is not a recovery mechanism. This controller is that
- * invocation, driven by the Communications worker that pg_cron already calls every minute. It adds
- * no scheduler, no timer, and no second worker.
+ * RETIREMENT IS CONDITIONAL, and that condition is the fix for the lost-update race. A worker reads
+ * a row at generation G with fingerprint F and reconciles exactly that state. If a newer material
+ * change commits mid-flight, the trigger has already moved the row to G+1/F2, and the worker's
+ * compare-and-delete on (id, G, F) affects zero rows — the new work survives for the next pass.
  *
- * HISTORY IS BASELINE BY CONSTRUCTION. The scans read EXPLICIT durable work markers set by database
- * trigger in the same transaction as the change that made the work exist. Nothing is inferred from a
- * timestamp comparison, so a routine Trust recompute cannot make a historical vehicle eligible, and
- * an account verified before this shipped simply has a FALSE flag. The earlier design inferred
- * eligibility after the fact and produced four separate defects from that single choice — including a
- * client-writable watermark table, which has been deleted rather than defended.
- *
- * THE LIMIT IS APPLIED TO ALREADY-PENDING ROWS. Previously it bounded inferred candidates and the
- * "already handled" test ran afterwards in JavaScript, so a settled prefix re-occupied the batch every
- * minute and genuinely lost work behind it was never reached. Settled work now has its flag retired
- * and is not selected at all.
- *
- * CONCURRENCY. These scans read through PostgREST, which offers no `FOR UPDATE SKIP LOCKED`, so two
- * overlapping workers CAN select the same row. Safety therefore comes from idempotency rather than
- * from locking, and it is enforced in the database, not here: R5 events dedupe on
- * `vehicle.trust.presentation_changed:<presentation_fingerprint>` and R1 on
- * `user.email.verified:<userId>`, both against the partial unique index on `domain_events`. A second
- * worker's insert collides and recovers the first worker's row. Overlap is wasteful, never
- * duplicative — and that is proven by test, not asserted here.
+ * CONCURRENCY. Overlapping workers can read the same row; the deterministic domain-event and
+ * notification dedupe keys remain the final authority, so overlap is wasteful, never duplicative.
+ * The work row is an eligibility record, not the dedupe mechanism.
  */
 
-/** The explicit durable work markers. Set by database trigger, cleared only when work settles. */
-export const WELCOME_WORK_COLUMN = 'email_welcome_reconcile_required';
-export const TRUST_WORK_COLUMN = 'trust_presentation_reconcile_required';
+export const RECONCILIATION_WORK_TABLE = 'communication_reconciliation_work';
+export const WORK_TYPES = Object.freeze({
+  WELCOME: 'user_email_verified',
+  TRUST: 'vehicle_trust_presentation',
+});
 
 /** Batch ceilings. Bounded so the once-a-minute worker can never become a table sweeper. */
 export const DEFAULT_TRUST_BATCH_LIMIT = Math.max(1, Math.min(Number(process.env.COMMUNICATION_TRUST_RECONCILE_LIMIT || 25), 200));
 export const DEFAULT_WELCOME_BATCH_LIMIT = Math.max(1, Math.min(Number(process.env.COMMUNICATION_WELCOME_RECONCILE_LIMIT || 25), 200));
 
 /**
- * R5 candidates: vehicles that DECLARED a material Trust change needing reconciliation.
- *
- * The LIMIT is applied to rows that are already genuinely pending, so a settled row can never
- * occupy the batch. Nothing is filtered in JavaScript afterwards, and there is no timestamp
- * comparison: a historical vehicle is excluded because its flag is FALSE, not because a clock says
- * so — which is why a routine recompute can no longer make it eligible.
+ * Pending work of one type. `WHERE work_type = $1 ORDER BY subject_id LIMIT n` — the LIMIT applies
+ * to rows that are already genuinely pending, which is the entire fix for prefix starvation.
+ * The work_type filter is in the QUERY, not applied afterwards: filtering a mixed page in
+ * JavaScript would reintroduce the same starvation one level down.
  */
-async function pendingTrustVehicles(repository, limit) {
-  const rows = await repository.list('vehicles', { [TRUST_WORK_COLUMN]: true }, {
-    select: `vin, ${TRUST_WORK_COLUMN}`,
-    order: { column: 'vin', ascending: true },
+async function pendingWork(repository, workType, limit) {
+  const rows = await repository.list(RECONCILIATION_WORK_TABLE, { work_type: workType }, {
+    select: 'id, work_type, subject_id, generation, work_fingerprint',
+    order: { column: 'subject_id', ascending: true },
     limit,
   });
-  return (rows || []).filter((row) => row?.vin);
-}
-
-/** R1 candidates: accounts that DECLARED a verification needing a welcome work item. */
-async function pendingVerifiedAccounts(repository, limit) {
-  const rows = await repository.list('users', { [WELCOME_WORK_COLUMN]: true }, {
-    select: `id, ${WELCOME_WORK_COLUMN}`,
-    order: { column: 'id', ascending: true },
-    limit,
-  });
-  return (rows || []).filter((row) => row?.id);
+  return (rows || []).filter((row) => row?.subject_id);
 }
 
 /**
- * Retire a settled work flag.
+ * Retire one work row — atomically, and only the exact generation the worker actually reconciled.
  *
- * Best effort on purpose: failing to clear it costs one wasted re-examination next minute, which is
- * strictly better than any scheme that could clear it while the work is still outstanding.
+ * Returns the affected row count. Zero means a newer generation arrived mid-flight; the caller
+ * must treat the work as still pending and NOT count it settled. An unconditional delete here is
+ * precisely the lost-update defect this design exists to close.
  */
-async function clearWorkFlag(repository, table, id, column) {
-  const key = table === 'vehicles' ? 'vin' : 'id';
-  try {
-    if (typeof repository.updateWhere === 'function') {
-      await repository.updateWhere(table, { [key]: id }, { [column]: false });
-      return true;
-    }
-    await repository.updateById(table, id, { [column]: false });
-    return true;
-  } catch {
-    return false;
-  }
+async function retireWork(repository, work) {
+  return repository.deleteWhere(RECONCILIATION_WORK_TABLE, {
+    id: work.id,
+    generation: work.generation,
+    work_fingerprint: work.work_fingerprint ?? null,
+  });
 }
 
-/** Does this account already have the durable work item, or the welcome itself? */
+/**
+ * Does this account already have the durable work item, or the welcome itself?
+ *
+ * Returns true | false | 'unknown'. A lookup fault is NOT "accounted for" — retiring work over a
+ * database blip would lose the welcome permanently. It is its own answer, and the caller leaves the
+ * row pending.
+ */
 async function welcomeAlreadyAccountedFor(repository, userId) {
-  // Returns true | false | 'unknown'. A lookup fault is NOT "accounted for" — reporting it as such
-  // would retire the work flag over a database blip and lose the welcome permanently. It is its own
-  // answer, and the caller leaves the flag pending.
   const existingEvent = await repository.findOne('domain_events', {
     dedupe_key: `${EMAIL_VERIFIED_EVENT}:${userId}`,
   }).catch(() => undefined);
@@ -116,30 +93,25 @@ async function welcomeAlreadyAccountedFor(repository, userId) {
 }
 
 /**
- * Reconstruct the durable welcome work item for one verified account.
+ * Reconcile one welcome work item.
  *
  * The scanner NEVER sends the Email and never calls the producer. It recreates the same canonical
- * event with the same deterministic identity, and the existing R1 producer remains the only thing
- * that queues a welcome. One producer, one path, one place for the payload to be decided.
+ * `user.email.verified` event with the same deterministic identity, and the existing R1 producer
+ * remains the only thing that queues a welcome. If the event (or the welcome) already exists the
+ * work is settled; if the emit fails the work stays pending.
  */
 export async function reconcileVerifiedWelcome(userId, { repository, emit = emitDomainEvent } = {}) {
-  if (!userId || !repository) return { reconstructed: false, reason: 'not_reconcilable' };
+  if (!userId || !repository) return { reconstructed: false, settled: false, reason: 'not_reconcilable' };
 
   const accounted = await welcomeAlreadyAccountedFor(repository, userId);
   if (accounted === 'unknown') {
-    // A lookup fault. Leave the flag TRUE and try again — never emit on an unreadable answer.
-    return { reconstructed: false, reason: 'lookup_unavailable', settled: false };
+    return { reconstructed: false, settled: false, reason: 'lookup_unavailable' };
   }
   if (accounted) {
-    // The durable event or the welcome itself already exists. The work is done; retire the flag so
-    // it cannot re-occupy a future batch.
-    await clearWorkFlag(repository, 'users', userId, WELCOME_WORK_COLUMN);
-    return { reconstructed: false, reason: 'already_accounted_for', settled: true };
+    return { reconstructed: false, settled: true, reason: 'already_accounted_for' };
   }
 
   await emit(null, EMAIL_VERIFIED_EVENT, { recipientUserId: userId }, null);
-  // Only after the durable event exists. If the emit threw we never get here and the flag stays TRUE.
-  await clearWorkFlag(repository, 'users', userId, WELCOME_WORK_COLUMN);
   return { reconstructed: true, settled: true };
 }
 
@@ -147,8 +119,8 @@ export async function reconcileVerifiedWelcome(userId, { repository, emit = emit
  * One bounded reconciliation pass. Called by the scheduled Communications worker.
  *
  * Never throws: a reconciliation failure must not fail the worker request that also delivers the
- * queue. Each item is isolated, so one bad vehicle or account cannot abort the rest of the batch,
- * and anything that fails simply remains eligible for a later pass.
+ * queue. Each item is isolated, so one bad row cannot abort the rest of the batch, and anything
+ * that fails simply stays pending for a later pass.
  *
  * The returned counts are deliberately non-identifying — no addresses, no tokens, no VINs, no
  * evidence, no secrets. They are operational telemetry, not a customer record.
@@ -162,7 +134,7 @@ export async function reconcileCommunicationDurability({
   pgClient = null,
 } = {}) {
   const counts = {
-    trust_scanned: 0, trust_reconciled: 0, trust_settled_no_recipient: 0, trust_failed: 0,
+    trust_scanned: 0, trust_reconciled: 0, trust_settled_no_recipient: 0, trust_superseded: 0, trust_failed: 0,
     welcome_scanned: 0, welcome_reconstructed: 0, welcome_settled: 0, welcome_failed: 0,
     skipped: null,
   };
@@ -170,34 +142,42 @@ export async function reconcileCommunicationDurability({
 
   // ---- R5 -------------------------------------------------------------------------------------
   if (trustBatchLimit > 0 && typeof getTrustRecord === 'function') {
-    let vehicles = [];
+    let work = [];
     try {
-      vehicles = await pendingTrustVehicles(repository, trustBatchLimit);
+      work = await pendingWork(repository, WORK_TYPES.TRUST, trustBatchLimit);
     } catch {
-      vehicles = [];
+      work = [];
       counts.trust_failed += 1;
     }
-    counts.trust_scanned = vehicles.length;
-    for (const vehicle of vehicles) {
+    counts.trust_scanned = work.length;
+    for (const item of work) {
       try {
-        const result = await reconcileTrustPresentation(vehicle.vin, {
+        const result = await reconcileTrustPresentation(item.subject_id, {
           client: repository.client || null,
           pgClient,
           getRecord: getTrustRecord,
         });
-        if (result?.emitted) {
-          counts.trust_reconciled += 1;
-          await clearWorkFlag(repository, 'vehicles', vehicle.vin, TRUST_WORK_COLUMN);
-        } else if (result?.terminal || result?.reason === 'already_announced' || result?.reason === 'no_material_change') {
-          // Settled, not pending. `no_resolvable_owner` is the case that used to starve the queue:
-          // there is nobody to tell, guessing is forbidden, and retrying forever would block every
-          // recoverable vehicle behind it. The announced-fingerprint is deliberately NOT written —
-          // nothing was sent, and claiming otherwise would suppress a genuine future announcement.
-          // A later material change sets the flag again through the trigger.
-          counts.trust_settled_no_recipient += result?.terminal ? 1 : 0;
-          await clearWorkFlag(repository, 'vehicles', vehicle.vin, TRUST_WORK_COLUMN);
+        const settled = Boolean(result?.emitted)
+          || Boolean(result?.terminal)
+          || result?.reason === 'already_announced'
+          || result?.reason === 'no_material_change';
+        if (!settled) continue; // transient — the row stays pending for a later pass
+
+        // Retire EXACTLY the generation this pass reconciled. Zero affected rows means a newer
+        // material change arrived mid-flight; its work survives and is deliberately not counted
+        // as settled — the next pass reconciles the newer presentation.
+        const removed = await retireWork(repository, item);
+        if (removed === 0) {
+          counts.trust_superseded += 1;
+          continue;
         }
-        // Anything else (transient owner/DB fault) leaves the flag TRUE for a later pass.
+        if (result?.emitted) counts.trust_reconciled += 1;
+        else if (result?.terminal) {
+          // No resolvable owner is terminal for THIS generation: nobody to tell, guessing
+          // forbidden. The announced-fingerprint is deliberately NOT written — nothing was sent —
+          // and a future material change enqueues a new generation through the trigger.
+          counts.trust_settled_no_recipient += 1;
+        }
       } catch {
         counts.trust_failed += 1;
       }
@@ -206,19 +186,22 @@ export async function reconcileCommunicationDurability({
 
   // ---- R1 -------------------------------------------------------------------------------------
   if (verifiedUserBatchLimit > 0) {
-    let accounts = [];
+    let work = [];
     try {
-      accounts = await pendingVerifiedAccounts(repository, verifiedUserBatchLimit);
+      work = await pendingWork(repository, WORK_TYPES.WELCOME, verifiedUserBatchLimit);
     } catch {
-      accounts = [];
+      work = [];
       counts.welcome_failed += 1;
     }
-    counts.welcome_scanned = accounts.length;
-    for (const account of accounts) {
+    counts.welcome_scanned = work.length;
+    for (const item of work) {
       try {
-        const result = await reconcileVerifiedWelcome(account.id, { repository, emit });
-        if (result?.reconstructed) counts.welcome_reconstructed += 1;
-        else if (result?.settled) counts.welcome_settled += 1;
+        const result = await reconcileVerifiedWelcome(item.subject_id, { repository, emit });
+        if (!result?.settled) continue; // lookup fault or emit failure — stays pending
+        const removed = await retireWork(repository, item);
+        if (removed === 0) continue; // re-enqueued mid-flight; next pass re-examines
+        if (result.reconstructed) counts.welcome_reconstructed += 1;
+        else counts.welcome_settled += 1;
       } catch {
         counts.welcome_failed += 1;
       }

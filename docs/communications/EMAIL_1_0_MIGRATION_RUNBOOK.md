@@ -1,8 +1,8 @@
 # Email 1.0 hardening migration — runbook
 
 `database/migrations/20260826120000_email_1_0_hardening.sql`
-**SHA-256 `ce739d9f78ef5166a7cb6314aac6ed591e7498bdba564c06d11436769cb4257e`**
-(supersedes `1a741759…`, `0e74b1c1…` and `c66cfb71…`)
+**SHA-256 `bf8c1cbfbec807cc2839720416521e584964457c1264bfd9ae9fa20d4ff680e0`**
+(supersedes `031f6116…`, `ce739d9f…`, `1a741759…`, `0e74b1c1…`, `c66cfb71…`)
 
 Transactional. Six changes, all additive or provably redundant. **NOT APPLIED.**
 
@@ -71,43 +71,47 @@ marker is unreadable (`announcement_state_unavailable`), so an app-before-migrat
 announcements rather than duplicating them — but applying first avoids the deferral entirely.
 
 
-## Baseline by construction — the root correction
+## The private reconciliation work queue — the final root correction
 
-The earlier design INFERRED outstanding work from timestamps and produced four defects from that one
-choice: a routine Trust recompute made a historical vehicle eligible; the LIMIT bounded inferred
-candidates so a settled prefix starved real work; a non-actionable row held the queue forever; and the
-watermark table itself was a client-writable security surface.
+Three designs preceded this section. Timestamp inference made a routine recompute look like news and
+let a settled prefix starve the batch. Public-table boolean flags failed on privilege reality —
+PostgreSQL privileges are additive, and staging grants anon/authenticated **table-level UPDATE on
+`public.users`**, so a column-level revoke there was inert; their unconditional clear also wiped work
+declared mid-flight. Both mechanisms are gone (never applied anywhere).
 
-Inference is gone. Two explicit flags, set by DATABASE TRIGGER in the same transaction as the change
-that created the work:
+Reconciliation work now lives in **`communication_reconciliation_work`**:
 
-| flag | set when | never set by |
-|---|---|---|
-| `users.email_welcome_reconcile_required` | `email_verified_at` transitions NULL → NOT NULL | any other update to the row |
-| `vehicles.trust_presentation_reconcile_required` | a MATERIAL trust column changes (`IS DISTINCT FROM`) | `trust_evaluated_at`, `vin` |
+| column | meaning |
+|---|---|
+| `work_type` | `user_email_verified` \| `vehicle_trust_presentation` |
+| `subject_id` | user id / vin |
+| `generation` | monotonic per row; a material change UPSERTS generation+1 |
+| `work_fingerprint` | sha256 over the material trust columns (R5; NULL for R1) — an optimistic-concurrency token, NOT the announcement identity |
+| `UNIQUE (work_type, subject_id)` | one current logical work item per subject |
 
-Both are `NOT NULL DEFAULT false` and **nothing backfills them**, so history is baseline *by
-construction* rather than by a comparison a later write can invalidate. The scans select
-`WHERE flag = TRUE` and apply the LIMIT to rows that are already pending, so no JavaScript
-post-filter can let a settled row occupy the batch.
+**Enqueued by database triggers in the same transaction as the state change**:
+`trg_users_enqueue_welcome_reconciliation` fires only on the `email_verified_at` NULL → NOT NULL
+transition; `trg_vehicles_enqueue_trust_reconciliation` fires only when a material trust column moves
+(`IS DISTINCT FROM`; `trust_evaluated_at` and `vin` excluded). Both functions are SECURITY DEFINER
+with EXECUTE revoked. **No backfill**, so history creates zero rows — baseline by construction.
 
-`communication_activation_boundaries` was **removed rather than secured** — with explicit flags it
-participates in no correctness rule, and unnecessary authority is worth less than deleted authority.
-It had never been applied anywhere.
+**Service-only, proven against real PostgreSQL** (`database/test/email_reconciliation_privilege_check.mjs`,
+run on every backend test pass): RLS enabled **and forced**, `REVOKE ALL` from PUBLIC/anon/authenticated
+— asserted with `SET ROLE` denials and `has_table_privilege()` after emulating Supabase's default
+privileges, not from migration text. `service_role` retains full access, so the worker still works.
 
-### Grants
-
-Column-level `REVOKE UPDATE` on both flags from `PUBLIC, anon, authenticated`, plus `REVOKE ALL ON
-FUNCTION` for all three trigger functions — `CREATE FUNCTION` grants EXECUTE to PUBLIC by default,
-and this repo's `db-anon-grant-posture` gate correctly refuses a migration that omits it.
+**Retirement is an atomic conditional delete** on `(id, generation, work_fingerprint)`. Zero affected
+rows means a newer generation landed mid-reconciliation and survives for the next pass — the fix for
+the lost-update race, proven by an interleaving test that fails under an unconditional clear.
 
 ### Measured on live staging, before any apply
 
 | | count |
 |---|---|
-| verified accounts | **76** → all default FALSE → **0 pending** |
-| Trust positions | **38** → all default FALSE → **0 pending** |
-| obsolete boundary table present | **0** (never applied anywhere) |
+| verified accounts | **76** → triggers fire only post-migration → **0 work rows** |
+| Trust positions | **38** → same → **0 work rows** |
+| `communication_reconciliation_work` present | **0** (never applied anywhere) |
+| `public.users` RLS | enabled, **0 policies** (see `docs/security/PREEXISTING_USERS_TABLE_WRITE_PRIVILEGE.md`) |
 
 Zero recovery work is created by the apply itself. Re-measure immediately before the real apply.
 

@@ -10,34 +10,37 @@ import { EMAIL_VERIFIED_EVENT } from '../services/communication/producers/leader
 import { CommunicationOrchestratorService } from '../services/communication/communicationOrchestratorService.js';
 import { deterministicEventIdentity } from '../services/eventBus/eventBusService.js';
 import {
-  TRUST_WORK_COLUMN,
-  WELCOME_WORK_COLUMN,
+  RECONCILIATION_WORK_TABLE,
+  WORK_TYPES,
   reconcileCommunicationDurability,
 } from '../services/communication/reconcileCommunicationDurability.js';
 import {
   ANNOUNCED_FINGERPRINT_COLUMN,
   TRUST_PRESENTATION_CHANGED_EVENT,
-  trustPresentationFingerprint,
 } from '../services/trustDecision/trustPresentationChangeProducer.js';
 
 /**
- * THE DURABILITY SCHEDULER — recovery that something actually invokes.
+ * THE PRIVATE RECONCILIATION WORK QUEUE — recovery that something schedules, in state no client
+ * can touch, retired only by an atomic generational compare.
  *
- * THE DEFECT CLASS. `reconcileTrustPresentation()` was written for R5-D1, hardened again in C3,
- * thoroughly tested — and every call site was a test file. R1's durable outbox event closes every
- * failure after the insert, but nothing reconstructed the event when the insert itself failed.
- * `idx_vehicles_trust_unannounced` was added to the migration expressly to make the Trust scan cheap,
- * so the index existed for a scanner that did not. A recovery mechanism nothing schedules is not one.
+ * Three designs, three lessons, all recorded here because each was found by an external review of a
+ * green build:
+ *
+ *   1. Inference by timestamp: a routine Trust recompute looked like news; a settled prefix starved
+ *      the batch; the watermark table was client-writable.
+ *   2. Boolean flags on the public tables: PostgreSQL privileges are ADDITIVE and live staging
+ *      grants anon/authenticated table-level UPDATE on public.users, so the column-level revoke was
+ *      inert — a client could manufacture a Welcome or suppress one. And the final `SET flag=false`
+ *      was unconditional, so a material change landing mid-reconciliation was silently wiped.
+ *   3. This one: work rows in `communication_reconciliation_work` (RLS on, every client privilege
+ *      revoked), enqueued by DB triggers in the same transaction as the state change, carrying a
+ *      GENERATION and material FINGERPRINT, retired only by compare-and-delete on both.
  *
  * These tests drive the PRODUCTION ENTRY POINT — `POST /api/internal/communications/process`, the
- * route pg_cron already calls every minute — not the reconcilers directly. Calling the reconciler in
- * a test and declaring victory is exactly the mistake that produced this defect in the first place.
- *
- * THE MOST IMPORTANT THING PROVEN HERE IS A NEGATIVE. On its first run, without an activation
- * boundary, each scanner would classify the whole of history as outstanding work: every existing
- * vehicle has a NULL announced-fingerprint, and every account verified before Email 1.0 existed has
- * no welcome. Reconciling those would mail every historical customer. `BASELINE-1` and `BASELINE-2`
- * are the tests that must never be deleted.
+ * route pg_cron calls every minute — not the reconcilers directly. The harness's `verifyUser` and
+ * `materialTrustChange` helpers replicate the DB triggers' documented behaviour exactly (their SQL
+ * semantics are pinned by the AUTHORITY tests and executed for real by the PGlite privilege check),
+ * so what is proven here is the WORKER's contract against the queue those triggers feed.
  */
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
@@ -45,12 +48,6 @@ const MIGRATION_PATH = path.join(HERE, '..', '..', 'database', 'migrations', '20
 const CONTROLLER_PATH = path.join(HERE, '..', 'services', 'communication', 'reconcileCommunicationDurability.js');
 
 const WORKER_SECRET = 'durability-scheduler-worker-secret';
-const BEFORE = '2026-08-01T00:00:00.000Z';
-const AFTER = '2026-08-28T00:00:00.000Z';
-
-/** A historical row: verified/evaluated long ago and, crucially, NOT flagged as pending work. */
-const historicalUser = (id) => ({ id, email: `${id}@example.test`, email_verified_at: BEFORE, [WELCOME_WORK_COLUMN]: false });
-const historicalVehicle = (vin) => ({ vin, owner_id: 'owner-1', trust_evaluated_at: BEFORE, [ANNOUNCED_FINGERPRINT_COLUMN]: null, [TRUST_WORK_COLUMN]: false });
 
 function trustRecord(vin, overrides = {}) {
   return {
@@ -62,26 +59,63 @@ function trustRecord(vin, overrides = {}) {
   };
 }
 
-/**
- * A world with a real activation boundary row, a domain_events table that enforces the partial
- * unique dedupe index, and vehicles/users spanning both sides of the boundary.
- */
+/** The trigger's fingerprint contract, mirrored: deterministic over material columns only. */
+function materialFingerprint(vehicle) {
+  return `fp|${vehicle.trust_score ?? ''}|${vehicle.trust_band ?? ''}|${vehicle.trust_confidence ?? ''}|${JSON.stringify(vehicle.trust_evidence_basis ?? null)}|${JSON.stringify(vehicle.trust_known_limitations ?? null)}|${vehicle.trust_calculation_version ?? ''}`;
+}
+
 function world({ vehicles = [], users = [] } = {}) {
   const store = {
     vehicles,
     users,
+    [RECONCILIATION_WORK_TABLE]: [],
     domain_events: [],
     notification_queue: [],
   };
   const queued = [];
-  const scans = { vehicles: [], users: [] };
+  const scans = { work: [] };
   const failUserLookup = { value: false };
   const failVehicleLookup = { value: false };
   const failEventLookup = { value: false };
+  let workId = 0;
 
-  function dedupeKeyFor(eventType, payload) {
-    const identity = deterministicEventIdentity(eventType, payload);
-    return identity?.dedupeKey || null;
+  // ---- the DB triggers, replicated over the in-memory store --------------------------------
+  function enqueueWelcomeWork(userId) {
+    const rows = store[RECONCILIATION_WORK_TABLE];
+    const existing = rows.find((r) => r.work_type === WORK_TYPES.WELCOME && r.subject_id === userId);
+    if (existing) { existing.updated_at = new Date().toISOString(); return existing; }
+    workId += 1;
+    const row = { id: workId, work_type: WORK_TYPES.WELCOME, subject_id: userId, generation: 1, work_fingerprint: null };
+    rows.push(row);
+    return row;
+  }
+  /** Sets email_verified_at NULL -> NOT NULL and enqueues, exactly as trg_users_enqueue... does. */
+  function verifyUser(userId) {
+    const user = store.users.find((u) => u.id === userId);
+    if (!user || user.email_verified_at) return null;
+    user.email_verified_at = new Date().toISOString();
+    return enqueueWelcomeWork(userId);
+  }
+  /** Applies a trust patch; enqueues gen+1 work ONLY when a material column moved. */
+  function materialTrustChange(vin, patch) {
+    const vehicle = store.vehicles.find((v) => v.vin === vin);
+    if (!vehicle) return null;
+    const before = materialFingerprint(vehicle);
+    Object.assign(vehicle, patch);
+    const after = materialFingerprint(vehicle);
+    if (before === after) return null; // timestamp-only / non-material: the trigger does not fire
+    const rows = store[RECONCILIATION_WORK_TABLE];
+    const existing = rows.find((r) => r.work_type === WORK_TYPES.TRUST && r.subject_id === vin);
+    if (existing) {
+      existing.generation += 1;
+      existing.work_fingerprint = after;
+      existing.updated_at = new Date().toISOString();
+      return existing;
+    }
+    workId += 1;
+    const row = { id: workId, work_type: WORK_TYPES.TRUST, subject_id: vin, generation: 1, work_fingerprint: after };
+    rows.push(row);
+    return row;
   }
 
   const repository = {
@@ -94,31 +128,31 @@ function world({ vehicles = [], users = [] } = {}) {
     list: async (table, filters = {}, options = {}) => {
       let rows = (store[table] || []).filter((row) => Object.entries(filters)
         .every(([k, v]) => (v === null ? row[k] == null : String(row[k] ?? '') === String(v ?? ''))));
-      if (options.gt) {
-        const { column, value } = options.gt;
-        rows = rows.filter((row) => row[column] != null && new Date(row[column]) > new Date(value));
-      }
       if (options.order) {
         const { column, ascending = false } = options.order;
         rows = [...rows].sort((a, b) => String(a[column] || '').localeCompare(String(b[column] || '')) * (ascending ? 1 : -1));
       }
       if (options.limit) rows = rows.slice(0, Number(options.limit));
-      if (table === 'vehicles') scans.vehicles.push(rows.length);
-      if (table === 'users') scans.users.push(rows.length);
-      return rows;
+      if (table === RECONCILIATION_WORK_TABLE) scans.work.push({ filters: { ...filters }, returned: rows.length });
+      // Snapshot: the worker reasons about what it READ, not about live references.
+      return rows.map((r) => ({ ...r }));
     },
     insert: async (table, row) => { (store[table] || (store[table] = [])).push(row); return row; },
     updateById: async (table, id, patch) => {
-      const row = (store[table] || []).find((r) => r.id === id);
+      const row = (store[table] || []).find((r) => String(r.id) === String(id));
       if (row) Object.assign(row, patch);
       return row || {};
     },
-    updateWhere: async (table, filters, patch) => {
-      (store[table] || []).filter((r) => Object.entries(filters).every(([k, v]) => String(r[k] ?? '') === String(v ?? '')))
-        .forEach((r) => Object.assign(r, patch));
-      return true;
+    deleteWhere: async (table, filters) => {
+      // The interleaving seam for the §15 race tests: a hook fired AFTER the worker has emitted and
+      // marked, but BEFORE its conditional retire executes — the exact window Codex B names.
+      if (table === RECONCILIATION_WORK_TABLE && hooks.beforeRetire) await hooks.beforeRetire(filters);
+      const rows = store[table] || [];
+      const matches = rows.filter((row) => Object.entries(filters)
+        .every(([k, v]) => (v === null ? row[k] == null : String(row[k] ?? '') === String(v ?? ''))));
+      for (const row of matches) rows.splice(rows.indexOf(row), 1);
+      return matches.length;
     },
-    // The Supabase-shaped surface reconcileTrustPresentation reads/writes the marker through.
     client: {
       from: (table) => {
         const filters = [];
@@ -129,11 +163,7 @@ function world({ vehicles = [], users = [] } = {}) {
           update: (p) => { patch = p; return api; },
           eq: (c, v) => { filters.push((r) => String(r[c] ?? '') === String(v ?? '')); return api; },
           maybeSingle: async () => {
-            if (table === 'users' && failUserLookup.value) {
-              return { data: null, error: { code: '08006', message: 'connection failure' } };
-            }
-            // Fault ONLY the owner-resolution read (`vin, owner_id`), not the marker read, so the
-            // transient branch inside resolveCurrentVehicleOwner is actually reached.
+            if (table === 'users' && failUserLookup.value) return { data: null, error: { code: '08006', message: 'connection failure' } };
             if (table === 'vehicles' && failVehicleLookup.value && selected.includes('owner_id')) {
               return { data: null, error: { code: '08006', message: 'connection failure' } };
             }
@@ -149,7 +179,10 @@ function world({ vehicles = [], users = [] } = {}) {
     },
   };
 
-  // A domain-event emitter that enforces the partial unique index, exactly like the migration.
+  function dedupeKeyFor(eventType, payload) {
+    const identity = deterministicEventIdentity(eventType, payload);
+    return identity?.dedupeKey || null;
+  }
   const emit = async (_pg, eventType, payload) => {
     const dedupe_key = dedupeKeyFor(eventType, payload);
     if (dedupe_key) {
@@ -160,9 +193,6 @@ function world({ vehicles = [], users = [] } = {}) {
     store.domain_events.push(row);
     return row;
   };
-
-  // The raw-pg surface emitDomainEvent uses when a pgClient is supplied. Enforces the partial unique
-  // dedupe index exactly as the migration does, so idempotency is proven against the real code path.
   const pgClient = {
     query: async (sql, params) => {
       if (/INSERT INTO domain_events/.test(sql)) {
@@ -182,6 +212,16 @@ function world({ vehicles = [], users = [] } = {}) {
   };
 
   const notificationService = {
+    // The canonical service resolves trust events through its policy table; this stub only has to
+    // dedupe deterministically per material fingerprint so exactly-once is observable.
+    queueFromDomainEvent: async (event) => {
+      const key = `${event.event_type}:${event.payload?.presentation_fingerprint || event.payload?.recipientUserId || event.id}`;
+      const existing = queued.find((q) => (q.dedupeParts || []).join(':') === key);
+      if (existing) return [{ notification: { id: 'n-existing', status: 'queued' } }];
+      queued.push({ dedupeParts: [key], payload: event.payload });
+      store.notification_queue.push({ id: `n-${queued.length}`, dedupe_key: key, status: 'queued' });
+      return [{ notification: { id: `n-${queued.length}`, status: 'queued' } }];
+    },
     queueNotification: async (input) => {
       const key = (input.dedupeParts || []).join(':');
       const existing = queued.find((q) => (q.dedupeParts || []).join(':') === key);
@@ -193,12 +233,25 @@ function world({ vehicles = [], users = [] } = {}) {
   };
   const orchestrator = new CommunicationOrchestratorService({ notificationService, repository });
 
-  /** Play the event worker over pending outbox rows, as eventWorker.processEvent does. */
   async function runEventWorker() {
     for (const row of store.domain_events.filter((e) => e.status === 'pending')) {
       try { await orchestrator.handleDomainEvent(row, null, null); row.status = 'processed'; } catch { row.status = 'pending'; }
     }
   }
+
+  // A per-test hook fired between a work read and its retirement — the interleaving seam.
+  const hooks = { onTrustRecordRead: null, beforeRetire: null };
+  const getTrustRecord = async (vin) => {
+    const vehicle = store.vehicles.find((v) => v.vin === vin);
+    if (hooks.onTrustRecordRead) await hooks.onTrustRecordRead(vin);
+    if (!vehicle) return null;
+    return trustRecord(vin, {
+      score: vehicle.trust_score ?? 78,
+      band: vehicle.trust_band ?? 'moderate',
+      confidence: vehicle.trust_confidence ?? 'medium',
+      calculation_version: vehicle.trust_calculation_version ?? 'trust-decision-1.0.0',
+    });
+  };
 
   process.env.COMMUNICATION_WORKER_SECRET = WORKER_SECRET;
   const app = express();
@@ -207,7 +260,7 @@ function world({ vehicles = [], users = [] } = {}) {
     services: {
       repository,
       deliveryWorker: { processDueNotifications: async () => [] },
-      getTrustRecord: async (vin) => trustRecord(vin),
+      getTrustRecord,
       emitEvent: emit,
       pgClient,
       notificationService,
@@ -218,10 +271,14 @@ function world({ vehicles = [], users = [] } = {}) {
     },
   }));
 
-  return { app, store, queued, repository, emit, pgClient, scans, runEventWorker, notificationService, failUserLookup, failVehicleLookup, failEventLookup };
+  return {
+    app, store, queued, repository, emit, pgClient, scans, hooks,
+    runEventWorker, verifyUser, materialTrustChange, getTrustRecord,
+    failUserLookup, failVehicleLookup, failEventLookup,
+    work: () => store[RECONCILIATION_WORK_TABLE],
+  };
 }
 
-/** Invoke the PRODUCTION scheduler entry point exactly as pg_cron does. */
 async function runScheduledWorker(app) {
   const server = app.listen(0);
   try {
@@ -238,7 +295,7 @@ async function runScheduledWorker(app) {
 }
 
 // ============================================================================
-// The production scheduler path exists at all
+// The production scheduler path
 // ============================================================================
 
 test('SCHED-1 the scheduled worker really invokes reconciliation and reports safe counts', async () => {
@@ -247,17 +304,21 @@ test('SCHED-1 the scheduled worker really invokes reconciliation and reports saf
   assert.equal(result.status, 200);
   const r = result.body?.reconciliation;
   assert.ok(r, 'the worker response must carry a reconciliation result — otherwise it was never called');
-  for (const key of ['trust_scanned', 'trust_reconciled', 'trust_failed', 'welcome_scanned', 'welcome_reconstructed', 'welcome_failed']) {
+  for (const key of ['trust_scanned', 'trust_reconciled', 'trust_superseded', 'trust_failed', 'welcome_scanned', 'welcome_reconstructed', 'welcome_failed']) {
     assert.equal(typeof r[key], 'number', `${key} must be reported`);
   }
 });
 
 test('SCHED-2 the counts carry no addresses, tokens, VINs, evidence or secrets', async () => {
   const w = world({
-    vehicles: [{ vin: 'FIXTUREVIN0000001', owner_id: 'owner-1', trust_evaluated_at: AFTER, [ANNOUNCED_FINGERPRINT_COLUMN]: null, [TRUST_WORK_COLUMN]: true }],
-    users: [{ id: 'u-1', email: 'someone@example.test', email_verified_at: AFTER, [WELCOME_WORK_COLUMN]: true }],
+    vehicles: [{ vin: 'FIXTUREVIN0000001', owner_id: 'owner-1', trust_score: 78, [ANNOUNCED_FINGERPRINT_COLUMN]: null }],
+    users: [
+      { id: 'u-1', email: 'someone@example.test', email_verified_at: null },
+      { id: 'owner-1', status: 'active', deleted_at: null },
+    ],
   });
-  w.store.users.push({ id: 'owner-1', status: 'active', deleted_at: null });
+  w.verifyUser('u-1');
+  w.materialTrustChange('FIXTUREVIN0000001', { trust_score: 91 });
   const result = await runScheduledWorker(w.app);
   const serialized = JSON.stringify(result.body?.reconciliation);
   for (const forbidden of ['someone@example.test', 'FIXTUREVIN0000001', WORKER_SECRET, 'owner-1']) {
@@ -266,153 +327,84 @@ test('SCHED-2 the counts carry no addresses, tokens, VINs, evidence or secrets',
 });
 
 // ============================================================================
-// BASELINE — historical state is baseline BY CONSTRUCTION, not by comparison
+// BASELINE — history creates no work, by construction
 // ============================================================================
 
-test('BASELINE-1 historical VERIFIED ACCOUNTS get no reconstructed welcome — their flag is FALSE', async () => {
-  const w = world({ users: [historicalUser('old-1'), historicalUser('old-2'), historicalUser('old-3')] });
+test('BASELINE-1 historical verified accounts have NO work rows and get NO welcome', async () => {
+  const w = world({ users: [
+    { id: 'old-1', email: 'o1@example.test', email_verified_at: '2026-08-01T00:00:00.000Z' },
+    { id: 'old-2', email: 'o2@example.test', email_verified_at: '2026-08-01T00:00:00.000Z' },
+  ] });
+  assert.equal(w.work().length, 0, 'the migration backfills nothing, so the queue starts empty');
   const result = await runScheduledWorker(w.app);
-  assert.equal(result.body.reconciliation.welcome_scanned, 0, 'a FALSE flag is not selected at all');
+  assert.equal(result.body.reconciliation.welcome_scanned, 0);
   assert.equal(w.store.domain_events.length, 0);
   await w.runEventWorker();
   assert.equal(w.queued.length, 0, 'no welcome Email');
 });
 
-test('BASELINE-2 historical TRUST POSITIONS get no reconstructed announcement', async () => {
-  const w = world({ vehicles: [historicalVehicle('OLDVIN0000000001'), historicalVehicle('OLDVIN0000000002')] });
+test('BASELINE-2 historical Trust positions have NO work rows and get NO announcement', async () => {
+  const w = world({ vehicles: [
+    { vin: 'OLDVIN0000000001', owner_id: 'owner-1', trust_score: 60, [ANNOUNCED_FINGERPRINT_COLUMN]: null },
+  ] });
   const result = await runScheduledWorker(w.app);
   assert.equal(result.body.reconciliation.trust_scanned, 0);
   assert.equal(w.store.domain_events.length, 0);
 });
 
-test('BASELINE-3 (P1-D) a TIMESTAMP-ONLY recompute of a historical vehicle stays baseline', async () => {
-  // The defect this replaces: eligibility was `trust_evaluated_at > watermark`, so a routine
-  // reevaluation that changed nothing a customer can see moved a historical vehicle past the line
-  // while its announced-fingerprint was still NULL — and the scanner then mailed its whole current
-  // position as news. Eligibility is now an explicit flag that only a MATERIAL change sets.
-  const vehicle = historicalVehicle('OLDVIN0000000001');
-  const w = world({ vehicles: [vehicle] });
-
-  // The recompute: the clock moves, the position does not. The trigger does not fire.
-  vehicle.trust_evaluated_at = AFTER;
-
+test('BASELINE-3 a timestamp-only recompute enqueues NOTHING — the trigger contract, exercised', async () => {
+  const w = world({ vehicles: [{ vin: 'OLDVIN0000000001', owner_id: 'owner-1', trust_score: 60, trust_evaluated_at: '2026-08-01T00:00:00.000Z', [ANNOUNCED_FINGERPRINT_COLUMN]: null }] });
+  const enqueued = w.materialTrustChange('OLDVIN0000000001', { trust_evaluated_at: '2026-08-28T00:00:00.000Z' });
+  assert.equal(enqueued, null, 'the material comparison excludes the timestamp');
+  assert.equal(w.work().length, 0);
   const result = await runScheduledWorker(w.app);
-  assert.equal(vehicle[TRUST_WORK_COLUMN], false, 'a timestamp-only recompute must not declare work');
   assert.equal(result.body.reconciliation.trust_scanned, 0);
   assert.equal(w.store.domain_events.length, 0, 'NO R5 event');
   await w.runEventWorker();
   assert.equal(w.queued.length, 0, 'NO R5 Email');
 });
 
-test('BASELINE-4 (P1-D) the SAME historical vehicle after a REAL material change is recovered', async () => {
-  // The positive half. Baseline must not mean "permanently ineligible".
-  const vehicle = historicalVehicle('OLDVIN0000000001');
-  const w = world({ vehicles: [vehicle] });
-  w.store.users.push({ id: 'owner-1', status: 'active', deleted_at: null });
+test('BASELINE-4 an unrelated update to a verified account enqueues NOTHING', async () => {
+  const w = world({ users: [{ id: 'old-1', email: 'o1@example.test', email_verified_at: '2026-08-01T00:00:00.000Z', name: 'Old Name' }] });
+  // The trigger fires only on the NULL -> NOT NULL transition; verifyUser refuses a second firing.
+  assert.equal(w.verifyUser('old-1'), null);
+  w.store.users[0].name = 'New Name';
+  assert.equal(w.work().length, 0);
+});
 
-  // A material change: the trigger sets the flag in the same transaction as the cache write.
-  vehicle.trust_score = 91;
-  vehicle[TRUST_WORK_COLUMN] = true;
+test('BASELINE-5 the SAME historical vehicle after a REAL material change IS recovered, exactly once', async () => {
+  const w = world({
+    vehicles: [{ vin: 'OLDVIN0000000001', owner_id: 'owner-1', trust_score: 60, [ANNOUNCED_FINGERPRINT_COLUMN]: null }],
+    users: [{ id: 'owner-1', status: 'active', deleted_at: null }],
+  });
+  const workRow = w.materialTrustChange('OLDVIN0000000001', { trust_score: 91, trust_band: 'strong' });
+  assert.ok(workRow, 'a material change declares work');
+  assert.equal(workRow.generation, 1);
 
   const result = await runScheduledWorker(w.app);
-  assert.equal(result.body.reconciliation.trust_scanned, 1);
   assert.equal(result.body.reconciliation.trust_reconciled, 1);
   assert.equal(w.store.domain_events.filter((e) => e.event_type === TRUST_PRESENTATION_CHANGED_EVENT).length, 1);
-  assert.equal(vehicle[TRUST_WORK_COLUMN], false, 'the settled flag is retired');
+  assert.equal(w.work().length, 0, 'the settled work row is retired');
 
-  // Exactly one, and the next run adds nothing.
   await runScheduledWorker(w.app);
-  assert.equal(w.store.domain_events.filter((e) => e.event_type === TRUST_PRESENTATION_CHANGED_EVENT).length, 1);
+  assert.equal(w.store.domain_events.filter((e) => e.event_type === TRUST_PRESENTATION_CHANGED_EVENT).length, 1, 'exactly one');
 });
 
 // ============================================================================
-// P1-B / P1-C — starvation
+// R1 through the production scheduler
 // ============================================================================
 
-test('STARVE-1 (P1-B) 100 settled accounts cannot hide one genuinely pending account', async () => {
-  // Previously the LIMIT was applied to INFERRED candidates and the "already handled" test ran
-  // afterwards in JavaScript, so a settled prefix re-occupied the batch every minute and anything
-  // behind it was never reached. The LIMIT now applies only to rows that are already pending.
-  const users = [
-    ...Array.from({ length: 100 }, (_, i) => historicalUser(`settled-${String(i).padStart(3, '0')}`)),
-    { id: 'zzz-genuinely-pending', email: 'p@example.test', email_verified_at: AFTER, [WELCOME_WORK_COLUMN]: true },
-  ];
-  const w = world({ users });
-  // Default limit is 25 — far smaller than the settled population, which is the whole point.
-  const result = await runScheduledWorker(w.app);
-  assert.equal(result.body.reconciliation.welcome_scanned, 1, 'only the pending row is even selected');
-  assert.equal(result.body.reconciliation.welcome_reconstructed, 1);
-  assert.equal(w.store.domain_events[0].payload.recipientUserId, 'zzz-genuinely-pending',
-    'the pending account is found despite sorting last behind 100 settled ones');
-});
-
-test('STARVE-2 (P1-C) a no-recipient vehicle settles and cannot block later pending work', async () => {
-  // A vehicle whose owner is gone can never progress. Retrying it forever held the front of the
-  // queue. It is now a TERMINAL disposition: the flag is retired, and — critically — the
-  // announced-fingerprint is NOT written, because nothing was sent.
-  const orphan = { vin: 'AAAORPHAN00000001', owner_id: null, trust_evaluated_at: AFTER, [ANNOUNCED_FINGERPRINT_COLUMN]: null, [TRUST_WORK_COLUMN]: true };
-  const real = { vin: 'ZZZREAL0000000001', owner_id: 'owner-1', trust_evaluated_at: AFTER, [ANNOUNCED_FINGERPRINT_COLUMN]: null, [TRUST_WORK_COLUMN]: true };
-  const w = world({ vehicles: [orphan, real] });
-  w.store.users.push({ id: 'owner-1', status: 'active', deleted_at: null });
-
-  const result = await runScheduledWorker(w.app);
-  assert.equal(result.body.reconciliation.trust_scanned, 2);
-  assert.equal(result.body.reconciliation.trust_reconciled, 1, 'the real one is announced');
-  assert.equal(result.body.reconciliation.trust_settled_no_recipient, 1, 'the orphan settles rather than retrying');
-  assert.equal(orphan[TRUST_WORK_COLUMN], false, 'and stops occupying the batch');
-  assert.equal(orphan[ANNOUNCED_FINGERPRINT_COLUMN], null, 'but must NOT look as though an Email was sent');
-  assert.equal(real[TRUST_WORK_COLUMN], false);
-});
-
-test('STARVE-3 a TRANSIENT owner-lookup fault stays pending — it is not a terminal disposition', async () => {
-  const vehicle = { vin: 'VIN0000000000001', owner_id: 'owner-1', trust_evaluated_at: AFTER, [ANNOUNCED_FINGERPRINT_COLUMN]: null, [TRUST_WORK_COLUMN]: true };
-  const w = world({ vehicles: [vehicle] });
-  w.store.users.push({ id: 'owner-1', status: 'active', deleted_at: null });
-  w.failUserLookup.value = true;
-
-  const result = await runScheduledWorker(w.app);
-  assert.equal(result.body.reconciliation.trust_reconciled, 0);
-  assert.equal(vehicle[TRUST_WORK_COLUMN], true, 'a database blip must not retire real work');
-
-  // ...and it recovers once the store is healthy again.
-  w.failUserLookup.value = false;
-  const retry = await runScheduledWorker(w.app);
-  assert.equal(retry.body.reconciliation.trust_reconciled, 1);
-  assert.equal(vehicle[TRUST_WORK_COLUMN], false);
-});
-
-test('STARVE-4 a TRANSIENT VEHICLE-lookup fault also stays pending, not terminal', async () => {
-  // The other half of the terminal/transient split. Faulting the users lookup exercises only one
-  // branch; the vehicles read has its own, and collapsing IT would retire real work over a blip.
-  const vehicle = { vin: 'VIN0000000000002', owner_id: 'owner-1', trust_evaluated_at: AFTER, [ANNOUNCED_FINGERPRINT_COLUMN]: null, [TRUST_WORK_COLUMN]: true };
-  const w = world({ vehicles: [vehicle] });
-  w.store.users.push({ id: 'owner-1', status: 'active', deleted_at: null });
-  w.failVehicleLookup.value = true;
-
-  const result = await runScheduledWorker(w.app);
-  assert.equal(result.body.reconciliation.trust_reconciled, 0);
-  assert.equal(result.body.reconciliation.trust_settled_no_recipient, 0, 'a fault is NOT a no-recipient disposition');
-  assert.equal(vehicle[TRUST_WORK_COLUMN], true, 'the work must remain pending');
-
-  w.failVehicleLookup.value = false;
-  const retry = await runScheduledWorker(w.app);
-  assert.equal(retry.body.reconciliation.trust_reconciled, 1);
-  assert.equal(vehicle[TRUST_WORK_COLUMN], false);
-});
-
-// ============================================================================
-// R1 — the scheduled recovery sequence
-// ============================================================================
-
-test('R1-SCHED the full sequence through the PRODUCTION scheduler', async () => {
-  const user = { id: 'u-1', email: 'u1@example.test', email_verified_at: AFTER, [WELCOME_WORK_COLUMN]: true };
-  const w = world({ users: [user] });
-  assert.equal(w.store.domain_events.length, 0, 'precondition: the event really is missing');
+test('R1-SCHED verification enqueues work; the scheduler reconstructs the event; the producer sends', async () => {
+  const w = world({ users: [{ id: 'u-1', email: 'u1@example.test', email_verified_at: null, name: 'Fixture Buyer' }] });
+  const workRow = w.verifyUser('u-1');
+  assert.ok(workRow, 'the trigger enqueued welcome work in the verification transaction');
+  assert.equal(w.store.domain_events.length, 0, 'the app outbox write failed totally — the exact case this recovers');
 
   const first = await runScheduledWorker(w.app);
+  assert.equal(first.body.reconciliation.welcome_scanned, 1);
   assert.equal(first.body.reconciliation.welcome_reconstructed, 1);
   assert.equal(w.store.domain_events[0].dedupe_key, `${EMAIL_VERIFIED_EVENT}:u-1`);
-  assert.equal(user[WELCOME_WORK_COLUMN], false, 'the flag is retired once the durable event exists');
+  assert.equal(w.work().length, 0, 'work retired after the durable event exists');
 
   await w.runEventWorker();
   assert.equal(w.queued.length, 1);
@@ -425,7 +417,8 @@ test('R1-SCHED the full sequence through the PRODUCTION scheduler', async () => 
 });
 
 test('R1-SCHED2 the scanner reconstructs the EVENT and never sends the Email itself', async () => {
-  const w = world({ users: [{ id: 'u-1', email: 'u1@example.test', email_verified_at: AFTER, [WELCOME_WORK_COLUMN]: true }] });
+  const w = world({ users: [{ id: 'u-1', email: 'u1@example.test', email_verified_at: null }] });
+  w.verifyUser('u-1');
   await runScheduledWorker(w.app);
   assert.equal(w.store.domain_events.length, 1);
   assert.equal(w.queued.length, 0, 'the scanner must not be a second welcome producer');
@@ -433,90 +426,255 @@ test('R1-SCHED2 the scanner reconstructs the EVENT and never sends the Email its
   assert.equal(w.queued.length, 1);
 });
 
-test('R1-SCHED3 an account whose welcome already exists settles without a second event', async () => {
-  const user = { id: 'u-1', email: 'u1@example.test', email_verified_at: AFTER, [WELCOME_WORK_COLUMN]: true };
-  const w = world({ users: [user] });
-  w.store.notification_queue.push({ id: 'n-pre', dedupe_key: 'leadership_welcome:u-1', status: 'sent' });
+test('R1-SCHED3 work whose event already exists settles without a second event', async () => {
+  const w = world({ users: [{ id: 'u-1', email: 'u1@example.test', email_verified_at: null }] });
+  w.verifyUser('u-1');
+  // The ordinary app path succeeded: the durable event exists; only the work row lingers
+  // (crash after event persistence, before retirement).
+  await w.emit(null, EMAIL_VERIFIED_EVENT, { recipientUserId: 'u-1' });
   const result = await runScheduledWorker(w.app);
-  assert.equal(result.body.reconciliation.welcome_reconstructed, 0);
+  assert.equal(result.body.reconciliation.welcome_reconstructed, 0, 'no second event');
   assert.equal(result.body.reconciliation.welcome_settled, 1);
-  assert.equal(user[WELCOME_WORK_COLUMN], false);
-  assert.equal(w.store.domain_events.length, 0);
+  assert.equal(w.work().length, 0, 'the work retires against the existing event');
+  assert.equal(w.store.domain_events.length, 1);
+  await w.runEventWorker();
+  assert.equal(w.queued.length, 1, 'crash recovery yields exactly one Email');
 });
 
-test('R1-SCHED4 a lookup fault leaves the flag PENDING rather than retiring the work', async () => {
-  const user = { id: 'u-1', email: 'u1@example.test', email_verified_at: AFTER, [WELCOME_WORK_COLUMN]: true };
-  const w = world({ users: [user] });
+test('R1-SCHED4 a lookup fault leaves the work PENDING rather than retiring it', async () => {
+  const w = world({ users: [{ id: 'u-1', email: 'u1@example.test', email_verified_at: null }] });
+  w.verifyUser('u-1');
   w.failEventLookup.value = true;
   const result = await runScheduledWorker(w.app);
   assert.equal(result.body.reconciliation.welcome_reconstructed, 0);
-  assert.equal(user[WELCOME_WORK_COLUMN], true, 'an unreadable answer must never settle real work');
+  assert.equal(w.work().length, 1, 'an unreadable answer must never settle real work');
   assert.equal(w.store.domain_events.length, 0, 'and must never emit on a guess');
+
+  w.failEventLookup.value = false;
+  const retry = await runScheduledWorker(w.app);
+  assert.equal(retry.body.reconciliation.welcome_reconstructed, 1);
+  assert.equal(w.work().length, 0);
+});
+
+// ============================================================================
+// CODEX B — the generational lost-update race, closed
+// ============================================================================
+
+test('RACE-GEN the §15 interleaving: a material change mid-reconciliation SURVIVES the old retire', async () => {
+  const vin = 'RACEVIN000000001';
+  const w = world({
+    vehicles: [{ vin, owner_id: 'owner-1', trust_score: 60, [ANNOUNCED_FINGERPRINT_COLUMN]: null }],
+    users: [{ id: 'owner-1', status: 'active', deleted_at: null }],
+  });
+  // 1. Work at generation G / fingerprint F.
+  const workRow = w.materialTrustChange(vin, { trust_score: 78 });
+  const G = workRow.generation;
+  const F = workRow.work_fingerprint;
+
+  // 2-3. The scheduler reads the work and reconciles F — and BETWEEN its emit and its retire, a
+  // new material change commits: the trigger moves the row to G+1/F2. This is the §15 window.
+  let interleaved = false;
+  w.hooks.beforeRetire = async () => {
+    if (interleaved) return;
+    interleaved = true;
+    const updated = w.materialTrustChange(vin, { trust_score: 91, trust_band: 'strong' });
+    assert.equal(updated.generation, G + 1);
+    assert.notEqual(updated.work_fingerprint, F);
+  };
+
+  const first = await runScheduledWorker(w.app);
+  w.hooks.beforeRetire = null;
+
+  // 4-6. The old conditional retire affected ZERO rows; G+1/F2 remains pending.
+  assert.equal(first.body.reconciliation.trust_superseded, 1, 'the stale worker must observe supersession');
+  assert.equal(first.body.reconciliation.trust_reconciled, 0, 'and must not claim the newer work settled');
+  assert.equal(w.work().length, 1, 'the newer generation SURVIVES — this is the whole fix');
+  assert.equal(w.work()[0].generation, G + 1);
+
+  // 7. The next run reconciles F2 exactly once.
+  const second = await runScheduledWorker(w.app);
+  assert.equal(second.body.reconciliation.trust_reconciled, 1);
+  assert.equal(w.work().length, 0);
+  const trustEvents = w.store.domain_events.filter((e) => e.event_type === TRUST_PRESENTATION_CHANGED_EVENT);
+  assert.equal(trustEvents.length, 2, 'one event per material presentation — F and F2, nothing lost');
+
+  const third = await runScheduledWorker(w.app);
+  assert.equal(third.body.reconciliation.trust_scanned, 0);
+  assert.equal(w.store.domain_events.filter((e) => e.event_type === TRUST_PRESENTATION_CHANGED_EVENT).length, 2);
+});
+
+test('RACE-GEN2 A->B->A: same fingerprint, advanced generation — the old retire still affects zero', async () => {
+  // The generation compare must hold even when the material state returns to its original value:
+  // the fingerprint alone would match, and only the generation says this is NEWER work.
+  const vin = 'RACEVIN000000002';
+  const w = world({
+    vehicles: [{ vin, owner_id: 'owner-1', trust_score: 60, [ANNOUNCED_FINGERPRINT_COLUMN]: null }],
+    users: [{ id: 'owner-1', status: 'active', deleted_at: null }],
+  });
+  const workRow = w.materialTrustChange(vin, { trust_score: 78 });
+  const F = workRow.work_fingerprint;
+
+  const G0 = workRow.generation;
+  let interleaved = false;
+  w.hooks.beforeRetire = async () => {
+    if (interleaved) return;
+    interleaved = true;
+    w.materialTrustChange(vin, { trust_score: 91 }); // A -> B
+    const back = w.materialTrustChange(vin, { trust_score: 78 }); // B -> A
+    assert.equal(back.work_fingerprint, F, 'the fingerprint really is back to F');
+    assert.equal(back.generation, G0 + 2, 'but the generation says otherwise');
+  };
+  const first = await runScheduledWorker(w.app);
+  w.hooks.beforeRetire = null;
+  assert.equal(first.body.reconciliation.trust_superseded, 1);
+  assert.equal(w.work().length, 1, 'newer work survives on the strength of the generation alone');
+});
+
+test('RACE-GEN3 defence in depth: a fingerprint mismatch alone also blocks retirement', async () => {
+  // Cannot arise through the trigger (a new fingerprint always bumps the generation), but the
+  // retire primitive must hold each guard independently, or removing one is invisible.
+  const vin = 'RACEVIN000000003';
+  const w = world({
+    vehicles: [{ vin, owner_id: 'owner-1', trust_score: 60, [ANNOUNCED_FINGERPRINT_COLUMN]: null }],
+    users: [{ id: 'owner-1', status: 'active', deleted_at: null }],
+  });
+  const workRow = w.materialTrustChange(vin, { trust_score: 78 });
+  let interleaved = false;
+  w.hooks.beforeRetire = async () => {
+    if (interleaved) return;
+    interleaved = true;
+    const live = w.work().find((r) => r.subject_id === vin);
+    live.work_fingerprint = 'synthetically-different'; // same generation, different fingerprint
+  };
+  const first = await runScheduledWorker(w.app);
+  w.hooks.beforeRetire = null;
+  assert.equal(first.body.reconciliation.trust_superseded, 1);
+  assert.equal(w.work().length, 1);
+  assert.equal(w.work()[0].generation, workRow.generation);
+});
+
+// ============================================================================
+// R5 dispositions
+// ============================================================================
+
+test('R5-NOOWNER a no-recipient generation settles terminally without faking an announcement', async () => {
+  const orphanVin = 'AAAORPHAN0000001';
+  const realVin = 'ZZZREAL000000001';
+  const w = world({
+    vehicles: [
+      { vin: orphanVin, owner_id: null, trust_score: 60, [ANNOUNCED_FINGERPRINT_COLUMN]: null },
+      { vin: realVin, owner_id: 'owner-1', trust_score: 60, [ANNOUNCED_FINGERPRINT_COLUMN]: null },
+    ],
+    users: [{ id: 'owner-1', status: 'active', deleted_at: null }],
+  });
+  w.materialTrustChange(orphanVin, { trust_score: 78 });
+  w.materialTrustChange(realVin, { trust_score: 78 });
+
+  const result = await runScheduledWorker(w.app);
+  assert.equal(result.body.reconciliation.trust_scanned, 2);
+  assert.equal(result.body.reconciliation.trust_reconciled, 1, 'the owned vehicle is announced');
+  assert.equal(result.body.reconciliation.trust_settled_no_recipient, 1, 'the orphan settles for THIS generation');
+  assert.equal(w.work().length, 0, 'and stops occupying the queue');
+  const orphan = w.store.vehicles.find((v) => v.vin === orphanVin);
+  assert.equal(orphan[ANNOUNCED_FINGERPRINT_COLUMN], null, 'nothing was sent, so nothing claims it was');
+
+  // A later material change re-opens the orphan's work as a FRESH row. The retired row was
+  // deleted, so the new one starts at generation 1 — generation is per-row-lifetime optimistic
+  // concurrency, not per-subject history; "new work" is the row's existence.
+  const reopened = w.materialTrustChange(orphanVin, { trust_score: 91 });
+  assert.ok(reopened, 'the trigger re-opens the work');
+  assert.equal(w.work().length, 1);
+});
+
+test('R5-TRANSIENT an owner-lookup fault stays pending — never a terminal disposition', async () => {
+  const vin = 'VIN0000000000001';
+  const w = world({
+    vehicles: [{ vin, owner_id: 'owner-1', trust_score: 60, [ANNOUNCED_FINGERPRINT_COLUMN]: null }],
+    users: [{ id: 'owner-1', status: 'active', deleted_at: null }],
+  });
+  w.materialTrustChange(vin, { trust_score: 78 });
+  w.failVehicleLookup.value = true;
+
+  const result = await runScheduledWorker(w.app);
+  assert.equal(result.body.reconciliation.trust_reconciled, 0);
+  assert.equal(result.body.reconciliation.trust_settled_no_recipient, 0, 'a fault is NOT a no-recipient disposition');
+  assert.equal(w.work().length, 1, 'the work must remain pending');
+
+  w.failVehicleLookup.value = false;
+  const retry = await runScheduledWorker(w.app);
+  assert.equal(retry.body.reconciliation.trust_reconciled, 1);
+  assert.equal(w.work().length, 0);
 });
 
 // ============================================================================
 // Concurrency, crash recovery and bounds
 // ============================================================================
 
-test('CONC-1 overlapping workers produce ONE event each, not duplicates', async () => {
+test('CONC-1 overlapping workers: one event, one welcome, work retires exactly once', async () => {
   const w = world({
-    users: [{ id: 'u-1', email: 'u1@example.test', email_verified_at: AFTER, [WELCOME_WORK_COLUMN]: true }],
-    vehicles: [{ vin: 'NEWVIN0000000001', owner_id: 'owner-1', trust_evaluated_at: AFTER, [ANNOUNCED_FINGERPRINT_COLUMN]: null, [TRUST_WORK_COLUMN]: true }],
+    users: [
+      { id: 'u-1', email: 'u1@example.test', email_verified_at: null },
+      { id: 'owner-1', status: 'active', deleted_at: null },
+    ],
+    vehicles: [{ vin: 'NEWVIN0000000001', owner_id: 'owner-1', trust_score: 60, [ANNOUNCED_FINGERPRINT_COLUMN]: null }],
   });
-  w.store.users.push({ id: 'owner-1', status: 'active', deleted_at: null });
+  w.verifyUser('u-1');
+  w.materialTrustChange('NEWVIN0000000001', { trust_score: 78 });
 
   await Promise.all([runScheduledWorker(w.app), runScheduledWorker(w.app), runScheduledWorker(w.app)]);
 
   assert.equal(w.store.domain_events.filter((e) => e.event_type === EMAIL_VERIFIED_EVENT).length, 1);
   assert.equal(w.store.domain_events.filter((e) => e.event_type === TRUST_PRESENTATION_CHANGED_EVENT).length, 1);
+  assert.equal(w.work().length, 0);
   await w.runEventWorker();
-  assert.equal(w.queued.length, 1, 'one welcome despite three concurrent workers');
+  assert.equal(w.queued.length, 2, 'one welcome and one trust notification, despite three workers');
 });
 
-test('CONC-2 a crash AFTER the durable event but BEFORE clearing the flag recovers cleanly', async () => {
-  const user = { id: 'u-1', email: 'u1@example.test', email_verified_at: AFTER, [WELCOME_WORK_COLUMN]: true };
-  const w = world({ users: [user] });
-  // The event landed; the process died before retiring the flag.
-  await w.emit(null, EMAIL_VERIFIED_EVENT, { recipientUserId: 'u-1' });
-  assert.equal(user[WELCOME_WORK_COLUMN], true);
+test('BOUND-1 the LIMIT applies to pending work of the requested type only', async () => {
+  const w = world({
+    users: [{ id: 'zzz-pending', email: 'p@example.test', email_verified_at: null }],
+    vehicles: Array.from({ length: 30 }, (_, i) => ({
+      vin: `VIN${String(i).padStart(13, '0')}`, owner_id: 'owner-1', trust_score: 60, [ANNOUNCED_FINGERPRINT_COLUMN]: null,
+    })),
+  });
+  w.store.users.push({ id: 'owner-1', status: 'active', deleted_at: null });
+  for (const v of w.store.vehicles.filter((x) => x.vin.startsWith('VIN'))) w.materialTrustChange(v.vin, { trust_score: 78 });
+  w.verifyUser('zzz-pending');
 
-  const result = await runScheduledWorker(w.app);
-  assert.equal(result.body.reconciliation.welcome_reconstructed, 0, 'no second event');
-  assert.equal(result.body.reconciliation.welcome_settled, 1);
-  assert.equal(user[WELCOME_WORK_COLUMN], false, 'the existing event is recognised and the flag retired');
-  assert.equal(w.store.domain_events.length, 1);
-  await w.runEventWorker();
-  assert.equal(w.queued.length, 1);
+  // 30 pending trust rows must not crowd the ONE pending welcome out of its own scan.
+  const result = await reconcileCommunicationDurability({
+    repository: w.repository, trustBatchLimit: 5, verifiedUserBatchLimit: 5, emit: w.emit, getTrustRecord: w.getTrustRecord, pgClient: w.pgClient,
+  });
+  assert.equal(result.trust_scanned, 5, 'trust batch bounded to 5 of 30');
+  assert.equal(result.welcome_scanned, 1, 'the welcome scan sees ITS work type, not a mixed page');
+  assert.equal(result.welcome_reconstructed, 1);
+
+  // The trust backlog drains across passes rather than repeating a settled prefix.
+  let remaining = w.work().filter((r) => r.work_type === WORK_TYPES.TRUST).length;
+  assert.equal(remaining, 25);
+  await reconcileCommunicationDurability({ repository: w.repository, trustBatchLimit: 5, verifiedUserBatchLimit: 0, emit: w.emit, getTrustRecord: w.getTrustRecord, pgClient: w.pgClient });
+  remaining = w.work().filter((r) => r.work_type === WORK_TYPES.TRUST).length;
+  assert.equal(remaining, 20, 'each pass retires its batch — no re-fetched settled prefix');
 });
 
-test('BOUND-1 the batch is finite and applied to genuinely pending rows only', async () => {
-  const users = Array.from({ length: 60 }, (_, i) => ({
-    id: `u-${String(i).padStart(2, '0')}`, email: `u${i}@example.test`,
-    email_verified_at: AFTER, [WELCOME_WORK_COLUMN]: true,
-  }));
-  const w = world({ users });
-  const result = await reconcileCommunicationDurability({ repository: w.repository, verifiedUserBatchLimit: 10, trustBatchLimit: 0, emit: w.emit });
-  assert.equal(result.welcome_scanned, 10, 'the batch limit is respected, not the full 60');
-  assert.equal(result.welcome_reconstructed, 10);
-  assert.deepEqual(w.store.domain_events.map((e) => e.payload.recipientUserId), users.slice(0, 10).map((u) => u.id));
-
-  // The next pass picks up the NEXT ten — the batch drains rather than repeating.
-  await reconcileCommunicationDurability({ repository: w.repository, verifiedUserBatchLimit: 10, trustBatchLimit: 0, emit: w.emit });
-  assert.equal(w.store.domain_events.length, 20);
-});
-
-test('BOUND-2 an empty backlog is a near no-op — the worker is not a table sweeper', async () => {
-  const w = world({ users: [historicalUser('old')] });
+test('BOUND-2 an empty queue is a near no-op — one bounded query per work type', async () => {
+  const w = world({ users: [{ id: 'old', email: 'o@example.test', email_verified_at: '2026-08-01T00:00:00.000Z' }] });
   const result = await runScheduledWorker(w.app);
   assert.equal(result.body.reconciliation.trust_scanned, 0);
   assert.equal(result.body.reconciliation.welcome_scanned, 0);
-  assert.equal(w.scans.users.length, 1);
-  assert.equal(w.scans.vehicles.length, 1);
+  assert.equal(w.scans.work.length, 2, 'exactly one work-queue query per domain');
+  for (const scan of w.scans.work) {
+    assert.ok(scan.filters.work_type, 'the work_type filter is IN the query, not applied afterwards');
+  }
 });
 
 test('FAIL-1 one failing item does NOT abort the rest of the batch', async () => {
-  const users = ['u-bad', 'u-ok-1', 'u-ok-2'].map((id) => ({ id, email: `${id}@example.test`, email_verified_at: AFTER, [WELCOME_WORK_COLUMN]: true }));
-  const w = world({ users });
+  const w = world({ users: [
+    { id: 'u-bad', email: 'b@example.test', email_verified_at: null },
+    { id: 'u-ok-1', email: 'o1@example.test', email_verified_at: null },
+    { id: 'u-ok-2', email: 'o2@example.test', email_verified_at: null },
+  ] });
+  for (const id of ['u-bad', 'u-ok-1', 'u-ok-2']) w.verifyUser(id);
   const failingEmit = async (pg, type, payload) => {
     if (payload.recipientUserId === 'u-bad') throw new Error('transient outbox failure');
     return w.emit(pg, type, payload);
@@ -524,15 +682,18 @@ test('FAIL-1 one failing item does NOT abort the rest of the batch', async () =>
   const result = await reconcileCommunicationDurability({ repository: w.repository, trustBatchLimit: 0, emit: failingEmit });
   assert.equal(result.welcome_scanned, 3);
   assert.equal(result.welcome_failed, 1);
-  assert.equal(result.welcome_reconstructed, 2, 'the other two must still be reconstructed');
-  assert.equal(users[0][WELCOME_WORK_COLUMN], true, 'and the failed one stays pending');
+  assert.equal(result.welcome_reconstructed, 2);
+  assert.equal(w.work().length, 1, 'only the failed item stays pending');
+  assert.equal(w.work()[0].subject_id, 'u-bad');
 
   const retry = await reconcileCommunicationDurability({ repository: w.repository, trustBatchLimit: 0, emit: w.emit });
   assert.equal(retry.welcome_reconstructed, 1);
+  assert.equal(w.work().length, 0);
 });
 
 test('FAIL-2 a reconciliation fault never fails the worker request that drains the queue', async () => {
-  const w = world({ users: [{ id: 'u-1', email: 'u1@example.test', email_verified_at: AFTER, [WELCOME_WORK_COLUMN]: true }] });
+  const w = world({ users: [{ id: 'u-1', email: 'u1@example.test', email_verified_at: null }] });
+  w.verifyUser('u-1');
   w.repository.list = async () => { throw new Error('database unavailable'); };
   const result = await runScheduledWorker(w.app);
   assert.equal(result.status, 200, 'delivery must not be taken down by a reconciliation fault');
@@ -540,62 +701,69 @@ test('FAIL-2 a reconciliation fault never fails the worker request that drains t
 });
 
 // ============================================================================
-// P1-A — the removed authority
+// AUTHORITY — the migration text contract (executed for real by the PGlite check)
 // ============================================================================
 
-test('AUTHORITY-1 (P1-A) the client-mutable activation table is GONE, not merely secured', async () => {
-  const migration = fs.readFileSync(MIGRATION_PATH, 'utf8');
-  assert.equal(migration.includes('communication_activation_boundaries'), false,
-    'unnecessary authority is deleted, not defended');
-  // ...and nothing in the application still depends on it.
+function migrationText() {
+  return fs.readFileSync(MIGRATION_PATH, 'utf8');
+}
+
+test('AUTHORITY-1 the work queue is a private table: RLS on, every client privilege revoked', () => {
+  const migration = migrationText();
+  assert.ok(migration.includes('CREATE TABLE IF NOT EXISTS public.communication_reconciliation_work'));
+  assert.ok(migration.includes('ALTER TABLE public.communication_reconciliation_work ENABLE ROW LEVEL SECURITY;'));
+  assert.ok(migration.includes('ALTER TABLE public.communication_reconciliation_work FORCE ROW LEVEL SECURITY;'));
+  assert.ok(migration.includes('REVOKE ALL ON TABLE public.communication_reconciliation_work FROM PUBLIC, anon, authenticated;'));
+  // No policy grants anything back to a client role.
+  assert.equal(/CREATE POLICY[^;]*communication_reconciliation_work/i.test(migration), false,
+    'no policy may admit client access to the work queue');
+});
+
+test('AUTHORITY-2 no reconciliation control state lives on client-reachable tables any more', () => {
+  const migration = migrationText();
+  assert.equal(migration.includes('email_welcome_reconcile_required'), false,
+    'the users flag is gone — table-level UPDATE grants on public.users made it uncontrollable');
+  assert.equal(migration.includes('trust_presentation_reconcile_required'), false);
+  assert.equal(migration.includes('communication_activation_boundaries'), false);
   const controller = fs.readFileSync(CONTROLLER_PATH, 'utf8');
-  assert.equal(controller.includes('activation_boundaries'), false);
-  assert.equal(controller.includes('activated_at'), false);
+  assert.equal(controller.includes('reconcile_required'), false);
+  assert.ok(controller.includes(RECONCILIATION_WORK_TABLE), 'one eligibility authority: the work queue');
 });
 
-test('AUTHORITY-2 (P1-A) the replacement work flags are service-only in the migration', async () => {
-  const migration = fs.readFileSync(MIGRATION_PATH, 'utf8');
-  // Column-level revokes, proven by the migration text rather than asserted in a comment.
-  assert.match(migration, /REVOKE UPDATE \(email_welcome_reconcile_required\) ON public\.users FROM PUBLIC, anon, authenticated;/);
-  assert.ok(migration.includes('REVOKE UPDATE (trust_presentation_reconcile_required, trust_presentation_announced_fingerprint)')
-    && migration.includes('ON public.vehicles FROM PUBLIC, anon, authenticated;'),
-    'the vehicles flags must be revoked from client roles');
+test('AUTHORITY-3 the triggers exist with exact identities and fire only on the real transitions', () => {
+  const migration = migrationText();
+  assert.match(migration, /CREATE TRIGGER trg_users_enqueue_welcome_reconciliation\b(?!_)/);
+  assert.ok(migration.includes('AFTER UPDATE OF email_verified_at ON public.users'));
+  assert.ok(migration.includes('IF OLD.email_verified_at IS NULL AND NEW.email_verified_at IS NOT NULL THEN'));
 
-  // CREATE FUNCTION grants EXECUTE to PUBLIC by default. A caller able to invoke either trigger body
-  // directly could stamp reconciliation work onto any row, so each must be revoked in this file.
-  for (const fn of ['email_welcome_reconcile_flag', 'trust_presentation_reconcile_flag', 'communication_domain_event_dedupe_key']) {
-    assert.ok(migration.includes(`REVOKE ALL ON FUNCTION public.${fn}()`),
-      `${fn} must have EXECUTE revoked from PUBLIC/anon/authenticated`);
-  }
-});
-
-test('AUTHORITY-3 the flags are set by TRIGGER, so no deployment order can open a gap', async () => {
-  const migration = fs.readFileSync(MIGRATION_PATH, 'utf8');
-  // Exact trigger identity, not a substring: `trg_users_email_welcome_reconcile_DISABLED` contains
-  // the name and would have satisfied a naive includes() while the trigger no longer existed.
-  assert.match(migration, /CREATE TRIGGER trg_users_email_welcome_reconcile\b(?!_)/);
-  assert.match(migration, /DROP TRIGGER IF EXISTS trg_users_email_welcome_reconcile\b(?!_) ON public\.users;/);
-  assert.ok(migration.includes('BEFORE UPDATE OF email_verified_at ON public.users'), 'R1 trigger target');
-  assert.match(migration, /CREATE TRIGGER trg_vehicles_trust_presentation_reconcile\b(?!_)/);
-  assert.match(migration, /DROP TRIGGER IF EXISTS trg_vehicles_trust_presentation_reconcile\b(?!_) ON public\.vehicles;/);
-  assert.ok(migration.includes('BEFORE UPDATE ON public.vehicles'), 'R5 trigger target');
-  // R1 fires ONLY on the NULL -> NOT NULL transition.
-  assert.match(migration, /IF OLD\.email_verified_at IS NULL AND NEW\.email_verified_at IS NOT NULL THEN/);
-  // R5 keys on material fields and deliberately excludes the timestamp and the identity.
+  assert.match(migration, /CREATE TRIGGER trg_vehicles_enqueue_trust_reconciliation\b(?!_)/);
+  assert.ok(migration.includes('AFTER UPDATE ON public.vehicles'));
   for (const col of ['trust_score', 'trust_band', 'trust_confidence', 'trust_evidence_basis', 'trust_known_limitations', 'trust_calculation_version']) {
     assert.ok(migration.includes(`NEW.${col}`), `${col} must be part of the material comparison`);
   }
-  const fn = migration.slice(migration.indexOf('trust_presentation_reconcile_flag()'), migration.indexOf('DROP TRIGGER IF EXISTS trg_vehicles_trust_presentation_reconcile'));
-  assert.equal(fn.includes('NEW.trust_evaluated_at'), false, 'a timestamp-only recompute must not be material');
-  assert.equal(fn.includes('NEW.vin'), false, 'identity is not presentation');
+  const fn = migration.slice(
+    migration.indexOf('enqueue_trust_presentation_reconciliation()'),
+    migration.indexOf('DROP TRIGGER IF EXISTS trg_vehicles_enqueue_trust_reconciliation'),
+  );
+  assert.equal(/NEW\.trust_evaluated_at\s+IS DISTINCT FROM/.test(fn), false, 'a timestamp-only recompute must not be material');
+  assert.equal(/NEW\.vin\s+IS DISTINCT FROM/.test(fn), false, 'identity is not presentation');
   assert.ok(fn.includes('IS DISTINCT FROM'), 'nullable and jsonb columns need IS DISTINCT FROM');
+  assert.ok(fn.includes('generation = public.communication_reconciliation_work.generation + 1'),
+    'a newer material state advances the generation on the existing row');
 });
 
-test('AUTHORITY-4 historical rows default FALSE and are never backfilled', async () => {
-  const migration = fs.readFileSync(MIGRATION_PATH, 'utf8');
-  assert.match(migration, /email_welcome_reconcile_required boolean NOT NULL DEFAULT false/);
-  assert.match(migration, /trust_presentation_reconcile_required boolean NOT NULL DEFAULT false/);
-  // No UPDATE anywhere that could turn history into pending work.
+test('AUTHORITY-4 historical rows are never backfilled into the queue', () => {
+  const migration = migrationText();
+  assert.equal(/INSERT INTO public\.communication_reconciliation_work[\s\S]{0,400}?SELECT/i.test(migration), false,
+    'no INSERT ... SELECT backfill');
   assert.equal(/UPDATE public\.(users|vehicles)\s+SET/i.test(migration), false,
-    'the migration must not backfill either flag');
+    'no public-table rewrite that could fire the triggers en masse');
+});
+
+test('AUTHORITY-5 the trigger functions are not directly executable by clients', () => {
+  const migration = migrationText();
+  for (const fn of ['enqueue_email_welcome_reconciliation', 'enqueue_trust_presentation_reconciliation', 'communication_domain_event_dedupe_key']) {
+    assert.ok(migration.includes(`REVOKE ALL ON FUNCTION public.${fn}()`),
+      `${fn} must have EXECUTE revoked from PUBLIC/anon/authenticated`);
+  }
 });

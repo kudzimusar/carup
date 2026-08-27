@@ -69,88 +69,108 @@ CREATE INDEX IF NOT EXISTS idx_vehicles_trust_unannounced
   WHERE trust_presentation_announced_fingerprint IS NULL;
 
 -- ---------------------------------------------------------------------------
--- EXPLICIT RECOVERY WORK — the root correction.
+-- PRIVATE RECONCILIATION WORK QUEUE — the final root correction.
 -- ---------------------------------------------------------------------------
--- The previous design INFERRED outstanding work after the fact: "verified after a watermark", or
--- "announced-fingerprint is NULL and the position was evaluated after a watermark". Every one of the
--- four defects that design produced came from that single choice:
+-- Two designs preceded this one, and each failed for a reason worth recording.
 --
---   * a timestamp-only recompute moved a HISTORICAL vehicle past the watermark while its marker was
---     still NULL, so a routine reevaluation would have mailed a retroactive Trust change;
---   * the LIMIT was applied to inferred candidates and the "already handled" test ran afterwards in
---     JavaScript, so a settled prefix re-occupied the batch every minute and genuinely lost work
---     behind it was never reached;
---   * a permanently non-actionable row could hold the front of that queue forever;
---   * and the watermark itself became a client-writable security surface.
+-- The first INFERRED outstanding work from timestamps ("verified after a watermark"), which made a
+-- routine Trust recompute look like news, let a settled prefix starve the batch, and turned the
+-- watermark itself into a client-writable table.
 --
--- Inference is replaced by explicit durable state. A row is pending because something DECLARED it
--- pending, in the same transaction as the change that made it pending. Historical rows default
--- FALSE and are never backfilled, so baseline is guaranteed BY CONSTRUCTION rather than by a
--- comparison that some later write can invalidate.
+-- The second stored explicit boolean flags ON THE PUBLIC TABLES. That fixed inference but failed on
+-- privilege reality: PostgreSQL privileges are ADDITIVE, and live staging grants anon/authenticated
+-- table-level UPDATE on public.users, so a column-level revoke on a users flag was inert — a client
+-- could manufacture a Welcome or suppress one. And its final "SET flag = false" was unconditional,
+-- so a material change landing mid-reconciliation had its freshly-declared work silently wiped.
 --
--- The flags are set by DATABASE TRIGGERS, not by the application. The marker and the state
--- transition then cannot diverge, no deployment ordering can open a gap, and the existing auth and
--- Trust writers keep working unchanged — neither has to learn about a new column.
+-- So reconciliation work now lives in its OWN service-only table. Not a column on a client-reachable
+-- table whose grant posture this programme does not own, but a row in a table where the entire
+-- privilege surface is defined here: RLS enabled, every client privilege revoked. Rows are created
+-- by database triggers in the same transaction as the state change that created the work, carry a
+-- GENERATION and a material FINGERPRINT, and are retired only by an atomic conditional delete that
+-- names both — so a newer generation created mid-flight survives the older worker's retirement.
+--
+-- Historical state creates NO rows: the triggers fire only on post-migration transitions, and this
+-- migration performs no backfill. Baseline is a property of construction, not of comparison.
+CREATE TABLE IF NOT EXISTS public.communication_reconciliation_work (
+  id bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+  work_type text NOT NULL CHECK (work_type IN ('user_email_verified', 'vehicle_trust_presentation')),
+  subject_id text NOT NULL,
+  -- Monotonic per logical work item. A material change UPSERTS generation+1 onto the existing row
+  -- rather than growing an unbounded pile, and retirement compares it so an in-flight worker can
+  -- never retire work it has not seen.
+  generation bigint NOT NULL DEFAULT 1,
+  -- The material identity of the state that created this generation (R5 only; NULL for R1).
+  -- An optimistic-concurrency token computed in SQL over the same material columns the trigger
+  -- compares — deliberately NOT the application's trustPresentationFingerprint, which remains the
+  -- sole announcement/dedupe identity. This one only has to change when the material state does.
+  work_fingerprint text,
+  created_at timestamptz NOT NULL DEFAULT timezone('utc'::text, now()),
+  updated_at timestamptz NOT NULL DEFAULT timezone('utc'::text, now()),
+  -- Exactly one CURRENT logical pending work item per subject.
+  CONSTRAINT uq_communication_reconciliation_work UNIQUE (work_type, subject_id)
+);
 
--- R1 --------------------------------------------------------------------------------------------
-ALTER TABLE public.users
-  ADD COLUMN IF NOT EXISTS email_welcome_reconcile_required boolean NOT NULL DEFAULT false;
+COMMENT ON TABLE public.communication_reconciliation_work IS
+  'Internal service-only reconciliation work queue for CarUp Communications. Rows are enqueued by '
+  'database triggers on canonical state transitions and retired by the scheduled worker with an '
+  'atomic generation+fingerprint compare. No client role holds any privilege on this table.';
 
-COMMENT ON COLUMN public.users.email_welcome_reconcile_required IS
-  'Internal. TRUE when this account''s user.email.verified work item still needs reconstruction or '
-  'confirmation. Set only by trigger on the NULL -> NOT NULL email_verified_at transition, so every '
-  'account verified before this migration stays FALSE and receives no retroactive Welcome.';
+-- The scheduled scan: WHERE work_type = $1 ORDER BY subject_id LIMIT n.
+CREATE INDEX IF NOT EXISTS idx_communication_reconciliation_work_scan
+  ON public.communication_reconciliation_work (work_type, subject_id);
 
-CREATE OR REPLACE FUNCTION public.email_welcome_reconcile_flag()
+-- SERVICE ONLY. RLS on with no policies means even a stray future grant admits zero rows, and the
+-- revokes remove the Supabase default privileges outright. Both layers, because privilege posture
+-- on public-schema tables is exactly where the previous design failed.
+ALTER TABLE public.communication_reconciliation_work ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.communication_reconciliation_work FORCE ROW LEVEL SECURITY;
+REVOKE ALL ON TABLE public.communication_reconciliation_work FROM PUBLIC, anon, authenticated;
+
+-- R1 — a NULL -> NOT NULL email_verified_at transition enqueues welcome work. ------------------
+-- Same transaction as the verification write, so the work record and the state change cannot
+-- diverge and no deployment order can open a gap. Re-verification of an already-verified address
+-- does not fire; nor does any unrelated update to the row. ON CONFLICT keeps one logical item.
+CREATE OR REPLACE FUNCTION public.enqueue_email_welcome_reconciliation()
 RETURNS TRIGGER
 LANGUAGE plpgsql
+SECURITY DEFINER
 SET search_path = public
 AS $$
 BEGIN
-  -- ONLY the transition. Re-verifying an already-verified address, or any other update to the row,
-  -- must not re-queue a Welcome the account has already had.
   IF OLD.email_verified_at IS NULL AND NEW.email_verified_at IS NOT NULL THEN
-    NEW.email_welcome_reconcile_required := true;
+    INSERT INTO public.communication_reconciliation_work (work_type, subject_id)
+    VALUES ('user_email_verified', NEW.id::text)
+    ON CONFLICT ON CONSTRAINT uq_communication_reconciliation_work
+    DO UPDATE SET updated_at = timezone('utc'::text, now());
   END IF;
   RETURN NEW;
 END;
 $$;
 
-DROP TRIGGER IF EXISTS trg_users_email_welcome_reconcile ON public.users;
-CREATE TRIGGER trg_users_email_welcome_reconcile
-  BEFORE UPDATE OF email_verified_at ON public.users
+DROP TRIGGER IF EXISTS trg_users_enqueue_welcome_reconciliation ON public.users;
+CREATE TRIGGER trg_users_enqueue_welcome_reconciliation
+  AFTER UPDATE OF email_verified_at ON public.users
   FOR EACH ROW
-  EXECUTE FUNCTION public.email_welcome_reconcile_flag();
+  EXECUTE FUNCTION public.enqueue_email_welcome_reconciliation();
 
-CREATE INDEX IF NOT EXISTS idx_users_welcome_reconcile_pending
-  ON public.users (id)
-  WHERE email_welcome_reconcile_required;
-
--- R5 --------------------------------------------------------------------------------------------
-ALTER TABLE public.vehicles
-  ADD COLUMN IF NOT EXISTS trust_presentation_reconcile_required boolean NOT NULL DEFAULT false;
-
-COMMENT ON COLUMN public.vehicles.trust_presentation_reconcile_required IS
-  'Internal. TRUE when the persisted customer-visible Trust position materially moved and that '
-  'change has not yet been reconciled into an announcement. Set only by trigger, only on a MATERIAL '
-  'change. A timestamp-only recompute does not set it, and historical rows stay FALSE.';
-
-CREATE OR REPLACE FUNCTION public.trust_presentation_reconcile_flag()
+-- R5 — a MATERIAL Trust presentation change enqueues announcement work. ------------------------
+-- The comparison is the established material contract: the customer-visible stored position and
+-- nothing else. `trust_evaluated_at` is when the calculation ran, not what it concluded — including
+-- it is precisely the earlier defect, because a recompute that changes nothing a customer can see
+-- would then look like news. `vin` is identity, not presentation. IS DISTINCT FROM throughout:
+-- several columns are nullable and two are jsonb, where plain `<>` treats a NULL transition as
+-- unknown and silently skips a real change. This function computes no score and decides nothing
+-- about Trust; it answers only "did the persisted customer-visible position move?".
+CREATE OR REPLACE FUNCTION public.enqueue_trust_presentation_reconciliation()
 RETURNS TRIGGER
 LANGUAGE plpgsql
+SECURITY DEFINER
 SET search_path = public
 AS $$
+DECLARE
+  v_fingerprint text;
 BEGIN
-  -- This function is NOT a second Trust authority. It computes nothing and decides nothing about
-  -- what a score should be. It answers exactly one question: did the PERSISTED customer-visible
-  -- position materially move?
-  --
-  -- `vin` is identity, not presentation. `trust_evaluated_at` is when the calculation last ran, not
-  -- what it concluded — including it is precisely the defect this replaces, because a routine
-  -- recompute that changes nothing a customer can see would then look like news.
-  --
-  -- IS DISTINCT FROM throughout: several of these are nullable, and two are jsonb, where plain `<>`
-  -- would treat a NULL transition as "unknown" and silently skip a real change.
   IF NEW.trust_score              IS DISTINCT FROM OLD.trust_score
      OR NEW.trust_band                IS DISTINCT FROM OLD.trust_band
      OR NEW.trust_confidence          IS DISTINCT FROM OLD.trust_confidence
@@ -158,44 +178,42 @@ BEGIN
      OR NEW.trust_known_limitations   IS DISTINCT FROM OLD.trust_known_limitations
      OR NEW.trust_calculation_version IS DISTINCT FROM OLD.trust_calculation_version
   THEN
-    NEW.trust_presentation_reconcile_required := true;
+    -- The concurrency token for THIS material state. sha256 over the material columns in a fixed
+    -- order; jsonb::text is deterministic because jsonb is stored normalised.
+    v_fingerprint := encode(sha256(convert_to(concat_ws('|',
+      coalesce(NEW.trust_score::text, ''),
+      coalesce(NEW.trust_band, ''),
+      coalesce(NEW.trust_confidence, ''),
+      coalesce(NEW.trust_evidence_basis::text, ''),
+      coalesce(NEW.trust_known_limitations::text, ''),
+      coalesce(NEW.trust_calculation_version, '')
+    ), 'UTF8')), 'hex');
+
+    INSERT INTO public.communication_reconciliation_work (work_type, subject_id, generation, work_fingerprint)
+    VALUES ('vehicle_trust_presentation', NEW.vin, 1, v_fingerprint)
+    ON CONFLICT ON CONSTRAINT uq_communication_reconciliation_work
+    DO UPDATE SET
+      generation = public.communication_reconciliation_work.generation + 1,
+      work_fingerprint = EXCLUDED.work_fingerprint,
+      updated_at = timezone('utc'::text, now());
   END IF;
   RETURN NEW;
 END;
 $$;
 
-DROP TRIGGER IF EXISTS trg_vehicles_trust_presentation_reconcile ON public.vehicles;
-CREATE TRIGGER trg_vehicles_trust_presentation_reconcile
-  BEFORE UPDATE ON public.vehicles
+DROP TRIGGER IF EXISTS trg_vehicles_enqueue_trust_reconciliation ON public.vehicles;
+CREATE TRIGGER trg_vehicles_enqueue_trust_reconciliation
+  AFTER UPDATE ON public.vehicles
   FOR EACH ROW
-  EXECUTE FUNCTION public.trust_presentation_reconcile_flag();
-
-CREATE INDEX IF NOT EXISTS idx_vehicles_trust_reconcile_pending
-  ON public.vehicles (vin)
-  WHERE trust_presentation_reconcile_required;
-
--- ---------------------------------------------------------------------------
--- These flags are SERVICE-ONLY authority.
--- ---------------------------------------------------------------------------
--- A client that could set them could manufacture reconciliation work — an arbitrary Welcome or an
--- arbitrary Trust announcement. A client that could clear them could silently suppress a real one.
--- Supabase grants anon/authenticated broad privileges on public-schema tables by default, so the
--- revoke has to be explicit; this repository already establishes that pattern in
--- 20260814090000_issue101_p0_rls_and_view_hardening.sql. Column-level so nothing else changes.
-REVOKE UPDATE (email_welcome_reconcile_required) ON public.users FROM PUBLIC, anon, authenticated;
-REVOKE UPDATE (trust_presentation_reconcile_required, trust_presentation_announced_fingerprint)
-  ON public.vehicles FROM PUBLIC, anon, authenticated;
+  EXECUTE FUNCTION public.enqueue_trust_presentation_reconciliation();
 
 -- CREATE FUNCTION grants EXECUTE to PUBLIC BY DEFAULT, and granting one role does not remove that.
--- Both functions above run as trigger bodies only; nothing should be able to call them directly, and
--- a caller who could would be able to stamp reconciliation work onto any row. This repository's
--- `db-anon-grant-posture` gate caught the omission — it treats any CREATE FUNCTION on a protected
--- table as an indirect exposure until the file revokes it explicitly, which is the correct default.
-REVOKE ALL ON FUNCTION public.email_welcome_reconcile_flag()
+-- These run as trigger bodies only; a caller able to invoke them directly could stamp work into the
+-- queue. SECURITY DEFINER above is what lets the trigger write a table no client can touch even
+-- when the triggering UPDATE runs as a client role — which makes revoking direct EXECUTE essential.
+REVOKE ALL ON FUNCTION public.enqueue_email_welcome_reconciliation()
   FROM PUBLIC, anon, authenticated;
-REVOKE ALL ON FUNCTION public.trust_presentation_reconcile_flag()
-  FROM PUBLIC, anon, authenticated;
-REVOKE ALL ON FUNCTION public.communication_domain_event_dedupe_key()
+REVOKE ALL ON FUNCTION public.enqueue_trust_presentation_reconciliation()
   FROM PUBLIC, anon, authenticated;
 
 -- ---------------------------------------------------------------------------
@@ -263,5 +281,10 @@ CREATE TRIGGER trg_domain_events_communication_dedupe
   BEFORE INSERT ON public.domain_events
   FOR EACH ROW
   EXECUTE FUNCTION public.communication_domain_event_dedupe_key();
+
+-- Revoked AFTER the CREATE OR REPLACE above, so this package is also correct against a database
+-- where the function does not yet pre-exist. CREATE FUNCTION grants EXECUTE to PUBLIC by default.
+REVOKE ALL ON FUNCTION public.communication_domain_event_dedupe_key()
+  FROM PUBLIC, anon, authenticated;
 
 COMMIT;
