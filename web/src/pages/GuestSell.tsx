@@ -80,7 +80,13 @@ export default function GuestSell() {
       const reader = new FileReader()
       reader.onload = () => {
         const src = String(reader.result || '')
-        if (src) set('images', [...form.images, src].slice(0, 10))
+        if (src) {
+          setForm(previous => ({
+            ...previous,
+            images: [...previous.images, src].slice(0, 10),
+          }))
+          setDraftSaved(false)
+        }
       }
       reader.readAsDataURL(file)
     })
