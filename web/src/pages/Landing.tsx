@@ -17,7 +17,6 @@ import {
   Package,
   Search,
   ShieldCheck,
-  Tag,
   UserRoundCheck,
 } from 'lucide-react'
 import { useCarUpApi } from '@/hooks/useCarUpApi'
@@ -56,8 +55,6 @@ const trustStrip = [
   { label: 'SafePay Ready', icon: Lock },
   { label: 'PartSentry', icon: Package, testId: 'home-partsentry-trust-signal' },
 ]
-
-const productMap = ['Buy Cars', 'Sell Cars', 'Verify Cars', 'Trade Parts']
 
 const howItWorks = [
   {
