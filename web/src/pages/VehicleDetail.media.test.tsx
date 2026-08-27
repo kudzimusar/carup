@@ -248,6 +248,13 @@ function detailFixture(media: unknown[] | undefined) {
     trust_summary: {},
     verification_summary: {},
     pricing_summary: {},
+    reservation_summary: {
+      state: 'none',
+      reserved: false,
+      reserved_at: null,
+      expires_at: null,
+      reason: null,
+    },
     safety_warnings: [],
   }
 }
@@ -1002,6 +1009,46 @@ describe('VehicleDetail — Phase 0/3/4 still hold on the page this phase edited
     expect(DETAIL_CODE).not.toContain('SafePay escrow of $500 initiated')
     expect(DETAIL_CODE).not.toContain('Seller notified immediately via WhatsApp')
     expect(DETAIL_CODE).toContain("intentMetadata={{ buyer_intent: 'reservation_request', safepay_requested: true }}")
+  })
+
+  it('does not turn a stale Reserved status cache into an active reservation claim', async () => {
+    fetchMarketplaceListingDetail.mockResolvedValue({
+      ...detailFixture([image(CARD_IMAGE)]),
+      status: 'Reserved',
+      reservation_summary: {
+        state: 'unavailable',
+        reserved: null,
+        reserved_at: null,
+        expires_at: null,
+        reason: 'reservation_projection_unavailable',
+      },
+    })
+
+    await renderSettled()
+    await waitFor(() => expect(screen.getByTestId('reservation-request-entry')).toBeTruthy())
+
+    expect(screen.queryByTestId('reserved-state')).toBeNull()
+    expect(DETAIL_CODE).not.toContain("vehicle.status === 'Reserved'")
+    expect(DETAIL_CODE).not.toContain("vehicle.status === 'reserved'")
+  })
+
+  it('renders Reserved only when the canonical reservation summary is actively reserved', async () => {
+    fetchMarketplaceListingDetail.mockResolvedValue({
+      ...detailFixture([image(CARD_IMAGE)]),
+      status: 'Available',
+      reservation_summary: {
+        state: 'active',
+        reserved: true,
+        reserved_at: '2026-08-27T00:00:00.000Z',
+        expires_at: '2026-08-28T00:00:00.000Z',
+        reason: null,
+      },
+    })
+
+    await renderSettled()
+    await waitFor(() => expect(screen.getByTestId('reserved-state')).toBeTruthy())
+
+    expect(screen.queryByTestId('reservation-request-entry')).toBeNull()
   })
 
   it('routes financing interest without inventing lender, currency or approval semantics', async () => {
