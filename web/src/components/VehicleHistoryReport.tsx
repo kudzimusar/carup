@@ -111,6 +111,9 @@ const VERIFICATION_META: Record<string, { label: string; icon: LucideIcon; class
   rejected: { label: 'Rejected', icon: CircleSlash, className: 'bg-red-100 text-red-800 border-red-200' },
   disputed: { label: 'Disputed', icon: AlertTriangle, className: 'bg-orange-100 text-orange-800 border-orange-200' },
   superseded: { label: 'Superseded', icon: Clock, className: 'bg-gray-100 text-gray-700 border-gray-200' },
+  recorded: { label: 'Recorded', icon: ClipboardList, className: 'bg-slate-100 text-slate-700 border-slate-200' },
+  active: { label: 'Active', icon: CheckCircle2, className: 'bg-green-100 text-green-800 border-green-200' },
+  seller_stated: { label: 'Seller stated', icon: Info, className: 'bg-blue-50 text-blue-800 border-blue-200' },
 }
 function verificationMetaFor(value: string | null) {
   return VERIFICATION_META[String(value ?? 'pending')] ?? VERIFICATION_META.pending
@@ -162,8 +165,12 @@ export default function VehicleHistoryReport({ report, generatedAt, correctionNo
     { label: 'Import records', value: sections.auction_import.import, icon: Ship },
     { label: 'Accident records', value: sections.accident_repair.accident, icon: CarFront },
     { label: 'Repair records', value: sections.accident_repair.repair, icon: Wrench },
+    { label: 'Service records', value: sections.service ?? 0, icon: Wrench },
     { label: 'Inspections', value: sections.inspection, icon: ClipboardList },
     { label: 'Ownership transfers', value: sections.ownership_transfer, icon: ArrowLeftRight },
+    { label: 'Insurance records', value: sections.insurance ?? 0, icon: ShieldAlert },
+    { label: 'Registration records', value: sections.registration ?? 0, icon: FileSearch },
+    { label: 'Clearance records', value: sections.clearance ?? 0, icon: CheckCircle2 },
     { label: 'Current condition', value: sections.current_condition, icon: Camera },
   ]
 
@@ -351,14 +358,14 @@ export default function VehicleHistoryReport({ report, generatedAt, correctionNo
           id="report-sections-heading"
           icon={ClipboardList}
           title="Records by life stage"
-          subtitle="Count of evidence records held for each stage of the vehicle's life."
+          subtitle="Count of canonical lifecycle records CarUp can currently support across evidence, ownership, maintenance, inspection, insurance and listing observations."
         />
-        <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4" data-testid="report-section-counts">
+        <div className="grid grid-cols-2 border-l border-t border-slate-200 sm:grid-cols-3 lg:grid-cols-4" data-testid="report-section-counts">
           {sectionCounts.map(({ label, value, icon: Icon }) => (
-            <div key={label} className="rounded-lg border border-gray-200 bg-white p-3 text-center shadow-sm">
-              <Icon className="mx-auto h-5 w-5 text-gray-400" aria-hidden="true" />
-              <p className="mt-1 text-2xl font-bold text-gray-900">{value}</p>
-              <p className="text-xs text-gray-500">{label}</p>
+            <div key={label} className="border-b border-r border-slate-200 bg-white p-4 text-left">
+              <Icon className="h-5 w-5 text-orange-500" aria-hidden="true" />
+              <p className="mt-3 text-3xl font-black tracking-tight text-slate-950">{value}</p>
+              <p className="mt-1 text-xs font-semibold uppercase tracking-wide text-slate-500">{label}</p>
             </div>
           ))}
         </div>
@@ -370,7 +377,7 @@ export default function VehicleHistoryReport({ report, generatedAt, correctionNo
           id="report-mileage-heading"
           icon={Gauge}
           title="Mileage history"
-          subtitle="Odometer readings observed across evidence and listings."
+          subtitle="Odometer observations from evidence, maintenance, inspections, listing snapshots and the current seller-stated listing. Source labels distinguish observation from verification."
         />
         {mileage_history.anomaly && (
           <div
@@ -480,7 +487,7 @@ export default function VehicleHistoryReport({ report, generatedAt, correctionNo
           id="report-timeline-heading"
           icon={Clock}
           title="Life timeline"
-          subtitle="Chronological evidence records held for this vehicle."
+          subtitle="Chronological lifecycle events from the same canonical projection used by the report counts and mileage history."
         />
         {timeline.length === 0 ? (
           <EmptyState icon={Clock} title="No dated evidence yet" hint="As dated evidence is added, it appears here in order." />
@@ -497,6 +504,12 @@ export default function VehicleHistoryReport({ report, generatedAt, correctionNo
                   <span className="font-medium text-gray-700">{formatDate(item.date)}</span>
                   <span className="text-gray-600">{titleCase(item.evidence_class, 'Record')}</span>
                   {item.evidence_subtype && <span className="text-xs text-gray-500">{titleCase(item.evidence_subtype)}</span>}
+                  {typeof item.mileage === 'number' && (
+                    <span className="text-xs font-semibold text-slate-600">{formatMileage(item.mileage, item.mileage_unit || 'km')}</span>
+                  )}
+                  {item.source_kind && (
+                    <span className="text-[11px] uppercase tracking-wide text-slate-400">{titleCase(item.source_kind)}</span>
+                  )}
                   <Badge variant="outline" className={`ml-auto inline-flex items-center gap-1 border ${statusMeta.className}`}>
                     <StatusIcon className="h-3 w-3" aria-hidden="true" />
                     {statusMeta.label}
