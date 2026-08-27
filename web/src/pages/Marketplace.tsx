@@ -46,9 +46,10 @@ import {
 } from '@/lib/marketplaceParams'
 import type { ActiveFilterKey, MarketplaceSort, MarketplaceUrlState } from '@/lib/marketplaceParams'
 import { isAdversePlateStatus, plateStatusLabel, primaryImageForListing } from '@/lib/marketplacePresentation'
+import { VEHICLE_MAKES } from '@/data/vehicleTaxonomy'
 
 const MAX_COMPARE = 4
-const makes = ['All', 'Toyota', 'BMW', 'Mercedes-Benz', 'Nissan', 'Mazda', 'Volkswagen', 'Ford', 'Honda', 'Land Rover', 'Audi']
+const makes = ['All', ...VEHICLE_MAKES]
 const fuelTypes = ['All', 'Petrol', 'Diesel', 'Hybrid', 'Electric']
 const transmissions = ['All', 'Automatic', 'Manual']
 const CONDITION_CHIPS = [...CATEGORY_CHIPS, 'Parts & Accessories']
