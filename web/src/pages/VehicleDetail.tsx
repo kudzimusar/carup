@@ -2731,11 +2731,18 @@ export default function VehicleDetail() {
                         </span>
                       )}
                     </div>
-                    <div className="flex justify-between">
+                    <div className="flex justify-between gap-4">
                       <span className="text-gray-500">Previous Owners</span>
-                      <span className="font-medium" data-testid="prev-owner-count">
-                        {passport.ownershipSummary.previousOwnerCount} owner(s) ({passport.ownershipSummary.previousOwnersPublicLabel})
-                      </span>
+                      {passport.ownershipSummary.previousOwnerCountState === 'unavailable'
+                        || passport.ownershipSummary.previousOwnerCount === null ? (
+                        <span className="text-right font-medium text-amber-700" data-testid="prev-owner-count-unavailable">
+                          History source unavailable
+                        </span>
+                      ) : (
+                        <span className="text-right font-medium" data-testid="prev-owner-count">
+                          {passport.ownershipSummary.previousOwnerCount} transfer record(s) ({passport.ownershipSummary.previousOwnersPublicLabel})
+                        </span>
+                      )}
                     </div>
                     <div className="flex justify-between">
                       <span className="text-gray-500">Owner PII Status</span>
@@ -2754,13 +2761,17 @@ export default function VehicleDetail() {
                 <CardContent className="p-6">
                   <h3 className="font-semibold mb-4">Plate Registration History</h3>
                   {passport.plateHistory.length === 0 ? (
-                    passport.plateHistoryRedacted ? (
+                    passport.plateHistoryState === 'unavailable' ? (
+                      <p className="text-xs text-amber-700" data-testid="plate-history-unavailable">
+                        Plate history could not be read. CarUp is not treating this as an empty history.
+                      </p>
+                    ) : passport.plateHistoryRedacted ? (
                       <p className="text-xs text-gray-400" data-testid="plate-history-withheld">
                         Plate registration history is not shown publicly for this vehicle.
                       </p>
                     ) : (
                       <p className="text-xs text-gray-400" data-testid="plate-history-empty">
-                        No previous plates logged in history.
+                        No plate-history rows are held in the CarUp records read for this vehicle.
                       </p>
                     )
                   ) : (
