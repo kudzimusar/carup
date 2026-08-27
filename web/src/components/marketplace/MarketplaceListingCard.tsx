@@ -123,7 +123,7 @@ function TrustPreview({ trust }: { trust?: MarketplaceCardTrust | null }) {
       </div>
       <div className="mt-1 flex items-end justify-between gap-3">
         <p className="text-sm font-bold text-slate-900">{copy}</p>
-        <p className="text-[10px] text-slate-500">No substitute score</p>
+        <p className="text-[10px] text-slate-500">No legacy score is substituted</p>
       </div>
     </div>
   )
