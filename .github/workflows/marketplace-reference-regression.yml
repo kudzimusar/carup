@@ -60,6 +60,9 @@ jobs:
       - name: Install web dependencies
         run: npm --prefix web install --no-audit --no-fund
 
+      - name: Install backend dependencies
+        run: npm --prefix backend install --no-audit --no-fund
+
       - name: Run Marketplace governance regressions
         run: >-
           node --test
