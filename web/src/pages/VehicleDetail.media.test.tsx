@@ -57,8 +57,6 @@ const PASSPORT_GHOST_IMAGE = 'https://ghost.example.test/passport-images-key.jpg
 /** The sentence that shipped. It may not appear anywhere on the page again. */
 const SHIPPED_DEFECT_SENTENCE = 'No verified images uploaded yet'
 
-const reserveVehicle = vi.fn()
-const createSafePayEscrow = vi.fn()
 const submitFinancing = vi.fn()
 const fetchVehicle = vi.fn()
 const fetchVehiclePassport = vi.fn()
@@ -80,7 +78,7 @@ const createMarketplaceInquiry = vi.fn()
 
 vi.mock('@/hooks/useCarUpApi', () => ({
   useCarUpApi: () => ({
-    reserveVehicle, createSafePayEscrow, submitFinancing, fetchVehicle, fetchVehiclePassport,
+    submitFinancing, fetchVehicle, fetchVehiclePassport,
     lookupVehiclePassport, fetchMarketplaceListingDetail, saveMarketplaceListing,
     unsaveMarketplaceListing, fetchSavedMarketplaceListings, fetchEvidenceTaxonomy,
     fetchEvidenceSources, fetchTemporalFindings, fetchDisclosureConflicts, fetchVehicleReport,
@@ -987,13 +985,23 @@ describe('VehicleDetail — Phase 0/3/4 still hold on the page this phase edited
     expect(screen.getByTestId('trust-score-badge').textContent).not.toMatch(/\d/)
   })
 
-  it('keeps the transaction boundary safe without a resolved seller while still offering a governed next step', async () => {
+  it('keeps reservation authority server-owned and offers only the governed request step', async () => {
     await renderSettled()
     await waitFor(() => expect(screen.getByTestId('reservation-request-entry')).toBeTruthy())
 
     expect(screen.getByTestId('seller-contact-unavailable')).toBeTruthy()
     expect(screen.queryByTestId('reserve-vehicle')).toBeNull()
     expect(screen.queryByTestId('reserved-state')).toBeNull()
+
+    // Vehicle Detail cannot prove current inquiry/transaction eligibility from a tenant or a public
+    // seller hint. It therefore must not open a payment instrument or assert a deposit from this
+    // surface. The canonical reservation/payment authority remains server-side.
+    expect(DETAIL_CODE).not.toContain('createSafePayEscrow')
+    expect(DETAIL_CODE).not.toContain('reserveVehicle(')
+    expect(DETAIL_CODE).not.toContain('vehicle.tenant_id ?? vehicle.sellerId')
+    expect(DETAIL_CODE).not.toContain('SafePay escrow of $500 initiated')
+    expect(DETAIL_CODE).not.toContain('Seller notified immediately via WhatsApp')
+    expect(DETAIL_CODE).toContain("intentMetadata={{ buyer_intent: 'reservation_request', safepay_requested: true }}")
   })
 
   it('keeps the de-fabricated seller state', async () => {
