@@ -2554,15 +2554,17 @@ export default function VehicleDetail() {
                   </div>
                 ) : (
                   <div className="mt-6" data-testid="seller-contact-unavailable">
-                    <div className="flex gap-2">
-                      <Button disabled aria-disabled className="flex-1 gap-1 disabled:opacity-100 bg-white/10 text-white/80 border border-white/25 hover:bg-white/10 cursor-not-allowed" data-testid="call-disabled"><Phone className="w-4 h-4" /> Call</Button>
-                      <Button disabled aria-disabled variant="outline" className="flex-1 gap-1 disabled:opacity-100 bg-white/10 text-white/80 border border-white/25 hover:bg-white/10 cursor-not-allowed" data-testid="whatsapp-disabled"><MessageSquare className="w-4 h-4" /> WhatsApp</Button>
-                    </div>
-                    <p className="text-xs text-gray-400 mt-2">
-                      No contact number is published for this seller.
-                      {detail
-                        ? ' Use “Send inquiry” above — CarUp routes your request to the seller.'
-                        : ' Direct contact opens once the seller publishes a number.'}
+                    <InquiryModal
+                      listingId={detail?.vin || vehicle.vin}
+                      inquiryTypes={['vehicle_purchase_interest', 'vehicle_inspection_request']}
+                      defaultInquiryType="vehicle_purchase_interest"
+                      triggerLabel="Contact through CarUp"
+                      triggerClassName="w-full bg-orange-500 text-white hover:bg-orange-400"
+                      defaultMessage="I am interested in this vehicle. Please connect me with the seller through CarUp."
+                      intentMetadata={{ buyer_intent: 'seller_contact' }}
+                    />
+                    <p className="mt-2 text-xs text-gray-400">
+                      The seller has not published a direct number. CarUp can route your inquiry without exposing private contact details.
                     </p>
                   </div>
                 )}
@@ -2575,48 +2577,55 @@ export default function VehicleDetail() {
                   <div className="w-full flex items-center justify-center gap-2 bg-white/10 border border-white/20 rounded-lg py-3 text-gray-200 font-semibold text-sm" data-testid="reserve-requested-state">
                     <Clock className="w-4 h-4" /> Reservation requested — awaiting confirmation
                   </div>
+                ) : resolvedSellerId && isAuthenticated ? (
+                  <Button
+                    className="w-full gap-2 bg-white font-semibold text-gray-900 hover:bg-gray-100"
+                    onClick={() => setShowReserveModal(true)}
+                    data-testid="reserve-vehicle"
+                  >
+                    <Lock className="w-4 h-4" /> Reserve with SafePay
+                  </Button>
                 ) : (
-                  <>
-                    <Button
-                      className={`w-full font-semibold gap-2 ${resolvedSellerId
-                        ? 'bg-white text-gray-900 hover:bg-gray-100'
-                        : 'disabled:opacity-100 bg-white/10 text-white/80 border border-white/25 hover:bg-white/10 cursor-not-allowed'}`}
-                      onClick={() => setShowReserveModal(true)}
-                      disabled={!resolvedSellerId}
-                      aria-disabled={!resolvedSellerId}
-                      data-testid="reserve-vehicle"
-                    >
-                      <Lock className="w-4 h-4" /> Reserve Vehicle
-                    </Button>
-                    {!resolvedSellerId && (
-                      <p className="text-xs text-gray-400 mt-2" data-testid="reserve-unavailable">
-                        SafePay escrow is opened by CarUp once a verified inquiry confirms the seller, so it cannot be
-                        started from this page.
-                        {detail ? ' Use “Send inquiry” above to begin.' : ''}
-                      </p>
-                    )}
-                  </>
+                  <div data-testid="reservation-request-entry">
+                    <InquiryModal
+                      listingId={detail?.vin || vehicle.vin}
+                      inquiryTypes={['vehicle_purchase_interest']}
+                      defaultInquiryType="vehicle_purchase_interest"
+                      triggerLabel="Request reservation"
+                      triggerClassName="w-full bg-white text-slate-950 hover:bg-orange-50"
+                      defaultMessage="I want to reserve this vehicle. Please confirm the seller and tell me the next SafePay step."
+                      intentMetadata={{ buyer_intent: 'reservation_request', safepay_requested: true }}
+                      onSubmitted={() => setReserveRequested(true)}
+                    />
+                    <p className="mt-2 text-xs text-gray-400">
+                      A request starts the verified conversation first. Escrow opens only after CarUp can identify the parties and authorize the transaction.
+                    </p>
+                  </div>
                 )}
                 {isFinanced ? (
                   <div className="w-full flex items-center justify-center gap-2 bg-blue-600/20 border border-blue-500/40 rounded-lg py-3 text-blue-400 font-semibold text-sm mt-3">
                     <CheckCircle className="w-4 h-4" /> Financing Applied ✓
                   </div>
+                ) : canApplyForFinancing ? (
+                  <Button
+                    variant="outline"
+                    className="mt-3 w-full gap-2 border-white/20 text-white hover:bg-white/10"
+                    onClick={() => setShowFinanceModal(true)}
+                    data-testid="apply-financing"
+                  >
+                    <CreditCard className="w-4 h-4" /> Apply for financing
+                  </Button>
                 ) : (
-                  <>
-                    <Button
-                      variant="outline"
-                      className="w-full mt-3 border-white/20 text-white hover:bg-white/10 gap-2"
-                      onClick={() => setShowFinanceModal(true)}
-                      disabled={!canApplyForFinancing}
-                    >
-                      <CreditCard className="w-4 h-4" /> Apply for Financing
+                  <div className="mt-3">
+                    <Button asChild variant="outline" className="w-full gap-2 border-white/20 text-white hover:bg-white/10" data-testid="check-financing">
+                      <Link to={`/pricing?vin=${encodeURIComponent(vehicle.vin || '')}`}>
+                        <CreditCard className="w-4 h-4" /> Check financing options
+                      </Link>
                     </Button>
-                    {!canApplyForFinancing && (
-                      <p className="text-xs text-gray-400 mt-2" data-testid="financing-signin-required">
-                        Sign in to apply — the application is submitted under your CarUp account.
-                      </p>
-                    )}
-                  </>
+                    <p className="mt-2 text-xs text-gray-400">
+                      Browse the financing path first. Sign-in is required only when you submit an application under your identity.
+                    </p>
+                  </div>
                 )}
                 <p className="text-xs text-gray-400 text-center mt-3">🔒 Protected by CarUp SafePay Escrow</p>
               </CardContent>
