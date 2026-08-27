@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
@@ -10,6 +10,7 @@ import { toast } from 'sonner'
 import { zimbabweLocations, zimbabweProvinces } from '@/data/mockData'
 import { useCarUpApi } from '@/hooks/useCarUpApi'
 import { VehicleCompletenessPanel } from '@/components/VehicleCompletenessPanel'
+import { clearGuestSellDraft, readGuestSellDraft } from '@/lib/guestSellDraft'
 
 const MAKES = ['Toyota', 'BMW', 'Mercedes-Benz', 'Nissan', 'Mazda', 'Volkswagen', 'Ford', 'Honda', 'Land Rover', 'Audi', 'Other']
 const YEARS = Array.from({ length: 37 }, (_, i) => String(2026 - i))
@@ -86,6 +87,39 @@ export default function SellVehicle() {
   const [errors, setErrors] = useState<Record<string, string>>({})
   const [submitting, setSubmitting] = useState(false)
   const [savedVin, setSavedVin] = useState<string | null>(null)
+  const [guestDraftLoaded, setGuestDraftLoaded] = useState(false)
+
+  useEffect(() => {
+    const draft = readGuestSellDraft()
+    if (!draft) return
+    setForm(previous => ({
+      ...previous,
+      make: draft.make,
+      model: draft.model,
+      year: draft.year || previous.year,
+      vin: draft.vin,
+      color: draft.color,
+      mileage: draft.mileage,
+      condition: draft.condition,
+      category: draft.category,
+      fuelType: draft.fuelType,
+      transmission: draft.transmission,
+      location: draft.location,
+      province: draft.province,
+      price: draft.price,
+      currency: draft.currency,
+      description: draft.description,
+      engineNumber: draft.engineNumber,
+      chassisNumber: draft.chassisNumber,
+      plateNumber: draft.plateNumber,
+      tempPlateId: draft.tempPlateId,
+      importStatus: draft.importStatus,
+      features: draft.features,
+      images: draft.images,
+    }))
+    setGuestDraftLoaded(true)
+    toast.success('Your pre-sign-in listing draft is ready to review.')
+  }, [])
 
   const set = (field: string, value: string | number | boolean | string[]) => setForm(prev => ({ ...prev, [field]: value }))
 
@@ -198,6 +232,8 @@ export default function SellVehicle() {
 
       const returnedVin: string = (result as { vin?: string } | null)?.vin ?? form.vin.toUpperCase()
       setSavedVin(returnedVin)
+      clearGuestSellDraft()
+      setGuestDraftLoaded(false)
       toast.success('Vehicle saved as draft. Upload ownership documents to publish your listing.')
     } catch (err: unknown) {
       const errMsg = err instanceof Error ? err.message : ''
@@ -237,6 +273,12 @@ export default function SellVehicle() {
         <h1 className="text-2xl font-bold">Register Your Vehicle</h1>
         <p className="text-gray-500">Save your vehicle as a draft. You must upload ownership documents before your listing can be published.</p>
       </div>
+      {guestDraftLoaded && (
+        <div className="border-l-4 border-orange-500 bg-orange-50 p-4 text-sm text-orange-950" data-testid="seller-guest-draft-loaded">
+          <p className="font-semibold">Your guest preview has been restored.</p>
+          <p className="mt-1">Review the details below. Nothing is published until CarUp's publication requirements are completed.</p>
+        </div>
+      )}
 
       <StepIndicator step={step} total={STEPS.length} />
 
