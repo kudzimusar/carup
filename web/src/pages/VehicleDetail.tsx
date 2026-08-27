@@ -2004,7 +2004,7 @@ export default function VehicleDetail() {
                   >
                     <GitCompare className="w-5 h-5 text-gray-600" />
                   </Link>
-                  <button onClick={handleShare} aria-label="Share this listing" className="w-10 h-10 rounded-full bg-white/90 flex items-center justify-center hover:bg-white">
+                  <button onClick={handleShare} aria-label="Share this listing" data-testid="vehicle-detail-share" className="w-10 h-10 rounded-full bg-white/90 flex items-center justify-center hover:bg-white">
                     <Share2 className="w-5 h-5 text-gray-600" />
                   </button>
                 </div>
