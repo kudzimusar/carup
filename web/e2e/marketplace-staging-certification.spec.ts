@@ -279,7 +279,7 @@ test('desktop comparison never exposes transport nulls or broken image glyphs', 
 
   await expect(page.getByTestId('marketplace-compare-page')).toBeVisible()
   await expect(page.getByText(/Null\s+[0-9]/i)).toHaveCount(0)
-  await expect(page.getByText(/currency not recorded/i)).toBeVisible()
+  expect(await page.getByText(/currency not recorded/i).count(), 'truthful missing-currency presentations').toBeGreaterThan(0)
 
   const imageContainers = page.getByTestId('marketplace-compare-page').locator('thead th').filter({ has: page.locator('a') })
   expect(await imageContainers.count()).toBeGreaterThanOrEqual(2)
