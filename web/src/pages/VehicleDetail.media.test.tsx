@@ -987,11 +987,13 @@ describe('VehicleDetail — Phase 0/3/4 still hold on the page this phase edited
     expect(screen.getByTestId('trust-score-badge').textContent).not.toMatch(/\d/)
   })
 
-  it('keeps the transaction controls failing closed without a resolved seller', async () => {
+  it('keeps the transaction boundary safe without a resolved seller while still offering a governed next step', async () => {
     await renderSettled()
-    await waitFor(() => expect(screen.getByTestId('reserve-unavailable')).toBeTruthy())
+    await waitFor(() => expect(screen.getByTestId('reservation-request-entry')).toBeTruthy())
 
     expect(screen.getByTestId('seller-contact-unavailable')).toBeTruthy()
+    expect(screen.queryByTestId('reserve-vehicle')).toBeNull()
+    expect(screen.getByTestId('reservation-request-entry').textContent).toMatch(/request reservation/i)
   })
 
   it('keeps the de-fabricated seller state', async () => {
