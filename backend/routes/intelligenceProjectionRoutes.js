@@ -26,6 +26,7 @@ import {
   getSellerRecommendations,
   getPlatformRecommendations,
 } from '../services/intelligence/recommendationService.js';
+import { buildAuthorizedContext } from '../services/intelligence/aiIntelligenceContextService.js';
 import {
   getMechanicIntelligence,
   getGarageIntelligence,
@@ -381,6 +382,26 @@ router.get(
   asyncHandler(async (req, res) => {
     try {
       const data = await getPlatformRecommendations(supabase, req.userContext);
+      return res.json({ ok: true, ...data });
+    } catch (error) {
+      return handleProjectionError(res, error);
+    }
+  }),
+);
+
+/**
+ * The assistant's governed context.
+ *
+ * A closed set of facts about the SIGNED-IN person, each carrying its own
+ * availability. There is no subject parameter, so an assistant cannot be pointed
+ * at another user's records.
+ */
+router.get(
+  '/api/intelligence/assistant-context',
+  authorizeRole([]),
+  asyncHandler(async (req, res) => {
+    try {
+      const data = await buildAuthorizedContext(supabase, req.userContext);
       return res.json({ ok: true, ...data });
     } catch (error) {
       return handleProjectionError(res, error);

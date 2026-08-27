@@ -1,170 +1,172 @@
-import { useState, useRef, useEffect } from 'react'
+/**
+ * Gutu AI — CarUp Intelligence I18.
+ *
+ * This surface was not an AI. It matched keywords against a fixed lookup table and
+ * returned prepared strings after a 1.2-second delay that simulated thinking. The
+ * strings asserted specific facts about the reader's OWN property:
+ *
+ *   - a market valuation for a named vehicle ("$11,800"), with a month-on-month
+ *     movement ("3.2% decrease") and a selling range;
+ *   - a service history and a due date, quoting a past service date and mileage;
+ *   - an insurance policy — insurer, policy number, expiry date and annual
+ *     premium — followed by the advice that the premium was "competitive";
+ *   - three named garages with star ratings and distances;
+ *   - and a fraud-detection rate.
+ *
+ * None of it came from anywhere. This is the most dangerous fabrication class in
+ * the programme: a conversational register invites exactly the trust it cannot
+ * bear, and a reader had no way to tell these apart from their real records.
+ *
+ * What replaces it is the governed context itself. Gutu now shows what CarUp
+ * actually holds about you, and — just as prominently — what it does not hold, so
+ * the questions it cannot answer are visibly unanswerable rather than answered
+ * with an invention.
+ */
+import { useEffect, useState } from 'react'
 import { Card } from '@/components/ui/card'
-import { Button } from '@/components/ui/button'
-import { Input } from '@/components/ui/input'
-import { Badge } from '@/components/ui/badge'
-import { ScrollArea } from '@/components/ui/scroll-area'
-import { Send, Bot, User, Image, Sparkles } from 'lucide-react'
+import { Bot, CheckCircle2, Info, AlertCircle } from 'lucide-react'
+import { useCarUpApi } from '@/hooks/useCarUpApi'
 
-export interface ChatMessage {
-  id: string
-  role: 'user' | 'assistant'
-  content: string
-  timestamp: string
+interface ContextFact {
+  key: string
+  label: string
+  value: number | null
+  unit: string | null
+  available: boolean
+  reason: string | null
+  source: string
 }
 
-const gutuWelcomeMessages: ChatMessage[] = [
-  {
-    id: '1',
-    role: 'assistant',
-    content: 'Mhoroi! I am Gutu AI, your CarUp intelligent assistant. I can help you with vehicle valuations, maintenance schedules, document scanning, and fraud checking. How can I help you today?',
-    timestamp: new Date().toISOString()
-  }
-]
-const suggestedQuestions = [
-  'What is my vehicle worth?',
-  'When is my next service due?',
-  'Scan my logbook',
-  'Check insurance expiry',
-  'Find mechanics near me',
-  'Is this price fair?',
-]
-
-const aiResponses: Record<string, string> = {
-  'worth': 'Based on current market data for your Toyota Corolla Quest (2019) with 67,800km in Harare, the estimated market value is **$11,800**. This represents a 3.2% decrease from last month due to increased supply. Similar vehicles are selling between $10,600 and $13,000.',
-  'service': 'Your Toyota Corolla Quest is due for service in approximately **500km or 30 days**, whichever comes first. Based on your last service (April 2026 at 67,000km), the next service should include: oil change, filter replacement, and brake inspection. Would you like me to recommend garages?',
-  'insurance': 'Your NicozDiamond comprehensive policy (NDI-MOT-2026-45678) expires on **December 31, 2026**. That is 223 days from now. Your premium of $680/year is competitive. I recommend starting renewal discussions 30 days before expiry.',
-  'mechanics': 'Here are 3 highly-rated mechanics near you in Harare:\n\n1. **AutoTech Pro Garage** (4.9★) - 2.3km away\n   Specializes: European & Japanese cars\n\n2. **Elite Auto Care** (4.8★) - 4.1km away\n   Specializes: Luxury vehicles & detailing\n\n3. **QuickFix Motors** (4.6★) - 5.7km away\n   Specializes: Toyota, Nissan, Mazda',
-  'price': 'To evaluate if a price is fair, I need the vehicle details. Please share the make, model, year, mileage, and condition. I will compare it against recent sales data and provide a market analysis with confidence score.',
-  'scan': 'I can help scan and parse your logbook! Please upload a photo or PDF of your vehicle registration book (logbook), insurance papers, or police clearance. I will extract all relevant data and auto-fill your vehicle profile.',
-}
-
-function getAIResponse(input: string): string {
-  const lower = input.toLowerCase()
-  for (const [key, response] of Object.entries(aiResponses)) {
-    if (lower.includes(key)) return response
-  }
-  if (lower.includes('hello') || lower.includes('hi') || lower.includes('mhoroi')) {
-    return 'Mhoroi! Welcome to CarUp. I am Gutu AI, your automotive assistant. I can help with vehicle valuations, service scheduling, document scanning, fraud detection, and much more. What would you like to know?'
-  }
-  if (lower.includes('fraud') || lower.includes('scam')) {
-    return 'CarUp uses multiple layers of fraud detection:\n\n- **VIN Verification**: Cross-referenced with manufacturer databases\n- **Document Authenticity**: AI-powered forgery detection on logbooks and certificates\n- **Ownership Chain**: Audit-ledger-verified ownership history\n- **PartSentry**: Tracks part replacements to detect accident concealment\n- **Price Analysis**: Flags listings priced significantly above or below market value\n\nCurrent fraud detection rate: **98.7%**'
-  }
-  if (lower.includes('partsentry') || lower.includes('part')) {
-    return 'PartSentry is CarUp\'s audit-ledger-backed parts tracking system. Every part replacement is recorded with:\n- What changed, who changed it, when and why\n- Mechanic and supplier information\n- Warranty data and part origin\- Before/after service records\n\nThis creates an immutable record that increases resale value, prevents fraud, and helps insurance claims.'
-  }
-  return 'That\'s a great question! I can help with that. To give you the most accurate answer, could you provide a few more details? Alternatively, I can connect you with a specialist or search our knowledge base for more information.'
+interface ContextPayload {
+  ok?: boolean
+  availability?: string
+  message?: string
+  facts?: ContextFact[]
+  boundaries?: string[]
 }
 
 export default function AIDashboard() {
-  const [messages, setMessages] = useState<ChatMessage[]>(gutuWelcomeMessages)
-  const [input, setInput] = useState('')
-  const [typing, setTyping] = useState(false)
-  const scrollRef = useRef<HTMLDivElement>(null)
+  const { fetchAssistantContext } = useCarUpApi()
+  const [state, setState] = useState<'loading' | 'ready' | 'failed'>('loading')
+  const [payload, setPayload] = useState<ContextPayload | null>(null)
 
   useEffect(() => {
-    scrollRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' })
-  }, [messages])
+    let cancelled = false
+    setState('loading')
+    if (typeof fetchAssistantContext !== 'function') {
+      setState('failed')
+      return () => { cancelled = true }
+    }
+    let pending: Promise<ContextPayload>
+    try {
+      pending = Promise.resolve(fetchAssistantContext())
+    } catch {
+      setState('failed')
+      return () => { cancelled = true }
+    }
+    pending.then(
+      (data: ContextPayload) => {
+        if (cancelled) return
+        setPayload(data)
+        setState('ready')
+      },
+      () => { if (!cancelled) setState('failed') },
+    )
+    return () => { cancelled = true }
+  }, [fetchAssistantContext])
 
-  const sendMessage = () => {
-    if (!input.trim()) return
-    const userMsg: ChatMessage = { id: Date.now().toString(), role: 'user', content: input, timestamp: new Date().toISOString() }
-    setMessages(prev => [...prev, userMsg])
-    setInput('')
-    setTyping(true)
-    setTimeout(() => {
-      const response = getAIResponse(userMsg.content)
-      const aiMsg: ChatMessage = { id: (Date.now() + 1).toString(), role: 'assistant', content: response, timestamp: new Date().toISOString() }
-      setMessages(prev => [...prev, aiMsg])
-      setTyping(false)
-    }, 1200)
-  }
+  const facts = payload?.facts ?? []
+  const known = facts.filter((f) => f.available)
+  const notHeld = facts.filter((f) => !f.available)
 
   return (
-    <div className="h-[calc(100vh-8rem)] flex flex-col max-w-5xl mx-auto">
-      <div className="flex items-center justify-between mb-4">
-        <div className="flex items-center gap-3">
-          <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-purple-500 to-indigo-600 flex items-center justify-center">
-            <Bot className="w-6 h-6 text-white" />
-          </div>
-          <div>
-            <h1 className="text-xl font-bold flex items-center gap-2">
-              Gutu AI
-              <Badge className="bg-purple-100 text-purple-700 text-[10px]">BETA</Badge>
-            </h1>
-            <p className="text-xs text-gray-500">Your personal automotive intelligence assistant</p>
-          </div>
+    <div className="space-y-6 max-w-4xl mx-auto">
+      <div className="flex items-center gap-3">
+        <div className="w-10 h-10 rounded-xl bg-orange-100 flex items-center justify-center">
+          <Bot className="w-5 h-5 text-orange-500" />
+        </div>
+        <div>
+          <h1 className="text-2xl font-bold">Gutu AI</h1>
+          <p className="text-sm text-gray-500">
+            Gutu explains what CarUp records about you. It does not estimate, predict or advise on
+            anything CarUp has not recorded.
+          </p>
         </div>
       </div>
 
-      <Card className="flex-1 border-0 card-shadow flex flex-col overflow-hidden">
-        <ScrollArea className="flex-1 p-4">
-          <div className="space-y-4">
-            {messages.map((msg) => (
-              <div key={msg.id} className={`flex gap-3 ${msg.role === 'user' ? 'flex-row-reverse' : ''}`}>
-                <div className={`w-8 h-8 rounded-lg flex items-center justify-center shrink-0 ${
-                  msg.role === 'assistant' ? 'bg-gradient-to-br from-purple-500 to-indigo-600' : 'bg-orange-500'
-                }`}>
-                  {msg.role === 'assistant' ? <Sparkles className="w-4 h-4 text-white" /> : <User className="w-4 h-4 text-white" />}
-                </div>
-                <div className={`max-w-[80%] rounded-2xl px-4 py-3 text-sm leading-relaxed ${
-                  msg.role === 'assistant' ? 'bg-gray-100 text-gray-800' : 'bg-orange-500 text-white'
-                }`}>
-                  <div className="whitespace-pre-wrap">{msg.content}</div>
-                </div>
-              </div>
-            ))}
-            {typing && (
-              <div className="flex gap-3">
-                <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-purple-500 to-indigo-600 flex items-center justify-center">
-                  <Sparkles className="w-4 h-4 text-white" />
-                </div>
-                <div className="bg-gray-100 rounded-2xl px-4 py-3">
-                  <div className="flex gap-1">
-                    <div className="w-2 h-2 rounded-full bg-gray-400 animate-bounce" />
-                    <div className="w-2 h-2 rounded-full bg-gray-400 animate-bounce" style={{ animationDelay: '0.1s' }} />
-                    <div className="w-2 h-2 rounded-full bg-gray-400 animate-bounce" style={{ animationDelay: '0.2s' }} />
-                  </div>
-                </div>
-              </div>
-            )}
-            <div ref={scrollRef} />
-          </div>
-        </ScrollArea>
+      {state === 'loading' && (
+        <Card className="border-0 card-shadow p-5" data-testid="assistant-context-loading">
+          <p className="text-sm text-gray-500">Loading your records…</p>
+        </Card>
+      )}
 
-        {messages.length === 1 && (
-          <div className="px-4 pb-2">
-            <div className="flex flex-wrap gap-2">
-              {suggestedQuestions.map((q) => (
-                <button
-                  key={q}
-                  onClick={() => { setInput(q); }}
-                  className="px-3 py-1.5 bg-gray-100 hover:bg-orange-50 hover:text-orange-700 rounded-full text-xs transition-colors"
-                >
-                  {q}
-                </button>
+      {(state === 'failed' || payload?.availability === 'unavailable') && state !== 'loading' && (
+        <Card className="border-0 card-shadow p-5" data-testid="assistant-context-unavailable">
+          <p className="flex items-start gap-2 text-sm text-gray-600">
+            <AlertCircle className="mt-0.5 h-4 w-4 shrink-0 text-amber-500" aria-hidden="true" />
+            <span data-testid="assistant-context-message">
+              {payload?.message
+                || 'Your CarUp records could not be read, so nothing can be shown from them. This is not a report that you have none.'}
+            </span>
+          </p>
+        </Card>
+      )}
+
+      {state === 'ready' && payload?.availability !== 'unavailable' && (
+        <>
+          <Card className="border-0 card-shadow p-5" data-testid="assistant-known">
+            <h2 className="text-sm font-semibold text-gray-700">What CarUp records about you</h2>
+            <dl className="mt-4 grid grid-cols-2 gap-4 sm:grid-cols-4">
+              {known.map((f) => (
+                <div key={f.key} data-testid={`assistant-fact-${f.key}`}>
+                  <dd className="text-xl font-semibold text-gray-900" data-testid={`assistant-fact-${f.key}-value`}>
+                    {f.value}
+                  </dd>
+                  <dt className="mt-0.5 text-xs text-gray-600">{f.label}</dt>
+                </div>
               ))}
-            </div>
-          </div>
-        )}
+            </dl>
+            <p className="mt-3 border-t pt-3 text-[11px] text-gray-400">
+              Every figure here comes from your own records. Gutu answers from these and nothing else.
+            </p>
+          </Card>
 
-        <div className="p-4 border-t">
-          <div className="flex gap-2">
-            <Button variant="ghost" size="icon" className="shrink-0"><Image className="w-5 h-5 text-gray-400" /></Button>
-            <Input
-              placeholder="Ask Gutu AI anything..."
-              value={input}
-              onChange={e => setInput(e.target.value)}
-              onKeyDown={e => e.key === 'Enter' && sendMessage()}
-              className="flex-1"
-            />
-            <Button onClick={sendMessage} disabled={!input.trim()} className="bg-orange-500 hover:bg-orange-600 shrink-0">
-              <Send className="w-4 h-4" />
-            </Button>
-          </div>
-          <p className="text-xs text-gray-400 text-center mt-2">Gutu AI can make mistakes. Always verify important information.</p>
-        </div>
-      </Card>
+          {/* As prominent as the facts. A question that cannot be answered must be
+              visibly unanswerable rather than answered with an invention. */}
+          <Card className="border-0 card-shadow p-5" data-testid="assistant-not-held">
+            <h2 className="text-sm font-semibold text-gray-700">What CarUp does not hold</h2>
+            <p className="mt-1 text-xs text-gray-500">
+              Gutu will not answer these. Each was previously answered with a figure that came from
+              nowhere.
+            </p>
+            <ul className="mt-3 space-y-2">
+              {notHeld.map((f) => (
+                <li key={f.key} className="flex items-start gap-2 text-sm" data-testid={`assistant-missing-${f.key}`}>
+                  <Info className="mt-0.5 h-4 w-4 shrink-0 text-gray-400" aria-hidden="true" />
+                  <span>
+                    <span className="font-medium text-gray-800">{f.label}</span>
+                    <span className="block text-xs text-gray-600">{f.reason}</span>
+                  </span>
+                </li>
+              ))}
+            </ul>
+          </Card>
+
+          {payload?.boundaries && payload.boundaries.length > 0 && (
+            <Card className="border-0 card-shadow p-5" data-testid="assistant-boundaries">
+              <h2 className="text-sm font-semibold text-gray-700">The rules Gutu works under</h2>
+              <ul className="mt-3 space-y-2">
+                {payload.boundaries.map((rule) => (
+                  <li key={rule} className="flex items-start gap-2 text-sm text-gray-700">
+                    <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-green-600" aria-hidden="true" />
+                    <span>{rule}</span>
+                  </li>
+                ))}
+              </ul>
+            </Card>
+          )}
+        </>
+      )}
     </div>
   )
 }

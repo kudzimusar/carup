@@ -638,6 +638,9 @@ export function useCarUpApi() {
   /** PERSON scope: the practitioner's own work, never the organization's. */
   const fetchMechanicIntelligence = useCallback(async (windowDays: 7 | 30 | 90 = 30): Promise<any> =>
     request(`/mechanic/analytics?window=${windowDays}`), [request])
+  /** The assistant's governed fact set for the signed-in person. */
+  const fetchAssistantContext = useCallback(async (): Promise<any> =>
+    request('/intelligence/assistant-context'), [request])
   /** Next-best-action for the signed-in seller. The subject is the session. */
   const fetchMyRecommendations = useCallback(async (): Promise<any> =>
     request('/marketplace/my-recommendations'), [request])
@@ -2607,6 +2610,7 @@ export function useCarUpApi() {
     fetchGovernmentProvenance,
     fetchCommandCentre,
     fetchMyRecommendations,
+    fetchAssistantContext,
     fetchPlatformPartsIntelligence,
     fetchMechanicIntelligence,
     fetchGarageIntelligence,

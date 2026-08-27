@@ -33,4 +33,5 @@ This directory holds the phase receipts for the **CarUp Intelligence 1.0 — Dat
 | I15 | `I15_GOVERNMENT_REGULATORY_INTELLIGENCE.md` | **complete** — CarUp-assessed vs registry-confirmed held apart; national tiles, invented officer MFA log and seeded duty result removed; fake report download closed |
 | I16 | `I16_COMMAND_CENTRE.md` | **complete** — composes rather than recomputes; sourceless sections declared; admin seeded stats, $145,000 escrow literal and named-company "Online" copilots removed |
 | I17 | `I17_NEXT_BEST_ACTION.md` | **complete** — deterministic rules that abstain rather than advise from an unmeasured figure; suppression persisted (staging migration, RLS verified) |
-| I18 | Gutu AI Intelligence | next |
+| I18 | `I18_GUTU_AI_INTELLIGENCE.md` | **complete** — Gutu was a keyword lookup asserting invented valuations, policies and service history; replaced by a closed governed fact set with four enforced guardrails |
+| I19 | Reports, certification and stakeholder manualization | next |
