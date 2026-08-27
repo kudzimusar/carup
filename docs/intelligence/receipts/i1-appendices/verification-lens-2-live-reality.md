@@ -1,0 +1,31 @@
+FINDINGS — I1_CANONICAL_METRIC_AND_EVENT_CONTRACT.md (Lens 2: live-reality consistency)
+
+1. BLOCKER — §4.2 (last row) + §7 `sales@1`
+Wrong: The lifecycle events `marketplace_listing_created/_submitted/_published/_paused/_archived/_sold` are anchored to "`vehicles.publication_status` transitions", but the live enum (database/migrations/20260624140000_listing_publication_lifecycle.sql:19-26, unchanged by any later migration) is `draft | identity_complete | documents_submitted | review_pending | publishable | published`. There is no `submitted`, `paused`, `archived`, or `sold` state; no pause/archive workflow exists anywhere in the codebase (I0 §4 confirms only `listing.moderated` exists as a lifecycle event). "Sold" lives on a different column — `vehicles.status` (AVAILABLE/SOLD/PENDING/INACTIVE per the same migration's header; live writes are case-inconsistent, e.g. `'Available'` in 20260819110000_issue164_phase6_atomic_reservations.sql:214) and `vehicle_listings.status` (ACTIVE/RESERVED/SOLD/FLAGGED). Consequence: the idempotency key `hash(vin, from_status, to_status, transition_seq)` is uncomputable for `_paused/_archived/_sold`, `_submitted` is ambiguous (documents_submitted? review_pending?), and I2/I3 would implement events against a state machine that does not exist. §7 `sales@1` ("`_sold` lifecycle transition") inherits the defect.
+Fix: Re-anchor each event to the real substrate: `_created`/`_published` → actual publication_status transitions; `_submitted` → an explicitly named transition (e.g. `documents_submitted`/`review_pending` entry) or drop it; `_sold` → `vehicles.status` transition with a stated case-normalization rule; move `_paused`/`_archived` to §4.4 reserved names until such states exist.
+
+2. MAJOR — §7 `attribution@1`
+Wrong: The definition is self-contradictory: "first-touch capture … persisted per actor for 30 days; conversion credit = last non-direct touch within 30 days pre-conversion." Persisting only the first touch makes "last non-direct touch" uncomputable; as written the frozen calculation cannot be implemented deterministically.
+Fix: State that all touches are recoverable from the activity ledger (campaign_code/referral_code events), and either declare which single model `attribution@1` reports or split into `attribution_first_touch@1` and `attribution_last_nondirect@1`.
+
+3. MAJOR — §7 `response_time@1`
+Wrong on two counts vs live code. (a) "authority: Communications analytics — reused, not recomputed": the actual computation (backend/services/communication/communicationAnalyticsService.js:45-99) is per-calling-user (message_participants scan), row-capped (rowCap), and has no time windowing — it cannot serve I1's default 7/30/90-day windows or per-seller/tenant rollups, so something must be recomputed, contradicting the frozen wording. (b) The underlying semantics are mischaracterized: `message_threads.first_response_at` is stamped on first HUMAN outbound only (AI auto-replies excluded, communicationThreadService.js:324-330) and is CLEARED on thread reopen (:199-210), so the stored value measures the latest SLA cycle, not the first-ever seller response — "seller first response latency" as frozen will silently over/under-state after reopens.
+Fix: Name the authority as the Communications-stamped column `message_threads.first_response_at` (semantics: first human outbound of the current SLA cycle; AI excluded; reset on reopen), and permit I4 windowed aggregation over that column while Communications remains the sole writer.
+
+4. MINOR — §4.2 header vs `marketplace_inquiry_started` row
+Wrong: The section header asserts "server-emitted in the same request as the domain write; the write is authority", but `marketplace_inquiry_started` is client-emitted (the row admits it). An implementer skimming the header would grant §4.2's server-anchored trust posture to a client event.
+Fix: Move `marketplace_inquiry_started` into the §4.1 table (it already uses §4.1 transport and a §4.1-style idempotency key).
+
+5. MINOR — §5.3 `fixture`
+Wrong: "reuse `marketplaceAnalyticsService` fixture rules" — the rules actually live in backend/services/marketplace/marketplaceClassificationRules.js (`getFixtureExclusion`, SYNTHETIC_VIN_RE, integration-VIN regex); marketplaceAnalyticsService.js merely imports them. Citing the consumer risks I2 re-deriving or importing from the wrong module.
+Fix: Cite `getFixtureExclusion` in `marketplaceClassificationRules.js` as the reused rule source.
+
+6. MINOR — §7 churn table, `partner_churn@1`
+Wrong: Authority is given as generic "billing/subscription tables", but no platform-wide billing/subscription authority exists — I0 §5 identifies none; only diaspora subscription entitlements (20260621120000) and diaspora billing exist. This breaches I1's own §9 claim that every metric names an identified authority (the I0 gate rule).
+Fix: Name the concrete tables and scope `partner_churn@1` to diaspora entitlements for v1, or mark the authority ABSENT and gate the metric on the phase that builds platform billing.
+
+7. MINOR — §3 envelope, `occurred_at`
+Wrong: `occurred_at` is marked C (client clock) unconditionally, but §4.1 `marketplace_listing_opened`/`_search_*` and all §4.2 events are server-emitted with no client clock available; the contract leaves their `occurred_at` undefined.
+Fix: Add: for server-emitted events, `occurred_at` := domain-write/serve time (equals `received_at`, never `time_adjusted`).
+
+Verified-accurate anchors (no finding): saved_vehicles is current-state (user_id, vin) UNIQUE with no-op re-save short-circuit (marketplaceSavedService.js:31-39) — §4.2 saved/unsaved semantics implementable; escrow_trust_sessions single FSM with `pending_eligibility→eligible` intent creation and terminal `settled` (escrowTrustService.js:11-27, 20260626180000) — reservation_started/sales anchors real; vehicle_reservations `active|expired|cancelled|completed` (20260819110000:22) — reservation_completed real; §4.6/§4.4 collision-precedence and reserved names match marketplaceEventTypes.js exactly (`marketplace_listing_viewed`, `marketplace_inquiry_created`, `marketplace_inspection_requested` in MARKETPLACE_REFERRAL_EVENT_TYPES; `marketplace_listing_paid`/`marketplace_purchase_confirmed` lines 12-13).
