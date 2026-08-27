@@ -1,77 +1,60 @@
 import { test, expect } from '@playwright/test'
 
-test.describe('Marketplace-first homepage', () => {
-  test('homepage loads with the marketplace-first headline', async ({ page }) => {
+test.describe('CarUp conversion homepage', () => {
+  test('homepage opens as the CarUp sales and navigation front door', async ({ page }) => {
     await page.goto('/')
 
-    await expect(page.locator('[data-testid="home-hero"]')).toBeVisible()
-    await expect(page.getByRole('heading', { name: /Find Verified Cars\. Sell With Confidence\./i })).toBeVisible()
+    await expect(page.getByTestId('home-hero')).toBeVisible()
+    await expect(page.getByRole('heading', { name: /Buy\. Sell\. Verify\./i })).toBeVisible()
+    await expect(page.getByTestId('home-primary-search')).toBeVisible()
+    await expect(page.getByTestId('home-live-showroom')).toBeVisible()
   })
 
-  test('Buy, Verify, and Sell tabs switch', async ({ page }) => {
+  test('primary journeys expose Buy, Sell and Verify without duplicating Marketplace IA', async ({ page }) => {
     await page.goto('/')
 
-    await page.locator('[data-testid="home-verify-tab"]').click()
-    await expect(page.locator('[data-testid="home-verify-lookup"]')).toBeVisible()
-
-    await page.locator('[data-testid="home-sell-tab"]').click()
-    await expect(page.locator('[data-testid="home-sell-lookup"]')).toBeVisible()
-
-    await page.locator('[data-testid="home-buy-tab"]').click()
-    await expect(page.locator('[data-testid="home-buy-search"]')).toBeVisible()
+    await expect(page.locator('a[href="/marketplace"]').filter({ hasText: 'Buy Cars' }).first()).toBeVisible()
+    await expect(page.locator('a[href="/sell"]').filter({ hasText: 'Sell Cars' }).first()).toBeVisible()
+    await expect(page.locator('a[href="/search"]').filter({ hasText: 'Verify Cars' }).first()).toBeVisible()
+    await expect(page.getByTestId('marketplace-compact-header')).toHaveCount(0)
   })
 
-  test('seller callout is visible above the fold', async ({ page }) => {
+  test('buy search commits the query to Marketplace', async ({ page }) => {
     await page.goto('/')
 
-    const sellerCallout = page.locator('[data-testid="home-seller-callout"]')
-    await expect(sellerCallout).toBeVisible()
-    await expect(sellerCallout).toContainText('Selling your car?')
-    await expect(sellerCallout).toContainText('Start with your plate or VIN and create a trusted Passport listing.')
-    await expect(sellerCallout.getByRole('button', { name: /Start Selling/i })).toBeVisible()
+    await page.getByTestId('home-buy-search').fill('Toyota Hilux')
+    await page.getByTestId('home-search-submit').click()
+
+    await expect(page).toHaveURL(/\/marketplace\?q=Toyota%20Hilux/)
   })
 
-  test('buy search routes safely to the current search surface', async ({ page }) => {
+  test('homepage markets the breadth of the CarUp ecosystem', async ({ page }) => {
     await page.goto('/')
 
-    await page.locator('[data-testid="home-buy-search"]').fill('Toyota Hilux')
-    await page.locator('[data-testid="home-search-submit"]').click()
-
-    await expect(page).toHaveURL(/\/search/)
+    const journeys = page.getByTestId('home-ecosystem-promotions')
+    await expect(journeys).toBeVisible()
+    await expect(journeys).toContainText('Find the right car')
+    await expect(journeys).toContainText('Turn your car into a credible listing')
+    await expect(journeys).toContainText('Source and move a vehicle')
+    await expect(journeys).toContainText('Explore how to fund the deal')
+    await expect(journeys).toContainText('Find garages and service context')
+    await expect(journeys).toContainText('Match parts to the vehicle')
   })
 
-  test('verify lookup routes to the existing Passport detail route', async ({ page }) => {
+  test('communication layer exposes AI, self-service help and human contact', async ({ page }) => {
     await page.goto('/')
 
-    await page.locator('[data-testid="home-verify-tab"]').click()
-    await page.locator('[data-testid="home-verify-lookup"]').fill('AE-1234')
-    await page.getByRole('button', { name: /Open Vehicle Passport/i }).click()
-
-    await expect(page).toHaveURL(/\/marketplace\/AE-1234/)
+    const communication = page.getByTestId('home-communications')
+    await expect(communication).toBeVisible()
+    await expect(communication.getByTestId('marketplace-ai-assistant-open')).toContainText('Ask Gutu AI')
+    await expect(communication.locator('a[href="/help"]')).toContainText('Help centre')
+    await expect(communication.locator('a[href="/contact"]')).toContainText('Contact CarUp')
   })
 
-  test('sell lookup routes to the current seller handoff', async ({ page }) => {
+  test('featured vehicle links use the same VIN-based Marketplace detail route', async ({ page }) => {
     await page.goto('/')
 
-    await page.locator('[data-testid="home-sell-tab"]').click()
-    await page.locator('[data-testid="home-sell-lookup"]').fill('AE-1234')
-    await page.getByRole('button', { name: /Start Seller Verification/i }).first().click()
-
-    await expect(page).toHaveURL(/\/(register|dashboard\/sell-vehicle)/)
-  })
-
-  test('Sell Your Car CTA routes to the current public seller handoff', async ({ page }) => {
-    await page.goto('/')
-
-    await page.getByRole('link', { name: /Sell Your Car/i }).click()
-
-    await expect(page).toHaveURL(/\/register/)
-  })
-
-  test('featured vehicle card links to Passport detail by VIN', async ({ page }) => {
-    await page.goto('/')
-
-    const passportLink = page.locator('[data-testid="featured-view-passport"]').first()
+    const passportLink = page.getByTestId('featured-view-passport').first()
     await expect(passportLink).toBeVisible()
     const href = await passportLink.getAttribute('href')
 
@@ -79,28 +62,38 @@ test.describe('Marketplace-first homepage', () => {
     expect(href).not.toMatch(/\/marketplace\/v\d+$/)
   })
 
-  test('trust strip renders', async ({ page }) => {
+  test('home inventory reuses the current Marketplace vehicle-story system', async ({ page }) => {
     await page.goto('/')
 
-    await expect(page.locator('[data-testid="home-trust-strip"]')).toBeVisible()
-    await expect(page.locator('[data-testid="home-trust-strip"]')).toContainText('Plate Check')
-    await expect(page.locator('[data-testid="home-trust-strip"]')).toContainText('Evidence Timeline')
-    await expect(page.locator('[data-testid="home-trust-strip"]')).toContainText('Owner Privacy')
-    await expect(page.locator('[data-testid="home-trust-strip"]')).toContainText('Trust Score')
-    await expect(page.locator('[data-testid="home-trust-strip"]')).toContainText('SafePay Ready')
-    await expect(page.locator('[data-testid="home-partsentry-trust-signal"]')).toContainText('PartSentry')
+    const inventory = page.getByTestId('home-live-inventory')
+    await expect(inventory).toBeVisible()
+    await expect(inventory.getByTestId('featured-verified-car').first()).toBeVisible()
+    await expect(inventory.getByTestId('marketplace-card-trust').first()).toBeVisible()
   })
 
-  test('popular category chips render lower on the page', async ({ page }) => {
+  test('trust strip renders governed product capabilities', async ({ page }) => {
+    await page.goto('/')
+
+    const strip = page.getByTestId('home-trust-strip')
+    await expect(strip).toBeVisible()
+    await expect(strip).toContainText('Plate Check')
+    await expect(strip).toContainText('Evidence Timeline')
+    await expect(strip).toContainText('Owner Privacy')
+    await expect(strip).toContainText('Canonical Trust')
+    await expect(strip).toContainText('SafePay routes')
+    await expect(page.getByTestId('home-partsentry-trust-signal')).toContainText('PartSentry')
+  })
+
+  test('popular market shortcuts remain available below the main conversion paths', async ({ page }) => {
     await page.goto('/')
 
     await expect(page.getByRole('heading', { name: /Start with what buyers ask for most/i })).toBeVisible()
-    await expect(page.locator('[data-testid="popular-search-chip"]')).toHaveCount(19)
-    await expect(page.locator('[data-testid="popular-search-chip"]').first()).toContainText('Brand New')
-    await expect(page.locator('[data-testid="popular-search-chip"]').filter({ hasText: 'Parts & Accessories' })).toBeVisible()
+    await expect(page.getByTestId('popular-search-chip')).toHaveCount(19)
+    await expect(page.getByTestId('popular-search-chip').filter({ hasText: 'Toyota Hilux' })).toBeVisible()
+    await expect(page.getByTestId('popular-search-chip').filter({ hasText: 'Parts & Accessories' })).toBeVisible()
   })
 
-  test('homepage does not expose private owner names or phone numbers from mock vehicles', async ({ page }) => {
+  test('homepage does not expose private owner names or phone numbers from old mock vehicles', async ({ page }) => {
     await page.goto('/')
 
     const pageText = await page.locator('body').innerText()
