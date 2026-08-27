@@ -80,7 +80,7 @@ function TrustPreview({ trust }: { trust?: MarketplaceCardTrust | null }) {
   if (hasCanonicalScore) {
     return (
       <div
-        className="relative overflow-hidden rounded-2xl border border-orange-200/80 bg-[linear-gradient(135deg,#fff7ed,#fffaf5)] px-4 py-3 shadow-[inset_0_1px_0_rgba(255,255,255,0.8)]"
+        className="relative overflow-hidden border-l-4 border-orange-500 bg-orange-50/70 px-4 py-3"
         data-testid="marketplace-card-trust"
       >
         <div className="relative flex items-center justify-between gap-3">
@@ -114,7 +114,7 @@ function TrustPreview({ trust }: { trust?: MarketplaceCardTrust | null }) {
 
   return (
     <div
-      className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5"
+      className="border-l-4 border-slate-300 bg-slate-50 px-3 py-2.5"
       data-testid="marketplace-card-trust"
     >
       <div className="flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-[0.12em] text-slate-500">
@@ -141,7 +141,7 @@ export function MarketplaceListingCard({
 
   return (
     <article
-      className="group flex h-full flex-col overflow-hidden rounded-[24px] border border-slate-200/90 bg-white shadow-[0_14px_38px_rgba(15,23,42,0.07)] transition duration-300 hover:-translate-y-1 hover:border-orange-200 hover:shadow-[0_26px_60px_rgba(15,23,42,0.14)]"
+      className="group flex h-full flex-col overflow-hidden border border-slate-200 border-t-4 border-t-slate-950 bg-white shadow-[0_10px_28px_rgba(15,23,42,0.06)] transition duration-300 hover:border-t-orange-500 hover:shadow-[0_20px_50px_rgba(15,23,42,0.12)]"
       data-testid="marketplace-vehicle-card"
     >
       <div className="relative aspect-[16/10] overflow-hidden bg-[linear-gradient(135deg,#eef2f7,#e2e8f0)]">
@@ -161,25 +161,25 @@ export function MarketplaceListingCard({
 
         <div className="pointer-events-none absolute inset-x-3 top-3 flex flex-wrap gap-1.5">
           {vehicle.carupGold && (
-            <Badge className="border border-amber-200/80 bg-[linear-gradient(135deg,#f59e0b,#facc15)] px-2.5 py-1 text-[10px] font-black uppercase tracking-[0.12em] text-slate-950 shadow-[0_8px_20px_rgba(245,158,11,0.28)]" data-testid="carup-gold-badge">
+            <Badge className="rounded-none border border-amber-300 bg-amber-400 px-2.5 py-1 text-[10px] font-black uppercase tracking-[0.12em] text-slate-950" data-testid="carup-gold-badge">
               ★ CarUp Gold
             </Badge>
           )}
           {vehicle.syntheticDemo && (
-            <Badge className="border border-sky-200 bg-sky-50/95 px-2 py-1 text-[10px] font-semibold text-sky-800 shadow-sm" data-testid="synthetic-demo-media-badge">
+            <Badge className="rounded-none border border-sky-200 bg-sky-50 px-2 py-1 text-[10px] font-semibold text-sky-800" data-testid="synthetic-demo-media-badge">
               Demo media
             </Badge>
           )}
           {vehicle.plateVerified && (
-            <Badge className="border-0 bg-emerald-700 text-[10px] text-white shadow-sm" data-testid="marketplace-plate-confirmed-badge">
+            <Badge className="rounded-none border-0 bg-emerald-700 text-[10px] text-white" data-testid="marketplace-plate-confirmed-badge">
               <CheckCircle2 className="mr-1 h-3 w-3" /> Plate confirmed
             </Badge>
           )}
           {vehicle.reserved && (
-            <Badge className="border-0 bg-amber-500 text-[10px] text-white shadow-sm">Reserved</Badge>
+            <Badge className="rounded-none border-0 bg-amber-500 text-[10px] text-white">Reserved</Badge>
           )}
           {vehicle.partSentryChecked && (
-            <Badge className="border-0 bg-slate-950 text-[10px] text-white shadow-sm" data-testid="marketplace-partsentry-badge">
+            <Badge className="rounded-none border-0 bg-slate-950 text-[10px] text-white" data-testid="marketplace-partsentry-badge">
               PartSentry checked
             </Badge>
           )}
@@ -192,7 +192,7 @@ export function MarketplaceListingCard({
             aria-pressed={isCompared}
             onClick={onCompare}
             data-testid="marketplace-compare-toggle"
-            className={`flex h-9 w-9 items-center justify-center rounded-full border shadow-sm transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange-500 ${
+            className={`flex h-9 w-9 items-center justify-center border shadow-sm transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange-500 ${
               isCompared
                 ? 'border-orange-500 bg-orange-500 text-white'
                 : 'border-white/80 bg-white/95 text-slate-700 hover:bg-white'
@@ -205,7 +205,7 @@ export function MarketplaceListingCard({
             aria-label="Share listing"
             onClick={onShare}
             data-testid="marketplace-share-button"
-            className="flex h-9 w-9 items-center justify-center rounded-full border border-white/80 bg-white/95 text-slate-700 shadow-sm transition hover:bg-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange-500"
+            className="flex h-9 w-9 items-center justify-center border border-white/80 bg-white/95 text-slate-700 shadow-sm transition hover:bg-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange-500"
           >
             <Share2 className="h-4 w-4" />
           </button>
@@ -215,7 +215,7 @@ export function MarketplaceListingCard({
             aria-pressed={isFavorite}
             onClick={onFavorite}
             data-testid="marketplace-save-toggle"
-            className="flex h-9 w-9 items-center justify-center rounded-full border border-white/80 bg-white/95 text-slate-700 shadow-sm transition hover:bg-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange-500"
+            className="flex h-9 w-9 items-center justify-center border border-white/80 bg-white/95 text-slate-700 shadow-sm transition hover:bg-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange-500"
           >
             <Heart className={`h-4 w-4 ${isFavorite ? 'fill-red-500 text-red-500' : ''}`} />
           </button>
@@ -254,7 +254,7 @@ export function MarketplaceListingCard({
             <Badge
               key={label}
               variant="outline"
-              className="border-slate-200 bg-slate-50 px-2 py-0.5 text-[10px] font-medium text-slate-600"
+              className="rounded-none border-slate-200 bg-slate-50 px-2 py-0.5 text-[10px] font-medium text-slate-600"
               data-testid="marketplace-condition-tag"
             >
               {label}
@@ -278,7 +278,7 @@ export function MarketplaceListingCard({
         </div>
 
         <div className="mt-auto pt-4">
-          <Button asChild className="h-11 w-full rounded-xl bg-slate-950 font-semibold text-white shadow-[0_8px_18px_rgba(15,23,42,0.16)] hover:bg-orange-600">
+          <Button asChild className="h-11 w-full rounded-none bg-slate-950 font-semibold text-white hover:bg-orange-600">
             <Link to={href}>View vehicle &amp; Passport</Link>
           </Button>
         </div>
