@@ -51,11 +51,13 @@ export interface MarketplaceListingCardModel {
 interface MarketplaceListingCardProps {
   vehicle: MarketplaceListingCardModel
   href: string
-  isFavorite: boolean
-  isCompared: boolean
-  onFavorite: (event: React.MouseEvent<HTMLButtonElement>) => void
-  onCompare: (event: React.MouseEvent<HTMLButtonElement>) => void
-  onShare: (event: React.MouseEvent<HTMLButtonElement>) => void
+  isFavorite?: boolean
+  isCompared?: boolean
+  onFavorite?: (event: React.MouseEvent<HTMLButtonElement>) => void
+  onCompare?: (event: React.MouseEvent<HTMLButtonElement>) => void
+  onShare?: (event: React.MouseEvent<HTMLButtonElement>) => void
+  dataTestId?: string
+  ctaLabel?: string
 }
 
 function titleCase(value: string | null | undefined) {
@@ -132,11 +134,13 @@ function TrustPreview({ trust }: { trust?: MarketplaceCardTrust | null }) {
 export function MarketplaceListingCard({
   vehicle,
   href,
-  isFavorite,
-  isCompared,
+  isFavorite = false,
+  isCompared = false,
   onFavorite,
   onCompare,
   onShare,
+  dataTestId = 'marketplace-vehicle-card',
+  ctaLabel = 'Explore vehicle & Passport',
 }: MarketplaceListingCardProps) {
   const renderablePrimaryImage = canRenderMarketplacePrimaryImage(vehicle.primaryImageState, vehicle.primaryImage)
     ? vehicle.primaryImage
@@ -145,7 +149,7 @@ export function MarketplaceListingCard({
   return (
     <article
       className={`group relative flex h-full flex-col bg-white transition duration-500 hover:-translate-y-1.5 ${isCompared ? 'ring-2 ring-orange-500 ring-offset-4' : ''}`}
-      data-testid="marketplace-vehicle-card"
+      data-testid={dataTestId}
     >
       <div className="relative aspect-[16/10] overflow-hidden bg-[linear-gradient(135deg,#e8edf3,#dce3eb)] shadow-[0_18px_44px_rgba(15,23,42,0.16)] transition-shadow duration-500 group-hover:shadow-[0_30px_70px_rgba(15,23,42,0.24)]">
         <Link
@@ -188,41 +192,49 @@ export function MarketplaceListingCard({
           )}
         </div>
 
-        <div className="absolute right-3 top-3 flex translate-y-9 items-center gap-1.5 sm:translate-y-0">
-          <button
-            type="button"
-            aria-label={isCompared ? 'Remove from compare' : 'Add to compare'}
-            aria-pressed={isCompared}
-            onClick={onCompare}
-            data-testid="marketplace-compare-toggle"
-            className={`flex h-9 w-9 items-center justify-center rounded-full border shadow-sm transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange-500 ${
-              isCompared
-                ? 'border-orange-500 bg-orange-500 text-white'
-                : 'border-white/80 bg-white/95 text-slate-700 hover:bg-white'
-            }`}
-          >
-            <GitCompare className="h-4 w-4" />
-          </button>
-          <button
-            type="button"
-            aria-label="Share listing"
-            onClick={onShare}
-            data-testid="marketplace-share-button"
-            className="flex h-9 w-9 items-center justify-center rounded-full border border-white/80 bg-white/95 text-slate-700 shadow-sm transition hover:scale-105 hover:bg-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange-500"
-          >
-            <Share2 className="h-4 w-4" />
-          </button>
-          <button
-            type="button"
-            aria-label={isFavorite ? 'Remove saved listing' : 'Save listing'}
-            aria-pressed={isFavorite}
-            onClick={onFavorite}
-            data-testid="marketplace-save-toggle"
-            className="flex h-9 w-9 items-center justify-center rounded-full border border-white/80 bg-white/95 text-slate-700 shadow-sm transition hover:scale-105 hover:bg-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange-500"
-          >
-            <Heart className={`h-4 w-4 ${isFavorite ? 'fill-red-500 text-red-500' : ''}`} />
-          </button>
-        </div>
+        {(onCompare || onShare || onFavorite) && (
+          <div className="absolute right-3 top-3 flex translate-y-9 items-center gap-1.5 sm:translate-y-0">
+            {onCompare && (
+              <button
+                type="button"
+                aria-label={isCompared ? 'Remove from compare' : 'Add to compare'}
+                aria-pressed={isCompared}
+                onClick={onCompare}
+                data-testid="marketplace-compare-toggle"
+                className={`flex h-9 w-9 items-center justify-center rounded-full border shadow-sm transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange-500 ${
+                  isCompared
+                    ? 'border-orange-500 bg-orange-500 text-white'
+                    : 'border-white/80 bg-white/95 text-slate-700 hover:bg-white'
+                }`}
+              >
+                <GitCompare className="h-4 w-4" />
+              </button>
+            )}
+            {onShare && (
+              <button
+                type="button"
+                aria-label="Share listing"
+                onClick={onShare}
+                data-testid="marketplace-share-button"
+                className="flex h-9 w-9 items-center justify-center rounded-full border border-white/80 bg-white/95 text-slate-700 shadow-sm transition hover:scale-105 hover:bg-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange-500"
+              >
+                <Share2 className="h-4 w-4" />
+              </button>
+            )}
+            {onFavorite && (
+              <button
+                type="button"
+                aria-label={isFavorite ? 'Remove saved listing' : 'Save listing'}
+                aria-pressed={isFavorite}
+                onClick={onFavorite}
+                data-testid="marketplace-save-toggle"
+                className="flex h-9 w-9 items-center justify-center rounded-full border border-white/80 bg-white/95 text-slate-700 shadow-sm transition hover:scale-105 hover:bg-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange-500"
+              >
+                <Heart className={`h-4 w-4 ${isFavorite ? 'fill-red-500 text-red-500' : ''}`} />
+              </button>
+            )}
+          </div>
+        )}
       </div>
 
       <div className="relative flex flex-1 flex-col border-b border-slate-200 px-1 pb-5 pt-5">
@@ -281,7 +293,7 @@ export function MarketplaceListingCard({
             to={href}
             className="group/link flex items-center justify-between border-t border-slate-950 pt-3 text-sm font-black text-slate-950 transition-colors hover:text-orange-700"
           >
-            <span>Explore vehicle &amp; Passport</span>
+            <span>{ctaLabel}</span>
             <ArrowUpRight className="h-4 w-4 transition-transform group-hover/link:-translate-y-0.5 group-hover/link:translate-x-0.5" />
           </Link>
         </div>
