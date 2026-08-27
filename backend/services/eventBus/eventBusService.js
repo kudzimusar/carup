@@ -23,6 +23,9 @@ memoryBroker.setMaxListeners(100);
 const DETERMINISTIC_EVENT_IDENTITY_FIELDS = Object.freeze({
   'marketplace.inquiry.created': ['inquiryId', 'inquiry_id'],
   'vehicle.trust.presentation_changed': ['presentation_fingerprint'],
+  // R1 — one verification per account, so one welcome work item per account. A replayed emit
+  // recovers the existing row instead of queueing a second welcome.
+  'user.email.verified': ['recipientUserId'],
 });
 
 /**

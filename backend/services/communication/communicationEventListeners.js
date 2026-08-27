@@ -36,6 +36,10 @@ export const COMMUNICATION_EVENT_TYPES = [
   'MARKETPLACE_PAYMENT_FAILED',
   // R5 — the canonical Trust presentation change.
   'vehicle.trust.presentation_changed',
+  // R1 — the durable post-verification work item. The Leadership Welcome used to be produced
+  // inline in the verification route and its failure swallowed, which permanently lost the welcome
+  // for that account because the verification token is single-use and already consumed.
+  'user.email.verified',
 ];
 
 let registered = false;

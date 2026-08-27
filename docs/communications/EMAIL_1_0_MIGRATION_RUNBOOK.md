@@ -1,17 +1,18 @@
 # Email 1.0 hardening migration — runbook
 
 `database/migrations/20260826120000_email_1_0_hardening.sql`
-**SHA-256 `0e74b1c127abf750454cc7c2e744bcc6686e811b2a40059d4849e9fa7687bfb9`**
-(supersedes `c66cfb71…`, which predated the C3 dedupe change)
+**SHA-256 `1a7417597120482bc140712c98cda125cf04731e3421009f82da6fd42025263c`**
+(supersedes `0e74b1c1…`, which predated the R1 dedupe branch, and `c66cfb71…` before it)
 
-Transactional. Four changes, all additive or provably redundant. **NOT APPLIED.**
+Transactional. Five changes, all additive or provably redundant. **NOT APPLIED.**
 
 | # | Change | Why |
 |---|---|---|
 | G5-D1 | `email_reply_tokens.version` DEFAULT 1 → 2 | configuration drift; **no backfill** — a v1 row is a credential still in an inbox |
 | G5-D3 | DROP `idx_email_reply_tokens_hash` | the UNIQUE constraint already provides an identical btree on the same column |
 | R5-D1 | ADD `vehicles.trust_presentation_announced_fingerprint` + partial index | the durable announcement marker |
-| **C3-A** | extend `communication_domain_event_dedupe_key()` for `vehicle.trust.presentation_changed` | **new** — database idempotency for the Trust announcement |
+| **C3-A** | extend `communication_domain_event_dedupe_key()` for `vehicle.trust.presentation_changed` | database idempotency for the Trust announcement |
+| **R1** | same function, branch for `user.email.verified` | **new** — one welcome work item per verified account |
 
 ## Preflight — PASS (live, read-only, re-run after the C3 revision)
 
@@ -25,6 +26,8 @@ Transactional. Four changes, all additive or provably redundant. **NOT APPLIED.*
 | live v1 reply tokens | **0** | no delivered credential is at risk |
 | `email_reply_tokens.version` default | **`1`** | ALTER required |
 | `idx_email_reply_tokens_hash` | **present** | DROP applicable |
+| `user.email.verified` rows | **0** | the R1 work item has never been emitted |
+| ...with a dedupe_key / conflicting keys | **0 / 0** | the new unique key cannot collide on apply |
 | `marketplace.inquiry.created` dedupe keys | **20** | postflight baseline — must be unchanged |
 
 The trigger is `BEFORE INSERT`, so it touches **new rows only**. No backfill, no rewrite of history.
@@ -40,11 +43,12 @@ a single-digit-row table).
 1. `version` default is `2`; existing v1 rows still `version = 1` and still resolvable.
 2. `idx_email_reply_tokens_hash` gone; `email_reply_tokens_token_hash_key` **still present**.
 3. `vehicles.trust_presentation_announced_fingerprint` exists; `idx_vehicles_trust_unannounced` exists.
-4. `communication_domain_event_dedupe_key()` has **both** branches; the marketplace branch is
+4. `communication_domain_event_dedupe_key()` has **all three** branches; the marketplace branch is
    byte-identical to `20260811132100`.
 5. `marketplace.inquiry.created` dedupe keys still **20** — the change must not have touched them.
-6. Insert two `vehicle.trust.presentation_changed` rows with the same `presentation_fingerprint`:
-   the second must raise `23505` on `idx_domain_events_dedupe_key`. Then roll it back.
+6. Insert two `vehicle.trust.presentation_changed` rows with the same `presentation_fingerprint`,
+   and two `user.email.verified` rows with the same `recipientUserId`: each second insert must
+   raise `23505` on `idx_domain_events_dedupe_key`. Then roll both back.
 
 ## Rollback
 

@@ -311,16 +311,22 @@ test('C1 GATE: every subscribed event is ADDRESSABLE, not merely emittable', asy
       && domainEventPayloadKeys(source).some((key) => RECIPIENT_KEYS.test(key)));
     const jsCarriesRecipient = scannedFiles.some(({ source }) => emitterRegexFor(eventType).test(source)
       && RECIPIENT_KEYS.test(source));
-    // Conversation-canonicalised events are addressed by the conversation service, not by payload.
-    const conversationRouted = eventType === 'marketplace.inquiry.created';
-    if (!sqlCarriesRecipient && !jsCarriesRecipient && !conversationRouted) unaddressable.push(eventType);
+    // Some events are addressed by a named producer at the orchestrator, not by the policy table:
+    // marketplace inquiries become a canonical conversation, and user.email.verified is routed to
+    // the Leadership Welcome producer, which resolves the recipient from the user record.
+    const producerRouted = eventType === 'marketplace.inquiry.created' || eventType === 'user.email.verified';
+    if (!sqlCarriesRecipient && !jsCarriesRecipient && !producerRouted) unaddressable.push(eventType);
   }
 
   assert.deepEqual(unaddressable, [],
     `subscribed but UNADDRESSABLE — these would be emitted and silently dropped: ${unaddressable.join(', ')}`);
 
   // ...and every subscribed type must have a policy that can actually canonicalize it.
+  // Producer-routed events never reach getPolicy() — the orchestrator branches before it — so
+  // requiring a policy entry for them would be requiring dead configuration.
+  const PRODUCER_ROUTED = new Set(['marketplace.inquiry.created', 'user.email.verified']);
   const uncanonicalizable = COMMUNICATION_EVENT_TYPES.filter((eventType) => {
+    if (PRODUCER_ROUTED.has(eventType)) return false;
     const policy = NOTIFICATION_POLICIES[eventType];
     return !policy || !policy.templateKey || !policy.classification;
   });

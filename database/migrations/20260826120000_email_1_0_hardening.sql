@@ -98,11 +98,19 @@ AS $$
 DECLARE
   v_inquiry_id TEXT;
   v_fingerprint TEXT;
+  v_recipient TEXT;
 BEGIN
   IF NEW.event_type = 'marketplace.inquiry.created' THEN
     v_inquiry_id := NULLIF(NEW.payload ->> 'inquiryId', '');
     IF v_inquiry_id IS NOT NULL THEN
       NEW.dedupe_key := 'marketplace.inquiry.created:' || v_inquiry_id;
+    END IF;
+  ELSIF NEW.event_type = 'user.email.verified' THEN
+    -- R1. One verification per account means one welcome work item per account; a replayed emit
+    -- must recover the existing row rather than create a second piece of pending work.
+    v_recipient := NULLIF(NEW.payload ->> 'recipientUserId', '');
+    IF v_recipient IS NOT NULL THEN
+      NEW.dedupe_key := 'user.email.verified:' || v_recipient;
     END IF;
   ELSIF NEW.event_type = 'vehicle.trust.presentation_changed' THEN
     -- No fingerprint means no identity. Leaving dedupe_key NULL keeps the row insertable rather

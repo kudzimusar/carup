@@ -6,6 +6,7 @@ import test from 'node:test';
 import { authRecoveryRouter } from '../routes/authRecoveryRoutes.js';
 import { AUTH_TOKEN_PURPOSES } from '../services/auth/authActionTokenService.js';
 import { CommunicationDeliveryWorker } from '../services/communication/communicationDeliveryWorker.js';
+import { CommunicationOrchestratorService } from '../services/communication/communicationOrchestratorService.js';
 import { EmailTransportRouter } from '../services/communication/adapters/providerAdapters.js';
 import { EMAIL_TEMPLATE_REGISTRY, referenceEntry } from '../services/communication/emailExperience/emailTemplateRegistry.js';
 import { LEADERSHIP_IDENTITY, LEADERSHIP_REPLY_TO, LEADERSHIP_RESPONSE_INVITATION } from '../services/communication/emailExperience/referenceLeadershipWelcome.js';
@@ -222,28 +223,43 @@ function verificationHarness({ userName = 'Fixture Buyer' } = {}) {
 
   const app = express();
   app.use(express.json());
+  const events = [];
+  const controls = { failQueue: false };
+  let deliverEvents = true;
+  const notificationService = {
+    queueNotification: async (input) => {
+      if (controls.failQueue) throw new Error('notification queue temporarily unavailable');
+      // The canonical queue returns the EXISTING row for a repeated dedupe key rather than
+      // inserting a second — the property this producer relies on for idempotency.
+      const key = JSON.stringify(input.dedupeParts);
+      const existing = queued.find((q) => JSON.stringify(q.dedupeParts) === key);
+      if (existing) return { notification: { id: 'n-existing', status: 'queued' } };
+      queued.push(input);
+      return { notification: { id: `n-${queued.length}`, status: 'queued' } };
+    },
+  };
+  const repository = { findOne: async (table, filters) => (table === 'users' ? users.find((u) => u.id === filters.id) || null : null) };
+  const orchestrator = new CommunicationOrchestratorService({ notificationService, repository });
+
   app.use(authRecoveryRouter({
     db,
     tokenService: {
       consume: async () => consumed,
       issue: async () => ({ ok: true, rawToken: 't' }),
     },
-    services: {
-      notificationService: {
-        queueNotification: async (input) => {
-          // The canonical queue returns the EXISTING row for a repeated dedupe key rather than
-          // inserting a second — the property this producer relies on for idempotency.
-          const key = JSON.stringify(input.dedupeParts);
-          const existing = queued.find((q) => JSON.stringify(q.dedupeParts) === key);
-          if (existing) return { notification: { id: 'n-existing', status: 'queued' } };
-          queued.push(input);
-          return { notification: { id: `n-${queued.length}`, status: 'queued' } };
-        },
-      },
+    services: { notificationService },
+    // R1 is now DURABLE WORK, not an inline side effect. The route writes an outbox event; the
+    // event worker runs the producer. This harness plays the worker synchronously so the test
+    // drives the REAL chain end to end rather than asserting the route attempted something.
+    emitEvent: async (_pg, eventType, payload) => {
+      const row = { id: `evt-${events.length + 1}`, event_type: eventType, payload };
+      events.push(row);
+      if (deliverEvents) await orchestrator.handleDomainEvent(row, null, null);
+      return row;
     },
   }));
 
-  return { app, users, queued, consumed };
+  return { app, users, queued, consumed, events, orchestrator, controls };
 }
 
 async function post(app, path, body) {

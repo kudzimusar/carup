@@ -1,5 +1,6 @@
 import { CommunicationNotificationService } from './communicationNotificationService.js';
 import { normalizeSafeTradeDomainEvent } from './adapters/safeTradeDomainEventAdapter.js';
+import { EMAIL_VERIFIED_EVENT, queueLeadershipWelcome } from './producers/leadershipWelcomeProducer.js';
 
 export class CommunicationOrchestratorService {
   constructor({ notificationService, conversationService = null, repository = null } = {}) {
@@ -23,6 +24,21 @@ export class CommunicationOrchestratorService {
     // message. Provider transports remain downstream of that conversation.
     if (event.event_type === 'marketplace.inquiry.created' && this.conversationService) {
       return this.conversationService.canonicalizeMarketplaceInquiry(event);
+    }
+
+    // R1 — the durable post-verification welcome.
+    //
+    // The event IS the work item. If the producer below throws, this handler throws, eventWorker
+    // marks the outbox row `pending` again and retries it, and dead-letters only after MAX_ATTEMPTS.
+    // The welcome can therefore no longer be lost by a transient fault, and the notification's own
+    // dedupe_key keeps it to exactly one however many times the event is replayed.
+    if (event.event_type === EMAIL_VERIFIED_EVENT) {
+      const queued = await queueLeadershipWelcome({
+        userId: event.payload?.recipientUserId || event.payload?.recipient_user_id || null,
+        repository: this.repository,
+        notificationService: this.notificationService,
+      });
+      return queued ? [queued] : [];
     }
 
     // C1 — the SINGLE SafeTrade normalization boundary.

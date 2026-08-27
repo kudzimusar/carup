@@ -242,6 +242,27 @@ export class CommunicationDeliveryWorker {
       }
       try {
         const issued = await this.replyTokenService.issue(context);
+        // C4 — a promised Reply-To must be DURABLE before it is promised.
+        //
+        // `issue()` reports whether the reuse refresh actually persisted. Ignoring that was the
+        // defect: the credential state the send depends on lives only in the token row, so an Email
+        // sent after a failed refresh advertises a reply window the database never accepted. The
+        // recipient answers inside the window they were promised and the reply is unroutable.
+        //
+        // RETRY, not dead-letter. The token is still live — it was selected by
+        // `.gt('expires_at', now)` — so nothing is broken, only unconfirmed, and the next attempt
+        // re-runs the same reuse path. The token is NOT revoked, no second credential is minted,
+        // and no provider call is made, so there is nothing to duplicate.
+        //
+        // `refreshPersisted` is undefined on the fresh-issue path, where the insert either
+        // succeeded or threw; only an explicit `false` withholds the send.
+        if (issued.refreshPersisted === false) {
+          return this.markRetry(notification, {
+            errorCode: 'reply_token_refresh_unpersisted',
+            // The failed half only — never the raw token, never the Reply-To address.
+            errorMessage: `Conversational Email withheld: the reply credential's ${issued.refreshFailed || 'refresh'} did not persist, so its reply window is unconfirmed.`,
+          });
+        }
         replyToAddress = issued.address;
         replyTokenId = issued.record?.id || null;
       } catch (error) {
