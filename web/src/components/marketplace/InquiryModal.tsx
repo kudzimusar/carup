@@ -41,6 +41,8 @@ export function InquiryModal({
   triggerLabel = 'Contact seller',
   triggerClassName = '',
   triggerVariant = 'default',
+  defaultMessage = '',
+  intentMetadata,
   onSubmitted,
 }: {
   listingId?: string
@@ -49,6 +51,8 @@ export function InquiryModal({
   triggerLabel?: string
   triggerClassName?: string
   triggerVariant?: 'default' | 'outline' | 'secondary'
+  defaultMessage?: string
+  intentMetadata?: Record<string, unknown>
   onSubmitted?: (inquiryId: string) => void
 }) {
   const { user } = useAuth()
@@ -59,7 +63,7 @@ export function InquiryModal({
   const [name, setName] = useState(user?.name || '')
   const [email, setEmail] = useState(user?.email || '')
   const [phone, setPhone] = useState(user?.phone || '')
-  const [message, setMessage] = useState('')
+  const [message, setMessage] = useState(defaultMessage)
   const [preferredContact, setPreferredContact] = useState<PreferredContact>(user ? 'carup' : 'whatsapp')
 
   const submit = async (e: React.FormEvent) => {
@@ -86,12 +90,12 @@ export function InquiryModal({
         guest_name: name || undefined,
         guest_email: email || undefined,
         guest_phone: phone || undefined,
-        metadata: { preferred_contact: preferredContact },
+        metadata: { preferred_contact: preferredContact, ...(intentMetadata || {}) },
         ...attribution,
       })
       toast.success('Inquiry sent. Continue the conversation safely through CarUp.')
       setOpen(false)
-      setMessage('')
+      setMessage(defaultMessage)
       onSubmitted?.(inquiry.id)
     } catch (err) {
       toast.error(getErrorMessage(err, 'Could not send inquiry. Please try again.'))
