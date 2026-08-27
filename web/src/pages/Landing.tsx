@@ -5,7 +5,6 @@ import { summaryLocationLine } from '@/lib/governedLocation'
 import { Badge } from '@/components/ui/badge'
 import { Card, CardContent } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import {
   ArrowRight,
   CheckCircle,
@@ -21,9 +20,9 @@ import {
   Tag,
   UserRoundCheck,
 } from 'lucide-react'
-import { useAuth } from '@/context/AuthContext'
 import { useCarUpApi } from '@/hooks/useCarUpApi'
 import { ListingImage } from '@/components/marketplace/ListingImage'
+import { BuyerAssistantDrawer } from '@/components/marketplace/BuyerAssistantDrawer'
 import type { MarketplaceListingSummary } from '@/types'
 
 const popularSearches = [
@@ -103,10 +102,7 @@ function humanizeTag(tag: string): string {
 
 export default function Landing() {
   const navigate = useNavigate()
-  const { isAuthenticated } = useAuth()
   const [buyQuery, setBuyQuery] = useState('')
-  const [verifyQuery, setVerifyQuery] = useState('')
-  const [sellQuery, setSellQuery] = useState('')
   const [verifyBeforeBuyQuery, setVerifyBeforeBuyQuery] = useState('')
   const [sellSectionQuery, setSellSectionQuery] = useState('')
 
@@ -149,18 +145,8 @@ export default function Landing() {
     navigate(`/marketplace/${encodeURIComponent(cleanIdentifier)}`)
   }
 
-  const submitVerify = (event: React.FormEvent<HTMLFormElement>) => {
-    event.preventDefault()
-    openPassport(verifyQuery)
-  }
-
   const sellerHandoff = () => {
-    navigate(isAuthenticated ? '/dashboard/sell-vehicle' : '/register')
-  }
-
-  const submitSell = (event: React.FormEvent<HTMLFormElement>) => {
-    event.preventDefault()
-    sellerHandoff()
+    navigate('/sell')
   }
 
   const submitVerifyBeforeBuy = (event: React.FormEvent<HTMLFormElement>) => {
@@ -175,185 +161,128 @@ export default function Landing() {
 
   return (
     <div className="min-h-screen bg-white text-gray-950">
-      <section
-        className="relative overflow-hidden bg-[hsl(222,47%,8%)] text-white"
-        data-testid="home-hero"
-      >
-        <div className="absolute inset-0">
-          <div className="absolute inset-0 bg-[radial-gradient(circle_at_top_left,rgba(249,115,22,0.24),transparent_34%),linear-gradient(135deg,rgba(15,23,42,0.96),rgba(15,23,42,0.86))]" />
-          <div className="absolute inset-x-0 bottom-0 h-28 bg-gradient-to-t from-white to-transparent" />
+      <section className="relative overflow-hidden bg-[#07101f] text-white" data-testid="home-hero">
+        <div className="pointer-events-none absolute inset-0">
+          <div className="absolute -left-24 top-12 h-[440px] w-[440px] rounded-full bg-orange-500/20 blur-[120px]" />
+          <div className="absolute -right-40 -top-24 h-[560px] w-[560px] rounded-full bg-sky-600/15 blur-[140px]" />
+          <div className="absolute inset-0 opacity-30 [background-image:linear-gradient(115deg,transparent_0%,transparent_43%,rgba(255,255,255,0.06)_43%,rgba(255,255,255,0.06)_44%,transparent_44%,transparent_100%)]" />
         </div>
 
-        <div className="relative section-padding mx-auto grid max-w-[1440px] gap-10 py-12 lg:grid-cols-[minmax(0,1.08fr)_420px] lg:py-16 xl:py-20">
-          <div className="max-w-4xl">
-            <Badge className="mb-5 border-orange-400/40 bg-orange-500/15 text-orange-100 hover:bg-orange-500/20">
-              Verified automotive marketplace for Zimbabwe
-            </Badge>
-            <h1 className="max-w-3xl text-4xl font-bold leading-tight tracking-normal md:text-6xl lg:text-7xl">
-              Find Verified Cars. Sell With Confidence.
-            </h1>
-            <p className="mt-5 max-w-3xl text-base leading-7 text-gray-300 md:text-xl">
-              CarUp helps buyers and sellers build trust with vehicle Passports, plate checks,
-              owner privacy, trust scores, and evidence-backed timelines.
-            </p>
-            <div className="mt-5 flex flex-wrap gap-2">
-              {productMap.map(item => (
-                <span
-                  key={item}
-                  className="rounded-full border border-white/15 bg-white/10 px-3 py-1.5 text-xs font-semibold text-white"
-                >
-                  {item}
-                </span>
-              ))}
-            </div>
+        <div className="section-padding relative mx-auto max-w-[1440px] py-10 sm:py-14 lg:py-20">
+          <div className="grid gap-10 lg:grid-cols-[minmax(0,1fr)_minmax(360px,0.82fr)] lg:items-center">
+            <div className="relative z-10">
+              <p className="text-xs font-black uppercase tracking-[0.22em] text-orange-400">
+                Zimbabwe's automotive trust network
+              </p>
+              <h1 className="mt-4 max-w-4xl text-5xl font-black leading-[0.98] tracking-[-0.045em] sm:text-6xl lg:text-7xl">
+                Buy. Sell. Verify.
+                <span className="block text-orange-400">Know the car before the deal.</span>
+              </h1>
+              <p className="mt-6 max-w-2xl text-base leading-7 text-slate-300 sm:text-lg">
+                CarUp connects the marketplace, Vehicle Passport, evidence, parts, garages, insurance,
+                finance, imports and SafePay around one vehicle identity — so every next step can build
+                on what is actually recorded.
+              </p>
 
-            <Card className="mt-8 max-w-3xl border-white/20 bg-white/95 text-gray-950 shadow-xl backdrop-blur">
-              <CardContent className="p-4 sm:p-5">
-                <Tabs defaultValue="buy">
-                  <TabsList className="grid h-auto w-full grid-cols-3 gap-1 bg-transparent p-0">
-                    <TabsTrigger
-                      value="buy"
-                      data-testid="home-buy-tab"
-                      className="rounded-md py-2.5 text-xs font-semibold data-[state=active]:bg-gray-950 data-[state=active]:text-white sm:text-sm"
-                    >
-                      Buy a Car
-                    </TabsTrigger>
-                    <TabsTrigger
-                      value="sell"
-                      data-testid="home-sell-tab"
-                      className="rounded-md py-2.5 text-xs font-semibold data-[state=active]:bg-gray-950 data-[state=active]:text-white sm:text-sm"
-                    >
-                      Sell My Car
-                    </TabsTrigger>
-                    <TabsTrigger
-                      value="verify"
-                      data-testid="home-verify-tab"
-                      className="rounded-md py-2.5 text-xs font-semibold data-[state=active]:bg-gray-950 data-[state=active]:text-white sm:text-sm"
-                    >
-                      Verify a Car
-                    </TabsTrigger>
-                  </TabsList>
+              <div className="mt-7 flex flex-wrap gap-2" aria-label="Primary CarUp journeys">
+                <Button asChild className="rounded-full bg-orange-500 px-5 text-white hover:bg-orange-400">
+                  <Link to="/marketplace">Buy Cars</Link>
+                </Button>
+                <Button asChild variant="outline" className="rounded-full border-slate-600 bg-transparent px-5 text-white hover:bg-slate-800 hover:text-white">
+                  <Link to="/sell">Sell Cars</Link>
+                </Button>
+                <Button asChild variant="outline" className="rounded-full border-slate-600 bg-transparent px-5 text-white hover:bg-slate-800 hover:text-white">
+                  <Link to="/search">Verify Cars</Link>
+                </Button>
+                <Button asChild variant="outline" className="rounded-full border-slate-600 bg-transparent px-5 text-white hover:bg-slate-800 hover:text-white">
+                  <Link to="/marketplace/parts">Trade Parts</Link>
+                </Button>
+              </div>
 
-                  <TabsContent value="buy" className="mt-5">
-                    <form onSubmit={submitBuy} className="flex flex-col gap-3 sm:flex-row">
-                      <div className="relative flex-1">
-                        <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
-                        <Input
-                          value={buyQuery}
-                          onChange={event => setBuyQuery(event.target.value)}
-                          placeholder="Search make, model, dealer, location, plate, VIN, or chassis"
-                          className="h-12 pl-10"
-                          data-testid="home-buy-search"
-                        />
-                      </div>
-                      <Button
-                        type="submit"
-                        className="h-12 bg-orange-500 px-5 text-white hover:bg-orange-600"
-                        data-testid="home-search-submit"
-                      >
-                        Search Verified Cars
-                      </Button>
-                    </form>
-                  </TabsContent>
-
-                  <TabsContent value="verify" className="mt-5">
-                    <form onSubmit={submitVerify} className="flex flex-col gap-3 sm:flex-row">
-                      <div className="relative flex-1">
-                        <FileSearch className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
-                        <Input
-                          value={verifyQuery}
-                          onChange={event => setVerifyQuery(event.target.value)}
-                          placeholder="Enter plate, VIN, or chassis"
-                          className="h-12 pl-10 font-mono"
-                          data-testid="home-verify-lookup"
-                        />
-                      </div>
-                      <Button type="submit" className="h-12 bg-orange-500 px-5 text-white hover:bg-orange-600">
-                        Open Vehicle Passport
-                      </Button>
-                    </form>
-                    <p className="mt-3 text-xs text-gray-500">
-                      We will open the existing Passport/detail route and run the current lookup there.
-                    </p>
-                  </TabsContent>
-
-                  <TabsContent value="sell" className="mt-5">
-                    <form onSubmit={submitSell} className="flex flex-col gap-3 sm:flex-row">
-                      <div className="relative flex-1">
-                        <Tag className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
-                        <Input
-                          value={sellQuery}
-                          onChange={event => setSellQuery(event.target.value)}
-                          placeholder="Enter plate or VIN"
-                          className="h-12 pl-10 font-mono"
-                          data-testid="home-sell-lookup"
-                        />
-                      </div>
-                      <Button type="submit" className="h-12 bg-orange-500 px-5 text-white hover:bg-orange-600">
-                        Start Seller Verification
-                      </Button>
-                    </form>
-                    <p className="mt-3 text-xs text-gray-500">
-                      Seller verification currently hands off to the existing account and listing flow.
-                    </p>
-                  </TabsContent>
-                </Tabs>
-
-                <div
-                  className="mt-5 flex flex-col gap-3 border-t border-gray-100 pt-5 sm:flex-row sm:items-center sm:justify-between"
-                  data-testid="home-seller-callout"
-                >
-                  <div>
-                    <p className="font-semibold text-gray-950">Selling your car?</p>
-                    <p className="mt-1 text-sm text-gray-600">
-                      Start with your plate or VIN and create a trusted Passport listing.
-                    </p>
+              <form onSubmit={submitBuy} className="mt-8 max-w-3xl" data-testid="home-primary-search">
+                <label htmlFor="home-buy-search" className="mb-2 block text-xs font-semibold uppercase tracking-[0.14em] text-slate-400">
+                  Start anywhere — make, model, location, VIN or seller
+                </label>
+                <div className="grid gap-2 rounded-[22px] bg-white p-2 shadow-[0_24px_70px_rgba(0,0,0,0.28)] sm:grid-cols-[minmax(0,1fr)_auto]">
+                  <div className="relative">
+                    <Search className="absolute left-4 top-1/2 h-5 w-5 -translate-y-1/2 text-slate-400" />
+                    <Input
+                      id="home-buy-search"
+                      value={buyQuery}
+                      onChange={event => setBuyQuery(event.target.value)}
+                      placeholder="Search cars, VIN, location or seller"
+                      className="h-13 border-0 bg-transparent pl-12 text-base text-slate-950 shadow-none focus-visible:ring-0"
+                      data-testid="home-buy-search"
+                    />
                   </div>
-                  <Button
-                    type="button"
-                    onClick={sellerHandoff}
-                    className="bg-orange-500 text-white hover:bg-orange-600"
-                  >
-                    Start Selling
+                  <Button type="submit" className="h-13 rounded-2xl bg-slate-950 px-6 font-bold text-white hover:bg-orange-600" data-testid="home-search-submit">
+                    Search Marketplace
                   </Button>
                 </div>
-              </CardContent>
-            </Card>
+              </form>
+
+              <div className="mt-5 flex flex-wrap items-center gap-3">
+                <BuyerAssistantDrawer
+                  triggerLabel="Ask Gutu AI"
+                  triggerClassName="rounded-full border-orange-400/40 bg-orange-400/10 text-orange-100 hover:bg-orange-400/20 hover:text-white"
+                />
+                <p className="max-w-md text-xs leading-5 text-slate-400">
+                  Ask by text or voice about a budget, vehicle type, import journey or what to verify before paying.
+                </p>
+              </div>
+            </div>
+
+            <div className="relative min-h-[360px] sm:min-h-[430px] lg:min-h-[520px]">
+              <div className="absolute -right-10 top-0 h-[82%] w-[92%] border border-orange-400/25 [clip-path:polygon(14%_0,100%_0,100%_88%,76%_100%,0_86%,0_16%)]" />
+              {heroVehicle ? (
+                <>
+                  <ListingImage
+                    src={heroVehicle.primary_image_url}
+                    alt={[heroVehicle.year, heroVehicle.make, heroVehicle.model].filter(Boolean).join(' ') || 'Featured vehicle'}
+                    className="absolute inset-x-0 top-5 h-[78%] w-full object-cover shadow-[0_35px_90px_rgba(0,0,0,0.45)] [clip-path:polygon(12%_0,100%_0,100%_88%,78%_100%,0_86%,0_16%)]"
+                  />
+                  <div className="absolute bottom-8 left-0 max-w-[78%] bg-orange-500 px-5 py-4 text-slate-950 shadow-[12px_12px_0_rgba(255,255,255,0.08)]">
+                    <p className="text-[10px] font-black uppercase tracking-[0.2em]">Live Marketplace</p>
+                    <p className="mt-1 text-xl font-black">
+                      {[heroVehicle.year, heroVehicle.make, heroVehicle.model].filter(Boolean).join(' ')}
+                    </p>
+                    <p className="mt-1 text-xs font-semibold">
+                      {summaryLocationLine(heroVehicle.location, heroVehicle.location_state).label}
+                    </p>
+                  </div>
+                  <Link
+                    to={vehiclePassportPath(heroVehicle.vin)}
+                    className="absolute bottom-2 right-0 inline-flex items-center gap-2 bg-white px-4 py-3 text-sm font-black text-slate-950 shadow-xl transition hover:bg-slate-100"
+                    data-testid="featured-view-passport"
+                  >
+                    Open Passport <ArrowRight className="h-4 w-4" />
+                  </Link>
+                </>
+              ) : (
+                <div className="absolute inset-0 flex items-center justify-center border border-slate-700 bg-slate-900/50 text-sm text-slate-400 [clip-path:polygon(12%_0,100%_0,100%_88%,78%_100%,0_86%,0_16%)]">
+                  Marketplace vehicle preview loading…
+                </div>
+              )}
+            </div>
           </div>
 
-          {heroVehicle && (
-            <Card className="self-start overflow-hidden border-white/15 bg-white text-gray-950 shadow-2xl" data-testid="featured-verified-car">
-              <div className="relative aspect-[16/10] overflow-hidden bg-gray-100">
-                <ListingImage
-                  src={heroVehicle.primary_image_url}
-                  alt={[heroVehicle.year, heroVehicle.make, heroVehicle.model].filter(Boolean).join(' ') || 'Vehicle'}
-                  className="h-full w-full"
-                />
-                <div className="absolute left-3 top-3 flex flex-wrap gap-2">
-                  {(heroVehicle.marketplace_tags ?? []).slice(0, 2).map(tag => (
-                    <Badge key={tag} className="bg-gray-950/80 text-white">{humanizeTag(tag)}</Badge>
-                  ))}
-                </div>
-              </div>
-              <CardContent className="p-5">
-                {/* Trust is shown on the vehicle Passport — never as a headline number on a card. */}
-                <p className="text-sm text-gray-500" data-testid="hero-location">
-                  {summaryLocationLine(heroVehicle.location, heroVehicle.location_state).label}
-                </p>
-                <h2 className="mt-1 text-xl font-bold">
-                  {[heroVehicle.year, heroVehicle.make, heroVehicle.model].filter(Boolean).join(' ') || 'Vehicle'}
-                </h2>
-                {governedPrice(heroVehicle.price, heroVehicle.currency) && (
-                  <p className="mt-3 text-2xl font-bold text-orange-600">{governedPrice(heroVehicle.price, heroVehicle.currency)}</p>
-                )}
-                <Button asChild className="mt-5 w-full bg-gray-950 text-white hover:bg-gray-800" data-testid="featured-view-passport">
-                  <Link to={vehiclePassportPath(heroVehicle.vin)}>
-                    View Passport <ArrowRight className="ml-2 h-4 w-4" />
-                  </Link>
-                </Button>
-              </CardContent>
-            </Card>
-          )}
+          <div className="mt-10 grid border-y border-white/10 sm:grid-cols-2 lg:grid-cols-4" data-testid="home-ecosystem-promotions">
+            {[
+              ['Finance', 'Compare buyer finance routes', '/pricing'],
+              ['Insurance', 'Protect the vehicle and the transaction', '/insurance'],
+              ['Garages', 'Inspection, service and trusted work', '/garages'],
+              ['Diaspora & Imports', 'Source and move vehicles into Zimbabwe', '/diaspora'],
+            ].map(([title, copy, href], index) => (
+              <Link
+                key={title}
+                to={href}
+                className={`group px-1 py-5 sm:px-5 ${index > 0 ? 'sm:border-l sm:border-white/10' : ''}`}
+              >
+                <p className="text-sm font-black text-white group-hover:text-orange-300">{title}</p>
+                <p className="mt-1 text-xs leading-5 text-slate-400">{copy}</p>
+              </Link>
+            ))}
+          </div>
         </div>
       </section>
 
