@@ -25,6 +25,8 @@ import { CommunicationPreferenceService } from './communicationPreferenceService
 import { CommunicationMetaWhatsAppGovernedAdapter } from './communicationMetaWhatsAppGovernedAdapter.js';
 import { createDefaultAdapterRegistry, assertRealTelegramAdapter } from './adapters/providerAdapters.js';
 import { createCommunicationOrchestrator } from './communicationOrchestratorService.js';
+import { getCanonicalTrust } from '../trustDecision/canonicalTrustService.js';
+import { emitDomainEvent } from '../eventBus/eventBusService.js';
 import { createCommunicationConfigurationValidator } from './communicationConfigurationValidator.js';
 
 function activateGovernedWhatsAppAdapter(registry, { injected = false } = {}) {
@@ -145,6 +147,12 @@ export function createCommunicationServices({ repository = null, adapterRegistry
   const configurationValidator = createCommunicationConfigurationValidator({ adapterRegistry: deliveryWorker.adapterRegistry });
   return {
     repository: repo,
+    // The canonical Trust reader the durability reconciler needs. Supplied here rather than imported
+    // inside the reconciler so the Communications layer keeps depending on Trust through one seam,
+    // and so a test can substitute it without stubbing a module.
+    getTrustRecord: async (vin) => getCanonicalTrust(vin).catch(() => null),
+    // The canonical outbox writer, so the durability reconciler and the auth route share one emitter.
+    emitEvent: emitDomainEvent,
     identityService,
     threadService,
     preferenceService,

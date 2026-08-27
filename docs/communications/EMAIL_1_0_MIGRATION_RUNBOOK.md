@@ -1,10 +1,10 @@
 # Email 1.0 hardening migration — runbook
 
 `database/migrations/20260826120000_email_1_0_hardening.sql`
-**SHA-256 `1a7417597120482bc140712c98cda125cf04731e3421009f82da6fd42025263c`**
-(supersedes `0e74b1c1…`, which predated the R1 dedupe branch, and `c66cfb71…` before it)
+**SHA-256 `ce739d9f78ef5166a7cb6314aac6ed591e7498bdba564c06d11436769cb4257e`**
+(supersedes `1a741759…`, `0e74b1c1…` and `c66cfb71…`)
 
-Transactional. Five changes, all additive or provably redundant. **NOT APPLIED.**
+Transactional. Six changes, all additive or provably redundant. **NOT APPLIED.**
 
 | # | Change | Why |
 |---|---|---|
@@ -12,7 +12,8 @@ Transactional. Five changes, all additive or provably redundant. **NOT APPLIED.*
 | G5-D3 | DROP `idx_email_reply_tokens_hash` | the UNIQUE constraint already provides an identical btree on the same column |
 | R5-D1 | ADD `vehicles.trust_presentation_announced_fingerprint` + partial index | the durable announcement marker |
 | **C3-A** | extend `communication_domain_event_dedupe_key()` for `vehicle.trust.presentation_changed` | database idempotency for the Trust announcement |
-| **R1** | same function, branch for `user.email.verified` | **new** — one welcome work item per verified account |
+| **R1** | same function, branch for `user.email.verified` | one welcome work item per verified account |
+| **BOUNDARY** | `communication_activation_boundaries` + row for `email_1_0`; index refinements | **new** — the durable watermark that prevents a retroactive mass send |
 
 ## Preflight — PASS (live, read-only, re-run after the C3 revision)
 
@@ -68,3 +69,36 @@ the behaviour being bought.
 Apply the migration **before** deploying the application. The producer now refuses to emit when the
 marker is unreadable (`announcement_state_unavailable`), so an app-before-migration window defers
 announcements rather than duplicating them — but applying first avoids the deferral entirely.
+
+
+## The activation boundary — the most important line in this package
+
+Both reconciliation scanners are catastrophically wrong on their FIRST run without it.
+
+- **R5**: every existing vehicle gets a NULL announced-fingerprint when the column is added, so every
+  historical Trust position looks like an undelivered announcement.
+- **R1**: every account verified before Email 1.0 existed has no welcome, so every one looks owed.
+
+Neither is true. That is baseline state, not outstanding work.
+
+`communication_activation_boundaries` holds one row per program with `activated_at` set by the
+migration itself. Work whose state became current **at or before** that instant is baseline and is
+never reconciled into a customer Email; only state that changed **strictly after** it is eligible.
+The row is durable and reproducible — two workers agree, a restart cannot move the line, and an
+auditor can ask later exactly what counted as historical. `ON CONFLICT DO NOTHING` means re-applying
+the package can never move an established boundary and retroactively make baseline state eligible.
+
+If the boundary row cannot be read, **both scanners refuse to run**. Doing nothing is recoverable;
+mailing every historical customer is not.
+
+### Measured on live staging, before any apply
+
+| | count |
+|---|---|
+| vehicles with a Trust position | **38** (newest `2026-08-24`) |
+| verified accounts | **76** (newest `2026-08-17`) |
+| **R5 eligible after apply** | **0** |
+| **R1 eligible after apply** | **0** |
+
+Without the boundary the first scheduled run would have produced **114 unintended customer Emails**.
+With it, zero. Re-measure immediately before the real apply and require both eligible counts to be 0.

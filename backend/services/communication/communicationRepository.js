@@ -139,6 +139,10 @@ export class CommunicationRepository {
       if (Array.isArray(value)) query = query.in(key, value);
       else query = value === null ? query.is(key, null) : query.eq(key, value);
     }
+    // Strictly-greater-than, for bounded reconciliation scans that must exclude everything at or
+    // before a durable activation watermark. Expressed here rather than filtered in JS so the query
+    // stays an index range instead of pulling history across the wire to discard it.
+    if (options.gt) query = query.gt(options.gt.column, options.gt.value);
     if (options.order) query = query.order(options.order.column, { ascending: options.order.ascending ?? false });
     if (options.limit) query = query.limit(options.limit);
     const { data, error } = await query;
@@ -450,6 +454,12 @@ export class MemoryCommunicationRepository {
 
   async list(table, filters = {}, options = {}) {
     let rows = this.rows(table).filter((row) => this.matches(row, filters));
+    // Mirrors the PostgREST `gt` above; a memory repository that silently ignored it would let a
+    // reconciliation test pass while the real scan returned all of history.
+    if (options.gt) {
+      const { column, value } = options.gt;
+      rows = rows.filter((row) => row[column] != null && new Date(row[column]) > new Date(value));
+    }
     if (options.order) {
       const { column, ascending = false } = options.order;
       rows = rows.sort((a, b) => String(a[column] || '').localeCompare(String(b[column] || '')) * (ascending ? 1 : -1));

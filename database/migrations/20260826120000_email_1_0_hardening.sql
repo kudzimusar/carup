@@ -62,11 +62,61 @@ COMMENT ON COLUMN public.vehicles.trust_presentation_announced_fingerprint IS
   'vehicle.trust.presentation_changed. NULL means never announced. Compared against the current '
   'presentation fingerprint so a failed announcement is recoverable rather than permanently lost.';
 
--- Reconciliation scans "announced != current", which cannot be expressed as an index predicate.
--- This index makes the never-announced population cheap to find, which is the common backlog.
+-- The reconciliation scan is "never announced, and the position became current AFTER activation",
+-- ordered by trust_evaluated_at. The index leads on that column so the scan is a bounded index
+-- range rather than a filtered sweep of every unannounced vehicle.
+DROP INDEX IF EXISTS public.idx_vehicles_trust_unannounced;
 CREATE INDEX IF NOT EXISTS idx_vehicles_trust_unannounced
-  ON public.vehicles (vin)
+  ON public.vehicles (trust_evaluated_at, vin)
   WHERE trust_presentation_announced_fingerprint IS NULL;
+
+-- ---------------------------------------------------------------------------
+-- ACTIVATION BOUNDARY — the durable watermark that prevents a retroactive flood.
+-- ---------------------------------------------------------------------------
+-- Without this, both reconciliation scanners are catastrophically wrong on their FIRST run.
+--
+--   R5: every existing vehicle has a NULL announced-fingerprint, so every historical Trust position
+--       looks like an announcement that was never delivered.
+--   R1: every account verified before Email 1.0 existed has email_verified_at set and no Leadership
+--       Welcome, so every one of them looks like a welcome that was never sent.
+--
+-- Neither is true. Those are BASELINE state, not outstanding work. Reconciling them would mail every
+-- historical customer about a Trust position that has not moved and a welcome they were never
+-- promised — a mass unsolicited send, which is the single worst failure this programme could ship.
+--
+-- The boundary is a durable row rather than a process-local timestamp, a deploy time inferred from
+-- startup, or an environment variable. Those are all unreproducible: two workers would disagree, a
+-- restart would move the line, and nobody could later answer "what exactly was considered
+-- historical?". A committed row is the same answer for every worker, every restart, and every audit.
+--
+-- `activated_at` is set by the migration itself, so the boundary is the moment the governed package
+-- was applied to that environment — the same event that makes the scanners exist at all.
+CREATE TABLE IF NOT EXISTS public.communication_activation_boundaries (
+  program text PRIMARY KEY,
+  activated_at timestamptz NOT NULL DEFAULT timezone('utc'::text, now()),
+  note text,
+  created_at timestamptz NOT NULL DEFAULT timezone('utc'::text, now())
+);
+
+COMMENT ON TABLE public.communication_activation_boundaries IS
+  'Durable activation watermarks. Work that became current at or before a program''s activated_at is '
+  'BASELINE and is never reconciled into a customer communication. Only state that changed strictly '
+  'after the boundary is eligible.';
+
+-- ON CONFLICT DO NOTHING: re-applying the package must never move an established boundary, which
+-- would retroactively make previously-baseline state eligible.
+INSERT INTO public.communication_activation_boundaries (program, note)
+VALUES (
+  'email_1_0',
+  'CarUp Email Experience 1.0. Trust positions evaluated at or before this instant, and accounts '
+  'verified at or before it, are baseline: they receive no reconciled R5 or R1 Email.'
+)
+ON CONFLICT (program) DO NOTHING;
+
+-- The R1 scan is "verified strictly after the boundary", ordered by email_verified_at.
+CREATE INDEX IF NOT EXISTS idx_users_email_verified_at
+  ON public.users (email_verified_at)
+  WHERE email_verified_at IS NOT NULL;
 
 -- ---------------------------------------------------------------------------
 -- C3-A — durable database idempotency for the Trust announcement event.

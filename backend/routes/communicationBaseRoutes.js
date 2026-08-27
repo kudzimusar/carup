@@ -2,6 +2,7 @@ import express from 'express';
 import crypto from 'crypto';
 import { authorizeRole } from '../middleware/authMiddleware.js';
 import { createCommunicationServices } from '../services/communication/communicationServiceFactory.js';
+import { reconcileCommunicationDurability } from '../services/communication/reconcileCommunicationDurability.js';
 import { CommunicationConversationService } from '../services/communication/communicationConversationService.js';
 import { validateCommunicationConfiguration, resolveWorkerSecret } from '../services/communication/communicationConfigurationValidator.js';
 import { buildDedupeKey, normalizeChannel } from '../services/communication/communicationUtils.js';
@@ -51,11 +52,40 @@ async function processWorkerBatch(req, res, services) {
   const invokedAt = new Date().toISOString();
   console.log(JSON.stringify({ level: 'info', event: 'communication_worker_invoked', correlation_id: correlationId, batch_limit: limit, ts: invokedAt }));
   const results = await services.deliveryWorker.processDueNotifications({ limit });
+
+  // DURABILITY RECONCILIATION — the production caller that was missing.
+  //
+  // `reconcileTrustPresentation()` and the R1 welcome reconstruction both existed and were tested,
+  // and nothing in production invoked either. A recovery mechanism that nothing schedules is not a
+  // recovery mechanism. This is that invocation, on the worker pg_cron already calls every minute:
+  // no new cron, no new scheduler, no timer, no second worker.
+  //
+  // Bounded and isolated. It never throws — a reconciliation fault must not fail the request that
+  // also drains the delivery queue — and it no-ops cheaply when the activation boundary is unreadable
+  // or there is nothing outstanding.
+  let reconciliation = null;
+  try {
+    reconciliation = await reconcileCommunicationDurability({
+      repository: services.repository,
+      getTrustRecord: services.getTrustRecord || null,
+      // Both supplied by the factory in production. Injected so a test can drive THIS route — the
+      // real scheduler entry point — instead of calling the reconcilers directly, which is the very
+      // shortcut that let this defect exist.
+      ...(services.emitEvent ? { emit: services.emitEvent } : {}),
+      ...(services.pgClient ? { pgClient: services.pgClient } : {}),
+    });
+  } catch (error) {
+    reconciliation = { error: 'reconciliation_failed' };
+    console.error(JSON.stringify({ level: 'error', event: 'communication_reconciliation_failed', correlation_id: correlationId, message: error.message }));
+  }
+
   const completedAt = new Date().toISOString();
-  console.log(JSON.stringify({ level: 'info', event: 'communication_worker_completed', correlation_id: correlationId, processed: results.length, ts: completedAt }));
+  // Counts only — no addresses, no reply tokens, no VINs, no evidence, no secrets.
+  console.log(JSON.stringify({ level: 'info', event: 'communication_worker_completed', correlation_id: correlationId, processed: results.length, reconciliation, ts: completedAt }));
   res.json({
     success: true,
     processed: results.length,
+    reconciliation,
     correlation_id: correlationId,
     invoked_at: invokedAt,
     completed_at: completedAt,
