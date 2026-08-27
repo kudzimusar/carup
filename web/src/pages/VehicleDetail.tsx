@@ -1677,7 +1677,7 @@ export default function VehicleDetail() {
   const serviceRecordCount = trustSignals?.maintenance_logs_count ?? null
 
   return (
-    <div className="min-h-screen bg-gray-50">
+    <div className="min-h-screen bg-[#f4f6f9]">
       {/* Breadcrumb */}
       <div className="bg-white border-b">
         <div className="section-padding mx-auto max-w-[1440px] py-4">
@@ -1710,6 +1710,58 @@ export default function VehicleDetail() {
         <Button variant="ghost" size="sm" className="mb-4 gap-1" onClick={() => navigate(-1)}>
           <ArrowLeft className="w-4 h-4" /> Back
         </Button>
+
+        <section
+          className="relative mb-6 overflow-hidden rounded-[28px] border border-slate-800 bg-[#07101f] px-5 py-6 text-white shadow-[0_24px_70px_rgba(15,23,42,0.20)] sm:px-7 sm:py-7"
+          data-testid="vehicle-detail-intelligence-hero"
+        >
+          <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_82%_10%,rgba(249,115,22,0.23),transparent_34%),radial-gradient(circle_at_8%_110%,rgba(14,165,233,0.12),transparent_30%)]" />
+          <div className="relative grid gap-6 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-end">
+            <div>
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="inline-flex items-center gap-1.5 rounded-full border border-orange-400/25 bg-orange-400/10 px-3 py-1 text-[10px] font-bold uppercase tracking-[0.16em] text-orange-300">
+                  <ShieldCheck className="h-3.5 w-3.5" /> CarUp Vehicle Passport
+                </span>
+                {detail?.carup_gold?.state === 'qualified' && (
+                  <span className="rounded-full bg-gradient-to-r from-amber-400 to-yellow-300 px-3 py-1 text-[10px] font-black uppercase tracking-[0.14em] text-slate-950">
+                    ★ CarUp Gold
+                  </span>
+                )}
+              </div>
+              <h1 className="mt-4 text-3xl font-black tracking-[-0.035em] sm:text-4xl lg:text-5xl">
+                {vehicle.year ?? ''} {vehicle.make} {vehicle.model}
+              </h1>
+              <div className="mt-3 flex flex-wrap gap-x-5 gap-y-2 text-sm text-slate-300">
+                <span className="inline-flex items-center gap-1.5"><MapPin className="h-4 w-4 text-orange-400" /> {locationLine}</span>
+                {typeof vehicle.mileage === 'number' && Number.isFinite(vehicle.mileage) && (
+                  <span className="inline-flex items-center gap-1.5"><Gauge className="h-4 w-4 text-orange-400" /> {vehicle.mileage.toLocaleString()} km</span>
+                )}
+              </div>
+            </div>
+
+            <div className="grid grid-cols-2 gap-3 sm:min-w-[360px]">
+              <div className="rounded-2xl border border-white/10 bg-white/[0.055] p-4 backdrop-blur">
+                <p className="text-[10px] uppercase tracking-[0.14em] text-slate-400">Asking price</p>
+                <p className="mt-1 text-xl font-black">{governedPrice(vehicle.price, vehicle.currency)}</p>
+                <p className="mt-1 text-[10px] text-slate-500">Published listing price</p>
+              </div>
+              <div className="rounded-2xl border border-white/10 bg-white/[0.055] p-4 backdrop-blur">
+                <p className="text-[10px] uppercase tracking-[0.14em] text-slate-400">Canonical Trust</p>
+                {trust.score !== null ? (
+                  <>
+                    <p className="mt-1 text-xl font-black">{trust.score}/100</p>
+                    <p className="mt-1 text-[10px] text-slate-400">{trust.headline}</p>
+                  </>
+                ) : (
+                  <>
+                    <p className="mt-1 text-sm font-bold">{trust.headline}</p>
+                    <p className="mt-1 text-[10px] text-slate-500">No legacy score substituted</p>
+                  </>
+                )}
+              </div>
+            </div>
+          </div>
+        </section>
 
         {/* Backend-governed marketplace panels (trust, all-in price, inquiry, safety) */}
         {detail && (
