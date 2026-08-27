@@ -33,6 +33,7 @@ import type {
   VehicleIdentity,
   VehiclePassport,
   TimelineEvent,
+  VehicleLifecycleEvent,
   PassportVerificationSource,
   MarketplaceListingDetail,
   MarketplaceMedia,
@@ -739,6 +740,33 @@ function timelineIcon(source: string) {
     evidence:            { icon: ImageIcon,     color: 'text-orange-600 bg-orange-50' },
   }
   return map[source] ?? { icon: Clock, color: 'text-gray-500 bg-gray-50' }
+}
+
+function lifecycleIcon(category: string) {
+  const map: Record<string, { icon: typeof Wrench; color: string }> = {
+    import:             { icon: ClipboardCheck, color: 'text-sky-700 bg-sky-50' },
+    auction:            { icon: Car,            color: 'text-violet-700 bg-violet-50' },
+    accident:           { icon: AlertTriangle,  color: 'text-red-700 bg-red-50' },
+    repair:             { icon: Wrench,         color: 'text-amber-700 bg-amber-50' },
+    service:            { icon: Wrench,         color: 'text-blue-700 bg-blue-50' },
+    inspection:         { icon: CheckCircle,    color: 'text-emerald-700 bg-emerald-50' },
+    ownership_transfer: { icon: UserCheck,      color: 'text-purple-700 bg-purple-50' },
+    registration:       { icon: FileCheck,      color: 'text-teal-700 bg-teal-50' },
+    insurance:          { icon: Shield,         color: 'text-green-700 bg-green-50' },
+    clearance:          { icon: ShieldCheck,    color: 'text-indigo-700 bg-indigo-50' },
+    dealer_listing:     { icon: Car,            color: 'text-orange-700 bg-orange-50' },
+    current_condition:  { icon: Gauge,          color: 'text-slate-700 bg-slate-100' },
+  }
+  return map[category] ?? { icon: Clock, color: 'text-gray-500 bg-gray-50' }
+}
+
+function lifecycleStatusLabel(event: VehicleLifecycleEvent): string {
+  if (event.detail_state === 'summary_only') return 'Recorded · detail private'
+  if (event.verification_status === 'seller_stated') return 'Seller stated'
+  if (event.verification_status === 'verified') return 'Verified'
+  if (event.verification_status === 'active') return 'Active'
+  if (event.verification_status) return event.verification_status.replace(/_/g, ' ')
+  return 'Recorded'
 }
 
 // Removed formatEvidenceLabel since it is no longer used here
@@ -1640,6 +1668,8 @@ export default function VehicleDetail() {
   const identifiersRedacted  = identity?.identifiersRedacted === true
 
   const timeline            = passport?.timeline ?? []
+  const lifecycleEvents     = passport?.lifecycle?.events ?? []
+  const lifecycleLoaded     = Boolean(passport?.lifecycle)
   const evidenceVault       = passport?.evidenceVault ?? []
   // One gate, one predicate. `publicEvidence` keeps returning RAW rows because the life-stage
   // timeline and the history thumbnails are typed on `VehicleEvidence`; the block below is what the
@@ -2250,24 +2280,82 @@ export default function VehicleDetail() {
                     <TabsTrigger value="market" className="flex-1">Market Analysis</TabsTrigger>
                   </TabsList>
 
-                  {/* ── History tab: real timeline ── */}
+                  {/* ── History tab: canonical lifecycle first, legacy audit timeline as compatibility fallback ── */}
                   <TabsContent value="history" className="mt-4" data-testid="history-tab-content">
-                    {timeline.length === 0 ? (
+                    {lifecycleLoaded ? (
+                      lifecycleEvents.length === 0 ? (
+                        <div className="text-center py-8 text-gray-400" data-testid="history-empty-state">
+                          <Clock className="w-10 h-10 mx-auto mb-3 opacity-30" />
+                          <p className="font-medium">No dated lifecycle records in current coverage</p>
+                          <p className="text-xs mt-1 text-gray-400">This is not proof of a clean history. Add governed evidence, service, ownership or inspection records to expand coverage.</p>
+                        </div>
+                      ) : (
+                        <div className="space-y-3" data-testid="history-timeline" data-history-source="canonical-lifecycle">
+                          {lifecycleEvents.map((event: VehicleLifecycleEvent) => {
+                            const { icon: Icon, color } = lifecycleIcon(event.category)
+                            const evidenceItem = event.evidence_id
+                              ? publicEvidence.find(item => item.id === event.evidence_id)
+                              : undefined
+                            const isDoc = evidenceItem
+                              ? Boolean(evidenceItem.mime_type?.includes('pdf') || evidenceItem.file_url?.endsWith('.pdf') || evidenceItem.evidence_type.includes('document'))
+                              : false
+                            return (
+                              <div
+                                key={event.id}
+                                className="flex items-start gap-3 border-b border-slate-200 bg-white py-4"
+                                data-testid="timeline-event"
+                                data-lifecycle-category={event.category}
+                              >
+                                <div className={`flex-shrink-0 w-9 h-9 flex items-center justify-center ${color}`}>
+                                  <Icon className="w-4 h-4" />
+                                </div>
+                                <div className="flex-1 min-w-0">
+                                  <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+                                    <p className="font-semibold text-sm text-slate-900">{event.label}</p>
+                                    <Badge variant="outline" className="rounded-none text-[10px] capitalize">{event.category.replace(/_/g, ' ')}</Badge>
+                                    <span className="text-[10px] font-semibold uppercase tracking-wide text-slate-400">{lifecycleStatusLabel(event)}</span>
+                                  </div>
+                                  <p className="text-xs text-slate-500 mt-1">
+                                    {event.date ? new Date(event.date).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' }) : 'Date unknown'}
+                                    {typeof event.mileage === 'number' ? ` · ${event.mileage.toLocaleString()} ${event.mileage_unit || 'km'}` : ''}
+                                    {event.source_kind ? ` · ${event.source_kind.replace(/_/g, ' ')}` : ''}
+                                  </p>
+                                  {event.detail_state === 'summary_only' && (
+                                    <p className="mt-1 text-[11px] text-slate-400">A maintenance event is recorded; public part-level detail is not published from this record.</p>
+                                  )}
+                                  {evidenceItem && (
+                                    <div className="mt-3 flex items-center gap-2">
+                                      <div className="h-14 w-16 overflow-hidden border border-slate-200 bg-slate-50" data-testid={`history-thumbnail-${evidenceItem.id}`}>
+                                        {!evidenceItem.file_url || isDoc ? (
+                                          <div className="flex h-full w-full items-center justify-center" data-testid={!evidenceItem.file_url ? 'history-thumbnail-withheld' : undefined}>
+                                            <FileText className="w-6 h-6 text-gray-400" />
+                                          </div>
+                                        ) : (
+                                          <img src={evidenceItem.file_url} className="w-full h-full object-cover" alt="" />
+                                        )}
+                                      </div>
+                                      <span className="text-[11px] text-slate-500">Governed evidence linked to this lifecycle event</span>
+                                    </div>
+                                  )}
+                                </div>
+                              </div>
+                            )
+                          })}
+                        </div>
+                      )
+                    ) : timeline.length === 0 ? (
                       <div className="text-center py-8 text-gray-400" data-testid="history-empty-state">
                         <Clock className="w-10 h-10 mx-auto mb-3 opacity-30" />
-                        <p className="font-medium">No history events recorded yet</p>
-                        <p className="text-xs mt-1 text-gray-400">Events appear as service records, ownership transfers, and inspections are logged on the CarUp audit ledger</p>
+                        <p className="font-medium">Vehicle lifecycle was not loaded</p>
+                        <p className="text-xs mt-1 text-gray-400">CarUp will not turn a missing lifecycle projection into a claim that the vehicle has no history.</p>
                       </div>
                     ) : (
-                      <div className="space-y-3" data-testid="history-timeline">
+                      <div className="space-y-3" data-testid="history-timeline" data-history-source="legacy-audit-fallback">
                         {timeline.map((event: TimelineEvent, idx) => {
                           const { icon: Icon, color } = timelineIcon(event.event_source)
                           return (
-                            <div key={`${event.event_source}-${event.id ?? idx}`}
-                              className="flex items-start gap-3 p-3 rounded-lg bg-gray-50"
-                              data-testid="timeline-event"
-                            >
-                              <div className={`flex-shrink-0 w-8 h-8 rounded-full flex items-center justify-center ${color}`}>
+                            <div key={`${event.event_source}-${event.id ?? idx}`} className="flex items-start gap-3 p-3 bg-gray-50" data-testid="timeline-event">
+                              <div className={`flex-shrink-0 w-8 h-8 flex items-center justify-center ${color}`}>
                                 <Icon className="w-4 h-4" />
                               </div>
                               <div className="flex-1 min-w-0">
@@ -2277,42 +2365,6 @@ export default function VehicleDetail() {
                                   {event.timestamp ? new Date(event.timestamp).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' }) : 'Date unknown'}
                                   {event.details?.mileage ? ` · ${event.details.mileage.toLocaleString()} km` : ''}
                                 </p>
-                                {event.event_source === 'evidence' && (
-                                  <div className="mt-2 flex flex-wrap items-center gap-2">
-                                    <Badge className="bg-green-100 text-green-700 border-0 shadow-none">
-                                      Verified Proof
-                                    </Badge>
-                                    {event.linked_registry_event_id && (
-                                      <span className="text-[11px] text-gray-500 font-mono">
-                                        Linked: {event.linked_registry_event_id}
-                                      </span>
-                                    )}
-                                  </div>
-                                )}
-                                {/* Add chronological evidence thumbnails */}
-                                {publicEvidence.filter(e => e.linked_registry_event_id === String(event.id) || e.timeline_event_id === String(event.id)).length > 0 && (
-                                  <div className="mt-3 flex gap-2 overflow-x-auto pb-1">
-                                    {publicEvidence.filter(e => e.linked_registry_event_id === String(event.id) || e.timeline_event_id === String(event.id)).map(item => {
-                                      const isDoc = item.mime_type?.includes('pdf') || item.file_url?.endsWith('.pdf') || item.evidence_type.includes('document');
-                                      return (
-                                        <div key={item.id} className="flex-shrink-0 w-16 h-16 rounded-md overflow-hidden border border-gray-200" data-testid={`history-thumbnail-${item.id}`}>
-                                          {/* A withheld artifact has no image; without this the
-                                              history strip rendered a broken thumbnail. */}
-                                          {!item.file_url || isDoc ? (
-                                            <div
-                                              className="w-full h-full bg-gray-50 flex items-center justify-center"
-                                              data-testid={!item.file_url ? 'history-thumbnail-withheld' : undefined}
-                                            >
-                                              <FileText className="w-6 h-6 text-gray-400" />
-                                            </div>
-                                          ) : (
-                                            <img src={item.file_url} className="w-full h-full object-cover" alt="" />
-                                          )}
-                                        </div>
-                                      );
-                                    })}
-                                  </div>
-                                )}
                               </div>
                             </div>
                           )
