@@ -876,6 +876,7 @@ export default function Marketplace() {
                     labels: labels.length > 0 ? labels : ['Published listing'],
                     trust: listing.trust || null,
                     carupGold: listing.carup_gold?.state === 'qualified',
+                    syntheticDemo: Boolean(listing.primary_image_url?.includes('/marketplace-reference-synthetic/')),
                   }
 
                   return (
