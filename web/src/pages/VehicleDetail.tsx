@@ -1888,7 +1888,7 @@ export default function VehicleDetail() {
         </div>
 
         <section
-          className="h-fit bg-[#08111f] px-5 py-6 text-white shadow-[0_28px_70px_rgba(15,23,42,0.22)] sm:px-7 sm:py-7 lg:sticky lg:top-5"
+          className="h-fit bg-[#08111f] px-5 py-6 text-white shadow-[0_28px_70px_rgba(15,23,42,0.22)] sm:px-7 sm:py-7 lg:sticky lg:top-5 lg:mt-10"
           data-testid="vehicle-detail-intelligence-hero"
         >
           <div>
