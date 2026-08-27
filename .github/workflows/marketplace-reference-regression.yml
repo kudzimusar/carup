@@ -97,6 +97,7 @@ jobs:
           src/data/vehicleTaxonomy.test.ts
           src/lib/marketplaceParams.test.ts
           src/lib/marketplacePresentation.test.ts
+          src/pages/SellFlow.resilience.test.ts
           src/pages/VehicleDetail.media.test.tsx
           src/pages/VehicleDetail.trust.test.tsx
 
