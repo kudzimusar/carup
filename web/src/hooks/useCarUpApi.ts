@@ -638,6 +638,12 @@ export function useCarUpApi() {
   /** PERSON scope: the practitioner's own work, never the organization's. */
   const fetchMechanicIntelligence = useCallback(async (windowDays: 7 | 30 | 90 = 30): Promise<any> =>
     request(`/mechanic/analytics?window=${windowDays}`), [request])
+  /** PERSON scope: this practitioner's PartSentry records + their org's stock. */
+  const fetchPartsIntelligence = useCallback(async (windowDays: 7 | 30 | 90 = 30): Promise<any> =>
+    request(`/parts/intelligence?window=${windowDays}`), [request])
+  /** PLATFORM scope: RFQ demand, which no supplier scope can serve. */
+  const fetchPlatformPartsIntelligence = useCallback(async (windowDays: 7 | 30 | 90 = 30): Promise<any> =>
+    request(`/admin/parts/intelligence?window=${windowDays}`), [request])
   /** Commercial finance demand. Credit risk and collateral are served elsewhere. */
   const fetchFinanceIntelligence = useCallback(async (windowDays: 7 | 30 | 90 = 30): Promise<any> =>
     request(`/finance/demand-intelligence?window=${windowDays}`), [request])
@@ -2580,6 +2586,8 @@ export function useCarUpApi() {
     fetchListingIntelligence,
     fetchDealerIntelligence,
     fetchFinanceIntelligence,
+    fetchPartsIntelligence,
+    fetchPlatformPartsIntelligence,
     fetchMechanicIntelligence,
     fetchGarageIntelligence,
     uploadKycDocument,

@@ -15,6 +15,10 @@ import { supabase } from '../db/supabase.js';
 import { getInsuranceDemandIntelligence } from '../services/intelligence/insuranceIntelligenceService.js';
 import { getFinanceDemandIntelligence } from '../services/intelligence/financeIntelligenceService.js';
 import {
+  getMechanicPartsIntelligence,
+  getPlatformPartsIntelligence,
+} from '../services/intelligence/partsIntelligenceService.js';
+import {
   getMechanicIntelligence,
   getGarageIntelligence,
 } from '../services/intelligence/serviceIntelligenceService.js';
@@ -219,6 +223,43 @@ router.get(
     try {
       const windowDays = resolveWindowDays(req.query.window);
       const data = await getFinanceDemandIntelligence(supabase, req.userContext, { windowDays });
+      return res.json({ ok: true, ...data });
+    } catch (error) {
+      return handleProjectionError(res, error);
+    }
+  }),
+);
+
+/**
+ * Parts intelligence, PERSON scope — the practitioner's own PartSentry records
+ * and their organization's stock. The I9 mechanic/garage distinction holds: one
+ * scope never answers for the other.
+ */
+router.get(
+  '/api/parts/intelligence',
+  authorizeRole(['mechanic', 'admin']),
+  asyncHandler(async (req, res) => {
+    try {
+      const windowDays = resolveWindowDays(req.query.window);
+      const data = await getMechanicPartsIntelligence(supabase, req.userContext, { windowDays });
+      return res.json({ ok: true, ...data });
+    } catch (error) {
+      return handleProjectionError(res, error);
+    }
+  }),
+);
+
+/**
+ * Parts intelligence, PLATFORM scope. RFQ demand lives only here: no part quote
+ * request names a supplier, so there is no supplier scope to serve it to.
+ */
+router.get(
+  '/api/admin/parts/intelligence',
+  authorizeRole(['admin']),
+  asyncHandler(async (req, res) => {
+    try {
+      const windowDays = resolveWindowDays(req.query.window);
+      const data = await getPlatformPartsIntelligence(supabase, req.userContext, { windowDays });
       return res.json({ ok: true, ...data });
     } catch (error) {
       return handleProjectionError(res, error);
