@@ -2379,12 +2379,16 @@ export interface ReportKeyAlert {
 
 // One public-safe timeline / evidence-index row.
 export interface ReportTimelineItem {
-  evidence_id: string;
+  evidence_id: string | null;
   evidence_class: EvidenceClass | string | null;
   evidence_subtype: string | null;
   date: string | null;
   source_id: string | null;
+  source_kind?: string | null;
   verification_status: EvidenceVerificationStatus | string | null;
+  detail_state?: 'recorded' | 'public_detail' | 'summary_only' | string;
+  mileage?: number | null;
+  mileage_unit?: string | null;
 }
 
 export interface ReportSections {
@@ -2393,6 +2397,10 @@ export interface ReportSections {
   inspection: number;
   ownership_transfer: number;
   current_condition: number;
+  service?: number;
+  insurance?: number;
+  registration?: number;
+  clearance?: number;
 }
 
 export interface ReportMileageObservation {
@@ -2400,8 +2408,9 @@ export interface ReportMileageObservation {
   value: number;
   unit: string;
   source: string;
-  evidence_id?: string;
+  evidence_id?: string | null;
   listing_id?: string;
+  lifecycle_event_id?: string;
 }
 
 export interface ReportMileageHistory {
@@ -2469,6 +2478,11 @@ export interface VehicleHistoryReportData {
   completeness: ReportCompleteness;
   limitations: string[];
   evidence_index: ReportTimelineItem[];
+  lifecycle_projection?: {
+    version: string;
+    source_diversity: number;
+    counts: Record<string, number>;
+  };
   generated_at_note?: string;
 }
 
