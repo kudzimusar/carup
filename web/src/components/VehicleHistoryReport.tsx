@@ -144,34 +144,71 @@ function EmptyState({ icon: Icon, title, hint }: { icon: LucideIcon; title: stri
 }
 
 export default function VehicleHistoryReport({ report, generatedAt, correctionNotice }: VehicleHistoryReportProps) {
-  const { identity, completeness, limitations, key_alerts, sections, mileage_history, listing_history, timeline, evidence_index } = report
+  const { identity, completeness, limitations, key_alerts, sections, mileage_history, listing_history, timeline, evidence_index, lifecycle_projection } = report
 
   const identityTitle = useMemo(() => {
     const parts = [identity?.year, identity?.make, identity?.model].filter(Boolean)
     return parts.length ? parts.join(' ') : 'Vehicle'
   }, [identity])
 
+  const mileageCoverageState = completeness.mileage_coverage_state ?? mileage_history.coverage_state ?? 'complete'
+  const inspectionCoverageIncomplete = completeness.classes_unavailable?.includes('inspection') ?? false
+  const currentConditionUnavailable = completeness.current_condition_coverage === null
+
   const coverageItems: { label: string; value: string; ok: boolean }[] = [
     { label: 'Identity confirmed', value: completeness.identity_coverage ? 'Yes' : 'No', ok: !!completeness.identity_coverage },
     { label: 'Timeline coverage', value: `${Math.round((completeness.timeline_coverage || 0) * 100)}%`, ok: completeness.timeline_coverage >= 0.5 },
-    { label: 'Mileage readings', value: completeness.mileage_coverage ? 'Available' : 'None', ok: !!completeness.mileage_coverage },
+    {
+      label: 'Mileage readings',
+      value: mileageCoverageState === 'complete'
+        ? (completeness.mileage_coverage ? 'Available' : 'None recorded')
+        : mileageCoverageState === 'partial' ? 'Partial coverage' : 'Source unavailable',
+      ok: mileageCoverageState === 'complete' && !!completeness.mileage_coverage,
+    },
+    {
+      label: 'Lifecycle source coverage',
+      value: completeness.lifecycle_source_coverage === undefined
+        ? 'Not reported'
+        : `${Math.round(completeness.lifecycle_source_coverage * 100)}%`,
+      ok: completeness.lifecycle_source_coverage === 1,
+    },
     { label: 'Source diversity', value: `${completeness.source_diversity} source${completeness.source_diversity === 1 ? '' : 's'}`, ok: completeness.source_diversity > 1 },
-    { label: 'Latest inspection', value: completeness.inspection_recency ? formatDate(completeness.inspection_recency) : 'None on record', ok: !!completeness.inspection_recency },
-    { label: 'Current condition', value: completeness.current_condition_coverage ? 'Documented' : 'Not documented', ok: !!completeness.current_condition_coverage },
+    {
+      label: 'Latest inspection',
+      value: completeness.inspection_recency
+        ? formatDate(completeness.inspection_recency)
+        : inspectionCoverageIncomplete ? 'Source incomplete' : 'None on record',
+      ok: !!completeness.inspection_recency && !inspectionCoverageIncomplete,
+    },
+    {
+      label: 'Current condition',
+      value: currentConditionUnavailable
+        ? 'Source incomplete'
+        : completeness.current_condition_coverage ? 'Documented' : 'Not documented',
+      ok: completeness.current_condition_coverage === 1,
+    },
   ]
 
-  const sectionCounts: { label: string; value: number; icon: LucideIcon }[] = [
-    { label: 'Auction records', value: sections.auction_import.auction, icon: Gavel },
-    { label: 'Import records', value: sections.auction_import.import, icon: Ship },
-    { label: 'Accident records', value: sections.accident_repair.accident, icon: CarFront },
-    { label: 'Repair records', value: sections.accident_repair.repair, icon: Wrench },
-    { label: 'Service records', value: sections.service ?? 0, icon: Wrench },
-    { label: 'Inspections', value: sections.inspection, icon: ClipboardList },
-    { label: 'Ownership transfers', value: sections.ownership_transfer, icon: ArrowLeftRight },
-    { label: 'Insurance records', value: sections.insurance ?? 0, icon: ShieldAlert },
-    { label: 'Registration records', value: sections.registration ?? 0, icon: FileSearch },
-    { label: 'Clearance records', value: sections.clearance ?? 0, icon: CheckCircle2 },
-    { label: 'Current condition', value: sections.current_condition, icon: Camera },
+  const countDisplay = (category: string, fallback: number | null | undefined) => {
+    const envelope = lifecycle_projection?.count_states?.[category]
+    if (!envelope) return fallback === null || fallback === undefined ? 'Unavailable' : String(fallback)
+    if (envelope.state === 'complete') return String(envelope.value)
+    if (envelope.state === 'partial') return envelope.value > 0 ? `≥${envelope.value}` : 'Partial'
+    return 'Unavailable'
+  }
+
+  const sectionCounts: { label: string; value: string; icon: LucideIcon }[] = [
+    { label: 'Auction records', value: countDisplay('auction', sections.auction_import.auction), icon: Gavel },
+    { label: 'Import records', value: countDisplay('import', sections.auction_import.import), icon: Ship },
+    { label: 'Accident records', value: countDisplay('accident', sections.accident_repair.accident), icon: CarFront },
+    { label: 'Repair records', value: countDisplay('repair', sections.accident_repair.repair), icon: Wrench },
+    { label: 'Service records', value: countDisplay('service', sections.service), icon: Wrench },
+    { label: 'Inspections', value: countDisplay('inspection', sections.inspection), icon: ClipboardList },
+    { label: 'Ownership transfers', value: countDisplay('ownership_transfer', sections.ownership_transfer), icon: ArrowLeftRight },
+    { label: 'Insurance records', value: countDisplay('insurance', sections.insurance), icon: ShieldAlert },
+    { label: 'Registration records', value: countDisplay('registration', sections.registration), icon: FileSearch },
+    { label: 'Clearance records', value: countDisplay('clearance', sections.clearance), icon: CheckCircle2 },
+    { label: 'Current condition', value: countDisplay('current_condition', sections.current_condition), icon: Camera },
   ]
 
   return (
