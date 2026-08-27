@@ -1,10 +1,10 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { Card, CardContent } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
-import { Heart, X, Gauge, Settings2, Fuel, MapPin, Loader2 } from 'lucide-react'
+import { Heart, Loader2 } from 'lucide-react'
 import { useCarUpApi } from '@/hooks/useCarUpApi'
-import { statedMileage, statedPrice } from './ownerStatedValues'
+import { MarketplaceListingCard } from '@/components/marketplace/MarketplaceListingCard'
+import { marketplaceListingToCardModel } from '@/lib/marketplaceCardModel'
 import type { MarketplaceListingSummary } from '@/types'
 
 export default function SavedCars() {
@@ -17,8 +17,9 @@ export default function SavedCars() {
     let active = true
     setLoading(true)
     setError(null)
+
     fetchSavedMarketplaceListings()
-      .then((response) => {
+      .then(response => {
         if (active) setSavedVehicles(response.listings || [])
       })
       .catch(() => {
@@ -27,106 +28,86 @@ export default function SavedCars() {
       .finally(() => {
         if (active) setLoading(false)
       })
+
     return () => { active = false }
   }, [fetchSavedMarketplaceListings])
 
   const remove = useCallback(async (vin: string) => {
     await unsaveMarketplaceListing(vin)
-    setSavedVehicles(prev => prev.filter(v => v.vin !== vin))
+    setSavedVehicles(previous => previous.filter(vehicle => vehicle.vin !== vin))
   }, [unsaveMarketplaceListing])
 
   return (
-    <div className="space-y-6 max-w-7xl mx-auto">
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-bold">Saved Cars</h1>
-          <p className="text-gray-500">Vehicles you've bookmarked for later</p>
+    <div className="mx-auto max-w-7xl space-y-8" data-testid="saved-cars-page">
+      <section className="relative overflow-hidden bg-[#08111f] px-5 py-7 text-white sm:px-7">
+        <div className="pointer-events-none absolute inset-0 [background-image:radial-gradient(circle_at_88%_15%,rgba(249,115,22,0.18),transparent_30%)]" />
+        <div className="relative flex flex-col gap-5 md:flex-row md:items-end md:justify-between">
+          <div>
+            <p className="text-[10px] font-black uppercase tracking-[0.2em] text-orange-400">Your shortlist</p>
+            <h1 className="mt-2 text-4xl font-black tracking-[-0.045em] sm:text-5xl">Saved cars.</h1>
+            <p className="mt-3 max-w-xl text-sm leading-6 text-slate-300">
+              Re-open the same vehicle stories you saved in Marketplace. Price, published facts and
+              canonical Trust remain in the same visual language here.
+            </p>
+          </div>
+          <Button asChild className="h-11 rounded-none bg-orange-500 px-5 font-black text-white hover:bg-orange-600">
+            <Link to="/marketplace">Find more vehicles</Link>
+          </Button>
         </div>
-        <Button variant="outline" asChild>
-          <Link to="/marketplace">Browse More</Link>
-        </Button>
-      </div>
+      </section>
 
       {loading ? (
-        <Card className="border-0 card-shadow">
-          <CardContent className="p-12 text-center">
-            <Loader2 className="w-10 h-10 text-orange-500 mx-auto mb-4 animate-spin" />
-            <h3 className="text-lg font-semibold mb-2">Loading saved cars</h3>
-            <p className="text-gray-500">Checking your marketplace saved listings...</p>
-          </CardContent>
-        </Card>
-      ) : error ? (
-        <Card className="border-0 card-shadow">
-          <CardContent className="p-12 text-center">
-            <Heart className="w-12 h-12 text-gray-300 mx-auto mb-4" />
-            <h3 className="text-lg font-semibold mb-2">Saved Cars Unavailable</h3>
-            <p className="text-gray-500 mb-4">{error}</p>
-            <Button variant="outline" onClick={() => window.location.reload()}>Retry</Button>
-          </CardContent>
-        </Card>
-      ) : savedVehicles.length === 0 ? (
-        <Card className="border-0 card-shadow">
-          <CardContent className="p-12 text-center">
-            <Heart className="w-12 h-12 text-gray-300 mx-auto mb-4" />
-            <h3 className="text-lg font-semibold mb-2">No Saved Vehicles</h3>
-            <p className="text-gray-500 mb-4">Browse the marketplace and click the heart icon on any vehicle to save it here.</p>
-            <Button className="bg-orange-500 hover:bg-orange-600" asChild>
-              <Link to="/marketplace">Browse Marketplace</Link>
-            </Button>
-          </CardContent>
-        </Card>
-      ) : (
-        <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-6">
-          {savedVehicles.map((vehicle) => (
-            <Card key={vehicle.vin} className="border-0 card-shadow hover-lift overflow-hidden">
-              <CardContent className="p-0">
-                <div className="relative aspect-[16/10] overflow-hidden">
-                  {vehicle.primary_image_url ? (
-                    <img src={vehicle.primary_image_url} alt={`${vehicle.make} ${vehicle.model}`} className="w-full h-full object-cover" />
-                  ) : (
-                    <div className="flex h-full w-full items-center justify-center bg-gray-100 text-sm text-gray-500">
-                      No image available
-                    </div>
-                  )}
-                  <button
-                    onClick={() => remove(vehicle.vin)}
-                    className="absolute top-3 right-3 w-8 h-8 rounded-full bg-white/90 flex items-center justify-center hover:bg-red-50 transition-colors"
-                    title="Remove from saved"
-                  >
-                    <X className="w-4 h-4 text-red-500" />
-                  </button>
-                  {/* A "Verified" badge drawn from `trust_score > 80` was a verification claim
-                      manufactured on this page out of a number no page is allowed to bucket. The
-                      threshold, the tier and the badge are gone; a saved card makes no trust claim
-                      at all, exactly as the marketplace card does not. */}
-                </div>
-                <div className="p-4">
-                  <Link to={`/marketplace/${vehicle.vin}`}>
-                    <h3 className="font-semibold text-sm hover:text-orange-500 transition-colors">{vehicle.year} {vehicle.make} {vehicle.model}</h3>
-                    <p className="text-lg font-bold text-orange-600" data-testid={`saved-price-${vehicle.vin}`}>{statedPrice(vehicle.price)}</p>
-                    <div className="flex flex-wrap gap-2 mt-2 text-xs text-gray-500">
-                      <span className="flex items-center gap-1" data-testid={`saved-mileage-${vehicle.vin}`}><Gauge className="w-3 h-3" />{statedMileage(vehicle.mileage)}</span>
-                      {vehicle.transmission && <span className="flex items-center gap-1"><Settings2 className="w-3 h-3" />{vehicle.transmission}</span>}
-                      {vehicle.fuel_type && <span className="flex items-center gap-1"><Fuel className="w-3 h-3" />{vehicle.fuel_type}</span>}
-                    </div>
-                    {/* `|| 'Zimbabwe'` put a country under every saved car whose listing recorded no
-                        location. There is no location column on a vehicle at all today, so the only
-                        honest rendering of an absent one is to say it is absent. */}
-                    <div className="flex items-center gap-1 mt-2 text-xs text-gray-400" data-testid={`saved-location-${vehicle.vin}`}>
-                      <MapPin className="w-3 h-3" />{vehicle.location || 'Location not recorded'}
-                    </div>
-                  </Link>
-                  <div className="mt-3 flex gap-2">
-                    <Button size="sm" className="flex-1 bg-orange-500 hover:bg-orange-600 text-xs" asChild>
-                      <Link to={`/marketplace/${vehicle.vin}`}>View Details</Link>
-                    </Button>
-                    <Button size="sm" variant="outline" className="text-xs" onClick={() => remove(vehicle.vin)}>Remove</Button>
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
-          ))}
+        <div className="flex min-h-56 items-center justify-center gap-3 border-y border-slate-200 bg-white text-slate-500">
+          <Loader2 className="h-5 w-5 animate-spin text-orange-500" />
+          <span className="text-sm">Loading your saved Marketplace vehicles…</span>
         </div>
+      ) : error ? (
+        <div className="border-y border-slate-200 bg-white px-6 py-14 text-center">
+          <Heart className="mx-auto h-10 w-10 text-slate-300" />
+          <h2 className="mt-4 text-xl font-black">Saved cars are unavailable.</h2>
+          <p className="mt-2 text-sm text-slate-500">{error}</p>
+          <Button variant="outline" className="mt-5 rounded-none" onClick={() => window.location.reload()}>
+            Retry
+          </Button>
+        </div>
+      ) : savedVehicles.length === 0 ? (
+        <div className="border-y border-dashed border-slate-300 bg-white px-6 py-16 text-center">
+          <Heart className="mx-auto h-10 w-10 text-slate-300" />
+          <h2 className="mt-4 text-xl font-black">Your shortlist is empty.</h2>
+          <p className="mx-auto mt-2 max-w-lg text-sm leading-6 text-slate-500">
+            Save vehicles from Marketplace and they will reappear here with the same current vehicle-story layout.
+          </p>
+          <Button asChild className="mt-5 rounded-none bg-orange-500 font-black text-white hover:bg-orange-600">
+            <Link to="/marketplace">Browse Marketplace</Link>
+          </Button>
+        </div>
+      ) : (
+        <>
+          <div className="flex items-end justify-between border-b border-slate-200 pb-4">
+            <div>
+              <p className="text-[10px] font-black uppercase tracking-[0.18em] text-orange-600">Saved Marketplace inventory</p>
+              <p className="mt-1 text-sm text-slate-500">{savedVehicles.length} {savedVehicles.length === 1 ? 'vehicle' : 'vehicles'} in your shortlist</p>
+            </div>
+          </div>
+
+          <div className="grid gap-x-7 gap-y-12 md:grid-cols-2 xl:grid-cols-3">
+            {savedVehicles.map(vehicle => (
+              <MarketplaceListingCard
+                key={vehicle.vin}
+                vehicle={marketplaceListingToCardModel(vehicle)}
+                href={`/marketplace/${encodeURIComponent(vehicle.vin)}`}
+                isFavorite
+                onFavorite={event => {
+                  event.preventDefault()
+                  event.stopPropagation()
+                  void remove(vehicle.vin)
+                }}
+                dataTestId="saved-marketplace-vehicle"
+                ctaLabel="Re-open vehicle & Passport"
+              />
+            ))}
+          </div>
+        </>
       )}
     </div>
   )
