@@ -110,6 +110,14 @@ export interface MarketplacePublicTrust {
  * PRIVATE_VEHICLE_FIELDS in backend/utils/publicVehicleProjection.js. Declaring them here
  * would let a consumer compile against a field the API will never send.
  */
+export interface MarketplaceCarUpGold {
+  state: 'qualified' | 'not_qualified' | 'not_evaluable';
+  tier: 'gold' | null;
+  label: 'CarUp Gold' | null;
+  policy_version: string;
+  reason_codes: string[];
+}
+
 export interface MarketplaceListingSummary {
   vin: string;
   make: string;
@@ -135,13 +143,7 @@ export interface MarketplaceListingSummary {
    */
   trust_score: number | null;
   /** Backend-governed premium qualification. Gold is never inferred from score alone. */
-  carup_gold?: {
-    state: 'qualified' | 'not_qualified' | 'not_evaluable';
-    tier: 'gold' | null;
-    label: 'CarUp Gold' | null;
-    policy_version: string;
-    reason_codes: string[];
-  };
+  carup_gold?: MarketplaceCarUpGold;
   /** The canonical Trust authority for the listing card. Null means the authority was not read. */
   trust?: MarketplacePublicTrust | null;
   /**
