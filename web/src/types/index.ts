@@ -1990,7 +1990,9 @@ export interface OwnershipSummary {
   currentSellerType?: string | null;
   /** A seller IS on file. With a null display name this means withheld, not absent. */
   currentSellerRecorded?: boolean;
-  previousOwnerCount: number;
+  /** null means the ownership-history source could not be read, never a zero-owner claim. */
+  previousOwnerCount: number | null;
+  previousOwnerCountState?: 'available' | 'unavailable';
   previousOwnersPublicLabel: string;
   ownerNamesRedacted: boolean;
   currentOwnerVisible: boolean;
@@ -2070,6 +2072,8 @@ export interface VehiclePassport {
   chainVerification: ChainVerification;
   identity: VehicleIdentity;
   plateHistory: VehiclePlateHistory[];
+  /** Whether the plate-history collection was actually read for this passport response. */
+  plateHistoryState?: 'available' | 'unavailable';
   /** Rows were withheld from this audience, so an empty list is not an empty history. */
   plateHistoryRedacted?: boolean;
   ownershipSummary: OwnershipSummary;
