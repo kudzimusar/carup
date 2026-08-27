@@ -29,7 +29,13 @@ import { compareListings } from '../services/marketplace/marketplaceDiscoverySer
 import { moderateListing, deriveListingPublicStatus } from '../services/marketplace/marketplaceModerationService.js';
 import { getMarketplaceAnalytics } from '../services/marketplace/marketplaceAnalyticsService.js';
 import { listingDraft, deterministicShareCopy } from '../services/marketplace/marketplaceAiAssistantService.js';
-import { getPartsListings, getServiceListings, buildPartSummary } from '../services/marketplace/marketplacePartsService.js';
+import {
+  getPartsListings,
+  getServiceListings,
+  buildPartSummary,
+  normalizePartFitment,
+  partFitmentMatches,
+} from '../services/marketplace/marketplacePartsService.js';
 
 const NOW = new Date().toISOString();
 const REAL_VIN = '1HGBH41JXMN109186';
@@ -649,20 +655,37 @@ test('PartSentry: legacy rows with absent suspicion_status are treated as non-su
   assert.equal(s.partsentry_checked, true);
 });
 
-test('inquiry metadata is allow-list sanitized (off-contract keys + shipment data dropped)', async () => {
+test('inquiry metadata preserves governed intent/fitment and drops off-contract shipment/PII', async () => {
   const store = { marketplace_inquiries: [] };
   await createInquiry(
     buildMockSupabase(store),
     {
       inquiry_type: 'import_quote_request',
       guest_email: 'b@example.com',
-      metadata: { utm_source: 'fb', tracking_number: 'SECRET123', container_id: 'C1', guest_email: 'leak@x.com' },
+      metadata: {
+        utm_source: 'fb',
+        buyer_intent: 'parts_fitment_quote',
+        safepay_requested: true,
+        fitment_taxonomy_version: 'carup-vehicle-taxonomy-1.0.0',
+        fitment_make: 'Toyota',
+        fitment_model: 'Hilux',
+        fitment_year: '2019',
+        tracking_number: 'SECRET123',
+        container_id: 'C1',
+        guest_email: 'leak@x.com',
+      },
     },
     null,
     { referralBridge: spyBridge(), emitDomainEvent: outboxSpy().emitDomainEvent }
   );
   const meta = store.marketplace_inquiries[0].metadata;
   assert.equal(meta.utm_source, 'fb');
+  assert.equal(meta.buyer_intent, 'parts_fitment_quote');
+  assert.equal(meta.safepay_requested, 'true');
+  assert.equal(meta.fitment_taxonomy_version, 'carup-vehicle-taxonomy-1.0.0');
+  assert.equal(meta.fitment_make, 'Toyota');
+  assert.equal(meta.fitment_model, 'Hilux');
+  assert.equal(meta.fitment_year, '2019');
   assert.equal('tracking_number' in meta, false);
   assert.equal('container_id' in meta, false);
   assert.equal('guest_email' in meta, false);
@@ -684,19 +707,59 @@ test('updateInquiryStatus 404s a missing inquiry (maybeSingle, not a 500)', asyn
   );
 });
 
-test('parts/services v1 surfaces are governed (empty + no fabricated trust) and parts summary is sanitized', async () => {
-  const parts = await getPartsListings(buildMockSupabase({}), {});
+test('parts/services v1 surfaces are governed, fitment-aware and free of fabricated trust', async () => {
+  const parts = await getPartsListings(buildMockSupabase({}), { make: 'Toyota', model: 'Hilux', year: '2019' });
   assert.equal(parts.governed, true);
   assert.equal(parts.listing_type, 'part');
   assert.equal(parts.total, 0);
+  assert.equal(parts.fitment_contract.requested.make, 'Toyota');
+  assert.equal(parts.fitment_contract.requested.model, 'Hilux');
+  assert.equal(parts.fitment_contract.requested.year, 2019);
+
   const services = await getServiceListings(buildMockSupabase({}), {});
   assert.equal(services.governed, true);
-  // Part summary never fabricates verified-parts/PartSentry status and carries no supplier PII.
-  const summary = buildPartSummary({ id: 'p1', part_name: 'Brake pad', supplier_id: 'mech-1', supplier_phone: '+263' });
+
+  const summary = buildPartSummary({
+    id: 'p1',
+    part_name: 'Brake pad',
+    supplier_id: 'mech-1',
+    supplier_phone: '+263',
+    fitment: [
+      { make: 'Toyota', model: 'Hilux', year_from: 2020, year_to: 2015, engine_code: '1GD' },
+      { make: 'Toyota', model: 'Hilux', year_from: 2015, year_to: 2020, engine_code: '1GD' },
+      { make: '', model: 'Missing make' },
+    ],
+  });
   assert.equal(summary.verified_parts, false);
   assert.equal(summary.partsentry_public_status, 'not_applicable');
   assert.equal('supplier_id' in summary, false);
   assert.equal('supplier_phone' in summary, false);
+  assert.equal(summary.fitment.length, 1, 'equivalent normalized fitments dedupe');
+  assert.equal(summary.fitment[0].year_from, 2015);
+  assert.equal(summary.fitment[0].year_to, 2020);
+  assert.equal(partFitmentMatches(summary.fitment[0], { make: 'Toyota', model: 'Hilux', year: 2019 }), true);
+  assert.equal(partFitmentMatches(summary.fitment[0], { make: 'Toyota', model: 'Hilux', year: 2024 }), false);
+  assert.equal(partFitmentMatches(summary.fitment[0], { make: 'Nissan', model: 'NP200', year: 2019 }), false);
+});
+
+test('parts fitment normalization rejects incomplete claims and preserves bounded model-range facts', () => {
+  const fitment = normalizePartFitment([
+    null,
+    'Toyota Hilux',
+    { make: 'Toyota', model: 'Hilux', year_from: '2010', year_to: '2015', body_style: 'Pickup' },
+    { make: 'Toyota', model: '' },
+  ]);
+  assert.equal(fitment.length, 1);
+  assert.deepEqual(fitment[0], {
+    taxonomy_version: 'carup-vehicle-taxonomy-1.0.0',
+    make: 'Toyota',
+    model: 'Hilux',
+    year_from: 2010,
+    year_to: 2015,
+    body_style: 'Pickup',
+    engine_code: null,
+    variant: null,
+  });
 });
 
 test('signed-in inquiry enriches buyer contact from profile so the seller has a reply channel (P1)', async () => {
