@@ -245,9 +245,9 @@ test('listing detail 404s a non-public (Sold) listing and an unknown vin', async
 // QA Round 2 — prove the backend does NOT filter the seeded staging QA vehicles (rules out cause #3).
 const QA_VINS = ['JTDKARFP0H3000731', 'WBA8E9C50HK000732', 'MAJFP1CD0HC000733'];
 const QA_VEHICLES = [
-  { vin: 'JTDKARFP0H3000731', make: 'Toyota', model: 'Corolla', year: 2018, mileage: 68000, price: 9500, currency: 'USD', status: 'Available', owner_id: 'qa-staging-seller-73', tenant_id: null, registration_country: 'ZW', import_source: 'Local', current_seller_type: 'Private Owner', duty_paid: true, police_verified: true, safe_pay_ready: true, trust_score: 74, created_at: NOW },
-  { vin: 'WBA8E9C50HK000732', make: 'BMW', model: '320i', year: 2020, mileage: 41000, price: 24000, currency: 'USD', status: 'Available', owner_id: 'qa-staging-seller-73', tenant_id: null, registration_country: 'ZW', import_source: 'Japan', current_seller_type: 'Private Owner', duty_paid: true, police_verified: true, zimra_verified: true, safe_pay_ready: true, inspection_ready: true, trust_score: 90, created_at: NOW },
-  { vin: 'MAJFP1CD0HC000733', make: 'Ford', model: 'Ranger', year: 2019, mileage: 88000, price: 21000, currency: 'USD', status: 'Available', owner_id: 'qa-staging-seller-73', tenant_id: null, registration_country: 'ZW', import_source: 'Local', current_seller_type: 'Private Owner', duty_paid: true, police_verified: true, safe_pay_ready: true, trust_score: 80, created_at: NOW },
+  { vin: 'JTDKARFP0H3000731', make: 'Toyota', model: 'Corolla', year: 2018, color: 'Silver', mileage: 68000, price: 9500, currency: 'USD', status: 'Available', owner_id: 'qa-staging-seller-73', tenant_id: null, registration_country: 'ZW', import_source: 'Local', current_seller_type: 'Private Owner', duty_paid: true, police_verified: true, safe_pay_ready: true, trust_score: 74, created_at: NOW },
+  { vin: 'WBA8E9C50HK000732', make: 'BMW', model: '320i', year: 2020, color: 'Black', mileage: 41000, price: 24000, currency: 'USD', status: 'Available', owner_id: 'qa-staging-seller-73', tenant_id: null, registration_country: 'ZW', import_source: 'Japan', current_seller_type: 'Private Owner', duty_paid: true, police_verified: true, zimra_verified: true, safe_pay_ready: true, inspection_ready: true, trust_score: 90, created_at: NOW },
+  { vin: 'MAJFP1CD0HC000733', make: 'Ford', model: 'Ranger', year: 2019, color: 'White', mileage: 88000, price: 21000, currency: 'USD', status: 'Available', owner_id: 'qa-staging-seller-73', tenant_id: null, registration_country: 'ZW', import_source: 'Local', current_seller_type: 'Private Owner', duty_paid: true, police_verified: true, safe_pay_ready: true, trust_score: 80, created_at: NOW },
 ];
 
 test('seeded staging QA vehicles are returned by the marketplace list (total>=3, all VINs present)', async () => {
@@ -255,6 +255,45 @@ test('seeded staging QA vehicles are returned by the marketplace list (total>=3,
   assert.ok(res.total >= 3, `expected >=3, got ${res.total}`);
   const vins = res.listings.map((l) => l.vin);
   for (const v of QA_VINS) assert.ok(vins.includes(v), `seeded QA VIN missing from list: ${v}`);
+});
+
+test('Marketplace model/year/colour facets apply before result limiting', async () => {
+  // Filler vehicles sort newer and would crowd out the target if filtering happened only after limit.
+  const fillers = Array.from({ length: 55 }, (_, index) => ({
+    ...QA_VEHICLES[0],
+    vin: `FILLERQA${String(index).padStart(9, '0')}`.slice(0, 17),
+    make: 'Toyota',
+    model: 'Corolla',
+    year: 2018,
+    color: 'Silver',
+    created_at: new Date(Date.now() + index * 1000).toISOString(),
+  }));
+  const target = {
+    ...QA_VEHICLES[2],
+    vin: '1FTBR1C89MKA12345',
+    make: 'Ford',
+    model: 'Ranger',
+    year: 2019,
+    color: 'White',
+    created_at: '2020-01-01T00:00:00.000Z',
+  };
+  const result = await listMarketplaceListings(
+    buildMockSupabase({ vehicles: [...fillers, target] }),
+    { model: 'Ranger', year: '2019', color: 'White', limit: 10 },
+  );
+
+  assert.equal(result.total, 1);
+  assert.equal(result.listings[0].vin, target.vin);
+  assert.equal(result.listings[0].color, 'White');
+});
+
+test('Marketplace free-text search includes recorded year and colour', async () => {
+  const store = { vehicles: QA_VEHICLES };
+  const byYear = await listMarketplaceListings(buildMockSupabase(store), { q: '2019' });
+  assert.deepEqual(byYear.listings.map((item) => item.vin), ['MAJFP1CD0HC000733']);
+
+  const byColour = await listMarketplaceListings(buildMockSupabase(store), { q: 'black' });
+  assert.deepEqual(byColour.listings.map((item) => item.vin), ['WBA8E9C50HK000732']);
 });
 
 test('each seeded QA detail resolves and never leaks owner_id/tenant_id; suppressed part stays suppressed', async () => {
