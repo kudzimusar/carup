@@ -207,7 +207,7 @@ const REPLAY_TRUST = Object.freeze({
 const REPLAY_LIFECYCLE = Object.freeze({
   schema: 'vehicle_lifecycle_projection.v1',
   projection_version: 'vehicle-lifecycle-replay',
-  vin: GALLERY_VIN,
+  vin: 'REPLAY-LIFECYCLE-VIN',
   audience: 'public',
   events: [],
   counts: {},
