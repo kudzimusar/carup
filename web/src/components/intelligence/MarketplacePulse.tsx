@@ -37,6 +37,12 @@ export default function MarketplacePulse({ windowDays = 7 }: { windowDays?: 7 | 
 
   useEffect(() => {
     let cancelled = false
+    // The reset is synchronous on purpose. It clears the previous payload before
+    // the new request resolves, so a viewer never sees the last period's figures
+    // sitting under this period's label — which on these surfaces would be exactly
+    // the kind of misleading number the programme exists to remove. One extra
+    // render on a window change is the right trade.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setState('loading')
     // Analytics must never block, or break, the surface it sits on. If the API
     // surface is unavailable to this render (a partially-stubbed hook in a test,
@@ -51,7 +57,7 @@ export default function MarketplacePulse({ windowDays = 7 }: { windowDays?: 7 | 
     // taking the host surface down with it.
     let pending: Promise<IntelligenceEnvelope>
     try {
-      pending = Promise.resolve(fetchSellerIntelligence(windowDays))
+      pending = Promise.resolve(fetchSellerIntelligence(windowDays)) as typeof pending
     } catch {
       setState('failed')
       return () => { cancelled = true }

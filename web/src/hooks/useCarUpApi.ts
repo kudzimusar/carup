@@ -628,51 +628,51 @@ export function useCarUpApi() {
    * pass — and every metric comes back inside an availability envelope, so a
    * caller cannot render an unmeasured figure as zero.
    */
-  const fetchSellerIntelligence = useCallback(async (windowDays: 7 | 30 | 90 = 7): Promise<any> =>
+  const fetchSellerIntelligence = useCallback(async (windowDays: 7 | 30 | 90 = 7): Promise<unknown> =>
     request(`/marketplace/my-analytics?window=${windowDays}`), [request])
-  const fetchListingIntelligence = useCallback(async (vin: string, windowDays: 7 | 30 | 90 = 7): Promise<any> =>
+  const fetchListingIntelligence = useCallback(async (vin: string, windowDays: 7 | 30 | 90 = 7): Promise<unknown> =>
     request(`/marketplace/my-listings/${encodeURIComponent(vin)}/analytics?window=${windowDays}`), [request])
   /** Tenant scope is resolved from verified session membership; there is no tenant parameter. */
-  const fetchDealerIntelligence = useCallback(async (windowDays: 7 | 30 | 90 = 7): Promise<any> =>
+  const fetchDealerIntelligence = useCallback(async (windowDays: 7 | 30 | 90 = 7): Promise<unknown> =>
     request(`/dealer/analytics?window=${windowDays}`), [request])
   /** PERSON scope: the practitioner's own work, never the organization's. */
-  const fetchMechanicIntelligence = useCallback(async (windowDays: 7 | 30 | 90 = 30): Promise<any> =>
+  const fetchMechanicIntelligence = useCallback(async (windowDays: 7 | 30 | 90 = 30): Promise<unknown> =>
     request(`/mechanic/analytics?window=${windowDays}`), [request])
   /** The seller's periodic summary. Scope comes from the session. */
-  const fetchMyReport = useCallback(async (period: 'weekly' | 'monthly' = 'monthly'): Promise<any> =>
+  const fetchMyReport = useCallback(async (period: 'weekly' | 'monthly' = 'monthly'): Promise<unknown> =>
     request(`/marketplace/my-report?period=${period}`), [request])
   /** Plain-language definitions for every published KPI. */
-  const fetchKpiCatalogue = useCallback(async (): Promise<any> =>
+  const fetchKpiCatalogue = useCallback(async (): Promise<unknown> =>
     request('/intelligence/kpi-catalogue'), [request])
   /** The assistant's governed fact set for the signed-in person. */
-  const fetchAssistantContext = useCallback(async (): Promise<any> =>
+  const fetchAssistantContext = useCallback(async (): Promise<unknown> =>
     request('/intelligence/assistant-context'), [request])
   /** Next-best-action for the signed-in seller. The subject is the session. */
-  const fetchMyRecommendations = useCallback(async (): Promise<any> =>
+  const fetchMyRecommendations = useCallback(async (): Promise<unknown> =>
     request('/marketplace/my-recommendations'), [request])
   /** The platform command centre. Composes the governed projections; admin only. */
-  const fetchCommandCentre = useCallback(async (windowDays: 7 | 30 | 90 = 30): Promise<any> =>
+  const fetchCommandCentre = useCallback(async (windowDays: 7 | 30 | 90 = 30): Promise<unknown> =>
     request(`/admin/intelligence/command-centre?window=${windowDays}`), [request])
   /** Institutional provenance. Purpose-limited; carries no commercial behaviour. */
-  const fetchGovernmentProvenance = useCallback(async (windowDays: 7 | 30 | 90 = 30): Promise<any> =>
+  const fetchGovernmentProvenance = useCallback(async (windowDays: 7 | 30 | 90 = 30): Promise<unknown> =>
     request(`/government/provenance-intelligence?window=${windowDays}`), [request])
   /** Referral and marketing performance. Platform scope; there is no partner login. */
-  const fetchReferralIntelligence = useCallback(async (windowDays: 7 | 30 | 90 = 30): Promise<any> =>
+  const fetchReferralIntelligence = useCallback(async (windowDays: 7 | 30 | 90 = 30): Promise<unknown> =>
     request(`/admin/referrals/intelligence?window=${windowDays}`), [request])
   /** Diaspora trade demand. Scope mirrors the authoritative import-order list. */
-  const fetchTradeIntelligence = useCallback(async (windowDays: 7 | 30 | 90 = 30): Promise<any> =>
+  const fetchTradeIntelligence = useCallback(async (windowDays: 7 | 30 | 90 = 30): Promise<unknown> =>
     request(`/trade/intelligence?window=${windowDays}`), [request])
   /** PERSON scope: this practitioner's PartSentry records + their org's stock. */
-  const fetchPartsIntelligence = useCallback(async (windowDays: 7 | 30 | 90 = 30): Promise<any> =>
+  const fetchPartsIntelligence = useCallback(async (windowDays: 7 | 30 | 90 = 30): Promise<unknown> =>
     request(`/parts/intelligence?window=${windowDays}`), [request])
   /** PLATFORM scope: RFQ demand, which no supplier scope can serve. */
-  const fetchPlatformPartsIntelligence = useCallback(async (windowDays: 7 | 30 | 90 = 30): Promise<any> =>
+  const fetchPlatformPartsIntelligence = useCallback(async (windowDays: 7 | 30 | 90 = 30): Promise<unknown> =>
     request(`/admin/parts/intelligence?window=${windowDays}`), [request])
   /** Commercial finance demand. Credit risk and collateral are served elsewhere. */
-  const fetchFinanceIntelligence = useCallback(async (windowDays: 7 | 30 | 90 = 30): Promise<any> =>
+  const fetchFinanceIntelligence = useCallback(async (windowDays: 7 | 30 | 90 = 30): Promise<unknown> =>
     request(`/finance/demand-intelligence?window=${windowDays}`), [request])
   /** ORGANIZATION scope: the whole tenant, resolved from verified membership. */
-  const fetchGarageIntelligence = useCallback(async (windowDays: 7 | 30 | 90 = 30): Promise<any> =>
+  const fetchGarageIntelligence = useCallback(async (windowDays: 7 | 30 | 90 = 30): Promise<unknown> =>
     request(`/garage/analytics?window=${windowDays}`), [request])
   const marketplaceAiModerationSummary = useCallback(async (payload: { vin?: string; listingSummary?: unknown; trustSummary?: unknown }): Promise<any> =>
     request('/admin/marketplace/ai/moderation-summary', { method: 'POST', body: JSON.stringify(payload) }), [request])

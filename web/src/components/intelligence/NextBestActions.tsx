@@ -63,6 +63,12 @@ export default function NextBestActions() {
 
   useEffect(() => {
     let cancelled = false
+    // The reset is synchronous on purpose. It clears the previous payload before
+    // the new request resolves, so a viewer never sees the last period's figures
+    // sitting under this period's label — which on these surfaces would be exactly
+    // the kind of misleading number the programme exists to remove. One extra
+    // render on a window change is the right trade.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setState('loading')
     if (typeof fetchMyRecommendations !== 'function') {
       setState('failed')
@@ -70,7 +76,7 @@ export default function NextBestActions() {
     }
     let pending: Promise<RecommendationPayload>
     try {
-      pending = Promise.resolve(fetchMyRecommendations())
+      pending = Promise.resolve(fetchMyRecommendations()) as typeof pending
     } catch {
       setState('failed')
       return () => { cancelled = true }
