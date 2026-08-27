@@ -638,6 +638,9 @@ export function useCarUpApi() {
   /** PERSON scope: the practitioner's own work, never the organization's. */
   const fetchMechanicIntelligence = useCallback(async (windowDays: 7 | 30 | 90 = 30): Promise<any> =>
     request(`/mechanic/analytics?window=${windowDays}`), [request])
+  /** The platform command centre. Composes the governed projections; admin only. */
+  const fetchCommandCentre = useCallback(async (windowDays: 7 | 30 | 90 = 30): Promise<any> =>
+    request(`/admin/intelligence/command-centre?window=${windowDays}`), [request])
   /** Institutional provenance. Purpose-limited; carries no commercial behaviour. */
   const fetchGovernmentProvenance = useCallback(async (windowDays: 7 | 30 | 90 = 30): Promise<any> =>
     request(`/government/provenance-intelligence?window=${windowDays}`), [request])
@@ -2599,6 +2602,7 @@ export function useCarUpApi() {
     fetchTradeIntelligence,
     fetchReferralIntelligence,
     fetchGovernmentProvenance,
+    fetchCommandCentre,
     fetchPlatformPartsIntelligence,
     fetchMechanicIntelligence,
     fetchGarageIntelligence,

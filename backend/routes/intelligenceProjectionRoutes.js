@@ -21,6 +21,7 @@ import {
 import { getTradeIntelligence } from '../services/intelligence/tradeIntelligenceService.js';
 import { getReferralIntelligence } from '../services/intelligence/referralIntelligenceService.js';
 import { getGovernmentProvenanceIntelligence } from '../services/intelligence/governmentIntelligenceService.js';
+import { getCommandCentre } from '../services/intelligence/commandCentreService.js';
 import {
   getMechanicIntelligence,
   getGarageIntelligence,
@@ -325,6 +326,24 @@ router.get(
     try {
       const windowDays = resolveWindowDays(req.query.window);
       const data = await getGovernmentProvenanceIntelligence(supabase, req.userContext, { windowDays });
+      return res.json({ ok: true, ...data });
+    } catch (error) {
+      return handleProjectionError(res, error);
+    }
+  }),
+);
+
+/**
+ * The command centre. Platform administrators only — an institutional role is not
+ * a platform administrator, which is the G5 boundary.
+ */
+router.get(
+  '/api/admin/intelligence/command-centre',
+  authorizeRole(['admin']),
+  asyncHandler(async (req, res) => {
+    try {
+      const windowDays = resolveWindowDays(req.query.window);
+      const data = await getCommandCentre(supabase, req.userContext, { windowDays });
       return res.json({ ok: true, ...data });
     } catch (error) {
       return handleProjectionError(res, error);
