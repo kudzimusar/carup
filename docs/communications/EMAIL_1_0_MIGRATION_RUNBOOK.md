@@ -71,34 +71,43 @@ marker is unreadable (`announcement_state_unavailable`), so an app-before-migrat
 announcements rather than duplicating them — but applying first avoids the deferral entirely.
 
 
-## The activation boundary — the most important line in this package
+## Baseline by construction — the root correction
 
-Both reconciliation scanners are catastrophically wrong on their FIRST run without it.
+The earlier design INFERRED outstanding work from timestamps and produced four defects from that one
+choice: a routine Trust recompute made a historical vehicle eligible; the LIMIT bounded inferred
+candidates so a settled prefix starved real work; a non-actionable row held the queue forever; and the
+watermark table itself was a client-writable security surface.
 
-- **R5**: every existing vehicle gets a NULL announced-fingerprint when the column is added, so every
-  historical Trust position looks like an undelivered announcement.
-- **R1**: every account verified before Email 1.0 existed has no welcome, so every one looks owed.
+Inference is gone. Two explicit flags, set by DATABASE TRIGGER in the same transaction as the change
+that created the work:
 
-Neither is true. That is baseline state, not outstanding work.
+| flag | set when | never set by |
+|---|---|---|
+| `users.email_welcome_reconcile_required` | `email_verified_at` transitions NULL → NOT NULL | any other update to the row |
+| `vehicles.trust_presentation_reconcile_required` | a MATERIAL trust column changes (`IS DISTINCT FROM`) | `trust_evaluated_at`, `vin` |
 
-`communication_activation_boundaries` holds one row per program with `activated_at` set by the
-migration itself. Work whose state became current **at or before** that instant is baseline and is
-never reconciled into a customer Email; only state that changed **strictly after** it is eligible.
-The row is durable and reproducible — two workers agree, a restart cannot move the line, and an
-auditor can ask later exactly what counted as historical. `ON CONFLICT DO NOTHING` means re-applying
-the package can never move an established boundary and retroactively make baseline state eligible.
+Both are `NOT NULL DEFAULT false` and **nothing backfills them**, so history is baseline *by
+construction* rather than by a comparison a later write can invalidate. The scans select
+`WHERE flag = TRUE` and apply the LIMIT to rows that are already pending, so no JavaScript
+post-filter can let a settled row occupy the batch.
 
-If the boundary row cannot be read, **both scanners refuse to run**. Doing nothing is recoverable;
-mailing every historical customer is not.
+`communication_activation_boundaries` was **removed rather than secured** — with explicit flags it
+participates in no correctness rule, and unnecessary authority is worth less than deleted authority.
+It had never been applied anywhere.
+
+### Grants
+
+Column-level `REVOKE UPDATE` on both flags from `PUBLIC, anon, authenticated`, plus `REVOKE ALL ON
+FUNCTION` for all three trigger functions — `CREATE FUNCTION` grants EXECUTE to PUBLIC by default,
+and this repo's `db-anon-grant-posture` gate correctly refuses a migration that omits it.
 
 ### Measured on live staging, before any apply
 
 | | count |
 |---|---|
-| vehicles with a Trust position | **38** (newest `2026-08-24`) |
-| verified accounts | **76** (newest `2026-08-17`) |
-| **R5 eligible after apply** | **0** |
-| **R1 eligible after apply** | **0** |
+| verified accounts | **76** → all default FALSE → **0 pending** |
+| Trust positions | **38** → all default FALSE → **0 pending** |
+| obsolete boundary table present | **0** (never applied anywhere) |
 
-Without the boundary the first scheduled run would have produced **114 unintended customer Emails**.
-With it, zero. Re-measure immediately before the real apply and require both eligible counts to be 0.
+Zero recovery work is created by the apply itself. Re-measure immediately before the real apply.
+

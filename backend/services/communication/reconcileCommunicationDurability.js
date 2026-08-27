@@ -21,12 +21,17 @@ import {
  * invocation, driven by the Communications worker that pg_cron already calls every minute. It adds
  * no scheduler, no timer, and no second worker.
  *
- * THE ACTIVATION BOUNDARY IS THE MOST IMPORTANT THING HERE. On the first run, without it, both scans
- * would classify all of history as outstanding work and mail every existing customer. The boundary
- * is a committed row (`communication_activation_boundaries`), not a process-local timestamp: two
- * workers must agree, a restart must not move the line, and an auditor must be able to ask later
- * exactly what counted as historical. State current at or before it is BASELINE and is never
- * reconciled into a customer Email.
+ * HISTORY IS BASELINE BY CONSTRUCTION. The scans read EXPLICIT durable work markers set by database
+ * trigger in the same transaction as the change that made the work exist. Nothing is inferred from a
+ * timestamp comparison, so a routine Trust recompute cannot make a historical vehicle eligible, and
+ * an account verified before this shipped simply has a FALSE flag. The earlier design inferred
+ * eligibility after the fact and produced four separate defects from that single choice — including a
+ * client-writable watermark table, which has been deleted rather than defended.
+ *
+ * THE LIMIT IS APPLIED TO ALREADY-PENDING ROWS. Previously it bounded inferred candidates and the
+ * "already handled" test ran afterwards in JavaScript, so a settled prefix re-occupied the batch every
+ * minute and genuinely lost work behind it was never reached. Settled work now has its flag retired
+ * and is not selected at all.
  *
  * CONCURRENCY. These scans read through PostgREST, which offers no `FOR UPDATE SKIP LOCKED`, so two
  * overlapping workers CAN select the same row. Safety therefore comes from idempotency rather than
@@ -37,85 +42,76 @@ import {
  * duplicative — and that is proven by test, not asserted here.
  */
 
-export const EMAIL_1_0_PROGRAM = 'email_1_0';
-const ACTIVATION_TABLE = 'communication_activation_boundaries';
+/** The explicit durable work markers. Set by database trigger, cleared only when work settles. */
+export const WELCOME_WORK_COLUMN = 'email_welcome_reconcile_required';
+export const TRUST_WORK_COLUMN = 'trust_presentation_reconcile_required';
 
 /** Batch ceilings. Bounded so the once-a-minute worker can never become a table sweeper. */
 export const DEFAULT_TRUST_BATCH_LIMIT = Math.max(1, Math.min(Number(process.env.COMMUNICATION_TRUST_RECONCILE_LIMIT || 25), 200));
 export const DEFAULT_WELCOME_BATCH_LIMIT = Math.max(1, Math.min(Number(process.env.COMMUNICATION_WELCOME_RECONCILE_LIMIT || 25), 200));
 
 /**
- * Read the durable activation watermark.
+ * R5 candidates: vehicles that DECLARED a material Trust change needing reconciliation.
  *
- * Returns null when it cannot be read. A null boundary DISABLES both scans: without a known line
- * between history and live work there is no safe way to tell an outstanding announcement from a
- * pre-existing one, and the failure mode of guessing is a mass send. Doing nothing is always
- * recoverable; mailing every historical customer is not.
+ * The LIMIT is applied to rows that are already genuinely pending, so a settled row can never
+ * occupy the batch. Nothing is filtered in JavaScript afterwards, and there is no timestamp
+ * comparison: a historical vehicle is excluded because its flag is FALSE, not because a clock says
+ * so — which is why a routine recompute can no longer make it eligible.
  */
-export async function readActivationBoundary(repository, program = EMAIL_1_0_PROGRAM) {
-  if (!repository?.findOne) return null;
+async function pendingTrustVehicles(repository, limit) {
+  const rows = await repository.list('vehicles', { [TRUST_WORK_COLUMN]: true }, {
+    select: `vin, ${TRUST_WORK_COLUMN}`,
+    order: { column: 'vin', ascending: true },
+    limit,
+  });
+  return (rows || []).filter((row) => row?.vin);
+}
+
+/** R1 candidates: accounts that DECLARED a verification needing a welcome work item. */
+async function pendingVerifiedAccounts(repository, limit) {
+  const rows = await repository.list('users', { [WELCOME_WORK_COLUMN]: true }, {
+    select: `id, ${WELCOME_WORK_COLUMN}`,
+    order: { column: 'id', ascending: true },
+    limit,
+  });
+  return (rows || []).filter((row) => row?.id);
+}
+
+/**
+ * Retire a settled work flag.
+ *
+ * Best effort on purpose: failing to clear it costs one wasted re-examination next minute, which is
+ * strictly better than any scheme that could clear it while the work is still outstanding.
+ */
+async function clearWorkFlag(repository, table, id, column) {
+  const key = table === 'vehicles' ? 'vin' : 'id';
   try {
-    const row = await repository.findOne(ACTIVATION_TABLE, { program });
-    return row?.activated_at || null;
+    if (typeof repository.updateWhere === 'function') {
+      await repository.updateWhere(table, { [key]: id }, { [column]: false });
+      return true;
+    }
+    await repository.updateById(table, id, { [column]: false });
+    return true;
   } catch {
-    return null;
+    return false;
   }
-}
-
-/**
- * R5 — vehicles whose Trust presentation became current AFTER activation and has never been
- * announced.
- *
- * `trust_presentation_announced_fingerprint IS NULL` is the never-announced predicate and matches
- * the partial index; `trust_evaluated_at > boundary` excludes every historical position. Ordered by
- * `trust_evaluated_at` then `vin` so the scan is stable and the oldest outstanding work drains
- * first, and hard-limited so a backlog is worked down over successive minutes rather than in one
- * unbounded sweep.
- */
-async function outstandingTrustVehicles(repository, boundary, limit) {
-  const rows = await repository.list('vehicles', {
-    [ANNOUNCED_FINGERPRINT_COLUMN]: null,
-  }, {
-    select: `vin, ${ANNOUNCED_FINGERPRINT_COLUMN}, trust_evaluated_at`,
-    gt: { column: 'trust_evaluated_at', value: boundary },
-    order: { column: 'trust_evaluated_at', ascending: true },
-    limit,
-  });
-  return (rows || []).filter((row) => row?.vin && row.trust_evaluated_at && new Date(row.trust_evaluated_at) > new Date(boundary));
-}
-
-/**
- * R1 — accounts verified AFTER activation that still have no durable welcome work and no welcome.
- *
- * Both negative checks matter and neither is redundant. Without the event check the scanner would
- * re-emit for every account whose event is merely still pending. Without the notification check it
- * would reconstruct work for accounts whose welcome was already queued by the ordinary path and
- * whose event row has since been pruned.
- */
-async function outstandingVerifiedAccounts(repository, boundary, limit) {
-  const rows = await repository.list('users', {}, {
-    select: 'id, email_verified_at',
-    gt: { column: 'email_verified_at', value: boundary },
-    order: { column: 'email_verified_at', ascending: true },
-    limit,
-  });
-  return (rows || []).filter((row) => row?.id && row.email_verified_at && new Date(row.email_verified_at) > new Date(boundary));
 }
 
 /** Does this account already have the durable work item, or the welcome itself? */
 async function welcomeAlreadyAccountedFor(repository, userId) {
+  // Returns true | false | 'unknown'. A lookup fault is NOT "accounted for" — reporting it as such
+  // would retire the work flag over a database blip and lose the welcome permanently. It is its own
+  // answer, and the caller leaves the flag pending.
   const existingEvent = await repository.findOne('domain_events', {
     dedupe_key: `${EMAIL_VERIFIED_EVENT}:${userId}`,
   }).catch(() => undefined);
-  // `undefined` means the lookup FAILED. Treat that as "accounted for" so a fault never causes a
-  // duplicate emit — the next pass will look again.
-  if (existingEvent === undefined) return true;
+  if (existingEvent === undefined) return 'unknown';
   if (existingEvent) return true;
 
   const existingWelcome = await repository.findOne('notification_queue', {
     dedupe_key: `leadership_welcome:${userId}`,
   }).catch(() => undefined);
-  if (existingWelcome === undefined) return true;
+  if (existingWelcome === undefined) return 'unknown';
   return Boolean(existingWelcome);
 }
 
@@ -128,11 +124,23 @@ async function welcomeAlreadyAccountedFor(repository, userId) {
  */
 export async function reconcileVerifiedWelcome(userId, { repository, emit = emitDomainEvent } = {}) {
   if (!userId || !repository) return { reconstructed: false, reason: 'not_reconcilable' };
-  if (await welcomeAlreadyAccountedFor(repository, userId)) {
-    return { reconstructed: false, reason: 'already_accounted_for' };
+
+  const accounted = await welcomeAlreadyAccountedFor(repository, userId);
+  if (accounted === 'unknown') {
+    // A lookup fault. Leave the flag TRUE and try again — never emit on an unreadable answer.
+    return { reconstructed: false, reason: 'lookup_unavailable', settled: false };
   }
+  if (accounted) {
+    // The durable event or the welcome itself already exists. The work is done; retire the flag so
+    // it cannot re-occupy a future batch.
+    await clearWorkFlag(repository, 'users', userId, WELCOME_WORK_COLUMN);
+    return { reconstructed: false, reason: 'already_accounted_for', settled: true };
+  }
+
   await emit(null, EMAIL_VERIFIED_EVENT, { recipientUserId: userId }, null);
-  return { reconstructed: true };
+  // Only after the durable event exists. If the emit threw we never get here and the flag stays TRUE.
+  await clearWorkFlag(repository, 'users', userId, WELCOME_WORK_COLUMN);
+  return { reconstructed: true, settled: true };
 }
 
 /**
@@ -152,24 +160,19 @@ export async function reconcileCommunicationDurability({
   getTrustRecord = null,
   emit = emitDomainEvent,
   pgClient = null,
-  program = EMAIL_1_0_PROGRAM,
 } = {}) {
   const counts = {
-    trust_scanned: 0, trust_reconciled: 0, trust_failed: 0,
-    welcome_scanned: 0, welcome_reconstructed: 0, welcome_failed: 0,
+    trust_scanned: 0, trust_reconciled: 0, trust_settled_no_recipient: 0, trust_failed: 0,
+    welcome_scanned: 0, welcome_reconstructed: 0, welcome_settled: 0, welcome_failed: 0,
     skipped: null,
   };
   if (!repository) return { ...counts, skipped: 'no_repository' };
-
-  const boundary = await readActivationBoundary(repository, program);
-  // No boundary means no safe way to separate history from live work. Do nothing.
-  if (!boundary) return { ...counts, skipped: 'no_activation_boundary' };
 
   // ---- R5 -------------------------------------------------------------------------------------
   if (trustBatchLimit > 0 && typeof getTrustRecord === 'function') {
     let vehicles = [];
     try {
-      vehicles = await outstandingTrustVehicles(repository, boundary, trustBatchLimit);
+      vehicles = await pendingTrustVehicles(repository, trustBatchLimit);
     } catch {
       vehicles = [];
       counts.trust_failed += 1;
@@ -182,9 +185,20 @@ export async function reconcileCommunicationDurability({
           pgClient,
           getRecord: getTrustRecord,
         });
-        if (result?.emitted) counts.trust_reconciled += 1;
+        if (result?.emitted) {
+          counts.trust_reconciled += 1;
+          await clearWorkFlag(repository, 'vehicles', vehicle.vin, TRUST_WORK_COLUMN);
+        } else if (result?.terminal || result?.reason === 'already_announced' || result?.reason === 'no_material_change') {
+          // Settled, not pending. `no_resolvable_owner` is the case that used to starve the queue:
+          // there is nobody to tell, guessing is forbidden, and retrying forever would block every
+          // recoverable vehicle behind it. The announced-fingerprint is deliberately NOT written —
+          // nothing was sent, and claiming otherwise would suppress a genuine future announcement.
+          // A later material change sets the flag again through the trigger.
+          counts.trust_settled_no_recipient += result?.terminal ? 1 : 0;
+          await clearWorkFlag(repository, 'vehicles', vehicle.vin, TRUST_WORK_COLUMN);
+        }
+        // Anything else (transient owner/DB fault) leaves the flag TRUE for a later pass.
       } catch {
-        // Isolated on purpose: this vehicle stays eligible and the rest of the batch continues.
         counts.trust_failed += 1;
       }
     }
@@ -194,7 +208,7 @@ export async function reconcileCommunicationDurability({
   if (verifiedUserBatchLimit > 0) {
     let accounts = [];
     try {
-      accounts = await outstandingVerifiedAccounts(repository, boundary, verifiedUserBatchLimit);
+      accounts = await pendingVerifiedAccounts(repository, verifiedUserBatchLimit);
     } catch {
       accounts = [];
       counts.welcome_failed += 1;
@@ -204,6 +218,7 @@ export async function reconcileCommunicationDurability({
       try {
         const result = await reconcileVerifiedWelcome(account.id, { repository, emit });
         if (result?.reconstructed) counts.welcome_reconstructed += 1;
+        else if (result?.settled) counts.welcome_settled += 1;
       } catch {
         counts.welcome_failed += 1;
       }

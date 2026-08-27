@@ -150,6 +150,15 @@ export class CommunicationRepository {
     return data || [];
   }
 
+  /** Update by an arbitrary single-column key — the reconciliation flags key vehicles by `vin`. */
+  async updateWhere(table, filters, patch) {
+    let query = this.client.from(table).update(patch);
+    for (const [key, value] of Object.entries(filters)) query = query.eq(key, value);
+    const { error } = await query;
+    if (error) throw new Error(`${table} update failed: ${error.message}`);
+    return true;
+  }
+
   async updateById(table, id, patch) {
     const { data, error } = await this.client.from(table).update(patch).eq('id', id).select().single();
     if (error) throw new Error(`${table} update failed: ${error.message}`);
@@ -466,6 +475,13 @@ export class MemoryCommunicationRepository {
     }
     if (options.limit) rows = rows.slice(0, Number(options.limit));
     return rows;
+  }
+
+  async updateWhere(table, filters, patch) {
+    this.rows(table)
+      .filter((row) => Object.entries(filters).every(([k, v]) => String(row[k] ?? '') === String(v ?? '')))
+      .forEach((row) => Object.assign(row, patch));
+    return true;
   }
 
   async updateById(table, id, patch) {

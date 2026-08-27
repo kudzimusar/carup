@@ -112,7 +112,10 @@ test('A4 a first evaluation is announced, not skipped', () => {
 
 test('B1 the current active owner resolves server-side', async () => {
   const client = db({ vehicles: [{ vin: VIN, owner_id: 'owner-1' }], users: [{ id: 'owner-1', status: 'active', deleted_at: null }] });
-  assert.equal(await resolveCurrentVehicleOwner(VIN, client), 'owner-1');
+  // The resolver reports {known, userId}: "there is no eligible owner" and "I could not find out"
+  // are different facts, and collapsing them let a non-actionable vehicle starve the reconciliation
+  // queue forever. A known answer with a user id is the ordinary success case.
+  assert.deepEqual(await resolveCurrentVehicleOwner(VIN, client), { known: true, userId: 'owner-1' });
 });
 
 test('B2 no owner, an inactive owner, or a deleted owner means NO Email', async () => {
@@ -123,7 +126,9 @@ test('B2 no owner, an inactive owner, or a deleted owner means NO Email', async 
     ['owner suspended', db({ vehicles: [{ vin: VIN, owner_id: 'o' }], users: [{ id: 'o', status: 'suspended' }] })],
     ['vehicle missing', db({ vehicles: [] })],
   ]) {
-    assert.equal(await resolveCurrentVehicleOwner(VIN, client), null, label);
+    // TERMINAL: the answer is known, and it is that nobody is eligible. No Email, and no endless
+    // retry — a later material change re-opens the work.
+    assert.deepEqual(await resolveCurrentVehicleOwner(VIN, client), { known: true, userId: null }, label);
   }
 });
 

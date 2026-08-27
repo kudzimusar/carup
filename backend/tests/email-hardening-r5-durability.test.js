@@ -255,7 +255,12 @@ test('R5-D1 the migration adds the durable marker without touching trust values'
   const sql = fs.readFileSync(MIGRATION, 'utf8');
   assert.match(sql, /ADD COLUMN IF NOT EXISTS trust_presentation_announced_fingerprint text/);
   assert.ok(!/UPDATE\s+public\.vehicles/i.test(sql), 'no vehicle row is rewritten');
-  assert.ok(!/trust_score/i.test(sql.replace(/--.*$/gm, '')), 'no trust value is touched');
+  // The material-change trigger READS the trust columns to decide whether the persisted position
+  // moved; it never assigns one. Reading is what makes "timestamp-only recompute" distinguishable
+  // from a real change, so the assertion is that no trust VALUE is written, not that none is named.
+  const body = sql.replace(/--.*$/gm, '');
+  assert.ok(!/(SET|:=)\s*(NEW\.)?trust_(score|band|confidence|evidence_basis|known_limitations|calculation_version)/i.test(body),
+    'no trust value is assigned anywhere in the migration');
   assert.match(sql, /^BEGIN;/m);
   assert.match(sql, /^COMMIT;/m);
 });

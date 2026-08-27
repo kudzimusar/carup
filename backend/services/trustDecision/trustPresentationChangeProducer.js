@@ -96,22 +96,31 @@ export function materialTrustChanges(previous, next) {
  */
 export async function resolveCurrentVehicleOwner(vin, client) {
   if (!vin || !client) return null;
+  // TERMINAL vs TRANSIENT. "This vehicle has no eligible owner" is a settled fact about the world:
+  // retrying it forever would let one such vehicle hold the front of the reconciliation queue and
+  // starve every genuinely recoverable announcement behind it. "I could not find out who the owner
+  // is" is a database fault, and abandoning the announcement over one would silently lose it.
+  // Collapsing the two is what let the scanner starve, so they are now different answers.
   const { data: vehicle, error } = await client
     .from('vehicles')
     .select('vin, owner_id')
     .eq('vin', vin)
     .maybeSingle();
-  if (error || !vehicle?.owner_id) return null;
+  if (error) return { known: false, userId: null };
+  if (!vehicle?.owner_id) return { known: true, userId: null };
 
   const { data: owner, error: ownerError } = await client
     .from('users')
     .select('id, status, deleted_at')
     .eq('id', vehicle.owner_id)
     .maybeSingle();
-  if (ownerError || !owner?.id) return null;
-  if (owner.deleted_at) return null;
-  if (owner.status && ['inactive', 'suspended', 'deleted', 'banned'].includes(String(owner.status).toLowerCase())) return null;
-  return owner.id;
+  if (ownerError) return { known: false, userId: null };
+  if (!owner?.id) return { known: true, userId: null };
+  if (owner.deleted_at) return { known: true, userId: null };
+  if (owner.status && ['inactive', 'suspended', 'deleted', 'banned'].includes(String(owner.status).toLowerCase())) {
+    return { known: true, userId: null };
+  }
+  return { known: true, userId: owner.id };
 }
 
 /**
@@ -165,8 +174,17 @@ export async function emitTrustPresentationChange({
     changed.push(...MATERIAL_TRUST_FIELDS);
   }
 
-  const recipientUserId = await resolveCurrentVehicleOwner(vin, client);
-  if (!recipientUserId) return { emitted: false, reason: 'no_resolvable_owner', changed, fingerprint };
+  const ownership = await resolveCurrentVehicleOwner(vin, client);
+  if (!ownership.known) {
+    // Transient: retry later. The announcement stays outstanding.
+    return { emitted: false, reason: 'owner_lookup_unavailable', transient: true, changed, fingerprint };
+  }
+  if (!ownership.userId) {
+    // Terminal for THIS presentation. There is nobody to tell and guessing is forbidden, so the
+    // work is settled rather than pending. A future material change re-opens it.
+    return { emitted: false, reason: 'no_resolvable_owner', terminal: true, changed, fingerprint };
+  }
+  const recipientUserId = ownership.userId;
 
   const previousPublic = previousRecord ? toPublicTrust(previousRecord) : null;
   const nextPublic = toPublicTrust(nextRecord);
