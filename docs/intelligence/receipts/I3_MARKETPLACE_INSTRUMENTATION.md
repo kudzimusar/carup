@@ -92,6 +92,40 @@ All rows and counters were deleted afterwards; the ledger and stats tables are b
 
 ---
 
+---
+
+## I3b — web client (complete)
+
+| Artefact | Path |
+|---|---|
+| Activity client | `web/src/lib/intelligenceActivity.ts` |
+| Context injection | `web/src/lib/apiClient.ts` (provider slot) |
+| App-shell mount | `web/src/components/intelligence/ActivityInstrumentation.tsx`, mounted in `web/src/App.tsx` |
+| First client event | `web/src/components/marketplace/InquiryModal.tsx` (`marketplace_inquiry_started`) |
+| Tests | `web/src/lib/intelligenceActivity.test.ts` (21 tests) |
+
+The load-bearing idea: a **server**-emitted observation can only be attributed to a shopper — and therefore only counted as a unique viewer or stage-linked into a funnel — if the request carries session and page-view context. Injecting that at `apiClient`, the single request chokepoint, instruments every page at once, including pages this lane must not edit.
+
+- The session key is opaque, random, and not derived from any identifier; it is cleared at logout so a shared device does not carry one person's behaviour into the next person's session, and falls back to a memory-only key when storage is blocked rather than failing.
+- `page_view_id` rotates on every route change, because the contract makes it the unit of "one view": a soft navigation to another listing is a new view; a refetch within a screen is not.
+- The context provider is a mutable slot rather than a direct import, so the framework-agnostic api client keeps no dependency on the activity client. An auth header always wins a name clash, so telemetry can never influence identity, and a throwing provider cannot break a product request.
+- `marketplace_inquiry_started` is recorded when the contact form opens. This is the only lead-funnel step a shopper can abandon without leaving any authoritative trace — the inquiry row exists only on submit — so without it, "how many people tried to contact this seller and gave up" is unanswerable.
+- The flush reuses the canonical identity-bound CSRF machinery rather than inventing a second token system; `sendBeacon` is deliberately unused because it cannot carry the token header.
+
+**Evidence:** 21 new tests; full web suite **106 files / 1,113 tests / 0 failures**; typecheck clean; `npm run build` succeeds. (One PartSentry failure seen in an early full run was a `waitFor` timeout flake — that test mocks `useCarUpApi` entirely and never reaches `apiClient`; two subsequent full runs passed.)
+
+---
+
+## I3c — mobile client: blocked on PR #182, deliberately not started
+
+Every mobile marketplace call routes through `mobile/utils/marketplaceApi.ts`, whose private `authHeaders()` is the only place mobile context headers could be injected — and that file, together with `mobile/app/(tabs)/marketplace.tsx` and `mobile/app/vehicle/[vin].tsx`, is **owned and being rewritten by PR #182**.
+
+Writing a mobile activity client now would produce a module with no reachable call site: precisely the dead-by-construction pattern this codebase has already been bitten by (`wiring-not-just-implementation`). So I3c is sequenced after #182 merges rather than shipped unwired. The same applies to web client-event call sites on listing cards: `MarketplaceListingCard.tsx` does not exist on this branch at all — PR #182 creates it.
+
+**Consequence to state plainly:** until then, mobile marketplace actions still leave no Intelligence signal, exactly as I0 found. Mobile inquiries remain visible only through the authoritative `marketplace_inquiries` row.
+
+---
+
 ## Deliberate limitations
 
 - **No client-emitted events yet.** Impressions, engaged views, shares, compares, contact clicks, inquiry-starts and process steps require the web/mobile clients (I3b/I3c). Until then, funnel metrics that begin at impression cannot be computed, and this is stated rather than approximated.
