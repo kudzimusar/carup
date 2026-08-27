@@ -98,6 +98,12 @@ The Marketplace visual system is not allowed to stop at `/marketplace`.
 - Browse results remain published Marketplace inventory and retain canonical Trust/missing-data semantics.
 - Desktop and mobile Verify must remain visually continuous with Marketplace while keeping verification policy more prominent than merchandising.
 
+### Saved Cars — buyer shortlist
+- Saved Cars reuses the same current vehicle-story component and truth-aware listing adapter.
+- The saved state is expressed through the existing favorite control rather than a separate legacy card.
+- Removing a saved vehicle must not mutate listing facts or Trust presentation.
+- Operational seller/dealer inventory tables are intentionally not forced into this buyer-showroom card system; their primary job is management, not discovery.
+
 ## Design-tool workflow
 
 For future visual expansion:
