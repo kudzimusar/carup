@@ -82,45 +82,42 @@ function validateVin(vin: string) {
 
 export default function SellVehicle() {
   const { createVehicleListing, uploadVehicleImages } = useCarUpApi()
+  const [guestDraft] = useState(() => readGuestSellDraft())
   const [step, setStep] = useState(0)
-  const [form, setForm] = useState(INITIAL)
+  const [form, setForm] = useState(() => guestDraft ? ({
+    ...INITIAL,
+    make: guestDraft.make,
+    model: guestDraft.model,
+    year: guestDraft.year || INITIAL.year,
+    vin: guestDraft.vin,
+    color: guestDraft.color,
+    mileage: guestDraft.mileage,
+    condition: guestDraft.condition,
+    category: guestDraft.category,
+    fuelType: guestDraft.fuelType,
+    transmission: guestDraft.transmission,
+    location: guestDraft.location,
+    province: guestDraft.province,
+    price: guestDraft.price,
+    currency: guestDraft.currency,
+    description: guestDraft.description,
+    engineNumber: guestDraft.engineNumber,
+    chassisNumber: guestDraft.chassisNumber,
+    plateNumber: guestDraft.plateNumber,
+    tempPlateId: guestDraft.tempPlateId,
+    importStatus: guestDraft.importStatus,
+    features: guestDraft.features,
+    images: guestDraft.images,
+  }) : INITIAL)
   const [errors, setErrors] = useState<Record<string, string>>({})
   const [submitting, setSubmitting] = useState(false)
   const [savedVin, setSavedVin] = useState<string | null>(null)
-  const [guestDraftLoaded, setGuestDraftLoaded] = useState(false)
+  const [guestDraftLoaded, setGuestDraftLoaded] = useState(() => Boolean(guestDraft))
   const modelOptions = modelsForMake(form.make).map(item => item.name)
 
   useEffect(() => {
-    const draft = readGuestSellDraft()
-    if (!draft) return
-    setForm(previous => ({
-      ...previous,
-      make: draft.make,
-      model: draft.model,
-      year: draft.year || previous.year,
-      vin: draft.vin,
-      color: draft.color,
-      mileage: draft.mileage,
-      condition: draft.condition,
-      category: draft.category,
-      fuelType: draft.fuelType,
-      transmission: draft.transmission,
-      location: draft.location,
-      province: draft.province,
-      price: draft.price,
-      currency: draft.currency,
-      description: draft.description,
-      engineNumber: draft.engineNumber,
-      chassisNumber: draft.chassisNumber,
-      plateNumber: draft.plateNumber,
-      tempPlateId: draft.tempPlateId,
-      importStatus: draft.importStatus,
-      features: draft.features,
-      images: draft.images,
-    }))
-    setGuestDraftLoaded(true)
-    toast.success('Your pre-sign-in listing draft is ready to review.')
-  }, [])
+    if (guestDraft) toast.success('Your pre-sign-in listing draft is ready to review.')
+  }, [guestDraft])
 
   const set = (field: string, value: string | number | boolean | string[]) => setForm(prev => ({ ...prev, [field]: value }))
 
