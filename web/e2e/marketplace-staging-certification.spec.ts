@@ -126,7 +126,7 @@ test('desktop staging: published-only discovery preserves Marketplace → Vehicl
   }
 
   await expect(page.getByText(/Published listings only/i)).toBeVisible()
-  await expect(page.getByRole('heading', { name: /Shop vehicles and automotive services/i })).toBeVisible()
+  await expect(page.getByTestId('marketplace-compact-header').getByRole('heading', { name: /Find the car\.\s*Know what stands behind it\./i })).toBeVisible()
   // Marketplace is inventory-first. Ecosystem explanation + Gutu AI belong to Home, not this surface.
   await expect(page.getByTestId('marketplace-ai-assistant-open')).toHaveCount(0)
   await expect(page.locator('a[href="/marketplace/parts"]').first()).toContainText('Parts')
@@ -376,7 +376,7 @@ test('tablet staging switches to the compact app shell instead of the desktop fo
 
   await expect(page.getByTestId('compact-bottom-nav')).toBeVisible()
   await expect(page.locator('footer')).toBeHidden()
-  await expect(page.getByRole('heading', { name: /Shop vehicles and automotive services/i })).toBeVisible()
+  await expect(page.getByTestId('marketplace-compact-header').getByRole('heading', { name: /Find the car\.\s*Know what stands behind it\./i })).toBeVisible()
   await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth + 1), {
     message: 'tablet Marketplace must not overflow horizontally',
   }).toBe(true)
