@@ -1114,7 +1114,7 @@ function governedPrice(price: unknown, currency: unknown): string {
 export default function VehicleDetail() {
   const { id } = useParams()
   const navigate = useNavigate()
-  const { submitFinancing, fetchVehicle, fetchVehiclePassport, lookupVehiclePassport, fetchMarketplaceListingDetail, saveMarketplaceListing, unsaveMarketplaceListing, fetchSavedMarketplaceListings, fetchEvidenceTaxonomy, fetchEvidenceSources, fetchTemporalFindings, fetchDisclosureConflicts, fetchVehicleReport, generateReportVersion, createReportShareLink, fetchVehicleTrustDecision } = useCarUpApi()
+  const { fetchVehicle, fetchVehiclePassport, lookupVehiclePassport, fetchMarketplaceListingDetail, saveMarketplaceListing, unsaveMarketplaceListing, fetchSavedMarketplaceListings, fetchEvidenceTaxonomy, fetchEvidenceSources, fetchTemporalFindings, fetchDisclosureConflicts, fetchVehicleReport, generateReportVersion, createReportShareLink, fetchVehicleTrustDecision } = useCarUpApi()
   const { isAuthenticated, user, loading: authLoading } = useAuth()
 
   // Buyers/owners can generate a snapshot + share link; backend enforces the role.
@@ -1146,13 +1146,7 @@ export default function VehicleDetail() {
   // Session-only acknowledgement that this browser submitted a reservation request. It never
   // asserts reserved state on its own — `status` from the server is the only source of "Reserved".
   const [reserveRequested, setReserveRequested] = useState(false)
-  const [isFinanced, setIsFinanced] = useState(false)
-
-  const [showFinanceModal, setShowFinanceModal] = useState(false)
-  const [financeLoading, setFinanceLoading]     = useState(false)
-  const [loanAmount, setLoanAmount]             = useState('')
-  const [loanTerm, setLoanTerm]                 = useState('36')
-  const [selectedBank, setSelectedBank]         = useState('cbz')
+  const [financeInterestRequested, setFinanceInterestRequested] = useState(false)
 
   const [lookupQuery, setLookupQuery] = useState('')
 
@@ -1470,25 +1464,6 @@ export default function VehicleDetail() {
     ? `/marketplace/compare?vins=${encodeURIComponent(vehicle.vin)}`
     : '/marketplace/compare'
 
-  const handleFinance = async () => {
-    if (!vehicle) return
-    // The applicant is the signed-in user; there is no fallback identity to apply on behalf of.
-    if (!user?.id) {
-      toast.error('Sign in to apply — a financing application is submitted under your CarUp account.')
-      return
-    }
-    setFinanceLoading(true)
-    try {
-      await submitFinancing(vehicle.vin ?? '', user.id, selectedBank, parseFloat(loanAmount))
-      setIsFinanced(true)
-      setShowFinanceModal(false)
-      toast.success('Financing application submitted!', { duration: 6000 })
-    } catch (e: unknown) {
-      toast.error(e instanceof Error ? e.message : 'Failed to submit application. Make sure you are logged in.')
-    } finally {
-      setFinanceLoading(false)
-    }
-  }
 
   // ── Loading / 404 states ─────────────────────────────────────────────────
   if (loading || (!vehicle && detailLoading)) {
@@ -1636,7 +1611,6 @@ export default function VehicleDetail() {
   // inquiry, listing economics and Trust gates are resolved by the server before any reservation
   // or payment step.
   const isReservedOnServer  = vehicle.status === 'reserved' || vehicle.status === 'Reserved'
-  const canApplyForFinancing = isAuthenticated && Boolean(user?.id)
 
   // A null identifier on the passport means "withheld from this audience" when
   // identifiersRedacted is set, and "unrecorded" only when it is not.
@@ -2622,28 +2596,25 @@ export default function VehicleDetail() {
                     </p>
                   </div>
                 )}
-                {isFinanced ? (
-                  <div className="w-full flex items-center justify-center gap-2 bg-blue-600/20 border border-blue-500/40 rounded-lg py-3 text-blue-400 font-semibold text-sm mt-3">
-                    <CheckCircle className="w-4 h-4" /> Financing Applied ✓
+                {financeInterestRequested ? (
+                  <div className="mt-3 w-full flex items-center justify-center gap-2 bg-blue-600/20 border border-blue-500/40 rounded-lg py-3 text-blue-300 font-semibold text-sm" data-testid="financing-interest-state">
+                    <CheckCircle className="w-4 h-4" /> Financing interest sent
                   </div>
-                ) : canApplyForFinancing ? (
-                  <Button
-                    variant="outline"
-                    className="mt-3 w-full gap-2 border-white/20 text-white hover:bg-white/10"
-                    onClick={() => setShowFinanceModal(true)}
-                    data-testid="apply-financing"
-                  >
-                    <CreditCard className="w-4 h-4" /> Apply for financing
-                  </Button>
                 ) : (
-                  <div className="mt-3">
-                    <Button asChild variant="outline" className="w-full gap-2 border-white/20 text-white hover:bg-white/10" data-testid="check-financing">
-                      <Link to={`/pricing?vin=${encodeURIComponent(vehicle.vin || '')}`}>
-                        <CreditCard className="w-4 h-4" /> Check financing options
-                      </Link>
-                    </Button>
+                  <div className="mt-3" data-testid="financing-request-entry">
+                    <InquiryModal
+                      listingId={detail?.vin || vehicle.vin}
+                      inquiryTypes={['vehicle_purchase_interest']}
+                      defaultInquiryType="vehicle_purchase_interest"
+                      triggerLabel="Ask about financing"
+                      triggerVariant="outline"
+                      triggerClassName="w-full border-white/20 text-white hover:bg-white/10"
+                      defaultMessage="I am interested in financing this vehicle. Please tell me which governed lender path is available and what information I need to provide."
+                      intentMetadata={{ buyer_intent: 'financing_interest' }}
+                      onSubmitted={() => setFinanceInterestRequested(true)}
+                    />
                     <p className="mt-2 text-xs text-gray-400">
-                      Browse the financing path first. Sign-in is required only when you submit an application under your identity.
+                      CarUp will not invent a lender, approval, currency or loan terms. A financing application starts only when a real lender path and listing currency are verified.
                     </p>
                   </div>
                 )}
@@ -2935,53 +2906,6 @@ export default function VehicleDetail() {
         url={typeof window !== 'undefined' ? window.location.href : ''}
       />
 
-      {/* ── Finance Modal ─────────────────────────────────────────────────── */}
-      <Dialog open={showFinanceModal} onOpenChange={setShowFinanceModal}>
-        <DialogContent className="sm:max-w-md">
-          <DialogHeader>
-            <DialogTitle className="flex items-center gap-2"><CreditCard className="w-5 h-5 text-blue-500" /> Apply for Financing</DialogTitle>
-            <DialogDescription>Get pre-approved through CarUp's banking partners</DialogDescription>
-          </DialogHeader>
-          <div className="space-y-4 py-2">
-            <div className="bg-gray-50 rounded-lg p-3">
-              <p className="text-sm text-gray-500">Vehicle</p>
-              <p className="font-semibold">{vehicle.year ?? ''} {vehicle.make ?? ''} {vehicle.model ?? ''} — {governedPrice(vehicle.price, vehicle.currency)}</p>
-            </div>
-            <div>
-              <label className="text-sm font-medium mb-1.5 block">Loan Amount (USD)</label>
-              <Input type="number" value={loanAmount} onChange={e => setLoanAmount(e.target.value)} min={1000} max={vehicle.price ?? 0} />
-            </div>
-            <div>
-              <label className="text-sm font-medium mb-1.5 block">Loan Term</label>
-              <Select value={loanTerm} onValueChange={setLoanTerm}>
-                <SelectTrigger><SelectValue /></SelectTrigger>
-                <SelectContent>
-                  {['12', '24', '36', '48', '60'].map(m => <SelectItem key={m} value={m}>{m} months</SelectItem>)}
-                </SelectContent>
-              </Select>
-            </div>
-            <div>
-              <label className="text-sm font-medium mb-1.5 block">Preferred Bank</label>
-              <Select value={selectedBank} onValueChange={setSelectedBank}>
-                <SelectTrigger><SelectValue /></SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="cbz">CBZ Bank</SelectItem>
-                  <SelectItem value="stanbic">Stanbic Zimbabwe</SelectItem>
-                  <SelectItem value="cabs">CABS Bank</SelectItem>
-                  <SelectItem value="fbc">FBC Bank</SelectItem>
-                  <SelectItem value="zb">ZB Bank</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-            <div className="flex gap-3">
-              <Button variant="outline" className="flex-1" onClick={() => setShowFinanceModal(false)} disabled={financeLoading}>Cancel</Button>
-              <Button className="flex-1 bg-blue-600 hover:bg-blue-700" onClick={handleFinance} disabled={financeLoading || !loanAmount}>
-                {financeLoading ? <><Loader2 className="w-4 h-4 mr-2 animate-spin" />Submitting...</> : 'Submit Application'}
-              </Button>
-            </div>
-          </div>
-        </DialogContent>
-      </Dialog>
     </div>
   )
 }
