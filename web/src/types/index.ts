@@ -2020,12 +2020,51 @@ export interface VehiclePassportClaims {
   [block: string]: unknown;
 }
 
+export interface VehicleLifecycleMileageObservation {
+  date: string | null;
+  value: number;
+  unit: string;
+  source: string;
+  lifecycle_event_id?: string | null;
+  evidence_id?: string | null;
+}
+
+export interface VehicleLifecycleEvent {
+  id: string;
+  category: string;
+  date: string | null;
+  label: string;
+  source_kind: string;
+  source_id: string | null;
+  verification_status: string | null;
+  mileage: number | null;
+  mileage_unit: string;
+  evidence_id: string | null;
+  detail_state: 'recorded' | 'public_detail' | 'summary_only' | string;
+}
+
+export interface VehicleLifecycleProjection {
+  schema: 'vehicle_lifecycle_projection.v1' | string;
+  projection_version: string;
+  vin: string;
+  audience: string;
+  events: VehicleLifecycleEvent[];
+  counts: Record<string, number>;
+  mileage: {
+    observations: VehicleLifecycleMileageObservation[];
+    anomaly: boolean;
+  };
+  source_diversity: number;
+}
+
 export interface VehiclePassport {
   vehicle: Vehicle;
   /** Sealed governed claims. Read these, never a same-named column on `vehicle`. */
   claims?: VehiclePassportClaims;
   timeline: TimelineEvent[];
   evidenceTimeline?: TimelineEvent[];
+  /** Canonical buyer-safe lifecycle shared with the History Report. */
+  lifecycle?: VehicleLifecycleProjection;
   evidenceVault?: VehicleEvidence[];
   trustReport: TrustReport;
   chainVerification: ChainVerification;
