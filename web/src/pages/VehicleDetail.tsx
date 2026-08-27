@@ -1605,12 +1605,14 @@ export default function VehicleDetail() {
     ? `https://wa.me/${sellerContactNumber.replace(/[^0-9]/g, '')}?text=Hi%2C%20I%20am%20interested%20in%20your%20${vehicle.year ?? ''}%20${vehicle.make ?? ''}%20${vehicle.model ?? ''}%20listed%20on%20CarUp.`
     : null
 
-  // Transaction state is server-owned. Vehicle Detail may acknowledge an already-reserved
-  // listing, but it does not infer transaction eligibility from tenant/seller identifiers. A
-  // reservation request first enters the governed inquiry path; canonical seller lineage, current
-  // inquiry, listing economics and Trust gates are resolved by the server before any reservation
-  // or payment step.
-  const isReservedOnServer  = vehicle.status === 'reserved' || vehicle.status === 'Reserved'
+  // Reservation truth is server-owned and time-sensitive. The listing `status` field is a
+  // materialized compatibility cache and can lag reservation expiry/provider state, so it must
+  // never create an active hold claim on this page. Only the canonical reservation summary may do
+  // that. When that projection is unavailable/inconsistent we fail closed and leave the next step
+  // as a governed request for the server to adjudicate.
+  const reservationSummary = detail?.reservation_summary
+  const isReservedOnServer =
+    reservationSummary?.state === 'active' && reservationSummary.reserved === true
 
   // A null identifier on the passport means "withheld from this audience" when
   // identifiersRedacted is set, and "unrecorded" only when it is not.
