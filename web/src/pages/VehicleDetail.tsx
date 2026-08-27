@@ -52,6 +52,7 @@ import { SafetyWarnings } from '@/components/marketplace/SafetyWarnings'
 import { InquiryModal } from '@/components/marketplace/InquiryModal'
 import DisputePanel from '@/components/DisputePanel'
 import { MarketplaceShareSheet } from '@/components/marketplace/MarketplaceShareSheet'
+import { VehicleIntelligenceStory } from '@/components/marketplace/VehicleIntelligenceStory'
 import { captureReferralFromUrl, getStoredAttribution } from '@/lib/marketplaceReferral'
 import { governedLocationLine, summaryLocationLine, type LocationClaim } from '@/lib/governedLocation'
 
@@ -2187,6 +2188,11 @@ export default function VehicleDetail() {
                 )}
               </CardContent>
             </Card>
+
+            {/* Vehicle History Intelligence: a buyer should see the living vehicle story before
+                navigating into the deeper report/evidence tools. It renders only the public-safe
+                report projection already governed by Truth & Trust. */}
+            {report && <VehicleIntelligenceStory report={report} />}
 
             {/* ── Tabs ─────────────────────────────────────────────────── */}
             <Card className="border-0 card-shadow">
