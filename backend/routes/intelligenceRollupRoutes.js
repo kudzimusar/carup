@@ -15,7 +15,7 @@
  */
 import express from 'express';
 import crypto from 'crypto';
-import { authorizeRole } from '../middleware/authMiddleware.js';
+import { authorizeRole, optionalAuth } from '../middleware/authMiddleware.js';
 import { supabase } from '../db/supabase.js';
 import { rollupDay, rollupFreshness } from '../services/intelligence/rollupService.js';
 
@@ -44,8 +44,19 @@ function workerAuthorized(req) {
 
 const PLATFORM_ADMIN_ROLES = new Set(['admin', 'platform_admin', 'super_admin']);
 
+/**
+ * An administrator may run the rollup, but only on a PROVEN identity.
+ *
+ * `optionalAuth` will populate `userContext` from the spoofable `x-user-id`
+ * fallback wherever that fallback is enabled, marking it `identityAsserted`. A
+ * merely asserted identity must not be able to trigger a platform-wide recompute,
+ * so this gate requires the identity to have been proven by a real session — which
+ * is exactly what that marker exists to let a consumer check.
+ */
 function adminAuthorized(req) {
-  const role = req?.userContext?.platformRole || req?.userContext?.role || null;
+  const ctx = req?.userContext;
+  if (!ctx || ctx.identityAsserted === true) return false;
+  const role = ctx.platformRole || ctx.role || null;
   return PLATFORM_ADMIN_ROLES.has(String(role));
 }
 
@@ -64,6 +75,12 @@ function defaultMetricDate() {
  */
 router.post(
   '/api/internal/intelligence/rollup',
+  // Without this the admin path below is dead by construction: nothing else on
+  // this route populates `req.userContext`, so `adminAuthorized` could never be
+  // true and the endpoint was reachable ONLY with the worker secret — which is
+  // unset in every deployed environment, making the route a guaranteed 403.
+  // `optionalAuth` never blocks; the two authorization checks still decide.
+  optionalAuth(),
   asyncHandler(async (req, res) => {
     if (!workerAuthorized(req) && !adminAuthorized(req)) {
       return res.status(403).json({ ok: false, error: 'forbidden' });

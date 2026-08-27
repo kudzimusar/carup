@@ -40,14 +40,14 @@ const FAQS: FAQ[] = [
     id: 'faq-1',
     category: 'security',
     question: 'How does CarUp verify vehicle history in Zimbabwe?',
-    answer: 'CarUp uses an evidence-based trust engine that aggregates data from multiple sources in Zimbabwe. When a seller uploads a vehicle, we cross-reference the Chassis/VIN number with the Zimbabwe National Road Administration (ZINARA) registry, Central Vehicle Registry (CVR), insurance databases, and police clearance logs. Additionally, any maintenance logs recorded by certified mechanics on the PartSentry ledger are permanently written to a tamper-evident CarUp audit ledger.',
+    answer: 'CarUp is not connected to ZINARA, the CVR, an insurance database or any other authority, so it cross-references nothing with them. Its Trust position reflects the documents a seller supplied and its own review of them. Confirming registration, licensing or insurance remains something you should do directly with the relevant body.',
     tags: ['ZINARA', 'history', 'VIN', 'verification', 'CVR']
   },
   {
     id: 'faq-2',
     category: 'security',
     question: 'Is the CarUp trust score legally binding?',
-    answer: 'While the CarUp Trust Score itself is an analytical rating of a vehicle\'s authenticity and risk profile, the documentation and digital signatures attached to it are legally binding under Zimbabwe\'s Cyber and Data Protection Act [Chapter 12:07]. All uploads require face-match KYC verification, making individuals and dealerships legally accountable for any fraudulent data or odometer tampering they report.',
+    answer: 'The Trust position describes how much confidence CarUp places in the evidence it holds about a vehicle. CarUp performs no face-match or biometric identity check, and it makes no claim that anything uploaded to it is legally binding. Treat it as documentation, not as a warranty.',
     tags: ['trust score', 'legal', 'KYC', 'compliance']
   },
   {
@@ -61,7 +61,7 @@ const FAQS: FAQ[] = [
     id: 'faq-4',
     category: 'dealer',
     question: 'How do I register a dealership on CarUp?',
-    answer: 'Dealerships can register by navigating to the Dealer Registration portal. You will need to upload your company registration documents (CR14/GP11), ZIMRA Tax Clearance certificate, and a valid municipal dealer license. Once submitted, our trust team audits your business location (e.g., Harare showrooms, Bulawayo car lots) within 48 hours. Approved dealerships receive the \'Verified Dealer\' badge, inventory synchronization tools, and integrated CABS/Stanbic financing options.',
+    answer: 'Dealerships can register through the Dealer Registration portal and upload their company documents. CarUp does not visit business premises, operates no physical audit, and has no financing arrangement with any bank — so registration establishes an account, not an endorsement.',
     tags: ['dealer', 'Harare', 'Bulawayo', 'CR14', 'financing']
   },
   {
@@ -82,14 +82,14 @@ const FAQS: FAQ[] = [
     id: 'faq-7',
     category: 'seller',
     question: 'How do I clear my ZINARA licensing arrears through CarUp?',
-    answer: 'You can check and settle your ZINARA road tax directly from your CarUp Owner Dashboard. Simply upload your vehicle logbook; our OCR engine will extract your registration number, query the live ZINARA database, display any pending arrears or licensing fees, and allow you to pay instantly using ZiG or USD. Your digital licensing disc is then updated in real time.',
+    answer: 'You cannot. CarUp has no connection to ZINARA, cannot read arrears or licensing status, and cannot take a payment for road tax — it holds no money at all. Road tax remains something you settle with ZINARA directly.',
     tags: ['ZINARA', 'logbook', 'licensing', 'arrears', 'OCR']
   },
   {
     id: 'faq-8',
     category: 'buyer',
     question: 'What is a Verified Buyer status and how do I get it?',
-    answer: 'Verified Buyer status builds trust in the CarUp ecosystem. To obtain it, you link your mobile phone number (EcoCash/ZIPIT registered) and submit basic national ID verification. Sellers are significantly more responsive to Verified Buyers, and you gain access to our instant buy-now option and local bank financing schemes.',
+    answer: 'Adding a phone number and national ID to your profile gives a seller more to go on. CarUp publishes no figure for how much it changes seller behaviour, because it does not measure that, and it has no bank financing scheme to unlock.',
     tags: ['verification', 'ID', 'buyer', 'financing']
   },
   {
@@ -105,7 +105,7 @@ const CATEGORIES = [
   {
     id: 'buyer',
     title: 'For Car Buyers',
-    desc: 'Trust scores, Japanese imports, inspection reports & CABS/Stanbic financing.',
+    desc: 'Trust positions, imported vehicles and the records CarUp holds.',
     icon: ShoppingBag,
     color: 'text-orange-400',
     bgColor: 'bg-orange-500/10',
@@ -153,7 +153,7 @@ const CATEGORIES = [
   {
     id: 'security',
     title: 'Trust & Security',
-    desc: 'Biometric face-match KYC, tamper-evident audit record tracking & Cyber Protection Act compliance.',
+    desc: 'Account security, and the signed internal record CarUp keeps of changes.',
     icon: ShieldCheck,
     color: 'text-rose-400',
     bgColor: 'bg-rose-500/10',
@@ -253,7 +253,7 @@ export default function HelpCenter() {
       let replyText = "";
       
       if (cleanedMsg.includes('zinara') || cleanedMsg.includes('road tax') || cleanedMsg.includes('arrears') || cleanedMsg.includes('license')) {
-        replyText = "Gutu AI: You can check and settle ZINARA road tax arrears directly through your CarUp Dashboard! Simply scan your logbook via our OCR system, view the calculated arrears from CVR, and pay instantly in ZiG or USD. CVR registers the update instantly!";
+        replyText = "CarUp is not connected to ZINARA or the CVR, so it cannot look up road tax arrears, take a payment, or register anything with them. Please deal with ZINARA directly.";
       } else if (cleanedMsg.includes('import') || cleanedMsg.includes('japan') || cleanedMsg.includes('transit') || cleanedMsg.includes('beira') || cleanedMsg.includes('durban')) {
         replyText = "Gutu AI: Transit vehicles imported from Japan (via Beira or Durban ports) or South Africa can be listed using our 'In Transit' tag. To verify, upload the original Japanese export certificates and auction sheets. I will scan them to confirm authentic mileage and prevent odometer rollbacks!";
       } else if (cleanedMsg.includes('partsentry') || cleanedMsg.includes('ledger') || cleanedMsg.includes('parts') || cleanedMsg.includes('repair') || cleanedMsg.includes('mechanic')) {
@@ -263,7 +263,7 @@ export default function HelpCenter() {
       } else if (cleanedMsg.includes('zig') || cleanedMsg.includes('usd') || cleanedMsg.includes('payment') || cleanedMsg.includes('ecocash') || cleanedMsg.includes('zipit') || cleanedMsg.includes('fee')) {
         replyText = "Gutu AI: We accept multi-currency payments! You can pay platform listing fees or download premium vehicle history reports using USD (Cards or cash vouchers) and ZiG (via EcoCash, ZIPIT, or RTGS bank transfer). Vehicle deals themselves are negotiated directly between parties.";
       } else if (cleanedMsg.includes('dealer') || cleanedMsg.includes('register') || cleanedMsg.includes('showroom') || cleanedMsg.includes('cr14')) {
-        replyText = "Gutu AI: To register a dealership, submit your CR14/CR6 company registration forms, ZIMRA tax clearance, and showroom address. Our trust team does a quick physical check within 48 hours. Once verified, you get CABS/Stanbic financing integrations and inventory managers!";
+        replyText = "You can register a dealership by uploading your company documents in the Dealer portal. CarUp does not visit premises and has no bank financing integration, so registration creates an account rather than an endorsement.";
       } else if (cleanedMsg.includes('mhoro') || cleanedMsg.includes('salibonani') || cleanedMsg.includes('hello') || cleanedMsg.includes('hi') || cleanedMsg.includes('hey')) {
         replyText = "Gutu AI: Mhoro! Salibonani! Hello there! I'm here and ready to help. What aspect of CarUp (ZINARA, PartSentry, Trust Scores, or imports) would you like to explore today?";
       } else {
@@ -589,7 +589,7 @@ export default function HelpCenter() {
                       <Phone className="w-5 h-5 text-orange-400 mt-0.5 shrink-0" />
                       <div>
                         <p className="font-semibold text-gray-300">Harare HQ Hotline</p>
-                        <p className="text-gray-400">+263 242 700 000 (Zim Toll-Free)</p>
+                        <p className="text-gray-400">Not published yet</p>
                       </div>
                     </div>
                     
@@ -605,7 +605,7 @@ export default function HelpCenter() {
                       <MapPin className="w-5 h-5 text-orange-400 mt-0.5 shrink-0" />
                       <div>
                         <p className="font-semibold text-gray-300">Physical Showroom</p>
-                        <p className="text-gray-400">123 Samora Machel Avenue, Harare CBD</p>
+                        <p className="text-gray-400">No public office address yet</p>
                       </div>
                     </div>
                     
@@ -628,7 +628,7 @@ export default function HelpCenter() {
                 <div>
                   <h4 className="font-bold text-white mb-1">Open a Premium Support Ticket</h4>
                   <p className="text-xs text-gray-400 leading-relaxed mb-3">
-                    Track your diagnostic logs, billing, and inspection clearances directly via your private dashboard. Average turnaround: under 3 hours.
+                    Track the work records and billing CarUp holds for you from your dashboard. CarUp publishes no turnaround time, because it measures none.
                   </p>
                   <Button size="sm" className="bg-orange-500 hover:bg-orange-600 text-white font-semibold flex items-center gap-1.5" asChild>
                     <Link to="/contact">
@@ -664,7 +664,7 @@ export default function HelpCenter() {
 
                   <div className="flex items-center gap-2">
                     <Badge variant="secondary" className="bg-orange-500/10 text-orange-400 border border-orange-500/20 text-[10px]">
-                      V2.4 Active
+                      Assistant
                     </Badge>
                   </div>
                 </div>

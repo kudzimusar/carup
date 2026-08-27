@@ -166,8 +166,10 @@ exists. Joins I9, I10, I11, I12 and I13.
 marketing claims, including a "regulated trust account" statement that contradicts
 the non-custodial notice.
 
-**Unchanged pre-merge disposition:** the P2 `private_key_pem` issue in
-`public_keys` is not addressed in this lane.
+**Unchanged disposition:** plaintext `private_key_pem` persistence in `public_keys`
+is **Issue #158, a P0** — not the P2 this receipt originally called it. It remains
+a separate protected security remediation and a production-release gate, and is
+deliberately not addressed in this lane.
 
 **Production boundary respected:** source and staging only. The G4 fix is a source
 change on this branch; no production deployment was made.

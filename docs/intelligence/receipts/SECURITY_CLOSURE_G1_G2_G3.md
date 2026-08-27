@@ -99,7 +99,7 @@ The probe event was deleted afterwards; `referral_events` carries no residue fro
 
 ## Residual disposition
 
-**P2 — `private_key_pem` stored in the `public_keys` table** (`backend/services/blockchain/blockchainService.js`) remains open and is explicitly a **pre-merge security disposition**, per the moderator. It is not touched by this closure: it is a key-management change with its own blast radius (the signing ledger has 23 rows on staging and **716 in production**), and it warrants its own reviewed remediation rather than being folded into a referral/organization boundary fix.
+**Issue #158 (P0) — `private_key_pem` stored in the `public_keys` table** (`backend/services/blockchain/blockchainService.js`) remains open and is explicitly a **pre-merge security disposition**, per the moderator. It is not touched by this closure: it is a key-management change with its own blast radius (the signing ledger has 23 rows on staging and **716 in production**), and it warrants its own reviewed remediation rather than being folded into a referral/organization boundary fix.
 
 **Also noted, unchanged:** the pre-existing `/api/admin/marketplace/analytics` is gated `['admin','government']`, handing an institutional role platform-wide commercial data. Intelligence's own admin projection deliberately excludes `government` (gap G5, closed for this programme in I5), but that legacy endpoint belongs to the marketplace lane.
 

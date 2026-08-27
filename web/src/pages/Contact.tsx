@@ -9,16 +9,21 @@ import { toast } from 'sonner'
 
 export default function Contact() {
   const [form, setForm] = useState({ name: '', email: '', phone: '', subject: '', message: '' })
-  const [sending, setSending] = useState(false)
 
+  /**
+   * Nothing was ever sent.
+   *
+   * This ran a 1.5-second timer, cleared the form and announced "Message sent! We
+   * will get back to you within 24 hours." There is no contact-submission route
+   * anywhere in the backend, so every message a visitor typed was discarded while
+   * they were told it had arrived — and then told to expect a reply.
+   *
+   * There is no intake to wire this to, so the form is disabled and the page
+   * directs people to an address that genuinely reaches CarUp.
+   */
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault()
-    setSending(true)
-    setTimeout(() => {
-      setSending(false)
-      toast.success('Message sent! We will get back to you within 24 hours.')
-      setForm({ name: '', email: '', phone: '', subject: '', message: '' })
-    }, 1500)
+    toast.error('This form cannot send yet. Please email support@carup.co.zw.')
   }
 
   return (
@@ -45,7 +50,7 @@ export default function Contact() {
                     <Phone className="w-5 h-5 text-orange-500 mt-0.5" />
                     <div>
                       <p className="font-medium text-sm">Phone</p>
-                      <p className="text-sm text-gray-600">+263 242 700 000</p>
+                      <p className="text-sm text-gray-600">Not published yet</p>
                     </div>
                   </div>
                   <div className="flex items-start gap-3">
@@ -59,7 +64,7 @@ export default function Contact() {
                     <MapPin className="w-5 h-5 text-orange-500 mt-0.5" />
                     <div>
                       <p className="font-medium text-sm">Address</p>
-                      <p className="text-sm text-gray-600">123 Samora Machel Ave<br />Harare, Zimbabwe</p>
+                      <p className="text-sm text-gray-600">Harare, Zimbabwe<br />No public office address yet</p>
                     </div>
                   </div>
                   <div className="flex items-start gap-3">
@@ -77,7 +82,7 @@ export default function Contact() {
               <CardContent className="p-6">
                 <MessageSquare className="w-8 h-8 mb-3" />
                 <h3 className="font-semibold text-lg mb-2">Need Immediate Help?</h3>
-                <p className="text-sm opacity-90 mb-4">Chat with Gutu AI, our intelligent assistant available 24/7.</p>
+                <p className="text-sm opacity-90 mb-4">Gutu shows you what CarUp records about your account. It is not a support channel and makes no availability promise.</p>
                 <Button variant="secondary" className="w-full" asChild>
                   <a href="/dashboard/ai">Chat with Gutu AI</a>
                 </Button>
@@ -114,8 +119,12 @@ export default function Contact() {
                   <label className="text-sm font-medium mb-1.5 block">Message</label>
                   <Textarea required value={form.message} onChange={e => setForm({ ...form, message: e.target.value })} placeholder="Tell us more about your inquiry..." rows={5} />
                 </div>
-                <Button type="submit" className="bg-orange-500 hover:bg-orange-600 gap-2" disabled={sending}>
-                  <Send className="w-4 h-4" /> {sending ? 'Sending...' : 'Send Message'}
+                <div className="rounded-md border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800" data-testid="contact-unavailable">
+                  This form cannot send yet — nothing typed here is stored or delivered. Please email{' '}
+                  <a href="mailto:support@carup.co.zw" className="font-semibold underline">support@carup.co.zw</a>.
+                </div>
+                <Button type="submit" disabled aria-disabled="true" data-testid="contact-submit" className="gap-2 bg-gray-200 text-gray-500 cursor-not-allowed">
+                  <Send className="w-4 h-4" /> Sending unavailable
                 </Button>
               </form>
             </CardContent>

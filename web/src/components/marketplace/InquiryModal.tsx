@@ -43,6 +43,7 @@ export function InquiryModal({
   triggerClassName = '',
   triggerVariant = 'default',
   onSubmitted,
+  sourceSurface = 'marketplace_detail',
 }: {
   listingId?: string
   inquiryTypes?: MarketplaceInquiryType[]
@@ -51,6 +52,17 @@ export function InquiryModal({
   triggerClassName?: string
   triggerVariant?: 'default' | 'outline' | 'secondary'
   onSubmitted?: (inquiryId: string) => void
+  /**
+   * Where this modal was opened from.
+   *
+   * This was hardcoded to 'marketplace_detail' because the modal had exactly two
+   * call sites, both on the vehicle detail page. PR #182 takes it to ten,
+   * including parts and services on the category page — at which point a fixed
+   * value would file every parts and services enquiry under the vehicle-detail
+   * funnel. A caller that knows where it is says so; the default preserves the
+   * existing behaviour for the call sites that were already correct.
+   */
+  sourceSurface?: 'marketplace_detail' | 'marketplace_list' | 'marketplace_compare' | 'dashboard' | 'saved' | 'search' | 'other'
 }) {
   const { user } = useAuth()
   const { createMarketplaceInquiry } = useCarUpApi()
@@ -68,7 +80,7 @@ export function InquiryModal({
       trackActivity({
         event_type: 'marketplace_inquiry_started',
         listing_id: listingId || null,
-        source_surface: 'marketplace_detail',
+        source_surface: sourceSurface,
         metadata: { inquiry_type: inquiryType },
       })
     }

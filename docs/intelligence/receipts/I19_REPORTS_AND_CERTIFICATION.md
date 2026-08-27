@@ -147,9 +147,20 @@ demonstration business data was seeded at any point.
 
 ### 3.6 CI on the lane head
 
-All six workflows pass on `dabbd8f6`: **CI**, Referral Engine CI, Navigation
-Intelligence CI, Communication Command Center CI, Diaspora Phases 3-7 Validation
-(Diaspora Deployed Staging UAT is skipped by its own trigger conditions).
+GitHub reports **5 successful workflow runs and 1 skipped by trigger** — not six
+successful runs. Stated precisely:
+
+| Workflow | Conclusion |
+|---|---|
+| CI | success |
+| Referral Engine CI | success |
+| Navigation Intelligence CI | success |
+| Communication Command Center CI | success |
+| Diaspora Phases 3-7 Validation | success |
+| Diaspora Deployed Staging UAT | **skipped** (its own trigger conditions were not met) |
+
+A skipped run asserts nothing. It is not a pass, and this receipt no longer counts
+it as one.
 
 Two things had to be fixed or understood to get there, both recorded rather than
 quietly re-run:
@@ -231,8 +242,13 @@ found while implementing I14's own fraud-safe-attribution requirement.
 
 **Outstanding, for disposition:**
 
-- the **P2 `private_key_pem`** issue in `public_keys` remains a pre-merge security
-  disposition, deliberately not addressed in this lane;
+- **Issue #158 — `[P0][security] Remove plaintext private-key persistence from
+  `public_keys`** is OPEN and is a **P0**, not a P2. Earlier receipts in this lane
+  called it P2; that was my error and is corrected here and in each of them. It
+  stays a **separate protected security remediation and a production-release
+  gate**, and the key-custody redesign is deliberately NOT folded into this PR:
+  the signing ledger holds 23 rows on staging and **716 in production**, so it
+  carries its own blast radius and warrants its own reviewed change;
 - the marketing surfaces (`TrustSafety.tsx`, `About.tsx`) still carry a "regulated
   trust account" claim that contradicts the non-custodial notice the SafeTrade
   components display, and two different fabricated fraud-detection rates;
