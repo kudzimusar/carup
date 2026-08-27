@@ -139,6 +139,7 @@ import { buildVehicleListingCandidate, getListingEligibility } from './services/
 import { registerCommunicationListeners } from './services/communication/communicationEventListeners.js';
 import { evaluateCompleteness } from './services/evidence/completenessEvaluator.js';
 import { validateCommunicationConfiguration } from './services/communication/communicationConfigurationValidator.js';
+import { buildCanonicalVehicleLifecycle } from './services/report/canonicalVehicleLifecycleService.js';
 
 dotenv.config();
 
@@ -872,6 +873,7 @@ async function buildVehiclePassport(
   listingClaimContract = null,
   attestClaim = null,
   mediaContract = null,
+  lifecycleBuilder = null,
 ) {
   const { data: vehicle, error: vehicleError } = await supabase
     .from('vehicles')
@@ -1027,6 +1029,18 @@ async function buildVehiclePassport(
       listingPublicationStatus: vehicle.publication_status,
       listingAudience: isAuthorized ? 'owner' : 'public',
     })
+    : null;
+
+  // ONE PUBLIC VEHICLE-LIFECYCLE READ MODEL. The legacy audit timeline remains on the response for
+  // compatibility, but buyer-facing history/report surfaces can now consume the same normalized
+  // ownership + maintenance + inspection + insurance + evidence + mileage projection. The builder
+  // is injected for the same closed-collaborator reason as mediaContract: source harnesses execute
+  // this function body in isolation, so no new free dependency is introduced here.
+  //
+  // Deliberately public even for an owner render. Private evidence remains in evidenceVault below;
+  // lifecycle is the shared buyer-safe story, which is exactly what must not fork by surface.
+  const lifecycle = typeof lifecycleBuilder === 'function'
+    ? await lifecycleBuilder(supabase, vin, { audience: 'public', vehicle })
     : null;
 
   // THE PASSPORT'S TRUST NUMBER, FROM THE CANONICAL AUTHORITY AND NOWHERE ELSE.
@@ -1385,6 +1399,7 @@ async function buildVehiclePassport(
     }),
     timeline: sanitizedTimeline,
     evidenceTimeline: sanitizedTimeline.filter(event => event.event_source === 'evidence'),
+    ...(lifecycle ? { lifecycle } : {}),
     // THE THIRD ANONYMOUS DOOR.
     //
     // `verifiedEvidence` above is `select('*')`, and this array was returned unchanged to every
@@ -1442,7 +1457,7 @@ async function buildVehiclePassport(
 app.get('/api/vehicles/:vin/passport', passportLimiter, optionalAuth(), async (req, res) => {
   const { vin } = req.params;
   try {
-    const passport = await buildVehiclePassport(vin, req, await canonicalPassportTrust(vin), toListingClaims, attestedValue, toVehicleMedia);
+    const passport = await buildVehiclePassport(vin, req, await canonicalPassportTrust(vin), toListingClaims, attestedValue, toVehicleMedia, buildCanonicalVehicleLifecycle);
     if (!passport) {
       return res.status(404).json({ error: 'VIN not found' });
     }
@@ -1487,7 +1502,7 @@ app.get('/api/vehicles/passport/lookup/:identifier', passportLookupLimiter, opti
     }
 
     const resolvedVin = Array.from(matchingVins)[0];
-    const passport = await buildVehiclePassport(resolvedVin, req, await canonicalPassportTrust(resolvedVin), toListingClaims, attestedValue, toVehicleMedia);
+    const passport = await buildVehiclePassport(resolvedVin, req, await canonicalPassportTrust(resolvedVin), toListingClaims, attestedValue, toVehicleMedia, buildCanonicalVehicleLifecycle);
     if (!passport) {
       return res.status(404).json({ error: 'Vehicle not found' });
     }
