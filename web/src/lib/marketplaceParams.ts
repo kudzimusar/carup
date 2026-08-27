@@ -1,4 +1,4 @@
-import { canonicalMake as canonicalTaxonomyMake } from '@/data/vehicleTaxonomy'
+import { canonicalMake as canonicalTaxonomyMake, canonicalModel as canonicalTaxonomyModel } from '@/data/vehicleTaxonomy'
 
 /**
  * Marketplace URL <-> state contract (CarUp Navigation Intelligence).
@@ -10,7 +10,7 @@ import { canonicalMake as canonicalTaxonomyMake } from '@/data/vehicleTaxonomy'
  * Reference-UX filter model:
  *   - one mutually-exclusive condition/category (`category=`),
  *   - many stackable trust tags (`tag=` repeated, AND semantics),
- *   - make / price / fuel / transmission / governed public location,
+ *   - make / model / year / colour / price / fuel / transmission / governed public location,
  *   - free text q and sort.
  *
  * Every user-visible filter represented here is shareable and server-addressable. A control that
@@ -30,6 +30,9 @@ export const ALL = 'All'
 export interface MarketplaceUrlState {
   searchQuery: string
   selectedMake: string
+  selectedModel: string
+  selectedYear: string
+  selectedColor: string
   selectedCategory: string
   selectedTags: string[]
   selectedFuel: string
@@ -42,6 +45,9 @@ export interface MarketplaceUrlState {
 export interface MarketplaceApiFilters {
   q?: string
   make?: string
+  model?: string
+  year?: number
+  color?: string
   category?: string
   tag?: string
   fuel?: string
@@ -55,6 +61,9 @@ export interface MarketplaceApiFilters {
 export type ActiveFilterKey =
   | 'q'
   | 'make'
+  | 'model'
+  | 'year'
+  | 'color'
   | 'category'
   | 'tag'
   | 'fuel'
@@ -72,6 +81,9 @@ export interface ActiveFilterChip {
 export const DEFAULT_MARKETPLACE_STATE: MarketplaceUrlState = {
   searchQuery: '',
   selectedMake: ALL,
+  selectedModel: ALL,
+  selectedYear: ALL,
+  selectedColor: ALL,
   selectedCategory: ALL,
   selectedTags: [],
   selectedFuel: ALL,
@@ -140,6 +152,20 @@ function canonicalizeMake(value: string): string {
   return canonicalTaxonomyMake(trimmed)
 }
 
+function canonicalizeModel(make: string, value: string): string {
+  const trimmed = value.trim()
+  if (!trimmed) return ALL
+  return make && make !== ALL ? canonicalTaxonomyModel(make, trimmed) : trimmed
+}
+
+function parseYearFacet(value: string | null): string {
+  const text = (value || '').trim()
+  if (!text) return ALL
+  const year = Number(text)
+  const max = new Date().getFullYear() + 1
+  return Number.isInteger(year) && year >= 1900 && year <= max ? String(year) : ALL
+}
+
 function textFacet(value: string | null): string {
   const trimmed = (value || '').trim()
   return trimmed || ALL
@@ -168,6 +194,9 @@ function formatPrice(amount: number): string {
 export function paramsToState(params: URLSearchParams): MarketplaceUrlState {
   const searchQuery = (params.get('q') || '').trim()
   const make = params.has('make') ? canonicalizeMake(params.get('make') || '') : ALL
+  const model = params.has('model') ? canonicalizeModel(make, params.get('model') || '') : ALL
+  const year = parseYearFacet(params.get('year'))
+  const color = textFacet(params.get('color'))
 
   const categorySlug = slugify(params.get('category'))
   const categoryChip = categorySlug ? SLUG_TO_CHIP[categorySlug] : undefined
@@ -191,6 +220,9 @@ export function paramsToState(params: URLSearchParams): MarketplaceUrlState {
   return {
     searchQuery,
     selectedMake: make,
+    selectedModel: model,
+    selectedYear: year,
+    selectedColor: color,
     selectedCategory,
     selectedTags,
     selectedFuel: textFacet(params.get('fuel')),
@@ -207,6 +239,12 @@ export function stateToParams(state: MarketplaceUrlState): URLSearchParams {
 
   const make = state.selectedMake?.trim()
   if (make && make !== ALL) params.set('make', make)
+
+  const model = state.selectedModel?.trim()
+  if (model && model !== ALL) params.set('model', model)
+
+  if (state.selectedYear && state.selectedYear !== ALL) params.set('year', state.selectedYear)
+  if (state.selectedColor && state.selectedColor !== ALL) params.set('color', state.selectedColor)
 
   const q = state.searchQuery?.trim()
   if (q) params.set('q', q)
@@ -247,6 +285,15 @@ export function stateToApiFilters(state: MarketplaceUrlState): MarketplaceApiFil
   const make = state.selectedMake?.trim()
   if (make && make !== ALL) filters.make = make
 
+  const model = state.selectedModel?.trim()
+  if (model && model !== ALL) filters.model = model
+
+  if (state.selectedYear && state.selectedYear !== ALL) {
+    const year = Number(state.selectedYear)
+    if (Number.isInteger(year)) filters.year = year
+  }
+  if (state.selectedColor && state.selectedColor !== ALL) filters.color = state.selectedColor
+
   if (state.selectedCategory && state.selectedCategory !== ALL) {
     const category = CHIP_SLUG_KIND[state.selectedCategory]
     if (category?.kind === 'category') filters.category = category.slug
@@ -282,6 +329,9 @@ export function getActiveFilterChips(state: MarketplaceUrlState): ActiveFilterCh
   const chips: ActiveFilterChip[] = []
 
   if (state.selectedMake && state.selectedMake !== ALL) chips.push({ key: 'make', label: state.selectedMake })
+  if (state.selectedModel && state.selectedModel !== ALL) chips.push({ key: 'model', label: state.selectedModel })
+  if (state.selectedYear && state.selectedYear !== ALL) chips.push({ key: 'year', label: state.selectedYear })
+  if (state.selectedColor && state.selectedColor !== ALL) chips.push({ key: 'color', label: state.selectedColor })
   if (state.searchQuery?.trim()) chips.push({ key: 'q', label: `“${state.searchQuery.trim()}”` })
   if (state.selectedCategory && state.selectedCategory !== ALL) chips.push({ key: 'category', label: state.selectedCategory })
   for (const tag of state.selectedTags || []) chips.push({ key: 'tag', label: tag, value: tag })
@@ -300,6 +350,9 @@ export function getResultSummary(state: MarketplaceUrlState): string {
     state.selectedCategory !== ALL ? state.selectedCategory : '',
     ...(state.selectedTags || []),
     state.selectedMake !== ALL ? state.selectedMake : '',
+    state.selectedModel !== ALL ? state.selectedModel : '',
+    state.selectedYear !== ALL ? state.selectedYear : '',
+    state.selectedColor !== ALL ? state.selectedColor : '',
     state.selectedFuel !== ALL ? state.selectedFuel : '',
     state.selectedTransmission !== ALL ? state.selectedTransmission : '',
   ].filter(Boolean)
