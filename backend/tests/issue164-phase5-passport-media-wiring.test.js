@@ -392,6 +392,10 @@ function instantiatePassport({
   listingImageRows = [],
   evidenceRows = [],
   listingImagesFail = false,
+  plateHistoryRows = [],
+  ownershipHistoryRows = [],
+  plateHistoryFail = false,
+  ownershipHistoryFail = false,
 } = {}) {
   const supabase = {
     from(table) {
@@ -399,6 +403,14 @@ function instantiatePassport({
         case 'vehicles': return queryStub(vehicle);
         case 'users': return queryStub({ name: 'Jane Owner' });
         case 'vehicle_evidence': return queryStub(evidenceRows);
+        case 'vehicle_plate_history':
+          return plateHistoryFail
+            ? queryStub(null, { message: 'plate history unavailable' })
+            : queryStub(plateHistoryRows);
+        case 'vehicle_ownership_history':
+          return ownershipHistoryFail
+            ? queryStub(null, { message: 'ownership history unavailable' })
+            : queryStub(ownershipHistoryRows);
         case 'listing_images':
           return listingImagesFail
             ? queryStub(null, { message: 'permission denied for table listing_images' })
@@ -460,6 +472,41 @@ const galleryFixture = (overrides = {}) => ({
   listingImageRows: [...GALLERY_ROWS],
   evidenceRows: [],
   ...overrides,
+});
+
+// ════════════════════════════════════════════════════════════════════════════════════════════════
+// COLLECTION READ-STATE HARDENING — an outage is not an empty history
+// ════════════════════════════════════════════════════════════════════════════════════════════════
+
+describe('Phase 5 wiring — collection outages stay unavailable rather than becoming zero/empty', () => {
+  it('an ownership-history read failure never publishes zero previous transfers', async () => {
+    const passport = await buildWired(galleryFixture({ ownershipHistoryFail: true }));
+
+    assert.equal(passport.ownershipSummary.previousOwnerCount, null);
+    assert.equal(passport.ownershipSummary.previousOwnerCountState, 'unavailable');
+  });
+
+  it('a successful empty ownership-history read is a real zero for current CarUp coverage', async () => {
+    const passport = await buildWired(galleryFixture({ ownershipHistoryRows: [] }));
+
+    assert.equal(passport.ownershipSummary.previousOwnerCount, 0);
+    assert.equal(passport.ownershipSummary.previousOwnerCountState, 'available');
+  });
+
+  it('a plate-history read failure is explicit and never masquerades as a loaded empty list', async () => {
+    const passport = await buildWired(galleryFixture({ plateHistoryFail: true }));
+
+    assert.deepEqual(passport.plateHistory, []);
+    assert.equal(passport.plateHistoryState, 'unavailable');
+    assert.equal(passport.plateHistoryRedacted, false);
+  });
+
+  it('a successful empty plate-history read remains distinguishable from an outage', async () => {
+    const passport = await buildWired(galleryFixture({ plateHistoryRows: [] }));
+
+    assert.deepEqual(passport.plateHistory, []);
+    assert.equal(passport.plateHistoryState, 'available');
+  });
 });
 
 // ════════════════════════════════════════════════════════════════════════════════════════════════
