@@ -6,21 +6,33 @@ on:
     branches: [main]
     paths:
       - 'backend/services/marketplace/**'
+      - 'backend/services/report/**'
+      - 'backend/server.js'
       - 'backend/fixtures/marketplace-reference-media-v1.json'
       - 'backend/scripts/marketplace-reference-media-staging.mjs'
       - 'backend/utils/vehicleMediaProjection.js'
       - 'backend/tests/marketplace-*.test.js'
-      - 'backend/tests/issue164-phase5-media-identity-containment.test.js'
+      - 'backend/tests/vehicle-report.test.js'
+      - 'backend/tests/issue164-phase5-*.test.js'
       - 'shared/types/**'
       - 'mobile/app/(tabs)/marketplace.tsx'
       - 'mobile/app/vehicle/**'
       - 'mobile/utils/marketplaceApi.ts'
       - 'mobile/tests/marketplace-*.test.ts'
+      - 'web/src/pages/Landing.tsx'
       - 'web/src/pages/Marketplace.tsx'
+      - 'web/src/pages/MarketplaceCategoryPage.tsx'
+      - 'web/src/pages/GuestSell.tsx'
+      - 'web/src/pages/dashboard/owner/SellVehicle.tsx'
+      - 'web/src/pages/auth/Register.tsx'
       - 'web/src/pages/VehicleDetail.tsx'
       - 'web/src/pages/VehicleDetail.*.test.tsx'
       - 'web/src/components/marketplace/**'
+      - 'web/src/components/VehicleHistoryReport.tsx'
       - 'web/src/components/layout/**'
+      - 'web/src/data/vehicleTaxonomy.ts'
+      - 'web/src/data/vehicleTaxonomy.test.ts'
+      - 'web/src/lib/guestSellDraft.ts'
       - 'web/src/lib/marketplace*.ts'
       - 'web/src/lib/marketplace*.test.ts'
       - 'web/e2e/marketplace-*.spec.ts'
@@ -69,11 +81,15 @@ jobs:
           node --test
           backend/tests/marketplace-carup-gold.test.js
           backend/tests/marketplace-reference-media.test.js
+          backend/tests/marketplace-v1-spine.test.js
+          backend/tests/vehicle-report.test.js
           backend/tests/issue164-phase5-media-contract.test.js
+          backend/tests/issue164-phase5-passport-media-wiring.test.js
 
       - name: Run expanded Marketplace and Vehicle Detail unit regressions
         run: >-
           npm --prefix web run test:unit --
+          src/data/vehicleTaxonomy.test.ts
           src/lib/marketplaceParams.test.ts
           src/lib/marketplacePresentation.test.ts
           src/pages/VehicleDetail.media.test.tsx
