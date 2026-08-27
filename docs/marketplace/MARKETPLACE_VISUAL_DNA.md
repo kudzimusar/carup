@@ -65,6 +65,20 @@ Styling must never change:
 - Vehicle media remains usable with touch-sized controls.
 - Guest Sell keeps the draft intact through the authentication boundary.
 
+## Flagship showroom composition
+
+The Marketplace customer journey uses a distinct flagship composition rather than a generic ecommerce grid:
+
+- **Live showroom hero:** the first published result can provide the visual spotlight; it is real listing media, never stock decoration.
+- **Search command deck:** search is the dominant shopping instrument, with immediate make/year/location entry and a single progressive filter drawer.
+- **Two-column vehicle stories:** desktop inventory is deliberately larger and more image-led than a dense three-column catalog.
+- **Trust lens:** canonical Trust is rendered as a decision signal with its evaluation/confidence state, not as a decorative green badge.
+- **Visual compare shortlist:** selected vehicles remain visible with imagery and price context before the buyer enters the side-by-side decision room.
+- **Vehicle Detail showroom:** listing gallery and the primary buyer decision panel share the above-the-fold stage on desktop; inquiry/inspection actions stay adjacent to price and canonical Trust.
+- **Comparison decision room:** the compare route preserves an accessible table while visually prioritising vehicle imagery, price and canonical Trust.
+
+These patterns are informed by current automotive-marketplace and ecommerce UX research (image-first listing presentation, larger-grid search results, unified filter/sort tools, and high-salience decision data), but are implemented as CarUp-specific components rather than copied brand treatments.
+
 ## Design-tool workflow
 
 For future visual expansion:
