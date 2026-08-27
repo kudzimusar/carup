@@ -747,81 +747,142 @@ export default function Marketplace() {
         </div>
       </section>
 
-      <div className="section-padding relative mx-auto max-w-[1440px] pb-10 pt-0 sm:pb-12">
-        <section className="relative z-10 -mt-5 border-y border-slate-200 bg-white px-0 py-4 shadow-[0_22px_55px_rgba(15,23,42,0.12)] sm:-mt-6 sm:px-4">
-          <div className="flex flex-col gap-3 lg:flex-row lg:items-center">
-            <div className="relative min-w-0 flex-1">
-              <Search className="absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
-              <Input
-                placeholder="Search make, model, VIN, location or seller..."
-                value={searchQuery}
-                onChange={event => setSearchQuery(event.target.value)}
-                className="h-14 rounded-none border-0 border-b-2 border-slate-200 bg-transparent pl-10 text-base shadow-none focus-visible:border-orange-500 focus-visible:ring-0"
-                data-testid="marketplace-search-input"
-              />
-            </div>
-
-            <div className="flex items-center gap-2">
-              <Select value={url.sortBy} onValueChange={value => updateUrl({ sortBy: value as MarketplaceSort })}>
-                <SelectTrigger className="h-14 min-w-[180px] rounded-none border-0 border-b-2 border-slate-200 bg-white shadow-none focus:ring-orange-500" data-testid="marketplace-sort-select">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="newest">Newest first</SelectItem>
-                  <SelectItem value="price-low">Price: low to high</SelectItem>
-                  <SelectItem value="price-high">Price: high to low</SelectItem>
-                  <SelectItem value="trust">Highest canonical Trust</SelectItem>
-                </SelectContent>
-              </Select>
-
-              {isMobile && (
-                <Sheet open={mobileFiltersOpen} onOpenChange={setMobileFiltersOpen}>
-                  <SheetTrigger asChild>
-                    <Button variant="outline" className="h-14 rounded-none border-slate-300 bg-slate-950 px-4 text-white hover:bg-orange-600 hover:text-white" data-testid="marketplace-mobile-filter-button">
-                      <SlidersHorizontal className="mr-2 h-4 w-4" /> Filters
-                      {activeFilterCount > 0 && <Badge className="ml-2 bg-slate-950 text-[10px] text-white">{activeFilterCount}</Badge>}
-                    </Button>
-                  </SheetTrigger>
-                  <SheetContent side="left" className="w-[92%] max-w-sm overflow-y-auto bg-[#f8fafc]" data-testid="marketplace-mobile-filter-drawer">
-                    <SheetHeader><SheetTitle>Refine vehicles</SheetTitle></SheetHeader>
-                    <div className="space-y-6 px-4 pb-4">
-                      {filterControls}
-                      <div className="border-t border-slate-200 pt-5">{taxonomyControls}</div>
-                    </div>
-                    <SheetFooter className="sticky bottom-0 flex-row gap-2 border-t border-slate-200 bg-white p-4">
-                      <Button variant="ghost" className="flex-1" onClick={resetFilters}>Clear all</Button>
-                      <Button className="flex-1 bg-orange-600 hover:bg-orange-700" onClick={() => setMobileFiltersOpen(false)} data-testid="marketplace-mobile-filter-close">
-                        Show results
-                      </Button>
-                    </SheetFooter>
-                  </SheetContent>
-                </Sheet>
+      <div className="section-padding relative mx-auto max-w-[1440px] pb-12 pt-0 sm:pb-16">
+        <section className="relative z-20 -mt-12 bg-white shadow-[0_28px_80px_rgba(15,23,42,0.18)] sm:-mt-14">
+          <div className="border-b border-slate-200 px-4 py-3 sm:px-6">
+            <div className="flex items-center justify-between gap-4">
+              <div>
+                <p className="text-[10px] font-black uppercase tracking-[0.2em] text-orange-600">Search the showroom</p>
+                <p className="mt-0.5 text-xs text-slate-500">Make, model, year, location, seller or a vehicle identifier.</p>
+              </div>
+              {!loadingVehicles && (
+                <p className="hidden text-xs font-semibold text-slate-500 sm:block">
+                  <span className="text-slate-950">{visibleListings.length}</span> published {visibleListings.length === 1 ? 'vehicle' : 'vehicles'}
+                </p>
               )}
             </div>
           </div>
 
-          <div className="mt-3 flex items-center gap-2 overflow-x-auto pb-1" data-testid="marketplace-quick-filters">
-            <span className="flex shrink-0 items-center gap-1.5 pr-1 text-[11px] font-semibold uppercase tracking-wide text-slate-500">
-              <Sparkles className="h-3.5 w-3.5 text-orange-600" /> Quick filters
-            </span>
-            {TRUST_QUICK_FILTERS.map(filter => {
-              const category = isCategoryChip(filter.label)
-              const active = category ? url.selectedCategory === filter.label : url.selectedTags.includes(filter.label)
-              return (
-                <button
-                  key={filter.label}
-                  type="button"
-                  data-testid={filter.testId}
-                  aria-pressed={active}
-                  onClick={() => (category ? setCategoryFilter(filter.label) : toggleTrustTag(filter.label))}
-                  className={`shrink-0 rounded-full border px-3 py-1.5 text-xs font-semibold transition ${active
-                    ? 'border-orange-500 bg-orange-50 text-orange-800'
-                    : 'border-slate-200 bg-white text-slate-600 hover:border-orange-300 hover:text-slate-900'}`}
+          <div className="grid lg:grid-cols-[minmax(0,1.7fr)_0.7fr_0.6fr_0.85fr_auto]">
+            <div className="relative border-b border-slate-200 lg:border-b-0 lg:border-r">
+              <Search className="absolute left-5 top-1/2 h-5 w-5 -translate-y-1/2 text-orange-500" />
+              <Input
+                placeholder="Try “Hilux diesel”, “Harare”, a VIN, make or model…"
+                value={searchQuery}
+                onChange={event => setSearchQuery(event.target.value)}
+                className="h-16 rounded-none border-0 bg-transparent pl-14 pr-4 text-base font-semibold shadow-none placeholder:font-normal placeholder:text-slate-400 focus-visible:ring-0 sm:h-[72px] sm:text-lg"
+                data-testid="marketplace-search-input"
+              />
+            </div>
+
+            <div className="hidden border-r border-slate-200 lg:block">
+              <Select value={url.selectedMake} onValueChange={value => updateUrl({ selectedMake: value, selectedModel: ALL })}>
+                <SelectTrigger className="h-[72px] rounded-none border-0 bg-white px-4 shadow-none focus:ring-0" data-testid="marketplace-command-make">
+                  <div className="text-left">
+                    <span className="block text-[9px] font-black uppercase tracking-[0.16em] text-slate-400">Make</span>
+                    <SelectValue />
+                  </div>
+                </SelectTrigger>
+                <SelectContent>{makes.map(make => <SelectItem key={make} value={make}>{make}</SelectItem>)}</SelectContent>
+              </Select>
+            </div>
+
+            <div className="hidden border-r border-slate-200 lg:block">
+              <Select value={url.selectedYear} onValueChange={value => updateUrl({ selectedYear: value })}>
+                <SelectTrigger className="h-[72px] rounded-none border-0 bg-white px-4 shadow-none focus:ring-0" data-testid="marketplace-command-year">
+                  <div className="text-left">
+                    <span className="block text-[9px] font-black uppercase tracking-[0.16em] text-slate-400">Year</span>
+                    <SelectValue />
+                  </div>
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value={ALL}>Any year</SelectItem>
+                  {marketplaceYears.map(year => <SelectItem key={year} value={year}>{year}</SelectItem>)}
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div className="hidden border-r border-slate-200 lg:block">
+              <Select value={url.selectedLocation} onValueChange={value => updateUrl({ selectedLocation: value })}>
+                <SelectTrigger className="h-[72px] rounded-none border-0 bg-white px-4 shadow-none focus:ring-0" data-testid="marketplace-command-location">
+                  <div className="min-w-0 text-left">
+                    <span className="block text-[9px] font-black uppercase tracking-[0.16em] text-slate-400">Location</span>
+                    <SelectValue />
+                  </div>
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="All">Anywhere</SelectItem>
+                  {zimbabweLocations.map(location => <SelectItem key={location} value={location}>{location}</SelectItem>)}
+                </SelectContent>
+              </Select>
+            </div>
+
+            <Sheet open={mobileFiltersOpen} onOpenChange={setMobileFiltersOpen}>
+              <SheetTrigger asChild>
+                <Button
+                  className="h-16 rounded-none bg-orange-500 px-5 font-black text-white shadow-none hover:bg-orange-600 sm:h-[72px]"
+                  data-testid="marketplace-mobile-filter-button"
                 >
-                  {filter.label}
-                </button>
-              )
-            })}
+                  <SlidersHorizontal className="mr-2 h-4 w-4" />
+                  All filters
+                  {activeFilterCount > 0 && <span className="ml-2 bg-white px-1.5 py-0.5 text-[10px] font-black text-orange-700">{activeFilterCount}</span>}
+                </Button>
+              </SheetTrigger>
+              <SheetContent side="left" className="w-[94%] max-w-md overflow-y-auto bg-[#f8fafc] p-0 sm:max-w-lg" data-testid="marketplace-mobile-filter-drawer">
+                <SheetHeader className="border-b border-slate-200 bg-[#08111f] px-5 py-5 text-left text-white">
+                  <SheetTitle className="text-white">Build your shortlist</SheetTitle>
+                  <p className="text-xs leading-5 text-slate-400">Refine the published inventory. Seller-stated and governed facts keep their original evidence states.</p>
+                </SheetHeader>
+                <div className="space-y-7 px-5 py-6">
+                  {filterControls}
+                  <div className="border-t border-slate-200 pt-6">{taxonomyControls}</div>
+                </div>
+                <SheetFooter className="sticky bottom-0 flex-row gap-2 border-t border-slate-200 bg-white p-4">
+                  <Button variant="ghost" className="flex-1 rounded-none" onClick={resetFilters}>Clear all</Button>
+                  <Button className="flex-1 rounded-none bg-orange-600 hover:bg-orange-700" onClick={() => setMobileFiltersOpen(false)} data-testid="marketplace-mobile-filter-close">
+                    Show {visibleListings.length} {visibleListings.length === 1 ? 'vehicle' : 'vehicles'}
+                  </Button>
+                </SheetFooter>
+              </SheetContent>
+            </Sheet>
+          </div>
+
+          <div className="flex flex-col gap-3 border-t border-slate-200 px-4 py-3 sm:px-6 lg:flex-row lg:items-center lg:justify-between">
+            <div className="flex min-w-0 items-center gap-2 overflow-x-auto" data-testid="marketplace-quick-filters">
+              <span className="flex shrink-0 items-center gap-1.5 pr-1 text-[10px] font-black uppercase tracking-[0.16em] text-slate-400">
+                <Sparkles className="h-3.5 w-3.5 text-orange-600" /> Discover
+              </span>
+              {TRUST_QUICK_FILTERS.map(filter => {
+                const category = isCategoryChip(filter.label)
+                const active = category ? url.selectedCategory === filter.label : url.selectedTags.includes(filter.label)
+                return (
+                  <button
+                    key={filter.label}
+                    type="button"
+                    data-testid={filter.testId}
+                    aria-pressed={active}
+                    onClick={() => (category ? setCategoryFilter(filter.label) : toggleTrustTag(filter.label))}
+                    className={`shrink-0 border-b-2 px-2.5 py-1.5 text-xs font-bold transition ${active
+                      ? 'border-orange-500 text-orange-700'
+                      : 'border-transparent text-slate-500 hover:border-slate-300 hover:text-slate-950'}`}
+                  >
+                    {filter.label}
+                  </button>
+                )
+              })}
+            </div>
+
+            <Select value={url.sortBy} onValueChange={value => updateUrl({ sortBy: value as MarketplaceSort })}>
+              <SelectTrigger className="h-9 w-full rounded-none border-0 border-b border-slate-300 bg-white px-0 text-xs shadow-none focus:ring-0 sm:w-[190px]" data-testid="marketplace-sort-select">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="newest">Newest first</SelectItem>
+                <SelectItem value="price-low">Price: low to high</SelectItem>
+                <SelectItem value="price-high">Price: high to low</SelectItem>
+                <SelectItem value="trust">Highest canonical Trust</SelectItem>
+              </SelectContent>
+            </Select>
           </div>
         </section>
 
