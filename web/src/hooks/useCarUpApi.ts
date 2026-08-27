@@ -638,6 +638,12 @@ export function useCarUpApi() {
   /** PERSON scope: the practitioner's own work, never the organization's. */
   const fetchMechanicIntelligence = useCallback(async (windowDays: 7 | 30 | 90 = 30): Promise<any> =>
     request(`/mechanic/analytics?window=${windowDays}`), [request])
+  /** The seller's periodic summary. Scope comes from the session. */
+  const fetchMyReport = useCallback(async (period: 'weekly' | 'monthly' = 'monthly'): Promise<any> =>
+    request(`/marketplace/my-report?period=${period}`), [request])
+  /** Plain-language definitions for every published KPI. */
+  const fetchKpiCatalogue = useCallback(async (): Promise<any> =>
+    request('/intelligence/kpi-catalogue'), [request])
   /** The assistant's governed fact set for the signed-in person. */
   const fetchAssistantContext = useCallback(async (): Promise<any> =>
     request('/intelligence/assistant-context'), [request])
@@ -2611,6 +2617,8 @@ export function useCarUpApi() {
     fetchCommandCentre,
     fetchMyRecommendations,
     fetchAssistantContext,
+    fetchMyReport,
+    fetchKpiCatalogue,
     fetchPlatformPartsIntelligence,
     fetchMechanicIntelligence,
     fetchGarageIntelligence,

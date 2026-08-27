@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import MarketplacePulse from '@/components/intelligence/MarketplacePulse'
 import NextBestActions from '@/components/intelligence/NextBestActions'
+import PeriodicReport from '@/components/intelligence/PeriodicReport'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Progress } from '@/components/ui/progress'
@@ -194,6 +195,9 @@ export default function OwnerDashboard() {
       {/* Deterministic next-best-action. A rule abstains rather than advising
           from a figure nobody measured. */}
       <NextBestActions />
+
+      {/* The periodic summary, with the export that carries its own provenance. */}
+      <PeriodicReport period="monthly" />
 
       {/* Needs Your Attention — real outstanding items only; hidden entirely when there are none. */}
       {attentionItems.length > 0 && (

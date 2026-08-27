@@ -27,6 +27,8 @@ import {
   getPlatformRecommendations,
 } from '../services/intelligence/recommendationService.js';
 import { buildAuthorizedContext } from '../services/intelligence/aiIntelligenceContextService.js';
+import { buildSellerReport, toCsv, resolvePeriod } from '../services/intelligence/reportService.js';
+import { kpiCatalogue } from '../services/intelligence/kpiCatalogue.js';
 import {
   getMechanicIntelligence,
   getGarageIntelligence,
@@ -403,6 +405,49 @@ router.get(
     try {
       const data = await buildAuthorizedContext(supabase, req.userContext);
       return res.json({ ok: true, ...data });
+    } catch (error) {
+      return handleProjectionError(res, error);
+    }
+  }),
+);
+
+/**
+ * KPI explanations. Definitions only — no figures, so no scope is needed.
+ */
+router.get(
+  '/api/intelligence/kpi-catalogue',
+  asyncHandler(async (req, res) => {
+    const phase = typeof req.query.phase === 'string' ? req.query.phase : null;
+    return res.json({ ok: true, ...kpiCatalogue({ phase }) });
+  }),
+);
+
+/**
+ * A seller's periodic summary, and its export.
+ *
+ * Built on the seller projection, which already resolves ownership from the
+ * session, so there is no subject parameter here either. `?format=csv` returns the
+ * export; an unmeasured figure travels as the words NOT MEASURED rather than an
+ * empty cell a spreadsheet would sum as zero.
+ */
+router.get(
+  '/api/marketplace/my-report',
+  authorizeRole([]),
+  asyncHandler(async (req, res) => {
+    try {
+      const windowDays = resolvePeriod(req.query.period) === 'weekly' ? 7 : 30;
+      const pulse = await getSellerPulse(supabase, req.userContext, { windowDays });
+      const report = await buildSellerReport(pulse, {
+        period: req.query.period,
+        actor: req.userContext,
+      });
+
+      if (String(req.query.format || '').toLowerCase() === 'csv') {
+        res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+        res.setHeader('Content-Disposition', `attachment; filename="carup-report-${report.period}.csv"`);
+        return res.send(toCsv(report));
+      }
+      return res.json({ ok: true, ...report });
     } catch (error) {
       return handleProjectionError(res, error);
     }
