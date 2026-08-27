@@ -201,6 +201,9 @@ function passportFixture(opts: {
   evidenceVault?: unknown
   identity?: Record<string, unknown>
   policeVerified?: boolean
+  plateHistory?: unknown[]
+  plateHistoryState?: 'available' | 'unavailable'
+  ownershipSummary?: Record<string, unknown>
 } = {}) {
   const body: Record<string, unknown> = {
     vehicle: {
@@ -221,8 +224,16 @@ function passportFixture(opts: {
     trustReport: publicTrust(),
     chainVerification: { verified: true, count: 0, chain: [] },
     identity: { vin: VIN, plateStatus: 'registered', ...(opts.identity ?? {}) },
-    plateHistory: [],
-    ownershipSummary: { previousOwnerCount: 1, previousOwnersPublicLabel: '1 previous owner' },
+    plateHistory: opts.plateHistory ?? [],
+    plateHistoryState: opts.plateHistoryState ?? 'available',
+    ownershipSummary: {
+      previousOwnerCount: 1,
+      previousOwnerCountState: 'available',
+      previousOwnersPublicLabel: 'Redacted for privacy',
+      ownerNamesRedacted: true,
+      currentOwnerVisible: false,
+      ...(opts.ownershipSummary ?? {}),
+    },
   }
   // Assigned only when the caller supplied one: `evidenceVault: undefined` and "no evidenceVault
   // key" are the same thing to the page, and both must mean `not_loaded`.
@@ -592,6 +603,37 @@ describe('VehicleDetail — a source this page never read may not be reported as
     await waitFor(() => expect(screen.getByTestId('listing-media-not-loaded')).toBeTruthy())
     expect(screen.getByTestId('no-images-placeholder').getAttribute('data-media-state')).toBe('not_loaded')
     expect(screen.getByTestId('verified-evidence-not-loaded')).toBeTruthy()
+  })
+})
+
+// ────────────────────────────────────────────────────────────────────────────
+describe('VehicleDetail — passport collection availability is never rendered as a fake empty history', () => {
+  it('renders ownership history source failure as unavailable rather than zero transfers', async () => {
+    servePassport(passportFixture({
+      evidenceVault: [],
+      ownershipSummary: {
+        previousOwnerCount: null,
+        previousOwnerCountState: 'unavailable',
+      },
+    }))
+    await renderSettled()
+    await waitFor(() => expect(screen.getByTestId('prev-owner-count-unavailable')).toBeTruthy())
+
+    expect(screen.getByTestId('prev-owner-count-unavailable').textContent).toMatch(/source unavailable/i)
+    expect(screen.queryByTestId('prev-owner-count')).toBeNull()
+  })
+
+  it('renders plate-history source failure as unavailable rather than no-history copy', async () => {
+    servePassport(passportFixture({
+      evidenceVault: [],
+      plateHistory: [],
+      plateHistoryState: 'unavailable',
+    }))
+    await renderSettled()
+    await waitFor(() => expect(screen.getByTestId('plate-history-unavailable')).toBeTruthy())
+
+    expect(screen.getByTestId('plate-history-unavailable').textContent).toMatch(/could not be read/i)
+    expect(screen.queryByTestId('plate-history-empty')).toBeNull()
   })
 })
 
