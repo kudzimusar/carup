@@ -125,6 +125,22 @@ export function projectMetadata(eventType, raw) {
         .slice(0, 24)
         .sort();
       if (codes.length) out[key] = codes;
+      continue;
+    }
+    if (key === 'filters' && value && typeof value === 'object') {
+      // A flat map of bounded CATALOGUE values (make, condition, price band, tags,
+      // sort). Free text never reaches here — the query string is hashed upstream.
+      const flat = {};
+      let count = 0;
+      for (const [fk, fv] of Object.entries(value)) {
+        if (count >= 16) break;
+        const boundedName = boundedCode(fk, 32);
+        if (!boundedName) continue;
+        if (typeof fv === 'number' && Number.isFinite(fv)) { flat[boundedName] = fv; count += 1; continue; }
+        const boundedVal = typeof fv === 'string' ? boundedCode(fv, 64) : null;
+        if (boundedVal) { flat[boundedName] = boundedVal; count += 1; }
+      }
+      if (Object.keys(flat).length) out[key] = flat;
     }
   }
   return out;

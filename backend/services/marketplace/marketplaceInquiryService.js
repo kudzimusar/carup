@@ -22,6 +22,7 @@ import {
 } from './marketplaceEventTypes.js';
 import { marketplaceReferralBridge } from './marketplaceReferralBridgeService.js';
 import { emitDomainEvent } from '../eventBus/eventBusService.js';
+import { emitInquiryCreated } from '../intelligence/marketplaceActivityEmitters.js';
 
 const TABLE = 'marketplace_inquiries';
 const MAX_MESSAGE_LEN = 2000;
@@ -260,6 +261,12 @@ export async function createInquiry(client, payload = {}, actor = null, deps = {
       });
     }
   }
+
+  // Governed Intelligence observation (I3), keyed on the inquiry row's own id so a
+  // retry cannot become a second lead. The inquiry row stays the authority for the
+  // count a seller is shown; this event exists so that lead can be stage-linked to
+  // the views and saves that preceded it. Best-effort: the lead is already durable.
+  emitInquiryCreated(inserted, { req: deps.req || null, client }).catch(() => {});
 
   const eventType = INQUIRY_TYPE_TO_REFERRAL_EVENT[inquiryType] || 'marketplace_inquiry_created';
   await referralBridge.emitMarketplaceReferralEvent({

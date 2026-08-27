@@ -115,8 +115,13 @@ export const ACTOR_SCOPES = Object.freeze(['anonymous', 'authenticated', 'system
  * never allowlisted; bounded codes and numbers only.
  */
 export const METADATA_ALLOWLIST = Object.freeze({
-  marketplace_search_performed: ['normalized_query_hash', 'filter_keys', 'result_count', 'country', 'region', 'currency'],
-  marketplace_search_zero_results: ['normalized_query_hash', 'filter_keys', 'country', 'region', 'currency'],
+  // `filters` holds the BOUNDED CATALOGUE values (make, condition, price band, tags,
+  // sort) — not the free-text query, which is hashed into normalized_query_hash and
+  // never stored. Values rather than keys alone, because Lost Opportunity (I6) must
+  // later answer "which searches could this listing have matched if a field were
+  // filled in", and a hash cannot answer that.
+  marketplace_search_performed: ['normalized_query_hash', 'filter_keys', 'filters', 'result_count', 'country', 'region', 'currency'],
+  marketplace_search_zero_results: ['normalized_query_hash', 'filter_keys', 'filters', 'country', 'region', 'currency'],
   marketplace_listing_impression: ['position', 'result_page', 'country', 'region'],
   marketplace_listing_opened: ['attributed', 'country', 'region', 'currency'],
   marketplace_listing_engaged: ['engagement_reason', 'dwell_ms'],
