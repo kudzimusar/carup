@@ -471,6 +471,8 @@ test('Verify shares the live Marketplace vehicle-story system and preserves look
   await page.reload({ waitUntil: 'domcontentloaded' })
   await expect(page.getByTestId('vehicle-search-command')).toBeVisible()
   await expect(page.getByTestId('compact-bottom-nav')).toBeVisible()
+  await expect(page.getByTestId('vehicle-search-result').first()).toBeVisible()
+  await expect(page.getByTestId('marketplace-card-trust').first()).toBeVisible()
   await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth + 1), {
     message: 'mobile Verify must not overflow horizontally',
   }).toBe(true)
