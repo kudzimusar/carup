@@ -11,6 +11,7 @@ import {
   Sheet, SheetContent, SheetFooter, SheetHeader, SheetTitle, SheetTrigger,
 } from '@/components/ui/sheet'
 import {
+  ArrowRight,
   CarFront,
   GitCompare,
   Loader2,
@@ -28,6 +29,7 @@ import { useIsMobile } from '@/hooks/use-mobile'
 import type { MarketplaceListingSummary } from '@/types'
 import { captureReferralFromUrl } from '@/lib/marketplaceReferral'
 import { summaryLocationLine } from '@/lib/governedLocation'
+import { ListingImage } from '@/components/marketplace/ListingImage'
 import {
   MarketplaceListingCard,
   type MarketplaceListingCardModel,
@@ -58,6 +60,13 @@ const CONDITION_CHIPS = [...CATEGORY_CHIPS, 'Parts & Accessories']
 const TRUST_CHIPS = TRUST_TAG_CHIPS
 
 const ALLOW_MOCK_LISTINGS = import.meta.env.DEV || import.meta.env.VITE_MARKETPLACE_ALLOW_MOCK === 'true'
+
+function marketplacePriceLabel(price: number | null | undefined, currency: string | null | undefined) {
+  if (typeof price !== 'number' || !Number.isFinite(price)) return 'Price not recorded'
+  const amount = price.toLocaleString()
+  if (!currency?.trim()) return `${amount} · currency not recorded`
+  return currency.toUpperCase() === 'USD' ? `${amount}` : `${currency.toUpperCase()} ${amount}`
+}
 
 /** Real listings when present; mock only when explicitly allowed; otherwise an honest empty list. */
 export function withMockFallback<T>(live: T[], mock: T[], allowMock: boolean = ALLOW_MOCK_LISTINGS): T[] {
@@ -511,6 +520,11 @@ export default function Marketplace() {
       : price >= priceRange[0] && price <= priceRange[1]
     return matchesSearch && matchesPrice
   }), [liveListings, searchQuery, priceRange])
+
+  const spotlightListing = visibleListings[0] ?? null
+  const compareSelections = compareVins
+    .map(vin => liveListings.find(listing => listing.vin === vin))
+    .filter((listing): listing is CanonicalListing => Boolean(listing))
 
   const filterState: MarketplaceUrlState = {
     ...url,
