@@ -2430,16 +2430,23 @@ export interface ReportTimelineItem {
   mileage_unit?: string | null;
 }
 
+export type ReportLifecycleReadState = 'complete' | 'partial' | 'unavailable';
+
+export interface ReportLifecycleCountEnvelope {
+  value: number;
+  state: ReportLifecycleReadState;
+}
+
 export interface ReportSections {
-  auction_import: { auction: number; import: number };
-  accident_repair: { accident: number; repair: number };
-  inspection: number;
-  ownership_transfer: number;
-  current_condition: number;
-  service?: number;
-  insurance?: number;
-  registration?: number;
-  clearance?: number;
+  auction_import: { auction: number | null; import: number | null };
+  accident_repair: { accident: number | null; repair: number | null };
+  inspection: number | null;
+  ownership_transfer: number | null;
+  current_condition: number | null;
+  service?: number | null;
+  insurance?: number | null;
+  registration?: number | null;
+  clearance?: number | null;
 }
 
 export interface ReportMileageObservation {
@@ -2455,6 +2462,7 @@ export interface ReportMileageObservation {
 export interface ReportMileageHistory {
   observations: ReportMileageObservation[];
   anomaly: boolean;
+  coverage_state?: ReportLifecycleReadState;
 }
 
 export interface ReportListingSnapshot {
@@ -2495,10 +2503,13 @@ export interface ReportCompleteness {
   timeline_coverage: number;
   classes_present: string[];
   classes_missing: string[];
+  classes_unavailable?: string[];
   mileage_coverage: number;
+  mileage_coverage_state?: ReportLifecycleReadState;
+  lifecycle_source_coverage?: number;
   source_diversity: number;
   inspection_recency: string | null;
-  current_condition_coverage: number;
+  current_condition_coverage: number | null;
   unresolved_conflict_count: number;
 }
 
@@ -2521,6 +2532,9 @@ export interface VehicleHistoryReportData {
     version: string;
     source_diversity: number;
     counts: Record<string, number>;
+    count_states?: Record<string, ReportLifecycleCountEnvelope>;
+    source_states?: Record<string, 'available' | 'unavailable'>;
+    mileage_coverage_state?: ReportLifecycleReadState;
   };
   generated_at_note?: string;
 }
