@@ -45,6 +45,7 @@ export interface MarketplaceListingCardModel {
   labels: string[]
   trust?: MarketplaceCardTrust | null
   carupGold?: boolean
+  syntheticDemo?: boolean
 }
 
 interface MarketplaceListingCardProps {
@@ -162,6 +163,11 @@ export function MarketplaceListingCard({
           {vehicle.carupGold && (
             <Badge className="border border-amber-200/80 bg-[linear-gradient(135deg,#f59e0b,#facc15)] px-2.5 py-1 text-[10px] font-black uppercase tracking-[0.12em] text-slate-950 shadow-[0_8px_20px_rgba(245,158,11,0.28)]" data-testid="carup-gold-badge">
               ★ CarUp Gold
+            </Badge>
+          )}
+          {vehicle.syntheticDemo && (
+            <Badge className="border border-sky-200 bg-sky-50/95 px-2 py-1 text-[10px] font-semibold text-sky-800 shadow-sm" data-testid="synthetic-demo-media-badge">
+              Demo media
             </Badge>
           )}
           {vehicle.plateVerified && (
