@@ -877,10 +877,12 @@ export function useCarUpApi() {
     return request(`/vehicles/${vin}/odometer-audit`)
   }, [request])
 
-  const createSafePayEscrow = useCallback(async (vin: string, sellerId: string, amount: number, currency = 'USD'): Promise<any> => {
+  const createSafePayEscrow = useCallback(async (vin: string): Promise<any> => {
+    // The compatibility URL is still live, but the browser no longer sends seller/amount/currency
+    // even as ignored fields. VIN + authenticated actor are the only client inputs.
     return request('/safepay/create', {
       method: 'POST',
-      body: JSON.stringify({ vin, sellerId, amount, currency })
+      body: JSON.stringify({ vin })
     })
   }, [request])
 
@@ -1982,12 +1984,10 @@ export function useCarUpApi() {
     return request(`/vehicles/${vin}/unpublish`, { method: 'POST' })
   }, [request])
 
-  const reserveVehicle = useCallback(async (vin: string, duration = 7): Promise<any> => {
-    // Buyer identity is the authenticated session server-side; never client-supplied.
-    return request(`/vehicles/${vin}/reserve`, {
-      method: 'POST',
-      body: JSON.stringify({ duration })
-    })
+  const reserveVehicle = useCallback(async (vin: string): Promise<any> => {
+    // Canonical reservation authority is VIN + authenticated actor only. Duration, seller,
+    // economics and eligibility are all server-owned.
+    return request(`/vehicles/${encodeURIComponent(vin)}/reserve`, { method: 'POST' })
   }, [request])
 
   // --- Domain 1: Dealer & Mechanic ---
