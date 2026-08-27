@@ -656,6 +656,10 @@ export class ReferralEngineService {
     if (scanEventType) {
       await this.recordReferralEvent({
         event_type: scanEventType,
+        // The tenant is the CODE's, never the caller's. `/validate` and
+        // `/codes/:code` are public, so a caller-supplied tenant would let anyone
+        // write referral activity into a tenant they merely named.
+        tenant_id: code.tenant_id,
         code_id: code.id,
         campaign_id: code.campaign_id,
         channel: scanChannel,
@@ -668,6 +672,7 @@ export class ReferralEngineService {
 
     await this.recordReferralEvent({
       event_type: reason ? REFERRAL_EVENT_TYPES.CODE_FAILED : REFERRAL_EVENT_TYPES.CODE_VALIDATED,
+      tenant_id: code.tenant_id,
       code_id: code.id,
       campaign_id: code.campaign_id,
       channel: input.channel || code.channel || REFERRAL_CHANNELS.WEB,

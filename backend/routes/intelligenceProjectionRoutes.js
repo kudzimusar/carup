@@ -19,6 +19,7 @@ import {
   getPlatformPartsIntelligence,
 } from '../services/intelligence/partsIntelligenceService.js';
 import { getTradeIntelligence } from '../services/intelligence/tradeIntelligenceService.js';
+import { getReferralIntelligence } from '../services/intelligence/referralIntelligenceService.js';
 import {
   getMechanicIntelligence,
   getGarageIntelligence,
@@ -283,6 +284,26 @@ router.get(
     try {
       const windowDays = resolveWindowDays(req.query.window);
       const data = await getTradeIntelligence(supabase, req.userContext, { windowDays });
+      return res.json({ ok: true, ...data });
+    } catch (error) {
+      return handleProjectionError(res, error);
+    }
+  }),
+);
+
+/**
+ * Referral and marketing intelligence — platform scope only.
+ *
+ * There is no referral-partner login, so no partner scope exists to serve this
+ * to, and the figures are platform-wide.
+ */
+router.get(
+  '/api/admin/referrals/intelligence',
+  authorizeRole(['admin']),
+  asyncHandler(async (req, res) => {
+    try {
+      const windowDays = resolveWindowDays(req.query.window);
+      const data = await getReferralIntelligence(supabase, req.userContext, { windowDays });
       return res.json({ ok: true, ...data });
     } catch (error) {
       return handleProjectionError(res, error);

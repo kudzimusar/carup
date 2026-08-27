@@ -216,6 +216,10 @@ export class ReferralLocalMarketplaceService {
     const summary = buildLeadSummary(input, intent.flow_type, intent.participant_type, validation);
     const leadEvent = await this.referralService.recordReferralEvent({
       event_type: LOCAL_MARKETPLACE_EVENT_TYPES.LEAD_CREATED,
+      // This route is public. Where a valid code was presented, its row is the
+      // authoritative tenant; otherwise the platform tenant. A caller-supplied
+      // tenant is never consulted.
+      tenant_id: validation?.valid ? validation.code.tenant_id : null,
       code_id: validation?.valid ? validation.code.id : null,
       campaign_id: validation?.valid ? validation.code.campaign_id : null,
       subject_type: 'local_marketplace_lead',

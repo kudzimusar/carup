@@ -4,7 +4,7 @@ import { authorizeRole, isUserIdFallbackAllowed, optionalAuth } from '../middlew
 import { rateLimiter } from '../middleware/securityMiddleware.js';
 import { ForbiddenError, ValidationError } from '../utils/errors.js';
 import { ACTOR_TYPES } from '../constants/referral/referralConstants.js';
-import { ReferralEngineService, buildActorContext } from '../services/referral/referralEngineService.js';
+import { ReferralEngineService, buildActorContext, buildVerifiedActorContext } from '../services/referral/referralEngineService.js';
 import { ReferralAgentGatewayService } from '../services/referral/referralAgentGatewayServiceSafe.js';
 import { ReferralChannelGatewayService, normalizeChannel } from '../services/referral/referralChannelGatewayService.js';
 import { ReferralLocalMarketplaceHardenedService } from '../services/referral/referralLocalMarketplaceHardenedService.js';
@@ -177,13 +177,15 @@ export function createReferralRouter({ client = supabase, service = null, agentG
     res.json({ success: true, ...result });
   }));
 
-  router.post('/validate', asyncHandler(async (req, res) => {
-    const result = await referralService.validateReferralCode(req.body, createActor(req, req.headers['x-actor-type'] || ACTOR_TYPES.USER));
+  // Public. The actor comes from a verified session or is anonymous — never from
+  // the x-user-id/x-actor-type/x-tenant-id headers, which any caller can set.
+  router.post('/validate', optionalAuth(), asyncHandler(async (req, res) => {
+    const result = await referralService.validateReferralCode(req.body, buildVerifiedActorContext(req));
     res.status(result.valid ? 200 : 422).json({ success: result.valid, ...result });
   }));
 
-  router.get('/codes/:code', asyncHandler(async (req, res) => {
-    const result = await referralService.validateReferralCode({ code: req.params.code, channel: req.query.channel, source: req.query.source, session_id: req.query.session_id }, createActor(req, ACTOR_TYPES.USER));
+  router.get('/codes/:code', optionalAuth(), asyncHandler(async (req, res) => {
+    const result = await referralService.validateReferralCode({ code: req.params.code, channel: req.query.channel, source: req.query.source, session_id: req.query.session_id }, buildVerifiedActorContext(req));
     res.status(result.valid ? 200 : 422).json({ success: result.valid, ...result });
   }));
 
@@ -285,14 +287,14 @@ export function createReferralRouter({ client = supabase, service = null, agentG
     res.json({ success: true, rules: localMarketplaceService.getRuleCatalog() });
   }));
 
-  router.post('/local-marketplace/intent', asyncHandler(async (req, res) => {
-    const actor = createActor(req, req.headers['x-actor-type'] || ACTOR_TYPES.USER);
+  router.post('/local-marketplace/intent', optionalAuth(), asyncHandler(async (req, res) => {
+    const actor = buildVerifiedActorContext(req);
     const response = await localMarketplaceService.recordIntent(req.body || {}, actor);
     res.status(201).json(response);
   }));
 
-  router.post('/local-marketplace/leads', asyncHandler(async (req, res) => {
-    const actor = createActor(req, req.headers['x-actor-type'] || ACTOR_TYPES.USER);
+  router.post('/local-marketplace/leads', optionalAuth(), asyncHandler(async (req, res) => {
+    const actor = buildVerifiedActorContext(req);
     const response = await localMarketplaceService.createLead(req.body || {}, actor);
     res.status(201).json(response);
   }));
