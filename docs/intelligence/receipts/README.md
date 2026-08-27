@@ -20,3 +20,5 @@ This directory holds the phase receipts for the **CarUp Intelligence 1.0 — Dat
 | I3 | `I3_MARKETPLACE_INSTRUMENTATION.md` | I3a (server) + I3b (web) **complete**; I3c (mobile) + web card call sites **sequenced after PR #182** (those files are owned/created by that lane) |
 | I4 | `I4_ROLLUPS_AND_READ_MODELS.md` | **complete** — reconciliation proven; staging migration applied |
 | I5 | `I5_AUTHORIZATION_AND_PRIVACY_PROJECTIONS.md` | **complete** — boundaries proven; gap G5 closed for Intelligence |
+| I6 | `I6_COMPLETENESS_AND_REVIEW_REMEDIATION.md` | **complete** — LC1/LO1 shipped; I2–I5 adversarial review resolved and pinned by 28 regression tests |
+| I7 | Seller/Owner Intelligence surfaces | next |
