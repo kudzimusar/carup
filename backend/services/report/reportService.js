@@ -51,6 +51,12 @@ function buildMileageHistory(evidence, listings) {
   return { observations: obs, anomaly: regression };
 }
 
+function lifecycleCountValue(lifecycle, category) {
+  const envelope = lifecycle.count_states?.[category];
+  if (!envelope || envelope.state !== 'complete') return null;
+  return envelope.value;
+}
+
 function computeCompleteness(sections) {
   const lifecycle = sections.lifecycle;
   const classesPresent = new Set(
@@ -62,27 +68,60 @@ function computeCompleteness(sections) {
     .filter((event) => event.category === 'inspection')
     .map((event) => event.date).filter(Boolean).sort().pop() || null;
 
+  const classesUnavailable = EVIDENCE_CLASSES.filter((category) => {
+    const state = lifecycle.count_states?.[category]?.state;
+    return state && state !== 'complete';
+  });
+  const classesMissing = EVIDENCE_CLASSES.filter((category) => {
+    const envelope = lifecycle.count_states?.[category];
+    return envelope?.state === 'complete' && envelope.value === 0;
+  });
+  const sourceStates = Object.values(lifecycle.source_states || {});
+  const sourceAvailability = sourceStates.length
+    ? +(sourceStates.filter((state) => state === 'available').length / sourceStates.length).toFixed(2)
+    : 0;
+
+  const currentCondition = lifecycle.count_states?.current_condition;
   return {
     identity_coverage: sections.identity.vin ? 1 : 0,
     timeline_coverage: +(classesPresent.size / EVIDENCE_CLASSES.length).toFixed(2),
     classes_present: [...classesPresent],
-    classes_missing: EVIDENCE_CLASSES.filter((category) => !classesPresent.has(category)),
+    classes_missing: classesMissing,
+    classes_unavailable: classesUnavailable,
     mileage_coverage: lifecycle.mileage.observations.length ? 1 : 0,
+    mileage_coverage_state: lifecycle.mileage.coverage_state || 'unavailable',
+    lifecycle_source_coverage: sourceAvailability,
     source_diversity: lifecycle.source_diversity,
     inspection_recency: latestInspection,
-    current_condition_coverage: lifecycle.counts.current_condition > 0 ? 1 : 0,
+    current_condition_coverage: currentCondition?.state === 'complete'
+      ? (currentCondition.value > 0 ? 1 : 0)
+      : null,
     unresolved_conflict_count: sections.disclosure_conflicts.length,
   };
 }
 
 function computeLimitations(sections, completeness) {
   const lim = [];
-  if (completeness.classes_missing.length) lim.push(`No evidence for: ${completeness.classes_missing.join(', ')}. Absence of records is NOT proof of a clean history.`);
-  if (!sections.lifecycle.mileage.observations.length) lim.push('No mileage observations are available in the current public lifecycle coverage — odometer history cannot be verified.');
-  if (!completeness.inspection_recency) lim.push('No inspection records available.');
+  if (completeness.classes_missing.length) {
+    lim.push(`No records are currently held for: ${completeness.classes_missing.join(', ')}. Absence of records is NOT proof of a clean history.`);
+  }
+  if (completeness.classes_unavailable?.length) {
+    lim.push(`Lifecycle source coverage is incomplete for: ${completeness.classes_unavailable.join(', ')}. CarUp does not convert an unread source into a zero count.`);
+  }
+  if (!sections.lifecycle.mileage.observations.length && sections.lifecycle.mileage.coverage_state === 'complete') {
+    lim.push('No mileage observations are held in the lifecycle sources read for this report — odometer history cannot be verified.');
+  } else if (sections.lifecycle.mileage.coverage_state !== 'complete') {
+    lim.push('Mileage source coverage is incomplete; missing observations cannot be treated as proof that no mileage history exists.');
+  }
+  const inspectionState = sections.lifecycle.count_states?.inspection?.state;
+  if (!completeness.inspection_recency && inspectionState === 'complete') {
+    lim.push('No inspection records are held in the inspection sources read for this report.');
+  } else if (!completeness.inspection_recency && inspectionState !== 'complete') {
+    lim.push('Inspection source coverage is incomplete; CarUp cannot state that no inspection record exists.');
+  }
   if (!sections.listings.length) lim.push('No listing snapshots captured for this vehicle.');
-  if (sections.lifecycle.source_diversity <= 1) lim.push('Lifecycle coverage comes from a single source family; cross-source corroboration is limited.');
-  lim.push('This report reflects only evidence held by CarUp at generation time and may be incomplete.');
+  if (sections.lifecycle.source_diversity <= 1) lim.push('Lifecycle coverage comes from a single recorded source family; cross-source corroboration is limited.');
+  lim.push('This report reflects only records CarUp could read at generation time and may be incomplete.');
   return lim;
 }
 
@@ -163,20 +202,29 @@ export async function assembleReport(supabase, vin, { audience = 'public' } = {}
     key_alerts: alerts,
     timeline,
     sections: {
-      auction_import: { auction: lifecycle.counts.auction || 0, import: lifecycle.counts.import || 0 },
-      accident_repair: { accident: lifecycle.counts.accident || 0, repair: lifecycle.counts.repair || 0 },
-      inspection: lifecycle.counts.inspection || 0,
-      ownership_transfer: lifecycle.counts.ownership_transfer || 0,
-      current_condition: lifecycle.counts.current_condition || 0,
-      service: lifecycle.counts.service || 0,
-      insurance: lifecycle.counts.insurance || 0,
-      registration: lifecycle.counts.registration || 0,
-      clearance: lifecycle.counts.clearance || 0,
+      auction_import: {
+        auction: lifecycleCountValue(lifecycle, 'auction'),
+        import: lifecycleCountValue(lifecycle, 'import'),
+      },
+      accident_repair: {
+        accident: lifecycleCountValue(lifecycle, 'accident'),
+        repair: lifecycleCountValue(lifecycle, 'repair'),
+      },
+      inspection: lifecycleCountValue(lifecycle, 'inspection'),
+      ownership_transfer: lifecycleCountValue(lifecycle, 'ownership_transfer'),
+      current_condition: lifecycleCountValue(lifecycle, 'current_condition'),
+      service: lifecycleCountValue(lifecycle, 'service'),
+      insurance: lifecycleCountValue(lifecycle, 'insurance'),
+      registration: lifecycleCountValue(lifecycle, 'registration'),
+      clearance: lifecycleCountValue(lifecycle, 'clearance'),
     },
     lifecycle_projection: {
       version: lifecycle.projection_version,
       source_diversity: lifecycle.source_diversity,
       counts: lifecycle.counts,
+      count_states: lifecycle.count_states,
+      source_states: lifecycle.source_states,
+      mileage_coverage_state: lifecycle.mileage.coverage_state,
     },
     mileage_history: mileage,
     listing_history: listings.map((l) => ({ version: l.version, captured_at: l.captured_at, title: l.title, price: l.price, currency: l.currency, advertised_mileage: l.advertised_mileage, claimed_condition: l.claimed_condition })),
