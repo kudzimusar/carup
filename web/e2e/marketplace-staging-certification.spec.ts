@@ -374,12 +374,32 @@ test('tablet staging switches to the compact app shell instead of the desktop fo
   const diagnostics = installDiagnostics(page)
   await loadMarketplace(page)
 
-  await expect(page.getByTestId('compact-bottom-nav')).toBeVisible()
+  const compactNav = page.getByTestId('compact-bottom-nav')
+  await expect(compactNav).toBeVisible()
   await expect(page.locator('footer')).toBeHidden()
   await expect(page.getByTestId('marketplace-compact-header').getByRole('heading', { name: /Find the car\.\s*Know what stands behind it\./i })).toBeVisible()
   await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth + 1), {
     message: 'tablet Marketplace must not overflow horizontally',
   }).toBe(true)
+
+  const compareToggles = page.getByTestId('marketplace-compare-toggle')
+  expect(await compareToggles.count(), 'tablet Marketplace needs at least two compare candidates').toBeGreaterThanOrEqual(2)
+  await compareToggles.nth(0).click()
+  await compareToggles.nth(1).click()
+
+  const compareBar = page.getByTestId('marketplace-compare-bar')
+  const compareGo = page.getByTestId('marketplace-compare-go')
+  await expect(compareBar).toBeVisible()
+  await expect(compareBar).toContainText('2 selected to compare')
+  await expect(compareGo).toBeVisible()
+  await expect(compareGo).toBeEnabled()
+  await expect(compareGo).toHaveText(/Compare 2 vehicles/i)
+
+  const compareBox = await compareBar.boundingBox()
+  const navBox = await compactNav.boundingBox()
+  expect(compareBox, 'compare dock must have a rendered box').not.toBeNull()
+  expect(navBox, 'compact navigation must have a rendered box').not.toBeNull()
+  expect(compareBox!.y + compareBox!.height, 'compare dock must stay above compact navigation').toBeLessThanOrEqual(navBox!.y)
 
   await page.screenshot({ path: testInfo.outputPath('tablet-marketplace.png'), fullPage: true })
   await assertCriticalBrowserHealth(testInfo, diagnostics)
