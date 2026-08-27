@@ -616,7 +616,7 @@ export default function Marketplace() {
               </p>
 
               <div className="mt-5 flex flex-wrap items-center gap-2" data-testid="marketplace-entry-actions">
-                <BuyerAssistantDrawer />
+                <BuyerAssistantDrawer triggerClassName="border-slate-600 bg-transparent text-white hover:bg-slate-800 hover:text-white" />
                 <Button asChild variant="outline" className="border-slate-600 bg-transparent text-white hover:bg-slate-800 hover:text-white" data-testid="marketplace-parts-link">
                   <Link to="/marketplace/parts"><Wrench className="mr-2 h-4 w-4" />Parts</Link>
                 </Button>
@@ -628,6 +628,7 @@ export default function Marketplace() {
                   defaultInquiryType="import_quote_request"
                   triggerLabel="Import to Zimbabwe"
                   triggerVariant="outline"
+                  triggerClassName="border-slate-600 bg-transparent text-white hover:bg-slate-800 hover:text-white"
                 />
               </div>
             </div>
