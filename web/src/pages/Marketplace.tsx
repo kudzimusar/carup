@@ -601,26 +601,33 @@ export default function Marketplace() {
 
   return (
     <div className="min-h-screen bg-[#f6f7f9] text-slate-950" data-testid="marketplace-page">
-      <section className="border-b border-slate-800 bg-[#0b1220] text-white">
-        <div className="section-padding mx-auto max-w-[1440px] py-8 sm:py-10">
-          <div className="grid gap-7 lg:grid-cols-[minmax(0,1fr)_360px] lg:items-end">
+      <section className="relative overflow-hidden border-b border-slate-800 bg-[#07101f] text-white">
+        <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_18%_20%,rgba(249,115,22,0.24),transparent_34%),radial-gradient(circle_at_82%_10%,rgba(14,165,233,0.16),transparent_30%),linear-gradient(135deg,transparent_0%,rgba(255,255,255,0.035)_48%,transparent_100%)]" />
+        <div className="pointer-events-none absolute -right-24 top-8 h-80 w-80 rounded-full border border-white/5" />
+        <div className="pointer-events-none absolute -right-4 top-28 h-56 w-56 rounded-full border border-orange-400/10" />
+
+        <div className="section-padding relative mx-auto max-w-[1440px] py-10 sm:py-14 lg:py-16">
+          <div className="grid gap-10 lg:grid-cols-[minmax(0,1fr)_390px] lg:items-center">
             <div>
-              <div className="mb-3 flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.16em] text-orange-400">
+              <div className="mb-4 inline-flex items-center gap-2 rounded-full border border-orange-400/25 bg-orange-400/10 px-3 py-1.5 text-[11px] font-semibold uppercase tracking-[0.18em] text-orange-300">
                 <CarFront className="h-4 w-4" /> CarUp Marketplace
               </div>
-              <h1 className="max-w-3xl text-3xl font-bold tracking-tight sm:text-4xl lg:text-5xl">
-                Find the right car. Know what CarUp knows.
+              <h1 className="max-w-4xl text-4xl font-black tracking-[-0.035em] sm:text-5xl lg:text-6xl lg:leading-[1.02]">
+                Find the right car.
+                <span className="block bg-gradient-to-r from-orange-300 via-orange-500 to-amber-300 bg-clip-text text-transparent">
+                  Know what CarUp knows.
+                </span>
               </h1>
-              <p className="mt-3 max-w-2xl text-sm leading-6 text-slate-300 sm:text-base">
+              <p className="mt-5 max-w-2xl text-sm leading-7 text-slate-300 sm:text-base lg:text-lg">
                 Shop published vehicles with clear pricing, governed vehicle facts and canonical Trust states — without turning unknown data into a claim.
               </p>
 
-              <div className="mt-5 flex flex-wrap items-center gap-2" data-testid="marketplace-entry-actions">
-                <BuyerAssistantDrawer triggerClassName="border-slate-600 bg-transparent text-white hover:bg-slate-800 hover:text-white" />
-                <Button asChild variant="outline" className="border-slate-600 bg-transparent text-white hover:bg-slate-800 hover:text-white" data-testid="marketplace-parts-link">
+              <div className="mt-6 flex flex-wrap items-center gap-2" data-testid="marketplace-entry-actions">
+                <BuyerAssistantDrawer triggerClassName="border-orange-400/40 bg-orange-500 text-white shadow-[0_10px_30px_rgba(249,115,22,0.25)] hover:bg-orange-400 hover:text-white" />
+                <Button asChild variant="outline" className="border-slate-600 bg-white/5 text-white backdrop-blur hover:bg-white/10 hover:text-white" data-testid="marketplace-parts-link">
                   <Link to="/marketplace/parts"><Wrench className="mr-2 h-4 w-4" />Parts</Link>
                 </Button>
-                <Button asChild variant="outline" className="border-slate-600 bg-transparent text-white hover:bg-slate-800 hover:text-white" data-testid="marketplace-services-link">
+                <Button asChild variant="outline" className="border-slate-600 bg-white/5 text-white backdrop-blur hover:bg-white/10 hover:text-white" data-testid="marketplace-services-link">
                   <Link to="/marketplace/services"><Route className="mr-2 h-4 w-4" />Garages &amp; Services</Link>
                 </Button>
                 <InquiryModal
@@ -628,20 +635,61 @@ export default function Marketplace() {
                   defaultInquiryType="import_quote_request"
                   triggerLabel="Import to Zimbabwe"
                   triggerVariant="outline"
-                  triggerClassName="border-slate-600 bg-transparent text-white hover:bg-slate-800 hover:text-white"
+                  triggerClassName="border-slate-600 bg-white/5 text-white backdrop-blur hover:bg-white/10 hover:text-white"
                 />
+              </div>
+
+              <div className="mt-8 grid max-w-3xl grid-cols-1 gap-2 sm:grid-cols-3" aria-label="Marketplace trust principles">
+                {[
+                  ['Evidence-first', 'Claims show their source or stay unknown'],
+                  ['Buyer-safe', 'Privacy and adverse states fail closed'],
+                  ['Living passport', 'History grows as verified records arrive'],
+                ].map(([title, copy]) => (
+                  <div key={title} className="rounded-2xl border border-white/10 bg-white/[0.045] p-3.5 backdrop-blur-sm">
+                    <div className="flex items-center gap-2 text-xs font-semibold text-white">
+                      <ShieldCheck className="h-4 w-4 text-orange-400" /> {title}
+                    </div>
+                    <p className="mt-1.5 text-[11px] leading-5 text-slate-400">{copy}</p>
+                  </div>
+                ))}
               </div>
             </div>
 
-            <div className="border-l-2 border-orange-500 pl-4 lg:mb-1">
-              <div className="flex items-center gap-2 text-sm font-semibold text-white">
-                <ShieldCheck className="h-4 w-4 text-orange-400" /> Trust is evidence-led
-              </div>
-              <p className="mt-1.5 text-xs leading-5 text-slate-400">
-                A numerical score appears only when the canonical Trust service says the vehicle is evaluated. Legacy scores are never substituted.
-              </p>
-              <div className="mt-3 flex items-center gap-1.5 text-xs text-slate-400">
-                <Globe2 className="h-3.5 w-3.5 text-sky-400" /> Zimbabwe + Diaspora buying journeys
+            <div className="relative">
+              <div className="rounded-[28px] border border-white/10 bg-white/[0.055] p-5 shadow-[0_30px_80px_rgba(0,0,0,0.35)] backdrop-blur-xl">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-orange-300">CarUp Intelligence</p>
+                    <p className="mt-1 text-xl font-bold">Trust is evidence-led</p>
+                  </div>
+                  <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-orange-500/15 text-orange-300 ring-1 ring-orange-400/20">
+                    <ShieldCheck className="h-6 w-6" />
+                  </div>
+                </div>
+                <div className="mt-5 space-y-3">
+                  <div className="rounded-2xl bg-[#0b1627] p-4 ring-1 ring-white/5">
+                    <div className="flex items-end justify-between gap-4">
+                      <div>
+                        <p className="text-xs text-slate-400">Canonical Trust</p>
+                        <p className="mt-1 text-lg font-bold">Score + confidence + evidence</p>
+                      </div>
+                      <Sparkles className="h-5 w-5 text-orange-400" />
+                    </div>
+                    <p className="mt-2 text-xs leading-5 text-slate-400">A number appears only when the canonical authority has evaluated the vehicle. No legacy fallback.</p>
+                  </div>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div className="rounded-2xl border border-white/8 bg-white/[0.035] p-3">
+                      <Globe2 className="h-4 w-4 text-sky-400" />
+                      <p className="mt-2 text-xs font-semibold">Zimbabwe + Diaspora</p>
+                      <p className="mt-1 text-[10px] text-slate-500">One buying journey</p>
+                    </div>
+                    <div className="rounded-2xl border border-white/8 bg-white/[0.035] p-3">
+                      <Route className="h-4 w-4 text-orange-400" />
+                      <p className="mt-2 text-xs font-semibold">Vehicle story</p>
+                      <p className="mt-1 text-[10px] text-slate-500">History, evidence, gaps</p>
+                    </div>
+                  </div>
+                </div>
               </div>
             </div>
           </div>
