@@ -29,6 +29,7 @@ import { getFixtureExclusion } from './marketplaceClassificationRules.js';
  * by there being only one function that decides.
  */
 import { MEDIA_BLOCK_STATES, toListingMediaBlock } from '../../utils/vehicleMediaProjection.js';
+import { projectCarUpGold } from './carUpGoldService.js';
 
 /**
  * THE TRUST NUMBER ON A LISTING COMES FROM THE CANONICAL AUTHORITY, NEVER FROM THE ROW.
@@ -665,6 +666,9 @@ export function buildMarketplaceListingSummary({
     // null whenever there is nothing canonical to publish. It is never `numericValue(...)` of the
     // raw column: that read is what published an unfounded 84 to the marketplace.
     trust_score: canonicalTrust?.score ?? null,
+    // A premium tier is a backend-governed qualification, not a frontend score colour.
+    // It deliberately remains null for today's low-confidence staging population.
+    carup_gold: projectCarUpGold(canonicalTrust),
     // Same key, same election, ONE definition of publishable — plus the two facts that keep it
     // honest. See `electPrimaryImage`.
     ...primaryImage,
