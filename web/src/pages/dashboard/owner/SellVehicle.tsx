@@ -130,23 +130,27 @@ export default function SellVehicle() {
   }
 
   const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const files = Array.from(e.target.files || [])
+    const files = Array.from(e.target.files || []).filter(file => file.type.startsWith('image/'))
     if (form.images.length + files.length > 15) {
       toast.error('Maximum 15 images allowed')
       return
     }
-    files.forEach(file => {
-      if (!file.type.startsWith('image/')) return
+    if (files.length === 0) return
+
+    // Preserve the seller's selection order even when FileReader completion order differs. The
+    // first photo is merchandising intent, so an async race must never choose it for the seller.
+    Promise.all(files.map(file => new Promise<string>((resolve) => {
       const reader = new FileReader()
-      reader.onload = (ev) => {
-        const src = String(ev.target?.result || '')
-        if (!src) return
-        setForm(previous => ({
-          ...previous,
-          images: [...previous.images, src].slice(0, 15),
-        }))
-      }
+      reader.onload = () => resolve(String(reader.result || ''))
+      reader.onerror = () => resolve('')
       reader.readAsDataURL(file)
+    }))).then(results => {
+      const images = results.filter(Boolean)
+      if (images.length === 0) return
+      setForm(previous => ({
+        ...previous,
+        images: [...previous.images, ...images].slice(0, 15),
+      }))
     })
   }
 
