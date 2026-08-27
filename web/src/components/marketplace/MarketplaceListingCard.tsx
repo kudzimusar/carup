@@ -44,6 +44,7 @@ export interface MarketplaceListingCardModel {
   partSentryChecked: boolean
   labels: string[]
   trust?: MarketplaceCardTrust | null
+  carupGold?: boolean
 }
 
 interface MarketplaceListingCardProps {
@@ -158,6 +159,11 @@ export function MarketplaceListingCard({
         </Link>
 
         <div className="pointer-events-none absolute inset-x-3 top-3 flex flex-wrap gap-1.5">
+          {vehicle.carupGold && (
+            <Badge className="border border-amber-200/80 bg-[linear-gradient(135deg,#f59e0b,#facc15)] px-2.5 py-1 text-[10px] font-black uppercase tracking-[0.12em] text-slate-950 shadow-[0_8px_20px_rgba(245,158,11,0.28)]" data-testid="carup-gold-badge">
+              ★ CarUp Gold
+            </Badge>
+          )}
           {vehicle.plateVerified && (
             <Badge className="border-0 bg-emerald-700 text-[10px] text-white shadow-sm" data-testid="marketplace-plate-confirmed-badge">
               <CheckCircle2 className="mr-1 h-3 w-3" /> Plate confirmed
