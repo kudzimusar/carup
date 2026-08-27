@@ -2,23 +2,55 @@ import { useEffect, useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
-import { Loader2, ArrowLeft, ShieldCheck } from 'lucide-react'
+import { ListingImage } from '@/components/marketplace/ListingImage'
+import { Loader2, ArrowLeft, ShieldCheck, CheckCircle2 } from 'lucide-react'
 import { useCarUpApi } from '@/hooks/useCarUpApi'
+import { canRenderMarketplacePrimaryImage } from '@/lib/marketplacePresentation'
 
 interface CompareEntry {
   vin: string
   make: string
   model: string
-  year: number
-  price: number
-  currency: string
-  mileage: number
-  condition_category: string
-  trust_score: number
+  year: number | null
+  price: number | null
+  currency: string | null
+  mileage: number | null
+  condition_category: string | null
+  trust_score: number | null
+  trust?: {
+    score: number | null
+    band: string | null
+    evaluation_state: string
+    confidence: string | null
+  } | null
   marketplace_tags: string[]
   primary_image_url?: string | null
-  trust_summary?: { trust_badges: string[]; risk_status: string; partsentry_public_status: string; evidence_status: string }
-  pricing_summary?: { estimated_total?: number; currency?: string }
+  primary_image_state?: string | null
+  trust_summary?: {
+    trust_badges: string[]
+    risk_status: string
+    partsentry_public_status: string
+    evidence_status: string
+  }
+  pricing_summary?: { estimated_total?: number | null; currency?: string | null }
+}
+
+function titleCase(value: string | null | undefined) {
+  if (!value) return 'Not recorded'
+  return value.replace(/[_-]+/g, ' ').replace(/\b\w/g, (letter) => letter.toUpperCase())
+}
+
+function money(amount: number | null | undefined, currency: string | null | undefined) {
+  if (typeof amount !== 'number' || !Number.isFinite(amount)) return 'Price not recorded'
+  if (!currency?.trim()) return `${amount.toLocaleString()} · currency not recorded`
+  const code = currency.trim().toUpperCase()
+  return code === 'USD' ? `$${amount.toLocaleString()}` : `${code} ${amount.toLocaleString()}`
+}
+
+function trustLabel(entry: CompareEntry) {
+  const trust = entry.trust
+  if (!trust || trust.evaluation_state !== 'evaluated' || typeof trust.score !== 'number') return 'Not evaluated'
+  return `${titleCase(trust.band)} · ${trust.score}/100`
 }
 
 export default function MarketplaceCompare() {
@@ -45,70 +77,97 @@ export default function MarketplaceCompare() {
   }, [searchParams.get('vins')])
 
   const rows: { label: string; render: (e: CompareEntry) => React.ReactNode }[] = [
-    { label: 'Price', render: (e) => `${e.currency} ${(e.price || 0).toLocaleString()}` },
-    { label: 'All-in (est.)', render: (e) => e.pricing_summary?.estimated_total ? `${e.pricing_summary.currency} ${e.pricing_summary.estimated_total.toLocaleString()}` : '—' },
-    { label: 'Year', render: (e) => e.year || '—' },
-    { label: 'Mileage', render: (e) => `${(e.mileage || 0).toLocaleString()} km` },
-    { label: 'Condition', render: (e) => (e.condition_category || 'unknown').replace(/_/g, ' ') },
-    { label: 'Trust score', render: (e) => e.trust_score ?? '—' },
-    { label: 'Trust badges', render: (e) => e.trust_summary?.trust_badges?.length ? <div className="flex flex-wrap gap-1">{e.trust_summary.trust_badges.map((b) => <Badge key={b} variant="outline" className="text-[10px]">{b.replace(/_/g, ' ')}</Badge>)}</div> : '—' },
-    { label: 'Evidence', render: (e) => e.trust_summary?.evidence_status?.replace(/_/g, ' ') || '—' },
-    { label: 'PartSentry', render: (e) => e.trust_summary?.partsentry_public_status?.replace(/_/g, ' ') || '—' },
-    { label: 'Risk', render: (e) => e.trust_summary?.risk_status || '—' },
+    { label: 'Price', render: (e) => money(e.price, e.currency) },
+    {
+      label: 'All-in (est.)',
+      render: (e) => {
+        const amount = e.pricing_summary?.estimated_total
+        return typeof amount === 'number' ? money(amount, e.pricing_summary?.currency ?? e.currency) : 'Not available'
+      },
+    },
+    { label: 'Year', render: (e) => e.year ?? 'Not recorded' },
+    { label: 'Mileage', render: (e) => typeof e.mileage === 'number' ? `${e.mileage.toLocaleString()} km` : 'Not recorded' },
+    { label: 'Condition', render: (e) => titleCase(e.condition_category) },
+    { label: 'Canonical Trust', render: (e) => trustLabel(e) },
+    { label: 'Confidence', render: (e) => titleCase(e.trust?.confidence) },
+    {
+      label: 'Trust badges',
+      render: (e) => e.trust_summary?.trust_badges?.length
+        ? <div className="flex flex-wrap gap-1">{e.trust_summary.trust_badges.map((b) => <Badge key={b} variant="outline" className="text-[10px]">{titleCase(b)}</Badge>)}</div>
+        : 'None published',
+    },
+    { label: 'Evidence', render: (e) => titleCase(e.trust_summary?.evidence_status) },
+    { label: 'PartSentry', render: (e) => titleCase(e.trust_summary?.partsentry_public_status) },
+    { label: 'Risk', render: (e) => titleCase(e.trust_summary?.risk_status) },
   ]
 
   return (
-    <div className="min-h-screen bg-gray-50" data-testid="marketplace-compare-page">
-      <div className="border-b bg-white">
-        <div className="section-padding mx-auto max-w-[1440px] py-6">
-          <Button asChild variant="ghost" size="sm" className="mb-2">
+    <div className="min-h-screen bg-[#f6f7f9]" data-testid="marketplace-compare-page">
+      <div className="border-b border-slate-800 bg-[#0b1220] text-white">
+        <div className="section-padding mx-auto max-w-[1440px] py-7">
+          <Button asChild variant="ghost" size="sm" className="mb-3 text-slate-300 hover:bg-slate-800 hover:text-white">
             <Link to="/marketplace"><ArrowLeft className="mr-1 h-4 w-4" /> Back to marketplace</Link>
           </Button>
-          <h1 className="text-2xl font-bold">Compare listings</h1>
-          <p className="text-sm text-gray-600">Side-by-side trust, pricing and condition — all backend-governed.</p>
+          <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.16em] text-orange-400">
+            <ShieldCheck className="h-4 w-4" /> Evidence-led comparison
+          </div>
+          <h1 className="mt-2 text-3xl font-bold tracking-tight">Compare listings</h1>
+          <p className="mt-1 max-w-2xl text-sm text-slate-300">
+            Side-by-side price, condition and canonical Trust. Missing data stays missing — CarUp never fills a gap just to make the table look complete.
+          </p>
         </div>
       </div>
 
       <div className="section-padding mx-auto max-w-[1440px] py-6">
         {loading ? (
-          <div className="flex items-center gap-2 text-gray-500"><Loader2 className="h-4 w-4 animate-spin" /> Loading comparison…</div>
+          <div className="flex items-center gap-2 text-slate-500"><Loader2 className="h-4 w-4 animate-spin" /> Loading comparison…</div>
         ) : entries.length === 0 ? (
-          <div className="rounded-xl border border-gray-100 bg-white p-8 text-center" data-testid="marketplace-compare-empty">
-            <p className="text-gray-600">No listings to compare. Pick up to 4 from the marketplace.</p>
-            <Button asChild className="mt-4"><Link to="/marketplace">Browse listings</Link></Button>
+          <div className="rounded-2xl border border-slate-200 bg-white p-8 text-center" data-testid="marketplace-compare-empty">
+            <p className="font-semibold">No public listings to compare.</p>
+            <Button asChild className="mt-4"><Link to="/marketplace">Browse marketplace</Link></Button>
           </div>
         ) : (
-          <div className="overflow-x-auto rounded-xl border border-gray-100 bg-white shadow-sm">
-            <table className="w-full text-sm" data-testid="marketplace-compare-table">
+          <div className="overflow-x-auto rounded-2xl border border-slate-200 bg-white shadow-sm">
+            <table className="min-w-[760px] w-full border-collapse">
               <thead>
-                <tr className="border-b">
-                  <th className="p-3 text-left text-xs font-semibold text-gray-500">Attribute</th>
-                  {entries.map((e) => (
-                    <th key={e.vin} className="p-3 text-left">
-                      <Link to={`/marketplace/${encodeURIComponent(e.vin)}`} className="block">
-                        {e.primary_image_url && <img src={e.primary_image_url} alt={`${e.make} ${e.model}`} className="mb-2 h-20 w-full rounded object-cover" />}
-                        <span className="font-semibold">{e.year} {e.make} {e.model}</span>
-                      </Link>
-                    </th>
-                  ))}
+                <tr className="border-b border-slate-200">
+                  <th className="w-52 p-5 text-left text-sm font-semibold text-slate-500">Attribute</th>
+                  {entries.map((entry) => {
+                    const image = canRenderMarketplacePrimaryImage(entry.primary_image_state, entry.primary_image_url)
+                      ? entry.primary_image_url
+                      : null
+                    return (
+                      <th key={entry.vin} className="min-w-[230px] p-5 text-left align-top">
+                        <Link to={`/marketplace/${encodeURIComponent(entry.vin)}`} className="group">
+                          <div className="aspect-[16/9] overflow-hidden rounded-xl bg-slate-100">
+                            <ListingImage src={image} alt={`${entry.year ?? ''} ${entry.make} ${entry.model}`} className="h-full w-full" />
+                          </div>
+                          <div className="mt-3 flex items-start justify-between gap-2">
+                            <div>
+                              <p className="text-base font-bold text-slate-950 group-hover:text-orange-700">{entry.year ?? ''} {entry.make} {entry.model}</p>
+                              <p className="mt-1 text-sm text-slate-500">{money(entry.price, entry.currency)}</p>
+                            </div>
+                            {entry.trust?.evaluation_state === 'evaluated' && typeof entry.trust.score === 'number' && entry.trust.score >= 75 && (
+                              <CheckCircle2 className="h-5 w-5 shrink-0 text-emerald-600" aria-label="Strong canonical Trust" />
+                            )}
+                          </div>
+                        </Link>
+                      </th>
+                    )
+                  })}
                 </tr>
               </thead>
               <tbody>
-                {rows.map((r) => (
-                  <tr key={r.label} className="border-b last:border-0">
-                    <td className="p-3 font-medium text-gray-600">{r.label}</td>
-                    {entries.map((e) => (
-                      <td key={e.vin} className="p-3 capitalize text-gray-800">{r.render(e)}</td>
-                    ))}
+                {rows.map((row) => (
+                  <tr key={row.label} className="border-b border-slate-100 last:border-0">
+                    <th className="p-5 text-left text-sm font-medium text-slate-500">{row.label}</th>
+                    {entries.map((entry) => <td key={entry.vin} className="p-5 text-sm text-slate-800">{row.render(entry)}</td>)}
                   </tr>
                 ))}
               </tbody>
             </table>
           </div>
         )}
-        <p className="mt-4 flex items-center gap-1 text-xs text-gray-500">
-          <ShieldCheck className="h-3 w-3 text-emerald-500" /> Trust signals are backend-generated and evidence-based.
-        </p>
       </div>
     </div>
   )
