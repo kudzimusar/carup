@@ -136,9 +136,15 @@ export default function SellVehicle() {
       return
     }
     files.forEach(file => {
+      if (!file.type.startsWith('image/')) return
       const reader = new FileReader()
       reader.onload = (ev) => {
-        set('images', [...form.images, ev.target?.result as string])
+        const src = String(ev.target?.result || '')
+        if (!src) return
+        setForm(previous => ({
+          ...previous,
+          images: [...previous.images, src].slice(0, 15),
+        }))
       }
       reader.readAsDataURL(file)
     })
