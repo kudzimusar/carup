@@ -192,6 +192,27 @@ test('desktop staging: published-only discovery preserves Marketplace → Vehicl
   await expect(page.getByText('Not recorded').first()).toBeVisible()
   await expect(page.getByRole('button', { name: /Contact through CarUp/i })).toBeVisible()
 
+  // Buyer actions must reflect the same governed boundaries as the API. Reservation status comes
+  // only from reservation_summary; Vehicle Detail must never resurrect the legacy direct SafePay
+  // button or a client-authored deposit. Financing is an inquiry until a real lender path exists.
+  const reservationSummary = detailBody.reservation_summary as {
+    state?: string
+    reserved?: boolean | null
+  } | undefined
+  if (reservationSummary?.state === 'active' && reservationSummary.reserved === true) {
+    await expect(page.getByTestId('reserved-state')).toBeVisible()
+    await expect(page.getByTestId('reservation-request-entry')).toHaveCount(0)
+  } else {
+    await expect(page.getByTestId('reservation-request-entry')).toBeVisible()
+    await expect(page.getByRole('button', { name: /Request reservation/i })).toBeVisible()
+    await expect(page.getByTestId('reserved-state')).toHaveCount(0)
+  }
+  await expect(page.getByTestId('financing-request-entry')).toBeVisible()
+  await expect(page.getByRole('button', { name: /Ask about financing/i })).toBeVisible()
+  await expect(page.getByRole('button', { name: /Reserve with SafePay/i })).toHaveCount(0)
+  await expect(page.getByRole('button', { name: /^Apply for financing$/i })).toHaveCount(0)
+  await expect(page.getByText(/Loan Amount \(USD\)/i)).toHaveCount(0)
+
   // One VIN, one lifecycle truth. Both the Passport and History Report must expose the same
   // normalized ownership/service/inspection/mileage story for Golden A.
   const apiOrigin = new URL(detailResponse.url()).origin
