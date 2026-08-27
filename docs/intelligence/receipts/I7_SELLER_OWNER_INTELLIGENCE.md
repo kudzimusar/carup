@@ -1,4 +1,4 @@
-# I7 — Seller / Owner Intelligence (in progress)
+# I7 — Seller / Owner Intelligence
 
 **Programme:** CarUp Intelligence 1.0 · **Lane:** `feat/carup-intelligence-1-0` (PR #185)
 **Resumed after:** `SECURITY_CLOSURE_G1_G2_G3.md` (moderator gate, closed at `96eccff2`)
