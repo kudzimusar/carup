@@ -58,6 +58,10 @@ interface MarketplaceListingCardProps {
   onShare?: (event: React.MouseEvent<HTMLButtonElement>) => void
   dataTestId?: string
   ctaLabel?: string
+  priceTestId?: string
+  mileageTestId?: string
+  locationTestId?: string
+  showMissingMileage?: boolean
 }
 
 function titleCase(value: string | null | undefined) {
@@ -141,6 +145,10 @@ export function MarketplaceListingCard({
   onShare,
   dataTestId = 'marketplace-vehicle-card',
   ctaLabel = 'Explore vehicle & Passport',
+  priceTestId = 'marketplace-card-price',
+  mileageTestId,
+  locationTestId = 'listing-location',
+  showMissingMileage = false,
 }: MarketplaceListingCardProps) {
   const renderablePrimaryImage = canRenderMarketplacePrimaryImage(vehicle.primaryImageState, vehicle.primaryImage)
     ? vehicle.primaryImage
@@ -248,14 +256,16 @@ export function MarketplaceListingCard({
           </h3>
         </Link>
 
-        <p className="mt-3 text-2xl font-black tracking-[-0.045em] text-slate-950 sm:text-3xl" data-testid="marketplace-card-price">
+        <p className="mt-3 text-2xl font-black tracking-[-0.045em] text-slate-950 sm:text-3xl" data-testid={priceTestId}>
           {formatMarketplacePrice(vehicle.price, vehicle.currency)}
         </p>
 
         <div className="mt-4 grid grid-cols-3 border-y border-slate-200 text-xs text-slate-600">
-          {typeof vehicle.mileage === 'number' && Number.isFinite(vehicle.mileage) && (
-            <span className="flex min-h-12 items-center gap-1.5 border-r border-slate-200 pr-2"><Gauge className="h-3.5 w-3.5 text-orange-500" />{vehicle.mileage.toLocaleString()} km</span>
-          )}
+          {typeof vehicle.mileage === 'number' && Number.isFinite(vehicle.mileage) ? (
+            <span data-testid={mileageTestId} className="flex min-h-12 items-center gap-1.5 border-r border-slate-200 pr-2"><Gauge className="h-3.5 w-3.5 text-orange-500" />{vehicle.mileage.toLocaleString()} km</span>
+          ) : showMissingMileage ? (
+            <span data-testid={mileageTestId} className="flex min-h-12 items-center gap-1.5 border-r border-slate-200 pr-2 text-slate-400"><Gauge className="h-3.5 w-3.5 text-slate-300" />Mileage not recorded</span>
+          ) : null}
           {vehicle.transmission && (
             <span className="flex min-h-12 items-center gap-1.5 border-r border-slate-200 px-2"><Settings2 className="h-3.5 w-3.5 text-orange-500" />{vehicle.transmission}</span>
           )}
@@ -280,7 +290,7 @@ export function MarketplaceListingCard({
         <div className="mt-4 grid gap-2 text-xs text-slate-500">
           <div className="flex min-w-0 items-center gap-1.5">
             <MapPin className="h-3.5 w-3.5 shrink-0" />
-            <span className="truncate" data-testid="listing-location">{vehicle.locationLabel}</span>
+            <span className="truncate" data-testid={locationTestId}>{vehicle.locationLabel}</span>
           </div>
           <div className="flex min-w-0 items-center justify-between gap-3">
             <span className="truncate">{vehicle.sellerLabel}</span>
