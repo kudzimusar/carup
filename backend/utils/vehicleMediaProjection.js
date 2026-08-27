@@ -455,7 +455,7 @@ export const MEDIA_URL_FORM_VALUES = Object.freeze(Object.values(MEDIA_URL_FORMS
  * ZERO key names in common — see Rule 6b and Rule 7.
  */
 export const LISTING_MEDIA_ITEM_FIELDS = Object.freeze([
-  'media_id', 'url', 'url_form', 'position', 'is_primary',
+  'media_id', 'url', 'url_form', 'position', 'is_primary', 'synthetic_demo',
 ]);
 
 /**
@@ -684,6 +684,7 @@ export function toListingMediaBlock(rows) {
       url_form: candidate.form,
       position,
       is_primary: isPrimary,
+      synthetic_demo: candidate.syntheticDemo,
     });
   });
 
