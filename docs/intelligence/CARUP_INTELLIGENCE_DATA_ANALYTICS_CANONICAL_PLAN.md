@@ -3089,3 +3089,889 @@ CarUp's mature product model should be understood as:
 This is the intended long-term direction of CarUp Intelligence.
 
 The purpose is not to make CarUp a dashboard company. It is to make CarUp an automotive operating system that learns responsibly from real activity, gives every authorized stakeholder useful intelligence, improves its own product continuously, proves commercial value, and develops a durable data advantage as it expands from Zimbabwe into regional and global markets.
+
+
+---
+
+# PART XIX — CURRENT-STATE AUDIT AND REUSE MAP
+
+## 128. Why this section exists
+
+CarUp already contains several analytics and operational data components. Intelligence 1.0 must reuse, converge or deliberately supersede them. Agents must not assume the system starts from zero, and must not create a parallel event stack merely because the current pieces are incomplete.
+
+The following findings were established during the live-repository audit that preceded this plan.
+
+---
+
+## 129. Navigation Analytics — existing, useful, but not commercial listing analytics
+
+Current components include:
+
+- docs/navigation-intelligence/NAVIGATION_ANALYTICS.md
+- web/src/lib/navigationAnalytics.ts
+- mobile/utils/navigationAnalytics.ts
+- backend/services/navigationAnalytics/navigationAnalyticsService.js
+- backend/routes/navigationAnalyticsRoutes.js
+- database/migrations/20260623130000_navigation_analytics_events.sql
+- web/src/components/admin/NavigationAnalyticsPanel.tsx
+
+Current event vocabulary includes:
+
+- navigation_surface_opened
+- navigation_item_impression
+- navigation_item_selected
+- navigation_destination_rendered
+- navigation_destination_blocked
+- navigation_role_switched
+- navigation_drawer_opened
+- navigation_tab_selected
+- navigation_error
+
+This subsystem is privacy-minimized and intentionally avoids retaining raw VIN/listing/tenant identity, names, email, phone, raw URLs, IP addresses and similar direct identifiers.
+
+It can answer questions such as:
+
+- which navigation surfaces are used;
+- which items are selected;
+- where users encounter blocked destinations;
+- selection-through rate;
+- platform/role differences;
+- zero-selection items.
+
+It cannot truthfully answer:
+
+**How many shoppers viewed Dealer X's Hilux?**
+
+Rule:
+
+**Navigation Analytics remains navigation telemetry. Marketplace Intelligence must not overload it with commercial identity that contradicts its privacy contract.**
+
+---
+
+## 130. Marketplace Admin Analytics — existing operational/governance layer
+
+Current components include:
+
+- backend/services/marketplace/marketplaceAnalyticsService.js
+- backend/routes/marketplaceAdminRoutes.js
+- web/src/pages/dashboard/admin/MarketplaceModeration.tsx
+
+Current aggregate outputs cover:
+
+Listings:
+- total
+- public
+- pending_review
+- suppressed
+- rejected
+- archived
+- high_risk
+
+Inquiries:
+- total
+- by type
+- by status
+- referral attributed
+- high risk
+- diaspora demand
+
+This is valuable Marketplace operational intelligence.
+
+It is not yet seller/dealer ROI intelligence because it does not provide the full listing-performance funnel.
+
+---
+
+## 131. Marketplace product plan already anticipated richer analytics
+
+Existing Marketplace planning material identified events such as:
+
+- marketplace_listing_viewed
+- marketplace_listing_saved
+- marketplace_listing_shared
+- marketplace_inquiry_created
+- marketplace_quote_requested
+- marketplace_inspection_requested
+- marketplace_import_interest_created
+- marketplace_container_space_interest_created
+- marketplace_service_booked
+- marketplace_purchase_confirmed
+
+The Marketplace seller/owner plan also included “View performance stats.”
+
+Rich analytics was deferred post-MVP rather than rejected. CarUp Intelligence 1.0 therefore closes an acknowledged functional gap rather than introducing an unrelated product direction.
+
+---
+
+## 132. Listing-view measurement is currently incomplete
+
+The current public listing-detail flow can emit marketplace_listing_viewed through referral/campaign attribution when referral or campaign context exists.
+
+Ordinary direct/organic listing views are not therefore guaranteed to be represented by that mechanism as a canonical durable listing-view count.
+
+Intelligence 1.0 must create a consistent listing-view contract independent of whether a referral code exists.
+
+---
+
+## 133. Saved vehicles are a strong current-state source, but not a history ledger
+
+Current Marketplace Saved service persists saved_vehicles and supports:
+
+- save
+- unsave
+- list current saves
+
+Unsave removes the current-state row.
+
+Therefore saved_vehicles can remain authoritative for current saved state, but alone it cannot support:
+
+- historical save rate;
+- unsave rate;
+- watchlist churn;
+- save duration;
+- save→inquiry historical conversion;
+- behaviour before/after price changes.
+
+Intelligence 1.0 must record save/unsave observations while preserving saved_vehicles as current-state authority.
+
+---
+
+## 134. Marketplace inquiries are a strong commercial foundation
+
+Current marketplace_inquiries already carries useful commercial information including:
+
+- listing association
+- buyer/seller/tenant associations
+- inquiry type
+- inquiry status
+- source channel
+- referral code
+- campaign code
+- risk state
+- created/updated timestamps
+- allowlisted attribution metadata
+
+This should be reused as inquiry authority.
+
+Analytics should reference it, not create a competing lead database.
+
+---
+
+## 135. Communications Analytics is reusable
+
+Current Communications analytics already includes useful scoped measures such as:
+
+- conversations total/active/converted
+- conversion rate
+- workflow/funnel stage
+- Marketplace conversations
+- Marketplace converted
+- inquiry→next-step
+- response time average/median/p95
+- delivery success/failure/suppression
+- attribution by source/referral/campaign
+- campaign touches/conversions
+
+CarUp Intelligence should project this into seller/dealer/partner intelligence where authorized instead of recreating messaging analytics.
+
+---
+
+## 136. Sharing is currently an instrumentation gap
+
+Marketplace/Vehicle Detail can expose share UX, including native navigator sharing, but a general durable marketplace_listing_shared history is not currently a dependable commercial metric.
+
+Intelligence instrumentation must close this gap.
+
+---
+
+## 137. Dealer Dashboard truthfulness and remaining placeholders
+
+Current Dealer Dashboard has deliberately removed unsupported fabricated values for major business metrics and shows unavailable states where no source exists.
+
+That is the correct Truth posture.
+
+However, static/demo remnants such as fixed sales chart data and inventory-age percentages must not be promoted into the new Intelligence system.
+
+The separate dealer SalesAnalytics surface also contains mock/static values and must eventually be replaced by real CarUp-owned analytics rather than cosmetically restyled.
+
+---
+
+## 138. Insurance Dashboard truthfulness
+
+Current Insurance Dashboard has similarly removed fabricated claims/premium/risk business numbers when no read model exists.
+
+Intelligence 1.0 must preserve this discipline.
+
+New insurance KPIs only become live when a valid source/read model exists.
+
+---
+
+## 139. Bank and Admin dashboard audit requirement
+
+Existing bank/admin screens contain legacy/static or fallback-like values that must be audited before they are treated as business intelligence.
+
+I0 must classify every displayed number as one of:
+
+- authoritative live
+- derived live
+- static demo
+- fallback
+- unavailable
+- deprecated
+
+No static/fallback metric may silently enter Intelligence 1.0.
+
+---
+
+## 140. Current Marketplace implementation lane boundary
+
+At this plan's source anchor:
+
+- PR #182 is the active Marketplace Reliability + Reference UX lane;
+- PR #183 is the active Communications / Email lane.
+
+The Marketplace PR does not constitute implementation of this Intelligence programme.
+
+This plan must not be read as evidence that rich seller/dealer analytics has already shipped.
+
+---
+
+# PART XX — INPUT CHANNELS AND END-TO-END DATA FLOW
+
+## 141. Twelve canonical input channels
+
+The 24 data domains describe what the data means. The following 12 input channels describe how information enters CarUp.
+
+| # | Input channel | Examples |
+|---|---|---|
+| 1 | User-entered forms | listing, profile, vehicle, quote/application data |
+| 2 | User interaction events | search, impression, view, save, share, compare |
+| 3 | Authoritative CarUp workflow writes | inquiry, work order, reservation, escrow, transaction |
+| 4 | Communications | messages, delivery, response, workflow events |
+| 5 | Vehicle/evidence/trust services | evidence, evaluated facts, Trust states |
+| 6 | Business partner APIs | dealer, insurer, finance, supplier, garage systems |
+| 7 | Payment/settlement integrations | attempt, settlement, refund, reversal |
+| 8 | Government/institutional integrations | registry, clearance, duty/licence/inspection where authorized |
+| 9 | Import/logistics integrations | shipping, customs, container, delivery |
+| 10 | Marketing/referral attribution | campaign, QR, referral, source |
+| 11 | Platform telemetry | errors, latency, job/provider health |
+| 12 | Controlled derived analytics | rollups, benchmarks, deterministic insight rules |
+
+The count is deliberately separate from field count. A later schema inventory will enumerate exact fields under these channels and the 24 domains.
+
+---
+
+## 142. Canonical end-to-end flow
+
+    INPUT CHANNELS
+    Forms | Behaviour | Business workflows | Communications
+    Partners | Government | Payments | Logistics | Platform
+                             │
+                             ↓
+                 AUTHORITATIVE DOMAIN SERVICES
+                             +
+                    GOVERNED ACTIVITY EVENTS
+                             │
+                             ↓
+                 VALIDATION / DEDUPE / PRIVACY
+                             │
+                             ↓
+                    INTELLIGENCE LEDGER
+                             │
+                 ┌───────────┼───────────┐
+                 ↓           ↓           ↓
+              Real-time    Rollups    Historical
+                signals      KPIs       trends
+                 │           │           │
+                 └───────────┼───────────┘
+                             ↓
+                     INSIGHT ENGINE
+                             │
+            ┌────────────────┼────────────────┐
+            ↓                ↓                ↓
+        Dashboards      Communications      Gutu AI
+            │                │                │
+            └────────────────┼────────────────┘
+                             ↓
+                     NEXT BEST ACTION
+                             ↓
+                         OUTCOME
+                             ↓
+                  NEW GOVERNED SIGNALS
+
+---
+
+# PART XXI — DATA-POINT VALUE CATALOGUE
+
+## 143. How to read this catalogue
+
+For each signal CarUp should know:
+
+1. what it represents;
+2. who primarily benefits;
+3. how CarUp uses it for marketing/product improvement;
+4. how it can encourage better user/business behaviour.
+
+This catalogue is illustrative but intentionally broad. I0/I1 converts it into the exact metric/event registry.
+
+| Data point / signal | Direct stakeholder value | CarUp marketing/product value | Possible nudge/action |
+|---|---|---|---|
+| Search query | buyer demand | identify demand trends | recruit matching supply |
+| Search filters | precise preferences | understand vehicle attributes users care about | ask sellers to complete commonly filtered fields |
+| Zero-result search | unmet demand | sales/partner opportunity | recruit dealer/supplier inventory |
+| Listing impression | discovery exposure | measure Marketplace reach | improve listing eligibility |
+| Detail view | buyer interest | measure discovery quality | improve weak view rate |
+| Engaged view | stronger attention | identify useful listing content | improve media/description |
+| Save | durable interest | intent modelling | notify seller of rising interest |
+| Unsave | cooling/changed interest | watchlist churn | review price/availability after sufficient data |
+| Share | advocacy/consideration | organic reach | encourage shareable listing quality |
+| Compare add | active evaluation | competitive set intelligence | show comparable positioning |
+| Inquiry started | intent with friction possibility | form-funnel analysis | simplify abandoned lead flow |
+| Inquiry created | qualified lead | partner ROI | respond quickly |
+| Inspection request | high intent | transaction funnel | improve inspection availability |
+| Reservation start | near-transaction intent | transaction friction | resolve readiness blockers |
+| Reservation complete | strong conversion | Marketplace liquidity | continue transaction |
+| Sale/transaction | authoritative outcome | GMV/conversion | aftersales owner journey |
+| Listing created | seller activation | supply acquisition | complete listing |
+| Listing submitted | seller progression | time-to-publish | resolve review blockers |
+| Listing published | active supply | marketplace growth | promote/share listing |
+| Listing paused | supply removal | churn/reason analysis | ask reason where appropriate |
+| Listing sold | supply conversion | days-to-sale | capture outcome/aftersales |
+| Price set | market offer | price distributions | confirm currency/price |
+| Price change | seller response | before/after analysis | explain changed demand |
+| Missing price/currency | weak discovery/clarity | product/data-quality issue | complete pricing |
+| Mileage present/missing | buyer confidence/filtering | search eligibility | complete mileage |
+| Transmission present/missing | matching | missed-filter analysis | complete specification |
+| Fuel type present/missing | matching | demand segmentation | complete specification |
+| Location present/missing | geographic relevance | regional demand | add selling/service location |
+| Photo count | visual completeness | conversion analysis | add useful photos |
+| Photo coverage | buyer inspection confidence | media-quality learning | add missing exterior/interior views |
+| Broken/unusable media | degraded listing | UX reliability | replace failed image |
+| Description completeness | buyer understanding | content-quality analysis | add useful vehicle detail |
+| Evidence added | stronger provenance | Trust/readiness funnel | complete governed evidence |
+| Evidence review pending | workflow blocker | operations backlog | await/respond to review |
+| Trust evaluated | confidence state | relationship to conversion | show evaluation truthfully |
+| Trust not evaluated | absence of evaluation | completion/readiness analysis | complete required evidence if applicable |
+| Seller response time | lead handling | partner coaching | reply to waiting enquiries |
+| Unanswered enquiry | lost opportunity | conversion leakage | respond now |
+| Conversation progression | sales/service funnel | channel effectiveness | move to inspection/next step |
+| Communication delivery failure | unreachable workflow | provider reliability | use allowed fallback/retry |
+| Dealer inventory age | capital/supply issue | inventory liquidity | review aged stock |
+| Dealer lead conversion | sales effectiveness | partner ROI | improve follow-up |
+| Promotion impression | paid exposure | campaign reach | evaluate campaign |
+| Promotion qualified lead | paid outcome | ROI | reallocate campaign spend |
+| Garage profile impression | service exposure | services-market reach | improve business profile |
+| Garage enquiry | service demand | service-market intelligence | respond/offer booking |
+| Garage booking | service conversion | network value | manage capacity |
+| Service completion | fulfilled work | retention/service quality | request review/next service |
+| Repeat customer | loyalty | partner health | retention programme |
+| Part search | parts demand | supplier recruitment | source missing inventory |
+| Part zero-result | unmet demand | high-value supplier opportunity | onboard compatible supplier |
+| Compatibility check | fitment intent | vehicle-parts graph | improve catalogue |
+| Part RFQ | commercial intent | supplier ROI | respond/quote |
+| Insurance surface view | product interest | partner exposure | continue quote |
+| Insurance quote start | strong intent | insurance funnel | finish quote |
+| Quote submission | qualified demand | partner ROI | insurer response |
+| Policy bound | confirmed conversion | insurance revenue/ROI | renewal journey |
+| Policy renewal | retention | partner value | renewal reminder |
+| Claim opened | service/risk workflow | insurance operations | complete claim steps |
+| Finance calculator start | finance interest | demand by price band | prequalify |
+| Finance application | qualified lending demand | bank ROI | complete documents |
+| Approval | lender outcome | conversion | accept/continue |
+| Disbursement | completed finance | partner ROI | transaction completion |
+| Payment attempt | payment intent | checkout conversion | resolve payment friction |
+| Payment failure | transaction blocker | provider/UX issue | retry/alternate allowed method |
+| Escrow funded | transaction confidence | SafePay conversion | continue governed process |
+| Escrow dispute | risk | operational improvement | review case |
+| Referral visit | acquisition | channel attribution | optimize referral programme |
+| Referral qualified lead | valuable acquisition | campaign ROI | reward/refine source |
+| Diaspora landed-cost calculation | import intent | corridor demand | offer RFQ/import next step |
+| Import RFQ | trade lead | route/stock opportunity | respond/source vehicle |
+| Container-space interest | logistics demand | capacity planning | match shipment capacity |
+| Shipment milestone | process progress | logistics reliability | notify customer |
+| Customs/clearance state | import progress | corridor bottleneck | complete missing requirement |
+| Registry status known | compliance clarity | lifecycle intelligence | proceed with allowed action |
+| Registry status unknown | missing authority | integration/data-gap measure | do not misstate; obtain authorized proof |
+| Police clearance known | transaction/compliance | Trust/lifecycle | proceed/escalate according to source |
+| Police status unknown | no authoritative knowledge | gap measurement | never render “failed” |
+| Duty/tax evidence | import/ownership compliance | transaction readiness | complete requirement |
+| Licensing/roadworthiness state | owner/compliance | retention/service opportunity | reminder when authoritative |
+| Form-step abandonment | user friction | UX optimization | resume/help |
+| Validation error | task blocker | form/product improvement | fix field/help copy |
+| API/provider error | degraded workflow | reliability | operational remediation |
+| Feature adoption | product usage | roadmap | education or simplification |
+| Active/returning user | retention | growth health | personalized re-engagement |
+| Churn/inactivity | retention risk | lifecycle marketing | relevant reactivation |
+| Revenue/fee | CarUp business outcome | unit economics | strategy/pricing |
+
+---
+
+# PART XXII — CHURN AND RETENTION DEFINITIONS
+
+## 144. “Churn” is not one number
+
+CarUp must not place an undefined generic churn rate on dashboards.
+
+Separate metrics include:
+
+### Listing interest decay
+Current-period discovery/engagement compared with prior period.
+
+### Watchlist churn
+Unsaves relative to active/new saves under a documented time window.
+
+### Lead abandonment
+Enquiries that never reach a defined next state.
+
+### Buyer funnel abandonment
+Drop-off between view, save, inquiry, inspection, reservation and transaction.
+
+### Dealer/customer subscription churn
+A business partner cancelling or ceasing a paid/active relationship.
+
+### User churn
+A previously active user failing the agreed meaningful-activity criterion over a defined period.
+
+### Partner inactivity
+Organization no longer publishing/responding/processing activity.
+
+Every churn metric must define cohort, time window and denominator.
+
+---
+
+# PART XXIII — VISUAL REFERENCE MAPS
+
+## 145. Universal stakeholder dashboard hierarchy
+
+Every stakeholder dashboard should generally follow:
+
+    ┌─────────────────────────────────────────────┐
+    │ 1. Identity / context / period             │
+    ├─────────────────────────────────────────────┤
+    │ 2. Intelligence Pulse — 4–5 core KPIs     │
+    ├─────────────────────────────────────────────┤
+    │ 3. Needs Attention / Next Best Action      │
+    ├───────────────────┬─────────────────────────┤
+    │ 4. Core operation │ 5. Performance/trend  │
+    ├───────────────────┴─────────────────────────┤
+    │ 6. Recent activity                         │
+    ├─────────────────────────────────────────────┤
+    │ 7. Tools / secondary actions               │
+    └─────────────────────────────────────────────┘
+
+Do not turn every home dashboard into a dense analyst terminal. Deep analytics belongs in the Intelligence workspace.
+
+---
+
+## 146. Owner / Private Seller visual
+
+    OWNER DASHBOARD
+
+    [Needs Your Attention]
+
+    ┌──────────── Marketplace Pulse ─────────────┐
+    │ Views     Saves     Shares     Enquiries   │
+    │ 186       23        8          5           │
+    │ Trend: +31% vs prior period                │
+    └────────────────────────────────────────────┘
+
+    ┌──────────── Next Best Action ──────────────┐
+    │ Strong discovery; enquiry conversion is   │
+    │ below the comparison group.               │
+    │ [Review listing]                           │
+    └────────────────────────────────────────────┘
+
+    [My Garage / Vehicles]
+    [Trust & Evidence]
+    [Saved Cars] [Recent Activity]
+    [Insurance] [PartSentry] [Wallet]
+    [Ask Gutu AI]
+
+Listing row/card:
+
+    2021 Toyota Hilux
+    PUBLIC · Trust state: canonical only
+
+    614 views | 91 saves | 34 shares | 22 enquiries
+
+    Listing completeness: 82%
+    Demand signal: Strong
+    [Full insights]
+
+---
+
+## 147. Dealer visual
+
+    DEALER PERFORMANCE — Branch / period
+
+    Impressions | Views | Saves | Leads
+    Inspections | Reservations | Sales
+
+    [Top Performers]        [Needs Attention]
+
+    LEAD FUNNEL
+    Enquiries → Contacted → Qualified
+    → Inspection → Reservation → Sale
+
+    INVENTORY TABLE
+    Vehicle | Price | Views | Saves | Leads | Days | Signal
+
+Deep workspace tabs:
+
+    OVERVIEW | INVENTORY | LEADS | AUDIENCE | MARKETING | BENCHMARKS
+
+---
+
+## 148. Mechanic visual
+
+    WORKSHOP PULSE
+
+    Profile views | Enquiries | Jobs booked | Completed
+    Avg response | Repeat customers
+
+    Popular services
+    Demand by make/model
+    Recent work orders
+    Next Best Action
+    Quick Actions
+
+---
+
+## 149. Garage visual
+
+    GARAGE PERFORMANCE
+
+    Search impressions | Profile views | Enquiries | Bookings
+    Enquiry→booking conversion
+    Repeat rate
+
+    Top Services
+    Capacity / demand
+    Branch/team performance
+    Busy periods
+    Lost demand / unoffered services
+
+---
+
+## 150. Insurance visual
+
+    INSURANCE MARKET PULSE
+
+    Eligible exposures | Product opens | Quote starts | Qualified leads
+    Policies/renewals only where authoritative
+
+    Demand by vehicle/category
+    Funnel
+    Source/channel
+    Territory aggregate
+
+Separate navigation:
+
+    COMMERCIAL INTELLIGENCE | CLAIMS | RISK | FRAUD
+
+---
+
+## 151. Bank / Finance visual
+
+    VEHICLE FINANCE DEMAND
+
+    Eligible sessions | Calculator | Applications | Approved
+    Disbursed where authoritative
+
+    Demand by price band
+    Vehicle/category demand
+    Application funnel
+    Source attribution
+
+Separate:
+
+    COMMERCIAL INTELLIGENCE | APPLICATIONS | COLLATERAL | CREDIT RISK
+
+---
+
+## 152. Parts / Supplier visual
+
+    PARTS DEMAND
+
+    Searches | Product views | Compatibility checks | RFQs
+
+    Top requested parts
+    Zero-result demand
+    Demand by vehicle
+    Supplier conversion
+    PartSentry/provenance state
+
+---
+
+## 153. Diaspora / Trade visual
+
+    TRADE INTELLIGENCE
+
+    Stock views | Landed-cost calculations | RFQs
+    SafeTrade actions | Container interest | Completed imports
+
+    Route demand
+    Vehicle demand
+    Funnel
+    Shipment performance
+
+---
+
+## 154. Government visual
+
+    VEHICLE GOVERNANCE / COMPLIANCE
+
+    Known authoritative states
+    Unknown/unavailable states
+    Pending workflows
+    Review/escalation
+    Aggregate integrity trends
+
+Institutional views must visibly distinguish:
+
+- verified;
+- pending;
+- unavailable;
+- unknown.
+
+---
+
+## 155. CarUp Admin visual
+
+    CARUP AUTOMOTIVE INTELLIGENCE — ZIMBABWE / REGION
+
+    Marketplace impressions | Unique shoppers | Active listings
+    Active sellers/dealers | Leads | Transactions | GMV
+
+    SUPPLY               DEMAND
+    MARKETPLACE          LISTING QUALITY
+    TRUST & EVIDENCE     COMMUNICATIONS
+    TRANSACTIONS         DEALERS
+    GARAGES              PARTS
+    INSURANCE            FINANCE
+    GOVERNMENT           DIASPORA
+    REFERRALS            MARKETING
+    CUSTOMER HEALTH      REVENUE
+    RISK                 PLATFORM
+    AI
+
+This is the internal operating cockpit, not a public dashboard.
+
+---
+
+## 156. Mobile reference
+
+Mobile should present decision-first information, not squeezed desktop charts.
+
+Example:
+
+    YOUR LISTING — Toyota Hilux
+
+    This week
+
+    186 Views  +24%
+    23 Saves
+    5 Enquiries
+
+    Strong interest
+
+    CARUP INSIGHT
+    Your listing attracts viewers, but enquiry
+    conversion is below the comparison group.
+
+    [Review listing]
+
+    RECENT ACTIVITY
+    Today: 4 saves
+    Yesterday: 1 enquiry
+    Monday: 38 views
+
+---
+
+# PART XXIV — STAKEHOLDER × AUTHORITY × ACCESS MATRIX
+
+## 157. Core access posture
+
+Legend:
+
+- P = produces/creates data
+- C = consumes authorized intelligence
+- A = authoritative source for some domain state
+- G = governed aggregate/purpose-limited access
+- — = no default access
+
+| Stakeholder | Marketplace behaviour | Own business operations | Vehicle Truth/Trust | Financial data | Institutional/compliance | Cross-market aggregate |
+|---|---|---|---|---|---|---|
+| Anonymous visitor | P | — | public projection only | — | public only | — |
+| Buyer | P/C own | C own | authorized/public | own transaction | own authorized workflow | — |
+| Private seller | P/C own listing | C own | own/authorized | own transaction | own workflow | benchmark only |
+| Dealer | P/C tenant | P/A own CRM-like states where integrated | authorized tenant | own business | own workflow | approved benchmark |
+| Mechanic | P/C own | A work-order/service records | authorized service context | own business | — | approved benchmark |
+| Garage | P/C org | A booking/service records | authorized | own business | — | approved benchmark |
+| Parts supplier | P/C org | A catalogue/RFQ state | compatibility context | own business | — | demand aggregate |
+| Insurer | C scoped | A policy/claim states if integrated | authorized underwriting context | own insurance | regulated scope | approved demand aggregate |
+| Bank/finance | C scoped | A lending states if integrated | authorized lending context | A own finance | regulated scope | approved demand aggregate |
+| Payment/escrow partner | limited | A provider transaction state | — | scoped transaction | — | — |
+| Logistics/import partner | scoped | A shipment/service state | shipment context | scoped | customs workflow if authorized | route aggregate |
+| Referral partner | C own attribution | A own referral participation | — | reward only | — | own aggregate |
+| Government institution | — by default | institutional workflow | A for its official domain | only lawful scope | A for official domain | G where agreed |
+| CarUp operations | scoped internal | C | C according to role | scoped | scoped | C |
+| CarUp executive/data | aggregate by default | C aggregate | C aggregate | C aggregate | C aggregate | C |
+| Gutu AI | no independent rights | derived from caller rights | derived from caller rights | derived from caller rights | derived from caller rights | only allowed aggregates |
+
+The exact policy must be encoded in authorization, not left to UI convention.
+
+---
+
+# PART XXV — REPORTING AND MANUALIZATION
+
+## 158. Three documentation layers
+
+This canonical plan is the source document.
+
+Future user documentation should be derived into:
+
+### Builder Manual
+For agents/engineers:
+- metric contract
+- event schema
+- authorization
+- instrumentation
+- testing
+- deployment/certification
+
+### Operator Manual
+For CarUp staff:
+- Admin Intelligence
+- investigation
+- partner reports
+- campaign analysis
+- data-quality monitoring
+- privacy/escalation
+
+### Stakeholder Business Manual
+For sellers/dealers/garages/insurers/banks/suppliers:
+- what each metric means;
+- what action to take;
+- how to improve performance;
+- what CarUp does and does not infer;
+- privacy boundaries.
+
+Do not maintain these as independent truths. They must trace back to the canonical definitions in this plan and the metric registry.
+
+---
+
+## 159. Weekly / monthly intelligence summaries
+
+Potential seller summary:
+
+- views
+- saves
+- shares
+- enquiries
+- strongest change
+- one or two recommended actions
+
+Dealer summary:
+
+- portfolio reach
+- top/weak stock
+- leads/conversion
+- response time
+- marketing source
+- demand opportunity
+
+Garage summary:
+
+- discovery
+- enquiries/bookings
+- top services
+- capacity
+- repeat rate
+
+Partner summary:
+
+- qualified exposure
+- conversion
+- source
+- trend
+- ROI where financially supported
+
+CarUp executive summary:
+
+- supply
+- demand
+- liquidity
+- partner performance
+- marketing
+- product friction
+- revenue
+- risk
+- system health
+
+---
+
+# PART XXVI — ONLINE REACH, AUTOMATION AND GLOBAL DATA PRODUCTS
+
+## 160. Online-system reach
+
+Once the governed intelligence foundation is reliable, CarUp can use it to improve online reach through authorized automation.
+
+Examples:
+
+- identify under-supplied vehicle categories and run targeted dealer acquisition campaigns;
+- identify incomplete seller listings and send completion guidance;
+- detect rising demand and recommend promotion inventory;
+- produce dealer/partner performance reports;
+- generate privacy-safe market content;
+- personalize re-engagement based on legitimate lifecycle state;
+- recommend finance/insurance/service next steps when relevant.
+
+AI may help compose and prioritize outreach, but Communications/consent/suppression policies remain authoritative for delivery.
+
+---
+
+## 161. Future automotive data products
+
+Potential future products, subject to governance and sufficient data quality:
+
+- dealer market benchmark reports
+- vehicle demand indices
+- price movement indices
+- average time-to-qualified-lead
+- average time-to-sale where sale state is reliable
+- parts-demand index
+- service-demand index
+- finance-demand index
+- insurance-demand index
+- diaspora corridor index
+- aggregate regional vehicle-supply reports
+
+These products must use minimum cohort thresholds and avoid re-identification.
+
+---
+
+# PART XXVII — IMMEDIATE NEXT ACTION AFTER PLAN APPROVAL
+
+## 162. Before any source implementation
+
+Once the owner approves this canonical plan and an implementation lane becomes available, the first engineering task is not “build dashboard charts.”
+
+It is:
+
+**I0 — Stakeholder × Process × Data × Authority inventory on live main/staging.**
+
+The I0 deliverable must enumerate:
+
+- exact database tables;
+- exact existing events;
+- exact APIs;
+- exact dashboard fields;
+- exact mocks/placeholders;
+- exact role/tenant boundaries;
+- exact missing events;
+- exact retention/privacy classifications;
+- exact data integrations available vs aspirational.
+
+Only after I0 and I1 are approved should schema/instrumentation code begin.
+
+This prevents future agents from getting lost, duplicating architecture or mistaking design intention for deployed capability.
