@@ -1,51 +1,75 @@
+/**
+ * Institutional portal — CarUp Intelligence I15.
+ *
+ * Nothing on this page except the duty estimator talked to a server, and every
+ * other element asserted something CarUp cannot know:
+ *
+ *   - four headline tiles — "Registered Vehicles 1.2M", "Pending Verifications
+ *     234", "Verified Today 89", "Security Alerts Flagged 3 Active" — all string
+ *     literals. CarUp is not a national registry and holds none of this;
+ *   - a five-month national registration chart drawn from a fixed array;
+ *   - a "Secure Hardware Session Audits (MFA)" panel listing invented officers by
+ *     name, with invented IP addresses and timestamps, presented as a regulatory
+ *     authentication log. CarUp holds no officer directory and issues no officer
+ *     credentials;
+ *   - a banner asserting that "Secure RBAC isolation is fully enforced" and naming
+ *     a bank as a restricted party, with no check behind it;
+ *   - and a duty result seeded into component state — $10,125 total, $1,500 VAT,
+ *     101.3% of value — rendered on page load as though it were a ZIMRA
+ *     assessment of the pre-filled inputs, before any calculation had run.
+ *
+ * That seed was also hiding a real defect: the API returns VAT under
+ * `breakdown.vat`, not at the top level, so the first genuine calculation set
+ * `dutyResult.vat` to undefined and `.toLocaleString()` on it would have thrown.
+ * The page only appeared to work because the fabricated seed had the field.
+ *
+ * The estimator itself is real and is kept — but it is a CarUp calculation from
+ * published rates, not a revenue-authority assessment, and it now says so. CarUp
+ * has no ZIMRA integration: `provider_registry` is empty and every registry check
+ * on record ran against a sandbox simulator.
+ */
 import { useState } from 'react'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
-import { Badge } from '@/components/ui/badge'
 import { Input } from '@/components/ui/input'
 import { toast } from 'sonner'
-import { Search, CheckCircle, FileText, Car, AlertTriangle, ArrowRight, Key, Calculator } from 'lucide-react'
+import { Search, FileText, ArrowRight, Calculator, Info } from 'lucide-react'
 import { Link } from 'react-router-dom'
-import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer } from 'recharts'
 import { useCarUpApi } from '@/hooks/useCarUpApi'
+import GovernmentIntelligence from '@/components/intelligence/GovernmentIntelligence'
 
-const registrationData = [
-  { month: 'Jan', registrations: 1200 },
-  { month: 'Feb', registrations: 1350 },
-  { month: 'Mar', registrations: 1100 },
-  { month: 'Apr', registrations: 1450 },
-  { month: 'May', registrations: 1380 },
-]
+interface DutyEstimate {
+  totalDuty: number
+  percentageOfValue: number
+  breakdown?: { customsDuty?: number; surtax?: number; vat?: number }
+}
+
+const money = (value?: number) => (
+  typeof value === 'number' && Number.isFinite(value) ? `$${value.toLocaleString()}` : 'Not reported'
+)
 
 export default function GovernmentDashboard() {
   const { fetchZimraDuty } = useCarUpApi()
 
-  // ZIMRA Estimator states
   const [vehicleValue, setVehicleValue] = useState(10000)
   const [vehicleYear, setVehicleYear] = useState(2017)
   const [engineSize, setEngineSize] = useState(1800)
   const [dutyLoading, setDutyLoading] = useState(false)
-  const [dutyResult, setDutyResult] = useState({
-    totalDuty: 10125.00,
-    percentageOfValue: 101.25,
-    vat: 1500,
-    surtax: 3500
-  })
-
-  // MFA logs state
-  const [mfaLogs] = useState([
-    { officer: 'Inspector T. Chihuri', event: 'Hardware FIDO Session Validated', ip: '10.20.45.10', time: '16:42:01' },
-    { officer: 'ZIMRA Desk Officer Moyo', event: 'MFA Handshake Handled', ip: '10.20.12.88', time: '16:30:15' }
-  ])
+  // No seeded result: nothing is shown until a calculation actually runs.
+  const [dutyResult, setDutyResult] = useState<DutyEstimate | null>(null)
+  const [dutyError, setDutyError] = useState(false)
 
   const handleCalculateDuty = async () => {
     setDutyLoading(true)
+    setDutyError(false)
     try {
       const data = await fetchZimraDuty(Number(vehicleValue), Number(vehicleYear), Number(engineSize))
       setDutyResult(data)
-      toast.success('ZIMRA Custom Duty Estimator recalculated.')
     } catch (err) {
-      toast.error('Failed to calculate customs duty.')
+      console.error(err)
+      setDutyResult(null)
+      setDutyError(true)
+      toast.error('Failed to calculate the duty estimate.')
     } finally {
       setDutyLoading(false)
     }
@@ -53,135 +77,92 @@ export default function GovernmentDashboard() {
 
   return (
     <div className="space-y-6 max-w-7xl mx-auto">
-      {/* Header */}
       <div>
-        <h1 className="text-2xl font-bold flex items-center gap-2">
-          Government Regulatory Portal
-        </h1>
-        <p className="text-gray-500">ZIMRA & CVR National Vehicle Ledger and Security Audit Systems</p>
+        <h1 className="text-2xl font-bold">Institutional portal</h1>
+        <p className="text-gray-500">
+          CarUp's own evidence review. Not a national registry and not a government record.
+        </p>
       </div>
 
-      {/* Segmented Access Guard Alert */}
-      <Card className="border-0 bg-indigo-50 border-l-4 border-indigo-600 text-indigo-800 p-4">
-        <div className="flex items-start gap-2.5">
-          <Key className="w-5 h-5 text-indigo-600 shrink-0 mt-0.5" />
-          <div>
-            <p className="font-semibold text-xs text-indigo-900">Segmented Access Protocol Active</p>
-            <p className="text-[11px] text-indigo-700 leading-relaxed mt-0.5">
-              Secure RBAC isolation is fully enforced. CVR & ZIMRA desk officers cannot query private automotive banking ledgers, and CBZ Bank representatives are restricted from accessing law enforcement records or VIN cloning reports.
-            </p>
-          </div>
-        </div>
-      </Card>
-
-      {/* Grid Stats */}
-      <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-4">
-        {[
-          { label: 'Registered Vehicles', value: '1.2M', icon: Car, color: 'text-blue-500', bg: 'bg-blue-50' },
-          { label: 'Pending Verifications', value: '234', icon: FileText, color: 'text-amber-500', bg: 'bg-amber-50' },
-          { label: 'Verified Today', value: '89', icon: CheckCircle, color: 'text-green-500', bg: 'bg-green-50' },
-          { label: 'Security Alerts Flagged', value: '3 Active', icon: AlertTriangle, color: 'text-red-500', bg: 'bg-red-50' },
-        ].map((stat) => (
-          <Card key={stat.label} className="border-0 card-shadow hover-scale">
-            <CardContent className="p-5">
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="text-sm text-gray-500">{stat.label}</p>
-                  <p className="text-2xl font-bold mt-1">{stat.value}</p>
-                </div>
-                <div className={`w-10 h-10 rounded-lg ${stat.bg} ${stat.color} flex items-center justify-center`}>
-                  <stat.icon className="w-5 h-5" />
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-        ))}
-      </div>
+      {/* The governed institutional projection, which states plainly what CarUp
+          has assessed itself and what no authoritative source has confirmed. */}
+      <GovernmentIntelligence windowDays={30} />
 
       <div className="grid lg:grid-cols-3 gap-6">
         <div className="lg:col-span-2 space-y-6">
-          {/* ZIMRA duty estimator */}
           <Card className="border-0 card-shadow bg-white">
             <CardHeader className="pb-3">
               <CardTitle className="text-lg flex items-center gap-1.5">
                 <Calculator className="w-5 h-5 text-indigo-600" />
-                ZIMRA Dynamic Custom Duty Estimator
+                Import duty estimate
               </CardTitle>
             </CardHeader>
             <CardContent className="space-y-4">
+              {/* Said before the inputs, not after the number. */}
+              <p className="flex items-start gap-2 rounded-md border border-gray-200 bg-gray-50 p-3 text-xs text-gray-600">
+                <Info className="mt-0.5 h-4 w-4 shrink-0 text-gray-400" aria-hidden="true" />
+                <span data-testid="duty-estimate-basis">
+                  CarUp calculates this from published rates. It is not connected to any revenue
+                  authority, so this is an estimate — not an assessment, a ruling, or an amount
+                  anybody owes.
+                </span>
+              </p>
+
               <div className="grid sm:grid-cols-3 gap-4">
                 <div className="space-y-1">
-                  <label className="text-[10px] font-semibold text-gray-500 uppercase">FOB Value (USD)</label>
-                  <Input type="number" value={vehicleValue} onChange={e => setVehicleValue(Number(e.target.value))} />
+                  <label className="text-[10px] font-semibold text-gray-500 uppercase" htmlFor="fob-value">FOB Value (USD)</label>
+                  <Input id="fob-value" type="number" value={vehicleValue} onChange={e => setVehicleValue(Number(e.target.value))} />
                 </div>
                 <div className="space-y-1">
-                  <label className="text-[10px] font-semibold text-gray-500 uppercase">Manufacture Year</label>
-                  <Input type="number" value={vehicleYear} onChange={e => setVehicleYear(Number(e.target.value))} />
+                  <label className="text-[10px] font-semibold text-gray-500 uppercase" htmlFor="manufacture-year">Manufacture Year</label>
+                  <Input id="manufacture-year" type="number" value={vehicleYear} onChange={e => setVehicleYear(Number(e.target.value))} />
                 </div>
                 <div className="space-y-1">
-                  <label className="text-[10px] font-semibold text-gray-500 uppercase">Engine size (cc)</label>
-                  <Input type="number" value={engineSize} onChange={e => setEngineSize(Number(e.target.value))} />
+                  <label className="text-[10px] font-semibold text-gray-500 uppercase" htmlFor="engine-size">Engine size (cc)</label>
+                  <Input id="engine-size" type="number" value={engineSize} onChange={e => setEngineSize(Number(e.target.value))} />
                 </div>
               </div>
-              <Button onClick={handleCalculateDuty} disabled={dutyLoading} className="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-semibold">
-                {dutyLoading ? 'Calculating Duty...' : 'Calculate ZIMRA Duty'}
-              </Button>
-              <div className="bg-gray-50 rounded-xl p-4 mt-2 border border-gray-100 grid sm:grid-cols-3 gap-4 text-center">
-                <div>
-                  <p className="text-[10px] text-gray-400">Total Calculated Duty</p>
-                  <p className="text-lg font-bold text-indigo-700">${dutyResult.totalDuty.toLocaleString()}</p>
-                </div>
-                <div>
-                  <p className="text-[10px] text-gray-400">VAT (15%)</p>
-                  <p className="text-lg font-bold text-gray-700">${dutyResult.vat.toLocaleString()}</p>
-                </div>
-                <div>
-                  <p className="text-[10px] text-gray-400">Duty Percentage</p>
-                  <p className="text-lg font-bold text-gray-700">{dutyResult.percentageOfValue.toFixed(1)}%</p>
-                </div>
-              </div>
-            </CardContent>
-          </Card>
 
-          {/* MFA Sessions logs */}
-          <Card className="border-0 card-shadow bg-white">
-            <CardHeader className="pb-3 flex flex-row items-center justify-between">
-              <CardTitle className="text-lg">Secure Hardware Session Audits (MFA)</CardTitle>
-              <Badge className="bg-green-100 text-green-700">Protected</Badge>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              {mfaLogs.map((log, idx) => (
-                <div key={idx} className="flex justify-between items-center p-3 bg-gray-50 hover:bg-gray-100/50 rounded-xl border border-gray-100 text-xs">
+              <Button onClick={handleCalculateDuty} disabled={dutyLoading} className="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-semibold" data-testid="calculate-duty">
+                {dutyLoading ? 'Calculating…' : 'Calculate estimate'}
+              </Button>
+
+              {dutyError && (
+                <p className="text-sm text-gray-600" data-testid="duty-estimate-failed">
+                  The estimate could not be calculated. No figure is shown rather than a stale one.
+                </p>
+              )}
+
+              {dutyResult ? (
+                <div className="bg-gray-50 rounded-xl p-4 mt-2 border border-gray-100 grid sm:grid-cols-3 gap-4 text-center" data-testid="duty-estimate-result">
                   <div>
-                    <p className="font-semibold text-gray-800">{log.officer}</p>
-                    <p className="text-[10px] text-gray-400">{log.event} • IP: {log.ip}</p>
+                    <p className="text-[10px] text-gray-400">Estimated total</p>
+                    <p className="text-lg font-bold text-indigo-700" data-testid="duty-total">{money(dutyResult.totalDuty)}</p>
                   </div>
-                  <Badge variant="outline" className="text-[10px]">
-                    {log.time}
-                  </Badge>
+                  <div>
+                    <p className="text-[10px] text-gray-400">VAT</p>
+                    {/* Read from the breakdown, which is where the API puts it. */}
+                    <p className="text-lg font-bold text-gray-700" data-testid="duty-vat">{money(dutyResult.breakdown?.vat)}</p>
+                  </div>
+                  <div>
+                    <p className="text-[10px] text-gray-400">Share of value</p>
+                    <p className="text-lg font-bold text-gray-700" data-testid="duty-percent">
+                      {typeof dutyResult.percentageOfValue === 'number' && Number.isFinite(dutyResult.percentageOfValue)
+                        ? `${dutyResult.percentageOfValue.toFixed(1)}%`
+                        : 'Not reported'}
+                    </p>
+                  </div>
                 </div>
-              ))}
+              ) : !dutyError && (
+                <p className="text-sm text-gray-500" data-testid="duty-estimate-idle">
+                  Enter the vehicle details and calculate to see an estimate.
+                </p>
+              )}
             </CardContent>
           </Card>
         </div>
 
-        {/* Sidebar */}
         <div className="space-y-6">
-          <Card className="border-0 card-shadow bg-white">
-            <CardHeader className="pb-3"><CardTitle className="text-lg">Monthly Registrations</CardTitle></CardHeader>
-            <CardContent>
-              <ResponsiveContainer width="100%" height={160}>
-                <BarChart data={registrationData}>
-                  <XAxis dataKey="month" axisLine={false} tickLine={false} tick={{ fontSize: 12 }} />
-                  <YAxis axisLine={false} tickLine={false} tick={{ fontSize: 12 }} />
-                  <Tooltip />
-                  <Bar dataKey="registrations" fill="#4f46e5" radius={[4, 4, 0, 0]} barSize={25} />
-                </BarChart>
-              </ResponsiveContainer>
-            </CardContent>
-          </Card>
-
-          {/* Quick Actions */}
           <Card className="border-0 card-shadow">
             <CardHeader className="pb-3"><CardTitle className="text-lg">Quick Actions</CardTitle></CardHeader>
             <CardContent className="space-y-2">

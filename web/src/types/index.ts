@@ -1427,6 +1427,8 @@ export interface ComplianceReport {
   type: string;
   date: string;
   size?: string;
+  /** Where the generated file actually lives. Absent means there is no file. */
+  url?: string | null;
 }
 
 // 11. Lead

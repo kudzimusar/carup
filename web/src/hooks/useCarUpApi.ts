@@ -638,6 +638,9 @@ export function useCarUpApi() {
   /** PERSON scope: the practitioner's own work, never the organization's. */
   const fetchMechanicIntelligence = useCallback(async (windowDays: 7 | 30 | 90 = 30): Promise<any> =>
     request(`/mechanic/analytics?window=${windowDays}`), [request])
+  /** Institutional provenance. Purpose-limited; carries no commercial behaviour. */
+  const fetchGovernmentProvenance = useCallback(async (windowDays: 7 | 30 | 90 = 30): Promise<any> =>
+    request(`/government/provenance-intelligence?window=${windowDays}`), [request])
   /** Referral and marketing performance. Platform scope; there is no partner login. */
   const fetchReferralIntelligence = useCallback(async (windowDays: 7 | 30 | 90 = 30): Promise<any> =>
     request(`/admin/referrals/intelligence?window=${windowDays}`), [request])
@@ -2595,6 +2598,7 @@ export function useCarUpApi() {
     fetchPartsIntelligence,
     fetchTradeIntelligence,
     fetchReferralIntelligence,
+    fetchGovernmentProvenance,
     fetchPlatformPartsIntelligence,
     fetchMechanicIntelligence,
     fetchGarageIntelligence,

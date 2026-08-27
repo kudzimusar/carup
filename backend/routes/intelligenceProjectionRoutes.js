@@ -20,6 +20,7 @@ import {
 } from '../services/intelligence/partsIntelligenceService.js';
 import { getTradeIntelligence } from '../services/intelligence/tradeIntelligenceService.js';
 import { getReferralIntelligence } from '../services/intelligence/referralIntelligenceService.js';
+import { getGovernmentProvenanceIntelligence } from '../services/intelligence/governmentIntelligenceService.js';
 import {
   getMechanicIntelligence,
   getGarageIntelligence,
@@ -304,6 +305,26 @@ router.get(
     try {
       const windowDays = resolveWindowDays(req.query.window);
       const data = await getReferralIntelligence(supabase, req.userContext, { windowDays });
+      return res.json({ ok: true, ...data });
+    } catch (error) {
+      return handleProjectionError(res, error);
+    }
+  }),
+);
+
+/**
+ * Institutional provenance.
+ *
+ * Purpose-limited: CarUp's own evidence review and its audit posture, with no
+ * commercial marketplace behaviour, which the payload also restates.
+ */
+router.get(
+  '/api/government/provenance-intelligence',
+  authorizeRole(['government', 'admin']),
+  asyncHandler(async (req, res) => {
+    try {
+      const windowDays = resolveWindowDays(req.query.window);
+      const data = await getGovernmentProvenanceIntelligence(supabase, req.userContext, { windowDays });
       return res.json({ ok: true, ...data });
     } catch (error) {
       return handleProjectionError(res, error);
