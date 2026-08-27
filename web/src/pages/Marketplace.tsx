@@ -906,112 +906,103 @@ export default function Marketplace() {
           </div>
         )}
 
-        <div className="mt-8 grid gap-8 lg:grid-cols-[250px_minmax(0,1fr)]">
-          {!isMobile && (
-            <aside className="self-start border-r border-slate-200 bg-white pr-6 lg:sticky lg:top-4" aria-label="Marketplace filters">
-              <div className="mb-4 flex items-center justify-between gap-3">
-                <div>
-                  <p className="text-sm font-semibold text-slate-950">Refine vehicles</p>
-                  <p className="mt-0.5 text-xs text-slate-500">Every active facet applies before result limiting.</p>
-                </div>
-                {activeFilterCount > 0 && <Badge variant="secondary" className="bg-slate-100 text-slate-700">{activeFilterCount}</Badge>}
-              </div>
-              <div data-testid="marketplace-filter-sidebar" className="space-y-6">
-                {filterControls}
-                <div className="border-t border-slate-200 pt-5">{taxonomyControls}</div>
-              </div>
-              <Button variant="ghost" className="mt-5 w-full justify-start rounded-none border-t border-slate-200 px-0 pt-4 text-slate-600 hover:bg-transparent hover:text-orange-700" onClick={resetFilters}>Reset filters</Button>
-            </aside>
+        <main className="mt-10 min-w-0">
+          {loadError && !loadingVehicles && (
+            <div className="mb-6 border-y border-amber-200 bg-amber-50 px-4 py-3 text-xs leading-5 text-amber-900" data-testid="marketplace-error-state">
+              Marketplace data is temporarily unavailable. CarUp has not substituted another public vehicle endpoint or fabricated production inventory.
+            </div>
           )}
 
-          <main className="min-w-0">
-            {loadError && !loadingVehicles && (
-              <div className="mb-4 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-xs leading-5 text-amber-900" data-testid="marketplace-error-state">
-                Marketplace data is temporarily unavailable. CarUp has not substituted another public vehicle endpoint or fabricated production inventory.
-              </div>
-            )}
+          {!loadingVehicles && trustRanking?.requested === 'trust' && trustRanking.applied !== 'trust' && (
+            <div className="mb-6 border-y border-slate-200 bg-slate-50 px-4 py-3 text-xs leading-5 text-slate-600" data-testid="marketplace-trust-ranking-notice">
+              {trustRanking.note || 'No listing on this page carries a canonical Trust evaluation, so these results are not ordered by Trust.'}
+            </div>
+          )}
 
-            {!loadingVehicles && trustRanking?.requested === 'trust' && trustRanking.applied !== 'trust' && (
-              <div className="mb-4 rounded-xl border border-slate-200 bg-white px-4 py-3 text-xs leading-5 text-slate-600" data-testid="marketplace-trust-ranking-notice">
-                {trustRanking.note || 'No listing on this page carries a canonical Trust evaluation, so these results are not ordered by Trust.'}
-              </div>
-            )}
-
-            <div className="mb-4 flex flex-col gap-2 border-b border-slate-200 pb-4 sm:flex-row sm:items-end sm:justify-between">
-              <div>
-                <p className="text-sm font-medium text-slate-800" data-testid="marketplace-results-summary">{getResultSummary(filterState)}</p>
-                <p className="mt-1 text-xs text-slate-500">Published listings only. Trust and vehicle facts retain their governed states.</p>
-              </div>
-              <p className="text-sm text-slate-600" data-testid="marketplace-results-count">
+          <div className="mb-7 flex flex-col gap-4 border-b border-slate-200 pb-5 sm:flex-row sm:items-end sm:justify-between">
+            <div>
+              <p className="text-[10px] font-black uppercase tracking-[0.2em] text-orange-600">Available now</p>
+              <h2 className="mt-1 text-3xl font-black tracking-[-0.04em] text-slate-950 sm:text-4xl">Published vehicles</h2>
+              <p className="mt-2 text-sm text-slate-500" data-testid="marketplace-results-summary">{getResultSummary(filterState)}</p>
+            </div>
+            <div className="flex items-end gap-5">
+              <p className="text-sm text-slate-500" data-testid="marketplace-results-count">
                 {loadingVehicles
                   ? <span className="flex items-center gap-2"><Loader2 className="h-4 w-4 animate-spin" />Loading vehicles…</span>
-                  : <><span className="font-semibold text-slate-950">{visibleListings.length}</span> {visibleListings.length === 1 ? 'vehicle' : 'vehicles'} found</>}
+                  : <><span className="text-2xl font-black text-slate-950">{visibleListings.length}</span> {visibleListings.length === 1 ? 'vehicle' : 'vehicles'}</>}
               </p>
+              <Button
+                variant="ghost"
+                className="hidden h-auto rounded-none border-b border-slate-300 px-0 pb-1 text-xs font-bold text-slate-600 hover:bg-transparent hover:text-orange-700 sm:inline-flex"
+                onClick={() => setMobileFiltersOpen(true)}
+              >
+                <SlidersHorizontal className="mr-1.5 h-3.5 w-3.5" /> Refine
+              </Button>
             </div>
+          </div>
 
-            {loadingVehicles ? (
-              <div className="grid gap-x-6 gap-y-10 sm:grid-cols-2 2xl:grid-cols-3" data-testid="marketplace-loading-state">
-                {Array.from({ length: 6 }).map((_, index) => <SkeletonCard key={index} />)}
-              </div>
-            ) : visibleListings.length === 0 ? (
-              <div className="border-y border-dashed border-slate-300 bg-white px-6 py-16 text-center" data-testid="marketplace-empty-state">
-                <Search className="mx-auto mb-4 h-10 w-10 text-slate-300" />
-                <h3 className="text-lg font-semibold text-slate-900">No matching vehicles</h3>
-                <p className="mx-auto mt-2 max-w-md text-sm leading-6 text-slate-500">
-                  Broaden the search or remove one of the active filters. CarUp will not fill an empty result with demo inventory.
-                </p>
-                <Button variant="outline" className="mt-5" onClick={resetFilters}>Clear all filters</Button>
-              </div>
-            ) : (
-              <div className="grid gap-x-6 gap-y-10 sm:grid-cols-2 2xl:grid-cols-3" data-testid="marketplace-results-grid">
-                {visibleListings.map(listing => {
-                  const vin = listing.vin
-                  const vehicleName = [listing.year, listing.make, listing.model].filter(value => value !== null && value !== undefined && value !== '').join(' ')
-                  const labels = listingLabels(listing)
-                  const href = `/marketplace/${encodeURIComponent(vin)}`
-                  const model: MarketplaceListingCardModel = {
-                    vin,
-                    name: vehicleName || `${listing.make} ${listing.model}`,
-                    price: typeof listing.price === 'number' && Number.isFinite(listing.price) ? listing.price : null,
-                    currency: typeof listing.currency === 'string' && listing.currency.trim() ? listing.currency : null,
-                    primaryImage: primaryImageForListing(listing),
-                    primaryImageState: listing.primary_image_state,
-                    mileage: typeof listing.mileage === 'number' && Number.isFinite(listing.mileage) ? listing.mileage : null,
-                    transmission: listing.transmission || null,
-                    fuel: listing.fuel_type || null,
-                    sellerLabel: sellerLabel(listing),
-                    locationLabel: summaryLocationLine(listing.location, listing.location_state).label,
-                    plateStatus: plateStatusLabel(listing),
-                    plateVerified: listing.plate_verified === true && !isAdversePlateStatus(listing.plate_status),
-                    reserved: listing.reservation_summary?.reserved === true,
-                    partSentryChecked: listing.partsentry_checked,
-                    labels: labels.length > 0 ? labels : ['Published listing'],
-                    trust: listing.trust || null,
-                    carupGold: listing.carup_gold?.state === 'qualified',
-                    syntheticDemo: Boolean(listing.primary_image_url?.includes('/marketplace-reference-synthetic/')),
-                  }
+          {loadingVehicles ? (
+            <div className="grid gap-x-7 gap-y-12 md:grid-cols-2" data-testid="marketplace-loading-state">
+              {Array.from({ length: 6 }).map((_, index) => <SkeletonCard key={index} />)}
+            </div>
+          ) : visibleListings.length === 0 ? (
+            <div className="border-y border-dashed border-slate-300 bg-white px-6 py-20 text-center" data-testid="marketplace-empty-state">
+              <Search className="mx-auto mb-4 h-10 w-10 text-slate-300" />
+              <h3 className="text-xl font-black text-slate-900">No matching vehicles</h3>
+              <p className="mx-auto mt-2 max-w-md text-sm leading-6 text-slate-500">
+                Broaden the search or remove one of the active filters. CarUp will not fill an empty result with demo inventory.
+              </p>
+              <Button variant="outline" className="mt-5 rounded-none" onClick={resetFilters}>Clear all filters</Button>
+            </div>
+          ) : (
+            <div className="grid gap-x-7 gap-y-12 md:grid-cols-2" data-testid="marketplace-results-grid">
+              {visibleListings.map(listing => {
+                const vin = listing.vin
+                const vehicleName = [listing.year, listing.make, listing.model].filter(value => value !== null && value !== undefined && value !== '').join(' ')
+                const labels = listingLabels(listing)
+                const href = `/marketplace/${encodeURIComponent(vin)}`
+                const model: MarketplaceListingCardModel = {
+                  vin,
+                  name: vehicleName || `${listing.make} ${listing.model}`,
+                  price: typeof listing.price === 'number' && Number.isFinite(listing.price) ? listing.price : null,
+                  currency: typeof listing.currency === 'string' && listing.currency.trim() ? listing.currency : null,
+                  primaryImage: primaryImageForListing(listing),
+                  primaryImageState: listing.primary_image_state,
+                  mileage: typeof listing.mileage === 'number' && Number.isFinite(listing.mileage) ? listing.mileage : null,
+                  transmission: listing.transmission || null,
+                  fuel: listing.fuel_type || null,
+                  sellerLabel: sellerLabel(listing),
+                  locationLabel: summaryLocationLine(listing.location, listing.location_state).label,
+                  plateStatus: plateStatusLabel(listing),
+                  plateVerified: listing.plate_verified === true && !isAdversePlateStatus(listing.plate_status),
+                  reserved: listing.reservation_summary?.reserved === true,
+                  partSentryChecked: listing.partsentry_checked,
+                  labels: labels.length > 0 ? labels : ['Published listing'],
+                  trust: listing.trust || null,
+                  carupGold: listing.carup_gold?.state === 'qualified',
+                  syntheticDemo: Boolean(listing.primary_image_url?.includes('/marketplace-reference-synthetic/')),
+                }
 
-                  return (
-                    <MarketplaceListingCard
-                      key={vin}
-                      vehicle={model}
-                      href={href}
-                      isFavorite={favorites.includes(vin)}
-                      isCompared={compareVins.includes(vin)}
-                      onFavorite={event => toggleFavorite(event, vin, model.name)}
-                      onCompare={event => toggleCompare(event, vin)}
-                      onShare={event => {
-                        event.preventDefault()
-                        event.stopPropagation()
-                        shareListing(vin, model.name)
-                      }}
-                    />
-                  )
-                })}
-              </div>
-            )}
-          </main>
-        </div>
+                return (
+                  <MarketplaceListingCard
+                    key={vin}
+                    vehicle={model}
+                    href={href}
+                    isFavorite={favorites.includes(vin)}
+                    isCompared={compareVins.includes(vin)}
+                    onFavorite={event => toggleFavorite(event, vin, model.name)}
+                    onCompare={event => toggleCompare(event, vin)}
+                    onShare={event => {
+                      event.preventDefault()
+                      event.stopPropagation()
+                      shareListing(vin, model.name)
+                    }}
+                  />
+                )
+              })}
+            </div>
+          )}
+        </main>
       </div>
 
       {compareVins.length > 0 && (
