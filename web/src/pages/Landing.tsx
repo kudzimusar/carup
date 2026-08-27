@@ -331,8 +331,8 @@ export default function Landing() {
             {featuredVehicles.map(vehicle => {
               const price = governedPrice(vehicle.price, vehicle.currency)
               return (
-              <Card key={vehicle.vin} className="overflow-hidden rounded-none border border-slate-200 border-t-4 border-t-slate-950 bg-white shadow-[0_10px_28px_rgba(15,23,42,0.06)] transition hover:border-t-orange-500 hover:shadow-[0_18px_44px_rgba(15,23,42,0.12)]" data-testid="featured-verified-car">
-                <div className="relative aspect-[16/10] overflow-hidden bg-gray-100">
+              <Card key={vehicle.vin} className="overflow-hidden rounded-none border-0 bg-transparent shadow-none transition duration-300 hover:-translate-y-1" data-testid="featured-verified-car">
+                <div className="relative aspect-[4/3] overflow-hidden bg-gray-100 shadow-[0_18px_45px_rgba(15,23,42,0.14)]">
                   <ListingImage
                     src={vehicle.primary_image_url}
                     alt={[vehicle.year, vehicle.make, vehicle.model].filter(Boolean).join(' ') || 'Vehicle'}
@@ -346,7 +346,7 @@ export default function Landing() {
                     ))}
                   </div>
                 </div>
-                <CardContent className="p-5">
+                <CardContent className="border-b border-slate-200 px-1 pb-5 pt-5">
                   <h3 className="font-semibold">
                     {[vehicle.year, vehicle.make, vehicle.model].filter(Boolean).join(' ') || 'Vehicle'}
                   </h3>
@@ -364,7 +364,7 @@ export default function Landing() {
                     {vehicle.transmission && <span>{vehicle.transmission}</span>}
                     {vehicle.fuel_type && <span>{vehicle.fuel_type}</span>}
                   </div>
-                  <Button asChild className="mt-5 w-full bg-gray-950 text-white hover:bg-gray-800" data-testid="featured-view-passport">
+                  <Button asChild className="mt-5 w-full rounded-none border border-slate-950 bg-white font-bold text-slate-950 shadow-none hover:border-orange-600 hover:bg-orange-600 hover:text-white" data-testid="featured-view-passport">
                     <Link to={vehiclePassportPath(vehicle.vin)}>
                       View Passport <ArrowRight className="ml-2 h-4 w-4" />
                     </Link>
@@ -376,9 +376,9 @@ export default function Landing() {
         </div>
       </section>
 
-      <section className="bg-gray-50 py-14">
+      <section className="border-y border-slate-200 bg-[#f5f7fa] py-14">
         <div className="section-padding mx-auto grid max-w-[1440px] gap-6 lg:grid-cols-2">
-          <Card className="border-0 bg-[hsl(222,47%,10%)] text-white shadow-md">
+          <Card className="rounded-none border-0 bg-[#08111f] text-white shadow-[0_24px_60px_rgba(15,23,42,0.16)]">
             <CardContent className="p-6 md:p-8">
               <Badge className="mb-4 rounded-none bg-white/10 text-white hover:bg-white/10">Sell with a Passport</Badge>
               <h2 className="text-3xl font-bold">Sell your car with a trusted Passport</h2>
@@ -400,7 +400,7 @@ export default function Landing() {
             </CardContent>
           </Card>
 
-          <Card className="border-0 shadow-md">
+          <Card className="rounded-none border-y border-slate-300 bg-transparent shadow-none">
             <CardContent className="p-6 md:p-8">
               <Badge className="mb-4 rounded-none bg-green-100 text-green-700 hover:bg-green-100">Verify before you buy</Badge>
               <h2 className="text-3xl font-bold">Already found a car elsewhere?</h2>
@@ -455,10 +455,10 @@ export default function Landing() {
             <Badge className="mb-3 rounded-none bg-orange-100 text-orange-700 hover:bg-orange-100">How CarUp Works</Badge>
             <h2 className="text-3xl font-bold">From search to transfer, keep the trust record visible</h2>
           </div>
-          <div className="mt-8 grid gap-5 md:grid-cols-4">
+          <div className="mt-8 grid gap-x-8 gap-y-10 border-t border-slate-200 pt-7 md:grid-cols-4">
             {howItWorks.map((item, index) => (
-              <Card key={item.title} className="rounded-none border border-slate-200 border-t-4 border-t-orange-500 shadow-none">
-                <CardContent className="p-5">
+              <Card key={item.title} className="rounded-none border-0 bg-transparent shadow-none">
+                <CardContent className="p-0">
                   <div className="flex h-11 w-11 items-center justify-center rounded-lg bg-orange-50 text-orange-600">
                     <item.icon className="h-5 w-5" />
                   </div>
