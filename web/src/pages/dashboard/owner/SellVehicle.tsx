@@ -11,9 +11,9 @@ import { zimbabweLocations, zimbabweProvinces } from '@/data/mockData'
 import { useCarUpApi } from '@/hooks/useCarUpApi'
 import { VehicleCompletenessPanel } from '@/components/VehicleCompletenessPanel'
 import { clearGuestSellDraft, readGuestSellDraft } from '@/lib/guestSellDraft'
-import { BODY_STYLES, VEHICLE_COLORS, VEHICLE_MAKES, modelsForMake } from '@/data/vehicleTaxonomy'
+import { BODY_STYLES, FUEL_TYPES, SELLER_CONDITIONS, TRANSMISSIONS, VEHICLE_COLORS, VEHICLE_MAKES, modelsForMake, vehicleYearOptions } from '@/data/vehicleTaxonomy'
 
-const YEARS = Array.from({ length: 60 }, (_, i) => String(new Date().getFullYear() + 1 - i))
+const YEARS = vehicleYearOptions()
 const STEPS = ['Vehicle Details', 'Location & Pricing', 'Images & Features', 'Review & Save Draft']
 
 /**
@@ -68,7 +68,7 @@ function StepIndicator({ step, total }: { step: number; total: number }) {
 }
 
 const INITIAL = {
-  make: '', model: '', year: '2020', vin: '', engineNumber: '', chassisNumber: '',
+  make: '', model: '', year: '', vin: '', engineNumber: '', chassisNumber: '',
   plateNumber: '', tempPlateId: '', importStatus: '', color: '',
   mileage: '', condition: '', category: '', fuelType: '', transmission: '',
   location: '', province: '', price: '', currency: '', description: '',
@@ -393,14 +393,12 @@ export default function SellVehicle() {
                   <Select value={form.condition} onValueChange={v => set('condition', v)}>
                     <SelectTrigger className={errors.condition ? 'border-red-400' : ''}><SelectValue placeholder="Select" /></SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="New">New</SelectItem>
-                      <SelectItem value="Used">Used</SelectItem>
-                      <SelectItem value="Certified Pre-Owned">Certified Pre-Owned</SelectItem>
+                      {SELLER_CONDITIONS.map(condition => <SelectItem key={condition} value={condition}>{condition}</SelectItem>)}
                     </SelectContent>
                   </Select>
                 </div>
                 <div>
-                  <label className="text-sm font-medium mb-1.5 block">Category *</label>
+                  <label className="text-sm font-medium mb-1.5 block">Body style *</label>
                   <Select value={form.category} onValueChange={v => set('category', v)}>
                     <SelectTrigger className={errors.category ? 'border-red-400' : ''}><SelectValue placeholder="Select" /></SelectTrigger>
                     <SelectContent>
@@ -413,7 +411,7 @@ export default function SellVehicle() {
                   <Select value={form.fuelType} onValueChange={v => set('fuelType', v)}>
                     <SelectTrigger className={errors.fuelType ? 'border-red-400' : ''}><SelectValue placeholder="Select" /></SelectTrigger>
                     <SelectContent>
-                      {['Petrol', 'Diesel', 'Hybrid', 'Electric'].map(f => <SelectItem key={f} value={f}>{f}</SelectItem>)}
+                      {FUEL_TYPES.map(fuel => <SelectItem key={fuel} value={fuel}>{fuel}</SelectItem>)}
                     </SelectContent>
                   </Select>
                 </div>
@@ -422,8 +420,7 @@ export default function SellVehicle() {
                   <Select value={form.transmission} onValueChange={v => set('transmission', v)}>
                     <SelectTrigger className={errors.transmission ? 'border-red-400' : ''}><SelectValue placeholder="Select" /></SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="Automatic">Automatic</SelectItem>
-                      <SelectItem value="Manual">Manual</SelectItem>
+                      {TRANSMISSIONS.map(transmission => <SelectItem key={transmission} value={transmission}>{transmission}</SelectItem>)}
                     </SelectContent>
                   </Select>
                 </div>

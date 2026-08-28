@@ -10,10 +10,9 @@ import {
   type MobilePublicTrust,
 } from '../../utils/marketplaceApi';
 import { NativeFeatureBoundary } from '../../components/navigation/NativeFeatureBoundary';
+import { VEHICLE_MAKES } from '@shared/taxonomy/vehicle';
 
 type Vehicle = MobileListingSummary;
-
-const MAKE_FILTERS = ['Toyota', 'Mercedes-Benz', 'Mazda', 'Nissan', 'Honda'];
 
 function titleCase(value: string | null | undefined) {
   if (!value) return null;
@@ -201,7 +200,7 @@ function MarketplaceScreenInner() {
           >
             <Text className={`text-xs font-semibold ${selectedMake === null ? 'text-white' : 'text-slate-600'}`}>All makes</Text>
           </Pressable>
-          {MAKE_FILTERS.map(make => (
+          {VEHICLE_MAKES.map(make => (
             <Pressable
               key={make}
               onPress={() => setSelectedMake(make)}

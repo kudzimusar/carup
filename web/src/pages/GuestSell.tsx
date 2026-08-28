@@ -6,14 +6,11 @@ import { Input } from '@/components/ui/input'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { useAuth } from '@/context/AuthContext'
 import { zimbabweLocations, zimbabweProvinces } from '@/data/mockData'
-import { BODY_STYLES, VEHICLE_COLORS, VEHICLE_MAKES, modelsForMake } from '@/data/vehicleTaxonomy'
+import { BODY_STYLES, FUEL_TYPES, SELLER_CONDITIONS, TRANSMISSIONS, VEHICLE_COLORS, VEHICLE_MAKES, isValidVehicleYear, modelsForMake } from '@/data/vehicleTaxonomy'
 import { saveGuestSellDraft } from '@/lib/guestSellDraft'
 import { toast } from 'sonner'
 
 const CURRENCIES = ['USD', 'ZiG']
-const CONDITIONS = ['New', 'Used', 'Certified Pre-Owned']
-const FUELS = ['Petrol', 'Diesel', 'Hybrid', 'Electric', 'Plug-in Hybrid', 'Other']
-const TRANSMISSIONS = ['Automatic', 'Manual', 'CVT', 'Other']
 
 const INITIAL = {
   make: '', model: '', year: '', vin: '', color: '',
@@ -48,7 +45,7 @@ export default function GuestSell() {
     if (step === 0) {
       if (!form.make.trim()) next.make = 'Make is required'
       if (!form.model.trim()) next.model = 'Model is required'
-      if (!form.year || Number(form.year) < 1900 || Number(form.year) > new Date().getFullYear() + 1) next.year = 'Enter a valid year'
+      if (!isValidVehicleYear(form.year)) next.year = 'Enter a valid year'
       if (!validVin(form.vin)) next.vin = 'Enter the 17-character VIN'
       if (!form.color.trim()) next.color = 'Colour is required'
     }
@@ -200,9 +197,9 @@ export default function GuestSell() {
               </div>
               <div className="grid gap-4 sm:grid-cols-3">
                 <Field label="Mileage (km)" error={errors.mileage}><Input type="number" value={form.mileage} onChange={e => set('mileage', e.target.value)} /></Field>
-                <SelectField label="Condition" value={form.condition} error={errors.condition} onValue={v => set('condition', v)} options={CONDITIONS} />
+                <SelectField label="Condition" value={form.condition} error={errors.condition} onValue={v => set('condition', v)} options={SELLER_CONDITIONS} />
                 <SelectField label="Body style" value={form.category} error={errors.category} onValue={v => set('category', v)} options={[...BODY_STYLES]} />
-                <SelectField label="Fuel" value={form.fuelType} error={errors.fuelType} onValue={v => set('fuelType', v)} options={FUELS} />
+                <SelectField label="Fuel" value={form.fuelType} error={errors.fuelType} onValue={v => set('fuelType', v)} options={FUEL_TYPES} />
                 <SelectField label="Transmission" value={form.transmission} error={errors.transmission} onValue={v => set('transmission', v)} options={TRANSMISSIONS} />
                 <SelectField label="Currency" value={form.currency} error={errors.currency} onValue={v => set('currency', v)} options={CURRENCIES} />
                 <Field label="Asking price" error={errors.price}><Input type="number" value={form.price} onChange={e => set('price', e.target.value)} /></Field>

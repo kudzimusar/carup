@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest'
 import {
   BODY_STYLES,
+  FUEL_TYPES,
+  TRANSMISSIONS,
   VEHICLE_COLORS,
   VEHICLE_MAKES,
   VEHICLE_TAXONOMY,
@@ -13,7 +15,7 @@ import {
 
 describe('CarUp vehicle taxonomy v1', () => {
   it('is dense, deterministic and unique at make/model level', () => {
-    expect(VEHICLE_TAXONOMY_VERSION).toBe('carup-vehicle-taxonomy-1.0.0')
+    expect(VEHICLE_TAXONOMY_VERSION).toBe('carup-global-vehicle-taxonomy@1.0.0')
     expect(VEHICLE_MAKES.length).toBeGreaterThan(30)
     expect(new Set(VEHICLE_MAKES.map(make => make.toLowerCase())).size).toBe(VEHICLE_MAKES.length)
 
@@ -44,6 +46,8 @@ describe('CarUp vehicle taxonomy v1', () => {
     expect(modelsForMake('Isuzu').map(model => model.name)).toContain('D-Max')
     expect(BODY_STYLES).toEqual(expect.arrayContaining(['Pickup', 'SUV', 'Truck', 'Minibus']))
     expect(VEHICLE_COLORS).toEqual(expect.arrayContaining(['White', 'Silver', 'Black', 'Other']))
+    expect(FUEL_TYPES).toEqual(expect.arrayContaining(['Petrol', 'Plug-in Hybrid', 'Electric']))
+    expect(TRANSMISSIONS).toEqual(expect.arrayContaining(['Automatic', 'Manual', 'CVT', 'DCT']))
     expect(taxonomySearchTerms('Volkswagen', 'Polo')).toEqual(expect.arrayContaining(['Volkswagen', 'VW', 'Polo']))
   })
 })

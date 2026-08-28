@@ -49,13 +49,13 @@ import {
 } from '@/lib/marketplaceParams'
 import type { ActiveFilterKey, MarketplaceSort, MarketplaceUrlState } from '@/lib/marketplaceParams'
 import { isAdversePlateStatus, plateStatusLabel, primaryImageForListing } from '@/lib/marketplacePresentation'
-import { VEHICLE_COLORS, VEHICLE_MAKES, VEHICLE_TAXONOMY, modelsForMake } from '@/data/vehicleTaxonomy'
+import { FUEL_TYPES, TRANSMISSIONS, VEHICLE_COLORS, VEHICLE_MAKES, VEHICLE_TAXONOMY, modelsForMake, vehicleYearOptions } from '@/data/vehicleTaxonomy'
 
 const MAX_COMPARE = 4
 const makes = ['All', ...VEHICLE_MAKES]
-const fuelTypes = ['All', 'Petrol', 'Diesel', 'Hybrid', 'Electric']
-const transmissions = ['All', 'Automatic', 'Manual']
-const marketplaceYears = Array.from({ length: new Date().getFullYear() - 1959 }, (_, index) => String(new Date().getFullYear() + 1 - index))
+const fuelTypes = ['All', ...FUEL_TYPES]
+const transmissions = ['All', ...TRANSMISSIONS]
+const marketplaceYears = vehicleYearOptions()
 const allTaxonomyModels = Array.from(new Set(VEHICLE_TAXONOMY.flatMap(make => make.models.map(model => model.name)))).sort()
 const CONDITION_CHIPS = [...CATEGORY_CHIPS, 'Parts & Accessories']
 const TRUST_CHIPS = TRUST_TAG_CHIPS
