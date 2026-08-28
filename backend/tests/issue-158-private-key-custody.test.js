@@ -8,6 +8,9 @@ import {
   signLedgerHash,
   verifyLedgerHash,
 } from '../services/blockchain/blockchainKeyCustodyService.js';
+import {
+  isMissingCustodyMetadataColumn,
+} from '../services/blockchain/blockchainService.js';
 
 test('Issue #158: same secret + user + version derives stable public key across calls', () => {
   const opts = { secret: 'unit-test-master-material', version: 'v-test' };
@@ -78,4 +81,40 @@ test('Issue #158: blockchain compatibility API returns public metadata only', ()
   assert.doesNotMatch(src, /privateKeyPem|privateKeyPem:/);
   assert.match(src, /custodyProvider/);
   assert.match(src, /keyVersion/);
+});
+
+
+test('Issue #158: deploy-before-migrate detection recognizes PostgreSQL and PostgREST missing custody columns', () => {
+  assert.equal(isMissingCustodyMetadataColumn({
+    code: '42703',
+    message: 'column public_keys.key_ref does not exist',
+  }), true);
+  assert.equal(isMissingCustodyMetadataColumn({
+    code: 'PGRST204',
+    message: "Could not find the 'key_ref' column of 'public_keys' in the schema cache",
+  }), true);
+  assert.equal(isMissingCustodyMetadataColumn({
+    code: '42P01',
+    message: 'relation public_keys does not exist',
+  }), false);
+  assert.equal(isMissingCustodyMetadataColumn({
+    code: '42501',
+    message: 'permission denied for table public_keys',
+  }), false);
+});
+
+test('Issue #158: pre-migration compatibility uses public-only named columns and never secret material', () => {
+  const src = readFileSync('backend/services/blockchain/blockchainService.js', 'utf8');
+  assert.match(src, /BASE_PUBLIC_KEY_SELECT/);
+  assert.match(src, /CUSTODY_PUBLIC_KEY_SELECT/);
+  assert.match(src, /select\(BASE_PUBLIC_KEY_SELECT\)/);
+  assert.match(src, /isMissingCustodyMetadataColumn/);
+  assert.doesNotMatch(src, /private_key_pem/);
+  assert.doesNotMatch(src, /select\(['"]\*['"]\)/);
+});
+
+test('Issue #158: legacy-schema inserts omit custody metadata rather than inventing unavailable columns', () => {
+  const src = readFileSync('backend/services/blockchain/blockchainService.js', 'utf8');
+  assert.match(src, /\.\.\.\(custodyMetadataAvailable[\s\S]*key_ref: derived\.keyRef/);
+  assert.match(src, /custodyMetadataPersisted: custodyMetadataAvailable/);
 });
