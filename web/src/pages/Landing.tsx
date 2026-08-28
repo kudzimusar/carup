@@ -364,7 +364,7 @@ export default function Landing() {
                 <Link
                   key={journey.title}
                   to={journey.href}
-                  className="group grid overflow-hidden border border-slate-200 bg-white shadow-[0_18px_45px_rgba(15,23,42,0.05)] transition duration-300 hover:-translate-y-1 hover:border-orange-200 hover:shadow-[0_28px_70px_rgba(15,23,42,0.10)] md:grid-cols-[0.88fr_1.12fr]"
+                  className="group grid overflow-hidden border border-slate-200 bg-white shadow-[0_18px_45px_rgba(15,23,42,0.05)] transition duration-300 motion-safe:hover:-translate-y-1 hover:border-orange-200 hover:shadow-[0_28px_70px_rgba(15,23,42,0.10)] md:grid-cols-[0.88fr_1.12fr]"
                   data-testid="home-journey-card"
                 >
                   <div className="relative flex min-h-[260px] flex-col p-6 sm:p-7">
@@ -375,7 +375,7 @@ export default function Landing() {
                     <h3 className="mt-8 max-w-[18rem] text-3xl font-black leading-[0.98] tracking-[-0.045em] text-slate-950">{journey.title}</h3>
                     <p className="mt-4 max-w-sm text-sm leading-6 text-slate-500">{journey.copy}</p>
                     <span className="mt-auto inline-flex items-center gap-2 pt-8 text-xs font-black text-slate-950 transition group-hover:text-orange-700">
-                      Go there <ArrowUpRight className="h-4 w-4 transition-transform group-hover:-translate-y-0.5 group-hover:translate-x-0.5" />
+                      Go there <ArrowUpRight className="h-4 w-4 transition-transform motion-safe:group-hover:-translate-y-0.5 motion-safe:group-hover:translate-x-0.5" />
                     </span>
                   </div>
                   <JourneyMediaStory scene={journey.scene} image={media.src} alt={media.alt} />
