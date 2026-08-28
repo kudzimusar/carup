@@ -2,7 +2,7 @@
 
 **Date:** 2026-08-28
 **Phase:** V12 — Communications Lifecycle Orchestration
-**Status:** FOUNDATION IMPLEMENTED / END-TO-END DELIVERY BLOCKED BY PR #183
+**Status:** FOUNDATION PASS / END-TO-END DELIVERY BLOCKED BY PR #183
 
 ## Scope
 
@@ -72,6 +72,19 @@ PR #183 remains an active Draft runtime lane. Seller S10 is also externally bloc
 
 No speculative WhatsApp/email staging send is performed from Passport Foundation.
 
+## Exact-head certification
+
+Certified code head:
+
+- exact code head: `db79900250015565b88642367da18fd00c5d68b2`
+- Vehicle Passport Foundation CI run: `33165643885` — **PASS**
+- Passport V1–V12 cumulative contracts — PASS
+- canonical communication event coverage — PASS
+- canonical Trust/source/governance/evidence/lookup/service/PartSentry guards — PASS
+- syntax/diff hygiene — PASS
+
+The provider anti-fork test was proactively narrowed before certification so that the safety deny-list words `whatsapp`/`telegram` are not mistaken for provider integration. The runtime module still imports no Communications provider or delivery implementation.
+
 ## Phase decision
 
-**V12 FOUNDATION IMPLEMENTED. END-TO-END COMMUNICATION DELIVERY REMAINS BLOCKED UNTIL #183 RECONCILIATION.**
+**V12 FOUNDATION PASS. END-TO-END COMMUNICATION DELIVERY REMAINS BLOCKED UNTIL #183 RECONCILIATION AND SELLER S10 CERTIFICATION.**
