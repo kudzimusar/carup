@@ -10,6 +10,7 @@ import {
   toSellerClaim,
 } from '../../utils/publicVehicleProjection.js';
 import { getFixtureExclusion } from './marketplaceClassificationRules.js';
+import { resolveBodyStyle, resolveFuelType, resolveTransmission, resolveVehicleMake, resolveVehicleModel, resolveVehicleYear } from '../taxonomy/vehicleTaxonomyService.js';
 /**
  * THE ONE DEFINITION OF "A PUBLISHABLE LISTING PHOTO" — Issue #164 Phase 5 convergence.
  *
@@ -656,6 +657,19 @@ export function buildMarketplaceListingSummary({
     mileage: claims.specification.mileage.value,
     fuel_type: claims.specification.fuel_type.value,
     transmission: claims.specification.transmission.value,
+    drivetrain: claims.specification.drivetrain.value,
+    // Seller-stated commercial facts are deliberately separate from governed condition_category.
+    body_style: isRecordedValue(vehicle.body_style) ? String(vehicle.body_style).trim() : null,
+    seller_stated_condition: isRecordedValue(vehicle.seller_stated_condition) ? String(vehicle.seller_stated_condition).trim() : null,
+    seller_description: isRecordedValue(vehicle.seller_description) ? String(vehicle.seller_description).trim() : null,
+    seller_features: Array.isArray(vehicle.seller_features) ? vehicle.seller_features.filter(isRecordedValue).map(value => String(value).trim()) : [],
+    taxonomy_version: isRecordedValue(vehicle.taxonomy_version) ? String(vehicle.taxonomy_version).trim() : null,
+    make_taxon_id: isRecordedValue(vehicle.make_taxon_id) ? String(vehicle.make_taxon_id).trim() : null,
+    model_taxon_id: isRecordedValue(vehicle.model_taxon_id) ? String(vehicle.model_taxon_id).trim() : null,
+    fuel_taxon_id: isRecordedValue(vehicle.fuel_taxon_id) ? String(vehicle.fuel_taxon_id).trim() : null,
+    transmission_taxon_id: isRecordedValue(vehicle.transmission_taxon_id) ? String(vehicle.transmission_taxon_id).trim() : null,
+    drivetrain_taxon_id: isRecordedValue(vehicle.drivetrain_taxon_id) ? String(vehicle.drivetrain_taxon_id).trim() : null,
+    body_style_taxon_id: isRecordedValue(vehicle.body_style_taxon_id) ? String(vehicle.body_style_taxon_id).trim() : null,
     status: claims.publication.listing_status.value,
     condition_category: conditionCategory,
     marketplace_tags: marketplaceTags,
@@ -739,6 +753,10 @@ function summaryMatchesSearch(summary, query) {
     summary.year,
     summary.color,
     summary.condition_category,
+    summary.body_style,
+    summary.seller_stated_condition,
+    summary.seller_description,
+    ...(summary.seller_features || []),
     summary.seller_type,
     summary.seller_display_label,
     summary.marketplace_tags.join(' '),
@@ -764,6 +782,47 @@ export function summaryMatchesTextFacet(summary, value, field) {
   const actual = summary?.[field];
   if (!isRecordedValue(actual)) return false;
   return normalizeText(actual) === normalizeText(value);
+}
+
+export function summaryMatchesMakeFacet(summary, value) {
+  if (value === undefined || value === null || normalizeText(value) === '' || normalizeText(value) === 'all') return true;
+  const wanted = resolveVehicleMake(value);
+  const actual = resolveVehicleMake(summary?.make);
+  if (wanted.canonical_id && actual.canonical_id) return wanted.canonical_id === actual.canonical_id;
+  return normalizeText(summary?.make) === normalizeText(value);
+}
+
+export function summaryMatchesModelFacet(summary, value, requestedMake = null) {
+  if (value === undefined || value === null || normalizeText(value) === '' || normalizeText(value) === 'all') return true;
+  const makeContext = requestedMake || summary?.make;
+  const wanted = resolveVehicleModel(makeContext, value);
+  const actual = resolveVehicleModel(summary?.make, summary?.model);
+  if (wanted.canonical_id && actual.canonical_id) return wanted.canonical_id === actual.canonical_id;
+  return normalizeText(summary?.model) === normalizeText(value);
+}
+
+export function summaryMatchesFuelFacet(summary, value) {
+  if (value === undefined || value === null || normalizeText(value) === '' || normalizeText(value) === 'all') return true;
+  const wanted = resolveFuelType(value);
+  const actual = resolveFuelType(summary?.fuel_type);
+  if (wanted.canonical_id && actual.canonical_id) return wanted.canonical_id === actual.canonical_id;
+  return normalizeText(summary?.fuel_type) === normalizeText(value);
+}
+
+export function summaryMatchesTransmissionFacet(summary, value) {
+  if (value === undefined || value === null || normalizeText(value) === '' || normalizeText(value) === 'all') return true;
+  const wanted = resolveTransmission(value);
+  const actual = resolveTransmission(summary?.transmission);
+  if (wanted.canonical_id && actual.canonical_id) return wanted.canonical_id === actual.canonical_id;
+  return normalizeText(summary?.transmission) === normalizeText(value);
+}
+
+export function summaryMatchesBodyStyleFacet(summary, value) {
+  if (value === undefined || value === null || normalizeText(value) === '' || normalizeText(value) === 'all') return true;
+  const wanted = resolveBodyStyle(value);
+  const actual = resolveBodyStyle(summary?.body_style);
+  if (wanted.canonical_id && actual.canonical_id) return wanted.canonical_id === actual.canonical_id;
+  return normalizeText(summary?.body_style) === normalizeText(value);
 }
 
 /**
@@ -1042,6 +1101,31 @@ export const LISTING_SELECT_COLUMNS_WITH_CLAIMS = `${LISTING_SELECT_COLUMNS},
       ${LISTING_CLAIM_COLUMNS.join(',\n      ')}
     `;
 
+export const SELLER_TAXONOMY_LISTING_COLUMNS = Object.freeze([
+  'seller_description',
+  'seller_features',
+  'body_style',
+  'seller_stated_condition',
+  'make_taxon_id',
+  'model_taxon_id',
+  'fuel_taxon_id',
+  'transmission_taxon_id',
+  'drivetrain_taxon_id',
+  'body_style_taxon_id',
+  'taxonomy_version',
+]);
+
+export const LISTING_SELECT_COLUMNS_WITH_SELLER_TAXONOMY = `${LISTING_SELECT_COLUMNS_WITH_CLAIMS},
+      ${SELLER_TAXONOMY_LISTING_COLUMNS.join(',\n      ')}
+    `;
+
+function isMissingSchemaColumnError(error) {
+  const code = String(error?.code ?? '').toUpperCase();
+  if (code === 'PGRST204' || code === '42703') return true;
+  const text = [error?.message, error?.details, error?.hint].filter(Boolean).join(' ').toLowerCase();
+  return text.includes('could not find') || text.includes('does not exist') || text.includes('schema cache');
+}
+
 /**
  * Run a listing-row read that PREFERS provenance and degrades instead of failing.
  *
@@ -1059,14 +1143,18 @@ export const LISTING_SELECT_COLUMNS_WITH_CLAIMS = `${LISTING_SELECT_COLUMNS},
  * landed and working cards where it has not.
  */
 export async function selectListingRows(client, shape = (query) => query) {
-  // Both selects name a canonical list literally, so the read-contract scanner can see that this
-  // service reads through the contract rather than a hand-rolled column set.
-  const wide = await shape(client.from('vehicles').select(LISTING_SELECT_COLUMNS_WITH_CLAIMS));
-  if (!wide?.error) return wide;
-  if (isMissingListingClaimColumnError(wide.error)) {
+  // Prefer the complete Seller S0 + claim projection. During controlled migration, degrade one
+  // schema generation at a time rather than taking Marketplace down or pretending new fields exist.
+  const sellerWide = await shape(client.from('vehicles').select(LISTING_SELECT_COLUMNS_WITH_SELLER_TAXONOMY));
+  if (!sellerWide?.error) return sellerWide;
+  if (!isMissingSchemaColumnError(sellerWide.error)) return sellerWide;
+
+  const claimsWide = await shape(client.from('vehicles').select(LISTING_SELECT_COLUMNS_WITH_CLAIMS));
+  if (!claimsWide?.error) return claimsWide;
+  if (isMissingListingClaimColumnError(claimsWide.error)) {
     return shape(client.from('vehicles').select(LISTING_SELECT_COLUMNS));
   }
-  return wide;
+  return claimsWide;
 }
 
 
@@ -1143,12 +1231,8 @@ export async function listMarketplaceListings(supabaseClient, params = {}) {
   const limit = safeLimit(params.limit);
   const minPrice = params.minPrice !== undefined ? numericValue(params.minPrice) : null;
   const maxPrice = params.maxPrice !== undefined ? numericValue(params.maxPrice) : null;
-  const requestedYear = params.year !== undefined && params.year !== null && String(params.year).trim() !== ''
-    ? Number(params.year)
-    : null;
-  const validYear = Number.isInteger(requestedYear) && requestedYear >= 1900 && requestedYear <= new Date().getFullYear() + 1
-    ? requestedYear
-    : null;
+  const yearResolution = resolveVehicleYear(params.year);
+  const validYear = yearResolution.state === 'canonical' ? yearResolution.canonical_year : null;
 
   // QA Round 4: ONE mutually-exclusive condition/category + MANY stackable trust tags (AND).
   const requestedTags = parseTagList(params.tag);
@@ -1171,8 +1255,8 @@ export async function listMarketplaceListings(supabaseClient, params = {}) {
   // it has not.
   const shapeListQuery = (query) => {
     let q = query;
-    if (params.make) q = q.eq('make', params.make);
-    if (params.model) q = q.eq('model', params.model);
+    // Make/model aliases may exist on historical rows, so canonical filtering happens over the
+    // full eligible population below. Year is numeric and safe to prefilter.
     if (validYear !== null) q = q.eq('year', validYear);
     if (params.color) q = q.eq('color', params.color);
     if (minPrice !== null) q = q.gte('price', minPrice);
@@ -1210,14 +1294,16 @@ export async function listMarketplaceListings(supabaseClient, params = {}) {
   // the first-page bug where a valid vehicle outside the initial 48 could never be discovered.
   const filtered = summaries
     .filter(summary => summaryMatchesSearch(summary, params.q))
-    .filter(summary => summaryMatchesTextFacet(summary, params.model, 'model'))
+    .filter(summary => summaryMatchesMakeFacet(summary, params.make))
+    .filter(summary => summaryMatchesModelFacet(summary, params.model, params.make))
     .filter(summary => validYear === null || summary.year === validYear)
     .filter(summary => summaryMatchesTextFacet(summary, params.color, 'color'))
+    .filter(summary => summaryMatchesBodyStyleFacet(summary, params.bodyStyle ?? params.body_style ?? params.body))
     .filter(summary => summaryMatchesCondition(summary, requestedCondition))
     .filter(summary => summaryMatchesTags(summary, requestedTags))
     .filter(summary => summaryMatchesLocationFacet(summary, params.location))
-    .filter(summary => summaryMatchesTextFacet(summary, params.fuel, 'fuel_type'))
-    .filter(summary => summaryMatchesTextFacet(summary, params.transmission, 'transmission'));
+    .filter(summary => summaryMatchesFuelFacet(summary, params.fuel))
+    .filter(summary => summaryMatchesTransmissionFacet(summary, params.transmission));
 
   const sorted = sortSummaries(filtered, params.sort);
 

@@ -49,7 +49,7 @@ import {
 } from '@/lib/marketplaceParams'
 import type { ActiveFilterKey, MarketplaceSort, MarketplaceUrlState } from '@/lib/marketplaceParams'
 import { isAdversePlateStatus, plateStatusLabel, primaryImageForListing } from '@/lib/marketplacePresentation'
-import { FUEL_TYPES, TRANSMISSIONS, VEHICLE_COLORS, VEHICLE_MAKES, VEHICLE_TAXONOMY, modelsForMake, vehicleYearOptions } from '@/data/vehicleTaxonomy'
+import { BODY_STYLES, FUEL_TYPES, TRANSMISSIONS, VEHICLE_COLORS, VEHICLE_MAKES, VEHICLE_TAXONOMY, modelsForMake, vehicleYearOptions } from '@/data/vehicleTaxonomy'
 
 const MAX_COMPARE = 4
 const makes = ['All', ...VEHICLE_MAKES]
@@ -191,6 +191,8 @@ interface FilterControlsProps {
   onYear: (value: string) => void
   selectedColor: string
   onColor: (value: string) => void
+  selectedBodyStyle: string
+  onBodyStyle: (value: string) => void
   selectedLocation: string
   onLocation: (value: string) => void
   selectedFuel: string
@@ -210,6 +212,8 @@ function FilterControls({
   onYear,
   selectedColor,
   onColor,
+  selectedBodyStyle,
+  onBodyStyle,
   selectedLocation,
   onLocation,
   selectedFuel,
@@ -265,6 +269,17 @@ function FilterControls({
             </SelectContent>
           </Select>
         </div>
+      </div>
+
+      <div>
+        <label className="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-slate-500">Body style</label>
+        <Select value={selectedBodyStyle} onValueChange={onBodyStyle}>
+          <SelectTrigger className="bg-white" data-testid="marketplace-body-style-filter"><SelectValue /></SelectTrigger>
+          <SelectContent>
+            <SelectItem value="All">All body styles</SelectItem>
+            {BODY_STYLES.map(bodyStyle => <SelectItem key={bodyStyle} value={bodyStyle}>{bodyStyle}</SelectItem>)}
+          </SelectContent>
+        </Select>
       </div>
 
       <div>
@@ -546,6 +561,7 @@ export default function Marketplace() {
     else if (key === 'model') updateUrl({ selectedModel: ALL })
     else if (key === 'year') updateUrl({ selectedYear: ALL })
     else if (key === 'color') updateUrl({ selectedColor: ALL })
+    else if (key === 'bodyStyle') updateUrl({ selectedBodyStyle: ALL })
     else if (key === 'q') {
       setSearchQuery('')
       updateUrl({ searchQuery: '' }, true)
@@ -579,6 +595,8 @@ export default function Marketplace() {
       onYear={value => updateUrl({ selectedYear: value })}
       selectedColor={url.selectedColor}
       onColor={value => updateUrl({ selectedColor: value })}
+      selectedBodyStyle={url.selectedBodyStyle}
+      onBodyStyle={value => updateUrl({ selectedBodyStyle: value })}
       selectedLocation={url.selectedLocation}
       onLocation={value => updateUrl({ selectedLocation: value })}
       selectedFuel={url.selectedFuel}

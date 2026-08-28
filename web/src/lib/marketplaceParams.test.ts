@@ -30,6 +30,7 @@ describe('paramsToState', () => {
       selectedModel: 'All',
       selectedYear: 'All',
       selectedColor: 'All',
+      selectedBodyStyle: 'All',
       selectedCategory: 'Recently Imported',
       selectedTags: [],
       selectedFuel: 'Diesel',
@@ -77,12 +78,13 @@ describe('paramsToState', () => {
     expect(paramsToState(p(''))).toEqual(DEFAULT_MARKETPLACE_STATE)
   })
 
-  it('supports model/year/colour while still ignoring unsupported body/condition params', () => {
+  it('supports model/year/colour/body style while keeping condition taxonomy separate', () => {
     const state = paramsToState(p('make=Toyota&model=Hilux&year=2019&color=Silver&body=pickup&condition=New'))
     expect(state.selectedMake).toBe('Toyota')
     expect(state.selectedModel).toBe('Hilux')
     expect(state.selectedYear).toBe('2019')
     expect(state.selectedColor).toBe('Silver')
+    expect(state.selectedBodyStyle).toBe('Pickup')
     expect(state.selectedCategory).toBe('All')
   })
 
@@ -139,6 +141,7 @@ describe('stateToParams', () => {
       selectedModel: 'Fit',
       selectedYear: '2019',
       selectedColor: 'Silver',
+      selectedBodyStyle: 'Hatchback',
       selectedTags: ['Passport Verified'],
       selectedFuel: 'Hybrid',
       selectedTransmission: 'Automatic',
@@ -151,6 +154,7 @@ describe('stateToParams', () => {
     expect(params.get('model')).toBe('Fit')
     expect(params.get('year')).toBe('2019')
     expect(params.get('color')).toBe('Silver')
+    expect(params.get('bodyStyle')).toBe('Hatchback')
     expect(params.get('q')).toBe('fit')
     expect(params.get('tag')).toBe('passport_verified')
     expect(params.get('fuel')).toBe('Hybrid')
@@ -210,6 +214,7 @@ describe('stateToApiFilters', () => {
       selectedModel: 'Hilux',
       selectedYear: '2019',
       selectedColor: 'Silver',
+      selectedBodyStyle: 'Pickup',
       selectedTags: ['Passport Verified'],
       selectedFuel: 'Diesel',
       selectedTransmission: 'Manual',
@@ -223,6 +228,7 @@ describe('stateToApiFilters', () => {
       model: 'Hilux',
       year: 2019,
       color: 'Silver',
+      bodyStyle: 'Pickup',
       tag: 'passport_verified',
       fuel: 'Diesel',
       transmission: 'Manual',
@@ -284,6 +290,7 @@ describe('getActiveFilterChips', () => {
       selectedModel: 'Fit',
       selectedYear: '2019',
       selectedColor: 'Silver',
+      selectedBodyStyle: 'Hatchback',
       selectedCategory: 'Brand New',
       selectedTags: ['Passport Verified', 'Fresh Import'],
       selectedFuel: 'Hybrid',
@@ -293,7 +300,7 @@ describe('getActiveFilterChips', () => {
       sortBy: 'trust',
     })
     expect(chips.map(chip => chip.key)).toEqual([
-      'make', 'model', 'year', 'color', 'q', 'category', 'tag', 'tag', 'fuel', 'transmission', 'location', 'price', 'sort',
+      'make', 'model', 'year', 'color', 'bodyStyle', 'q', 'category', 'tag', 'tag', 'fuel', 'transmission', 'location', 'price', 'sort',
     ])
     expect(chips.filter(chip => chip.key === 'tag').map(chip => chip.value)).toEqual(['Passport Verified', 'Fresh Import'])
     expect(chips.find(chip => chip.key === 'price')?.label).toBe('Under $10,000')
@@ -312,13 +319,14 @@ describe('getResultSummary', () => {
       selectedModel: 'Hilux',
       selectedYear: '2019',
       selectedColor: 'Silver',
+      selectedBodyStyle: 'Pickup',
       selectedTags: ['Passport Verified'],
       selectedFuel: 'Diesel',
       selectedTransmission: 'Automatic',
       selectedLocation: 'Harare',
       priceRange: [0, 10000],
       sortBy: 'trust',
-    })).toBe('Showing Passport Verified Toyota Hilux 2019 Silver Diesel Automatic vehicles in Harare under $10,000, sorted by trust.')
+    })).toBe('Showing Passport Verified Toyota Hilux 2019 Silver Pickup Diesel Automatic vehicles in Harare under $10,000, sorted by trust.')
   })
 
   it('joins a category and multiple trust tags', () => {

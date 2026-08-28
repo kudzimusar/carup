@@ -129,6 +129,18 @@ export interface MarketplaceListingSummary {
   mileage: number | null;
   fuel_type?: string | null;
   transmission?: string | null;
+  drivetrain?: string | null;
+  body_style?: string | null;
+  seller_stated_condition?: string | null;
+  seller_description?: string | null;
+  seller_features?: string[];
+  taxonomy_version?: string | null;
+  make_taxon_id?: string | null;
+  model_taxon_id?: string | null;
+  fuel_taxon_id?: string | null;
+  transmission_taxon_id?: string | null;
+  drivetrain_taxon_id?: string | null;
+  body_style_taxon_id?: string | null;
   /**
    * Normally the governed listing lifecycle string. `null` is deliberate when the raw row says
    * Reserved but canonical reservation truth is unavailable/inconsistent: a stale cache is not a

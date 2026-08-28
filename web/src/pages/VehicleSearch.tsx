@@ -24,6 +24,7 @@ import { looksLikeIdentifier } from '@/lib/marketplaceParams'
 import { MarketplaceListingCard } from '@/components/marketplace/MarketplaceListingCard'
 import { marketplaceListingToCardModel } from '@/lib/marketplaceCardModel'
 import type { MarketplaceListingSummary, Vehicle } from '@/types'
+import { VEHICLE_MAKES } from '@/data/vehicleTaxonomy'
 
 function labelize(slug: string): string {
   return slug
@@ -132,10 +133,7 @@ export default function VehicleSearch() {
     fetchMarketplaceListingDetail,
   ])
 
-  const makes = useMemo(
-    () => ['All', ...Array.from(new Set(listings.map(l => l.make).filter(Boolean))).sort()],
-    [listings],
-  )
+  const makes = ['All', ...VEHICLE_MAKES]
 
   const categories = useMemo(() => {
     if (categoryOptions.length > 0) return categoryOptions
