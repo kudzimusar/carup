@@ -430,6 +430,15 @@ export default function SellVehicle() {
                   </Select>
                 </div>
                 <div>
+                  <label className="text-sm font-medium mb-1.5 block">Drivetrain</label>
+                  <Select value={form.drivetrain} onValueChange={v => set('drivetrain', v)}>
+                    <SelectTrigger><SelectValue placeholder="Optional" /></SelectTrigger>
+                    <SelectContent>
+                      {DRIVETRAINS.map(drivetrain => <SelectItem key={drivetrain} value={drivetrain}>{drivetrain}</SelectItem>)}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div>
                   <label className="text-sm font-medium mb-1.5 block">Currency *</label>
                   <Select value={form.currency} onValueChange={v => set('currency', v)}>
                     <SelectTrigger className={errors.currency ? 'border-red-400' : ''} data-testid="vehicle-currency-input"><SelectValue placeholder="Select currency" /></SelectTrigger>
