@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { Link } from 'react-router-dom'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
@@ -10,7 +11,9 @@ import { toast } from 'sonner'
 import { zimbabweLocations, zimbabweProvinces } from '@/data/mockData'
 import { useCarUpApi } from '@/hooks/useCarUpApi'
 import { VehicleCompletenessPanel } from '@/components/VehicleCompletenessPanel'
+import { ListingQualityPanel } from '@/components/sell/ListingQualityPanel'
 import { clearGuestSellDraft, readGuestSellDraft } from '@/lib/guestSellDraft'
+import { sellerDiscoverabilityFacets } from '@/lib/sellerListingPreview'
 import { VehicleIdentificationNotice } from '@/components/sell/VehicleIdentificationNotice'
 import { useSellerVehicleIdentification } from '@/hooks/useSellerVehicleIdentification'
 import { BODY_STYLES, DRIVETRAINS, FUEL_TYPES, SELLER_CONDITIONS, TRANSMISSIONS, VEHICLE_COLORS, VEHICLE_MAKES, modelsForMake, vehicleYearOptions } from '@/data/vehicleTaxonomy'
@@ -310,7 +313,33 @@ export default function SellVehicle() {
             </p>
           </div>
         </div>
+        {/* S7 — THREE MEASUREMENTS, THREE BLOCKS, NEVER COLLAPSED (Invariant 6).
+            Publication Readiness answers "may CarUp publish this?" and is the governed evidence
+            panel. Listing Quality answers "is my advertisement strong?" and is computed from the
+            seller's own inputs. Canonical Trust — what CarUp has actually verified — is published
+            only by the Trust surfaces from canonicalTrustService, and is deliberately NOT restated
+            here: a seller-facing copy of a Trust position is how a score drifts from its own
+            calculation_version. */}
         <VehicleCompletenessPanel vin={savedVin} data-testid="post-save-completeness" />
+        <ListingQualityPanel
+          listing={{
+            images: form.images,
+            coverChosen: coverImageIndex !== null,
+            description: form.description,
+            features: form.features,
+            discoverabilityFacets: sellerDiscoverabilityFacets(form),
+          }}
+        />
+        <div className="rounded-xl border border-slate-200 bg-slate-50 p-4" data-testid="canonical-trust-pointer">
+          <p className="text-sm font-semibold text-slate-800">Canonical Trust is measured separately</p>
+          <p className="mt-1 text-xs text-slate-600">
+            Neither block above is a Trust score. CarUp publishes what it has actually verified on
+            the vehicle&rsquo;s Passport, and only once evidence has been reviewed.
+          </p>
+          <Link to={`/vehicle/${savedVin}`} className="mt-2 inline-flex text-xs font-semibold text-orange-600 hover:underline">
+            Open this vehicle&rsquo;s Passport
+          </Link>
+        </div>
       </div>
     )
   }
