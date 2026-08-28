@@ -60,17 +60,37 @@ function samePublicKey(a, b) {
   return String(a || '').trim() === String(b || '').trim();
 }
 
-export function isPublicKeyRegistrationConflict(error) {
+export function isMissingCustodyRolloutStateFunction(error) {
   if (!error) return false;
   const code = String(error.code || '').toUpperCase();
-  const message = String(error.message || error.details || '').toLowerCase();
-  return code === '23505' || /duplicate key|unique constraint/.test(message);
+  const message = String(error.message || error.details || error.hint || '').toLowerCase();
+  return code === '42883'
+    || code === 'PGRST202'
+    || (
+      /function|schema cache/.test(message)
+      && /blockchain_custody_rollout_state/.test(message)
+      && /does not exist|not found|could not find/.test(message)
+    );
 }
 
-function deterministicPublicKeyId(userId, derived) {
-  return 'key_' + crypto.createHash('sha256')
-    .update(`${String(userId)}|${derived.keyVersion}|${derived.fingerprint}`)
-    .digest('hex');
+async function custodyRolloutState(custodyMetadataAvailable) {
+  if (!custodyMetadataAvailable) return 'LEGACY';
+
+  const { data, error } = await supabase.rpc('blockchain_custody_rollout_state');
+  if (!error) {
+    const value = Array.isArray(data) ? data[0] : data;
+    const state = String(value || '').trim().toUpperCase();
+    if (state === 'PREPARED' || state === 'FINALIZED') return state;
+    throw new Error(`invalid blockchain custody rollout state: ${state || 'empty'}`);
+  }
+
+  if (isMissingCustodyRolloutStateFunction(error)) {
+    // Compatibility with the earlier monolithic Issue #158 migration: custody
+    // metadata + atomic activation exist, but the rollout-state RPC does not.
+    return 'FINALIZED';
+  }
+
+  throw new Error(`blockchain custody rollout state lookup failed: ${error.message}`);
 }
 
 async function activateCustodiedPublicKey(userId, derived, timestamp) {
@@ -122,100 +142,28 @@ export async function getOrCreateKeypair(userId) {
     throw new Error(`public key lookup failed: ${lookupError.message}`);
   }
 
-  if (existingKey && samePublicKey(existingKey.public_key_pem, derived.publicKeyPem)) {
-    if (
-      custodyMetadataAvailable
-      && (
-        existingKey.key_ref !== derived.keyRef
-        || existingKey.key_version !== derived.keyVersion
-        || existingKey.custody_provider !== derived.custodyProvider
-      )
-    ) {
-      const { error: metadataError } = await supabase
-        .from('public_keys')
-        .update({
-          key_ref: derived.keyRef,
-          key_version: derived.keyVersion,
-          custody_provider: derived.custodyProvider,
-        })
-        .eq('id', existingKey.id);
-      if (metadataError) {
-        throw new Error(`public key custody metadata update failed: ${metadataError.message}`);
-      }
-    }
-    return {
-      publicKeyPem: derived.publicKeyPem,
-      keyRef: derived.keyRef,
-      keyVersion: derived.keyVersion,
-      custodyProvider: derived.custodyProvider,
-      custodyMetadataPersisted: custodyMetadataAvailable,
-    };
-  }
+  const rolloutState = await custodyRolloutState(custodyMetadataAvailable);
 
-  if (custodyMetadataAvailable) {
-    // Post-migration registration/rotation is one database transaction. This is
-    // also how a previously used version is reactivated: a fresh row/incarnation
-    // is created rather than erasing the historical revoked_at interval.
-    return activateCustodiedPublicKey(userId, derived, timestamp);
-  }
-
-  if (existingKey) {
-    // Deploy-before-migrate compatibility is safe for reading an unchanged active
-    // key, but rotation cannot be made atomic without the custody migration RPC.
+  // Mixed old/new fleets must never rotate or create stakeholder keys. PREPARED is
+  // an explicit bounded maintenance state: old runtime can keep using its legacy
+  // key, while new runtime fails closed until protected finalization proves all old
+  // writers are drained. This prevents key oscillation and invalid signatures.
+  if (rolloutState !== 'FINALIZED') {
     throw new Error(
-      'blockchain custody migration is required before rotating stakeholder signing keys',
+      `blockchain custody cutover is ${rolloutState.toLowerCase()}; stakeholder signing is temporarily unavailable until protected finalization`,
     );
   }
 
-  const row = {
-    // Deterministic identity means two instances racing to register the same
-    // derived key contend on the same primary key even before the uniqueness
-    // migration is applied.
-    id: deterministicPublicKeyId(userId, derived),
-    user_id: String(userId),
-    public_key_pem: derived.publicKeyPem,
-    key_type: 'secp256k1',
-    status: 'ACTIVE',
-    created_at: timestamp,
-    ...(custodyMetadataAvailable
-      ? {
-        key_ref: derived.keyRef,
-        key_version: derived.keyVersion,
-        custody_provider: derived.custodyProvider,
-      }
-      : {}),
-  };
-
-  const { error: insertError } = await supabase.from('public_keys').insert(row);
-  if (insertError) {
-    if (isPublicKeyRegistrationConflict(insertError)) {
-      // Another process may have won the same first-registration/rotation race.
-      // Re-read the ONE active key and accept only the identical derived public key.
-      const raced = await selectActivePublicKey(userId);
-      if (
-        !raced.error
-        && raced.data
-        && samePublicKey(raced.data.public_key_pem, derived.publicKeyPem)
-      ) {
-        return {
-          publicKeyPem: derived.publicKeyPem,
-          keyRef: derived.keyRef,
-          keyVersion: derived.keyVersion,
-          custodyProvider: derived.custodyProvider,
-          custodyMetadataPersisted: raced.custodyMetadataAvailable,
-        };
-      }
-    }
-    throw new Error(`public key registration failed: ${insertError.message}`);
+  // FINALIZED key writes are owned exclusively by the SECURITY DEFINER atomic RPC.
+  // Even the same public key goes through the RPC so service_role needs no direct
+  // INSERT/UPDATE privilege on public_keys after the finalizer.
+  if (existingKey && samePublicKey(existingKey.public_key_pem, derived.publicKeyPem)) {
+    return activateCustodiedPublicKey(userId, derived, timestamp);
   }
 
-  return {
-    publicKeyPem: derived.publicKeyPem,
-    keyRef: derived.keyRef,
-    keyVersion: derived.keyVersion,
-    custodyProvider: derived.custodyProvider,
-    custodyMetadataPersisted: custodyMetadataAvailable,
-  };
+  // First registration, rotation and rollback-to-a-prior-version all create or
+  // select the correct active incarnation atomically.
+  return activateCustodiedPublicKey(userId, derived, timestamp);
 }
 
 // Re-calculate event block hash
