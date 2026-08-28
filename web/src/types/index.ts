@@ -1437,6 +1437,8 @@ export interface ComplianceReport {
   type: string;
   date: string;
   size?: string;
+  /** Where the generated file actually lives. Absent means there is no file. */
+  url?: string | null;
 }
 
 // 11. Lead
@@ -1464,8 +1466,9 @@ export interface Promotion {
   type: string;
   value: string;
   status: 'active' | 'scheduled' | 'expired';
-  views: number;
-  clicks: number;
+  // Optional: absent means CarUp has no recorded measurement, not measured zero.
+  views?: number;
+  clicks?: number;
   startDate: string;
   endDate: string;
   discount_amount?: number;
