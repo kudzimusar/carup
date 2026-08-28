@@ -35,10 +35,13 @@ S0 runtime work was implemented inside PR #182 (the lane that owns the Seller/ta
 **S4 — Listing Media Studio: PARTIAL PASS** (seller-chosen cover photo + guided shot list; reorder and media-quality scoring deferred with reasons)
 **S6 — Actual Buyer Preview & Searchability Proof: CERTIFIED — PASS**
 **S7 — Publication Readiness & Listing Quality: CERTIFIED — PASS**
+**S8 — Publish, Edit & Manage Lifecycle: PARTIAL PASS** (price change closed the last database-write gap; inquiry handling is S10's)
+
+**Read `receipts/PROGRAMME_STATUS_2026-08-28.md` first** — it carries the phase table, the genuine blockers and the recommended next actions.
 
 All Seller runtime work continues inside PR #182, which owns the Seller/Marketplace surfaces. Receipts for every phase live in `receipts/`.
 
-**Next: S5 (Embedded Verify & Evidence Reconciliation) and S8 (Publish, Edit & Manage Lifecycle).** S9 and S10 have hard external-lane dependencies (#185 Intelligence, #183 Communications) and S12 requires owner authority.
+**Next: S5 (Embedded Verify & Evidence Reconciliation), then S11.** S9 and S10 have hard external-lane dependencies (#185 Intelligence, #183 Communications) and S12 requires owner authority.
 
 ## Future receipts
 
