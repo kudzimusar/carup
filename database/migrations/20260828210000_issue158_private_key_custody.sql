@@ -1,10 +1,11 @@
 -- +migrate Up
 -- =============================================================================
--- ISSUE #158 — REMOVE PLAINTEXT PRIVATE-KEY PERSISTENCE FROM public_keys
+-- ISSUE #158 — PREPARE PRIVATE-KEY CUSTODY CUTOVER
 --
--- Private signing material moves out of ordinary application storage. The runtime
--- derives stakeholder signing keys inside the configured custody boundary and stores
--- only public material plus an opaque key reference/version.
+-- This automatic migration is deliberately additive. It prepares custody metadata,
+-- uniqueness and atomic activation, but DOES NOT erase legacy private material yet.
+-- That destructive step lives in a separately protected finalizer and may run only
+-- after the old writer fleet has been drained. This makes rolling deployment safe.
 -- =============================================================================
 
 DO $pre$
@@ -19,6 +20,46 @@ ALTER TABLE public.public_keys
   ADD COLUMN IF NOT EXISTS key_ref TEXT,
   ADD COLUMN IF NOT EXISTS key_version TEXT,
   ADD COLUMN IF NOT EXISTS custody_provider TEXT;
+
+-- Rollout state is private DB control-plane metadata. New runtime instances read it
+-- only through the SECURITY DEFINER scalar below. PREPARED means old runtime writers
+-- may still exist, so deterministic-key activation must remain disabled.
+CREATE TABLE IF NOT EXISTS public.blockchain_custody_rollout (
+  singleton BOOLEAN PRIMARY KEY DEFAULT TRUE CHECK (singleton),
+  state TEXT NOT NULL DEFAULT 'PREPARED'
+    CHECK (state IN ('PREPARED','FINALIZED')),
+  old_writers_drained BOOLEAN NOT NULL DEFAULT FALSE,
+  prepared_at TIMESTAMPTZ NOT NULL DEFAULT clock_timestamp(),
+  finalized_at TIMESTAMPTZ,
+  CHECK (
+    (state='PREPARED' AND finalized_at IS NULL)
+    OR (state='FINALIZED' AND finalized_at IS NOT NULL)
+  )
+);
+
+INSERT INTO public.blockchain_custody_rollout(singleton,state,old_writers_drained)
+VALUES (TRUE,'PREPARED',FALSE)
+ON CONFLICT (singleton) DO NOTHING;
+
+REVOKE ALL ON TABLE public.blockchain_custody_rollout
+  FROM PUBLIC,anon,authenticated,service_role;
+
+CREATE OR REPLACE FUNCTION public.blockchain_custody_rollout_state()
+RETURNS TEXT
+LANGUAGE sql
+STABLE
+SECURITY DEFINER
+SET search_path=public,pg_temp
+AS $state$
+  SELECT state
+    FROM public.blockchain_custody_rollout
+   WHERE singleton=TRUE
+$state$;
+
+REVOKE ALL ON FUNCTION public.blockchain_custody_rollout_state()
+  FROM PUBLIC,anon,authenticated;
+GRANT EXECUTE ON FUNCTION public.blockchain_custody_rollout_state()
+  TO service_role;
 
 -- Exactly one ACTIVE public key may represent one stakeholder. If historical drift
 -- already contains multiple ACTIVE rows with DIFFERENT public keys, fail closed for
@@ -94,6 +135,15 @@ AS $activate$
 DECLARE
   v_active public.public_keys%ROWTYPE;
 BEGIN
+  IF coalesce((
+    SELECT state
+      FROM public.blockchain_custody_rollout
+     WHERE singleton=TRUE
+  ),'PREPARED') <> 'FINALIZED' THEN
+    RAISE EXCEPTION 'blockchain custody cutover is not finalized; key activation is disabled'
+      USING ERRCODE='55000';
+  END IF;
+
   IF nullif(btrim(p_candidate_id),'') IS NULL
      OR nullif(btrim(p_user_id),'') IS NULL
      OR nullif(btrim(p_public_key_pem),'') IS NULL
@@ -160,34 +210,22 @@ GRANT EXECUTE ON FUNCTION public.blockchain_activate_public_key_atomic(
   TEXT,TEXT,TEXT,TEXT,TEXT,TEXT,TEXT,TEXT
 ) TO service_role;
 
--- Destructive only to prohibited secret material; public verification material remains.
-UPDATE public.public_keys
-   SET private_key_pem = NULL
- WHERE private_key_pem IS NOT NULL;
-
-ALTER TABLE public.public_keys
-  DROP CONSTRAINT IF EXISTS public_keys_private_material_absent;
-ALTER TABLE public.public_keys
-  ADD CONSTRAINT public_keys_private_material_absent
-  CHECK (private_key_pem IS NULL);
-
--- Least privilege: service_role can no longer SELECT/INSERT/UPDATE the private column.
-REVOKE SELECT, INSERT, UPDATE ON TABLE public.public_keys FROM service_role;
-GRANT SELECT (
-  id,user_id,public_key_pem,key_type,status,created_at,revoked_at,
-  key_ref,key_version,custody_provider
-) ON public.public_keys TO service_role;
-GRANT INSERT (
-  id,user_id,public_key_pem,key_type,status,created_at,
-  key_ref,key_version,custody_provider
-) ON public.public_keys TO service_role;
-GRANT UPDATE (
-  status,revoked_at,key_ref,key_version,custody_provider
-) ON public.public_keys TO service_role;
-
--- API roles remain default-denied from the earlier Issue #101 hardening.
+-- Browser roles remain default-denied. Service-role table privileges are intentionally
+-- unchanged in PREPARED mode so the still-running old application can continue using
+-- its legacy key path until the protected cutover is explicitly authorized.
 REVOKE ALL ON TABLE public.public_keys FROM anon, authenticated;
 ALTER TABLE public.public_keys ENABLE ROW LEVEL SECURITY;
+
+-- IMPORTANT: private_key_pem is intentionally untouched here.
+-- Protected finalization:
+--   1. deploy this PREPARED migration while old runtime is still active;
+--   2. deploy the new runtime, which fails closed for stakeholder signing in PREPARED;
+--   3. drain all old runtime writers;
+--   4. record the drain with database/scripts/issue158_mark_old_writers_drained.sql;
+--   5. run database/scripts/issue158_private_key_custody_finalize.sql.
+-- The finalizer takes an ACCESS EXCLUSIVE lock, erases private material, removes
+-- service-role direct key writes, marks FINALIZED, and only then enables new-runtime
+-- deterministic key activation.
 
 -- +migrate Down
 -- Forward-only security boundary. Re-introducing plaintext private-key persistence is prohibited.
