@@ -8,6 +8,7 @@ test('S0 staging runner is staging-only and preflights before apply',()=>{
   assert.match(runner,/--mode=/);
   assert.match(runner,/ROLLBACK/);
   assert.match(runner,/vehicle_taxonomy_observations/);
+  assert.match(runner,/20260828143000_global_vehicle_taxonomy_color_s0/);
   assert.doesNotMatch(runner,/production/i);
 });
 test('S0 receipt inventory does not select VIN or seller identity',()=>{

@@ -19,6 +19,7 @@ const RECEIPT_PATH = 'seller-s0-taxonomy-staging-receipt.json';
 const MIGRATIONS = [
   { version: '20260828133000', name: '20260828133000_global_vehicle_taxonomy_s0.sql' },
   { version: '20260828140000', name: '20260828140000_global_vehicle_taxonomy_imports_s0.sql' },
+  { version: '20260828143000', name: '20260828143000_global_vehicle_taxonomy_color_s0.sql' },
 ];
 
 function fail(message) {
@@ -102,7 +103,7 @@ async function verifySchema(client) {
   const requiredVehicleColumns = [
     'seller_description','seller_features','body_style','seller_stated_condition',
     'make_taxon_id','model_taxon_id','fuel_taxon_id','transmission_taxon_id','drivetrain_taxon_id',
-    'body_style_taxon_id','taxonomy_version','taxonomy_resolution','taxonomy_source_values','taxonomized_at',
+    'body_style_taxon_id','color_taxon_id','taxonomy_version','taxonomy_resolution','taxonomy_source_values','taxonomized_at',
   ];
   const requiredImportColumns = [
     'requested_make_taxon_id','requested_model_taxon_id','taxonomy_version',
@@ -194,7 +195,7 @@ const receipt = {
   operation: 'global_vehicle_taxonomy_staging',
   mode,
   staging_ref: STAGING_REF,
-  candidate_sha: process.env.GITHUB_SHA || null,
+  candidate_sha: process.env.CANDIDATE_SHA || process.env.GITHUB_SHA || null,
   generated_at: new Date().toISOString(),
 };
 
