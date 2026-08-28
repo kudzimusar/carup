@@ -8,8 +8,52 @@ import {
   verifySystemLedgerHash,
 } from './blockchainKeyCustodyService.js';
 
-const PUBLIC_KEY_SELECT =
-  'id,user_id,public_key_pem,key_type,status,created_at,revoked_at,key_ref,key_version,custody_provider';
+const BASE_PUBLIC_KEY_SELECT =
+  'id,user_id,public_key_pem,key_type,status,created_at,revoked_at';
+const CUSTODY_PUBLIC_KEY_SELECT =
+  `${BASE_PUBLIC_KEY_SELECT},key_ref,key_version,custody_provider`;
+
+export function isMissingCustodyMetadataColumn(error) {
+  if (!error) return false;
+  const message = String(error.message || error.details || error.hint || '').toLowerCase();
+  const code = String(error.code || '').toUpperCase();
+  return code === '42703'
+    || code === 'PGRST204'
+    || (
+      /column|schema cache/.test(message)
+      && /key_ref|key_version|custody_provider/.test(message)
+      && /does not exist|not found|could not find/.test(message)
+    );
+}
+
+async function selectActivePublicKey(userId) {
+  const enhanced = await supabase
+    .from('public_keys')
+    .select(CUSTODY_PUBLIC_KEY_SELECT)
+    .eq('user_id', userId)
+    .eq('status', 'ACTIVE')
+    .maybeSingle();
+
+  if (!enhanced.error) {
+    return { data: enhanced.data, error: null, custodyMetadataAvailable: true };
+  }
+  if (!isMissingCustodyMetadataColumn(enhanced.error)) {
+    return { data: null, error: enhanced.error, custodyMetadataAvailable: false };
+  }
+
+  const legacy = await supabase
+    .from('public_keys')
+    .select(BASE_PUBLIC_KEY_SELECT)
+    .eq('user_id', userId)
+    .eq('status', 'ACTIVE')
+    .maybeSingle();
+
+  return {
+    data: legacy.data,
+    error: legacy.error,
+    custodyMetadataAvailable: false,
+  };
+}
 const EVENT_SELECT = 'id,previous_hash,current_hash,vin,event_type,payload,timestamp,signature';
 
 function samePublicKey(a, b) {
@@ -27,12 +71,11 @@ export async function getOrCreateKeypair(userId) {
   const derived = deriveStakeholderKey(userId);
   const timestamp = new Date().toISOString();
 
-  const { data: existingKey, error: lookupError } = await supabase
-    .from('public_keys')
-    .select(PUBLIC_KEY_SELECT)
-    .eq('user_id', userId)
-    .eq('status', 'ACTIVE')
-    .maybeSingle();
+  const {
+    data: existingKey,
+    error: lookupError,
+    custodyMetadataAvailable,
+  } = await selectActivePublicKey(userId);
 
   if (lookupError) {
     throw new Error(`public key lookup failed: ${lookupError.message}`);
@@ -40,9 +83,12 @@ export async function getOrCreateKeypair(userId) {
 
   if (existingKey && samePublicKey(existingKey.public_key_pem, derived.publicKeyPem)) {
     if (
-      existingKey.key_ref !== derived.keyRef
-      || existingKey.key_version !== derived.keyVersion
-      || existingKey.custody_provider !== derived.custodyProvider
+      custodyMetadataAvailable
+      && (
+        existingKey.key_ref !== derived.keyRef
+        || existingKey.key_version !== derived.keyVersion
+        || existingKey.custody_provider !== derived.custodyProvider
+      )
     ) {
       const { error: metadataError } = await supabase
         .from('public_keys')
@@ -61,6 +107,7 @@ export async function getOrCreateKeypair(userId) {
       keyRef: derived.keyRef,
       keyVersion: derived.keyVersion,
       custodyProvider: derived.custodyProvider,
+      custodyMetadataPersisted: custodyMetadataAvailable,
     };
   }
 
@@ -81,9 +128,13 @@ export async function getOrCreateKeypair(userId) {
     key_type: 'secp256k1',
     status: 'ACTIVE',
     created_at: timestamp,
-    key_ref: derived.keyRef,
-    key_version: derived.keyVersion,
-    custody_provider: derived.custodyProvider,
+    ...(custodyMetadataAvailable
+      ? {
+        key_ref: derived.keyRef,
+        key_version: derived.keyVersion,
+        custody_provider: derived.custodyProvider,
+      }
+      : {}),
   };
 
   const { error: insertError } = await supabase.from('public_keys').insert(row);
@@ -96,6 +147,7 @@ export async function getOrCreateKeypair(userId) {
     keyRef: derived.keyRef,
     keyVersion: derived.keyVersion,
     custodyProvider: derived.custodyProvider,
+    custodyMetadataPersisted: custodyMetadataAvailable,
   };
 }
 
@@ -204,13 +256,26 @@ function eventKeyForTimestamp(keys, eventTimestamp) {
 }
 
 async function publicKeysForSigner(signerId) {
-  const { data, error } = await supabase
+  const enhanced = await supabase
     .from('public_keys')
-    .select(PUBLIC_KEY_SELECT)
+    .select(CUSTODY_PUBLIC_KEY_SELECT)
     .eq('user_id', signerId)
     .order('created_at', { ascending: true });
-  if (error) throw new Error(`public key history lookup failed: ${error.message}`);
-  return data || [];
+
+  if (!enhanced.error) return enhanced.data || [];
+  if (!isMissingCustodyMetadataColumn(enhanced.error)) {
+    throw new Error(`public key history lookup failed: ${enhanced.error.message}`);
+  }
+
+  // Deploy-before-migrate compatibility: historical verification requires only public
+  // material and timestamps. The legacy query deliberately names only safe public columns.
+  const legacy = await supabase
+    .from('public_keys')
+    .select(BASE_PUBLIC_KEY_SELECT)
+    .eq('user_id', signerId)
+    .order('created_at', { ascending: true });
+  if (legacy.error) throw new Error(`public key history lookup failed: ${legacy.error.message}`);
+  return legacy.data || [];
 }
 
 export async function verifyChain(vin) {
