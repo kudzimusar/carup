@@ -36,8 +36,9 @@ function fail(message) {
 
 function upSql(name) {
   const source = readFileSync(fileURLToPath(new URL(`../../database/migrations/${name}`, import.meta.url)), 'utf8');
-  // The Down section is commented documentation in this migration, so only the Up block executes.
-  return source.split(/^-- Down$/m)[0].replace(/^-- Up\s*/m, '');
+  // Repository-standard markers, the same ones `backend/db/migrationParser.js` enforces. The Down
+  // section is commented documentation in this migration, so only the Up block executes.
+  return source.split(/^-- \+migrate Down/m)[0].replace(/^-- \+migrate Up\s*/m, '');
 }
 
 function tlsConfig() {

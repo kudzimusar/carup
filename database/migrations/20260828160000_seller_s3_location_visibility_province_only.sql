@@ -29,7 +29,7 @@
 --
 -- Applied to STAGING ONLY by the Seller S3 gate. Production activation requires owner authority.
 
--- Up
+-- +migrate Up
 DO $$
 DECLARE
   v_oid oid := 'public.vehicles'::regclass;
@@ -76,7 +76,7 @@ BEGIN
   END IF;
 END $$;
 
--- Down
+-- +migrate Down
 -- DO $$
 -- DECLARE
 --   c_visibility text[] := ARRAY['public','withheld'];
