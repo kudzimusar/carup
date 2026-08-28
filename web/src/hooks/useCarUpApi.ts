@@ -621,6 +621,43 @@ export function useCarUpApi() {
     request(`/admin/marketplace/inquiries/${encodeURIComponent(id)}/status`, { method: 'PATCH', body: JSON.stringify({ status }) }), [request])
   const fetchMarketplaceAnalytics = useCallback(async (): Promise<any> =>
     request('/admin/marketplace/analytics'), [request])
+
+  /**
+   * CarUp Intelligence. Scope is resolved from the verified session; availability
+   * envelopes prevent unmeasured values from being rendered as zero.
+   */
+  const fetchSellerIntelligence = useCallback(async (windowDays: 7 | 30 | 90 = 7): Promise<unknown> =>
+    request(`/marketplace/my-analytics?window=${windowDays}`), [request])
+  const fetchListingIntelligence = useCallback(async (vin: string, windowDays: 7 | 30 | 90 = 7): Promise<unknown> =>
+    request(`/marketplace/my-listings/${encodeURIComponent(vin)}/analytics?window=${windowDays}`), [request])
+  const fetchDealerIntelligence = useCallback(async (windowDays: 7 | 30 | 90 = 7): Promise<unknown> =>
+    request(`/dealer/analytics?window=${windowDays}`), [request])
+  const fetchMechanicIntelligence = useCallback(async (windowDays: 7 | 30 | 90 = 30): Promise<unknown> =>
+    request(`/mechanic/analytics?window=${windowDays}`), [request])
+  const fetchMyReport = useCallback(async (period: 'weekly' | 'monthly' = 'monthly'): Promise<unknown> =>
+    request(`/marketplace/my-report?period=${period}`), [request])
+  const fetchKpiCatalogue = useCallback(async (): Promise<unknown> =>
+    request('/intelligence/kpi-catalogue'), [request])
+  const fetchAssistantContext = useCallback(async (): Promise<unknown> =>
+    request('/intelligence/assistant-context'), [request])
+  const fetchMyRecommendations = useCallback(async (): Promise<unknown> =>
+    request('/marketplace/my-recommendations'), [request])
+  const fetchCommandCentre = useCallback(async (windowDays: 7 | 30 | 90 = 30): Promise<unknown> =>
+    request(`/admin/intelligence/command-centre?window=${windowDays}`), [request])
+  const fetchGovernmentProvenance = useCallback(async (windowDays: 7 | 30 | 90 = 30): Promise<unknown> =>
+    request(`/government/provenance-intelligence?window=${windowDays}`), [request])
+  const fetchReferralIntelligence = useCallback(async (windowDays: 7 | 30 | 90 = 30): Promise<unknown> =>
+    request(`/admin/referrals/intelligence?window=${windowDays}`), [request])
+  const fetchTradeIntelligence = useCallback(async (windowDays: 7 | 30 | 90 = 30): Promise<unknown> =>
+    request(`/trade/intelligence?window=${windowDays}`), [request])
+  const fetchPartsIntelligence = useCallback(async (windowDays: 7 | 30 | 90 = 30): Promise<unknown> =>
+    request(`/parts/intelligence?window=${windowDays}`), [request])
+  const fetchPlatformPartsIntelligence = useCallback(async (windowDays: 7 | 30 | 90 = 30): Promise<unknown> =>
+    request(`/admin/parts/intelligence?window=${windowDays}`), [request])
+  const fetchFinanceIntelligence = useCallback(async (windowDays: 7 | 30 | 90 = 30): Promise<unknown> =>
+    request(`/finance/demand-intelligence?window=${windowDays}`), [request])
+  const fetchGarageIntelligence = useCallback(async (windowDays: 7 | 30 | 90 = 30): Promise<unknown> =>
+    request(`/garage/analytics?window=${windowDays}`), [request])
   const marketplaceAiModerationSummary = useCallback(async (payload: { vin?: string; listingSummary?: unknown; trustSummary?: unknown }): Promise<any> =>
     request('/admin/marketplace/ai/moderation-summary', { method: 'POST', body: JSON.stringify(payload) }), [request])
 
@@ -2564,6 +2601,22 @@ export function useCarUpApi() {
     request<ReferralServiceResponse>(`/referrals/trust/audit-export${referralQuery(filters)}`), [request])
 
   return {
+    fetchSellerIntelligence,
+    fetchListingIntelligence,
+    fetchDealerIntelligence,
+    fetchFinanceIntelligence,
+    fetchPartsIntelligence,
+    fetchTradeIntelligence,
+    fetchReferralIntelligence,
+    fetchGovernmentProvenance,
+    fetchCommandCentre,
+    fetchMyRecommendations,
+    fetchAssistantContext,
+    fetchMyReport,
+    fetchKpiCatalogue,
+    fetchPlatformPartsIntelligence,
+    fetchMechanicIntelligence,
+    fetchGarageIntelligence,
     uploadKycDocument,
     uploadEvidence,
     linkEvidenceToEvent,
