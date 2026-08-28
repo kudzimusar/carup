@@ -24,9 +24,13 @@ describe('Marketplace progressive sell resilience', () => {
   })
 
   it('authenticated seller photos use the same ordered batch rule', () => {
-    expect(AUTHENTICATED_SELL).toContain(".filter(file => file.type.startsWith('image/'))")
+    // The inline `image/*` filter moved into `screenListingImages` during S4, which applies the same
+    // rule plus a size and count check and NAMES every refusal instead of dropping it silently.
+    // The property this test exists for — order-preserving batch read, capped append — is unchanged;
+    // only the place the filtering lives has moved, and it has its own suite there.
+    expect(AUTHENTICATED_SELL).toContain('screenListingImages(')
     expect(AUTHENTICATED_SELL).toContain('Promise.all(files.map(file => new Promise<string>')
-    expect(AUTHENTICATED_SELL).toContain('images: [...previous.images, ...images].slice(0, 15)')
+    expect(AUTHENTICATED_SELL).toContain('images: [...previous.images, ...images].slice(0, LISTING_IMAGE_LIMIT)')
   })
 
   it('the guest draft degrades by removing photos rather than business fields', () => {

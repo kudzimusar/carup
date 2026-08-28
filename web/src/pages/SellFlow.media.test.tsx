@@ -95,7 +95,9 @@ beforeEach(() => {
   cleanup()
   sessionStorage.clear()
   lookupVehiclePassport.mockRejectedValue(new Error('404 VIN not found'))
-  uploadVehicleImages.mockResolvedValue({ urls: PHOTOS })
+  // Echoes the order it was handed, as the real endpoint does: it maps each submitted image to a
+  // URL in sequence. A mock returning a fixed array would silently defeat any ordering assertion.
+  uploadVehicleImages.mockImplementation(async (_vin: string, images: string[]) => ({ urls: images }))
   createVehicleListing.mockResolvedValue({ vin: 'JTDKARFP0H3000731' })
 })
 
@@ -164,6 +166,57 @@ describe('S4 seller-chosen cover photo', () => {
     // Guidance must not read as a requirement, and must never imply CarUp verified any of it.
     expect(guidance).toContain('All optional')
     expect(guidance.toLowerCase()).not.toMatch(/verified|required|proof|certified/)
+  })
+
+  it('reorders photos with keyboard-operable controls, not mouse-only drag', async () => {
+    await advanceToMediaStep()
+    // Drag alone is not an accessible reorder. Buttons are operable by keyboard and by assistive
+    // technology, and they are what this asserts on.
+    const moveEarlier = screen.getByTestId('listing-media-move-earlier-1')
+    expect(moveEarlier.getAttribute('aria-label')).toBeTruthy()
+    fireEvent.click(moveEarlier)
+
+    const images = await submitAndReadImages()
+    // Photo 1 moved ahead of photo 0; stored order is the submitted array order.
+    expect(images[0]).toBe(PHOTOS[1])
+    expect(images[1]).toBe(PHOTOS[0])
+    expect(images[2]).toBe(PHOTOS[2])
+  })
+
+  it('reordering carries the chosen cover with the photo, not with the position', async () => {
+    await advanceToMediaStep()
+    fireEvent.click(screen.getByTestId('listing-media-choose-cover-2'))
+    await waitFor(() => expect(screen.getByTestId('listing-media-cover-badge-2')).toBeTruthy())
+
+    // Move the covered photo one step earlier. The COVER must follow the photo.
+    fireEvent.click(screen.getByTestId('listing-media-move-earlier-2'))
+    await waitFor(() => expect(screen.getByTestId('listing-media-cover-badge-1')).toBeTruthy())
+    expect(screen.queryByTestId('listing-media-cover-badge-2')).toBeNull()
+
+    const images = await submitAndReadImages()
+    // The seller's chosen photo is still the primary, at its new position.
+    expect(images[1]).toEqual({ url: PHOTOS[2], is_primary: true })
+    expect(typeof images[0]).toBe('string')
+    expect(typeof images[2]).toBe('string')
+  })
+
+  it('moving an unrelated photo leaves the cover on the same photo', async () => {
+    await advanceToMediaStep()
+    fireEvent.click(screen.getByTestId('listing-media-choose-cover-0'))
+    await waitFor(() => expect(screen.getByTestId('listing-media-cover-badge-0')).toBeTruthy())
+
+    // Swap photos 1 and 2. Photo 0 is untouched, so the cover must not move.
+    fireEvent.click(screen.getByTestId('listing-media-move-earlier-2'))
+    await waitFor(() => expect(screen.getByTestId('listing-media-cover-badge-0')).toBeTruthy())
+
+    const images = await submitAndReadImages()
+    expect(images[0]).toEqual({ url: PHOTOS[0], is_primary: true })
+  })
+
+  it('offers no move control past either end', async () => {
+    await advanceToMediaStep()
+    expect(screen.queryByTestId('listing-media-move-earlier-0')).toBeNull()
+    expect(screen.queryByTestId(`listing-media-move-later-${PHOTOS.length - 1}`)).toBeNull()
   })
 
   it('never fabricates primacy from a position', () => {

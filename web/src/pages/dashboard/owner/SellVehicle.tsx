@@ -14,6 +14,7 @@ import { VehicleCompletenessPanel } from '@/components/VehicleCompletenessPanel'
 import { ListingQualityPanel } from '@/components/sell/ListingQualityPanel'
 import { clearGuestSellDraft, readGuestSellDraft } from '@/lib/guestSellDraft'
 import { sellerDiscoverabilityFacets } from '@/lib/sellerListingPreview'
+import { LISTING_IMAGE_LIMIT, screenListingImages } from '@/lib/listingMediaIntake'
 import { VehicleIdentificationNotice } from '@/components/sell/VehicleIdentificationNotice'
 import { useSellerVehicleIdentification } from '@/hooks/useSellerVehicleIdentification'
 import { BODY_STYLES, DRIVETRAINS, FUEL_TYPES, SELLER_CONDITIONS, TRANSMISSIONS, VEHICLE_COLORS, VEHICLE_MAKES, modelsForMake, vehicleYearOptions } from '@/data/vehicleTaxonomy'
@@ -143,6 +144,30 @@ export default function SellVehicle() {
   // contract already expects: a bare URL claims nothing, and only `is_primary: true` is a claim.
   const [coverImageIndex, setCoverImageIndex] = useState<number | null>(null)
 
+  /**
+   * Move one photo one step. The stored order IS the submitted array order — the write path
+   * persists `display_order: idx` — so this is the real reorder, not a presentation trick.
+   *
+   * The cover travels with the PHOTO, never with the slot. Recomputing it from a position would
+   * re-introduce exactly the `index === 0` fabrication S4 removed, one move later.
+   */
+  const moveImage = (from: number, to: number) => {
+    if (to < 0 || to >= form.images.length) return
+    setForm(previous => {
+      const next = [...previous.images]
+      const [moved] = next.splice(from, 1)
+      next.splice(to, 0, moved)
+      return { ...previous, images: next }
+    })
+    setCoverImageIndex(current => {
+      if (current === null) return null
+      if (current === from) return to            // the covered photo itself moved
+      if (current > from && current <= to) return current - 1   // it shifted back to fill the gap
+      if (current < from && current >= to) return current + 1   // it shifted forward to make room
+      return current
+    })
+  }
+
   useEffect(() => {
     if (guestDraft) toast.success('Your pre-sign-in listing draft is ready to review.')
   }, [guestDraft])
@@ -158,11 +183,15 @@ export default function SellVehicle() {
   }
 
   const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const files = Array.from(e.target.files || []).filter(file => file.type.startsWith('image/'))
-    if (form.images.length + files.length > 15) {
-      toast.error('Maximum 15 images allowed')
-      return
-    }
+    // S4 — DETERMINISTIC FEEDBACK, NAMED. Files failing the image filter used to vanish without a
+    // word, so a seller who picked a PDF alongside three photos saw three appear and no reason for
+    // the fourth. Every refusal now names the file and the measurement behind it. Nothing here
+    // judges how GOOD a photo is: CarUp has no governed signal for that.
+    const { accepted: files, rejected } = screenListingImages(
+      Array.from(e.target.files || []),
+      form.images.length,
+    )
+    for (const refusal of rejected) toast.error(`${refusal.name}: ${refusal.reason}`)
     if (files.length === 0) return
 
     // Preserve the seller's selection order even when FileReader completion order differs. The
@@ -177,7 +206,7 @@ export default function SellVehicle() {
       if (images.length === 0) return
       setForm(previous => ({
         ...previous,
-        images: [...previous.images, ...images].slice(0, 15),
+        images: [...previous.images, ...images].slice(0, LISTING_IMAGE_LIMIT),
       }))
     })
   }
@@ -625,7 +654,7 @@ export default function SellVehicle() {
                     ))}
                   </ul>
                 </div>
-                <label className={`block border-2 border-dashed rounded-xl p-8 text-center cursor-pointer transition-colors ${form.images.length >= 15 ? 'border-gray-200 bg-gray-50' : 'border-orange-200 hover:border-orange-400 hover:bg-orange-50'}`}>
+                <label className={`block border-2 border-dashed rounded-xl p-8 text-center cursor-pointer transition-colors ${form.images.length >= LISTING_IMAGE_LIMIT ? 'border-gray-200 bg-gray-50' : 'border-orange-200 hover:border-orange-400 hover:bg-orange-50'}`}>
                   <Upload className="w-8 h-8 text-orange-400 mx-auto mb-2" />
                   <p className="text-sm text-gray-600 font-medium">Click to upload photos</p>
                   <p className="text-xs text-gray-400 mt-1">JPG, PNG up to 15 images</p>
@@ -635,7 +664,7 @@ export default function SellVehicle() {
                     multiple
                     className="hidden"
                     onChange={handleImageUpload}
-                    disabled={form.images.length >= 15}
+                    disabled={form.images.length >= LISTING_IMAGE_LIMIT}
                   />
                 </label>
                 {form.images.length > 0 && (
@@ -673,6 +702,30 @@ export default function SellVehicle() {
                               Make cover
                             </button>
                           )}
+                          <div className="absolute inset-x-1 top-1 flex justify-start gap-1 opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100">
+                            {i > 0 && (
+                              <button
+                                type="button"
+                                onClick={() => moveImage(i, i - 1)}
+                                className="rounded bg-black/60 px-1.5 py-0.5 text-[10px] font-semibold text-white"
+                                data-testid={`listing-media-move-earlier-${i}`}
+                                aria-label={`Move photo ${i + 1} earlier`}
+                              >
+                                ←
+                              </button>
+                            )}
+                            {i < form.images.length - 1 && (
+                              <button
+                                type="button"
+                                onClick={() => moveImage(i, i + 1)}
+                                className="rounded bg-black/60 px-1.5 py-0.5 text-[10px] font-semibold text-white"
+                                data-testid={`listing-media-move-later-${i}`}
+                                aria-label={`Move photo ${i + 1} later`}
+                              >
+                                →
+                              </button>
+                            )}
+                          </div>
                           <button
                             type="button"
                             onClick={() => {
