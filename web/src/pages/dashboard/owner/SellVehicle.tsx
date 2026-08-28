@@ -31,7 +31,7 @@ const STEPS = ['Vehicle Details', 'Location & Pricing', 'Images & Features', 'Re
 const LISTING_PHOTO_SEQUENCE = [
   'Front three-quarter', 'Front', 'Driver side', 'Passenger side',
   'Rear three-quarter', 'Rear', 'Interior', 'Dashboard', 'Odometer',
-  'Engine', 'Tyres', 'Known damage', 'Other',
+  'Engine', 'Tyres', 'Any known damage', 'Other',
 ]
 
 /**
