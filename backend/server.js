@@ -2325,10 +2325,16 @@ app.post('/api/vehicles/add', authorizeRole(['dealer', 'owner', 'admin']), async
   //
   // S3: BOTH Sell surfaces now carry the control, so this is a seller's choice rather than a
   // default for anything they submit. The null branch remains for API callers that predate it.
+  //
+  // S3 also added `province_only`, the middle answer. It is accepted only as an EXACT match against
+  // the declared vocabulary: anything else still falls through to WITHHELD, so a typo or a stale
+  // client can only ever produce MORE privacy than the seller asked for, never less.
   const submittedVisibility = submittedText(req.body.location_visibility);
   const listingVisibility = submittedVisibility === null || submittedVisibility === CLAIM_VISIBILITY.PUBLIC
     ? CLAIM_VISIBILITY.PUBLIC
-    : CLAIM_VISIBILITY.WITHHELD;
+    : submittedVisibility === CLAIM_VISIBILITY.PROVINCE_ONLY
+      ? CLAIM_VISIBILITY.PROVINCE_ONLY
+      : CLAIM_VISIBILITY.WITHHELD;
 
   // S3 — PUBLIC SELLER IDENTITY IS THE SELLER'S DECISION TO MAKE.
   // The read side has always been governed and fail-closed (`=== true` in toSellerClaim, published

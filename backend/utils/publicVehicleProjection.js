@@ -544,7 +544,18 @@ export function isClaimSource(source) {
  * withholds, because absence is not permission (the rule `isPublicPlateHistoryRow` already
  * applies to plate history).
  */
-export const CLAIM_VISIBILITY = Object.freeze({ PUBLIC: 'public', WITHHELD: 'withheld' });
+/**
+ * What a seller has agreed to publish about where the vehicle is.
+ *
+ * `PROVINCE_ONLY` (Seller Journey S3) is the middle answer: it discloses strictly less than
+ * `PUBLIC` — the city leaf is withheld exactly as `WITHHELD` withholds it — so a seller willing to
+ * be found at province level is not forced to choose between their street and invisibility.
+ */
+export const CLAIM_VISIBILITY = Object.freeze({
+  PUBLIC: 'public',
+  WITHHELD: 'withheld',
+  PROVINCE_ONLY: 'province_only',
+});
 
 /**
  * Columns the Phase 4 claim contract depends on that DO NOT YET EXIST on `public.vehicles`.
@@ -902,15 +913,22 @@ export function toLocationClaim(vehicle, options) {
   const row = vehicle ?? {};
   const { audience = 'public' } = options ?? {};
   const source = options?.locationSource !== undefined ? options.locationSource : row.listing_location_source;
-  const published = row.listing_location_visibility === CLAIM_VISIBILITY.PUBLIC;
+  const visibility = row.listing_location_visibility;
+  const published = visibility === CLAIM_VISIBILITY.PUBLIC;
+  // S3: withholding is now per leaf, because `province_only` publishes the coarse location and
+  // withholds the precise one. Only the CITY separates it from `public` — a province with no
+  // country is not a smaller disclosure, it is a less useful one.
+  const provincePublished = published || visibility === CLAIM_VISIBILITY.PROVINCE_ONLY;
   // Nothing recorded means nothing to withhold: an unprovenanced location is not_recorded for
   // every audience, so "withheld" never becomes a way of implying a location exists.
-  const withheld = isClaimSource(source) && !published && audience !== 'owner';
+  const gated = isClaimSource(source) && audience !== 'owner';
+  const cityWithheld = gated && !published;
+  const areaWithheld = gated && !provincePublished;
 
   return sealClaimBlock('location', {
-    city: attestedValue(row.listing_city, source, { withheld }),
-    province: attestedValue(row.listing_province, source, { withheld }),
-    country: attestedValue(row.listing_country, source, { withheld }),
+    city: attestedValue(row.listing_city, source, { withheld: cityWithheld }),
+    province: attestedValue(row.listing_province, source, { withheld: areaWithheld }),
+    country: attestedValue(row.listing_country, source, { withheld: areaWithheld }),
   });
 }
 

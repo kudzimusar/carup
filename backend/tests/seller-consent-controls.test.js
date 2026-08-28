@@ -42,7 +42,9 @@ function addVehicleHandler() {
 const resolveLocationVisibility = submitted =>
   submitted === null || submitted === CLAIM_VISIBILITY.PUBLIC
     ? CLAIM_VISIBILITY.PUBLIC
-    : CLAIM_VISIBILITY.WITHHELD;
+    : submitted === CLAIM_VISIBILITY.PROVINCE_ONLY
+      ? CLAIM_VISIBILITY.PROVINCE_ONLY
+      : CLAIM_VISIBILITY.WITHHELD;
 
 const resolveIdentityConsent = submitted => submitted === true;
 
@@ -52,7 +54,11 @@ test('location visibility honours the seller and fails closed on anything else',
   // Not a consent decision that can be read → the private answer, never the public one.
   assert.equal(resolveLocationVisibility('Public'), CLAIM_VISIBILITY.WITHHELD);
   assert.equal(resolveLocationVisibility('yes'), CLAIM_VISIBILITY.WITHHELD);
-  assert.equal(resolveLocationVisibility('province_only'), CLAIM_VISIBILITY.WITHHELD);
+  // S3's middle answer is accepted only as an exact match. A near-miss produces MORE privacy than
+  // the seller asked for, never less.
+  assert.equal(resolveLocationVisibility(CLAIM_VISIBILITY.PROVINCE_ONLY), CLAIM_VISIBILITY.PROVINCE_ONLY);
+  assert.equal(resolveLocationVisibility('Province_Only'), CLAIM_VISIBILITY.WITHHELD);
+  assert.equal(resolveLocationVisibility('province only'), CLAIM_VISIBILITY.WITHHELD);
 });
 
 test('public seller identity is accepted on the write path', () => {

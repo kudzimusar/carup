@@ -504,13 +504,16 @@ export default function SellVehicle() {
                     </SelectTrigger>
                     <SelectContent>
                       <SelectItem value="withheld">Keep my location private until I reply to a buyer</SelectItem>
+                      <SelectItem value="province_only">Show my province only, not my city</SelectItem>
                       <SelectItem value="public">Show my city and province on the listing</SelectItem>
                     </SelectContent>
                   </Select>
                   <p className="text-xs text-gray-500 mt-1">
                     {form.locationVisibility === 'public'
                       ? 'Buyers will see your city and province, and can filter for it.'
-                      : 'Buyers will not see where the vehicle is. Location filters will not match this listing.'}
+                      : form.locationVisibility === 'province_only'
+                        ? 'Buyers will see your province but not your city. Province-level searches will still find this listing.'
+                        : 'Buyers will not see where the vehicle is. Location filters will not match this listing.'}
                   </p>
                 </div>
                 <div>

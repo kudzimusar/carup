@@ -111,6 +111,15 @@ describe('S3 seller consent controls', () => {
     expect(panel).toContain('stay anonymous')
   })
 
+  it('offers the middle location answer and states what it costs and keeps', async () => {
+    await advanceToLocationStep()
+    // A seller willing to be found at province level should not have to choose between their
+    // street and invisibility.
+    expect(SELL_SOURCE).toContain('<SelectItem value="province_only">')
+    expect(SELL_SOURCE).toContain('Buyers will see your province but not your city')
+    expect(SELL_SOURCE).toContain('Province-level searches will still find this listing')
+  })
+
   it('sends the identity decision the seller actually made', async () => {
     await advanceToLocationStep()
 
