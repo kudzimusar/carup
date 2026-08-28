@@ -2,7 +2,7 @@
 
 **Programme:** Seller Journey 1.0
 **Phase:** S8 — Publish, Edit & Manage Lifecycle
-**Decision:** **PARTIAL PASS** — the missing lifecycle operation is delivered; the two Communications-owned capabilities are deferred to S10 by design (§4)
+**Decision:** **PASS** — completed 2026-08-28. The API landed in the first pass and the seller-facing control in the second (§4a); the Communications-owned capabilities remain S10's by design.
 **Certified:** 2026-08-28
 **Certifying implementer:** Claude Code
 
@@ -50,7 +50,28 @@ The gate requires the lifecycle to work **"without direct database intervention"
 
 - **Respond to inquiries / manage conversations.** Communications-owned per Invariant 4 (#183 / Communications 2.0). Seller Journey consumes it; certification is S10's, and building a seller-side conversation store here would be the duplication the plan forbids.
 - **`price_changed` as an emitted Intelligence event.** The authoritative *mutation* and its audit record now exist, which is the prerequisite. Emitting the observation belongs to S9, whose event infrastructure (`activityEventTypes.js`, `activityLedgerService.js`) lives **only in PR #185**. Wiring it here would fork #185-owned code.
-- **Price-change UI in My Listings.** The API method `updateVehiclePrice` is exported and typed; the seller-facing control is a small follow-on that no longer requires a backend change.
+## 4a. The seller-facing control — completed (head `ba4e8fe6`)
+
+With no human-facing control, "complete lifecycle without a database write" was only true for
+someone holding an API client. My Listings now carries a price editor that loosens **nothing** the
+API tightened:
+
+- it sends the **amount alone** — `updateVehiclePrice(vin, number)`, asserted to be called with
+  exactly two arguments, because a currency here would let a seller silently redenominate an
+  existing listing;
+- the currency is **shown** so the seller sees what they are pricing in, and is deliberately not
+  editable;
+- zero, negative and non-numeric input are refused **before** the request, with the server check
+  still authoritative rather than replaced;
+- the editor opens **empty** when a listing has no recorded price — seeding `0` would offer the
+  seller a free car as a starting point;
+- the displayed price is the one the **server confirmed**, never the one typed, so a refused or
+  adjusted write cannot leave a seller looking at a price that was never stored;
+- a failed save leaves the displayed price untouched;
+- nothing else moves — tests assert publish, unpublish and status are never called by a price
+  change. Sold listings offer no control at all.
+
+`MyListings.price` — **9/9 passed**; owner dashboard suites **102/102**.
 
 ## 5. Evidence at `abc11e96`
 

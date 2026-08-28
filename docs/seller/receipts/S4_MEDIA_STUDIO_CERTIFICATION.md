@@ -2,7 +2,7 @@
 
 **Programme:** Seller Journey 1.0
 **Phase:** S4 — Listing Media Studio
-**Decision:** **PARTIAL PASS** — the truth-critical items are closed and certified; three presentation refinements are explicitly deferred (§5)
+**Decision:** **PASS** — completed 2026-08-28. The truth-critical cover-photo defect was closed in the first pass; reorder and deterministic media feedback were completed in the second (§5a).
 **Certified:** 2026-08-28
 **Certifying implementer:** Claude Code
 
@@ -49,17 +49,43 @@ The **form** then performed exactly that fabrication in the other direction. It 
 
 The S4 tests **submit through the real form and inspect the payload the server was actually handed** — `createVehicleListing.mock.calls[0][0].images` — rather than matching source. They assert exactly one primacy claimant, that it is the seller's chosen index, that unchosen photos remain bare strings, and that an unanswered cover question produces no claim at all. A source assertion would have proven the code was written; this proves the server is told the right thing.
 
-## 5. Deferred, with reasons
+## 5a. Completed in the second pass (head `2121fc5e`)
 
-- **Drag-and-drop reorder.** Ordering is currently selection order, which is honest and stable. Reorder is a presentation refinement with no truth consequence now that primacy is an explicit choice rather than a position — the two were coupled only while "first" meant "cover".
-- **Automated media-quality feedback** (blur/resolution/lighting scoring). Requires an image-analysis capability that does not exist in this lane; a heuristic that told a seller their photo was "good" would be a CarUp claim about evidence quality, which S4's truth boundary does not permit without a governed source.
+**Reorder — accessible, and no backend change needed.** The write path already persists
+`display_order: idx`, so the submitted array order *is* the stored order. Controls are **buttons
+with aria-labels**, not mouse-only drag, because a drag handle alone is not an accessible reorder.
+
+The cover travels with the **photo**, never with the slot — recomputing primacy from a position
+would re-introduce the `index === 0` fabrication S4 removed, one move later. The index shifts
+correctly whether the covered photo itself moved or a sibling moved across it, and moving an
+unrelated photo leaves the cover untouched. Each case is asserted by **submitting and inspecting the
+payload**, not by reading component state.
+
+**Deterministic media feedback — and nothing more.** `screenListingImages` judges only what the
+browser measures without guessing: declared type, byte size, and how many photos the listing holds.
+Files failing the image filter previously **vanished silently**, so a seller who picked a PDF
+alongside three photos saw three appear and no reason for the fourth. Every refusal now names the
+file and the measurement. A test asserts that **no reason CarUp writes** uses quality vocabulary
+(`quality|score|blurry|lighting|grade|poor|bad|good`) — the plan's prohibition on an invented
+"good photo" score is enforced, not merely intended. A file exactly on the size limit is accepted:
+an off-by-one there refuses a file the stated rule says is fine.
+
+A pre-existing resilience assertion pinned the inline `image/*` filter that moved into
+`screenListingImages`. The property it guards — order-preserving batch read, capped append — is
+unchanged and the filtering is stricter, so the assertion followed it to its new home.
+
+## 5b. Still deferred, with reasons
+
+- **Blur / lighting / composition scoring.** Requires an image-analysis capability that does not exist in this lane. A heuristic telling a seller their photo is "good" would be a CarUp claim about media quality with no governed source behind it — explicitly forbidden by the plan.
 - **Guest-surface cover choice.** The guest draft deliberately carries no primacy decision, matching the S3 consent disposition: media primacy is chosen at the authenticated surface, which is the moment of real publication commitment. This keeps a listing claim out of browser `sessionStorage`.
 
 ## 6. Evidence at `e3881eb0`
 
 | Check | Result |
 |---|---|
-| `npx vitest run` (full web unit suite) | **114 files / 1151 tests passed** |
+| `SellFlow.media` (second pass) | **11/11 passed** |
+| `listingMediaIntake` (second pass) | **9/9 passed** |
+| `npx vitest run` (full web unit suite, first pass) | **114 files / 1151 tests passed** |
 | `npm run build` (`tsc -b && vite build`) | **exit 0** |
 | ESLint on changed files | **exit 0** |
 | `SellFlow.media` | **7/7 passed** |
