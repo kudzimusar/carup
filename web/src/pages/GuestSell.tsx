@@ -8,6 +8,8 @@ import { useAuth } from '@/context/AuthContext'
 import { zimbabweLocations, zimbabweProvinces } from '@/data/mockData'
 import { BODY_STYLES, DRIVETRAINS, FUEL_TYPES, SELLER_CONDITIONS, TRANSMISSIONS, VEHICLE_COLORS, VEHICLE_MAKES, isValidVehicleYear, modelsForMake } from '@/data/vehicleTaxonomy'
 import { saveGuestSellDraft } from '@/lib/guestSellDraft'
+import { MarketplaceListingCard } from '@/components/marketplace/MarketplaceListingCard'
+import { sellerDiscoverabilityFacets, sellerDraftToCardModel } from '@/lib/sellerListingPreview'
 import { VehicleIdentificationNotice } from '@/components/sell/VehicleIdentificationNotice'
 import { useSellerVehicleIdentification } from '@/hooks/useSellerVehicleIdentification'
 import { toast } from 'sonner'
@@ -36,6 +38,8 @@ export default function GuestSell() {
   const [errors, setErrors] = useState<Record<string, string>>({})
   const [draftSaved, setDraftSaved] = useState(false)
   const modelOptions = useMemo(() => modelsForMake(form.make).map(item => item.name), [form.make])
+  // S6: exactly the facets a buyer could search this listing by today — no padding.
+  const discoverability = useMemo(() => sellerDiscoverabilityFacets(form), [form])
   // S1: detect an existing CarUp Passport before the seller invests in the rest of the form.
   const { result: identification, checking: identifying } = useSellerVehicleIdentification(form.vin)
 
@@ -264,14 +268,39 @@ export default function GuestSell() {
             <div className="space-y-6" data-testid="guest-sell-preview-step">
               <div>
                 <p className="text-xs font-black uppercase tracking-[0.16em] text-orange-600">Private preview</p>
-                <h2 className="mt-1 text-2xl font-black">{form.year} {form.make} {form.model}</h2>
-                <p className="mt-1 text-sm text-slate-500">{form.location || 'Location not entered'} · {Number(form.mileage || 0).toLocaleString()} km</p>
+                <h2 className="mt-1 text-2xl font-black">This is the card buyers will see.</h2>
+                <p className="mt-1 text-sm text-slate-500">
+                  Not a mock-up — this is the real Marketplace listing card, rendered from what you have entered so far.
+                </p>
               </div>
-              {form.images[0] && <img src={form.images[0]} alt="Listing preview" className="aspect-[16/9] w-full object-cover shadow-[0_24px_60px_rgba(15,23,42,0.16)] sm:aspect-[2/1]" />}
-              <div className="grid border-y border-slate-200 sm:grid-cols-3">
-                <PreviewFact label="Price" value={form.currency && form.price ? `${form.currency} ${Number(form.price).toLocaleString()}` : 'Not entered'} />
-                <PreviewFact label="Condition" value={form.condition || 'Not entered'} />
-                <PreviewFact label="Fuel / transmission" value={[form.fuelType, form.transmission].filter(Boolean).join(' · ') || 'Not entered'} />
+              {/* S6 — THE ACTUAL BUYER CONTROL, NOT AN APPROXIMATION.
+                  This step used to be a bespoke layout that showed the seller something no buyer
+                  would ever see, and it printed `Number(form.mileage || 0)` — a fabricated "0 km"
+                  for a seller who had simply not entered mileage yet. The real card renders its own
+                  honest missing states from nulls, so an unanswered question stays unanswered. */}
+              <div className="mx-auto w-full max-w-sm" data-testid="guest-sell-buyer-preview">
+                <MarketplaceListingCard
+                  vehicle={sellerDraftToCardModel(form)}
+                  href="#"
+                  ctaLabel="Preview only"
+                  dataTestId="guest-sell-preview-card"
+                  showMissingMileage
+                />
+              </div>
+              <div className="border-y border-slate-200 py-4" data-testid="guest-sell-discoverability">
+                <p className="text-xs font-bold uppercase tracking-[0.12em] text-slate-500">Buyers can find this by</p>
+                {discoverability.length > 0 ? (
+                  <div className="mt-2 flex flex-wrap gap-1.5">
+                    {discoverability.map(facet => (
+                      <span key={facet} className="bg-slate-100 px-2 py-0.5 text-xs font-semibold text-slate-700">{facet}</span>
+                    ))}
+                  </div>
+                ) : (
+                  <p className="mt-2 text-sm text-slate-500">Nothing yet — add vehicle details so buyers can filter for this car.</p>
+                )}
+                <p className="mt-2 text-xs text-slate-500">
+                  Only what you have entered appears here. A filter you have not answered will not match this listing.
+                </p>
               </div>
               <div className="border-l-4 border-orange-500 bg-orange-50 p-4 text-sm text-orange-950">
                 <p className="font-bold">This is still only a browser draft.</p>
@@ -313,6 +342,3 @@ function SelectField({ label, value, error, onValue, options, testId }: { label:
   return <Field label={label} error={error}><Select value={value} onValueChange={onValue}><SelectTrigger data-testid={testId}><SelectValue placeholder="Select" /></SelectTrigger><SelectContent>{options.map(option => <SelectItem key={option} value={option}>{option}</SelectItem>)}</SelectContent></Select></Field>
 }
 
-function PreviewFact({ label, value }: { label: string; value: string }) {
-  return <div className="border-b border-slate-200 py-4 sm:border-b-0 sm:border-r sm:px-4 last:border-r-0"><p className="text-[10px] font-bold uppercase tracking-wide text-slate-400">{label}</p><p className="mt-1 font-black text-slate-950">{value}</p></div>
-}
