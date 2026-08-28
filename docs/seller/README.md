@@ -6,7 +6,9 @@ This directory is the canonical repository manual for CarUp Seller Journey 1.0.
 
 1. [Seller Journey 1.0 Canonical Plan](./SELLER_JOURNEY_1_0_CANONICAL_PLAN.md)
 2. [CarUp Global Vehicle Taxonomy Contract](../platform/CARUP_GLOBAL_VEHICLE_TAXONOMY_CONTRACT.md)
-3. [S0 — Vehicle Taxonomy & Seller Contract Foundation](./S0_VEHICLE_TAXONOMY_AND_SELLER_CONTRACT_FOUNDATION.md)
+3. [Global Taxonomy Schema & Vocabulary](../platform/CARUP_GLOBAL_VEHICLE_TAXONOMY_SCHEMA.md)
+4. [Global Taxonomy Migration & Rollout](../platform/CARUP_GLOBAL_VEHICLE_TAXONOMY_MIGRATION_PLAN.md)
+5. [S0 — Vehicle Taxonomy & Seller Contract Foundation](./S0_VEHICLE_TAXONOMY_AND_SELLER_CONTRACT_FOUNDATION.md)
 
 ## Operating rule
 
