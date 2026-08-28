@@ -2,7 +2,7 @@
 
 **Date:** 2026-08-28
 **Phase:** V5 — Trust Explanation Layer
-**Status:** IMPLEMENTED / EXACT-HEAD CI PENDING
+**Status:** PASS — EXACT-HEAD FOUNDATION CERTIFIED
 
 ## Scope
 
@@ -90,6 +90,23 @@ V5 proves:
 7. malformed evidence basis fails closed;
 8. Trust Lens contains no scoring engine, threshold logic, database ownership or legacy Trust cache use.
 
+## Exact-head certification
+
+Certified code head:
+
+- exact code head: `dcfc39df981dac2e6281c1f174927b95cf46764f`
+- Vehicle Passport Foundation CI — **PASS**
+- full repository `backend-and-build` — **PASS**
+- repository Playwright — **PASS**
+- Communications unit/postgres/staging integration checks — **PASS**
+- Referral CI — **PASS**
+- canonical Trust public-read-path guard — **PASS**
+- Passport V1–V5 cumulative contracts — **PASS**
+- Seller PR #182 current head at reconciliation: `dd17593c603a53fe65d4719ec84c2518d50e2397`
+- changed-file overlap with Seller PR #182 — **0 files**
+
 ## Phase decision
 
-**V5 FOUNDATION IMPLEMENTED. EXACT-HEAD CI REQUIRED BEFORE V6.**
+**V5 FOUNDATION PASS.**
+
+The branch is clean enough to advance into V6 while preserving the Seller/shared-surface stop line.
