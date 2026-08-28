@@ -63,3 +63,19 @@ test('Issue #158 source contract: blockchain runtime never selects or writes pri
   assert.match(src, /public_key_pem/);
   assert.match(src, /key_ref/);
 });
+
+test('Issue #158: system ledger signing secret is configuration-backed, not hard-coded', () => {
+  const runtime = readFileSync('backend/services/blockchain/blockchainService.js', 'utf8');
+  const custody = readFileSync('backend/services/blockchain/blockchainKeyCustodyService.js', 'utf8');
+  assert.doesNotMatch(runtime, /carup-system-secret/i);
+  assert.doesNotMatch(custody, /carup-system-secret/i);
+  assert.match(custody, /CARUP_BLOCKCHAIN_SYSTEM_HMAC_SECRET/);
+  assert.match(custody, /CARUP_BLOCKCHAIN_LEGACY_SYSTEM_HMAC_SECRETS/);
+});
+
+test('Issue #158: blockchain compatibility API returns public metadata only', () => {
+  const src = readFileSync('backend/services/blockchain/blockchainService.js', 'utf8');
+  assert.doesNotMatch(src, /privateKeyPem|privateKeyPem:/);
+  assert.match(src, /custodyProvider/);
+  assert.match(src, /keyVersion/);
+});
