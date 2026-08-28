@@ -51,6 +51,9 @@ jobs:
       - name: Passport foundation contract
         run: node --test backend/tests/passport-foundation-contract.test.js
 
+      - name: Passport V2 identity and access contract
+        run: node --test backend/tests/passport-v2-identity-access.test.js
+
       - name: Preserve canonical Passport lookup policy
         run: node --test backend/tests/issue164-lookup-policy.test.js
 
@@ -62,6 +65,8 @@ jobs:
           node --check backend/services/passport/passportContract.js
           node --check backend/services/passport/passportTimelineService.js
           node --check backend/services/passport/passportReadModelService.js
+          node --check backend/services/passport/passportAccessPolicy.js
+          node --check backend/services/passport/passportClaimStateMachine.js
 
       - name: Diff hygiene
         run: git diff --check HEAD^ HEAD
