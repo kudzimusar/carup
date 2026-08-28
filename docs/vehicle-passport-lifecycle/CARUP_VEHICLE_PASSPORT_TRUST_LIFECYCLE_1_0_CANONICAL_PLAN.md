@@ -6,7 +6,7 @@
 **Source anchor at planning time:** main@ba208963d863654157335189c60f587cbe330041  
 **Created:** 2026-08-28  
 **Owner:** CarUp  
-**Runtime authorization:** NONE while Seller Journey 1.0 remains the active implementation programme or while lane governance does not permit Passport Lifecycle runtime work.
+**Runtime authorization:** BOUNDED FOUNDATION ONLY while Seller Journey 1.0 remains active. V0/V1 and isolated, additive Passport-only scaffolding may proceed concurrently when lane governance permits and Seller-owned shared surfaces are not modified. Seller-dependent integration phases remain blocked until exact-head Seller reconciliation/certification.
 
 ---
 
