@@ -93,7 +93,7 @@ const INITIAL = {
   mileage: '', condition: '', category: '', fuelType: '', transmission: '', drivetrain: '',
   location: '', province: '', price: '', currency: '', description: '',
   features: [] as string[], featureInput: '',
-  images: [] as string[],
+  images: [] as string[], imageLabels: [] as string[],
 }
 
 function validateVin(vin: string) {
@@ -129,11 +129,13 @@ export default function SellVehicle() {
     importStatus: guestDraft.importStatus,
     features: guestDraft.features,
     images: guestDraft.images,
+    imageLabels: guestDraft.imageLabels,
   }) : INITIAL)
   const [errors, setErrors] = useState<Record<string, string>>({})
   const [submitting, setSubmitting] = useState(false)
   const [savedVin, setSavedVin] = useState<string | null>(null)
   const [guestDraftLoaded, setGuestDraftLoaded] = useState(() => Boolean(guestDraft))
+  const [guestHistoryPlan] = useState(() => guestDraft?.historyPlan ?? {})
   const modelOptions = modelsForMake(form.make).map(item => item.name)
   // S1: the same shared existing-Passport check Guest Sell runs. Advisory here too — the server's
   // 409 stays the authoritative duplicate rejection.
@@ -142,7 +144,7 @@ export default function SellVehicle() {
   // S4 — WHICH PHOTO THE SELLER CHOSE, or null because they have not chosen.
   // `null` is the honest state for a question not answered, and it is what the server's media
   // contract already expects: a bare URL claims nothing, and only `is_primary: true` is a claim.
-  const [coverImageIndex, setCoverImageIndex] = useState<number | null>(null)
+  const [coverImageIndex, setCoverImageIndex] = useState<number | null>(() => guestDraft?.coverImageIndex ?? null)
 
   /**
    * Move one photo one step. The stored order IS the submitted array order — the write path
@@ -155,9 +157,12 @@ export default function SellVehicle() {
     if (to < 0 || to >= form.images.length) return
     setForm(previous => {
       const next = [...previous.images]
+      const labels = [...previous.imageLabels]
       const [moved] = next.splice(from, 1)
+      const [movedLabel] = labels.splice(from, 1)
       next.splice(to, 0, moved)
-      return { ...previous, images: next }
+      labels.splice(to, 0, movedLabel || '')
+      return { ...previous, images: next, imageLabels: labels }
     })
     setCoverImageIndex(current => {
       if (current === null) return null
@@ -173,6 +178,14 @@ export default function SellVehicle() {
   }, [guestDraft])
 
   const set = (field: string, value: string | number | boolean | string[]) => setForm(prev => ({ ...prev, [field]: value }))
+
+  const setImageLabel = (index: number, label: string) => {
+    setForm(previous => {
+      const imageLabels = [...previous.imageLabels]
+      imageLabels[index] = label
+      return { ...previous, imageLabels }
+    })
+  }
 
   const addFeature = () => {
     const f = form.featureInput.trim()
@@ -204,10 +217,15 @@ export default function SellVehicle() {
     }))).then(results => {
       const images = results.filter(Boolean)
       if (images.length === 0) return
-      setForm(previous => ({
-        ...previous,
-        images: [...previous.images, ...images].slice(0, LISTING_IMAGE_LIMIT),
-      }))
+      setForm(previous => {
+        const nextImages = [...previous.images, ...images].slice(0, LISTING_IMAGE_LIMIT)
+        const addedCount = Math.max(0, nextImages.length - previous.images.length)
+        return {
+          ...previous,
+          images: nextImages,
+          imageLabels: [...previous.imageLabels, ...Array(addedCount).fill('')].slice(0, LISTING_IMAGE_LIMIT),
+        }
+      })
     })
   }
 
@@ -349,6 +367,15 @@ export default function SellVehicle() {
             only by the Trust surfaces from canonicalTrustService, and is deliberately NOT restated
             here: a seller-facing copy of a Trust position is how a score drifts from its own
             calculation_version. */}
+        {Object.keys(guestHistoryPlan).length > 0 && (
+          <div className="rounded-xl border border-orange-200 bg-orange-50 p-4" data-testid="post-save-evidence-plan">
+            <p className="text-sm font-semibold text-orange-950">Your evidence preparation came with you</p>
+            <p className="mt-1 text-xs text-orange-900/70">
+              {Object.values(guestHistoryPlan).filter(value => value === 'now').length} categories were marked as records you have now.
+              Upload the actual documents/evidence below; the checklist itself never counts as proof.
+            </p>
+          </div>
+        )}
         <VehicleCompletenessPanel vin={savedVin} data-testid="post-save-completeness" />
         <ListingQualityPanel
           listing={{
@@ -383,6 +410,12 @@ export default function SellVehicle() {
         <div className="border-l-4 border-orange-500 bg-orange-50 p-4 text-sm text-orange-950" data-testid="seller-guest-draft-loaded">
           <p className="font-semibold">Your guest preview has been restored.</p>
           <p className="mt-1">Review the details below. Nothing is published until CarUp's publication requirements are completed.</p>
+          {Object.keys(guestHistoryPlan).length > 0 && (
+            <p className="mt-2 text-xs" data-testid="seller-guest-evidence-plan">
+              Evidence preparation carried over: {Object.values(guestHistoryPlan).filter(value => value === 'now').length} categories marked ready now · {Object.values(guestHistoryPlan).filter(value => value === 'later').length} to add later.
+              These are reminders, not verified claims.
+            </p>
+          )}
         </div>
       )}
 
@@ -680,10 +713,16 @@ export default function SellVehicle() {
                         ? 'No cover photo chosen. Pick the photo buyers should see first — otherwise CarUp will not claim one for you.'
                         : `Photo ${coverImageIndex + 1} is your cover photo.`}
                     </p>
-                    <div className="grid grid-cols-4 gap-2">
+                    <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
                       {form.images.map((img, i) => (
-                        <div key={i} className="relative aspect-square rounded-lg overflow-hidden group">
-                          <img src={img} alt={`Listing photo ${i + 1}`} className="w-full h-full object-cover" />
+                        <div key={i} className="space-y-1.5">
+                          <div className="relative aspect-square rounded-lg overflow-hidden group">
+                          <img src={img} alt={form.imageLabels[i] || `Listing photo ${i + 1}`} className="w-full h-full object-cover" />
+                          {form.imageLabels[i] && (
+                            <Badge className="absolute bottom-1 right-1 max-w-[70%] truncate bg-slate-950/80 text-[9px] text-white">
+                              {form.imageLabels[i]}
+                            </Badge>
+                          )}
                           {coverImageIndex === i && (
                             <Badge
                               className="absolute bottom-1 left-1 text-[9px] bg-orange-500 text-white"
@@ -738,7 +777,11 @@ export default function SellVehicle() {
                                 if (current === i) return null
                                 return current > i ? current - 1 : current
                               })
-                              set('images', form.images.filter((_, j) => j !== i))
+                              setForm(previous => ({
+                                ...previous,
+                                images: previous.images.filter((_, j) => j !== i),
+                                imageLabels: previous.imageLabels.filter((_, j) => j !== i),
+                              }))
                             }}
                             className="absolute top-1 right-1 w-5 h-5 rounded-full bg-black/60 text-white flex items-center justify-center opacity-0 transition-opacity group-hover:opacity-100 focus:opacity-100"
                             data-testid={`listing-media-remove-${i}`}
@@ -746,6 +789,15 @@ export default function SellVehicle() {
                           >
                             <X className="w-3 h-3" />
                           </button>
+                          </div>
+                          <Select value={form.imageLabels[i] || ''} onValueChange={value => setImageLabel(i, value)}>
+                            <SelectTrigger className="h-8 text-[10px]" aria-label={`Photo ${i + 1} angle or view`}>
+                              <SelectValue placeholder="Label angle / view" />
+                            </SelectTrigger>
+                            <SelectContent>
+                              {LISTING_PHOTO_SEQUENCE.map(label => <SelectItem key={label} value={label}>{label}</SelectItem>)}
+                            </SelectContent>
+                          </Select>
                         </div>
                       ))}
                     </div>
