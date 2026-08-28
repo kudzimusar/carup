@@ -35,6 +35,8 @@ import {
 import {
   ALL,
   CATEGORY_CHIPS,
+  PRICE_MAX_DEFAULT,
+  PRICE_MIN_DEFAULT,
   TRUST_QUICK_FILTERS,
   TRUST_TAG_CHIPS,
   getActiveFilterChips,
@@ -512,9 +514,10 @@ export default function Marketplace() {
     ].filter(Boolean).join(' ').toLowerCase()
     const matchesSearch = !query || searchable.includes(query)
     const price = typeof listing.price === 'number' && Number.isFinite(listing.price) ? listing.price : null
+    const atDefaultPriceRange = priceRange[0] === PRICE_MIN_DEFAULT && priceRange[1] === PRICE_MAX_DEFAULT
     const matchesPrice = price === null
-      ? priceRange[0] === 0 && priceRange[1] === 100000
-      : price >= priceRange[0] && price <= priceRange[1]
+      ? atDefaultPriceRange
+      : price >= priceRange[0] && (priceRange[1] === PRICE_MAX_DEFAULT || price <= priceRange[1])
     return matchesSearch && matchesPrice
   }), [liveListings, searchQuery, priceRange])
 
@@ -533,7 +536,7 @@ export default function Marketplace() {
 
   const resetFilters = () => {
     setSearchQuery('')
-    setPriceRange([0, 100000])
+    setPriceRange([PRICE_MIN_DEFAULT, PRICE_MAX_DEFAULT])
     setSearchParams(new URLSearchParams(), { replace: false })
   }
 
@@ -551,8 +554,8 @@ export default function Marketplace() {
     else if (key === 'transmission') updateUrl({ selectedTransmission: ALL })
     else if (key === 'location') updateUrl({ selectedLocation: ALL })
     else if (key === 'price') {
-      setPriceRange([0, 100000])
-      updateUrl({ priceRange: [0, 100000] }, true)
+      setPriceRange([PRICE_MIN_DEFAULT, PRICE_MAX_DEFAULT])
+      updateUrl({ priceRange: [PRICE_MIN_DEFAULT, PRICE_MAX_DEFAULT] }, true)
     } else if (key === 'sort') updateUrl({ sortBy: 'newest' })
   }
 
