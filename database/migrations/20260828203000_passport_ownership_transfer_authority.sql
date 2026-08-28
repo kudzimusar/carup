@@ -225,6 +225,14 @@ BEGIN
     RAISE EXCEPTION 'ownership transfer dispute requires a reason' USING ERRCODE='22023';
   END IF;
 
+  -- Once legal ownership has completed, ordinary cancellation is no longer a truthful
+  -- state: owner_id/history already changed. A reversal must be a separately governed
+  -- compensating ownership event, not a cancellation of history that already happened.
+  IF p_to_state='cancelled' AND v_transfer.completed_at IS NOT NULL THEN
+    RAISE EXCEPTION 'completed ownership transfer cannot be cancelled; use governed reversal workflow'
+      USING ERRCODE='23514';
+  END IF;
+
   v_from_state := v_transfer.state;
 
   IF p_to_state='complete' THEN
@@ -241,7 +249,16 @@ BEGIN
     -- transfer-linked ownership-history row must already exist.
     IF v_vehicle.owner_id IS NOT DISTINCT FROM v_transfer.previous_owner_id THEN
       UPDATE public.vehicles
-         SET owner_id=v_transfer.incoming_owner_id
+         SET owner_id=v_transfer.incoming_owner_id,
+             -- Ownership completion retires the previous Marketplace selling authority.
+             -- The new owner must explicitly start a new sale before buyer intent can route.
+             current_seller_id=NULL,
+             current_seller_type=NULL,
+             current_seller_type_source=NULL,
+             publication_status=CASE
+               WHEN publication_status='published' THEN 'publishable'
+               ELSE publication_status
+             END
        WHERE vin=v_transfer.vin;
 
       INSERT INTO public.vehicle_ownership_history(
