@@ -19,6 +19,7 @@
  * unavailable state and fetches nothing.
  */
 import { useCallback, useEffect, useMemo, useState } from 'react'
+import { UnavailableNote } from '@/components/diaspora/DataStateNotes'
 import {
   AlertTriangle, Activity, Boxes, Loader2, Lock, RefreshCw, ShieldAlert, Share2, Info,
 } from 'lucide-react'
@@ -97,6 +98,7 @@ export default function DiasporaTradeGraph() {
 
   const [summary, setSummary] = useState<TradeGraphSummary | null>(null)
   const [deadLetters, setDeadLetters] = useState<TradeGraphDeadLetter[]>([])
+  const [deadLettersUnreadable, setDeadLettersUnreadable] = useState(false)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [forbidden, setForbidden] = useState(false)
@@ -120,10 +122,13 @@ export default function DiasporaTradeGraph() {
       if (isOperator) {
         try {
           setDeadLetters(await api.getTradeGraphDeadLetters(25))
+          setDeadLettersUnreadable(false)
         } catch {
           // A dead-letter read failing must not blank the whole dashboard — the summary is still
-          // useful and still true. The panel shows its own error instead.
+          // useful and still true. The panel now genuinely shows its own error: it previously
+          // rendered "No unprocessed events", asserting a clean pipeline nobody had checked.
           setDeadLetters([])
+          setDeadLettersUnreadable(true)
         }
       }
     } catch (err) {
@@ -396,7 +401,12 @@ export default function DiasporaTradeGraph() {
               <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500">
                 Events that could not be processed
               </h3>
-              {deadLetters.length === 0 ? (
+              {deadLettersUnreadable ? (
+                <UnavailableNote testId="trade-graph-dead-letters-unavailable">
+                  The unprocessed-event check could not be run. This is not confirmation that the
+                  pipeline is clear.
+                </UnavailableNote>
+              ) : deadLetters.length === 0 ? (
                 <p className="text-sm text-slate-600" data-testid="dead-letters-empty">
                   No unprocessed events.
                 </p>

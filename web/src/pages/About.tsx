@@ -9,12 +9,17 @@ const values = [
   { icon: Globe, title: 'Zimbabwe First', desc: 'Purpose-built for Zimbabwe\'s unique automotive landscape and regulatory environment.' },
 ]
 
-const team = [
-  { name: 'Tendai Moyo', role: 'Founder & CEO', avatar: '/images/avatars/owner-1.jpg' },
-  { name: 'Sarah Chikomo', role: 'Head of Product', avatar: '/images/avatars/owner-2.jpg' },
-  { name: 'James Ncube', role: 'CTO', avatar: '/images/avatars/dealer-1.jpg' },
-  { name: 'Ayesha Khan', role: 'Head of Operations', avatar: '/images/avatars/mechanic-1.jpg' },
-]
+/*
+ * The "Leadership Team" that stood here was demo data presented as real people.
+ * "Tendai Moyo" is the seeded demo buyer persona used on the login screen;
+ * "Sarah Chikomo" and "James Ncube" are mock sellers from the marketplace
+ * fixtures; the fourth name appears nowhere else at all. Each was shown with a
+ * generic persona avatar under a named executive role.
+ *
+ * Naming fictional people as a company's leadership is not a rounding error, so
+ * the section is removed rather than re-populated. It returns when there is a
+ * real roster to publish.
+ */
 
 export default function About() {
   return (
@@ -24,9 +29,8 @@ export default function About() {
           <Badge className="mb-4 bg-orange-500/20 text-orange-300">About CarUp</Badge>
           <h1 className="text-4xl md:text-5xl font-bold mb-4">Building Zimbabwe's Automotive Future</h1>
           <p className="text-lg text-gray-300 max-w-2xl mx-auto">
-            CarUp is Zimbabwe's first comprehensive automotive intelligence platform, combining AI, 
-            a tamper-evident audit ledger, and a multi-stakeholder ecosystem to transform how vehicles are 
-            bought, sold, and managed.
+            CarUp brings vehicle records, marketplace listings and service history together in one place,
+            so buyers and sellers can see what is actually documented about a vehicle — and what is not.
           </p>
         </div>
       </div>
@@ -76,32 +80,20 @@ export default function About() {
           </div>
         </div>
 
-        {/* Team */}
-        <div className="mb-16">
-          <h2 className="text-2xl font-bold text-center mb-8">Leadership Team</h2>
-          <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-6">
-            {team.map((member) => (
-              <Card key={member.name} className="border-0 card-shadow text-center overflow-hidden">
-                <div className="h-48 overflow-hidden">
-                  <img src={member.avatar} alt={member.name} className="w-full h-full object-cover" />
-                </div>
-                <CardContent className="p-4">
-                  <h3 className="font-semibold">{member.name}</h3>
-                  <p className="text-sm text-gray-500">{member.role}</p>
-                </CardContent>
-              </Card>
-            ))}
-          </div>
-        </div>
 
         {/* Stats */}
         <div className="bg-gradient-to-r from-[hsl(222,47%,11%)] to-[hsl(222,47%,18%)] rounded-2xl p-8 text-white">
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-8 text-center">
+          <div className="grid grid-cols-1 gap-8 text-center">
+            {/*
+              * "12,000+ Vehicles Registered", "850+ Partner Dealers" and "98.7%
+              * Fraud Detection" stood here as string literals with no source. The
+              * identical three figures had already been adjudicated as fabricated
+              * and removed from PressKit.tsx, which records that none was measured
+              * and that the partner figure asserted relationships that do not
+              * exist. This page was a surviving copy of the same claim.
+              */}
             {[
               { value: '2024', label: 'Founded' },
-              { value: '12,000+', label: 'Vehicles Registered' },
-              { value: '850+', label: 'Partner Dealers' },
-              { value: '98.7%', label: 'Fraud Detection' },
             ].map((stat) => (
               <div key={stat.label}>
                 <p className="text-3xl font-bold">{stat.value}</p>

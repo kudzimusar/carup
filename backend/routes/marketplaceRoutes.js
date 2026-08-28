@@ -19,6 +19,10 @@ import { createInquiry, listInquiriesForSeller } from '../services/marketplace/m
 import { saveListing, unsaveListing, listSavedListings } from '../services/marketplace/marketplaceSavedService.js';
 import { marketplaceReferralBridge } from '../services/marketplace/marketplaceReferralBridgeService.js';
 import {
+  emitSearchPerformed,
+  emitListingOpened,
+} from '../services/intelligence/marketplaceActivityEmitters.js';
+import {
   listingDraft,
   buyerAssistant,
   priceEstimate,
@@ -72,7 +76,13 @@ async function withCanonicalReservationTruth(page) {
 
 router.get('/api/marketplace/listings', asyncHandler(async (req, res) => {
   const page = await listMarketplaceListings(supabase, req.query);
-  res.json(await withCanonicalReservationTruth(page));
+  const body = await withCanonicalReservationTruth(page);
+  // Governed search observation (Intelligence I3). Fire-and-forget: a shopper's
+  // results must never wait on, or fail because of, analytics. The event carries
+  // the result count, so a zero-result search becomes a supply signal rather than
+  // an invisible dead end.
+  emitSearchPerformed(req, { query: req.query, resultCount: body?.total ?? 0 }).catch(() => {});
+  res.json(body);
 }));
 
 router.get('/api/marketplace/nav-coverage', asyncHandler(async (req, res) => {
@@ -100,9 +110,13 @@ router.post('/api/marketplace/compare', asyncHandler(async (req, res) => {
   res.json(await compareListings(supabase, req.body?.vins || []));
 }));
 
-// Listing detail (public). Emits a best-effort referral "listing_viewed" event.
+// Listing detail (public). Emits the canonical Intelligence view observation for
+// EVERY served detail — organic and attributed alike — plus the pre-existing
+// referral-bridge event, which remains the referral engine's own workflow record.
+// Before this, an ordinary view (no ref/campaign on the URL) was recorded nowhere.
 router.get('/api/marketplace/listings/:id', optionalAuth(), asyncHandler(async (req, res) => {
   const detail = await getMarketplaceListingDetail(supabase, req.params.id, { audience: 'public' });
+  emitListingOpened(req, { vin: detail?.vin || req.params.id }).catch(() => {});
   const { referralCode, campaignCode, sourceChannel } = referralContextFromReq(req);
   if (referralCode || campaignCode) {
     marketplaceReferralBridge
@@ -129,7 +143,9 @@ router.post('/api/marketplace/inquiries', inquiryLimiter, optionalAuth(), asyncH
     campaign_code: req.body?.campaign_code || campaignCode,
     source_channel: req.body?.source_channel || sourceChannel,
   };
-  const inquiry = await createInquiry(supabase, payload, req.userContext || null);
+  // `req` reaches the service only so the Intelligence observation can carry the
+  // shopper's session/page-view context; the inquiry itself never reads it.
+  const inquiry = await createInquiry(supabase, payload, req.userContext || null, { req });
   res.status(201).json({ inquiry });
 }));
 
@@ -139,12 +155,15 @@ router.get('/api/marketplace/saved', authorizeRole([]), asyncHandler(async (req,
   res.json(await listSavedListings(supabase, req.userContext));
 }));
 
+// `req` is threaded through so the observation can carry the shopper's session and
+// page-view context — without it a save could not be stage-linked to the view that
+// preceded it, and the view→save conversion metric would be uncomputable.
 router.post('/api/marketplace/listings/:id/save', authorizeRole([]), asyncHandler(async (req, res) => {
-  res.json(await saveListing(supabase, req.params.id, req.userContext));
+  res.json(await saveListing(supabase, req.params.id, req.userContext, { req }));
 }));
 
 router.delete('/api/marketplace/listings/:id/save', authorizeRole([]), asyncHandler(async (req, res) => {
-  res.json(await unsaveListing(supabase, req.params.id, req.userContext));
+  res.json(await unsaveListing(supabase, req.params.id, req.userContext, { req }));
 }));
 
 // ---- Seller inquiry inbox --------------------------------------------------

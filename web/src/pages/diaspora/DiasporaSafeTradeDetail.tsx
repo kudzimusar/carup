@@ -19,6 +19,7 @@ import { SafeTradeStatusBanner } from '@/components/diaspora/safetrade/SafeTrade
 import { SafeTradeTimeline } from '@/components/diaspora/safetrade/SafeTradeTimeline'
 import { SafeTradeEligibilityPanel } from '@/components/diaspora/safetrade/SafeTradeEligibilityPanel'
 import { SafeTradeMilestones } from '@/components/diaspora/safetrade/SafeTradeMilestones'
+import { UnavailableNote } from '@/components/diaspora/DataStateNotes'
 import { SafeTradeActions } from '@/components/diaspora/safetrade/SafeTradeActions'
 import { SafeTradeDisputes } from '@/components/diaspora/safetrade/SafeTradeDisputes'
 import { classifyActionError, designStateOf } from '@/components/diaspora/safetrade/safeTradeHelpers'
@@ -43,6 +44,9 @@ export default function DiasporaSafeTradeDetail() {
   const [milestones, setMilestones] = useState<SafeTradeMilestone[]>([])
   const [disputes, setDisputes] = useState<SafeTradeDispute[]>([])
   const [actions, setActions] = useState<SafeTradeAvailableAction[]>([])
+  // Which best-effort sections could not be read, so each can say so itself
+  // rather than presenting an unreadable section as an empty one.
+  const [unreadableSections, setUnreadableSections] = useState<Set<string>>(new Set())
   const [loading, setLoading] = useState(false)
   // Distinguishes the INITIAL load (full-page spinner) from later refreshes (in-place; the case stays
   // on screen). A ref guards against overlapping loads so the always-focusable Refresh button cannot
@@ -60,12 +64,17 @@ export default function DiasporaSafeTradeDetail() {
     try {
       const t = await api.getSafeTradeCase(id) // backbone; its failure is fatal
       setTxn(t)
-      // Best-effort enrichments — a single failure must not blank the page (partial-data tolerant).
-      try { setTimeline(await api.getSafeTradeTimeline(id)) } catch { setTimeline([]) }
-      try { setEligibility(await api.getSafeTradeEligibility(id)) } catch { setEligibility(null) }
-      try { setMilestones(await api.getSafeTradeMilestones(id)) } catch { setMilestones([]) }
-      try { setDisputes(await api.getSafeTradeDisputes(id)) } catch { setDisputes([]) }
-      try { setActions(await api.getSafeTradeAvailableActions(id)) } catch { setActions([]) }
+      // Best-effort enrichments — a single failure must not blank the page
+      // (partial-data tolerant). But an unreadable section says so: collapsing it
+      // to [] reported a failed milestone read as "no milestones defined" with a
+      // plan total of zero, and hid an active dispute behind "no disputes".
+      const unreadable = new Set<string>()
+      try { setTimeline(await api.getSafeTradeTimeline(id)) } catch { setTimeline([]); unreadable.add('timeline') }
+      try { setEligibility(await api.getSafeTradeEligibility(id)) } catch { setEligibility(null); unreadable.add('eligibility') }
+      try { setMilestones(await api.getSafeTradeMilestones(id)) } catch { setMilestones([]); unreadable.add('milestones') }
+      try { setDisputes(await api.getSafeTradeDisputes(id)) } catch { setDisputes([]); unreadable.add('disputes') }
+      try { setActions(await api.getSafeTradeAvailableActions(id)) } catch { setActions([]); unreadable.add('actions') }
+      setUnreadableSections(unreadable)
     } catch (err) {
       // apiRequest throws a plain Error carrying only the server's MESSAGE (no structured code);
       // classify from message content. A 401 session failure is shown as a sign-in prompt, NOT a
@@ -138,7 +147,19 @@ export default function DiasporaSafeTradeDetail() {
         <SafeTradeStatusBanner txn={txn} viewerId={viewerId} />
         <SafeTradeTimeline currentState={designStateOf(txn)} events={timeline} />
         <SafeTradeEligibilityPanel verdict={eligibility} showRiskTier={isReviewer} />
-        <SafeTradeMilestones milestones={milestones} currency={txn.currency} />
+        <SafeTradeMilestones milestones={milestones} currency={txn.currency} unavailable={unreadableSections.has('milestones')} />
+        {unreadableSections.has('disputes') && (
+          <UnavailableNote testId="safetrade-disputes-unavailable">
+            Dispute information could not be loaded. This is not confirmation that this case has no
+            open dispute.
+          </UnavailableNote>
+        )}
+        {unreadableSections.has('actions') && (
+          <UnavailableNote testId="safetrade-actions-unavailable">
+            The available actions could not be loaded, so none are offered here. Actions may still be
+            available on this case.
+          </UnavailableNote>
+        )}
         <SafeTradeActions transactionId={txn.id} actions={actions} onDone={load} />
         <SafeTradeDisputes transactionId={txn.id} disputes={disputes} actions={actions} viewerId={viewerId} isReviewer={isReviewer} onDone={load} />
       </div>

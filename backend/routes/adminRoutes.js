@@ -48,8 +48,11 @@ router.get('/api/admin/stats', authorizeRole(['admin']), asyncHandler(async (_re
     totalVehicles: vehicleCount || 0,
     totalEscrows: escrowCount || 0,
     totalClaims: claimsCount || 0,
-    systemHealth: 'Optimal',
-    aiConfidence: '98.5%'
+    // `systemHealth: 'Optimal'` and `aiConfidence: '98.5%'` were string literals
+    // returned by this endpoint. CarUp measures neither: there is no health check
+    // behind the first, and no fraud-interception rate is computed anywhere — the
+    // second was rendered to an administrator as "Fraud Intercept Rate 98.5%".
+    // A metric with no measurement behind it is not reported at all.
   });
 }));
 

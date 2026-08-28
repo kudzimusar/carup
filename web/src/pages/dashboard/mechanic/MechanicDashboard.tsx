@@ -10,6 +10,7 @@ import {
   ArrowRight, Cpu, Plus, Loader2
 } from 'lucide-react'
 import { Link } from 'react-router-dom'
+import ServiceIntelligence from '@/components/intelligence/ServiceIntelligence'
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer } from 'recharts'
 import { useCarUpApi } from '@/hooks/useCarUpApi'
 import type { WorkOrder } from '@/types'
@@ -112,6 +113,10 @@ export default function MechanicDashboard() {
           <Plus className="w-4 h-4" /> Create Work Order
         </Button>
       </div>
+
+      {/* Governed practitioner intelligence (I9). PERSON scope: this mechanic's
+          own work, never the garage's — the component states which on screen. */}
+      <ServiceIntelligence scope="mechanic" />
 
       {/* Stats Grid — real counts from fetched work orders */}
       <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-4">

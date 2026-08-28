@@ -7,10 +7,13 @@
  */
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { formatPeriodDate, toUsageView, type UsageView } from './subscriptionHelpers'
+import { UnavailableNote } from '@/components/diaspora/DataStateNotes'
 import type { UsageResponse } from '@/types'
 
 export interface UsageDashboardProps {
   usage: UsageResponse | null
+  /** true when the usage read failed — different from an empty period. */
+  unavailable?: boolean
   testId?: string
 }
 
@@ -61,7 +64,14 @@ function UsageMeter({ view }: { view: UsageView }) {
   )
 }
 
-export function UsageDashboard({ usage, testId = 'usage-dashboard' }: UsageDashboardProps) {
+export function UsageDashboard({ usage, testId = 'usage-dashboard', unavailable = false }: UsageDashboardProps) {
+  if (unavailable) {
+    return (
+      <UnavailableNote testId={`${testId}-unreadable`}>
+        Your metered usage could not be loaded. This is not a report of zero usage.
+      </UnavailableNote>
+    )
+  }
   if (!usage || !Array.isArray(usage.usage) || usage.usage.length === 0) {
     return (
       <Card data-testid={testId}>

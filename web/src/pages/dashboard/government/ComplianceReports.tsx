@@ -12,6 +12,7 @@ export default function ComplianceReports() {
   const { fetchComplianceReports } = useCarUpApi()
   const [reports, setReports] = useState<ComplianceReport[]>([])
   const [loading, setLoading] = useState(true)
+  const [loadFailed, setLoadFailed] = useState(false)
 
   useEffect(() => {
     async function load() {
@@ -25,6 +26,11 @@ export default function ComplianceReports() {
           setReports([])
         }
       } catch (err) {
+        // A failed read left every tile at 0 and the list saying "No compliance
+        // reports found" behind a toast that disappears. An unreadable list is
+        // not an empty one.
+        console.error(err)
+        setLoadFailed(true)
         toast.error('Failed to load compliance reports')
       } finally {
         setLoading(false)
@@ -33,21 +39,25 @@ export default function ComplianceReports() {
     load()
   }, [fetchComplianceReports])
 
+  /**
+   * This previously resolved a two-second timer and then announced that a
+   * regulatory report had "downloaded successfully". No request was made and no
+   * file was written. A report is only offered now when it actually has a file.
+   */
   const handleDownload = (report: ComplianceReport) => {
-    toast.promise(
-      new Promise((resolve) => setTimeout(resolve, 2000)),
-      {
-        loading: `Downloading ${report.title}...`,
-        success: `${report.title} downloaded successfully!`,
-        error: 'Failed to download report'
-      }
-    )
+    if (!report.url) {
+      toast.error('This report has no file to download yet.')
+      return
+    }
+    window.open(report.url, '_blank', 'noopener,noreferrer')
   }
 
   const totalReports = reports.length
   const generatedCount = reports.filter(r => r.status === 'generated').length
   const pendingCount = reports.filter(r => r.status === 'pending').length
-  const complianceRate = totalReports ? ((generatedCount / totalReports) * 100).toFixed(1) + '%' : '0%'
+  // Not a "compliance rate": it is the share of THIS list that has been
+  // generated, and says nothing about whether anybody is compliant.
+  const generatedShare = totalReports ? ((generatedCount / totalReports) * 100).toFixed(1) + '%' : null
   return (
     <div className="space-y-6 max-w-7xl mx-auto">
       <div>
@@ -59,7 +69,7 @@ export default function ComplianceReports() {
         <Card className="border-0 card-shadow"><CardContent className="p-5"><p className="text-sm text-gray-500">Total Reports</p><p className="text-2xl font-bold">{loading ? <Skeleton className="h-8 w-12 mt-1" /> : totalReports}</p></CardContent></Card>
         <Card className="border-0 card-shadow"><CardContent className="p-5"><p className="text-sm text-gray-500">Generated (Mo)</p><p className="text-2xl font-bold text-green-600">{loading ? <Skeleton className="h-8 w-12 mt-1" /> : generatedCount}</p></CardContent></Card>
         <Card className="border-0 card-shadow"><CardContent className="p-5"><p className="text-sm text-gray-500">Pending</p><p className="text-2xl font-bold text-amber-600">{loading ? <Skeleton className="h-8 w-12 mt-1" /> : pendingCount}</p></CardContent></Card>
-        <Card className="border-0 card-shadow"><CardContent className="p-5"><p className="text-sm text-gray-500">Compliance Rate</p><p className="text-2xl font-bold text-green-600">{loading ? <Skeleton className="h-8 w-16 mt-1" /> : complianceRate}</p></CardContent></Card>
+        <Card className="border-0 card-shadow"><CardContent className="p-5"><p className="text-sm text-gray-500">Generated share</p><p className="text-2xl font-bold text-green-600" data-testid="compliance-generated-share">{loading ? <Skeleton className="h-8 w-16 mt-1" /> : (generatedShare ?? 'No reports')}</p></CardContent></Card>
       </div>
 
       <div className="space-y-3">
@@ -76,8 +86,12 @@ export default function ComplianceReports() {
               </CardContent>
             </Card>
           ))
+        ) : loadFailed ? (
+          <div className="text-center py-12 text-gray-600 bg-gray-50 rounded-lg border border-dashed" data-testid="compliance-reports-failed">
+            Compliance reports could not be loaded. This is not a report that none exist.
+          </div>
         ) : reports.length === 0 ? (
-          <div className="text-center py-12 text-gray-500 bg-gray-50 rounded-lg border border-dashed">
+          <div className="text-center py-12 text-gray-500 bg-gray-50 rounded-lg border border-dashed" data-testid="compliance-reports-empty">
             No compliance reports found.
           </div>
         ) : (
@@ -100,8 +114,8 @@ export default function ComplianceReports() {
                     </div>
                   </div>
                   {report.status === 'generated' && (
-                    <Button size="sm" variant="outline" className="gap-1" onClick={() => handleDownload(report)}>
-                      <Download className="w-4 h-4" /> Download
+                    <Button size="sm" variant="outline" className="gap-1" disabled={!report.url} onClick={() => handleDownload(report)} data-testid={`compliance-download-${report.id}`}>
+                      <Download className="w-4 h-4" /> {report.url ? 'Download' : 'No file'}
                     </Button>
                   )}
                 </div>

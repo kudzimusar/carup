@@ -130,7 +130,7 @@ export default function DiasporaAiCommandCenter() {
               <div className="flex flex-wrap items-center gap-2">
                 <Badge variant="outline">{parsed.intent || 'UNKNOWN'}</Badge>
                 <Badge className={riskBadgeClass(parsed.risk || undefined)} data-testid="diaspora-ai-risk">{parsed.risk || 'N/A'} risk</Badge>
-                <span className="text-sm text-gray-600" data-testid="diaspora-ai-confidence">confidence {(parsed.confidence * 100).toFixed(0)}%</span>
+                <span className="text-sm text-gray-600" data-testid="diaspora-ai-confidence">confidence {Number.isFinite(Number(parsed.confidence)) ? `${(Number(parsed.confidence) * 100).toFixed(0)}%` : 'not reported'}</span>
                 {parsed.ambiguous && <Badge className="bg-amber-100 text-amber-800 hover:bg-amber-100" data-testid="diaspora-ai-ambiguous">ambiguous</Badge>}
               </div>
               <ul className="mt-2 list-disc pl-5 text-xs text-gray-600">
@@ -150,7 +150,7 @@ export default function DiasporaAiCommandCenter() {
               <TableHeader><TableRow><TableHead>Intent</TableHead><TableHead>Risk</TableHead><TableHead>Status</TableHead><TableHead>Action</TableHead></TableRow></TableHeader>
               <TableBody>
                 {commands.length === 0 ? (
-                  <TableRow><TableCell colSpan={4} className="h-12 text-center text-gray-500" data-testid="diaspora-ai-empty">No commands yet.</TableCell></TableRow>
+                  <TableRow><TableCell colSpan={4} className="h-12 text-center text-gray-500" data-testid="diaspora-ai-empty">{error ? 'Commands could not be loaded. This is not a report that none were issued.' : 'No commands yet.'}</TableCell></TableRow>
                 ) : commands.map((cmd) => (
                   <TableRow key={cmd.id} data-testid="diaspora-ai-command-row">
                     <TableCell className="font-medium">{cmd.intent}</TableCell>

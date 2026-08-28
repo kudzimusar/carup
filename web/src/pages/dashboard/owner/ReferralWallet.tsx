@@ -124,6 +124,7 @@ export default function ReferralWallet() {
   const [disputeReason, setDisputeReason] = useState('')
   const [disputeMsg, setDisputeMsg] = useState<string | null>(null)
   const [disputes, setDisputes] = useState<OwnerReferralDispute[]>([])
+  const [disputesUnreadable, setDisputesUnreadable] = useState(false)
 
   const loadWallet = useCallback(async () => {
     if (!userId) return
@@ -134,7 +135,13 @@ export default function ReferralWallet() {
       const w = res.wallet
       setPending(w?.pending_balance)
       // "Approved" = claimable but not yet settled (approved + payable buckets).
-      setApproved((w?.approved_balance ?? 0) + (w?.payable_balance ?? 0))
+      // Only buckets the server actually returned are summed: coercing a missing
+      // balance to 0 would show an owner "nothing approved" for a figure that was
+      // never reported.
+      const buckets = [w?.approved_balance, w?.payable_balance].filter(
+        (v): v is number => typeof v === 'number' && Number.isFinite(v),
+      )
+      setApproved(buckets.length > 0 ? buckets.reduce((a, b) => a + b, 0) : undefined)
       setSettled(w?.paid_or_applied_balance)
       setTransactions(res.transactions ?? [])
     } catch (err) {
@@ -148,9 +155,13 @@ export default function ReferralWallet() {
     try {
       const res = await getOwnerReferralDisputes()
       setDisputes(Array.isArray(res.disputes) ? res.disputes : [])
+      setDisputesUnreadable(false)
     } catch {
-      // Non-fatal: the dispute panel degrades to empty; wallet/validate/share stay functional.
+      // Non-fatal for the wallet itself, but not silent: dispute state decorates
+      // each transaction, so an empty list made a genuinely disputed transaction
+      // look undisputed to its owner.
       setDisputes([])
+      setDisputesUnreadable(true)
     }
   }, [getOwnerReferralDisputes])
 
@@ -310,6 +321,15 @@ export default function ReferralWallet() {
                   <p className="text-xl font-bold">{money(settled)}</p>
                 </div>
               </div>
+
+              {/* Dispute state decorates each transaction below, so an unreadable
+                  dispute list must be said out loud rather than shown as none. */}
+              {disputesUnreadable && (
+                <p className="mb-3 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800" data-testid="referral-wallet-disputes-unavailable">
+                  Dispute status could not be loaded, so no dispute is shown against any benefit below.
+                  This is not confirmation that none is open.
+                </p>
+              )}
 
               {transactions.length === 0 ? (
                 <p className="text-sm text-gray-500">No referral benefits yet. Share your code to start earning — benefits stay pending until they are approved (they never mature from signup alone).</p>
