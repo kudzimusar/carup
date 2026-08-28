@@ -1,4 +1,4 @@
-import { Fragment, useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -28,7 +28,6 @@ import type { MarketplaceListingSummary } from '@/types'
 import { captureReferralFromUrl } from '@/lib/marketplaceReferral'
 import { summaryLocationLine } from '@/lib/governedLocation'
 import { ListingImage } from '@/components/marketplace/ListingImage'
-import { MarketplaceDecisionStory } from '@/components/marketplace/MarketplaceDecisionStory'
 import {
   MarketplaceListingCard,
   type MarketplaceListingCardModel,
@@ -977,7 +976,7 @@ export default function Marketplace() {
             </div>
           ) : (
             <div className="grid gap-x-7 gap-y-12 md:grid-cols-2" data-testid="marketplace-results-grid">
-              {visibleListings.map((listing, index) => {
+              {visibleListings.map(listing => {
                 const vin = listing.vin
                 const vehicleName = [listing.year, listing.make, listing.model].filter(value => value !== null && value !== undefined && value !== '').join(' ')
                 const labels = listingLabels(listing)
@@ -1005,30 +1004,20 @@ export default function Marketplace() {
                 }
 
                 return (
-                  <Fragment key={vin}>
-                    <MarketplaceListingCard
-                      vehicle={model}
-                      href={href}
-                      isFavorite={favorites.includes(vin)}
-                      isCompared={compareVins.includes(vin)}
-                      onFavorite={event => toggleFavorite(event, vin, model.name)}
-                      onCompare={event => toggleCompare(event, vin)}
-                      onShare={event => {
-                        event.preventDefault()
-                        event.stopPropagation()
-                        shareListing(vin, model.name)
-                      }}
-                    />
-                    {index === 1 && spotlightListing && (
-                      <div className="md:col-span-2">
-                        <MarketplaceDecisionStory
-                          image={primaryImageForListing(spotlightListing)}
-                          alt={[spotlightListing.year, spotlightListing.make, spotlightListing.model].filter(Boolean).join(' ') || 'Marketplace vehicle'}
-                          href={`/marketplace/${encodeURIComponent(spotlightListing.vin)}`}
-                        />
-                      </div>
-                    )}
-                  </Fragment>
+                  <MarketplaceListingCard
+                    key={vin}
+                    vehicle={model}
+                    href={href}
+                    isFavorite={favorites.includes(vin)}
+                    isCompared={compareVins.includes(vin)}
+                    onFavorite={event => toggleFavorite(event, vin, model.name)}
+                    onCompare={event => toggleCompare(event, vin)}
+                    onShare={event => {
+                      event.preventDefault()
+                      event.stopPropagation()
+                      shareListing(vin, model.name)
+                    }}
+                  />
                 )
               })}
             </div>
