@@ -2,7 +2,7 @@
 
 **Date:** 2026-08-28
 **Phase:** V3 — Evidence Vault and Provenance Experience
-**Status:** IMPLEMENTED / EXACT-HEAD CI PENDING
+**Status:** PASS — EXACT-HEAD FOUNDATION CERTIFIED
 
 ## Scope
 
@@ -122,6 +122,23 @@ The dedicated CI also runs the existing canonical Vehicle Life taxonomy/provenan
 
 Seller evidence upload/reconciliation and Passport route wiring remain owned by Seller/shared integration and are not changed here.
 
+## Exact-head certification
+
+Certified code head before receipt update:
+
+- exact code head: `80c6122f41a03f73f0381d9528e97c24d7e13e50`
+- Vehicle Passport Foundation CI run: `33162225858`
+- V1 Passport foundation contract — PASS
+- V2 identity/access contract — PASS
+- V3 evidence/provenance contract — PASS
+- canonical Vehicle Life evidence taxonomy/provenance — PASS
+- canonical Passport lookup policy — PASS
+- canonical Trust decision authority — PASS
+- Passport syntax checks — PASS
+- diff hygiene — PASS
+
 ## Phase decision
 
-**V3 FOUNDATION IMPLEMENTED. EXACT-HEAD CI REQUIRED BEFORE V4.**
+**V3 FOUNDATION PASS.**
+
+No Seller/shared evidence write path was changed. V4 may proceed only as isolated verification/discrepancy projection and orchestration contracts.
