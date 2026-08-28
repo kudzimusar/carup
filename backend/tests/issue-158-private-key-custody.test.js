@@ -118,3 +118,17 @@ test('Issue #158: legacy-schema inserts omit custody metadata rather than invent
   assert.match(src, /\.\.\.\(custodyMetadataAvailable[\s\S]*key_ref: derived\.keyRef/);
   assert.match(src, /custodyMetadataPersisted: custodyMetadataAvailable/);
 });
+
+
+test('Issue #158: addEvent registers stakeholder key before ledger event timestamp/hash', () => {
+  const src = readFileSync('backend/services/blockchain/blockchainService.js', 'utf8');
+  const addStart = src.indexOf('export async function addEvent');
+  const addEnd = src.indexOf('\nfunction eventKeyForTimestamp', addStart);
+  const addEventSource = src.slice(addStart, addEnd);
+  const registerAt = addEventSource.indexOf('await getOrCreateKeypair(signerId)');
+  const timestampAt = addEventSource.indexOf('const timestamp = new Date().toISOString()');
+  const hashAt = addEventSource.indexOf('const currentHash = calculateHash');
+  assert.ok(registerAt >= 0, 'stakeholder key registration must exist');
+  assert.ok(timestampAt > registerAt, 'event timestamp must be captured after key registration/rotation');
+  assert.ok(hashAt > timestampAt, 'event hash must use the post-registration timestamp');
+});
