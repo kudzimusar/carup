@@ -4,11 +4,11 @@
  * The editorial marketing reference. Its truth model is HUMAN CURATED, and that is a deliberate
  * position rather than a limitation to apologise for.
  *
- * The repository has no saved searches, no watchlists, no price-drop tracking, no price alerts and
- * no behavioural recommendation wired to Email. So this template says none of those things. "Picked
- * for you" and "based on your searches" are the easiest sentences in marketing to write and among
- * the easiest for a customer to disprove — the first time someone receives a "personalised" list
- * that plainly is not, every other claim CarUp makes about knowing things gets re-read.
+ * CarUp may have personalization capabilities in other product domains, but none is wired into this
+ * Email reference. So this template says none of those things. "Picked for you" and "based on your
+ * searches" are the easiest sentences in marketing to write and among the easiest for a customer to
+ * disprove — the first time someone receives a "personalised" list that plainly is not, every other
+ * claim CarUp makes about knowing things gets re-read.
  *
  * A well-edited weekly selection, honestly labelled, is a better product than a fake algorithm.
  */
