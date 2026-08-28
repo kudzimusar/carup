@@ -5,6 +5,7 @@
 **Ownership:** CarUp platform contract, not Seller-specific  
 **Created:** 2026-08-28  
 **Canonical schema:** `docs/platform/CARUP_GLOBAL_VEHICLE_TAXONOMY_SCHEMA.md`  
+**Migration plan:** `docs/platform/CARUP_GLOBAL_VEHICLE_TAXONOMY_MIGRATION_PLAN.md`  
 **Repository:** `kudzimusar/carup`
 
 ---
