@@ -75,6 +75,24 @@ test('inquiry forwards captured referral attribution and source channel', async 
   expect(body!.guest_email).toBe('buyer@example.com')
 })
 
+test('mobile filter sheet occludes the compare dock instead of being covered by it', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 })
+  await mockCommon(page)
+
+  await page.goto('/marketplace')
+  await expect(page.getByTestId('marketplace-results-grid')).toBeVisible()
+
+  await page.getByTestId('marketplace-compare-toggle').first().click()
+  await expect(page.getByTestId('marketplace-compare-bar')).toBeVisible()
+
+  await page.getByTestId('marketplace-mobile-filter-button').click()
+  await expect(page.getByTestId('marketplace-mobile-filter-drawer')).toBeVisible()
+  await expect(page.getByTestId('marketplace-compare-bar')).toHaveCount(0)
+
+  await page.getByTestId('marketplace-mobile-filter-close').click()
+  await expect(page.getByTestId('marketplace-compare-bar')).toBeVisible()
+})
+
 test('compare selection navigates to a backend-governed comparison with trust badges', async ({ page }) => {
   await mockCommon(page)
   await page.route('**/api/marketplace/compare', (r: Route) => r.fulfill({ json: COMPARE }))
