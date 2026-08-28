@@ -39,9 +39,12 @@ export function assertPassportTransferState(state) {
   return state;
 }
 
-export function canTransitionPassportTransfer(from, to) {
+export function canTransitionPassportTransfer(from, to, {
+  previouslyCompleted = false,
+} = {}) {
   assertPassportTransferState(from);
   assertPassportTransferState(to);
+  if (previouslyCompleted && to === PASSPORT_TRANSFER_STATES.CANCELLED) return false;
   return ALLOWED[from].has(to);
 }
 
@@ -49,9 +52,10 @@ export function transitionPassportTransfer(from, to, {
   actorId = null,
   reason = null,
   registryAuthorityConfirmed = false,
+  previouslyCompleted = false,
   occurredAt = new Date().toISOString(),
 } = {}) {
-  if (!canTransitionPassportTransfer(from, to)) {
+  if (!canTransitionPassportTransfer(from, to, { previouslyCompleted })) {
     throw new Error(`Illegal Passport transfer transition: ${from} -> ${to}`);
   }
   if (!actorId) throw new Error('Passport transfer transition requires an authenticated actor');
