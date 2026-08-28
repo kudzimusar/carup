@@ -61,6 +61,105 @@ CREATE UNIQUE INDEX IF NOT EXISTS uq_public_keys_one_active_per_user
   ON public.public_keys(user_id)
   WHERE status='ACTIVE';
 
+-- Atomic activation/rotation. Each time a previously used key becomes active again it
+-- gets a NEW row/incarnation, preserving historical validity intervals. The table lock
+-- is intentionally narrow but global: stakeholder key rotation is rare, and correctness
+-- is more important than parallelism in this custody boundary.
+CREATE OR REPLACE FUNCTION public.blockchain_activate_public_key_atomic(
+  p_candidate_id TEXT,
+  p_user_id TEXT,
+  p_public_key_pem TEXT,
+  p_key_type TEXT,
+  p_created_at TEXT,
+  p_key_ref TEXT,
+  p_key_version TEXT,
+  p_custody_provider TEXT
+)
+RETURNS TABLE (
+  id TEXT,
+  user_id TEXT,
+  public_key_pem TEXT,
+  key_type TEXT,
+  status TEXT,
+  created_at TEXT,
+  revoked_at TEXT,
+  key_ref TEXT,
+  key_version TEXT,
+  custody_provider TEXT
+)
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path=public,pg_temp
+AS $activate$
+DECLARE
+  v_active public.public_keys%ROWTYPE;
+BEGIN
+  IF nullif(btrim(p_candidate_id),'') IS NULL
+     OR nullif(btrim(p_user_id),'') IS NULL
+     OR nullif(btrim(p_public_key_pem),'') IS NULL
+     OR nullif(btrim(p_created_at),'') IS NULL
+     OR nullif(btrim(p_key_ref),'') IS NULL
+     OR nullif(btrim(p_key_version),'') IS NULL
+     OR nullif(btrim(p_custody_provider),'') IS NULL THEN
+    RAISE EXCEPTION 'complete public-key activation metadata is required'
+      USING ERRCODE='22023';
+  END IF;
+
+  LOCK TABLE public.public_keys IN SHARE ROW EXCLUSIVE MODE;
+
+  SELECT p.* INTO v_active
+    FROM public.public_keys p
+   WHERE p.user_id=p_user_id
+     AND p.status='ACTIVE'
+   FOR UPDATE;
+
+  IF FOUND AND v_active.public_key_pem = p_public_key_pem THEN
+    UPDATE public.public_keys p
+       SET key_ref=p_key_ref,
+           key_version=p_key_version,
+           custody_provider=p_custody_provider
+     WHERE p.id=v_active.id;
+
+    RETURN QUERY
+    SELECT p.id,p.user_id,p.public_key_pem,p.key_type,p.status,p.created_at,p.revoked_at,
+           p.key_ref,p.key_version,p.custody_provider
+      FROM public.public_keys p
+     WHERE p.id=v_active.id;
+    RETURN;
+  END IF;
+
+  IF FOUND THEN
+    UPDATE public.public_keys p
+       SET status='REVOKED',
+           revoked_at=coalesce(p.revoked_at,p_created_at)
+     WHERE p.id=v_active.id;
+  END IF;
+
+  -- Always create a fresh incarnation. Reusing a historical row would erase its
+  -- revoked_at boundary and make old key-version intervals overlap.
+  INSERT INTO public.public_keys(
+    id,user_id,public_key_pem,key_type,status,created_at,revoked_at,
+    key_ref,key_version,custody_provider
+  ) VALUES(
+    p_candidate_id,p_user_id,p_public_key_pem,coalesce(nullif(p_key_type,''),'secp256k1'),
+    'ACTIVE',p_created_at,NULL,p_key_ref,p_key_version,p_custody_provider
+  );
+
+  RETURN QUERY
+  SELECT p.id,p.user_id,p.public_key_pem,p.key_type,p.status,p.created_at,p.revoked_at,
+         p.key_ref,p.key_version,p.custody_provider
+    FROM public.public_keys p
+   WHERE p.id=p_candidate_id;
+END
+$activate$;
+
+REVOKE ALL ON FUNCTION public.blockchain_activate_public_key_atomic(
+  TEXT,TEXT,TEXT,TEXT,TEXT,TEXT,TEXT,TEXT
+) FROM PUBLIC,anon,authenticated;
+GRANT EXECUTE ON FUNCTION public.blockchain_activate_public_key_atomic(
+  TEXT,TEXT,TEXT,TEXT,TEXT,TEXT,TEXT,TEXT
+) TO service_role;
+
 -- Destructive only to prohibited secret material; public verification material remains.
 UPDATE public.public_keys
    SET private_key_pem = NULL
