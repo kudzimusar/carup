@@ -7,6 +7,7 @@ import { Progress } from '@/components/ui/progress'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Link } from 'react-router-dom'
 import { useCarUpApi } from '@/hooks/useCarUpApi'
+import { FactReconciliationPanel } from '@/components/sell/FactReconciliationPanel'
 import type { VehicleCompleteness, EvidenceRequirement, EvidenceRequirementStatus } from '@/types'
 
 const STATUS_CONFIG: Record<EvidenceRequirementStatus, { label: string; icon: React.ReactNode; className: string }> = {
@@ -143,6 +144,12 @@ export function VehicleCompletenessPanel({ vin, initialData, className = '' }: P
           </div>
           <Progress value={data.completeness_percent} className="h-2" />
         </div>
+
+        {/* S5 — A DISAGREEMENT IS EXPLAINED, NOT JUST COUNTED.
+            `fact_reconciliation` appears in the requirement list beside every other gate, but a row
+            saying "Resolve document disagreement: year" cannot show the seller WHAT disagrees. This
+            renders the two readings side by side, and returns null when there is nothing to report. */}
+        <FactReconciliationPanel reconciliation={data.reconciliation} />
 
         {/* Blocking gaps callout */}
         {data.blocking_gaps.length > 0 && (

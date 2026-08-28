@@ -382,6 +382,7 @@ test('P1-A — PostgreSQL-only refresh forwards client to default getTrustDecisi
         currency_source text DEFAULT 'seller',
         make text DEFAULT 'Honda', model text DEFAULT 'Accord', year integer DEFAULT 2023,
         chassis_number text DEFAULT 'CH123', engine_number text DEFAULT 'ENG123', plate_number text DEFAULT 'ABC123',
+        normalized_plate_number text DEFAULT 'ABC123',
         temp_plate_id text DEFAULT NULL, tenant_id uuid DEFAULT NULL, publication_status text DEFAULT 'draft',
         trust_score numeric(5,2) DEFAULT NULL,
         trust_calculation_version text DEFAULT NULL,
@@ -393,6 +394,14 @@ test('P1-A — PostgreSQL-only refresh forwards client to default getTrustDecisi
       );
 
       CREATE TABLE vehicle_evidence (id text PRIMARY KEY, vin text, evidence_type text, verification_status text);
+      -- Seller Journey S5: the publication evaluator reconciles seller-stated facts against document
+      -- readings, and fails closed when it cannot read them. This fixture models the real schema, so
+      -- the table it reads has to exist here too — omitting it made the evaluator correctly refuse.
+      CREATE TABLE vehicle_document_extractions (
+        id text PRIMARY KEY, vin text, evidence_id text, document_type text,
+        field_name text, raw_value text, normalized_value text, expected_value text,
+        compared_vehicle_field text, match_status text, review_status text, created_at timestamptz
+      );
       CREATE TABLE eligibility_requests (id text PRIMARY KEY, vin text, capability text, status text, conditions jsonb, mode text, validity_until timestamptz, created_at timestamptz);
       CREATE TABLE fraud_cases (id text PRIMARY KEY, vin text, status text, highest_severity text, blocks_publication boolean);
       CREATE TABLE insurance_provider_decisions (id text PRIMARY KEY, vin text, decision text, verified_at timestamptz);

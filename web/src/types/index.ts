@@ -1610,6 +1610,38 @@ export interface EvidenceRequirement {
   is_blocking: boolean;
 }
 
+/**
+ * Seller Journey S5 — one fact, as the seller stated it and as their documents read.
+ *
+ * `seller_stated` and `evidence_indicated` are deliberately separate and both nullable: CarUp
+ * reports the disagreement, it does not resolve it, and there is no `resolved_value` because no
+ * value here is authoritative.
+ */
+export interface SellerFactReconciliationEntry {
+  field: string;
+  state: 'agrees' | 'contradicted' | 'not_comparable' | 'no_evidence';
+  seller_stated: string | null;
+  evidence_indicated: string | null;
+  document_type: string | null;
+  /** True only when a human reviewer stood behind the document reading — never because it exists. */
+  evidence_verified: boolean;
+  review_status: string | null;
+  resolved: boolean;
+  material: boolean;
+  extraction_id: string | null;
+  superseded_count: number;
+}
+
+export interface SellerFactReconciliation {
+  vin: string | null;
+  fields: SellerFactReconciliationEntry[];
+  contradiction_count: number;
+  unresolved_material_count: number;
+  agreement_count: number;
+  has_unresolved_material_contradiction: boolean;
+  unresolved_material_fields: string[];
+}
+
 export interface VehicleCompleteness {
   vin: string;
   requirements: EvidenceRequirement[];
@@ -1618,6 +1650,8 @@ export interface VehicleCompleteness {
   blocking_gaps: string[];
   pending_gaps: string[];
   publication_status: string;
+  /** S5: why a contradiction gate refused, without a second round trip. */
+  reconciliation?: SellerFactReconciliation;
 }
 
 // ── WS2 — Source Verification Network (buyer-safe coverage) ──────────────────

@@ -19,6 +19,8 @@
  * AI confidence is NEVER consulted here: this evaluator is purely deterministic
  * and based on human-verified state.
  */
+import { reconcileSellerFacts } from './sellerFactReconciliation.js';
+
 async function getDefaultClient() {
   const { supabase } = await import('../../db/supabase.js');
   return supabase;
@@ -59,7 +61,10 @@ export async function evaluateCompleteness(vin, opts = {}) {
   const client = opts.client ?? (await getDefaultClient());
   const { data: vehicle, error: vErr } = await client
     .from('vehicles')
-    .select('vin, chassis_number, engine_number, plate_number, temp_plate_id, trust_score, publication_status')
+    // S5 widens this to the seller-stated identity values, because reconciliation compares what the
+    // SELLER said against what the documents read. Without them the evaluator could count
+    // contradictions but not say which fact disagreed.
+    .select('vin, chassis_number, engine_number, plate_number, temp_plate_id, trust_score, publication_status, make, model, year, normalized_plate_number')
     .eq('vin', vin)
     .single();
 
@@ -126,6 +131,43 @@ export async function evaluateCompleteness(vin, opts = {}) {
     status: ownershipVerified ? 'verified' : ownershipPending ? 'pending_review' : 'missing',
   });
 
+  // ── Evidence reconciliation (blocking) — Seller Journey S5 ───────────────
+  //
+  // A known material contradiction must not silently reach publication. The disagreement is
+  // already detected and stored by `extractionService`; what was missing was any gate that read it,
+  // so a listing whose registration document said 2019 while the seller said 2020 published exactly
+  // like a clean one.
+  //
+  // This is an extra requirement INSIDE this evaluator rather than a second blocker: the publish
+  // route already gates on `is_publishable` and already discloses the gaps, so a parallel gate
+  // would give CarUp two answers to "may this publish?".
+  const { data: extractionRows, error: xErr } = await client
+    .from('vehicle_document_extractions')
+    .select('id, evidence_id, document_type, field_name, raw_value, normalized_value, expected_value, compared_vehicle_field, match_status, review_status, created_at')
+    .eq('vin', vin)
+    .order('created_at', { ascending: false });
+  // Fails closed. A gate that cannot read its own input must refuse rather than assume the listing
+  // is clean — assuming would publish the exact contradiction this requirement exists to catch.
+  if (xErr) throw new Error(`Extraction reconciliation query error: ${xErr.message}`);
+
+  const reconciliation = reconcileSellerFacts({ vehicle, extractions: extractionRows || [] });
+  const unresolvedFields = reconciliation.unresolved_material_fields;
+
+  requirements.push({
+    key: 'fact_reconciliation',
+    // The label NAMES the facts in disagreement. A refusal that names nothing is the defect the
+    // publish route already had to fix once for pending ownership documents.
+    label: unresolvedFields.length > 0
+      ? `Resolve document disagreement: ${unresolvedFields.join(', ')}`
+      : 'Document readings agree with your details',
+    category: 'documents',
+    blocking: true,
+    // 'pending_review' rather than 'missing': the seller HAS supplied the document, and a human
+    // decision is what clears it. Saying "missing" would tell them to upload something again.
+    status: reconciliation.has_unresolved_material_contradiction ? 'pending_review' : 'present',
+    fields: unresolvedFields,
+  });
+
   // ── Advisory documents (non-blocking) ────────────────────────────────────
 
   for (const type of ADVISORY_DOC_TYPES) {
@@ -156,5 +198,8 @@ export async function evaluateCompleteness(vin, opts = {}) {
     blocking_gaps: missingBlocking.map((r) => ({ key: r.key, label: r.label })),
     pending_gaps:  pendingBlocking.map((r) => ({ key: r.key, label: r.label })),
     publication_status: vehicle.publication_status ?? 'draft',
+    // The seller-facing reconciliation read model travels with the verdict, so a caller does not
+    // have to make a second round trip to learn WHY the gate refused.
+    reconciliation,
   };
 }
