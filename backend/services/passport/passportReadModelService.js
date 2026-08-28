@@ -91,7 +91,7 @@ export function assemblePassportReadModel(input, {
     limitations: Array.isArray(input.limitations) ? [...input.limitations] : [],
   };
 
-  if (audience === PASSPORT_AUDIENCES.PUBLIC) {
+  if (audience === PASSPORT_AUDIENCES.PUBLIC || audience === PASSPORT_AUDIENCES.BUYER) {
     assertPublicSafeObject(model);
   }
 
