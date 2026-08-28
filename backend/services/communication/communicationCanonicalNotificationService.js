@@ -1,4 +1,5 @@
-import { CommunicationNotificationService } from './communicationNotificationService.js';
+import { CLASSIFICATION_SOURCES } from './emailExperience/emailClassification.js';
+import { CommunicationNotificationService, classificationMetadata, referencePayloadFor, withClassification } from './communicationNotificationService.js';
 import { buildDedupeKey, normalizeChannel, nowIso } from './communicationUtils.js';
 import { logCommunicationAuditEvent } from './communicationAuditLog.js';
 
@@ -63,6 +64,11 @@ export class CommunicationCanonicalNotificationService extends CommunicationNoti
       variables: this.variablesForEvent(eventType, payload),
       priority: policy.priority,
       transactional: policy.transactional,
+      // G2 — the canonical classification travels with the notification. This subclass
+      // reimplements queueNotification rather than delegating, so it has to carry it itself; a base
+      // class that looks correct is not the code that runs.
+      classification: policy.classification || null,
+      classificationSource: CLASSIFICATION_SOURCES.POLICY,
       fallbackChannels,
       quietHoursBypass: policy.quietHoursBypass,
       dedupeParts: [
@@ -75,6 +81,10 @@ export class CommunicationCanonicalNotificationService extends CommunicationNoti
       payload: {
         event_type: eventType,
         safe_payload: payload,
+        // The LIVE subclass reimplements this method rather than delegating, so the reference
+        // payload has to be carried here too. A base class that looks correct is not the code that
+        // runs — that has bitten this programme in G2, G3 and G5.
+        ...referencePayloadFor(eventType, payload),
         communication_routing: {
           primary_channel: primaryChannel,
           fallback_channels: fallbackChannels,
@@ -98,6 +108,12 @@ export class CommunicationCanonicalNotificationService extends CommunicationNoti
       primary_user_id: input.recipientUserId,
       primary_channel: channel,
     })).thread;
+    // A governed template declares its own classification in `communication_templates`. When a
+    // producer supplied none, that declaration IS the canonical answer — it is a registered,
+    // approval-gated value, not an inference.
+    if (!input.classification && rendered.classification) {
+      input = { ...input, classification: rendered.classification, classificationSource: CLASSIFICATION_SOURCES.GOVERNED_TEMPLATE };
+    }
     const dedupeKey = buildDedupeKey(input.dedupeParts || [thread.id, input.notificationType, input.recipientUserId, channel, input.templateKey]);
     const existingNotification = await this.repository.findOne('notification_queue', { dedupe_key: dedupeKey });
     if (existingNotification) {
@@ -152,7 +168,7 @@ export class CommunicationCanonicalNotificationService extends CommunicationNoti
       channel,
       provider: input.provider || null,
       template_key: input.templateKey || rendered.templateKey,
-      payload: input.payload || {},
+      payload: withClassification(input.payload, input.classification),
       priority: input.priority || 'normal',
       status: 'queued',
       dedupe_key: dedupeKey,
@@ -163,7 +179,7 @@ export class CommunicationCanonicalNotificationService extends CommunicationNoti
       read: false,
       created_at: nowIso(),
       updated_at: nowIso(),
-      metadata: {
+      metadata: classificationMetadata({
         transactional: input.transactional !== false,
         governed_template: Boolean(rendered.governed),
         template_id: rendered.templateId || null,
@@ -175,7 +191,7 @@ export class CommunicationCanonicalNotificationService extends CommunicationNoti
         routing_mode: fallbackChannels.length
           ? 'single_primary_with_ordered_fallback'
           : 'single_route',
-      },
+      }, input.payload, input.classification, input.classificationSource),
     };
     if (input.id) notificationRow.id = input.id;
     try {
@@ -194,27 +210,46 @@ export class CommunicationCanonicalNotificationService extends CommunicationNoti
     }
   }
 
+  /**
+   * C2-RACE — the queued row must never be claimable in an incomplete state.
+   *
+   * THE DEFECT this closes. This method used to INSERT the row via `super`, then patch the routing
+   * metadata in a SECOND statement. `CommunicationRepository` is a thin PostgREST wrapper with no
+   * transaction support, so the insert commits before the patch is even sent, and the row is
+   * eligible the instant it commits: `claim_due_communication_notifications` selects
+   * `status IN ('queued','retry_scheduled') AND COALESCE(next_attempt_at, scheduled_at, ...) <= now()`,
+   * and the inserted row has status 'queued', next_attempt_at NULL, scheduled_at now().
+   *
+   * The delivery worker runs in a DIFFERENT process — pg_cron hits
+   * POST /api/internal/communications/process every minute — so no event-loop ordering protects the
+   * window. A claim landing inside it finds `recipient_participant_id` absent and dead-letters the
+   * message `conversation_reply_context_missing`, which is DURABLE by design and never retried. The
+   * customer's conversation Email is then lost permanently. It was reproduced, not theorised.
+   *
+   * THE FIX is to remove the window rather than to time around it: compose the complete metadata
+   * BEFORE the row exists and let the single INSERT carry it. A claim can then only ever see a
+   * complete row, whatever the worker's schedule, whatever the network latency. No barrier, no
+   * deferred due-time, no reliance on cron cadence — there is simply no incomplete state to observe.
+   */
   async queueExistingMessage(input = {}) {
-    const result = await super.queueExistingMessage(input);
     const fallbackChannels = uniqueChannels(input.fallbackChannels);
     const extraMetadata = input.metadata && typeof input.metadata === 'object' ? input.metadata : {};
-    if (!fallbackChannels.length && !Object.keys(extraMetadata).length) return result;
+    if (!fallbackChannels.length && !Object.keys(extraMetadata).length) {
+      return super.queueExistingMessage(input);
+    }
 
-    const existingMetadata = result.notification?.metadata || {};
-    const channel = normalizeChannel(result.notification?.channel || input.channel);
-    const updated = await this.repository.updateById('notification_queue', result.notification.id, {
-      metadata: {
-        ...existingMetadata,
-        ...extraMetadata,
-        fallback_channels: fallbackChannels,
-        attempted_channels: uniqueChannels([...(existingMetadata.attempted_channels || []), channel]),
-        routing_mode: fallbackChannels.length
-          ? 'single_primary_with_ordered_fallback'
-          : existingMetadata.routing_mode || 'single_route',
-      },
-      updated_at: nowIso(),
-    });
-    return { ...result, notification: updated || result.notification };
+    const channel = normalizeChannel(input.channel);
+    // Everything the worker needs to route and to bind a G5 Reply-To, assembled up front. The base
+    // class merges `input.metadata` into the row it inserts, so this arrives atomically with it.
+    const composedMetadata = {
+      ...extraMetadata,
+      fallback_channels: fallbackChannels,
+      attempted_channels: uniqueChannels([channel]),
+      routing_mode: fallbackChannels.length
+        ? 'single_primary_with_ordered_fallback'
+        : 'single_route',
+    };
+    return super.queueExistingMessage({ ...input, metadata: composedMetadata });
   }
 
   async resolveFallbackRoute(notification, channel, thread) {

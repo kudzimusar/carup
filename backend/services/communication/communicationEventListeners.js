@@ -19,6 +19,27 @@ export const COMMUNICATION_EVENT_TYPES = [
   'finance.application.declined',
   'identity.verification.decided',
   'evidence.review.decided',
+  // R4 — the marketplace transaction stages. Emitted by `issue164_transition_session_atomic` into
+  // `domain_events` since Issue #164 Phase 6, and never subscribed until now: the transitions
+  // happened and the customer was never told. These are the CURRENT canonical authority's events,
+  // not the retired SafePay ones above.
+  'MARKETPLACE_PAYMENT_INITIATED',
+  'MARKETPLACE_INSPECTION_PENDING',
+  'MARKETPLACE_RELEASE_APPROVED',
+  'MARKETPLACE_TRANSACTION_DISPUTED',
+  'MARKETPLACE_TRANSACTION_CANCELLED',
+  // The provider-confirmed outcomes, from `issue164_record_payment_state_atomic`.
+  'MARKETPLACE_FUNDS_HELD',
+  'MARKETPLACE_TRANSACTION_SETTLED',
+  'MARKETPLACE_TRANSACTION_REFUNDED',
+  'MARKETPLACE_TRANSACTION_FAILED',
+  'MARKETPLACE_PAYMENT_FAILED',
+  // R5 — the canonical Trust presentation change.
+  'vehicle.trust.presentation_changed',
+  // R1 — the durable post-verification work item. The Leadership Welcome used to be produced
+  // inline in the verification route and its failure swallowed, which permanently lost the welcome
+  // for that account because the verification token is single-use and already consumed.
+  'user.email.verified',
 ];
 
 let registered = false;

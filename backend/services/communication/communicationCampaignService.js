@@ -44,6 +44,34 @@ function deterministicVariant(campaignId, userId, variants = []) {
   return expanded[digest.readUInt32BE(0) % expanded.length] || active[0];
 }
 
+/**
+ * C5 — the delivery id, derived from the identity that is already deterministic.
+ *
+ * THE DEFECT this closes. `idempotencyKey` is deterministic (`campaign:<id>:<user>:<variant>`) and
+ * `queueNotification` dedupes deterministically, but the delivery id was `randomUUID()`. So when a
+ * run failed AFTER the notification was queued and BEFORE the delivery row was inserted, the retry
+ * found no delivery row, minted a NEW id, and received the already-deduplicated notification whose
+ * payload still carried the OLD one. Brevo was then told `campaign_delivery_id=<old>` while the
+ * deliveries table recorded `<new>`, and provider-side reconciliation could never join the two.
+ *
+ * `communication_campaign_deliveries.id` is `uuid NOT NULL`, so the value has to be a real UUID
+ * rather than a hash string. This is a UUIDv5-shaped derivation: a namespaced digest with the
+ * version and RFC 4122 variant bits set. SHA-256 truncated to 16 bytes is used rather than v5's
+ * SHA-1 — same shape and same determinism, stronger primitive, and nothing here depends on
+ * interoperating with another implementation's v5 output.
+ *
+ * The same logical delivery therefore yields the same id on every attempt, and a different campaign,
+ * recipient, variant or channel yields a different one.
+ */
+export function deterministicCampaignDeliveryId(idempotencyKey) {
+  const digest = createHash('sha256').update(`communication_campaign_delivery:${idempotencyKey}`).digest();
+  const bytes = Buffer.from(digest.subarray(0, 16));
+  bytes[6] = (bytes[6] & 0x0f) | 0x50;
+  bytes[8] = (bytes[8] & 0x3f) | 0x80;
+  const hex = bytes.toString('hex');
+  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
+}
+
 function addCount(target, key, amount = 1) {
   const label = String(key || 'unknown');
   target[label] = Number(target[label] || 0) + amount;
@@ -197,8 +225,17 @@ export class CommunicationCampaignService {
       return { allowed: true, recipientUserId: user.id, recipientIdentityId: null, provider: null, payload: {} };
     }
 
-    const identities = await this.repository.list('channel_identities', { user_id: user.id, channel: campaign.channel }, { limit: 20 }).catch(() => []);
-    const identity = identities
+    // G3. This used to be `.catch(() => [])`, which is a fail-open with an ACTIVE FALLBACK — worse
+    // than a bare one. A `channel_identities` fault did not merely skip the opted_out/revoked and
+    // verified filters below; it then substituted `user.email` and mailed marketing to an address
+    // whose channel identity may say opted_out. Failing to read consent is not consent.
+    let identities;
+    try {
+      identities = await this.repository.list('channel_identities', { user_id: user.id, channel: campaign.channel }, { limit: 20 });
+    } catch (_error) {
+      return { allowed: false, reason: 'channel_consent_state_unavailable', prefs };
+    }
+    const identity = (identities || [])
       .filter((row) => !['opted_out', 'revoked'].includes(row.consent_status))
       .filter((row) => row.verified !== false)
       .sort((a, b) => (Date.parse(b.last_seen_at || b.updated_at || 0) || 0) - (Date.parse(a.last_seen_at || a.updated_at || 0) || 0))[0] || null;
@@ -310,6 +347,13 @@ export class CommunicationCampaignService {
             campaignId: campaign.id,
           });
         }
+        // Mint the delivery id BEFORE queueing, not when the row is written below.
+        // The marketing adapter refuses `campaign_context_missing` without it, and provider-side
+        // reconciliation looks deliveries up by it — so the id on the wire and the id in the
+        // deliveries table have to be the same value, which means it has to exist first.
+        // C5 — DERIVED, not random, so a retry after a partial failure reuses the same id and the
+        // value on the wire always matches the value reconciliation will look for.
+        const deliveryId = deterministicCampaignDeliveryId(idempotencyKey);
         const queued = await this.notificationService.queueNotification({
           recipientUserId: route.recipientUserId,
           recipientIdentityId: route.recipientIdentityId,
@@ -321,12 +365,20 @@ export class CommunicationCampaignService {
           variables: variablesFor(campaign, user, variant),
           language: campaign.language || 'en',
           transactional: false,
+          classification: campaign.classification || 'marketing',
           fallbackChannels: [],
           priority: 'low',
           dedupeParts: ['campaign', campaign.id, user.id, variant?.key || 'control', campaign.channel],
           payload: {
             ...route.payload,
+            // The governed classification, carried onto the payload the transport layer actually
+            // reads. It lived only on the campaign row, so every marketing safeguard keyed on
+            // `payload.classification` — provider routing, send-time consent, the unsubscribe
+            // requirement, the fail-closed marketing adapter — was unreachable from a real
+            // campaign. Implemented is not the same as wired.
+            classification: campaign.classification || 'marketing',
             campaign_id: campaign.id,
+            campaign_delivery_id: deliveryId,
             campaign_code: campaign.campaign_code,
             variant: variant?.key || 'control',
             attribution: campaign.attribution || {},
@@ -335,7 +387,7 @@ export class CommunicationCampaignService {
           },
         });
         await this.repository.insert('communication_campaign_deliveries', {
-          id: randomUUID(), campaign_id: campaign.id, tenant_id: campaign.tenant_id || null, user_id: user.id,
+          id: deliveryId, campaign_id: campaign.id, tenant_id: campaign.tenant_id || null, user_id: user.id,
           participant_id: participant?.id || null, thread_id: thread.id, message_id: queued.message?.id || null,
           notification_id: queued.notification?.id == null ? null : String(queued.notification.id),
           channel: campaign.channel, variant_key: variant?.key || 'control', idempotency_key: idempotencyKey,

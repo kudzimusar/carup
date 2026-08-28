@@ -111,6 +111,30 @@ const NO_ACTION_EXPECTED = 'If you did not request this, you can safely ignore t
 const SECURITY_ALERT = 'If you did not make this change, secure your account immediately and contact CarUp support.';
 
 /**
+ * The certified auth copy, as ONE source.
+ *
+ * G6 renders R2 through the canonical Email renderer. Both producers read these strings, so the
+ * canonical artefact and the physically certified one cannot drift into saying different things —
+ * which is the failure mode a "migration" usually has: two templates that agree on the day they are
+ * written and slowly stop agreeing afterwards.
+ *
+ * Byte-equality between the two renderers is impossible and is not the goal: the B1 identity freeze
+ * supersedes the sign-off line below, and the canonical footer links real routes that did not exist
+ * when this template was certified. EQUIVALENCE is the goal, and `authEquivalence.js` defines it.
+ */
+export const AUTH_EMAIL_COPY = Object.freeze({
+  reset_password: Object.freeze({
+    subject: 'Reset your CarUp password',
+    preheader: 'Reset the password for your CarUp account.',
+    heading: 'Reset your password',
+    intro: 'A password reset was requested for your CarUp account. Choose a new password using the button below.',
+    actionLabel: 'Reset password',
+    securityNote: `This reset link can be used once and expires within the hour. Your current password stays active until you choose a new one. ${NO_ACTION_EXPECTED}`,
+    reasonReceived: 'You are receiving this because a password reset was requested for this email address.',
+  }),
+});
+
+/**
  * Authentication templates.
  *
  * `build(env, vars)` receives `vars.action_url` (already built by the caller from a real
@@ -121,16 +145,16 @@ export const AUTH_EMAIL_TEMPLATES = Object.freeze({
     templateKey: 'auth_password_reset_v1',
     category: 'authentication',
     classification: 'security',
-    subject: 'Reset your CarUp password',
+    subject: AUTH_EMAIL_COPY.reset_password.subject,
     requiresActionUrl: true,
     build: (env, vars = {}) => layout({
-      preheader: 'Reset the password for your CarUp account.',
-      heading: 'Reset your password',
-      intro: 'A password reset was requested for your CarUp account. Choose a new password using the button below.',
-      actionLabel: 'Reset password',
+      preheader: AUTH_EMAIL_COPY.reset_password.preheader,
+      heading: AUTH_EMAIL_COPY.reset_password.heading,
+      intro: AUTH_EMAIL_COPY.reset_password.intro,
+      actionLabel: AUTH_EMAIL_COPY.reset_password.actionLabel,
       actionUrl: vars.action_url || buildAuthActionUrl({ route: AUTH_ROUTES.RESET_PASSWORD, env }),
-      securityNote: `This reset link can be used once and expires within the hour. Your current password stays active until you choose a new one. ${NO_ACTION_EXPECTED}`,
-      footerNote: 'You are receiving this because a password reset was requested for this email address.',
+      securityNote: AUTH_EMAIL_COPY.reset_password.securityNote,
+      footerNote: AUTH_EMAIL_COPY.reset_password.reasonReceived,
     }),
   },
 

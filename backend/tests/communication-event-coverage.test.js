@@ -2,10 +2,17 @@
  * Communication event coverage gate (seam-E E3 regression guard).
  *
  * Every event type the communication engine subscribes to MUST have a real
- * emitter — a quoted literal inside an emit/publish-style call under
- * backend/services or backend/routes. Subscribing to events nothing emits is
- * dead code that silently drops product notifications; this gate makes such
- * drift a CI failure instead of a production surprise.
+ * emitter. Subscribing to events nothing emits is dead code that silently drops
+ * product notifications; this gate makes such drift a CI failure instead of a
+ * production surprise.
+ *
+ * An emitter is a quoted literal inside an emit/publish-style call under
+ * backend/services or backend/routes, OR an INSERT INTO domain_events inside a
+ * SQL migration. The second form is not a loophole: Issue #164 Phase 6 moved the
+ * marketplace transaction emitters into `issue164_transition_session_atomic` so
+ * the state transition and its event commit in ONE transaction, which is a
+ * stronger emitter than a JS call that can succeed after the transition fails.
+ * Requiring JS would have meant rejecting the better implementation.
  *
  * Also covers the serverless outbox drain (seam-E E1): the worker-secret
  * guarded /api/internal/events/process route pair plus its Vercel cron, and
@@ -44,6 +51,25 @@ function collectJsFiles(dir, out = []) {
 const scannedFiles = SCAN_ROOTS.flatMap((root) => collectJsFiles(root))
   .map((file) => ({ file, source: fs.readFileSync(file, 'utf8') }));
 
+/** Migrations that write `domain_events` directly. */
+const MIGRATIONS_DIR = path.join(path.dirname(backendDir), 'database', 'migrations');
+const migrationSources = fs.existsSync(MIGRATIONS_DIR)
+  ? fs.readdirSync(MIGRATIONS_DIR).filter((f) => f.endsWith('.sql'))
+    .map((f) => fs.readFileSync(path.join(MIGRATIONS_DIR, f), 'utf8'))
+  : [];
+
+/**
+ * True when a SQL migration inserts this event type into `domain_events`.
+ *
+ * Deliberately requires BOTH the domain_events insert and the literal in the same file, so a
+ * migration that merely mentions the string does not count as emitting it.
+ */
+function emittedBySql(eventType) {
+  const escaped = eventType.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const literal = new RegExp(`['"]${escaped}['"]`);
+  return migrationSources.some((source) => /INSERT\s+INTO\s+(public\.)?domain_events/i.test(source) && literal.test(source));
+}
+
 /**
  * True when the event type appears as a quoted literal argument of an
  * emit/publish/persist *Event call, e.g.:
@@ -59,18 +85,19 @@ function emitterRegexFor(eventType) {
   );
 }
 
-test('every subscribed communication event type has a real emitter under backend/services or backend/routes', () => {
+test('every subscribed communication event type has a real emitter (JS or SQL)', () => {
   assert.ok(COMMUNICATION_EVENT_TYPES.length > 0, 'COMMUNICATION_EVENT_TYPES must not be empty');
   const missing = [];
   for (const eventType of COMMUNICATION_EVENT_TYPES) {
     const regex = emitterRegexFor(eventType);
-    const emitted = scannedFiles.some(({ source }) => regex.test(source));
+    const emitted = scannedFiles.some(({ source }) => regex.test(source)) || emittedBySql(eventType);
     if (!emitted) missing.push(eventType);
   }
   assert.deepEqual(
     missing,
     [],
-    `Subscribed event type(s) with no emitDomainEvent/publishMemoryEvent literal emitter: ${missing.join(', ')}. ` +
+    `Subscribed event type(s) with no emitter — neither an emitDomainEvent/publishMemoryEvent literal ` +
+    `nor a domain_events INSERT in a migration: ${missing.join(', ')}. ` +
     'Either add a real emitter or remove the subscription from COMMUNICATION_EVENT_TYPES.'
   );
 });
@@ -203,4 +230,113 @@ test('seam-E notification policies resolve with required fields and registered t
     assert.ok(templates.includes(expected.templateKey), `template ${expected.templateKey} must be registered`);
     assert.ok(COMMUNICATION_EVENT_TYPES.includes(eventType), `${eventType} must be subscribed`);
   }
+});
+
+/**
+ * C1 — "an emitter literal exists" is not enough, and this gate proved it the expensive way.
+ *
+ * All ten SafeTrade events passed the test above from the day they were subscribed. Every one had a
+ * real SQL emitter, and every one was silently dropped in production, because the check answered
+ * "is this event EMITTED?" when the question that matters is "does emitting it actually reach a
+ * customer?". A subscription whose events can never be addressed is dead code with a green test.
+ *
+ * So the gate now also asks, for the governed families where it is decidable statically:
+ *
+ *   emittable  -> a real emitter exists                      (the test above)
+ *   addressable -> a recipient can be resolved for it        (payload carries one, or an adapter
+ *                                                             resolves one from canonical authority)
+ *   canonicalizable -> a policy exists that names a template and classification
+ *
+ * It deliberately does not attempt to prove renderability here — that needs real payloads and lives
+ * in the per-reference suites. This is the blind spot C1 exposed, not a general framework.
+ */
+
+/**
+ * Every payload key of every `INSERT INTO domain_events ... jsonb_build_object(...)` in one SQL
+ * source, matched by BALANCED PARENTHESES so nested calls like `btrim(p_provider)` do not truncate
+ * the scan.
+ */
+function domainEventPayloadKeys(source) {
+  const keys = [];
+  const re = /INSERT\s+INTO\s+(?:public\.)?domain_events/gi;
+  let match = re.exec(source);
+  while (match) {
+    const after = source.slice(match.index);
+    const jb = after.indexOf('jsonb_build_object(');
+    if (jb !== -1 && jb < 2000) {
+      const open = jb + 'jsonb_build_object('.length;
+      let depth = 1;
+      let i = open;
+      for (; i < after.length && depth > 0; i += 1) {
+        if (after[i] === '(') depth += 1;
+        else if (after[i] === ')') depth -= 1;
+      }
+      const body = after.slice(open, i - 1);
+      let level = 0;
+      let expectKey = true;
+      for (const token of body.match(/'[^']*'|[(),]|[^,()]+/g) || []) {
+        if (token === '(') { level += 1; continue; }
+        if (token === ')') { level -= 1; continue; }
+        if (token === ',') { if (level === 0) expectKey = !expectKey; continue; }
+        if (level === 0 && expectKey && /^'[A-Za-z_]+'$/.test(token.trim())) keys.push(token.trim().slice(1, -1));
+      }
+    }
+    match = re.exec(source);
+  }
+  return keys;
+}
+
+test('C1 GATE: every subscribed event is ADDRESSABLE, not merely emittable', async () => {
+  const { NOTIFICATION_POLICIES } = await import('../services/communication/communicationNotificationService.js');
+  const { SAFETRADE_ADAPTED_EVENT_TYPES } = await import('../services/communication/adapters/safeTradeDomainEventAdapter.js');
+
+  // The recipient keys queueFromDomainEvent will accept straight off a payload.
+  const RECIPIENT_KEYS = /recipientUserId|recipient_user_id|userId|user_id|buyerId|buyer_id|sellerId|seller_id/;
+
+  const unaddressable = [];
+  for (const eventType of COMMUNICATION_EVENT_TYPES) {
+    // An adapter that resolves participants from canonical authority makes the event addressable
+    // even though its emitter carries no principal. That is exactly the SafeTrade case.
+    if (SAFETRADE_ADAPTED_EVENT_TYPES.has(eventType)) continue;
+
+    // Otherwise SOME emitter of this event must put a recipient on the payload. For SQL emitters we
+    // check the emitting migration; for JS emitters, the emitting file.
+    const escaped = eventType.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const literal = new RegExp(`['"\x60]${escaped}['"\x60]`);
+    // The PAYLOAD keys, not "the file mentions buyer_id somewhere". The SafeTrade session migration
+    // contains `p_actor_id=v_tx.buyer_id` in its permission guard, so a file-level scan calls it
+    // addressable when the emitted payload carries no principal at all — the very illusion this
+    // gate exists to destroy.
+    const sqlCarriesRecipient = migrationSources.some((source) => literal.test(source)
+      && domainEventPayloadKeys(source).some((key) => RECIPIENT_KEYS.test(key)));
+    const jsCarriesRecipient = scannedFiles.some(({ source }) => emitterRegexFor(eventType).test(source)
+      && RECIPIENT_KEYS.test(source));
+    // Some events are addressed by a named producer at the orchestrator, not by the policy table:
+    // marketplace inquiries become a canonical conversation, and user.email.verified is routed to
+    // the Leadership Welcome producer, which resolves the recipient from the user record.
+    const producerRouted = eventType === 'marketplace.inquiry.created' || eventType === 'user.email.verified';
+    if (!sqlCarriesRecipient && !jsCarriesRecipient && !producerRouted) unaddressable.push(eventType);
+  }
+
+  assert.deepEqual(unaddressable, [],
+    `subscribed but UNADDRESSABLE — these would be emitted and silently dropped: ${unaddressable.join(', ')}`);
+
+  // ...and every subscribed type must have a policy that can actually canonicalize it.
+  // Producer-routed events never reach getPolicy() — the orchestrator branches before it — so
+  // requiring a policy entry for them would be requiring dead configuration.
+  const PRODUCER_ROUTED = new Set(['marketplace.inquiry.created', 'user.email.verified']);
+  const uncanonicalizable = COMMUNICATION_EVENT_TYPES.filter((eventType) => {
+    if (PRODUCER_ROUTED.has(eventType)) return false;
+    const policy = NOTIFICATION_POLICIES[eventType];
+    return !policy || !policy.templateKey || !policy.classification;
+  });
+  assert.deepEqual(uncanonicalizable, [],
+    `subscribed but with no governed policy/template/classification: ${uncanonicalizable.join(', ')}`);
+});
+
+test('C1 GATE: an event adapted by the SafeTrade adapter must actually BE subscribed', async () => {
+  const { SAFETRADE_ADAPTED_EVENT_TYPES } = await import('../services/communication/adapters/safeTradeDomainEventAdapter.js');
+  const subscribed = new Set(COMMUNICATION_EVENT_TYPES);
+  const orphaned = [...SAFETRADE_ADAPTED_EVENT_TYPES].filter((e) => !subscribed.has(e));
+  assert.deepEqual(orphaned, [], `adapted but not subscribed — the adapter would never run: ${orphaned.join(', ')}`);
 });

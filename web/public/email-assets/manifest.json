@@ -1,0 +1,18 @@
+{
+  "contract": "carup-email-assets",
+  "contract_version": "1.0.0",
+  "namespace": "/email-assets/",
+  "canonical_origin": "https://carup.dev",
+  "purpose": "Durable CarUp-owned URLs for assets referenced by outbound Email. Email lives in inboxes for years; a build-hashed application asset, a preview URL or a third-party placeholder host does not.",
+  "assets": {
+    "logo_artwork": null,
+    "leadership_headshot": null,
+    "leadership_signature": null
+  },
+  "wordmark_mode": "text",
+  "notes": [
+    "null means the asset does not exist and must not be referenced. No CarUp logo artwork exists anywhere in the repository or its history, and favicon.svg is a 24x24 site icon, not a logo.",
+    "The text wordmark is the approved Email v1 identity until artwork is separately approved.",
+    "This file exists so the namespace is a real, certifiable static object without inventing artwork to fill it."
+  ]
+}

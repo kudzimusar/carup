@@ -943,9 +943,52 @@ export async function refreshCanonicalTrust(vin, opts = {}) {
   }
   if (dryRun) return { record, patch, written: false, reason: 'dry_run' };
 
+  // The previous canonical position, read BEFORE the write, so the comparison below is against what
+  // the customer could actually see rather than against what we are about to publish.
+  const previousRecord = opts.previousRecord ?? await readPreviousCanonicalRecord(client, record.vin);
+
   const { error } = await client.from(VEHICLES_TABLE).update(patch).eq('vin', record.vin);
   if (error) return { record, patch, written: false, reason: `write_failed:${error.message}` };
-  return { record, patch, written: true, reason: null };
+
+  // R5 — announce a customer-visible change, immediately after the canonical write and never
+  // before it. This service remains the ONE Trust writer; the producer only reads and emits.
+  //
+  // Failure here is swallowed on purpose: a Trust refresh is a background correctness operation, and
+  // failing to announce its result must never fail the write that produced it.
+  let presentation = { emitted: false, reason: 'not_attempted' };
+  if (opts.announce !== false) {
+    try {
+      const { emitTrustPresentationChange } = await import('./trustPresentationChangeProducer.js');
+      presentation = await emitTrustPresentationChange({
+        vin: record.vin, previousRecord, nextRecord: record, client, tenantId: opts.tenantId ?? null,
+      });
+    } catch (announceError) {
+      presentation = { emitted: false, reason: `announce_failed:${announceError.message}` };
+    }
+  }
+
+  return { record, patch, written: true, reason: null, presentation };
+}
+
+/**
+ * The canonical position currently published for this VIN, from the cache columns.
+ *
+ * Returns null when nothing has been published yet — which `materialTrustChanges` treats as "every
+ * material field is new", so a vehicle's first evaluation is announced rather than silently skipped.
+ */
+async function readPreviousCanonicalRecord(client, vin) {
+  try {
+    const { data, error } = await client
+      .from(VEHICLES_TABLE)
+      .select(TRUST_CACHE_COLUMNS.join(', '))
+      .eq('vin', vin)
+      .maybeSingle();
+    if (error || !data) return null;
+    const previous = canonicalFromCache(vin, data);
+    return previous?.evaluation_state ? previous : null;
+  } catch {
+    return null;
+  }
 }
 
 export default {

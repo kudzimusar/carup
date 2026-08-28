@@ -1,3 +1,5 @@
+import { substituteVariables } from './templateVariableSubstitution.js';
+
 const TEMPLATES = Object.freeze({
   message_acknowledgement_v1: {
     transactional: true,
@@ -56,15 +58,6 @@ const TEMPLATES = Object.freeze({
   },
 });
 
-function escapeValue(value) {
-  return String(value ?? '')
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&#39;');
-}
-
 export class CommunicationTemplateService {
   getTemplate(key) {
     return TEMPLATES[key] || TEMPLATES.message_acknowledgement_v1;
@@ -72,7 +65,8 @@ export class CommunicationTemplateService {
 
   render(templateKey, variables = {}) {
     const template = this.getTemplate(templateKey);
-    const replace = (text) => String(text || '').replace(/\{\{([a-zA-Z0-9_]+)\}\}/g, (_match, key) => escapeValue(variables[key] ?? ''));
+    // Escaping is owned by the representation, not by substitution — see templateVariableSubstitution.js.
+    const replace = (text) => substituteVariables(text, variables);
     return {
       templateKey,
       transactional: template.transactional !== false,

@@ -38,6 +38,8 @@ import HelpCenter from './pages/HelpCenter'
 import TrustSafety from './pages/TrustSafety'
 import PrivacyPolicy from './pages/PrivacyPolicy'
 import TermsOfService from './pages/TermsOfService'
+import Support from './pages/Support'
+import Security from './pages/Security'
 import APIDocs from './pages/APIDocs'
 import {
   DiasporaComplianceAdmin,
@@ -259,6 +261,11 @@ export default function App() {
           <Route path="/trust" element={<TrustSafety />} />
           <Route path="/privacy" element={<PrivacyPolicy />} />
           <Route path="/terms" element={<TermsOfService />} />
+          {/* G12: Email footers link "Support" and "Security" by name. These are their own routes,
+              not aliases to /help or /trust, because a link whose label and destination disagree is
+              exactly the small dishonesty an Email footer cannot afford. */}
+          <Route path="/support" element={<Support />} />
+          <Route path="/security" element={<Security />} />
           <Route path="/api-docs" element={<APIDocs />} />
           <Route path="/diaspora" element={<DiasporaLanding />} />
           <Route path="/diaspora/imports" element={<DiasporaImportList />} />

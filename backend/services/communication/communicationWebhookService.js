@@ -470,6 +470,15 @@ export class CommunicationWebhookService {
         'binding_cannot_receive', 'binding_expired', 'unprovable_sender',
         'no_channel_identity_for_sender', 'no_active_binding_for_sender',
         'ambiguous_binding_for_sender', 'rfc_message_missing',
+        // G5-D2. These are the strings `resolveBoundParticipant` actually emits, and all three are
+        // structurally permanent: a retry cannot make a missing participant exist, cannot move a
+        // participant onto a different thread, and cannot un-leave one who has left. They were
+        // absent, so the provider was asked to retry a message that can never route — which costs
+        // the provider, delays the failure, and buries the real reason under a retry log.
+        //
+        // Deliberately NOT added: `lookup_failed:*`, which the token service emits for a genuine
+        // database or network fault. That IS transient and must keep retrying.
+        'bound_participant_missing', 'bound_participant_thread_mismatch', 'bound_participant_inactive',
       ]);
       const permanent = permanentReasons.has(resolution.reason);
       const error = new ValidationError(`Inbound Email could not be routed: ${resolution.reason}`, {

@@ -10,6 +10,8 @@ import {
 } from '../services/auth/authActionTokenService.js';
 import { AUTH_ROUTES, buildAuthActionUrl } from '../services/communication/authEmailTemplates.js';
 import { createCommunicationServices } from '../services/communication/communicationServiceFactory.js';
+import { emitDomainEvent } from '../services/eventBus/eventBusService.js';
+import { EMAIL_VERIFIED_EVENT } from '../services/communication/producers/leadershipWelcomeProducer.js';
 
 /**
  * SA1D — password recovery and email verification for CarUp's own auth.
@@ -61,6 +63,10 @@ export function authRecoveryRouter({
   tokenService = createAuthActionTokenService({ supabase: db }),
   services = null,
   env = process.env,
+  // The durable post-verification handoff. Injected like every other collaborator in this router so
+  // a test can drive the real chain — route -> outbox row -> orchestrator -> R1 producer — instead
+  // of asserting that a side effect was attempted.
+  emitEvent = emitDomainEvent,
 } = {}) {
   const router = express.Router();
   const comms = () => services || createCommunicationServices({ env });
@@ -81,6 +87,8 @@ export function authRecoveryRouter({
       language: 'en',
       priority: 'high',
       transactional: true,
+      // Account protection is `security`. There is deliberately no `auth` classification.
+      classification: 'security',
       fallbackChannels: [],
       variables,
       dedupeParts: ['auth', templateKey, user.id, variables.dedupe_nonce],
@@ -239,6 +247,38 @@ export function authRecoveryRouter({
         console.error('[auth] verify-email failed:', error.message);
         return res.status(500).json({ error: 'Could not verify this email address. Please request a new link.' });
       }
+
+      // R1 — the Leadership Welcome, as DURABLE WORK rather than a best-effort side effect.
+      //
+      // The trigger is VERIFICATION, not registration. An unverified address may not belong to the
+      // person who typed it, and a welcome is the wrong first thing to send somewhere nobody has
+      // proven they can receive mail.
+      //
+      // This used to call the producer inline and swallow its failure. The verification token is
+      // single-use and has already been consumed by this point, so the operation cannot be replayed:
+      // a transient fault anywhere in that pipeline meant the account permanently never received its
+      // welcome, with nothing recording that one was owed. That was the only production call site.
+      //
+      // Writing an outbox event instead moves the durability boundary from "the whole notification
+      // pipeline succeeded first time" to "one row was inserted". Everything after it — the user
+      // lookup, the template render, the thread resolve, the notification insert — is retried by the
+      // event worker until it succeeds or visibly dead-letters. The event carries a deterministic
+      // dedupe key per user, and the notification carries its own, so however many times this is
+      // replayed exactly one welcome exists.
+      //
+      // Still non-blocking, and deliberately so: an Email outage must never turn a successful
+      // verification into an error the customer sees, and must never change the account-verification
+      // security semantics.
+      //
+      // The event type is written as a LITERAL here on purpose. The coverage gate greps for an
+      // emitDomainEvent call with a quoted event type, and it is right to: a constant makes an
+      // emitter invisible to the very check that exists to prove emitters are real. The exported
+      // constant remains the public identity, and a test pins that the two agree.
+      await emitEvent(null, 'user.email.verified', {
+        recipientUserId: consumed.token.user_id,
+      }, null).catch((welcomeError) => {
+        console.error('[auth] post-verification welcome event could not be recorded:', welcomeError.message);
+      });
 
       return res.status(200).json({ success: true, message: 'Your email address has been verified.' });
     },
