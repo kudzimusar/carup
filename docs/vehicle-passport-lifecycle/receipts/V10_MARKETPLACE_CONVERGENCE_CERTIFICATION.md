@@ -2,7 +2,7 @@
 
 **Date:** 2026-08-28
 **Phase:** V10 — Marketplace and Buyer Due-Diligence Convergence
-**Status:** FOUNDATION IMPLEMENTED / RUNTIME WIRING BLOCKED BY ACTIVE SELLER LANE
+**Status:** FOUNDATION PASS / RUNTIME WIRING BLOCKED BY ACTIVE SELLER LANE
 
 ## Scope
 
@@ -57,6 +57,18 @@ Seller/Marketplace PR #182 is currently active and owns the shared public listin
 
 Therefore V10 cannot honestly be called end-to-end operational until a reconciled exact head wires the parity contract into the real shared surfaces and certifies staging.
 
+## Exact-head certification
+
+Certified code head:
+
+- exact code head: `5f36b78aff40a732115ed7e109db6d5704db4f4a`
+- Vehicle Passport Foundation CI run: `33165243296` — **PASS**
+- Passport V1–V10 cumulative contracts — PASS
+- canonical service/PartSentry/Trust/source/governance/evidence/lookup guards — PASS
+- syntax/diff hygiene — PASS
+
+The immediately preceding run at `6022fa88714fc38c4926681653312dbaef5c0d94` failed two V10 tests because the fixture reused the same mutable `claims` and `canonicalTrust` objects on both sides of the comparison. The fixture was isolated with independent clones. The convergence implementation was not weakened or changed.
+
 ## Phase decision
 
-**V10 FOUNDATION IMPLEMENTED. RUNTIME CONVERGENCE REMAINS BLOCKED UNTIL SELLER S5/S11 RECONCILIATION.**
+**V10 FOUNDATION PASS. RUNTIME CONVERGENCE REMAINS BLOCKED UNTIL SELLER S5/S11 RECONCILIATION.**
