@@ -79,6 +79,22 @@ The Marketplace customer journey uses a distinct flagship composition rather tha
 
 These patterns are informed by current automotive-marketplace and ecommerce UX research (image-first listing presentation, larger-grid search results, unified filter/sort tools, and high-salience decision data), but are implemented as CarUp-specific components rather than copied brand treatments.
 
+## Communicative media layer
+
+CarUp should not leave large decision regions visually empty and then rely on a tiny icon to carry meaning. Media must help the user understand the next move before they finish reading the copy.
+
+Rules:
+- **Explain, do not decorate.** Every photo, diagram, illustration or motion cue must answer a user question such as “What happens if I buy?”, “What can Verify show?”, or “How does this stay connected?”
+- **Use real listing photography only as listing media.** It must never acquire verified-evidence semantics.
+- **Use vector/diagram scenes for conceptual journeys.** Verify, Diaspora, finance, protection, service and parts may use illustrations because they communicate process without pretending a real event happened.
+- **Keep signals sparse.** A visual region should normally carry no more than 2–3 callouts. The media should fill intentional whitespace, not compete with headings or CTAs.
+- **Motion is subordinate.** Prefer hover/focus transforms and route/timeline reveals; no autoplay carousels, flashing scores or motion required to understand the UI.
+- **Mobile stacks calmly.** Copy remains first, media follows, and the combined story must not create horizontal overflow or push persistent navigation off-screen.
+- **No fake gamification.** CarUp may reward exploration through progressive reveals and interactive state, but it must not invent completion scores, verification achievements or user progress that is not actually stored.
+- **Communicative copy remains truthful.** Capability language such as “Compare up to 4” or “Open what is known” is allowed; claims such as “Trust checked”, “accident free”, “approved finance”, or “insured” require canonical supporting state.
+- **Home gets the richest storytelling.** The eight useful next moves are allowed larger editorial media because Home is the sales/marketing/communication surface.
+- **Marketplace stays inventory-first.** Communicative media appears only after real inventory has begun, as a restrained decision-story interlude rather than another hero that delays shopping.
+
 ## Connected public surfaces
 
 The Marketplace visual system is not allowed to stop at `/marketplace`.
