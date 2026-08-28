@@ -66,29 +66,23 @@ function renderWeekly(payload = {}) {
 // A. THE TRUTH MODEL
 // ============================================================================
 
-test('A1 no personalization capability exists in the repository', () => {
-  // The premise. If any of these ever ships, this test is the place to notice.
-  // Comments are stripped first: this module's own documentation SAYS these capabilities do not
-  // exist, and a scan that matched prose would find the sentence explaining the absence and report
-  // it as the thing.
+test('A1 R6 remains human-curated even when personalization capabilities exist elsewhere', () => {
+  // CarUp may legitimately add watchlists/saved searches in other product domains. That must not
+  // silently change this Email's truth model. R6 stays human-curated until a separately governed
+  // personalized-email programme exists and is explicitly certified.
   const stripComments = (source) => source
     .replace(/\/\*[\s\S]*?\*\//g, ' ')
     .split('\n').map((line) => line.replace(/\/\/.*$/, '')).join('\n');
   const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
-  const scan = ['backend/services', 'backend/routes'].map((d) => path.join(root, d));
-  const files = [];
-  const walk = (dir) => {
-    for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
-      if (entry.name === 'node_modules') continue;
-      const full = path.join(dir, entry.name);
-      if (entry.isDirectory()) walk(full);
-      else if (entry.name.endsWith('.js')) files.push(stripComments(fs.readFileSync(full, 'utf8')));
-    }
-  };
-  scan.forEach(walk);
-  const blob = files.join('\n');
-  for (const capability of ['saved_search', 'savedSearch', 'watchlist', 'price_drop', 'priceDrop', 'price_alert']) {
-    assert.ok(!blob.includes(capability), `${capability} now exists — R6's truth model must be revisited, not its copy`);
+  const source = stripComments(fs.readFileSync(
+    path.join(root, 'backend/services/communication/emailExperience/referenceCarUpWeekly.js'),
+    'utf8',
+  ));
+  for (const capability of [
+    'saved_search', 'savedSearch', 'watchlist', 'price_drop', 'priceDrop', 'price_alert',
+    'personalization', 'recommendationService', 'activity_ledger',
+  ]) {
+    assert.ok(!source.includes(capability), `R6 must not consume personalization capability: ${capability}`);
   }
 });
 
