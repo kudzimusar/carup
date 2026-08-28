@@ -18,6 +18,7 @@
     "An explicit VITE_API_URL in the environment always wins over this file."
   ],
   "branches": {
-    "integration/canonical-vehicle-truth-closure": "https://carup-backend-staging-git-integration-canonical-ve-df06b3-11-11.vercel.app"
+    "integration/canonical-vehicle-truth-closure": "https://carup-backend-staging-git-integration-canonical-ve-df06b3-11-11.vercel.app",
+    "feat/marketplace-reliability-reference-ux": "https://carup-backend-staging-git-feat-marketplace-reliabi-a387a3-11-11.vercel.app"
   }
 }

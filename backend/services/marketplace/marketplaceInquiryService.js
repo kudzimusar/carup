@@ -43,7 +43,13 @@ function clampStr(value, max) {
   return s.slice(0, max);
 }
 
-const ALLOWED_METADATA_KEYS = ['utm_source', 'utm_medium', 'utm_campaign', 'source_page', 'referrer', 'preferred_contact'];
+const ALLOWED_METADATA_KEYS = [
+  'utm_source', 'utm_medium', 'utm_campaign', 'source_page', 'referrer', 'preferred_contact',
+  // Explicit product intent — safe operational routing, never payment authorization.
+  'buyer_intent', 'safepay_requested',
+  // Parts fitment selection. Model-range vocabulary only; no VIN/plate/chassis/PII.
+  'fitment_taxonomy_version', 'fitment_make', 'fitment_model', 'fitment_year',
+];
 function sanitizeInquiryMetadata(metadata) {
   if (!metadata || typeof metadata !== 'object' || Array.isArray(metadata)) return {};
   const out = {};

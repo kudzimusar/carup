@@ -10,6 +10,7 @@ import {
   isAllowedMarketplaceStatus,
   isAllowedImportSource,
 } from '../services/marketplace/marketplaceListingEligibility.js';
+import { vehicleYearBounds } from '../services/taxonomy/vehicleTaxonomyService.js';
 
 // Base real listings (valid VINs: 17 chars, no I/O/Q, no underscore)
 const realPrivate = {
@@ -106,14 +107,12 @@ test('price <= 0 fails', () => {
   assert.ok(reasons(P({ price: -5 })).includes('invalid_price'));
 });
 
-// 14
-test('year too old fails', () => {
-  assert.ok(reasons(P({ year: 1900 })).includes('invalid_year'));
-});
-
-// 15
-test('year too far future fails', () => {
-  assert.ok(reasons(P({ year: 3000 })).includes('invalid_year'));
+// 14 / 15 — derive both boundaries from the one global taxonomy contract.
+test('year bounds follow the canonical global taxonomy policy', () => {
+  const { min, max } = vehicleYearBounds();
+  assert.ok(reasons(P({ year: min - 1 })).includes('invalid_year'));
+  assert.equal(reasons(P({ year: min })).includes('invalid_year'), false);
+  assert.ok(reasons(P({ year: max + 1 })).includes('invalid_year'));
 });
 
 // 16

@@ -204,6 +204,18 @@ const REPLAY_TRUST = Object.freeze({
   known_limitations: [], source: 'canonical_trust_cache',
 });
 
+const REPLAY_LIFECYCLE = Object.freeze({
+  schema: 'vehicle_lifecycle_projection.v1',
+  projection_version: 'vehicle-lifecycle-replay',
+  vin: 'REPLAY-LIFECYCLE-VIN',
+  audience: 'public',
+  events: [],
+  counts: {},
+  mileage: { observations: [], anomaly: false },
+  source_diversity: 0,
+});
+const replayLifecycleBuilder = async () => REPLAY_LIFECYCLE;
+
 /**
  * How each argument expression the routes actually write is resolved. Keyed by the NORMALISED
  * expression text, so a rename of the local (`vin` -> `resolvedVin`) is visible here rather than
@@ -224,6 +236,7 @@ function resolveCallSiteArguments(site, { vin, req }) {
     ['toListingClaims', toListingClaims],
     ['attestedValue', attestedValue],
     ['toVehicleMedia', toVehicleMedia],
+    ['buildCanonicalVehicleLifecycle', replayLifecycleBuilder],
   ]);
   return site.arguments.map((expression) => {
     assert.ok(
@@ -379,6 +392,10 @@ function instantiatePassport({
   listingImageRows = [],
   evidenceRows = [],
   listingImagesFail = false,
+  plateHistoryRows = [],
+  ownershipHistoryRows = [],
+  plateHistoryFail = false,
+  ownershipHistoryFail = false,
 } = {}) {
   const supabase = {
     from(table) {
@@ -386,6 +403,14 @@ function instantiatePassport({
         case 'vehicles': return queryStub(vehicle);
         case 'users': return queryStub({ name: 'Jane Owner' });
         case 'vehicle_evidence': return queryStub(evidenceRows);
+        case 'vehicle_plate_history':
+          return plateHistoryFail
+            ? queryStub(null, { message: 'plate history unavailable' })
+            : queryStub(plateHistoryRows);
+        case 'vehicle_ownership_history':
+          return ownershipHistoryFail
+            ? queryStub(null, { message: 'ownership history unavailable' })
+            : queryStub(ownershipHistoryRows);
         case 'listing_images':
           return listingImagesFail
             ? queryStub(null, { message: 'permission denied for table listing_images' })
@@ -447,6 +472,41 @@ const galleryFixture = (overrides = {}) => ({
   listingImageRows: [...GALLERY_ROWS],
   evidenceRows: [],
   ...overrides,
+});
+
+// ════════════════════════════════════════════════════════════════════════════════════════════════
+// COLLECTION READ-STATE HARDENING — an outage is not an empty history
+// ════════════════════════════════════════════════════════════════════════════════════════════════
+
+describe('Phase 5 wiring — collection outages stay unavailable rather than becoming zero/empty', () => {
+  it('an ownership-history read failure never publishes zero previous transfers', async () => {
+    const passport = await buildWired(galleryFixture({ ownershipHistoryFail: true }));
+
+    assert.equal(passport.ownershipSummary.previousOwnerCount, null);
+    assert.equal(passport.ownershipSummary.previousOwnerCountState, 'unavailable');
+  });
+
+  it('a successful empty ownership-history read is a real zero for current CarUp coverage', async () => {
+    const passport = await buildWired(galleryFixture({ ownershipHistoryRows: [] }));
+
+    assert.equal(passport.ownershipSummary.previousOwnerCount, 0);
+    assert.equal(passport.ownershipSummary.previousOwnerCountState, 'available');
+  });
+
+  it('a plate-history read failure is explicit and never masquerades as a loaded empty list', async () => {
+    const passport = await buildWired(galleryFixture({ plateHistoryFail: true }));
+
+    assert.deepEqual(passport.plateHistory, []);
+    assert.equal(passport.plateHistoryState, 'unavailable');
+    assert.equal(passport.plateHistoryRedacted, false);
+  });
+
+  it('a successful empty plate-history read remains distinguishable from an outage', async () => {
+    const passport = await buildWired(galleryFixture({ plateHistoryRows: [] }));
+
+    assert.deepEqual(passport.plateHistory, []);
+    assert.equal(passport.plateHistoryState, 'available');
+  });
 });
 
 // ════════════════════════════════════════════════════════════════════════════════════════════════
@@ -668,7 +728,7 @@ describe('Phase 5 wiring — every shipped route hands the contract in (M3)', ()
 
     assert.deepEqual(
       params,
-      ['vin', 'req', 'canonicalTrust', 'listingClaimContract', 'attestClaim', 'mediaContract'],
+      ['vin', 'req', 'canonicalTrust', 'listingClaimContract', 'attestClaim', 'mediaContract', 'lifecycleBuilder'],
       'the passport composes over authorities it is HANDED. If this signature changes, the replay '
       + 'below must be re-aimed deliberately rather than left pointing at a stale position.',
     );
@@ -681,9 +741,8 @@ describe('Phase 5 wiring — every shipped route hands the contract in (M3)', ()
     for (const site of sites) {
       const resolved = resolveCallSiteArguments(site, { vin: GALLERY_VIN, req: anonymous() });
       assert.equal(
-        resolved.length, 6,
-        `server.js:${site.lineNumber} calls buildVehiclePassport with ${resolved.length} arguments, so its `
-        + `gallery is dead:\n  ${site.line}`,
+        resolved.length, 7,
+        `server.js:${site.lineNumber} calls buildVehiclePassport with ${resolved.length} arguments; the media and lifecycle collaborators must both remain wired:\n  ${site.line}`,
       );
       assert.equal(
         resolved[5], toVehicleMedia,
@@ -713,7 +772,7 @@ describe('Phase 5 wiring — every shipped route hands the contract in (M3)', ()
       );
       // ...argument 4 on the claim contract...
       assert.ok(passport.claims, 'the claim contract argument did not land');
-      // ...and argument 6 on the media contract, which is the whole subject of this file.
+      // ...argument 6 on the media contract, which is the whole subject of this file...
       assert.ok(
         'listing_media' in passport,
         `the passport built from server.js:${site.lineNumber}'s own argument list carries no gallery:\n  ${site.line}`,
@@ -723,6 +782,8 @@ describe('Phase 5 wiring — every shipped route hands the contract in (M3)', ()
         passport.listing_media.items.map((item) => item.url),
         GALLERY_ROWS.map((row) => row.image_url),
       );
+      // ...and the new seventh collaborator remains independent of that media position.
+      assert.equal(passport.lifecycle, REPLAY_LIFECYCLE);
       // A swapped 5th/6th argument publishes these three at the root instead of the two blocks.
       for (const stray of ['value', 'state', 'source']) {
         assert.equal(

@@ -1,7 +1,8 @@
 import { useState } from 'react'
-import { Link, useNavigate } from 'react-router-dom'
+import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import { useAuth } from '@/context/AuthContext'
 import { resolveApiBaseUrl } from '@/lib/apiClient'
+import { resolvePostLoginRoute } from '@/lib/returnTo'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Card, CardContent } from '@/components/ui/card'
@@ -19,6 +20,8 @@ const API_BASE = resolveApiBaseUrl(
 
 export default function Register() {
   const navigate = useNavigate()
+  const [searchParams] = useSearchParams()
+  const returnTo = searchParams.get('returnTo')
   const [showPassword, setShowPassword] = useState(false)
   const [step, setStep] = useState(1)
   const [form, setForm] = useState({
@@ -70,7 +73,7 @@ export default function Register() {
         const data = await res.json()
         login(data.user, data.token)
         toast.success('Account created! Welcome to CarUp.')
-        navigate('/dashboard')
+        navigate(resolvePostLoginRoute(returnTo, data.user.role))
       } else {
         const errorData = await res.json()
         toast.error(errorData.error || 'Registration failed')
@@ -175,7 +178,7 @@ export default function Register() {
 
             <p className="text-center text-sm text-gray-500 mt-6">
               Already have an account?{' '}
-              <Link to="/login" className="text-orange-600 font-medium hover:underline">Sign In</Link>
+              <Link to={returnTo ? `/login?returnTo=${encodeURIComponent(returnTo)}` : '/login'} className="text-orange-600 font-medium hover:underline">Sign In</Link>
             </p>
           </CardContent>
         </Card>

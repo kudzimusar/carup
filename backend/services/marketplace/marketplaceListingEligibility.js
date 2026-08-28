@@ -42,6 +42,7 @@
  * remains correct afterwards.)
  */
 import { isPublicVehicleStatus, normalizeVehicleStatus } from '../../utils/vehicleStatus.js';
+import { vehicleYearBounds } from '../taxonomy/vehicleTaxonomyService.js';
 import {
   getFixtureExclusion,
   isRealImportSource,
@@ -59,8 +60,6 @@ const PLACEHOLDER_TEXT = new Set([
   'n/a', 'na', 'none', 'null', 'undefined', 'unknown', 'tbd', 'xxx', 'string', 'foo', 'bar',
 ]);
 const ALLOWED_SELLER_TYPES = new Set(['private owner', 'private', 'dealer', 'dealership']);
-
-const MIN_LISTING_YEAR = 1980;
 
 function norm(value) {
   return value == null ? '' : String(value).trim().toLowerCase();
@@ -147,7 +146,9 @@ export function normalizeListingInput(input = {}) {
 /** All ineligibility reason codes for a vehicle (empty array = eligible). Order is stable. */
 export function getListingIneligibilityReasons(vehicle = {}, opts = {}) {
   const reasons = [];
-  const maxYear = opts.maxYear ?? (new Date().getFullYear() + 1);
+  const taxonomyYearBounds = vehicleYearBounds();
+  const minYear = opts.minYear ?? taxonomyYearBounds.min;
+  const maxYear = opts.maxYear ?? taxonomyYearBounds.max;
 
   if (!isStructurallyValidVin(vehicle.vin)) reasons.push('invalid_vin_format');
   if (getFixtureExclusion(vehicle) !== null) reasons.push('fixture_excluded');
@@ -155,7 +156,7 @@ export function getListingIneligibilityReasons(vehicle = {}, opts = {}) {
   if (isPlaceholderText(vehicle.model)) reasons.push('placeholder_model');
 
   const year = Number(vehicle.year);
-  if (!Number.isInteger(year) || year < MIN_LISTING_YEAR || year > maxYear) reasons.push('invalid_year');
+  if (!Number.isInteger(year) || year < minYear || year > maxYear) reasons.push('invalid_year');
 
   if (!(Number(vehicle.price) > 0)) reasons.push('invalid_price');
   if (!isAllowedMarketplaceStatus(vehicle.status)) reasons.push('non_public_status');

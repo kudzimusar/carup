@@ -1,0 +1,102 @@
+name: Seller S3 Location Visibility Staging Gate
+
+# Staging-only, immutable-candidate gate for Seller Journey 1.0 / S3.
+#
+# A SIBLING of the S0 taxonomy gate, deliberately not an extension of it: S0 is certified against
+# its own immutable candidate, and mutating that workflow to carry S3's migration would invalidate
+# a certification that has already been signed off.
+#
+# The workflow definition may move, but all code and migration SQL that receive the protected
+# staging credential are checked out from CANDIDATE_SHA. No arbitrary ref or SQL input exists.
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+    paths:
+      - '.github/workflows/seller-s3-location-visibility-staging.yml'
+      - 'backend/scripts/seller-s3-location-visibility-staging.mjs'
+      - 'database/migrations/20260828160000_seller_s3_location_visibility_province_only.sql'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: seller-s3-location-visibility-staging-pr182
+  cancel-in-progress: false
+
+env:
+  CANDIDATE_SHA: 0ada1ca38352a12ec35e1480da0ee8f241f2520b
+  EXPECTED_PR: '182'
+  EXPECTED_BRANCH: 'feat/marketplace-reliability-reference-ux'
+  PG_DRIVER_VERSION: '8.21.0'
+
+jobs:
+  preflight-apply-verify:
+    if: >-
+      github.event.pull_request.number == 182 &&
+      github.event.pull_request.head.ref == 'feat/marketplace-reliability-reference-ux' &&
+      github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    environment: staging
+
+    steps:
+      - name: Check out immutable reviewed S3 candidate
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ env.CANDIDATE_SHA }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Assert immutable candidate
+        run: |
+          actual="$(git rev-parse HEAD)"
+          if [ "$actual" != "$CANDIDATE_SHA" ]; then
+            echo "::error::checked out $actual; expected $CANDIDATE_SHA"
+            exit 1
+          fi
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Install pinned PostgreSQL driver without credentials
+        run: npm install --no-save --no-audit --no-fund --ignore-scripts "pg@${PG_DRIVER_VERSION}"
+
+      - name: Require protected CarUp staging operator secret
+        env:
+          DIASPORA_STAGING_DATABASE_URL: ${{ secrets.DIASPORA_STAGING_DATABASE_URL }}
+        run: |
+          if [ -z "$DIASPORA_STAGING_DATABASE_URL" ]; then
+            echo '::error::DIASPORA_STAGING_DATABASE_URL is unavailable; refusing staging operation.'
+            exit 1
+          fi
+
+      - name: Preflight the vocabulary widening in a rollback-only transaction
+        env:
+          DIASPORA_STAGING_DATABASE_URL: ${{ secrets.DIASPORA_STAGING_DATABASE_URL }}
+          DIASPORA_STAGING_CA_CERT: ${{ secrets.DIASPORA_STAGING_CA_CERT }}
+          CANDIDATE_SHA: ${{ env.CANDIDATE_SHA }}
+        run: node backend/scripts/seller-s3-location-visibility-staging.mjs --mode=preflight
+
+      - name: Apply the reviewed S3 migration and verify the constraint in force
+        env:
+          DIASPORA_STAGING_DATABASE_URL: ${{ secrets.DIASPORA_STAGING_DATABASE_URL }}
+          DIASPORA_STAGING_CA_CERT: ${{ secrets.DIASPORA_STAGING_CA_CERT }}
+          CANDIDATE_SHA: ${{ env.CANDIDATE_SHA }}
+        run: node backend/scripts/seller-s3-location-visibility-staging.mjs --mode=apply
+
+      - name: Verify post-apply S3 contract read-only
+        env:
+          DIASPORA_STAGING_DATABASE_URL: ${{ secrets.DIASPORA_STAGING_DATABASE_URL }}
+          DIASPORA_STAGING_CA_CERT: ${{ secrets.DIASPORA_STAGING_CA_CERT }}
+          CANDIDATE_SHA: ${{ env.CANDIDATE_SHA }}
+        run: node backend/scripts/seller-s3-location-visibility-staging.mjs --mode=verify
+
+      - name: Preserve non-secret S3 staging receipt
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: seller-s3-location-visibility-0ada1ca38352a12ec35e1480da0ee8f241f2520b
+          path: seller-s3-location-visibility-receipt.json
+          if-no-files-found: error
+          retention-days: 30

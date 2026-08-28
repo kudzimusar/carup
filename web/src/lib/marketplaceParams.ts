@@ -1,3 +1,5 @@
+import { canonicalMake as canonicalTaxonomyMake, canonicalModel as canonicalTaxonomyModel, isValidVehicleYear, resolveBodyStyle } from '@/data/vehicleTaxonomy'
+
 /**
  * Marketplace URL <-> state contract (CarUp Navigation Intelligence).
  *
@@ -5,65 +7,96 @@
  * filter state, the backend API filter object, and the human-readable active-filter chips / summary.
  * PURE (no React) so it can be unit-tested and reused by navbar/footer deep-links + the AI assistant.
  *
- * Filter model (QA Round 4): ONE mutually-exclusive condition/category (`category=`) PLUS many
- * stackable trust tags (`tag=` repeated), combined with AND semantics. A pristine page stays at a
- * clean `/marketplace`.
+ * Reference-UX filter model:
+ *   - one mutually-exclusive condition/category (`category=`),
+ *   - many stackable trust tags (`tag=` repeated, AND semantics),
+ *   - make / model / year / colour / body style / price / fuel / transmission / governed public location,
+ *   - free text q and sort.
+ *
+ * Every user-visible filter represented here is shareable and server-addressable. A control that
+ * exists only as local state can silently filter just the first returned page, so it does not belong
+ * in the production facet rail. Body type is intentionally absent until Marketplace has a governed
+ * body-style field in its public contract.
  */
 
 export type MarketplaceSort = 'newest' | 'price-low' | 'price-high' | 'trust'
 
 export const MARKETPLACE_SORTS: MarketplaceSort[] = ['newest', 'price-low', 'price-high', 'trust']
-
 export const PRICE_MIN_DEFAULT = 0
 export const PRICE_MAX_DEFAULT = 100000
 export const SORT_DEFAULT: MarketplaceSort = 'newest'
 export const ALL = 'All'
 
-/** Filter state used by the Marketplace page (names mirror the component's useState). */
 export interface MarketplaceUrlState {
   searchQuery: string
   selectedMake: string
-  /** Single mutually-exclusive condition/category chip label (e.g. "Brand New"). 'All' = none. */
+  selectedModel: string
+  selectedYear: string
+  selectedColor: string
+  selectedBodyStyle: string
   selectedCategory: string
-  /** Stackable trust-tag chip labels (e.g. ["Dealer Verified","Duty Cleared"]); AND semantics. [] = none. */
   selectedTags: string[]
+  selectedFuel: string
+  selectedTransmission: string
+  selectedLocation: string
   priceRange: [number, number]
   sortBy: MarketplaceSort
 }
 
-/** Filter object passed to fetchMarketplaceListings(). `tag` may be a CSV of multiple trust slugs. */
 export interface MarketplaceApiFilters {
   q?: string
   make?: string
+  model?: string
+  year?: number
+  color?: string
+  bodyStyle?: string
   category?: string
   tag?: string
+  fuel?: string
+  transmission?: string
+  location?: string
   minPrice?: number
   maxPrice?: number
   sort?: MarketplaceSort
 }
 
-export type ActiveFilterKey = 'q' | 'make' | 'category' | 'tag' | 'price' | 'sort'
+export type ActiveFilterKey =
+  | 'q'
+  | 'make'
+  | 'model'
+  | 'year'
+  | 'color'
+  | 'bodyStyle'
+  | 'category'
+  | 'tag'
+  | 'fuel'
+  | 'transmission'
+  | 'location'
+  | 'price'
+  | 'sort'
 
 export interface ActiveFilterChip {
   key: ActiveFilterKey
   label: string
-  /** For a 'tag' chip, the trust-chip label to remove (lets each tag be removed individually). */
   value?: string
 }
 
 export const DEFAULT_MARKETPLACE_STATE: MarketplaceUrlState = {
   searchQuery: '',
   selectedMake: ALL,
+  selectedModel: ALL,
+  selectedYear: ALL,
+  selectedColor: ALL,
+  selectedBodyStyle: ALL,
   selectedCategory: ALL,
   selectedTags: [],
+  selectedFuel: ALL,
+  selectedTransmission: ALL,
+  selectedLocation: ALL,
   priceRange: [PRICE_MIN_DEFAULT, PRICE_MAX_DEFAULT],
   sortBy: SORT_DEFAULT,
 }
 
-/**
- * Chip label -> backend slug + kind. `kind` decides whether the chip is a mutually-exclusive
- * condition (`category`) or a stackable trust signal (`tag`).
- */
 const CHIP_SLUG_KIND: Record<string, { slug: string; kind: 'category' | 'tag' }> = {
   'Brand New': { slug: 'brand_new', kind: 'category' },
   'Recently Imported': { slug: 'recently_imported', kind: 'category' },
@@ -85,25 +118,21 @@ export const CHIP_TO_SLUG: Record<string, string> = Object.fromEntries(
 
 export const SLUG_TO_CHIP: Record<string, string> = (() => {
   const map: Record<string, string> = {}
-  for (const [label, { slug }] of Object.entries(CHIP_SLUG_KIND)) {
-    map[slug] = label
-  }
-  // Accept the condition-category alias that renders as the same "Dealer Verified" chip.
+  for (const [label, { slug }] of Object.entries(CHIP_SLUG_KIND)) map[slug] = label
   map['certified_dealer'] = 'Dealer Verified'
   return map
 })()
 
-/** Chip labels grouped by kind, for the split single-category vs multi-trust UI. */
-export const CATEGORY_CHIPS: string[] = Object.entries(CHIP_SLUG_KIND).filter(([, v]) => v.kind === 'category').map(([l]) => l)
-export const TRUST_TAG_CHIPS: string[] = Object.entries(CHIP_SLUG_KIND).filter(([, v]) => v.kind === 'tag').map(([l]) => l)
+export const CATEGORY_CHIPS: string[] = Object.entries(CHIP_SLUG_KIND)
+  .filter(([, value]) => value.kind === 'category')
+  .map(([label]) => label)
+export const TRUST_TAG_CHIPS: string[] = Object.entries(CHIP_SLUG_KIND)
+  .filter(([, value]) => value.kind === 'tag')
+  .map(([label]) => label)
 export function isCategoryChip(label: string): boolean { return CHIP_SLUG_KIND[label]?.kind === 'category' }
 export function isTrustChip(label: string): boolean { return CHIP_SLUG_KIND[label]?.kind === 'tag' }
 
-/** Canonical vehicle makes (mirrors Marketplace make selector) for case-insensitive URL recovery. */
-const KNOWN_MAKES = [
-  'Toyota', 'BMW', 'Mercedes-Benz', 'Nissan', 'Mazda',
-  'Volkswagen', 'Ford', 'Honda', 'Land Rover', 'Audi',
-]
+
 
 const SORT_LABELS: Record<MarketplaceSort, string> = {
   newest: 'Newest',
@@ -112,10 +141,6 @@ const SORT_LABELS: Record<MarketplaceSort, string> = {
   trust: 'Trust',
 }
 
-/**
- * Prominent quick filters surfaced above the full chip taxonomy. A mix of single-select condition
- * categories and stackable trust tags — the page routes each by its kind. testIds are stable.
- */
 export const TRUST_QUICK_FILTERS: Array<{ label: string; testId: string }> = [
   { label: 'Passport Verified', testId: 'marketplace-filter-passport-verified' },
   { label: 'PartSentry Checked', testId: 'marketplace-filter-partsentry-checked' },
@@ -128,8 +153,30 @@ export const TRUST_QUICK_FILTERS: Array<{ label: string; testId: string }> = [
 function canonicalizeMake(value: string): string {
   const trimmed = value.trim()
   if (!trimmed) return ALL
-  const match = KNOWN_MAKES.find(make => make.toLowerCase() === trimmed.toLowerCase())
-  return match ?? trimmed
+  return canonicalTaxonomyMake(trimmed)
+}
+
+function canonicalizeModel(make: string, value: string): string {
+  const trimmed = value.trim()
+  if (!trimmed) return ALL
+  return make && make !== ALL ? canonicalTaxonomyModel(make, trimmed) : trimmed
+}
+
+function parseYearFacet(value: string | null): string {
+  const text = (value || '').trim()
+  return isValidVehicleYear(text) ? String(Number(text)) : ALL
+}
+
+function canonicalizeBodyStyle(value: string | null): string {
+  const text = (value || '').trim()
+  if (!text) return ALL
+  const resolved = resolveBodyStyle(text)
+  return resolved.state === 'canonical' || resolved.state === 'alias_match' ? String(resolved.value) : text
+}
+
+function textFacet(value: string | null): string {
+  const trimmed = (value || '').trim()
+  return trimmed || ALL
 }
 
 function parseSort(value: string | null): MarketplaceSort {
@@ -137,7 +184,6 @@ function parseSort(value: string | null): MarketplaceSort {
   return SORT_DEFAULT
 }
 
-/** Parse a price param: finite, >= 0 integer; otherwise null (ignored). */
 function parsePrice(value: string | null): number | null {
   if (value === null || value.trim() === '') return null
   const parsed = Number(value)
@@ -153,18 +199,19 @@ function formatPrice(amount: number): string {
   return `$${amount.toLocaleString('en-US')}`
 }
 
-/** Read supported params off a URLSearchParams into Marketplace filter state. */
 export function paramsToState(params: URLSearchParams): MarketplaceUrlState {
   const searchQuery = (params.get('q') || '').trim()
   const make = params.has('make') ? canonicalizeMake(params.get('make') || '') : ALL
+  const model = params.has('model') ? canonicalizeModel(make, params.get('model') || '') : ALL
+  const year = parseYearFacet(params.get('year'))
+  const color = textFacet(params.get('color'))
+  const bodyStyle = canonicalizeBodyStyle(params.get('bodyStyle') || params.get('body'))
 
-  // ONE condition/category from `category=` (only category-kind chips qualify).
   const categorySlug = slugify(params.get('category'))
   const categoryChip = categorySlug ? SLUG_TO_CHIP[categorySlug] : undefined
   const selectedCategory = categoryChip && isCategoryChip(categoryChip) ? categoryChip : ALL
 
-  // MANY trust tags from repeated `tag=` params (each may also be a CSV); dedupe; trust-kind only.
-  const tagSlugs = params.getAll('tag').flatMap(v => v.split(',')).map(slugify).filter(Boolean)
+  const tagSlugs = params.getAll('tag').flatMap(value => value.split(',')).map(slugify).filter(Boolean)
   const selectedTags: string[] = []
   for (const slug of tagSlugs) {
     const label = SLUG_TO_CHIP[slug]
@@ -182,51 +229,64 @@ export function paramsToState(params: URLSearchParams): MarketplaceUrlState {
   return {
     searchQuery,
     selectedMake: make,
+    selectedModel: model,
+    selectedYear: year,
+    selectedColor: color,
+    selectedBodyStyle: bodyStyle,
     selectedCategory,
     selectedTags,
+    selectedFuel: textFacet(params.get('fuel')),
+    selectedTransmission: textFacet(params.get('transmission')),
+    selectedLocation: textFacet(params.get('location')),
     priceRange: [min, max],
     sortBy: parseSort(params.get('sort')),
   }
 }
 
-/**
- * Serialize state back to a URLSearchParams. Defaults are omitted. Deterministic order:
- * make, q, category, tag(s), minPrice, maxPrice, sort.
- */
+/** Defaults are omitted. Deterministic order supports stable deep links and equality checks. */
 export function stateToParams(state: MarketplaceUrlState): URLSearchParams {
   const params = new URLSearchParams()
 
   const make = state.selectedMake?.trim()
   if (make && make !== ALL) params.set('make', make)
 
+  const model = state.selectedModel?.trim()
+  if (model && model !== ALL) params.set('model', model)
+
+  if (state.selectedYear && state.selectedYear !== ALL) params.set('year', state.selectedYear)
+  if (state.selectedColor && state.selectedColor !== ALL) params.set('color', state.selectedColor)
+  if (state.selectedBodyStyle && state.selectedBodyStyle !== ALL) params.set('bodyStyle', state.selectedBodyStyle)
+
   const q = state.searchQuery?.trim()
   if (q) params.set('q', q)
 
   if (state.selectedCategory && state.selectedCategory !== ALL) {
-    const c = CHIP_SLUG_KIND[state.selectedCategory]
-    if (c?.kind === 'category') params.set('category', c.slug)
+    const category = CHIP_SLUG_KIND[state.selectedCategory]
+    if (category?.kind === 'category') params.set('category', category.slug)
   }
 
   for (const label of state.selectedTags || []) {
-    const t = CHIP_SLUG_KIND[label]
-    if (t?.kind === 'tag') params.append('tag', t.slug)
+    const tag = CHIP_SLUG_KIND[label]
+    if (tag?.kind === 'tag') params.append('tag', tag.slug)
   }
+
+  if (state.selectedFuel && state.selectedFuel !== ALL) params.set('fuel', state.selectedFuel)
+  if (state.selectedTransmission && state.selectedTransmission !== ALL) params.set('transmission', state.selectedTransmission)
+  if (state.selectedLocation && state.selectedLocation !== ALL) params.set('location', state.selectedLocation)
 
   const [min, max] = state.priceRange
   if (Number.isFinite(min) && min > PRICE_MIN_DEFAULT) params.set('minPrice', String(Math.floor(min)))
   if (Number.isFinite(max) && max < PRICE_MAX_DEFAULT) params.set('maxPrice', String(Math.floor(max)))
 
   if (state.sortBy && state.sortBy !== SORT_DEFAULT) params.set('sort', state.sortBy)
-
   return params
 }
 
-/** Canonical query string for equality checks (URL <-> state sync without loops). */
 export function canonicalParamString(state: MarketplaceUrlState): string {
   return stateToParams(state).toString()
 }
 
-/** Build the API filter object — only backend-supported, live-data keys, no defaults/empties. */
+/** Every filter emitted here is honored over the full eligible Marketplace population before limit. */
 export function stateToApiFilters(state: MarketplaceUrlState): MarketplaceApiFilters {
   const filters: MarketplaceApiFilters = {}
 
@@ -236,20 +296,35 @@ export function stateToApiFilters(state: MarketplaceUrlState): MarketplaceApiFil
   const make = state.selectedMake?.trim()
   if (make && make !== ALL) filters.make = make
 
+  const model = state.selectedModel?.trim()
+  if (model && model !== ALL) filters.model = model
+
+  if (state.selectedYear && state.selectedYear !== ALL) {
+    const year = Number(state.selectedYear)
+    if (Number.isInteger(year)) filters.year = year
+  }
+  if (state.selectedColor && state.selectedColor !== ALL) filters.color = state.selectedColor
+  if (state.selectedBodyStyle && state.selectedBodyStyle !== ALL) filters.bodyStyle = state.selectedBodyStyle
+
   if (state.selectedCategory && state.selectedCategory !== ALL) {
-    const c = CHIP_SLUG_KIND[state.selectedCategory]
-    if (c?.kind === 'category') filters.category = c.slug
+    const category = CHIP_SLUG_KIND[state.selectedCategory]
+    if (category?.kind === 'category') filters.category = category.slug
   }
 
-  const tagSlugs = (state.selectedTags || []).map(l => CHIP_SLUG_KIND[l]?.slug).filter((s): s is string => Boolean(s))
+  const tagSlugs = (state.selectedTags || [])
+    .map(label => CHIP_SLUG_KIND[label]?.slug)
+    .filter((slug): slug is string => Boolean(slug))
   if (tagSlugs.length) filters.tag = tagSlugs.join(',')
+
+  if (state.selectedFuel && state.selectedFuel !== ALL) filters.fuel = state.selectedFuel
+  if (state.selectedTransmission && state.selectedTransmission !== ALL) filters.transmission = state.selectedTransmission
+  if (state.selectedLocation && state.selectedLocation !== ALL) filters.location = state.selectedLocation
 
   const [min, max] = state.priceRange
   if (Number.isFinite(min) && min > PRICE_MIN_DEFAULT) filters.minPrice = Math.floor(min)
   if (Number.isFinite(max) && max < PRICE_MAX_DEFAULT) filters.maxPrice = Math.floor(max)
 
   if (state.sortBy && state.sortBy !== SORT_DEFAULT) filters.sort = state.sortBy
-
   return filters
 }
 
@@ -262,32 +337,43 @@ function priceChipLabel(min: number, max: number): string | null {
   return null
 }
 
-/** Removable chips describing the currently active, URL-backed filters. Order: make, q, category, tags, price, sort. */
 export function getActiveFilterChips(state: MarketplaceUrlState): ActiveFilterChip[] {
   const chips: ActiveFilterChip[] = []
 
   if (state.selectedMake && state.selectedMake !== ALL) chips.push({ key: 'make', label: state.selectedMake })
+  if (state.selectedModel && state.selectedModel !== ALL) chips.push({ key: 'model', label: state.selectedModel })
+  if (state.selectedYear && state.selectedYear !== ALL) chips.push({ key: 'year', label: state.selectedYear })
+  if (state.selectedColor && state.selectedColor !== ALL) chips.push({ key: 'color', label: state.selectedColor })
+  if (state.selectedBodyStyle && state.selectedBodyStyle !== ALL) chips.push({ key: 'bodyStyle', label: state.selectedBodyStyle })
   if (state.searchQuery?.trim()) chips.push({ key: 'q', label: `“${state.searchQuery.trim()}”` })
   if (state.selectedCategory && state.selectedCategory !== ALL) chips.push({ key: 'category', label: state.selectedCategory })
   for (const tag of state.selectedTags || []) chips.push({ key: 'tag', label: tag, value: tag })
+  if (state.selectedFuel !== ALL) chips.push({ key: 'fuel', label: state.selectedFuel })
+  if (state.selectedTransmission !== ALL) chips.push({ key: 'transmission', label: state.selectedTransmission })
+  if (state.selectedLocation !== ALL) chips.push({ key: 'location', label: state.selectedLocation })
 
   const price = priceChipLabel(state.priceRange[0], state.priceRange[1])
   if (price) chips.push({ key: 'price', label: price })
   if (state.sortBy && state.sortBy !== SORT_DEFAULT) chips.push({ key: 'sort', label: `Sorted by ${SORT_LABELS[state.sortBy]}` })
-
   return chips
 }
 
-/** Human-readable summary, e.g. "Showing Brand New Dealer Verified Toyota vehicles under $10,000". */
 export function getResultSummary(state: MarketplaceUrlState): string {
   const parts = [
     state.selectedCategory !== ALL ? state.selectedCategory : '',
     ...(state.selectedTags || []),
     state.selectedMake !== ALL ? state.selectedMake : '',
+    state.selectedModel !== ALL ? state.selectedModel : '',
+    state.selectedYear !== ALL ? state.selectedYear : '',
+    state.selectedColor !== ALL ? state.selectedColor : '',
+    state.selectedBodyStyle !== ALL ? state.selectedBodyStyle : '',
+    state.selectedFuel !== ALL ? state.selectedFuel : '',
+    state.selectedTransmission !== ALL ? state.selectedTransmission : '',
   ].filter(Boolean)
   const subject = parts.join(' ')
 
   let sentence = subject ? `Showing ${subject} vehicles` : 'Showing all vehicles'
+  if (state.selectedLocation !== ALL) sentence += ` in ${state.selectedLocation}`
 
   const price = priceChipLabel(state.priceRange[0], state.priceRange[1])
   if (price) {
@@ -298,29 +384,19 @@ export function getResultSummary(state: MarketplaceUrlState): string {
 
   if (state.searchQuery?.trim()) sentence += ` matching “${state.searchQuery.trim()}”`
   if (state.sortBy !== SORT_DEFAULT) sentence += `, sorted by ${SORT_LABELS[state.sortBy].toLowerCase()}`
-
   return `${sentence}.`
 }
 
-/**
- * Buy-menu items whose href is gated by LIVE marketplace coverage (label -> category slug).
- * Only `Locally Used` is coverage-gated for now; the rest stay deferred until supported.
- */
 export const COVERAGE_GATED_NAV: Record<string, string> = {
   'Locally Used': 'locally_used',
 }
 
-/** Shape of the nav-coverage payload (counts + active flags per category/tag). */
 export interface MarketplaceNavCoverage {
   threshold?: number
   categories?: Record<string, { count?: number; active?: boolean }>
   tags?: Record<string, { count?: number; active?: boolean }>
 }
 
-/**
- * Resolve a coverage-gated Buy-menu href: activate the category deep-link ONLY when live coverage
- * marks it active (>= threshold real listings). Otherwise keep the deferred `/marketplace` href.
- */
 export function resolveCoverageNavHref(label: string, fallbackHref: string, coverage?: MarketplaceNavCoverage | null): string {
   const slug = COVERAGE_GATED_NAV[label]
   if (slug && coverage?.categories?.[slug]?.active) return `/marketplace?category=${slug}`
@@ -328,11 +404,9 @@ export function resolveCoverageNavHref(label: string, fallbackHref: string, cove
 }
 
 /**
- * A query with no spaces and at least 6 characters is treated as a possible vehicle
- * identifier (VIN / chassis / plate / temporary ID) and tried against the passport
- * lookup endpoint before falling back to a plain marketplace search — the backend
- * listing search haystack also covers VIN/plate/chassis, so nothing is lost when the
- * lookup misses.
+ * Identifier-shaped queries may be tried against the governed Passport lookup before ordinary
+ * Marketplace discovery. This helper makes no claim that plate/chassis are public-searchable: the
+ * anonymous listing endpoint deliberately excludes those identifiers from its search haystack.
  */
 export function looksLikeIdentifier(query: string): boolean {
   const trimmed = query.trim()

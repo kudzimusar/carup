@@ -51,6 +51,74 @@
 
 import { statedValue } from '../../utils/publicVehicleProjection.js';
 
+export const PART_FITMENT_TAXONOMY_VERSION = 'carup-vehicle-taxonomy-1.0.0';
+
+function cleanText(value, max = 120) {
+  if (value === undefined || value === null) return null;
+  const text = String(value).trim();
+  return text ? text.slice(0, max) : null;
+}
+
+function safeYear(value) {
+  const year = Number(value);
+  if (!Number.isInteger(year) || year < 1900 || year > 2100) return null;
+  return year;
+}
+
+/**
+ * Structured fitment is a compatibility CLAIM supplied by the part lister. It is not a PartSentry
+ * verification and never creates Trust. VIN/chassis/plate are deliberately absent from the public
+ * shape: fitment is model-range compatibility, not vehicle identity.
+ */
+export function normalizePartFitmentEntry(entry = {}) {
+  if (!entry || typeof entry !== 'object' || Array.isArray(entry)) return null;
+  const make = cleanText(entry.make);
+  const model = cleanText(entry.model);
+  if (!make || !model) return null;
+  let yearFrom = safeYear(entry.year_from ?? entry.yearFrom);
+  let yearTo = safeYear(entry.year_to ?? entry.yearTo);
+  if (yearFrom !== null && yearTo !== null && yearFrom > yearTo) {
+    [yearFrom, yearTo] = [yearTo, yearFrom];
+  }
+  return {
+    taxonomy_version: cleanText(entry.taxonomy_version, 80) || PART_FITMENT_TAXONOMY_VERSION,
+    make,
+    model,
+    year_from: yearFrom,
+    year_to: yearTo,
+    body_style: cleanText(entry.body_style),
+    engine_code: cleanText(entry.engine_code),
+    variant: cleanText(entry.variant),
+  };
+}
+
+export function normalizePartFitment(value) {
+  if (!Array.isArray(value)) return [];
+  const seen = new Set();
+  const out = [];
+  for (const raw of value) {
+    const item = normalizePartFitmentEntry(raw);
+    if (!item) continue;
+    const key = [item.make, item.model, item.year_from, item.year_to, item.body_style, item.engine_code, item.variant]
+      .map(v => String(v ?? '').toLowerCase()).join('|');
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(item);
+  }
+  return out.slice(0, 50);
+}
+
+export function partFitmentMatches(entry, { make, model, year } = {}) {
+  const wantedMake = cleanText(make)?.toLowerCase() || null;
+  const wantedModel = cleanText(model)?.toLowerCase() || null;
+  const wantedYear = safeYear(year);
+  if (wantedMake && entry.make.toLowerCase() !== wantedMake) return false;
+  if (wantedModel && entry.model.toLowerCase() !== wantedModel) return false;
+  if (wantedYear !== null && entry.year_from !== null && wantedYear < entry.year_from) return false;
+  if (wantedYear !== null && entry.year_to !== null && wantedYear > entry.year_to) return false;
+  return true;
+}
+
 /** Public, sanitized parts-card shape (no supplier PII, no raw provenance internals). */
 export function buildPartSummary(row = {}) {
   const currency = statedValue(row.currency);
@@ -68,7 +136,10 @@ export function buildPartSummary(row = {}) {
     currency: currency.value,
     currency_state: currency.state,
     price_mode: row.price_mode || 'quote_required',
-    compatibility: Array.isArray(row.compatibility) ? row.compatibility : [],
+    // Legacy free-text compatibility is kept for old rows; normalized fitment is the canonical
+    // machine-readable contract for new inventory.
+    compatibility: Array.isArray(row.compatibility) ? row.compatibility.map(v => String(v).slice(0, 160)) : [],
+    fitment: normalizePartFitment(row.fitment),
     supplier_label: supplierLabel.value,
     supplier_label_state: supplierLabel.state,
     // Governed trust signals only — default false/suppressed until backend public-card eligibility.
@@ -109,8 +180,25 @@ export function buildServiceSummary(row = {}) {
  * Parts listings (governed). Empty until a parts inventory backend exists; the shape is parts-card-ready.
  * @returns {Promise<{listings: object[], total: number, governed: true, listing_type: 'part'}>}
  */
-export async function getPartsListings(_client, _params = {}) {
-  return { listings: [], total: 0, governed: true, listing_type: 'part', note: 'Parts inventory onboarding — PartSentry governance enforced.' };
+export async function getPartsListings(_client, params = {}) {
+  // Inventory is still onboarding. We nevertheless publish the exact fitment contract the eventual
+  // inventory reader will use so clients can collect/query compatibility now without inventing a
+  // second vocabulary later.
+  return {
+    listings: [],
+    total: 0,
+    governed: true,
+    listing_type: 'part',
+    note: 'Parts inventory onboarding — PartSentry governance enforced.',
+    fitment_contract: {
+      taxonomy_version: PART_FITMENT_TAXONOMY_VERSION,
+      requested: {
+        make: cleanText(params.make),
+        model: cleanText(params.model),
+        year: safeYear(params.year),
+      },
+    },
+  };
 }
 
 /** Garage/service provider listings (governed). Empty until a provider-listing backend exists. */

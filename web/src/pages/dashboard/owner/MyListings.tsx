@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom'
 import { Card, CardContent } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
+import { Input } from '@/components/ui/input'
 import { Plus, Eye, DollarSign, TrendingUp, Loader2, Car, MessageSquare } from 'lucide-react'
 import { toast } from 'sonner'
 import { ListingImage } from '@/components/marketplace/ListingImage'
@@ -62,6 +63,7 @@ export default function MyListings() {
     fetchCommunicationThreads,
     publishVehicleListing,
     unpublishVehicleListing,
+    updateVehiclePrice,
   } = useCarUpApi()
   const [listingStatuses, setListingStatuses] = useState<Record<string, string>>({})
   const [markingId, setMarkingId] = useState<string | null>(null)
@@ -72,6 +74,48 @@ export default function MyListings() {
   // Lets SellerInquiriesCard tell "owned listings not loaded yet" apart from
   // "loaded and genuinely empty" — it receives undefined until the fetch lands.
   const [ownedLoaded, setOwnedLoaded] = useState(false)
+  // S8 — the seller's own price. `editingPriceVin` is the open editor; `priceDraft` is what they
+  // typed, kept as a STRING so an empty box stays empty rather than becoming 0.
+  const [editingPriceVin, setEditingPriceVin] = useState<string | null>(null)
+  const [priceDraft, setPriceDraft] = useState('')
+  const [savingPriceVin, setSavingPriceVin] = useState<string | null>(null)
+
+  const openPriceEditor = (vin: string, current: unknown) => {
+    setEditingPriceVin(vin)
+    // Pre-filled from the current price when there is one, and left EMPTY when there is not —
+    // seeding '0' would offer the seller a free car as a starting point.
+    setPriceDraft(typeof current === 'number' && Number.isFinite(current) ? String(current) : '')
+  }
+
+  const closePriceEditor = () => {
+    setEditingPriceVin(null)
+    setPriceDraft('')
+  }
+
+  const handlePriceSave = async (vin: string) => {
+    if (savingPriceVin) return
+    const parsed = Number(priceDraft.trim())
+    // The same rule the route enforces, applied before the request so the seller gets an immediate
+    // answer — not instead of the server check, which stays authoritative.
+    if (!priceDraft.trim() || !Number.isFinite(parsed) || parsed <= 0) {
+      toast.error('Enter a price greater than zero.')
+      return
+    }
+    setSavingPriceVin(vin)
+    try {
+      const result = await updateVehiclePrice(vin, parsed)
+      // The SERVER's price is displayed, never the typed one: echoing the input would show a price
+      // that was never stored if the write were refused or adjusted.
+      const persisted = typeof result?.price === 'number' ? result.price : parsed
+      setMyListings(prev => prev.map(item => (item.vin === vin ? { ...item, price: persisted } : item)))
+      toast.success('Price updated. Buyers will see the new price on your listing.')
+      closePriceEditor()
+    } catch (e: unknown) {
+      toast.error(e instanceof Error && e.message ? e.message : 'Could not update the price. Please try again.')
+    } finally {
+      setSavingPriceVin(null)
+    }
+  }
 
   const handlePublishToggle = async (vin: string, currentlyPublished: boolean) => {
     if (publishingVin) return
@@ -234,6 +278,17 @@ export default function MyListings() {
                             size="sm"
                             variant="outline"
                             className="text-xs gap-1"
+                            data-testid={`change-price-${listing.vin}`}
+                            onClick={() => openPriceEditor(listing.vin, listing.price)}
+                          >
+                            <DollarSign className="w-3 h-3" /> Change price
+                          </Button>
+                        )}
+                        {!isSold && (
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            className="text-xs gap-1"
                             data-testid={`mark-sold-${listing.vin}`}
                             disabled={markingId === listing.vin}
                             onClick={() => handleMarkSold(listing.vin, listing.vin)}
@@ -266,6 +321,56 @@ export default function MyListings() {
                         })()}
                         {isSold && <Badge className="text-xs text-gray-400 font-normal">Sale completed</Badge>}
                       </div>
+
+                      {editingPriceVin === listing.vin && (
+                        <div
+                          className="mt-3 rounded-xl border border-slate-200 bg-slate-50 p-3"
+                          data-testid={`price-editor-${listing.vin}`}
+                        >
+                          <label className="text-xs font-semibold text-slate-700" htmlFor={`price-input-${listing.vin}`}>
+                            New price
+                            {/* The currency is SHOWN and not editable. Changing it here would
+                                redenominate an existing listing, which the price route refuses to
+                                accept precisely because nobody restated the vehicle. */}
+                            {listing.currency && <span className="ml-1 font-normal text-slate-500">({listing.currency})</span>}
+                          </label>
+                          <div className="mt-1.5 flex flex-wrap items-center gap-2">
+                            <Input
+                              id={`price-input-${listing.vin}`}
+                              data-testid={`price-input-${listing.vin}`}
+                              type="number"
+                              min="1"
+                              value={priceDraft}
+                              onChange={e => setPriceDraft(e.target.value)}
+                              className="h-8 w-40 text-sm"
+                            />
+                            <Button
+                              size="sm"
+                              className="text-xs"
+                              data-testid={`price-save-${listing.vin}`}
+                              disabled={savingPriceVin === listing.vin}
+                              onClick={() => handlePriceSave(listing.vin)}
+                            >
+                              {savingPriceVin === listing.vin
+                                ? <><Loader2 className="w-3 h-3 mr-1 animate-spin" /> Saving...</>
+                                : 'Save price'}
+                            </Button>
+                            <Button
+                              size="sm"
+                              variant="ghost"
+                              className="text-xs"
+                              data-testid={`price-cancel-${listing.vin}`}
+                              onClick={closePriceEditor}
+                            >
+                              Cancel
+                            </Button>
+                          </div>
+                          <p className="mt-1.5 text-[11px] text-slate-500">
+                            Only the amount changes. Your listing&rsquo;s currency, availability and
+                            verification stay exactly as they are.
+                          </p>
+                        </div>
+                      )}
                     </div>
                   </div>
                 </CardContent>

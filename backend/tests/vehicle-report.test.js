@@ -16,8 +16,13 @@ const router = (await import('../routes/reportRoutes.js')).default;
 const errorHandler = (await import('../middleware/errorMiddleware.js')).default;
 const { supabase } = await import('../db/supabase.js');
 
-function makeMock(seed = {}) {
-  const db = { vehicles: [], vehicle_evidence: [], listing_snapshots: [], temporal_findings: [], disclosure_conflicts: [], report_versions: [], users: [], ...seed };
+function makeMock(seed = {}, { failTables = [] } = {}) {
+  const db = {
+    vehicles: [], vehicle_evidence: [], listing_snapshots: [], temporal_findings: [],
+    disclosure_conflicts: [], report_versions: [], users: [], vehicle_ownership_history: [],
+    partsentry_logs: [], mechanic_work_orders: [], insurance_records: [], vid_inspections: [],
+    ...seed,
+  };
   function builder(t) {
     const st = { t, op: 'select', filters: {}, order: null, lim: null, single: false, payload: null };
     const chain = {
@@ -29,6 +34,7 @@ function makeMock(seed = {}) {
     return chain;
   }
   function run(st) {
+    if (failTables.includes(st.t)) return { data: null, error: { message: `${st.t} unavailable` } };
     const ok = (data) => ({ data, error: null }); const rows = (db[st.t] = db[st.t] || []);
     if (st.op === 'insert') { const list = Array.isArray(st.payload) ? st.payload : [st.payload]; const ins = list.map((p, i) => ({ id: p.id || `${st.t}-${rows.length + i + 1}`, created_at: new Date().toISOString(), ...p })); rows.push(...ins); return ok(st.single ? ins[0] : ins); }
     if (st.op === 'update') { const u = []; for (const r of rows) if (Object.entries(st.filters).every(([k, v]) => r[k] === v)) { Object.assign(r, st.payload); u.push(r); } return ok(u); }
@@ -73,6 +79,69 @@ test('assembleReport (public) excludes pending/restricted data and detects milea
   // completeness + limitations explicit; missing classes shown, not hidden
   assert.ok(r.completeness.classes_missing.length > 0);
   assert.ok(r.limitations.some((l) => /NOT proof of a clean history/i.test(l)));
+});
+
+test('canonical lifecycle prevents administrative documents becoming accidents and converges ownership/service/mileage', async () => {
+  const seeded = seed();
+  seeded.vehicles[0] = { ...seeded.vehicles[0], mileage: 78450, updated_at: '2026-08-24T12:00:00Z' };
+  seeded.vehicle_evidence.push(
+    { id: 'reg-doc', vin: 'V1', evidence_type: 'registration_document', evidence_class: null, verification_status: 'verified', visibility_level: 'public_safe', captured_at: '2026-08-20', source_id: 'registry-upload' },
+    { id: 'insurance-doc', vin: 'V1', evidence_type: 'insurance_document', evidence_class: null, verification_status: 'verified', visibility_level: 'public_safe', captured_at: '2026-08-21', source_id: 'insurance-upload' },
+    { id: 'police-doc', vin: 'V1', evidence_type: 'police_clearance_document', evidence_class: null, verification_status: 'verified', visibility_level: 'public_safe', captured_at: '2026-08-22', source_id: 'police-upload' },
+    { id: 'inspection-doc', vin: 'V1', evidence_type: 'inspection_photo', evidence_class: null, verification_status: 'verified', visibility_level: 'public_safe', captured_at: '2026-08-23', source_id: 'inspection-upload' },
+  );
+  seeded.vehicle_ownership_history = [
+    { id: 'own-1', vin: 'V1', transfer_date: '2026-08-18' },
+  ];
+  seeded.partsentry_logs = [
+    {
+      id: 'part-1', vin: 'V1', timestamp: '2026-08-24T09:00:00Z', action_type: 'Replaced',
+      mileage: 78450, public_card_eligible: false, suspicion_status: null, verification_status: 'verified',
+    },
+  ];
+
+  const sb = makeMock(seeded);
+  const report = await reportSvc.assembleReport(sb, 'V1', { audience: 'public' });
+
+  assert.equal(report.sections.accident_repair.accident, 0, 'insurance/police documents are not accident events');
+  assert.ok(report.sections.accident_repair.repair >= 1, 'recorded replacement converges into repair history');
+  assert.equal(report.sections.ownership_transfer, 1);
+  assert.ok(report.timeline.some((item) => item.evidence_id === 'inspection-doc' && item.evidence_class === 'inspection'), 'verified public-safe inspection evidence remains visible');
+  assert.ok(report.lifecycle_projection.count_states.inspection.value >= 1, 'known public-safe inspection count remains positive');
+  assert.equal(report.lifecycle_projection.count_states.inspection.state, 'partial');
+  assert.equal(report.sections.inspection, report.lifecycle_projection.count_states.inspection.value, 'published section count equals the known partial count');
+  assert.equal(report.lifecycle_projection.source_states.vid_inspections, 'unavailable');
+  assert.ok(report.mileage_history.observations.some((item) => item.value === 78450));
+  assert.equal(report.evidence_index.find((item) => item.evidence_id === 'insurance-doc')?.lifecycle_category, 'insurance');
+  assert.equal(report.evidence_index.find((item) => item.evidence_id === 'police-doc')?.lifecycle_category, 'clearance');
+  assert.ok(report.lifecycle_projection?.version);
+});
+
+test('canonical lifecycle reports partial/unavailable coverage instead of converting collaborator failures to zero', async () => {
+  const seeded = seed();
+  seeded.vehicle_evidence.push(
+    { id: 'repair-evidence', vin: 'V1', evidence_type: 'repair_photo', evidence_class: 'repair', verification_status: 'verified', visibility_level: 'public_safe', captured_at: '2026-08-20', source_id: 'garage-upload' },
+  );
+
+  const sb = makeMock(seeded, { failTables: ['partsentry_logs', 'vehicle_ownership_history'] });
+  const report = await reportSvc.assembleReport(sb, 'V1', { audience: 'public' });
+
+  assert.equal(report.lifecycle_projection.source_states.partsentry, 'unavailable');
+  assert.equal(report.lifecycle_projection.source_states.ownership_ledger, 'unavailable');
+  assert.deepEqual(report.lifecycle_projection.count_states.repair, { value: 1, state: 'partial' });
+  assert.deepEqual(report.lifecycle_projection.count_states.ownership_transfer, { value: 0, state: 'partial' });
+
+  // A positive public-safe count remains a known lower bound under partial coverage.
+  // A partial zero stays withheld so an unread source can never become a false "zero records" claim.
+  assert.equal(report.sections.accident_repair.repair, 1);
+  assert.equal(report.sections.ownership_transfer, null);
+  // Accident depends only on public evidence, which loaded successfully, so zero remains a real zero
+  // for current coverage rather than being globally suppressed.
+  assert.equal(report.sections.accident_repair.accident, 0);
+
+  assert.ok(report.completeness.classes_unavailable.includes('repair'));
+  assert.ok(report.completeness.classes_unavailable.includes('ownership_transfer'));
+  assert.ok(report.limitations.some((item) => /does not convert an unread source into a zero count/i.test(item)));
 });
 
 test('assembleReport (admin) sees pending + restricted', async () => {

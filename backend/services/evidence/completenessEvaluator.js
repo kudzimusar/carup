@@ -12,13 +12,20 @@
  *   4. plate_number OR temp_plate_id — at least one must be non-empty
  *   5. Ownership document — at least one vehicle_evidence row with evidence_type
  *      IN (registration_document, ownership_transfer_document) that has been verified
+ *   6. Fact reconciliation (Seller Journey S5) — no UNRESOLVED MATERIAL contradiction between
+ *      what the seller stated and what their documents were read to say. A disagreement is
+ *      cleared by a human review decision, never by the mere presence of evidence.
  *
  * Advisory requirements (non-blocking — shown in the UI but do not gate publication):
  *   customs_photo, inspection_photo, insurance_document, police_clearance_document
  *
- * AI confidence is NEVER consulted here: this evaluator is purely deterministic
- * and based on human-verified state.
+ * AI confidence is NEVER consulted here: this evaluator is purely deterministic and based on
+ * human-verified state. That holds for requirement 6 too — it reads `match_status` (a
+ * deterministic string comparison) and `review_status` (a human decision), never the extraction's
+ * `confidence` score.
  */
+import { reconcileSellerFacts } from './sellerFactReconciliation.js';
+
 async function getDefaultClient() {
   const { supabase } = await import('../../db/supabase.js');
   return supabase;
@@ -53,13 +60,25 @@ function docStatus(docs, type) {
  *   blocking_gaps: Array<{key, label}>,
  *   pending_gaps: Array<{key, label}>,
  *   publication_status: string,
+ *   reconciliation: object,  // S5 seller-facing read model; OWNER-SCOPED — see the privacy note below
  * }>}
+ *
+ * PRIVACY. `reconciliation` names document types and OCR readings, so it is seller-private. It is
+ * safe on this return because the only caller that reaches a person —
+ * `GET /api/vehicles/:vin/completeness` — is role-gated AND ownership/tenant-scoped. The other
+ * caller, `trustDecisionService`, reads only `is_publishable`, `completeness_percent`,
+ * `blocking_gaps` and `pending_gaps`, and `toPublicDecision` publishes just
+ * `{status, value, reason_codes}` — it drops the `rest` bag where `pending_gaps` travels. Any change
+ * that starts publishing `rest` would leak the disagreeing field name to buyers.
  */
 export async function evaluateCompleteness(vin, opts = {}) {
   const client = opts.client ?? (await getDefaultClient());
   const { data: vehicle, error: vErr } = await client
     .from('vehicles')
-    .select('vin, chassis_number, engine_number, plate_number, temp_plate_id, trust_score, publication_status')
+    // S5 widens this to the seller-stated identity values, because reconciliation compares what the
+    // SELLER said against what the documents read. Without them the evaluator could count
+    // contradictions but not say which fact disagreed.
+    .select('vin, chassis_number, engine_number, plate_number, temp_plate_id, trust_score, publication_status, make, model, year, normalized_plate_number')
     .eq('vin', vin)
     .single();
 
@@ -126,6 +145,43 @@ export async function evaluateCompleteness(vin, opts = {}) {
     status: ownershipVerified ? 'verified' : ownershipPending ? 'pending_review' : 'missing',
   });
 
+  // ── Evidence reconciliation (blocking) — Seller Journey S5 ───────────────
+  //
+  // A known material contradiction must not silently reach publication. The disagreement is
+  // already detected and stored by `extractionService`; what was missing was any gate that read it,
+  // so a listing whose registration document said 2019 while the seller said 2020 published exactly
+  // like a clean one.
+  //
+  // This is an extra requirement INSIDE this evaluator rather than a second blocker: the publish
+  // route already gates on `is_publishable` and already discloses the gaps, so a parallel gate
+  // would give CarUp two answers to "may this publish?".
+  const { data: extractionRows, error: xErr } = await client
+    .from('vehicle_document_extractions')
+    .select('id, evidence_id, document_type, field_name, raw_value, normalized_value, expected_value, compared_vehicle_field, match_status, review_status, created_at')
+    .eq('vin', vin)
+    .order('created_at', { ascending: false });
+  // Fails closed. A gate that cannot read its own input must refuse rather than assume the listing
+  // is clean — assuming would publish the exact contradiction this requirement exists to catch.
+  if (xErr) throw new Error(`Extraction reconciliation query error: ${xErr.message}`);
+
+  const reconciliation = reconcileSellerFacts({ vehicle, extractions: extractionRows || [] });
+  const unresolvedFields = reconciliation.unresolved_material_fields;
+
+  requirements.push({
+    key: 'fact_reconciliation',
+    // The label NAMES the facts in disagreement. A refusal that names nothing is the defect the
+    // publish route already had to fix once for pending ownership documents.
+    label: unresolvedFields.length > 0
+      ? `Resolve document disagreement: ${unresolvedFields.join(', ')}`
+      : 'Document readings agree with your details',
+    category: 'documents',
+    blocking: true,
+    // 'pending_review' rather than 'missing': the seller HAS supplied the document, and a human
+    // decision is what clears it. Saying "missing" would tell them to upload something again.
+    status: reconciliation.has_unresolved_material_contradiction ? 'pending_review' : 'present',
+    fields: unresolvedFields,
+  });
+
   // ── Advisory documents (non-blocking) ────────────────────────────────────
 
   for (const type of ADVISORY_DOC_TYPES) {
@@ -156,5 +212,8 @@ export async function evaluateCompleteness(vin, opts = {}) {
     blocking_gaps: missingBlocking.map((r) => ({ key: r.key, label: r.label })),
     pending_gaps:  pendingBlocking.map((r) => ({ key: r.key, label: r.label })),
     publication_status: vehicle.publication_status ?? 'draft',
+    // The seller-facing reconciliation read model travels with the verdict, so a caller does not
+    // have to make a second round trip to learn WHY the gate refused.
+    reconciliation,
   };
 }
