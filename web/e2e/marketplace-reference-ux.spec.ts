@@ -58,6 +58,56 @@ async function commonMocks(page: Page) {
   await page.route('**/api/marketplace/nav-coverage', (route: Route) => route.fulfill({ json: { threshold: 3, categories: {}, tags: {}, governed_deferred: [] } }))
 }
 
+test('Home renders eight communicative journey stories without mobile crowding', async ({ page }) => {
+  await commonMocks(page)
+  await page.route(/\/api\/marketplace\/listings(\?|$)/, (route: Route) => route.fulfill({
+    json: {
+      total: 2,
+      limit: 6,
+      listings: [
+        listing(VIN_A),
+        listing(VIN_B, { make: 'Honda', model: 'Fit', price: 7800 }),
+      ],
+    },
+  }))
+
+  await page.setViewportSize({ width: 390, height: 844 })
+  await page.goto('/')
+
+  await expect(page.getByTestId('home-journey-card')).toHaveCount(8)
+  await expect(page.getByTestId('home-journey-media')).toHaveCount(8)
+  for (const scene of ['buy', 'sell', 'verify', 'diaspora', 'finance', 'protect', 'maintain', 'parts']) {
+    await expect(page.locator(`[data-testid="home-journey-media"][data-scene="${scene}"]`)).toHaveCount(1)
+  }
+
+  await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth + 1), {
+    message: 'Home journey media must not create horizontal overflow on compact screens',
+  }).toBe(true)
+})
+
+test('Marketplace keeps inventory first and inserts one restrained decision-story interlude', async ({ page }) => {
+  await commonMocks(page)
+  await page.route(/\/api\/marketplace\/listings(\?|$)/, (route: Route) => route.fulfill({
+    json: {
+      total: 3,
+      limit: 48,
+      listings: [
+        listing(VIN_A),
+        listing(VIN_B, { make: 'Honda', model: 'Fit', price: 7800 }),
+        listing('UATMARKETPLACE00003', { make: 'Mazda', model: 'Demio', price: 6900 }),
+      ],
+    },
+  }))
+
+  await page.goto('/marketplace')
+
+  const grid = page.getByTestId('marketplace-results-grid')
+  await expect(grid.getByTestId('marketplace-vehicle-card')).toHaveCount(3)
+  await expect(grid.getByTestId('marketplace-decision-story')).toHaveCount(1)
+  await expect(grid.getByTestId('marketplace-decision-story')).toContainText('Know before you decide.')
+  await expect(grid.getByTestId('marketplace-decision-story')).toContainText('Missing information stays missing.')
+})
+
 test('listing card renders canonical Trust and never republishes the legacy cached score', async ({ page }) => {
   await commonMocks(page)
   await page.route(/\/api\/marketplace\/listings(\?|$)/, (route: Route) => route.fulfill({
