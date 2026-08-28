@@ -6,6 +6,11 @@ const TEMPLATES = Object.freeze({
     subject: 'CarUp received your message',
     body: 'CarUp received your message about {{topic}}. We will keep this thread updated.',
   },
+  ownership_transfer_v1: {
+    transactional: true,
+    subject: 'Vehicle ownership transfer update',
+    body: 'Ownership transfer for {{listing_id}} is {{status}}. Reference: {{reference}}. CarUp changes legal ownership only after governed completion.',
+  },
   human_handoff_v1: {
     transactional: true,
     subject: 'A CarUp specialist is reviewing this',
