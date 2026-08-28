@@ -76,8 +76,9 @@ describe('nothing unrecorded is filled in', () => {
       { id: 'p1', name: 'Filter', sku: 'F-1', stock_level: 1, unit_price: 10, min_stock: null },
     ])
     render(<PartsTracking />)
-    expect(await screen.findByTestId('parts-low-stock')).toHaveTextContent(/no reorder level set/i)
-    expect(screen.getByTestId('part-row-p1')).not.toHaveTextContent('Low Stock')
+    const row = await screen.findByTestId('part-row-p1')
+    expect(screen.getByTestId('parts-low-stock')).toHaveTextContent(/no reorder level set/i)
+    expect(row).not.toHaveTextContent('Low Stock')
   })
 
   it('a reorder level the garage did set is honoured', async () => {
