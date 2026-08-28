@@ -120,10 +120,20 @@ test('V16 ownership migration is atomic, append-only and rejects sale/payment as
   assert.match(sql, /passport_transition_ownership_transfer_atomic/);
   assert.match(sql, /FOR UPDATE/);
   assert.match(sql, /UPDATE public\.vehicles\s+SET owner_id=v_transfer\.incoming_owner_id/);
+  assert.match(sql, /current_seller_id=NULL/);
+  assert.match(sql, /current_seller_type=NULL/);
+  assert.match(sql, /current_seller_type_source=NULL/);
+  assert.match(sql, /WHEN publication_status='published' THEN 'publishable'/);
   assert.match(sql, /INSERT INTO public\.vehicle_ownership_history/);
   assert.match(sql, /vehicle_ownership_transfer_events/);
   assert.match(sql, /ownership transfer completion requires governed authority and completion reference/i);
   assert.doesNotMatch(sql, /safepay_escrows|payment_status\s*=|escrowed/i);
+});
+
+test('V16 ownership migration makes completed history non-cancellable', () => {
+  const sql = readFileSync('database/migrations/20260828203000_passport_ownership_transfer_authority.sql', 'utf8');
+  assert.match(sql, /completed ownership transfer cannot be cancelled/i);
+  assert.match(sql, /p_to_state='cancelled' AND v_transfer\.completed_at IS NOT NULL/);
 });
 
 test('V16 ownership migration prevents duplicate active transfers and duplicate history completion', () => {
