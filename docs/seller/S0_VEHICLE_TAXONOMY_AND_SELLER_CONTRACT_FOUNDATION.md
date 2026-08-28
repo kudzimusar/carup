@@ -2,10 +2,10 @@
 
 **Programme:** Seller Journey 1.0  
 **Phase:** S0 — PREREQUISITE  
-**Status:** IN PROGRESS — contract/audit work active; runtime source changes intentionally blocked by current lane ownership  
+**Status:** CERTIFIED — PASS at PR #182 exact head `4d7b94fc8bd7c8e0b22658239cb8376a01a39e7e` (see `receipts/S0_TAXONOMY_AND_CONTRACT_CERTIFICATION.md`)  
 **Programme manual:** `docs/seller/SELLER_JOURNEY_1_0_CANONICAL_PLAN.md`  
 **Seller runtime audit anchor:** PR #182 exact head `0d6df68f5003e209269f19cca54ead85cdab0748`  
-**Latest checked PR #182 head:** `9508f0fe48ed344610d25e727311233afedaa2bb`  
+**Latest checked PR #182 head:** `4d7b94fc8bd7c8e0b22658239cb8376a01a39e7e` — certified head  
 **Canonical main at phase start:** `ba208963d863654157335189c60f587cbe330041`  
 **Created:** 2026-08-28
 
@@ -552,4 +552,4 @@ S0 is PASS only when all of the following are proven at one exact candidate head
 
 After S0 certification, any future feature needing vehicle taxonomy must extend or consume the global contract rather than recreate taxonomy locally.
 
-Until then S0 remains IN PROGRESS.
+S0 was certified PASS on 2026-08-28 at PR #182 exact head `4d7b94fc8bd7c8e0b22658239cb8376a01a39e7e`; the exit-gate disposition is recorded in `receipts/S0_TAXONOMY_AND_CONTRACT_CERTIFICATION.md`.

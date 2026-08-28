@@ -25,9 +25,11 @@ Do not open a third runtime source-write lane merely because this documentation 
 
 ## Current phase
 
-**S0 — Global Vehicle Taxonomy & Seller Contract Foundation: IN PROGRESS**
+**S0 — Global Vehicle Taxonomy & Seller Contract Foundation: CERTIFIED — PASS (2026-08-28)**
 
-The current work is intentionally documentation/contract/audit-only until the repository's active implementation-lane rules permit Seller runtime changes from an accepted canonical base.
+S0 runtime work was implemented inside PR #182 (the lane that owns the Seller/taxonomy/Marketplace surfaces) and certified at exact head `4d7b94fc8bd7c8e0b22658239cb8376a01a39e7e` with staging proof at immutable candidate `7b2506870df48a87d92f0c2fc6ca1a38e3040f6e`. See `receipts/S0_TAXONOMY_AND_CONTRACT_CERTIFICATION.md`.
+
+**Next phase: S1 — Seller Entry & Vehicle Identification.**
 
 ## Future receipts
 
