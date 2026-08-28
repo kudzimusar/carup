@@ -130,10 +130,14 @@ test('V16 ownership migration is atomic, append-only and rejects sale/payment as
   assert.doesNotMatch(sql, /safepay_escrows|payment_status\s*=|escrowed/i);
 });
 
-test('V16 ownership migration makes completed history non-cancellable', () => {
+test('V16 ownership migration seals the post-completion dispute state machine', () => {
   const sql = readFileSync('database/migrations/20260828203000_passport_ownership_transfer_authority.sql', 'utf8');
+  assert.match(sql, /IF v_transfer\.completed_at IS NOT NULL THEN/);
+  assert.match(sql, /WHEN 'complete' THEN p_to_state='disputed'/);
+  assert.match(sql, /WHEN 'disputed' THEN p_to_state='complete'/);
+  assert.match(sql, /completed ownership transfer cannot return to pre-completion state/i);
   assert.match(sql, /completed ownership transfer cannot be cancelled/i);
-  assert.match(sql, /p_to_state='cancelled' AND v_transfer\.completed_at IS NOT NULL/);
+  assert.match(sql, /v_transfer\.completed_at IS NOT NULL AND p_to_state='cancelled'/);
 });
 
 test('V16 ownership migration prevents duplicate active transfers and duplicate history completion', () => {
