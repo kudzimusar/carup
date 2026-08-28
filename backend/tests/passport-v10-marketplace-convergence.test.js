@@ -7,6 +7,10 @@ import {
   marketplacePassportParity,
 } from '../services/passport/passportMarketplaceConvergence.js';
 
+function clone(value) {
+  return structuredClone(value);
+}
+
 function pair() {
   const canonicalTrust = {
     score: 52,
@@ -37,8 +41,8 @@ function pair() {
       currency: 'USD',
       publication_status: 'published',
       listing_status: 'Available',
-      claims,
-      canonical_trust: canonicalTrust,
+      claims: clone(claims),
+      canonical_trust: clone(canonicalTrust),
       public_evidence: [{ id: 'ev-1' }],
     },
     passport: {
@@ -53,11 +57,11 @@ function pair() {
           currency: 'USD',
           publication_status: 'published',
           listing_status: 'Available',
-          claims,
+          claims: clone(claims),
           transaction_actions: ['inquiry'],
         },
       },
-      trust: { data: canonicalTrust },
+      trust: { data: clone(canonicalTrust) },
       evidence: { data: { items: [{ evidence_id: 'ev-1' }] } },
     },
   };
