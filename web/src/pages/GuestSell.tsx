@@ -8,6 +8,8 @@ import { useAuth } from '@/context/AuthContext'
 import { zimbabweLocations, zimbabweProvinces } from '@/data/mockData'
 import { BODY_STYLES, DRIVETRAINS, FUEL_TYPES, SELLER_CONDITIONS, TRANSMISSIONS, VEHICLE_COLORS, VEHICLE_MAKES, isValidVehicleYear, modelsForMake } from '@/data/vehicleTaxonomy'
 import { saveGuestSellDraft } from '@/lib/guestSellDraft'
+import { VehicleIdentificationNotice } from '@/components/sell/VehicleIdentificationNotice'
+import { useSellerVehicleIdentification } from '@/hooks/useSellerVehicleIdentification'
 import { toast } from 'sonner'
 
 const CURRENCIES = ['USD', 'ZiG']
@@ -34,6 +36,8 @@ export default function GuestSell() {
   const [errors, setErrors] = useState<Record<string, string>>({})
   const [draftSaved, setDraftSaved] = useState(false)
   const modelOptions = useMemo(() => modelsForMake(form.make).map(item => item.name), [form.make])
+  // S1: detect an existing CarUp Passport before the seller invests in the rest of the form.
+  const { result: identification, checking: identifying } = useSellerVehicleIdentification(form.vin)
 
   const set = <K extends keyof GuestForm>(key: K, value: GuestForm[K]) => {
     setForm(previous => ({ ...previous, [key]: value }))
@@ -179,6 +183,7 @@ export default function GuestSell() {
               </div>
               <Field label="VIN" error={errors.vin}>
                 <Input value={form.vin} onChange={e => set('vin', e.target.value.toUpperCase())} maxLength={17} placeholder="17-character VIN" className="font-mono" data-testid="guest-sell-vin" />
+                <VehicleIdentificationNotice result={identification} checking={identifying} />
               </Field>
               <div className="grid gap-4 sm:grid-cols-2">
                 <Field label="Chassis number (optional until publication)"><Input value={form.chassisNumber} onChange={e => set('chassisNumber', e.target.value.toUpperCase())} /></Field>

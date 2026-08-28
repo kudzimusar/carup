@@ -11,6 +11,8 @@ import { zimbabweLocations, zimbabweProvinces } from '@/data/mockData'
 import { useCarUpApi } from '@/hooks/useCarUpApi'
 import { VehicleCompletenessPanel } from '@/components/VehicleCompletenessPanel'
 import { clearGuestSellDraft, readGuestSellDraft } from '@/lib/guestSellDraft'
+import { VehicleIdentificationNotice } from '@/components/sell/VehicleIdentificationNotice'
+import { useSellerVehicleIdentification } from '@/hooks/useSellerVehicleIdentification'
 import { BODY_STYLES, DRIVETRAINS, FUEL_TYPES, SELLER_CONDITIONS, TRANSMISSIONS, VEHICLE_COLORS, VEHICLE_MAKES, modelsForMake, vehicleYearOptions } from '@/data/vehicleTaxonomy'
 
 const YEARS = vehicleYearOptions()
@@ -115,6 +117,9 @@ export default function SellVehicle() {
   const [savedVin, setSavedVin] = useState<string | null>(null)
   const [guestDraftLoaded, setGuestDraftLoaded] = useState(() => Boolean(guestDraft))
   const modelOptions = modelsForMake(form.make).map(item => item.name)
+  // S1: the same shared existing-Passport check Guest Sell runs. Advisory here too — the server's
+  // 409 stays the authoritative duplicate rejection.
+  const { result: identification, checking: identifying } = useSellerVehicleIdentification(form.vin)
 
   useEffect(() => {
     if (guestDraft) toast.success('Your pre-sign-in listing draft is ready to review.')
@@ -347,6 +352,7 @@ export default function SellVehicle() {
                 </div>
                 <p className="text-xs text-gray-400 mt-1">{form.vin.length}/17 characters</p>
                 {errors.vin && <p className="text-xs text-red-500">{errors.vin}</p>}
+                <VehicleIdentificationNotice result={identification} checking={identifying} />
               </div>
               <div className="grid sm:grid-cols-2 gap-4">
                 <div>
