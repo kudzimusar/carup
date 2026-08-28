@@ -1,0 +1,65 @@
+name: Vehicle Passport Foundation CI
+
+on:
+  pull_request:
+    paths:
+      - 'backend/services/passport/**'
+      - 'backend/tests/passport-foundation-contract.test.js'
+      - 'docs/vehicle-passport-lifecycle/**'
+      - '.github/workflows/vehicle-passport-foundation-ci.yml'
+  push:
+    branches:
+      - feat/vehicle-passport-foundation
+    paths:
+      - 'backend/services/passport/**'
+      - 'backend/tests/passport-foundation-contract.test.js'
+      - 'docs/vehicle-passport-lifecycle/**'
+      - '.github/workflows/vehicle-passport-foundation-ci.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: vehicle-passport-foundation-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  passport-foundation:
+    name: V0/V1 authority + projection contracts
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      NODE_ENV: test
+      SUPABASE_URL: http://localhost:54321
+      SUPABASE_SERVICE_ROLE_KEY: passport-foundation-test-key
+      SUPABASE_ANON_KEY: passport-foundation-anon-key
+      JWT_SECRET: passport-foundation-jwt-key
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Passport foundation contract
+        run: node --test backend/tests/passport-foundation-contract.test.js
+
+      - name: Preserve canonical Passport lookup policy
+        run: node --test backend/tests/issue164-lookup-policy.test.js
+
+      - name: Preserve canonical Trust decision authority
+        run: node --test backend/tests/trust-decision.test.js
+
+      - name: Syntax check Passport foundation
+        run: |
+          node --check backend/services/passport/passportContract.js
+          node --check backend/services/passport/passportTimelineService.js
+          node --check backend/services/passport/passportReadModelService.js
+
+      - name: Diff hygiene
+        run: git diff --check HEAD^ HEAD
