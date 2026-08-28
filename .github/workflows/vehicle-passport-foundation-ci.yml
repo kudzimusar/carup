@@ -99,6 +99,9 @@ jobs:
       - name: Preserve canonical Trust public read path
         run: node --test backend/tests/issue164-phase3-trust-authority.test.js
 
+      - name: Passport V14 external source adapter contract
+        run: node --test backend/tests/passport-v14-external-adapter.test.js
+
       - name: Preserve canonical source-verification contract
         run: node --test backend/tests/source-verification.test.js
 
@@ -133,6 +136,7 @@ jobs:
           node --check backend/services/passport/passportSurfaceConvergence.js
           node --check backend/services/passport/passportCommunicationIntent.js
           node --check backend/services/passport/passportAiAdvisory.js
+          node --check backend/services/passport/passportExternalSourceAdapter.js
 
       - name: Diff hygiene
         run: git diff --check HEAD^ HEAD
