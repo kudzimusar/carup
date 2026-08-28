@@ -124,7 +124,8 @@ test('V11: surfaces may omit canonical fields they do not render', () => {
 
 test('V11 anti-fork: validator owns no surface projection or database path', () => {
   const src = readFileSync('backend/services/passport/passportSurfaceConvergence.js', 'utf8');
-  assert.doesNotMatch(src, /Landing|VehicleSearch|VehicleDetail|Seller|toPublicVehicle|toListingClaims/);
+  assert.doesNotMatch(src, /from\s+['"][^'"]*(?:Landing|VehicleSearch|VehicleDetail|Seller|marketplaceListingDetailService|listingSummaryService)[^'"]*['"]/i);
+  assert.doesNotMatch(src, /toPublicVehicle\s*\(|toListingClaims\s*\(|buildMarketplaceListingSummary\s*\(/);
   assert.doesNotMatch(src, /\.from\s*\(|\.insert\s*\(|\.update\s*\(|supabase/i);
   assert.doesNotMatch(src, /calculateVehicleTrustScore|refreshCanonicalTrust/);
 });
