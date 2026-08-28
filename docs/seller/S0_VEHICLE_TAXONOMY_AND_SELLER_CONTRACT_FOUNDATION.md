@@ -4,7 +4,8 @@
 **Phase:** S0 — PREREQUISITE  
 **Status:** IN PROGRESS — contract/audit work active; runtime source changes intentionally blocked by current lane ownership  
 **Programme manual:** `docs/seller/SELLER_JOURNEY_1_0_CANONICAL_PLAN.md`  
-**Seller runtime reference:** PR #182 exact head `0d6df68f5003e209269f19cca54ead85cdab0748`  
+**Seller runtime audit anchor:** PR #182 exact head `0d6df68f5003e209269f19cca54ead85cdab0748`  
+**Latest revalidated PR #182 head:** `be38e48c447ad19a4b50cddd29c8747e5da80811`  
 **Canonical main at phase start:** `ba208963d863654157335189c60f587cbe330041`  
 **Created:** 2026-08-28
 
@@ -22,7 +23,29 @@ S0 does not attempt to hard-code every vehicle ever manufactured. It creates an 
 
 ---
 
-## 2. Current lane decision
+## 2. Live-head drift captured during S0
+
+While this S0 document was being created, PR #182 advanced by seven commits from `0d6df68f5003e209269f19cca54ead85cdab0748` to `be38e48c447ad19a4b50cddd29c8747e5da80811`.
+
+The intervening commits are visual/communicative Home and Marketplace work. They do not modify `GuestSell.tsx`, `SellVehicle.tsx` or `vehicleTaxonomy.ts`; `Marketplace.tsx` did move.
+
+The S0-critical contracts were immediately re-read at `be38e48c…` and the following baseline facts remain unchanged:
+
+- taxonomy version `carup-vehicle-taxonomy-1.0.0`;
+- 43 makes / 212 model entries;
+- Guest Sell fuel values still include Plug-in Hybrid and Other;
+- Marketplace direct fuel filter still omits them;
+- Guest Sell transmission still includes CVT and Other;
+- Marketplace direct transmission still omits them;
+- Guest Sell year validation remains 1900 through current year + 1;
+- authenticated Sell remains a 60-year generated list and still defaults year to 2020;
+- Marketplace year generation remains a separate policy.
+
+This drift capture is intentional. Future phases must repeat the same exact-head reconciliation rather than relying on this snapshot.
+
+---
+
+## 3. Current lane decision
 
 S0 runtime source work MUST NOT start from `main` today.
 
@@ -47,7 +70,7 @@ Runtime implementation may begin only after exact-head lane reconciliation estab
 
 ---
 
-## 3. Current taxonomy inventory at PR #182
+## 4. Current taxonomy inventory at PR #182
 
 The current file declares:
 
@@ -97,7 +120,7 @@ However, it does **not** yet model:
 
 ---
 
-## 4. Confirmed S0 contract defects
+## 5. Confirmed S0 contract defects
 
 ### S0-P0-01 — Year vocabulary is inconsistent across Seller and Marketplace
 
@@ -265,7 +288,7 @@ The current write path treats form-entered listing location as public when visib
 
 ---
 
-## 5. Canonical taxonomy model to freeze
+## 6. Canonical taxonomy model to freeze
 
 S0 proposes the following conceptual hierarchy:
 
@@ -300,7 +323,7 @@ Those are independent facts/classifications. They must not be collapsed into one
 
 ---
 
-## 6. Taxonomy authority states
+## 7. Taxonomy authority states
 
 Every taxonomy value should be representable with an authority state appropriate to its source.
 
@@ -328,7 +351,7 @@ Unknown/unrecognized values must never be silently mapped to a plausible canonic
 
 ---
 
-## 7. Alias and regional naming policy
+## 8. Alias and regional naming policy
 
 The canonical taxonomy must support multiple market names without duplicating vehicle identity.
 
@@ -356,7 +379,7 @@ The canonical name is a normalization choice, not a claim that one regional name
 
 ---
 
-## 8. Year policy
+## 9. Year policy
 
 S0 freezes the following design direction:
 
@@ -371,7 +394,7 @@ The precise lower bound and historical-vehicle policy remain an S0 decision to c
 
 ---
 
-## 9. Initial Seller Data Contract Matrix
+## 10. Initial Seller Data Contract Matrix
 
 | Seller input | Current accepted? | Current canonical persistence | Authority target | Marketplace/filter target | S0 status |
 |---|---:|---|---|---|---|
@@ -409,7 +432,7 @@ This matrix is the first S0 baseline. It must be expanded against schema, API, p
 
 ---
 
-## 10. Communications boundary frozen in S0
+## 11. Communications boundary frozen in S0
 
 S0 does not add provider-specific seller logic.
 
@@ -426,7 +449,7 @@ Communications remains owner of channel policy, preferences, consent, retries, d
 
 ---
 
-## 11. Intelligence boundary frozen in S0
+## 12. Intelligence boundary frozen in S0
 
 Seller Journey domain state leads; Intelligence observes.
 
@@ -450,7 +473,7 @@ Authoritative lifecycle events must be emitted server-side adjacent to the autho
 
 ---
 
-## 12. S0 implementation sequence once a runtime lane is legal
+## 13. S0 implementation sequence once a runtime lane is legal
 
 1. Reconcile exact live main and PR heads.
 2. Choose the canonical implementation base containing accepted #182 work.
@@ -470,7 +493,7 @@ Authoritative lifecycle events must be emitted server-side adjacent to the autho
 
 ---
 
-## 13. S0 measurable exit gate
+## 14. S0 measurable exit gate
 
 S0 is PASS only when all of the following are proven at one exact candidate head:
 
