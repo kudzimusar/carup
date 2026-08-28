@@ -36,6 +36,12 @@ export const COMMUNICATION_EVENT_TYPES = [
   'MARKETPLACE_PAYMENT_FAILED',
   // R5 — the canonical Trust presentation change.
   'vehicle.trust.presentation_changed',
+  // Passport ownership lifecycle. These are emitted inside the same database
+  // transactions that mutate the transfer state; Communications is only a consumer.
+  'vehicle.ownership.transfer_started',
+  'vehicle.ownership.transfer_action_required',
+  'vehicle.ownership.transfer_state_changed',
+  'vehicle.ownership.transfer_completed',
   // R1 — the durable post-verification work item. The Leadership Welcome used to be produced
   // inline in the verification route and its failure swallowed, which permanently lost the welcome
   // for that account because the verification token is single-use and already consumed.
