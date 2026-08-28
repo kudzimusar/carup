@@ -119,6 +119,12 @@ jobs:
       - name: Passport V16 governed ownership authority
         run: node --test backend/tests/passport-v16-ownership-authority.test.js
 
+      - name: Passport V16 PostgreSQL ownership + custody authorities
+        run: node --test backend/tests/passport-v16-postgres-authorities.test.js
+
+      - name: Preserve repository migration integrity
+        run: node --test backend/tests/migration-integrity.test.js
+
       - name: Issue 158 blockchain key custody
         run: node --test backend/tests/issue-158-private-key-custody.test.js
 
