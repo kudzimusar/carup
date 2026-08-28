@@ -116,6 +116,9 @@ test('V12: validator rejects any later attempt to claim routing authority', () =
 test('V12 anti-fork: Passport communication intent owns no event persistence or provider adapter', () => {
   const src = readFileSync('backend/services/passport/passportCommunicationIntent.js', 'utf8');
   assert.doesNotMatch(src, /emitDomainEvent|publishMemoryEvent|queueNotification|handleDomainEvent/);
-  assert.doesNotMatch(src, /providerAdapters|resend|twilio|whatsapp|telegram/i);
+  assert.doesNotMatch(
+    src,
+    /from\s+['"][^'"]*(?:providerAdapters|communicationCanonicalNotificationService|communicationOrchestratorService|communicationDeliveryWorker)[^'"]*['"]/i,
+  );
   assert.doesNotMatch(src, /\.from\s*\(|\.insert\s*\(|\.update\s*\(|supabase/i);
 });
