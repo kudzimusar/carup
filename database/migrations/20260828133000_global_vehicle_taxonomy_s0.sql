@@ -51,6 +51,14 @@ CREATE TABLE IF NOT EXISTS vehicle_taxonomy_observations (
 CREATE INDEX IF NOT EXISTS idx_vehicle_taxonomy_observations_review
   ON vehicle_taxonomy_observations(review_status, dimension, created_at);
 
+-- Governance queue: raw seller/import observations are not a public product surface.
+-- Supabase public-schema default privileges may otherwise expose new tables through
+-- PostgREST, so enforce both ACL and RLS boundaries explicitly.
+ALTER TABLE public.vehicle_taxonomy_observations ENABLE ROW LEVEL SECURITY;
+REVOKE ALL ON TABLE public.vehicle_taxonomy_observations FROM anon, authenticated;
+GRANT SELECT, INSERT, UPDATE, DELETE
+  ON TABLE public.vehicle_taxonomy_observations TO service_role;
+
 -- Seller commercial facts are assertions: source/recorded_at must accompany any stored assertion.
 ALTER TABLE IF EXISTS vehicles
   DROP CONSTRAINT IF EXISTS vehicles_seller_listing_claim_provenance_check;
