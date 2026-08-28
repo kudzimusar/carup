@@ -165,6 +165,82 @@ test('mobile exposes the same filter system through an explicit drawer', async (
 })
 
 
+test('comparison renders only server-owned Trust vocabulary with no client score tier', async ({ page }) => {
+  await commonMocks(page)
+  await page.route('**/api/marketplace/compare', (route: Route) => route.fulfill({
+    json: {
+      total: 2,
+      listings: [
+        listing(VIN_A, {
+          trust: {
+            score: 96,
+            band: 'high',
+            evaluation_state: 'evaluated',
+            confidence: 'high',
+            calculation_version: 'trust-decision-1.0.0',
+            known_limitations: [],
+          },
+        }),
+        listing(VIN_B, {
+          make: 'Honda',
+          model: 'Fit',
+          trust: {
+            score: 74,
+            band: 'moderate',
+            evaluation_state: 'evaluated',
+            confidence: 'medium',
+            calculation_version: 'trust-decision-1.0.0',
+            known_limitations: [],
+          },
+        }),
+      ],
+    },
+  }))
+
+  await page.goto(`/marketplace/compare?vins=${VIN_A},${VIN_B}`)
+  const compare = page.getByTestId('marketplace-compare-page')
+  await expect(compare).toContainText('High · 96/100')
+  await expect(compare).toContainText('Moderate · 74/100')
+  await expect(compare).not.toContainText('Strong canonical Trust')
+})
+
+test('Home popular shortcuts deep-link to governed Marketplace facets instead of free-text guesses', async ({ page }) => {
+  await commonMocks(page)
+  await page.route(/\/api\/marketplace\/listings(\?|$)/, (route: Route) => route.fulfill({
+    json: { total: 1, limit: 6, listings: [listing(VIN_A)] },
+  }))
+
+  await page.goto('/')
+  const shortcut = (label: string) => page.getByTestId('popular-search-chip').filter({ hasText: label })
+
+  await expect(shortcut('Brand New')).toHaveAttribute('href', '/marketplace?category=brand_new')
+  await expect(shortcut('Fresh Imports')).toHaveAttribute('href', '/marketplace?tag=fresh_import')
+  await expect(shortcut('Under $5,000')).toHaveAttribute('href', '/marketplace?maxPrice=5000')
+  await expect(shortcut('Harare')).toHaveAttribute('href', '/marketplace?location=Harare')
+  await expect(shortcut('Diesel')).toHaveAttribute('href', '/marketplace?fuel=Diesel')
+  await expect(shortcut('Automatic')).toHaveAttribute('href', '/marketplace?transmission=Automatic')
+  await expect(shortcut('Parts & Accessories')).toHaveAttribute('href', '/marketplace/parts')
+  await expect(shortcut('Passport Verified')).toHaveAttribute('href', '/marketplace?tag=passport_verified')
+})
+
+test('shared Home vehicle cards reuse governed plate status presentation', async ({ page }) => {
+  await commonMocks(page)
+  await page.route(/\/api\/marketplace\/listings(\?|$)/, (route: Route) => route.fulfill({
+    json: {
+      total: 1,
+      limit: 6,
+      listings: [listing(VIN_A, { plate_verified: true, plate_status: 'Active' })],
+    },
+  }))
+
+  await page.goto('/')
+  const card = page.getByTestId('featured-verified-car').first()
+  await expect(card).toBeVisible()
+  await expect(card.getByTestId('marketplace-plate-status')).toHaveText('Plate confirmed')
+  await expect(card.getByTestId('marketplace-plate-confirmed-badge')).toBeVisible()
+  await expect(card).not.toContainText('Plate active')
+})
+
 test('stale/unavailable trust, missing price, media-state mismatch and adverse plate status fail closed', async ({ page }) => {
   await commonMocks(page)
   await page.route(/\/api\/marketplace\/listings(\?|$)/, (route: Route) => route.fulfill({
