@@ -5,7 +5,7 @@
  * READ-ONLY in preflight mode. It proves the migration is safe to apply BEFORE it is applied, and
  * proves the expected end state afterwards. It never mutates anything itself.
  *
- *   node scripts/email-1-0-hardening-preflight.mjs preflight   --url <db> 
+ *   node scripts/email-1-0-hardening-preflight.mjs preflight   --url <db>
  *   node scripts/email-1-0-hardening-preflight.mjs postflight  --url <db>
  *
  * The one thing this exists to protect: LIVE v1 reply tokens. Credentials already delivered to real

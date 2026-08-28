@@ -1,6 +1,6 @@
 # Vehicle Passport / Trust Lifecycle 1.0 — Planning Baseline Receipt
 
-**Date:** 2026-08-28  
+**Date:** 2026-08-28
 **Decision:** PLAN RECORDED / RUNTIME NOT AUTHORIZED
 
 ## Planning-time live anchors
