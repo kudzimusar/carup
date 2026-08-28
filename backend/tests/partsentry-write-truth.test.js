@@ -101,6 +101,9 @@ beforeEach(() => {
   resetDb();
   supabase.from = (t) => builder(t);
   supabase.rpc = async (name, args) => {
+    if (name === 'blockchain_custody_rollout_state') {
+      return { data: 'FINALIZED', error: null };
+    }
     if (name !== 'blockchain_activate_public_key_atomic') {
       return { data: null, error: { message: `unsupported test RPC: ${name}` } };
     }
