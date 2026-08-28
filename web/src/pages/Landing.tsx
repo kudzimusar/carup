@@ -34,25 +34,25 @@ import { summaryLocationLine } from '@/lib/governedLocation'
 import type { MarketplaceListingSummary } from '@/types'
 
 const popularSearches = [
-  'Brand New',
-  'Recently Imported',
-  'Fresh Imports',
-  'Locally Used',
-  'Second Hand',
-  'Low Mileage',
-  'Toyota Hilux',
-  'Honda Fit',
-  'Mazda Demio',
-  'SUVs',
-  'Under $5,000',
-  'Under $10,000',
-  'Dealer Verified',
-  'Parts & Accessories',
-  'Harare',
-  'Bulawayo',
-  'Diesel',
-  'Automatic',
-  'Pickup',
+  { label: 'Brand New', href: '/marketplace?category=brand_new' },
+  { label: 'Recently Imported', href: '/marketplace?category=recently_imported' },
+  { label: 'Fresh Imports', href: '/marketplace?tag=fresh_import' },
+  { label: 'Locally Used', href: '/marketplace?category=locally_used' },
+  { label: 'Second Hand', href: '/marketplace?category=second_hand' },
+  { label: 'Low Mileage', href: '/marketplace?tag=low_mileage' },
+  { label: 'Toyota Hilux', href: '/marketplace?make=Toyota&model=Hilux' },
+  { label: 'Honda Fit', href: '/marketplace?make=Honda&model=Fit' },
+  { label: 'Mazda Demio', href: '/marketplace?make=Mazda&model=Demio' },
+  { label: 'Passport Verified', href: '/marketplace?tag=passport_verified' },
+  { label: 'Under $5,000', href: '/marketplace?maxPrice=5000' },
+  { label: 'Under $10,000', href: '/marketplace?maxPrice=10000' },
+  { label: 'Dealer Verified', href: '/marketplace?tag=dealer_verified' },
+  { label: 'Parts & Accessories', href: '/marketplace/parts' },
+  { label: 'Harare', href: '/marketplace?location=Harare' },
+  { label: 'Bulawayo', href: '/marketplace?location=Bulawayo' },
+  { label: 'Diesel', href: '/marketplace?fuel=Diesel' },
+  { label: 'Automatic', href: '/marketplace?transmission=Automatic' },
+  { label: 'PartSentry Checked', href: '/marketplace?tag=partsentry_checked' },
 ]
 
 const trustStrip = [
@@ -441,15 +441,14 @@ export default function Landing() {
           </div>
           <div className="mt-7 flex flex-wrap gap-x-1 gap-y-2 border-y border-slate-200 py-4">
             {popularSearches.map(chip => (
-              <button
-                key={chip}
-                type="button"
-                onClick={() => navigate(`/marketplace?q=${encodeURIComponent(chip)}`)}
+              <Link
+                key={chip.label}
+                to={chip.href}
                 className="border-b-2 border-transparent px-3 py-2 text-sm font-bold text-slate-600 transition hover:border-orange-500 hover:text-slate-950"
                 data-testid="popular-search-chip"
               >
-                {chip}
-              </button>
+                {chip.label}
+              </Link>
             ))}
           </div>
         </div>
