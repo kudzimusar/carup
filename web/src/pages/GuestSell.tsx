@@ -6,7 +6,7 @@ import { Input } from '@/components/ui/input'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { useAuth } from '@/context/AuthContext'
 import { zimbabweLocations, zimbabweProvinces } from '@/data/mockData'
-import { BODY_STYLES, FUEL_TYPES, SELLER_CONDITIONS, TRANSMISSIONS, VEHICLE_COLORS, VEHICLE_MAKES, isValidVehicleYear, modelsForMake } from '@/data/vehicleTaxonomy'
+import { BODY_STYLES, DRIVETRAINS, FUEL_TYPES, SELLER_CONDITIONS, TRANSMISSIONS, VEHICLE_COLORS, VEHICLE_MAKES, isValidVehicleYear, modelsForMake } from '@/data/vehicleTaxonomy'
 import { saveGuestSellDraft } from '@/lib/guestSellDraft'
 import { toast } from 'sonner'
 
@@ -14,7 +14,7 @@ const CURRENCIES = ['USD', 'ZiG']
 
 const INITIAL = {
   make: '', model: '', year: '', vin: '', color: '',
-  mileage: '', condition: '', category: '', fuelType: '', transmission: '',
+  mileage: '', condition: '', category: '', fuelType: '', transmission: '', drivetrain: '',
   location: '', province: '', price: '', currency: '', description: '',
   engineNumber: '', chassisNumber: '', plateNumber: '', tempPlateId: '', importStatus: '',
   features: [] as string[], images: [] as string[],
@@ -201,6 +201,7 @@ export default function GuestSell() {
                 <SelectField label="Body style" value={form.category} error={errors.category} onValue={v => set('category', v)} options={[...BODY_STYLES]} />
                 <SelectField label="Fuel" value={form.fuelType} error={errors.fuelType} onValue={v => set('fuelType', v)} options={FUEL_TYPES} />
                 <SelectField label="Transmission" value={form.transmission} error={errors.transmission} onValue={v => set('transmission', v)} options={TRANSMISSIONS} />
+                <SelectField label="Drivetrain (optional)" value={form.drivetrain} onValue={v => set('drivetrain', v)} options={DRIVETRAINS} />
                 <SelectField label="Currency" value={form.currency} error={errors.currency} onValue={v => set('currency', v)} options={CURRENCIES} />
                 <Field label="Asking price" error={errors.price}><Input type="number" value={form.price} onChange={e => set('price', e.target.value)} /></Field>
                 <SelectField label="City" value={form.location} error={errors.location} onValue={v => set('location', v)} options={zimbabweLocations} />

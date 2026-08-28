@@ -136,6 +136,7 @@ import {
   lookupColumnsForKind,
 } from './utils/passportLookupPolicy.js';
 import { buildVehicleListingCandidate, getListingEligibility } from './services/marketplace/marketplaceListingEligibility.js';
+import { normalizeVehicleTaxonomyInput } from './services/taxonomy/vehicleTaxonomyService.js';
 import { registerCommunicationListeners } from './services/communication/communicationEventListeners.js';
 import { evaluateCompleteness } from './services/evidence/completenessEvaluator.js';
 import { validateCommunicationConfiguration } from './services/communication/communicationConfigurationValidator.js';
@@ -2220,15 +2221,12 @@ function isMissingListingClaimColumnError(error) {
 
 // --- VEHICLE LISTING: Create new listing (saves as draft) ---
 app.post('/api/vehicles/add', authorizeRole(['dealer', 'owner', 'admin']), async (req, res) => {
-  // STILL ACCEPTED AND STILL NOT STORED — named here rather than left as an unused destructure that
-  // reads like an oversight: `condition`, `category` and `description` reach no column from this
-  // handler. `vehicle_condition_category` is owned by the classification contract
-  // (marketplaceClassificationRules and its admin-approved backfill), so letting a seller
-  // self-declare it through this endpoint would route around that approval. Open finding, not
-  // closed by inventing a write here.
+  // Seller commercial assertions are persisted separately from governed Marketplace
+  // classification. Body style and seller condition must never write vehicle_condition_category.
   const {
-    vin, make, model, color, mileage, fuel_type, transmission,
-    price, currency, location, province, images,
+    vin, make, model, color, mileage, fuel_type, transmission, drivetrain,
+    generation, trim, condition, category, body_style, description, features,
+    seller_stated_condition, price, currency, location, province, images,
     // Phase 4 identity fields
     engine_number, chassis_number, plate_number, temp_plate_id, import_status,
   } = req.body;
@@ -2279,9 +2277,28 @@ app.post('/api/vehicles/add', authorizeRole(['dealer', 'owner', 'admin']), async
     });
   }
 
-  // Real-listing eligibility: build the exact candidate row from auth context + body, then validate so
-  // fixture/demo/incomplete data cannot enter the public Marketplace (see marketplaceListingEligibility).
-  const candidate = buildVehicleListingCandidate({ body: req.body, userContext: req.userContext });
+  // S0 global taxonomy resolves vocabulary but does NOT verify a vehicle fact. Known aliases are
+  // normalized to stable canonical labels/ids; unknown values stay raw and unresolved.
+  const taxonomy = normalizeVehicleTaxonomyInput({
+    ...req.body,
+    body_style: body_style ?? category,
+    seller_stated_condition: seller_stated_condition ?? condition,
+    drivetrain,
+  });
+  const canonicalBody = {
+    ...req.body,
+    make: taxonomy.make.canonical_label ?? make,
+    model: taxonomy.model.canonical_label ?? model,
+    year: taxonomy.year.canonical_year ?? req.body.year,
+    fuel_type: taxonomy.fuel.canonical_label ?? fuel_type,
+    transmission: taxonomy.transmission.canonical_label ?? transmission,
+    drivetrain: taxonomy.drivetrain.canonical_label ?? drivetrain,
+    body_style: taxonomy.body_style.canonical_label ?? body_style ?? category,
+    seller_stated_condition: taxonomy.seller_condition.canonical_label ?? seller_stated_condition ?? condition,
+  };
+
+  // Real-listing eligibility is evaluated against the canonicalized candidate actually stored.
+  const candidate = buildVehicleListingCandidate({ body: canonicalBody, userContext: req.userContext });
   const eligibility = getListingEligibility(candidate);
   if (!eligibility.eligible) {
     return res.status(400).json({ error: 'Listing is not marketplace-eligible', reasons: eligibility.reasons });
@@ -2310,6 +2327,17 @@ app.post('/api/vehicles/add', authorizeRole(['dealer', 'owner', 'admin']), async
   const listingVisibility = submittedVisibility === null || submittedVisibility === CLAIM_VISIBILITY.PUBLIC
     ? CLAIM_VISIBILITY.PUBLIC
     : CLAIM_VISIBILITY.WITHHELD;
+
+  const sellerDescription = submittedText(description);
+  const sellerFeatures = Array.isArray(features)
+    ? Array.from(new Set(features.map(value => submittedText(value)).filter(Boolean))).slice(0, 50)
+    : null;
+  const sellerBodyStyle = submittedText(canonicalBody.body_style);
+  const sellerCondition = submittedText(canonicalBody.seller_stated_condition);
+  const hasSellerCommercialClaim = sellerDescription !== null
+    || (sellerFeatures && sellerFeatures.length > 0)
+    || sellerBodyStyle !== null
+    || sellerCondition !== null;
 
   const listingClaimColumns = {
     // No location fact without provenance — the read path refuses to publish one, and after the
@@ -2345,10 +2373,11 @@ app.post('/api/vehicles/add', authorizeRole(['dealer', 'owner', 'admin']), async
     if (existing) return res.status(409).json({ error: 'A vehicle with this VIN is already listed' });
 
     const listingRow = {
-      vin: candidate.vin, make: candidate.make, model: candidate.model,
-      // `''` is a recorded blank, not an unrecorded field. Neither generation nor trim is collected
-      // by this endpoint, so both are unknown and are stored as unknown.
-      generation: null, trim: null,
+      vin: candidate.vin,
+      make: candidate.make,
+      model: candidate.model,
+      generation: submittedText(generation),
+      trim: submittedText(trim),
       year: candidate.year,
       // NO SUBSTITUTES FOR A SPECIFICATION THE SELLER DID NOT GIVE. 'White', 'Petrol', 'Automatic'
       // and a hardcoded 'RWD' were written for every client that omitted them, which is how a
@@ -2357,9 +2386,48 @@ app.post('/api/vehicles/add', authorizeRole(['dealer', 'owner', 'admin']), async
       // It is closed by removing the substitution, not by weakening a state on the way out.
       color: submittedText(color),
       mileage: submittedMileage,
-      fuel_type: submittedText(fuel_type),
-      drivetrain: submittedText(req.body.drivetrain),
-      transmission: submittedText(transmission),
+      fuel_type: submittedText(canonicalBody.fuel_type),
+      drivetrain: submittedText(canonicalBody.drivetrain),
+      transmission: submittedText(canonicalBody.transmission),
+      // Canonical seller-listing fields. These are assertions, not governed classification.
+      seller_description: sellerDescription,
+      seller_features: sellerFeatures && sellerFeatures.length > 0 ? sellerFeatures : null,
+      body_style: sellerBodyStyle,
+      seller_stated_condition: sellerCondition,
+      seller_listing_claim_source: hasSellerCommercialClaim ? claimSource : null,
+      seller_listing_recorded_at: hasSellerCommercialClaim ? new Date().toISOString() : null,
+      make_taxon_id: taxonomy.make.canonical_id,
+      model_taxon_id: taxonomy.model.canonical_id,
+      generation_taxon_id: null,
+      trim_taxon_id: null,
+      fuel_taxon_id: taxonomy.fuel.canonical_id,
+      transmission_taxon_id: taxonomy.transmission.canonical_id,
+      drivetrain_taxon_id: taxonomy.drivetrain.canonical_id,
+      body_style_taxon_id: taxonomy.body_style.canonical_id,
+      taxonomy_version: taxonomy.taxonomy_version,
+      taxonomy_resolution: {
+        make: taxonomy.make.state,
+        model: taxonomy.model.state,
+        year: taxonomy.year.state,
+        fuel_type: taxonomy.fuel.state,
+        transmission: taxonomy.transmission.state,
+        drivetrain: taxonomy.drivetrain.state,
+        body_style: taxonomy.body_style.state,
+        seller_condition: taxonomy.seller_condition.state,
+      },
+      taxonomy_source_values: {
+        make: submittedText(make),
+        model: submittedText(model),
+        generation: submittedText(generation),
+        trim: submittedText(trim),
+        year: submittedText(req.body.year),
+        fuel_type: submittedText(fuel_type),
+        transmission: submittedText(transmission),
+        drivetrain: submittedText(drivetrain),
+        body_style: submittedText(body_style ?? category),
+        seller_condition: submittedText(seller_stated_condition ?? condition),
+      },
+      taxonomized_at: new Date().toISOString(),
       // `|| 'local'` was the last substitution on this row: a seller who said nothing about import
       // had 'local' written for them, and the marketplace then read it back as a stated fact. The
       // column is NULLABLE with no DB default, so an unstated import source is simply NULL — and
@@ -2398,6 +2466,33 @@ app.post('/api/vehicles/add', authorizeRole(['dealer', 'owner', 'admin']), async
       ({ error: insertError } = await supabase.from('vehicles').insert(listingRow));
     }
     if (insertError) throw insertError;
+
+    // Unrecognized values remain usable but enter the governed taxonomy-review queue.
+    const taxonomyObservations = [
+      ['make', taxonomy.make],
+      ['model', taxonomy.model],
+      ['year', taxonomy.year],
+      ['body_style', taxonomy.body_style],
+      ['fuel_type', taxonomy.fuel],
+      ['transmission', taxonomy.transmission],
+      ['drivetrain', taxonomy.drivetrain],
+    ]
+      .filter(([, resolution]) => resolution?.state === 'unrecognized' && resolution?.raw)
+      .map(([dimension, resolution]) => ({
+        dimension,
+        raw_value: resolution.raw,
+        canonical_taxon_id: resolution.canonical_id ?? null,
+        source_type: 'seller',
+        source_reference: candidate.vin,
+        taxonomy_version: taxonomy.taxonomy_version,
+        review_status: 'unresolved',
+      }));
+    let taxonomyObservationsRecorded = taxonomyObservations.length === 0;
+    if (taxonomyObservations.length > 0) {
+      const { error: taxonomyObservationError } = await supabase.from('vehicle_taxonomy_observations').insert(taxonomyObservations);
+      taxonomyObservationsRecorded = !taxonomyObservationError;
+      if (taxonomyObservationError) console.error('⚠️ Failed to record taxonomy observations:', taxonomyObservationError.message);
+    }
 
     if (req.userContext.id) {
       await supabase.from('vehicle_ownership_history').insert({
@@ -2460,6 +2555,8 @@ app.post('/api/vehicles/add', authorizeRole(['dealer', 'owner', 'admin']), async
       success: true,
       vin,
       publication_status: 'draft',
+      taxonomy_version: taxonomy.taxonomy_version,
+      taxonomy_observations_recorded: taxonomyObservationsRecorded,
       // WHAT WAS ACTUALLY RECORDED, STATED. A submitted location that could not be stored reports
       // `location_recorded: false` here, so the caller learns it at the moment it happened instead
       // of discovering it later as a blank card — the silent discard is what this phase closes.

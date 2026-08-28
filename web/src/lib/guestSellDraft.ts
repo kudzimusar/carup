@@ -13,6 +13,7 @@ export interface GuestSellDraft {
   category: string
   fuelType: string
   transmission: string
+  drivetrain: string
   location: string
   province: string
   price: string
@@ -67,6 +68,7 @@ export function readGuestSellDraft(): GuestSellDraft | null {
       category: parsed.category || '',
       fuelType: parsed.fuelType || '',
       transmission: parsed.transmission || '',
+      drivetrain: parsed.drivetrain || '',
       location: parsed.location || '',
       province: parsed.province || '',
       price: parsed.price || '',

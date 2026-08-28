@@ -11,7 +11,7 @@ import { zimbabweLocations, zimbabweProvinces } from '@/data/mockData'
 import { useCarUpApi } from '@/hooks/useCarUpApi'
 import { VehicleCompletenessPanel } from '@/components/VehicleCompletenessPanel'
 import { clearGuestSellDraft, readGuestSellDraft } from '@/lib/guestSellDraft'
-import { BODY_STYLES, FUEL_TYPES, SELLER_CONDITIONS, TRANSMISSIONS, VEHICLE_COLORS, VEHICLE_MAKES, modelsForMake, vehicleYearOptions } from '@/data/vehicleTaxonomy'
+import { BODY_STYLES, DRIVETRAINS, FUEL_TYPES, SELLER_CONDITIONS, TRANSMISSIONS, VEHICLE_COLORS, VEHICLE_MAKES, modelsForMake, vehicleYearOptions } from '@/data/vehicleTaxonomy'
 
 const YEARS = vehicleYearOptions()
 const STEPS = ['Vehicle Details', 'Location & Pricing', 'Images & Features', 'Review & Save Draft']
@@ -70,7 +70,7 @@ function StepIndicator({ step, total }: { step: number; total: number }) {
 const INITIAL = {
   make: '', model: '', year: '', vin: '', engineNumber: '', chassisNumber: '',
   plateNumber: '', tempPlateId: '', importStatus: '', color: '',
-  mileage: '', condition: '', category: '', fuelType: '', transmission: '',
+  mileage: '', condition: '', category: '', fuelType: '', transmission: '', drivetrain: '',
   location: '', province: '', price: '', currency: '', description: '',
   features: [] as string[], featureInput: '',
   images: [] as string[],
@@ -96,6 +96,7 @@ export default function SellVehicle() {
     category: guestDraft.category,
     fuelType: guestDraft.fuelType,
     transmission: guestDraft.transmission,
+    drivetrain: guestDraft.drivetrain,
     location: guestDraft.location,
     province: guestDraft.province,
     price: guestDraft.price,
@@ -220,13 +221,17 @@ export default function SellVehicle() {
         mileage: parseInt(form.mileage),
         fuel_type: form.fuelType,
         transmission: form.transmission,
+        drivetrain: form.drivetrain || undefined,
         condition: form.condition,
+        seller_stated_condition: form.condition,
         category: form.category,
+        body_style: form.category,
         price: parseFloat(form.price),
         // The seller's own choice, never a client-side literal. Step 1 will not advance without it,
         // so this is a value someone asserted rather than one this component supplied.
         currency: form.currency,
         description: form.description,
+        features: form.features,
         location: form.location,
         province: form.province,
         images: uploadedImageUrls,
@@ -552,6 +557,7 @@ export default function SellVehicle() {
                   ['Mileage', `${parseInt(form.mileage || '0').toLocaleString()} km`],
                   ['Condition', form.condition],
                   ['Fuel / Trans', `${form.fuelType} / ${form.transmission}`],
+                  ['Drivetrain', form.drivetrain || 'Not recorded'],
                   ['Location', form.location],
                   // Was `$… USD` regardless of anything the seller had entered. The review screen is
                   // the last thing they read before asserting "all information provided is accurate",
