@@ -31,11 +31,14 @@ S0 runtime work was implemented inside PR #182 (the lane that owns the Seller/ta
 
 **S1 — Seller Entry & Vehicle Identification: CERTIFIED — PASS**
 **S2 — Canonical Commercial Listing Data: CERTIFIED — PASS**
-**S3 — Seller Identity, Dealer Context & Privacy: PARTIAL PASS** (consent controls delivered; province-only visibility + dealer branch deferred to an explicit migration slice)
+**S3 — Seller Identity, Dealer Context & Privacy: CERTIFIED — PASS** (consent controls + the three-way location vocabulary, staging-proven; dealer branch deferred)
+**S4 — Listing Media Studio: PARTIAL PASS** (seller-chosen cover photo + guided shot list; reorder and media-quality scoring deferred with reasons)
+**S6 — Actual Buyer Preview & Searchability Proof: CERTIFIED — PASS**
+**S7 — Publication Readiness & Listing Quality: CERTIFIED — PASS**
 
 All Seller runtime work continues inside PR #182, which owns the Seller/Marketplace surfaces. Receipts for every phase live in `receipts/`.
 
-**Next: the deferred S3 migration slice, then S4 — Listing Media Studio.**
+**Next: S5 (Embedded Verify & Evidence Reconciliation) and S8 (Publish, Edit & Manage Lifecycle).** S9 and S10 have hard external-lane dependencies (#185 Intelligence, #183 Communications) and S12 requires owner authority.
 
 ## Future receipts
 
