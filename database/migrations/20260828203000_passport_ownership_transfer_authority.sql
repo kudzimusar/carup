@@ -184,6 +184,7 @@ DECLARE
   v_privileged BOOLEAN := lower(coalesce(p_actor_role,'')) IN ('admin','government','reviewer','platform_admin','super_admin');
   v_allowed BOOLEAN := FALSE;
   v_event_type TEXT;
+  v_from_state TEXT;
 BEGIN
   IF p_transfer_id IS NULL OR nullif(btrim(p_to_state),'') IS NULL OR nullif(btrim(p_actor_id),'') IS NULL THEN
     RAISE EXCEPTION 'transfer id, target state and actor are required' USING ERRCODE='22023';
@@ -224,6 +225,8 @@ BEGIN
   IF p_to_state='disputed' AND nullif(btrim(p_reason),'') IS NULL THEN
     RAISE EXCEPTION 'ownership transfer dispute requires a reason' USING ERRCODE='22023';
   END IF;
+
+  v_from_state := v_transfer.state;
 
   IF p_to_state='complete' THEN
     IF NOT v_privileged THEN
@@ -266,31 +269,13 @@ BEGIN
   INSERT INTO public.vehicle_ownership_transfer_events(
     transfer_id,from_state,to_state,actor_id,actor_role,reason,payload,created_at
   ) VALUES(
-    v_transfer.id,
-    CASE WHEN v_transfer.version>1 THEN (
-      SELECT from_state FROM (
-        VALUES (NULL::text)
-      ) AS ignored(from_state) LIMIT 1
-    ) ELSE NULL END,
-    p_to_state,p_actor_id,p_actor_role,p_reason,
+    v_transfer.id,v_from_state,p_to_state,p_actor_id,p_actor_role,p_reason,
     jsonb_build_object(
       'vin',v_transfer.vin,
       'registry_authority',CASE WHEN p_to_state='complete' THEN p_registry_authority ELSE NULL END,
       'completion_reference_present',p_completion_reference IS NOT NULL
     ),v_now
   );
-
-  -- Correct the audit event's from_state using the pre-update state retained by PL/pgSQL.
-  UPDATE public.vehicle_ownership_transfer_events
-     SET from_state=(
-       SELECT e.to_state
-         FROM public.vehicle_ownership_transfer_events e
-        WHERE e.transfer_id=v_transfer.id
-          AND e.id < currval('public.vehicle_ownership_transfer_events_id_seq')
-        ORDER BY e.id DESC
-        LIMIT 1
-     )
-   WHERE id=currval('public.vehicle_ownership_transfer_events_id_seq');
 
   v_event_type := CASE
     WHEN p_to_state='complete' THEN 'vehicle.ownership.transfer_completed'
