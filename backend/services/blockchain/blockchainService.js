@@ -170,9 +170,6 @@ export async function addEvent(vin, eventType, payload, signature = 'SYSTEM_SIGN
     ? lastEvent.current_hash
     : '0000000000000000000000000000000000000000000000000000000000000000';
 
-  const timestamp = new Date().toISOString();
-  const currentHash = calculateHash(previousHash, vin, eventType, timestamp, payload);
-
   let signerId = 'system';
   if (payload.mechanicId) signerId = payload.mechanicId;
   else if (payload.buyerId) signerId = payload.buyerId;
@@ -180,14 +177,23 @@ export async function addEvent(vin, eventType, payload, signature = 'SYSTEM_SIGN
   else if (payload.insurerId) signerId = payload.insurerId;
   else if (payload.bankId) signerId = payload.bankId;
 
+  // A rotated/first stakeholder public key must exist BEFORE the event timestamp is fixed.
+  // Verification selects the key whose validity interval contains the event timestamp.
+  let registeredSignerKey = null;
+  if (signature === 'SYSTEM_SIGNATURE' && signerId !== 'system') {
+    registeredSignerKey = await getOrCreateKeypair(signerId);
+  }
+
+  const timestamp = new Date().toISOString();
+  const currentHash = calculateHash(previousHash, vin, eventType, timestamp, payload);
+
   let dynamicSignature = signature;
   if (signature === 'SYSTEM_SIGNATURE') {
     if (signerId === 'system') {
       dynamicSignature = `system:${signSystemLedgerHash(currentHash)}`;
     } else {
-      const registered = await getOrCreateKeypair(signerId);
       const signed = signLedgerHash(signerId, currentHash);
-      if (!samePublicKey(registered.publicKeyPem, signed.publicKeyPem)) {
+      if (!samePublicKey(registeredSignerKey?.publicKeyPem, signed.publicKeyPem)) {
         throw new Error('derived stakeholder signing key disagrees with registered public key');
       }
       dynamicSignature = `${signerId}:${signed.signatureHex}`;
