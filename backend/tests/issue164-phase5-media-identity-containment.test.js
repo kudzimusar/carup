@@ -339,7 +339,7 @@ describe('Phase 5 containment — no query resolves a row BY a listing-image ide
     // beside the identity is a URL the caller can already see. There is no bucket, path or key that
     // a recipient could turn back into a query.
     assert.deepEqual([...LISTING_MEDIA_ITEM_FIELDS].sort(),
-      ['is_primary', 'media_id', 'position', 'url', 'url_form']);
+      ['is_primary', 'media_id', 'position', 'synthetic_demo', 'url', 'url_form']);
     for (const forbidden of ['file_path', 'storage_bucket', 'object_key', 'uploaded_by', 'tenant_id', 'vin']) {
       assert.equal(LISTING_MEDIA_ITEM_FIELDS.includes(forbidden), false,
         `${forbidden} on a listing item would let a holder address something other than this photo`);

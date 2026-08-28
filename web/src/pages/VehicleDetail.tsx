@@ -12,17 +12,11 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Separator } from '@/components/ui/separator'
 import { Input } from '@/components/ui/input'
 import {
-  Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription
-} from '@/components/ui/dialog'
-import {
-  Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
-} from '@/components/ui/select'
-import {
-  Car, CheckCircle, Shield, Gauge, Fuel, Settings2, MapPin, Calendar,
+  Car, CheckCircle, Shield, ShieldCheck, Gauge, Fuel, Settings2, MapPin, Calendar,
   Phone, MessageSquare, Heart, Share2, ArrowLeft, AlertTriangle, Search,
-  FileCheck, Star, Loader2, Lock, CreditCard, ChevronLeft, ChevronRight,
+  FileCheck, Star, Loader2, Lock, ChevronLeft, ChevronRight,
   XCircle, HelpCircle, Wrench, UserCheck, TrendingDown, ClipboardCheck,
-  Clock, Image as ImageIcon, FileText, FileSearch, Link2, Copy
+  Clock, Image as ImageIcon, FileText, FileSearch, Link2, Copy, GitCompare
 } from 'lucide-react'
 import { formatPrice } from '@/data/mockData'
 import { useCarUpApi } from '@/hooks/useCarUpApi'
@@ -33,6 +27,7 @@ import type {
   VehicleIdentity,
   VehiclePassport,
   TimelineEvent,
+  VehicleLifecycleEvent,
   PassportVerificationSource,
   MarketplaceListingDetail,
   MarketplaceMedia,
@@ -51,6 +46,8 @@ import { AllInPricePanel } from '@/components/marketplace/AllInPricePanel'
 import { SafetyWarnings } from '@/components/marketplace/SafetyWarnings'
 import { InquiryModal } from '@/components/marketplace/InquiryModal'
 import DisputePanel from '@/components/DisputePanel'
+import { MarketplaceShareSheet } from '@/components/marketplace/MarketplaceShareSheet'
+import { VehicleIntelligenceStory } from '@/components/marketplace/VehicleIntelligenceStory'
 import { captureReferralFromUrl, getStoredAttribution } from '@/lib/marketplaceReferral'
 import { governedLocationLine, summaryLocationLine, type LocationClaim } from '@/lib/governedLocation'
 
@@ -225,6 +222,7 @@ type ListingMediaItem = {
   url_form: MediaUrlForm
   position: number
   is_primary: boolean
+  synthetic_demo: boolean
 }
 
 /**
@@ -323,7 +321,7 @@ function toListingMediaBlock(rows: WireMarketplaceMedia[] | null | undefined): M
   if (!Array.isArray(rows)) return notLoadedBlock()
 
   let unpublishable = 0
-  const candidates: Array<{ mediaId: string | null; url: string; form: MediaUrlForm; claimsPrimary: boolean; index: number }> = []
+  const candidates: Array<{ mediaId: string | null; url: string; form: MediaUrlForm; claimsPrimary: boolean; syntheticDemo: boolean; index: number }> = []
   const identitiesTaken = new Set<string>()
   rows.forEach((row, index) => {
     // Video and document entries are not gallery photos. They are not "unpublishable" either — the
@@ -351,6 +349,7 @@ function toListingMediaBlock(rows: WireMarketplaceMedia[] | null | undefined): M
       url: String(row.url).trim(),
       form,
       claimsPrimary: row.is_primary === true,
+      syntheticDemo: row.synthetic_demo === true || String(row.url).includes('/marketplace-reference-synthetic/'),
       index,
     })
   })
@@ -381,7 +380,7 @@ function toListingMediaBlock(rows: WireMarketplaceMedia[] | null | undefined): M
     // those photos would blank the gallery of every such vehicle — the original defect, re-entered
     // through the identity door. A photograph we cannot name is still a photograph the seller
     // added; only the ability to NAME it is missing, and the page says which.
-    return { media_id: candidate.mediaId, url: candidate.url, url_form: candidate.form, position, is_primary: isPrimary }
+    return { media_id: candidate.mediaId, url: candidate.url, url_form: candidate.form, position, is_primary: isPrimary, synthetic_demo: candidate.syntheticDemo }
   })
 
   return sealBlock(items.length ? 'published' : 'none', items, unpublishable, LISTING_MEDIA_EMPTY_STATEMENT)
@@ -594,6 +593,7 @@ function readListingMediaBlock(raw: unknown): MediaBlock<ListingMediaItem> | nul
       url_form: form,
       position: items.length,
       is_primary: isPrimary,
+      synthetic_demo: entry.synthetic_demo === true || String(entry.url).includes('/marketplace-reference-synthetic/'),
     })
   }
   // The SENTENCE is ours, not the server's. `empty_statement` arrives on the wire, but rendering a
@@ -734,6 +734,33 @@ function timelineIcon(source: string) {
     evidence:            { icon: ImageIcon,     color: 'text-orange-600 bg-orange-50' },
   }
   return map[source] ?? { icon: Clock, color: 'text-gray-500 bg-gray-50' }
+}
+
+function lifecycleIcon(category: string) {
+  const map: Record<string, { icon: typeof Wrench; color: string }> = {
+    import:             { icon: ClipboardCheck, color: 'text-sky-700 bg-sky-50' },
+    auction:            { icon: Car,            color: 'text-violet-700 bg-violet-50' },
+    accident:           { icon: AlertTriangle,  color: 'text-red-700 bg-red-50' },
+    repair:             { icon: Wrench,         color: 'text-amber-700 bg-amber-50' },
+    service:            { icon: Wrench,         color: 'text-blue-700 bg-blue-50' },
+    inspection:         { icon: CheckCircle,    color: 'text-emerald-700 bg-emerald-50' },
+    ownership_transfer: { icon: UserCheck,      color: 'text-purple-700 bg-purple-50' },
+    registration:       { icon: FileCheck,      color: 'text-teal-700 bg-teal-50' },
+    insurance:          { icon: Shield,         color: 'text-green-700 bg-green-50' },
+    clearance:          { icon: ShieldCheck,    color: 'text-indigo-700 bg-indigo-50' },
+    dealer_listing:     { icon: Car,            color: 'text-orange-700 bg-orange-50' },
+    current_condition:  { icon: Gauge,          color: 'text-slate-700 bg-slate-100' },
+  }
+  return map[category] ?? { icon: Clock, color: 'text-gray-500 bg-gray-50' }
+}
+
+function lifecycleStatusLabel(event: VehicleLifecycleEvent): string {
+  if (event.detail_state === 'summary_only') return 'Recorded · detail private'
+  if (event.verification_status === 'seller_stated') return 'Seller stated'
+  if (event.verification_status === 'verified') return 'Verified'
+  if (event.verification_status === 'active') return 'Active'
+  if (event.verification_status) return event.verification_status.replace(/_/g, ' ')
+  return 'Recorded'
 }
 
 // Removed formatEvidenceLabel since it is no longer used here
@@ -1081,7 +1108,7 @@ function governedPrice(price: unknown, currency: unknown): string {
 export default function VehicleDetail() {
   const { id } = useParams()
   const navigate = useNavigate()
-  const { reserveVehicle, createSafePayEscrow, submitFinancing, fetchVehicle, fetchVehiclePassport, lookupVehiclePassport, fetchMarketplaceListingDetail, saveMarketplaceListing, unsaveMarketplaceListing, fetchSavedMarketplaceListings, fetchEvidenceTaxonomy, fetchEvidenceSources, fetchTemporalFindings, fetchDisclosureConflicts, fetchVehicleReport, generateReportVersion, createReportShareLink, fetchVehicleTrustDecision } = useCarUpApi()
+  const { fetchVehicle, fetchVehiclePassport, lookupVehiclePassport, fetchMarketplaceListingDetail, saveMarketplaceListing, unsaveMarketplaceListing, fetchSavedMarketplaceListings, fetchEvidenceTaxonomy, fetchEvidenceSources, fetchTemporalFindings, fetchDisclosureConflicts, fetchVehicleReport, generateReportVersion, createReportShareLink, fetchVehicleTrustDecision } = useCarUpApi()
   const { isAuthenticated, user, loading: authLoading } = useAuth()
 
   // Buyers/owners can generate a snapshot + share link; backend enforces the role.
@@ -1098,20 +1125,22 @@ export default function VehicleDetail() {
   const [lookupNeedsSignIn, setLookupNeedsSignIn] = useState(false)
 
   const [currentImageIdx, setCurrentImageIdx] = useState(0)
+  // A syntactically publishable media address can still fail at delivery time. Keep that
+  // browser-runtime failure separate from the canonical media block: it is neither `none` nor
+  // `not_loaded`, and it must not turn into a broken-image glyph or a claim about the seller.
+  const [failedListingMedia, setFailedListingMedia] = useState<{ vin: string | undefined; urls: string[] }>({ vin: id, urls: [] })
+  const failedListingMediaUrls = failedListingMedia.vin === id ? failedListingMedia.urls : []
+  const markListingMediaFailed = useCallback((url: string) => {
+    setFailedListingMedia((previous) => {
+      const urls = previous.vin === id ? previous.urls : []
+      return urls.includes(url) ? previous : { vin: id, urls: [...urls, url] }
+    })
+  }, [id])
   const [isFav, setIsFav]         = useState(() => getFavorites().includes(id || ''))
   // Session-only acknowledgement that this browser submitted a reservation request. It never
   // asserts reserved state on its own — `status` from the server is the only source of "Reserved".
   const [reserveRequested, setReserveRequested] = useState(false)
-  const [isFinanced, setIsFinanced] = useState(false)
-
-  const [showReserveModal, setShowReserveModal] = useState(false)
-  const [reserveLoading, setReserveLoading]     = useState(false)
-
-  const [showFinanceModal, setShowFinanceModal] = useState(false)
-  const [financeLoading, setFinanceLoading]     = useState(false)
-  const [loanAmount, setLoanAmount]             = useState('')
-  const [loanTerm, setLoanTerm]                 = useState('36')
-  const [selectedBank, setSelectedBank]         = useState('cbz')
+  const [financeInterestRequested, setFinanceInterestRequested] = useState(false)
 
   const [lookupQuery, setLookupQuery] = useState('')
 
@@ -1283,7 +1312,7 @@ export default function VehicleDetail() {
             // date>" reached a page whose own passport carried the governed location. The location
             // comes from `claims.location`; there is no governed listing date, so none is shown.
           })
-          setLoanAmount((d.price ?? 0).toString())
+          
           setLoading(false)
           return
         }
@@ -1321,7 +1350,7 @@ export default function VehicleDetail() {
             // date>" reached a page whose own passport carried the governed location. The location
             // comes from `claims.location`; there is no governed listing date, so none is shown.
           })
-          setLoanAmount((d.price ?? 0).toString())
+          
         }
 
         if (passportData.status === 'fulfilled' && passportData.value) {
@@ -1353,7 +1382,14 @@ export default function VehicleDetail() {
         // Fallback: a real public marketplace listing must always open a real detail page. If the
         // passport lookup didn't resolve a vehicle, hydrate from the marketplace detail so the page
         // renders instead of showing "Vehicle Not Found".
-        setVehicle((prev) => prev ?? vehicleFromMarketplaceDetail(d))
+        // A public Marketplace detail is sufficient to render the public listing. Passport lookup is
+        // a richer enrichment path, not a prerequisite: staging proved that endpoint can remain pending
+        // while the governed Marketplace detail has already returned successfully. Do not hold the
+        // entire buyer page behind that independent read or a valid listing becomes an infinite spinner.
+        // Preserve a richer vehicle already resolved for THIS VIN; replace any stale previous-route VIN.
+        setVehicle((prev) => prev?.vin === d.vin ? prev : vehicleFromMarketplaceDetail(d))
+        
+        setLoading(false)
       })
       .catch(() => { if (mounted) setDetail(null) })
       .finally(() => { if (mounted) setDetailLoading(false) })
@@ -1412,58 +1448,16 @@ export default function VehicleDetail() {
     localStorage.setItem('carup_favorites', JSON.stringify(updated))
   }, [vehicle, id, isAuthenticated, isFav, saveMarketplaceListing, unsaveMarketplaceListing])
 
-  const handleShare = useCallback(async () => {
-    const url = window.location.href
-    if (navigator.share) {
-      try { await navigator.share({ title: `${vehicle?.year ?? ''} ${vehicle?.make ?? ''} ${vehicle?.model ?? ''}`, url }) } catch { /* user cancelled */ }
-    } else {
-      await navigator.clipboard.writeText(url).catch(() => {})
-      toast.success('Link copied to clipboard!')
-    }
-  }, [vehicle])
+  const [shareOpen, setShareOpen] = useState(false)
 
-  const handleReserve = async () => {
-    if (!vehicle) return
-    // An escrow needs a real counterparty. Without one we fail closed rather than opening a
-    // payment instrument against a placeholder.
-    const sellerId = vehicle.tenant_id ?? vehicle.sellerId ?? null
-    if (!sellerId) {
-      toast.error('SafePay escrow is opened by CarUp once a verified inquiry confirms the seller. Send an inquiry to begin.')
-      return
-    }
-    setReserveLoading(true)
-    try {
-      await reserveVehicle(vehicle.vin ?? '', 7)
-      await createSafePayEscrow(vehicle.vin ?? '', sellerId, 500)
-      setReserveRequested(true)
-      setShowReserveModal(false)
-      toast.success('Reservation requested. SafePay escrow of $500 initiated.', { duration: 5000 })
-    } catch (e: unknown) {
-      toast.error(e instanceof Error ? e.message : 'Failed to initiate Escrow. Make sure you are logged in.')
-    } finally {
-      setReserveLoading(false)
-    }
-  }
+  const handleShare = useCallback(() => {
+    setShareOpen(true)
+  }, [])
 
-  const handleFinance = async () => {
-    if (!vehicle) return
-    // The applicant is the signed-in user; there is no fallback identity to apply on behalf of.
-    if (!user?.id) {
-      toast.error('Sign in to apply — a financing application is submitted under your CarUp account.')
-      return
-    }
-    setFinanceLoading(true)
-    try {
-      await submitFinancing(vehicle.vin ?? '', user.id, selectedBank, parseFloat(loanAmount))
-      setIsFinanced(true)
-      setShowFinanceModal(false)
-      toast.success('Financing application submitted!', { duration: 6000 })
-    } catch (e: unknown) {
-      toast.error(e instanceof Error ? e.message : 'Failed to submit application. Make sure you are logged in.')
-    } finally {
-      setFinanceLoading(false)
-    }
-  }
+  const compareHref = vehicle?.vin
+    ? `/marketplace/compare?vins=${encodeURIComponent(vehicle.vin)}`
+    : '/marketplace/compare'
+
 
   // ── Loading / 404 states ─────────────────────────────────────────────────
   if (loading || (!vehicle && detailLoading)) {
@@ -1563,8 +1557,15 @@ export default function VehicleDetail() {
     readListingMediaBlock(passportMedia?.listing_media),
     marketplaceBlock,
   )
-  const galleryItems = listingMedia.items
-  const hasListingPhotos = listingMedia.state === 'published'
+  // Runtime delivery failures do not mutate the canonical media contract. They only decide
+  // which already-published item the browser can present in this render. If every published address
+  // fails, the page renders a distinct delivery-failure state rather than pretending the gallery
+  // was empty or unread.
+  const galleryItems = listingMedia.items.filter((item) => !failedListingMediaUrls.includes(item.url))
+  const allListingMediaFailed = listingMedia.state === 'published'
+    && listingMedia.items.length > 0
+    && galleryItems.length === 0
+  const hasListingPhotos = listingMedia.state === 'published' && galleryItems.length > 0
   // The index survives a payload changing under it; a stale index must never index past the array
   // and blank the gallery.
   const activeImageIdx = galleryItems.length > 0
@@ -1591,6 +1592,14 @@ export default function VehicleDetail() {
     ? governedLocationLine(passport.claims.location as LocationClaim)
     : summaryLocationLine(vehicle?.location, (vehicle as { location_state?: unknown })?.location_state)
 
+  // THE SELLER'S COMMERCIAL COPY, read from the fields the projection publishes. `description` and
+  // `features` are kept as fallbacks only because the marketplace detail response still carries
+  // them for already-listed vehicles; the canonical seller columns win when both are present. An
+  // absent statement stays absent — there is no placeholder sentence and no invented feature.
+  const sellerDescription = (vehicle.seller_description ?? vehicle.description ?? '').trim() || null
+  const sellerFeatures = (vehicle.seller_features ?? vehicle.features ?? [])
+    .filter((entry): entry is string => typeof entry === 'string' && entry.trim().length > 0)
+
   // Direct contact exists only when the listing carries a real number. There is no fallback
   // number — an unknown contact stays unknown and the buyer is routed to the governed inquiry flow.
   const sellerContactNumber = vehicle.sellerPhone && /[0-9]/.test(vehicle.sellerPhone) ? vehicle.sellerPhone : null
@@ -1598,11 +1607,14 @@ export default function VehicleDetail() {
     ? `https://wa.me/${sellerContactNumber.replace(/[^0-9]/g, '')}?text=Hi%2C%20I%20am%20interested%20in%20your%20${vehicle.year ?? ''}%20${vehicle.make ?? ''}%20${vehicle.model ?? ''}%20listed%20on%20CarUp.`
     : null
 
-  // Transaction identity. Reserved state is read from the server listing status; the escrow
-  // counterparty must resolve to a real seller or the reserve path stays closed.
-  const resolvedSellerId    = vehicle.tenant_id ?? vehicle.sellerId ?? null
-  const isReservedOnServer  = vehicle.status === 'reserved' || vehicle.status === 'Reserved'
-  const canApplyForFinancing = isAuthenticated && Boolean(user?.id)
+  // Reservation truth is server-owned and time-sensitive. The listing `status` field is a
+  // materialized compatibility cache and can lag reservation expiry/provider state, so it must
+  // never create an active hold claim on this page. Only the canonical reservation summary may do
+  // that. When that projection is unavailable/inconsistent we fail closed and leave the next step
+  // as a governed request for the server to adjudicate.
+  const reservationSummary = detail?.reservation_summary
+  const isReservedOnServer =
+    reservationSummary?.state === 'active' && reservationSummary.reserved === true
 
   // A null identifier on the passport means "withheld from this audience" when
   // identifiersRedacted is set, and "unrecorded" only when it is not.
@@ -1610,6 +1622,8 @@ export default function VehicleDetail() {
   const identifiersRedacted  = identity?.identifiersRedacted === true
 
   const timeline            = passport?.timeline ?? []
+  const lifecycleEvents     = passport?.lifecycle?.events ?? []
+  const lifecycleLoaded     = Boolean(passport?.lifecycle)
   const evidenceVault       = passport?.evidenceVault ?? []
   // One gate, one predicate. `publicEvidence` keeps returning RAW rows because the life-stage
   // timeline and the history thumbnails are typed on `VehicleEvidence`; the block below is what the
@@ -1648,17 +1662,17 @@ export default function VehicleDetail() {
   const serviceRecordCount = trustSignals?.maintenance_logs_count ?? null
 
   return (
-    <div className="min-h-screen bg-gray-50">
+    <div className="min-h-screen bg-white text-slate-950">
       {/* Breadcrumb */}
-      <div className="bg-white border-b">
+      <div className="border-b border-slate-800 bg-[#08111f] text-white">
         <div className="section-padding mx-auto max-w-[1440px] py-4">
           <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-            <div className="flex items-center gap-2 text-sm text-gray-500">
-              <Link to="/" className="hover:text-orange-500">Home</Link>
+            <div className="flex items-center gap-2 text-sm text-slate-400">
+              <Link to="/" className="hover:text-orange-400">Home</Link>
               <span>/</span>
-              <Link to="/marketplace" className="hover:text-orange-500">Marketplace</Link>
+              <Link to="/marketplace" className="hover:text-orange-400">Marketplace</Link>
               <span>/</span>
-              <span className="text-gray-900">{vehicle.make} {vehicle.model}</span>
+              <span className="text-white">{vehicle.make} {vehicle.model}</span>
             </div>
             
             <form onSubmit={handleLookupSubmit} className="flex gap-2 max-w-sm w-full">
@@ -1668,19 +1682,270 @@ export default function VehicleDetail() {
                   placeholder="Enter VIN, chassis, plate, or temporary ID"
                   value={lookupQuery}
                   onChange={(e) => setLookupQuery(e.target.value)}
-                  className="pl-9 h-9 text-xs bg-gray-50"
+                  className="h-10 rounded-none border-slate-700 bg-slate-950 pl-9 text-xs text-white placeholder:text-slate-500 focus-visible:ring-orange-500"
                 />
               </div>
-              <Button type="submit" size="sm" className="bg-orange-500 hover:bg-orange-600 text-xs">Lookup</Button>
+              <Button type="submit" size="sm" className="h-10 rounded-none bg-orange-500 px-4 text-xs font-bold text-white hover:bg-orange-600">Lookup</Button>
             </form>
           </div>
         </div>
       </div>
 
-      <div className="section-padding mx-auto max-w-[1440px] py-6">
+      <div className="section-padding mx-auto max-w-[1440px] py-7 sm:py-9">
         <Button variant="ghost" size="sm" className="mb-4 gap-1" onClick={() => navigate(-1)}>
           <ArrowLeft className="w-4 h-4" /> Back
         </Button>
+
+        <div className="mb-10 grid min-w-0 gap-6 lg:grid-cols-[minmax(0,1.65fr)_minmax(320px,0.72fr)] lg:items-start" data-testid="vehicle-detail-showroom">
+        <div className="min-w-0" data-testid="vehicle-detail-gallery-first">
+          {/* ── LISTING MEDIA — the seller's presentation of the car ─────────────────
+              Marketing photos. Nothing in this block asserts governance, because nothing in
+              `listing_images` could support such an assertion. Note what is NOT here any more:
+              the "Police Checked" badge used to be stamped across the top-left of this photo,
+              which put a registry verification claim physically on top of a seller's snapshot.
+              It is a fact about the VEHICLE, not about the picture, and it now sits with the
+              other vehicle-status badges in the identity row below. */}
+          <section className="space-y-3" data-testid="listing-media-block">
+            <div className="flex items-center gap-2">
+              <ImageIcon className="w-4 h-4 text-gray-400" aria-hidden="true" />
+              <h2 className="text-sm font-semibold text-gray-900">Listing photos</h2>
+            </div>
+            <p className="text-xs text-gray-500" data-testid="listing-media-caption">
+              {listingMedia.items.some((item) => item.synthetic_demo)
+                ? 'Synthetic reference media for this staging demonstration. These images are not verified evidence and do not affect CarUp Trust.'
+                : 'Photos supplied by the seller to advertise this vehicle. CarUp does not review them and makes no claim about what they show.'}
+            </p>
+
+            <div className="relative overflow-hidden bg-[#070d16] shadow-[0_28px_80px_rgba(15,23,42,0.24)]" data-testid="image-gallery">
+              {hasListingPhotos && activeImage ? (
+                <>
+                  {/* Rule 6b: `data-media-id` is the identity of the photograph on screen, so a
+                      test — and a support conversation about "the third photo on this listing" —
+                      can name THIS picture rather than whichever one is currently in slot 2. The
+                      attribute is absent entirely when the transport carried no identity; it is
+                      never a fabricated value. */}
+                  <img
+                    src={activeImage.url}
+                    alt={`${vehicle.make} ${vehicle.model}`}
+                    className="aspect-[16/9] w-full object-cover sm:aspect-[2/1]"
+                    data-testid="vehicle-image"
+                    data-url-form={activeImage.url_form}
+                    data-media-id={activeImage.media_id ?? undefined}
+                    onError={() => markListingMediaFailed(activeImage.url)}
+                  />
+                  {/* Rule 6: shown only where a row claims it. No primary is elected when the
+                      seller named none — that choice is theirs to make or leave unmade. */}
+                  {activeImage.is_primary && (
+                    <span
+                      className="absolute bottom-3 left-3 rounded-full bg-black/50 px-2 py-1 text-xs text-white"
+                      data-testid="listing-media-primary"
+                    >
+                      Seller’s main photo
+                    </span>
+                  )}
+                  {galleryItems.length > 1 && (
+                    <>
+                      <button
+                        onClick={() => setCurrentImageIdx((activeImageIdx - 1 + galleryItems.length) % galleryItems.length)}
+                        aria-label="Previous photo"
+                        className="absolute left-4 top-1/2 flex h-11 w-11 -translate-y-1/2 items-center justify-center rounded-full border border-white/30 bg-black/45 text-white backdrop-blur-sm transition hover:bg-orange-500"
+                      >
+                        <ChevronLeft className="w-5 h-5" />
+                      </button>
+                      <button
+                        onClick={() => setCurrentImageIdx((activeImageIdx + 1) % galleryItems.length)}
+                        aria-label="Next photo"
+                        className="absolute right-4 top-1/2 flex h-11 w-11 -translate-y-1/2 items-center justify-center rounded-full border border-white/30 bg-black/45 text-white backdrop-blur-sm transition hover:bg-orange-500"
+                      >
+                        <ChevronRight className="w-5 h-5" />
+                      </button>
+                      <div className="absolute bottom-4 right-4 border border-white/20 bg-black/55 px-3 py-1 text-xs font-semibold text-white backdrop-blur-sm">
+                        {activeImageIdx + 1} / {galleryItems.length}
+                      </div>
+                    </>
+                  )}
+                </>
+              ) : (
+                <div
+                  className="w-full aspect-[16/9] bg-gray-100 flex flex-col items-center justify-center gap-2 px-6 text-center text-gray-400"
+                  data-testid="no-images-placeholder"
+                  data-media-state={allListingMediaFailed ? 'published_unavailable' : listingMedia.state}
+                >
+                  <Car className="w-14 h-14 opacity-30" aria-hidden="true" />
+                  {allListingMediaFailed ? (
+                    <div data-testid="listing-media-load-failed">
+                      <p className="text-sm font-medium text-gray-600">Listing photo unavailable</p>
+                      <p className="mt-1 text-xs text-gray-400">
+                        CarUp received a published photo address for this listing, but the browser could
+                        not load it. That is a delivery failure, not a statement about the vehicle or
+                        whether the seller added photos.
+                      </p>
+                    </div>
+                  ) : listingMedia.state === 'none' ? (
+                    <div data-testid="listing-media-empty">
+                      {/* The block's own sentence, not one authored here. A gallery that invents
+                          its own empty-state wording is how the previous one came to publish a
+                          governance finding over a seller's advertising photos. */}
+                      <p className="text-sm font-medium text-gray-600">{listingMedia.empty_statement}</p>
+                      {/* THE SUPPORTING LINE HAD TO CHANGE WITH THE SENTENCE ABOVE IT, and this is
+                          the more important half. It used to read "The seller has not added any
+                          photos." — which is the EXACT claim the contract withdrew in Rule 1b, and
+                          leaving it here would have restored the falsehood one line below the
+                          correction: a gated block (an unpublished listing that DOES hold
+                          photographs) would have rendered the contract's honest "none published"
+                          and then had this page assert, on its own authority, that the seller
+                          added nothing. It also breaks the byte-identity the gate depends on the
+                          other way round — a surface that describes the three indistinguishable
+                          cases differently re-opens the enumeration the gate closed.
+                          This line now says only what the block says: nothing is published here,
+                          and no reading about the seller follows from that. */}
+                      <p className="mt-1 text-xs text-gray-400">
+                        That is a statement about what this page publishes, and about nothing else.
+                        Nothing follows from it about what the seller did.
+                      </p>
+                    </div>
+                  ) : (
+                    <div data-testid="listing-media-not-loaded">
+                      {/* RULE 1. This page reads the listing gallery through the governed
+                          marketplace detail; when that does not resolve, `listing_images` was
+                          never consulted and no negative about it may be published. */}
+                      <p className="text-sm font-medium text-gray-600">
+                        CarUp did not read this listing’s photo gallery on this page.
+                      </p>
+                      <p className="mt-1 text-xs text-gray-400">
+                        That is a fact about this request, not a finding about the listing. Nothing is
+                        stated either way about whether the seller added photos.
+                      </p>
+                    </div>
+                  )}
+                </div>
+              )}
+              <div className="absolute top-4 left-4 flex gap-2">
+                {/* No "Featured" badge: it was awarded by a client-side score threshold, which is a
+                    merchandising claim the page has no authority to make. "Reserved" stays — it is
+                    a listing state, not a claim about the photograph under it. */}
+                {detail?.carup_gold?.state === 'qualified' && (
+                  <Badge className="border border-amber-200 bg-[linear-gradient(135deg,#f59e0b,#facc15)] font-black uppercase tracking-[0.1em] text-slate-950 shadow-lg" data-testid="vehicle-detail-carup-gold">
+                    ★ CarUp Gold
+                  </Badge>
+                )}
+                {isReservedOnServer && <Badge className="bg-amber-500 text-white">Reserved</Badge>}
+              </div>
+              <div className="absolute top-4 right-4 flex gap-2">
+                <button onClick={toggleFavorite} aria-label="Save this vehicle" className="flex h-10 w-10 items-center justify-center rounded-full border border-white/70 bg-white/90 transition hover:scale-105 hover:bg-white">
+                  <Heart className={`w-5 h-5 ${isFav ? 'fill-red-500 text-red-500' : 'text-gray-600'}`} />
+                </button>
+                <Link
+                  to={compareHref}
+                  aria-label="Compare this vehicle"
+                  className="flex h-10 w-10 items-center justify-center rounded-full border border-white/70 bg-white/90 transition hover:scale-105 hover:bg-white"
+                  data-testid="vehicle-detail-compare"
+                >
+                  <GitCompare className="w-5 h-5 text-gray-600" />
+                </Link>
+                <button onClick={handleShare} aria-label="Share this listing" data-testid="vehicle-detail-share" className="flex h-10 w-10 items-center justify-center rounded-full border border-white/70 bg-white/90 transition hover:scale-105 hover:bg-white">
+                  <Share2 className="w-5 h-5 text-gray-600" />
+                </button>
+              </div>
+            </div>
+
+            {/* Rule 5: counted, never silently dropped. A short gallery that hides what it could
+                not render is passing our defect off as the seller's omission.
+
+                THE SENTENCE NAMES NO SINGLE CAUSE, AND THAT IS A CORRECTION. It used to end "the
+                stored address is not a form CarUp will publish" — a definite finding about ONE
+                field, published over a number that has never only counted that field. The
+                backend's `unpublishable_count` already merged url failures with identity failures
+                (`form === null || mediaId === null || identitiesTaken.has(mediaId)` — one
+                increment, three causes), and the count arrives here already merged, so the page
+                cannot know which applied and may not say. Rule 6b's uniqueness check on this page
+                adds a fourth contributor to the same number. One count, one honest sentence: the
+                record could not be published, and the reason is not something this surface
+                determined. */}
+            {listingMedia.unpublishable_count > 0 && (
+              <p className="text-xs text-amber-700" data-testid="listing-media-unpublishable">
+                {listingMedia.unpublishable_count} recorded photo(s) could not be shown here, because
+                what CarUp holds for them — the stored address, or the name that tells one photograph
+                from another — is not in a form it will publish. That is a fault in the record, not a
+                statement about the vehicle.
+              </p>
+            )}
+
+            {/* Thumbnails */}
+            {galleryItems.length > 1 && (
+              <div className="flex gap-3 overflow-x-auto border-b border-slate-200 pb-4 pt-1">
+                {/* Rule 6b, and the reason the identity is not decorative: React reconciles on
+                    this key. Keyed on `position` the previous thumbnail's DOM node — and its
+                    decoded bitmap — is reused for a DIFFERENT photograph whenever the payload
+                    re-orders, which is how a gallery briefly shows the wrong car. `media_id` names
+                    the photograph, so the node follows the picture rather than the slot. The
+                    composite falls back only for the marketplace transport, which carries no
+                    identity to key on. */}
+                {galleryItems.map((item, galleryIndex) => (
+                  <button key={item.media_id ?? `${item.position}-${item.url}`} onClick={() => setCurrentImageIdx(galleryIndex)}
+                    data-testid="listing-media-thumb"
+                    data-media-id={item.media_id ?? undefined}
+                    aria-label={`Show photo ${galleryIndex + 1}`}
+                    className={`h-20 w-28 flex-shrink-0 overflow-hidden border-b-4 transition-all ${galleryIndex === activeImageIdx ? 'border-orange-500 opacity-100' : 'border-transparent opacity-65 hover:opacity-100'}`}>
+                    <img src={item.url} alt="" className="w-full h-full object-cover" onError={() => markListingMediaFailed(item.url)} />
+                  </button>
+                ))}
+              </div>
+            )}
+          </section>
+        </div>
+
+        <section
+          className="h-fit bg-[#08111f] px-5 py-6 text-white shadow-[0_28px_70px_rgba(15,23,42,0.22)] sm:px-7 sm:py-7 lg:sticky lg:top-5 lg:mt-10"
+          data-testid="vehicle-detail-intelligence-hero"
+        >
+          <div>
+            <div className="flex items-center gap-2 text-[11px] font-black uppercase tracking-[0.2em] text-orange-400">
+              <ShieldCheck className="h-4 w-4" /> CarUp Vehicle Passport
+            </div>
+            <h1 className="mt-2 text-4xl font-black leading-none tracking-[-0.045em] text-white sm:text-5xl">
+              {vehicle.year ?? ''} {vehicle.make} {vehicle.model}
+            </h1>
+            <div className="mt-3 flex flex-wrap gap-x-5 gap-y-2 text-sm text-slate-300">
+              <span className="inline-flex items-center gap-1.5"><MapPin className="h-4 w-4 text-orange-500" /> {locationLine.label}</span>
+              {typeof vehicle.mileage === 'number' && Number.isFinite(vehicle.mileage) && (
+                <span className="inline-flex items-center gap-1.5"><Gauge className="h-4 w-4 text-orange-500" /> {vehicle.mileage.toLocaleString()} km</span>
+              )}
+            </div>
+          </div>
+          <div className="mt-7 grid grid-cols-2 border-y border-white/10 py-5">
+            <div className="pr-4">
+              <p className="text-[9px] font-black uppercase tracking-[0.16em] text-slate-500">Asking price</p>
+              <p className="mt-1 text-2xl font-black tracking-[-0.035em] text-white">{governedPrice(vehicle.price, vehicle.currency)}</p>
+            </div>
+            <div className="border-l border-white/10 pl-4">
+              <p className="text-[9px] font-black uppercase tracking-[0.16em] text-slate-500">Canonical Trust</p>
+              <p className="mt-1 text-2xl font-black tracking-[-0.035em] text-white">{trust.score !== null ? `${trust.score}/100` : trust.headline}</p>
+              {trust.score !== null && <p className="mt-0.5 text-[10px] text-slate-400">{trust.headline}</p>}
+            </div>
+          </div>
+
+          {detail && (
+            <div className="mt-6 space-y-2" data-testid="vehicle-detail-primary-actions">
+              <InquiryModal
+                listingId={detail.vin}
+                inquiryTypes={['vehicle_purchase_interest', 'vehicle_inspection_request']}
+                triggerLabel="Ask about this vehicle"
+                triggerClassName="w-full h-12 rounded-none bg-orange-500 font-black text-white hover:bg-orange-600"
+              />
+              <InquiryModal
+                listingId={detail.vin}
+                inquiryTypes={['vehicle_inspection_request']}
+                defaultInquiryType="vehicle_inspection_request"
+                triggerLabel="Request an inspection"
+                triggerVariant="outline"
+                triggerClassName="w-full h-11 rounded-none border-white/25 bg-transparent text-white hover:bg-white/10 hover:text-white"
+              />
+              <p className="pt-2 text-[10px] leading-4 text-slate-500">CarUp keeps the inquiry inside the governed Communications path. Never pay outside CarUp.</p>
+            </div>
+          )}
+        </section>
+        </div>
 
         {/* Backend-governed marketplace panels (trust, all-in price, inquiry, safety) */}
         {detail && (
@@ -1693,7 +1958,7 @@ export default function VehicleDetail() {
             </div>
             <div className="space-y-4">
               <AllInPricePanel pricing={detail.pricing_summary} />
-              <div className="rounded-xl border border-gray-100 bg-white p-4 shadow-sm">
+              <div className="border-y border-slate-200 bg-white py-4">
                 <h3 className="mb-2 text-sm font-semibold text-gray-900">Contact &amp; inquire</h3>
                 <div className="flex flex-col gap-2">
                   <InquiryModal
@@ -1719,7 +1984,7 @@ export default function VehicleDetail() {
 
         <div className="grid lg:grid-cols-3 gap-6">
           {/* ── Left column ─────────────────────────────────────────────── */}
-          <div className="lg:col-span-2 space-y-6">
+          <div className="min-w-0 lg:col-span-2 space-y-6">
 
             {/* Plate Advisory Banner */}
             {passport && (
@@ -1778,177 +2043,7 @@ export default function VehicleDetail() {
               })()
             )}
 
-            {/* ── LISTING MEDIA — the seller's presentation of the car ─────────────────
-                Marketing photos. Nothing in this block asserts governance, because nothing in
-                `listing_images` could support such an assertion. Note what is NOT here any more:
-                the "Police Checked" badge used to be stamped across the top-left of this photo,
-                which put a registry verification claim physically on top of a seller's snapshot.
-                It is a fact about the VEHICLE, not about the picture, and it now sits with the
-                other vehicle-status badges in the identity row below. */}
-            <section className="space-y-3" data-testid="listing-media-block">
-              <div className="flex items-center gap-2">
-                <ImageIcon className="w-4 h-4 text-gray-400" aria-hidden="true" />
-                <h2 className="text-sm font-semibold text-gray-900">Listing photos</h2>
-              </div>
-              <p className="text-xs text-gray-500" data-testid="listing-media-caption">
-                Photos supplied by the seller to advertise this vehicle. CarUp does not review them and
-                makes no claim about what they show.
-              </p>
 
-              <div className="relative rounded-xl overflow-hidden bg-white card-shadow" data-testid="image-gallery">
-                {hasListingPhotos && activeImage ? (
-                  <>
-                    {/* Rule 6b: `data-media-id` is the identity of the photograph on screen, so a
-                        test — and a support conversation about "the third photo on this listing" —
-                        can name THIS picture rather than whichever one is currently in slot 2. The
-                        attribute is absent entirely when the transport carried no identity; it is
-                        never a fabricated value. */}
-                    <img
-                      src={activeImage.url}
-                      alt={`${vehicle.make} ${vehicle.model}`}
-                      className="w-full aspect-[16/9] object-cover"
-                      data-testid="vehicle-image"
-                      data-url-form={activeImage.url_form}
-                      data-media-id={activeImage.media_id ?? undefined}
-                    />
-                    {/* Rule 6: shown only where a row claims it. No primary is elected when the
-                        seller named none — that choice is theirs to make or leave unmade. */}
-                    {activeImage.is_primary && (
-                      <span
-                        className="absolute bottom-3 left-3 rounded-full bg-black/50 px-2 py-1 text-xs text-white"
-                        data-testid="listing-media-primary"
-                      >
-                        Seller’s main photo
-                      </span>
-                    )}
-                    {galleryItems.length > 1 && (
-                      <>
-                        <button
-                          onClick={() => setCurrentImageIdx((activeImageIdx - 1 + galleryItems.length) % galleryItems.length)}
-                          aria-label="Previous photo"
-                          className="absolute left-3 top-1/2 -translate-y-1/2 w-9 h-9 rounded-full bg-black/40 text-white flex items-center justify-center hover:bg-black/60"
-                        >
-                          <ChevronLeft className="w-5 h-5" />
-                        </button>
-                        <button
-                          onClick={() => setCurrentImageIdx((activeImageIdx + 1) % galleryItems.length)}
-                          aria-label="Next photo"
-                          className="absolute right-3 top-1/2 -translate-y-1/2 w-9 h-9 rounded-full bg-black/40 text-white flex items-center justify-center hover:bg-black/60"
-                        >
-                          <ChevronRight className="w-5 h-5" />
-                        </button>
-                        <div className="absolute bottom-3 right-3 bg-black/50 text-white text-xs px-2 py-1 rounded-full">
-                          {activeImageIdx + 1} / {galleryItems.length}
-                        </div>
-                      </>
-                    )}
-                  </>
-                ) : (
-                  <div
-                    className="w-full aspect-[16/9] bg-gray-100 flex flex-col items-center justify-center gap-2 px-6 text-center text-gray-400"
-                    data-testid="no-images-placeholder"
-                    data-media-state={listingMedia.state}
-                  >
-                    <Car className="w-14 h-14 opacity-30" aria-hidden="true" />
-                    {listingMedia.state === 'none' ? (
-                      <div data-testid="listing-media-empty">
-                        {/* The block's own sentence, not one authored here. A gallery that invents
-                            its own empty-state wording is how the previous one came to publish a
-                            governance finding over a seller's advertising photos. */}
-                        <p className="text-sm font-medium text-gray-600">{listingMedia.empty_statement}</p>
-                        {/* THE SUPPORTING LINE HAD TO CHANGE WITH THE SENTENCE ABOVE IT, and this is
-                            the more important half. It used to read "The seller has not added any
-                            photos." — which is the EXACT claim the contract withdrew in Rule 1b, and
-                            leaving it here would have restored the falsehood one line below the
-                            correction: a gated block (an unpublished listing that DOES hold
-                            photographs) would have rendered the contract's honest "none published"
-                            and then had this page assert, on its own authority, that the seller
-                            added nothing. It also breaks the byte-identity the gate depends on the
-                            other way round — a surface that describes the three indistinguishable
-                            cases differently re-opens the enumeration the gate closed.
-                            This line now says only what the block says: nothing is published here,
-                            and no reading about the seller follows from that. */}
-                        <p className="mt-1 text-xs text-gray-400">
-                          That is a statement about what this page publishes, and about nothing else.
-                          Nothing follows from it about what the seller did.
-                        </p>
-                      </div>
-                    ) : (
-                      <div data-testid="listing-media-not-loaded">
-                        {/* RULE 1. This page reads the listing gallery through the governed
-                            marketplace detail; when that does not resolve, `listing_images` was
-                            never consulted and no negative about it may be published. */}
-                        <p className="text-sm font-medium text-gray-600">
-                          CarUp did not read this listing’s photo gallery on this page.
-                        </p>
-                        <p className="mt-1 text-xs text-gray-400">
-                          That is a fact about this request, not a finding about the listing. Nothing is
-                          stated either way about whether the seller added photos.
-                        </p>
-                      </div>
-                    )}
-                  </div>
-                )}
-                <div className="absolute top-4 left-4 flex gap-2">
-                  {/* No "Featured" badge: it was awarded by a client-side score threshold, which is a
-                      merchandising claim the page has no authority to make. "Reserved" stays — it is
-                      a listing state, not a claim about the photograph under it. */}
-                  {isReservedOnServer && <Badge className="bg-amber-500 text-white">Reserved</Badge>}
-                </div>
-                <div className="absolute top-4 right-4 flex gap-2">
-                  <button onClick={toggleFavorite} aria-label="Save this vehicle" className="w-10 h-10 rounded-full bg-white/90 flex items-center justify-center hover:bg-white">
-                    <Heart className={`w-5 h-5 ${isFav ? 'fill-red-500 text-red-500' : 'text-gray-600'}`} />
-                  </button>
-                  <button onClick={handleShare} aria-label="Share this listing" className="w-10 h-10 rounded-full bg-white/90 flex items-center justify-center hover:bg-white">
-                    <Share2 className="w-5 h-5 text-gray-600" />
-                  </button>
-                </div>
-              </div>
-
-              {/* Rule 5: counted, never silently dropped. A short gallery that hides what it could
-                  not render is passing our defect off as the seller's omission.
-
-                  THE SENTENCE NAMES NO SINGLE CAUSE, AND THAT IS A CORRECTION. It used to end "the
-                  stored address is not a form CarUp will publish" — a definite finding about ONE
-                  field, published over a number that has never only counted that field. The
-                  backend's `unpublishable_count` already merged url failures with identity failures
-                  (`form === null || mediaId === null || identitiesTaken.has(mediaId)` — one
-                  increment, three causes), and the count arrives here already merged, so the page
-                  cannot know which applied and may not say. Rule 6b's uniqueness check on this page
-                  adds a fourth contributor to the same number. One count, one honest sentence: the
-                  record could not be published, and the reason is not something this surface
-                  determined. */}
-              {listingMedia.unpublishable_count > 0 && (
-                <p className="text-xs text-amber-700" data-testid="listing-media-unpublishable">
-                  {listingMedia.unpublishable_count} recorded photo(s) could not be shown here, because
-                  what CarUp holds for them — the stored address, or the name that tells one photograph
-                  from another — is not in a form it will publish. That is a fault in the record, not a
-                  statement about the vehicle.
-                </p>
-              )}
-
-              {/* Thumbnails */}
-              {galleryItems.length > 1 && (
-                <div className="flex gap-2 overflow-x-auto pb-1">
-                  {/* Rule 6b, and the reason the identity is not decorative: React reconciles on
-                      this key. Keyed on `position` the previous thumbnail's DOM node — and its
-                      decoded bitmap — is reused for a DIFFERENT photograph whenever the payload
-                      re-orders, which is how a gallery briefly shows the wrong car. `media_id` names
-                      the photograph, so the node follows the picture rather than the slot. The
-                      composite falls back only for the marketplace transport, which carries no
-                      identity to key on. */}
-                  {galleryItems.map((item) => (
-                    <button key={item.media_id ?? `${item.position}-${item.url}`} onClick={() => setCurrentImageIdx(item.position)}
-                      data-testid="listing-media-thumb"
-                      data-media-id={item.media_id ?? undefined}
-                      aria-label={`Show photo ${item.position + 1}`}
-                      className={`flex-shrink-0 w-20 h-14 rounded-lg overflow-hidden border-2 transition-colors ${item.position === activeImageIdx ? 'border-orange-500' : 'border-transparent'}`}>
-                      <img src={item.url} alt="" className="w-full h-full object-cover" />
-                    </button>
-                  ))}
-                </div>
-              )}
-            </section>
 
             {/* ── VERIFIED EVIDENCE — governed artifacts, deliberately not a gallery ────
                 The convergence: both blocks are composed on this page, adjacent, and neither can be
@@ -2094,13 +2189,8 @@ export default function VehicleDetail() {
                           {passport.identity.registrationStatus}
                         </Badge>
                       )}
-                      {/* Moved off the photo. This is a registry claim about the VEHICLE; overlaid
-                          on the gallery it read as a claim about the seller's picture, which is
-                          exactly the conflation Phase 5 exists to remove. It belongs beside the
-                          other vehicle-status badges. */}
-                      {vehicle.police_verified && (
-                        <Badge className="bg-blue-700 text-white text-[10px] font-semibold" data-testid="police-checked-badge">Police Checked</Badge>
-                      )}
+                      {/* Government-approval claims (CID/police/ZIMRA/duty) are deliberately absent here.
+                          Legacy booleans without authoritative public provenance cannot produce buyer-facing approval badges. */}
                     </div>
 
                     <div className="flex items-center gap-2 mt-3 text-sm text-gray-500">
@@ -2115,16 +2205,28 @@ export default function VehicleDetail() {
                     <p className="text-xs" data-testid="trust-score-label">{trust.headline}</p>
                   </div>
                 </div>
-                {vehicle.description && <p className="text-gray-700 mb-6 leading-relaxed">{vehicle.description}</p>}
-                <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 mb-6">
+                {/* THE SELLER'S OWN WORDS, from the field the projection actually publishes. This
+                    block read `vehicle.description` — a key `PUBLIC_VEHICLE_FIELDS` never emitted —
+                    so a seller could write a full description and no buyer would ever see a
+                    character of it. Same defect shape as the gallery reading `vehicle.images`. */}
+                {sellerDescription && (
+                  <p className="text-gray-700 mb-6 leading-relaxed" data-testid="seller-description">{sellerDescription}</p>
+                )}
+                <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-4 mb-6">
                   {[
                     // 0 km is a real reading, so presence is tested on the number, not on truthiness.
-                    { label: 'Mileage',       value: Number.isFinite(vehicle.mileage) ? `${vehicle.mileage.toLocaleString()} km` : null, icon: Gauge },
-                    { label: 'Transmission',  value: vehicle.transmission || null, icon: Settings2 },
-                    { label: 'Fuel Type',     value: vehicle.fuel_type || vehicle.fuelType || null, icon: Fuel },
-                    { label: 'Condition',     value: vehicle.condition || null, icon: FileCheck },
+                    { label: 'Mileage',       value: Number.isFinite(vehicle.mileage) ? `${vehicle.mileage.toLocaleString()} km` : null, icon: Gauge, testId: 'spec-mileage' },
+                    { label: 'Transmission',  value: vehicle.transmission || null, icon: Settings2, testId: 'spec-transmission' },
+                    { label: 'Fuel Type',     value: vehicle.fuel_type || vehicle.fuelType || null, icon: Fuel, testId: 'spec-fuel-type' },
+                    { label: 'Body style',    value: vehicle.body_style || null, icon: Car, testId: 'spec-body-style' },
+                    // LABELLED, DELIBERATELY. This tile used to read `vehicle.condition`, another key
+                    // the projection does not emit, so it said "Not recorded" for every vehicle on the
+                    // platform. The honest value is the seller's statement — and it is captioned as
+                    // the seller's, because CarUp's own governed classification is a different
+                    // question with a different answer (`vehicle_condition_category`).
+                    { label: 'Condition (seller-stated)', value: vehicle.seller_stated_condition || null, icon: FileCheck, testId: 'spec-seller-condition' },
                   ].map((item) => (
-                    <div key={item.label} className="bg-gray-50 rounded-lg p-3 text-center">
+                    <div key={item.label} className="bg-gray-50 rounded-lg p-3 text-center" data-testid={item.testId}>
                       <item.icon className="w-5 h-5 text-orange-500 mx-auto mb-1" />
                       <p className="text-xs text-gray-500">{item.label}</p>
                       {item.value ? (
@@ -2135,12 +2237,13 @@ export default function VehicleDetail() {
                     </div>
                   ))}
                 </div>
-                {(vehicle.features ?? []).length > 0 && (
+                {sellerFeatures.length > 0 && (
                   <>
                     <Separator className="mb-6" />
-                    <h3 className="font-semibold mb-3">Features</h3>
-                    <div className="flex flex-wrap gap-2">
-                      {(vehicle.features ?? []).map((f) => (
+                    {/* "Features" alone read as a CarUp finding. These are the seller's claims. */}
+                    <h3 className="font-semibold mb-3">Features stated by the seller</h3>
+                    <div className="flex flex-wrap gap-2" data-testid="seller-features">
+                      {sellerFeatures.map((f) => (
                         <Badge key={f} variant="secondary" className="bg-gray-100 text-gray-700 font-normal">{f}</Badge>
                       ))}
                     </div>
@@ -2148,6 +2251,11 @@ export default function VehicleDetail() {
                 )}
               </CardContent>
             </Card>
+
+            {/* Vehicle History Intelligence: a buyer should see the living vehicle story before
+                navigating into the deeper report/evidence tools. It renders only the public-safe
+                report projection already governed by Truth & Trust. */}
+            {report && <VehicleIntelligenceStory report={report} />}
 
             {/* ── Tabs ─────────────────────────────────────────────────── */}
             <Card className="border-0 card-shadow">
@@ -2161,24 +2269,82 @@ export default function VehicleDetail() {
                     <TabsTrigger value="market" className="flex-1">Market Analysis</TabsTrigger>
                   </TabsList>
 
-                  {/* ── History tab: real timeline ── */}
+                  {/* ── History tab: canonical lifecycle first, legacy audit timeline as compatibility fallback ── */}
                   <TabsContent value="history" className="mt-4" data-testid="history-tab-content">
-                    {timeline.length === 0 ? (
+                    {lifecycleLoaded ? (
+                      lifecycleEvents.length === 0 ? (
+                        <div className="text-center py-8 text-gray-400" data-testid="history-empty-state">
+                          <Clock className="w-10 h-10 mx-auto mb-3 opacity-30" />
+                          <p className="font-medium">No dated lifecycle records in current coverage</p>
+                          <p className="text-xs mt-1 text-gray-400">This is not proof of a clean history. Add governed evidence, service, ownership or inspection records to expand coverage.</p>
+                        </div>
+                      ) : (
+                        <div className="space-y-3" data-testid="history-timeline" data-history-source="canonical-lifecycle">
+                          {lifecycleEvents.map((event: VehicleLifecycleEvent) => {
+                            const { icon: Icon, color } = lifecycleIcon(event.category)
+                            const evidenceItem = event.evidence_id
+                              ? publicEvidence.find(item => item.id === event.evidence_id)
+                              : undefined
+                            const isDoc = evidenceItem
+                              ? Boolean(evidenceItem.mime_type?.includes('pdf') || evidenceItem.file_url?.endsWith('.pdf') || evidenceItem.evidence_type.includes('document'))
+                              : false
+                            return (
+                              <div
+                                key={event.id}
+                                className="flex items-start gap-3 border-b border-slate-200 bg-white py-4"
+                                data-testid="timeline-event"
+                                data-lifecycle-category={event.category}
+                              >
+                                <div className={`flex-shrink-0 w-9 h-9 flex items-center justify-center ${color}`}>
+                                  <Icon className="w-4 h-4" />
+                                </div>
+                                <div className="flex-1 min-w-0">
+                                  <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+                                    <p className="font-semibold text-sm text-slate-900">{event.label}</p>
+                                    <Badge variant="outline" className="rounded-none text-[10px] capitalize">{event.category.replace(/_/g, ' ')}</Badge>
+                                    <span className="text-[10px] font-semibold uppercase tracking-wide text-slate-400">{lifecycleStatusLabel(event)}</span>
+                                  </div>
+                                  <p className="text-xs text-slate-500 mt-1">
+                                    {event.date ? new Date(event.date).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' }) : 'Date unknown'}
+                                    {typeof event.mileage === 'number' ? ` · ${event.mileage.toLocaleString()} ${event.mileage_unit || 'km'}` : ''}
+                                    {event.source_kind ? ` · ${event.source_kind.replace(/_/g, ' ')}` : ''}
+                                  </p>
+                                  {event.detail_state === 'summary_only' && (
+                                    <p className="mt-1 text-[11px] text-slate-400">A maintenance event is recorded; public part-level detail is not published from this record.</p>
+                                  )}
+                                  {evidenceItem && (
+                                    <div className="mt-3 flex items-center gap-2">
+                                      <div className="h-14 w-16 overflow-hidden border border-slate-200 bg-slate-50" data-testid={`history-thumbnail-${evidenceItem.id}`}>
+                                        {!evidenceItem.file_url || isDoc ? (
+                                          <div className="flex h-full w-full items-center justify-center" data-testid={!evidenceItem.file_url ? 'history-thumbnail-withheld' : undefined}>
+                                            <FileText className="w-6 h-6 text-gray-400" />
+                                          </div>
+                                        ) : (
+                                          <img src={evidenceItem.file_url} className="w-full h-full object-cover" alt="" />
+                                        )}
+                                      </div>
+                                      <span className="text-[11px] text-slate-500">Governed evidence linked to this lifecycle event</span>
+                                    </div>
+                                  )}
+                                </div>
+                              </div>
+                            )
+                          })}
+                        </div>
+                      )
+                    ) : timeline.length === 0 ? (
                       <div className="text-center py-8 text-gray-400" data-testid="history-empty-state">
                         <Clock className="w-10 h-10 mx-auto mb-3 opacity-30" />
-                        <p className="font-medium">No history events recorded yet</p>
-                        <p className="text-xs mt-1 text-gray-400">Events appear as service records, ownership transfers, and inspections are logged on the CarUp audit ledger</p>
+                        <p className="font-medium">Vehicle lifecycle was not loaded</p>
+                        <p className="text-xs mt-1 text-gray-400">CarUp will not turn a missing lifecycle projection into a claim that the vehicle has no history.</p>
                       </div>
                     ) : (
-                      <div className="space-y-3" data-testid="history-timeline">
+                      <div className="space-y-3" data-testid="history-timeline" data-history-source="legacy-audit-fallback">
                         {timeline.map((event: TimelineEvent, idx) => {
                           const { icon: Icon, color } = timelineIcon(event.event_source)
                           return (
-                            <div key={`${event.event_source}-${event.id ?? idx}`}
-                              className="flex items-start gap-3 p-3 rounded-lg bg-gray-50"
-                              data-testid="timeline-event"
-                            >
-                              <div className={`flex-shrink-0 w-8 h-8 rounded-full flex items-center justify-center ${color}`}>
+                            <div key={`${event.event_source}-${event.id ?? idx}`} className="flex items-start gap-3 p-3 bg-gray-50" data-testid="timeline-event">
+                              <div className={`flex-shrink-0 w-8 h-8 flex items-center justify-center ${color}`}>
                                 <Icon className="w-4 h-4" />
                               </div>
                               <div className="flex-1 min-w-0">
@@ -2188,42 +2354,6 @@ export default function VehicleDetail() {
                                   {event.timestamp ? new Date(event.timestamp).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' }) : 'Date unknown'}
                                   {event.details?.mileage ? ` · ${event.details.mileage.toLocaleString()} km` : ''}
                                 </p>
-                                {event.event_source === 'evidence' && (
-                                  <div className="mt-2 flex flex-wrap items-center gap-2">
-                                    <Badge className="bg-green-100 text-green-700 border-0 shadow-none">
-                                      Verified Proof
-                                    </Badge>
-                                    {event.linked_registry_event_id && (
-                                      <span className="text-[11px] text-gray-500 font-mono">
-                                        Linked: {event.linked_registry_event_id}
-                                      </span>
-                                    )}
-                                  </div>
-                                )}
-                                {/* Add chronological evidence thumbnails */}
-                                {publicEvidence.filter(e => e.linked_registry_event_id === String(event.id) || e.timeline_event_id === String(event.id)).length > 0 && (
-                                  <div className="mt-3 flex gap-2 overflow-x-auto pb-1">
-                                    {publicEvidence.filter(e => e.linked_registry_event_id === String(event.id) || e.timeline_event_id === String(event.id)).map(item => {
-                                      const isDoc = item.mime_type?.includes('pdf') || item.file_url?.endsWith('.pdf') || item.evidence_type.includes('document');
-                                      return (
-                                        <div key={item.id} className="flex-shrink-0 w-16 h-16 rounded-md overflow-hidden border border-gray-200" data-testid={`history-thumbnail-${item.id}`}>
-                                          {/* A withheld artifact has no image; without this the
-                                              history strip rendered a broken thumbnail. */}
-                                          {!item.file_url || isDoc ? (
-                                            <div
-                                              className="w-full h-full bg-gray-50 flex items-center justify-center"
-                                              data-testid={!item.file_url ? 'history-thumbnail-withheld' : undefined}
-                                            >
-                                              <FileText className="w-6 h-6 text-gray-400" />
-                                            </div>
-                                          ) : (
-                                            <img src={item.file_url} className="w-full h-full object-cover" alt="" />
-                                          )}
-                                        </div>
-                                      );
-                                    })}
-                                  </div>
-                                )}
                               </div>
                             </div>
                           )
@@ -2454,82 +2584,93 @@ export default function VehicleDetail() {
                       : `CarUp Trust: ${trust.headline}`}
                   </span>
                 </div>
-                {sellerContactNumber && sellerWhatsAppLink ? (
-                  <div className="flex gap-2 mt-6">
-                    <a href={`tel:${sellerContactNumber}`} onClick={() => toast.info(`Calling ${vehicle.sellerName ?? 'the seller'}...`)} className="flex-1">
-                      <Button className="w-full bg-orange-500 hover:bg-orange-600 gap-1"><Phone className="w-4 h-4" /> Call</Button>
-                    </a>
-                    <a href={sellerWhatsAppLink} target="_blank" rel="noopener noreferrer" className="flex-1">
-                      <Button variant="outline" className="w-full border-white/30 text-white hover:bg-white/10 gap-1"><MessageSquare className="w-4 h-4" /> WhatsApp</Button>
-                    </a>
-                  </div>
+                {detail ? (
+                  <>
+                    {sellerContactNumber && sellerWhatsAppLink ? (
+                      <div className="flex gap-2 mt-6">
+                        <a href={`tel:${sellerContactNumber}`} onClick={() => toast.info(`Calling ${vehicle.sellerName ?? 'the seller'}...`)} className="flex-1">
+                          <Button className="w-full bg-orange-500 hover:bg-orange-600 gap-1"><Phone className="w-4 h-4" /> Call</Button>
+                        </a>
+                        <a href={sellerWhatsAppLink} target="_blank" rel="noopener noreferrer" className="flex-1">
+                          <Button variant="outline" className="w-full border-white/30 bg-transparent text-white hover:bg-white/10 hover:text-white gap-1"><MessageSquare className="w-4 h-4" /> WhatsApp</Button>
+                        </a>
+                      </div>
+                    ) : (
+                      <div className="mt-6" data-testid="seller-contact-unavailable">
+                        <InquiryModal
+                          listingId={detail.vin}
+                          inquiryTypes={['vehicle_purchase_interest', 'vehicle_inspection_request']}
+                          defaultInquiryType="vehicle_purchase_interest"
+                          triggerLabel="Contact through CarUp"
+                          triggerClassName="w-full bg-orange-500 text-white hover:bg-orange-400"
+                          defaultMessage="I am interested in this vehicle. Please connect me with the seller through CarUp."
+                          intentMetadata={{ buyer_intent: 'seller_contact' }}
+                        />
+                        <p className="mt-2 text-xs text-gray-400">
+                          The seller has not published a direct number. CarUp can route your inquiry without exposing private contact details.
+                        </p>
+                      </div>
+                    )}
+                    <Separator className="my-4 border-white/20" />
+                    {isReservedOnServer ? (
+                      <div className="w-full flex items-center justify-center gap-2 bg-amber-600/20 border border-amber-500/40 rounded-lg py-3 text-amber-300 font-semibold text-sm" data-testid="reserved-state">
+                        <Lock className="w-4 h-4" /> Reserved
+                      </div>
+                    ) : reserveRequested ? (
+                      <div className="w-full flex items-center justify-center gap-2 bg-white/10 border border-white/20 rounded-lg py-3 text-gray-200 font-semibold text-sm" data-testid="reserve-requested-state">
+                        <Clock className="w-4 h-4" /> Reservation requested — awaiting confirmation
+                      </div>
+                    ) : (
+                      <div data-testid="reservation-request-entry">
+                        <InquiryModal
+                          listingId={detail.vin}
+                          inquiryTypes={['vehicle_purchase_interest']}
+                          defaultInquiryType="vehicle_purchase_interest"
+                          triggerLabel="Request reservation"
+                          triggerClassName="w-full bg-white text-slate-950 hover:bg-orange-50"
+                          defaultMessage="I want to reserve this vehicle. Please confirm the seller and tell me the next SafePay step."
+                          intentMetadata={{ buyer_intent: 'reservation_request', safepay_requested: true }}
+                          onSubmitted={() => setReserveRequested(true)}
+                        />
+                        <p className="mt-2 text-xs text-gray-400">
+                          CarUp resolves the current seller, purchase inquiry, listing terms and Trust gates before a reservation or SafePay step can open.
+                        </p>
+                      </div>
+                    )}
+                    {financeInterestRequested ? (
+                      <div className="mt-3 w-full flex items-center justify-center gap-2 bg-blue-600/20 border border-blue-500/40 rounded-lg py-3 text-blue-300 font-semibold text-sm" data-testid="financing-interest-state">
+                        <CheckCircle className="w-4 h-4" /> Financing interest sent
+                      </div>
+                    ) : (
+                      <div className="mt-3" data-testid="financing-request-entry">
+                        <InquiryModal
+                          listingId={detail.vin}
+                          inquiryTypes={['vehicle_purchase_interest']}
+                          defaultInquiryType="vehicle_purchase_interest"
+                          triggerLabel="Ask about financing"
+                          triggerVariant="outline"
+                          triggerClassName="w-full border-white/20 bg-transparent text-white hover:bg-white/10 hover:text-white"
+                          defaultMessage="I am interested in financing this vehicle. Please tell me which governed lender path is available and what information I need to provide."
+                          intentMetadata={{ buyer_intent: 'financing_interest' }}
+                          onSubmitted={() => setFinanceInterestRequested(true)}
+                        />
+                        <p className="mt-2 text-xs text-gray-400">
+                          CarUp will not invent a lender, approval, currency or loan terms. A financing application starts only when a real lender path and listing currency are verified.
+                        </p>
+                      </div>
+                    )}
+                    <p className="text-xs text-gray-400 text-center mt-3">🔒 SafePay opens only after CarUp verifies transaction eligibility</p>
+                  </>
                 ) : (
-                  <div className="mt-6" data-testid="seller-contact-unavailable">
-                    <div className="flex gap-2">
-                      <Button disabled aria-disabled className="flex-1 gap-1 disabled:opacity-100 bg-white/10 text-white/80 border border-white/25 hover:bg-white/10 cursor-not-allowed" data-testid="call-disabled"><Phone className="w-4 h-4" /> Call</Button>
-                      <Button disabled aria-disabled variant="outline" className="flex-1 gap-1 disabled:opacity-100 bg-white/10 text-white/80 border border-white/25 hover:bg-white/10 cursor-not-allowed" data-testid="whatsapp-disabled"><MessageSquare className="w-4 h-4" /> WhatsApp</Button>
+                  <div className="mt-6 border border-white/15 bg-white/5 p-4" data-testid="marketplace-actions-unavailable">
+                    <div className="flex items-center gap-2 text-sm font-semibold text-white">
+                      <Lock className="h-4 w-4 text-orange-400" /> Marketplace actions unavailable
                     </div>
-                    <p className="text-xs text-gray-400 mt-2">
-                      No contact number is published for this seller.
-                      {detail
-                        ? ' Use “Send inquiry” above — CarUp routes your request to the seller.'
-                        : ' Direct contact opens once the seller publishes a number.'}
+                    <p className="mt-2 text-xs leading-5 text-gray-400">
+                      This Vehicle Passport is not currently backed by a published Marketplace listing. Contact, reservation, and financing requests stay hidden until a canonical public listing resolves.
                     </p>
                   </div>
                 )}
-                <Separator className="my-4 border-white/20" />
-                {isReservedOnServer ? (
-                  <div className="w-full flex items-center justify-center gap-2 bg-amber-600/20 border border-amber-500/40 rounded-lg py-3 text-amber-300 font-semibold text-sm" data-testid="reserved-state">
-                    <Lock className="w-4 h-4" /> Reserved
-                  </div>
-                ) : reserveRequested ? (
-                  <div className="w-full flex items-center justify-center gap-2 bg-white/10 border border-white/20 rounded-lg py-3 text-gray-200 font-semibold text-sm" data-testid="reserve-requested-state">
-                    <Clock className="w-4 h-4" /> Reservation requested — awaiting confirmation
-                  </div>
-                ) : (
-                  <>
-                    <Button
-                      className={`w-full font-semibold gap-2 ${resolvedSellerId
-                        ? 'bg-white text-gray-900 hover:bg-gray-100'
-                        : 'disabled:opacity-100 bg-white/10 text-white/80 border border-white/25 hover:bg-white/10 cursor-not-allowed'}`}
-                      onClick={() => setShowReserveModal(true)}
-                      disabled={!resolvedSellerId}
-                      aria-disabled={!resolvedSellerId}
-                      data-testid="reserve-vehicle"
-                    >
-                      <Lock className="w-4 h-4" /> Reserve Vehicle
-                    </Button>
-                    {!resolvedSellerId && (
-                      <p className="text-xs text-gray-400 mt-2" data-testid="reserve-unavailable">
-                        SafePay escrow is opened by CarUp once a verified inquiry confirms the seller, so it cannot be
-                        started from this page.
-                        {detail ? ' Use “Send inquiry” above to begin.' : ''}
-                      </p>
-                    )}
-                  </>
-                )}
-                {isFinanced ? (
-                  <div className="w-full flex items-center justify-center gap-2 bg-blue-600/20 border border-blue-500/40 rounded-lg py-3 text-blue-400 font-semibold text-sm mt-3">
-                    <CheckCircle className="w-4 h-4" /> Financing Applied ✓
-                  </div>
-                ) : (
-                  <>
-                    <Button
-                      variant="outline"
-                      className="w-full mt-3 border-white/20 text-white hover:bg-white/10 gap-2"
-                      onClick={() => setShowFinanceModal(true)}
-                      disabled={!canApplyForFinancing}
-                    >
-                      <CreditCard className="w-4 h-4" /> Apply for Financing
-                    </Button>
-                    {!canApplyForFinancing && (
-                      <p className="text-xs text-gray-400 mt-2" data-testid="financing-signin-required">
-                        Sign in to apply — the application is submitted under your CarUp account.
-                      </p>
-                    )}
-                  </>
-                )}
-                <p className="text-xs text-gray-400 text-center mt-3">🔒 Protected by CarUp SafePay Escrow</p>
               </CardContent>
             </Card>
 
@@ -2541,8 +2682,13 @@ export default function VehicleDetail() {
                   {vehicle.sellerAvatar && <img src={vehicle.sellerAvatar} alt="" className="w-12 h-12 rounded-full object-cover" />}
                   <div>
                     <p className="font-medium" data-testid="seller-name">
-                      {vehicle.sellerName
-                        ?? (passport?.ownershipSummary?.currentSellerRecorded ? 'Not shown publicly' : 'Not recorded')}
+                      {/* Marketplace seller-profile consent is authoritative as soon as detail loads.
+                          Do not wait for passport enrichment before honoring a disabled public profile:
+                          that race exposed "Not recorded" for a seller whose public identity is withheld. */}
+                      {detail?.seller_summary?.public_profile_enabled === false
+                        ? 'Not shown publicly'
+                        : vehicle.sellerName
+                          ?? (passport?.ownershipSummary?.currentSellerRecorded ? 'Not shown publicly' : 'Not recorded')}
                     </p>
                     {vehicle.sellerType && (
                       <Badge variant="outline" className="text-[10px] mt-0.5">{vehicle.sellerType}</Badge>
@@ -2635,11 +2781,18 @@ export default function VehicleDetail() {
                         </span>
                       )}
                     </div>
-                    <div className="flex justify-between">
+                    <div className="flex justify-between gap-4">
                       <span className="text-gray-500">Previous Owners</span>
-                      <span className="font-medium" data-testid="prev-owner-count">
-                        {passport.ownershipSummary.previousOwnerCount} owner(s) ({passport.ownershipSummary.previousOwnersPublicLabel})
-                      </span>
+                      {passport.ownershipSummary.previousOwnerCountState === 'unavailable'
+                        || passport.ownershipSummary.previousOwnerCount === null ? (
+                        <span className="text-right font-medium text-amber-700" data-testid="prev-owner-count-unavailable">
+                          History source unavailable
+                        </span>
+                      ) : (
+                        <span className="text-right font-medium" data-testid="prev-owner-count">
+                          {passport.ownershipSummary.previousOwnerCount} transfer record(s) ({passport.ownershipSummary.previousOwnersPublicLabel})
+                        </span>
+                      )}
                     </div>
                     <div className="flex justify-between">
                       <span className="text-gray-500">Owner PII Status</span>
@@ -2658,13 +2811,17 @@ export default function VehicleDetail() {
                 <CardContent className="p-6">
                   <h3 className="font-semibold mb-4">Plate Registration History</h3>
                   {passport.plateHistory.length === 0 ? (
-                    passport.plateHistoryRedacted ? (
+                    passport.plateHistoryState === 'unavailable' ? (
+                      <p className="text-xs text-amber-700" data-testid="plate-history-unavailable">
+                        Plate history could not be read. CarUp is not treating this as an empty history.
+                      </p>
+                    ) : passport.plateHistoryRedacted ? (
                       <p className="text-xs text-gray-400" data-testid="plate-history-withheld">
                         Plate registration history is not shown publicly for this vehicle.
                       </p>
                     ) : (
                       <p className="text-xs text-gray-400" data-testid="plate-history-empty">
-                        No previous plates logged in history.
+                        No plate-history rows are held in the CarUp records read for this vehicle.
                       </p>
                     )
                   ) : (
@@ -2805,82 +2962,13 @@ export default function VehicleDetail() {
         </div>
       </div>
 
-      {/* ── Reserve Modal ─────────────────────────────────────────────────── */}
-      <Dialog open={showReserveModal} onOpenChange={setShowReserveModal}>
-        <DialogContent className="sm:max-w-md">
-          <DialogHeader>
-            <DialogTitle className="flex items-center gap-2"><Lock className="w-5 h-5 text-orange-500" /> Reserve this Vehicle</DialogTitle>
-            <DialogDescription>Secure your interest with a CarUp SafePay reservation</DialogDescription>
-          </DialogHeader>
-          <div className="space-y-4 py-2">
-            <div className="bg-gray-50 rounded-lg p-4">
-              <p className="font-semibold">{vehicle.year ?? ''} {vehicle.make ?? ''} {vehicle.model ?? ''}</p>
-              <p className="text-2xl font-bold text-orange-600 mt-1">{governedPrice(vehicle.price, vehicle.currency)}</p>
-            </div>
-            <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 text-sm text-blue-800 space-y-1">
-              <p className="font-semibold">What happens next:</p>
-              <p>✓ Vehicle held exclusively for you for 7 days</p>
-              <p>✓ Refundable deposit of <strong>$500</strong> held in SafePay escrow</p>
-              <p>✓ Seller notified immediately via WhatsApp</p>
-              <p>✓ Funds released only on successful transfer</p>
-            </div>
-            <div className="flex gap-3">
-              <Button variant="outline" className="flex-1" onClick={() => setShowReserveModal(false)} disabled={reserveLoading}>Cancel</Button>
-              <Button className="flex-1 bg-orange-500 hover:bg-orange-600" onClick={handleReserve} disabled={reserveLoading || !resolvedSellerId}>
-                {reserveLoading ? <><Loader2 className="w-4 h-4 mr-2 animate-spin" />Processing...</> : 'Confirm Reservation'}
-              </Button>
-            </div>
-          </div>
-        </DialogContent>
-      </Dialog>
+      <MarketplaceShareSheet
+        open={shareOpen}
+        onOpenChange={setShareOpen}
+        title={`${vehicle.year ?? ''} ${vehicle.make ?? ''} ${vehicle.model ?? ''}`.trim()}
+        url={typeof window !== 'undefined' ? window.location.href : ''}
+      />
 
-      {/* ── Finance Modal ─────────────────────────────────────────────────── */}
-      <Dialog open={showFinanceModal} onOpenChange={setShowFinanceModal}>
-        <DialogContent className="sm:max-w-md">
-          <DialogHeader>
-            <DialogTitle className="flex items-center gap-2"><CreditCard className="w-5 h-5 text-blue-500" /> Apply for Financing</DialogTitle>
-            <DialogDescription>Get pre-approved through CarUp's banking partners</DialogDescription>
-          </DialogHeader>
-          <div className="space-y-4 py-2">
-            <div className="bg-gray-50 rounded-lg p-3">
-              <p className="text-sm text-gray-500">Vehicle</p>
-              <p className="font-semibold">{vehicle.year ?? ''} {vehicle.make ?? ''} {vehicle.model ?? ''} — {governedPrice(vehicle.price, vehicle.currency)}</p>
-            </div>
-            <div>
-              <label className="text-sm font-medium mb-1.5 block">Loan Amount (USD)</label>
-              <Input type="number" value={loanAmount} onChange={e => setLoanAmount(e.target.value)} min={1000} max={vehicle.price ?? 0} />
-            </div>
-            <div>
-              <label className="text-sm font-medium mb-1.5 block">Loan Term</label>
-              <Select value={loanTerm} onValueChange={setLoanTerm}>
-                <SelectTrigger><SelectValue /></SelectTrigger>
-                <SelectContent>
-                  {['12', '24', '36', '48', '60'].map(m => <SelectItem key={m} value={m}>{m} months</SelectItem>)}
-                </SelectContent>
-              </Select>
-            </div>
-            <div>
-              <label className="text-sm font-medium mb-1.5 block">Preferred Bank</label>
-              <Select value={selectedBank} onValueChange={setSelectedBank}>
-                <SelectTrigger><SelectValue /></SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="cbz">CBZ Bank</SelectItem>
-                  <SelectItem value="stanbic">Stanbic Zimbabwe</SelectItem>
-                  <SelectItem value="cabs">CABS Bank</SelectItem>
-                  <SelectItem value="fbc">FBC Bank</SelectItem>
-                  <SelectItem value="zb">ZB Bank</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-            <div className="flex gap-3">
-              <Button variant="outline" className="flex-1" onClick={() => setShowFinanceModal(false)} disabled={financeLoading}>Cancel</Button>
-              <Button className="flex-1 bg-blue-600 hover:bg-blue-700" onClick={handleFinance} disabled={financeLoading || !loanAmount}>
-                {financeLoading ? <><Loader2 className="w-4 h-4 mr-2 animate-spin" />Submitting...</> : 'Submit Application'}
-              </Button>
-            </div>
-          </div>
-        </DialogContent>
-      </Dialog>
     </div>
   )
 }

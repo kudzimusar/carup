@@ -5,7 +5,7 @@ import {
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Badge } from '@/components/ui/badge'
-import { Sparkles, Loader2 } from 'lucide-react'
+import { Sparkles, Loader2, Mic, MicOff } from 'lucide-react'
 import { useCarUpApi } from '@/hooks/useCarUpApi'
 
 /**
@@ -13,7 +13,13 @@ import { useCarUpApi } from '@/hooks/useCarUpApi'
  * guidance (deterministic fallback when the AI provider is unavailable). An ai_unavailable state is
  * surfaced honestly rather than faked.
  */
-export function BuyerAssistantDrawer({ triggerClassName = '' }: { triggerClassName?: string }) {
+export function BuyerAssistantDrawer({
+  triggerClassName = '',
+  triggerLabel = 'Ask CarUp AI',
+}: {
+  triggerClassName?: string
+  triggerLabel?: string
+}) {
   const { marketplaceAiBuyerAssistant } = useCarUpApi()
   const [open, setOpen] = useState(false)
   const [budget, setBudget] = useState('')
@@ -21,6 +27,43 @@ export function BuyerAssistantDrawer({ triggerClassName = '' }: { triggerClassNa
   const [loading, setLoading] = useState(false)
   const [guidance, setGuidance] = useState<string[]>([])
   const [aiAvailable, setAiAvailable] = useState<boolean | null>(null)
+  const [listening, setListening] = useState(false)
+
+  const dictateUseCase = () => {
+    type Recognition = {
+      lang: string
+      interimResults: boolean
+      maxAlternatives: number
+      start: () => void
+      stop: () => void
+      onresult: ((event: { results: ArrayLike<{ 0: { transcript: string } }> }) => void) | null
+      onend: (() => void) | null
+      onerror: (() => void) | null
+    }
+    type RecognitionCtor = new () => Recognition
+    const browserWindow = window as unknown as {
+      SpeechRecognition?: RecognitionCtor
+      webkitSpeechRecognition?: RecognitionCtor
+    }
+    const RecognitionClass = browserWindow.SpeechRecognition || browserWindow.webkitSpeechRecognition
+    if (!RecognitionClass) {
+      setGuidance(['Voice input is not supported by this browser. Type your question instead.'])
+      setAiAvailable(false)
+      return
+    }
+    const recognition = new RecognitionClass()
+    recognition.lang = 'en-US'
+    recognition.interimResults = false
+    recognition.maxAlternatives = 1
+    recognition.onresult = (event) => {
+      const transcript = event.results?.[0]?.[0]?.transcript?.trim()
+      if (transcript) setUseCase(transcript)
+    }
+    recognition.onend = () => setListening(false)
+    recognition.onerror = () => setListening(false)
+    setListening(true)
+    recognition.start()
+  }
 
   const ask = async () => {
     setLoading(true)
@@ -40,7 +83,7 @@ export function BuyerAssistantDrawer({ triggerClassName = '' }: { triggerClassNa
     <Sheet open={open} onOpenChange={setOpen}>
       <SheetTrigger asChild>
         <Button variant="outline" className={triggerClassName} data-testid="marketplace-ai-assistant-open">
-          <Sparkles className="mr-2 h-4 w-4 text-orange-500" /> Ask CarUp AI
+          <Sparkles className="mr-2 h-4 w-4 text-orange-500" /> {triggerLabel}
         </Button>
       </SheetTrigger>
       <SheetContent side="right" className="w-[90%] max-w-md overflow-y-auto" data-testid="marketplace-ai-assistant">
@@ -53,8 +96,20 @@ export function BuyerAssistantDrawer({ triggerClassName = '' }: { triggerClassNa
             <Input type="number" value={budget} onChange={(e) => setBudget(e.target.value)} placeholder="e.g. 12000" />
           </div>
           <div>
-            <label className="mb-1 block text-xs font-medium">What will you use it for?</label>
-            <Input value={useCase} onChange={(e) => setUseCase(e.target.value)} placeholder="e.g. family car, business, import" />
+            <label className="mb-1 block text-xs font-medium">What do you need help with?</label>
+            <div className="flex gap-2">
+              <Input value={useCase} onChange={(e) => setUseCase(e.target.value)} placeholder="e.g. family car, business, import" />
+              <Button
+                type="button"
+                variant="outline"
+                size="icon"
+                onClick={dictateUseCase}
+                aria-label={listening ? 'Listening for your question' : 'Ask by voice'}
+                title={listening ? 'Listening…' : 'Ask by voice'}
+              >
+                {listening ? <MicOff className="h-4 w-4 text-orange-500" /> : <Mic className="h-4 w-4" />}
+              </Button>
+            </div>
           </div>
           <Button onClick={ask} disabled={loading} className="w-full" data-testid="marketplace-ai-assistant-ask">
             {loading ? <><Loader2 className="mr-2 h-4 w-4 animate-spin" /> Thinking…</> : 'Get guidance'}

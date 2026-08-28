@@ -52,6 +52,16 @@ export interface Vehicle extends Omit<SharedVehicle, 'status'> {
   publication_status?: string;
   condition?: string;
   category?: string;
+  /**
+   * Seller Journey 1.0 / S2 — the seller's own commercial statements, as published by
+   * `PUBLIC_VEHICLE_FIELDS`. `seller_stated_condition` is what the SELLER said; the governed CarUp
+   * classification is `vehicle_condition_category` and is a different question. Never render one
+   * as the other.
+   */
+  body_style?: string | null;
+  seller_stated_condition?: string | null;
+  seller_description?: string | null;
+  seller_features?: string[] | null;
   viewCount?: number;
   trustScore?: number;
   isVerified?: boolean;
@@ -1600,6 +1610,38 @@ export interface EvidenceRequirement {
   is_blocking: boolean;
 }
 
+/**
+ * Seller Journey S5 — one fact, as the seller stated it and as their documents read.
+ *
+ * `seller_stated` and `evidence_indicated` are deliberately separate and both nullable: CarUp
+ * reports the disagreement, it does not resolve it, and there is no `resolved_value` because no
+ * value here is authoritative.
+ */
+export interface SellerFactReconciliationEntry {
+  field: string;
+  state: 'agrees' | 'contradicted' | 'not_comparable' | 'no_evidence';
+  seller_stated: string | null;
+  evidence_indicated: string | null;
+  document_type: string | null;
+  /** True only when a human reviewer stood behind the document reading — never because it exists. */
+  evidence_verified: boolean;
+  review_status: string | null;
+  resolved: boolean;
+  material: boolean;
+  extraction_id: string | null;
+  superseded_count: number;
+}
+
+export interface SellerFactReconciliation {
+  vin: string | null;
+  fields: SellerFactReconciliationEntry[];
+  contradiction_count: number;
+  unresolved_material_count: number;
+  agreement_count: number;
+  has_unresolved_material_contradiction: boolean;
+  unresolved_material_fields: string[];
+}
+
 export interface VehicleCompleteness {
   vin: string;
   requirements: EvidenceRequirement[];
@@ -1608,6 +1650,8 @@ export interface VehicleCompleteness {
   blocking_gaps: string[];
   pending_gaps: string[];
   publication_status: string;
+  /** S5: why a contradiction gate refused, without a second round trip. */
+  reconciliation?: SellerFactReconciliation;
 }
 
 // ── WS2 — Source Verification Network (buyer-safe coverage) ──────────────────
@@ -1990,7 +2034,9 @@ export interface OwnershipSummary {
   currentSellerType?: string | null;
   /** A seller IS on file. With a null display name this means withheld, not absent. */
   currentSellerRecorded?: boolean;
-  previousOwnerCount: number;
+  /** null means the ownership-history source could not be read, never a zero-owner claim. */
+  previousOwnerCount: number | null;
+  previousOwnerCountState?: 'available' | 'unavailable';
   previousOwnersPublicLabel: string;
   ownerNamesRedacted: boolean;
   currentOwnerVisible: boolean;
@@ -2020,17 +2066,64 @@ export interface VehiclePassportClaims {
   [block: string]: unknown;
 }
 
+export interface VehicleLifecycleMileageObservation {
+  date: string | null;
+  value: number;
+  unit: string;
+  source: string;
+  lifecycle_event_id?: string | null;
+  evidence_id?: string | null;
+}
+
+export interface VehicleLifecycleEvent {
+  id: string;
+  category: string;
+  date: string | null;
+  label: string;
+  source_kind: string;
+  source_id: string | null;
+  verification_status: string | null;
+  mileage: number | null;
+  mileage_unit: string;
+  evidence_id: string | null;
+  detail_state: 'recorded' | 'public_detail' | 'summary_only' | string;
+}
+
+export interface VehicleLifecycleProjection {
+  schema: 'vehicle_lifecycle_projection.v1' | string;
+  projection_version: string;
+  vin: string;
+  audience: string;
+  events: VehicleLifecycleEvent[];
+  counts: Record<string, number>;
+  count_states?: Record<string, {
+    value: number;
+    state: 'complete' | 'partial' | 'unavailable';
+  }>;
+  source_states?: Record<string, 'available' | 'unavailable'>;
+  mileage: {
+    observations: VehicleLifecycleMileageObservation[];
+    anomaly: boolean;
+    coverage_state?: 'complete' | 'partial' | 'unavailable';
+  };
+  source_diversity: number;
+}
+
 export interface VehiclePassport {
   vehicle: Vehicle;
   /** Sealed governed claims. Read these, never a same-named column on `vehicle`. */
   claims?: VehiclePassportClaims;
   timeline: TimelineEvent[];
   evidenceTimeline?: TimelineEvent[];
+  /** Canonical buyer-safe lifecycle shared with the History Report. */
+  lifecycle?: VehicleLifecycleProjection;
   evidenceVault?: VehicleEvidence[];
   trustReport: TrustReport;
   chainVerification: ChainVerification;
   identity: VehicleIdentity;
   plateHistory: VehiclePlateHistory[];
+  /** Whether the plate-history collection was actually read for this passport response. */
+  plateHistoryState?: 'available' | 'unavailable';
   /** Rows were withheld from this audience, so an empty list is not an empty history. */
   plateHistoryRedacted?: boolean;
   ownershipSummary: OwnershipSummary;
@@ -2379,20 +2472,35 @@ export interface ReportKeyAlert {
 
 // One public-safe timeline / evidence-index row.
 export interface ReportTimelineItem {
-  evidence_id: string;
+  evidence_id: string | null;
   evidence_class: EvidenceClass | string | null;
   evidence_subtype: string | null;
   date: string | null;
   source_id: string | null;
+  source_kind?: string | null;
   verification_status: EvidenceVerificationStatus | string | null;
+  detail_state?: 'recorded' | 'public_detail' | 'summary_only' | string;
+  mileage?: number | null;
+  mileage_unit?: string | null;
+}
+
+export type ReportLifecycleReadState = 'complete' | 'partial' | 'unavailable';
+
+export interface ReportLifecycleCountEnvelope {
+  value: number;
+  state: ReportLifecycleReadState;
 }
 
 export interface ReportSections {
-  auction_import: { auction: number; import: number };
-  accident_repair: { accident: number; repair: number };
-  inspection: number;
-  ownership_transfer: number;
-  current_condition: number;
+  auction_import: { auction: number | null; import: number | null };
+  accident_repair: { accident: number | null; repair: number | null };
+  inspection: number | null;
+  ownership_transfer: number | null;
+  current_condition: number | null;
+  service?: number | null;
+  insurance?: number | null;
+  registration?: number | null;
+  clearance?: number | null;
 }
 
 export interface ReportMileageObservation {
@@ -2400,13 +2508,15 @@ export interface ReportMileageObservation {
   value: number;
   unit: string;
   source: string;
-  evidence_id?: string;
+  evidence_id?: string | null;
   listing_id?: string;
+  lifecycle_event_id?: string;
 }
 
 export interface ReportMileageHistory {
   observations: ReportMileageObservation[];
   anomaly: boolean;
+  coverage_state?: ReportLifecycleReadState;
 }
 
 export interface ReportListingSnapshot {
@@ -2447,10 +2557,13 @@ export interface ReportCompleteness {
   timeline_coverage: number;
   classes_present: string[];
   classes_missing: string[];
+  classes_unavailable?: string[];
   mileage_coverage: number;
+  mileage_coverage_state?: ReportLifecycleReadState;
+  lifecycle_source_coverage?: number;
   source_diversity: number;
   inspection_recency: string | null;
-  current_condition_coverage: number;
+  current_condition_coverage: number | null;
   unresolved_conflict_count: number;
 }
 
@@ -2469,6 +2582,14 @@ export interface VehicleHistoryReportData {
   completeness: ReportCompleteness;
   limitations: string[];
   evidence_index: ReportTimelineItem[];
+  lifecycle_projection?: {
+    version: string;
+    source_diversity: number;
+    counts: Record<string, number>;
+    count_states?: Record<string, ReportLifecycleCountEnvelope>;
+    source_states?: Record<string, 'available' | 'unavailable'>;
+    mileage_coverage_state?: ReportLifecycleReadState;
+  };
   generated_at_note?: string;
 }
 

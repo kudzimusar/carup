@@ -41,6 +41,17 @@ export type MarketplacePartSentryPublicStatus =
   | 'review_required'
   | 'suppressed';
 
+export interface MarketplacePartFitment {
+  taxonomy_version: string;
+  make: string;
+  model: string;
+  year_from: number | null;
+  year_to: number | null;
+  body_style?: string | null;
+  engine_code?: string | null;
+  variant?: string | null;
+}
+
 export type MarketplaceEvidenceStatus = 'none' | 'partial' | 'verified' | 'review_required';
 
 export type MarketplaceIdentityStatus = 'unverified' | 'pending_review' | 'verified' | 'rejected';
@@ -195,6 +206,11 @@ export interface MarketplaceListingMediaItem {
    * consumer never has to arbitrate between two "main photos".
    */
   is_primary: boolean;
+  /**
+   * True only for generated staging/reference listing media. This is an advertising/demo
+   * provenance marker, never a verification/evidence claim and never a Trust input.
+   */
+  synthetic_demo: boolean;
 }
 
 /**
@@ -237,7 +253,7 @@ export interface MarketplaceMedia extends MarketplaceListingMediaItem {
 }
 
 export interface MarketplaceSellerSummary {
-  display_label: string;
+  display_label: string | null;
   seller_type: 'dealer' | 'private' | string;
   public_profile_enabled: boolean;
   location?: string;

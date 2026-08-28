@@ -877,10 +877,12 @@ export function useCarUpApi() {
     return request(`/vehicles/${vin}/odometer-audit`)
   }, [request])
 
-  const createSafePayEscrow = useCallback(async (vin: string, sellerId: string, amount: number, currency = 'USD'): Promise<any> => {
+  const createSafePayEscrow = useCallback(async (vin: string): Promise<any> => {
+    // The compatibility URL is still live, but the browser no longer sends seller/amount/currency
+    // even as ignored fields. VIN + authenticated actor are the only client inputs.
     return request('/safepay/create', {
       method: 'POST',
-      body: JSON.stringify({ vin, sellerId, amount, currency })
+      body: JSON.stringify({ vin })
     })
   }, [request])
 
@@ -1982,12 +1984,21 @@ export function useCarUpApi() {
     return request(`/vehicles/${vin}/unpublish`, { method: 'POST' })
   }, [request])
 
-  const reserveVehicle = useCallback(async (vin: string, duration = 7): Promise<any> => {
-    // Buyer identity is the authenticated session server-side; never client-supplied.
-    return request(`/vehicles/${vin}/reserve`, {
-      method: 'POST',
-      body: JSON.stringify({ duration })
+  // S8 — the seller's own price, changed without a database write. The amount travels alone: this
+  // endpoint accepts no currency, because redenominating an existing listing is not a price change.
+  const updateVehiclePrice = useCallback(async (vin: string, price: number): Promise<{
+    success: boolean; vin: string; price: number; previous_price?: number | null; unchanged?: boolean
+  }> => {
+    return request(`/vehicles/${encodeURIComponent(vin)}/price`, {
+      method: 'PATCH',
+      body: JSON.stringify({ price }),
     })
+  }, [request])
+
+  const reserveVehicle = useCallback(async (vin: string): Promise<any> => {
+    // Canonical reservation authority is VIN + authenticated actor only. Duration, seller,
+    // economics and eligibility are all server-owned.
+    return request(`/vehicles/${encodeURIComponent(vin)}/reserve`, { method: 'POST' })
   }, [request])
 
   // --- Domain 1: Dealer & Mechanic ---
@@ -2846,6 +2857,7 @@ export function useCarUpApi() {
     reserveVehicle,
     publishVehicleListing,
     unpublishVehicleListing,
+    updateVehiclePrice,
     fetchDealerLeads,
     fetchDealerPromotions,
     createDealerPromotion,

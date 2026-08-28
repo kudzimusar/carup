@@ -73,6 +73,18 @@ const MIGRATION_PATH = path.join(
 const MODULE_SOURCE = readFileSync(MODULE_PATH, 'utf8');
 const MIGRATION_SOURCE = readFileSync(MIGRATION_PATH, 'utf8');
 
+/**
+ * Every migration that DEFINES the listing-location visibility constraint, oldest first. Seller
+ * Journey S3 widened the vocabulary with `province_only`, so the constraint in force is no longer
+ * declared by this phase's migration alone. The invariant below is unchanged and still checked
+ * against the DATABASE's effective vocabulary — it simply now reads every statement that sets it,
+ * because pinning only the first migration would have let a later one drift unnoticed.
+ */
+const VISIBILITY_MIGRATION_PATHS = [
+  '20260818110000_issue164_listing_location_provenance.sql',
+  '20260828160000_seller_s3_location_visibility_province_only.sql',
+].map((name) => path.join(REPO_ROOT, 'database', 'migrations', name));
+
 const SOURCE = CLAIM_SOURCES[0];
 
 /**
@@ -950,10 +962,28 @@ test('the migration and the module share one provenance vocabulary', () => {
   const fromSql = [...declared[1].matchAll(/'([a-z_]+)'/g)].map((match) => match[1]);
   assert.deepEqual([...fromSql].sort(), [...CLAIM_SOURCES].sort());
 
-  const visibility = MIGRATION_SOURCE.match(/c_visibility\s+text\[\]\s*:=\s*ARRAY\[([\s\S]*?)\]/);
-  assert.ok(visibility);
-  const visibilityValues = [...visibility[1].matchAll(/'([a-z_]+)'/g)].map((match) => match[1]);
-  assert.deepEqual(visibilityValues.sort(), Object.values(CLAIM_VISIBILITY).sort());
+  // The visibility vocabulary is declared by more than one migration since S3 widened it. Two
+  // properties are checked, and together they are strictly stronger than pinning one file:
+  //   1. the constraint IN FORCE — the last migration to define it — is exactly the module's list,
+  //      so the database can never accept a visibility the projection does not understand;
+  //   2. no migration ever declared a value the module does not carry.
+  const declaredPerMigration = VISIBILITY_MIGRATION_PATHS.map((migrationPath) => {
+    const match = readFileSync(migrationPath, 'utf8')
+      .match(/c_visibility\s+text\[\]\s*:=\s*ARRAY\[([\s\S]*?)\]/);
+    assert.ok(match, `${path.basename(migrationPath)} must declare the visibility vocabulary`);
+    return [...match[1].matchAll(/'([a-z_]+)'/g)].map((entry) => entry[1]);
+  });
+
+  const inForce = declaredPerMigration[declaredPerMigration.length - 1];
+  assert.deepEqual(
+    [...inForce].sort(),
+    Object.values(CLAIM_VISIBILITY).sort(),
+    'the constraint in force and the module must be one vocabulary, not two copies',
+  );
+
+  const everDeclared = [...new Set(declaredPerMigration.flat())];
+  const unknown = everDeclared.filter((value) => !Object.values(CLAIM_VISIBILITY).includes(value));
+  assert.deepEqual(unknown, [], `a migration allowed a visibility the projection ignores: ${unknown.join(', ')}`);
 });
 
 test('the migration proves it backfilled nothing and rewrote nothing', () => {

@@ -12,6 +12,20 @@ import type { MarketplaceListingSummary } from '@/types'
  * resolve identifier-shaped queries through the passport lookup endpoint.
  */
 
+/*
+ * A TIMEOUT BUDGET, NOT AN ASSERTION. This suite renders a full search page with two data effects
+ * and a marketplace card grid. Alone it finishes 11 tests in a few seconds; inside the whole
+ * 121-file run on a loaded machine it intermittently exceeded vitest's 5s default and failed on
+ * elapsed time rather than on behaviour — observed four times across the Seller Journey programme,
+ * passing 11/11 in isolation every time.
+ *
+ * A flake that recurs is worse than a slow test, because it teaches everyone to re-run a red suite
+ * instead of reading it, and the next failure it hides may be real. Nothing about the product is
+ * asserted by the deadline, so raising it weakens no check. The precedent in this repo is
+ * VehicleDetail.media.test.tsx, which already carries 15s for the same reason.
+ */
+vi.setConfig({ testTimeout: 30_000 })
+
 const fetchMarketplaceListings = vi.fn()
 const fetchMarketplaceCategories = vi.fn()
 const lookupVehiclePassport = vi.fn()
@@ -96,7 +110,9 @@ describe('VehicleSearch de-mock (no fabricated inventory)', () => {
   it('links browse results to the marketplace listing detail route', async () => {
     renderSearch()
     await waitFor(() => expect(screen.getByTestId('vehicle-search-result')).toBeTruthy())
-    expect(screen.getByTestId('vehicle-search-result').getAttribute('href')).toBe('/marketplace/listing/JTDKARFP0H3000731')
+    const card = screen.getByTestId('vehicle-search-result')
+    const link = card.querySelector('[data-testid="marketplace-view-passport"]')
+    expect(link?.getAttribute('href')).toBe('/marketplace/listing/JTDKARFP0H3000731')
   })
 
   it('shows a truthful empty state when the live API returns no listings', async () => {

@@ -15,6 +15,7 @@ import LazyRouteBoundary from './components/routing/LazyRouteBoundary'
 
 // Public Pages
 import Landing from './pages/Landing'
+import GuestSell from './pages/GuestSell'
 import Marketplace from './pages/Marketplace'
 import MarketplaceCompare from './pages/MarketplaceCompare'
 import MarketplaceCategoryPage from './pages/MarketplaceCategoryPage'
@@ -237,6 +238,7 @@ export default function App() {
         <Route element={<MainLayout />}>
           <Route path="/" element={<Landing />} />
           <Route path="/marketplace" element={<Marketplace />} />
+          <Route path="/sell" element={<GuestSell />} />
           <Route path="/marketplace/parts" element={<MarketplaceCategoryPage kind="part" />} />
           <Route path="/marketplace/services" element={<MarketplaceCategoryPage kind="service" />} />
           <Route path="/marketplace/compare" element={<MarketplaceCompare />} />

@@ -6,6 +6,7 @@
  * the accepted quote on the order; a repeat accept of the same quote is a no-op replay.
  */
 import { NotFoundError, ValidationError, ForbiddenError } from '../../utils/errors.js';
+import { normalizeVehicleTaxonomyInput } from '../taxonomy/vehicleTaxonomyService.js';
 import { RFQ_URGENCY } from '../../constants/diaspora/diasporaRfqConstants.js';
 import { requireUserContext, isPlatformAdmin, isPlatformReviewer, isOrderOwner, normalizeId } from './diasporaAuthorization.js';
 import { resolveClient, appendAudit, paging } from './diasporaServiceUtils.js';
@@ -62,6 +63,12 @@ export async function createBuyerOrder(payload = {}, userContext = {}, options =
   const urgency = (payload.urgency || 'NORMAL').toUpperCase();
   if (!RFQ_URGENCY.includes(urgency)) throw new ValidationError(`Invalid urgency. Allowed: ${RFQ_URGENCY.join(', ')}`);
 
+  const taxonomy = normalizeVehicleTaxonomyInput({
+    make: payload.requested_make,
+    model: payload.requested_model,
+    year: payload.requested_year_min,
+  });
+
   const row = {
     tenant_id: context.tenantId || payload.tenant_id || null,
     buyer_id: context.id,
@@ -74,6 +81,17 @@ export async function createBuyerOrder(payload = {}, userContext = {}, options =
     requested_model: payload.requested_model || null,
     requested_year_min: payload.requested_year_min ?? null,
     requested_year_max: payload.requested_year_max ?? null,
+    requested_make_taxon_id: taxonomy.make.canonical_id,
+    requested_model_taxon_id: taxonomy.model.canonical_id,
+    taxonomy_version: taxonomy.taxonomy_version,
+    taxonomy_resolution: { make: taxonomy.make.state, model: taxonomy.model.state, year: taxonomy.year.state },
+    taxonomy_source_values: {
+      make: payload.requested_make || null,
+      model: payload.requested_model || null,
+      year_min: payload.requested_year_min ?? null,
+      year_max: payload.requested_year_max ?? null,
+    },
+    taxonomized_at: new Date().toISOString(),
     budget_amount: payload.budget_amount ?? null,
     budget_currency: payload.budget_currency || 'USD',
     status: 'IMPORT_REQUESTED',
@@ -134,6 +152,20 @@ export async function updateBuyerOrder(id, payload = {}, userContext = {}, optio
   const editable = ['origin_city', 'destination_country', 'destination_city', 'requested_make', 'requested_model', 'requested_year_min', 'requested_year_max', 'budget_amount', 'budget_currency'];
   const update = { updated_by: context.id, updated_at: new Date().toISOString() };
   for (const f of editable) if (f in payload) update[f] = payload[f];
+
+  if (['requested_make', 'requested_model', 'requested_year_min', 'requested_year_max'].some(field => field in payload)) {
+    const nextMake = 'requested_make' in payload ? payload.requested_make : previous.requested_make;
+    const nextModel = 'requested_model' in payload ? payload.requested_model : previous.requested_model;
+    const nextYearMin = 'requested_year_min' in payload ? payload.requested_year_min : previous.requested_year_min;
+    const nextYearMax = 'requested_year_max' in payload ? payload.requested_year_max : previous.requested_year_max;
+    const taxonomy = normalizeVehicleTaxonomyInput({ make: nextMake, model: nextModel, year: nextYearMin });
+    update.requested_make_taxon_id = taxonomy.make.canonical_id;
+    update.requested_model_taxon_id = taxonomy.model.canonical_id;
+    update.taxonomy_version = taxonomy.taxonomy_version;
+    update.taxonomy_resolution = { make: taxonomy.make.state, model: taxonomy.model.state, year: taxonomy.year.state };
+    update.taxonomy_source_values = { make: nextMake || null, model: nextModel || null, year_min: nextYearMin ?? null, year_max: nextYearMax ?? null };
+    update.taxonomized_at = new Date().toISOString();
+  }
   if (payload.metadata || payload.urgency || payload.requested_part_number) {
     update.metadata = {
       ...(previous.metadata || {}),

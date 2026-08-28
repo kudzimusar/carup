@@ -134,6 +134,9 @@ const CANONICAL_SELECT_IDENTIFIERS = [
   // a proof rather than a promise. `\bLISTING_SELECT_COLUMNS\b` does not match this longer name
   // (the underscore is a word character), so it needs naming explicitly.
   'LISTING_SELECT_COLUMNS_WITH_CLAIMS',
+  // Seller S0 extends the claims-wide canonical selector by interpolation with its reviewed taxonomy
+  // column set; Phase 8 proves that composition and the three-generation fallback behavior.
+  'LISTING_SELECT_COLUMNS_WITH_SELLER_TAXONOMY',
 ];
 
 /**
