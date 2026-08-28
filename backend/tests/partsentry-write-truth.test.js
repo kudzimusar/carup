@@ -100,6 +100,41 @@ function run(st) {
 beforeEach(() => {
   resetDb();
   supabase.from = (t) => builder(t);
+  supabase.rpc = async (name, args) => {
+    if (name !== 'blockchain_activate_public_key_atomic') {
+      return { data: null, error: { message: `unsupported test RPC: ${name}` } };
+    }
+
+    const rows = db.public_keys;
+    const active = rows.find((row) => row.user_id === args.p_user_id && row.status === 'ACTIVE');
+    if (active?.public_key_pem === args.p_public_key_pem) {
+      Object.assign(active, {
+        key_ref: args.p_key_ref,
+        key_version: args.p_key_version,
+        custody_provider: args.p_custody_provider,
+      });
+      return { data: [active], error: null };
+    }
+    if (active) {
+      active.status = 'REVOKED';
+      active.revoked_at = active.revoked_at || args.p_created_at;
+    }
+
+    const activated = {
+      id: args.p_candidate_id,
+      user_id: args.p_user_id,
+      public_key_pem: args.p_public_key_pem,
+      key_type: args.p_key_type,
+      status: 'ACTIVE',
+      created_at: args.p_created_at,
+      revoked_at: null,
+      key_ref: args.p_key_ref,
+      key_version: args.p_key_version,
+      custody_provider: args.p_custody_provider,
+    };
+    rows.push(activated);
+    return { data: [activated], error: null };
+  };
 });
 
 // ── 1. Source contract: error check precedes every side effect ──────────────────
