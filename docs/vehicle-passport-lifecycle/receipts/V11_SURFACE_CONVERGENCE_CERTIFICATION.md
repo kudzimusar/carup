@@ -2,7 +2,7 @@
 
 **Date:** 2026-08-28
 **Phase:** V11 — Seller, Verify and Home Convergence
-**Status:** FOUNDATION IMPLEMENTED / RUNTIME CONVERGENCE BLOCKED BY SELLER S5/S11
+**Status:** FOUNDATION PASS / RUNTIME CONVERGENCE BLOCKED BY SELLER S5/S11
 
 ## Scope
 
@@ -54,6 +54,18 @@ Seller programme #186 currently records:
 
 Therefore this validator can be certified as a foundation, but Seller → Passport → Verify → Marketplace → Home runtime convergence cannot be claimed until those exact-head Seller phases are reconciled and staging-proven.
 
+## Exact-head certification
+
+Certified code head:
+
+- exact code head: `efcc0d396771fc451ec8eae42c26cca7d4e7184f`
+- Vehicle Passport Foundation CI run: `33165485774` — **PASS**
+- Passport V1–V11 cumulative contracts — PASS
+- canonical service/PartSentry/Trust/source/governance/evidence/lookup guards — PASS
+- syntax/diff hygiene — PASS
+
+The preceding V11 run failed only because its anti-fork test banned the domain word `Seller`. The guard was narrowed to actual implementation imports/calls. All V11 functional tests had already passed; no convergence semantics were weakened.
+
 ## Phase decision
 
-**V11 FOUNDATION IMPLEMENTED. RUNTIME CONVERGENCE REMAINS BLOCKED.**
+**V11 FOUNDATION PASS. RUNTIME CONVERGENCE REMAINS BLOCKED UNTIL SELLER S5/S11 ARE IMPLEMENTED AND STAGING-CERTIFIED.**
