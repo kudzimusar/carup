@@ -2,7 +2,7 @@
 
 **Date:** 2026-08-28
 **Phase:** V9 — Owner Cockpit and Next Actions
-**Status:** IMPLEMENTED / EXACT-HEAD CI PENDING
+**Status:** PASS — EXACT-HEAD FOUNDATION CERTIFIED
 
 ## Scope
 
@@ -91,6 +91,18 @@ V9 proves:
 8. priority ordering;
 9. no Intelligence-rule duplication/database ownership/date fabrication.
 
+## Exact-head certification
+
+Certified code head:
+
+- exact code head: `8ec576d439f8f32364448f211c2065e5deb6aa8c`
+- Vehicle Passport Foundation CI run: `33164934145` — **PASS**
+- Passport V1–V9 cumulative contracts — PASS
+- canonical service/PartSentry/Trust/source/governance/evidence/lookup guards — PASS
+- syntax/diff hygiene — PASS
+
 ## Phase decision
 
-**V9 FOUNDATION IMPLEMENTED. EXACT-HEAD CI REQUIRED BEFORE V10.**
+**V9 FOUNDATION PASS.**
+
+V10 begins cross-surface convergence. Runtime modifications to Seller/Marketplace-owned files remain blocked while PR #182 owns those files, but executable parity contracts may proceed in Passport-owned files.
