@@ -103,6 +103,15 @@ jobs:
         working-directory: web
         run: npx vitest run src/pages/dashboard/owner/VehicleProfile.passport-v15.test.tsx src/pages/dashboard/owner/VehicleProfile.claims.test.tsx
 
+      - name: Passport V16 Golden lifecycle certification contract
+        run: node --test backend/tests/passport-v16-golden-lifecycle.test.js
+
+      - name: Preserve Golden Vehicle fixture invariants
+        run: |
+          node --test backend/tests/issue164-phase7-golden-vehicles.test.js
+          node --test backend/tests/issue164-phase8-permanent-invariants.test.js
+          node --test backend/tests/golden-journey.test.js
+
       - name: Preserve native mobile certification contract
         run: node --test backend/tests/mobile-certification.test.js
 
@@ -150,6 +159,7 @@ jobs:
           node --check backend/services/passport/passportCommunicationIntent.js
           node --check backend/services/passport/passportAiAdvisory.js
           node --check backend/services/passport/passportExternalSourceAdapter.js
+          node --check backend/services/passport/passportGoldenLifecycleCertification.js
 
       - name: Diff hygiene
         run: git diff --check HEAD^ HEAD
