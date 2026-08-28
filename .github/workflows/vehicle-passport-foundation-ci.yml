@@ -69,6 +69,15 @@ jobs:
       - name: Passport V7 ownership transfer contract
         run: node --test backend/tests/passport-v7-ownership-transfer.test.js
 
+      - name: Passport V8 service and PartSentry contract
+        run: node --test backend/tests/passport-v8-service-parts.test.js
+
+      - name: Preserve canonical service timeline privacy
+        run: node --test backend/tests/issue164-phase8-service-timeline-privacy.test.js
+
+      - name: Preserve canonical PartSentry governance
+        run: node --test backend/tests/partsentry-review-workflow.test.js
+
       - name: Preserve canonical Trust public read path
         run: node --test backend/tests/issue164-phase3-trust-authority.test.js
 
@@ -100,6 +109,7 @@ jobs:
           node --check backend/services/passport/passportLifecycleTimeline.js
           node --check backend/services/passport/passportTransferStateMachine.js
           node --check backend/services/passport/passportOwnershipProjection.js
+          node --check backend/services/passport/passportServicePartsProjection.js
 
       - name: Diff hygiene
         run: git diff --check HEAD^ HEAD
