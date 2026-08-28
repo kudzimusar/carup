@@ -3,8 +3,11 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 
 import {
+  summaryMatchesBodyStyleFacet,
+  summaryMatchesFuelFacet,
   summaryMatchesLocationFacet,
   summaryMatchesTextFacet,
+  summaryMatchesTransmissionFacet,
 } from '../services/marketplace/listingSummaryService.js';
 
 function recorded(value) {
@@ -15,14 +18,16 @@ function notRecorded(value = null) {
   return { value, state: 'not_recorded', source: null };
 }
 
-test('fuel and transmission facets are case-insensitive exact matches over canonical summary fields', () => {
-  const summary = { fuel_type: 'Diesel', transmission: 'Automatic' };
+test('fuel, transmission and body-style facets use the canonical taxonomy matchers', () => {
+  const summary = { fuel_type: 'Diesel', transmission: 'Automatic', body_style: 'Pickup' };
 
-  assert.equal(summaryMatchesTextFacet(summary, 'diesel', 'fuel_type'), true);
-  assert.equal(summaryMatchesTextFacet(summary, 'DIESEL', 'fuel_type'), true);
-  assert.equal(summaryMatchesTextFacet(summary, 'Petrol', 'fuel_type'), false);
-  assert.equal(summaryMatchesTextFacet(summary, 'automatic', 'transmission'), true);
-  assert.equal(summaryMatchesTextFacet(summary, 'Manual', 'transmission'), false);
+  assert.equal(summaryMatchesFuelFacet(summary, 'diesel'), true);
+  assert.equal(summaryMatchesFuelFacet(summary, 'DIESEL'), true);
+  assert.equal(summaryMatchesFuelFacet(summary, 'Petrol'), false);
+  assert.equal(summaryMatchesTransmissionFacet(summary, 'automatic'), true);
+  assert.equal(summaryMatchesTransmissionFacet(summary, 'Manual'), false);
+  assert.equal(summaryMatchesBodyStyleFacet(summary, 'pickup'), true);
+  assert.equal(summaryMatchesBodyStyleFacet(summary, 'SUV'), false);
 });
 
 test('text facets fail closed for missing business facts and bypass only for empty/all filters', () => {
@@ -95,16 +100,18 @@ test('buyer-facing canonical facets execute before sorting and result limiting',
   );
 
   const listStart = source.indexOf('export async function listMarketplaceListings');
+  const bodyStyleFilter = source.indexOf('summaryMatchesBodyStyleFacet(summary, params.bodyStyle ?? params.body_style ?? params.body)', listStart);
   const locationFilter = source.indexOf('summaryMatchesLocationFacet(summary, params.location)', listStart);
-  const fuelFilter = source.indexOf("summaryMatchesTextFacet(summary, params.fuel, 'fuel_type')", listStart);
-  const transmissionFilter = source.indexOf("summaryMatchesTextFacet(summary, params.transmission, 'transmission')", listStart);
+  const fuelFilter = source.indexOf('summaryMatchesFuelFacet(summary, params.fuel)', listStart);
+  const transmissionFilter = source.indexOf('summaryMatchesTransmissionFacet(summary, params.transmission)', listStart);
   const sort = source.indexOf('const sorted = sortSummaries(filtered, params.sort);', listStart);
   const slice = source.indexOf('listings: sorted.slice(0, limit)', listStart);
 
   assert.ok(listStart >= 0, 'listMarketplaceListings source must exist');
-  assert.ok(locationFilter > listStart, 'location facet must be applied by the canonical listing path');
-  assert.ok(fuelFilter > listStart, 'fuel facet must be applied by the canonical listing path');
-  assert.ok(transmissionFilter > listStart, 'transmission facet must be applied by the canonical listing path');
+  assert.ok(bodyStyleFilter > listStart, 'body-style facet must be applied by the canonical listing path');
+  assert.ok(locationFilter > bodyStyleFilter, 'location facet must remain in the pre-sort facet chain');
+  assert.ok(fuelFilter > locationFilter, 'fuel facet must be applied by the canonical listing path');
+  assert.ok(transmissionFilter > fuelFilter, 'transmission facet must be applied by the canonical listing path');
   assert.ok(sort > transmissionFilter, 'all buyer facets must execute before sorting');
   assert.ok(slice > sort, 'result limiting must occur only after facet filtering and sorting');
 });
