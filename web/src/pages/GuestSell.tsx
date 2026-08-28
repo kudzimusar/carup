@@ -196,16 +196,16 @@ export default function GuestSell() {
                 <p className="mt-1 text-sm text-slate-500">These are seller-stated facts. CarUp will not turn them into verified facts merely because you entered them.</p>
               </div>
               <div className="grid gap-4 sm:grid-cols-3">
-                <Field label="Mileage (km)" error={errors.mileage}><Input type="number" value={form.mileage} onChange={e => set('mileage', e.target.value)} /></Field>
-                <SelectField label="Condition" value={form.condition} error={errors.condition} onValue={v => set('condition', v)} options={SELLER_CONDITIONS} />
-                <SelectField label="Body style" value={form.category} error={errors.category} onValue={v => set('category', v)} options={[...BODY_STYLES]} />
-                <SelectField label="Fuel" value={form.fuelType} error={errors.fuelType} onValue={v => set('fuelType', v)} options={FUEL_TYPES} />
-                <SelectField label="Transmission" value={form.transmission} error={errors.transmission} onValue={v => set('transmission', v)} options={TRANSMISSIONS} />
-                <SelectField label="Drivetrain (optional)" value={form.drivetrain} onValue={v => set('drivetrain', v)} options={DRIVETRAINS} />
-                <SelectField label="Currency" value={form.currency} error={errors.currency} onValue={v => set('currency', v)} options={CURRENCIES} />
-                <Field label="Asking price" error={errors.price}><Input type="number" value={form.price} onChange={e => set('price', e.target.value)} /></Field>
-                <SelectField label="City" value={form.location} error={errors.location} onValue={v => set('location', v)} options={zimbabweLocations} />
-                <SelectField label="Province" value={form.province} onValue={v => set('province', v)} options={zimbabweProvinces} />
+                <Field label="Mileage (km)" error={errors.mileage}><Input type="number" value={form.mileage} onChange={e => set('mileage', e.target.value)} data-testid="guest-sell-mileage" /></Field>
+                <SelectField label="Condition" value={form.condition} error={errors.condition} onValue={v => set('condition', v)} options={SELLER_CONDITIONS} testId="guest-sell-condition" />
+                <SelectField label="Body style" value={form.category} error={errors.category} onValue={v => set('category', v)} options={[...BODY_STYLES]} testId="guest-sell-body-style" />
+                <SelectField label="Fuel" value={form.fuelType} error={errors.fuelType} onValue={v => set('fuelType', v)} options={FUEL_TYPES} testId="guest-sell-fuel" />
+                <SelectField label="Transmission" value={form.transmission} error={errors.transmission} onValue={v => set('transmission', v)} options={TRANSMISSIONS} testId="guest-sell-transmission" />
+                <SelectField label="Drivetrain (optional)" value={form.drivetrain} onValue={v => set('drivetrain', v)} options={DRIVETRAINS} testId="guest-sell-drivetrain" />
+                <SelectField label="Currency" value={form.currency} error={errors.currency} onValue={v => set('currency', v)} options={CURRENCIES} testId="guest-sell-currency" />
+                <Field label="Asking price" error={errors.price}><Input type="number" value={form.price} onChange={e => set('price', e.target.value)} data-testid="guest-sell-price" /></Field>
+                <SelectField label="City" value={form.location} error={errors.location} onValue={v => set('location', v)} options={zimbabweLocations} testId="guest-sell-city" />
+                <SelectField label="Province" value={form.province} onValue={v => set('province', v)} options={zimbabweProvinces} testId="guest-sell-province" />
               </div>
               <Field label="Description" error={errors.description}>
                 <textarea
@@ -214,6 +214,7 @@ export default function GuestSell() {
                   rows={5}
                   className="w-full border border-slate-200 px-3 py-2 text-sm outline-none focus:border-orange-400"
                   placeholder="Condition, maintenance, what the buyer should know…"
+                  data-testid="guest-sell-description"
                 />
               </Field>
             </div>
@@ -303,8 +304,8 @@ function Field({ label, error, children }: { label: string; error?: string; chil
   return <div><label className="mb-1.5 block text-sm font-bold text-slate-800">{label}</label>{children}{error && <p className="mt-1 text-xs text-red-600">{error}</p>}</div>
 }
 
-function SelectField({ label, value, error, onValue, options }: { label: string; value: string; error?: string; onValue: (value: string) => void; options: string[] }) {
-  return <Field label={label} error={error}><Select value={value} onValueChange={onValue}><SelectTrigger><SelectValue placeholder="Select" /></SelectTrigger><SelectContent>{options.map(option => <SelectItem key={option} value={option}>{option}</SelectItem>)}</SelectContent></Select></Field>
+function SelectField({ label, value, error, onValue, options, testId }: { label: string; value: string; error?: string; onValue: (value: string) => void; options: readonly string[]; testId?: string }) {
+  return <Field label={label} error={error}><Select value={value} onValueChange={onValue}><SelectTrigger data-testid={testId}><SelectValue placeholder="Select" /></SelectTrigger><SelectContent>{options.map(option => <SelectItem key={option} value={option}>{option}</SelectItem>)}</SelectContent></Select></Field>
 }
 
 function PreviewFact({ label, value }: { label: string; value: string }) {
