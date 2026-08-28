@@ -112,6 +112,9 @@ import trustFactRouter from './routes/trustFactRoutes.js';
 import identityVerificationRouter from './routes/identityVerificationRoutes.js';
 import featureGovernanceRouter from './routes/featureGovernanceRoutes.js';
 import navigationAnalyticsRouter from './routes/navigationAnalyticsRoutes.js';
+import intelligenceActivityRouter from './routes/intelligenceActivityRoutes.js';
+import intelligenceProjectionRouter from './routes/intelligenceProjectionRoutes.js';
+import intelligenceRollupRouter from './routes/intelligenceRollupRoutes.js';
 import identityVerificationAdminRouter from './routes/identityVerificationAdminRoutes.js';
 import partsentryReviewRouter from './routes/partsentryReviewRoutes.js';
 import { normalizeVehicleStatus, publicVehicleStatusFilterValues, publiclyVisiblePublicationStatuses, isPublicVehicleStatus, isPubliclyVisiblePublication, PUBLIC_VEHICLE_COLUMNS } from './utils/vehicleStatus.js';
@@ -335,6 +338,9 @@ app.use(trustFactRouter);
 app.use(identityVerificationRouter);
 app.use(featureGovernanceRouter);
 app.use(navigationAnalyticsRouter);
+app.use(intelligenceActivityRouter);
+app.use(intelligenceProjectionRouter);
+app.use(intelligenceRollupRouter);
 app.use(identityVerificationAdminRouter);
 app.use(partsentryReviewRouter);
 
@@ -1894,37 +1900,71 @@ app.get('/api/organizations/my-org', authorizeRole(), async (req, res) => {
   }
 });
 
-// Fetch organization branches
-app.get('/api/organizations/:id/branches', async (req, res) => {
+/**
+ * Prove the caller may see an organization's internal records.
+ * Platform admins may; other callers must be verified members of the mapped tenant.
+ */
+async function assertOrganizationMembership(req, organizationId) {
+  const isPlatformAdmin = ['admin', 'platform_admin', 'super_admin']
+    .includes(String(req.userContext?.platformRole || req.userContext?.role || ''));
+  if (isPlatformAdmin) return;
+
+  const { data: org } = await supabase
+    .from('organizations')
+    .select('tenant_id')
+    .eq('id', organizationId)
+    .single();
+  if (!org || !org.tenant_id) {
+    throw new ForbiddenError('Forbidden. Organization not found or not mapped.');
+  }
+  const { data: tenantUser } = await supabase
+    .from('tenant_users')
+    .select('tenant_id')
+    .eq('user_id', req.userContext.id)
+    .eq('tenant_id', org.tenant_id)
+    .single();
+  if (!tenantUser) {
+    throw new ForbiddenError('Forbidden. You do not belong to this organization.');
+  }
+}
+
+// Fetch organization branches — authenticated and membership-scoped.
+app.get('/api/organizations/:id/branches', authorizeRole(), async (req, res, next) => {
   const { id } = req.params;
   try {
+    await assertOrganizationMembership(req, id);
     const { data: branches, error } = await supabase
       .from('organization_branches')
-      .select('*')
+      .select('id, organization_id, name, city, country, status')
       .eq('organization_id', id);
     if (error) throw error;
     res.json(branches);
   } catch (error) {
-    res.status(500).json({ error: error.message });
+    next(error);
   }
 });
 
-// Fetch staff / users inside organization
-app.get('/api/organizations/:id/users', async (req, res) => {
+// Fetch staff — authenticated, membership-scoped and minimized.
+app.get('/api/organizations/:id/users', authorizeRole(), async (req, res, next) => {
   const { id } = req.params;
   try {
+    await assertOrganizationMembership(req, id);
     const { data: users, error } = await supabase
       .from('organization_users')
       .select(`
-        *,
-        users!inner(name, email, avatar),
+        id,
+        organization_id,
+        user_id,
+        status,
+        joined_at,
+        users!inner(name, avatar),
         organization_roles!inner(name, level)
       `)
       .eq('organization_id', id);
     if (error) throw error;
     res.json(users);
   } catch (error) {
-    res.status(500).json({ error: error.message });
+    next(error);
   }
 });
 
