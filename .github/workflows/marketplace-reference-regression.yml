@@ -139,8 +139,28 @@ jobs:
             frontend_ok=0
             backend_ok=0
 
-            if curl --fail --silent --show-error "$STAGING_FRONTEND_URL/marketplace" >/dev/null; then
-              frontend_ok=1
+            if curl --fail --silent --show-error "$STAGING_FRONTEND_URL/carup-provenance.json" > /tmp/marketplace-frontend-provenance.json; then
+              if node -e '
+                const fs = require("fs");
+                const provenance = JSON.parse(fs.readFileSync("/tmp/marketplace-frontend-provenance.json", "utf8"));
+                const expected = process.env.EXPECTED_HEAD_SHA;
+                const expectedBackend = process.env.STAGING_BACKEND_URL.replace(/\/+$/, "");
+                if (
+                  provenance.commit_sha === expected
+                  && provenance.api_base_url === expectedBackend
+                  && provenance.unpaired === false
+                ) process.exit(0);
+                console.error(JSON.stringify({
+                  expected,
+                  frontend_commit_sha: provenance.commit_sha,
+                  expected_backend: expectedBackend,
+                  api_base_url: provenance.api_base_url,
+                  unpaired: provenance.unpaired,
+                }));
+                process.exit(1);
+              '; then
+                frontend_ok=1
+              fi
             fi
 
             if curl --fail --silent --show-error "$STAGING_BACKEND_URL/api/health" > /tmp/marketplace-staging-health.json; then
@@ -158,6 +178,7 @@ jobs:
             fi
 
             if [ "$frontend_ok" -eq 1 ] && [ "$backend_ok" -eq 1 ]; then
+              cat /tmp/marketplace-frontend-provenance.json
               cat /tmp/marketplace-staging-health.json
               exit 0
             fi
@@ -166,6 +187,7 @@ jobs:
           done
 
           echo "Exact-head staging did not become ready."
+          cat /tmp/marketplace-frontend-provenance.json 2>/dev/null || true
           cat /tmp/marketplace-staging-health.json 2>/dev/null || true
           exit 1
 
