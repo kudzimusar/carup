@@ -1,7 +1,7 @@
 # V0 — Live Reconciliation, Authority Freeze and Gap Inventory
 
-**Date:** 2026-08-28  
-**Programme:** Vehicle Passport / Trust Lifecycle 1.0  
+**Date:** 2026-08-28
+**Programme:** Vehicle Passport / Trust Lifecycle 1.0
 **Decision:** PASS FOR BOUNDED V1 FOUNDATION / SELLER-DEPENDENT INTEGRATION BLOCKED
 
 ## Exact live anchors at V0
