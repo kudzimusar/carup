@@ -505,3 +505,30 @@ and `partsentryService` independently validates the odometer, normalises an abse
 description or OEM to `null`, and writes the validated value everywhere it
 previously used the raw input — the signature, the idempotency probe, the insert,
 the vehicle update and the ledger event.
+
+---
+
+## 11. Sibling reconciliation refreshed at the final candidate
+
+Re-run after H5/H6, against each sibling's **current** exact head.
+
+**PR #182 has moved twice** since the last reconciliation: `1de75926` →
+`a5c1d001` (the head named in the verdict) → **`c93a0f8f`**, which is what this
+refresh reconciles against.
+
+| Check | Result |
+|---|---|
+| Commits #182 added since `1de75926` | **48** |
+| Of those, files also modified by this lane | **none** — the intersection is empty |
+| Conflicts vs `c93a0f8f` | **1**, `web/preview-backend-pairing.json` |
+| Conflicts vs #183 `507530aa` | **0**, clean tree |
+
+The single conflict is unchanged in nature and unrelated to architecture: both
+branches registered their own preview pairing in the same JSON map, and it
+resolves by **union** — keep both keys.
+
+Overlapping files remain the same seven, and the six code files still auto-merge.
+Because none of #182's 48 new commits touches any of them, the semantic analysis
+in §7 stands as written — including the `InquiryModal` `sourceSurface` fix, which
+remains the thing that stops #182's expanded call sites filing parts and services
+enquiries under the vehicle-detail funnel.
