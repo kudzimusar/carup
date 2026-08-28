@@ -3,7 +3,7 @@ import { Link, useSearchParams } from 'react-router-dom'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { ListingImage } from '@/components/marketplace/ListingImage'
-import { Loader2, ArrowLeft, ShieldCheck, CheckCircle2 } from 'lucide-react'
+import { Loader2, ArrowLeft, ShieldCheck } from 'lucide-react'
 import { useCarUpApi } from '@/hooks/useCarUpApi'
 import { canRenderMarketplacePrimaryImage } from '@/lib/marketplacePresentation'
 
@@ -147,9 +147,7 @@ export default function MarketplaceCompare() {
                               <p className="text-xl font-black tracking-[-0.03em] text-slate-950 group-hover:text-orange-700">{entry.year ?? ''} {entry.make} {entry.model}</p>
                               <p className="mt-1 text-lg font-black text-slate-950">{money(entry.price, entry.currency)}</p>
                             </div>
-                            {entry.trust?.evaluation_state === 'evaluated' && typeof entry.trust.score === 'number' && entry.trust.score >= 75 && (
-                              <CheckCircle2 className="h-5 w-5 shrink-0 text-emerald-600" aria-label="Strong canonical Trust" />
-                            )}
+
                           </div>
                         </Link>
                       </th>
