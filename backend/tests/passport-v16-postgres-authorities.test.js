@@ -399,3 +399,139 @@ test('V16 Communications template migration executes and registers an approved t
     await db.close();
   }
 });
+
+
+async function taxonomyDb() {
+  const db = await PGlite.create();
+  await db.exec(`
+    CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
+    CREATE ROLE anon NOLOGIN;
+    CREATE ROLE authenticated NOLOGIN;
+    CREATE ROLE service_role NOLOGIN BYPASSRLS;
+    GRANT USAGE ON SCHEMA public TO anon,authenticated,service_role;
+    ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON TABLES TO anon,authenticated;
+    CREATE TABLE vehicles (vin text PRIMARY KEY);
+  `);
+  await db.exec(up('../../database/migrations/20260828133000_global_vehicle_taxonomy_s0.sql'));
+  return db;
+}
+
+test('V16 Seller S0 taxonomy observation queue is service-role-only with RLS enabled', async () => {
+  const db = await taxonomyDb();
+  try {
+    const security = await db.query(`
+      SELECT relrowsecurity
+        FROM pg_class
+       WHERE oid='public.vehicle_taxonomy_observations'::regclass
+    `);
+    assert.equal(security.rows[0].relrowsecurity, true);
+
+    await assert.rejects(async () => {
+      await db.exec('SET ROLE anon');
+      try {
+        await db.query('SELECT * FROM public.vehicle_taxonomy_observations');
+      } finally {
+        await db.exec('RESET ROLE');
+      }
+    }, /permission denied/i);
+
+    await assert.rejects(async () => {
+      await db.exec('SET ROLE authenticated');
+      try {
+        await db.exec(`
+          INSERT INTO public.vehicle_taxonomy_observations(
+            dimension,raw_value,source_type,taxonomy_version
+          ) VALUES ('make','Toyota','seller','taxonomy-v1')
+        `);
+      } finally {
+        await db.exec('RESET ROLE');
+      }
+    }, /permission denied/i);
+
+    await db.exec('SET ROLE service_role');
+    try {
+      await db.exec(`
+        INSERT INTO public.vehicle_taxonomy_observations(
+          dimension,raw_value,source_type,taxonomy_version
+        ) VALUES ('make','Toyota','seller','taxonomy-v1')
+      `);
+      const rows = await db.query('SELECT raw_value FROM public.vehicle_taxonomy_observations');
+      assert.equal(rows.rows[0].raw_value, 'Toyota');
+    } finally {
+      await db.exec('RESET ROLE');
+    }
+  } finally {
+    await db.close();
+  }
+});
+
+async function activateKey(db, {
+  candidateId,
+  userId='user-1',
+  publicKey,
+  at,
+  version,
+}) {
+  const { rows } = await db.query(`
+    SELECT * FROM public.blockchain_activate_public_key_atomic(
+      $1::text,$2::text,$3::text,$4::text,$5::text,$6::text,$7::text,$8::text
+    )
+  `, [
+    candidateId,userId,publicKey,'secp256k1',at,
+    `derived:test:${version}:${candidateId}`,version,'derived_master_secret',
+  ]);
+  return rows[0];
+}
+
+test('Issue #158 atomic activation preserves v1 -> v2 -> rollback-v1 key validity incarnations', async () => {
+  const db = await custodyDb();
+  try {
+    const v2 = await activateKey(db, {
+      candidateId: 'key-v2-incarnation-1',
+      publicKey: 'PUBLIC-V2',
+      version: 'v2',
+      at: '2026-08-28T10:00:00Z',
+    });
+    assert.equal(v2.status, 'ACTIVE');
+    assert.equal(v2.public_key_pem, 'PUBLIC-V2');
+
+    const rollback = await activateKey(db, {
+      candidateId: 'key-v1-incarnation-2',
+      publicKey: 'PUBLIC-MATERIAL',
+      version: 'v1',
+      at: '2026-08-29T10:00:00Z',
+    });
+    assert.equal(rollback.status, 'ACTIVE');
+    assert.equal(rollback.id, 'key-v1-incarnation-2');
+
+    // Asking for the already-active rollback key is idempotent and does not create
+    // another incarnation.
+    const replay = await activateKey(db, {
+      candidateId: 'ignored-new-candidate',
+      publicKey: 'PUBLIC-MATERIAL',
+      version: 'v1',
+      at: '2026-08-29T11:00:00Z',
+    });
+    assert.equal(replay.id, 'key-v1-incarnation-2');
+
+    const history = await db.query(`
+      SELECT id,public_key_pem,status,created_at,revoked_at,key_version
+        FROM public_keys
+       WHERE user_id='user-1'
+       ORDER BY created_at ASC,id ASC
+    `);
+    assert.equal(history.rows.length, 3);
+    assert.equal(history.rows.filter((row) => row.status === 'ACTIVE').length, 1);
+
+    const originalV1 = history.rows.find((row) => row.id === 'key-1');
+    const firstV2 = history.rows.find((row) => row.id === 'key-v2-incarnation-1');
+    const rollbackV1 = history.rows.find((row) => row.id === 'key-v1-incarnation-2');
+
+    assert.equal(originalV1.revoked_at, '2026-08-28T10:00:00Z');
+    assert.equal(firstV2.revoked_at, '2026-08-29T10:00:00Z');
+    assert.equal(rollbackV1.revoked_at, null);
+    assert.equal(rollbackV1.key_version, 'v1');
+  } finally {
+    await db.close();
+  }
+});
