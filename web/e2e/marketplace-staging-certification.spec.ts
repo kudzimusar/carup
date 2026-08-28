@@ -509,7 +509,8 @@ test('guest can build a listing to private preview before authentication', async
   await page.getByRole('button', { name: 'Continue' }).click()
   await expect(page.getByTestId('guest-sell-preview-step')).toBeVisible()
   await expect(page).toHaveURL(/\/sell$/)
-  await expect(page.getByText(/still only a browser draft/i)).toBeVisible()
+  await expect(page.getByText(/still a browser draft/i)).toBeVisible()
+  await expect(page.getByText(/CarUp has not claimed ownership, uploaded your photos, published the listing or created a Trust fact/i)).toBeVisible()
   await page.screenshot({ path: testInfo.outputPath('guest-sell-preview.png'), fullPage: true })
 })
 
