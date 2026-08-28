@@ -10,6 +10,7 @@ import { useAuth } from '@/context/AuthContext'
 import { buildLoginRedirect } from '@/lib/returnTo'
 import { useCarUpApi } from '@/hooks/useCarUpApi'
 import PaymentMilestonesCard from '@/components/diaspora/PaymentMilestonesCard'
+import { VEHICLE_MAKES, isValidVehicleYear, modelsForMake } from '@/data/vehicleTaxonomy'
 import type { DiasporaComplianceReview, DiasporaImportOrder, DiasporaImportOrderPayload, DiasporaOrderType, DiasporaTradeDocument, DiasporaCargoReservation, DiasporaCargoReservationPayload, DiasporaShipment, DiasporaContainerShipment } from '@/types'
 
 const requiredDocuments = [
@@ -747,7 +748,7 @@ export function NewDiasporaImportOrder() {
     if (!form.destination_city?.trim()) nextErrors.destination_city = 'Destination city is required.'
     if (!form.requested_make?.trim()) nextErrors.requested_make = 'Make is required.'
     if (!form.requested_model?.trim()) nextErrors.requested_model = 'Model is required.'
-    if (!form.requested_year_min) nextErrors.requested_year_min = 'Year is required.'
+    if (!form.requested_year_min || !isValidVehicleYear(form.requested_year_min)) nextErrors.requested_year_min = 'Enter a valid vehicle year.'
     if (!form.budget_amount || Number(form.budget_amount) <= 0) nextErrors.budget_amount = 'Budget is required.'
     setErrors(nextErrors)
     return Object.keys(nextErrors).length === 0
@@ -838,12 +839,14 @@ export function NewDiasporaImportOrder() {
               </div>
               <div>
                 <label className="text-sm font-medium text-gray-800" htmlFor="requested-make">Make</label>
-                <Input id="requested-make" value={form.requested_make} onChange={event => set('requested_make', event.target.value)} className={errors.requested_make ? 'border-red-400' : ''} data-testid="diaspora-make-input" />
+                <Input id="requested-make" list="carup-diaspora-makes" value={form.requested_make} onChange={event => set('requested_make', event.target.value)} className={errors.requested_make ? 'border-red-400' : ''} data-testid="diaspora-make-input" />
+                <datalist id="carup-diaspora-makes">{VEHICLE_MAKES.map(make => <option key={make} value={make} />)}</datalist>
                 {errors.requested_make && <p className="mt-1 text-xs text-red-600">{errors.requested_make}</p>}
               </div>
               <div>
                 <label className="text-sm font-medium text-gray-800" htmlFor="requested-model">Model</label>
-                <Input id="requested-model" value={form.requested_model} onChange={event => set('requested_model', event.target.value)} className={errors.requested_model ? 'border-red-400' : ''} data-testid="diaspora-model-input" />
+                <Input id="requested-model" list="carup-diaspora-models" value={form.requested_model} onChange={event => set('requested_model', event.target.value)} className={errors.requested_model ? 'border-red-400' : ''} data-testid="diaspora-model-input" />
+                <datalist id="carup-diaspora-models">{modelsForMake(form.requested_make).map(model => <option key={model.id} value={model.name} />)}</datalist>
                 {errors.requested_model && <p className="mt-1 text-xs text-red-600">{errors.requested_model}</p>}
               </div>
               <div>

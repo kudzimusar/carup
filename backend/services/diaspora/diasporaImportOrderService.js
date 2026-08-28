@@ -1,4 +1,5 @@
 import { supabase } from '../../db/supabase.js';
+import { normalizeVehicleTaxonomyInput } from '../taxonomy/vehicleTaxonomyService.js';
 import { IMPORT_ORDER_STATUSES } from '../../constants/diaspora/diasporaStatuses.js';
 import { DatabaseError, ForbiddenError, NotFoundError, ValidationError } from '../../utils/errors.js';
 import { validateImportOrderPayload, validatePaymentMilestonePayload } from '../../validators/diaspora/diasporaSchemas.js';
@@ -9,6 +10,11 @@ import { assertCanReadImportOrder, isPlatformAdmin, isPlatformReviewer, requireU
 
 function cleanOrderPayload(payload, userContext) {
   validateImportOrderPayload(payload);
+  const taxonomy = normalizeVehicleTaxonomyInput({
+    make: payload.requested_make,
+    model: payload.requested_model,
+    year: payload.requested_year_min,
+  });
   return {
     tenant_id: userContext?.tenantId || payload.tenant_id || null,
     buyer_id: payload.buyer_id || userContext?.id || null,
@@ -21,6 +27,21 @@ function cleanOrderPayload(payload, userContext) {
     requested_model: payload.requested_model || null,
     requested_year_min: payload.requested_year_min || null,
     requested_year_max: payload.requested_year_max || null,
+    requested_make_taxon_id: taxonomy.make.canonical_id,
+    requested_model_taxon_id: taxonomy.model.canonical_id,
+    taxonomy_version: taxonomy.taxonomy_version,
+    taxonomy_resolution: {
+      make: taxonomy.make.state,
+      model: taxonomy.model.state,
+      year: taxonomy.year.state,
+    },
+    taxonomy_source_values: {
+      make: payload.requested_make || null,
+      model: payload.requested_model || null,
+      year_min: payload.requested_year_min || null,
+      year_max: payload.requested_year_max || null,
+    },
+    taxonomized_at: new Date().toISOString(),
     budget_amount: payload.budget_amount || null,
     budget_currency: payload.budget_currency || 'USD',
     auction_lot_number: payload.auction_lot_number || null,
@@ -42,6 +63,24 @@ export async function createImportOrder(payload, userContext = {}, req = null) {
     .single();
 
   if (error) throw new DatabaseError(error.message);
+
+  const taxonomyObservations = [
+    ['make', orderPayload.taxonomy_resolution?.make, orderPayload.taxonomy_source_values?.make],
+    ['model', orderPayload.taxonomy_resolution?.model, orderPayload.taxonomy_source_values?.model],
+    ['year', orderPayload.taxonomy_resolution?.year, orderPayload.taxonomy_source_values?.year_min],
+  ].filter(([, state, raw]) => state === 'unrecognized' && raw !== null && raw !== undefined)
+    .map(([dimension, _state, raw]) => ({
+      dimension,
+      raw_value: String(raw),
+      source_type: 'import',
+      source_reference: data.id,
+      taxonomy_version: orderPayload.taxonomy_version,
+      review_status: 'unresolved',
+    }));
+  if (taxonomyObservations.length) {
+    const { error: observationError } = await supabase.from('vehicle_taxonomy_observations').insert(taxonomyObservations);
+    if (observationError) console.warn('Diaspora taxonomy observation could not be recorded:', observationError.message);
+  }
 
   await writeDiasporaAudit({
     importOrderId: data.id,

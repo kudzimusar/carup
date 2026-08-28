@@ -33,6 +33,22 @@ import { JourneyMediaStory, type JourneyScene } from '@/components/home/JourneyM
 import { canRenderMarketplacePrimaryImage } from '@/lib/marketplacePresentation'
 import { summaryLocationLine } from '@/lib/governedLocation'
 import type { MarketplaceListingSummary } from '@/types'
+import { canonicalMake, canonicalModel, makeTaxon, modelsForMake, resolveFuelType, resolveTransmission } from '@/data/vehicleTaxonomy'
+
+function taxonomyVehicleHref(make: string, model: string) {
+  const makeEntry = makeTaxon(make)
+  if (!makeEntry) return '/marketplace'
+  const canonical = canonicalMake(make)
+  const modelLabel = canonicalModel(canonical, model)
+  if (!modelsForMake(canonical).some(item => item.name === modelLabel)) return '/marketplace'
+  return `/marketplace?make=${encodeURIComponent(canonical)}&model=${encodeURIComponent(modelLabel)}`
+}
+
+function taxonomyFacetHref(kind: 'fuel' | 'transmission', value: string) {
+  const resolved = kind === 'fuel' ? resolveFuelType(value) : resolveTransmission(value)
+  if (resolved.state !== 'canonical' && resolved.state !== 'alias_match') return '/marketplace'
+  return `/marketplace?${kind}=${encodeURIComponent(String(resolved.value))}`
+}
 
 const popularSearches = [
   { label: 'Brand New', href: '/marketplace?category=brand_new' },
@@ -41,9 +57,9 @@ const popularSearches = [
   { label: 'Locally Used', href: '/marketplace?category=locally_used' },
   { label: 'Second Hand', href: '/marketplace?category=second_hand' },
   { label: 'Low Mileage', href: '/marketplace?tag=low_mileage' },
-  { label: 'Toyota Hilux', href: '/marketplace?make=Toyota&model=Hilux' },
-  { label: 'Honda Fit', href: '/marketplace?make=Honda&model=Fit' },
-  { label: 'Mazda Demio', href: '/marketplace?make=Mazda&model=Demio' },
+  { label: 'Toyota Hilux', href: taxonomyVehicleHref('Toyota', 'Hilux') },
+  { label: 'Honda Fit', href: taxonomyVehicleHref('Honda', 'Fit') },
+  { label: 'Mazda Demio', href: taxonomyVehicleHref('Mazda', 'Demio') },
   { label: 'Passport Verified', href: '/marketplace?tag=passport_verified' },
   { label: 'Under $5,000', href: '/marketplace?maxPrice=5000' },
   { label: 'Under $10,000', href: '/marketplace?maxPrice=10000' },
@@ -51,8 +67,8 @@ const popularSearches = [
   { label: 'Parts & Accessories', href: '/marketplace/parts' },
   { label: 'Harare', href: '/marketplace?location=Harare' },
   { label: 'Bulawayo', href: '/marketplace?location=Bulawayo' },
-  { label: 'Diesel', href: '/marketplace?fuel=Diesel' },
-  { label: 'Automatic', href: '/marketplace?transmission=Automatic' },
+  { label: 'Diesel', href: taxonomyFacetHref('fuel', 'Diesel') },
+  { label: 'Automatic', href: taxonomyFacetHref('transmission', 'Automatic') },
   { label: 'PartSentry Checked', href: '/marketplace?tag=partsentry_checked' },
 ]
 
