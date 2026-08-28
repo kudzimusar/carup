@@ -39,7 +39,7 @@ function Signal({
   return (
     <div className={`flex items-center gap-2 border border-white/70 bg-white/95 px-3 py-2 text-slate-950 shadow-[0_12px_30px_rgba(15,23,42,0.12)] backdrop-blur-sm ${className}`}>
       <span className="flex h-8 w-8 shrink-0 items-center justify-center bg-orange-50 text-orange-600">
-        <Icon className="h-4 w-4" />
+        <Icon className="h-4 w-4" aria-hidden="true" />
       </span>
       <span className="min-w-0">
         <span className="block text-[9px] font-black uppercase tracking-[0.14em] text-slate-400">{eyebrow}</span>
@@ -70,7 +70,7 @@ function AbstractCar({ className = '' }: { className?: string }) {
   return (
     <div className={`relative flex items-center justify-center ${className}`}>
       <div className="absolute h-28 w-44 rounded-[50%] bg-orange-200/60 blur-2xl" />
-      <CarFront className="relative h-28 w-28 stroke-[1.2] text-slate-800 transition duration-500 motion-safe:group-hover:-translate-y-1 motion-safe:group-hover:scale-105" />
+      <CarFront aria-hidden="true" className="relative h-28 w-28 stroke-[1.2] text-slate-800 transition duration-500 motion-safe:group-hover:-translate-y-1 motion-safe:group-hover:scale-105" />
     </div>
   )
 }
@@ -149,7 +149,7 @@ export function JourneyMediaStory({
     return (
       <div className={shell} data-testid="home-journey-media" data-scene="diaspora">
         <div className="absolute inset-0 opacity-60 [background-image:radial-gradient(circle_at_center,rgba(15,23,42,0.08)_1px,transparent_1px)] [background-size:18px_18px]" />
-        <Globe2 className="absolute right-5 top-5 h-28 w-28 stroke-[1.1] text-slate-300 transition duration-700 motion-safe:group-hover:rotate-6" />
+        <Globe2 aria-hidden="true" className="absolute right-5 top-5 h-28 w-28 stroke-[1.1] text-slate-300 transition duration-700 motion-safe:group-hover:rotate-6" />
         <svg className="absolute inset-x-4 top-14 h-28 w-[calc(100%-2rem)] overflow-visible text-orange-500" viewBox="0 0 300 100" aria-hidden="true">
           <path d="M18 70 C80 14, 160 95, 278 26" fill="none" stroke="currentColor" strokeWidth="2.5" strokeDasharray="7 7" />
           <circle cx="18" cy="70" r="5" fill="currentColor" />
@@ -185,7 +185,7 @@ export function JourneyMediaStory({
         {image ? <VehicleBackdrop src={image} alt={alt} /> : <AbstractCar className="absolute inset-0" />}
         <div className="absolute inset-0 bg-white/45" />
         <div className="absolute right-6 top-1/2 flex h-28 w-28 -translate-y-1/2 items-center justify-center border-2 border-orange-300 bg-orange-50/90 text-orange-600 shadow-xl transition duration-500 motion-safe:group-hover:scale-105">
-          <ShieldCheck className="h-14 w-14 stroke-[1.3]" />
+          <ShieldCheck aria-hidden="true" className="h-14 w-14 stroke-[1.3]" />
         </div>
         <Signal icon={ShieldCheck} eyebrow="Protection" label="Connect options to the car" className="absolute bottom-4 left-4 max-w-[190px]" />
       </div>
