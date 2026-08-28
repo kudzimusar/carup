@@ -34,7 +34,7 @@ const PHOTO_LABELS = [
   'Odometer',
   'Engine',
   'Tyres',
-  'Known damage',
+  'Any known damage',
   'Other',
 ] as const
 
@@ -82,7 +82,8 @@ export default function GuestSell() {
   const [draftSaved, setDraftSaved] = useState(false)
   const [taxonomy, setTaxonomy] = useState<EvidenceTaxonomyResponse | null>(null)
   const [sources, setSources] = useState<EvidenceSourcesResponse | null>(null)
-  const [historyLoading, setHistoryLoading] = useState(true)
+  const historyCatalogAvailable = typeof fetchEvidenceTaxonomy === 'function' && typeof fetchEvidenceSources === 'function'
+  const [historyLoading, setHistoryLoading] = useState(historyCatalogAvailable)
   const [buyerPreviewOpen, setBuyerPreviewOpen] = useState(false)
   const modelOptions = useMemo(() => modelsForMake(form.make).map(item => item.name), [form.make])
   // S6: exactly the facets a buyer could search this listing by today — no padding.
@@ -92,15 +93,11 @@ export default function GuestSell() {
 
   useEffect(() => {
     let active = true
-    setHistoryLoading(true)
 
     // Evidence coverage is progressive enhancement on Guest Sell. If a partially mocked/test host or
     // temporarily older backend does not expose the catalog collaborators, the core seller journey
-    // must remain usable and the panel truthfully shows its unavailable state instead of crashing.
-    if (typeof fetchEvidenceTaxonomy !== 'function' || typeof fetchEvidenceSources !== 'function') {
-      setHistoryLoading(false)
-      return () => { active = false }
-    }
+    // remains usable and the panel truthfully shows its unavailable state instead of crashing.
+    if (!historyCatalogAvailable) return () => { active = false }
 
     Promise.allSettled([fetchEvidenceTaxonomy(), fetchEvidenceSources()])
       .then(([taxonomyResult, sourceResult]) => {
@@ -110,7 +107,7 @@ export default function GuestSell() {
       })
       .finally(() => { if (active) setHistoryLoading(false) })
     return () => { active = false }
-  }, [fetchEvidenceTaxonomy, fetchEvidenceSources])
+  }, [fetchEvidenceTaxonomy, fetchEvidenceSources, historyCatalogAvailable])
 
   const set = <K extends keyof GuestForm>(key: K, value: GuestForm[K]) => {
     setForm(previous => ({ ...previous, [key]: value }))
