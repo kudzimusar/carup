@@ -19,6 +19,8 @@ Canonical global taxonomy authority: `docs/platform/CARUP_GLOBAL_VEHICLE_TAXONOM
 
 Canonical schema/vocabulary contract: `docs/platform/CARUP_GLOBAL_VEHICLE_TAXONOMY_SCHEMA.md`
 
+Canonical migration/rollout plan: `docs/platform/CARUP_GLOBAL_VEHICLE_TAXONOMY_MIGRATION_PLAN.md`
+
 The S0 production invariants are:
 
 > A value accepted from Sell must have a canonical destination, known authority/provenance, and a deliberate projection policy across Marketplace, Home, Verify/Passport, Communications and Intelligence.
