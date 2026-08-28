@@ -100,7 +100,8 @@ jobs:
         run: node --test backend/tests/passport-v13-ai-advisory.test.js
 
       - name: Passport V15 compact and accessibility contract
-        run: npx vitest run web/src/pages/dashboard/owner/VehicleProfile.passport-v15.test.tsx web/src/pages/dashboard/owner/VehicleProfile.claims.test.tsx
+        working-directory: web
+        run: npx vitest run src/pages/dashboard/owner/VehicleProfile.passport-v15.test.tsx src/pages/dashboard/owner/VehicleProfile.claims.test.tsx
 
       - name: Preserve native mobile certification contract
         run: node --test backend/tests/mobile-certification.test.js
