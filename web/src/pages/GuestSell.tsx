@@ -752,4 +752,3 @@ function Field({ label, error, children, dark = false }: { label: string; error?
 function SelectField({ label, value, error, onValue, options, testId }: { label: string; value: string; error?: string; onValue: (value: string) => void; options: readonly string[]; testId?: string }) {
   return <Field label={label} error={error}><Select value={value} onValueChange={onValue}><SelectTrigger data-testid={testId}><SelectValue placeholder="Select" /></SelectTrigger><SelectContent>{options.map(option => <SelectItem key={option} value={option}>{option}</SelectItem>)}</SelectContent></Select></Field>
 }
-
