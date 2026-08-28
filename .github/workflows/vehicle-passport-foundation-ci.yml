@@ -66,6 +66,9 @@ jobs:
       - name: Passport V6 unified lifecycle contract
         run: node --test backend/tests/passport-v6-lifecycle-timeline.test.js
 
+      - name: Passport V7 ownership transfer contract
+        run: node --test backend/tests/passport-v7-ownership-transfer.test.js
+
       - name: Preserve canonical Trust public read path
         run: node --test backend/tests/issue164-phase3-trust-authority.test.js
 
@@ -95,6 +98,8 @@ jobs:
           node --check backend/services/passport/passportVerificationProjection.js
           node --check backend/services/passport/passportTrustLens.js
           node --check backend/services/passport/passportLifecycleTimeline.js
+          node --check backend/services/passport/passportTransferStateMachine.js
+          node --check backend/services/passport/passportOwnershipProjection.js
 
       - name: Diff hygiene
         run: git diff --check HEAD^ HEAD
