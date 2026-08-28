@@ -249,7 +249,8 @@ export const PUBLIC_EVIDENCE_FIELDS = Object.freeze([
   'captured_at', 'uploaded_at', 'verified_at', 'created_at',
   'verification_status', 'visibility_level',
   'file_url', 'mime_type', 'file_size',
-  'trust_score_impact', 'trust_impact',
+  // Legacy per-evidence scoring inputs are not public Trust facts. Canonical Trust is
+  // published through the canonical Trust contract, never reconstructed from evidence rows.
   // `source_name` only. #175 additionally published `source_id`, on the belief that newer
   // M1/ingestion rows carry attribution ONLY there. Measured against the live schema, that is not
   // what the column is: `source_id` is `uuid` (an internal FK) while `source_name` is `text`. A UUID
@@ -288,7 +289,7 @@ export const PUBLIC_PLATE_HISTORY_FIELDS = Object.freeze([
 export const PUBLIC_TIMELINE_EVENT_FIELDS = Object.freeze([
   'id', 'event_source', 'event_type', 'evidence_type', 'timestamp',
   'label', 'desc', 'details', 'publicDescription', 'publicSummary',
-  'verification_status', 'file_url', 'mime_type', 'trust_score_impact',
+  'verification_status', 'file_url', 'mime_type',
 ]);
 
 /**
