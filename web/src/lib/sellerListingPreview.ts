@@ -63,8 +63,11 @@ export function sellerDraftToCardModel(draft: SellerDraftPreviewInput): Marketpl
     price: enteredNumber(draft.price),
     currency: enteredText(draft.currency),
     primaryImage: draft.images?.[0] ?? null,
-    // The seller is looking at their own local file, which is loaded by definition.
-    primaryImageState: draft.images?.length ? 'listing_media' : 'none',
+    // Browser-local preview media is a third, explicit state. It is NOT seller_primary (the seller
+    // has not made/persisted that claim yet) and it is NOT first_published (nothing is published).
+    // MarketplaceListingCard only renders this state when its explicit allowLocalDraftMedia guard is
+    // enabled, and then only for data:/blob: locators.
+    primaryImageState: draft.images?.length ? 'draft_local' : 'none',
     mileage: enteredNumber(draft.mileage),
     transmission: enteredText(draft.transmission),
     fuel: enteredText(draft.fuelType),
