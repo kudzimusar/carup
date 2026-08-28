@@ -9,6 +9,7 @@ import { useAuth } from '@/context/AuthContext'
 import { zimbabweLocations, zimbabweProvinces } from '@/data/mockData'
 import { BODY_STYLES, DRIVETRAINS, FUEL_TYPES, SELLER_CONDITIONS, TRANSMISSIONS, VEHICLE_COLORS, VEHICLE_MAKES, isValidVehicleYear, modelsForMake } from '@/data/vehicleTaxonomy'
 import { saveGuestSellDraft } from '@/lib/guestSellDraft'
+import { LISTING_IMAGE_LIMIT, screenListingImages } from '@/lib/listingMediaIntake'
 import { MarketplaceListingCard } from '@/components/marketplace/MarketplaceListingCard'
 import { sellerDiscoverabilityFacets, sellerDraftToCardModel } from '@/lib/sellerListingPreview'
 import { VehicleIdentificationNotice } from '@/components/sell/VehicleIdentificationNotice'
@@ -177,15 +178,20 @@ export default function GuestSell() {
   }
 
   const addImages = (event: React.ChangeEvent<HTMLInputElement>) => {
-    const remaining = Math.max(0, 10 - form.images.length)
-    const files = Array.from(event.target.files || [])
-      .filter(file => file.type.startsWith('image/'))
-      .slice(0, remaining)
+    // Guest and authenticated Sell share ONE deterministic intake contract. The guest flow used to
+    // silently drop non-images and cap itself at 10 while authenticated Sell accepted 15; the same
+    // seller therefore got two different answers depending on which side of account creation they
+    // were on.
+    const { accepted: files, rejected } = screenListingImages(
+      Array.from(event.target.files || []),
+      form.images.length,
+    )
+    for (const refusal of rejected) toast.error(`${refusal.name}: ${refusal.reason}`)
     if (files.length === 0) return
 
     // Read the selected batch concurrently but apply it once, in selection order. Individual
     // FileReader callbacks may finish out of order; appending from each callback can silently
-    // reshuffle which photo becomes the first/primary preview.
+    // reshuffle which photo is associated with each walk-around label.
     Promise.all(files.map(file => new Promise<string>((resolve) => {
       const reader = new FileReader()
       reader.onload = () => resolve(String(reader.result || ''))
@@ -195,12 +201,12 @@ export default function GuestSell() {
       const images = results.filter(Boolean)
       if (images.length === 0) return
       setForm(previous => {
-        const nextImages = [...previous.images, ...images].slice(0, 10)
+        const nextImages = [...previous.images, ...images].slice(0, LISTING_IMAGE_LIMIT)
         const addedCount = Math.max(0, nextImages.length - previous.images.length)
         return {
           ...previous,
           images: nextImages,
-          imageLabels: [...previous.imageLabels, ...Array(addedCount).fill('')].slice(0, 10),
+          imageLabels: [...previous.imageLabels, ...Array(addedCount).fill('')].slice(0, LISTING_IMAGE_LIMIT),
         }
       })
       setDraftSaved(false)
@@ -504,7 +510,7 @@ export default function GuestSell() {
                       <label className="group block cursor-pointer rounded-[2rem] border-2 border-dashed border-orange-200 bg-gradient-to-br from-orange-50 to-white p-10 text-center transition hover:border-orange-400 hover:shadow-[0_18px_45px_rgba(249,115,22,0.10)]">
                         <div className="mx-auto grid h-14 w-14 place-items-center rounded-2xl bg-orange-500 text-white shadow-lg shadow-orange-500/20"><UploadCloud className="h-7 w-7" /></div>
                         <p className="mt-4 text-base font-black">Drop in the vehicle story</p>
-                        <p className="mx-auto mt-2 max-w-sm text-xs leading-5 text-slate-500">Add up to 10 listing photos now. They stay in the browser draft until you authenticate and save.</p>
+                        <p className="mx-auto mt-2 max-w-sm text-xs leading-5 text-slate-500">Add up to {LISTING_IMAGE_LIMIT} listing photos now. They stay in the browser draft until you authenticate and save.</p>
                         <span className="mt-4 inline-flex rounded-full bg-white px-3 py-1 text-[11px] font-bold text-slate-600 shadow-sm">Choose JPG / PNG photos</span>
                         <input type="file" accept="image/*" multiple className="hidden" onChange={addImages} />
                       </label>
@@ -543,7 +549,7 @@ export default function GuestSell() {
                     <div>
                       <div className="mb-3 flex items-center justify-between">
                         <p className="text-sm font-black">Draft gallery</p>
-                        <span className="text-xs font-semibold text-slate-400">{form.images.length}/10 photos</span>
+                        <span className="text-xs font-semibold text-slate-400">{form.images.length}/{LISTING_IMAGE_LIMIT} photos</span>
                       </div>
                       <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
                         {form.images.map((src, index) => (
