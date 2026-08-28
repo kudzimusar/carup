@@ -26,6 +26,9 @@ export interface GuestSellDraft {
   importStatus: string
   features: string[]
   images: string[]
+  imageLabels: string[]
+  coverImageIndex: number | null
+  historyPlan: Record<string, 'now' | 'later'>
 }
 
 export function saveGuestSellDraft(draft: Omit<GuestSellDraft, 'version' | 'saved_at'>) {
@@ -41,7 +44,7 @@ export function saveGuestSellDraft(draft: Omit<GuestSellDraft, 'version' | 'save
     // Large camera files can exceed sessionStorage. Keep the business fields and ask the newly
     // authenticated seller to re-attach the images rather than silently dropping the whole draft.
     try {
-      sessionStorage.setItem(GUEST_SELL_DRAFT_KEY, JSON.stringify({ ...payload, images: [] }))
+      sessionStorage.setItem(GUEST_SELL_DRAFT_KEY, JSON.stringify({ ...payload, images: [], imageLabels: [], coverImageIndex: null }))
       return { ok: true as const, images_omitted: true as const }
     } catch {
       return { ok: false as const }
@@ -81,6 +84,16 @@ export function readGuestSellDraft(): GuestSellDraft | null {
       importStatus: parsed.importStatus || '',
       features: Array.isArray(parsed.features) ? parsed.features : [],
       images: Array.isArray(parsed.images) ? parsed.images : [],
+      imageLabels: Array.isArray(parsed.imageLabels) ? parsed.imageLabels.map(value => String(value || '')) : [],
+      coverImageIndex: typeof parsed.coverImageIndex === 'number' && Number.isInteger(parsed.coverImageIndex)
+        ? parsed.coverImageIndex
+        : null,
+      historyPlan: parsed.historyPlan && typeof parsed.historyPlan === 'object'
+        ? Object.fromEntries(
+            Object.entries(parsed.historyPlan)
+              .filter(([, value]) => value === 'now' || value === 'later')
+          ) as Record<string, 'now' | 'later'>
+        : {},
     }
   } catch {
     return null

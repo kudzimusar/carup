@@ -35,6 +35,7 @@ export interface SellerDraftPreviewInput {
   price: string
   currency: string
   images: string[]
+  coverImageIndex?: number | null
 }
 
 /** A number the seller actually typed, or null. Blank, non-numeric and negative are all unknown. */
@@ -52,6 +53,13 @@ function enteredText(value: string | undefined): string | null {
 }
 
 export function sellerDraftToCardModel(draft: SellerDraftPreviewInput): MarketplaceListingCardModel {
+  const selectedCoverIndex = typeof draft.coverImageIndex === 'number'
+    && Number.isInteger(draft.coverImageIndex)
+    && draft.coverImageIndex >= 0
+    && draft.coverImageIndex < (draft.images?.length ?? 0)
+      ? draft.coverImageIndex
+      : 0
+  const previewImage = draft.images?.[selectedCoverIndex] ?? draft.images?.[0] ?? null
   const name = [enteredText(draft.year), enteredText(draft.make), enteredText(draft.model)]
     .filter(Boolean)
     .join(' ')
@@ -62,9 +70,12 @@ export function sellerDraftToCardModel(draft: SellerDraftPreviewInput): Marketpl
     name: name || 'Vehicle',
     price: enteredNumber(draft.price),
     currency: enteredText(draft.currency),
-    primaryImage: draft.images?.[0] ?? null,
-    // The seller is looking at their own local file, which is loaded by definition.
-    primaryImageState: draft.images?.length ? 'listing_media' : 'none',
+    primaryImage: previewImage,
+    // Browser-local preview media is a third, explicit state. It is NOT seller_primary (the seller
+    // has not made/persisted that claim yet) and it is NOT first_published (nothing is published).
+    // MarketplaceListingCard only renders this state when its explicit allowLocalDraftMedia guard is
+    // enabled, and then only for data:/blob: locators.
+    primaryImageState: draft.images?.length ? 'draft_local' : 'none',
     mileage: enteredNumber(draft.mileage),
     transmission: enteredText(draft.transmission),
     fuel: enteredText(draft.fuelType),

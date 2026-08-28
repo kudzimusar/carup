@@ -39,7 +39,7 @@ const draftFields = (): string[] => {
 
 /** Field names authenticated Sell actually reads back off the claimed draft. */
 const consumedFields = (): string[] => [
-  ...new Set([...AUTHENTICATED_SELL.matchAll(/guestDraft\.(\w+)/g)].map(m => m[1])),
+  ...new Set([...AUTHENTICATED_SELL.matchAll(/guestDraft\??\.(\w+)/g)].map(m => m[1])),
 ]
 
 describe('S1 guest draft continuity', () => {
