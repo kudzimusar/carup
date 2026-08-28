@@ -161,6 +161,16 @@ test('V1: public projection fails closed if a forbidden private key is supplied 
   );
 });
 
+test('V1: buyer projection also fails closed on private identity leakage', () => {
+  const input = baseInput();
+  input.identity.buyer = { make: 'Toyota', phone: '+263000000000' };
+
+  assert.throws(
+    () => assemblePassportReadModel(input, { audience: PASSPORT_AUDIENCES.BUYER, now: NOW }),
+    /forbidden key/i,
+  );
+});
+
 test('V1: canonical Trust is passed through unchanged instead of recomputed by Passport', () => {
   const input = baseInput();
   input.trust.public = {
