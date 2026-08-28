@@ -29,7 +29,13 @@ Do not open a third runtime source-write lane merely because this documentation 
 
 S0 runtime work was implemented inside PR #182 (the lane that owns the Seller/taxonomy/Marketplace surfaces) and certified at exact head `4d7b94fc8bd7c8e0b22658239cb8376a01a39e7e` with staging proof at immutable candidate `7b2506870df48a87d92f0c2fc6ca1a38e3040f6e`. See `receipts/S0_TAXONOMY_AND_CONTRACT_CERTIFICATION.md`.
 
-**Next phase: S1 — Seller Entry & Vehicle Identification.**
+**S1 — Seller Entry & Vehicle Identification: CERTIFIED — PASS**
+**S2 — Canonical Commercial Listing Data: CERTIFIED — PASS**
+**S3 — Seller Identity, Dealer Context & Privacy: PARTIAL PASS** (consent controls delivered; province-only visibility + dealer branch deferred to an explicit migration slice)
+
+All Seller runtime work continues inside PR #182, which owns the Seller/Marketplace surfaces. Receipts for every phase live in `receipts/`.
+
+**Next: the deferred S3 migration slice, then S4 — Listing Media Studio.**
 
 ## Future receipts
 
