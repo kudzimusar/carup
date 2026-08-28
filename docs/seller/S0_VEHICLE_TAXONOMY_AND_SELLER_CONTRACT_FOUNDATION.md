@@ -5,7 +5,7 @@
 **Status:** IN PROGRESS — contract/audit work active; runtime source changes intentionally blocked by current lane ownership  
 **Programme manual:** `docs/seller/SELLER_JOURNEY_1_0_CANONICAL_PLAN.md`  
 **Seller runtime audit anchor:** PR #182 exact head `0d6df68f5003e209269f19cca54ead85cdab0748`  
-**Latest revalidated PR #182 head:** `be38e48c447ad19a4b50cddd29c8747e5da80811`  
+**Latest checked PR #182 head:** `9508f0fe48ed344610d25e727311233afedaa2bb`  
 **Canonical main at phase start:** `ba208963d863654157335189c60f587cbe330041`  
 **Created:** 2026-08-28
 
@@ -16,6 +16,8 @@
 S0 establishes CarUp's **global governed vehicle language** and one complete Seller data contract before Seller Journey 1.0 expands runtime UX. Seller Journey is the initiating programme; the resulting taxonomy is a platform-owned contract for all CarUp products.
 
 Canonical global taxonomy authority: `docs/platform/CARUP_GLOBAL_VEHICLE_TAXONOMY_CONTRACT.md`
+
+Canonical schema/vocabulary contract: `docs/platform/CARUP_GLOBAL_VEHICLE_TAXONOMY_SCHEMA.md`
 
 The S0 production invariants are:
 
@@ -313,7 +315,7 @@ The completed taxonomy MUST be reused by:
 
 Current audit already shows local divergence outside Seller: mobile Marketplace hardcodes five makes, Verify derives makes only from returned listings, Intelligence compares some vehicle dimensions as raw strings, and Diaspora import orders accept free-text make/model/year. These are consumer-convergence findings, not reasons to create separate taxonomies.
 
-See `docs/platform/CARUP_GLOBAL_VEHICLE_TAXONOMY_CONTRACT.md` for the permanent platform contract.
+See `docs/platform/CARUP_GLOBAL_VEHICLE_TAXONOMY_CONTRACT.md` for the permanent platform contract and `docs/platform/CARUP_GLOBAL_VEHICLE_TAXONOMY_SCHEMA.md` for stable IDs, aliases, generation/trim, year, powertrain, transmission, drivetrain, unknown handling and versioning.
 
 ---
 
