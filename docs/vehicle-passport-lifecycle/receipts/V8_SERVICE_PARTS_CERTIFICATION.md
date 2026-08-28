@@ -2,7 +2,7 @@
 
 **Date:** 2026-08-28
 **Phase:** V8 — Service, Maintenance, Garages and PartSentry
-**Status:** IMPLEMENTED / EXACT-HEAD CI PENDING
+**Status:** PASS — EXACT-HEAD FOUNDATION CERTIFIED
 
 ## Scope
 
@@ -60,6 +60,18 @@ The projection contains no Trust-score calculation, no canonical Trust refresh a
 
 Incomplete service-history coverage remains partial/unknown with explicit limitations.
 
+## Exact-head certification
+
+Certified code head:
+
+- exact code head: `777ba2701c64398ea2bbd2dfe57d4591eabe3eac`
+- Vehicle Passport Foundation CI run: `33164776479` — **PASS**
+- Passport V1–V8 cumulative contracts — PASS
+- canonical work-order service privacy — PASS
+- canonical PartSentry review/governance — PASS
+- canonical Trust/source/governance/evidence/lookup guards — PASS
+- syntax/diff hygiene — PASS
+
 ## Phase decision
 
-**V8 FOUNDATION IMPLEMENTED. EXACT-HEAD CI REQUIRED BEFORE V9.**
+**V8 FOUNDATION PASS.**
