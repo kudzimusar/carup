@@ -2321,12 +2321,22 @@ app.post('/api/vehicles/add', authorizeRole(['dealer', 'owner', 'admin']), async
   // The location was typed into the public listing form for the express purpose of appearing on the
   // listing, so a submission that says nothing about visibility records it as published. Anything
   // other than an explicit 'public' withholds — an out-of-vocabulary value is not a consent decision
-  // that can be read, and absence of consent is not consent. Adding a control to the form is what
-  // would make this a seller's choice rather than a default.
+  // that can be read, and absence of consent is not consent.
+  //
+  // S3: BOTH Sell surfaces now carry the control, so this is a seller's choice rather than a
+  // default for anything they submit. The null branch remains for API callers that predate it.
   const submittedVisibility = submittedText(req.body.location_visibility);
   const listingVisibility = submittedVisibility === null || submittedVisibility === CLAIM_VISIBILITY.PUBLIC
     ? CLAIM_VISIBILITY.PUBLIC
     : CLAIM_VISIBILITY.WITHHELD;
+
+  // S3 — PUBLIC SELLER IDENTITY IS THE SELLER'S DECISION TO MAKE.
+  // The read side has always been governed and fail-closed (`=== true` in toSellerClaim, published
+  // as `seller_public_profile_enabled`), but this handler never accepted the flag, so there was no
+  // path by which any seller could switch their public identity on. Compared with `=== true` for
+  // the same reason the read side does: coercion would let a stray 'false' string, or a 1 from a
+  // form serializer, publish a person who never agreed to be published.
+  const publicSellerDisplayEnabled = req.body.public_seller_display_enabled === true;
 
   const sellerDescription = submittedText(description);
   const sellerFeatures = Array.isArray(features)
@@ -2448,6 +2458,9 @@ app.post('/api/vehicles/add', authorizeRole(['dealer', 'owner', 'admin']), async
       owner_id: candidate.owner_id,
       tenant_id: candidate.tenant_id,
       current_seller_type: candidate.current_seller_type,
+      // Written explicitly rather than left to a column default, so the row records a decision this
+      // seller actually made. `false` is the honest value for a seller who did not opt in.
+      public_seller_display_enabled: publicSellerDisplayEnabled,
       registration_country: candidate.registration_country,
       // Phase 4: identity fields — stored for completeness gate evaluation
       engine_number: submittedText(engine_number),

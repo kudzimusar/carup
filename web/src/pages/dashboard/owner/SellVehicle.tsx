@@ -70,6 +70,9 @@ function StepIndicator({ step, total }: { step: number; total: number }) {
 }
 
 const INITIAL = {
+  // S3 consent. Both default to the PRIVATE answer: a seller has to choose to publish, and a
+  // seller who never reached this step has not consented to anything.
+  locationVisibility: 'withheld', publicSellerDisplay: false,
   make: '', model: '', year: '', vin: '', engineNumber: '', chassisNumber: '',
   plateNumber: '', tempPlateId: '', importStatus: '', color: '',
   mileage: '', condition: '', category: '', fuelType: '', transmission: '', drivetrain: '',
@@ -240,6 +243,10 @@ export default function SellVehicle() {
         location: form.location,
         province: form.province,
         images: uploadedImageUrls,
+        // S3 — the seller's own consent decisions, sent explicitly in both directions so the
+        // server records a choice rather than inferring one from silence.
+        location_visibility: form.locationVisibility,
+        public_seller_display_enabled: form.publicSellerDisplay,
         // Phase 4: identity fields sent to backend for completeness gate
         engine_number: form.engineNumber || undefined,
         chassis_number: form.chassisNumber || undefined,
@@ -476,6 +483,54 @@ export default function SellVehicle() {
                     <SelectContent>{zimbabweProvinces.map(p => <SelectItem key={p} value={p}>{p}</SelectItem>)}</SelectContent>
                   </Select>
                 </div>
+
+              {/* S3 — WHAT THIS SELLER AGREES TO PUBLISH.
+                  The backend has always governed both of these fail-closed, but neither was a
+                  seller's decision: location was published because they typed it into a listing
+                  form, and public identity could not be switched on at all. Both now default to
+                  the private answer, so publishing is something a seller chooses. */}
+              <div className="rounded-xl border border-slate-200 bg-slate-50 p-4 space-y-4" data-testid="seller-privacy-controls">
+                <div>
+                  <p className="text-sm font-semibold">What buyers can see about you</p>
+                  <p className="text-xs text-gray-500 mt-0.5">
+                    These are your choices. CarUp keeps everything else private until you change them.
+                  </p>
+                </div>
+                <div>
+                  <label className="text-sm font-medium mb-1.5 block" htmlFor="listing-location-visibility">Location on the public listing</label>
+                  <Select value={form.locationVisibility} onValueChange={v => set('locationVisibility', v)}>
+                    <SelectTrigger id="listing-location-visibility" data-testid="listing-location-visibility">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="withheld">Keep my location private until I reply to a buyer</SelectItem>
+                      <SelectItem value="public">Show my city and province on the listing</SelectItem>
+                    </SelectContent>
+                  </Select>
+                  <p className="text-xs text-gray-500 mt-1">
+                    {form.locationVisibility === 'public'
+                      ? 'Buyers will see your city and province, and can filter for it.'
+                      : 'Buyers will not see where the vehicle is. Location filters will not match this listing.'}
+                  </p>
+                </div>
+                <div>
+                  <label className="flex items-start gap-2.5 text-sm">
+                    <input
+                      type="checkbox"
+                      className="mt-0.5 h-4 w-4 rounded border-gray-300"
+                      checked={form.publicSellerDisplay}
+                      onChange={e => set('publicSellerDisplay', e.target.checked)}
+                      data-testid="public-seller-display-toggle"
+                    />
+                    <span>
+                      <span className="font-medium">Show my seller name on the listing</span>
+                      <span className="block text-xs text-gray-500 mt-0.5">
+                        Leave this off to stay anonymous. Buyers can still contact you through CarUp either way.
+                      </span>
+                    </span>
+                  </label>
+                </div>
+              </div>
               </div>
               <div>
                 <label className="text-sm font-medium mb-1.5 block">

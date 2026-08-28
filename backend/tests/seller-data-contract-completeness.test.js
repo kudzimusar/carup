@@ -27,14 +27,20 @@ function addVehicleHandler() {
   return server.slice(start, start + 10 + next.index);
 }
 
-/** Every field name the handler destructures off req.body — i.e. everything it accepts. */
+/**
+ * Every field name the handler accepts — BOTH the destructured block and every direct `req.body.x`
+ * read. Checking only the destructure left a hole: a field reached as `req.body.something` is just
+ * as accepted, and just as capable of being silently dropped.
+ */
 function acceptedFields(handler) {
   const destructured = /const \{([\s\S]*?)\} = req\.body/.exec(handler);
   assert.ok(destructured, 'the handler must keep destructuring req.body statically');
-  return destructured[1]
+  const fromDestructure = destructured[1]
     .split(/[,\n]/)
     .map(entry => entry.replace(/\/\/.*$/, '').replace(/=.*$/, '').trim())
     .filter(entry => /^[a-z_][a-z_0-9]*$/i.test(entry));
+  const fromDirectReads = [...handler.matchAll(/req\.body\.([a-z_][a-z_0-9]*)/g)].map(match => match[1]);
+  return [...new Set([...fromDestructure, ...fromDirectReads])];
 }
 
 /**
@@ -80,6 +86,13 @@ const CANONICAL_DESTINATION = {
   year: 'year',
   // Media is projected through the listing-media contract, not written as a raw column.
   images: 'submittedMedia',
+  // Consent and provenance fields read directly off req.body. Each is a decision the seller made,
+  // so each must reach a column — a consent nobody stores is a consent nobody honoured.
+  location_visibility: 'listing_location_visibility',
+  public_seller_display_enabled: 'public_seller_display_enabled',
+  registration_country: 'registration_country',
+  listing_country: 'listing_country',
+  country: 'listing_country',
 };
 
 test('every field POST /api/vehicles/add accepts has a canonical destination', () => {
