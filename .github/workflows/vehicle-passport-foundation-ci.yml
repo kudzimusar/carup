@@ -4,6 +4,11 @@ on:
   pull_request:
     paths:
       - 'backend/services/passport/**'
+      - 'backend/routes/passportOwnershipTransferRoutes.js'
+      - 'backend/services/communication/communicationEventListeners.js'
+      - 'backend/services/communication/communicationNotificationService.js'
+      - 'backend/services/communication/communicationTemplateService.js'
+      - 'database/migrations/20260828220000_passport_ownership_transfer_communications.sql'
       - 'backend/tests/passport-*.test.js'
       - 'database/migrations/*passport*.sql'
       - 'database/migrations/20260828210000_issue158_private_key_custody.sql'
@@ -18,8 +23,14 @@ on:
   push:
     branches:
       - feat/vehicle-passport-foundation
+      - integration/vehicle-passport-v16-cert
     paths:
       - 'backend/services/passport/**'
+      - 'backend/routes/passportOwnershipTransferRoutes.js'
+      - 'backend/services/communication/communicationEventListeners.js'
+      - 'backend/services/communication/communicationNotificationService.js'
+      - 'backend/services/communication/communicationTemplateService.js'
+      - 'database/migrations/20260828220000_passport_ownership_transfer_communications.sql'
       - 'backend/tests/passport-*.test.js'
       - 'database/migrations/*passport*.sql'
       - 'database/migrations/20260828210000_issue158_private_key_custody.sql'
@@ -116,6 +127,9 @@ jobs:
       - name: Passport V16 Golden lifecycle certification contract
         run: node --test backend/tests/passport-v16-golden-lifecycle.test.js
 
+      - name: Passport V16 runtime convergence + Golden A/B/adverse
+        run: node --test backend/tests/passport-v16-runtime-convergence.test.js
+
       - name: Passport V16 governed ownership authority
         run: node --test backend/tests/passport-v16-ownership-authority.test.js
 
@@ -185,6 +199,10 @@ jobs:
           node --check backend/services/passport/passportOwnershipTransferService.js
           node --check backend/services/blockchain/blockchainKeyCustodyService.js
           node --check backend/services/blockchain/blockchainService.js
+          node --check backend/routes/passportOwnershipTransferRoutes.js
+          node --check backend/services/communication/communicationEventListeners.js
+          node --check backend/services/communication/communicationNotificationService.js
+          node --check backend/services/communication/communicationTemplateService.js
 
       - name: Diff hygiene
         run: git diff --check HEAD^ HEAD
