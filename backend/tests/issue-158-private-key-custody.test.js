@@ -157,3 +157,20 @@ test('Issue #158: migration enforces one active public key per stakeholder', () 
   assert.match(sql, /multiple distinct ACTIVE public keys/i);
   assert.match(sql, /count\(DISTINCT public_key_pem\) > 1/);
 });
+
+
+test('Issue #158: custody runtime routes rotations through atomic activation and fresh incarnations', () => {
+  const src = readFileSync('backend/services/blockchain/blockchainService.js', 'utf8');
+  assert.match(src, /blockchain_activate_public_key_atomic/);
+  assert.match(src, /const candidateId = 'key_' \+ crypto\.randomUUID\(\)/);
+  assert.match(src, /return activateCustodiedPublicKey\(userId, derived, timestamp\)/);
+  assert.match(src, /custody migration is required before rotating stakeholder signing keys/);
+});
+
+test('Issue #158: custody migration owns atomic activation and does not reactivate historical rows in place', () => {
+  const sql = readFileSync('database/migrations/20260828210000_issue158_private_key_custody.sql', 'utf8');
+  assert.match(sql, /blockchain_activate_public_key_atomic/);
+  assert.match(sql, /LOCK TABLE public\.public_keys IN SHARE ROW EXCLUSIVE MODE/);
+  assert.match(sql, /Always create a fresh incarnation/);
+  assert.doesNotMatch(sql, /SET status='ACTIVE'[\s\S]{0,300}WHERE p\.id=v_active\.id/);
+});
