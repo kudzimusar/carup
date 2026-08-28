@@ -10,7 +10,7 @@ import {
   toSellerClaim,
 } from '../../utils/publicVehicleProjection.js';
 import { getFixtureExclusion } from './marketplaceClassificationRules.js';
-import { resolveBodyStyle, resolveFuelType, resolveTransmission, resolveVehicleMake, resolveVehicleModel, resolveVehicleYear } from '../taxonomy/vehicleTaxonomyService.js';
+import { resolveBodyStyle, resolveColor, resolveFuelType, resolveTransmission, resolveVehicleMake, resolveVehicleModel, resolveVehicleYear } from '../taxonomy/vehicleTaxonomyService.js';
 /**
  * THE ONE DEFINITION OF "A PUBLISHABLE LISTING PHOTO" — Issue #164 Phase 5 convergence.
  *
@@ -666,6 +666,7 @@ export function buildMarketplaceListingSummary({
     taxonomy_version: isRecordedValue(vehicle.taxonomy_version) ? String(vehicle.taxonomy_version).trim() : null,
     make_taxon_id: isRecordedValue(vehicle.make_taxon_id) ? String(vehicle.make_taxon_id).trim() : null,
     model_taxon_id: isRecordedValue(vehicle.model_taxon_id) ? String(vehicle.model_taxon_id).trim() : null,
+    color_taxon_id: isRecordedValue(vehicle.color_taxon_id) ? String(vehicle.color_taxon_id).trim() : null,
     fuel_taxon_id: isRecordedValue(vehicle.fuel_taxon_id) ? String(vehicle.fuel_taxon_id).trim() : null,
     transmission_taxon_id: isRecordedValue(vehicle.transmission_taxon_id) ? String(vehicle.transmission_taxon_id).trim() : null,
     drivetrain_taxon_id: isRecordedValue(vehicle.drivetrain_taxon_id) ? String(vehicle.drivetrain_taxon_id).trim() : null,
@@ -782,6 +783,14 @@ export function summaryMatchesTextFacet(summary, value, field) {
   const actual = summary?.[field];
   if (!isRecordedValue(actual)) return false;
   return normalizeText(actual) === normalizeText(value);
+}
+
+export function summaryMatchesColorFacet(summary, value) {
+  if (value === undefined || value === null || normalizeText(value) === '' || normalizeText(value) === 'all') return true;
+  const wanted = resolveColor(value);
+  const actual = resolveColor(summary?.color);
+  if (wanted.canonical_id && actual.canonical_id) return wanted.canonical_id === actual.canonical_id;
+  return normalizeText(summary?.color) === normalizeText(value);
 }
 
 export function summaryMatchesMakeFacet(summary, value) {
@@ -1108,6 +1117,7 @@ export const SELLER_TAXONOMY_LISTING_COLUMNS = Object.freeze([
   'seller_stated_condition',
   'make_taxon_id',
   'model_taxon_id',
+  'color_taxon_id',
   'fuel_taxon_id',
   'transmission_taxon_id',
   'drivetrain_taxon_id',
@@ -1297,7 +1307,7 @@ export async function listMarketplaceListings(supabaseClient, params = {}) {
     .filter(summary => summaryMatchesMakeFacet(summary, params.make))
     .filter(summary => summaryMatchesModelFacet(summary, params.model, params.make))
     .filter(summary => validYear === null || summary.year === validYear)
-    .filter(summary => summaryMatchesTextFacet(summary, params.color, 'color'))
+    .filter(summary => summaryMatchesColorFacet(summary, params.color))
     .filter(summary => summaryMatchesBodyStyleFacet(summary, params.bodyStyle ?? params.body_style ?? params.body))
     .filter(summary => summaryMatchesCondition(summary, requestedCondition))
     .filter(summary => summaryMatchesTags(summary, requestedTags))

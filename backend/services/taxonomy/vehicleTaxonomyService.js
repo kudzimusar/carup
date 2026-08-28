@@ -35,6 +35,7 @@ export function resolveVehicleModel(makeRaw,modelRaw){
   }
   return {state:'unrecognized',raw:String(modelRaw).trim(),canonical_id:null,canonical_label:null,make};
 }
+export const resolveColor=raw=>resolveDimension('colors',raw);
 export const resolveFuelType=raw=>resolveDimension('fuelTypes',raw);
 export const resolveTransmission=raw=>resolveDimension('transmissions',raw);
 export const resolveDrivetrain=raw=>resolveDimension('drivetrains',raw);
@@ -52,6 +53,7 @@ export function normalizeVehicleTaxonomyInput(input={}){
     make:resolveVehicleMake(input.make),
     model:resolveVehicleModel(input.make,input.model),
     year:resolveVehicleYear(input.year),
+    color:resolveColor(input.color),
     fuel:resolveFuelType(input.fuel_type),
     transmission:resolveTransmission(input.transmission),
     drivetrain:resolveDrivetrain(input.drivetrain),

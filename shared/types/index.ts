@@ -141,6 +141,7 @@ export interface MarketplaceListingSummary {
   transmission_taxon_id?: string | null;
   drivetrain_taxon_id?: string | null;
   body_style_taxon_id?: string | null;
+  color_taxon_id?: string | null;
   /**
    * Normally the governed listing lifecycle string. `null` is deliberate when the raw row says
    * Reserved but canonical reservation truth is unavailable/inconsistent: a stale cache is not a

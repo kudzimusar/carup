@@ -56,6 +56,7 @@ function resolveDimension(values: DimensionValue[], raw: string | null | undefin
   }
   return {state:'unrecognized' as const,value:raw!.trim(),id:null,raw:raw!.trim()}
 }
+export const resolveColor=(value:string|null|undefined)=>resolveDimension(CATALOG.dimensions.colors,value)
 export const resolveFuelType=(value:string|null|undefined)=>resolveDimension(CATALOG.dimensions.fuelTypes,value)
 export const resolveTransmission=(value:string|null|undefined)=>resolveDimension(CATALOG.dimensions.transmissions,value)
 export const resolveDrivetrain=(value:string|null|undefined)=>resolveDimension(CATALOG.dimensions.drivetrains,value)
