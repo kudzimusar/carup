@@ -1592,6 +1592,14 @@ export default function VehicleDetail() {
     ? governedLocationLine(passport.claims.location as LocationClaim)
     : summaryLocationLine(vehicle?.location, (vehicle as { location_state?: unknown })?.location_state)
 
+  // THE SELLER'S COMMERCIAL COPY, read from the fields the projection publishes. `description` and
+  // `features` are kept as fallbacks only because the marketplace detail response still carries
+  // them for already-listed vehicles; the canonical seller columns win when both are present. An
+  // absent statement stays absent — there is no placeholder sentence and no invented feature.
+  const sellerDescription = (vehicle.seller_description ?? vehicle.description ?? '').trim() || null
+  const sellerFeatures = (vehicle.seller_features ?? vehicle.features ?? [])
+    .filter((entry): entry is string => typeof entry === 'string' && entry.trim().length > 0)
+
   // Direct contact exists only when the listing carries a real number. There is no fallback
   // number — an unknown contact stays unknown and the buyer is routed to the governed inquiry flow.
   const sellerContactNumber = vehicle.sellerPhone && /[0-9]/.test(vehicle.sellerPhone) ? vehicle.sellerPhone : null
@@ -2197,16 +2205,28 @@ export default function VehicleDetail() {
                     <p className="text-xs" data-testid="trust-score-label">{trust.headline}</p>
                   </div>
                 </div>
-                {vehicle.description && <p className="text-gray-700 mb-6 leading-relaxed">{vehicle.description}</p>}
-                <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 mb-6">
+                {/* THE SELLER'S OWN WORDS, from the field the projection actually publishes. This
+                    block read `vehicle.description` — a key `PUBLIC_VEHICLE_FIELDS` never emitted —
+                    so a seller could write a full description and no buyer would ever see a
+                    character of it. Same defect shape as the gallery reading `vehicle.images`. */}
+                {sellerDescription && (
+                  <p className="text-gray-700 mb-6 leading-relaxed" data-testid="seller-description">{sellerDescription}</p>
+                )}
+                <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-4 mb-6">
                   {[
                     // 0 km is a real reading, so presence is tested on the number, not on truthiness.
-                    { label: 'Mileage',       value: Number.isFinite(vehicle.mileage) ? `${vehicle.mileage.toLocaleString()} km` : null, icon: Gauge },
-                    { label: 'Transmission',  value: vehicle.transmission || null, icon: Settings2 },
-                    { label: 'Fuel Type',     value: vehicle.fuel_type || vehicle.fuelType || null, icon: Fuel },
-                    { label: 'Condition',     value: vehicle.condition || null, icon: FileCheck },
+                    { label: 'Mileage',       value: Number.isFinite(vehicle.mileage) ? `${vehicle.mileage.toLocaleString()} km` : null, icon: Gauge, testId: 'spec-mileage' },
+                    { label: 'Transmission',  value: vehicle.transmission || null, icon: Settings2, testId: 'spec-transmission' },
+                    { label: 'Fuel Type',     value: vehicle.fuel_type || vehicle.fuelType || null, icon: Fuel, testId: 'spec-fuel-type' },
+                    { label: 'Body style',    value: vehicle.body_style || null, icon: Car, testId: 'spec-body-style' },
+                    // LABELLED, DELIBERATELY. This tile used to read `vehicle.condition`, another key
+                    // the projection does not emit, so it said "Not recorded" for every vehicle on the
+                    // platform. The honest value is the seller's statement — and it is captioned as
+                    // the seller's, because CarUp's own governed classification is a different
+                    // question with a different answer (`vehicle_condition_category`).
+                    { label: 'Condition (seller-stated)', value: vehicle.seller_stated_condition || null, icon: FileCheck, testId: 'spec-seller-condition' },
                   ].map((item) => (
-                    <div key={item.label} className="bg-gray-50 rounded-lg p-3 text-center">
+                    <div key={item.label} className="bg-gray-50 rounded-lg p-3 text-center" data-testid={item.testId}>
                       <item.icon className="w-5 h-5 text-orange-500 mx-auto mb-1" />
                       <p className="text-xs text-gray-500">{item.label}</p>
                       {item.value ? (
@@ -2217,12 +2237,13 @@ export default function VehicleDetail() {
                     </div>
                   ))}
                 </div>
-                {(vehicle.features ?? []).length > 0 && (
+                {sellerFeatures.length > 0 && (
                   <>
                     <Separator className="mb-6" />
-                    <h3 className="font-semibold mb-3">Features</h3>
-                    <div className="flex flex-wrap gap-2">
-                      {(vehicle.features ?? []).map((f) => (
+                    {/* "Features" alone read as a CarUp finding. These are the seller's claims. */}
+                    <h3 className="font-semibold mb-3">Features stated by the seller</h3>
+                    <div className="flex flex-wrap gap-2" data-testid="seller-features">
+                      {sellerFeatures.map((f) => (
                         <Badge key={f} variant="secondary" className="bg-gray-100 text-gray-700 font-normal">{f}</Badge>
                       ))}
                     </div>

@@ -52,6 +52,16 @@ export interface Vehicle extends Omit<SharedVehicle, 'status'> {
   publication_status?: string;
   condition?: string;
   category?: string;
+  /**
+   * Seller Journey 1.0 / S2 — the seller's own commercial statements, as published by
+   * `PUBLIC_VEHICLE_FIELDS`. `seller_stated_condition` is what the SELLER said; the governed CarUp
+   * classification is `vehicle_condition_category` and is a different question. Never render one
+   * as the other.
+   */
+  body_style?: string | null;
+  seller_stated_condition?: string | null;
+  seller_description?: string | null;
+  seller_features?: string[] | null;
   viewCount?: number;
   trustScore?: number;
   isVerified?: boolean;

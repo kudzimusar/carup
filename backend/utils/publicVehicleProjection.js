@@ -174,6 +174,13 @@ export const PUBLIC_VEHICLE_FIELDS = Object.freeze([
   'mileage', 'fuel_type', 'drivetrain', 'transmission',
   // listing
   'price', 'currency', 'status', 'publication_status', 'created_at',
+  // Seller-stated commercial listing copy. These are the seller's own words about their own
+  // listing, already published to this same anonymous audience by the Marketplace listing summary
+  // — omitting them here changed the projection, not the audience, and left the Vehicle Detail
+  // page reading `description`/`features` keys this projection never emitted. They are seller
+  // STATEMENTS: `seller_stated_condition` is deliberately separate from the governed
+  // `vehicle_condition_category` below, and neither may be rendered as the other.
+  'body_style', 'seller_stated_condition', 'seller_description', 'seller_features',
   // provenance-adjacent, non-identifying
   'import_source', 'registration_country', 'registration_authority',
   'registration_status', 'plate_status', 'vehicle_condition_category',
