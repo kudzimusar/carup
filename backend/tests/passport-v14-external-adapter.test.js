@@ -97,6 +97,24 @@ test('V14: no-record remains no-record and explicitly is not clearance', () => {
   assert.doesNotThrow(() => assertNoFalsePositiveSourceLanguage(p));
 });
 
+test('V14: affirmative reassurance is rejected for no-record/unavailable states', () => {
+  for (const [resultState, wording] of [
+    ['no_record', 'Vehicle is cleared.'],
+    ['no_record', 'Government verified vehicle.'],
+    ['unavailable', 'Clean record.'],
+    ['unavailable', 'No issues found.'],
+  ]) {
+    assert.throws(
+      () => assertNoFalsePositiveSourceLanguage({
+        result: resultState,
+        mode: 'unavailable',
+        user_visible_wording: wording,
+      }),
+      /cannot imply/i,
+    );
+  }
+});
+
 test('V14: unavailable remains unavailable and cannot become a positive conclusion', () => {
   const p = projectExternalVerificationForPassport(
     result({
