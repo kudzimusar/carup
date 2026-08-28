@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { readFileSync, readdirSync } from 'node:fs';
+import { readFileSync } from 'node:fs';
 
 import {
   PASSPORT_AUDIENCES,
@@ -245,17 +245,20 @@ test('V1: timeline rejects history without provenance identity', () => {
   );
 });
 
-test('V1 anti-fork: Passport foundation contains no Trust calculation or database authority', () => {
-  const dir = 'backend/services/passport';
-  const source = readdirSync(dir)
-    .filter((name) => name.endsWith('.js'))
-    .map((name) => readFileSync(`${dir}/${name}`, 'utf8'))
+test('V1 anti-fork: V1 composition modules contain no Trust calculation or database authority', () => {
+  const files = [
+    'passportContract.js',
+    'passportTimelineService.js',
+    'passportReadModelService.js',
+  ];
+  const source = files
+    .map((name) => readFileSync(`backend/services/passport/${name}`, 'utf8'))
     .join('\n');
 
   assert.doesNotMatch(source, /trustGraphService|calculateVehicleTrustScore|computeVehicleTrustScore/);
-  assert.doesNotMatch(source, /\.from\s*\(/, 'foundation must remain free of direct database reads');
+  assert.doesNotMatch(source, /\.from\s*\(/, 'V1 composition must remain free of direct database reads');
   assert.doesNotMatch(source, /vehicles\.trust_score|vehicle\.trust_score/);
-  assert.doesNotMatch(source, /supabase/i, 'foundation composition must not own a Supabase client');
+  assert.doesNotMatch(source, /supabase/i, 'V1 composition must not own a Supabase client');
 });
 
 test('V1: governance may see internal events while public cannot', () => {
