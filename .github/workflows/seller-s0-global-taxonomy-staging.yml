@@ -11,6 +11,8 @@ on:
       - 'backend/scripts/seller-s0-taxonomy-staging.mjs'
       - 'database/migrations/20260828133000_global_vehicle_taxonomy_s0.sql'
       - 'database/migrations/20260828140000_global_vehicle_taxonomy_imports_s0.sql'
+      - 'database/migrations/20260828143000_global_vehicle_taxonomy_color_s0.sql'
+      - 'backend/scripts/seller-s0-taxonomy-backfill.mjs'
 
 permissions:
   contents: read
@@ -20,7 +22,7 @@ concurrency:
   cancel-in-progress: false
 
 env:
-  CANDIDATE_SHA: 894c229517237745b975280cb013e0a1298e46a2
+  CANDIDATE_SHA: 7b2506870df48a87d92f0c2fc6ca1a38e3040f6e
   EXPECTED_PR: '182'
   EXPECTED_BRANCH: 'feat/marketplace-reliability-reference-ux'
   PG_DRIVER_VERSION: '8.21.0'
@@ -81,6 +83,13 @@ jobs:
           GITHUB_SHA: ${{ env.CANDIDATE_SHA }}
         run: node backend/scripts/seller-s0-taxonomy-staging.mjs --mode=apply
 
+      - name: Backfill exact and approved-alias legacy taxonomy mappings
+        env:
+          DIASPORA_STAGING_DATABASE_URL: ${{ secrets.DIASPORA_STAGING_DATABASE_URL }}
+          DIASPORA_STAGING_CA_CERT: ${{ secrets.DIASPORA_STAGING_CA_CERT }}
+          CANDIDATE_SHA: ${{ env.CANDIDATE_SHA }}
+        run: node backend/scripts/seller-s0-taxonomy-backfill.mjs
+
       - name: Verify post-apply S0 contract read-only
         env:
           DIASPORA_STAGING_DATABASE_URL: ${{ secrets.DIASPORA_STAGING_DATABASE_URL }}
@@ -92,7 +101,9 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: seller-s0-global-taxonomy-staging-894c229517237745b975280cb013e0a1298e46a2
-          path: seller-s0-taxonomy-staging-receipt.json
+          name: seller-s0-global-taxonomy-staging-7b2506870df48a87d92f0c2fc6ca1a38e3040f6e
+          path: |
+            seller-s0-taxonomy-staging-receipt.json
+            seller-s0-taxonomy-backfill-receipt.json
           if-no-files-found: error
           retention-days: 30
