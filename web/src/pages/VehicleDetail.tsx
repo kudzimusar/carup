@@ -1312,7 +1312,7 @@ export default function VehicleDetail() {
             // date>" reached a page whose own passport carried the governed location. The location
             // comes from `claims.location`; there is no governed listing date, so none is shown.
           })
-          
+
           setLoading(false)
           return
         }
@@ -1350,7 +1350,7 @@ export default function VehicleDetail() {
             // date>" reached a page whose own passport carried the governed location. The location
             // comes from `claims.location`; there is no governed listing date, so none is shown.
           })
-          
+
         }
 
         if (passportData.status === 'fulfilled' && passportData.value) {
@@ -1388,7 +1388,7 @@ export default function VehicleDetail() {
         // entire buyer page behind that independent read or a valid listing becomes an infinite spinner.
         // Preserve a richer vehicle already resolved for THIS VIN; replace any stale previous-route VIN.
         setVehicle((prev) => prev?.vin === d.vin ? prev : vehicleFromMarketplaceDetail(d))
-        
+
         setLoading(false)
       })
       .catch(() => { if (mounted) setDetail(null) })
@@ -1674,7 +1674,7 @@ export default function VehicleDetail() {
               <span>/</span>
               <span className="text-white">{vehicle.make} {vehicle.model}</span>
             </div>
-            
+
             <form onSubmit={handleLookupSubmit} className="flex gap-2 max-w-sm w-full">
               <div className="relative flex-1">
                 <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
@@ -2158,7 +2158,7 @@ export default function VehicleDetail() {
                 <div className="flex items-start justify-between mb-4">
                   <div>
                     <h1 className="text-2xl font-bold">{vehicle.year ?? ''} {vehicle.make ?? ''} {vehicle.model ?? ''}</h1>
-                    
+
                     {/* Plate, VIN and Registration Status identity block */}
                     <div className="flex flex-wrap items-center gap-2 mt-2">
                       <span className="text-xs font-semibold px-2 py-1 bg-gray-100 rounded text-gray-700 font-mono">
