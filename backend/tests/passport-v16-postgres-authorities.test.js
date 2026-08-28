@@ -132,6 +132,19 @@ test('V16 ownership migration executes on PostgreSQL and preserves one VIN throu
     const previousOwnerNotice = completedEvent.rows.find((row) => row.payload.recipientUserId === 'owner-old');
     assert.equal(previousOwnerNotice?.payload.recipient_role, 'previous_owner');
 
+    const notificationPayloads = await db.query(
+      `SELECT payload FROM domain_events
+        WHERE event_type LIKE 'vehicle.ownership.transfer_%'
+        ORDER BY created_at ASC, id ASC`,
+    );
+    for (const row of notificationPayloads.rows) {
+      assert.equal('previousOwnerId' in row.payload, false);
+      assert.equal('incomingOwnerId' in row.payload, false);
+      assert.equal('previous_owner_id' in row.payload, false);
+      assert.equal('incoming_owner_id' in row.payload, false);
+      assert.ok(['incoming_owner', 'previous_owner'].includes(row.payload.recipient_role));
+    }
+
     const audit = await db.query(
       `SELECT from_state,to_state FROM vehicle_ownership_transfer_events WHERE transfer_id=$1 ORDER BY id ASC`,
       [transfer.id],
