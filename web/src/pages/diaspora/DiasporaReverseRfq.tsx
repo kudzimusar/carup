@@ -8,7 +8,6 @@ import { Input } from '@/components/ui/input'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { useAuth } from '@/context/AuthContext'
 import { useCarUpApi } from '@/hooks/useCarUpApi'
-import { VEHICLE_MAKES, modelsForMake } from '@/data/vehicleTaxonomy'
 import type { DiasporaBuyerOrder, DiasporaMatchCandidate, DiasporaQuote } from '@/types'
 
 const BUYER_ROLES = new Set(['owner', 'admin', 'platform_admin', 'super_admin', 'government', 'reviewer'])
