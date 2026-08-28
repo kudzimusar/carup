@@ -202,6 +202,26 @@ export const NOTIFICATION_POLICIES = Object.freeze({
     channels: ['in_app', 'email'], fallbackChannels: [],
     templateKey: 'vehicle_trust_update_v1', classification: 'service', transactional: true,
   },
+  'vehicle.ownership.transfer_started': {
+    notificationType: 'ownership_transfer', threadType: 'account', priority: 'high',
+    channels: ['in_app'], fallbackChannels: [], policyChannelsOnly: true,
+    templateKey: 'ownership_transfer_v1', classification: 'transactional', transactional: true,
+  },
+  'vehicle.ownership.transfer_action_required': {
+    notificationType: 'ownership_transfer', threadType: 'account', priority: 'high',
+    channels: ['in_app'], fallbackChannels: [], policyChannelsOnly: true,
+    templateKey: 'ownership_transfer_v1', classification: 'transactional', transactional: true,
+  },
+  'vehicle.ownership.transfer_state_changed': {
+    notificationType: 'ownership_transfer', threadType: 'account', priority: 'normal',
+    channels: ['in_app'], fallbackChannels: [], policyChannelsOnly: true,
+    templateKey: 'ownership_transfer_v1', classification: 'transactional', transactional: true,
+  },
+  'vehicle.ownership.transfer_completed': {
+    notificationType: 'ownership_transfer', threadType: 'account', priority: 'high',
+    channels: ['in_app'], fallbackChannels: [], policyChannelsOnly: true,
+    templateKey: 'ownership_transfer_v1', classification: 'transactional', transactional: true,
+  },
   // MARKETPLACE_PAYMENT_RECONCILED is deliberately NOT subscribed. Reconciliation is an internal
   // bookkeeping step with no customer-facing stage change, and `referenceSafeTradeTransaction.js`
   // has no presentation for it — which is the correct answer, not a gap to fill.
@@ -307,9 +327,9 @@ export class CommunicationNotificationService {
       topic: payload.topic || payload.intent || eventType,
       listing_id: payload.listingId || payload.listing_id || payload.vin || 'listing',
       escrow_id: payload.escrowId || payload.escrow_id || 'escrow',
-      status: payload.currentStatus || payload.status || payload.current_status || 'updated',
+      status: payload.transfer_state || payload.currentStatus || payload.status || payload.current_status || 'updated',
       application_id: payload.applicationId || payload.application_id || payload.id || 'application',
-      reference: payload.publicReference || payload.reference || payload.escrowId || payload.applicationId || payload.inquiryId || payload.sessionId || payload.evidenceId || 'CarUp',
+      reference: payload.publicReference || payload.reference || payload.transferId || payload.transfer_id || payload.escrowId || payload.applicationId || payload.inquiryId || payload.sessionId || payload.evidenceId || 'CarUp',
       decision: payload.decision || payload.action || '',
       reason: payload.reason || '',
       summary: payload.summary || '',
