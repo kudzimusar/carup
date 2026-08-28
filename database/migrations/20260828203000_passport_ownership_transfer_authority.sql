@@ -205,32 +205,45 @@ BEGIN
     RAISE EXCEPTION 'actor is not a transfer participant or governance reviewer' USING ERRCODE='42501';
   END IF;
 
-  v_allowed := CASE v_transfer.state
-    WHEN 'initiated' THEN p_to_state IN ('awaiting_parties','evidence_required','under_review','cancelled','disputed')
-    WHEN 'awaiting_parties' THEN p_to_state IN ('evidence_required','under_review','cancelled','disputed')
-    WHEN 'evidence_required' THEN p_to_state IN ('under_review','cancelled','disputed')
-    WHEN 'under_review' THEN p_to_state IN ('transaction_complete','registry_pending','complete','evidence_required','disputed','cancelled')
-    WHEN 'transaction_complete' THEN p_to_state IN ('registry_pending','complete','disputed')
-    WHEN 'registry_pending' THEN p_to_state IN ('complete','disputed')
-    WHEN 'complete' THEN p_to_state IN ('disputed')
-    WHEN 'disputed' THEN p_to_state IN ('under_review','complete','cancelled')
-    WHEN 'cancelled' THEN FALSE
-    ELSE FALSE
-  END;
+  -- Legal completion is a one-way authority boundary. Before completion, a
+  -- dispute may return to review or be cancelled. After completed_at is set,
+  -- the transfer enters a separate terminal subgraph: complete <-> disputed.
+  -- A completed dispute may only be upheld back to complete (and the existing
+  -- completion guard below requires governance). Any ownership reversal must
+  -- be represented by a separate governed compensating transfer.
+  IF v_transfer.completed_at IS NOT NULL THEN
+    v_allowed := CASE v_transfer.state
+      WHEN 'complete' THEN p_to_state='disputed'
+      WHEN 'disputed' THEN p_to_state='complete'
+      ELSE FALSE
+    END;
+  ELSE
+    v_allowed := CASE v_transfer.state
+      WHEN 'initiated' THEN p_to_state IN ('awaiting_parties','evidence_required','under_review','cancelled','disputed')
+      WHEN 'awaiting_parties' THEN p_to_state IN ('evidence_required','under_review','cancelled','disputed')
+      WHEN 'evidence_required' THEN p_to_state IN ('under_review','cancelled','disputed')
+      WHEN 'under_review' THEN p_to_state IN ('transaction_complete','registry_pending','complete','evidence_required','disputed','cancelled')
+      WHEN 'transaction_complete' THEN p_to_state IN ('registry_pending','complete','disputed')
+      WHEN 'registry_pending' THEN p_to_state IN ('complete','disputed')
+      WHEN 'complete' THEN FALSE
+      WHEN 'disputed' THEN p_to_state IN ('under_review','complete','cancelled')
+      WHEN 'cancelled' THEN FALSE
+      ELSE FALSE
+    END;
+  END IF;
 
   IF NOT v_allowed THEN
+    IF v_transfer.completed_at IS NOT NULL AND p_to_state='cancelled' THEN
+      RAISE EXCEPTION 'completed ownership transfer cannot be cancelled; use governed reversal workflow'
+        USING ERRCODE='23514';
+    ELSIF v_transfer.completed_at IS NOT NULL THEN
+      RAISE EXCEPTION 'completed ownership transfer cannot return to pre-completion state; use governed reversal workflow'
+        USING ERRCODE='23514';
+    END IF;
     RAISE EXCEPTION 'illegal ownership transfer transition: % -> %',v_transfer.state,p_to_state USING ERRCODE='23514';
   END IF;
   IF p_to_state='disputed' AND nullif(btrim(p_reason),'') IS NULL THEN
     RAISE EXCEPTION 'ownership transfer dispute requires a reason' USING ERRCODE='22023';
-  END IF;
-
-  -- Once legal ownership has completed, ordinary cancellation is no longer a truthful
-  -- state: owner_id/history already changed. A reversal must be a separately governed
-  -- compensating ownership event, not a cancellation of history that already happened.
-  IF p_to_state='cancelled' AND v_transfer.completed_at IS NOT NULL THEN
-    RAISE EXCEPTION 'completed ownership transfer cannot be cancelled; use governed reversal workflow'
-      USING ERRCODE='23514';
   END IF;
 
   v_from_state := v_transfer.state;

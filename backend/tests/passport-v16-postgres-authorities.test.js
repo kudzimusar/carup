@@ -187,11 +187,29 @@ test('V16 ownership migration supports post-completion dispute then governed uph
     assert.equal(disputed.state, 'disputed');
     assert.equal(disputed.completed_at.toISOString(), firstCompletedAt.toISOString());
 
+    for (const forbiddenState of ['under_review','transaction_complete','registry_pending','evidence_required','cancelled']) {
+      await assert.rejects(
+        () => transition(db, transfer.id, forbiddenState, 'owner-new', 'owner', {
+          reason: 'Attempt to reopen a legally completed transfer.',
+        }),
+        /completed ownership transfer cannot (?:return to pre-completion state|be cancelled)/i,
+        `post-completion dispute escaped into ${forbiddenState}`,
+      );
+    }
+
+    const stillDisputed = await db.query(
+      `SELECT state,completed_at FROM vehicle_ownership_transfers WHERE id=$1`,
+      [transfer.id],
+    );
+    assert.equal(stillDisputed.rows[0].state, 'disputed');
+    assert.equal(stillDisputed.rows[0].completed_at.toISOString(), firstCompletedAt.toISOString());
+
     await assert.rejects(
-      () => transition(db, transfer.id, 'cancelled', 'owner-new', 'owner', {
-        reason: 'Attempt to erase a completed transfer.',
+      () => transition(db, transfer.id, 'complete', 'owner-new', 'owner', {
+        authority: 'manual_governed_review',
+        reference: 'participant-cannot-uphold',
       }),
-      /completed ownership transfer cannot be cancelled/i,
+      /requires governance authority/,
     );
 
     const upheld = await transition(db, transfer.id, 'complete', 'reviewer-1', 'government', {
