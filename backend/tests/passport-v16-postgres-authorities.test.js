@@ -263,7 +263,7 @@ test('V16 ownership tables/RPCs are not directly writable or callable by browser
   }
 });
 
-async function custodyDb() {
+async function custodyPreparedDb() {
   const db = await PGlite.create();
   await db.exec(`
     CREATE ROLE anon NOLOGIN;
@@ -294,7 +294,59 @@ async function custodyDb() {
   return db;
 }
 
-test('Issue #158 custody migration executes on PostgreSQL, erases private material and enforces NULL', async () => {
+async function custodyDb() {
+  const db = await custodyPreparedDb();
+  await db.exec(readFileSync('database/scripts/issue158_mark_old_writers_drained.sql', 'utf8'));
+  await db.exec(readFileSync('database/scripts/issue158_private_key_custody_finalize.sql', 'utf8'));
+  return db;
+}
+
+test('Issue #158 PREPARED phase preserves legacy private material and blocks new atomic activation', async () => {
+  const db = await custodyPreparedDb();
+  try {
+    const row = await db.query(
+      `SELECT private_key_pem FROM public_keys WHERE id='key-1'`,
+    );
+    assert.equal(row.rows[0].private_key_pem, 'PRIVATE-MATERIAL');
+
+    const state = await db.query(`SELECT public.blockchain_custody_rollout_state() AS state`);
+    assert.equal(state.rows[0].state, 'PREPARED');
+
+    await db.exec('SET ROLE service_role');
+    try {
+      const legacy = await db.query(`SELECT private_key_pem FROM public_keys WHERE id='key-1'`);
+      assert.equal(legacy.rows[0].private_key_pem, 'PRIVATE-MATERIAL');
+    } finally {
+      await db.exec('RESET ROLE');
+    }
+
+    await assert.rejects(
+      () => db.query(`
+        SELECT * FROM public.blockchain_activate_public_key_atomic(
+          'candidate-prepared','user-1','PUBLIC-DERIVED','secp256k1',
+          '2026-08-28T10:00:00Z','derived:test:v1:prepared','v1','derived_master_secret'
+        )
+      `),
+      /cutover is not finalized/i,
+    );
+  } finally {
+    await db.close();
+  }
+});
+
+test('Issue #158 finalizer refuses destructive cutover until old writers are marked drained', async () => {
+  const db = await custodyPreparedDb();
+  try {
+    await assert.rejects(
+      () => db.exec(readFileSync('database/scripts/issue158_private_key_custody_finalize.sql', 'utf8')),
+      /old runtime writers are explicitly marked drained/i,
+    );
+  } finally {
+    await db.close();
+  }
+});
+
+test('Issue #158 protected finalizer executes on PostgreSQL, erases private material and enforces NULL', async () => {
   const db = await custodyDb();
   try {
     const row = await db.query(
@@ -315,7 +367,7 @@ test('Issue #158 custody migration executes on PostgreSQL, erases private materi
   }
 });
 
-test('Issue #158 custody migration withholds private column from service_role while preserving public operations', async () => {
+test('Issue #158 protected finalizer withholds private material and all direct service-role key writes', async () => {
   const db = await custodyDb();
   try {
     await db.exec('SET ROLE service_role');
@@ -330,20 +382,26 @@ test('Issue #158 custody migration withholds private column from service_role wh
         /permission denied/i,
       );
 
-      await db.exec(`
-        UPDATE public_keys
-           SET key_ref='derived:test:v1:abc',key_version='v1',custody_provider='derived_master_secret'
-         WHERE id='key-1'
-      `);
+      await assert.rejects(
+        () => db.exec(`
+          UPDATE public_keys
+             SET key_ref='derived:test:v1:abc'
+           WHERE id='key-1'
+        `),
+        /permission denied/i,
+      );
 
-      await db.exec(`
-        INSERT INTO public_keys(
-          id,user_id,public_key_pem,key_type,status,created_at,key_ref,key_version,custody_provider
-        ) VALUES (
-          'key-public-only','user-2','PUBLIC-2','secp256k1','ACTIVE','2026-08-28T00:00:00Z',
-          'derived:test:v1:def','v1','derived_master_secret'
-        )
-      `);
+      await assert.rejects(
+        () => db.exec(`
+          INSERT INTO public_keys(
+            id,user_id,public_key_pem,key_type,status,created_at,key_ref,key_version,custody_provider
+          ) VALUES (
+            'key-public-only','user-2','PUBLIC-2','secp256k1','ACTIVE','2026-08-28T00:00:00Z',
+            'derived:test:v1:def','v1','derived_master_secret'
+          )
+        `),
+        /permission denied/i,
+      );
     } finally {
       await db.exec('RESET ROLE');
     }
