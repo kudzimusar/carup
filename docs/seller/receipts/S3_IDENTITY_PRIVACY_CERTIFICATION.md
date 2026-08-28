@@ -2,7 +2,7 @@
 
 **Programme:** Seller Journey 1.0
 **Phase:** S3 — Seller Identity, Dealer Context & Privacy
-**Decision:** **PARTIAL PASS** — consent controls delivered and certified; two items explicitly deferred with reasons (§5)
+**Decision:** **PASS** — consent controls, the three-way location vocabulary and its staging migration all delivered and certified. One item (dealer branch) explicitly deferred with reasons (§5).
 **Certified:** 2026-08-28
 **Certifying implementer:** Claude Code
 
@@ -13,13 +13,16 @@
 | Surface | State |
 |---|---|
 | Canonical `main` | `ba208963d863654157335189c60f587cbe330041` |
-| **PR #182 (write lane)** | `00c46e80` |
+| **PR #182 (write lane)** | `c2311317` |
+| S3 immutable staging candidate | `e2d393d8ac809f76afb499e2994385303371afe9` |
 | Communications PR #183 | `507530aadff17ec8aa4830d3cb392efda6876031` — untouched |
 | Intelligence PR #185 | `0b9fa0304878b3d16210db55fb2a3f7f1261f65d` — untouched |
 
-Remote head re-read (`ab7b86b9`) immediately before push. No third source-write lane opened. No migration, no schema change.
+Remote head re-read before every push (`ab7b86b9` → `00c46e80` → `3c9d2348` → `c2311317`). No third source-write lane opened.
 
-**Changed files:** `backend/server.js`, `backend/tests/seller-consent-controls.test.js` (new), `backend/tests/seller-data-contract-completeness.test.js`, `web/src/pages/dashboard/owner/SellVehicle.tsx`, `web/src/pages/SellFlow.consent.test.tsx` (new).
+**Changed files:** `backend/server.js`, `backend/utils/publicVehicleProjection.js`, `backend/utils/checkConstraintVocabulary.js` (new), `backend/scripts/seller-s3-location-visibility-staging.mjs` (new), `database/migrations/20260828160000_seller_s3_location_visibility_province_only.sql` (new), `.github/workflows/seller-s3-location-visibility-staging.yml` (new), `web/src/pages/dashboard/owner/SellVehicle.tsx`, plus five test files.
+
+**Schema change:** one — the additive CHECK-constraint widening in §5. **Staging only.** Production activation requires owner authority and was not performed.
 
 ## 2. The defect: governed reads, unreachable writes
 
@@ -46,9 +49,38 @@ Both decisions are now explicit seller choices, presented on the Location & Pric
 
 Implementing this exposed a genuine hole in the completeness gate written one phase earlier: it inspected only the request **destructure**, so a field reached as `req.body.x` — which is how `location_visibility` and `public_seller_display_enabled` are both read — was just as accepted and just as capable of being dropped unnoticed. The gate now covers **both** access patterns and names a canonical destination for each of the six direct reads.
 
-## 5. Deferred, with reasons
+## 5. The three-way location vocabulary — delivered
 
-- **"Province only" location visibility.** The plan's three-way location control (city+province / province only / hidden until inquiry) needs a third vocabulary value. `attestedValue` already supports **per-leaf** withholding, so the projection can express it — but `listing_location_visibility` is pinned by a database CHECK constraint (`vehicles_listing_location_visibility_vocabulary`) and by a test asserting the migration's declared vocabulary equals `Object.values(CLAIM_VISIBILITY)`. Adding a value therefore requires a **migration altering a governed privacy constraint**, plus an extension of the immutable-candidate S0 staging gate. That is a deliberately separate, explicitly scoped slice rather than something to fold into a UI change. The two-value control shipped here is honest and complete on its own terms.
+The plan's middle location answer was initially scoped as a follow-on because it needs a third vocabulary value behind a database CHECK constraint. It was then **completed in this phase**.
+
+`province_only` discloses strictly less than `public`. Withholding is now computed **per leaf** — `attestedValue` already supported it — so the city is withheld exactly as `withheld` withholds it while province and country still publish. The properties held by test:
+
+- a city withheld by `province_only` is **byte-identical** to one withheld outright, so the shape of the answer cannot disclose which choice the seller made;
+- the disclosure ordering `public > province_only > withheld` is asserted directly, not inferred;
+- the **owner audience is unchanged** — this narrows the public answer only;
+- an unprovenanced location stays `not_recorded` under **every** visibility, so withholding never becomes a way of implying a location exists;
+- the write path accepts the new value only as an **exact** match, so a typo or a stale client can only ever produce more privacy than the seller asked for, never less.
+
+**Migration.** `20260828160000_seller_s3_location_visibility_province_only.sql` widens one CHECK constraint and does nothing else: writes no rows, backfills nothing, leaves `vehicles_listing_location_requires_source` untouched, and raises rather than continuing if its own pre/post digest moves. Its Down refuses to narrow the vocabulary while any seller has chosen the new value.
+
+**Gate.** Applied by a **sibling** workflow, `Seller S3 Location Visibility Staging Gate`, pinned to immutable candidate `e2d393d8` — deliberately *not* an extension of the S0 gate, because S0 is certified against its own immutable candidate and folding S3's migration into it would invalidate a signed-off certification.
+
+**Staging receipt (run at `c2311317`, `status: PASS`):**
+
+| Field | Value |
+|---|---|
+| `vocabulary_in_force` | `["province_only", "public", "withheld"]` |
+| `missing_values` / `unexpected_values` | `[]` / `[]` |
+| `provenance_guard_present` | `true` |
+| ledger | `20260828160000` applied |
+| consent distribution | 36 `(null)`, 2 `public` — **unchanged** across apply, asserted before/after |
+
+**A first-run failure, recorded rather than hidden.** The gate's first run refused with `constraint_present: true, vocabulary_in_force: []`. The constraint was installed correctly; the gate's own **parser** could not read it — `pg_get_constraintdef` rendered the array as `'{public,withheld}'::text[]` while the regex understood only `ARRAY['public'::text, …]`. The refusal was the correct outcome (preflight rolled back; nothing was applied) but for the wrong reason. The parser is now a pure module tested **by execution** against both renderings, because the bug was behavioural and a source assertion would not have caught it; an unreadable definition still yields no values on purpose, so the gate keeps failing closed rather than certifying a constraint it never read.
+
+**The Issue #164 vocabulary-parity test was strengthened, not relaxed.** It previously pinned the *first* migration's declared vocabulary to `CLAIM_VISIBILITY`. It now reads **every** migration that defines the constraint and asserts two things: the vocabulary **in force** (the last definer) equals the module's list, and no migration ever declared a value the projection ignores.
+
+## 5b. Still deferred, with reasons
+
 - **Dealer branch context.** `dealer_branches` exists in `dealerComplianceService`, but branch is not part of the vehicle listing contract. Dealer/tenant *identity* is already governed (`buildVehicleListingCandidate` derives `owner_id`/`tenant_id`/`current_seller_type` as Private Owner vs Dealer). Adding branch to a listing is a schema change to the listing contract and is scoped with the province-only slice.
 - **Communication preferences.** Communications-owned per Invariant 4 (#183 / Communications 2.0). Certified at S10, not rebuilt here.
 
@@ -60,12 +92,14 @@ Implementing this exposed a genuine hole in the completeness gate written one ph
 | `npx vitest run` (full web unit suite) | **113 files / 1143 tests passed** |
 | `npm run build` (`tsc -b && vite build`) | **exit 0** |
 | ESLint on changed files | **exit 0** |
-| S3 suites specifically | `seller-consent-controls` 5/5, `SellFlow.consent` 5/5 |
+| S3 suites specifically | `seller-consent-controls` 5/5, `SellFlow.consent` 6/6, `seller-location-province-only` 7/7, `check-constraint-vocabulary` 5/5 |
+| **Seller S3 Location Visibility Staging Gate** | **success** (preflight → apply → verify) |
+| Seller S0 Global Taxonomy Staging Gate | success (unaffected — untouched by this phase) |
 
 The 175-test backend set deliberately includes the full Issue #164 privacy and read-contract suites, because this change touches a consent column: they pass unchanged, confirming no private field became reachable and no claim gate weakened.
 
 ## 7. Decision
 
-> **S3 — PARTIAL PASS.** The two consent decisions CarUp already governed are now decisions the seller actually makes, defaulting to private, with their discovery consequences disclosed at the point of choice. The three-way location vocabulary and dealer branch require a governed-constraint migration and are scoped as an explicit follow-on slice rather than silently dropped.
+> **S3 — PASS.** The consent decisions CarUp already governed are now decisions the seller actually makes: both default to private, their discovery consequences are disclosed at the point of choice, and location now offers the middle answer — province without city — proven on staging to disclose strictly less than public while leaving every recorded consent value and the provenance guard untouched.
 
-**Next:** the deferred migration slice (province-only visibility + dealer branch), then S4 — Listing Media Studio, which owns the primary-photo contract recorded in S0-P0-09.
+**Next:** S4 — Listing Media Studio, which owns the primary-photo contract recorded in S0-P0-09.
