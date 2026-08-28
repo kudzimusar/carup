@@ -2,7 +2,7 @@
 
 **Date:** 2026-08-28
 **Phase:** V1 — Passport Information Architecture and Canonical Read Model
-**Status:** IMPLEMENTED / CI PENDING AT INITIAL RECEIPT
+**Status:** PASS — EXACT-HEAD FOUNDATION CERTIFIED
 
 ## Goal
 
@@ -118,8 +118,24 @@ V1 is intentionally not wired into the existing Passport route yet.
 
 That wiring would touch `backend/server.js` and Seller-owned projection/lifecycle surfaces. It remains blocked until the Seller exact-head reconciliation gate.
 
+## Exact-head certification
+
+Certified candidate before this receipt update:
+
+- exact code head: `a8c176e595d0bcaabd5712ddb998c5ffaa443880`
+- Vehicle Passport Foundation CI run: `33161619374`
+- job: `V0/V1 authority + projection contracts` — **PASS**
+- Passport foundation contract — PASS
+- canonical Passport lookup policy — PASS
+- canonical Trust decision authority — PASS
+- Passport syntax checks — PASS
+- diff hygiene — PASS
+- Seller PR #182 changed-file overlap — **0 files**
+
+The prior two CI attempts are intentionally not carried forward as green evidence: they exposed and then corrected the new workflow's shallow-checkout and receipt-whitespace defects.
+
 ## Phase decision
 
-**V1 FOUNDATION IMPLEMENTED.**
+**V1 FOUNDATION PASS.**
 
 Advance only to isolated V2 analysis/scaffolding that does not mutate Seller-owned identity/claim write paths. Route integration remains blocked.
