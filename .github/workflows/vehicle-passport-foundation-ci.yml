@@ -37,6 +37,8 @@ jobs:
       JWT_SECRET: passport-foundation-jwt-key
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
 
       - uses: actions/setup-node@v4
         with:
