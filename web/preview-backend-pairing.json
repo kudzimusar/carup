@@ -20,6 +20,7 @@
   "branches": {
     "integration/canonical-vehicle-truth-closure": "https://carup-backend-staging-git-integration-canonical-ve-df06b3-11-11.vercel.app",
     "feat/marketplace-reliability-reference-ux": "https://carup-backend-staging-git-feat-marketplace-reliabi-a387a3-11-11.vercel.app",
-    "feat/carup-intelligence-1-0": "https://carup-backend-staging-git-feat-carup-intelligence-1-0-11-11.vercel.app"
+    "feat/carup-intelligence-1-0": "https://carup-backend-staging-git-feat-carup-intelligence-1-0-11-11.vercel.app",
+    "integration/vehicle-passport-v16-cert": "https://carup-backend-staging-git-integration-vehicle-pass-35ac1d-11-11.vercel.app"
   }
 }
