@@ -29,6 +29,7 @@ import { ListingImage } from '@/components/marketplace/ListingImage'
 import { MarketplaceListingCard } from '@/components/marketplace/MarketplaceListingCard'
 import { marketplaceListingToCardModel } from '@/lib/marketplaceCardModel'
 import { BuyerAssistantDrawer } from '@/components/marketplace/BuyerAssistantDrawer'
+import { JourneyMediaStory, type JourneyScene } from '@/components/home/JourneyMediaStory'
 import { canRenderMarketplacePrimaryImage } from '@/lib/marketplacePresentation'
 import { summaryLocationLine } from '@/lib/governedLocation'
 import type { MarketplaceListingSummary } from '@/types'
@@ -71,6 +72,7 @@ const ecosystemJourneys = [
     copy: 'Search published inventory, compare vehicles and open the Passport before the next decision.',
     href: '/marketplace',
     icon: CarFront,
+    scene: 'buy' as JourneyScene,
   },
   {
     eyebrow: 'Sell',
@@ -78,6 +80,7 @@ const ecosystemJourneys = [
     copy: 'Build the vehicle, listing and photos first. Authenticate when you reach the commitment boundary.',
     href: '/sell',
     icon: ArrowUpRight,
+    scene: 'sell' as JourneyScene,
   },
   {
     eyebrow: 'Verify',
@@ -85,6 +88,7 @@ const ecosystemJourneys = [
     copy: 'Use the public VIN route or sign in for protected identifier lookups before you treat silence as evidence.',
     href: '/search',
     icon: ShieldCheck,
+    scene: 'verify' as JourneyScene,
   },
   {
     eyebrow: 'Diaspora',
@@ -92,6 +96,7 @@ const ecosystemJourneys = [
     copy: 'Connect import orders, documents, shipment context and the vehicle record instead of losing the trail.',
     href: '/diaspora',
     icon: Globe2,
+    scene: 'diaspora' as JourneyScene,
   },
   {
     eyebrow: 'Finance',
@@ -99,6 +104,7 @@ const ecosystemJourneys = [
     copy: 'Move from vehicle discovery into the finance routes CarUp can actually support.',
     href: '/pricing',
     icon: BadgeDollarSign,
+    scene: 'finance' as JourneyScene,
   },
   {
     eyebrow: 'Protect',
@@ -106,6 +112,7 @@ const ecosystemJourneys = [
     copy: 'Keep protection choices beside the same vehicle identity and buying context.',
     href: '/insurance',
     icon: ShieldCheck,
+    scene: 'protect' as JourneyScene,
   },
   {
     eyebrow: 'Maintain',
@@ -113,6 +120,7 @@ const ecosystemJourneys = [
     copy: 'Connect service work, mechanics and the lifecycle record instead of treating maintenance as a separate app.',
     href: '/garages',
     icon: Wrench,
+    scene: 'maintain' as JourneyScene,
   },
   {
     eyebrow: 'Parts',
@@ -120,6 +128,7 @@ const ecosystemJourneys = [
     copy: 'Use normalized fitment and PartSentry context without fabricating availability.',
     href: '/marketplace/parts',
     icon: Package,
+    scene: 'parts' as JourneyScene,
   },
 ]
 
@@ -158,6 +167,16 @@ export default function Landing() {
   const heroImage = heroVehicle && canRenderMarketplacePrimaryImage(heroVehicle.primary_image_state, heroVehicle.primary_image_url)
     ? heroVehicle.primary_image_url
     : null
+
+  const journeyMediaAt = (index: number) => {
+    if (featuredVehicles.length === 0) return { src: null, alt: 'CarUp vehicle journey' }
+    const vehicle = featuredVehicles[index % featuredVehicles.length]
+    const src = canRenderMarketplacePrimaryImage(vehicle.primary_image_state, vehicle.primary_image_url)
+      ? vehicle.primary_image_url
+      : null
+    const alt = [vehicle.year, vehicle.make, vehicle.model].filter(Boolean).join(' ') || 'CarUp Marketplace vehicle'
+    return { src, alt }
+  }
 
   const submitBuy = (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault()
@@ -322,24 +341,31 @@ export default function Landing() {
             </p>
           </div>
 
-          <div className="mt-10 grid border-t border-slate-300 md:grid-cols-2 xl:grid-cols-4">
-            {ecosystemJourneys.map((journey, index) => (
-              <Link
-                key={journey.title}
-                to={journey.href}
-                className={`group relative min-h-[250px] border-b border-slate-300 p-6 transition hover:bg-white md:border-r ${index % 2 === 1 ? 'md:border-r-0 xl:border-r' : ''} ${index % 4 === 3 ? 'xl:border-r-0' : ''}`}
-              >
-                <div className="flex items-start justify-between">
-                  <span className="text-[10px] font-black uppercase tracking-[0.2em] text-orange-600">{journey.eyebrow}</span>
-                  <journey.icon className="h-5 w-5 text-slate-400 transition group-hover:text-orange-500" />
-                </div>
-                <h3 className="mt-10 max-w-[15rem] text-2xl font-black leading-[1.02] tracking-[-0.035em] text-slate-950">{journey.title}</h3>
-                <p className="mt-4 max-w-sm text-sm leading-6 text-slate-500">{journey.copy}</p>
-                <span className="absolute bottom-6 left-6 inline-flex items-center gap-2 text-xs font-black text-slate-950 group-hover:text-orange-700">
-                  Go there <ArrowUpRight className="h-4 w-4" />
-                </span>
-              </Link>
-            ))}
+          <div className="mt-10 grid gap-5 xl:grid-cols-2" data-testid="home-journey-grid">
+            {ecosystemJourneys.map((journey, index) => {
+              const media = journeyMediaAt(index)
+              return (
+                <Link
+                  key={journey.title}
+                  to={journey.href}
+                  className="group grid overflow-hidden border border-slate-200 bg-white shadow-[0_18px_45px_rgba(15,23,42,0.05)] transition duration-300 hover:-translate-y-1 hover:border-orange-200 hover:shadow-[0_28px_70px_rgba(15,23,42,0.10)] md:grid-cols-[0.88fr_1.12fr]"
+                  data-testid="home-journey-card"
+                >
+                  <div className="relative flex min-h-[260px] flex-col p-6 sm:p-7">
+                    <div className="flex items-center justify-between gap-4">
+                      <span className="text-[10px] font-black uppercase tracking-[0.2em] text-orange-600">{journey.eyebrow}</span>
+                      <span className="text-[10px] font-black tabular-nums text-slate-300">{String(index + 1).padStart(2, '0')}</span>
+                    </div>
+                    <h3 className="mt-8 max-w-[18rem] text-3xl font-black leading-[0.98] tracking-[-0.045em] text-slate-950">{journey.title}</h3>
+                    <p className="mt-4 max-w-sm text-sm leading-6 text-slate-500">{journey.copy}</p>
+                    <span className="mt-auto inline-flex items-center gap-2 pt-8 text-xs font-black text-slate-950 transition group-hover:text-orange-700">
+                      Go there <ArrowUpRight className="h-4 w-4 transition-transform group-hover:-translate-y-0.5 group-hover:translate-x-0.5" />
+                    </span>
+                  </div>
+                  <JourneyMediaStory scene={journey.scene} image={media.src} alt={media.alt} />
+                </Link>
+              )
+            })}
           </div>
         </div>
       </section>
