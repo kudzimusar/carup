@@ -150,8 +150,7 @@ BEGIN
         'transferId',v_created.id,
         'vin',p_vin,
         'recipientUserId',p_incoming_owner_id,
-        'previousOwnerId',v_vehicle.owner_id,
-        'incomingOwnerId',p_incoming_owner_id,
+        'recipient_role','incoming_owner',
         'subject_type','vehicle',
         'subject_id',p_vin
       ),
@@ -313,8 +312,11 @@ BEGIN
           WHEN p_actor_id=v_transfer.previous_owner_id THEN v_transfer.incoming_owner_id
           ELSE v_transfer.previous_owner_id
         END,
-        'previousOwnerId',v_transfer.previous_owner_id,
-        'incomingOwnerId',v_transfer.incoming_owner_id,
+        'recipient_role',CASE
+          WHEN p_to_state='complete' THEN 'incoming_owner'
+          WHEN p_actor_id=v_transfer.previous_owner_id THEN 'incoming_owner'
+          ELSE 'previous_owner'
+        END,
         'transfer_state',p_to_state,
         'subject_type','vehicle',
         'subject_id',v_transfer.vin
@@ -334,8 +336,6 @@ BEGIN
           'vin',v_transfer.vin,
           'recipientUserId',v_transfer.previous_owner_id,
           'recipient_role','previous_owner',
-          'previousOwnerId',v_transfer.previous_owner_id,
-          'incomingOwnerId',v_transfer.incoming_owner_id,
           'transfer_state',p_to_state,
           'subject_type','vehicle',
           'subject_id',v_transfer.vin
