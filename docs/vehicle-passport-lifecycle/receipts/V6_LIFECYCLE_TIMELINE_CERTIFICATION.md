@@ -2,7 +2,7 @@
 
 **Date:** 2026-08-28
 **Phase:** V6 — Unified Vehicle Lifecycle Timeline
-**Status:** IMPLEMENTED / EXACT-HEAD CI PENDING
+**Status:** PASS — EXACT-HEAD FOUNDATION CERTIFIED
 
 ## Scope
 
@@ -92,6 +92,22 @@ V6 proves:
 7. correction-reason privacy;
 8. no database/event-ledger ownership.
 
+## Exact-head certification
+
+Certified code head:
+
+- exact code head: `5813eff57d3ae51502bc3bdbe96812869ef67811`
+- Vehicle Passport Foundation CI run: `33164445852` — **PASS**
+- Passport V1–V6 cumulative contracts — PASS
+- canonical Trust public-read path — PASS
+- canonical source verification — PASS
+- canonical governance/dispute — PASS
+- canonical evidence taxonomy/provenance — PASS
+- canonical Passport lookup policy — PASS
+- syntax/diff hygiene — PASS
+
 ## Phase decision
 
-**V6 FOUNDATION IMPLEMENTED. EXACT-HEAD CI REQUIRED BEFORE V7.**
+**V6 FOUNDATION PASS.**
+
+No event ledger, Seller route, Marketplace route or shared lifecycle writer was modified.
