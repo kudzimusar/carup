@@ -2563,80 +2563,93 @@ export default function VehicleDetail() {
                       : `CarUp Trust: ${trust.headline}`}
                   </span>
                 </div>
-                {sellerContactNumber && sellerWhatsAppLink ? (
-                  <div className="flex gap-2 mt-6">
-                    <a href={`tel:${sellerContactNumber}`} onClick={() => toast.info(`Calling ${vehicle.sellerName ?? 'the seller'}...`)} className="flex-1">
-                      <Button className="w-full bg-orange-500 hover:bg-orange-600 gap-1"><Phone className="w-4 h-4" /> Call</Button>
-                    </a>
-                    <a href={sellerWhatsAppLink} target="_blank" rel="noopener noreferrer" className="flex-1">
-                      <Button variant="outline" className="w-full border-white/30 bg-transparent text-white hover:bg-white/10 hover:text-white gap-1"><MessageSquare className="w-4 h-4" /> WhatsApp</Button>
-                    </a>
-                  </div>
+                {detail ? (
+                  <>
+                    {sellerContactNumber && sellerWhatsAppLink ? (
+                      <div className="flex gap-2 mt-6">
+                        <a href={`tel:${sellerContactNumber}`} onClick={() => toast.info(`Calling ${vehicle.sellerName ?? 'the seller'}...`)} className="flex-1">
+                          <Button className="w-full bg-orange-500 hover:bg-orange-600 gap-1"><Phone className="w-4 h-4" /> Call</Button>
+                        </a>
+                        <a href={sellerWhatsAppLink} target="_blank" rel="noopener noreferrer" className="flex-1">
+                          <Button variant="outline" className="w-full border-white/30 bg-transparent text-white hover:bg-white/10 hover:text-white gap-1"><MessageSquare className="w-4 h-4" /> WhatsApp</Button>
+                        </a>
+                      </div>
+                    ) : (
+                      <div className="mt-6" data-testid="seller-contact-unavailable">
+                        <InquiryModal
+                          listingId={detail.vin}
+                          inquiryTypes={['vehicle_purchase_interest', 'vehicle_inspection_request']}
+                          defaultInquiryType="vehicle_purchase_interest"
+                          triggerLabel="Contact through CarUp"
+                          triggerClassName="w-full bg-orange-500 text-white hover:bg-orange-400"
+                          defaultMessage="I am interested in this vehicle. Please connect me with the seller through CarUp."
+                          intentMetadata={{ buyer_intent: 'seller_contact' }}
+                        />
+                        <p className="mt-2 text-xs text-gray-400">
+                          The seller has not published a direct number. CarUp can route your inquiry without exposing private contact details.
+                        </p>
+                      </div>
+                    )}
+                    <Separator className="my-4 border-white/20" />
+                    {isReservedOnServer ? (
+                      <div className="w-full flex items-center justify-center gap-2 bg-amber-600/20 border border-amber-500/40 rounded-lg py-3 text-amber-300 font-semibold text-sm" data-testid="reserved-state">
+                        <Lock className="w-4 h-4" /> Reserved
+                      </div>
+                    ) : reserveRequested ? (
+                      <div className="w-full flex items-center justify-center gap-2 bg-white/10 border border-white/20 rounded-lg py-3 text-gray-200 font-semibold text-sm" data-testid="reserve-requested-state">
+                        <Clock className="w-4 h-4" /> Reservation requested — awaiting confirmation
+                      </div>
+                    ) : (
+                      <div data-testid="reservation-request-entry">
+                        <InquiryModal
+                          listingId={detail.vin}
+                          inquiryTypes={['vehicle_purchase_interest']}
+                          defaultInquiryType="vehicle_purchase_interest"
+                          triggerLabel="Request reservation"
+                          triggerClassName="w-full bg-white text-slate-950 hover:bg-orange-50"
+                          defaultMessage="I want to reserve this vehicle. Please confirm the seller and tell me the next SafePay step."
+                          intentMetadata={{ buyer_intent: 'reservation_request', safepay_requested: true }}
+                          onSubmitted={() => setReserveRequested(true)}
+                        />
+                        <p className="mt-2 text-xs text-gray-400">
+                          CarUp resolves the current seller, purchase inquiry, listing terms and Trust gates before a reservation or SafePay step can open.
+                        </p>
+                      </div>
+                    )}
+                    {financeInterestRequested ? (
+                      <div className="mt-3 w-full flex items-center justify-center gap-2 bg-blue-600/20 border border-blue-500/40 rounded-lg py-3 text-blue-300 font-semibold text-sm" data-testid="financing-interest-state">
+                        <CheckCircle className="w-4 h-4" /> Financing interest sent
+                      </div>
+                    ) : (
+                      <div className="mt-3" data-testid="financing-request-entry">
+                        <InquiryModal
+                          listingId={detail.vin}
+                          inquiryTypes={['vehicle_purchase_interest']}
+                          defaultInquiryType="vehicle_purchase_interest"
+                          triggerLabel="Ask about financing"
+                          triggerVariant="outline"
+                          triggerClassName="w-full border-white/20 bg-transparent text-white hover:bg-white/10 hover:text-white"
+                          defaultMessage="I am interested in financing this vehicle. Please tell me which governed lender path is available and what information I need to provide."
+                          intentMetadata={{ buyer_intent: 'financing_interest' }}
+                          onSubmitted={() => setFinanceInterestRequested(true)}
+                        />
+                        <p className="mt-2 text-xs text-gray-400">
+                          CarUp will not invent a lender, approval, currency or loan terms. A financing application starts only when a real lender path and listing currency are verified.
+                        </p>
+                      </div>
+                    )}
+                    <p className="text-xs text-gray-400 text-center mt-3">🔒 SafePay opens only after CarUp verifies transaction eligibility</p>
+                  </>
                 ) : (
-                  <div className="mt-6" data-testid="seller-contact-unavailable">
-                    <InquiryModal
-                      listingId={detail?.vin || vehicle.vin}
-                      inquiryTypes={['vehicle_purchase_interest', 'vehicle_inspection_request']}
-                      defaultInquiryType="vehicle_purchase_interest"
-                      triggerLabel="Contact through CarUp"
-                      triggerClassName="w-full bg-orange-500 text-white hover:bg-orange-400"
-                      defaultMessage="I am interested in this vehicle. Please connect me with the seller through CarUp."
-                      intentMetadata={{ buyer_intent: 'seller_contact' }}
-                    />
-                    <p className="mt-2 text-xs text-gray-400">
-                      The seller has not published a direct number. CarUp can route your inquiry without exposing private contact details.
+                  <div className="mt-6 border border-white/15 bg-white/5 p-4" data-testid="marketplace-actions-unavailable">
+                    <div className="flex items-center gap-2 text-sm font-semibold text-white">
+                      <Lock className="h-4 w-4 text-orange-400" /> Marketplace actions unavailable
+                    </div>
+                    <p className="mt-2 text-xs leading-5 text-gray-400">
+                      This Vehicle Passport is not currently backed by a published Marketplace listing. Contact, reservation, and financing requests stay hidden until a canonical public listing resolves.
                     </p>
                   </div>
                 )}
-                <Separator className="my-4 border-white/20" />
-                {isReservedOnServer ? (
-                  <div className="w-full flex items-center justify-center gap-2 bg-amber-600/20 border border-amber-500/40 rounded-lg py-3 text-amber-300 font-semibold text-sm" data-testid="reserved-state">
-                    <Lock className="w-4 h-4" /> Reserved
-                  </div>
-                ) : reserveRequested ? (
-                  <div className="w-full flex items-center justify-center gap-2 bg-white/10 border border-white/20 rounded-lg py-3 text-gray-200 font-semibold text-sm" data-testid="reserve-requested-state">
-                    <Clock className="w-4 h-4" /> Reservation requested — awaiting confirmation
-                  </div>
-                ) : (
-                  <div data-testid="reservation-request-entry">
-                    <InquiryModal
-                      listingId={detail?.vin || vehicle.vin}
-                      inquiryTypes={['vehicle_purchase_interest']}
-                      defaultInquiryType="vehicle_purchase_interest"
-                      triggerLabel="Request reservation"
-                      triggerClassName="w-full bg-white text-slate-950 hover:bg-orange-50"
-                      defaultMessage="I want to reserve this vehicle. Please confirm the seller and tell me the next SafePay step."
-                      intentMetadata={{ buyer_intent: 'reservation_request', safepay_requested: true }}
-                      onSubmitted={() => setReserveRequested(true)}
-                    />
-                    <p className="mt-2 text-xs text-gray-400">
-                      CarUp resolves the current seller, purchase inquiry, listing terms and Trust gates before a reservation or SafePay step can open.
-                    </p>
-                  </div>
-                )}
-                {financeInterestRequested ? (
-                  <div className="mt-3 w-full flex items-center justify-center gap-2 bg-blue-600/20 border border-blue-500/40 rounded-lg py-3 text-blue-300 font-semibold text-sm" data-testid="financing-interest-state">
-                    <CheckCircle className="w-4 h-4" /> Financing interest sent
-                  </div>
-                ) : (
-                  <div className="mt-3" data-testid="financing-request-entry">
-                    <InquiryModal
-                      listingId={detail?.vin || vehicle.vin}
-                      inquiryTypes={['vehicle_purchase_interest']}
-                      defaultInquiryType="vehicle_purchase_interest"
-                      triggerLabel="Ask about financing"
-                      triggerVariant="outline"
-                      triggerClassName="w-full border-white/20 bg-transparent text-white hover:bg-white/10 hover:text-white"
-                      defaultMessage="I am interested in financing this vehicle. Please tell me which governed lender path is available and what information I need to provide."
-                      intentMetadata={{ buyer_intent: 'financing_interest' }}
-                      onSubmitted={() => setFinanceInterestRequested(true)}
-                    />
-                    <p className="mt-2 text-xs text-gray-400">
-                      CarUp will not invent a lender, approval, currency or loan terms. A financing application starts only when a real lender path and listing currency are verified.
-                    </p>
-                  </div>
-                )}
-                <p className="text-xs text-gray-400 text-center mt-3">🔒 SafePay opens only after CarUp verifies transaction eligibility</p>
               </CardContent>
             </Card>
 
