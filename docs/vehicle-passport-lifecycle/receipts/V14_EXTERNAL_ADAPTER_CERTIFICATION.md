@@ -2,7 +2,7 @@
 
 **Date:** 2026-08-28
 **Phase:** V14 — External Source / Institutional Adapter Framework
-**Status:** IMPLEMENTED / EXACT-HEAD CI PENDING
+**Status:** PASS — EXACT-HEAD FOUNDATION CERTIFIED
 
 ## Reused authority
 
@@ -73,6 +73,19 @@ No external provider is activated by this phase.
 
 The existing live government transport remains fail-closed when credentials/connectivity are unavailable.
 
+## Exact-head certification
+
+Certified head:
+
+- exact head: `a553aa48e27c8e1ff20b34e0d1567a5845ee0a81`
+- Vehicle Passport Foundation CI run: `33168123112` — **PASS**
+- Passport V1–V14 cumulative contracts — PASS
+- canonical source verification — PASS
+- canonical Communications/Trust/governance/evidence/lookup/service/PartSentry guards — PASS
+- syntax/diff hygiene — PASS
+
+The preceding V14 run caught a false-positive wording guard: safe wording `not a clearance` was rejected merely because it contained the word `clearance`. The guard now detects affirmative reassurance (for example `cleared`, `verified by`, `clean record`, `no issues`) while allowing explicit cautionary negation. Positive-claim rejection tests were added.
+
 ## Phase decision
 
-**V14 IMPLEMENTED. EXACT-HEAD CI REQUIRED BEFORE V15.**
+**V14 PASS. V15 AUTHORIZED.**
