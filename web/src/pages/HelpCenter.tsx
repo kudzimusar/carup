@@ -54,7 +54,7 @@ const FAQS: FAQ[] = [
     id: 'faq-3',
     category: 'payments',
     question: 'What payment options are accepted in Zimbabwe?',
-    answer: 'CarUp supports multi-currency transactions reflecting the local Zimbabwean landscape. You can pay for subscription plans, verified listings, and reports using USD (Cash, Visa, MasterCard) and ZiG (Zimbabwe Gold via Ecocash, ZIPIT, or RTGS bank transfer). For vehicle purchases, transactions occur directly between the buyer and seller, though CarUp secure escrow options are available for verified dealerships.',
+    answer: 'CarUp supports multi-currency pricing in USD and ZiG for its own subscription plans and reports. For a vehicle purchase, money moves directly between buyer and seller: CarUp is non-custodial, holds no funds, has no trust account, and its escrow feature runs against a sandbox provider only — no live payment has ever been processed through it.',
     tags: ['ZiG', 'USD', 'Ecocash', 'payments', 'fees']
   },
   {
@@ -68,14 +68,14 @@ const FAQS: FAQ[] = [
     id: 'faq-5',
     category: 'buyer',
     question: 'Can I list an imported vehicle that has not yet arrived in Zimbabwe?',
-    answer: 'Yes, you can list transit vehicles (typically imported from Japan via Beira/Durban or from the UK/South Africa) under the \'In Transit\' category. You must provide the original export certificate, bill of lading, and Japanese auction sheets. Gutu AI will analyze these documents to verify the mileage and condition before the listing is activated, protecting buyers from common pre-import scams.',
+    answer: 'Yes, you can list transit vehicles under the \'In Transit\' category, and you should attach the export certificate, bill of lading and auction sheets so a buyer can read them. CarUp does not verify mileage or condition from those documents and runs no check before a listing goes live — the documents are shown to buyers, not adjudicated.',
     tags: ['import', 'Japan', 'Beira', 'transit', 'auction sheets']
   },
   {
     id: 'faq-6',
     category: 'mechanic',
     question: 'What is the PartSentry ledger, and how does it protect my car?',
-    answer: 'PartSentry is our tamper-evident parts lifecycle ledger. When a verified CarUp mechanic replaces a critical part (e.g., timing belt, brake pads, suspension components), the part\'s serial number and installation date are logged. This prevents counterfeit parts from being sold as genuine and creates an immutable audit trail that contributes to your vehicle\'s CarUp Trust Score.',
+    answer: 'PartSentry records a part change against a vehicle: what was replaced, by whom, and at what odometer reading. It records what a mechanic entered — it does not inspect the part, authenticate it, or prevent a counterfeit being fitted or sold. Entries are signed so a later edit is detectable, and a reviewed entry can become governed evidence that informs the vehicle\'s Trust position.',
     tags: ['PartSentry', 'mechanics', 'parts', 'audit ledger', 'maintenance']
   },
   {
@@ -96,7 +96,7 @@ const FAQS: FAQ[] = [
     id: 'faq-9',
     category: 'mechanic',
     question: 'How do independent garages join the CarUp Mechanic network?',
-    answer: 'Independent mechanics can apply through the Mechanic Directory. You must submit your trade certifications, garage address, and details of diagnostic equipment. Once verified, you are listed in the CarUp Garage Directory, allowing you to access repair requests, write to the PartSentry audit ledger, and earn reputation points based on positive customer reviews.',
+    answer: 'Independent mechanics can apply through the Mechanic Directory with their trade certifications and garage address. CarUp does not inspect a garage or accredit anyone, and it awards no reputation points — listing creates a directory entry and access to write repair records, not an endorsement.',
     tags: ['mechanics', 'garages', 'PartSentry', 'accreditation']
   }
 ];
@@ -117,7 +117,7 @@ const CATEGORIES = [
   {
     id: 'seller',
     title: 'For Car Sellers',
-    desc: 'Gutu AI OCR logbook upload, instant valuation, ZINARA clearance & marketplace listing.',
+    desc: 'Logbook upload, listing your vehicle, and the records CarUp holds for it.',
     icon: Tag,
     color: 'text-amber-400',
     bgColor: 'bg-amber-500/10',
@@ -165,7 +165,7 @@ const CATEGORIES = [
   {
     id: 'payments',
     title: 'Payments & Fees',
-    desc: 'EcoCash, ZIPIT, RTGS and multi-currency (USD & ZiG) payouts, escrow rules & pricing.',
+    desc: 'EcoCash, ZIPIT, RTGS and multi-currency (USD & ZiG) for CarUp plans. CarUp holds no funds.',
     icon: Coins,
     color: 'text-yellow-400',
     bgColor: 'bg-yellow-500/10',
@@ -200,7 +200,7 @@ export default function HelpCenter() {
     {
       id: 'm2',
       sender: 'gutu',
-      text: "Ask me anything about ZINARA road clearances, Japanese transit imports, the PartSentry audit ledger, or our digital Trust Scores!",
+      text: "Ask about the records CarUp holds for a vehicle, imports, PartSentry entries, or how a Trust position is arrived at.",
       time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
     }
   ]);
@@ -255,11 +255,11 @@ export default function HelpCenter() {
       if (cleanedMsg.includes('zinara') || cleanedMsg.includes('road tax') || cleanedMsg.includes('arrears') || cleanedMsg.includes('license')) {
         replyText = "CarUp is not connected to ZINARA or the CVR, so it cannot look up road tax arrears, take a payment, or register anything with them. Please deal with ZINARA directly.";
       } else if (cleanedMsg.includes('import') || cleanedMsg.includes('japan') || cleanedMsg.includes('transit') || cleanedMsg.includes('beira') || cleanedMsg.includes('durban')) {
-        replyText = "Gutu AI: Transit vehicles imported from Japan (via Beira or Durban ports) or South Africa can be listed using our 'In Transit' tag. To verify, upload the original Japanese export certificates and auction sheets. I will scan them to confirm authentic mileage and prevent odometer rollbacks!";
+        replyText = "Transit vehicles can be listed under the 'In Transit' tag, and you should attach the export certificate and auction sheets so buyers can read them. CarUp does not scan those documents to confirm mileage and cannot detect an odometer rollback.";
       } else if (cleanedMsg.includes('partsentry') || cleanedMsg.includes('ledger') || cleanedMsg.includes('parts') || cleanedMsg.includes('repair') || cleanedMsg.includes('mechanic')) {
-        replyText = "Gutu AI: PartSentry is our tamper-evident parts lifecycle audit ledger. When a registered garage changes a part (e.g. timing belt, filters), the serial code is written to the ledger. This guarantees genuine components, prevents fraud, and raises your vehicle resale Trust Score!";
+        replyText = "PartSentry records a part change against a vehicle — what was replaced, by whom, and at what odometer reading. It records what a mechanic entered; it does not inspect or authenticate the part, and it guarantees nothing about whether a component is genuine.";
       } else if (cleanedMsg.includes('trust') || cleanedMsg.includes('score') || cleanedMsg.includes('binding') || cleanedMsg.includes('verify')) {
-        replyText = "Gutu AI: The CarUp Trust Score represents vehicle authenticity, calculated from ownership records, ZINARA state, and PartSentry logs. While the score is a trust indicator, all signed documents and digital records are legally binding under Zimbabwe's Cyber & Data Protection Act [Chapter 12:07].";
+        replyText = "A Trust position reflects the evidence CarUp holds about a vehicle — the documents supplied and CarUp's own review of them. It is not derived from ZINARA or any registry, because CarUp is connected to none, and CarUp makes no claim that records held here are legally binding.";
       } else if (cleanedMsg.includes('zig') || cleanedMsg.includes('usd') || cleanedMsg.includes('payment') || cleanedMsg.includes('ecocash') || cleanedMsg.includes('zipit') || cleanedMsg.includes('fee')) {
         replyText = "Gutu AI: We accept multi-currency payments! You can pay platform listing fees or download premium vehicle history reports using USD (Cards or cash vouchers) and ZiG (via EcoCash, ZIPIT, or RTGS bank transfer). Vehicle deals themselves are negotiated directly between parties.";
       } else if (cleanedMsg.includes('dealer') || cleanedMsg.includes('register') || cleanedMsg.includes('showroom') || cleanedMsg.includes('cr14')) {
@@ -323,7 +323,7 @@ export default function HelpCenter() {
             today?
           </h1>
           <p className="text-gray-400 max-w-2xl mx-auto mb-10 text-base md:text-lg leading-relaxed">
-            Get instant answers regarding ZINARA clearances, CVR registry queries, the PartSentry audit ledger, and secure USD/ZiG transactions.
+            Answers about what CarUp records for a vehicle, how Trust is derived, and what CarUp cannot do for you.
           </p>
 
           {/* Premium Glowing Search Bar */}

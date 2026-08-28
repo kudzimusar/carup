@@ -451,3 +451,57 @@ its risk scanner would flag the reporter's own scam vocabulary as suspicious.
 **16 regression assertions** lock the fabrications out, over comment-stripped source
 so each page can still explain what it removed. Three of them caught claims missed
 on the first pass.
+
+---
+
+## 10. Residual hardening (H5 + H6)
+
+Two things the first closure pass left behind.
+
+### H5 — HelpCenter's semantic variants
+
+The first regression suite matched literal strings, so the same claims restated
+differently survived inside the FAQ and the chat simulator. Corrected:
+
+| Claim | Why it was unsupportable |
+|---|---|
+| "CarUp secure escrow options are available for verified dealerships" | CarUp is non-custodial, holds no funds, and its escrow runs against a sandbox provider only |
+| "Gutu AI will analyze these documents to verify the mileage and condition before the listing is activated" | no such analyser and no listing gate exists |
+| "I will scan them to confirm authentic mileage and prevent odometer rollbacks!" | CarUp reads nothing from a vehicle and cannot detect a rollback |
+| "This guarantees genuine components, prevents fraud" / "prevents counterfeit parts… immutable audit trail" | PartSentry records what a mechanic typed; it does not inspect or authenticate a part |
+| "Trust Score… calculated from ownership records, **ZINARA state**, and PartSentry logs" | CarUp is connected to no registry, so no Trust input can come from one |
+| "all signed documents and digital records are **legally binding** under the Cyber & Data Protection Act" | CarUp has established no such enforceability |
+| "Once verified… **earn reputation points**" | no accreditation process and no reputation model |
+| "instant valuation, ZINARA clearance" / "CVR registry queries" / "escrow rules & pricing" | none of these capabilities exist |
+
+**The test design was the real defect.** These pages now state plainly what CarUp
+cannot do, so a substring search flags the *correction* as if it were the claim —
+a trap this programme hit four times. The assertions are now **negation-aware**:
+a match preceded by a negator is a denial, and a match inside a `question:` field
+is a question, not an assertion. Eight new tests cover the claim *shapes*.
+
+**Mutation-tested.** Re-introducing the original wording fails 4 of them;
+restoring passes 24/24. An assertion that cannot fail is not an assertion.
+
+### H6 — PartSentry wrote fabricated evidence
+
+A blank field became invented content in the **real repair ledger** — the record a
+future buyer relies on. Three values, not one:
+
+| Field | Was | Now |
+|---|---|---|
+| description | stored as the literal `"Service performed"` | **required**; the entry is meaningless without it |
+| part OEM | stored as the string `"UNKNOWN"` | sent as **absent**, stored as `null` |
+| mileage | `parseInt(...) \|\| 0` — a fabricated **odometer reading** | required, validated, never coerced |
+
+The mileage one was the worst, and worse than it first appears: the submitted
+value **overwrites the vehicle's odometer** on the server. The guard there is
+`mileage < vehicle.mileage`, and any comparison against `NaN` is false — so an
+absent or unparseable mileage sailed past it, was persisted, and was stamped onto
+the vehicle. A client sending nothing could reset an odometer.
+
+Hardened on **both** sides: the client refuses blanks rather than filling them,
+and `partsentryService` independently validates the odometer, normalises an absent
+description or OEM to `null`, and writes the validated value everywhere it
+previously used the raw input — the signature, the idempotency probe, the insert,
+the vehicle update and the ledger event.

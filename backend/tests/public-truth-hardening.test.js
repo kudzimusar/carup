@@ -38,6 +38,32 @@ const ABOUT = read('web/src/pages/About.tsx');
 const HELP = read('web/src/pages/HelpCenter.tsx');
 const CONTACT = read('web/src/pages/Contact.tsx');
 
+
+/**
+ * Assert a claim is not made — allowing for the page DENYING it.
+ *
+ * Every one of these pages now states plainly what CarUp cannot do, so a bare
+ * substring search flags the correction as if it were the claim. This trap has
+ * recurred repeatedly across the programme, so the check is negation-aware: a
+ * match preceded by a negator within a short window is a denial, not a claim.
+ */
+const NEGATORS = /\b(no|not|never|cannot|can't|does not|doesn't|makes no|is not|isn't|are not|aren't|nothing|neither|without|refuses?)\b[^.]{0,80}$/i;
+
+function assertNotClaimed(source, pattern, message) {
+  const re = new RegExp(pattern.source, pattern.flags.includes('g') ? pattern.flags : pattern.flags + 'g');
+  let m;
+  while ((m = re.exec(source)) !== null) {
+    const before = source.slice(Math.max(0, m.index - 120), m.index);
+    // A FAQ heading that ASKS whether CarUp can do something is not a claim that
+    // it can — the answer immediately below is where the assertion would live.
+    const lineStart = source.lastIndexOf('\n', m.index) + 1;
+    const isQuestion = /^\s*question:/.test(source.slice(lineStart, m.index));
+    if (!isQuestion && !NEGATORS.test(before)) {
+      assert.fail(`${message} — unnegated match: "${source.slice(m.index, m.index + 70).replace(/\s+/g, ' ')}"`);
+    }
+  }
+}
+
 const PAGES = [
   ['TrustSafety.tsx', TRUST],
   ['About.tsx', ABOUT],
@@ -199,4 +225,102 @@ test('the fraud-report destination table remains unwired, and deliberately so', 
   // create a hole reports fall into unseen — worse than an honest refusal.
   assert.ok(!backend.includes('marketplace_listing_reports'),
     'wiring an intake with no reviewer surface would hide reports rather than handle them');
+});
+
+// ── Semantic variants, not just the exact phrases ──────────────────────────
+//
+// The first pass matched literal strings and missed the same claims stated
+// differently: escrow offered as a capability, Gutu "verifying" mileage and
+// condition, PartSentry "guaranteeing" genuine components, a Trust position
+// derived from ZINARA state, and records asserted as legally binding. These
+// assertions target the CLAIM SHAPE so a rewording cannot slip past.
+
+test('no page offers escrow as an available capability', () => {
+  for (const [name, source] of PAGES) {
+    assert.ok(!/escrow (options|services?) (are |is )?available/i.test(source),
+      `${name} must not offer escrow as an available service`);
+    assert.ok(!/(secure|carup) escrow (for|to) /i.test(source),
+      `${name} must not describe escrow as a usable facility`);
+    // "escrow rules & pricing" reads as a live product the reader can buy into.
+    assert.ok(!/escrow rules/i.test(source), `${name} must not advertise escrow rules`);
+  }
+});
+
+test('no page claims CarUp verifies mileage, condition or authenticity from documents', () => {
+  const claims = [
+    /verify the mileage/i,
+    /confirm (authentic )?mileage/i,
+    /analyz\w* these documents to verify/i,
+    /prevent odometer rollbacks/i,
+    /detect an odometer rollback/i,
+    /scan them to confirm/i,
+  ];
+  for (const [name, source] of PAGES) {
+    for (const pattern of claims) {
+      assertNotClaimed(source, pattern, `${name} must not claim ${pattern}`);
+    }
+  }
+});
+
+test('no page claims PartSentry guarantees or authenticates a part', () => {
+  for (const [name, source] of PAGES) {
+    assert.ok(!/guarantees genuine/i.test(source), `${name} must not guarantee genuine components`);
+    assert.ok(!/prevents? counterfeit/i.test(source), `${name} must not claim counterfeit prevention`);
+    assert.ok(!/immutable audit trail/i.test(source), `${name} must not call the ledger immutable`);
+    assert.ok(!/tamper-evident parts lifecycle/i.test(source),
+      `${name} must not describe the parts log as tamper-evident marketing copy`);
+  }
+});
+
+test('no page derives Trust from a registry or an authority', () => {
+  for (const [name, source] of PAGES) {
+    // "calculated from ownership records, ZINARA state, and PartSentry logs"
+    assertNotClaimed(source, /ZINARA state/i, `${name} must not derive Trust from ZINARA state`);
+    assertNotClaimed(source, /(calculated|derived) from[^.]{0,60}(ZINARA|CVR|ZIMRA)/i,
+      `${name} must not derive Trust from an authority`);
+  }
+});
+
+test('no page asserts that records held by CarUp are legally binding', () => {
+  for (const [name, source] of PAGES) {
+    assertNotClaimed(source, /(are|is) legally binding/i,
+      `${name} must not assert legal enforceability of stored records`);
+    assertNotClaimed(source, /Cyber (and|&) Data Protection Act|Cyber Protection Act/i,
+      `${name} must not invoke statutory compliance it has not established`);
+  }
+});
+
+test('no page claims a vetting, accreditation or reputation programme', () => {
+  for (const [name, source] of PAGES) {
+    assert.ok(!/earn reputation points/i.test(source), `${name} must not promise reputation points`);
+    assert.ok(!/instant valuation/i.test(source), `${name} must not offer an instant valuation`);
+    assert.ok(!/ZINARA clearance &/i.test(source), `${name} must not list ZINARA clearance as a capability`);
+    assert.ok(!/CVR registry queries/i.test(source), `${name} must not offer registry queries`);
+  }
+});
+
+// ── The repair ledger never records an invented value ──────────────────────
+
+test('PartSentry submits no invented description, OEM or odometer reading', () => {
+  const page = read('web/src/pages/dashboard/owner/PartSentry.tsx');
+  // Each of these wrote a fabricated value into the real repair ledger when a
+  // field was left blank. The odometer one also overwrites the vehicle's mileage.
+  assert.ok(!/'Service performed'/.test(page), 'a blank description must not be invented');
+  assert.ok(!/partOem \|\| 'UNKNOWN'/.test(page), 'a blank OEM must be sent as absent, not as a placeholder string');
+  assert.ok(!/parseInt\(repairForm\.mileage\) \|\| 0/.test(page), 'a blank odometer must never become 0');
+  // And the blanks are refused rather than silently filled.
+  assert.ok(/repairForm\.description\.trim\(\)/.test(page), 'a description must be required');
+  assert.ok(/Number\.isFinite\(mileage\)/.test(page), 'the odometer must be a real number');
+});
+
+test('the repair service refuses an unusable odometer and stores absent fields as absent', () => {
+  const svc = fs.readFileSync(path.join(REPO, 'backend/services/partsentry/partsentryService.js'), 'utf8');
+  const code = svc.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
+  // `NaN < x` is false, so an absent mileage previously sailed past the odometer
+  // guard, was persisted, and was stamped onto the vehicle.
+  assert.ok(/Number\.isFinite\(odometer\)/.test(code), 'the service must validate the odometer itself');
+  assert.ok(/A valid odometer reading is required/.test(code));
+  assert.ok(/cleanDescription/.test(code) && /cleanPartOem/.test(code),
+    'absent description and OEM must be stored as null, never as a placeholder');
+  assert.ok(!/update\(\{ mileage \}\)/.test(code), 'the odometer written to the vehicle must be the validated one');
 });
