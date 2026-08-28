@@ -2,7 +2,7 @@
 
 **Date:** 2026-08-28
 **Phase:** V13 — Passport Intelligence and Gutu AI
-**Status:** IMPLEMENTED / EXACT-HEAD CI PENDING
+**Status:** PASS — EXACT-HEAD FOUNDATION CERTIFIED
 
 ## Scope
 
@@ -70,6 +70,18 @@ PR #185 already owns the governed Intelligence/Gutu context and post-answer guar
 
 V13 consumes that architecture conceptually and does not import or reproduce its recommendation rules.
 
+## Exact-head certification
+
+Certified head:
+
+- exact head: `4ed36e18537f2e2dd09b9303d1ea4ffa1bc995d2`
+- Vehicle Passport Foundation CI run: `33167807160` — **PASS**
+- Passport V1–V13 cumulative contracts — PASS
+- canonical Communications event coverage — PASS
+- canonical source verification — PASS
+- canonical Trust/governance/evidence/lookup/service/PartSentry guards — PASS
+- syntax/diff hygiene — PASS
+
 ## Phase decision
 
-**V13 IMPLEMENTED. EXACT-HEAD CI REQUIRED BEFORE V14.**
+**V13 PASS. V14 AUTHORIZED.**
