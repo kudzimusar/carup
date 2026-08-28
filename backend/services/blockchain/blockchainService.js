@@ -73,6 +73,34 @@ function deterministicPublicKeyId(userId, derived) {
     .digest('hex');
 }
 
+async function activateCustodiedPublicKey(userId, derived, timestamp) {
+  const candidateId = 'key_' + crypto.randomUUID();
+  const { data, error } = await supabase.rpc('blockchain_activate_public_key_atomic', {
+    p_candidate_id: candidateId,
+    p_user_id: String(userId),
+    p_public_key_pem: derived.publicKeyPem,
+    p_key_type: 'secp256k1',
+    p_created_at: timestamp,
+    p_key_ref: derived.keyRef,
+    p_key_version: derived.keyVersion,
+    p_custody_provider: derived.custodyProvider,
+  });
+  if (error) {
+    throw new Error(`atomic public key activation failed: ${error.message}`);
+  }
+  const activated = Array.isArray(data) ? data[0] : data;
+  if (!activated || !samePublicKey(activated.public_key_pem, derived.publicKeyPem)) {
+    throw new Error('atomic public key activation returned a different cryptographic identity');
+  }
+  return {
+    publicKeyPem: derived.publicKeyPem,
+    keyRef: derived.keyRef,
+    keyVersion: derived.keyVersion,
+    custodyProvider: derived.custodyProvider,
+    custodyMetadataPersisted: true,
+  };
+}
+
 /**
  * Ensure the database holds the public half of the deterministic stakeholder key.
  *
@@ -124,14 +152,19 @@ export async function getOrCreateKeypair(userId) {
     };
   }
 
+  if (custodyMetadataAvailable) {
+    // Post-migration registration/rotation is one database transaction. This is
+    // also how a previously used version is reactivated: a fresh row/incarnation
+    // is created rather than erasing the historical revoked_at interval.
+    return activateCustodiedPublicKey(userId, derived, timestamp);
+  }
+
   if (existingKey) {
-    const { error: revokeError } = await supabase
-      .from('public_keys')
-      .update({ status: 'REVOKED', revoked_at: timestamp })
-      .eq('id', existingKey.id);
-    if (revokeError) {
-      throw new Error(`public key rotation revoke failed: ${revokeError.message}`);
-    }
+    // Deploy-before-migrate compatibility is safe for reading an unchanged active
+    // key, but rotation cannot be made atomic without the custody migration RPC.
+    throw new Error(
+      'blockchain custody migration is required before rotating stakeholder signing keys',
+    );
   }
 
   const row = {
