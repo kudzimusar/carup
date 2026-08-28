@@ -79,7 +79,11 @@ The Marketplace customer journey uses a distinct flagship composition rather tha
 
 These patterns are informed by current automotive-marketplace and ecommerce UX research (image-first listing presentation, larger-grid search results, unified filter/sort tools, and high-salience decision data), but are implemented as CarUp-specific components rather than copied brand treatments.
 
-## Communicative media layer
+## Communicative media design track
+
+**Current implementation scope: Home only.** The eight Home next-move stories are the active implementation of this track.
+
+This section is reusable design guidance for future CarUp surfaces, but it is **not permission to modify another active feature lane**. Seller 1.0, dealer/garage workspaces, Marketplace feature work, Verify, account surfaces, or other owned programmes should adopt these patterns only when their governing plan and responsible agent explicitly brings them into scope.
 
 CarUp should not leave large decision regions visually empty and then rely on a tiny icon to carry meaning. Media must help the user understand the next move before they finish reading the copy.
 
@@ -93,7 +97,7 @@ Rules:
 - **No fake gamification.** CarUp may reward exploration through progressive reveals and interactive state, but it must not invent completion scores, verification achievements or user progress that is not actually stored.
 - **Communicative copy remains truthful.** Capability language such as “Compare up to 4” or “Open what is known” is allowed; claims such as “Trust checked”, “accident free”, “approved finance”, or “insured” require canonical supporting state.
 - **Home gets the richest storytelling.** The eight useful next moves are allowed larger editorial media because Home is the sales/marketing/communication surface.
-- **Marketplace stays inventory-first.** Communicative media appears only after real inventory has begun, as a restrained decision-story interlude rather than another hero that delays shopping.
+- **Future surfaces remain owner-controlled.** Marketplace should remain inventory-first if this media language is adopted there later; Seller and other active programmes must not be changed by this Home design track without their own plan.
 
 ## Connected public surfaces
 
