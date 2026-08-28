@@ -121,11 +121,13 @@ test('V16 ownership migration executes on PostgreSQL and preserves one VIN throu
     assert.equal(String(history.rows[0].transfer_id), String(transfer.id));
 
     const completedEvent = await db.query(
-      `SELECT event_type,payload FROM domain_events WHERE event_type='vehicle.ownership.transfer_completed'`,
+      `SELECT event_type,payload FROM domain_events WHERE event_type='vehicle.ownership.transfer_completed' ORDER BY created_at ASC, id ASC`,
     );
-    assert.equal(completedEvent.rows.length, 1);
+    assert.equal(completedEvent.rows.length, 2);
     assert.equal(completedEvent.rows[0].payload.vin, 'VIN-PASSPORT-TRANSFER-1');
     assert.equal(completedEvent.rows[0].payload.recipientUserId, 'owner-new');
+    assert.equal(completedEvent.rows[1].payload.recipientUserId, 'owner-old');
+    assert.equal(completedEvent.rows[1].payload.recipient_role, 'previous_owner');
 
     const audit = await db.query(
       `SELECT from_state,to_state FROM vehicle_ownership_transfer_events WHERE transfer_id=$1 ORDER BY id ASC`,
