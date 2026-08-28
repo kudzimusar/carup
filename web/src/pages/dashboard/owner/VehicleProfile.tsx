@@ -331,7 +331,7 @@ export default function VehicleProfile() {
     : (TRUST_STATE_DETAIL[trustState] ?? TRUST_STATE_DETAIL.unavailable)
 
   return (
-    <div className="space-y-6 max-w-7xl mx-auto">
+    <main className="space-y-6 max-w-7xl mx-auto px-3 sm:px-0" aria-labelledby="vehicle-passport-title">
       <Button variant="ghost" size="sm" className="gap-1" asChild>
         <Link to="/dashboard/garage"><ArrowLeft className="w-4 h-4" /> Back to Garage</Link>
       </Button>
@@ -341,11 +341,16 @@ export default function VehicleProfile() {
         <div className="lg:col-span-2 space-y-6">
           <Card className="border-0 card-shadow overflow-hidden">
             <div className="relative h-56">
-              <ListingImage src={vehicle.imageUrl} alt="" className="h-full w-full" imgClassName="h-56" />
+              <ListingImage
+                src={vehicle.imageUrl}
+                alt={`${[vehicle.year, vehicle.make, vehicle.model].filter(Boolean).join(' ') || 'Vehicle'} listing photo`}
+                className="h-full w-full"
+                imgClassName="h-56"
+              />
               <div className="absolute inset-0 bg-gradient-to-t from-black/60 to-transparent pointer-events-none" />
               <div className="absolute bottom-4 left-4 right-4 text-white">
                 <div className="flex items-center gap-2 mb-1">
-                  <h1 className="text-2xl font-bold">{[vehicle.year, vehicle.make, vehicle.model].filter(Boolean).join(' ') || 'Vehicle details not recorded'}</h1>
+                  <h1 id="vehicle-passport-title" className="text-xl sm:text-2xl font-bold">{[vehicle.year, vehicle.make, vehicle.model].filter(Boolean).join(' ') || 'Vehicle details not recorded'}</h1>
                   <Badge className="bg-white/20 text-white">{vehicle.registration}</Badge>
                 </div>
                 <p className="text-sm text-gray-200">VIN: {vehicle.vin}</p>
@@ -367,9 +372,9 @@ export default function VehicleProfile() {
                 ))}
               </div>
 
-              <div className="mb-4" data-testid="owner-trust">
+              <section className="mb-4" data-testid="owner-trust" aria-labelledby="owner-trust-heading">
                 <div className="flex items-center justify-between mb-2">
-                  <span className="font-medium">Trust Score</span>
+                  <span id="owner-trust-heading" className="font-medium">Trust Score</span>
                   {trustScore !== null ? (
                     <span className="font-bold text-lg" data-testid="owner-trust-score">{trustScore} / 100</span>
                   ) : (
@@ -398,7 +403,7 @@ export default function VehicleProfile() {
                     ))}
                   </ul>
                 )}
-              </div>
+              </section>
 
               {/*
                 * Every badge here is a POSITIVE VERIFICATION CLAIM, so each renders only when a
@@ -432,7 +437,7 @@ export default function VehicleProfile() {
                   </Badge>
                 )}
                 {passportData?.chainVerification?.verified && (
-                  <Badge variant="secondary" className="bg-orange-50 text-orange-700 animate-pulse-glow" data-testid="badge-ledger-synced">
+                  <Badge variant="secondary" className="bg-orange-50 text-orange-700 animate-pulse-glow motion-reduce:animate-none" data-testid="badge-ledger-synced">
                     <CheckCircle className="w-3 h-3 mr-1" /> Ledger Synced
                   </Badge>
                 )}
@@ -441,12 +446,12 @@ export default function VehicleProfile() {
           </Card>
 
           <Tabs defaultValue="documents" className="w-full">
-            <TabsList className="w-full flex flex-wrap">
-              <TabsTrigger value="documents" className="flex-1">Documents</TabsTrigger>
-              <TabsTrigger value="service" className="flex-1">Service History</TabsTrigger>
-              <TabsTrigger value="insurance" className="flex-1">Insurance</TabsTrigger>
-              <TabsTrigger value="parts" className="flex-1">Parts</TabsTrigger>
-              <TabsTrigger value="evidence" className="flex-1">Evidence & Media</TabsTrigger>
+            <TabsList className="grid h-auto w-full grid-cols-2 gap-1 sm:grid-cols-3 lg:grid-cols-5">
+              <TabsTrigger value="documents" className="min-h-11 px-2 text-xs sm:text-sm">Documents</TabsTrigger>
+              <TabsTrigger value="service" className="min-h-11 px-2 text-xs sm:text-sm">Service History</TabsTrigger>
+              <TabsTrigger value="insurance" className="min-h-11 px-2 text-xs sm:text-sm">Insurance</TabsTrigger>
+              <TabsTrigger value="parts" className="min-h-11 px-2 text-xs sm:text-sm">Parts</TabsTrigger>
+              <TabsTrigger value="evidence" className="min-h-11 px-2 text-xs sm:text-sm">Evidence & Media</TabsTrigger>
             </TabsList>
             <TabsContent value="documents" className="mt-4">
               <Card className="border-0 card-shadow">
@@ -509,14 +514,15 @@ export default function VehicleProfile() {
             <TabsContent value="parts" className="mt-4">
               <Card className="border-0 card-shadow">
                 <CardContent className="p-5">
-                  <div className="overflow-x-auto">
-                    <table className="w-full text-sm">
+                  <div className="overflow-x-auto" tabIndex={0} aria-label="Vehicle parts history table; scroll horizontally on compact screens">
+                    <table className="w-full min-w-[34rem] text-sm">
+                      <caption className="sr-only">Vehicle parts history</caption>
                       <thead>
                         <tr className="border-b">
-                          <th className="text-left py-2 font-medium text-gray-500">Part</th>
-                          <th className="text-left py-2 font-medium text-gray-500">Type</th>
-                          <th className="text-left py-2 font-medium text-gray-500">Date</th>
-                          <th className="text-right py-2 font-medium text-gray-500">Cost</th>
+                          <th scope="col" className="text-left py-2 font-medium text-gray-500">Part</th>
+                          <th scope="col" className="text-left py-2 font-medium text-gray-500">Type</th>
+                          <th scope="col" className="text-left py-2 font-medium text-gray-500">Date</th>
+                          <th scope="col" className="text-right py-2 font-medium text-gray-500">Cost</th>
                         </tr>
                       </thead>
                       <tbody>
@@ -540,12 +546,12 @@ export default function VehicleProfile() {
             <TabsContent value="evidence" className="mt-4">
               <Card className="border-0 card-shadow">
                 <CardContent className="p-5 space-y-4">
-                  <div className="flex justify-between items-center pb-2 border-b">
+                  <div className="flex flex-col gap-3 border-b pb-2 sm:flex-row sm:items-center sm:justify-between">
                     <div>
                       <h3 className="font-semibold text-gray-800">Visual Evidence & Media</h3>
                       <p className="text-xs text-gray-500">Photographs and documentation proving the condition and identity of the vehicle.</p>
                     </div>
-                    <Button onClick={() => setIsUploadModalOpen(true)} className="bg-orange-500 hover:bg-orange-600 text-white gap-2">
+                    <Button onClick={() => setIsUploadModalOpen(true)} className="min-h-11 bg-orange-500 hover:bg-orange-600 text-white gap-2">
                       <Upload className="w-4 h-4" /> Upload Evidence
                     </Button>
                   </div>
@@ -583,7 +589,12 @@ export default function VehicleProfile() {
                             ) : (
                               <div className="w-16 h-16 shrink-0 bg-gray-200 rounded overflow-hidden">
                                 {item.file_url ? (
-                                  <img src={item.file_url} alt="" className="w-full h-full object-cover" />
+                                  <img
+                                    src={item.file_url}
+                                    alt={`${item.evidence_type.split('_').join(' ')} evidence preview`}
+                                    className="w-full h-full object-cover"
+                                    loading="lazy"
+                                  />
                                 ) : (
                                   <div className="w-full h-full flex items-center justify-center text-gray-400">
                                     <FileText className="w-5 h-5" />
@@ -685,6 +696,6 @@ export default function VehicleProfile() {
             .catch(err => console.error(err))
         }}
       />
-    </div>
+    </main>
   )
 }
