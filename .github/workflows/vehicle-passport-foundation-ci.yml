@@ -78,6 +78,9 @@ jobs:
       - name: Preserve canonical PartSentry governance
         run: node --test backend/tests/partsentry-review-workflow.test.js
 
+      - name: Passport V9 governed attention contract
+        run: node --test backend/tests/passport-v9-attention-rail.test.js
+
       - name: Preserve canonical Trust public read path
         run: node --test backend/tests/issue164-phase3-trust-authority.test.js
 
@@ -110,6 +113,7 @@ jobs:
           node --check backend/services/passport/passportTransferStateMachine.js
           node --check backend/services/passport/passportOwnershipProjection.js
           node --check backend/services/passport/passportServicePartsProjection.js
+          node --check backend/services/passport/passportAttentionRail.js
 
       - name: Diff hygiene
         run: git diff --check HEAD^ HEAD
