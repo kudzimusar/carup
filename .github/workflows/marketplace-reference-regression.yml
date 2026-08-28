@@ -60,8 +60,8 @@ jobs:
     timeout-minutes: 35
     env:
       EXPECTED_HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
-      STAGING_FRONTEND_URL: https://carup-staging-git-feat-marketplace-reliability-ref-ce3e97-11-11.vercel.app
-      STAGING_BACKEND_URL: https://carup-backend-staging-git-feat-marketplace-reliabi-a387a3-11-11.vercel.app
+      STAGING_FRONTEND_URL: https://carup-staging-git-integration-vehicle-passport-v16-cert-11-11.vercel.app
+      STAGING_BACKEND_URL: https://carup-backend-staging-git-integration-vehicle-pass-35ac1d-11-11.vercel.app
       NODE_ENV: test
       SUPABASE_URL: http://localhost:54321
       SUPABASE_SERVICE_ROLE_KEY: marketplace-reference-test-service-role
