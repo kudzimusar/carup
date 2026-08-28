@@ -60,6 +60,12 @@ jobs:
       - name: Passport V4 verification and discrepancy contract
         run: node --test backend/tests/passport-v4-verification-discrepancy.test.js
 
+      - name: Passport V5 canonical Trust Lens contract
+        run: node --test backend/tests/passport-v5-trust-lens.test.js
+
+      - name: Preserve canonical Trust public read path
+        run: node --test backend/tests/issue164-phase3-trust-authority.test.js
+
       - name: Preserve canonical source-verification contract
         run: node --test backend/tests/source-verification.test.js
 
@@ -84,6 +90,7 @@ jobs:
           node --check backend/services/passport/passportClaimStateMachine.js
           node --check backend/services/passport/passportEvidenceProjection.js
           node --check backend/services/passport/passportVerificationProjection.js
+          node --check backend/services/passport/passportTrustLens.js
 
       - name: Diff hygiene
         run: git diff --check HEAD^ HEAD
