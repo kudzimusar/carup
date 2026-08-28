@@ -106,7 +106,10 @@ test('canonical lifecycle prevents administrative documents becoming accidents a
   assert.equal(report.sections.accident_repair.accident, 0, 'insurance/police documents are not accident events');
   assert.ok(report.sections.accident_repair.repair >= 1, 'recorded replacement converges into repair history');
   assert.equal(report.sections.ownership_transfer, 1);
-  assert.ok(report.sections.inspection >= 1);
+  assert.ok(report.timeline.some((item) => item.evidence_id === 'inspection-doc' && item.evidence_class === 'inspection'), 'verified public-safe inspection evidence remains visible');
+  assert.equal(report.sections.inspection, null, 'public report does not publish a complete inspection count while the private VID source is unavailable');
+  assert.equal(report.lifecycle_projection.count_states.inspection.state, 'partial');
+  assert.equal(report.lifecycle_projection.source_states.vid_inspections, 'unavailable');
   assert.ok(report.mileage_history.observations.some((item) => item.value === 78450));
   assert.equal(report.evidence_index.find((item) => item.evidence_id === 'insurance-doc')?.lifecycle_category, 'insurance');
   assert.equal(report.evidence_index.find((item) => item.evidence_id === 'police-doc')?.lifecycle_category, 'clearance');
