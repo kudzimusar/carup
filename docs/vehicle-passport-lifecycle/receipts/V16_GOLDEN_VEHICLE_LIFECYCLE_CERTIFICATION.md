@@ -1,8 +1,8 @@
 # V16 — Golden Vehicle Lifecycle Certification — Final Engineering Receipt
 
-**Date:** 2026-08-29  
-**Phase:** V16 — Golden Vehicle Lifecycle Certification  
-**Engineering merge certification:** **PASS**  
+**Date:** 2026-08-29
+**Phase:** V16 — Golden Vehicle Lifecycle Certification
+**Engineering merge certification:** **PASS**
 **Golden release / production activation:** **NOT CLAIMED — protected release gates remain**
 
 ## Certified immutable code candidate
