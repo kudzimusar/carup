@@ -22,6 +22,7 @@ import {
 } from './marketplaceEventTypes.js';
 import { marketplaceReferralBridge } from './marketplaceReferralBridgeService.js';
 import { emitDomainEvent } from '../eventBus/eventBusService.js';
+import { emitInquiryCreated } from '../intelligence/marketplaceActivityEmitters.js';
 
 const TABLE = 'marketplace_inquiries';
 const MAX_MESSAGE_LEN = 2000;
@@ -266,6 +267,9 @@ export async function createInquiry(client, payload = {}, actor = null, deps = {
       });
     }
   }
+
+  // Intelligence observes the durable inquiry; it never owns inquiry truth.
+  emitInquiryCreated(inserted, { req: deps.req || null, client }).catch(() => {});
 
   const eventType = INQUIRY_TYPE_TO_REFERRAL_EVENT[inquiryType] || 'marketplace_inquiry_created';
   await referralBridge.emitMarketplaceReferralEvent({
