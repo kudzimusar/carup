@@ -18,13 +18,13 @@ const GUEST_DRAFT = read('../lib/guestSellDraft.ts')
 
 describe('Marketplace progressive sell resilience', () => {
   it('guest photos are filtered, batch-read and appended in selection order', () => {
-    expect(GUEST_SELL).toContain(".filter(file => file.type.startsWith('image/'))")
+    expect(GUEST_SELL).toContain('screenListingImages(')
     expect(GUEST_SELL).toContain('Promise.all(files.map(file => new Promise<string>')
-    expect(GUEST_SELL).toContain('const nextImages = [...previous.images, ...images].slice(0, 10)')
+    expect(GUEST_SELL).toContain('const nextImages = [...previous.images, ...images].slice(0, LISTING_IMAGE_LIMIT)')
     expect(GUEST_SELL).toContain('images: nextImages')
     // The aligned annotation array grows in the same atomic state update, so async reads cannot
     // detach an angle label from the photo it describes.
-    expect(GUEST_SELL).toContain("imageLabels: [...previous.imageLabels, ...Array(addedCount).fill('')].slice(0, 10)")
+    expect(GUEST_SELL).toContain("imageLabels: [...previous.imageLabels, ...Array(addedCount).fill('')].slice(0, LISTING_IMAGE_LIMIT)")
   })
 
   it('authenticated seller photos use the same ordered batch rule', () => {
