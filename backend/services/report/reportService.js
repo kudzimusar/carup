@@ -53,7 +53,8 @@ function buildMileageHistory(evidence, listings) {
 
 function lifecycleCountValue(lifecycle, category) {
   const envelope = lifecycle.count_states?.[category];
-  if (!envelope || envelope.state !== 'complete') return null;
+  if (!envelope || envelope.state === 'unavailable') return null;
+  if (envelope.state === 'partial' && envelope.value === 0) return null;
   return envelope.value;
 }
 
