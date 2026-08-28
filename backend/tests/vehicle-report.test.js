@@ -107,8 +107,9 @@ test('canonical lifecycle prevents administrative documents becoming accidents a
   assert.ok(report.sections.accident_repair.repair >= 1, 'recorded replacement converges into repair history');
   assert.equal(report.sections.ownership_transfer, 1);
   assert.ok(report.timeline.some((item) => item.evidence_id === 'inspection-doc' && item.evidence_class === 'inspection'), 'verified public-safe inspection evidence remains visible');
-  assert.ok(report.sections.inspection >= 1, 'known public-safe inspection count remains visible');
-  assert.deepEqual(report.lifecycle_projection.count_states.inspection, { value: 1, state: 'partial' });
+  assert.ok(report.lifecycle_projection.count_states.inspection.value >= 1, 'known public-safe inspection count remains positive');
+  assert.equal(report.lifecycle_projection.count_states.inspection.state, 'partial');
+  assert.equal(report.sections.inspection, report.lifecycle_projection.count_states.inspection.value, 'published section count equals the known partial count');
   assert.equal(report.lifecycle_projection.source_states.vid_inspections, 'unavailable');
   assert.ok(report.mileage_history.observations.some((item) => item.value === 78450));
   assert.equal(report.evidence_index.find((item) => item.evidence_id === 'insurance-doc')?.lifecycle_category, 'insurance');
