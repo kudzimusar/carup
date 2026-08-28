@@ -140,10 +140,16 @@ export function projectExternalVerificationForPassport(rawResult, descriptorInpu
 export function assertNoFalsePositiveSourceLanguage(projection = {}) {
   const text = String(projection.user_visible_wording || '').toLowerCase();
 
-  if (projection.result === 'no_record' && /clear|verified|safe|clean/.test(text)) {
+  // Detect affirmative reassurance, not cautionary negation such as
+  // "not a clearance" or "not verified". The safety rule is semantic:
+  // no_record/unavailable may explain what they DO NOT establish.
+  const positiveClaim =
+    /\bcleared\b|\bis clear\b|\bverified by\b|\bofficially verified\b|\bgovernment verified\b|\bsafe\b|\bclean record\b|\bno issues?\b/;
+
+  if (projection.result === 'no_record' && positiveClaim.test(text)) {
     throw new Error('Passport no-record source wording cannot imply clearance or verification');
   }
-  if (projection.result === 'unavailable' && /clear|verified|safe|clean|no issue/.test(text)) {
+  if (projection.result === 'unavailable' && positiveClaim.test(text)) {
     throw new Error('Passport unavailable source wording cannot imply a positive conclusion');
   }
   if (projection.mode !== 'live' && /live verified|officially verified|government verified/.test(text)) {
