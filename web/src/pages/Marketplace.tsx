@@ -1004,7 +1004,7 @@ export default function Marketplace() {
         </main>
       </div>
 
-      {compareVins.length > 0 && (
+      {compareVins.length > 0 && !mobileFiltersOpen && (
         <div
           className="fixed inset-x-3 bottom-[calc(5rem+env(safe-area-inset-bottom))] z-[60] mx-auto max-w-5xl border border-slate-700 bg-[#08111f]/[0.98] px-3 py-3 text-white shadow-[0_26px_80px_rgba(2,6,23,0.55)] backdrop-blur-xl lg:bottom-6"
           data-testid="marketplace-compare-bar"
