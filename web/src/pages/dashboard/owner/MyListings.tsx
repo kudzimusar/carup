@@ -7,6 +7,7 @@ import { Input } from '@/components/ui/input'
 import { Plus, Eye, DollarSign, TrendingUp, Loader2, Car, MessageSquare } from 'lucide-react'
 import { toast } from 'sonner'
 import { ListingImage } from '@/components/marketplace/ListingImage'
+import ListingInsights from '@/components/intelligence/ListingInsights'
 import { primaryListingImageUrl } from '@/lib/listingMedia'
 import { useCarUpApi } from '@/hooks/useCarUpApi'
 import { SellerInquiriesCard } from '@/components/marketplace/SellerInquiriesCard'
@@ -66,6 +67,7 @@ export default function MyListings() {
     updateVehiclePrice,
   } = useCarUpApi()
   const [listingStatuses, setListingStatuses] = useState<Record<string, string>>({})
+  const [insightsFor, setInsightsFor] = useState<string | null>(null)
   const [markingId, setMarkingId] = useState<string | null>(null)
   const [publishingVin, setPublishingVin] = useState<string | null>(null)
   const [publicationStatuses, setPublicationStatuses] = useState<Record<string, string>>({})
@@ -320,6 +322,25 @@ export default function MyListings() {
                           )
                         })()}
                         {isSold && <Badge className="text-xs text-gray-400 font-normal">Sale completed</Badge>}
+                      </div>
+
+                      <div className="mt-3">
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          className="text-xs gap-1 px-2"
+                          data-testid={`toggle-insights-${listing.vin}`}
+                          aria-expanded={insightsFor === listing.vin}
+                          onClick={() => setInsightsFor(insightsFor === listing.vin ? null : listing.vin)}
+                        >
+                          <TrendingUp className="w-3 h-3" />
+                          {insightsFor === listing.vin ? 'Hide insights' : 'Full insights'}
+                        </Button>
+                        {insightsFor === listing.vin && (
+                          <div className="mt-3" data-testid={`listing-insights-panel-${listing.vin}`}>
+                            <ListingInsights vin={listing.vin} />
+                          </div>
+                        )}
                       </div>
 
                       {editingPriceVin === listing.vin && (
