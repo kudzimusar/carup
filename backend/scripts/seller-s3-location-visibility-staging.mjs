@@ -18,6 +18,7 @@
 import { readFileSync, writeFileSync } from 'fs';
 import { fileURLToPath } from 'url';
 import pg from 'pg';
+import { parseCheckVocabulary } from '../utils/checkConstraintVocabulary.js';
 
 const STAGING_REF = 'eoyenigwevnxwwhyhaer';
 const RECEIPT_PATH = 'seller-s3-location-visibility-receipt.json';
@@ -69,7 +70,7 @@ async function vocabularyInForce(client) {
     ['public.vehicles', CONSTRAINT],
   );
   if (!rows.length) return { present: false, values: [] };
-  const values = [...rows[0].def.matchAll(/'([a-z_]+)'/g)].map(match => match[1]);
+  const values = parseCheckVocabulary(rows[0].def);
   return { present: true, values: [...new Set(values)].sort(), definition_length: rows[0].def.length };
 }
 
