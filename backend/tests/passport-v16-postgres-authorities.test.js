@@ -404,7 +404,10 @@ test('V16 Communications template migration executes and registers an approved t
 async function taxonomyDb() {
   const db = await PGlite.create();
   await db.exec(`
-    CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
+    -- PGlite does not bundle uuid-ossp. Production Supabase provides uuid_generate_v4(),
+    -- so the harness supplies the same function contract using PostgreSQL gen_random_uuid().
+    CREATE FUNCTION uuid_generate_v4() RETURNS uuid
+      LANGUAGE SQL VOLATILE AS $ SELECT gen_random_uuid(); $;
     CREATE ROLE anon NOLOGIN;
     CREATE ROLE authenticated NOLOGIN;
     CREATE ROLE service_role NOLOGIN BYPASSRLS;
