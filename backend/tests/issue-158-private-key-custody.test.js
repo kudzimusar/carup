@@ -10,6 +10,7 @@ import {
 } from '../services/blockchain/blockchainKeyCustodyService.js';
 import {
   isMissingCustodyMetadataColumn,
+  isPublicKeyRegistrationConflict,
 } from '../services/blockchain/blockchainService.js';
 
 test('Issue #158: same secret + user + version derives stable public key across calls', () => {
@@ -131,4 +132,28 @@ test('Issue #158: addEvent registers stakeholder key before ledger event timesta
   assert.ok(registerAt >= 0, 'stakeholder key registration must exist');
   assert.ok(timestampAt > registerAt, 'event timestamp must be captured after key registration/rotation');
   assert.ok(hashAt > timestampAt, 'event hash must use the post-registration timestamp');
+});
+
+
+test('Issue #158: registration conflicts recognize PostgreSQL uniqueness races only', () => {
+  assert.equal(isPublicKeyRegistrationConflict({ code: '23505', message: 'duplicate key value violates unique constraint' }), true);
+  assert.equal(isPublicKeyRegistrationConflict({ code: '42501', message: 'permission denied' }), false);
+  assert.equal(isPublicKeyRegistrationConflict(null), false);
+});
+
+test('Issue #158: runtime uses deterministic public-key identity and conflict re-read', () => {
+  const src = readFileSync('backend/services/blockchain/blockchainService.js', 'utf8');
+  assert.match(src, /deterministicPublicKeyId/);
+  assert.match(src, /derived\.fingerprint/);
+  assert.match(src, /isPublicKeyRegistrationConflict\(insertError\)/);
+  assert.match(src, /const raced = await selectActivePublicKey\(userId\)/);
+  assert.match(src, /samePublicKey\(raced\.data\.public_key_pem, derived\.publicKeyPem\)/);
+});
+
+test('Issue #158: migration enforces one active public key per stakeholder', () => {
+  const sql = readFileSync('database/migrations/20260828210000_issue158_private_key_custody.sql', 'utf8');
+  assert.match(sql, /uq_public_keys_one_active_per_user/);
+  assert.match(sql, /ON public\.public_keys\(user_id\)\s+WHERE status='ACTIVE'/s);
+  assert.match(sql, /multiple distinct ACTIVE public keys/i);
+  assert.match(sql, /count\(DISTINCT public_key_pem\) > 1/);
 });
