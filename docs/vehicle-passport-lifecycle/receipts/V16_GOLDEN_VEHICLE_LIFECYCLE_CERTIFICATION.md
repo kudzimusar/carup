@@ -1,139 +1,130 @@
-# V16 — Golden Vehicle Lifecycle Certification
+# V16 — Golden Vehicle Lifecycle Certification — Final Engineering Receipt
 
-**Date:** 2026-08-28
-**Phase:** V16 — Golden Vehicle Lifecycle Certification
-**Status:** IMPLEMENTATION COMPLETE / EXACT-HEAD CI PENDING / GOLDEN RELEASE CERTIFICATION BLOCKED
+**Date:** 2026-08-29  
+**Phase:** V16 — Golden Vehicle Lifecycle Certification  
+**Engineering merge certification:** **PASS**  
+**Golden release / production activation:** **NOT CLAIMED — protected release gates remain**
 
-## Governing gate
+## Certified immutable code candidate
 
-V16 does not define success as “the Passport tests are green.”
+This receipt certifies the product/source candidate:
 
-A release PASS requires:
+`0b8435b08acf4b2c4967a4d9e63253202f9b289f`
 
-- all 32 documented Golden lifecycle steps evidenced;
-- all 23 documented certification-matrix gates evidenced;
-- exact candidate head == exact staging head;
-- zero unresolved P0/P1 findings.
+PR: **#194 — Seller + Communications + Intelligence + Vehicle Passport convergence**
 
-The certification engine fails closed if any one of those conditions is missing.
+The receipt commit itself necessarily creates a new documentation-bearing PR head. That later head must be re-certified before the PR is marked ready; this file therefore treats the SHA above as the immutable **code candidate** and records the receipt-bearing head in PR #194 after this file is committed.
 
-## Files
+## Frozen source authorities
 
-Added:
+- canonical main anchor: `ba208963d863654157335189c60f587cbe330041`
+- Seller / Marketplace #182: `cce3966c0539c6c38a6531e4b1d415eb91f19518`
+- Communications #183: `507530aadff17ec8aa4830d3cb392efda6876031`
+- Intelligence #185: `0b9fa0304878b3d16210db55fb2a3f7f1261f65d`
+- Vehicle Passport #188: `3c4581386460b125842034f9e7c75628f7814e58`
+- Vehicle Passport #188 base: `main` — stacked planning topology removed
+- PR #187: closed as superseded documentation scaffolding
 
-- `backend/services/passport/passportGoldenLifecycleCertification.js`
-- `backend/tests/passport-v16-golden-lifecycle.test.js`
+Seller #182 advanced after the earlier freeze. Its final three bounded changes were explicitly reconciled before this certification: the Guest Sell evidence-loader/lint correction, the stable “Any known damage” walk-around label, and the redesigned draft-copy staging assertion. The integration candidate was re-tested after that reconciliation.
 
-CI extended to rerun:
+## Exact-head engineering matrix
 
-- V16 certification semantics;
-- `issue164-phase7-golden-vehicles.test.js`;
-- `issue164-phase8-permanent-invariants.test.js`;
-- `golden-journey.test.js`;
-- the complete V1–V15 Passport suite and permanent guards.
+All substantive gates below ran on `0b8435b08acf4b2c4967a4d9e63253202f9b289f` and completed successfully.
 
-## Golden fixtures reused
+| Gate | Run | Result |
+| --- | --- | --- |
+| Main CI — secret scan, dependency audit, lint regression, TypeScript, production web build, backend tests, migrations, Issue #101 PostgreSQL hardening/parity/public-key/post-cutover/ledger chain | `33219507883` | PASS |
+| Vehicle Passport Foundation V1–V16 + PostgreSQL ownership/custody authorities | `33219507867` | PASS |
+| Communications unit + PostgreSQL | `33219507910` | PASS |
+| Navigation unit/structural + E2E + accessibility | `33219507901` | PASS |
+| Diaspora backend/build + staging integration + Playwright | `33219507887` | PASS |
+| Referral full web unit / TypeScript / backend / production build | `33219507907` | PASS |
+| Marketplace exact-head reference + staging certification | `33219507920` | PASS |
 
-V16 reuses the existing canonical Golden dataset:
+Path-gated staging-write/UAT workflows that were skipped by this documentation/code path are not represented as PASS and are not used as evidence for the engineering decision.
 
-- Golden A — `CARUPGLDNA0000001`: evidence-rich/publishable;
-- Golden B — `CARUPGLDNB0000002`: sparse/pending/non-publishable.
+## Exact staging provenance
 
-No second Golden fixture, Trust value, evidence ledger or ownership row is created by V16.
+Canonical staging deployments for the certified code SHA:
 
-## Critical proof requirements
+### Frontend
 
-A generic `state: pass` is insufficient for high-authority stages.
+- project: `carup-staging`
+- deployment: `dpl_EqUQzkAvz6fw5V1KSYKPNKCnafRW`
+- branch alias: `carup-staging-git-integration-vehicle-passport-v16-cert-11-11.vercel.app`
+- Vercel Git SHA: `0b8435b08acf4b2c4967a4d9e63253202f9b289f`
+- state: **READY**
 
-### Communications
+### Backend
 
-PASS requires concrete:
+- project: `carup-backend-staging`
+- deployment: `dpl_FdAQ5sf9M2SqNcNDXabp5xsk43Ly`
+- branch alias: `carup-backend-staging-git-integration-vehicle-pass-35ac1d-11-11.vercel.app`
+- Vercel Git SHA: `0b8435b08acf4b2c4967a4d9e63253202f9b289f`
+- state: **READY**
 
-- canonical domain event id;
-- canonical thread/notification id;
-- delivery state.
+The Marketplace exact-head gate independently required the frontend runtime `/carup-provenance.json` commit SHA and paired backend URL to match this candidate, required backend `/api/health` build provenance to match, and only then executed the unmocked staging functional/visual certification.
 
-### Ownership transfer
+Marketplace certification evidence:
 
-PASS requires:
+- workflow run: `33219507920`
+- evidence artifact: `9704697925`
+- artifact name: `marketplace-certification-0b8435b08acf4b2c4967a4d9e63253202f9b289f`
+- digest: `sha256:fa27467a0bb7ee4619be52b1099b693f0da69bfe148050b53b369ff2825a4846`
 
-- governed transfer id;
-- governed authority;
-- completion timestamp;
-- new-owner id;
-- the same VIN.
+## Independent review gate
 
-A fixture-seeded `vehicle_ownership_history` row is explicitly rejected as transfer proof.
+Immediately before the final review request:
 
-### Intelligence
+- PR #194 head was still `0b8435b08acf4b2c4967a4d9e63253202f9b289f`;
+- Seller #182 was still `cce3966c0539c6c38a6531e4b1d415eb91f19518`;
+- both canonical staging deployments were READY on the exact code SHA;
+- unresolved review-thread count was zero.
 
-PASS requires:
+Final Codex review was then requested against **only** the exact code SHA.
 
-- governed rule;
-- evidence fingerprint;
-- calculation version.
+Result: **CLEAN — no major issues found**.
 
-### Previous-owner privacy
+- Codex result comment: `5458761911`
+- reviewed commit: `0b8435b08a`
+- unresolved P0/P1 review threads after review: **0**
 
-PASS requires an explicit policy check and proof that prior-owner identity is absent from the new/public projection.
+## V16 authority/security closure represented by this candidate
 
-## Live dependency reconciliation
+The candidate now proves, at source/engineering level:
 
-At the start of V16 reconciliation:
+- one canonical VIN/Vehicle Passport survives governed ownership transfer;
+- legal completion atomically changes owner authority and retires the stale Marketplace seller;
+- a published listing becomes non-public on ownership completion;
+- completed ownership history cannot be erased by ordinary cancellation;
+- a post-completion dispute cannot fall back into pre-completion states; only governed uphold or a separate compensating transfer can resolve legal ownership;
+- ownership lifecycle Communications payloads are privacy-minimized and do not disclose counterparty user IDs;
+- Communications remains the durable routing/transport authority;
+- Intelligence remains observation/advisory only and cannot mutate lifecycle authority;
+- Seller taxonomy observations are RLS-enabled and browser-role-revoked;
+- Issue #158 application runtime no longer persists ordinary plaintext private signing material;
+- stakeholder public-key activation/rotation is serialized, atomic, and incarnation-safe, including `v1 -> v2 -> rollback-v1`;
+- the repository continues to pass the inherited Issue #101 PostgreSQL security/parity chain;
+- Golden A / Golden B sparse / adverse-P1 semantics fail closed rather than inventing evidence.
 
-- canonical main: `ba208963d863654157335189c60f587cbe330041`;
-- Seller/Marketplace PR #182 current head observed: `fd49f31d27ba88251b3123a32ff69653a8beccff`;
-- Seller plan/status PR #186: `f12be08877523659f16e529cb1f8da8a3e92f125`;
-- Communications PR #183: `507530aadff17ec8aa4830d3cb392efda6876031`;
-- Intelligence PR #185: `0b9fa0304878b3d16210db55fb2a3f7f1261f65d`.
+## Protected release gates deliberately kept separate
 
-Seller programme status now records S0–S8 and S11 PASS. S9 remains blocked on #185, S10 remains blocked on #183, and S12 is owner-gated.
+Engineering merge certification does **not** claim that production activation is complete.
 
-## Ownership authority finding
+The following remain protected/human release gates and must not be inferred from this receipt:
 
-No governed operational ownership-transfer writer/service was found on current main or current Seller head.
+1. production Issue #158 aggregate population probe plus protected custody migration/rotation evidence;
+2. production/staging Communications worker/provider secrets and real external delivery activation where required;
+3. current receipt-bearing-head owner UAT sign-off;
+4. post-activation soak with no P0/P1;
+5. any protected production migration/environment approval.
 
-Existing `vehicle_ownership_history` storage and Golden fixture seeding are historical/read-model primitives, not proof of:
+Historical owner UAT on older SHAs remains regression history only. It is not silently inherited as current-head sign-off.
 
-`sale → transfer initiated → required parties/evidence → governed completion → previous-owner access change → new-owner continuity`.
+## Receipt decision
 
-Therefore Golden steps 19–21 cannot currently receive release PASS evidence.
+**CERTIFIED CODE CANDIDATE: PASS FOR ENGINEERING MERGE GATING.**
 
-## P0 finding
+Next mandatory step: re-run the exact-head certification matrix on the documentation-bearing receipt commit, re-check Seller #182 and review threads, and only then mark PR #194 ready for review/merge.
 
-Open Issue #158 remains source-valid on current main and the current Seller/Communications/Intelligence heads:
-
-- `backend/services/blockchain/blockchainService.js` still selects `public_keys.*`;
-- reloads `private_key_pem`;
-- persists newly generated stakeholder private keys into `public_keys.private_key_pem`.
-
-This path is exercised by lifecycle domains including PartSentry/other audit-ledger writers.
-
-The V16 plan requires **no unresolved P0/P1 in the Golden Lifecycle**, therefore Issue #158 is a hard release blocker.
-
-V16 does not invent an unapproved KMS/key-custody architecture inside the Passport lane.
-
-## Historical UAT evidence
-
-Issue #164 Phase 8 contains real physical Golden browser/UAT evidence on older exact heads. That evidence remains useful regression history, but it is **not inherited as current-head V16 owner UAT**.
-
-The plan explicitly requires exact-head evidence. Current Passport UI and lifecycle contracts have changed since those UAT heads.
-
-## Current certification decision
-
-Until exact-head CI completes, V16 source status is pending.
-
-Even after source CI, **Golden release PASS remains blocked** until, on one reconciled candidate:
-
-1. Communications #183 is integrated and the lifecycle delivery chain is evidenced;
-2. Intelligence #185 is integrated and governed next-best-action is evidenced;
-3. a governed ownership-transfer writer/workflow exists and passes the same-VIN continuity test;
-4. P0 #158 is separately remediated and closed with staging/security evidence;
-5. exact-head staging is proven;
-6. independent review is clean;
-7. current-head owner UAT is signed off;
-8. short soak completes with no P0/P1.
-
-## Phase decision
-
-**V16 IMPLEMENTATION COMPLETE. RUN EXACT-HEAD CI. DO NOT CLAIM GOLDEN LIFECYCLE PASS WHILE THE ABOVE RELEASE GATES ARE OPEN.**
+**DO NOT CLAIM GOLDEN RELEASE / PRODUCTION ACTIVATION PASS UNTIL THE PROTECTED RELEASE GATES ABOVE ARE COMPLETE.**
