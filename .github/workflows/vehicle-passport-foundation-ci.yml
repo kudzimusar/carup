@@ -6,6 +6,10 @@ on:
       - 'backend/services/passport/**'
       - 'backend/tests/passport-*.test.js'
       - 'database/migrations/*passport*.sql'
+      - 'database/migrations/20260828210000_issue158_private_key_custody.sql'
+      - 'backend/services/blockchain/blockchainService.js'
+      - 'backend/services/blockchain/blockchainKeyCustodyService.js'
+      - 'backend/tests/issue-158-private-key-custody.test.js'
       - 'web/src/pages/dashboard/owner/VehicleProfile.tsx'
       - 'web/src/pages/dashboard/owner/VehicleProfile*.test.tsx'
       - 'web/src/components/VehicleLifeStageTimeline.tsx'
@@ -18,6 +22,10 @@ on:
       - 'backend/services/passport/**'
       - 'backend/tests/passport-*.test.js'
       - 'database/migrations/*passport*.sql'
+      - 'database/migrations/20260828210000_issue158_private_key_custody.sql'
+      - 'backend/services/blockchain/blockchainService.js'
+      - 'backend/services/blockchain/blockchainKeyCustodyService.js'
+      - 'backend/tests/issue-158-private-key-custody.test.js'
       - 'web/src/pages/dashboard/owner/VehicleProfile.tsx'
       - 'web/src/pages/dashboard/owner/VehicleProfile*.test.tsx'
       - 'web/src/components/VehicleLifeStageTimeline.tsx'
@@ -111,6 +119,9 @@ jobs:
       - name: Passport V16 governed ownership authority
         run: node --test backend/tests/passport-v16-ownership-authority.test.js
 
+      - name: Issue 158 blockchain key custody
+        run: node --test backend/tests/issue-158-private-key-custody.test.js
+
       - name: Preserve Golden Vehicle fixture invariants
         run: |
           node --test backend/tests/issue164-phase7-golden-vehicles.test.js
@@ -166,6 +177,8 @@ jobs:
           node --check backend/services/passport/passportExternalSourceAdapter.js
           node --check backend/services/passport/passportGoldenLifecycleCertification.js
           node --check backend/services/passport/passportOwnershipTransferService.js
+          node --check backend/services/blockchain/blockchainKeyCustodyService.js
+          node --check backend/services/blockchain/blockchainService.js
 
       - name: Diff hygiene
         run: git diff --check HEAD^ HEAD
