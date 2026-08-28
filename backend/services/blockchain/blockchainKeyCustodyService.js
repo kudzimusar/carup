@@ -3,6 +3,7 @@ import crypto from 'node:crypto';
 const CURVE_ORDER = BigInt('0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFEBAAEDCE6AF48A03BBFD25E8CD0364141');
 const DEFAULT_VERSION = 'v1';
 let testProcessSecret = null;
+let testSystemSecret = null;
 
 function toBase64Url(buffer) {
   return Buffer.from(buffer).toString('base64url');
@@ -98,8 +99,41 @@ export function verifyLedgerHash(publicKeyPem, hash, signatureHex) {
   );
 }
 
+function currentSystemSecret() {
+  const configured = process.env.CARUP_BLOCKCHAIN_SYSTEM_HMAC_SECRET;
+  if (configured) return configured;
+  if (process.env.NODE_ENV === 'test') {
+    if (!testSystemSecret) testSystemSecret = crypto.randomBytes(32).toString('hex');
+    return testSystemSecret;
+  }
+  throw new Error('CARUP_BLOCKCHAIN_SYSTEM_HMAC_SECRET is required for system ledger signing.');
+}
+
+export function signSystemLedgerHash(hash) {
+  return crypto.createHmac('sha256', currentSystemSecret()).update(String(hash)).digest('hex');
+}
+
+export function verifySystemLedgerHash(hash, signatureHex) {
+  if (!signatureHex) return false;
+  const candidates = [
+    currentSystemSecret(),
+    ...(process.env.CARUP_BLOCKCHAIN_LEGACY_SYSTEM_HMAC_SECRETS || '')
+      .split(',')
+      .map((value) => value.trim())
+      .filter(Boolean),
+  ];
+  return candidates.some((secret) => {
+    const expected = crypto.createHmac('sha256', secret).update(String(hash)).digest('hex');
+    const a = Buffer.from(expected, 'hex');
+    const b = Buffer.from(String(signatureHex), 'hex');
+    return a.length === b.length && crypto.timingSafeEqual(a, b);
+  });
+}
+
 export default {
   deriveStakeholderKey,
   signLedgerHash,
   verifyLedgerHash,
+  signSystemLedgerHash,
+  verifySystemLedgerHash,
 };
