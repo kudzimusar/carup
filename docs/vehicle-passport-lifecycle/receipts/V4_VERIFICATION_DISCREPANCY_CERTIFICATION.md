@@ -2,7 +2,7 @@
 
 **Date:** 2026-08-28
 **Phase:** V4 — Verification, Review and Discrepancy Reconciliation
-**Status:** IMPLEMENTED / EXACT-HEAD CI PENDING
+**Status:** PASS — EXACT-HEAD FOUNDATION CERTIFIED
 
 ## Scope
 
@@ -102,6 +102,22 @@ V4 proves:
 
 Seller-side contradiction resolution UI, Seller evidence mutations and cross-surface wiring remain blocked until Seller exact-head integration.
 
+## Exact-head certification
+
+Certified code head before receipt update:
+
+- exact code head: `5244f128d02c7658d19c5e333d8ad76b6415f1e5`
+- Vehicle Passport Foundation CI run: `33162410587`
+- Passport V1–V4 contracts — PASS
+- canonical source-verification contract — PASS
+- canonical governance dispute contract — PASS
+- canonical evidence taxonomy/provenance — PASS
+- canonical Passport lookup policy — PASS
+- canonical Trust decision authority — PASS
+- syntax/diff hygiene — PASS
+
 ## Phase decision
 
-**V4 FOUNDATION IMPLEMENTED. EXACT-HEAD CI REQUIRED BEFORE V5.**
+**V4 FOUNDATION PASS.**
+
+No verification, review, Seller or Trust write path was changed. V5 may proceed only as a canonical Trust explanation/presentation contract.
