@@ -19,6 +19,17 @@ const YEARS = vehicleYearOptions()
 const STEPS = ['Vehicle Details', 'Location & Pricing', 'Images & Features', 'Review & Save Draft']
 
 /**
+ * Seller Journey S4 — the shot list buyers actually ask for, in the order it is easiest to walk
+ * around a vehicle. Recommendations only: nothing here is required, and a suggested shot is never
+ * evidence of anything. Listing media is commercial media until it is separately admitted as
+ * governed evidence.
+ */
+const LISTING_PHOTO_SEQUENCE = [
+  'Front', 'Rear', 'Driver side', 'Passenger side', 'Interior',
+  'Dashboard', 'Odometer', 'Engine', 'Tyres', 'Any known damage',
+]
+
+/**
  * ISSUE #164 PHASE 4 — THE SELLER STATES THE CURRENCY. THIS FILE NO LONGER STATES IT FOR THEM.
  *
  * `currency: 'USD'` was a literal in the submit payload, with no control anywhere in this form and
@@ -123,6 +134,11 @@ export default function SellVehicle() {
   // S1: the same shared existing-Passport check Guest Sell runs. Advisory here too — the server's
   // 409 stays the authoritative duplicate rejection.
   const { result: identification, checking: identifying } = useSellerVehicleIdentification(form.vin)
+
+  // S4 — WHICH PHOTO THE SELLER CHOSE, or null because they have not chosen.
+  // `null` is the honest state for a question not answered, and it is what the server's media
+  // contract already expects: a bare URL claims nothing, and only `is_primary: true` is a claim.
+  const [coverImageIndex, setCoverImageIndex] = useState<number | null>(null)
 
   useEffect(() => {
     if (guestDraft) toast.success('Your pre-sign-in listing draft is ready to review.')
@@ -242,7 +258,14 @@ export default function SellVehicle() {
         features: form.features,
         location: form.location,
         province: form.province,
-        images: uploadedImageUrls,
+        // S4 — the media-primacy contract, in the shape the server defines. A bare URL claims
+        // nothing; exactly the seller's chosen photo carries `is_primary: true`. When no cover was
+        // chosen, every entry stays a plain URL and the listing honestly has no primary photo.
+        images: coverImageIndex === null
+          ? uploadedImageUrls
+          : uploadedImageUrls.map((url, index) => (
+              index === coverImageIndex ? { url, is_primary: true } : url
+            )),
         // S3 — the seller's own consent decisions, sent explicitly in both directions so the
         // server records a choice rather than inferring one from silence.
         location_visibility: form.locationVisibility,
@@ -557,6 +580,22 @@ export default function SellVehicle() {
             <>
               <div>
                 <label className="text-sm font-medium mb-2 block">Vehicle Images ({form.images.length}/15)</label>
+                {/* S4 — GUIDANCE, NOT A GATE. These are the shots buyers ask for; none is required,
+                    and CarUp does not claim a photo was taken because it was suggested. Damage and
+                    odometer are named explicitly because a listing that omits them invites the
+                    question anyway, and answering it up front is the seller's advantage. */}
+                <div className="mb-3 rounded-xl border border-slate-200 bg-slate-50 p-3" data-testid="listing-media-guidance">
+                  <p className="text-xs font-semibold text-slate-700">Photos buyers look for</p>
+                  <p className="mt-0.5 text-[11px] text-slate-500">
+                    All optional. A listing that shows the odometer and any known damage gets fewer
+                    &ldquo;can you send more photos?&rdquo; replies.
+                  </p>
+                  <ul className="mt-2 flex flex-wrap gap-1.5">
+                    {LISTING_PHOTO_SEQUENCE.map(shot => (
+                      <li key={shot} className="rounded-full bg-white px-2 py-0.5 text-[11px] text-slate-600 ring-1 ring-slate-200">{shot}</li>
+                    ))}
+                  </ul>
+                </div>
                 <label className={`block border-2 border-dashed rounded-xl p-8 text-center cursor-pointer transition-colors ${form.images.length >= 15 ? 'border-gray-200 bg-gray-50' : 'border-orange-200 hover:border-orange-400 hover:bg-orange-50'}`}>
                   <Upload className="w-8 h-8 text-orange-400 mx-auto mb-2" />
                   <p className="text-sm text-gray-600 font-medium">Click to upload photos</p>
@@ -571,19 +610,62 @@ export default function SellVehicle() {
                   />
                 </label>
                 {form.images.length > 0 && (
-                  <div className="grid grid-cols-4 gap-2 mt-3">
-                    {form.images.map((img, i) => (
-                      <div key={i} className="relative aspect-square rounded-lg overflow-hidden group">
-                        <img src={img} alt="" className="w-full h-full object-cover" />
-                        {i === 0 && <Badge className="absolute bottom-1 left-1 text-[9px] bg-orange-500 text-white">Cover</Badge>}
-                        <button
-                          onClick={() => set('images', form.images.filter((_, j) => j !== i))}
-                          className="absolute top-1 right-1 w-5 h-5 rounded-full bg-black/60 text-white flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
-                        >
-                          <X className="w-3 h-3" />
-                        </button>
-                      </div>
-                    ))}
+                  <div className="mt-3" data-testid="listing-media-grid">
+                    {/* THE COVER IS A CHOICE, NOT AN INDEX. This badge used to sit on whichever
+                        photo happened to be first while the payload sent bare URL strings — so the
+                        seller was shown a cover selection that was never made, never sent and never
+                        stored. The server's own contract says a bare URL claims nothing and calls
+                        electing `idx === 0` a fabrication; painting it here was the same fabrication
+                        with fewer steps. */}
+                    <p className="text-xs font-medium text-gray-600 mb-2" data-testid="listing-media-cover-state">
+                      {coverImageIndex === null
+                        ? 'No cover photo chosen. Pick the photo buyers should see first — otherwise CarUp will not claim one for you.'
+                        : `Photo ${coverImageIndex + 1} is your cover photo.`}
+                    </p>
+                    <div className="grid grid-cols-4 gap-2">
+                      {form.images.map((img, i) => (
+                        <div key={i} className="relative aspect-square rounded-lg overflow-hidden group">
+                          <img src={img} alt={`Listing photo ${i + 1}`} className="w-full h-full object-cover" />
+                          {coverImageIndex === i && (
+                            <Badge
+                              className="absolute bottom-1 left-1 text-[9px] bg-orange-500 text-white"
+                              data-testid={`listing-media-cover-badge-${i}`}
+                            >
+                              Cover
+                            </Badge>
+                          )}
+                          {coverImageIndex !== i && (
+                            <button
+                              type="button"
+                              onClick={() => setCoverImageIndex(i)}
+                              className="absolute bottom-1 left-1 rounded bg-black/60 px-1.5 py-0.5 text-[9px] font-medium text-white opacity-0 transition-opacity group-hover:opacity-100 focus:opacity-100"
+                              data-testid={`listing-media-choose-cover-${i}`}
+                            >
+                              Make cover
+                            </button>
+                          )}
+                          <button
+                            type="button"
+                            onClick={() => {
+                              // Removing the chosen cover CLEARS the choice. Letting the badge slide
+                              // onto whatever takes this index would re-invent a selection the
+                              // seller never made.
+                              setCoverImageIndex(current => {
+                                if (current === null) return null
+                                if (current === i) return null
+                                return current > i ? current - 1 : current
+                              })
+                              set('images', form.images.filter((_, j) => j !== i))
+                            }}
+                            className="absolute top-1 right-1 w-5 h-5 rounded-full bg-black/60 text-white flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
+                            data-testid={`listing-media-remove-${i}`}
+                            aria-label={`Remove listing photo ${i + 1}`}
+                          >
+                            <X className="w-3 h-3" />
+                          </button>
+                        </div>
+                      ))}
+                    </div>
                   </div>
                 )}
               </div>
