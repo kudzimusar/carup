@@ -90,6 +90,9 @@ jobs:
       - name: Passport V12 Communications orchestration contract
         run: node --test backend/tests/passport-v12-communications.test.js
 
+      - name: Passport V13 governed AI advisory contract
+        run: node --test backend/tests/passport-v13-ai-advisory.test.js
+
       - name: Preserve canonical communication event coverage
         run: node --test backend/tests/communication-event-coverage.test.js
 
@@ -129,6 +132,7 @@ jobs:
           node --check backend/services/passport/passportMarketplaceConvergence.js
           node --check backend/services/passport/passportSurfaceConvergence.js
           node --check backend/services/passport/passportCommunicationIntent.js
+          node --check backend/services/passport/passportAiAdvisory.js
 
       - name: Diff hygiene
         run: git diff --check HEAD^ HEAD
