@@ -26,7 +26,7 @@ concurrency:
 
 jobs:
   passport-foundation:
-    name: V0/V1 authority + projection contracts
+    name: Passport foundation contracts
     runs-on: ubuntu-latest
     timeout-minutes: 15
     env:
@@ -54,6 +54,12 @@ jobs:
       - name: Passport V2 identity and access contract
         run: node --test backend/tests/passport-v2-identity-access.test.js
 
+      - name: Passport V3 evidence and provenance contract
+        run: node --test backend/tests/passport-v3-evidence-provenance.test.js
+
+      - name: Preserve canonical evidence taxonomy and provenance
+        run: node --test backend/tests/vehicle-life-taxonomy.test.js
+
       - name: Preserve canonical Passport lookup policy
         run: node --test backend/tests/issue164-lookup-policy.test.js
 
@@ -67,6 +73,7 @@ jobs:
           node --check backend/services/passport/passportReadModelService.js
           node --check backend/services/passport/passportAccessPolicy.js
           node --check backend/services/passport/passportClaimStateMachine.js
+          node --check backend/services/passport/passportEvidenceProjection.js
 
       - name: Diff hygiene
         run: git diff --check HEAD^ HEAD
