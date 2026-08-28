@@ -114,4 +114,3 @@ the lost-update race, proven by an interleaving test that fails under an uncondi
 | `public.users` RLS | enabled, **0 policies** (see `docs/security/PREEXISTING_USERS_TABLE_WRITE_PRIVILEGE.md`) |
 
 Zero recovery work is created by the apply itself. Re-measure immediately before the real apply.
-

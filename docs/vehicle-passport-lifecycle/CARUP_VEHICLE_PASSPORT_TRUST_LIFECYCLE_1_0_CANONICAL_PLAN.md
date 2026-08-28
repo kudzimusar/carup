@@ -1,11 +1,11 @@
 # CarUp Vehicle Passport / Trust Lifecycle 1.0 — Canonical Plan
 
-**Status:** canonical programme plan candidate  
-**Programme:** Post-Reunification Product Advancement — Vehicle Passport / Trust Lifecycle 1.0  
-**Repository:** kudzimusar/carup  
-**Source anchor at planning time:** main@ba208963d863654157335189c60f587cbe330041  
-**Created:** 2026-08-28  
-**Owner:** CarUp  
+**Status:** canonical programme plan candidate
+**Programme:** Post-Reunification Product Advancement — Vehicle Passport / Trust Lifecycle 1.0
+**Repository:** kudzimusar/carup
+**Source anchor at planning time:** main@ba208963d863654157335189c60f587cbe330041
+**Created:** 2026-08-28
+**Owner:** CarUp
 **Runtime authorization:** BOUNDED FOUNDATION ONLY while Seller Journey 1.0 remains active. V0/V1 and isolated, additive Passport-only scaffolding may proceed concurrently when lane governance permits and Seller-owned shared surfaces are not modified. Seller-dependent integration phases remain blocked until exact-head Seller reconciliation/certification.
 
 ---

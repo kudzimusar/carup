@@ -127,4 +127,3 @@ The previous prohibition ("must not appear in any customer-facing surface until 
 
 They still must not be presented as *sending* identities, and `questions@carup.dev` remains **not** the
 canonical customer-support replacement — support stays `support@carup.dev` and `SUPPORT_URL`.
-
