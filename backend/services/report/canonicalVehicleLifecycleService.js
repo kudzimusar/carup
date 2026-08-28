@@ -180,9 +180,15 @@ export async function buildCanonicalVehicleLifecycle(client, vin, {
     readRows(client, 'vehicle_evidence', vin),
     readRows(client, 'vehicle_ownership_history', vin, 'id, transfer_date'),
     readRows(client, 'partsentry_logs', vin, 'id, timestamp, action_type, mileage, public_card_eligible, suspicion_status, verification_status, part_verification_status'),
-    readRows(client, 'mechanic_work_orders', vin, 'id, created_at, status'),
-    readRows(client, 'insurance_records', vin, 'id, policy_number, start_date, active'),
-    readRows(client, 'vid_inspections', vin, 'id, inspected_at, inspection_status, odometer_reading'),
+    privileged
+      ? readRows(client, 'mechanic_work_orders', vin, 'id, created_at, status')
+      : Promise.resolve(readStateEnvelope([], 'unavailable')),
+    privileged
+      ? readRows(client, 'insurance_records', vin, 'id, policy_number, start_date, active')
+      : Promise.resolve(readStateEnvelope([], 'unavailable')),
+    privileged
+      ? readRows(client, 'vid_inspections', vin, 'id, inspected_at, inspection_status, odometer_reading')
+      : Promise.resolve(readStateEnvelope([], 'unavailable')),
     listings !== null && listings !== undefined
       ? Promise.resolve(readStateEnvelope(listings, 'available'))
       : readRows(client, 'listing_snapshots', vin),
