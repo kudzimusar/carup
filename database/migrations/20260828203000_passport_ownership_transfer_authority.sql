@@ -27,7 +27,7 @@ CREATE TABLE IF NOT EXISTS public.vehicle_ownership_transfers (
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   CHECK (previous_owner_id <> incoming_owner_id),
-  CHECK ((state = 'complete') = (completed_at IS NOT NULL))
+  CHECK (state <> 'complete' OR completed_at IS NOT NULL)
 );
 
 CREATE UNIQUE INDEX IF NOT EXISTS uq_vehicle_ownership_transfer_active_vin
@@ -235,32 +235,50 @@ BEGIN
     IF nullif(btrim(p_registry_authority),'') IS NULL OR nullif(btrim(p_completion_reference),'') IS NULL THEN
       RAISE EXCEPTION 'ownership transfer completion requires governed authority and completion reference' USING ERRCODE='22023';
     END IF;
-    IF v_vehicle.owner_id IS DISTINCT FROM v_transfer.previous_owner_id THEN
-      RAISE EXCEPTION 'vehicle owner changed during transfer review' USING ERRCODE='40001';
+
+    -- First completion: the current owner must still be the transfer's previous owner.
+    -- Re-affirming a previously completed transfer after a dispute is also valid: in
+    -- that case the vehicle already belongs to the incoming owner and the immutable
+    -- transfer-linked ownership-history row must already exist.
+    IF v_vehicle.owner_id IS NOT DISTINCT FROM v_transfer.previous_owner_id THEN
+      UPDATE public.vehicles
+         SET owner_id=v_transfer.incoming_owner_id
+       WHERE vin=v_transfer.vin;
+
+      INSERT INTO public.vehicle_ownership_history(
+        vin,previous_owner_id,new_owner_id,transfer_date,transfer_hash,transfer_id
+      ) VALUES(
+        v_transfer.vin,
+        v_transfer.previous_owner_id,
+        v_transfer.incoming_owner_id,
+        v_now::text,
+        md5(concat_ws('|',v_transfer.id::text,v_transfer.vin,v_transfer.previous_owner_id,v_transfer.incoming_owner_id,v_now::text,p_registry_authority,p_completion_reference)),
+        v_transfer.id
+      )
+      ON CONFLICT (transfer_id) WHERE transfer_id IS NOT NULL DO NOTHING;
+    ELSIF v_vehicle.owner_id IS NOT DISTINCT FROM v_transfer.incoming_owner_id
+       AND EXISTS (
+         SELECT 1
+           FROM public.vehicle_ownership_history h
+          WHERE h.transfer_id=v_transfer.id
+            AND h.vin=v_transfer.vin
+            AND h.previous_owner_id=v_transfer.previous_owner_id
+            AND h.new_owner_id=v_transfer.incoming_owner_id
+       ) THEN
+      NULL; -- governed dispute resolution upholds the already-recorded transfer
+    ELSE
+      RAISE EXCEPTION 'vehicle owner changed outside this governed transfer' USING ERRCODE='40001';
     END IF;
-
-    UPDATE public.vehicles
-       SET owner_id=v_transfer.incoming_owner_id
-     WHERE vin=v_transfer.vin;
-
-    INSERT INTO public.vehicle_ownership_history(
-      vin,previous_owner_id,new_owner_id,transfer_date,transfer_hash,transfer_id
-    ) VALUES(
-      v_transfer.vin,
-      v_transfer.previous_owner_id,
-      v_transfer.incoming_owner_id,
-      v_now::text,
-      md5(concat_ws('|',v_transfer.id::text,v_transfer.vin,v_transfer.previous_owner_id,v_transfer.incoming_owner_id,v_now::text,p_registry_authority,p_completion_reference)),
-      v_transfer.id
-    )
-    ON CONFLICT (transfer_id) WHERE transfer_id IS NOT NULL DO NOTHING;
   END IF;
 
   UPDATE public.vehicle_ownership_transfers
      SET state=p_to_state,
          registry_authority=CASE WHEN p_to_state='complete' THEN btrim(p_registry_authority) ELSE registry_authority END,
          completion_reference=CASE WHEN p_to_state='complete' THEN btrim(p_completion_reference) ELSE completion_reference END,
-         completed_at=CASE WHEN p_to_state='complete' THEN v_now ELSE NULL END,
+         completed_at=CASE
+           WHEN p_to_state='complete' THEN coalesce(completed_at,v_now)
+           ELSE completed_at
+         END,
          version=version+1,
          updated_at=v_now
    WHERE id=v_transfer.id
