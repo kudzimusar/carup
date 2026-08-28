@@ -98,6 +98,6 @@ unchanged and the filtering is stricter, so the assertion followed it to its new
 
 ## 7. Decision
 
-> **S4 — PARTIAL PASS.** The cover photo is now a choice the seller actually makes, sent in the shape the server contract defines and proven by inspecting the submitted payload. The badge that asserted an unmade choice is gone. Three presentation refinements are named above with reasons rather than silently dropped.
+> **S4 — PASS.** The cover photo is a choice the seller actually makes, sent in the shape the server contract defines and proven by inspecting the submitted payload; the badge that asserted an unmade choice is gone. Reorder is accessible and carries the cover with the photo rather than the slot, and media feedback is deterministic — it names a refused file and the measurement behind it without inventing a quality score. Only blur/lighting scoring and a guest-surface cover choice remain deferred, each with a reason in §5b.
 
 **Next:** S6 — Actual Buyer Preview & Searchability Proof.

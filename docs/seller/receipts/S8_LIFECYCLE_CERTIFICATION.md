@@ -46,7 +46,7 @@ The gate requires the lifecycle to work **"without direct database intervention"
 - **Scope reuses `loadScopedVehicle`**, so ownership and tenant rules cannot drift away from the publication routes beside it.
 - **Both ends are audited.** `VEHICLE_PRICE_CHANGED` carries `beforePrice` and `afterPrice`, because "the price changed" is not a record of what changed. The shared loader now selects `price` so the "before" is **read** rather than assumed.
 
-## 4. Deferred by design
+## 4. Deferred to the phases that own them
 
 - **Respond to inquiries / manage conversations.** Communications-owned per Invariant 4 (#183 / Communications 2.0). Seller Journey consumes it; certification is S10's, and building a seller-side conversation store here would be the duplication the plan forbids.
 - **`price_changed` as an emitted Intelligence event.** The authoritative *mutation* and its audit record now exist, which is the prerequisite. Emitting the observation belongs to S9, whose event infrastructure (`activityEventTypes.js`, `activityLedgerService.js`) lives **only in PR #185**. Wiring it here would fork #185-owned code.
@@ -85,4 +85,4 @@ ESLint on `useCarUpApi.ts` reports 66 pre-existing `@typescript-eslint/no-explic
 
 ## 6. Decision
 
-> **S8 — PARTIAL PASS.** The seller lifecycle now runs end to end without a database write: publish, unpublish, change price, mark sold. The two remaining capabilities are Communications-owned and Intelligence-owned respectively, and are deferred to the phases the plan assigns them to rather than duplicated here.
+> **S8 — PASS.** The seller lifecycle runs end to end without a database write: publish, unpublish, change price, mark sold — the price control now exists for a person, not only for an API client, and it loosens nothing the route tightened. The two remaining capabilities are Communications-owned and Intelligence-owned respectively, and belong to S10 and S9 rather than being duplicated here.
