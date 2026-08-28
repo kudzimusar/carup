@@ -22,6 +22,9 @@ async function ownershipDb() {
       vin text PRIMARY KEY,
       owner_id text REFERENCES users(id),
       current_seller_id text,
+      current_seller_type text,
+      current_seller_type_source text,
+      publication_status text NOT NULL DEFAULT 'draft',
       tenant_id text
     );
     CREATE TABLE vehicle_ownership_history (
@@ -47,8 +50,12 @@ async function ownershipDb() {
       ('owner-new','owner'),
       ('reviewer-1','government');
 
-    INSERT INTO vehicles(vin,owner_id,current_seller_id,tenant_id)
-    VALUES ('VIN-PASSPORT-TRANSFER-1','owner-old','owner-old','tenant-a');
+    INSERT INTO vehicles(
+      vin,owner_id,current_seller_id,current_seller_type,current_seller_type_source,publication_status,tenant_id
+    )
+    VALUES (
+      'VIN-PASSPORT-TRANSFER-1','owner-old','owner-old','private','seller_declared','published','tenant-a'
+    );
   `);
 
   await db.exec(up('../../database/migrations/20260828203000_passport_ownership_transfer_authority.sql'));
@@ -107,10 +114,15 @@ test('V16 ownership migration executes on PostgreSQL and preserves one VIN throu
     assert.ok(completed.completed_at);
 
     const vehicle = await db.query(
-      `SELECT vin,owner_id FROM vehicles WHERE vin='VIN-PASSPORT-TRANSFER-1'`,
+      `SELECT vin,owner_id,current_seller_id,current_seller_type,current_seller_type_source,publication_status
+         FROM vehicles WHERE vin='VIN-PASSPORT-TRANSFER-1'`,
     );
     assert.equal(vehicle.rows[0].vin, 'VIN-PASSPORT-TRANSFER-1');
     assert.equal(vehicle.rows[0].owner_id, 'owner-new');
+    assert.equal(vehicle.rows[0].current_seller_id, null);
+    assert.equal(vehicle.rows[0].current_seller_type, null);
+    assert.equal(vehicle.rows[0].current_seller_type_source, null);
+    assert.equal(vehicle.rows[0].publication_status, 'publishable');
 
     const history = await db.query(
       `SELECT previous_owner_id,new_owner_id,transfer_id FROM vehicle_ownership_history WHERE vin='VIN-PASSPORT-TRANSFER-1'`,
@@ -174,6 +186,13 @@ test('V16 ownership migration supports post-completion dispute then governed uph
     });
     assert.equal(disputed.state, 'disputed');
     assert.equal(disputed.completed_at.toISOString(), firstCompletedAt.toISOString());
+
+    await assert.rejects(
+      () => transition(db, transfer.id, 'cancelled', 'owner-new', 'owner', {
+        reason: 'Attempt to erase a completed transfer.',
+      }),
+      /completed ownership transfer cannot be cancelled/i,
+    );
 
     const upheld = await transition(db, transfer.id, 'complete', 'reviewer-1', 'government', {
       authority: 'manual_governed_review',
@@ -315,6 +334,25 @@ test('Issue #158 custody migration withholds private column from service_role wh
   }
 });
 
+
+test('Issue #158 custody migration enforces one ACTIVE key per user', async () => {
+  const db = await custodyDb();
+  try {
+    await assert.rejects(
+      () => db.exec(`
+        INSERT INTO public_keys(
+          id,user_id,public_key_pem,key_type,status,created_at,key_ref,key_version,custody_provider
+        ) VALUES (
+          'key-second-active','user-1','PUBLIC-MATERIAL','secp256k1','ACTIVE','2026-08-28T00:00:00Z',
+          'derived:test:v1:second','v1','derived_master_secret'
+        )
+      `),
+      /uq_public_keys_one_active_per_user|unique constraint|duplicate key/i,
+    );
+  } finally {
+    await db.close();
+  }
+});
 
 test('V16 Communications template migration executes and registers an approved transactional version', async () => {
   const db = await PGlite.create();
