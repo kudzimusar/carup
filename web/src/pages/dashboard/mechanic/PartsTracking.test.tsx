@@ -7,7 +7,7 @@
  * coerced to zero.
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { render, screen } from '@testing-library/react'
+import { render, screen, waitFor } from '@testing-library/react'
 import PartsTracking from './PartsTracking'
 
 const fetchMechanicParts = vi.fn()
@@ -66,7 +66,7 @@ describe('nothing unrecorded is filled in', () => {
       { id: 'p2', name: 'Belt', sku: 'B-1', stock_level: 0, unit_price: 10 },
     ])
     render(<PartsTracking />)
-    expect(await screen.findByTestId('parts-out-of-stock')).toHaveTextContent('1')
+    await waitFor(() => expect(screen.getByTestId('parts-out-of-stock')).toHaveTextContent('1'))
     expect(screen.getByTestId('part-row-p1')).toHaveTextContent('Not recorded')
     expect(screen.getByTestId('part-row-p1')).not.toHaveTextContent('0 units')
   })

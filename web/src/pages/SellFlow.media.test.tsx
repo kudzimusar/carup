@@ -160,7 +160,7 @@ describe('S4 seller-chosen cover photo', () => {
   it('recommends the buyer shot list without turning a suggestion into a claim', async () => {
     await advanceToMediaStep()
     const guidance = screen.getByTestId('listing-media-guidance').textContent || ''
-    for (const shot of ['Front', 'Rear', 'Odometer', 'Any known damage']) {
+    for (const shot of ['Front', 'Rear', 'Odometer', 'Known damage']) {
       expect(guidance).toContain(shot)
     }
     // Guidance must not read as a requirement, and must never imply CarUp verified any of it.
