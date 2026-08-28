@@ -1,6 +1,6 @@
 # Vehicle Passport / Trust Lifecycle 1.0 — Dependency and Authority Map
 
-**Planning date:** 2026-08-28  
+**Planning date:** 2026-08-28
 **Canonical main at planning time:** ba208963d863654157335189c60f587cbe330041
 
 ## 1. Why this map exists

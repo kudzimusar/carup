@@ -1,6 +1,6 @@
 # Vehicle Passport / Trust Lifecycle 1.0 — Market Benchmark and Differentiation Matrix
 
-**Research date:** 2026-08-28  
+**Research date:** 2026-08-28
 **Purpose:** convert market research into product requirements without copying another product's architecture or visual identity.
 
 ## 1. Benchmark thesis
