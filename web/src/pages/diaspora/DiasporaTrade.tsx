@@ -703,6 +703,9 @@ export function DiasporaImportList() {
             <Link to="/diaspora/imports/new">New import order</Link>
           </Button>
         </div>
+        <div className="mt-6">
+          <TradeIntelligence windowDays={30} />
+        </div>
         {loading && <div className="mt-8 text-orange-600" data-testid="diaspora-import-list-loading">Loading import orders...</div>}
         {error && <Alert className="mt-8 border-red-200" data-testid="diaspora-import-list-error"><AlertCircle className="h-4 w-4" /><AlertTitle>Unable to load</AlertTitle><AlertDescription>{error}</AlertDescription></Alert>}
         {!loading && !error && (
