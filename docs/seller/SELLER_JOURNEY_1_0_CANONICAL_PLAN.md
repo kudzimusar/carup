@@ -19,6 +19,14 @@ A seller should enter information once and that canonical information should cor
 
 The advertisement is temporary. The vehicle truth must persist.
 
+### Platform taxonomy dependency
+
+Seller Journey S0 initiates the hardening of CarUp's vehicle taxonomy, but the resulting taxonomy is a **platform-wide global contract**, not a Seller-owned asset.
+
+Canonical authority: `docs/platform/CARUP_GLOBAL_VEHICLE_TAXONOMY_CONTRACT.md`
+
+Once production-certified, Sell, Buy/Marketplace, Home, Verify/Passport, Intelligence, Imports/Diaspora, mobile, dealer/admin tools, backend services and public/partner APIs must consume or extend that one taxonomy rather than recreate local vocabularies.
+
 This document is the durable product, engineering, QA, UAT, merge and future-agent manual for the Seller Journey 1.0 programme.
 
 No implementation agent should begin Seller Journey work without reading this document and reconciling its source anchors against live repository state.
@@ -158,7 +166,11 @@ Never collapse:
 
 They must remain independently calculated and independently presented.
 
-### Invariant 7 — Missing stays missing
+### Invariant 7 — Taxonomy is global, not feature-local
+
+Seller Journey may discover or extend taxonomy requirements, but it must not own a private Seller taxonomy. Once a dimension is canonical, every CarUp surface must consume or extend the global contract rather than create another list.
+
+### Invariant 8 — Missing stays missing
 
 No UI, API, migration or projection may fabricate a plausible default for an unknown vehicle fact.
 
@@ -172,7 +184,7 @@ A missing value is not zero, false, “local,” “USD,” “2020,” “priva
 
 ### Goal
 
-Create one governed vehicle language and one complete Seller data contract before expanding Seller runtime UX.
+Establish CarUp's **global governed vehicle language** and one complete Seller data contract before expanding Seller runtime UX. Seller S0 is the initiating workstream; the completed taxonomy is owned by the CarUp platform and reused globally.
 
 ### Scope
 
@@ -196,7 +208,8 @@ Keep independent dimensions for:
 
 ### Deliverables
 
-- canonical taxonomy contract;
+- platform-wide global taxonomy contract (`docs/platform/CARUP_GLOBAL_VEHICLE_TAXONOMY_CONTRACT.md`);
+- global consumer matrix covering Sell, Buy/Marketplace, Home, Verify/Passport, Intelligence, Imports/Diaspora, mobile, backend and APIs;
 - alias / regional naming strategy;
 - Zimbabwe / JDM / SADC seed policy;
 - unknown / Other handling;
@@ -212,9 +225,9 @@ Keep independent dimensions for:
 
 S0 passes only when contract tests can prove, for every applicable dimension:
 
-`Sell value → canonical persistence → public/Marketplace projection → applicable filter → Verify/Passport projection`
+`source value → global taxonomy normalization → canonical persistence → required product projections/filters/analytics`
 
-No incompatible vocabulary and no dead Seller fields.
+No incompatible vocabulary, no dead Seller fields, and no required CarUp surface maintaining an independent competing taxonomy.
 
 ---
 
