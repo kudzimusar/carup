@@ -321,6 +321,28 @@ BEGIN
       ),
       'pending',0,v_transfer.tenant_id
     );
+
+    -- Completion changes a relationship for BOTH parties. The incoming owner gets
+    -- the primary completion event above; the previous owner receives a distinct
+    -- durable event rather than relying on UI state or an out-of-band message.
+    IF p_to_state='complete' AND v_transfer.previous_owner_id IS DISTINCT FROM v_transfer.incoming_owner_id THEN
+      INSERT INTO public.domain_events(event_type,payload,status,attempts,tenant_id)
+      VALUES(
+        'vehicle.ownership.transfer_completed',
+        jsonb_build_object(
+          'transferId',v_transfer.id,
+          'vin',v_transfer.vin,
+          'recipientUserId',v_transfer.previous_owner_id,
+          'recipient_role','previous_owner',
+          'previousOwnerId',v_transfer.previous_owner_id,
+          'incomingOwnerId',v_transfer.incoming_owner_id,
+          'transfer_state',p_to_state,
+          'subject_type','vehicle',
+          'subject_id',v_transfer.vin
+        ),
+        'pending',0,v_transfer.tenant_id
+      );
+    END IF;
   END IF;
 
   RETURN v_transfer;
