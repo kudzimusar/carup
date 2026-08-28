@@ -42,6 +42,26 @@ test('V7: transfer cannot jump from not-started to complete', () => {
   );
 });
 
+test('V7: previously completed transfer cannot be ordinary-cancelled after dispute', () => {
+  assert.equal(
+    canTransitionPassportTransfer(
+      PASSPORT_TRANSFER_STATES.DISPUTED,
+      PASSPORT_TRANSFER_STATES.CANCELLED,
+      { previouslyCompleted: true },
+    ),
+    false,
+  );
+
+  assert.throws(
+    () => transitionPassportTransfer(
+      PASSPORT_TRANSFER_STATES.DISPUTED,
+      PASSPORT_TRANSFER_STATES.CANCELLED,
+      { actorId: 'owner-1', previouslyCompleted: true },
+    ),
+    /Illegal Passport transfer transition/,
+  );
+});
+
 test('V7: dispute requires an explicit reason', () => {
   assert.throws(
     () => transitionPassportTransfer(
