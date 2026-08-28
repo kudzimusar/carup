@@ -1,9 +1,10 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { ArrowLeft, ArrowRight, BadgeCheck, Camera, CarFront, CircleDot, Eye, FileCheck2, Gauge, LockKeyhole, LogIn, MapPin, ScanLine, ShieldCheck, Sparkles, UploadCloud, WalletCards, X } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { useAuth } from '@/context/AuthContext'
 import { zimbabweLocations, zimbabweProvinces } from '@/data/mockData'
 import { BODY_STYLES, DRIVETRAINS, FUEL_TYPES, SELLER_CONDITIONS, TRANSMISSIONS, VEHICLE_COLORS, VEHICLE_MAKES, isValidVehicleYear, modelsForMake } from '@/data/vehicleTaxonomy'
@@ -12,9 +13,29 @@ import { MarketplaceListingCard } from '@/components/marketplace/MarketplaceList
 import { sellerDiscoverabilityFacets, sellerDraftToCardModel } from '@/lib/sellerListingPreview'
 import { VehicleIdentificationNotice } from '@/components/sell/VehicleIdentificationNotice'
 import { useSellerVehicleIdentification } from '@/hooks/useSellerVehicleIdentification'
+import { useCarUpApi } from '@/hooks/useCarUpApi'
+import { VehicleHistoryCoveragePanel, type HistoryEvidencePlanState } from '@/components/sell/VehicleHistoryCoveragePanel'
+import { SellerDocumentAutofillNotice } from '@/components/sell/SellerDocumentAutofillNotice'
+import type { EvidenceSourcesResponse, EvidenceTaxonomyResponse } from '@/types'
 import { toast } from 'sonner'
 
 const CURRENCIES = ['USD', 'ZiG']
+
+const PHOTO_LABELS = [
+  'Front three-quarter',
+  'Front',
+  'Driver side',
+  'Passenger side',
+  'Rear three-quarter',
+  'Rear',
+  'Interior',
+  'Dashboard',
+  'Odometer',
+  'Engine',
+  'Tyres',
+  'Known damage',
+  'Other',
+] as const
 
 const STEP_META = [
   { label: 'Vehicle', verb: 'Identify', note: 'Anchor the right car', icon: CarFront },
@@ -39,7 +60,9 @@ const INITIAL = {
   mileage: '', condition: '', category: '', fuelType: '', transmission: '', drivetrain: '',
   location: '', province: '', price: '', currency: '', description: '',
   engineNumber: '', chassisNumber: '', plateNumber: '', tempPlateId: '', importStatus: '',
-  features: [] as string[], images: [] as string[],
+  features: [] as string[], images: [] as string[], imageLabels: [] as string[],
+  coverImageIndex: null as number | null,
+  historyPlan: {} as Record<string, HistoryEvidencePlanState>,
 }
 
 type GuestForm = typeof INITIAL
@@ -50,20 +73,77 @@ function validVin(vin: string) {
 
 export default function GuestSell() {
   const { isAuthenticated } = useAuth()
+  const { fetchEvidenceTaxonomy, fetchEvidenceSources } = useCarUpApi()
   const [step, setStep] = useState(0)
   const [form, setForm] = useState<GuestForm>(INITIAL)
   const [feature, setFeature] = useState('')
   const [errors, setErrors] = useState<Record<string, string>>({})
   const [draftSaved, setDraftSaved] = useState(false)
+  const [taxonomy, setTaxonomy] = useState<EvidenceTaxonomyResponse | null>(null)
+  const [sources, setSources] = useState<EvidenceSourcesResponse | null>(null)
+  const [historyLoading, setHistoryLoading] = useState(true)
+  const [buyerPreviewOpen, setBuyerPreviewOpen] = useState(false)
   const modelOptions = useMemo(() => modelsForMake(form.make).map(item => item.name), [form.make])
   // S6: exactly the facets a buyer could search this listing by today — no padding.
   const discoverability = useMemo(() => sellerDiscoverabilityFacets(form), [form])
   // S1: detect an existing CarUp Passport before the seller invests in the rest of the form.
   const { result: identification, checking: identifying } = useSellerVehicleIdentification(form.vin)
 
+  useEffect(() => {
+    let active = true
+    setHistoryLoading(true)
+    Promise.allSettled([fetchEvidenceTaxonomy(), fetchEvidenceSources()])
+      .then(([taxonomyResult, sourceResult]) => {
+        if (!active) return
+        if (taxonomyResult.status === 'fulfilled') setTaxonomy(taxonomyResult.value)
+        if (sourceResult.status === 'fulfilled') setSources(sourceResult.value)
+      })
+      .finally(() => { if (active) setHistoryLoading(false) })
+    return () => { active = false }
+  }, [fetchEvidenceTaxonomy, fetchEvidenceSources])
+
   const set = <K extends keyof GuestForm>(key: K, value: GuestForm[K]) => {
     setForm(previous => ({ ...previous, [key]: value }))
     setDraftSaved(false)
+  }
+
+  const setHistoryPlan = (evidenceClass: string, state: HistoryEvidencePlanState) => {
+    set('historyPlan', { ...form.historyPlan, [evidenceClass]: state })
+  }
+
+  const setImageLabel = (index: number, label: string) => {
+    const labels = [...form.imageLabels]
+    labels[index] = label
+    set('imageLabels', labels)
+  }
+
+  const setCoverImage = (index: number) => {
+    set('coverImageIndex', index)
+  }
+
+  const removeImage = (index: number) => {
+    setForm(previous => {
+      const images = previous.images.filter((_, i) => i !== index)
+      const imageLabels = previous.imageLabels.filter((_, i) => i !== index)
+      let coverImageIndex = previous.coverImageIndex
+      if (coverImageIndex === index) coverImageIndex = null
+      else if (coverImageIndex !== null && coverImageIndex > index) coverImageIndex -= 1
+      return { ...previous, images, imageLabels, coverImageIndex }
+    })
+    setDraftSaved(false)
+  }
+
+  const assignShot = (label: string) => {
+    if (form.images.length === 0) {
+      toast.info('Add a photo first, then attach a walk-around label.')
+      return
+    }
+    const target = form.imageLabels.findIndex(value => !value)
+    if (target === -1) {
+      toast.info('Every current photo already has a label. Change one from the gallery if needed.')
+      return
+    }
+    setImageLabel(target, label)
   }
 
   const validate = () => {
@@ -114,10 +194,15 @@ export default function GuestSell() {
     }))).then(results => {
       const images = results.filter(Boolean)
       if (images.length === 0) return
-      setForm(previous => ({
-        ...previous,
-        images: [...previous.images, ...images].slice(0, 10),
-      }))
+      setForm(previous => {
+        const nextImages = [...previous.images, ...images].slice(0, 10)
+        const addedCount = Math.max(0, nextImages.length - previous.images.length)
+        return {
+          ...previous,
+          images: nextImages,
+          imageLabels: [...previous.imageLabels, ...Array(addedCount).fill('')].slice(0, 10),
+        }
+      })
       setDraftSaved(false)
     })
   }
@@ -399,6 +484,16 @@ export default function GuestSell() {
                       <span>{form.description.trim().length}/500</span>
                     </div>
                   </div>
+
+                  <SellerDocumentAutofillNotice />
+
+                  <VehicleHistoryCoveragePanel
+                    taxonomy={taxonomy}
+                    sources={sources}
+                    plan={form.historyPlan}
+                    onPlanChange={setHistoryPlan}
+                    loading={historyLoading}
+                  />
                 </div>
               )}
 
@@ -420,10 +515,26 @@ export default function GuestSell() {
                       <p className="mt-3 text-sm font-black">A buyer’s walk-around</p>
                       <p className="mt-1 text-xs leading-5 text-slate-400">Think like someone inspecting the car from another city.</p>
                       <div className="mt-4 grid grid-cols-2 gap-2 text-[11px]">
-                        {['Front', 'Rear', 'Driver side', 'Passenger side', 'Interior', 'Dashboard', 'Odometer', 'Engine'].map(shot => (
-                          <span key={shot} className="rounded-xl bg-white/[0.06] px-2.5 py-2 text-slate-300">{shot}</span>
-                        ))}
+                        {PHOTO_LABELS.slice(0, 10).map(shot => {
+                          const assigned = form.imageLabels.includes(shot)
+                          return (
+                            <button
+                              key={shot}
+                              type="button"
+                              onClick={() => assignShot(shot)}
+                              className={'rounded-xl px-2.5 py-2 text-left transition ' + (
+                                assigned
+                                  ? 'bg-emerald-400/15 text-emerald-200 ring-1 ring-emerald-400/30'
+                                  : 'bg-white/[0.06] text-slate-300 hover:bg-white/10'
+                              )}
+                              aria-pressed={assigned}
+                            >
+                              {assigned ? '✓ ' : ''}{shot}
+                            </button>
+                          )
+                        })}
                       </div>
+                      <p className="mt-3 text-[10px] leading-4 text-slate-500">Tap a block to attach it to the next unlabeled photo, or choose a label directly beneath any image.</p>
                       <p className="mt-4 text-[11px] leading-5 text-orange-200">Listing photos help buyers decide. They are not verified evidence.</p>
                     </div>
                   </div>
@@ -436,10 +547,31 @@ export default function GuestSell() {
                       </div>
                       <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
                         {form.images.map((src, index) => (
-                          <div key={`${src.slice(0, 24)}-${index}`} className="group relative aspect-[4/3] overflow-hidden rounded-2xl bg-slate-100 shadow-[0_12px_28px_rgba(15,23,42,0.12)]">
-                            <img src={src} alt={`Draft vehicle photo ${index + 1}`} className="h-full w-full object-cover transition duration-300 group-hover:scale-[1.03]" />
-                            <div className="absolute bottom-2 left-2 rounded-lg bg-black/65 px-2 py-1 text-[10px] font-bold text-white">Photo {index + 1}</div>
-                            <button type="button" onClick={() => set('images', form.images.filter((_, i) => i !== index))} className="absolute right-2 top-2 rounded-xl bg-slate-950/80 p-1.5 text-white opacity-80 transition hover:opacity-100 focus:opacity-100" aria-label={`Remove photo ${index + 1}`}><X className="h-4 w-4" /></button>
+                          <div key={`${src.slice(0, 24)}-${index}`} className="space-y-2">
+                            <div className="group relative aspect-[4/3] overflow-hidden rounded-2xl bg-slate-100 shadow-[0_12px_28px_rgba(15,23,42,0.12)]">
+                              <img src={src} alt={form.imageLabels[index] || `Draft vehicle photo ${index + 1}`} className="h-full w-full object-cover transition duration-300 group-hover:scale-[1.03]" />
+                              <div className="absolute bottom-2 left-2 flex flex-wrap gap-1">
+                                <span className="rounded-lg bg-black/65 px-2 py-1 text-[10px] font-bold text-white">Photo {index + 1}</span>
+                                {form.imageLabels[index] && <span className="rounded-lg bg-orange-500 px-2 py-1 text-[10px] font-black text-white">{form.imageLabels[index]}</span>}
+                                {form.coverImageIndex === index && <span className="rounded-lg bg-emerald-600 px-2 py-1 text-[10px] font-black text-white">Cover</span>}
+                              </div>
+                              <button type="button" onClick={() => removeImage(index)} className="absolute right-2 top-2 rounded-xl bg-slate-950/80 p-1.5 text-white opacity-80 transition hover:opacity-100 focus:opacity-100" aria-label={`Remove photo ${index + 1}`}><X className="h-4 w-4" /></button>
+                            </div>
+                            <Select value={form.imageLabels[index] || ''} onValueChange={value => setImageLabel(index, value)}>
+                              <SelectTrigger className="h-9 text-[11px]" aria-label={`Photo ${index + 1} angle or view`}>
+                                <SelectValue placeholder="Label angle / view" />
+                              </SelectTrigger>
+                              <SelectContent>{PHOTO_LABELS.map(label => <SelectItem key={label} value={label}>{label}</SelectItem>)}</SelectContent>
+                            </Select>
+                            <Button
+                              type="button"
+                              size="sm"
+                              variant={form.coverImageIndex === index ? 'default' : 'outline'}
+                              onClick={() => setCoverImage(index)}
+                              className="h-8 w-full text-[11px]"
+                            >
+                              {form.coverImageIndex === index ? 'Cover selected' : 'Make cover'}
+                            </Button>
                           </div>
                         ))}
                       </div>
@@ -482,10 +614,15 @@ export default function GuestSell() {
                         <MarketplaceListingCard
                           vehicle={sellerDraftToCardModel(form)}
                           href="#"
-                          ctaLabel="Preview only"
+                          ctaLabel="Draft buyer preview"
                           dataTestId="guest-sell-preview-card"
                           showMissingMileage
+                          allowLocalDraftMedia
+                          previewMode
                         />
+                        <Button type="button" variant="outline" className="mt-4 w-full rounded-xl" onClick={() => setBuyerPreviewOpen(true)}>
+                          <Eye className="mr-2 h-4 w-4" /> Open full buyer preview
+                        </Button>
                       </div>
                     </div>
                   </div>
@@ -546,6 +683,40 @@ export default function GuestSell() {
           </section>
         </div>
       </main>
+
+      <Dialog open={buyerPreviewOpen} onOpenChange={setBuyerPreviewOpen}>
+        <DialogContent className="max-h-[92vh] overflow-y-auto sm:max-w-2xl">
+          <DialogHeader>
+            <DialogTitle>Full buyer preview</DialogTitle>
+            <DialogDescription>
+              Browser-only preview of the real Marketplace card. Nothing here is published or verified yet.
+            </DialogDescription>
+          </DialogHeader>
+          {form.images.length > 1 && (
+            <div className="grid grid-cols-4 gap-2">
+              {form.images.map((src, index) => (
+                <div key={index} className="relative aspect-[4/3] overflow-hidden rounded-xl bg-slate-100">
+                  <img src={src} alt={form.imageLabels[index] || `Draft photo ${index + 1}`} className="h-full w-full object-cover" />
+                  <span className="absolute inset-x-1 bottom-1 truncate rounded bg-black/65 px-1.5 py-0.5 text-[9px] font-bold text-white">
+                    {form.imageLabels[index] || `Photo ${index + 1}`}
+                  </span>
+                </div>
+              ))}
+            </div>
+          )}
+          <div className="mx-auto w-full max-w-md">
+            <MarketplaceListingCard
+              vehicle={sellerDraftToCardModel(form)}
+              href="#"
+              ctaLabel="Draft buyer preview"
+              dataTestId="guest-sell-full-preview-card"
+              showMissingMileage
+              allowLocalDraftMedia
+              previewMode
+            />
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }
