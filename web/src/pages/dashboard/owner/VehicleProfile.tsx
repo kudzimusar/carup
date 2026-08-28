@@ -106,7 +106,9 @@ export default function VehicleProfile() {
   const [searchParams, setSearchParams] = useSearchParams()
   const { fetchVehiclePassport, fetchVehicleEvidence, fetchEvidenceTaxonomy, fetchEvidenceSources } = useCarUpApi()
   const [passportData, setPassportData] = useState<VehiclePassport | null>(null)
+  const [passportLoadState, setPassportLoadState] = useState<'loading' | 'ready' | 'error'>('loading')
   const [evidenceList, setEvidenceList] = useState<VehicleEvidence[]>([])
+  const [evidenceLoadState, setEvidenceLoadState] = useState<'loading' | 'ready' | 'error'>('loading')
   const [isUploadModalOpen, setIsUploadModalOpen] = useState(() => searchParams.get('upload') === '1')
 
   // Deep-link support: /dashboard/garage/<vin>?upload=1 (e.g. from the completeness panel's
@@ -119,23 +121,38 @@ export default function VehicleProfile() {
 
   const loadEvidence = useCallback(() => {
     if (!id) return
+    setEvidenceLoadState('loading')
     fetchVehicleEvidence(id)
       .then(data => {
         setEvidenceList(data || [])
+        setEvidenceLoadState('ready')
       })
-      .catch(err => console.error('Error fetching vehicle evidence:', err))
+      .catch(err => {
+        console.error('Error fetching vehicle evidence:', err)
+        setEvidenceLoadState('error')
+      })
   }, [fetchVehicleEvidence, id])
 
-  useEffect(() => {
+  const loadPassport = useCallback(() => {
     if (!id) return
+    setPassportLoadState('loading')
     fetchVehiclePassport(id)
       .then(data => {
         setPassportData(data)
+        setPassportLoadState('ready')
       })
-      .catch(err => console.error('Error fetching passport details:', err))
-    
+      .catch(err => {
+        console.error('Error fetching passport details:', err)
+        setPassportData(null)
+        setPassportLoadState('error')
+      })
+  }, [fetchVehiclePassport, id])
+
+  useEffect(() => {
+    if (!id) return
+    loadPassport()
     loadEvidence()
-  }, [fetchVehiclePassport, id, loadEvidence])
+  }, [id, loadPassport, loadEvidence])
 
   useEffect(() => {
     let mounted = true
@@ -148,10 +165,29 @@ export default function VehicleProfile() {
   }, [fetchEvidenceTaxonomy, fetchEvidenceSources])
 
 
+  if (!passportData && passportLoadState === 'error') {
+    return (
+      <main className="mx-auto max-w-3xl p-4 sm:p-8" aria-labelledby="passport-error-title">
+        <Card className="border-amber-200 bg-amber-50">
+          <CardContent className="p-6 text-center" role="alert">
+            <h1 id="passport-error-title" className="text-lg font-semibold text-gray-900">Vehicle Passport unavailable</h1>
+            <p className="mt-2 text-sm text-gray-700">
+              CarUp could not load this Passport. This does not mean the vehicle has no records.
+            </p>
+            <Button className="mt-4 min-h-11" variant="outline" onClick={() => { loadPassport(); loadEvidence() }}>
+              Retry Passport
+            </Button>
+          </CardContent>
+        </Card>
+      </main>
+    )
+  }
+
   if (!passportData) {
     return (
-      <div className="flex items-center justify-center p-12">
-        <Loader2 className="w-8 h-8 animate-spin text-orange-500" />
+      <div className="flex items-center justify-center gap-3 p-12" role="status" aria-live="polite">
+        <Loader2 className="w-8 h-8 animate-spin motion-reduce:animate-none text-orange-500" aria-hidden="true" />
+        <span className="sr-only">Loading Vehicle Passport</span>
       </div>
     )
   }
