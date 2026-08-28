@@ -13,13 +13,17 @@
 
 ## 1. S0 objective
 
-S0 establishes one governed vehicle language and one complete Seller data contract before Seller Journey 1.0 expands runtime UX.
+S0 establishes CarUp's **global governed vehicle language** and one complete Seller data contract before Seller Journey 1.0 expands runtime UX. Seller Journey is the initiating programme; the resulting taxonomy is a platform-owned contract for all CarUp products.
 
-The S0 production invariant is:
+Canonical global taxonomy authority: `docs/platform/CARUP_GLOBAL_VEHICLE_TAXONOMY_CONTRACT.md`
+
+The S0 production invariants are:
 
 > A value accepted from Sell must have a canonical destination, known authority/provenance, and a deliberate projection policy across Marketplace, Home, Verify/Passport, Communications and Intelligence.
+>
+> A taxonomy value defined or resolved in S0 must be globally reusable by Buy/Marketplace, Home, Verify/Passport, Intelligence, Imports/Diaspora, mobile, backend services, APIs and future CarUp surfaces without local reimplementation.
 
-S0 does not attempt to hard-code every vehicle ever manufactured. It creates an **extensible exhaustive system** with a high-quality Zimbabwe/JDM/SADC seed, explicit unknown handling, aliases, versioning and review governance.
+S0 does not attempt to hard-code every vehicle ever manufactured. It creates an **extensible exhaustive system** with a high-quality Zimbabwe/JDM/SADC seed, explicit unknown handling, aliases, versioning and review governance. Global does not mean every surface shows every value; it means every surface derives its task-appropriate subset from the same canonical contract.
 
 ---
 
@@ -288,7 +292,32 @@ The current write path treats form-entered listing location as public when visib
 
 ---
 
-## 6. Canonical taxonomy model to freeze
+## 6. Global taxonomy ownership and consumer scope
+
+S0 is now explicitly a platform-foundation phase initiated by Seller Journey.
+
+The completed taxonomy MUST be reused by:
+
+- Sell / Seller Journey;
+- Buy / Marketplace;
+- Home discovery/marketing shortcuts;
+- Verify and Vehicle Passport;
+- Vehicle Detail;
+- Intelligence / AI / analytics;
+- Imports / Diaspora Trade;
+- mobile/native Marketplace and future mobile authoring;
+- dealer/admin/stakeholder tools;
+- backend normalization and validation;
+- public/partner APIs;
+- future regional CarUp products.
+
+Current audit already shows local divergence outside Seller: mobile Marketplace hardcodes five makes, Verify derives makes only from returned listings, Intelligence compares some vehicle dimensions as raw strings, and Diaspora import orders accept free-text make/model/year. These are consumer-convergence findings, not reasons to create separate taxonomies.
+
+See `docs/platform/CARUP_GLOBAL_VEHICLE_TAXONOMY_CONTRACT.md` for the permanent platform contract.
+
+---
+
+## 7. Canonical taxonomy model to freeze
 
 S0 proposes the following conceptual hierarchy:
 
@@ -323,7 +352,7 @@ Those are independent facts/classifications. They must not be collapsed into one
 
 ---
 
-## 7. Taxonomy authority states
+## 8. Taxonomy authority states
 
 Every taxonomy value should be representable with an authority state appropriate to its source.
 
@@ -351,7 +380,7 @@ Unknown/unrecognized values must never be silently mapped to a plausible canonic
 
 ---
 
-## 8. Alias and regional naming policy
+## 9. Alias and regional naming policy
 
 The canonical taxonomy must support multiple market names without duplicating vehicle identity.
 
@@ -379,7 +408,7 @@ The canonical name is a normalization choice, not a claim that one regional name
 
 ---
 
-## 9. Year policy
+## 10. Year policy
 
 S0 freezes the following design direction:
 
@@ -394,7 +423,7 @@ The precise lower bound and historical-vehicle policy remain an S0 decision to c
 
 ---
 
-## 10. Initial Seller Data Contract Matrix
+## 11. Initial Seller Data Contract Matrix
 
 | Seller input | Current accepted? | Current canonical persistence | Authority target | Marketplace/filter target | S0 status |
 |---|---:|---|---|---|---|
@@ -432,7 +461,7 @@ This matrix is the first S0 baseline. It must be expanded against schema, API, p
 
 ---
 
-## 11. Communications boundary frozen in S0
+## 12. Communications boundary frozen in S0
 
 S0 does not add provider-specific seller logic.
 
@@ -449,7 +478,7 @@ Communications remains owner of channel policy, preferences, consent, retries, d
 
 ---
 
-## 12. Intelligence boundary frozen in S0
+## 13. Intelligence boundary frozen in S0
 
 Seller Journey domain state leads; Intelligence observes.
 
@@ -473,7 +502,7 @@ Authoritative lifecycle events must be emitted server-side adjacent to the autho
 
 ---
 
-## 13. S0 implementation sequence once a runtime lane is legal
+## 14. S0 implementation sequence once a runtime lane is legal
 
 1. Reconcile exact live main and PR heads.
 2. Choose the canonical implementation base containing accepted #182 work.
@@ -493,7 +522,7 @@ Authoritative lifecycle events must be emitted server-side adjacent to the autho
 
 ---
 
-## 14. S0 measurable exit gate
+## 15. S0 measurable exit gate
 
 S0 is PASS only when all of the following are proven at one exact candidate head:
 
@@ -501,6 +530,12 @@ S0 is PASS only when all of the following are proven at one exact candidate head
 - no accepted field is silently discarded;
 - guest/authenticated Seller share the same taxonomy contract;
 - Marketplace direct filters use the same canonical vocabularies;
+- Home vehicle shortcuts validate against the same taxonomy;
+- Verify/Passport uses the same normalization semantics;
+- Intelligence groups aliases through the same canonical mapping;
+- Imports/Diaspora can select canonical values while safely preserving unrecognized requests;
+- mobile does not maintain a local make/model taxonomy;
+- backend/web/mobile/API consumers derive from the same platform authority;
 - years use one policy;
 - body style and commercial condition are separate;
 - unknown/unrecognized values remain honest;
@@ -510,5 +545,7 @@ S0 is PASS only when all of the following are proven at one exact candidate head
 - Communications and Intelligence boundaries are wired without architectural duplication;
 - automated contract tests pass;
 - staging evidence proves write/read/filter parity.
+
+After S0 certification, any future feature needing vehicle taxonomy must extend or consume the global contract rather than recreate taxonomy locally.
 
 Until then S0 remains IN PROGRESS.
