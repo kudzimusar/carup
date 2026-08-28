@@ -84,6 +84,9 @@ jobs:
       - name: Passport V10 Marketplace convergence contract
         run: node --test backend/tests/passport-v10-marketplace-convergence.test.js
 
+      - name: Passport V11 cross-surface convergence contract
+        run: node --test backend/tests/passport-v11-surface-convergence.test.js
+
       - name: Preserve canonical Trust public read path
         run: node --test backend/tests/issue164-phase3-trust-authority.test.js
 
@@ -118,6 +121,7 @@ jobs:
           node --check backend/services/passport/passportServicePartsProjection.js
           node --check backend/services/passport/passportAttentionRail.js
           node --check backend/services/passport/passportMarketplaceConvergence.js
+          node --check backend/services/passport/passportSurfaceConvergence.js
 
       - name: Diff hygiene
         run: git diff --check HEAD^ HEAD
