@@ -25,6 +25,8 @@ Seller Journey S0 initiates the hardening of CarUp's vehicle taxonomy, but the r
 
 Canonical authority: `docs/platform/CARUP_GLOBAL_VEHICLE_TAXONOMY_CONTRACT.md`
 
+Canonical schema: `docs/platform/CARUP_GLOBAL_VEHICLE_TAXONOMY_SCHEMA.md`
+
 Once production-certified, Sell, Buy/Marketplace, Home, Verify/Passport, Intelligence, Imports/Diaspora, mobile, dealer/admin tools, backend services and public/partner APIs must consume or extend that one taxonomy rather than recreate local vocabularies.
 
 This document is the durable product, engineering, QA, UAT, merge and future-agent manual for the Seller Journey 1.0 programme.
