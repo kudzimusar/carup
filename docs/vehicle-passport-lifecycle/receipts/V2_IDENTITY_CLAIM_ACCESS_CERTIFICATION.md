@@ -2,7 +2,7 @@
 
 **Date:** 2026-08-28
 **Phase:** V2 — Vehicle Identity, Claim and Access
-**Status:** IMPLEMENTED / EXACT-HEAD CI PENDING
+**Status:** PASS — EXACT-HEAD FOUNDATION CERTIFIED
 
 ## Scope decision
 
@@ -135,6 +135,24 @@ V2 does not yet implement:
 
 Those require exact-head Seller reconciliation and later phase authorization.
 
+## Exact-head certification
+
+Certified code head:
+
+- exact code head: `b27d860462996d1cf8f12193b5cdca9e894fff91`
+- Vehicle Passport Foundation CI run: `33161997283`
+- V1 Passport foundation contract — PASS
+- V2 identity/access contract — PASS
+- canonical Issue #164 Passport lookup policy — PASS
+- canonical Trust decision authority — PASS
+- Passport syntax checks — PASS
+- diff hygiene — PASS
+- changed-file overlap with Seller PR #182 — **0 files**
+
+The preceding V2 run failed only because the anti-fork test matched the word “authorization” in a source comment. The guard was corrected to detect concrete header/session/auth implementation. No product behavior or authority boundary was weakened.
+
 ## Phase decision
 
-**V2 FOUNDATION IMPLEMENTED. EXACT-HEAD CI REQUIRED BEFORE ADVANCING.**
+**V2 FOUNDATION PASS.**
+
+Persistent vehicle-claim storage and Seller/ownership write integration remain blocked. V3 may proceed only as isolated Passport evidence/provenance projection work.
