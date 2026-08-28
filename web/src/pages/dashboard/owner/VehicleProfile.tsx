@@ -121,7 +121,6 @@ export default function VehicleProfile() {
 
   const loadEvidence = useCallback(() => {
     if (!id) return
-    setEvidenceLoadState('loading')
     fetchVehicleEvidence(id)
       .then(data => {
         setEvidenceList(data || [])
@@ -173,7 +172,12 @@ export default function VehicleProfile() {
             <p className="mt-2 text-sm text-gray-700">
               CarUp could not load this Passport. This does not mean the vehicle has no records.
             </p>
-            <Button className="mt-4 min-h-11" variant="outline" onClick={() => { setPassportLoadState('loading'); loadPassport(); loadEvidence() }}>
+            <Button className="mt-4 min-h-11" variant="outline" onClick={() => {
+              setPassportLoadState('loading')
+              setEvidenceLoadState('loading')
+              loadPassport()
+              loadEvidence()
+            }}>
               Retry Passport
             </Button>
           </CardContent>
@@ -725,6 +729,8 @@ export default function VehicleProfile() {
         vin={vehicle.vin}
         timelineEvents={passportData.timeline || []}
         onSuccess={() => {
+          setEvidenceLoadState('loading')
+          setPassportLoadState('loading')
           loadEvidence()
           loadPassport()
         }}
