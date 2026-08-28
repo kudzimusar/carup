@@ -2,7 +2,7 @@
 
 **Date:** 2026-08-28
 **Phase:** V15 — Mobile, Offline/Low-Bandwidth and Accessibility Parity
-**Status:** IMPLEMENTED / EXACT-HEAD CI PENDING
+**Status:** PASS — EXACT-HEAD FOUNDATION CERTIFIED
 
 ## Shared-file reconciliation
 
@@ -81,6 +81,24 @@ Passport CI also reruns:
 - the existing owner claim-badge truth tests;
 - the existing native mobile certification service suite.
 
+## Exact-head certification
+
+Certified head:
+
+- exact head: `3bd9da4aa62878acec0c8d81f225bc034e8abb5e`
+- Vehicle Passport Foundation CI run: `33168703856` — **PASS**
+- Passport V1–V15 cumulative contracts — PASS
+- V15 rendered compact/accessibility tests — PASS
+- existing owner claim-truth regression suite — PASS
+- native mobile certification contract — PASS
+- canonical V14/source verification, Communications, Trust, governance, evidence, lookup, service and PartSentry guards — PASS
+- syntax/diff hygiene — PASS
+
+Two gate defects were fixed without weakening product behavior:
+
+1. Vitest was initially launched from repo root, bypassing the web workspace Vite alias configuration. The gate now runs from `web/`.
+2. The Radix Tabs fixture used a bare click. Existing repository tests prove Radix activates on mouse-down/focus in jsdom; V15 now uses the same interaction.
+
 ## Phase decision
 
-**V15 IMPLEMENTED. EXACT-HEAD CI + BUILD REQUIRED BEFORE V16.**
+**V15 PASS. V16 AUTHORIZED.**
