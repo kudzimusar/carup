@@ -29,8 +29,9 @@ const STEPS = ['Vehicle Details', 'Location & Pricing', 'Images & Features', 'Re
  * governed evidence.
  */
 const LISTING_PHOTO_SEQUENCE = [
-  'Front', 'Rear', 'Driver side', 'Passenger side', 'Interior',
-  'Dashboard', 'Odometer', 'Engine', 'Tyres', 'Any known damage',
+  'Front three-quarter', 'Front', 'Driver side', 'Passenger side',
+  'Rear three-quarter', 'Rear', 'Interior', 'Dashboard', 'Odometer',
+  'Engine', 'Tyres', 'Known damage', 'Other',
 ]
 
 /**
@@ -392,7 +393,7 @@ export default function SellVehicle() {
             Neither block above is a Trust score. CarUp publishes what it has actually verified on
             the vehicle&rsquo;s Passport, and only once evidence has been reviewed.
           </p>
-          <Link to={`/vehicle/${savedVin}`} className="mt-2 inline-flex text-xs font-semibold text-orange-600 hover:underline">
+          <Link to={`/dashboard/garage/${encodeURIComponent(savedVin)}`} className="mt-2 inline-flex text-xs font-semibold text-orange-600 hover:underline">
             Open this vehicle&rsquo;s Passport
           </Link>
         </div>
