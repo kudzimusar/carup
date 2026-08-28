@@ -298,3 +298,50 @@ test('Issue #158 custody migration withholds private column from service_role wh
     await db.close();
   }
 });
+
+
+test('V16 Communications template migration executes and registers an approved transactional version', async () => {
+  const db = await PGlite.create();
+  try {
+    await db.exec(`
+      CREATE TABLE communication_templates (
+        id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+        template_key text NOT NULL UNIQUE,
+        business_workflow text,
+        stakeholder_audience text,
+        classification text,
+        owner_team text,
+        status text,
+        metadata jsonb DEFAULT '{}'::jsonb
+      );
+      CREATE TABLE communication_template_versions (
+        id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+        template_id uuid NOT NULL REFERENCES communication_templates(id),
+        version integer NOT NULL,
+        channel text NOT NULL,
+        language text NOT NULL,
+        subject_template text NOT NULL,
+        body_template text NOT NULL,
+        required_variables jsonb DEFAULT '[]'::jsonb,
+        optional_variables jsonb DEFAULT '[]'::jsonb,
+        approval_status text,
+        experiment_metadata jsonb DEFAULT '{}'::jsonb,
+        UNIQUE(template_id,version,channel,language)
+      );
+    `);
+    await db.exec(up('../../database/migrations/20260828220000_passport_ownership_transfer_communications.sql'));
+    const { rows } = await db.query(`
+      SELECT t.template_key,t.classification,t.status,v.approval_status,v.subject_template,v.body_template
+      FROM communication_templates t
+      JOIN communication_template_versions v ON v.template_id=t.id
+      WHERE t.template_key='ownership_transfer_v1'
+    `);
+    assert.equal(rows.length, 1);
+    assert.equal(rows[0].classification, 'transactional');
+    assert.equal(rows[0].status, 'active');
+    assert.equal(rows[0].approval_status, 'approved');
+    assert.match(rows[0].body_template, /governed completion/i);
+  } finally {
+    await db.close();
+  }
+});
