@@ -1,7 +1,7 @@
 # V1 — Passport Read Model Foundation Certification
 
-**Date:** 2026-08-28  
-**Phase:** V1 — Passport Information Architecture and Canonical Read Model  
+**Date:** 2026-08-28
+**Phase:** V1 — Passport Information Architecture and Canonical Read Model
 **Status:** IMPLEMENTED / CI PENDING AT INITIAL RECEIPT
 
 ## Goal
