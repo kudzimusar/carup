@@ -4,6 +4,7 @@
 **Initiating programme:** Seller Journey 1.0 / S0  
 **Ownership:** CarUp platform contract, not Seller-specific  
 **Created:** 2026-08-28  
+**Canonical schema:** `docs/platform/CARUP_GLOBAL_VEHICLE_TAXONOMY_SCHEMA.md`  
 **Repository:** `kudzimusar/carup`
 
 ---
@@ -364,6 +365,8 @@ What is not acceptable:
 - per-feature hardcoded make/model/fuel/transmission arrays;
 - Intelligence-specific normalization rules that differ from Marketplace;
 - Imports-specific make/model vocabularies.
+
+The detailed stable-ID, alias, generation/trim, year, powertrain, transmission, drivetrain, unknown-observation and versioning contract is defined in `docs/platform/CARUP_GLOBAL_VEHICLE_TAXONOMY_SCHEMA.md`.
 
 The exact storage/runtime architecture is an S0 implementation decision and must be chosen against the live repository before code changes.
 
