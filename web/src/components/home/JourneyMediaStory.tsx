@@ -52,18 +52,16 @@ function Signal({
 function VehicleBackdrop({
   src,
   alt,
-  objectPosition = 'center',
 }: {
   src?: string | null
   alt: string
-  objectPosition?: string
 }) {
   return (
     <ListingImage
       src={src}
       alt={alt}
       className="absolute inset-0 h-full w-full"
-      imgClassName={`object-cover transition duration-700 ease-out motion-safe:group-hover:scale-[1.035] [object-position:${objectPosition}]`}
+      imgClassName="object-cover object-center transition duration-700 ease-out motion-safe:group-hover:scale-[1.035]"
     />
   )
 }
@@ -91,7 +89,7 @@ export function JourneyMediaStory({
   if (scene === 'buy') {
     return (
       <div className={shell} data-testid="home-journey-media" data-scene="buy">
-        <VehicleBackdrop src={image} alt={alt} objectPosition="center 58%" />
+        <VehicleBackdrop src={image} alt={alt} />
         <div className="absolute inset-0 bg-gradient-to-r from-white via-white/45 to-transparent" />
         <div className="absolute inset-x-0 bottom-0 h-2/3 bg-gradient-to-t from-slate-950/18 to-transparent" />
         <svg className="absolute left-[7%] top-[22%] h-28 w-36 overflow-visible text-orange-500/65" viewBox="0 0 150 110" aria-hidden="true">
@@ -107,7 +105,7 @@ export function JourneyMediaStory({
   if (scene === 'sell') {
     return (
       <div className={shell} data-testid="home-journey-media" data-scene="sell">
-        <VehicleBackdrop src={image} alt={alt} objectPosition="center 58%" />
+        <VehicleBackdrop src={image} alt={alt} />
         <div className="absolute inset-0 bg-gradient-to-l from-transparent via-white/8 to-white/38" />
         <div className="absolute bottom-4 left-4 flex gap-1.5">
           {[0, 1, 2].map(index => (
@@ -130,7 +128,7 @@ export function JourneyMediaStory({
   if (scene === 'verify') {
     return (
       <div className={shell} data-testid="home-journey-media" data-scene="verify">
-        {image ? <VehicleBackdrop src={image} alt={alt} objectPosition="center 60%" /> : <AbstractCar className="absolute inset-0" />}
+        {image ? <VehicleBackdrop src={image} alt={alt} /> : <AbstractCar className="absolute inset-0" />}
         <div className="absolute inset-0 bg-gradient-to-r from-[#f8fafc]/95 via-[#f8fafc]/68 to-transparent" />
         <div className="absolute left-4 top-4 w-[58%] max-w-[230px] bg-white p-4 shadow-[0_18px_45px_rgba(15,23,42,0.14)]">
           <div className="flex items-center gap-2 text-[9px] font-black uppercase tracking-[0.16em] text-orange-600">
@@ -169,7 +167,7 @@ export function JourneyMediaStory({
   if (scene === 'finance') {
     return (
       <div className={shell} data-testid="home-journey-media" data-scene="finance">
-        {image ? <VehicleBackdrop src={image} alt={alt} objectPosition="center 60%" /> : <AbstractCar className="absolute inset-y-0 left-0 w-1/2" />}
+        {image ? <VehicleBackdrop src={image} alt={alt} /> : <AbstractCar className="absolute inset-y-0 left-0 w-1/2" />}
         <div className="absolute inset-0 bg-gradient-to-r from-white/30 via-white/70 to-white" />
         <div className="absolute right-4 top-5 w-[55%] max-w-[220px] space-y-2">
           <Signal icon={CarFront} eyebrow="Step 1" label="Choose the vehicle" />
@@ -184,7 +182,7 @@ export function JourneyMediaStory({
   if (scene === 'protect') {
     return (
       <div className={shell} data-testid="home-journey-media" data-scene="protect">
-        {image ? <VehicleBackdrop src={image} alt={alt} objectPosition="center 62%" /> : <AbstractCar className="absolute inset-0" />}
+        {image ? <VehicleBackdrop src={image} alt={alt} /> : <AbstractCar className="absolute inset-0" />}
         <div className="absolute inset-0 bg-white/45" />
         <div className="absolute right-6 top-1/2 flex h-28 w-28 -translate-y-1/2 items-center justify-center border-2 border-orange-300 bg-orange-50/90 text-orange-600 shadow-xl transition duration-500 motion-safe:group-hover:scale-105">
           <ShieldCheck className="h-14 w-14 stroke-[1.3]" />
@@ -200,16 +198,19 @@ export function JourneyMediaStory({
         <AbstractCar className="absolute inset-y-0 right-0 w-[55%]" />
         <div className="absolute left-5 top-5 bottom-5 w-[44%] border-l border-slate-300 pl-5">
           {[
-            ['Service context', Wrench],
-            ['Mileage event', Gauge],
-            ['Lifecycle record', FileSearch],
-          ].map(([label, Icon], index) => (
-            <div key={String(label)} className={`relative flex items-center gap-2 text-[11px] font-bold text-slate-700 ${index > 0 ? 'mt-7' : ''}`}>
-              <span className="absolute -left-[25px] h-2.5 w-2.5 bg-orange-500 ring-4 ring-orange-100" />
-              <Icon className="h-4 w-4 text-orange-600" />
-              {label}
-            </div>
-          ))}
+            { label: 'Service context', icon: Wrench },
+            { label: 'Mileage event', icon: Gauge },
+            { label: 'Lifecycle record', icon: FileSearch },
+          ].map((item, index) => {
+            const Icon = item.icon
+            return (
+              <div key={item.label} className={`relative flex items-center gap-2 text-[11px] font-bold text-slate-700 ${index > 0 ? 'mt-7' : ''}`}>
+                <span className="absolute -left-[25px] h-2.5 w-2.5 bg-orange-500 ring-4 ring-orange-100" />
+                <Icon className="h-4 w-4 text-orange-600" />
+                {item.label}
+              </div>
+            )
+          })}
         </div>
         <Signal icon={Wrench} eyebrow="Garages" label="Keep service connected" className="absolute bottom-4 right-4 max-w-[180px]" />
       </div>
