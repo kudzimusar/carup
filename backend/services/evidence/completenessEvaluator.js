@@ -12,12 +12,17 @@
  *   4. plate_number OR temp_plate_id — at least one must be non-empty
  *   5. Ownership document — at least one vehicle_evidence row with evidence_type
  *      IN (registration_document, ownership_transfer_document) that has been verified
+ *   6. Fact reconciliation (Seller Journey S5) — no UNRESOLVED MATERIAL contradiction between
+ *      what the seller stated and what their documents were read to say. A disagreement is
+ *      cleared by a human review decision, never by the mere presence of evidence.
  *
  * Advisory requirements (non-blocking — shown in the UI but do not gate publication):
  *   customs_photo, inspection_photo, insurance_document, police_clearance_document
  *
- * AI confidence is NEVER consulted here: this evaluator is purely deterministic
- * and based on human-verified state.
+ * AI confidence is NEVER consulted here: this evaluator is purely deterministic and based on
+ * human-verified state. That holds for requirement 6 too — it reads `match_status` (a
+ * deterministic string comparison) and `review_status` (a human decision), never the extraction's
+ * `confidence` score.
  */
 import { reconcileSellerFacts } from './sellerFactReconciliation.js';
 
@@ -55,7 +60,16 @@ function docStatus(docs, type) {
  *   blocking_gaps: Array<{key, label}>,
  *   pending_gaps: Array<{key, label}>,
  *   publication_status: string,
+ *   reconciliation: object,  // S5 seller-facing read model; OWNER-SCOPED — see the privacy note below
  * }>}
+ *
+ * PRIVACY. `reconciliation` names document types and OCR readings, so it is seller-private. It is
+ * safe on this return because the only caller that reaches a person —
+ * `GET /api/vehicles/:vin/completeness` — is role-gated AND ownership/tenant-scoped. The other
+ * caller, `trustDecisionService`, reads only `is_publishable`, `completeness_percent`,
+ * `blocking_gaps` and `pending_gaps`, and `toPublicDecision` publishes just
+ * `{status, value, reason_codes}` — it drops the `rest` bag where `pending_gaps` travels. Any change
+ * that starts publishing `rest` would leak the disagreeing field name to buyers.
  */
 export async function evaluateCompleteness(vin, opts = {}) {
   const client = opts.client ?? (await getDefaultClient());

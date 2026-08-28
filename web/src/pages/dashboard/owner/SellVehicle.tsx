@@ -698,6 +698,7 @@ export default function SellVehicle() {
                               onClick={() => setCoverImageIndex(i)}
                               className="absolute bottom-1 left-1 rounded bg-black/60 px-1.5 py-0.5 text-[9px] font-medium text-white opacity-0 transition-opacity group-hover:opacity-100 focus:opacity-100"
                               data-testid={`listing-media-choose-cover-${i}`}
+                              aria-label={`Make photo ${i + 1} the cover photo`}
                             >
                               Make cover
                             </button>
@@ -739,7 +740,7 @@ export default function SellVehicle() {
                               })
                               set('images', form.images.filter((_, j) => j !== i))
                             }}
-                            className="absolute top-1 right-1 w-5 h-5 rounded-full bg-black/60 text-white flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
+                            className="absolute top-1 right-1 w-5 h-5 rounded-full bg-black/60 text-white flex items-center justify-center opacity-0 transition-opacity group-hover:opacity-100 focus:opacity-100"
                             data-testid={`listing-media-remove-${i}`}
                             aria-label={`Remove listing photo ${i + 1}`}
                           >

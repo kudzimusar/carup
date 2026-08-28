@@ -21,6 +21,7 @@ import {
   PUBLIC_VEHICLE_SELECT,
   PUBLIC_EVIDENCE_FIELDS,
 } from '../utils/publicVehicleProjection.js';
+import { assembleDecision, toPublicDecision } from '../services/trustDecision/trustDecisionService.js';
 
 /** Everything the reconciliation read model can carry about a document reading. */
 const RECONCILIATION_KEYS = [
@@ -80,6 +81,41 @@ test('the reconciliation reaches only the owner-scoped completeness endpoint', (
   assert.match(route, /ownsVehicle/);
   assert.match(route, /sameTenant/);
   assert.match(route, /403/);
+});
+
+test('the disagreeing field name never reaches the buyer-safe trust decision', () => {
+  // `trustDecisionService` consumes `evaluateCompleteness`, and its `evidence_completeness`
+  // dimension is PUBLIC. The reconciliation requirement's LABEL names the field in disagreement
+  // ("Resolve document disagreement: year"), and that label travels in `pending_gaps`.
+  //
+  // Two things keep it private, and both are asserted here because either one changing would leak
+  // an unreviewed OCR disagreement to shoppers:
+  //   1. the requirement's status is `pending_review`, so it lands in `pending_gaps`, never in
+  //      `blocking_gaps` — and only `blocking_gaps` becomes a public reason code;
+  //   2. `toPublicDecision` publishes `{status, value, reason_codes}` and DROPS the `rest` bag
+  //      where `pending_gaps` is carried.
+  const decision = assembleDecision({
+    vin: '1HGCM82633A004352',
+    vehicle: { vin: '1HGCM82633A004352' },
+    completeness: {
+      vin: '1HGCM82633A004352',
+      requirements: [],
+      completeness_percent: 83,
+      is_publishable: false,
+      blocking_gaps: [],
+      pending_gaps: [{ key: 'fact_reconciliation', label: 'Resolve document disagreement: year' }],
+      publication_status: 'draft',
+    },
+  });
+
+  const published = JSON.stringify(toPublicDecision(decision));
+  assert.ok(!published.includes('Resolve document disagreement'),
+    'the buyer-safe decision must not name the fact a document disagrees about');
+  assert.ok(!published.includes('year'),
+    'the disagreeing field name must not reach a public reason code');
+
+  // The privileged decision still carries it, so a reviewer loses nothing.
+  assert.ok(JSON.stringify(decision).includes('Resolve document disagreement'));
 });
 
 test('the evaluator carries the reconciliation but never a reviewer identity or file locator', () => {

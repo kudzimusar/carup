@@ -219,6 +219,24 @@ describe('S4 seller-chosen cover photo', () => {
     expect(screen.queryByTestId(`listing-media-move-later-${PHOTOS.length - 1}`)).toBeNull()
   })
 
+  it('keeps every photo control reachable and unambiguous for a keyboard user', async () => {
+    await advanceToMediaStep()
+    // Each control names WHICH photo it acts on. Three buttons all reading "Make cover" would be
+    // indistinguishable to a screen reader, which is the state this asserts against.
+    expect(screen.getByTestId('listing-media-choose-cover-1').getAttribute('aria-label'))
+      .toBe('Make photo 2 the cover photo')
+    expect(screen.getByTestId('listing-media-remove-1').getAttribute('aria-label'))
+      .toBe('Remove listing photo 2')
+
+    // Hover-only visibility hides a focused control from the person using it. Every control in the
+    // cluster must also reveal itself on focus.
+    for (const testId of ['listing-media-choose-cover-1', 'listing-media-remove-1']) {
+      expect(screen.getByTestId(testId).className).toContain('focus:opacity-100')
+    }
+    expect(screen.getByTestId('listing-media-move-earlier-1').parentElement?.className)
+      .toContain('focus-within:opacity-100')
+  })
+
   it('never fabricates primacy from a position', () => {
     // The defect this phase removed was a claim derived from an index. Guard the shape of the fix
     // itself so it cannot quietly return.
