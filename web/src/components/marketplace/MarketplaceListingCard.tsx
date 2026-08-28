@@ -9,6 +9,7 @@ import {
   Gauge,
   GitCompare,
   Heart,
+  Eye,
   MapPin,
   Share2,
   ShieldCheck,
@@ -62,6 +63,10 @@ interface MarketplaceListingCardProps {
   mileageTestId?: string
   locationTestId?: string
   showMissingMileage?: boolean
+  /** Explicitly permits only browser-local data:/blob: media for an unpublished Seller preview. */
+  allowLocalDraftMedia?: boolean
+  /** Removes dead navigation from an unpublished Seller preview while keeping the real card layout. */
+  previewMode?: boolean
 }
 
 function titleCase(value: string | null | undefined) {
@@ -149,10 +154,23 @@ export function MarketplaceListingCard({
   mileageTestId,
   locationTestId = 'listing-location',
   showMissingMileage = false,
+  allowLocalDraftMedia = false,
+  previewMode = false,
 }: MarketplaceListingCardProps) {
-  const renderablePrimaryImage = canRenderMarketplacePrimaryImage(vehicle.primaryImageState, vehicle.primaryImage)
-    ? vehicle.primaryImage
-    : null
+  // Seller preview is the ONLY exception to the public-media state machine, and even there it may
+  // render only a browser-local data:/blob: locator. A remote URL still has to earn one of the
+  // governed Marketplace states, so this cannot become a back door around publication/media policy.
+  const localDraftImage = allowLocalDraftMedia
+    && vehicle.primaryImageState === 'draft_local'
+    && typeof vehicle.primaryImage === 'string'
+    && /^(data:image\/|blob:)/i.test(vehicle.primaryImage.trim())
+      ? vehicle.primaryImage
+      : null
+  const renderablePrimaryImage = localDraftImage ?? (
+    canRenderMarketplacePrimaryImage(vehicle.primaryImageState, vehicle.primaryImage)
+      ? vehicle.primaryImage
+      : null
+  )
 
   return (
     <article
@@ -160,19 +178,34 @@ export function MarketplaceListingCard({
       data-testid={dataTestId}
     >
       <div className="relative aspect-[16/10] overflow-hidden bg-[linear-gradient(135deg,#e8edf3,#dce3eb)] shadow-[0_18px_44px_rgba(15,23,42,0.16)] transition-shadow duration-500 group-hover:shadow-[0_30px_70px_rgba(15,23,42,0.24)]">
-        <Link
-          to={href}
-          className="block h-full w-full focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange-500 focus-visible:ring-inset"
-          aria-label={`View ${vehicle.name}`}
-          data-testid="marketplace-view-passport"
-        >
-          <ListingImage
-            src={renderablePrimaryImage}
-            alt={vehicle.name}
-            className="h-full w-full"
-            imgClassName="transition-transform duration-700 ease-out group-hover:scale-[1.04]"
-          />
-        </Link>
+        {previewMode ? (
+          <div
+            className="block h-full w-full"
+            aria-label={`Draft buyer preview of ${vehicle.name}`}
+            data-testid="marketplace-draft-preview-image"
+          >
+            <ListingImage
+              src={renderablePrimaryImage}
+              alt={vehicle.name}
+              className="h-full w-full"
+              imgClassName="transition-transform duration-700 ease-out group-hover:scale-[1.04]"
+            />
+          </div>
+        ) : (
+          <Link
+            to={href}
+            className="block h-full w-full focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange-500 focus-visible:ring-inset"
+            aria-label={`View ${vehicle.name}`}
+            data-testid="marketplace-view-passport"
+          >
+            <ListingImage
+              src={renderablePrimaryImage}
+              alt={vehicle.name}
+              className="h-full w-full"
+              imgClassName="transition-transform duration-700 ease-out group-hover:scale-[1.04]"
+            />
+          </Link>
+        )}
 
         <div className="pointer-events-none absolute inset-x-3 top-3 flex flex-wrap gap-1.5">
           {vehicle.carupGold && (
@@ -246,15 +279,21 @@ export function MarketplaceListingCard({
       </div>
 
       <div className="relative flex flex-1 flex-col border-b border-slate-200 px-1 pb-5 pt-5">
-        <Link
-          to={href}
-          className="rounded-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange-500"
-          aria-label={`Open ${vehicle.name}`}
-        >
-          <h3 className="line-clamp-2 min-h-[2.75rem] text-2xl font-black leading-[1.05] tracking-[-0.04em] text-slate-950 transition-colors group-hover:text-orange-700">
+        {previewMode ? (
+          <h3 className="line-clamp-2 min-h-[2.75rem] text-2xl font-black leading-[1.05] tracking-[-0.04em] text-slate-950">
             {vehicle.name}
           </h3>
-        </Link>
+        ) : (
+          <Link
+            to={href}
+            className="rounded-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange-500"
+            aria-label={`Open ${vehicle.name}`}
+          >
+            <h3 className="line-clamp-2 min-h-[2.75rem] text-2xl font-black leading-[1.05] tracking-[-0.04em] text-slate-950 transition-colors group-hover:text-orange-700">
+              {vehicle.name}
+            </h3>
+          </Link>
+        )}
 
         <p className="mt-3 text-2xl font-black tracking-[-0.045em] text-slate-950 sm:text-3xl" data-testid={priceTestId}>
           {formatMarketplacePrice(vehicle.price, vehicle.currency)}
@@ -299,13 +338,23 @@ export function MarketplaceListingCard({
         </div>
 
         <div className="mt-auto pt-5">
-          <Link
-            to={href}
-            className="group/link flex items-center justify-between border-t border-slate-950 pt-3 text-sm font-black text-slate-950 transition-colors hover:text-orange-700"
-          >
-            <span>{ctaLabel}</span>
-            <ArrowUpRight className="h-4 w-4 transition-transform group-hover/link:-translate-y-0.5 group-hover/link:translate-x-0.5" />
-          </Link>
+          {previewMode ? (
+            <div
+              className="flex items-center justify-between border-t border-slate-950 pt-3 text-sm font-black text-slate-950"
+              data-testid="marketplace-draft-preview-cta"
+            >
+              <span>{ctaLabel}</span>
+              <Eye className="h-4 w-4 text-orange-600" />
+            </div>
+          ) : (
+            <Link
+              to={href}
+              className="group/link flex items-center justify-between border-t border-slate-950 pt-3 text-sm font-black text-slate-950 transition-colors hover:text-orange-700"
+            >
+              <span>{ctaLabel}</span>
+              <ArrowUpRight className="h-4 w-4 transition-transform group-hover/link:-translate-y-0.5 group-hover/link:translate-x-0.5" />
+            </Link>
+          )}
         </div>
       </div>
     </article>
