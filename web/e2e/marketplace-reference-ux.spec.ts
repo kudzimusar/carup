@@ -150,12 +150,18 @@ test('mobile exposes the same filter system through an explicit drawer', async (
   }))
 
   await page.goto('/marketplace')
+  await page.getByTestId('marketplace-compare-toggle').first().click()
+  await expect(page.getByTestId('marketplace-compare-bar')).toBeVisible()
+
   await page.getByTestId('marketplace-mobile-filter-button').click()
   await expect(page.getByTestId('marketplace-mobile-filter-drawer')).toBeVisible()
   await expect(page.getByTestId('marketplace-make-filter')).toBeVisible()
   await expect(page.getByTestId('marketplace-trust-group')).toBeVisible()
+  await expect(page.getByTestId('marketplace-compare-bar')).toHaveCount(0)
+
   await page.getByTestId('marketplace-mobile-filter-close').click()
   await expect(page.getByTestId('marketplace-mobile-filter-drawer')).toBeHidden()
+  await expect(page.getByTestId('marketplace-compare-bar')).toBeVisible()
 })
 
 
