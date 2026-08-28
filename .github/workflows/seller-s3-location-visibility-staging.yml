@@ -24,7 +24,7 @@ concurrency:
   cancel-in-progress: false
 
 env:
-  CANDIDATE_SHA: e2d393d8ac809f76afb499e2994385303371afe9
+  CANDIDATE_SHA: 0ada1ca38352a12ec35e1480da0ee8f241f2520b
   EXPECTED_PR: '182'
   EXPECTED_BRANCH: 'feat/marketplace-reliability-reference-ux'
   PG_DRIVER_VERSION: '8.21.0'
@@ -96,7 +96,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: seller-s3-location-visibility-e2d393d8ac809f76afb499e2994385303371afe9
+          name: seller-s3-location-visibility-0ada1ca38352a12ec35e1480da0ee8f241f2520b
           path: seller-s3-location-visibility-receipt.json
           if-no-files-found: error
           retention-days: 30
