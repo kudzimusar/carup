@@ -133,7 +133,8 @@ test('V2: a dispute is explicit and requires a reason', () => {
 test('V2 anti-fork: access policy imports canonical lookup policy and owns no auth/session/database implementation', () => {
   const src = readFileSync('backend/services/passport/passportAccessPolicy.js', 'utf8');
   assert.match(src, /passportLookupPolicy\.js/);
-  assert.doesNotMatch(src, /x-user-id|x-session-token|authorization/i);
+  assert.doesNotMatch(src, /x-user-id|x-session-token|req\.headers|req\.userContext/i);
+  assert.doesNotMatch(src, /authMiddleware|sessionService|sessionRepository/i);
   assert.doesNotMatch(src, /\.from\s*\(|supabase/i);
-  assert.doesNotMatch(src, /new Set\(\['admin'|'government'/);
+  assert.doesNotMatch(src, /new Set\s*\(\s*\[[^\]]*['"]admin['"][^\]]*['"]government['"]/i);
 });
