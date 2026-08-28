@@ -1034,6 +1034,18 @@ describe('VehicleDetail — Phase 0/3/4 still hold on the page this phase edited
     expect(screen.getByTestId('trust-score-badge').textContent).not.toMatch(/\d/)
   })
 
+  it('hides contact, reservation and financing actions when no public Marketplace detail resolves', async () => {
+    serveNoListingRead()
+    await renderSettled()
+    await waitFor(() => expect(screen.getByTestId('marketplace-actions-unavailable')).toBeTruthy())
+
+    expect(screen.queryByTestId('seller-contact-unavailable')).toBeNull()
+    expect(screen.queryByTestId('reservation-request-entry')).toBeNull()
+    expect(screen.queryByTestId('financing-request-entry')).toBeNull()
+    expect(screen.getByTestId('marketplace-actions-unavailable').textContent).toMatch(/not currently backed by a published Marketplace listing/i)
+    expect(DETAIL_CODE).not.toContain('listingId={detail?.vin || vehicle.vin}')
+  })
+
   it('keeps reservation authority server-owned and offers only the governed request step', async () => {
     await renderSettled()
     await waitFor(() => expect(screen.getByTestId('reservation-request-entry')).toBeTruthy())
