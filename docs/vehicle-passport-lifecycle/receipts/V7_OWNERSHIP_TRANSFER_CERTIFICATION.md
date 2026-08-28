@@ -2,7 +2,7 @@
 
 **Date:** 2026-08-28
 **Phase:** V7 — Ownership History and Transfer Lifecycle
-**Status:** IMPLEMENTED / EXACT-HEAD CI PENDING
+**Status:** PASS — EXACT-HEAD FOUNDATION CERTIFIED
 
 ## Authority finding
 
@@ -64,6 +64,18 @@ V7 does not:
 
 These remain later governed integration work.
 
+## Exact-head certification
+
+Certified code head:
+
+- exact code head: `11e3f3dc29e87fb76adb7fe230c3fc273712f8d5`
+- Vehicle Passport Foundation CI run: `33164611417` — **PASS**
+- Passport V1–V7 cumulative contracts — PASS
+- canonical Trust/source verification/governance/evidence/lookup guards — PASS
+- syntax/diff hygiene — PASS
+
 ## Phase decision
 
-**V7 FOUNDATION IMPLEMENTED. EXACT-HEAD CI REQUIRED BEFORE V8.**
+**V7 FOUNDATION PASS.**
+
+Persistence and legal/registry transfer completion remain intentionally unimplemented until a governed ownership authority is introduced.
