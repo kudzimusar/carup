@@ -63,6 +63,9 @@ jobs:
       - name: Passport V5 canonical Trust Lens contract
         run: node --test backend/tests/passport-v5-trust-lens.test.js
 
+      - name: Passport V6 unified lifecycle contract
+        run: node --test backend/tests/passport-v6-lifecycle-timeline.test.js
+
       - name: Preserve canonical Trust public read path
         run: node --test backend/tests/issue164-phase3-trust-authority.test.js
 
@@ -91,6 +94,7 @@ jobs:
           node --check backend/services/passport/passportEvidenceProjection.js
           node --check backend/services/passport/passportVerificationProjection.js
           node --check backend/services/passport/passportTrustLens.js
+          node --check backend/services/passport/passportLifecycleTimeline.js
 
       - name: Diff hygiene
         run: git diff --check HEAD^ HEAD
