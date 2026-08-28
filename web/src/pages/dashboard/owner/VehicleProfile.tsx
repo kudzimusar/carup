@@ -106,7 +106,9 @@ export default function VehicleProfile() {
   const [searchParams, setSearchParams] = useSearchParams()
   const { fetchVehiclePassport, fetchVehicleEvidence, fetchEvidenceTaxonomy, fetchEvidenceSources } = useCarUpApi()
   const [passportData, setPassportData] = useState<VehiclePassport | null>(null)
+  const [passportLoadState, setPassportLoadState] = useState<'loading' | 'ready' | 'error'>('loading')
   const [evidenceList, setEvidenceList] = useState<VehicleEvidence[]>([])
+  const [evidenceLoadState, setEvidenceLoadState] = useState<'loading' | 'ready' | 'error'>('loading')
   const [isUploadModalOpen, setIsUploadModalOpen] = useState(() => searchParams.get('upload') === '1')
 
   // Deep-link support: /dashboard/garage/<vin>?upload=1 (e.g. from the completeness panel's
@@ -119,23 +121,38 @@ export default function VehicleProfile() {
 
   const loadEvidence = useCallback(() => {
     if (!id) return
+    setEvidenceLoadState('loading')
     fetchVehicleEvidence(id)
       .then(data => {
         setEvidenceList(data || [])
+        setEvidenceLoadState('ready')
       })
-      .catch(err => console.error('Error fetching vehicle evidence:', err))
+      .catch(err => {
+        console.error('Error fetching vehicle evidence:', err)
+        setEvidenceLoadState('error')
+      })
   }, [fetchVehicleEvidence, id])
 
-  useEffect(() => {
+  const loadPassport = useCallback(() => {
     if (!id) return
+    setPassportLoadState('loading')
     fetchVehiclePassport(id)
       .then(data => {
         setPassportData(data)
+        setPassportLoadState('ready')
       })
-      .catch(err => console.error('Error fetching passport details:', err))
-    
+      .catch(err => {
+        console.error('Error fetching passport details:', err)
+        setPassportData(null)
+        setPassportLoadState('error')
+      })
+  }, [fetchVehiclePassport, id])
+
+  useEffect(() => {
+    if (!id) return
+    loadPassport()
     loadEvidence()
-  }, [fetchVehiclePassport, id, loadEvidence])
+  }, [id, loadPassport, loadEvidence])
 
   useEffect(() => {
     let mounted = true
@@ -148,10 +165,29 @@ export default function VehicleProfile() {
   }, [fetchEvidenceTaxonomy, fetchEvidenceSources])
 
 
+  if (!passportData && passportLoadState === 'error') {
+    return (
+      <main className="mx-auto max-w-3xl p-4 sm:p-8" aria-labelledby="passport-error-title">
+        <Card className="border-amber-200 bg-amber-50">
+          <CardContent className="p-6 text-center" role="alert">
+            <h1 id="passport-error-title" className="text-lg font-semibold text-gray-900">Vehicle Passport unavailable</h1>
+            <p className="mt-2 text-sm text-gray-700">
+              CarUp could not load this Passport. This does not mean the vehicle has no records.
+            </p>
+            <Button className="mt-4 min-h-11" variant="outline" onClick={() => { loadPassport(); loadEvidence() }}>
+              Retry Passport
+            </Button>
+          </CardContent>
+        </Card>
+      </main>
+    )
+  }
+
   if (!passportData) {
     return (
-      <div className="flex items-center justify-center p-12">
-        <Loader2 className="w-8 h-8 animate-spin text-orange-500" />
+      <div className="flex items-center justify-center gap-3 p-12" role="status" aria-live="polite">
+        <Loader2 className="w-8 h-8 animate-spin motion-reduce:animate-none text-orange-500" aria-hidden="true" />
+        <span className="sr-only">Loading Vehicle Passport</span>
       </div>
     )
   }
@@ -295,7 +331,7 @@ export default function VehicleProfile() {
     : (TRUST_STATE_DETAIL[trustState] ?? TRUST_STATE_DETAIL.unavailable)
 
   return (
-    <div className="space-y-6 max-w-7xl mx-auto">
+    <main className="space-y-6 max-w-7xl mx-auto px-3 sm:px-0" aria-labelledby="vehicle-passport-title">
       <Button variant="ghost" size="sm" className="gap-1" asChild>
         <Link to="/dashboard/garage"><ArrowLeft className="w-4 h-4" /> Back to Garage</Link>
       </Button>
@@ -305,11 +341,16 @@ export default function VehicleProfile() {
         <div className="lg:col-span-2 space-y-6">
           <Card className="border-0 card-shadow overflow-hidden">
             <div className="relative h-56">
-              <ListingImage src={vehicle.imageUrl} alt="" className="h-full w-full" imgClassName="h-56" />
+              <ListingImage
+                src={vehicle.imageUrl}
+                alt={`${[vehicle.year, vehicle.make, vehicle.model].filter(Boolean).join(' ') || 'Vehicle'} listing photo`}
+                className="h-full w-full"
+                imgClassName="h-56"
+              />
               <div className="absolute inset-0 bg-gradient-to-t from-black/60 to-transparent pointer-events-none" />
               <div className="absolute bottom-4 left-4 right-4 text-white">
                 <div className="flex items-center gap-2 mb-1">
-                  <h1 className="text-2xl font-bold">{[vehicle.year, vehicle.make, vehicle.model].filter(Boolean).join(' ') || 'Vehicle details not recorded'}</h1>
+                  <h1 id="vehicle-passport-title" className="text-xl sm:text-2xl font-bold">{[vehicle.year, vehicle.make, vehicle.model].filter(Boolean).join(' ') || 'Vehicle details not recorded'}</h1>
                   <Badge className="bg-white/20 text-white">{vehicle.registration}</Badge>
                 </div>
                 <p className="text-sm text-gray-200">VIN: {vehicle.vin}</p>
@@ -331,9 +372,9 @@ export default function VehicleProfile() {
                 ))}
               </div>
 
-              <div className="mb-4" data-testid="owner-trust">
+              <section className="mb-4" data-testid="owner-trust" aria-labelledby="owner-trust-heading">
                 <div className="flex items-center justify-between mb-2">
-                  <span className="font-medium">Trust Score</span>
+                  <span id="owner-trust-heading" className="font-medium">Trust Score</span>
                   {trustScore !== null ? (
                     <span className="font-bold text-lg" data-testid="owner-trust-score">{trustScore} / 100</span>
                   ) : (
@@ -362,7 +403,7 @@ export default function VehicleProfile() {
                     ))}
                   </ul>
                 )}
-              </div>
+              </section>
 
               {/*
                 * Every badge here is a POSITIVE VERIFICATION CLAIM, so each renders only when a
@@ -396,7 +437,7 @@ export default function VehicleProfile() {
                   </Badge>
                 )}
                 {passportData?.chainVerification?.verified && (
-                  <Badge variant="secondary" className="bg-orange-50 text-orange-700 animate-pulse-glow" data-testid="badge-ledger-synced">
+                  <Badge variant="secondary" className="bg-orange-50 text-orange-700 animate-pulse-glow motion-reduce:animate-none" data-testid="badge-ledger-synced">
                     <CheckCircle className="w-3 h-3 mr-1" /> Ledger Synced
                   </Badge>
                 )}
@@ -404,17 +445,33 @@ export default function VehicleProfile() {
             </CardContent>
           </Card>
 
+          {evidenceLoadState === 'error' && (
+            <Card className="border-amber-200 bg-amber-50" data-testid="passport-evidence-unavailable">
+              <CardContent className="flex flex-col gap-3 p-4 sm:flex-row sm:items-center sm:justify-between" role="status" aria-live="polite">
+                <p className="text-sm text-gray-700">
+                  Evidence records could not be loaded. This is not a statement that no evidence exists.
+                </p>
+                <Button variant="outline" className="min-h-11 shrink-0" onClick={loadEvidence}>Retry evidence</Button>
+              </CardContent>
+            </Card>
+          )}
+
           <Tabs defaultValue="documents" className="w-full">
-            <TabsList className="w-full flex flex-wrap">
-              <TabsTrigger value="documents" className="flex-1">Documents</TabsTrigger>
-              <TabsTrigger value="service" className="flex-1">Service History</TabsTrigger>
-              <TabsTrigger value="insurance" className="flex-1">Insurance</TabsTrigger>
-              <TabsTrigger value="parts" className="flex-1">Parts</TabsTrigger>
-              <TabsTrigger value="evidence" className="flex-1">Evidence & Media</TabsTrigger>
+            <TabsList className="grid h-auto w-full grid-cols-2 gap-1 sm:grid-cols-3 lg:grid-cols-5">
+              <TabsTrigger value="documents" className="min-h-11 px-2 text-xs sm:text-sm">Documents</TabsTrigger>
+              <TabsTrigger value="service" className="min-h-11 px-2 text-xs sm:text-sm">Service History</TabsTrigger>
+              <TabsTrigger value="insurance" className="min-h-11 px-2 text-xs sm:text-sm">Insurance</TabsTrigger>
+              <TabsTrigger value="parts" className="min-h-11 px-2 text-xs sm:text-sm">Parts</TabsTrigger>
+              <TabsTrigger value="evidence" className="min-h-11 px-2 text-xs sm:text-sm">Evidence & Media</TabsTrigger>
             </TabsList>
             <TabsContent value="documents" className="mt-4">
               <Card className="border-0 card-shadow">
                 <CardContent className="p-5 space-y-3">
+                  {evidenceLoadState === 'ready' && vehicle.documents.length === 0 && (
+                    <p className="rounded-lg bg-gray-50 p-4 text-sm text-gray-600">
+                      No document records are available to CarUp for this vehicle.
+                    </p>
+                  )}
                   {vehicle.documents.map((doc) => (
                     <div key={doc.id} className="flex items-center gap-3 p-3 bg-gray-50 rounded-lg">
                       <FileText className="w-5 h-5 text-orange-500" />
@@ -436,6 +493,11 @@ export default function VehicleProfile() {
             <TabsContent value="service" className="mt-4">
               <Card className="border-0 card-shadow">
                 <CardContent className="p-5 space-y-3">
+                  {vehicle.serviceHistory.length === 0 && (
+                    <p className="rounded-lg bg-gray-50 p-4 text-sm text-gray-600">
+                      No service records are available to CarUp for this vehicle.
+                    </p>
+                  )}
                   {vehicle.serviceHistory.map((s) => (
                     <div key={s.id} className="flex items-center gap-3 p-3 bg-gray-50 rounded-lg">
                       <Wrench className="w-5 h-5 text-orange-500" />
@@ -453,6 +515,11 @@ export default function VehicleProfile() {
             <TabsContent value="insurance" className="mt-4">
               <Card className="border-0 card-shadow">
                 <CardContent className="p-5 space-y-3">
+                  {vehicle.insuranceRecords.length === 0 && (
+                    <p className="rounded-lg bg-gray-50 p-4 text-sm text-gray-600">
+                      No insurance records are available to CarUp for this vehicle.
+                    </p>
+                  )}
                   {vehicle.insuranceRecords.map((ir) => (
                     <div key={ir.id} className={`p-4 rounded-lg border ${ir.status === 'active' ? 'bg-green-50 border-green-200' : 'bg-gray-50 border-gray-200'}`}>
                       <div className="flex items-center justify-between mb-2">
@@ -473,17 +540,25 @@ export default function VehicleProfile() {
             <TabsContent value="parts" className="mt-4">
               <Card className="border-0 card-shadow">
                 <CardContent className="p-5">
-                  <div className="overflow-x-auto">
-                    <table className="w-full text-sm">
+                  <div className="overflow-x-auto" tabIndex={0} aria-label="Vehicle parts history table; scroll horizontally on compact screens">
+                    <table className="w-full min-w-[34rem] text-sm">
+                      <caption className="sr-only">Vehicle parts history</caption>
                       <thead>
                         <tr className="border-b">
-                          <th className="text-left py-2 font-medium text-gray-500">Part</th>
-                          <th className="text-left py-2 font-medium text-gray-500">Type</th>
-                          <th className="text-left py-2 font-medium text-gray-500">Date</th>
-                          <th className="text-right py-2 font-medium text-gray-500">Cost</th>
+                          <th scope="col" className="text-left py-2 font-medium text-gray-500">Part</th>
+                          <th scope="col" className="text-left py-2 font-medium text-gray-500">Type</th>
+                          <th scope="col" className="text-left py-2 font-medium text-gray-500">Date</th>
+                          <th scope="col" className="text-right py-2 font-medium text-gray-500">Cost</th>
                         </tr>
                       </thead>
                       <tbody>
+                        {vehicle.partsHistory.length === 0 && (
+                          <tr>
+                            <td colSpan={4} className="py-4 text-sm text-gray-600">
+                              No parts records are available to CarUp for this vehicle.
+                            </td>
+                          </tr>
+                        )}
                         {vehicle.partsHistory.map((part) => (
                           <tr key={part.id} className="border-b last:border-0">
                             <td className="py-3">
@@ -504,12 +579,12 @@ export default function VehicleProfile() {
             <TabsContent value="evidence" className="mt-4">
               <Card className="border-0 card-shadow">
                 <CardContent className="p-5 space-y-4">
-                  <div className="flex justify-between items-center pb-2 border-b">
+                  <div className="flex flex-col gap-3 border-b pb-2 sm:flex-row sm:items-center sm:justify-between">
                     <div>
                       <h3 className="font-semibold text-gray-800">Visual Evidence & Media</h3>
                       <p className="text-xs text-gray-500">Photographs and documentation proving the condition and identity of the vehicle.</p>
                     </div>
-                    <Button onClick={() => setIsUploadModalOpen(true)} className="bg-orange-500 hover:bg-orange-600 text-white gap-2">
+                    <Button onClick={() => setIsUploadModalOpen(true)} className="min-h-11 bg-orange-500 hover:bg-orange-600 text-white gap-2">
                       <Upload className="w-4 h-4" /> Upload Evidence
                     </Button>
                   </div>
@@ -526,14 +601,18 @@ export default function VehicleProfile() {
                     </div>
                   )}
 
-                  {evidenceList.length === 0 ? (
+                  {evidenceLoadState === 'error' ? (
+                    <div className="rounded-lg border border-amber-200 bg-amber-50 p-5 text-sm text-gray-700" role="status">
+                      Evidence is temporarily unavailable. No absence conclusion is being made.
+                    </div>
+                  ) : evidenceList.length === 0 ? (
                     <div className="flex flex-col items-center justify-center p-8 bg-gray-50 border-2 border-dashed rounded-lg border-gray-200">
-                      <FileText className="w-12 h-12 text-gray-400 mb-3" />
-                      <h3 className="font-semibold text-gray-800 mb-1">No Evidence Uploaded</h3>
+                      <FileText className="w-12 h-12 text-gray-400 mb-3" aria-hidden="true" />
+                      <h3 className="font-semibold text-gray-800 mb-1">No evidence records available to CarUp</h3>
                       <p className="text-sm text-gray-500 text-center mb-4 max-w-sm">
-                        Upload photographs or documents such as odometer captures, damage records, or registration certificates.
+                        This does not prove that no evidence exists. Add photographs or documents such as odometer captures, damage records, or registration certificates.
                       </p>
-                      <Button onClick={() => setIsUploadModalOpen(true)} className="bg-orange-500 hover:bg-orange-600 text-white gap-2">
+                      <Button onClick={() => setIsUploadModalOpen(true)} className="min-h-11 bg-orange-500 hover:bg-orange-600 text-white gap-2">
                         <Upload className="w-4 h-4" /> Upload Evidence
                       </Button>
                     </div>
@@ -547,7 +626,12 @@ export default function VehicleProfile() {
                             ) : (
                               <div className="w-16 h-16 shrink-0 bg-gray-200 rounded overflow-hidden">
                                 {item.file_url ? (
-                                  <img src={item.file_url} alt="" className="w-full h-full object-cover" />
+                                  <img
+                                    src={item.file_url}
+                                    alt={`${item.evidence_type.split('_').join(' ')} evidence preview`}
+                                    className="w-full h-full object-cover"
+                                    loading="lazy"
+                                  />
                                 ) : (
                                   <div className="w-full h-full flex items-center justify-center text-gray-400">
                                     <FileText className="w-5 h-5" />
@@ -643,12 +727,9 @@ export default function VehicleProfile() {
         timelineEvents={passportData.timeline || []}
         onSuccess={() => {
           loadEvidence()
-          // Re-fetch passport as well in case status changed
-          fetchVehiclePassport(vehicle.vin)
-            .then(data => setPassportData(data))
-            .catch(err => console.error(err))
+          loadPassport()
         }}
       />
-    </div>
+    </main>
   )
 }
