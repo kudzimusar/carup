@@ -107,8 +107,8 @@ test('canonical lifecycle prevents administrative documents becoming accidents a
   assert.ok(report.sections.accident_repair.repair >= 1, 'recorded replacement converges into repair history');
   assert.equal(report.sections.ownership_transfer, 1);
   assert.ok(report.timeline.some((item) => item.evidence_id === 'inspection-doc' && item.evidence_class === 'inspection'), 'verified public-safe inspection evidence remains visible');
-  assert.equal(report.sections.inspection, null, 'public report does not publish a complete inspection count while the private VID source is unavailable');
-  assert.equal(report.lifecycle_projection.count_states.inspection.state, 'partial');
+  assert.ok(report.sections.inspection >= 1, 'known public-safe inspection count remains visible');
+  assert.deepEqual(report.lifecycle_projection.count_states.inspection, { value: 1, state: 'partial' });
   assert.equal(report.lifecycle_projection.source_states.vid_inspections, 'unavailable');
   assert.ok(report.mileage_history.observations.some((item) => item.value === 78450));
   assert.equal(report.evidence_index.find((item) => item.evidence_id === 'insurance-doc')?.lifecycle_category, 'insurance');
@@ -130,8 +130,9 @@ test('canonical lifecycle reports partial/unavailable coverage instead of conver
   assert.deepEqual(report.lifecycle_projection.count_states.repair, { value: 1, state: 'partial' });
   assert.deepEqual(report.lifecycle_projection.count_states.ownership_transfer, { value: 0, state: 'partial' });
 
-  // Public report fields refuse an exact numeric claim when not all contributing sources were read.
-  assert.equal(report.sections.accident_repair.repair, null);
+  // A positive public-safe count remains a known lower bound under partial coverage.
+  // A partial zero stays withheld so an unread source can never become a false "zero records" claim.
+  assert.equal(report.sections.accident_repair.repair, 1);
   assert.equal(report.sections.ownership_transfer, null);
   // Accident depends only on public evidence, which loaded successfully, so zero remains a real zero
   // for current coverage rather than being globally suppressed.
