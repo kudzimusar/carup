@@ -1984,6 +1984,17 @@ export function useCarUpApi() {
     return request(`/vehicles/${vin}/unpublish`, { method: 'POST' })
   }, [request])
 
+  // S8 — the seller's own price, changed without a database write. The amount travels alone: this
+  // endpoint accepts no currency, because redenominating an existing listing is not a price change.
+  const updateVehiclePrice = useCallback(async (vin: string, price: number): Promise<{
+    success: boolean; vin: string; price: number; previous_price?: number | null; unchanged?: boolean
+  }> => {
+    return request(`/vehicles/${encodeURIComponent(vin)}/price`, {
+      method: 'PATCH',
+      body: JSON.stringify({ price }),
+    })
+  }, [request])
+
   const reserveVehicle = useCallback(async (vin: string): Promise<any> => {
     // Canonical reservation authority is VIN + authenticated actor only. Duration, seller,
     // economics and eligibility are all server-owned.
@@ -2846,6 +2857,7 @@ export function useCarUpApi() {
     reserveVehicle,
     publishVehicleListing,
     unpublishVehicleListing,
+    updateVehiclePrice,
     fetchDealerLeads,
     fetchDealerPromotions,
     createDealerPromotion,

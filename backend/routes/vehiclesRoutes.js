@@ -132,7 +132,7 @@ router.patch('/api/vehicles/:vin/status', authorizeRole(['admin', 'dealer', 'own
 async function loadScopedVehicle(req, vin) {
   const { data: vehicle, error: vehicleErr } = await supabase
     .from('vehicles')
-    .select('vin, status, publication_status, owner_id, tenant_id')
+    .select('vin, status, publication_status, owner_id, tenant_id, price')
     .eq('vin', vin)
     .single();
   if (vehicleErr || !vehicle) throw new NotFoundError('Vehicle not found');
@@ -224,6 +224,65 @@ router.post('/api/vehicles/:vin/unpublish', authorizeRole(['owner', 'dealer', 'a
 
   auditPublicationChange(req, vin, 'VEHICLE_LISTING_UNPUBLISHED', 'published', 'publishable');
   res.json({ success: true, vin, publication_status: 'publishable' });
+}));
+
+// --- PRICE ---
+// S8 completes the seller lifecycle: publish, unpublish and mark-sold already worked without a
+// database write, but PRICE did not, so correcting one meant a direct DB intervention — exactly
+// what the phase gate forbids.
+//
+// Deliberately narrow. This route moves the AMOUNT and nothing else:
+//
+//   · It does not accept a currency. Redenominating an existing listing is not a price change:
+//     it would turn 28,500 of one currency into 28,500 of another with nobody restating the
+//     vehicle. Currency is stated once, at creation, by the seller who was asked for it, and it
+//     carries its own provenance stamp that this route has no basis to re-issue.
+//   · It does not touch status, publication_status or trust. A cheaper car is not a more available
+//     one, and it is certainly not a more verified one.
+//   · It refuses a missing, non-numeric, zero or negative amount rather than coercing it. `price`
+//     carries no column default, so a coerced 0 would publish a free car — the same fabrication the
+//     read paths already refuse on the way out.
+router.patch('/api/vehicles/:vin/price', authorizeRole(['owner', 'dealer', 'admin']), asyncHandler(async (req, res) => {
+  const { vin } = req.params;
+  const vehicle = await loadScopedVehicle(req, vin);
+
+  const submitted = req.body?.price;
+  const price = typeof submitted === 'number' ? submitted : Number.NaN;
+  if (!Number.isFinite(price) || price <= 0) {
+    return res.status(400).json({
+      error: 'price must be a positive number. A missing or zero price is not a price a seller stated.',
+    });
+  }
+
+  const before = vehicle.price;
+  if (before === price) {
+    return res.json({ success: true, vin, price, unchanged: true });
+  }
+
+  const { error } = await supabase
+    .from('vehicles')
+    .update({ price })
+    .eq('vin', vin);
+  if (error) throw new DatabaseError(error.message);
+
+  // "The price changed" is not a record of what changed. Both ends travel.
+  try {
+    logAuditEvent({
+      req,
+      actorId: req.userContext?.id || 'unknown',
+      actorRole: req.userContext?.role || 'unknown',
+      action: 'VEHICLE_PRICE_CHANGED',
+      targetType: 'vehicle',
+      targetId: vin,
+      status: 'success',
+      metadata: { beforePrice: before ?? null, afterPrice: price },
+      severity: 'info',
+    });
+  } catch (auditErr) {
+    console.warn('[Audit Log Error] Failed to log price change:', auditErr.message);
+  }
+
+  res.json({ success: true, vin, price, previous_price: before ?? null });
 }));
 
 // --- PASSPORT EVIDENCE ARCHITECTURE ROUTING ---
