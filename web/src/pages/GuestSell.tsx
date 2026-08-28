@@ -34,7 +34,7 @@ const PHOTO_LABELS = [
   'Odometer',
   'Engine',
   'Tyres',
-  'Known damage',
+  'Any known damage',
   'Other',
 ] as const
 
@@ -82,10 +82,10 @@ export default function GuestSell() {
   const [draftSaved, setDraftSaved] = useState(false)
   const [taxonomy, setTaxonomy] = useState<EvidenceTaxonomyResponse | null>(null)
   const [sources, setSources] = useState<EvidenceSourcesResponse | null>(null)
-  const [historyLoading, setHistoryLoading] = useState(true)
-  const [buyerPreviewOpen, setBuyerPreviewOpen] = useState(false)
   const historyCatalogAvailable =
     typeof fetchEvidenceTaxonomy === 'function' && typeof fetchEvidenceSources === 'function'
+  const [historyLoading, setHistoryLoading] = useState(historyCatalogAvailable)
+  const [buyerPreviewOpen, setBuyerPreviewOpen] = useState(false)
   const modelOptions = useMemo(() => modelsForMake(form.make).map(item => item.name), [form.make])
   // S6: exactly the facets a buyer could search this listing by today — no padding.
   const discoverability = useMemo(() => sellerDiscoverabilityFacets(form), [form])
