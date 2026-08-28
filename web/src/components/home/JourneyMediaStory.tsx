@@ -43,7 +43,7 @@ function Signal({
       </span>
       <span className="min-w-0">
         <span className="block text-[9px] font-black uppercase tracking-[0.14em] text-slate-400">{eyebrow}</span>
-        <span className="block truncate text-[11px] font-black text-slate-900">{label}</span>
+        <span className="block text-[10px] font-black leading-3.5 text-slate-900 sm:text-[11px] sm:leading-4">{label}</span>
       </span>
     </div>
   )
