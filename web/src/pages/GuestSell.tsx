@@ -93,6 +93,15 @@ export default function GuestSell() {
   useEffect(() => {
     let active = true
     setHistoryLoading(true)
+
+    // Evidence coverage is progressive enhancement on Guest Sell. If a partially mocked/test host or
+    // temporarily older backend does not expose the catalog collaborators, the core seller journey
+    // must remain usable and the panel truthfully shows its unavailable state instead of crashing.
+    if (typeof fetchEvidenceTaxonomy !== 'function' || typeof fetchEvidenceSources !== 'function') {
+      setHistoryLoading(false)
+      return () => { active = false }
+    }
+
     Promise.allSettled([fetchEvidenceTaxonomy(), fetchEvidenceSources()])
       .then(([taxonomyResult, sourceResult]) => {
         if (!active) return
@@ -638,6 +647,9 @@ export default function GuestSell() {
                       <ScanLine className="h-5 w-5 text-orange-600" />
                       <div><p className="text-sm font-black">Buyers can find this by</p><p className="text-xs text-slate-500">These are the search facets your answers currently support.</p></div>
                     </div>
+                    <p className="mt-3 text-[11px] leading-5 text-slate-500">
+                      A filter you have not answered will not match this listing; CarUp never invents a value to improve discoverability.
+                    </p>
                     {discoverability.length > 0 ? (
                       <div className="mt-4 flex flex-wrap gap-2">
                         {discoverability.map(facet => (
