@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
 import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
@@ -115,7 +115,12 @@ describe('V15 — mobile, low-bandwidth and accessibility parity', () => {
     renderPage()
 
     await screen.findByRole('heading', { name: /2017 Nissan NP200/i })
-    fireEvent.click(screen.getByRole('tab', { name: 'Evidence & Media' }))
+    const trigger = screen.getByRole('tab', { name: 'Evidence & Media' })
+    await act(async () => {
+      fireEvent.mouseDown(trigger, { button: 0 })
+      fireEvent.focus(trigger)
+    })
+    await waitFor(() => expect(trigger.getAttribute('data-state')).toBe('active'))
 
     expect(await screen.findByText('No evidence records available to CarUp')).toBeInTheDocument()
     expect(screen.getByText(/does not prove that no evidence exists/i)).toBeInTheDocument()
