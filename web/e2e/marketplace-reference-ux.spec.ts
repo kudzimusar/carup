@@ -127,6 +127,24 @@ test('search commits q to the backend after debounce so discovery is not limited
   expect(observedQueries).toContain('Honda')
 })
 
+test('default price range keeps high-value inventory visible because Any max is unbounded', async ({ page }) => {
+  await commonMocks(page)
+  await page.route(/\/api\/marketplace\/listings(\?|$)/, (route: Route) => route.fulfill({
+    json: {
+      total: 1,
+      limit: 48,
+      listings: [listing(VIN_A, { make: 'Mercedes-Benz', model: 'G-Class', price: 175000 })],
+    },
+  }))
+
+  await page.goto('/marketplace')
+  const card = page.getByTestId('marketplace-vehicle-card').first()
+  await expect(card).toBeVisible()
+  await expect(card).toContainText('Mercedes-Benz G-Class')
+  await expect(card.getByTestId('marketplace-card-price')).toContainText('175,000')
+  await expect(page.getByTestId('marketplace-showroom-spotlight')).toContainText('Mercedes-Benz G-Class')
+})
+
 test('card action buttons do not navigate the buyer away from marketplace', async ({ page }) => {
   await commonMocks(page)
   await page.route(/\/api\/marketplace\/listings(\?|$)/, (route: Route) => route.fulfill({
