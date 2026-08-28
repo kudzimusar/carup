@@ -1,4 +1,5 @@
 import { summaryLocationLine } from '@/lib/governedLocation'
+import { isAdversePlateStatus, plateStatusLabel } from '@/lib/marketplacePresentation'
 import type { MarketplaceListingCardModel } from '@/components/marketplace/MarketplaceListingCard'
 import type { MarketplaceListingSummary } from '@/types'
 
@@ -11,12 +12,6 @@ function sellerLabel(listing: MarketplaceListingSummary) {
   if (listing.seller_public_profile_enabled !== true) return 'Seller identity not published'
   const label = String(listing.seller_display_label || '').trim()
   return label || 'Seller name not recorded'
-}
-
-function plateStatusLabel(listing: MarketplaceListingSummary) {
-  if (listing.plate_status) return `Plate ${String(listing.plate_status).toLowerCase()}`
-  if (listing.plate_verified) return 'Plate confirmed'
-  return 'Plate status not recorded'
 }
 
 export function marketplaceListingToCardModel(
@@ -40,8 +35,7 @@ export function marketplaceListingToCardModel(
     sellerLabel: sellerLabel(listing),
     locationLabel: summaryLocationLine(listing.location, listing.location_state).label,
     plateStatus: plateStatusLabel(listing),
-    plateVerified: listing.plate_verified === true
-      && !['flagged', 'suspended'].includes(String(listing.plate_status || '').toLowerCase()),
+    plateVerified: listing.plate_verified === true && !isAdversePlateStatus(listing.plate_status),
     reserved: listing.reservation_summary?.reserved === true,
     partSentryChecked: listing.partsentry_checked === true,
     labels: labels.length ? labels : ['Published listing'],
