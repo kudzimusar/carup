@@ -60,6 +60,19 @@ function samePublicKey(a, b) {
   return String(a || '').trim() === String(b || '').trim();
 }
 
+export function isPublicKeyRegistrationConflict(error) {
+  if (!error) return false;
+  const code = String(error.code || '').toUpperCase();
+  const message = String(error.message || error.details || '').toLowerCase();
+  return code === '23505' || /duplicate key|unique constraint/.test(message);
+}
+
+function deterministicPublicKeyId(userId, derived) {
+  return 'key_' + crypto.createHash('sha256')
+    .update(`${String(userId)}|${derived.keyVersion}|${derived.fingerprint}`)
+    .digest('hex');
+}
+
 /**
  * Ensure the database holds the public half of the deterministic stakeholder key.
  *
@@ -122,7 +135,10 @@ export async function getOrCreateKeypair(userId) {
   }
 
   const row = {
-    id: 'key_' + crypto.randomUUID(),
+    // Deterministic identity means two instances racing to register the same
+    // derived key contend on the same primary key even before the uniqueness
+    // migration is applied.
+    id: deterministicPublicKeyId(userId, derived),
     user_id: String(userId),
     public_key_pem: derived.publicKeyPem,
     key_type: 'secp256k1',
@@ -139,6 +155,24 @@ export async function getOrCreateKeypair(userId) {
 
   const { error: insertError } = await supabase.from('public_keys').insert(row);
   if (insertError) {
+    if (isPublicKeyRegistrationConflict(insertError)) {
+      // Another process may have won the same first-registration/rotation race.
+      // Re-read the ONE active key and accept only the identical derived public key.
+      const raced = await selectActivePublicKey(userId);
+      if (
+        !raced.error
+        && raced.data
+        && samePublicKey(raced.data.public_key_pem, derived.publicKeyPem)
+      ) {
+        return {
+          publicKeyPem: derived.publicKeyPem,
+          keyRef: derived.keyRef,
+          keyVersion: derived.keyVersion,
+          custodyProvider: derived.custodyProvider,
+          custodyMetadataPersisted: raced.custodyMetadataAvailable,
+        };
+      }
+    }
     throw new Error(`public key registration failed: ${insertError.message}`);
   }
 
