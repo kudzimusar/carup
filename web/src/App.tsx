@@ -73,6 +73,7 @@ import Login from './pages/auth/Login'
 import Register from './pages/auth/Register'
 import ForgotPassword from './pages/auth/ForgotPassword'
 import ResetPassword from './pages/auth/ResetPassword'
+import VerifyEmail from './pages/auth/VerifyEmail'
 import KYCVerification from './pages/auth/KYCVerification'
 
 // Owner Dashboard
@@ -314,6 +315,7 @@ export default function App() {
           <Route path="/verify-otp" element={<Navigate to="/login" replace />} />
           <Route path="/auth/forgot-password" element={<ForgotPassword />} />
           <Route path="/auth/reset-password" element={<ResetPassword />} />
+          <Route path="/auth/verify-email" element={<VerifyEmail />} />
           <Route path="/kyc" element={<KYCVerification />} />
         </Route>
 
