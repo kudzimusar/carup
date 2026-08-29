@@ -60,6 +60,27 @@ function samePublicKey(a, b) {
   return String(a || '').trim() === String(b || '').trim();
 }
 
+export function isLedgerUniquenessConflict(error) {
+  if (!error) return false;
+  const code = String(error.code || '').toUpperCase();
+  const message = String(error.message || error.details || error.hint || '').toLowerCase();
+  return code === '23505'
+    || /duplicate key value|unique constraint/.test(message)
+    || /uq_blockchain_events_terminal_signer/.test(message);
+}
+
+async function findLedgerEventByHash(vin, currentHash) {
+  const { data, error } = await supabase
+    .from('blockchain_events')
+    .select('id,current_hash')
+    .eq('vin', vin)
+    .eq('current_hash', currentHash)
+    .limit(1);
+  if (error) return null;
+  const existing = Array.isArray(data) ? data[0] : data;
+  return existing && existing.current_hash === currentHash ? existing : null;
+}
+
 export function isMissingCustodyRolloutContractFunction(error) {
   if (!error) return false;
   const code = String(error.code || '').toUpperCase();
@@ -254,11 +275,23 @@ export async function addEvent(vin, eventType, payload, signature = 'SYSTEM_SIGN
     })
     .select('id');
 
-  if (insertError) {
-    throw new Error(`ledger event persistence failed: ${insertError.message}`);
-  }
+  let newEventId = insertedRows?.[0]?.id;
 
-  const newEventId = insertedRows?.[0]?.id;
+  if (insertError) {
+    // The terminal instant is the only timestamp the custody contract can re-issue, and
+    // the ledger admits at most one terminal event per signer. A conflict there is
+    // either this exact write landing twice — a retry whose first response was lost —
+    // or a genuinely different write competing for the same instant. Only the former is
+    // idempotent, and only an identical current_hash proves it.
+    const duplicate = isLedgerUniquenessConflict(insertError)
+      ? await findLedgerEventByHash(vin, currentHash)
+      : null;
+
+    if (!duplicate) {
+      throw new Error(`ledger event persistence failed: ${insertError.message}`);
+    }
+    newEventId = duplicate.id;
+  }
 
   const { count: eventCount } = await supabase
     .from('blockchain_events')

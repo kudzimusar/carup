@@ -48,7 +48,7 @@ const cols = (spec) => String(spec).split(',').map(quote).join(',');
 
 // Injects a single transient failure into the ledger insert, modelling the real split
 // between committed boundary allocation and the separate event-persistence operation.
-const injected = { failNextEventInsert: false };
+const injected = { failNextEventInsert: false, eventInsertGate: null, eventInsertsWaiting: 0 };
 
 function makeClient(db) {
   function builder(table) {
@@ -83,6 +83,13 @@ function makeClient(db) {
       if (st.op === 'insert' && st.table === 'blockchain_events' && injected.failNextEventInsert) {
         injected.failNextEventInsert = false;
         return { data: null, error: { message: 'transient ledger persistence failure' } };
+      }
+
+      // Barrier: hold every ledger insert until released, so competing activations all
+      // complete their boundary allocation BEFORE any event is persisted.
+      if (st.op === 'insert' && st.table === 'blockchain_events' && injected.eventInsertGate) {
+        injected.eventInsertsWaiting += 1;
+        await injected.eventInsertGate;
       }
 
       if (st.op === 'insert' || st.op === 'upsert') {
@@ -631,6 +638,111 @@ test('Issue #158: a failed ledger write does not permanently consume the termina
     assert.equal(finalChain.count, 1);
   } finally {
     await db.close();
+  }
+});
+
+// Drives two terminal activations through the barrier so BOTH complete their boundary
+// allocation before EITHER event is persisted, then releases them together.
+async function terminalRace(db, { payloads, vin }) {
+  let release;
+  injected.eventInsertsWaiting = 0;
+  injected.eventInsertGate = new Promise((resolve) => { release = resolve; });
+
+  const writes = payloads.map((payload) => addEvent(vin, 'Mechanic Inspection', payload));
+
+  // Wait until both writes have allocated a boundary and are parked at the insert.
+  for (let spin = 0; spin < 2000 && injected.eventInsertsWaiting < payloads.length; spin += 1) {
+    await new Promise((resolve) => setImmediate(resolve));
+  }
+  const bothAllocated = injected.eventInsertsWaiting === payloads.length;
+
+  release();
+  injected.eventInsertGate = null;
+  const settled = await Promise.allSettled(writes);
+  return { bothAllocated, settled };
+}
+
+test('Issue #158: competing terminal activations cannot fork the ledger', async (t) => {
+  const savedVersion = process.env.CARUP_BLOCKCHAIN_KEY_VERSION;
+  const savedFrom = supabase.from;
+  const savedRpc = supabase.rpc;
+  t.after(() => {
+    if (savedVersion === undefined) delete process.env.CARUP_BLOCKCHAIN_KEY_VERSION;
+    else process.env.CARUP_BLOCKCHAIN_KEY_VERSION = savedVersion;
+    supabase.from = savedFrom;
+    supabase.rpc = savedRpc;
+    injected.eventInsertGate = null;
+    injected.eventInsertsWaiting = 0;
+  });
+
+  const TERMINAL = '9999-12-31T23:59:59.999Z';
+  const keyCreatedAt = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+
+  for (const scenario of [
+    { name: 'identical logical payload', vin: 'VINRACESAME000001', payloads: null },
+    { name: 'distinct payloads', vin: 'VINRACEDIFF000001', payloads: null },
+  ]) {
+    process.env.CARUP_BLOCKCHAIN_KEY_VERSION = 'cv1';
+    const cv1 = deriveStakeholderKey(SIGNER);
+    const db = await preBoundaryFinalizedDb({ keyPem: cv1.publicKeyPem, keyCreatedAt });
+    try {
+      const client = makeClient(db);
+      supabase.from = client.from;
+      supabase.rpc = client.rpc;
+
+      await db.exec(up('../../database/migrations/20260829020000_issue158_activation_boundary_hardening.sql'));
+      await db.query(`SELECT public.blockchain_authorize_custody_generation($1::text)`, [custodyGeneration()]);
+      await db.query(`
+        INSERT INTO public.blockchain_signing_watermarks(user_id,last_authorized_at)
+        VALUES ($1::text,TIMESTAMPTZ '9999-12-31 23:59:59.998+00')
+        ON CONFLICT (user_id) DO UPDATE SET last_authorized_at=EXCLUDED.last_authorized_at
+      `, [SIGNER]);
+
+      const payloads = scenario.name === 'identical logical payload'
+        ? [{ mechanicId: SIGNER, note: 'same logical write' }, { mechanicId: SIGNER, note: 'same logical write' }]
+        : [{ mechanicId: SIGNER, note: 'write A' }, { mechanicId: SIGNER, note: 'write B' }];
+
+      const { bothAllocated, settled } = await terminalRace(db, { payloads, vin: scenario.vin });
+      assert.ok(bothAllocated, `${scenario.name}: both activations must allocate before either insert`);
+
+      // Whatever the outcome per call, the ledger must hold AT MOST ONE terminal event
+      // for this signer, and the chain must still verify.
+      const terminalRows = await db.query(`
+        SELECT count(*)::int AS c FROM blockchain_events
+         WHERE "timestamp"=$1::text AND split_part(signature,':',1)=$2::text
+      `, [TERMINAL, SIGNER]);
+      assert.equal(
+        terminalRows.rows[0].c,
+        1,
+        `${scenario.name}: exactly one terminal event may persist per signer (got ${terminalRows.rows[0].c})`,
+      );
+
+      const chain = await verifyChain(scenario.vin);
+      assert.equal(chain.verified, true, `${scenario.name}: ${chain.reason || 'chain must not fork'}`);
+      assert.ok(chain.chain.every((entry) => !entry.note), `${scenario.name}: no signature check may be skipped`);
+
+      const succeeded = settled.filter((s) => s.status === 'fulfilled');
+      const refused = settled.filter((s) => s.status === 'rejected');
+
+      if (scenario.name === 'identical logical payload') {
+        // Exact duplicates are the retry case: both callers are told their write landed,
+        // and they are told so about the SAME single row.
+        assert.equal(succeeded.length, 2, `${scenario.name}: an exact duplicate must be idempotent`);
+        assert.equal(
+          succeeded[0].value.currentHash,
+          succeeded[1].value.currentHash,
+          `${scenario.name}: both callers must observe the same event`,
+        );
+        assert.equal(succeeded[0].value.id, succeeded[1].value.id);
+      } else {
+        // A genuinely different write cannot consume the retry-only terminal reuse.
+        assert.equal(succeeded.length, 1, `${scenario.name}: exactly one write may succeed`);
+        assert.equal(refused.length, 1, `${scenario.name}: the competing write must be refused`);
+        assert.match(String(refused[0].reason?.message), /ledger event persistence failed/i);
+      }
+    } finally {
+      await db.close();
+    }
   }
 });
 

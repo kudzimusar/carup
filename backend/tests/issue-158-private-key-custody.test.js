@@ -243,6 +243,20 @@ test('Issue #158: activation boundary is DB-authoritative, never the caller cloc
   assert.match(sql, /c_max_boundary CONSTANT TIMESTAMPTZ := TIMESTAMPTZ '9999-12-31 23:59:59\.999\+00'/);
   assert.match(sql, /v_boundary > c_max_boundary/);
   assert.match(sql, /exceeds the representable timestamp range/);
+  // The terminal instant is the only re-issuable boundary, so the ledger itself must
+  // admit at most one terminal event per signer.
+  assert.match(sql, /uq_blockchain_events_terminal_signer/);
+  assert.match(sql, /CREATE UNIQUE INDEX IF NOT EXISTS uq_blockchain_events_terminal_signer/);
+  assert.match(sql, /AT MOST ONE TERMINAL EVENT PER SIGNER/);
+  // Recovery of an unpersisted terminal allocation is bound to the same authority.
+  assert.match(sql, /v_active\.public_key_pem = p_public_key_pem/);
+  assert.match(sql, /NOT v_terminal_persisted/);
+
+  const runtimeSrc = readFileSync('backend/services/blockchain/blockchainService.js', 'utf8');
+  assert.match(runtimeSrc, /isLedgerUniquenessConflict/);
+  assert.match(runtimeSrc, /findLedgerEventByHash/);
+  // Only an identical current_hash proves an idempotent retry.
+  assert.match(runtimeSrc, /existing\.current_hash === currentHash \? existing : null/);
   assert.match(sql, /REVOKE ALL ON FUNCTION public\.blockchain_boundary_parse_ts\(TEXT\)[\s\S]*service_role/);
   assert.match(sql, /WATERMARK RESEED/);
   // The seed is a callable function on purpose: the finalizer repeats it post-drain.
