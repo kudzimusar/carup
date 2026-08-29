@@ -36,7 +36,7 @@ export function VehicleIdentificationNotice({
 
   if (result.state === 'passport_exists') {
     const found = result.passportVehicle
-    // Identity only. Colour, mileage, price and condition stay this seller's to state.
+    // Canonical identity only. Listing/commercial facts still stay this seller's to state.
     const described = [found?.year, found?.make, found?.model].filter(Boolean).join(' ')
     return (
       <div
@@ -54,7 +54,8 @@ export function VehicleIdentificationNotice({
           </p>
         )}
         <p className="mt-1 pl-6">
-          CarUp will not copy that record's details into this form. Every fact below stays yours to state.
+          Confirming can reuse the Passport's identity facts (make, model and year) so you do not type them twice.
+          Colour, mileage, condition, price and description remain your seller-stated listing facts.
         </p>
         {confirmed ? (
           <div className="mt-3 ml-6 rounded-lg border border-emerald-200 bg-emerald-50 p-2.5 text-emerald-800" data-testid="sell-vin-passport-confirmed">

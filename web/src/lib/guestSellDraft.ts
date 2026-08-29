@@ -1,4 +1,5 @@
 export const GUEST_SELL_DRAFT_KEY = 'carup_guest_sell_draft_v1'
+export const GUEST_SELL_STEP_KEY = 'carup_guest_sell_step_v1'
 
 const GUEST_SELL_MEDIA_DB = 'carup_guest_sell_draft_media_v1'
 const GUEST_SELL_MEDIA_STORE = 'draft_media'
@@ -35,6 +36,8 @@ export interface GuestSellDraft {
   historyPlan: Record<string, 'now' | 'later'>
   existingPassportConfirmed: boolean
   mediaExternalized: boolean
+  locationVisibility?: 'withheld' | 'province_only' | 'public'
+  publicSellerDisplay?: boolean
 }
 
 // Same-tab continuity should never depend on a browser quota write. This cache survives React Router
@@ -202,6 +205,11 @@ function parseGuestSellDraft(raw: string): GuestSellDraft | null {
         : {},
       existingPassportConfirmed: parsed.existingPassportConfirmed === true,
       mediaExternalized: parsed.mediaExternalized === true,
+      locationVisibility:
+        parsed.locationVisibility === 'public' || parsed.locationVisibility === 'province_only'
+          ? parsed.locationVisibility
+          : 'withheld',
+      publicSellerDisplay: parsed.publicSellerDisplay === true,
     }
   } catch {
     return null
@@ -231,8 +239,28 @@ export async function readGuestSellDraftWithMedia(): Promise<GuestSellDraft | nu
   }
 }
 
+export function readGuestSellStep() {
+  try {
+    const raw = sessionStorage.getItem(GUEST_SELL_STEP_KEY)
+    const parsed = Number(raw)
+    return Number.isInteger(parsed) && parsed >= 0 && parsed <= 3 ? parsed : 0
+  } catch {
+    return 0
+  }
+}
+
+export function saveGuestSellStep(step: number) {
+  try {
+    const normalized = Math.max(0, Math.min(3, Math.trunc(Number(step) || 0)))
+    sessionStorage.setItem(GUEST_SELL_STEP_KEY, String(normalized))
+  } catch { /* best effort */ }
+}
+
 export function clearGuestSellDraft() {
-  try { sessionStorage.removeItem(GUEST_SELL_DRAFT_KEY) } catch { /* best effort */ }
+  try {
+    sessionStorage.removeItem(GUEST_SELL_DRAFT_KEY)
+    sessionStorage.removeItem(GUEST_SELL_STEP_KEY)
+  } catch { /* best effort */ }
   volatileMedia = null
   void clearGuestSellMedia()
 }

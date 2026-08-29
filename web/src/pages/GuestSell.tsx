@@ -8,7 +8,7 @@ import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } f
 import { useAuth } from '@/context/AuthContext'
 import { zimbabweLocations, zimbabweProvinces } from '@/data/mockData'
 import { BODY_STYLES, DRIVETRAINS, FUEL_TYPES, SELLER_CONDITIONS, TRANSMISSIONS, VEHICLE_COLORS, VEHICLE_MAKES, isValidVehicleYear, modelsForMake } from '@/data/vehicleTaxonomy'
-import { saveGuestSellDraft } from '@/lib/guestSellDraft'
+import { readGuestSellDraft, readGuestSellDraftWithMedia, readGuestSellStep, saveGuestSellDraft, saveGuestSellStep } from '@/lib/guestSellDraft'
 import { LISTING_IMAGE_LIMIT, screenListingImages } from '@/lib/listingMediaIntake'
 import { MarketplaceListingCard } from '@/components/marketplace/MarketplaceListingCard'
 import { sellerDiscoverabilityFacets, sellerDraftToCardModel } from '@/lib/sellerListingPreview'
@@ -76,8 +76,38 @@ function validVin(vin: string) {
 export default function GuestSell() {
   const { isAuthenticated } = useAuth()
   const { fetchEvidenceTaxonomy, fetchEvidenceSources } = useCarUpApi()
-  const [step, setStep] = useState(0)
-  const [form, setForm] = useState<GuestForm>(INITIAL)
+  const [initialDraft] = useState(() => readGuestSellDraft())
+  const [step, setStep] = useState(() => readGuestSellStep())
+  const [form, setForm] = useState<GuestForm>(() => initialDraft ? ({
+    ...INITIAL,
+    make: initialDraft.make,
+    model: initialDraft.model,
+    year: initialDraft.year,
+    vin: initialDraft.vin,
+    color: initialDraft.color,
+    mileage: initialDraft.mileage,
+    condition: initialDraft.condition,
+    category: initialDraft.category,
+    fuelType: initialDraft.fuelType,
+    transmission: initialDraft.transmission,
+    drivetrain: initialDraft.drivetrain,
+    location: initialDraft.location,
+    province: initialDraft.province,
+    price: initialDraft.price,
+    currency: initialDraft.currency,
+    description: initialDraft.description,
+    engineNumber: initialDraft.engineNumber,
+    chassisNumber: initialDraft.chassisNumber,
+    plateNumber: initialDraft.plateNumber,
+    tempPlateId: initialDraft.tempPlateId,
+    importStatus: initialDraft.importStatus,
+    features: initialDraft.features,
+    images: initialDraft.images,
+    imageLabels: initialDraft.imageLabels,
+    coverImageIndex: initialDraft.coverImageIndex,
+    historyPlan: initialDraft.historyPlan,
+    existingPassportConfirmed: initialDraft.existingPassportConfirmed,
+  }) : INITIAL)
   const [feature, setFeature] = useState('')
   const [errors, setErrors] = useState<Record<string, string>>({})
   const [draftSaved, setDraftSaved] = useState(false)
@@ -92,6 +122,38 @@ export default function GuestSell() {
   const discoverability = useMemo(() => sellerDiscoverabilityFacets(form), [form])
   // S1: detect an existing CarUp Passport before the seller invests in the rest of the form.
   const { result: identification, checking: identifying } = useSellerVehicleIdentification(form.vin)
+
+  useEffect(() => {
+    if (!initialDraft?.mediaExternalized || initialDraft.images.length > 0) return
+    let active = true
+    readGuestSellDraftWithMedia()
+      .then(restored => {
+        if (!active || !restored?.images.length) return
+        setForm(previous => ({
+          ...previous,
+          images: restored.images,
+          imageLabels: restored.imageLabels,
+          coverImageIndex: restored.coverImageIndex,
+        }))
+      })
+      .catch(() => {
+        if (active) toast.error('CarUp could not restore the saved photo cache. Your typed vehicle details are still here.')
+      })
+    return () => { active = false }
+  }, [initialDraft])
+
+  useEffect(() => {
+    const hasProgress = Boolean(
+      form.vin || form.make || form.model || form.color || form.description
+      || form.images.length || form.features.length || Object.keys(form.historyPlan).length
+    )
+    if (!hasProgress) return
+    const timer = window.setTimeout(() => {
+      void saveGuestSellDraft(form)
+      saveGuestSellStep(step)
+    }, 700)
+    return () => window.clearTimeout(timer)
+  }, [form, step])
 
   useEffect(() => {
     let active = true
@@ -425,7 +487,25 @@ export default function GuestSell() {
                             result={identification}
                             checking={identifying}
                             confirmed={form.existingPassportConfirmed}
-                            onConfirm={() => set('existingPassportConfirmed', true)}
+                            onConfirm={() => {
+                              const found = identification.passportVehicle
+                              setForm(previous => ({
+                                ...previous,
+                                existingPassportConfirmed: true,
+                                make: previous.make.trim() || found?.make || '',
+                                model: previous.model.trim() || found?.model || '',
+                                year: previous.year || (found?.year ? String(found.year) : ''),
+                              }))
+                              setErrors(previous => {
+                                const nextErrors = { ...previous }
+                                delete nextErrors.make
+                                delete nextErrors.model
+                                delete nextErrors.year
+                                delete nextErrors.vin
+                                return nextErrors
+                              })
+                              setDraftSaved(false)
+                            }}
                             onUseDifferentVin={() => set('vin', '')}
                           />
                         </Field>
