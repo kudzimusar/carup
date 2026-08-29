@@ -26,6 +26,12 @@
  * here are enforced, so existing tests are unaffected.
  */
 export const UNIQUE_INDEXES = Object.freeze({
+  // Service Network S5 — service_record_parts: UNIQUE (service_record_id, partsentry_log_id)
+  // and service_record_evidence: UNIQUE (service_record_id, evidence_id). Both make the
+  // attach paths retry-safe: a repeated attach must lose the race rather than record the
+  // same part or the same evidence twice against one service record.
+  service_record_parts: [['service_record_id', 'partsentry_log_id']],
+  service_record_evidence: [['service_record_id', 'evidence_id']],
   // Service Network S4 — mechanic_work_orders: partial UNIQUE (service_case_id) WHERE NOT NULL
   // (one work order per Service Case) and work_order_assignments: partial UNIQUE
   // (work_order_id) WHERE unassigned_at IS NULL (at most one LIVE mechanic per work order —

@@ -117,6 +117,7 @@ import partsentryReviewRouter from './routes/partsentryReviewRoutes.js';
 import garageDirectoryRouter from './routes/garageDirectoryRoutes.js';
 import serviceCaseRouter from './routes/serviceCaseRoutes.js';
 import serviceWorkOrderRouter from './routes/serviceWorkOrderRoutes.js';
+import serviceRecordRouter from './routes/serviceRecordRoutes.js';
 import { normalizeVehicleStatus, publicVehicleStatusFilterValues, publiclyVisiblePublicationStatuses, isPublicVehicleStatus, isPubliclyVisiblePublication, PUBLIC_VEHICLE_COLUMNS } from './utils/vehicleStatus.js';
 import { attestedValue, CLAIM_VISIBILITY, LISTING_CLAIM_COLUMNS, PUBLIC_VEHICLE_SELECT, projectVehicle, toListingClaims, toPublicEvidence, toPublicPlateHistory, toPublicTimelineEvent } from './utils/publicVehicleProjection.js';
 // The canonical vehicle media contract (Issue #164 §10). Imported at MODULE scope and handed to
@@ -341,6 +342,7 @@ app.use(partsentryReviewRouter);
 app.use(garageDirectoryRouter);
 app.use(serviceCaseRouter);
 app.use(serviceWorkOrderRouter);
+app.use(serviceRecordRouter);
 
 // Mount isolated Diaspora Trade bounded context
 app.use('/api/diaspora', diasporaRouter);
