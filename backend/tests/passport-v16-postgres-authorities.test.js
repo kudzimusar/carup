@@ -291,11 +291,27 @@ async function custodyPreparedDb() {
     );
   `);
   await db.exec(up('../../database/migrations/20260828210000_issue158_private_key_custody.sql'));
+  await db.exec(up('../../database/migrations/20260829003000_issue158_custody_rollout_upgrade.sql'));
   return db;
 }
 
-async function custodyDb() {
+// Deterministic owner-authorized custody generations. The DB treats these as opaque
+// authority tokens; the runtime derives the real values from its master secret.
+const GEN_V1 = 'custody:v1:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa';
+const GEN_V2 = 'custody:v2:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb';
+const GEN_V1_ROLLBACK = 'custody:v1:cccccccccccccccccccccccccccccccc';
+
+async function authorizeGeneration(db, generation) {
+  await db.query(
+    `SELECT public.blockchain_authorize_custody_generation($1::text)`,
+    [generation],
+  );
+}
+
+async function custodyDb({ generation = GEN_V1 } = {}) {
   const db = await custodyPreparedDb();
+  // Owner-authorized generation MUST exist before the destructive finalizer runs.
+  await authorizeGeneration(db, generation);
   await db.exec(readFileSync('database/scripts/issue158_mark_old_writers_drained.sql', 'utf8'));
   await db.exec(readFileSync('database/scripts/issue158_private_key_custody_finalize.sql', 'utf8'));
   return db;
@@ -320,13 +336,15 @@ test('Issue #158 PREPARED phase preserves legacy private material and blocks new
       await db.exec('RESET ROLE');
     }
 
+    // Even the current 9-argument generation-bound contract stays disabled in PREPARED.
     await assert.rejects(
       () => db.query(`
         SELECT * FROM public.blockchain_activate_public_key_atomic(
           'candidate-prepared','user-1','PUBLIC-DERIVED','secp256k1',
-          '2026-08-28T10:00:00Z','derived:test:v1:prepared','v1','derived_master_secret'
+          '2026-08-28T10:00:00Z','derived:test:v1:prepared','v1','derived_master_secret',
+          $1::text
         )
-      `),
+      `, [GEN_V1]),
       /cutover is not finalized/i,
     );
   } finally {
@@ -337,10 +355,45 @@ test('Issue #158 PREPARED phase preserves legacy private material and blocks new
 test('Issue #158 finalizer refuses destructive cutover until old writers are marked drained', async () => {
   const db = await custodyPreparedDb();
   try {
+    // Generation authority alone is NOT sufficient: the drain assertion is still absent.
+    await authorizeGeneration(db, GEN_V1);
     await assert.rejects(
       () => db.exec(readFileSync('database/scripts/issue158_private_key_custody_finalize.sql', 'utf8')),
       /old runtime writers are explicitly marked drained/i,
     );
+  } finally {
+    await db.close();
+  }
+});
+
+test('Issue #158 finalizer refuses destructive cutover until a custody generation is owner-authorized', async () => {
+  const db = await custodyPreparedDb();
+  try {
+    // Drain alone is NOT sufficient: no owner-authorized generation exists yet.
+    await db.exec(readFileSync('database/scripts/issue158_mark_old_writers_drained.sql', 'utf8'));
+    await assert.rejects(
+      () => db.exec(readFileSync('database/scripts/issue158_private_key_custody_finalize.sql', 'utf8')),
+      /custody generation is owner-authorized/i,
+    );
+  } finally {
+    await db.close();
+  }
+});
+
+test('Issue #158 service_role cannot authorize a custody generation', async () => {
+  const db = await custodyPreparedDb();
+  try {
+    await assert.rejects(async () => {
+      await db.exec('SET ROLE service_role');
+      try {
+        await db.query(
+          `SELECT public.blockchain_authorize_custody_generation($1::text)`,
+          [GEN_V1],
+        );
+      } finally {
+        await db.exec('RESET ROLE');
+      }
+    }, /permission denied/i);
   } finally {
     await db.close();
   }
@@ -425,6 +478,166 @@ test('Issue #158 custody migration enforces one ACTIVE key per user', async () =
       `),
       /uq_public_keys_one_active_per_user|unique constraint|duplicate key/i,
     );
+  } finally {
+    await db.close();
+  }
+});
+
+// Emulates a database that already recorded the ORIGINAL monolithic 20260828210000
+// migration (git f53f0d24): custody columns present, private material already erased and
+// constrained, service_role holding the old direct column-scoped safe INSERT/UPDATE
+// grants, and an ungated 8-argument activation function with NO rollout table at all.
+async function legacyMonolithDb() {
+  const db = await PGlite.create();
+  await db.exec(`
+    CREATE ROLE anon NOLOGIN;
+    CREATE ROLE authenticated NOLOGIN;
+    CREATE ROLE service_role NOLOGIN BYPASSRLS;
+    GRANT USAGE ON SCHEMA public TO anon,authenticated,service_role;
+
+    CREATE TABLE public_keys (
+      id text PRIMARY KEY,
+      user_id text NOT NULL,
+      public_key_pem text NOT NULL,
+      private_key_pem text,
+      key_type text DEFAULT 'secp256k1',
+      status text DEFAULT 'ACTIVE',
+      created_at text NOT NULL,
+      revoked_at text,
+      key_ref text,
+      key_version text,
+      custody_provider text
+    );
+    INSERT INTO public_keys(id,user_id,public_key_pem,private_key_pem,status,created_at)
+    VALUES ('key-legacy','user-legacy','PUBLIC-LEGACY',NULL,'ACTIVE','2026-08-01T00:00:00Z');
+
+    ALTER TABLE public_keys
+      ADD CONSTRAINT public_keys_private_material_absent CHECK (private_key_pem IS NULL);
+
+    REVOKE SELECT,INSERT,UPDATE ON TABLE public_keys FROM service_role;
+    GRANT SELECT (
+      id,user_id,public_key_pem,key_type,status,created_at,revoked_at,
+      key_ref,key_version,custody_provider
+    ) ON public_keys TO service_role;
+    GRANT INSERT (
+      id,user_id,public_key_pem,key_type,status,created_at,
+      key_ref,key_version,custody_provider
+    ) ON public_keys TO service_role;
+    GRANT UPDATE (
+      status,revoked_at,key_ref,key_version,custody_provider
+    ) ON public_keys TO service_role;
+
+    REVOKE ALL ON TABLE public_keys FROM anon,authenticated;
+    ALTER TABLE public_keys ENABLE ROW LEVEL SECURITY;
+
+    CREATE FUNCTION public.blockchain_activate_public_key_atomic(
+      p_candidate_id TEXT,p_user_id TEXT,p_public_key_pem TEXT,p_key_type TEXT,
+      p_created_at TEXT,p_key_ref TEXT,p_key_version TEXT,p_custody_provider TEXT
+    ) RETURNS TABLE (
+      id TEXT,user_id TEXT,public_key_pem TEXT,key_type TEXT,status TEXT,
+      created_at TEXT,revoked_at TEXT,key_ref TEXT,key_version TEXT,custody_provider TEXT
+    ) LANGUAGE plpgsql SECURITY DEFINER SET search_path=public,pg_temp AS $monolith$
+    BEGIN
+      -- The monolithic contract had no rollout/generation gate at all.
+      INSERT INTO public.public_keys(
+        id,user_id,public_key_pem,key_type,status,created_at,revoked_at,
+        key_ref,key_version,custody_provider
+      ) VALUES (
+        p_candidate_id,p_user_id,p_public_key_pem,p_key_type,'ACTIVE',p_created_at,NULL,
+        p_key_ref,p_key_version,p_custody_provider
+      );
+      RETURN QUERY SELECT p.id,p.user_id,p.public_key_pem,p.key_type,p.status,p.created_at,
+        p.revoked_at,p.key_ref,p.key_version,p.custody_provider
+        FROM public.public_keys p WHERE p.id=p_candidate_id;
+    END $monolith$;
+    REVOKE ALL ON FUNCTION public.blockchain_activate_public_key_atomic(
+      TEXT,TEXT,TEXT,TEXT,TEXT,TEXT,TEXT,TEXT
+    ) FROM PUBLIC,anon,authenticated;
+    GRANT EXECUTE ON FUNCTION public.blockchain_activate_public_key_atomic(
+      TEXT,TEXT,TEXT,TEXT,TEXT,TEXT,TEXT,TEXT
+    ) TO service_role;
+  `);
+  // The ONLY thing a legacy database receives is the later-version upgrade migration.
+  await db.exec(up('../../database/migrations/20260829003000_issue158_custody_rollout_upgrade.sql'));
+  return db;
+}
+
+test('Issue #158 legacy monolithic databases are upgraded to explicit PREPARED, never implied FINALIZED', async () => {
+  const db = await legacyMonolithDb();
+  try {
+    const rollout = await db.query(
+      `SELECT state,old_writers_drained,authorized_generation
+         FROM public.blockchain_custody_rollout WHERE singleton=TRUE`,
+    );
+    assert.equal(rollout.rows.length, 1);
+    assert.equal(rollout.rows[0].state, 'PREPARED');
+    assert.equal(rollout.rows[0].old_writers_drained, false);
+    assert.equal(rollout.rows[0].authorized_generation, null);
+
+    // The rollout-contract RPC now exists and reports PREPARED — the runtime can no
+    // longer be tempted to treat a missing function as finalization evidence.
+    await db.exec('SET ROLE service_role');
+    try {
+      const contract = await db.query(
+        `SELECT public.blockchain_custody_rollout_contract() AS contract`,
+      );
+      assert.equal(contract.rows[0].contract.state, 'PREPARED');
+      assert.equal(contract.rows[0].contract.authorized_generation, null);
+
+      // The old direct column-scoped service_role DML is closed by the upgrade.
+      await assert.rejects(
+        () => db.exec(`UPDATE public_keys SET status='REVOKED' WHERE id='key-legacy'`),
+        /permission denied/i,
+      );
+      await assert.rejects(
+        () => db.exec(`
+          INSERT INTO public_keys(id,user_id,public_key_pem,created_at)
+          VALUES ('key-direct','user-x','PUB-X','2026-08-29T00:00:00Z')
+        `),
+        /permission denied/i,
+      );
+
+      // The ungated monolithic 8-argument activation contract is retired for service_role.
+      await assert.rejects(
+        () => db.query(`
+          SELECT * FROM public.blockchain_activate_public_key_atomic(
+            'key-8arg','user-legacy','PUBLIC-NEXT','secp256k1',
+            '2026-08-29T00:00:00Z','derived:test:v1:legacy','v1','derived_master_secret'
+          )
+        `),
+        /permission denied|obsolete custody activation contract/i,
+      );
+    } finally {
+      await db.exec('RESET ROLE');
+    }
+
+    // Even for the database owner the 8-argument contract is obsolete, not functional.
+    await assert.rejects(
+      () => db.query(`
+        SELECT * FROM public.blockchain_activate_public_key_atomic(
+          'key-8arg-owner','user-legacy','PUBLIC-NEXT','secp256k1',
+          '2026-08-29T00:00:00Z','derived:test:v1:legacy','v1','derived_master_secret'
+        )
+      `),
+      /obsolete custody activation contract/i,
+    );
+
+    // The current 9-argument contract exists but stays disabled: PREPARED is explicit
+    // maintenance, never implied finalization.
+    await assert.rejects(
+      () => db.query(`
+        SELECT * FROM public.blockchain_activate_public_key_atomic(
+          'key-9arg','user-legacy','PUBLIC-NEXT','secp256k1',
+          '2026-08-29T00:00:00Z','derived:test:v1:legacy','v1','derived_master_secret',
+          $1::text
+        )
+      `, [GEN_V1]),
+      /cutover is not finalized/i,
+    );
+
+    // No row was created by any of the refused paths.
+    const keys = await db.query(`SELECT count(*)::int AS c FROM public_keys`);
+    assert.equal(keys.rows[0].c, 1);
   } finally {
     await db.close();
   }
@@ -550,35 +763,78 @@ async function activateKey(db, {
   publicKey,
   at,
   version,
+  generation,
 }) {
   const { rows } = await db.query(`
     SELECT * FROM public.blockchain_activate_public_key_atomic(
-      $1::text,$2::text,$3::text,$4::text,$5::text,$6::text,$7::text,$8::text
+      $1::text,$2::text,$3::text,$4::text,$5::text,$6::text,$7::text,$8::text,$9::text
     )
   `, [
     candidateId,userId,publicKey,'secp256k1',at,
-    `derived:test:${version}:${candidateId}`,version,'derived_master_secret',
+    `derived:test:${version}:${candidateId}`,version,'derived_master_secret',generation,
   ]);
   return rows[0];
 }
 
 test('Issue #158 atomic activation preserves v1 -> v2 -> rollback-v1 key validity incarnations', async () => {
-  const db = await custodyDb();
+  const db = await custodyDb({ generation: GEN_V1 });
   try {
+    // The authorized v1 runtime activates the (already-present) v1 key.
+    const v1 = await activateKey(db, {
+      candidateId: 'ignored-existing-active',
+      publicKey: 'PUBLIC-MATERIAL',
+      version: 'v1',
+      at: '2026-08-28T09:00:00Z',
+      generation: GEN_V1,
+    });
+    assert.equal(v1.status, 'ACTIVE');
+    assert.equal(v1.id, 'key-1');
+
+    // A v2 runtime whose generation is NOT yet owner-authorized must be rejected
+    // outright — the active key must not oscillate during a rolling config cutover.
+    await assert.rejects(
+      () => activateKey(db, {
+        candidateId: 'key-v2-premature',
+        publicKey: 'PUBLIC-V2',
+        version: 'v2',
+        at: '2026-08-28T09:30:00Z',
+        generation: GEN_V2,
+      }),
+      /custody generation is not authorized/i,
+    );
+
+    await authorizeGeneration(db, GEN_V2);
     const v2 = await activateKey(db, {
       candidateId: 'key-v2-incarnation-1',
       publicKey: 'PUBLIC-V2',
       version: 'v2',
       at: '2026-08-28T10:00:00Z',
+      generation: GEN_V2,
     });
     assert.equal(v2.status, 'ACTIVE');
     assert.equal(v2.public_key_pem, 'PUBLIC-V2');
 
+    // A superseded v1 runtime instance still running after the v2 authorization must
+    // be rejected instead of flipping the active key back.
+    await assert.rejects(
+      () => activateKey(db, {
+        candidateId: 'key-v1-superseded',
+        publicKey: 'PUBLIC-MATERIAL',
+        version: 'v1',
+        at: '2026-08-28T11:00:00Z',
+        generation: GEN_V1,
+      }),
+      /custody generation is not authorized/i,
+    );
+
+    // Deliberate rollback is a NEW owner-authorized generation, then a fresh incarnation.
+    await authorizeGeneration(db, GEN_V1_ROLLBACK);
     const rollback = await activateKey(db, {
       candidateId: 'key-v1-incarnation-2',
       publicKey: 'PUBLIC-MATERIAL',
       version: 'v1',
       at: '2026-08-29T10:00:00Z',
+      generation: GEN_V1_ROLLBACK,
     });
     assert.equal(rollback.status, 'ACTIVE');
     assert.equal(rollback.id, 'key-v1-incarnation-2');
@@ -590,6 +846,7 @@ test('Issue #158 atomic activation preserves v1 -> v2 -> rollback-v1 key validit
       publicKey: 'PUBLIC-MATERIAL',
       version: 'v1',
       at: '2026-08-29T11:00:00Z',
+      generation: GEN_V1_ROLLBACK,
     });
     assert.equal(replay.id, 'key-v1-incarnation-2');
 

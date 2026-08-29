@@ -66,7 +66,11 @@ test('Issue #158 PREPARED migration is additive and keeps legacy private-key wri
   const sql = readFileSync('database/migrations/20260828210000_issue158_private_key_custody.sql', 'utf8');
   assert.match(sql, /blockchain_custody_rollout/);
   assert.match(sql, /'PREPARED'/);
-  assert.match(sql, /blockchain_custody_rollout_contract/);
+  // The rollout-contract RPC and generation authority belong to the LATER upgrade
+  // migration on purpose: DBs that recorded the earlier monolithic filename must still
+  // receive them through 20260829003000_issue158_custody_rollout_upgrade.sql.
+  assert.doesNotMatch(sql, /blockchain_custody_rollout_contract/);
+  assert.doesNotMatch(sql, /authorized_generation/);
   assert.match(sql, /blockchain_activate_public_key_atomic/);
   assert.match(sql, /key_ref TEXT/);
   assert.match(sql, /custody_provider TEXT/);

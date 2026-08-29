@@ -26,6 +26,7 @@ const WORK_ORDERS_SRC = readFileSync(join(ROOT, 'routes', 'workOrdersRoutes.js')
 
 const { supabase } = await import('../db/supabase.js');
 const { addRepairLog } = await import('../services/partsentry/partsentryService.js');
+const { custodyGeneration } = await import('../services/blockchain/blockchainKeyCustodyService.js');
 
 // ── In-memory supabase stub ─────────────────────────────────────────────────────
 let db;
@@ -101,11 +102,23 @@ beforeEach(() => {
   resetDb();
   supabase.from = (t) => builder(t);
   supabase.rpc = async (name, args) => {
-    if (name === 'blockchain_custody_rollout_state') {
-      return { data: 'FINALIZED', error: null };
+    if (name === 'blockchain_custody_rollout_contract') {
+      // The authorized generation mirrors the runtime's own derived custody
+      // generation (same process-level test secret + version), exactly like an
+      // owner-authorized FINALIZED database.
+      return {
+        data: { state: 'FINALIZED', authorized_generation: custodyGeneration() },
+        error: null,
+      };
     }
     if (name !== 'blockchain_activate_public_key_atomic') {
       return { data: null, error: { message: `unsupported test RPC: ${name}` } };
+    }
+    if (args.p_custody_generation !== custodyGeneration()) {
+      return {
+        data: null,
+        error: { message: 'stakeholder signer custody generation is not authorized' },
+      };
     }
 
     const rows = db.public_keys;
