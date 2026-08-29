@@ -69,16 +69,49 @@ export function isLedgerUniquenessConflict(error) {
     || /uq_blockchain_events_terminal_signer/.test(message);
 }
 
-async function findLedgerEventByHash(vin, currentHash) {
+// The last instant the ledger timestamp format can represent. It is the only instant at
+// which the custody contract may re-issue a boundary, and the database admits at most
+// one event there per signer.
+const TERMINAL_EVENT_TIMESTAMP = '9999-12-31T23:59:59.999Z';
+
+// Deterministic content comparison that does not depend on key order.
+function canonicalize(value) {
+  if (value === null || typeof value !== 'object') return JSON.stringify(value) ?? 'null';
+  if (Array.isArray(value)) return `[${value.map(canonicalize).join(',')}]`;
+  return `{${Object.keys(value).sort().map((k) => `${JSON.stringify(k)}:${canonicalize(value[k])}`).join(',')}}`;
+}
+
+/**
+ * Decide whether a terminal-instant conflict is this exact write landing twice.
+ *
+ * The identity is deliberately NOT the event hash. A retry re-reads the VIN tail, which
+ * by then contains the terminal row, so it computes a different previous_hash and
+ * therefore a different current_hash than the row it is retrying — a hash-equality rule
+ * would refuse a legitimate lost-response retry.
+ *
+ * The stable identity is the logical write itself: signer, VIN, event type and
+ * canonically compared payload. That is sound only at the terminal instant, because no
+ * representable later event exists there, so a stakeholder can have exactly one such
+ * event and any divergence in the logical content is necessarily a different write.
+ */
+async function findIdempotentTerminalEvent({ vin, eventType, payload, signerId, timestamp }) {
+  if (timestamp !== TERMINAL_EVENT_TIMESTAMP) return null;
+
   const { data, error } = await supabase
     .from('blockchain_events')
-    .select('id,current_hash')
-    .eq('vin', vin)
-    .eq('current_hash', currentHash)
-    .limit(1);
+    .select(EVENT_SELECT)
+    .eq('timestamp', TERMINAL_EVENT_TIMESTAMP)
+    .eq('vin', vin);
   if (error) return null;
-  const existing = Array.isArray(data) ? data[0] : data;
-  return existing && existing.current_hash === currentHash ? existing : null;
+
+  const wanted = canonicalize(payload);
+  return (data || []).find((row) => {
+    const separator = String(row.signature || '').indexOf(':');
+    if (separator < 0 || String(row.signature).slice(0, separator) !== String(signerId)) return false;
+    if (row.event_type !== eventType) return false;
+    const stored = typeof row.payload === 'string' ? JSON.parse(row.payload) : row.payload;
+    return canonicalize(stored) === wanted;
+  }) || null;
 }
 
 export function isMissingCustodyRolloutContractFunction(error) {
@@ -280,17 +313,30 @@ export async function addEvent(vin, eventType, payload, signature = 'SYSTEM_SIGN
   if (insertError) {
     // The terminal instant is the only timestamp the custody contract can re-issue, and
     // the ledger admits at most one terminal event per signer. A conflict there is
-    // either this exact write landing twice — a retry whose first response was lost —
-    // or a genuinely different write competing for the same instant. Only the former is
-    // idempotent, and only an identical current_hash proves it.
+    // either this exact logical write landing twice — a retry whose first response was
+    // lost — or a genuinely different write competing for the same instant. Only the
+    // former is idempotent.
     const duplicate = isLedgerUniquenessConflict(insertError)
-      ? await findLedgerEventByHash(vin, currentHash)
+      ? await findIdempotentTerminalEvent({ vin, eventType, payload, signerId, timestamp })
       : null;
 
     if (!duplicate) {
       throw new Error(`ledger event persistence failed: ${insertError.message}`);
     }
-    newEventId = duplicate.id;
+
+    // Report the row that actually exists, not the values this attempt recomputed
+    // against an already-advanced tail.
+    return {
+      id: duplicate.id,
+      previousHash: duplicate.previous_hash,
+      currentHash: duplicate.current_hash,
+      vin: duplicate.vin,
+      eventType: duplicate.event_type,
+      payload: typeof duplicate.payload === 'string' ? JSON.parse(duplicate.payload) : duplicate.payload,
+      timestamp: duplicate.timestamp,
+      signature: duplicate.signature,
+      idempotent: true,
+    };
   }
 
   const { count: eventCount } = await supabase

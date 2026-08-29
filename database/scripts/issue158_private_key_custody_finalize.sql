@@ -58,6 +58,17 @@ BEGIN
       USING ERRCODE='55000';
   END IF;
 
+  -- FINALIZED enables key activation, and activation may re-issue the terminal instant
+  -- so a lost-response retry can reach conflict classification. That is only safe while
+  -- the ledger admits at most one terminal event per signer, so a fresh rollout must not
+  -- reach FINALIZED without the terminal uniqueness invariant present.
+  IF to_regclass('public.blockchain_events') IS NOT NULL
+     AND to_regclass('public.uq_blockchain_events_terminal_signer') IS NULL THEN
+    RAISE EXCEPTION
+      '[issue-158] refusing custody finalization: terminal ledger uniqueness invariant is absent'
+      USING ERRCODE='55000';
+  END IF;
+
   -- The superseded caller-clock contracts must already be closed to the application
   -- role before any key activation becomes possible.
   FOR v_superseded IN

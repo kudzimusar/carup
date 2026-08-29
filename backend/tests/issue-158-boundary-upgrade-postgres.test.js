@@ -269,6 +269,7 @@ async function preparedDbWithLegacyWriter({ keyPem, keyCreatedAt }) {
   await db.exec(up('../../database/migrations/20260828210000_issue158_private_key_custody.sql'));
   await db.exec(up('../../database/migrations/20260829003000_issue158_custody_rollout_upgrade.sql'));
   await db.exec(up('../../database/migrations/20260829020000_issue158_activation_boundary_hardening.sql'));
+  await db.exec(up('../../database/migrations/20260829040000_issue158_terminal_event_uniqueness.sql'));
   return db;
 }
 
@@ -420,6 +421,7 @@ test('Issue #158: a non-finite legacy timestamp cannot brick stakeholder signing
     `, [GENESIS, validHash, VIN2, JSON.stringify(validPayload), validForward, `${SIGNER}:${validSig.signatureHex}`]);
 
     await db.exec(up('../../database/migrations/20260829020000_issue158_activation_boundary_hardening.sql'));
+    await db.exec(up('../../database/migrations/20260829040000_issue158_terminal_event_uniqueness.sql'));
     await db.query(`SELECT public.blockchain_authorize_custody_generation($1::text)`, [custodyGeneration()]);
 
     // The watermark took the valid value, not the poison.
@@ -481,6 +483,7 @@ test('Issue #158: repeated signing continues near the terminal representable ins
     `, [GENESIS, hash, VIN3, JSON.stringify(payload), terminalDayAt, `${SIGNER}:${sig.signatureHex}`]);
 
     await db.exec(up('../../database/migrations/20260829020000_issue158_activation_boundary_hardening.sql'));
+    await db.exec(up('../../database/migrations/20260829040000_issue158_terminal_event_uniqueness.sql'));
     await db.query(`SELECT public.blockchain_authorize_custody_generation($1::text)`, [custodyGeneration()]);
 
     // The terminal-day value is preserved as the floor rather than discarded.
@@ -535,6 +538,7 @@ test('Issue #158: a failed ledger write does not permanently consume the termina
     supabase.rpc = client.rpc;
 
     await db.exec(up('../../database/migrations/20260829020000_issue158_activation_boundary_hardening.sql'));
+    await db.exec(up('../../database/migrations/20260829040000_issue158_terminal_event_uniqueness.sql'));
     await db.query(`SELECT public.blockchain_authorize_custody_generation($1::text)`, [custodyGeneration()]);
 
     // 1. Park the stakeholder one millisecond below the terminal instant.
@@ -607,10 +611,13 @@ test('Issue #158: a failed ledger write does not permanently consume the termina
     assert.equal(chain.count, 1);
     assert.ok(chain.chain.every((entry) => !entry.note), 'no signature check may be skipped');
 
-    // 7. Once the terminal event is observable, a genuinely new write fails closed.
+    // 7. Once the terminal event is observable, a genuinely NEW logical write still
+    //    fails closed — now at the ledger uniqueness contract rather than the activation
+    //    guard, because activation deliberately re-issues the terminal instant so a
+    //    lost-response retry can reach conflict classification.
     await assert.rejects(
       () => addEvent(VIN4, 'Mechanic Inspection', { mechanicId: SIGNER, note: 'beyond the representable range' }),
-      /exceeds the representable timestamp range/i,
+      /ledger event persistence failed/i,
     );
     const afterDenial = await db.query(
       `SELECT count(*)::int AS c FROM blockchain_events WHERE vin=$1`, [VIN4],
@@ -691,6 +698,7 @@ test('Issue #158: competing terminal activations cannot fork the ledger', async 
       supabase.rpc = client.rpc;
 
       await db.exec(up('../../database/migrations/20260829020000_issue158_activation_boundary_hardening.sql'));
+      await db.exec(up('../../database/migrations/20260829040000_issue158_terminal_event_uniqueness.sql'));
       await db.query(`SELECT public.blockchain_authorize_custody_generation($1::text)`, [custodyGeneration()]);
       await db.query(`
         INSERT INTO public.blockchain_signing_watermarks(user_id,last_authorized_at)
@@ -746,6 +754,89 @@ test('Issue #158: competing terminal activations cannot fork the ledger', async 
   }
 });
 
+test('Issue #158: a lost-response retry after a persisted terminal event is idempotent', async (t) => {
+  const savedVersion = process.env.CARUP_BLOCKCHAIN_KEY_VERSION;
+  const savedFrom = supabase.from;
+  const savedRpc = supabase.rpc;
+  t.after(() => {
+    if (savedVersion === undefined) delete process.env.CARUP_BLOCKCHAIN_KEY_VERSION;
+    else process.env.CARUP_BLOCKCHAIN_KEY_VERSION = savedVersion;
+    supabase.from = savedFrom;
+    supabase.rpc = savedRpc;
+  });
+
+  const VIN5 = 'VINLOSTRESP000001';
+  const TERMINAL = '9999-12-31T23:59:59.999Z';
+  const keyCreatedAt = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+
+  process.env.CARUP_BLOCKCHAIN_KEY_VERSION = 'lr1';
+  const lr1 = deriveStakeholderKey(SIGNER);
+
+  const db = await preBoundaryFinalizedDb({ keyPem: lr1.publicKeyPem, keyCreatedAt });
+  try {
+    const client = makeClient(db);
+    supabase.from = client.from;
+    supabase.rpc = client.rpc;
+
+    await db.exec(up('../../database/migrations/20260829020000_issue158_activation_boundary_hardening.sql'));
+    await db.exec(up('../../database/migrations/20260829040000_issue158_terminal_event_uniqueness.sql'));
+    await db.query(`SELECT public.blockchain_authorize_custody_generation($1::text)`, [custodyGeneration()]);
+    await db.query(`
+      INSERT INTO public.blockchain_signing_watermarks(user_id,last_authorized_at)
+      VALUES ($1::text,TIMESTAMPTZ '9999-12-31 23:59:59.998+00')
+      ON CONFLICT (user_id) DO UPDATE SET last_authorized_at=EXCLUDED.last_authorized_at
+    `, [SIGNER]);
+
+    // 1. The terminal write persists successfully.
+    const logical = { mechanicId: SIGNER, note: 'the one terminal write' };
+    const first = await addEvent(VIN5, 'Mechanic Inspection', { ...logical });
+    assert.equal(first.timestamp, TERMINAL);
+
+    // 2-3. The caller lost the response and retries from scratch. A fresh addEvent
+    //      re-reads the VIN tail, which now INCLUDES the terminal row, so the
+    //      recomputed current_hash differs from the stored one — a hash-equality rule
+    //      would wrongly refuse this legitimate retry.
+    const retry = await addEvent(VIN5, 'Mechanic Inspection', { ...logical });
+
+    // 4. The same logical event is classified idempotently against the stored row.
+    assert.equal(retry.id, first.id, 'the retry must resolve to the persisted event');
+    assert.equal(retry.currentHash, first.currentHash, 'the retry must report the stored hash');
+    assert.equal(retry.timestamp, TERMINAL);
+    assert.equal(retry.idempotent, true, 'the retry must be reported as idempotent');
+
+    // 5. Different logical writes from the same signer are refused.
+    await assert.rejects(
+      () => addEvent(VIN5, 'Mechanic Inspection', { mechanicId: SIGNER, note: 'a different payload' }),
+      /ledger event persistence failed/i,
+      'a different payload must not be mistaken for the completed write',
+    );
+    await assert.rejects(
+      () => addEvent(VIN5, 'Damage Report', { ...logical }),
+      /ledger event persistence failed/i,
+      'a different event type must be refused',
+    );
+    await assert.rejects(
+      () => addEvent('VINLOSTRESP000002', 'Mechanic Inspection', { ...logical }),
+      /ledger event persistence failed/i,
+      'a different VIN must be refused',
+    );
+
+    // 6. Exactly one terminal row for this signer, and the chain still verifies.
+    const terminalRows = await db.query(`
+      SELECT count(*)::int AS c FROM blockchain_events
+       WHERE "timestamp"=$1::text AND split_part(signature,':',1)=$2::text
+    `, [TERMINAL, SIGNER]);
+    assert.equal(terminalRows.rows[0].c, 1, 'exactly one terminal event may exist per signer');
+
+    const chain = await verifyChain(VIN5);
+    assert.equal(chain.verified, true, chain.reason || 'chain must verify');
+    assert.equal(chain.count, 1);
+    assert.ok(chain.chain.every((entry) => !entry.note));
+  } finally {
+    await db.close();
+  }
+});
+
 test('Issue #158: forward-skewed pre-hardening history stays verifiable across the boundary upgrade', async (t) => {
   const savedVersion = process.env.CARUP_BLOCKCHAIN_KEY_VERSION;
   const savedFrom = supabase.from;
@@ -784,6 +875,7 @@ test('Issue #158: forward-skewed pre-hardening history stays verifiable across t
 
     // THE UPGRADE.
     await db.exec(up('../../database/migrations/20260829020000_issue158_activation_boundary_hardening.sql'));
+    await db.exec(up('../../database/migrations/20260829040000_issue158_terminal_event_uniqueness.sql'));
     await db.query(
       `SELECT public.blockchain_authorize_custody_generation($1::text)`,
       [custodyGeneration()],

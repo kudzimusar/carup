@@ -186,31 +186,11 @@ REVOKE ALL ON FUNCTION public.blockchain_reseed_signing_watermarks()
 -- Upgrade-time bootstrap. The protected finalizer repeats this after the drain.
 SELECT public.blockchain_reseed_signing_watermarks();
 
--- AT MOST ONE TERMINAL EVENT PER SIGNER.
---
--- The terminal instant is the only boundary that may ever be re-issued (see the retry
--- recovery in the activation contract below), so it is also the only instant at which
--- two competing writes can hold the same timestamp at once. Without a database-side
--- identity across the activation-to-persistence gap, both could persist and fork the
--- hash chain, because each computes its previous_hash before either insert lands.
---
--- A partial unique index is the smallest DB-authoritative guarantee that closes it: the
--- ledger admits exactly one terminal event per signer. The runtime pairs this with
--- exact-duplicate idempotency — a conflicting insert whose current_hash matches the
--- stored row is a genuine retry and succeeds; any different write is refused. The
--- predicate is immutable and matches at most a handful of rows, so it costs nothing on
--- the ordinary signing path.
-DO $terminal_unique$
-BEGIN
-  IF to_regclass('public.blockchain_events') IS NOT NULL THEN
-    EXECUTE $ix$
-      CREATE UNIQUE INDEX IF NOT EXISTS uq_blockchain_events_terminal_signer
-        ON public.blockchain_events (split_part(signature,':',1))
-        WHERE "timestamp" = '9999-12-31T23:59:59.999Z'
-    $ix$;
-  END IF;
-END
-$terminal_unique$;
+-- NOTE: the terminal ledger uniqueness invariant, and the corrected terminal re-issue
+-- behaviour that depends on it, are delivered by the later forward-only migration
+-- 20260829040000_issue158_terminal_event_uniqueness.sql. They are deliberately NOT
+-- added here: this identity was already published, so a database that recorded it would
+-- silently miss anything appended afterwards.
 
 -- Current activation authority. Takes NO caller timestamp: the boundary is
 -- established inside the transaction, under the same lock that serializes key

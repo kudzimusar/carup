@@ -293,6 +293,7 @@ async function custodyPreparedDb() {
   await db.exec(up('../../database/migrations/20260828210000_issue158_private_key_custody.sql'));
   await db.exec(up('../../database/migrations/20260829003000_issue158_custody_rollout_upgrade.sql'));
   await db.exec(up('../../database/migrations/20260829020000_issue158_activation_boundary_hardening.sql'));
+  await db.exec(up('../../database/migrations/20260829040000_issue158_terminal_event_uniqueness.sql'));
   return db;
 }
 
@@ -445,6 +446,8 @@ test('Issue #158 finalizer refuses to FINALIZE a database that lacks the boundar
     // After the boundary migration the SAME finalizer succeeds, and the superseded
     // caller-clock contracts are already closed to service_role at that point.
     await db.exec(up('../../database/migrations/20260829020000_issue158_activation_boundary_hardening.sql'));
+    await db.exec(up('../../database/migrations/20260829040000_issue158_terminal_event_uniqueness.sql'));
+  await db.exec(up('../../database/migrations/20260829040000_issue158_terminal_event_uniqueness.sql'));
 
     const superseded = await db.query(`
       SELECT p.pronargs,
@@ -547,6 +550,8 @@ test('Issue #158 boundary upgrade never rewinds time behind forward-skewed pre-h
 
     // THE UPGRADE.
     await db.exec(up('../../database/migrations/20260829020000_issue158_activation_boundary_hardening.sql'));
+    await db.exec(up('../../database/migrations/20260829040000_issue158_terminal_event_uniqueness.sql'));
+  await db.exec(up('../../database/migrations/20260829040000_issue158_terminal_event_uniqueness.sql'));
 
     // 1. The watermark is bootstrapped past every trustworthy historical boundary,
     //    including the ledger event that postdates the key row.
@@ -742,6 +747,8 @@ test('Issue #158 non-finite and unrepresentable legacy timestamps never reach th
     await db.exec(up('../../database/migrations/20260828210000_issue158_private_key_custody.sql'));
     await db.exec(up('../../database/migrations/20260829003000_issue158_custody_rollout_upgrade.sql'));
     await db.exec(up('../../database/migrations/20260829020000_issue158_activation_boundary_hardening.sql'));
+    await db.exec(up('../../database/migrations/20260829040000_issue158_terminal_event_uniqueness.sql'));
+  await db.exec(up('../../database/migrations/20260829040000_issue158_terminal_event_uniqueness.sql'));
 
     // The parser rejects every non-representable form and keeps the valid one.
     const parsed = await db.query(`
@@ -858,22 +865,43 @@ test('Issue #158 the terminal representable day is admitted and boundary saturat
       assert.equal(stamps[i] - stamps[i - 1], 1, 'consecutive authorizations advance by 1ms');
     }
 
-    // SATURATION: parked at the ceiling there is no representable next boundary, so the
-    // contract must refuse rather than emit a timestamp Date.parse cannot read.
+    // SATURATION. Parked at the ceiling there is no representable NEXT boundary. For the
+    // SAME active key the contract deliberately re-issues the terminal instant, so a
+    // lost-response retry can reach runtime conflict classification; the ledger's
+    // terminal uniqueness invariant is what guarantees only one event can persist.
     await db.query(`
       UPDATE public.blockchain_signing_watermarks
          SET last_authorized_at=TIMESTAMPTZ '9999-12-31 23:59:59.999+00'
        WHERE user_id='user-1'
     `);
+    const reissued = await activateKey(db, {
+      candidateId: 'ignored-saturated',
+      publicKey: 'PUBLIC-MATERIAL',
+      version: 'v1',
+      generation: GEN_V1,
+    });
+    assert.equal(
+      Date.parse(reissued.event_timestamp),
+      Date.parse('9999-12-31T23:59:59.999Z'),
+      'the terminal instant is re-issued for the same key, never exceeded',
+    );
+    assert.match(reissued.event_timestamp, /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/);
+
+    // A ROTATION at saturation must still fail closed: re-issue is bound to the same
+    // cryptographic authority, so no new incarnation can consume the terminal instant.
+    await authorizeGeneration(db, GEN_V2);
+    const keysBefore = await db.query(
+      `SELECT id,status,created_at,revoked_at FROM public.public_keys WHERE user_id='user-1' ORDER BY id`,
+    );
     await assert.rejects(
       () => activateKey(db, {
-        candidateId: 'ignored-saturated',
-        publicKey: 'PUBLIC-MATERIAL',
-        version: 'v1',
-        generation: GEN_V1,
+        candidateId: 'ignored-saturated-rotation',
+        publicKey: 'PUBLIC-V2',
+        version: 'v2',
+        generation: GEN_V2,
       }),
       /exceeds the representable timestamp range/i,
-      'saturation must fail closed, not emit an unparseable timestamp',
+      'rotation at saturation must fail closed',
     );
 
     // The refusal is not destructive: no key row was mutated and the watermark stands.
@@ -881,8 +909,85 @@ test('Issue #158 the terminal representable day is admitted and boundary saturat
       `SELECT last_authorized_at::text AS t FROM public.blockchain_signing_watermarks WHERE user_id='user-1'`,
     );
     assert.equal(new Date(after.rows[0].t).getTime(), Date.parse('9999-12-31T23:59:59.999Z'));
-    const keys = await db.query(`SELECT count(*)::int AS c FROM public.public_keys WHERE user_id='user-1'`);
-    assert.equal(keys.rows[0].c, 1);
+    const keysAfter = await db.query(
+      `SELECT id,status,created_at,revoked_at FROM public.public_keys WHERE user_id='user-1' ORDER BY id`,
+    );
+    assert.deepEqual(keysAfter.rows, keysBefore.rows);
+    assert.equal(keysAfter.rows.length, 1);
+  } finally {
+    await db.close();
+  }
+});
+
+test('Issue #158 finalizer refuses a fresh rollout that lacks the terminal uniqueness invariant', async () => {
+  // FINALIZED enables activation, and activation re-issues the terminal instant for the
+  // same key so a lost-response retry can reach conflict classification. That is only
+  // safe while the ledger admits one terminal event per signer, so a rollout that never
+  // received 20260829040000 must not be able to reach FINALIZED.
+  const db = await PGlite.create();
+  try {
+    await db.exec(`
+      CREATE ROLE anon NOLOGIN;
+      CREATE ROLE authenticated NOLOGIN;
+      CREATE ROLE service_role NOLOGIN BYPASSRLS;
+      GRANT USAGE ON SCHEMA public TO anon,authenticated,service_role;
+
+      CREATE TABLE public_keys (
+        id text PRIMARY KEY,
+        user_id text NOT NULL,
+        public_key_pem text NOT NULL,
+        private_key_pem text,
+        key_type text DEFAULT 'secp256k1',
+        status text DEFAULT 'ACTIVE',
+        created_at text NOT NULL,
+        revoked_at text
+      );
+      CREATE TABLE blockchain_events (
+        id bigserial PRIMARY KEY,
+        previous_hash text,
+        current_hash text,
+        vin text,
+        event_type text,
+        payload text,
+        "timestamp" text,
+        signature text
+      );
+      GRANT ALL ON public_keys,blockchain_events TO service_role;
+
+      INSERT INTO public_keys(id,user_id,public_key_pem,private_key_pem,created_at)
+      VALUES ('key-1','user-1','PUBLIC-MATERIAL','PRIVATE-MATERIAL','2026-08-01T00:00:00Z');
+    `);
+    await db.exec(up('../../database/migrations/20260828210000_issue158_private_key_custody.sql'));
+    await db.exec(up('../../database/migrations/20260829003000_issue158_custody_rollout_upgrade.sql'));
+    await db.exec(up('../../database/migrations/20260829020000_issue158_activation_boundary_hardening.sql'));
+    // 20260829040000 deliberately NOT applied.
+
+    await authorizeGeneration(db, GEN_V1);
+    await db.exec(readFileSync('database/scripts/issue158_mark_old_writers_drained.sql', 'utf8'));
+
+    await assert.rejects(
+      () => db.exec(readFileSync('database/scripts/issue158_private_key_custody_finalize.sql', 'utf8')),
+      /terminal ledger uniqueness invariant is absent/i,
+    );
+    await db.exec('ROLLBACK');
+
+    const state = await db.query(
+      `SELECT state,finalized_at FROM public.blockchain_custody_rollout WHERE singleton=TRUE`,
+    );
+    assert.equal(state.rows[0].state, 'PREPARED');
+    assert.equal(state.rows[0].finalized_at, null);
+
+    // Applying the terminal migration unblocks the same finalizer.
+    await db.exec(up('../../database/migrations/20260829040000_issue158_terminal_event_uniqueness.sql'));
+    assert.ok(
+      (await db.query(`SELECT to_regclass('public.uq_blockchain_events_terminal_signer') AS ix`)).rows[0].ix,
+      'the terminal uniqueness index must exist after the later migration',
+    );
+    await db.exec(readFileSync('database/scripts/issue158_private_key_custody_finalize.sql', 'utf8'));
+    const finalized = await db.query(
+      `SELECT state FROM public.blockchain_custody_rollout WHERE singleton=TRUE`,
+    );
+    assert.equal(finalized.rows[0].state, 'FINALIZED');
   } finally {
     await db.close();
   }
@@ -1069,6 +1174,7 @@ async function legacyMonolithDb() {
   // migrations, in order — never a rewrite of the monolithic identity it recorded.
   await db.exec(up('../../database/migrations/20260829003000_issue158_custody_rollout_upgrade.sql'));
   await db.exec(up('../../database/migrations/20260829020000_issue158_activation_boundary_hardening.sql'));
+  await db.exec(up('../../database/migrations/20260829040000_issue158_terminal_event_uniqueness.sql'));
   return db;
 }
 

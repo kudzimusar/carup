@@ -95,6 +95,8 @@ test('Issue #158 protected finalizer erases private material and removes direct 
   assert.match(sql, /boundary-hardening migration is absent/);
   assert.match(sql, /has_function_privilege\('service_role',v_superseded,'EXECUTE'\)/);
   assert.match(sql, /superseded caller-clock activation contract is still executable by service_role/);
+  assert.match(sql, /terminal ledger uniqueness invariant is absent/);
+  assert.match(sql, /uq_blockchain_events_terminal_signer/);
   // The PREPARED window keeps legacy writers alive, so the watermark must be reseeded
   // after the drain and BEFORE anything that makes FINALIZED reachable.
   assert.match(sql, /POST-DRAIN WATERMARK RESEED/);
@@ -245,18 +247,30 @@ test('Issue #158: activation boundary is DB-authoritative, never the caller cloc
   assert.match(sql, /exceeds the representable timestamp range/);
   // The terminal instant is the only re-issuable boundary, so the ledger itself must
   // admit at most one terminal event per signer.
-  assert.match(sql, /uq_blockchain_events_terminal_signer/);
-  assert.match(sql, /CREATE UNIQUE INDEX IF NOT EXISTS uq_blockchain_events_terminal_signer/);
-  assert.match(sql, /AT MOST ONE TERMINAL EVENT PER SIGNER/);
+  // The terminal invariant is delivered by its own later identity, never appended to
+  // this already-published one.
+  assert.doesNotMatch(sql, /CREATE UNIQUE INDEX/);
+  const terminalSql = readFileSync('database/migrations/20260829040000_issue158_terminal_event_uniqueness.sql', 'utf8');
+  assert.match(terminalSql, /NEW identity on purpose/i);
+  assert.match(terminalSql, /CREATE UNIQUE INDEX IF NOT EXISTS uq_blockchain_events_terminal_signer/);
+  assert.match(terminalSql, /AT MOST ONE TERMINAL EVENT PER SIGNER/);
+  // It must be self-sufficient: it re-publishes the activation contract too.
+  assert.match(terminalSql, /CREATE OR REPLACE FUNCTION public\.blockchain_activate_public_key_boundary/);
+  // Honest operational cost, not a claim that the partial predicate makes it free.
+  assert.match(terminalSql, /PostgreSQL still scans public\.blockchain_events once to build it/);
+  assert.match(terminalSql, /CREATE INDEX CONCURRENTLY is deliberately NOT used/);
   // Recovery of an unpersisted terminal allocation is bound to the same authority.
   assert.match(sql, /v_active\.public_key_pem = p_public_key_pem/);
   assert.match(sql, /NOT v_terminal_persisted/);
 
   const runtimeSrc = readFileSync('backend/services/blockchain/blockchainService.js', 'utf8');
   assert.match(runtimeSrc, /isLedgerUniquenessConflict/);
-  assert.match(runtimeSrc, /findLedgerEventByHash/);
-  // Only an identical current_hash proves an idempotent retry.
-  assert.match(runtimeSrc, /existing\.current_hash === currentHash \? existing : null/);
+  assert.match(runtimeSrc, /findIdempotentTerminalEvent/);
+  // Identity must NOT be the event hash: a retry re-reads an advanced tail and so
+  // computes a different predecessor, and therefore a different current_hash.
+  assert.match(runtimeSrc, /TERMINAL_EVENT_TIMESTAMP/);
+  assert.match(runtimeSrc, /canonicalize/);
+  assert.doesNotMatch(runtimeSrc, /findLedgerEventByHash/);
   assert.match(sql, /REVOKE ALL ON FUNCTION public\.blockchain_boundary_parse_ts\(TEXT\)[\s\S]*service_role/);
   assert.match(sql, /WATERMARK RESEED/);
   // The seed is a callable function on purpose: the finalizer repeats it post-drain.
