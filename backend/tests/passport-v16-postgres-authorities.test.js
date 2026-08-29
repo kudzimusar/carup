@@ -678,6 +678,132 @@ test('Issue #158 boundary clears a stakeholder validity edge even with no waterm
   }
 });
 
+test('Issue #158 non-finite and unrepresentable legacy timestamps never reach the watermark', async () => {
+  // PostgreSQL accepts 'infinity', '-infinity' and finite values up to 294276 AD. None
+  // survive this code path: the boundary is emitted through a four-digit-year to_char
+  // and parsed with Date.parse, so persisting one as a watermark makes the activation
+  // RPC return no event timestamp at all and permanently breaks signing for that
+  // stakeholder. They must fail soft exactly like an unparseable value, while a valid
+  // forward-clock value in the same seed set still controls the floor.
+  const db = await PGlite.create();
+  try {
+    await db.exec(`
+      CREATE ROLE anon NOLOGIN;
+      CREATE ROLE authenticated NOLOGIN;
+      CREATE ROLE service_role NOLOGIN BYPASSRLS;
+      GRANT USAGE ON SCHEMA public TO anon,authenticated,service_role;
+
+      CREATE TABLE public_keys (
+        id text PRIMARY KEY,
+        user_id text NOT NULL,
+        public_key_pem text NOT NULL,
+        private_key_pem text,
+        key_type text DEFAULT 'secp256k1',
+        status text DEFAULT 'ACTIVE',
+        created_at text NOT NULL,
+        revoked_at text
+      );
+      CREATE TABLE blockchain_events (
+        id bigserial PRIMARY KEY,
+        previous_hash text,
+        current_hash text,
+        vin text,
+        event_type text,
+        payload text,
+        "timestamp" text,
+        signature text
+      );
+      GRANT ALL ON public_keys,blockchain_events TO service_role;
+    `);
+
+    const validForward = new Date(Date.now() + 60 * 60 * 1000).toISOString();
+
+    // One ACTIVE key per stakeholder; the poison lives on historical/revoked edges and
+    // on ledger events, which is exactly where legacy runtimes wrote it.
+    await db.query(`
+      INSERT INTO public_keys(id,user_id,public_key_pem,status,created_at,revoked_at) VALUES
+        ('k-inf','sig-a','PEM-A','REVOKED','infinity','infinity'),
+        ('k-a','sig-a','PEM-A','ACTIVE',$1::text,NULL),
+        ('k-neginf','sig-b','PEM-B','REVOKED','-infinity','-infinity'),
+        ('k-b','sig-b','PEM-B','ACTIVE',$1::text,NULL),
+        ('k-far','sig-c','PEM-C','REVOKED','294276-01-01 00:00:00+00','294276-01-01 00:00:00+00'),
+        ('k-c','sig-c','PEM-C','ACTIVE',$1::text,NULL),
+        ('k-junk','sig-d','PEM-D','REVOKED','not-a-timestamp','not-a-timestamp'),
+        ('k-d','sig-d','PEM-D','ACTIVE',$1::text,NULL)
+    `, [validForward]);
+    await db.query(`
+      INSERT INTO blockchain_events(previous_hash,current_hash,vin,event_type,payload,"timestamp",signature) VALUES
+        ('0','h1','V','T','{}','infinity','sig-a:aa'),
+        ('0','h2','V','T','{}','-infinity','sig-b:bb'),
+        ('0','h3','V','T','{}','294276-01-01 00:00:00+00','sig-c:cc'),
+        ('0','h4','V','T','{}','not-a-timestamp','sig-d:dd')
+    `);
+
+    await db.exec(up('../../database/migrations/20260828210000_issue158_private_key_custody.sql'));
+    await db.exec(up('../../database/migrations/20260829003000_issue158_custody_rollout_upgrade.sql'));
+    await db.exec(up('../../database/migrations/20260829020000_issue158_activation_boundary_hardening.sql'));
+
+    // The parser rejects every non-representable form and keeps the valid one.
+    const parsed = await db.query(`
+      SELECT
+        public.blockchain_boundary_parse_ts('infinity') AS pos_inf,
+        public.blockchain_boundary_parse_ts('-infinity') AS neg_inf,
+        public.blockchain_boundary_parse_ts('294276-01-01 00:00:00+00') AS far_future,
+        public.blockchain_boundary_parse_ts('not-a-timestamp') AS junk,
+        public.blockchain_boundary_parse_ts('') AS empty,
+        public.blockchain_boundary_parse_ts(NULL) AS null_in,
+        public.blockchain_boundary_parse_ts($1::text)::text AS valid
+    `, [validForward]);
+    const p = parsed.rows[0];
+    assert.equal(p.pos_inf, null, 'infinity must fail soft');
+    assert.equal(p.neg_inf, null, '-infinity must fail soft');
+    assert.equal(p.far_future, null, 'a PostgreSQL-finite but unrepresentable value must fail soft');
+    assert.equal(p.junk, null);
+    assert.equal(p.empty, null);
+    assert.equal(p.null_in, null);
+    assert.ok(p.valid, 'a valid forward-clock value must still parse');
+
+    // Every stakeholder's watermark is the VALID value, never the poison.
+    const marks = await db.query(`
+      SELECT user_id,last_authorized_at::text AS t,isfinite(last_authorized_at) AS finite
+        FROM public.blockchain_signing_watermarks ORDER BY user_id
+    `);
+    assert.equal(marks.rows.length, 4);
+    for (const row of marks.rows) {
+      assert.equal(row.finite, true, `${row.user_id} watermark must be finite`);
+      assert.equal(
+        new Date(row.t).toISOString(),
+        new Date(validForward).toISOString(),
+        `${row.user_id} watermark must come from the valid history value`,
+      );
+    }
+
+    // The first post-seed authorization returns a finite, runtime-parseable timestamp.
+    await db.exec(`
+      UPDATE public.blockchain_custody_rollout
+         SET state='FINALIZED',old_writers_drained=TRUE,finalized_at=clock_timestamp()
+       WHERE singleton=TRUE
+    `);
+    await authorizeGeneration(db, GEN_V1);
+    const activated = await activateKey(db, {
+      candidateId: 'ignored-poison-probe',
+      userId: 'sig-a',
+      publicKey: 'PEM-A',
+      version: 'v1',
+      generation: GEN_V1,
+    });
+    assert.ok(activated.event_timestamp, 'a boundary must be produced');
+    assert.ok(
+      Number.isFinite(Date.parse(activated.event_timestamp)),
+      `boundary ${activated.event_timestamp} must be runtime-parseable`,
+    );
+    assert.ok(Date.parse(activated.event_timestamp) > Date.parse(validForward));
+    assert.match(activated.event_timestamp, /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/);
+  } finally {
+    await db.close();
+  }
+});
+
 test('Issue #158 service_role cannot authorize a custody generation', async () => {
   const db = await custodyPreparedDb();
   try {

@@ -364,6 +364,71 @@ test('Issue #158: a legacy event written after the bootstrap is still covered by
   }
 });
 
+test('Issue #158: a non-finite legacy timestamp cannot brick stakeholder signing', async (t) => {
+  const savedVersion = process.env.CARUP_BLOCKCHAIN_KEY_VERSION;
+  const savedFrom = supabase.from;
+  const savedRpc = supabase.rpc;
+  t.after(() => {
+    if (savedVersion === undefined) delete process.env.CARUP_BLOCKCHAIN_KEY_VERSION;
+    else process.env.CARUP_BLOCKCHAIN_KEY_VERSION = savedVersion;
+    supabase.from = savedFrom;
+    supabase.rpc = savedRpc;
+  });
+
+  const VIN2 = 'VINPOISON00000001';
+  const validForward = new Date(Date.now() + 30 * 60 * 1000).toISOString();
+  const keyCreatedAt = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+
+  process.env.CARUP_BLOCKCHAIN_KEY_VERSION = 'pv1';
+  const pv1 = deriveStakeholderKey(SIGNER);
+
+  const db = await preBoundaryFinalizedDb({ keyPem: pv1.publicKeyPem, keyCreatedAt });
+  try {
+    const client = makeClient(db);
+    supabase.from = client.from;
+    supabase.rpc = client.rpc;
+
+    // A legacy runtime left a non-finite timestamp on a historical ledger row for this
+    // signer, alongside a genuinely signed event at a valid forward-clock instant.
+    await db.query(`
+      INSERT INTO blockchain_events(previous_hash,current_hash,vin,event_type,payload,"timestamp",signature)
+      VALUES ('0','poison-hash',$1::text,'Mechanic Inspection','{}','infinity',$2::text)
+    `, [`${VIN2}-QUARANTINE`, `${SIGNER}:deadbeef`]);
+
+    const validPayload = { mechanicId: SIGNER, note: 'valid forward-clock legacy event' };
+    const validHash = calculateHash(GENESIS, VIN2, 'Mechanic Inspection', validForward, validPayload);
+    const validSig = signLedgerHash(SIGNER, validHash);
+    await db.query(`
+      INSERT INTO blockchain_events(previous_hash,current_hash,vin,event_type,payload,"timestamp",signature)
+      VALUES ($1::text,$2::text,$3::text,'Mechanic Inspection',$4::text,$5::text,$6::text)
+    `, [GENESIS, validHash, VIN2, JSON.stringify(validPayload), validForward, `${SIGNER}:${validSig.signatureHex}`]);
+
+    await db.exec(up('../../database/migrations/20260829020000_issue158_activation_boundary_hardening.sql'));
+    await db.query(`SELECT public.blockchain_authorize_custody_generation($1::text)`, [custodyGeneration()]);
+
+    // The watermark took the valid value, not the poison.
+    const mark = await db.query(
+      `SELECT last_authorized_at::text AS t,isfinite(last_authorized_at) AS finite
+         FROM public.blockchain_signing_watermarks WHERE user_id=$1`, [SIGNER],
+    );
+    assert.equal(mark.rows[0].finite, true, 'the watermark must stay finite');
+    assert.equal(new Date(mark.rows[0].t).toISOString(), new Date(validForward).toISOString());
+
+    // Signing still works: the runtime receives a finite authoritative timestamp.
+    const signed = await addEvent(VIN2, 'Mechanic Inspection', { mechanicId: SIGNER, note: 'post-upgrade event' });
+    assert.ok(Number.isFinite(Date.parse(signed.timestamp)));
+    assert.ok(Date.parse(signed.timestamp) > Date.parse(validForward));
+
+    // And the chain over the valid history plus the new event verifies.
+    const chain = await verifyChain(VIN2);
+    assert.equal(chain.verified, true, chain.reason || 'chain must verify');
+    assert.equal(chain.count, 2);
+    assert.ok(chain.chain.every((entry) => !entry.note), 'no signature check may be skipped');
+  } finally {
+    await db.close();
+  }
+});
+
 test('Issue #158: forward-skewed pre-hardening history stays verifiable across the boundary upgrade', async (t) => {
   const savedVersion = process.env.CARUP_BLOCKCHAIN_KEY_VERSION;
   const savedFrom = supabase.from;

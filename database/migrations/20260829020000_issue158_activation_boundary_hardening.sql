@@ -57,16 +57,41 @@ REVOKE ALL ON TABLE public.blockchain_signing_watermarks
 -- Historical key/event timestamps are TEXT written by superseded runtimes; a single
 -- malformed value must not abort the upgrade, so parsing fails soft to NULL. Private
 -- helper: no application or browser role may execute it.
+--
+-- A successful cast is NOT sufficient. PostgreSQL accepts 'infinity'/'-infinity' and
+-- finite values up to 294276 AD, none of which this code path can represent: the
+-- boundary is emitted through to_char with a four-digit year and parsed by the runtime
+-- with Date.parse. Persisting one as a watermark is not a cosmetic problem — the
+-- boundary then formats to NULL, the activation RPC returns no event timestamp, and
+-- the runtime raises on every subsequent signing attempt for that stakeholder. Values
+-- outside the representable window are therefore treated exactly like unparseable ones.
 CREATE OR REPLACE FUNCTION public.blockchain_boundary_parse_ts(p_value TEXT)
 RETURNS TIMESTAMPTZ
 LANGUAGE plpgsql
 STABLE
 AS $parse$
+DECLARE
+  -- Bounds of the emitted 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"' representation. The upper
+  -- bound keeps headroom so a boundary derived as floor + 1ms still formats.
+  c_min CONSTANT TIMESTAMPTZ := TIMESTAMPTZ '0001-01-01 00:00:00+00';
+  c_max CONSTANT TIMESTAMPTZ := TIMESTAMPTZ '9999-12-31 00:00:00+00';
+  v_parsed TIMESTAMPTZ;
 BEGIN
   IF nullif(btrim(p_value),'') IS NULL THEN
     RETURN NULL;
   END IF;
-  RETURN p_value::timestamptz;
+
+  v_parsed := p_value::timestamptz;
+
+  IF NOT isfinite(v_parsed) THEN
+    RETURN NULL;
+  END IF;
+
+  IF v_parsed < c_min OR v_parsed > c_max THEN
+    RETURN NULL;
+  END IF;
+
+  RETURN v_parsed;
 EXCEPTION WHEN others THEN
   RETURN NULL;
 END

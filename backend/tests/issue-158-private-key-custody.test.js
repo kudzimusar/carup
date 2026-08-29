@@ -230,6 +230,13 @@ test('Issue #158: activation boundary is DB-authoritative, never the caller cloc
   assert.match(sql, /date_trunc\('milliseconds', v_floor\) \+ interval '1 millisecond'/);
   // The upgrade must not rewind time relative to pre-hardening caller-clock history.
   assert.match(sql, /blockchain_boundary_parse_ts/);
+  // A successful cast is not sufficient: PostgreSQL accepts infinity and years this
+  // code path cannot emit or parse, and persisting one as a watermark stops the
+  // activation RPC returning any event timestamp at all.
+  assert.match(sql, /NOT isfinite\(v_parsed\)/);
+  assert.match(sql, /c_min CONSTANT TIMESTAMPTZ/);
+  assert.match(sql, /c_max CONSTANT TIMESTAMPTZ/);
+  assert.match(sql, /v_parsed < c_min OR v_parsed > c_max/);
   assert.match(sql, /REVOKE ALL ON FUNCTION public\.blockchain_boundary_parse_ts\(TEXT\)[\s\S]*service_role/);
   assert.match(sql, /WATERMARK RESEED/);
   // The seed is a callable function on purpose: the finalizer repeats it post-drain.
