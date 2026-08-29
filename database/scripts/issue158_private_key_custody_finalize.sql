@@ -46,6 +46,18 @@ BEGIN
       USING ERRCODE='55000';
   END IF;
 
+  IF NOT EXISTS (
+    SELECT 1
+      FROM pg_proc p
+      JOIN pg_namespace n ON n.oid=p.pronamespace
+     WHERE n.nspname='public'
+       AND p.proname='blockchain_reseed_signing_watermarks'
+  ) THEN
+    RAISE EXCEPTION
+      '[issue-158] refusing custody finalization: boundary-hardening migration is absent'
+      USING ERRCODE='55000';
+  END IF;
+
   -- The superseded caller-clock contracts must already be closed to the application
   -- role before any key activation becomes possible.
   FOR v_superseded IN
@@ -86,6 +98,23 @@ BEGIN
   END IF;
 END
 $pre$;
+
+-- POST-DRAIN WATERMARK RESEED — must precede FINALIZED becoming reachable.
+--
+-- The PREPARED window deliberately keeps legacy runtimes alive until this point. A
+-- legacy runtime appends stakeholder ledger events from its own caller clock while
+-- REUSING its existing ACTIVE key, so such an event moves no key edge and is invisible
+-- to both the upgrade-time bootstrap (already run) and the per-call key floor. Without
+-- this reseed the first post-finalization rotation could choose a boundary before that
+-- late event and retroactively exclude it from the old key's half-open interval.
+--
+-- Old writers are asserted drained above, so this is the last moment a forward-clock
+-- event can exist; the reseed locks the ledger while it scans.
+DO $reseed$
+BEGIN
+  PERFORM public.blockchain_reseed_signing_watermarks();
+END
+$reseed$;
 
 -- Public verification history remains. Only prohibited private material is erased.
 UPDATE public.public_keys

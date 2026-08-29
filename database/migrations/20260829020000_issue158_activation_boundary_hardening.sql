@@ -75,20 +75,36 @@ $parse$;
 REVOKE ALL ON FUNCTION public.blockchain_boundary_parse_ts(TEXT)
   FROM PUBLIC,anon,authenticated,service_role;
 
--- WATERMARK BOOTSTRAP — the upgrade must not rewind time.
+-- WATERMARK RESEED — the upgrade must not rewind time.
 --
 -- The superseded contract stamped key validity from the APPLICATION caller clock and
--- never persisted same-key signing checks, so an already-FINALIZED database can hold
--- key rows and ledger events dated AHEAD of this database's clock (a forward-skewed
--- application host). If the first post-upgrade boundary came from clock_timestamp()
--- alone it could land before that history, producing an event that predates its own
--- active key, or a revoked_at that retroactively excludes an already-signed old-key
--- event under the half-open rule.
+-- never persisted same-key signing checks, so a database can hold key rows and ledger
+-- events dated AHEAD of this database's clock (a forward-skewed application host). If a
+-- boundary came from clock_timestamp() alone it could land before that history,
+-- producing an event that predates its own active key, or a revoked_at that
+-- retroactively excludes an already-signed old-key event under the half-open rule.
 --
--- Seed the watermark from every trustworthy historical boundary per stakeholder, so
--- the first post-upgrade authorization is strictly later than all of it.
-DO $seed$
+-- This is deliberately a callable function rather than an inline block: it runs once
+-- here at upgrade time, and AGAIN inside the protected finalizer after old writers are
+-- confirmed drained. The PREPARED window intentionally keeps legacy runtimes alive, and
+-- a legacy runtime can append a forward-clock stakeholder event AFTER this upgrade while
+-- reusing its existing ACTIVE key — which moves no key edge and so would otherwise be
+-- invisible to every later boundary.
+--
+-- The ledger source is locked while the reseed is taken so a concurrent legacy insert
+-- cannot land between the scan and the watermark write. Lock order is public_keys then
+-- blockchain_events at every call site, matching the runtime's own order.
+CREATE OR REPLACE FUNCTION public.blockchain_reseed_signing_watermarks()
+RETURNS void
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path=public,pg_temp
+AS $reseed$
 BEGIN
+  IF to_regclass('public.blockchain_events') IS NOT NULL THEN
+    EXECUTE 'LOCK TABLE public.blockchain_events IN SHARE MODE';
+  END IF;
+
   INSERT INTO public.blockchain_signing_watermarks(user_id,last_authorized_at)
   SELECT k.user_id,max(k.ts)
     FROM (
@@ -132,7 +148,13 @@ BEGIN
     $events$;
   END IF;
 END
-$seed$;
+$reseed$;
+
+REVOKE ALL ON FUNCTION public.blockchain_reseed_signing_watermarks()
+  FROM PUBLIC,anon,authenticated,service_role;
+
+-- Upgrade-time bootstrap. The protected finalizer repeats this after the drain.
+SELECT public.blockchain_reseed_signing_watermarks();
 
 -- Current activation authority. Takes NO caller timestamp: the boundary is
 -- established inside the transaction, under the same lock that serializes key

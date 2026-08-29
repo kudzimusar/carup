@@ -205,6 +205,165 @@ async function preBoundaryFinalizedDb({ keyPem, keyCreatedAt }) {
   return db;
 }
 
+// The supported rolling deployment: PREPARED keeps legacy runtimes alive until the
+// protected drain, so a legacy writer can append a forward-clock stakeholder event
+// AFTER the boundary migration's bootstrap while reusing its existing ACTIVE key.
+// That event moves no key edge, so only the finalizer's post-drain reseed can see it.
+async function preparedDbWithLegacyWriter({ keyPem, keyCreatedAt }) {
+  const db = await PGlite.create();
+  await db.exec(`
+    CREATE ROLE anon NOLOGIN;
+    CREATE ROLE authenticated NOLOGIN;
+    CREATE ROLE service_role NOLOGIN BYPASSRLS;
+    GRANT USAGE ON SCHEMA public TO anon,authenticated,service_role;
+
+    CREATE TABLE public_keys (
+      id text PRIMARY KEY,
+      user_id text NOT NULL,
+      public_key_pem text NOT NULL,
+      private_key_pem text,
+      key_type text DEFAULT 'secp256k1',
+      status text DEFAULT 'ACTIVE',
+      created_at text NOT NULL,
+      revoked_at text
+    );
+    CREATE TABLE blockchain_events (
+      id bigserial PRIMARY KEY,
+      previous_hash text,
+      current_hash text,
+      vin text,
+      event_type text,
+      payload text,
+      "timestamp" text,
+      signature text
+    );
+    CREATE TABLE rolling_integrity_checkpoints (
+      vin text PRIMARY KEY,
+      last_verified_event_id bigint,
+      rolling_hash text,
+      verified_at text
+    );
+    GRANT ALL ON public_keys,blockchain_events,rolling_integrity_checkpoints TO service_role;
+  `);
+  await db.query(`
+    INSERT INTO public_keys(id,user_id,public_key_pem,private_key_pem,key_type,status,created_at)
+    VALUES ('key-legacy',$1::text,$2::text,'LEGACY-PRIVATE-MATERIAL','secp256k1','ACTIVE',$3::text)
+  `, [SIGNER, keyPem, keyCreatedAt]);
+
+  await db.exec(up('../../database/migrations/20260828210000_issue158_private_key_custody.sql'));
+  await db.exec(up('../../database/migrations/20260829003000_issue158_custody_rollout_upgrade.sql'));
+  await db.exec(up('../../database/migrations/20260829020000_issue158_activation_boundary_hardening.sql'));
+  return db;
+}
+
+test('Issue #158: a legacy event written after the bootstrap is still covered by the post-drain reseed', async (t) => {
+  const savedVersion = process.env.CARUP_BLOCKCHAIN_KEY_VERSION;
+  const savedFrom = supabase.from;
+  const savedRpc = supabase.rpc;
+  t.after(() => {
+    if (savedVersion === undefined) delete process.env.CARUP_BLOCKCHAIN_KEY_VERSION;
+    else process.env.CARUP_BLOCKCHAIN_KEY_VERSION = savedVersion;
+    supabase.from = savedFrom;
+    supabase.rpc = savedRpc;
+  });
+
+  const keyCreatedAt = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+  // The legacy host runs two hours fast; its late event lands ahead of every key edge
+  // AND ahead of this database's clock.
+  const lateLegacyEventAt = new Date(Date.now() + 2 * 60 * 60 * 1000).toISOString();
+
+  process.env.CARUP_BLOCKCHAIN_KEY_VERSION = 'lv1';
+  const lv1 = deriveStakeholderKey(SIGNER);
+
+  const db = await preparedDbWithLegacyWriter({ keyPem: lv1.publicKeyPem, keyCreatedAt });
+  try {
+    const client = makeClient(db);
+    supabase.from = client.from;
+    supabase.rpc = client.rpc;
+
+    // 2. The upgrade-time bootstrap has run and only knows the key edge.
+    const bootstrapped = await db.query(
+      `SELECT last_authorized_at FROM public.blockchain_signing_watermarks WHERE user_id=$1`,
+      [SIGNER],
+    );
+    assert.equal(bootstrapped.rows.length, 1);
+    assert.equal(bootstrapped.rows[0].last_authorized_at.toISOString(), new Date(keyCreatedAt).toISOString());
+
+    // 3. AFTER the bootstrap, BEFORE the drain: a still-live legacy runtime appends a
+    //    genuinely signed stakeholder event from its fast clock, touching no key row.
+    const latePayload = { mechanicId: SIGNER, note: 'legacy writer still alive during PREPARED' };
+    const lateHash = calculateHash(GENESIS, VIN, 'Mechanic Inspection', lateLegacyEventAt, latePayload);
+    const lateSig = signLedgerHash(SIGNER, lateHash);
+    assert.equal(lateSig.publicKeyPem, lv1.publicKeyPem);
+    await db.query(`
+      INSERT INTO blockchain_events(previous_hash,current_hash,vin,event_type,payload,"timestamp",signature)
+      VALUES ($1::text,$2::text,$3::text,'Mechanic Inspection',$4::text,$5::text,$6::text)
+    `, [GENESIS, lateHash, VIN, JSON.stringify(latePayload), lateLegacyEventAt, `${SIGNER}:${lateSig.signatureHex}`]);
+
+    const keysUntouched = await db.query(
+      `SELECT count(*)::int AS c FROM public_keys WHERE user_id=$1`, [SIGNER],
+    );
+    assert.equal(keysUntouched.rows[0].c, 1, 'the legacy writer moved no key edge');
+
+    const stillStale = await db.query(
+      `SELECT last_authorized_at FROM public.blockchain_signing_watermarks WHERE user_id=$1`,
+      [SIGNER],
+    );
+    assert.ok(
+      stillStale.rows[0].last_authorized_at.getTime() < Date.parse(lateLegacyEventAt),
+      'the bootstrap cannot have seen an event written after it ran',
+    );
+
+    // 4-5. Owner authorizes the generation, operator records the drain, protected
+    //      finalizer runs — and its post-drain reseed must pick the late event up.
+    await db.query(`SELECT public.blockchain_authorize_custody_generation($1::text)`, [custodyGeneration()]);
+    await db.exec(readFileSync('database/scripts/issue158_mark_old_writers_drained.sql', 'utf8'));
+    await db.exec(readFileSync('database/scripts/issue158_private_key_custody_finalize.sql', 'utf8'));
+
+    // 6. The reseed advanced the stakeholder watermark past the late legacy event.
+    const reseeded = await db.query(
+      `SELECT last_authorized_at FROM public.blockchain_signing_watermarks WHERE user_id=$1`,
+      [SIGNER],
+    );
+    assert.ok(
+      reseeded.rows[0].last_authorized_at.getTime() >= Date.parse(lateLegacyEventAt),
+      `post-drain reseed ${reseeded.rows[0].last_authorized_at.toISOString()} must cover ${lateLegacyEventAt}`,
+    );
+
+    // 7-8. The new runtime rotates; the boundary must postdate the late legacy event.
+    process.env.CARUP_BLOCKCHAIN_KEY_VERSION = 'lv2';
+    await db.query(`SELECT public.blockchain_authorize_custody_generation($1::text)`, [custodyGeneration()]);
+    const rotatedEvent = await addEvent(VIN, 'Mechanic Inspection', { mechanicId: SIGNER, note: 'first post-finalization event' });
+    assert.ok(
+      Date.parse(rotatedEvent.timestamp) > Date.parse(lateLegacyEventAt),
+      `rotation boundary ${rotatedEvent.timestamp} must postdate the late legacy event ${lateLegacyEventAt}`,
+    );
+
+    // 9. The old key is revoked strictly after that event, so half-open still includes it.
+    const keys = await db.query(
+      `SELECT id,status,created_at,revoked_at FROM public_keys WHERE user_id=$1 ORDER BY created_at ASC`,
+      [SIGNER],
+    );
+    assert.equal(keys.rows.length, 2);
+    const oldKey = keys.rows.find((r) => r.id === 'key-legacy');
+    const newKey = keys.rows.find((r) => r.id !== 'key-legacy');
+    assert.equal(oldKey.status, 'REVOKED');
+    assert.ok(
+      Date.parse(oldKey.revoked_at) > Date.parse(lateLegacyEventAt),
+      'the late legacy event must remain inside the old key validity interval',
+    );
+    assert.equal(oldKey.revoked_at, newKey.created_at);
+
+    // 10. Real signature verification over historical + post-finalization chain.
+    const chain = await verifyChain(VIN);
+    assert.equal(chain.verified, true, chain.reason || 'full chain must verify');
+    assert.equal(chain.count, 2);
+    assert.ok(chain.chain.every((entry) => !entry.note), 'no signature check may be skipped');
+  } finally {
+    await db.close();
+  }
+});
+
 test('Issue #158: forward-skewed pre-hardening history stays verifiable across the boundary upgrade', async (t) => {
   const savedVersion = process.env.CARUP_BLOCKCHAIN_KEY_VERSION;
   const savedFrom = supabase.from;

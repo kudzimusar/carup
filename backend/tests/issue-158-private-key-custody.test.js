@@ -95,6 +95,15 @@ test('Issue #158 protected finalizer erases private material and removes direct 
   assert.match(sql, /boundary-hardening migration is absent/);
   assert.match(sql, /has_function_privilege\('service_role',v_superseded,'EXECUTE'\)/);
   assert.match(sql, /superseded caller-clock activation contract is still executable by service_role/);
+  // The PREPARED window keeps legacy writers alive, so the watermark must be reseeded
+  // after the drain and BEFORE anything that makes FINALIZED reachable.
+  assert.match(sql, /POST-DRAIN WATERMARK RESEED/);
+  assert.match(sql, /blockchain_reseed_signing_watermarks/);
+  const reseedAt = sql.indexOf('PERFORM public.blockchain_reseed_signing_watermarks()');
+  const drainCheckAt = sql.indexOf('old runtime writers are explicitly marked drained');
+  const finalizedAt = sql.indexOf("state='FINALIZED'");
+  assert.ok(reseedAt > drainCheckAt, 'the reseed must follow the drain assertion');
+  assert.ok(reseedAt < finalizedAt, 'the reseed must precede FINALIZED');
 });
 
 test('Issue #158 source contract: blockchain runtime never selects or writes private_key_pem', () => {
@@ -222,7 +231,12 @@ test('Issue #158: activation boundary is DB-authoritative, never the caller cloc
   // The upgrade must not rewind time relative to pre-hardening caller-clock history.
   assert.match(sql, /blockchain_boundary_parse_ts/);
   assert.match(sql, /REVOKE ALL ON FUNCTION public\.blockchain_boundary_parse_ts\(TEXT\)[\s\S]*service_role/);
-  assert.match(sql, /WATERMARK BOOTSTRAP/);
+  assert.match(sql, /WATERMARK RESEED/);
+  // The seed is a callable function on purpose: the finalizer repeats it post-drain.
+  assert.match(sql, /CREATE OR REPLACE FUNCTION public\.blockchain_reseed_signing_watermarks\(\)/);
+  assert.match(sql, /REVOKE ALL ON FUNCTION public\.blockchain_reseed_signing_watermarks\(\)[\s\S]*service_role/);
+  assert.match(sql, /LOCK TABLE public\.blockchain_events IN SHARE MODE/);
+  assert.match(sql, /SELECT public\.blockchain_reseed_signing_watermarks\(\)/);
   assert.match(sql, /GREATEST\(\s*public\.blockchain_signing_watermarks\.last_authorized_at,\s*EXCLUDED\.last_authorized_at\s*\)/);
   assert.match(sql, /v_floor := GREATEST\(v_watermark,v_key_floor\)/);
   assert.match(sql, /revoked_at=v_boundary_text/);
