@@ -11,7 +11,8 @@ on:
       - 'database/migrations/20260828220000_passport_ownership_transfer_communications.sql'
       - 'backend/tests/passport-*.test.js'
       - 'database/migrations/*passport*.sql'
-      - 'database/migrations/20260828210000_issue158_private_key_custody.sql'
+      - 'database/migrations/*issue158*.sql'
+      - 'database/scripts/issue158_*.sql'
       - 'backend/services/blockchain/blockchainService.js'
       - 'backend/services/blockchain/blockchainKeyCustodyService.js'
       - 'backend/tests/issue-158-*.test.js'
@@ -33,7 +34,8 @@ on:
       - 'database/migrations/20260828220000_passport_ownership_transfer_communications.sql'
       - 'backend/tests/passport-*.test.js'
       - 'database/migrations/*passport*.sql'
-      - 'database/migrations/20260828210000_issue158_private_key_custody.sql'
+      - 'database/migrations/*issue158*.sql'
+      - 'database/scripts/issue158_*.sql'
       - 'backend/services/blockchain/blockchainService.js'
       - 'backend/services/blockchain/blockchainKeyCustodyService.js'
       - 'backend/tests/issue-158-*.test.js'
@@ -144,6 +146,9 @@ jobs:
 
       - name: Issue 158 rotation boundary truth (colliding/skewed clocks)
         run: node --test backend/tests/issue-158-rotation-boundary.test.js
+
+      - name: Issue 158 boundary upgrade over real PostgreSQL (forward-skewed history)
+        run: node --test backend/tests/issue-158-boundary-upgrade-postgres.test.js
 
       - name: Preserve Golden Vehicle fixture invariants
         run: |

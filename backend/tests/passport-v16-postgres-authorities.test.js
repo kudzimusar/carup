@@ -393,6 +393,240 @@ test('Issue #158 finalizer refuses destructive cutover until a custody generatio
   }
 });
 
+test('Issue #158 finalizer refuses to FINALIZE a database that lacks the boundary-hardening contract', async () => {
+  // A database that received only the rollout upgrade: reaching FINALIZED here would
+  // enable key activation while the superseded caller-clock contract is still the
+  // service-role authority.
+  const db = await PGlite.create();
+  try {
+    await db.exec(`
+      CREATE ROLE anon NOLOGIN;
+      CREATE ROLE authenticated NOLOGIN;
+      CREATE ROLE service_role NOLOGIN BYPASSRLS;
+      GRANT USAGE ON SCHEMA public TO anon,authenticated,service_role;
+
+      CREATE TABLE public_keys (
+        id text PRIMARY KEY,
+        user_id text NOT NULL,
+        public_key_pem text NOT NULL,
+        private_key_pem text,
+        key_type text DEFAULT 'secp256k1',
+        status text DEFAULT 'ACTIVE',
+        created_at text NOT NULL,
+        revoked_at text
+      );
+      GRANT ALL ON public_keys TO service_role;
+
+      INSERT INTO public_keys(id,user_id,public_key_pem,private_key_pem,created_at)
+      VALUES ('key-1','user-1','PUBLIC-MATERIAL','PRIVATE-MATERIAL','2026-08-01T00:00:00Z');
+    `);
+    await db.exec(up('../../database/migrations/20260828210000_issue158_private_key_custody.sql'));
+    await db.exec(up('../../database/migrations/20260829003000_issue158_custody_rollout_upgrade.sql'));
+
+    // Every OTHER precondition is satisfied, so the refusal can only come from the
+    // missing boundary contract.
+    await authorizeGeneration(db, GEN_V1);
+    await db.exec(readFileSync('database/scripts/issue158_mark_old_writers_drained.sql', 'utf8'));
+
+    await assert.rejects(
+      () => db.exec(readFileSync('database/scripts/issue158_private_key_custody_finalize.sql', 'utf8')),
+      /boundary-hardening migration is absent/i,
+    );
+    // The refused finalizer leaves its BEGIN open and aborted; release it before reusing
+    // the connection, exactly as an operator's session would.
+    await db.exec('ROLLBACK');
+
+    const state = await db.query(
+      `SELECT state,finalized_at FROM public.blockchain_custody_rollout WHERE singleton=TRUE`,
+    );
+    assert.equal(state.rows[0].state, 'PREPARED');
+    assert.equal(state.rows[0].finalized_at, null);
+
+    // After the boundary migration the SAME finalizer succeeds, and the superseded
+    // caller-clock contracts are already closed to service_role at that point.
+    await db.exec(up('../../database/migrations/20260829020000_issue158_activation_boundary_hardening.sql'));
+
+    const superseded = await db.query(`
+      SELECT p.pronargs,
+             has_function_privilege('service_role',p.oid,'EXECUTE') AS service_role_can_execute
+        FROM pg_proc p
+        JOIN pg_namespace n ON n.oid=p.pronamespace
+       WHERE n.nspname='public'
+         AND p.proname='blockchain_activate_public_key_atomic'
+       ORDER BY p.pronargs
+    `);
+    assert.equal(superseded.rows.length, 2, 'both superseded arities exist and are retired');
+    assert.ok(superseded.rows.every((row) => row.service_role_can_execute === false));
+
+    await db.exec(readFileSync('database/scripts/issue158_private_key_custody_finalize.sql', 'utf8'));
+    const finalized = await db.query(
+      `SELECT state FROM public.blockchain_custody_rollout WHERE singleton=TRUE`,
+    );
+    assert.equal(finalized.rows[0].state, 'FINALIZED');
+  } finally {
+    await db.close();
+  }
+});
+
+test('Issue #158 boundary upgrade never rewinds time behind forward-skewed pre-hardening history', async () => {
+  // An already-FINALIZED database written by the superseded caller-clock contract, whose
+  // application host ran hours AHEAD of this database's clock.
+  const db = await PGlite.create();
+  try {
+    const skewBase = new Date(Date.now() + 3 * 60 * 60 * 1000);
+    const keyCreated = new Date(skewBase.getTime()).toISOString();
+    const latestOldKeyEvent = new Date(skewBase.getTime() + 90 * 1000).toISOString();
+
+    await db.exec(`
+      CREATE ROLE anon NOLOGIN;
+      CREATE ROLE authenticated NOLOGIN;
+      CREATE ROLE service_role NOLOGIN BYPASSRLS;
+      GRANT USAGE ON SCHEMA public TO anon,authenticated,service_role;
+
+      CREATE TABLE public_keys (
+        id text PRIMARY KEY,
+        user_id text NOT NULL,
+        public_key_pem text NOT NULL,
+        private_key_pem text,
+        key_type text DEFAULT 'secp256k1',
+        status text DEFAULT 'ACTIVE',
+        created_at text NOT NULL,
+        revoked_at text,
+        key_ref text,
+        key_version text,
+        custody_provider text
+      );
+      CREATE TABLE blockchain_events (
+        id bigserial PRIMARY KEY,
+        previous_hash text,
+        current_hash text,
+        vin text,
+        event_type text,
+        payload text,
+        "timestamp" text,
+        signature text
+      );
+      GRANT ALL ON public_keys TO service_role;
+    `);
+    await db.exec(up('../../database/migrations/20260828210000_issue158_private_key_custody.sql'));
+    await db.exec(up('../../database/migrations/20260829003000_issue158_custody_rollout_upgrade.sql'));
+
+    // Forward-skewed history written by the superseded runtime, plus one malformed
+    // timestamp that must not abort the upgrade.
+    await db.query(`
+      INSERT INTO public_keys(
+        id,user_id,public_key_pem,key_type,status,created_at,key_ref,key_version,custody_provider
+      ) VALUES (
+        'key-skewed','signer-1','PUBLIC-SKEWED','secp256k1','ACTIVE',$1::text,
+        'derived:test:v1:skewed','v1','derived_master_secret'
+      )
+    `, [keyCreated]);
+    await db.query(`
+      INSERT INTO blockchain_events(previous_hash,current_hash,vin,event_type,payload,"timestamp",signature)
+      VALUES
+        ('0','h1','VIN-SKEW','Mechanic Inspection','{}',$1::text,'signer-1:deadbeef'),
+        ('h1','h2','VIN-SKEW','Mechanic Inspection','{}','not-a-timestamp','signer-1:deadbeef'),
+        ('h2','h3','VIN-SKEW','System','{}',$2::text,'system:cafebabe')
+    `, [latestOldKeyEvent, new Date(skewBase.getTime() + 10 * 60 * 1000).toISOString()]);
+
+    // Emulate the pre-boundary protected finalization this database already underwent.
+    await db.exec(`
+      UPDATE public.public_keys SET private_key_pem=NULL WHERE private_key_pem IS NOT NULL;
+      ALTER TABLE public.public_keys
+        ADD CONSTRAINT public_keys_private_material_absent CHECK (private_key_pem IS NULL);
+      REVOKE SELECT,INSERT,UPDATE,DELETE ON TABLE public.public_keys FROM service_role;
+      GRANT SELECT (
+        id,user_id,public_key_pem,key_type,status,created_at,revoked_at,
+        key_ref,key_version,custody_provider
+      ) ON public.public_keys TO service_role;
+      UPDATE public.blockchain_custody_rollout
+         SET state='FINALIZED',old_writers_drained=TRUE,finalized_at=clock_timestamp()
+       WHERE singleton=TRUE;
+    `);
+    await authorizeGeneration(db, GEN_V1);
+
+    // THE UPGRADE.
+    await db.exec(up('../../database/migrations/20260829020000_issue158_activation_boundary_hardening.sql'));
+
+    // 1. The watermark is bootstrapped past every trustworthy historical boundary,
+    //    including the ledger event that postdates the key row.
+    const seeded = await db.query(
+      `SELECT last_authorized_at FROM public.blockchain_signing_watermarks WHERE user_id='signer-1'`,
+    );
+    assert.equal(seeded.rows.length, 1, 'the skewed stakeholder must be seeded');
+    assert.ok(
+      seeded.rows[0].last_authorized_at.getTime() >= Date.parse(latestOldKeyEvent),
+      'watermark must cover the latest historical stakeholder event',
+    );
+    // The system HMAC signer owns no stakeholder key and is never seeded.
+    const systemSeed = await db.query(
+      `SELECT count(*)::int AS c FROM public.blockchain_signing_watermarks WHERE user_id='system'`,
+    );
+    assert.equal(systemSeed.rows[0].c, 0);
+
+    // 2. The first post-upgrade same-key authorization is strictly later than that
+    //    history even though the DB clock is hours behind it.
+    const dbNow = await db.query(`SELECT clock_timestamp() AS now`);
+    assert.ok(dbNow.rows[0].now.getTime() < Date.parse(latestOldKeyEvent), 'DB clock is behind the skewed history');
+
+    const sameKey = await activateKey(db, {
+      candidateId: 'ignored-same-key',
+      userId: 'signer-1',
+      publicKey: 'PUBLIC-SKEWED',
+      version: 'v1',
+      generation: GEN_V1,
+    });
+    assert.equal(sameKey.id, 'key-skewed');
+    assert.ok(
+      Date.parse(sameKey.event_timestamp) > Date.parse(latestOldKeyEvent),
+      `first post-upgrade boundary ${sameKey.event_timestamp} must postdate ${latestOldKeyEvent}`,
+    );
+    assert.ok(Date.parse(sameKey.event_timestamp) > Date.parse(keyCreated));
+
+    // 3. The first post-upgrade ROTATION revokes the old key strictly after the latest
+    //    historical old-key event, so half-open verification still includes it.
+    await authorizeGeneration(db, GEN_V2);
+    const rotated = await activateKey(db, {
+      candidateId: 'key-post-upgrade',
+      userId: 'signer-1',
+      publicKey: 'PUBLIC-ROTATED',
+      version: 'v2',
+      generation: GEN_V2,
+    });
+    const rows = await db.query(
+      `SELECT id,created_at,revoked_at,status FROM public_keys WHERE user_id='signer-1' ORDER BY created_at ASC`,
+    );
+    const oldKey = rows.rows.find((r) => r.id === 'key-skewed');
+    const newKey = rows.rows.find((r) => r.id === 'key-post-upgrade');
+    assert.equal(oldKey.status, 'REVOKED');
+    assert.equal(newKey.status, 'ACTIVE');
+    assert.equal(oldKey.revoked_at, newKey.created_at, 'half-open boundary is contiguous');
+    assert.equal(newKey.created_at, rotated.event_timestamp);
+    assert.ok(
+      Date.parse(oldKey.revoked_at) > Date.parse(latestOldKeyEvent),
+      'revocation must not retroactively exclude an already-signed old-key event',
+    );
+    assert.ok(Date.parse(rotated.event_timestamp) > Date.parse(sameKey.event_timestamp));
+
+    // 4. Half-open partition holds across the whole upgraded history: the historical
+    //    old-key event resolves to the old key, the rotation instant to the new one.
+    const eligibleAt = async (ts) => {
+      const { rows: hits } = await db.query(`
+        SELECT id FROM public_keys
+         WHERE user_id='signer-1'
+           AND created_at::timestamptz <= $1::timestamptz
+           AND (revoked_at IS NULL OR $1::timestamptz < revoked_at::timestamptz)
+      `, [ts]);
+      return hits.map((h) => h.id);
+    };
+    assert.deepEqual(await eligibleAt(latestOldKeyEvent), ['key-skewed']);
+    assert.deepEqual(await eligibleAt(sameKey.event_timestamp), ['key-skewed']);
+    assert.deepEqual(await eligibleAt(newKey.created_at), ['key-post-upgrade']);
+  } finally {
+    await db.close();
+  }
+});
+
 test('Issue #158 service_role cannot authorize a custody generation', async () => {
   const db = await custodyPreparedDb();
   try {

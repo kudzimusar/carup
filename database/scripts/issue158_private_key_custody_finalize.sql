@@ -18,10 +18,50 @@ DECLARE
   v_state TEXT;
   v_drained BOOLEAN;
   v_generation TEXT;
+  v_superseded OID;
 BEGIN
   IF to_regclass('public.blockchain_custody_rollout') IS NULL THEN
     RAISE EXCEPTION '[issue-158] custody PREPARED migration is absent';
   END IF;
+
+  -- FINALIZED is what enables key activation at all. Reaching it while the
+  -- boundary-hardening contract is absent would leave the superseded caller-clock
+  -- contract as the service-role authority, so an intermediate runtime could sign
+  -- under ambiguous validity boundaries. Refuse the ordering hole outright.
+  IF to_regclass('public.blockchain_signing_watermarks') IS NULL THEN
+    RAISE EXCEPTION
+      '[issue-158] refusing custody finalization: boundary-hardening migration is absent'
+      USING ERRCODE='55000';
+  END IF;
+
+  IF NOT EXISTS (
+    SELECT 1
+      FROM pg_proc p
+      JOIN pg_namespace n ON n.oid=p.pronamespace
+     WHERE n.nspname='public'
+       AND p.proname='blockchain_activate_public_key_boundary'
+  ) THEN
+    RAISE EXCEPTION
+      '[issue-158] refusing custody finalization: boundary-hardening migration is absent'
+      USING ERRCODE='55000';
+  END IF;
+
+  -- The superseded caller-clock contracts must already be closed to the application
+  -- role before any key activation becomes possible.
+  FOR v_superseded IN
+    SELECT p.oid
+      FROM pg_proc p
+      JOIN pg_namespace n ON n.oid=p.pronamespace
+     WHERE n.nspname='public'
+       AND p.proname='blockchain_activate_public_key_atomic'
+  LOOP
+    IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname='service_role')
+       AND has_function_privilege('service_role',v_superseded,'EXECUTE') THEN
+      RAISE EXCEPTION
+        '[issue-158] refusing custody finalization: superseded caller-clock activation contract is still executable by service_role'
+        USING ERRCODE='55000';
+    END IF;
+  END LOOP;
 
   SELECT state,old_writers_drained,authorized_generation
     INTO v_state,v_drained,v_generation

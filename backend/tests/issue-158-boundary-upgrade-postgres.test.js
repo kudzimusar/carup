@@ -1,0 +1,316 @@
+/**
+ * Issue #158 boundary upgrade — REAL runtime over REAL PostgreSQL.
+ *
+ * The sibling rotation-boundary suite drives the runtime against an in-memory double
+ * that re-implements the boundary rule, which proves the RUNTIME consumes a
+ * DB-authoritative timestamp but cannot prove the DATABASE produces one. This suite
+ * closes that gap: the supabase client is backed by a real PGlite PostgreSQL database
+ * running the actual migrations, and signatures are real secp256k1.
+ *
+ * Scenario is the upgrade-path adversarial concern: an already-FINALIZED database whose
+ * superseded caller-clock runtime host ran hours AHEAD of the database clock. Proven:
+ *   1. a pre-hardening event signed by the old key at a timestamp ahead of the DB clock
+ *      still verifies after the boundary migration;
+ *   2. the first post-upgrade same-key authorization timestamp is later than that event;
+ *   3. the first post-upgrade rotation revokes the old key only after the latest
+ *      historical old-key event;
+ *   4. the combined historical + post-upgrade chain verifies end to end, with every
+ *      signature bound to exactly one key incarnation.
+ */
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
+import { PGlite } from '@electric-sql/pglite';
+
+process.env.NODE_ENV = 'test';
+process.env.SUPABASE_URL = process.env.SUPABASE_URL || 'http://localhost:54321';
+process.env.SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || 'test-key';
+process.env.CARUP_BLOCKCHAIN_SIGNING_MASTER_SECRET = 'issue158-boundary-upgrade-master-secret';
+process.env.CARUP_BLOCKCHAIN_SYSTEM_HMAC_SECRET = 'issue158-boundary-upgrade-system-secret';
+
+const { supabase } = await import('../db/supabase.js');
+const { addEvent, verifyChain, calculateHash } = await import('../services/blockchain/blockchainService.js');
+const { custodyGeneration, deriveStakeholderKey, signLedgerHash } = await import('../services/blockchain/blockchainKeyCustodyService.js');
+
+const VIN = 'VINUPGRADE0000001';
+const SIGNER = 'upgrade-mech';
+const GENESIS = '0000000000000000000000000000000000000000000000000000000000000000';
+
+function up(path) {
+  const raw = readFileSync(new URL(path, import.meta.url), 'utf8');
+  const down = raw.indexOf('-- +migrate Down');
+  return (down >= 0 ? raw.slice(0, down) : raw).replace('-- +migrate Up', '');
+}
+
+// ── Minimal PostgREST-shaped client over a real PGlite database ─────────────────
+const quote = (col) => `"${String(col).trim()}"`;
+const cols = (spec) => String(spec).split(',').map(quote).join(',');
+
+function makeClient(db) {
+  function builder(table) {
+    const st = { table, op: 'select', select: '*', filters: [], gt: null, order: null, limit: null, single: false, maybe: false, head: false, payload: null, conflict: null };
+    const chain = {
+      select(spec, opts) {
+        if (spec) st.select = spec;
+        if (opts?.head) st.head = true;
+        return chain;
+      },
+      insert(p) { st.op = 'insert'; st.payload = p; return chain; },
+      upsert(p, opts) { st.op = 'upsert'; st.payload = p; st.conflict = opts?.onConflict || null; return chain; },
+      eq(k, v) { st.filters.push([k, v]); return chain; },
+      gt(k, v) { st.gt = [k, v]; return chain; },
+      order(k, opts) { st.order = [k, opts?.ascending !== false]; return chain; },
+      limit(n) { st.limit = n; return chain; },
+      single() { st.single = true; return chain; },
+      maybeSingle() { st.maybe = true; return chain; },
+      then(res, rej) { return exec(st).then(res, rej); },
+    };
+    return chain;
+  }
+
+  async function exec(st) {
+    const params = [];
+    const where = [];
+    for (const [k, v] of st.filters) { params.push(v); where.push(`${quote(k)}=$${params.length}`); }
+    if (st.gt) { params.push(st.gt[1]); where.push(`${quote(st.gt[0])}>$${params.length}`); }
+    const whereSql = where.length ? ` WHERE ${where.join(' AND ')}` : '';
+
+    try {
+      if (st.op === 'insert' || st.op === 'upsert') {
+        const list = Array.isArray(st.payload) ? st.payload : [st.payload];
+        const keys = Object.keys(list[0]);
+        const values = list.map((row) => `(${keys.map((k) => { params.push(row[k]); return `$${params.length}`; }).join(',')})`);
+        const conflict = st.op === 'upsert' && st.conflict
+          ? ` ON CONFLICT (${cols(st.conflict)}) DO UPDATE SET ${keys.filter((k) => k !== st.conflict).map((k) => `${quote(k)}=EXCLUDED.${quote(k)}`).join(',')}`
+          : '';
+        const returning = st.select === '*' ? '*' : cols(st.select);
+        const { rows } = await db.query(
+          `INSERT INTO public.${quote(st.table)}(${keys.map(quote).join(',')}) VALUES ${values.join(',')}${conflict} RETURNING ${returning}`,
+          params,
+        );
+        return { data: st.single ? rows[0] ?? null : rows, error: null };
+      }
+
+      if (st.head) {
+        const { rows } = await db.query(`SELECT count(*)::int AS count FROM public.${quote(st.table)}${whereSql}`, params);
+        return { count: rows[0].count, data: null, error: null };
+      }
+
+      const orderSql = st.order ? ` ORDER BY ${quote(st.order[0])} ${st.order[1] ? 'ASC' : 'DESC'}` : '';
+      const limitSql = st.limit != null ? ` LIMIT ${Number(st.limit)}` : '';
+      const { rows } = await db.query(
+        `SELECT ${st.select === '*' ? '*' : cols(st.select)} FROM public.${quote(st.table)}${whereSql}${orderSql}${limitSql}`,
+        params,
+      );
+      if (st.maybe) return { data: rows[0] ?? null, error: null };
+      if (st.single) {
+        return rows.length === 1
+          ? { data: rows[0], error: null }
+          : { data: null, error: { message: 'No rows found', code: 'PGRST116' } };
+      }
+      return { data: rows, error: null };
+    } catch (error) {
+      return { data: null, error: { message: error.message, code: error.code } };
+    }
+  }
+
+  return {
+    from: builder,
+    rpc: async (name, args = {}) => {
+      const keys = Object.keys(args);
+      const call = keys.length
+        ? `${keys.map((k, i) => `${k} => $${i + 1}`).join(',')}`
+        : '';
+      try {
+        const { rows, fields } = await db.query(
+          `SELECT * FROM public.${quote(name)}(${call})`,
+          keys.map((k) => args[k]),
+        );
+        // Scalar-returning functions surface their value directly, like PostgREST.
+        if (rows.length === 1 && (fields?.length ?? Object.keys(rows[0]).length) === 1) {
+          return { data: Object.values(rows[0])[0], error: null };
+        }
+        return { data: rows, error: null };
+      } catch (error) {
+        return { data: null, error: { message: error.message, code: error.code } };
+      }
+    },
+  };
+}
+
+async function preBoundaryFinalizedDb({ keyPem, keyCreatedAt }) {
+  const db = await PGlite.create();
+  await db.exec(`
+    CREATE ROLE anon NOLOGIN;
+    CREATE ROLE authenticated NOLOGIN;
+    CREATE ROLE service_role NOLOGIN BYPASSRLS;
+    GRANT USAGE ON SCHEMA public TO anon,authenticated,service_role;
+
+    CREATE TABLE public_keys (
+      id text PRIMARY KEY,
+      user_id text NOT NULL,
+      public_key_pem text NOT NULL,
+      private_key_pem text,
+      key_type text DEFAULT 'secp256k1',
+      status text DEFAULT 'ACTIVE',
+      created_at text NOT NULL,
+      revoked_at text
+    );
+    CREATE TABLE blockchain_events (
+      id bigserial PRIMARY KEY,
+      previous_hash text,
+      current_hash text,
+      vin text,
+      event_type text,
+      payload text,
+      "timestamp" text,
+      signature text
+    );
+    CREATE TABLE rolling_integrity_checkpoints (
+      vin text PRIMARY KEY,
+      last_verified_event_id bigint,
+      rolling_hash text,
+      verified_at text
+    );
+    GRANT ALL ON public_keys,blockchain_events,rolling_integrity_checkpoints TO service_role;
+  `);
+  await db.exec(up('../../database/migrations/20260828210000_issue158_private_key_custody.sql'));
+  await db.exec(up('../../database/migrations/20260829003000_issue158_custody_rollout_upgrade.sql'));
+
+  // History written by the superseded caller-clock runtime, including the plaintext
+  // private material that finalization later erases.
+  await db.query(`
+    INSERT INTO public_keys(
+      id,user_id,public_key_pem,private_key_pem,key_type,status,created_at,key_ref,key_version,custody_provider
+    ) VALUES (
+      'key-historical',$1::text,$2::text,'LEGACY-PRIVATE-MATERIAL','secp256k1','ACTIVE',$3::text,
+      'derived:test:hv1:historical','hv1','derived_master_secret'
+    )
+  `, [SIGNER, keyPem, keyCreatedAt]);
+
+  // Emulate the pre-boundary protected finalization this database already underwent.
+  await db.exec(`
+    UPDATE public.public_keys SET private_key_pem=NULL WHERE private_key_pem IS NOT NULL;
+    ALTER TABLE public.public_keys
+      ADD CONSTRAINT public_keys_private_material_absent CHECK (private_key_pem IS NULL);
+    REVOKE SELECT,INSERT,UPDATE,DELETE ON TABLE public.public_keys FROM service_role;
+    GRANT SELECT (
+      id,user_id,public_key_pem,key_type,status,created_at,revoked_at,
+      key_ref,key_version,custody_provider
+    ) ON public.public_keys TO service_role;
+    UPDATE public.blockchain_custody_rollout
+       SET state='FINALIZED',old_writers_drained=TRUE,finalized_at=clock_timestamp()
+     WHERE singleton=TRUE;
+  `);
+  return db;
+}
+
+test('Issue #158: forward-skewed pre-hardening history stays verifiable across the boundary upgrade', async (t) => {
+  const savedVersion = process.env.CARUP_BLOCKCHAIN_KEY_VERSION;
+  const savedFrom = supabase.from;
+  const savedRpc = supabase.rpc;
+  t.after(() => {
+    if (savedVersion === undefined) delete process.env.CARUP_BLOCKCHAIN_KEY_VERSION;
+    else process.env.CARUP_BLOCKCHAIN_KEY_VERSION = savedVersion;
+    supabase.from = savedFrom;
+    supabase.rpc = savedRpc;
+  });
+
+  // The old application host ran three hours ahead of the database.
+  const skewBase = Date.now() + 3 * 60 * 60 * 1000;
+  const keyCreatedAt = new Date(skewBase).toISOString();
+  const historicalEventAt = new Date(skewBase + 90 * 1000).toISOString();
+
+  process.env.CARUP_BLOCKCHAIN_KEY_VERSION = 'hv1';
+  const hv1 = deriveStakeholderKey(SIGNER);
+
+  const db = await preBoundaryFinalizedDb({ keyPem: hv1.publicKeyPem, keyCreatedAt });
+  try {
+    const client = makeClient(db);
+    supabase.from = client.from;
+    supabase.rpc = client.rpc;
+
+    // A real pre-hardening stakeholder event, signed by the old key, timestamped
+    // AHEAD of the database clock.
+    const historicalPayload = { mechanicId: SIGNER, note: 'pre-hardening event from a forward-skewed host' };
+    const historicalHash = calculateHash(GENESIS, VIN, 'Mechanic Inspection', historicalEventAt, historicalPayload);
+    const historicalSig = signLedgerHash(SIGNER, historicalHash);
+    assert.equal(historicalSig.publicKeyPem, hv1.publicKeyPem);
+    await db.query(`
+      INSERT INTO blockchain_events(previous_hash,current_hash,vin,event_type,payload,"timestamp",signature)
+      VALUES ($1::text,$2::text,$3::text,'Mechanic Inspection',$4::text,$5::text,$6::text)
+    `, [GENESIS, historicalHash, VIN, JSON.stringify(historicalPayload), historicalEventAt, `${SIGNER}:${historicalSig.signatureHex}`]);
+
+    // THE UPGRADE.
+    await db.exec(up('../../database/migrations/20260829020000_issue158_activation_boundary_hardening.sql'));
+    await db.query(
+      `SELECT public.blockchain_authorize_custody_generation($1::text)`,
+      [custodyGeneration()],
+    );
+
+    const dbNow = await db.query(`SELECT clock_timestamp() AS now`);
+    assert.ok(dbNow.rows[0].now.getTime() < skewBase, 'the database clock is genuinely behind the skewed history');
+
+    // 1. The historical event still verifies after the migration.
+    const afterUpgrade = await verifyChain(VIN);
+    assert.equal(afterUpgrade.verified, true, afterUpgrade.reason || 'historical chain must verify');
+    assert.equal(afterUpgrade.count, 1);
+    assert.ok(!afterUpgrade.chain[0].note, 'the historical signature must bind to the historical key');
+
+    // 2. The first post-upgrade same-key authorization postdates that event.
+    const sameKeyEvent = await addEvent(VIN, 'Mechanic Inspection', { mechanicId: SIGNER, note: 'first post-upgrade event' });
+    assert.ok(
+      Date.parse(sameKeyEvent.timestamp) > Date.parse(historicalEventAt),
+      `post-upgrade boundary ${sameKeyEvent.timestamp} must postdate historical ${historicalEventAt}`,
+    );
+
+    // 3. The first post-upgrade rotation revokes the old key strictly after the latest
+    //    historical old-key event.
+    process.env.CARUP_BLOCKCHAIN_KEY_VERSION = 'hv2';
+    await db.query(
+      `SELECT public.blockchain_authorize_custody_generation($1::text)`,
+      [custodyGeneration()],
+    );
+    const rotatedEvent = await addEvent(VIN, 'Mechanic Inspection', { mechanicId: SIGNER, note: 'post-rotation event' });
+
+    const keys = await db.query(
+      `SELECT id,key_version,status,created_at,revoked_at FROM public_keys WHERE user_id=$1 ORDER BY created_at ASC`,
+      [SIGNER],
+    );
+    assert.equal(keys.rows.length, 2);
+    const oldKey = keys.rows.find((r) => r.id === 'key-historical');
+    const newKey = keys.rows.find((r) => r.id !== 'key-historical');
+    assert.equal(oldKey.status, 'REVOKED');
+    assert.equal(newKey.status, 'ACTIVE');
+    assert.equal(oldKey.revoked_at, newKey.created_at, 'contiguous half-open boundary');
+    assert.ok(
+      Date.parse(oldKey.revoked_at) > Date.parse(historicalEventAt),
+      'revocation must not retroactively exclude the already-signed historical event',
+    );
+    assert.ok(Date.parse(oldKey.revoked_at) > Date.parse(sameKeyEvent.timestamp));
+    assert.equal(newKey.created_at, rotatedEvent.timestamp);
+
+    // 4. The combined historical + post-upgrade chain verifies end to end, and every
+    //    signature bound to exactly one incarnation.
+    const finalChain = await verifyChain(VIN);
+    assert.equal(finalChain.verified, true, finalChain.reason || 'full chain must verify');
+    assert.equal(finalChain.count, 3);
+    assert.ok(finalChain.chain.every((entry) => !entry.note), 'no event may fall outside its key validity interval');
+
+    for (const ts of [historicalEventAt, sameKeyEvent.timestamp, rotatedEvent.timestamp]) {
+      const eligible = await db.query(`
+        SELECT id FROM public_keys
+         WHERE user_id=$1
+           AND created_at::timestamptz <= $2::timestamptz
+           AND (revoked_at IS NULL OR $2::timestamptz < revoked_at::timestamptz)
+      `, [SIGNER, ts]);
+      assert.equal(eligible.rows.length, 1, `exactly one key incarnation must own ${ts}`);
+    }
+
+    // Private material never returns, and the runtime still holds no direct key DML.
+    const material = await db.query(`SELECT count(*)::int AS c FROM public_keys WHERE private_key_pem IS NOT NULL`);
+    assert.equal(material.rows[0].c, 0);
+  } finally {
+    await db.close();
+  }
+});

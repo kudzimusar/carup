@@ -30,11 +30,12 @@ process.env.SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY ||
 
 const { supabase } = await import('../db/supabase.js');
 const { addEvent, verifyChain, calculateHash, getOrCreateKeypair } = await import('../services/blockchain/blockchainService.js');
-const { custodyGeneration, signLedgerHash } = await import('../services/blockchain/blockchainKeyCustodyService.js');
+const { custodyGeneration, deriveStakeholderKey, signLedgerHash } = await import('../services/blockchain/blockchainKeyCustodyService.js');
 
 const VIN = 'VINBOUNDARY000001';
 const SIGNER = 'boundary-mech';
 const T0 = Date.parse('2026-08-29T01:00:00.000Z');
+const GENESIS_HASH = '0000000000000000000000000000000000000000000000000000000000000000';
 
 // ── In-memory supabase double with a DB-owned monotonic boundary ────────────────
 const db = { public_keys: [], blockchain_events: [], rolling_integrity_checkpoints: [] };
@@ -239,4 +240,71 @@ test('Issue #158: colliding and skewed clocks cannot blur key validity boundarie
   db.blockchain_events.pop();
   const clean = await verifyChain(VIN);
   assert.equal(clean.verified, true);
+});
+
+test('Issue #158: a revoked key does not own its own revocation instant', async () => {
+  // Behavioural half-open proof that does not depend on a successor key winning a sort:
+  // when a key is revoked with NO successor, an event stamped at exactly revoked_at must
+  // NOT be honoured by that key. Under inclusive [created_at, revoked_at] semantics the
+  // revoked key would still verify it.
+  const VIN2 = 'VINREVOKEDEDGE001';
+  const signer = 'revoked-edge-signer';
+  const created = '2026-08-29T04:00:00.000Z';
+  const revoked = '2026-08-29T05:00:00.000Z';
+
+  process.env.CARUP_BLOCKCHAIN_KEY_VERSION = 'rv1';
+  const key = deriveStakeholderKey(signer);
+  db.public_keys.push({
+    id: 'key-revoked-no-successor',
+    user_id: signer,
+    public_key_pem: key.publicKeyPem,
+    key_type: 'secp256k1',
+    status: 'REVOKED',
+    created_at: created,
+    revoked_at: revoked,
+    key_ref: key.keyRef,
+    key_version: 'rv1',
+    custody_provider: key.custodyProvider,
+  });
+
+  const payloadInside = { mechanicId: signer, note: 'inside the validity interval' };
+  const insideAt = '2026-08-29T04:30:00.000Z';
+  const insideHash = calculateHash(GENESIS_HASH, VIN2, 'Mechanic Inspection', insideAt, payloadInside);
+  const insideSig = signLedgerHash(signer, insideHash);
+  db.blockchain_events.push({
+    id: ++eventSeq,
+    previous_hash: GENESIS_HASH,
+    current_hash: insideHash,
+    vin: VIN2,
+    event_type: 'Mechanic Inspection',
+    payload: JSON.stringify(payloadInside),
+    timestamp: insideAt,
+    signature: `${signer}:${insideSig.signatureHex}`,
+  });
+
+  const payloadEdge = { mechanicId: signer, note: 'exactly at the revocation instant' };
+  const edgeHash = calculateHash(insideHash, VIN2, 'Mechanic Inspection', revoked, payloadEdge);
+  const edgeSig = signLedgerHash(signer, edgeHash);
+  db.blockchain_events.push({
+    id: ++eventSeq,
+    previous_hash: insideHash,
+    current_hash: edgeHash,
+    vin: VIN2,
+    event_type: 'Mechanic Inspection',
+    payload: JSON.stringify(payloadEdge),
+    timestamp: revoked,
+    signature: `${signer}:${edgeSig.signatureHex}`,
+  });
+
+  const result = await verifyChain(VIN2);
+  assert.equal(result.count, 2);
+  // The event strictly inside the interval is cryptographically verified.
+  assert.ok(!result.chain[0].note, 'an event inside the validity interval must verify');
+  // The event ON the revocation instant is outside the half-open interval: the revoked
+  // key must not be selected for it.
+  assert.equal(
+    result.chain[1].note,
+    'PUBLIC_KEY_RECORD_POSTDATES_OR_EXCLUDES_EVENT',
+    'a revoked key must not own its revocation instant',
+  );
 });

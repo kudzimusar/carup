@@ -88,6 +88,13 @@ test('Issue #158 protected finalizer erases private material and removes direct 
   assert.match(sql, /GRANT SELECT \([\s\S]*public_key_pem[\s\S]*\) ON public\.public_keys TO service_role/);
   assert.doesNotMatch(sql, /GRANT (?:INSERT|UPDATE) \(/i);
   assert.match(sql, /state='FINALIZED'/);
+  // FINALIZED is what enables activation at all, so it must be unreachable while the
+  // superseded caller-clock contract would still be the service-role authority.
+  assert.match(sql, /blockchain_signing_watermarks/);
+  assert.match(sql, /blockchain_activate_public_key_boundary/);
+  assert.match(sql, /boundary-hardening migration is absent/);
+  assert.match(sql, /has_function_privilege\('service_role',v_superseded,'EXECUTE'\)/);
+  assert.match(sql, /superseded caller-clock activation contract is still executable by service_role/);
 });
 
 test('Issue #158 source contract: blockchain runtime never selects or writes private_key_pem', () => {
@@ -211,7 +218,13 @@ test('Issue #158: activation boundary is DB-authoritative, never the caller cloc
   assert.match(sql, /REVOKE ALL ON TABLE public\.blockchain_signing_watermarks[\s\S]*service_role/);
   assert.match(sql, /blockchain_activate_public_key_boundary/);
   assert.match(sql, /date_trunc\('milliseconds', clock_timestamp\(\)\)/);
-  assert.match(sql, /v_watermark \+ interval '1 millisecond'/);
+  assert.match(sql, /date_trunc\('milliseconds', v_floor\) \+ interval '1 millisecond'/);
+  // The upgrade must not rewind time relative to pre-hardening caller-clock history.
+  assert.match(sql, /blockchain_boundary_parse_ts/);
+  assert.match(sql, /REVOKE ALL ON FUNCTION public\.blockchain_boundary_parse_ts\(TEXT\)[\s\S]*service_role/);
+  assert.match(sql, /WATERMARK BOOTSTRAP/);
+  assert.match(sql, /GREATEST\(\s*public\.blockchain_signing_watermarks\.last_authorized_at,\s*EXCLUDED\.last_authorized_at\s*\)/);
+  assert.match(sql, /v_floor := GREATEST\(v_watermark,v_key_floor\)/);
   assert.match(sql, /revoked_at=v_boundary_text/);
   assert.match(sql, /'ACTIVE',v_boundary_text,NULL/);
   // The superseded nine-argument caller-clock contract is retired outright.
