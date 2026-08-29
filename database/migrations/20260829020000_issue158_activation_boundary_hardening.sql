@@ -225,12 +225,15 @@ DECLARE
   -- with no error anywhere, so the boundary must never be allowed to cross it.
   c_max_boundary CONSTANT TIMESTAMPTZ := TIMESTAMPTZ '9999-12-31 23:59:59.999+00';
   v_active public.public_keys%ROWTYPE;
+  v_has_active BOOLEAN;
   v_rollout public.blockchain_custody_rollout%ROWTYPE;
   v_watermark TIMESTAMPTZ;
   v_key_floor TIMESTAMPTZ;
   v_floor TIMESTAMPTZ;
   v_boundary TIMESTAMPTZ;
   v_boundary_text TEXT;
+  v_terminal_text TEXT;
+  v_terminal_persisted BOOLEAN;
 BEGIN
   IF nullif(btrim(p_candidate_id),'') IS NULL
      OR nullif(btrim(p_user_id),'') IS NULL
@@ -293,14 +296,69 @@ BEGIN
     v_boundary := date_trunc('milliseconds', v_floor) + interval '1 millisecond';
   END IF;
 
+  -- The active key is read BEFORE the terminal decision below, because recovering the
+  -- last representable millisecond is permitted only for the SAME cryptographic
+  -- authority and never for a rotation. FOUND is captured because later statements
+  -- (the watermark upsert) would otherwise reset it.
+  SELECT p.* INTO v_active
+    FROM public.public_keys p
+   WHERE p.user_id=p_user_id
+     AND p.status='ACTIVE'
+   FOR UPDATE;
+  v_has_active := FOUND;
+
   -- Monotonic counters saturate. Past the last representable millisecond the emitted
-  -- timestamp silently becomes unparseable rather than raising, so refuse to issue it:
-  -- a stakeholder whose history sits at the very end of representable time fails
-  -- closed with a diagnosable error instead of writing a corrupt validity boundary.
+  -- timestamp silently becomes unparseable rather than raising, so it must never be
+  -- issued.
+  --
+  -- Allocation and persistence are separate operations: this function commits the
+  -- boundary, and the runtime signs and inserts the ledger row afterwards. A transient
+  -- insert failure at the terminal instant would otherwise consume the signer's only
+  -- remaining representable boundary forever. The ledger itself proves which case this
+  -- is -- stakeholder events carry '<signerId>:<hex>' and the exact boundary text --
+  -- so a terminal allocation that was reserved but never persisted may be re-issued.
+  --
+  -- The recovery is narrow by construction: same stakeholder, same active public key
+  -- (never a rotation), only at exactly the terminal instant, and only while no event
+  -- bearing that instant exists for this signer. It becomes unavailable the moment
+  -- persistence is observable. If the ledger is absent we cannot prove non-persistence
+  -- and therefore fail closed.
+  --
+  -- Race note: activations for one stakeholder serialize on the watermark row lock and
+  -- the public_keys table lock, so the observe-then-reissue pair is atomic per signer.
+  -- Two concurrent retries that both observe "not persisted" could each persist an
+  -- event at the terminal instant; both are genuine writes by the same key at the same
+  -- instant, so key validity is unaffected and both verify. Rotation cannot occur on
+  -- this path, so no validity interval can be made ambiguous by it.
   IF v_boundary > c_max_boundary THEN
-    RAISE EXCEPTION
-      'custody activation boundary exceeds the representable timestamp range for this stakeholder'
-      USING ERRCODE='22008';
+    v_terminal_text := to_char(c_max_boundary AT TIME ZONE 'UTC','YYYY-MM-DD"T"HH24:MI:SS.MS"Z"');
+
+    IF to_regclass('public.blockchain_events') IS NULL THEN
+      v_terminal_persisted := TRUE;
+    ELSE
+      EXECUTE $persisted$
+        SELECT EXISTS (
+          SELECT 1
+            FROM public.blockchain_events e
+           WHERE e."timestamp" = $1
+             AND split_part(e.signature,':',1) = $2
+        )
+      $persisted$
+      INTO v_terminal_persisted
+      USING v_terminal_text, p_user_id;
+    END IF;
+
+    IF v_floor IS NOT NULL
+       AND date_trunc('milliseconds', v_floor) = c_max_boundary
+       AND v_has_active
+       AND v_active.public_key_pem = p_public_key_pem
+       AND NOT v_terminal_persisted THEN
+      v_boundary := c_max_boundary;
+    ELSE
+      RAISE EXCEPTION
+        'custody activation boundary exceeds the representable timestamp range for this stakeholder'
+        USING ERRCODE='22008';
+    END IF;
   END IF;
 
   v_boundary_text := to_char(v_boundary AT TIME ZONE 'UTC','YYYY-MM-DD"T"HH24:MI:SS.MS"Z"');
@@ -309,13 +367,7 @@ BEGIN
   VALUES (p_user_id,v_boundary)
   ON CONFLICT (user_id) DO UPDATE SET last_authorized_at=EXCLUDED.last_authorized_at;
 
-  SELECT p.* INTO v_active
-    FROM public.public_keys p
-   WHERE p.user_id=p_user_id
-     AND p.status='ACTIVE'
-   FOR UPDATE;
-
-  IF FOUND AND v_active.public_key_pem = p_public_key_pem THEN
+  IF v_has_active AND v_active.public_key_pem = p_public_key_pem THEN
     UPDATE public.public_keys p
        SET key_ref=p_key_ref,
            key_version=p_key_version,
@@ -330,7 +382,7 @@ BEGIN
     RETURN;
   END IF;
 
-  IF FOUND THEN
+  IF v_has_active THEN
     -- Half-open rotation boundary: the superseded key's validity interval ends at
     -- exactly the instant the new incarnation begins. [created_at, revoked_at)
     -- assigns the boundary instant to the new key and excludes the old one, so no

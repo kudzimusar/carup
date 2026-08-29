@@ -46,6 +46,10 @@ function up(path) {
 const quote = (col) => `"${String(col).trim()}"`;
 const cols = (spec) => String(spec).split(',').map(quote).join(',');
 
+// Injects a single transient failure into the ledger insert, modelling the real split
+// between committed boundary allocation and the separate event-persistence operation.
+const injected = { failNextEventInsert: false };
+
 function makeClient(db) {
   function builder(table) {
     const st = { table, op: 'select', select: '*', filters: [], gt: null, order: null, limit: null, single: false, maybe: false, head: false, payload: null, conflict: null };
@@ -76,6 +80,11 @@ function makeClient(db) {
     const whereSql = where.length ? ` WHERE ${where.join(' AND ')}` : '';
 
     try {
+      if (st.op === 'insert' && st.table === 'blockchain_events' && injected.failNextEventInsert) {
+        injected.failNextEventInsert = false;
+        return { data: null, error: { message: 'transient ledger persistence failure' } };
+      }
+
       if (st.op === 'insert' || st.op === 'upsert') {
         const list = Array.isArray(st.payload) ? st.payload : [st.payload];
         const keys = Object.keys(list[0]);
@@ -488,6 +497,138 @@ test('Issue #158: repeated signing continues near the terminal representable ins
     assert.equal(chain.verified, true, chain.reason || 'chain must verify');
     assert.equal(chain.count, 3);
     assert.ok(chain.chain.every((entry) => !entry.note), 'no signature check may be skipped');
+  } finally {
+    await db.close();
+  }
+});
+
+test('Issue #158: a failed ledger write does not permanently consume the terminal boundary', async (t) => {
+  const savedVersion = process.env.CARUP_BLOCKCHAIN_KEY_VERSION;
+  const savedFrom = supabase.from;
+  const savedRpc = supabase.rpc;
+  t.after(() => {
+    if (savedVersion === undefined) delete process.env.CARUP_BLOCKCHAIN_KEY_VERSION;
+    else process.env.CARUP_BLOCKCHAIN_KEY_VERSION = savedVersion;
+    supabase.from = savedFrom;
+    supabase.rpc = savedRpc;
+    injected.failNextEventInsert = false;
+  });
+
+  const VIN4 = 'VINRESERVE0000001';
+  const TERMINAL = '9999-12-31T23:59:59.999Z';
+  const keyCreatedAt = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+
+  process.env.CARUP_BLOCKCHAIN_KEY_VERSION = 'rv1';
+  const rv1 = deriveStakeholderKey(SIGNER);
+
+  const db = await preBoundaryFinalizedDb({ keyPem: rv1.publicKeyPem, keyCreatedAt });
+  try {
+    const client = makeClient(db);
+    supabase.from = client.from;
+    supabase.rpc = client.rpc;
+
+    await db.exec(up('../../database/migrations/20260829020000_issue158_activation_boundary_hardening.sql'));
+    await db.query(`SELECT public.blockchain_authorize_custody_generation($1::text)`, [custodyGeneration()]);
+
+    // 1. Park the stakeholder one millisecond below the terminal instant.
+    await db.query(`
+      INSERT INTO public.blockchain_signing_watermarks(user_id,last_authorized_at)
+      VALUES ($1::text,TIMESTAMPTZ '9999-12-31 23:59:59.998+00')
+      ON CONFLICT (user_id) DO UPDATE SET last_authorized_at=EXCLUDED.last_authorized_at
+    `, [SIGNER]);
+
+    // 2-3. The first write allocates the terminal boundary, then the ledger insert fails
+    //      AFTER that activation has already committed.
+    injected.failNextEventInsert = true;
+    await assert.rejects(
+      () => addEvent(VIN4, 'Mechanic Inspection', { mechanicId: SIGNER, note: 'lost to a transient failure' }),
+      /ledger event persistence failed/i,
+    );
+
+    // 4. No event exists, yet the authority state already reflects the terminal allocation.
+    const afterFailure = await db.query(
+      `SELECT count(*)::int AS c FROM blockchain_events WHERE vin=$1`, [VIN4],
+    );
+    assert.equal(afterFailure.rows[0].c, 0, 'the failed write must have persisted nothing');
+    const reserved = await db.query(
+      `SELECT last_authorized_at::text AS t FROM public.blockchain_signing_watermarks WHERE user_id=$1`,
+      [SIGNER],
+    );
+    assert.equal(new Date(reserved.rows[0].t).getTime(), Date.parse(TERMINAL),
+      'the terminal instant is already reserved');
+
+    // 4b. Recovery is bound to the SAME cryptographic authority. While the reservation
+    //     is held but unpersisted, a ROTATION must still be refused — otherwise a new
+    //     key incarnation would consume the terminal instant that belongs to the
+    //     unpersisted write, and the old key's interval would close on it.
+    const keysBeforeRotation = await db.query(
+      `SELECT id,status,created_at,revoked_at FROM public_keys WHERE user_id=$1 ORDER BY id`, [SIGNER],
+    );
+    process.env.CARUP_BLOCKCHAIN_KEY_VERSION = 'rv-other';
+    await db.query(`SELECT public.blockchain_authorize_custody_generation($1::text)`, [custodyGeneration()]);
+    await assert.rejects(
+      () => addEvent(VIN4, 'Mechanic Inspection', { mechanicId: SIGNER, note: 'rotation must not consume the reservation' }),
+      /exceeds the representable timestamp range/i,
+    );
+    const keysAfterRotation = await db.query(
+      `SELECT id,status,created_at,revoked_at FROM public_keys WHERE user_id=$1 ORDER BY id`, [SIGNER],
+    );
+    assert.deepEqual(
+      keysAfterRotation.rows,
+      keysBeforeRotation.rows,
+      'a refused terminal rotation must not mutate key validity state',
+    );
+    const stillReserved = await db.query(
+      `SELECT last_authorized_at::text AS t FROM public.blockchain_signing_watermarks WHERE user_id=$1`,
+      [SIGNER],
+    );
+    assert.equal(new Date(stillReserved.rows[0].t).getTime(), Date.parse(TERMINAL),
+      'the reservation must survive the refused rotation');
+
+    // Restore the original signing authority for the retry.
+    process.env.CARUP_BLOCKCHAIN_KEY_VERSION = 'rv1';
+    await db.query(`SELECT public.blockchain_authorize_custody_generation($1::text)`, [custodyGeneration()]);
+
+    // 5. The retry recovers: the unpersisted terminal allocation is re-issued.
+    const recovered = await addEvent(VIN4, 'Mechanic Inspection', { mechanicId: SIGNER, note: 'retry after transient failure' });
+    assert.equal(recovered.timestamp, TERMINAL, 'the retry must recover the terminal instant');
+    assert.ok(Number.isFinite(Date.parse(recovered.timestamp)));
+
+    // 6. The recovered event verifies cryptographically.
+    const chain = await verifyChain(VIN4);
+    assert.equal(chain.verified, true, chain.reason || 'chain must verify');
+    assert.equal(chain.count, 1);
+    assert.ok(chain.chain.every((entry) => !entry.note), 'no signature check may be skipped');
+
+    // 7. Once the terminal event is observable, a genuinely new write fails closed.
+    await assert.rejects(
+      () => addEvent(VIN4, 'Mechanic Inspection', { mechanicId: SIGNER, note: 'beyond the representable range' }),
+      /exceeds the representable timestamp range/i,
+    );
+    const afterDenial = await db.query(
+      `SELECT count(*)::int AS c FROM blockchain_events WHERE vin=$1`, [VIN4],
+    );
+    assert.equal(afterDenial.rows[0].c, 1, 'the denial must not have written anything');
+
+    // 8. A rotation at saturation fails BEFORE mutating either key's validity state.
+    const keysBefore = await db.query(
+      `SELECT id,status,created_at,revoked_at FROM public_keys WHERE user_id=$1 ORDER BY id`, [SIGNER],
+    );
+    process.env.CARUP_BLOCKCHAIN_KEY_VERSION = 'rv2';
+    await db.query(`SELECT public.blockchain_authorize_custody_generation($1::text)`, [custodyGeneration()]);
+    await assert.rejects(
+      () => addEvent(VIN4, 'Mechanic Inspection', { mechanicId: SIGNER, note: 'rotation at saturation' }),
+      /exceeds the representable timestamp range/i,
+    );
+    const keysAfter = await db.query(
+      `SELECT id,status,created_at,revoked_at FROM public_keys WHERE user_id=$1 ORDER BY id`, [SIGNER],
+    );
+    assert.deepEqual(keysAfter.rows, keysBefore.rows, 'no key validity state may be mutated by a refused rotation');
+
+    // The chain is still intact after both refusals.
+    const finalChain = await verifyChain(VIN4);
+    assert.equal(finalChain.verified, true, finalChain.reason || 'chain must still verify');
+    assert.equal(finalChain.count, 1);
   } finally {
     await db.close();
   }
