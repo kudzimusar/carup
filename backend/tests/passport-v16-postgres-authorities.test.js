@@ -627,6 +627,57 @@ test('Issue #158 boundary upgrade never rewinds time behind forward-skewed pre-h
   }
 });
 
+test('Issue #158 boundary clears a stakeholder validity edge even with no watermark row at all', async () => {
+  // Defence in depth for history the migration-time bootstrap could not have seen: a
+  // forward-dated key row with NO watermark entry. The per-call key floor must still
+  // stop the boundary landing before that key's own validity edge, which would make a
+  // freshly signed event predate its key and silently skip signature verification.
+  const db = await custodyDb({ generation: GEN_V1 });
+  try {
+    const forwardDated = new Date(Date.now() + 45 * 60 * 1000).toISOString();
+    await db.query(`UPDATE public.public_keys SET created_at=$1::text WHERE id='key-1'`, [forwardDated]);
+    await db.query(`DELETE FROM public.blockchain_signing_watermarks WHERE user_id='user-1'`);
+
+    const seeded = await db.query(
+      `SELECT count(*)::int AS c FROM public.blockchain_signing_watermarks WHERE user_id='user-1'`,
+    );
+    assert.equal(seeded.rows[0].c, 0, 'the stakeholder must genuinely have no watermark');
+
+    const activated = await activateKey(db, {
+      candidateId: 'ignored-no-watermark',
+      publicKey: 'PUBLIC-MATERIAL',
+      version: 'v1',
+      generation: GEN_V1,
+    });
+    assert.equal(activated.id, 'key-1');
+    assert.ok(
+      Date.parse(activated.event_timestamp) > Date.parse(forwardDated),
+      `boundary ${activated.event_timestamp} must clear the forward-dated key edge ${forwardDated}`,
+    );
+
+    // A rotation from that state must also revoke strictly after the forward-dated edge,
+    // so the old key's interval can never invert (revoked_at < created_at).
+    await authorizeGeneration(db, GEN_V2);
+    const rotated = await activateKey(db, {
+      candidateId: 'key-after-no-watermark',
+      publicKey: 'PUBLIC-V2',
+      version: 'v2',
+      generation: GEN_V2,
+    });
+    const rows = await db.query(
+      `SELECT id,created_at,revoked_at FROM public.public_keys WHERE user_id='user-1' ORDER BY created_at ASC`,
+    );
+    const oldKey = rows.rows.find((r) => r.id === 'key-1');
+    assert.ok(
+      Date.parse(oldKey.revoked_at) > Date.parse(oldKey.created_at),
+      'a key validity interval must never invert',
+    );
+    assert.equal(oldKey.revoked_at, rotated.event_timestamp);
+  } finally {
+    await db.close();
+  }
+});
+
 test('Issue #158 service_role cannot authorize a custody generation', async () => {
   const db = await custodyPreparedDb();
   try {
@@ -1141,6 +1192,44 @@ test('Issue #158 atomic activation preserves v1 -> v2 -> rollback-v1 key validit
 test('Issue #158 boundary authority is strictly monotonic per stakeholder even within one millisecond', async () => {
   const db = await custodyDb({ generation: GEN_V1 });
   try {
+    // Force the collision branch deterministically. A round-trip through PGlite can
+    // take longer than a millisecond, so relying on a tight loop alone would let the
+    // database clock satisfy monotonicity by itself and prove nothing about the
+    // watermark. Parking the watermark in the future guarantees every subsequent
+    // boundary MUST come from watermark + 1ms.
+    const parked = new Date(Date.now() + 60 * 60 * 1000);
+    await db.query(
+      `INSERT INTO public.blockchain_signing_watermarks(user_id,last_authorized_at)
+       VALUES ('user-1',$1::timestamptz)
+       ON CONFLICT (user_id) DO UPDATE SET last_authorized_at=EXCLUDED.last_authorized_at`,
+      [parked.toISOString()],
+    );
+
+    const forced = [];
+    for (let i = 0; i < 4; i += 1) {
+      const row = await activateKey(db, {
+        candidateId: `ignored-forced-${i}`,
+        publicKey: 'PUBLIC-MATERIAL',
+        version: 'v1',
+        generation: GEN_V1,
+      });
+      forced.push(Date.parse(row.event_timestamp));
+    }
+    assert.ok(forced[0] > parked.getTime(), 'the first boundary must clear the parked watermark');
+    for (let i = 1; i < forced.length; i += 1) {
+      assert.equal(
+        forced[i] - forced[i - 1],
+        1,
+        'consecutive collided authorizations must advance by exactly one millisecond',
+      );
+    }
+
+    // Reset the watermark so the remainder exercises the ordinary clock path.
+    await db.query(`DELETE FROM public.blockchain_signing_watermarks WHERE user_id='user-1'`);
+    await db.query(`UPDATE public.public_keys SET created_at=$1::text WHERE id='key-1'`, [
+      new Date(Date.now() - 60 * 60 * 1000).toISOString(),
+    ]);
+
     // Repeated authorized signing checks in a tight loop land inside the same
     // wall-clock millisecond frequently; the DB must still hand out strictly
     // increasing millisecond-resolution event timestamps.
