@@ -86,6 +86,7 @@ import PartSentry from './pages/dashboard/owner/PartSentry'
 import MyListings from './pages/dashboard/owner/MyListings'
 import SavedCars from './pages/dashboard/owner/SavedCars'
 import SellVehicle from './pages/dashboard/owner/SellVehicle'
+import { SellerRouteErrorBoundary } from './components/sell/SellerRouteErrorBoundary'
 import AIDashboard from './pages/dashboard/owner/AIDashboard'
 import ReferralWallet from './pages/dashboard/owner/ReferralWallet'
 import Communications from './pages/dashboard/owner/Communications'
@@ -329,7 +330,7 @@ export default function App() {
           <Route path="/dashboard/partsentry" element={<PartSentry />} />
           <Route path="/dashboard/listings" element={<MyListings />} />
           <Route path="/dashboard/saved" element={<SavedCars />} />
-          <Route path="/dashboard/sell-vehicle" element={<SellVehicle />} />
+          <Route path="/dashboard/sell-vehicle" element={<SellerRouteErrorBoundary><SellVehicle /></SellerRouteErrorBoundary>} />
           <Route path="/dashboard/ai" element={<AIDashboard />} />
           <Route path="/dashboard/referrals" element={<ReferralWallet />} />
           <Route path="/dashboard/communications" element={<Communications />} />
