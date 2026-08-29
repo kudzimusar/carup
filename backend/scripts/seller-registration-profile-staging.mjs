@@ -99,7 +99,7 @@ async function verifyContract(client) {
   );
 
   const clientPrivilegesClosed = Object.values(privileges)
-    .every(record => Object.values(record).every(Boolean) === false);
+    .every(record => Object.values(record).every(value => value === false));
 
   return {
     ok:
