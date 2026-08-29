@@ -66,6 +66,8 @@ import {
 } from './middleware/securityMiddleware.js';
 import { corsOptions } from './config/corsOptions.js';
 import { buildSessionRow } from './services/auth/sessionRow.js';
+import { createAuthEmailService } from './services/auth/authEmailService.js';
+import { normalizeRegistrationProfile } from './services/auth/registrationProfileService.js';
 
 // Centralized Routes Imports (Batch 1)
 import leadsRouter from './routes/leadsRoutes.js';
@@ -2142,8 +2144,11 @@ const PUBLIC_REGISTRATION_ROLE = 'owner';
 // unknown — is rejected BEFORE any user or session row is created. Allowlist, not denylist, so a
 // future privileged role can never slip through. This closes the self-register-as-admin escalation.
 app.post('/api/auth/register', async (req, res) => {
-  const { name, email, phone, password, role } = req.body;
+  const { name, email, phone, password, role, location, registration_profile: registrationProfile } = req.body;
   if (!name || !email) return res.status(400).json({ error: 'Name and email are required' });
+  if (typeof password !== 'string' || password.length < 8) {
+    return res.status(400).json({ error: 'Password must be at least 8 characters.' });
+  }
 
   // Fail closed: only an omitted/empty role or an explicit 'owner' is accepted; everything else is
   // rejected here, before the existence read or any write — so a rejected request creates nothing.
@@ -2153,25 +2158,53 @@ app.post('/api/auth/register', async (req, res) => {
   }
   const assignedRole = PUBLIC_REGISTRATION_ROLE; // server-controlled — never derived from the request
 
+  // Local/Diaspora/international and Dealer/Exporter/etc are PROFILE DIMENSIONS, not authorization
+  // roles. A business can ask to be onboarded, but public signup can never self-grant dealer access.
+  const profileResult = normalizeRegistrationProfile(registrationProfile, { fallbackLocation: location });
+  if (!profileResult.ok) return res.status(400).json({ error: profileResult.error });
+
   try {
+    const normalizedEmail = String(email).trim();
     const { data: existing } = await supabase
       .from('users')
       .select('id')
-      .eq('email', email)
+      .eq('email', normalizedEmail)
       .single();
 
     if (existing) return res.status(409).json({ error: 'An account with this email already exists' });
 
-    const password_hash = password ? await hashPassword(password) : null;
+    const password_hash = await hashPassword(password);
 
     const id = 'u_' + crypto.randomUUID().replace(/-/g, '').substring(0, 16);
     const { error } = await supabase.from('users').insert({
-      id, name, email, phone: phone || '', role: assignedRole, password_hash, join_date: new Date().toISOString()
+      id,
+      name: String(name).trim(),
+      email: normalizedEmail,
+      phone: phone || '',
+      location: profileResult.userLocation,
+      role: assignedRole,
+      password_hash,
+      join_date: new Date().toISOString(),
     });
 
     if (error) throw error;
 
-    // Automatically issue a session
+    if (profileResult.profile) {
+      const { error: profileError } = await supabase.from('user_registration_profiles').insert({
+        user_id: id,
+        ...profileResult.profile,
+      });
+      if (profileError) {
+        // Never tell the person signup succeeded while silently discarding the identity/onboarding
+        // answers we just asked them for. Compensate the user row and fail the registration.
+        await supabase.from('users').delete().eq('id', id);
+        console.error('Failed to persist registration profile:', profileError.message);
+        return res.status(503).json({ error: 'Could not save your registration profile. Please try again.' });
+      }
+    }
+
+    // Automatically issue a session. Email verification is independent from identity/KYC and does
+    // not block this Seller draft handoff; it secures the mailbox and is surfaced explicitly.
     const token = 'sk_live_' + crypto.randomUUID().replace(/-/g, '');
     const expiresAt = new Date();
     expiresAt.setHours(expiresAt.getHours() + 24);
@@ -2179,14 +2212,51 @@ app.post('/api/auth/register', async (req, res) => {
     const { error: sessionError } = await supabase.from('user_sessions').insert(
       buildSessionRow({ userId: id, activeRole: assignedRole, token, expiresAt: expiresAt.toISOString(), req })
     );
-    // Fail loudly: never hand back a token we could not persist (it would 401 on the next request).
     if (sessionError) {
       console.error('Failed to persist user session on register:', sessionError.message);
       return res.status(500).json({ error: 'Account created, but a session could not be established. Please log in.' });
     }
 
-    const newUser = { id, name, email, phone: phone || '', role: assignedRole };
-    res.json({ user: newUser, token });
+    const newUser = {
+      id,
+      name: String(name).trim(),
+      email: normalizedEmail,
+      phone: phone || '',
+      location: profileResult.userLocation,
+      role: assignedRole,
+    };
+
+    let emailVerification = { status: 'queue_failed' };
+    try {
+      const authEmails = createAuthEmailService({ db: supabase, env: process.env });
+      const verification = await authEmails.issueEmailVerification({
+        user: newUser,
+        requestedIp: req.carupClientIp || req.ip || null,
+        userAgent: req.headers?.['user-agent'] || null,
+        source: 'registration',
+      });
+      emailVerification = {
+        status: 'queued',
+        expires_at: verification.record?.expires_at || null,
+      };
+    } catch (verificationError) {
+      // Account + session remain valid. The UI exposes re-send rather than pretending delivery
+      // happened. Provider/worker readiness is a separate operational gate.
+      console.error('[auth] registration verification Email could not be queued:', verificationError?.message);
+    }
+
+    res.json({
+      user: newUser,
+      token,
+      email_verification: emailVerification,
+      onboarding: profileResult.profile
+        ? {
+            status: profileResult.profile.onboarding_status,
+            business_type: profileResult.profile.business_type,
+            market_relationship: profileResult.profile.market_relationship,
+          }
+        : null,
+    });
   } catch (error) {
     res.status(error.statusCode || 500).json({ error: error.message });
   }

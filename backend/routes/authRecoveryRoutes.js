@@ -9,7 +9,7 @@ import {
   createAuthActionTokenService,
 } from '../services/auth/authActionTokenService.js';
 import { AUTH_ROUTES, buildAuthActionUrl } from '../services/communication/authEmailTemplates.js';
-import { createCommunicationServices } from '../services/communication/communicationServiceFactory.js';
+import { createAuthEmailService } from '../services/auth/authEmailService.js';
 import { emitDomainEvent } from '../services/eventBus/eventBusService.js';
 import { EMAIL_VERIFIED_EVENT } from '../services/communication/producers/leadershipWelcomeProducer.js';
 
@@ -69,37 +69,7 @@ export function authRecoveryRouter({
   emitEvent = emitDomainEvent,
 } = {}) {
   const router = express.Router();
-  const comms = () => services || createCommunicationServices({ env });
-
-  /**
-   * Queue a P0 auth/security Email through canonical CarUp Communications.
-   *
-   * Auth Email never bypasses the queue: it must appear in canonical audit, delivery attempts and
-   * quota governance like any other message. Delivery is Resend (never Brevo — marketing only).
-   */
-  async function queueAuthEmail({ user, templateKey, authTemplateKey, variables }) {
-    const { notificationService } = comms();
-    return notificationService.queueNotification({
-      recipientUserId: user.id,
-      notificationType: templateKey,
-      channel: 'email',
-      templateKey,
-      language: 'en',
-      priority: 'high',
-      transactional: true,
-      // Account protection is `security`. There is deliberately no `auth` classification.
-      classification: 'security',
-      fallbackChannels: [],
-      variables,
-      dedupeParts: ['auth', templateKey, user.id, variables.dedupe_nonce],
-      payload: {
-        email: user.email,
-        classification: 'security',
-        auth_template_key: authTemplateKey,
-        ...variables,
-      },
-    });
-  }
+  const authEmails = createAuthEmailService({ db, tokenService, services, env });
 
   // --- Request a password reset -------------------------------------------------------------
   router.post(
@@ -134,7 +104,7 @@ export function authRecoveryRouter({
 
         const actionUrl = buildAuthActionUrl({ route: AUTH_ROUTES.RESET_PASSWORD, token: rawToken, env });
 
-        await queueAuthEmail({
+        await authEmails.queueAuthEmail({
           user,
           templateKey: 'auth_password_reset_v1',
           authTemplateKey: 'reset_password',
@@ -204,7 +174,7 @@ export function authRecoveryRouter({
 
         if (user) {
           try {
-            await queueAuthEmail({
+            await authEmails.queueAuthEmail({
               user,
               templateKey: 'auth_password_changed_v1',
               authTemplateKey: 'password_changed',
@@ -223,6 +193,46 @@ export function authRecoveryRouter({
         console.error('[auth] reset-password failed:', error?.message);
         return res.status(500).json({ error: 'Could not reset the password. Please request a new reset link.' });
       }
+    },
+  );
+
+  // --- Re-send signup verification --------------------------------------------------------------
+  // Same response for unknown, already-verified and unverified addresses: this endpoint must not
+  // become an account-enumeration oracle.
+  router.post(
+    '/api/auth/resend-verification',
+    rateLimiter({ max: 5, windowMs: 15 * 60 * 1000, isSensitive: true }),
+    async (req, res) => {
+      const email = normalizeEmail(req.body?.email);
+      const generic = {
+        success: true,
+        message: 'If an unverified account exists for that email address, a verification link has been sent.',
+      };
+      if (!email) return res.status(200).json(generic);
+
+      try {
+        const { data: user } = await db
+          .from('users')
+          .select('id, email, name, email_verified_at')
+          .eq('email', email)
+          .maybeSingle();
+
+        if (!user || user.email_verified_at) {
+          await equivalentWorkForUnknownAccount();
+          return res.status(200).json(generic);
+        }
+
+        await authEmails.issueEmailVerification({
+          user,
+          requestedIp: req.carupClientIp || req.ip || null,
+          userAgent: req.headers?.['user-agent'] || null,
+          source: 'resend_verification',
+        });
+      } catch (error) {
+        // Preserve anti-enumeration semantics even when the Email provider/queue is unavailable.
+        console.error('[auth] resend-verification failed:', error?.message);
+      }
+      return res.status(200).json(generic);
     },
   );
 
