@@ -60,7 +60,7 @@ function samePublicKey(a, b) {
   return String(a || '').trim() === String(b || '').trim();
 }
 
-export function isMissingCustodyRolloutStateFunction(error) {
+export function isMissingCustodyRolloutContractFunction(error) {
   if (!error) return false;
   const code = String(error.code || '').toUpperCase();
   const message = String(error.message || error.details || error.hint || '').toLowerCase();
@@ -68,29 +68,34 @@ export function isMissingCustodyRolloutStateFunction(error) {
     || code === 'PGRST202'
     || (
       /function|schema cache/.test(message)
-      && /blockchain_custody_rollout_state/.test(message)
+      && /blockchain_custody_rollout_contract/.test(message)
       && /does not exist|not found|could not find/.test(message)
     );
 }
 
-async function custodyRolloutState(custodyMetadataAvailable) {
-  if (!custodyMetadataAvailable) return 'LEGACY';
+async function custodyRolloutContract(custodyMetadataAvailable) {
+  if (!custodyMetadataAvailable) {
+    return { state: 'LEGACY', authorizedGeneration: null };
+  }
 
-  const { data, error } = await supabase.rpc('blockchain_custody_rollout_state');
-  if (!error) {
-    const value = Array.isArray(data) ? data[0] : data;
-    const state = String(value || '').trim().toUpperCase();
-    if (state === 'PREPARED' || state === 'FINALIZED') return state;
+  const { data, error } = await supabase.rpc('blockchain_custody_rollout_contract');
+  if (error) {
+    if (isMissingCustodyRolloutContractFunction(error)) {
+      // Never infer FINALIZED from a missing function. Databases that previously ran
+      // the monolithic Issue #158 migration require the later rollout-upgrade migration.
+      return { state: 'UPGRADE_REQUIRED', authorizedGeneration: null };
+    }
+    throw new Error(`blockchain custody rollout contract lookup failed: ${error.message}`);
+  }
+
+  const value = Array.isArray(data) ? data[0] : data;
+  const contract = typeof value === 'string' ? JSON.parse(value) : value;
+  const state = String(contract?.state || '').trim().toUpperCase();
+  const authorizedGeneration = String(contract?.authorized_generation || '').trim() || null;
+  if (!['PREPARED', 'FINALIZED'].includes(state)) {
     throw new Error(`invalid blockchain custody rollout state: ${state || 'empty'}`);
   }
-
-  if (isMissingCustodyRolloutStateFunction(error)) {
-    // Compatibility with the earlier monolithic Issue #158 migration: custody
-    // metadata + atomic activation exist, but the rollout-state RPC does not.
-    return 'FINALIZED';
-  }
-
-  throw new Error(`blockchain custody rollout state lookup failed: ${error.message}`);
+  return { state, authorizedGeneration };
 }
 
 async function activateCustodiedPublicKey(userId, derived, timestamp) {
@@ -104,6 +109,7 @@ async function activateCustodiedPublicKey(userId, derived, timestamp) {
     p_key_ref: derived.keyRef,
     p_key_version: derived.keyVersion,
     p_custody_provider: derived.custodyProvider,
+    p_custody_generation: derived.custodyGeneration,
   });
   if (error) {
     throw new Error(`atomic public key activation failed: ${error.message}`);
@@ -116,8 +122,10 @@ async function activateCustodiedPublicKey(userId, derived, timestamp) {
     publicKeyPem: derived.publicKeyPem,
     keyRef: derived.keyRef,
     keyVersion: derived.keyVersion,
+    custodyGeneration: derived.custodyGeneration,
     custodyProvider: derived.custodyProvider,
     custodyMetadataPersisted: true,
+    eventTimestamp: timestamp,
   };
 }
 
@@ -142,15 +150,20 @@ export async function getOrCreateKeypair(userId) {
     throw new Error(`public key lookup failed: ${lookupError.message}`);
   }
 
-  const rolloutState = await custodyRolloutState(custodyMetadataAvailable);
+  const rollout = await custodyRolloutContract(custodyMetadataAvailable);
 
   // Mixed old/new fleets must never rotate or create stakeholder keys. PREPARED is
-  // an explicit bounded maintenance state: old runtime can keep using its legacy
-  // key, while new runtime fails closed until protected finalization proves all old
-  // writers are drained. This prevents key oscillation and invalid signatures.
-  if (rolloutState !== 'FINALIZED') {
+  // an explicit bounded maintenance state; UPGRADE_REQUIRED covers databases that
+  // recorded the earlier monolithic migration but have not received the later
+  // rollout-authority upgrade. Neither state may be mistaken for FINALIZED.
+  if (rollout.state !== 'FINALIZED') {
     throw new Error(
-      `blockchain custody cutover is ${rolloutState.toLowerCase()}; stakeholder signing is temporarily unavailable until protected finalization`,
+      `blockchain custody cutover is ${rollout.state.toLowerCase()}; stakeholder signing is temporarily unavailable until protected finalization`,
+    );
+  }
+  if (rollout.authorizedGeneration !== derived.custodyGeneration) {
+    throw new Error(
+      'stakeholder signer custody generation is not authorized; superseded runtime/configuration is blocked',
     );
   }
 
@@ -199,7 +212,11 @@ export async function addEvent(vin, eventType, payload, signature = 'SYSTEM_SIGN
     registeredSignerKey = await getOrCreateKeypair(signerId);
   }
 
-  const timestamp = new Date().toISOString();
+  // Stakeholder events are timestamped at the successful generation-authorized key
+  // activation/check. If authority rotates immediately afterward, this in-flight
+  // event remains inside the old key's validity interval instead of being misclassified
+  // under the newly active key. Superseded writers are rejected on their next call.
+  const timestamp = registeredSignerKey?.eventTimestamp || new Date().toISOString();
   const currentHash = calculateHash(previousHash, vin, eventType, timestamp, payload);
 
   let dynamicSignature = signature;
@@ -210,6 +227,9 @@ export async function addEvent(vin, eventType, payload, signature = 'SYSTEM_SIGN
       const signed = signLedgerHash(signerId, currentHash);
       if (!samePublicKey(registeredSignerKey?.publicKeyPem, signed.publicKeyPem)) {
         throw new Error('derived stakeholder signing key disagrees with registered public key');
+      }
+      if (registeredSignerKey?.custodyGeneration !== signed.custodyGeneration) {
+        throw new Error('derived stakeholder signing generation disagrees with authorized key generation');
       }
       dynamicSignature = `${signerId}:${signed.signatureHex}`;
     }
