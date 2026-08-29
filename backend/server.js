@@ -2341,6 +2341,7 @@ app.post('/api/vehicles/add', authorizeRole(['dealer', 'owner', 'admin']), async
     seller_stated_condition, price, currency, location, province, images,
     // Phase 4 identity fields
     engine_number, chassis_number, plate_number, temp_plate_id, import_status,
+    reuse_existing_passport,
   } = req.body;
   if (!vin || !make || !model || !price) return res.status(400).json({ error: 'VIN, make, model, and price are required' });
 
@@ -2497,8 +2498,11 @@ app.post('/api/vehicles/add', authorizeRole(['dealer', 'owner', 'admin']), async
   };
 
   try {
-    const { data: existing } = await supabase.from('vehicles').select('vin').eq('vin', vin).single();
-    if (existing) return res.status(409).json({ error: 'A vehicle with this VIN is already listed' });
+    const { data: existing } = await supabase
+      .from('vehicles')
+      .select('vin, owner_id, current_seller_id, tenant_id')
+      .eq('vin', vin)
+      .maybeSingle();
 
     const listingRow = {
       vin: candidate.vin,
@@ -2589,15 +2593,59 @@ app.post('/api/vehicles/add', authorizeRole(['dealer', 'owner', 'admin']), async
       publication_status: 'draft',
     };
 
+    const existingSellerRelationship = Boolean(existing && (
+      existing.owner_id === req.userContext.id
+      || (existing.current_seller_id && existing.current_seller_id === req.userContext.id)
+      || (existing.tenant_id && req.userContext.tenantId && existing.tenant_id === req.userContext.tenantId)
+    ));
+    if (existing && (reuse_existing_passport !== true || !existingSellerRelationship)) {
+      return res.status(409).json({
+        error: existingSellerRelationship
+          ? 'This VIN already has a CarUp Passport. Confirm reuse of the existing Passport.'
+          : 'This VIN already has a CarUp Passport and seller authority must be reviewed.',
+        code: existingSellerRelationship
+          ? 'EXISTING_PASSPORT_CONFIRM_REQUIRED'
+          : 'SELLER_AUTHORITY_CLAIM_REQUIRED',
+        vin,
+        existing_passport: true,
+      });
+    }
+
+    const reusedExistingPassport = Boolean(existing);
     let listingClaimsRecorded = true;
-    let { error: insertError } = await supabase.from('vehicles').insert({ ...listingRow, ...listingClaimColumns });
-    if (insertError && isMissingListingClaimColumnError(insertError)) {
-      // The migration has not been applied yet. A single-row PostgREST insert is atomic, so the
-      // rejected attempt wrote nothing; create the listing without the claim columns and report on
-      // the response that the location was not recorded.
-      console.warn(`Listing claim columns unavailable (migration 20260818110000 not applied); location not recorded for ${candidate.vin}.`);
-      listingClaimsRecorded = false;
-      ({ error: insertError } = await supabase.from('vehicles').insert(listingRow));
+    let insertError = null;
+
+    if (reusedExistingPassport) {
+      // Re-listing must never rewrite the Passport's canonical identity. Only seller-commercial
+      // assertions and listing lifecycle fields are refreshed on the existing vehicle row.
+      const reusableListingRow = {
+        seller_description: listingRow.seller_description,
+        seller_features: listingRow.seller_features,
+        body_style: listingRow.body_style,
+        seller_stated_condition: listingRow.seller_stated_condition,
+        seller_listing_claim_source: listingRow.seller_listing_claim_source,
+        seller_listing_recorded_at: listingRow.seller_listing_recorded_at,
+        price: listingRow.price,
+        currency: listingRow.currency,
+        current_seller_type: listingRow.current_seller_type,
+        public_seller_display_enabled: listingRow.public_seller_display_enabled,
+        publication_status: 'draft',
+      };
+      ({ error: insertError } = await supabase
+        .from('vehicles')
+        .update({ ...reusableListingRow, ...listingClaimColumns })
+        .eq('vin', vin));
+      if (insertError && isMissingListingClaimColumnError(insertError)) {
+        listingClaimsRecorded = false;
+        ({ error: insertError } = await supabase.from('vehicles').update(reusableListingRow).eq('vin', vin));
+      }
+    } else {
+      ({ error: insertError } = await supabase.from('vehicles').insert({ ...listingRow, ...listingClaimColumns }));
+      if (insertError && isMissingListingClaimColumnError(insertError)) {
+        console.warn(`Listing claim columns unavailable (migration 20260818110000 not applied); location not recorded for ${candidate.vin}.`);
+        listingClaimsRecorded = false;
+        ({ error: insertError } = await supabase.from('vehicles').insert(listingRow));
+      }
     }
     if (insertError) throw insertError;
 
@@ -2628,7 +2676,7 @@ app.post('/api/vehicles/add', authorizeRole(['dealer', 'owner', 'admin']), async
       if (taxonomyObservationError) console.error('⚠️ Failed to record taxonomy observations:', taxonomyObservationError.message);
     }
 
-    if (req.userContext.id) {
+    if (req.userContext.id && !reusedExistingPassport) {
       await supabase.from('vehicle_ownership_history').insert({
         vin, new_owner_id: req.userContext.id, transfer_date: new Date().toISOString(), transfer_hash: 'INITIAL'
       });
@@ -2674,13 +2722,22 @@ app.post('/api/vehicles/add', authorizeRole(['dealer', 'owner', 'admin']), async
     let imagesRecorded = false;
     let imagesRecordedCount = 0;
     if (imageRecords.length > 0) {
+      let previousImageIds = [];
+      if (reusedExistingPassport) {
+        const { data: previousImages } = await supabase.from('listing_images').select('id').eq('vin', vin);
+        previousImageIds = (previousImages || []).map((row) => row.id).filter(Boolean);
+      }
+
       const { error: imageError } = await supabase.from('listing_images').insert(imageRecords);
       if (imageError) {
-        // Still logged for operators — but the log is no longer the ONLY place the failure exists.
         console.error('⚠️ Failed to save listing images:', imageError.message);
       } else {
         imagesRecorded = true;
         imagesRecordedCount = imageRecords.length;
+        // Delete prior listing media only after the replacement rows exist.
+        if (previousImageIds.length > 0) {
+          await supabase.from('listing_images').delete().in('id', previousImageIds);
+        }
       }
     }
 
@@ -2720,7 +2777,10 @@ app.post('/api/vehicles/add', authorizeRole(['dealer', 'owner', 'admin']), async
       images_recorded_count: imagesRecordedCount,
       images_unpublishable_count: imagesUnpublishableCount,
       images_primary_recorded: imagesRecorded && imageRecords.some((record) => record.is_primary === true),
-      message: 'Vehicle saved as draft. Upload ownership documents to advance toward publication.',
+      reused_existing_passport: reusedExistingPassport,
+      message: reusedExistingPassport
+        ? 'Listing draft attached to the existing Vehicle Passport. No duplicate Passport was created.'
+        : 'Vehicle saved as draft. Upload ownership documents to advance toward publication.',
     });
   } catch (error) {
     res.status(500).json({ error: error.message });

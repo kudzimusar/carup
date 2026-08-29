@@ -51,6 +51,24 @@ import {
 
 const router = express.Router();
 
+const SELLER_AUTHORITY_CLAIM_EVENT = 'SELLER_AUTHORITY_CLAIM_REQUESTED';
+const SELLER_AUTHORITY_EVIDENCE_TYPES = new Set(['registration_document', 'ownership_transfer_document']);
+
+async function latestSellerAuthorityClaim(vin, userId) {
+  if (!vin || !userId) return null;
+  const { data, error } = await supabase
+    .from('trust_audit_events')
+    .select('id, created_at, new_value')
+    .eq('event_type', SELLER_AUTHORITY_CLAIM_EVENT)
+    .eq('vin', vin)
+    .eq('actor_user_id', userId)
+    .order('created_at', { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  if (error) throw new DatabaseError(`Failed to read Seller authority claim: ${error.message}`);
+  return data || null;
+}
+
 const asyncHandler = (fn) => (req, res, next) => {
   Promise.resolve(fn(req, res, next)).catch(next);
 };
@@ -285,6 +303,61 @@ router.patch('/api/vehicles/:vin/price', authorizeRole(['owner', 'dealer', 'admi
   res.json({ success: true, vin, price, previous_price: before ?? null });
 }));
 
+// --- SELLER → EXISTING PASSPORT AUTHORITY HANDOFF ---
+// One VIN has one Passport. Encountering an existing VIN never permits a second vehicle row.
+router.post('/api/vehicles/:vin/seller-claim', authorizeRole(['owner', 'dealer']), asyncHandler(async (req, res) => {
+  const vin = String(req.params.vin || '').trim().toUpperCase();
+  const claimType = String(req.body?.claim_type || '').trim().toLowerCase();
+  if (!['owner', 'authorised_seller'].includes(claimType)) {
+    throw new ValidationError("claim_type must be 'owner' or 'authorised_seller'.");
+  }
+
+  const { data: vehicle, error } = await supabase
+    .from('vehicles')
+    .select('vin, owner_id, current_seller_id, tenant_id')
+    .eq('vin', vin)
+    .maybeSingle();
+  if (error) throw new DatabaseError(error.message);
+  if (!vehicle) throw new NotFoundError('Vehicle Passport not found.');
+
+  const recognized =
+    vehicle.owner_id === req.userContext.id
+    || (vehicle.current_seller_id && vehicle.current_seller_id === req.userContext.id)
+    || (vehicle.tenant_id && req.userContext.tenantId && vehicle.tenant_id === req.userContext.tenantId);
+
+  if (recognized) {
+    return res.json({ success: true, status: 'recognized', vin, claim_type: claimType });
+  }
+
+  const existingClaim = await latestSellerAuthorityClaim(vin, req.userContext.id);
+  if (!existingClaim) {
+    const audit = await logAuditEvent(supabase, {
+      req,
+      event_type: SELLER_AUTHORITY_CLAIM_EVENT,
+      vin,
+      targetType: 'vehicle_seller_authority',
+      targetId: `${vin}:${req.userContext.id}`,
+      actor_user_id: req.userContext.id,
+      actor_role: req.userContext.role,
+      actor_tenant_id: req.userContext.tenantId,
+      source_route: '/api/vehicles/:vin/seller-claim',
+      new_value: { state: 'evidence_required', claim_type: claimType },
+      reason: 'Seller confirmed an existing Passport and requested authority to sell it.',
+    });
+    if (!audit?.success) {
+      throw new DatabaseError(audit?.error || 'Seller authority claim could not be recorded.');
+    }
+  }
+
+  return res.status(202).json({
+    success: true,
+    status: 'evidence_required',
+    vin,
+    claim_type: claimType,
+    next_action: 'upload_registration_or_ownership_transfer_evidence',
+  });
+}));
+
 // --- PASSPORT EVIDENCE ARCHITECTURE ROUTING ---
 
 const allowedVisibilities = ['public_safe', 'restricted', 'private', 'government_only'];
@@ -349,7 +422,16 @@ async function insertEvidenceFromRequest(req, vin, { requireVehicleId = false } 
     throw new ForbiddenError(`Forbidden. Role '${activeRole}' is not authorized to upload '${normalized.evidenceType}'`);
   }
 
-  assertEvidenceOwnershipScope(vehicle, req.userContext);
+  try {
+    assertEvidenceOwnershipScope(vehicle, req.userContext);
+  } catch (scopeError) {
+    const claim = SELLER_AUTHORITY_EVIDENCE_TYPES.has(normalized.evidenceType)
+      ? await latestSellerAuthorityClaim(vin, activeUserId)
+      : null;
+    if (!claim) throw scopeError;
+    // A claimant may contribute only the restricted documents needed to prove seller authority.
+    // This does not change vehicles.owner_id or grant general owner evidence access.
+  }
 
   const visibilityLevel = req.body.visibility_level || req.body.visibilityLevel || evidenceDefaultVisibility(normalized.evidenceType);
   if (!allowedVisibilities.includes(visibilityLevel)) {
