@@ -2,7 +2,7 @@
 
 - **Programme:** CarUp Service Network Foundation 1.0
 - **Pre-hardening certified head:** `4f187611ada12e5ab4fd2f96831c3cdac1e106ca`
-- **Hardened head:** `f447e847b83f107e8f2af4f2fef0d5f6232006bf`
+- **Hardening commit:** `34c9fc63affe20137a000b43766137771b858b6e` (all hardening code, tests, migrations and this receipt)
 - **Base:** `main` @ `ba208963` (pre-#194, owner override — see PRE_S0 §1)
 - **Branch / PR:** `feat/service-network-foundation-1-0` → Draft PR #197 (**remains Draft**)
 - **Scope:** security, authorization, integrity and failure-mode seams only. No product scope
@@ -251,7 +251,8 @@ the hardened authority rules.
 | | SHA |
 |---|---|
 | Pre-hardening certified head | `4f187611ada12e5ab4fd2f96831c3cdac1e106ca` |
-| **Hardened head (this receipt)** | `f447e847b83f107e8f2af4f2fef0d5f6232006bf` |
+| **Hardening commit** | `34c9fc63affe20137a000b43766137771b858b6e` |
+| **Branch head** | the commit immediately following, which carries only this SHA correction (a commit cannot contain its own hash; verify with `git log --oneline -2`) |
 | Implementation base (`main`) | `ba208963d863654157335189c60f587cbe330041` |
 
 ### Canonical rebase gate — CLOSED, rebase deliberately NOT performed
