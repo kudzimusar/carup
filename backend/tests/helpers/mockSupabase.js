@@ -26,6 +26,10 @@
  * here are enforced, so existing tests are unaffected.
  */
 export const UNIQUE_INDEXES = Object.freeze({
+  // Service Network S2 — service_cases: partial UNIQUE (source_inquiry_id) WHERE NOT NULL.
+  // This index IS the idempotent marketplace bridge: a retry must lose the insert race
+  // rather than open a second Service Case for one inquiry.
+  service_cases: [['source_inquiry_id']],
   // Service Network S1 — garage_public_profiles: PRIMARY KEY (tenant_id) and UNIQUE (slug).
   // Both are load-bearing: one profile per garage tenant, and a globally unique public
   // slug (the public identity, since internal tenant UUIDs are never published).
