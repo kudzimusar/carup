@@ -40,9 +40,10 @@ describe('Marketplace progressive sell resilience', () => {
   })
 
   it('a large guest draft externalizes photo bytes without losing business or media metadata', () => {
-    expect(GUEST_DRAFT).toContain("const metadataPayload = { ...payload, images: [] as string[] }")
+    expect(GUEST_DRAFT).toContain("mediaExternalized: payload.images.length > 0")
     expect(GUEST_DRAFT).toContain("writeGuestSellMedia(payload.images)")
     expect(GUEST_DRAFT).toContain("media_externalized: payload.images.length > 0")
+    expect(GUEST_DRAFT).toContain("!draft.mediaExternalized")
     expect(GUEST_DRAFT).toContain("readGuestSellDraftWithMedia")
     // Labels, cover and history intent stay in the lightweight canonical draft. Only the heavy
     // image payload moves to IndexedDB, so auth handoff can reconstruct the exact Seller preview.

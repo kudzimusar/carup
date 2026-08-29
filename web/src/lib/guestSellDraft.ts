@@ -107,12 +107,14 @@ async function clearGuestSellMedia() {
 }
 
 export async function saveGuestSellDraft(
-  draft: Omit<GuestSellDraft, 'version' | 'saved_at' | 'mediaExternalized'>,
+  draft: Omit<GuestSellDraft, 'version' | 'saved_at' | 'mediaExternalized' | 'existingPassportConfirmed'>
+    & { existingPassportConfirmed?: boolean },
 ) {
   const payload: GuestSellDraft = {
     ...draft,
     version: 1,
     saved_at: new Date().toISOString(),
+    existingPassportConfirmed: draft.existingPassportConfirmed === true,
     mediaExternalized: false,
   }
 
