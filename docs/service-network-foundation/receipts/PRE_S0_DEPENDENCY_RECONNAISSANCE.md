@@ -89,16 +89,16 @@ Reconnaissance runs as 13 parallel read-only domain readers. Status at this comm
 | marketplace | ✅ complete (below) |
 | vehicle-ownership | ✅ complete (below) |
 | communications | ✅ complete (below) |
-| email-whatsapp | 🔄 in flight — appended in a follow-up commit |
-| passport-evidence | 🔄 in flight |
-| partsentry-workorders | 🔄 in flight |
-| trust | 🔄 in flight |
-| intelligence | 🔄 in flight |
-| owner-surfaces | 🔄 in flight |
-| events-outbox | 🔄 in flight |
-| pr194-cross | 🔄 in flight |
+| email-whatsapp | ✅ complete (below) |
+| passport-evidence | ✅ complete (below) |
+| partsentry-workorders | 🔄 re-running (hit session usage limit; resumed 17:13 JST) |
+| trust | 🔄 re-running |
+| intelligence | 🔄 re-running |
+| owner-surfaces | 🔄 re-running |
+| events-outbox | 🔄 re-running |
+| pr194-cross | 🔄 re-running |
 
-This receipt is committed incrementally so the completed evidence is durable; the remaining
+This receipt is committed incrementally so completed evidence is durable; the remaining
 domains land as an append-only follow-up commit on this same branch. No S1+ implementation
 begins before the S0 authority freeze receipt, which requires all 13 domains.
 
@@ -1054,3 +1054,327 @@ begins before the S0 authority freeze receipt, which requires all 13 domains.
 - Modified core comms engine files (repository, serviceFactory, deliveryWorker, orchestrator, webhookService, canonicalConversation/Notification services, campaign, templates, authEmailTemplates, emailReplyTokenService, providerAdapters) — Service Network branches must be cut AFTER #194 to avoid conflicts in these exact files
 
 **Notes:** Workspace verified read-only at /Users/shadreckmusarurwa/Project AI/carup-service-network (main). The Communications engine is genuinely workflow-ready: a business workflow CAN open a canonical thread today via ensureBusinessConversation, but only for the 13 allow-listed workflows — 'garage' exists (owner+garage roles, thread_type 'general'), 'service' does not, and no mechanic role exists anywhere. The three hard integration constraints for Service Network: (1) thread_type DB CHECK and the code allow-lists must be extended together or notifications silently fail at thread INSERT; (2) email/push delivery for policy-driven notifications dead-letters without payload address enrichment, and there is no push-token registry at all, so plan-18 push claims are currently unprovable; (3) every new service.* event needs a literal emitter or communication-event-coverage.test.js fails. PR #194 substantially rewrites the notification/event-listener/route files and lands the intent pattern (passportCommunicationIntent) plus governed-template-seed migration pattern that Service Network should copy verbatim; sequence Service Network work after #194 merges.
+
+### Domain: email-whatsapp
+
+**Files** (21)
+- backend/services/communication/adapters/providerAdapters.js — all channel adapters: EmailTransportRouter (classification routing), Resend/Brevo/SendGrid/Cloudflare email, MetaWhatsAppAdapter, Twilio SMS, Expo push, fake-adapter gating (891 lines)
+- backend/services/communication/communicationMetaWhatsAppGovernedAdapter.js — WhatsApp template-mode adapter: business-initiated sends REQUIRE approved Meta provider_template_reference, else refused
+- backend/services/communication/communicationProductNotificationService.js — WhatsApp customer-service-window policy (24h, COMMUNICATION_WHATSAPP_SESSION_HOURS) layered over canonical routing; session vs template mode from conversation_channel_bindings.last_inbound_message_id
+- backend/services/communication/communicationNotificationService.js — event→notification policy map (channels + fallbackChannels per event), dedupe key build, suppression checks
+- backend/services/communication/communicationPreferenceService.js — consent (transactional_enabled/marketing_enabled), quiet hours, channel allowance/fallback merge
+- backend/services/communication/communicationDeliveryWorker.js — drains notification_queue, resolves addresses, dispatches to provider adapters (290 lines on main)
+- backend/services/communication/communicationEventListeners.js — COMMUNICATION_EVENT_TYPES subscribed onto event-outbox worker
+- backend/services/communication/emailStakeholderMatrix.js — E6 policy: 13 declared workflows (incl. 'garage': vehicle_owner+garage roles) each with email contract; regression-asserted
+- backend/services/communication/communicationWorkflowService.js — WORKFLOW_THREAD_TYPES allow-list; assertWorkflow() throws 400 for unknown workflow ('service' absent)
+- backend/services/communication/authEmailTemplates.js — branded auth/security email templates (AUTH_EMAIL_TEMPLATES, renderAuthEmail)
+- backend/services/communication/emailReplyTokenService.js — E2/E4 Reply-To conversation+<token>@mail.carup.dev; SHA-256 hash persisted; live revalidation on resolve
+- backend/services/communication/marketingUnsubscribeService.js — unsubscribe token hash/generate, idempotent suppression assertion into communication_suppressions
+- backend/services/communication/resendWebhookService.js — svix signature verify; email.bounced/complained/suppressed → canonical suppression reasons
+- backend/services/communication/communicationWebhookService.js — inbound webhook verification: Meta hub.challenge + x-hub-signature-256 (CARUP_META_APP_SECRET), Resend svix, Twilio, SendGrid, Cloudflare
+- backend/services/communication/communicationGovernedTemplateService.js — escaped variable substitution + governed provider template reference resolution
+- backend/routes/marketingUnsubscribeRoutes.js — public token-authenticated GET/POST /api/communications/unsubscribe, rate-limited, backend-rendered HTML + RFC one-click
+- backend/routes/communicationBaseRoutes.js — threads/notifications/preferences APIs, provider webhooks, internal worker endpoint
+- backend/config/emailProviderQuota.js — free-tier ceilings (resend 100/day, brevo 300/day), env-overridable; documents Supabase-Auth-SMTP bypass limitation
+- backend/env.example — all provider env vars (CARUP_META_*, RESEND_*, BREVO_*, TWILIO_*, CLOUDFLARE_EMAIL_*); note EMAIL_PROVIDER=sendgrid line is drift vs router's EMAIL_PROVIDER_LEGACY
+- backend/server.js — mounts marketingUnsubscribeRouter() (line 303) and communicationRouter
+- backend/services/communication/adapters/fakeCommunicationAdapter.js — fake adapter used whenever env is not real (default in tests)
+
+**Tables** (14)
+- message_threads — canonical threads; business_workflow TEXT (free, no CHECK) added by 20260811131500
+- conversation_channel_bindings — per-participant channel binding: transactional_consent, can_send, last_inbound_message_id (WhatsApp window evidence) — 20260811131500
+- channel_identities — per-user channel addresses (whatsapp/email/etc.), RLS user-read — 20260623143000
+- notification_queue — delivery queue drained by pg_cron worker every minute
+- message_delivery_attempts — provider attempt audit, admin-read RLS
+- communication_preferences — consent + quiet hours + consent audit fields
+- communication_suppressions — canonical suppression (unsubscribe/complaint/hard_bounce/manual/provider_suppression); FORCE RLS, revoked from anon/authenticated — 20260817160000
+- email_reply_tokens — hashed Reply-To routing tokens — 20260817160000
+- marketing_unsubscribe_tokens — hashed unsubscribe tokens, FORCE RLS — 20260817200000
+- communication_templates / communication_template_versions — governed templates; provider_template_reference carries Meta WhatsApp template binding
+- communication_campaigns / communication_campaign_deliveries — marketing campaigns with suppressed/sent/delivered statuses — 20260811132300
+- webhook_logs — provider webhook audit, admin-read RLS
+- communication_reconciliation_work — NEW in PR #194 hardening migration: durable email reconciliation work queue (R1 welcome, R5 trust presentation), FORCE RLS
+- messages / message_participants — canonical conversation records (WhatsApp window proof reads messages.created_at)
+
+**Services** (12)
+- EmailTransportRouter (providerAdapters.js) — classification→adapter: marketing→Brevo, everything else (security|auth|transactional|conversational|service)→Resend; SendGrid/Cloudflare quarantined behind EMAIL_PROVIDER_LEGACY
+- ResendEmailAdapter — canonical transactional/security email; auth_template_key→branded auth HTML from authEmailTemplates; RESEND_AUTH_FROM_EMAIL persona
+- BrevoMarketingAdapter — marketing transport; appends unsubscribe text/HTML
+- MetaWhatsAppAdapter — session (free-form text) sends to graph.facebook.com/v20.0/<phone_number_id>/messages
+- CommunicationMetaWhatsAppGovernedAdapter — template-mode send; parses 'name|lang' or JSON provider_template_reference; refuses business-initiated send without approved template
+- CommunicationProductNotificationService.resolveWhatsappDeliveryPolicy — authority for session-vs-template decision from binding consent + last inbound within 24h; never infers open window
+- CommunicationCanonicalNotificationService + preferenceService.isChannelAllowed/selectChannels — consent gate + fallback channel merge + policyChannelsOnly hard-cap
+- MarketingUnsubscribeService — token verify + idempotent canonical suppression write; CarUp owns decision, never the provider
+- emailReplyTokenService — mint/resolve reply tokens; resolution revalidates live thread/participant/binding invariants
+- createDefaultAdapterRegistry — REAL adapters iff NODE_ENV=production/staging or COMMUNICATION_REAL_ADAPTERS=true; otherwise FakeCommunicationAdapter
+- communicationEventListeners.registerCommunicationEventListeners — subscribes canonical event types to the outbox worker
+- emailProviderQuota (backend/config) — pure send-allowance policy consulted by worker/campaign service
+
+**APIs** (7)
+- GET+POST /api/communications/unsubscribe — marketingUnsubscribeRoutes.js, public, rate-limiter only, token-authenticated (no session auth)
+- GET+POST /api/communications/webhooks/:provider/:channel — communicationBaseRoutes.js, provider-signature verified (svix / Meta hub.challenge + x-hub-signature-256 / Twilio / SendGrid), no session auth
+- GET+POST /api/internal/communications/process — communicationBaseRoutes.js worker endpoint, invoked by Supabase pg_cron every minute; #194 adds durability reconciliation inside it
+- GET /api/communications/threads, /threads/:id, POST /threads, /threads/:id/messages, /read, /feedback — communicationBaseRoutes.js, authorizeRole([])
+- GET /api/communications/notifications, POST /notifications/:id/read, GET /preferences, GET /analytics — communicationBaseRoutes.js, authorizeRole([])
+- GET /api/communications/health — communicationBaseRoutes.js, unauthenticated adapter health
+- GET+POST /api/internal/events/process — communicationRoutes.js, event outbox worker endpoint
+
+**Events** (7)
+- marketplace.inquiry.created — emitter marketplace, consumer communicationEventListeners via event outbox worker; channels in_app/push/email, fallback whatsapp/sms
+- finance.application.status_changed / approved / declined — outbox → notification policies; approved/declined include whatsapp as primary channel
+- identity.verification.decided, evidence.review.decided, marketplace.listing.moderated — outbox → in_app-heavy policies (delivery worker cannot address email/push from policy payloads; documented dead-channel note in communicationNotificationService.js)
+- delivery transport — notification_queue drained by pg_cron job carup-communication-worker-every-minute → /api/internal/communications/process (20260626120000)
+- #194 adds subscriptions: MARKETPLACE_PAYMENT_INITIATED/INSPECTION_PENDING/RELEASE_APPROVED/TRANSACTION_DISPUTED/CANCELLED/FUNDS_HELD/SETTLED/REFUNDED/FAILED/PAYMENT_FAILED (from issue164 atomic fns via domain_events)
+- #194 adds: vehicle.trust.presentation_changed (R5), vehicle.ownership.transfer_started/action_required/state_changed/completed, user.email.verified (R1 durable welcome)
+- NO service.* events exist anywhere — plan section 15.4 mapping is entirely greenfield
+
+**RLS/policies** (8)
+- message_threads/messages/message_participants/channel_identities — user-read policies (participant-scoped) — 20260623143000_omnichannel_communication_engine.sql lines 315-372
+- communication_preferences — user_all policy (own rows)
+- notification_queue — user-read; writes are service-role/worker only
+- message_delivery_attempts, webhook_logs, communication_escalations — admin-read policies
+- communication_suppressions — ENABLE+FORCE RLS, REVOKE ALL from anon/authenticated (service-role only) — 20260817160000
+- marketing_unsubscribe_tokens — ENABLE+FORCE RLS — 20260817200000
+- communication_reconciliation_work — ENABLE+FORCE RLS — #194 20260826120000
+- 20260705190000_communication_privilege_hardening.sql — privilege hardening pass locked by communication-privilege-migration.test.js
+
+**Migrations** (11)
+- database/migrations/20260623143000_omnichannel_communication_engine.sql — core comm schema (threads, messages, channel_identities, notification_queue, preferences) + RLS
+- database/migrations/20260624120000_communication_provider_runtime.sql — provider runtime state
+- database/migrations/20260626120000_communication_supabase_cron.sql — pg_cron every-minute worker calling /api/internal/communications/process (this is what makes staging-enqueued messages send for REAL)
+- database/migrations/20260712100000_communication_scheduler_production_activation.sql — production scheduler activation
+- database/migrations/20260811131500_communications_2_conversation_core.sql — business_workflow column (free TEXT), conversation_channel_bindings, communication_templates/versions, brand assets, conversation_events
+- database/migrations/20260811132200_communications_2_product_capabilities.sql — WhatsApp product capabilities; provider_approval_status='pending_configuration' semantics locked by staging-runner-contract test
+- database/migrations/20260813060000_communications_2_meta_provider_template_binding.sql — binds approved Meta template carup_conversation_reply|en_US; downgrade path back to pending_configuration
+- database/migrations/20260817160000_email_reply_tokens.sql — email_reply_tokens + communication_suppressions (E2/E4/E5)
+- database/migrations/20260817180000_notification_dedupe_uniqueness.sql — notification dedupe uniqueness
+- database/migrations/20260817200000_marketing_unsubscribe_tokens.sql — marketing_unsubscribe_tokens (E3)
+- #194 database/migrations/20260826120000_email_1_0_hardening.sql — communication_reconciliation_work table, vehicles.trust_presentation_announced_fingerprint, enqueue_email_welcome_reconciliation()/enqueue_trust_presentation_reconciliation() triggers, communication_domain_event_dedupe_key()
+
+**Tests** (13)
+- backend/tests/email-stakeholder-matrix.test.js — locks E6: every workflow ships with a declared Email contract; new 'service' workflow must be added here or the regression fails
+- backend/tests/email-webhook-and-reply-routing.test.js — Resend webhook verify + reply-token routing (also M in #194)
+- backend/tests/auth-email-templates.test.js — branded auth template rendering
+- backend/tests/email-provider-quota.test.js — free-tier quota policy
+- backend/tests/communication-engine.test.js — engine incl. COMMUNICATION_REAL_ADAPTERS real/fake registry gating
+- backend/tests/communications-2-provider-template-status.test.js — WhatsApp provider template status truth
+- backend/tests/communications-2-governed-template-runtime.test.js — governed template runtime (escaping, provider refs)
+- backend/tests/communications-2-product-capabilities.test.js — WhatsApp window/product capability contracts
+- backend/tests/communications-2-staging-runner-contract.test.js — asserts migration keeps provider_approval_status 'pending_configuration' (never fabricate Meta approval)
+- backend/tests/communications-2-conversation-core.test.js / -marketplace-ingress-and-routing / -inbound-participant-attribution / -routing-privacy-hardening — canonical conversation + routing privacy
+- backend/tests/communication-privilege-migration.test.js / communication-outbox-dedupe.test.js / communication-event-coverage.test.js — privilege, dedupe, event coverage locks
+- backend/tests/integration/communication-postgres.integration.test.js + communications-2-postgres/-privacy-postgres — Postgres-backed integration locks
+- #194 adds ~26 tests: email-experience-* (renderer, classification, recipient-resolution, unsubscribe-ownership, reply-token, resend-provenance, auth-equivalence), email-hardening-* (c2-c5, durability-scheduler, r1/r5 durability, reconciliation-privileges), email-reference-r1..r6
+
+**Contract gaps** (7)
+- No service.* notification events: COMMUNICATION_EVENT_TYPES and NOTIFICATION_POLICIES contain zero service-case events (request/accept/decline/assign/complete) — plan 15.4 mapping is greenfield
+- 'service' business workflow does not exist: communicationWorkflowService.assertWorkflow throws 400 for it (WORKFLOW_THREAD_TYPES has marketplace/dealer/garage/parts/... but no 'service'), and emailStakeholderMatrix has no service-workflow row
+- No service Email templates: neither authEmailTemplates nor #194's emailExperience/emailTemplateRegistry contain any service-case template; plan 16 requires new templates comply with the Email Experience system (which is only in PR #194, not on main)
+- No approved Meta WhatsApp template for service events: only carup_conversation_reply|en_US is bound (20260813060000); any business-initiated service WhatsApp needs a new Meta-approved template registered via governed template versions, else CommunicationMetaWhatsAppGovernedAdapter refuses
+- Policy-driven notifications cannot address email/push/whatsapp today unless the emitter resolves recipients: delivery worker resolves addresses from notification.payload only (documented in communicationNotificationService.js ~line 68-77); #194 adds canonical recipientResolution for email — service events will need equivalent recipient resolution for WhatsApp
+- No participant model for garage-user(s)/mechanic in stakeholder matrix: existing 'garage' workflow declares only vehicle_owner+garage roles; plan 15.2 needs mechanic and admin/governance participants
+- Email Experience canonical renderer/classification/recipient-resolution (plan 16 'canonical recipient resolution', 'Email classification') exists ONLY in unmerged PR #194 — building Service Network email on main without it duplicates what #194 lands
+
+**Likely conflicts with Service Network** (7)
+- Workflow naming: matrix already has 'garage' workflow (thread_type 'general'); plan introduces business_workflow='service' — the two can collide/confuse; extending WORKFLOW_THREAD_TYPES + matrix must reconcile with the existing garage entry, not add a parallel near-duplicate
+- email-stakeholder-matrix.test.js will fail the moment a service workflow/thread appears without a declared matrix row — schema allows it (business_workflow is free TEXT) but policy regression does not
+- Merge-conflict overlap with PR #194: it rewrites providerAdapters.js (+310 lines), communicationDeliveryWorker.js (+289), communicationBaseRoutes.js, communicationEventListeners.js, communicationServiceFactory.js — any Service Network work in those files on main will conflict; sequencing against #194 is required
+- EmailTransportRouter already reserves a 'service' classification (routes to Resend) — Service Network must adopt that exact classification token, not invent 'service_case' or similar
+- env.example drift: backend/env.example still documents EMAIL_PROVIDER=sendgrid/EMAIL_PROVIDER_FALLBACK while the router uses EMAIL_PROVIDER_LEGACY — copying env.example as-is would quarantine email onto legacy SendGrid
+- REAL-SEND HAZARD (known: PR #148 gates C/D sent real WhatsApp): pg_cron drains notification_queue every minute on staging with real adapters (NODE_ENV=staging → createDefaultAdapterRegistry uses MetaWhatsAppAdapter/Resend); ANY test/gate/UAT that enqueues a notification row in the staging DB will send a real WhatsApp/email; jest defaults to fakes only because NODE_ENV=test — keep COMMUNICATION_REAL_ADAPTERS unset and never point tests at staging Postgres
+- Plan 17 forbids 'send WhatsApp directly from service route' shortcuts — the tempting shortcut exists (MetaWhatsAppAdapter is directly importable); all sends must go through the notification queue + resolveWhatsappDeliveryPolicy
+
+**Must reuse (do not duplicate)** (14)
+- EmailTransportRouter + classification routing — backend/services/communication/adapters/providerAdapters.js (service classification → Resend already defined)
+- CommunicationProductNotificationService.resolveWhatsappDeliveryPolicy — backend/services/communication/communicationProductNotificationService.js (customer-service-window authority; plan 17)
+- CommunicationMetaWhatsAppGovernedAdapter — backend/services/communication/communicationMetaWhatsAppGovernedAdapter.js (approved-template enforcement outside window)
+- conversation_channel_bindings (consent + window evidence) — database/migrations/20260811131500_communications_2_conversation_core.sql (plan 17 'channel identities/bindings')
+- communication_suppressions + MarketingUnsubscribeService — backend/services/communication/marketingUnsubscribeService.js (plan 16 suppression rules)
+- emailReplyTokenService — backend/services/communication/emailReplyTokenService.js (plan 16 Reply-To/canonical conversation behavior)
+- Notification policy map + dedupe + fallback — backend/services/communication/communicationNotificationService.js (add service.* policies here, no new engine)
+- communicationEventListeners COMMUNICATION_EVENT_TYPES — backend/services/communication/communicationEventListeners.js (register service events here, same outbox worker)
+- Governed templates + provider_template_reference registry — backend/services/communication/communicationGovernedTemplateService.js + communication_template_versions
+- emailStakeholderMatrix — backend/services/communication/emailStakeholderMatrix.js (extend with service workflow row; do not fork)
+- pg_cron worker + /api/internal/communications/process — no new scheduler/cron (pattern #194 itself enforces in communicationBaseRoutes.js)
+- #194 emailExperience renderer stack (renderEmail, emailClassification, recipientResolution, canonicalEmailLinks, senderPersona) — backend/services/communication/emailExperience/ once merged; plan 16 mandates compliance with it
+- emailProviderQuota — backend/config/emailProviderQuota.js (free-tier ceilings for any new send volume)
+- communicationPreferenceService consent gates — backend/services/communication/communicationPreferenceService.js (plan 17 transactional consent)
+
+**PR #194 delta** (12)
+- backend/services/communication/emailExperience/* (22 new modules) — canonical Email renderer, classification, recipient resolution, sender persona, canonical links, unsubscribe presentation, brand tokens, reference templates R1-R6
+- backend/services/communication/adapters/providerAdapters.js (+~310) — G4 send-side provenance from the actual Resend payload, sender-persona enforcement (refuses mismatched From), List-Unsubscribe header with one-click/visible-URL match assertion, security classification honored alongside auth_template_key, Idempotency-Key
+- backend/services/communication/communicationDeliveryWorker.js (+~289) — renders email via renderEmailForNotification, canonical recipientResolution with transient-retry vs durable dead-letter split, retry_scheduled status for pre-dispatch transients
+- backend/routes/communicationBaseRoutes.js — worker endpoint now invokes reconcileCommunicationDurability (R1 welcome + R5 trust-presentation reconciliation) on the existing per-minute cron; counts-only logging
+- backend/services/communication/communicationEventListeners.js (+27) — subscribes MARKETPLACE_* payment/transaction events, vehicle.trust.presentation_changed, vehicle.ownership.transfer_*, user.email.verified
+- backend/services/communication/emailReplyTokenService.js — v2 DERIVED (reproducible) reply tokens; v1 random tokens stay resolvable
+- backend/services/communication/authEmailTemplates.js (M ~38 lines) — aligned with emailExperience auth equivalence
+- backend/services/communication/adapters/safeTradeDomainEventAdapter.js (A) — SafeTrade domain event adapter feeding R4 emails
+- database/migrations/20260826120000_email_1_0_hardening.sql (A) — communication_reconciliation_work (FORCE RLS), vehicles.trust_presentation_announced_fingerprint, enqueue triggers, domain-event dedupe-key function
+- ~26 new email tests (email-experience-*, email-hardening-*, email-reference-r1..r6) + database/test/email_reconciliation_privilege_check.mjs + scripts/email-1-0-hardening-preflight.mjs
+- docs/communications/* — EMAIL_1_0 migration runbook, staging certification matrix, G1-G12 receipts, rendered previews; web/public/email-assets/manifest.json
+- WhatsApp untouched by #194: no changes to communicationMetaWhatsAppGovernedAdapter.js, communicationProductNotificationService.js, Meta env vars, or the Meta template binding migration — the providerAdapters.js edits are email-side only
+
+**Notes:** Email 1.0 (merged, on main) is the sending authority: EmailTransportRouter routes by classification (marketing→Brevo, all else→Resend; legacy quarantined behind EMAIL_PROVIDER_LEGACY), with canonical suppression (communication_suppressions), hashed unsubscribe + reply tokens, and public token-authenticated unsubscribe routes. WhatsApp is a Communications transport only: MetaWhatsAppAdapter (session) + governed template adapter (business-initiated), gated by resolveWhatsappDeliveryPolicy which proves the 24h customer-service window from conversation_channel_bindings.last_inbound_message_id and otherwise demands the one approved Meta template (carup_conversation_reply|en_US). Real-send hazard is structural, not test-code: NODE_ENV=staging/production (or COMMUNICATION_REAL_ADAPTERS=true) swaps in real adapters and Supabase pg_cron drains notification_queue every minute via /api/internal/communications/process — enqueueing anything in the staging DB sends real WhatsApp/email (exactly how PR #148 gates C/D fired real WhatsApp). Service Network sequencing: the 'service' email classification slot already exists in the router, but the 'service' workflow, matrix row, notification policies, events, and any Meta service templates are all greenfield, and PR #194 rewrites the very files (providerAdapters, deliveryWorker, eventListeners, baseRoutes) Service Network must touch — land or rebase on #194 first.
+
+### Domain: passport-evidence
+
+**Files** (19)
+- backend/server.js — buildVehiclePassport (line 868): the passport projection builder; audience gate (line ~885-906); public timeline sanitizer (1240-1345); passport routes 1442/1457; canonicalPassportTrust cache-only trust read (793+)
+- backend/services/trustGraph/trustGraphService.js — getVehicleTimeline(vin): projects 11 source tables into timeline events (480 lines)
+- backend/utils/passportLookupPolicy.js — governed lookup policy: VIN public, plate/temp-id/chassis auth-only, NON_ENUMERABLE_LOOKUP_RESPONSE answered without querying DB
+- backend/utils/publicVehicleProjection.js — PUBLIC_EVIDENCE_FIELDS allow-list (line 239) + toPublicEvidence; source_name published, source_id withheld
+- backend/utils/vehicleMediaProjection.js — media contract separating listing_media (marketing) from verified_evidence (governed proof); holds publication gate
+- backend/routes/vehiclesRoutes.js — evidence upload/read/review/verify/reject/link-event routes (1043 lines); public read projects through PUBLIC_EVIDENCE_FIELDS, signed URLs only for authorized readers
+- backend/routes/evidenceCatalogRoutes.js — taxonomy, sources, evidence-sets, provenance, extractions routes
+- backend/services/evidence/evidenceService.js — validation, role matrix, normalizeEvidenceRecord, evidenceToTimelineItem, mergeEventsWithEvidence (437 lines)
+- backend/services/evidence/evidenceTaxonomy.js — 8 life-stage classes + subtype catalog + 13 legacy-type mapping; runtime mirror of seed migration 20260621120000
+- backend/services/evidence/vehicleFactResolver.js — governed vehicle facts resolved from evidence inputs; FACT_STATUS / PROVENANCE_KINDS / FACT_INPUT_TABLES (986 lines)
+- backend/services/evidence/provenanceService.js — provenance event chain: computeContentHash, recordProvenanceEvent, verifyProvenanceChain, toPublicProvenanceSummary
+- backend/services/evidence/sourceRegistryService.js — PUBLIC_SOURCE_FIELDS, listPublicSources (reads evidence_sources_public), sourcePermitsClass
+- backend/services/evidence/evidenceSetService.js / completenessEvaluator.js / extractionService.js / perceptualHash.js / uploadIdempotency.js — set grouping, completeness scoring, OCR extraction review, dedupe hashing, idempotent upload
+- backend/services/evidence/evidenceReviewNotifier.js — evidence review decision → 'evidence.review.decided' domain event bridge (best-effort)
+- backend/middleware/authMiddleware.js — optionalAuth is a FACTORY; publishes identityAsserted so an asserted x-user-id cannot buy the owner audience
+- backend/services/blockchain/blockchainService.js — verifyChain used by /api/vehicles/:vin/verify-ledger; issue158 custody target
+- web/src/pages/VehicleDetail.tsx + web/src/hooks/useCarUpApi.ts — passport consumers: request /vehicles/:vin/passport (line 632) and /vehicles/passport/lookup/:id (line 865)
+- web/src/components/EvidenceUploadModal.tsx — evidence upload UI
+- backend/services/diaspora/diasporaOwnershipHandoffService.js — existing writer touching ownership handoff (pre-#194)
+
+**Tables** (13)
+- vehicle_evidence — canonical evidence rows: vin, evidence_type(+class/subtype via later migrations), file/storage (storage_bucket vehicle-images|ocr-documents), visibility_level (public_safe/restricted/private/government_only), verification_status, trust_impact, metadata JSONB, plate/chassis/engine columns (withheld publicly); owning migration 014
+- evidence_class_taxonomy — seeded 8 life-stage classes; owning migration 20260621120000
+- evidence_sources — registered evidence sources; public projection via evidence_sources_public view (security_invoker, issue101-hardened)
+- evidence_sets — grouped evidence submissions (20260621120000)
+- evidence_provenance_events — hash-chained provenance per evidence row (20260621120000)
+- vehicle_ownership_history — ownership transfer source events; timeline reads id/transfer_date/previous_owner_id/new_owner_id; #194 adds transfer_id + uniqueness and makes the atomic transfer fn its writer
+- mechanic_work_orders — service-record source: tenant_id, vin, customer_id, customer_name (006), status, description, labor_cost/total_cost, mechanic_id, created_at (006_domain1 + 009_phase4); PII columns never selected by the timeline
+- partsentry_logs — part event source (timestamp, action_type, part_name, mechanic_id, mileage, description)
+- insurance_records / safepay_escrows / zimra_declarations / cvr_ownership_records / vid_inspections / cid_clearance_records / zinara_licensing_records / vehicle_plate_history — remaining timeline projection sources
+- listing_images — seller marketing media; read only through vehicleMediaProjection publication gate
+- domain_events — outbox transport for evidence.review.decided
+- #194 NEW: vehicle_ownership_transfers + vehicle_ownership_transfer_events — transfer authority, service_role-only (20260828203000)
+- #194 NEW: blockchain_custody_rollout + public_keys RLS — issue158 key custody (20260828210000+)
+
+**Services** (12)
+- backend/server.js buildVehiclePassport — passport projection authority: vehicle row + timeline + evidence vault + media contract + claims + cache-only canonical trust; collaborators injected as parameters
+- backend/services/trustGraph/trustGraphService.js — getVehicleTimeline: parallel reads of vehicle_ownership_history, partsentry_logs, mechanic_work_orders (deliberately excludes description/issue_description/customer_name/customer_id), insurance_records, safepay_escrows, zimra/cvr/vid/cid/zinara, vehicle_plate_history; emits prefixed event ids (workorder:/partsentry:/...)
+- backend/services/evidence/evidenceService.js — evidenceTypes, verificationStatuses [pending/verified/rejected/disputed/superseded], uploadRoleMatrix, reviewRoles, normalizeEvidenceRecord, evidenceToTimelineItem, mergeEventsWithEvidence, runAiAnalysis
+- backend/services/evidence/evidenceTaxonomy.js — EVIDENCE_CLASSES (import/auction/accident/repair/inspection/ownership_transfer/dealer_listing/current_condition), CLASS_SUBTYPES, LEGACY_TYPE_TO_CLASS
+- backend/services/evidence/provenanceService.js — PROVENANCE_EVENT_TYPES, computeContentHash, recordProvenanceEvent, verifyProvenanceChain, toPublicProvenanceSummary
+- backend/services/evidence/sourceRegistryService.js — toPublicSource/listPublicSources via evidence_sources_public, sourcePermitsClass
+- backend/services/evidence/vehicleFactResolver.js — resolveFact + FACT_DEFINITIONS/FACT_STATUS/PUBLISHABLE_FACT_STATUSES/PROVENANCE_KINDS; CALCULATION_VERSION vehicle-fact-1.0.0
+- backend/services/evidence/uploadIdempotency.js / perceptualHash.js / extractionService.js / completenessEvaluator.js / evidenceSetService.js — dedupe, hashing, OCR extraction review, completeness, set grouping
+- backend/services/evidence/evidenceReviewNotifier.js — review decision → evidence.review.decided outbox bridge
+- backend/utils/passportLookupPolicy.js — classifyLookupIdentifier, resolveLookupAccess, LOOKUP_KINDS/PUBLIC_LOOKUP_KINDS/NON_ENUMERABLE_LOOKUP_RESPONSE
+- backend/utils/publicVehicleProjection.js + vehicleMediaProjection.js — public evidence allow-list and two-model media contract
+- #194 adds backend/services/passport/* (21 modules) — see pr194_delta
+
+**APIs** (15)
+- GET /api/vehicles/:vin/passport — backend/server.js:1442, passportLimiter(30/min) + optionalAuth(); audience decided by proven identity only
+- GET /api/vehicles/passport/lookup/:identifier — backend/server.js:1457, passportLookupLimiter(10/min) + optionalAuth + resolveLookupAccess policy gate before any query
+- GET /api/vehicles/:vin/verify-ledger — backend/server.js (public), blockchain verifyChain
+- POST /api/vehicles/:vin/evidence/upload — backend/routes/vehiclesRoutes.js:492, authorizeRole() + uploadRoleMatrix in service
+- POST /api/evidence/upload — vehiclesRoutes.js:516, authorizeRole()
+- GET /api/vehicles/:vin/evidence — vehiclesRoutes.js:525, public with PUBLIC_EVIDENCE_FIELDS projection; signed URLs only for authorized readers
+- GET /api/vehicles/:vin/evidence/timeline — vehiclesRoutes.js:675
+- GET /api/evidence/review — vehiclesRoutes.js:741, authorizeRole(reviewRoles=[admin,government,dealer,mechanic])
+- PATCH /api/vehicles/:vin/evidence/:id/verify and /reject — vehiclesRoutes.js:772/868, authorizeRole([admin,government])
+- PATCH /api/vehicles/:vin/evidence/:id/link-event — vehiclesRoutes.js:963, authorizeRole()
+- GET /api/evidence/taxonomy and GET /api/evidence/sources — evidenceCatalogRoutes.js:41/46, public
+- POST+GET /api/vehicles/:vin/evidence-sets — evidenceCatalogRoutes.js:57/74
+- GET /api/vehicles/:vin/evidence/:id/provenance — evidenceCatalogRoutes.js:81
+- POST /api/vehicles/:vin/evidence/:id/extractions, GET /api/vehicles/:vin/extractions, PATCH extraction review — evidenceCatalogRoutes.js:101/114/129
+- #194 NEW: POST /api/vehicles/:vin/ownership-transfers, GET+PATCH /api/ownership-transfers/:transferId — backend/routes/passportOwnershipTransferRoutes.js, authorizeSessionRole([])
+
+**Events** (5)
+- evidence.review.decided — emitted by backend/services/evidence/evidenceReviewNotifier.js after verify/reject persists; consumer: notification fabric (NOTIFICATION_POLICIES → evidence_review_v1 template); transport: domain_events outbox via eventBusService.emitDomainEvent
+- domain_events outbox table — backend/services/eventBus/eventBusService.js inserts with dedupe (idx_domain_events_dedupe_key)
+- timeline 'events' (event_source: ownership_transfer/service/insurance/escrow/zimra/cvr/vid/cid/zinara/plate_*) are read-side projections built per-request in getVehicleTimeline, NOT bus events
+- #194: passportCommunicationIntent.js requires canonical domain_event_type + (domain_event_id or deterministic dedupe_key) for every passport communication
+- #194: ownership-transfer comms template ownership_transfer_v1 seeded via migration 20260828220000 into communication_templates/_versions
+
+**RLS/policies** (8)
+- vehicle_evidence — RLS enabled (015); 'vehicle evidence public verified read' (anon, visibility_level=public_safe AND verification_status=verified) REVOKED+dropped by 20260825090000: anon has NO select; public reads flow only through service_role backend projection; authenticated read/insert/update-own-pending kept
+- evidence_sources — evidence_sources_public_read policy (issue101 20260814090000); base table RLS enabled by 20260621120000
+- evidence_sources_public (view) — security_invoker=true; REVOKE ALL then GRANT SELECT to anon+authenticated, ALL to service_role (issue101 B3-P0 closed the write/bypass path)
+- evidence_class_taxonomy — evidence_class_taxonomy_public_read (issue101)
+- evidence_sets — 'evidence sets authenticated read' (20260621120000)
+- evidence_provenance_events — 'provenance authenticated read' (20260621120000)
+- #194: vehicle_ownership_transfers / vehicle_ownership_transfer_events — RLS enabled, REVOKE ALL from anon+authenticated; SELECT/INSERT/UPDATE only to service_role; atomic transfer functions EXECUTE service_role-only
+- #194: public_keys — RLS enabled by 20260828210000 (issue158 custody)
+
+**Migrations** (10)
+- database/migrations/014_passport_evidence_architecture.sql — creates vehicle_evidence (vin/evidence_type/storage_bucket/visibility_level/verification_status/trust_impact/metadata, +plate/chassis/engine columns)
+- database/migrations/015_vehicle_evidence_timeline.sql — enables RLS on vehicle_evidence; public-verified-read (anon), authenticated read/insert/update-own-pending policies
+- database/migrations/20260618050000_verification_evidence_trust_columns.sql — additive assessment columns on verification_sessions
+- database/migrations/20260621120000_vehicle_life_evidence_taxonomy_provenance.sql — evidence_class_taxonomy, evidence_sources, evidence_sources_public view, evidence_sets, evidence_provenance_events + RLS
+- database/migrations/20260814090000_issue101_p0_rls_and_view_hardening.sql — evidence_sources_public security_invoker=true, SELECT-only to anon/authenticated, evidence_sources_public_read + evidence_class_taxonomy_public_read policies
+- database/migrations/20260825090000_revoke_anon_vehicle_evidence_select.sql — revokes anon SELECT on vehicle_evidence and drops the anon policy; public reads flow through service_role backend only (Down restores exactly)
+- database/migrations/006_domain1.sql + 009_phase4_schema.sql — mechanic_work_orders source table (customer_name/customer_id/description PII columns live here)
+- #194 A: 20260828203000_passport_ownership_transfer_authority.sql — vehicle_ownership_transfers + _events, atomic begin/transition SQL functions, service_role-only
+- #194 A: 20260828220000_passport_ownership_transfer_communications.sql — ownership_transfer_v1 template seed
+- #194 A: 20260828210000/20260829003000/20260829020000 issue158 custody chain — blockchain_custody_rollout table, blockchain_activate_public_key_atomic, public_keys RLS; plus scripts issue158_mark_old_writers_drained.sql / issue158_private_key_custody_finalize.sql
+
+**Tests** (12)
+- backend/tests/d0-evidence-private-data-exposure.test.js — locks the 54-column anonymous evidence leak closed (uploaded_by/verified_by/file_path/plate/chassis/tenant_id/verification_notes + signed-URL minting)
+- backend/tests/issue164-phase8-service-timeline-privacy.test.js — workorder sanitizer scoped by id prefix: public gets fixed wording, PartSentry keeps real part text (both directions asserted)
+- backend/tests/issue164-d0-evidence-route-authorization.test.js — evidence route authorization contract
+- backend/tests/issue164-d0-evidence-timeline-projection.test.js — evidence-to-timeline projection contract
+- backend/tests/issue164-d2-verified-evidence-published-not-none.test.js — verified evidence must publish, sparse-data honesty
+- backend/tests/issue164-phase4-passport-claim-columns.test.js — claim-governed vehicle columns withheld from projection
+- backend/tests/issue164-phase5-passport-media-wiring.test.js — media contract spread onto passport body (M in #194)
+- backend/tests/issue164-lookup-policy.test.js — non-enumerable plate/temp-id/chassis lookup
+- backend/tests/evidence-api.test.js / evidence-validation.test.js / evidence-catalog-routes.test.js / evidence-ai-fraud.test.js / identity-evidence-validation.test.js — upload validation, catalog routes, AI-analysis sanitation
+- backend/tests/issue-101-p0-hardening.test.js (+post-cutover/data-api/public-keys/cutover siblings) — evidence_sources_public and RLS posture
+- #194 A: passport-foundation-contract.test.js + passport-v2..v16 suites — audience/claim/evidence/trust/timeline/ownership/service-parts/communications/golden-lifecycle contracts incl. passport-v8-service-parts.test.js
+- #194 A: issue-158-private-key-custody / rotation-boundary / boundary-upgrade-postgres tests — custody chain; test asserts transfer service does NO direct vehicle_ownership_history insert (atomic SQL only)
+
+**Contract gaps** (8)
+- No garage/provider identity in the service projection: mechanic_work_orders has only mechanic_id + tenant_id/organization_id, no garage entity or display name — Invariant 10 'Provider not recorded' state must be built from scratch
+- No service provenance vocabulary (plan 6.6) on mechanic_work_orders or partsentry_logs — nothing distinguishes self-reported vs mechanic-signed vs garage-verified
+- mechanic_work_orders has no service/event date distinct from created_at, no odometer, no evidence linkage column — S6 'Passport V8 source enrichment' precondition; a backdated real service date is currently unrepresentable on the timeline
+- Evidence taxonomy has no routine service/maintenance class and no 'receipt' or 'service provider document' subtype (closest: repair/repair_invoice, mechanic_certification, inspection/odometer_reading) — must extend via module + seed-migration lockstep (evidenceTaxonomy.js + 20260621120000 pattern)
+- No service_cases table, no service lifecycle events (request/accept/assign/complete) anywhere in database/migrations — timeline cannot project a service lifecycle
+- No garage directory / publication surface, hence no passport 'serviced by <garage>' attribution path
+- No per-record cost privacy policy beyond blanket public redaction (public details allow-list drops cost/mechanic at server.js:1332-1345); plan 11.1 private-cost is only implicitly satisfied
+- No passport module on main: 'Passport V8' is a lineage name, not a code marker (zero V8 strings in backend) — the projection authority is inline server.js + trustGraphService; S0's 'audit Passport V8 projection' means auditing those two files unless #194 merges first
+
+**Likely conflicts with Service Network** (7)
+- #194 creates vehicle_ownership_transfers authority whose SQL fn INSERTs vehicle_ownership_history (adds transfer_id + uq_vehicle_ownership_history_transfer) — Service Network ownership/history assumptions must reconcile with this new writer; hard merge-order dependency
+- #194 adds passportLifecycleTimeline + passportServicePartsProjection formalizing 'Passport V8' as modules; plan S6 'Passport V8 source enrichment' targets a projection that lives inline in server.js on main today — Foundation must pick ONE target depending on #194 merge order or fork the authority
+- Invariant 9: plan forbids a second service timeline; #194's passportLifecycleTimeline/passportTimelineService already sit beside trustGraphService.getVehicleTimeline — adding a Foundation service timeline would make a third
+- #194 registers communication template ownership_transfer_v1 + passportCommunicationIntent vocabulary; Service Network notification templates/intents must not collide with these keys
+- Service Link/QR (plan §20) lookups must go through passportLookupPolicy PUBLIC_LOOKUP_KINDS (deliberately a list of ONE); adding QR resolution as a new anonymous kind conflicts with the non-enumerable oracle contract unless added there openly
+- issue158 custody chain (#194) rewrites blockchainService signing behind /verify-ledger; any Service Network ledger/signing of service records lands on a custody boundary currently mid-reconciliation on integration/vehicle-passport-v16-cert
+- Naming: plan's 'service record' vs existing mechanic_work_orders rows already projected as event_source:'service' with workorder: id prefix — a new service_records table must not double-count against these on the timeline
+
+**Must reuse (do not duplicate)** (13)
+- trustGraphService.getVehicleTimeline (backend/services/trustGraph/trustGraphService.js) — THE single history projection; service-case/work events must be added as new source reads here (or its #194 successor), never as a parallel timeline authority (Invariant 9)
+- buildVehiclePassport audience gate (server.js 885-906): provenIdentity via optionalAuth-published identityAsserted flag + PASSPORT_PRIVILEGED_ROLES — reuse for owner vs public service projection, never re-read headers
+- PUBLIC_EVIDENCE_FIELDS + toPublicEvidence (backend/utils/publicVehicleProjection.js) — the one public evidence allow-list both passport and /evidence route share; extend it, do not fork it
+- Evidence upload pipeline: validateEvidenceUploadPayload, uploadRoleMatrix, uploadIdempotency, buildEvidenceProvenanceColumns, recordEvidenceUploadProvenance (backend/services/evidence/) — service evidence attaches BY REFERENCE here (plan 12: no service-media silo)
+- evidenceTaxonomy governance path — new service classes/subtypes go into evidenceTaxonomy.js + a seed migration mirroring 20260621120000, keeping module and DB in lockstep
+- PATCH /api/vehicles/:vin/evidence/:id/link-event (vehiclesRoutes.js:963) + vehicle_evidence.timeline_event_id — existing evidence-to-timeline binding for service records
+- emitDomainEvent → domain_events outbox (backend/services/eventBus/eventBusService.js) + evidenceReviewNotifier pattern — service notification events ride the same fabric
+- timeline sanitizer workorder branch (server.js:1267-1278) — the id-prefix-scoped public wording pattern ('Service record signed by a mechanic') for any new PII-bearing service source
+- passportLookupPolicy.resolveLookupAccess + PUBLIC_LOOKUP_KINDS (backend/utils/passportLookupPolicy.js) — any QR/service-link vehicle resolution must reuse this non-enumerable policy
+- vehicleFactResolver (backend/services/evidence/vehicleFactResolver.js) — governed fact derivation from evidence for any service-derived claims
+- canonicalPassportTrust (server.js:793) — cache-only MATERIALIZED trust read; service surfaces needing trust read this, never recompute (Invariant 4)
+- vehicleMediaProjection contract — keeps governed evidence separate from marketing media; service photo galleries must not merge the two
+- #194 modules if merged first: passportContract audiences/PUBLIC_FORBIDDEN_KEYS, passportEvidenceProjection, passportServicePartsProjection.buildPassportServicePartsSection as the S6 extension points
+
+**PR #194 delta** (13)
+- backend/services/passport/ (21 new modules incl. README) — versioned passport layer V1-V16: passportContract (PASSPORT_AUDIENCES/VISIBILITY, PUBLIC_FORBIDDEN_KEYS, assertPublicSafeObject), passportReadModelService (assemblePassportReadModel), passportAccessPolicy, passportEvidenceProjection, passportServicePartsProjection (projects work orders + PartSentry — the modularized V8), passportLifecycleTimeline, passportOwnershipProjection/TransferService/TransferStateMachine, passportTrustLens, passportAttentionRail, marketplace/surface convergence, passportCommunicationIntent, AI advisory, external source adapter, golden lifecycle certification
+- backend/routes/passportOwnershipTransferRoutes.js (A) — transfer begin/read/transition endpoints via authorizeSessionRole([]) calling passport_*_atomic RPCs
+- backend/server.js (M) — app.use(passportOwnershipTransferRouter); buildVehiclePassport gains buildCanonicalVehicleLifecycle collaborator on both passport routes
+- backend/services/report/canonicalVehicleLifecycleService.js (A) + reportService.js (M) — canonical lifecycle assembled for the passport body
+- database/migrations/20260828203000 (A) — vehicle_ownership_transfers + vehicle_ownership_transfer_events, RLS enabled, REVOKE anon/authenticated, service_role-only grants + EXECUTE on atomic fns; transition fn INSERTs vehicle_ownership_history with transfer_id + uq constraint
+- database/migrations/20260828220000 (A) — ownership_transfer_v1 communication template + versions seed
+- issue158 custody (A): blockchainKeyCustodyService.js, blockchainService.js (M), migrations 20260828210000/20260829003000/20260829020000, drain/finalize scripts, tests issue-158-{private-key-custody,rotation-boundary,boundary-upgrade-postgres} — key custody behind the ledger the passport's /verify-ledger reads
+- evidence delta: backend/services/evidence/sellerFactReconciliation.js (A: RECONCILIATION_STATE, reconcileSellerFacts over vehicle+extractions; deliberately no exported column array per issue164-phase1 contract); completenessEvaluator.js (M); d0-evidence-private-data-exposure.test.js (M); issue164-phase5-passport-media-wiring.test.js (M)
+- tests (A): passport-foundation-contract + passport-v2..v16 suites (identity-access, evidence-provenance, verification-discrepancy, trust-lens, lifecycle-timeline, ownership-transfer, service-parts, attention-rail, marketplace/surface convergence, communications, ai-advisory, external-adapter, golden-lifecycle, ownership-authority, postgres-authorities, runtime-convergence)
+- web/src/pages/dashboard/owner/VehicleProfile.passport-v15.test.tsx (A) — owner surface passport contract
+- .github/workflows/vehicle-passport-foundation-ci.yml (A) — node --check gates over the passport modules
+- backend/routes/vehiclesRoutes.js (M) — adds PATCH /api/vehicles/:vin/price (adjacent to but not part of the evidence surface)
+- docs/vehicle-passport-lifecycle/ (A) — canonical plan, authority map, V0-V16 certification receipts
+
+**Notes:** Workspace verified read-only at canonical main. On main the passport projection authority is buildVehiclePassport in backend/server.js composing over injected collaborators (trust, claims, media) plus trustGraphService.getVehicleTimeline; there is NO backend/services/passport directory. PR #194 (branch integration/vehicle-passport-v16-cert, currently mid issue158 reconciliation per git status) introduces the entire versioned passport service layer V1-V16 including passportServicePartsProjection (the modular 'V8'), an ownership-transfer authority whose only writer to vehicle_ownership_history is a service_role-gated atomic SQL function (tests assert no JS-side insert), and threads buildCanonicalVehicleLifecycle into buildVehiclePassport. Service Network S6 work is therefore merge-order-coupled to #194: enrich source tables (garage identity, service date, provenance, evidence link) and let the existing projection — whichever shape wins — read them, per Invariant 9.
