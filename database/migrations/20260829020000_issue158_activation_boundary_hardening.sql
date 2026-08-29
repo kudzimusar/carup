@@ -71,10 +71,15 @@ LANGUAGE plpgsql
 STABLE
 AS $parse$
 DECLARE
-  -- Bounds of the emitted 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"' representation. The upper
-  -- bound keeps headroom so a boundary derived as floor + 1ms still formats.
+  -- Exact bounds of the emitted 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"' representation.
+  -- 9999-12-31T23:59:59.999Z is the last instant that both this format and the
+  -- runtime's Date.parse admit, so the whole final day is legitimate history and must
+  -- not be discarded. Headroom is NOT taken here: a boundary that would run past the
+  -- last representable millisecond is refused where it is issued, in
+  -- blockchain_activate_public_key_boundary, so saturation is an explicit error rather
+  -- than a silently unparseable timestamp.
   c_min CONSTANT TIMESTAMPTZ := TIMESTAMPTZ '0001-01-01 00:00:00+00';
-  c_max CONSTANT TIMESTAMPTZ := TIMESTAMPTZ '9999-12-31 00:00:00+00';
+  c_max CONSTANT TIMESTAMPTZ := TIMESTAMPTZ '9999-12-31 23:59:59.999+00';
   v_parsed TIMESTAMPTZ;
 BEGIN
   IF nullif(btrim(p_value),'') IS NULL THEN
@@ -215,6 +220,10 @@ AS $activate$
 -- SQL — every variable here is p_/v_ prefixed, so column resolution is safe.
 #variable_conflict use_column
 DECLARE
+  -- Last instant the emitted format and the runtime can both represent. One
+  -- millisecond further, to_char yields a five-digit year and Date.parse returns NaN
+  -- with no error anywhere, so the boundary must never be allowed to cross it.
+  c_max_boundary CONSTANT TIMESTAMPTZ := TIMESTAMPTZ '9999-12-31 23:59:59.999+00';
   v_active public.public_keys%ROWTYPE;
   v_rollout public.blockchain_custody_rollout%ROWTYPE;
   v_watermark TIMESTAMPTZ;
@@ -283,6 +292,17 @@ BEGIN
   IF v_floor IS NOT NULL AND v_boundary <= v_floor THEN
     v_boundary := date_trunc('milliseconds', v_floor) + interval '1 millisecond';
   END IF;
+
+  -- Monotonic counters saturate. Past the last representable millisecond the emitted
+  -- timestamp silently becomes unparseable rather than raising, so refuse to issue it:
+  -- a stakeholder whose history sits at the very end of representable time fails
+  -- closed with a diagnosable error instead of writing a corrupt validity boundary.
+  IF v_boundary > c_max_boundary THEN
+    RAISE EXCEPTION
+      'custody activation boundary exceeds the representable timestamp range for this stakeholder'
+      USING ERRCODE='22008';
+  END IF;
+
   v_boundary_text := to_char(v_boundary AT TIME ZONE 'UTC','YYYY-MM-DD"T"HH24:MI:SS.MS"Z"');
 
   INSERT INTO public.blockchain_signing_watermarks(user_id,last_authorized_at)

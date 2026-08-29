@@ -237,6 +237,12 @@ test('Issue #158: activation boundary is DB-authoritative, never the caller cloc
   assert.match(sql, /c_min CONSTANT TIMESTAMPTZ/);
   assert.match(sql, /c_max CONSTANT TIMESTAMPTZ/);
   assert.match(sql, /v_parsed < c_min OR v_parsed > c_max/);
+  // The parser admits the full representable window, including the final day; the
+  // boundary emitter is what refuses to cross the last representable millisecond.
+  assert.match(sql, /c_max CONSTANT TIMESTAMPTZ := TIMESTAMPTZ '9999-12-31 23:59:59\.999\+00'/);
+  assert.match(sql, /c_max_boundary CONSTANT TIMESTAMPTZ := TIMESTAMPTZ '9999-12-31 23:59:59\.999\+00'/);
+  assert.match(sql, /v_boundary > c_max_boundary/);
+  assert.match(sql, /exceeds the representable timestamp range/);
   assert.match(sql, /REVOKE ALL ON FUNCTION public\.blockchain_boundary_parse_ts\(TEXT\)[\s\S]*service_role/);
   assert.match(sql, /WATERMARK RESEED/);
   // The seed is a callable function on purpose: the finalizer repeats it post-drain.

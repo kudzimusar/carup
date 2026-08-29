@@ -429,6 +429,70 @@ test('Issue #158: a non-finite legacy timestamp cannot brick stakeholder signing
   }
 });
 
+test('Issue #158: repeated signing continues near the terminal representable instant', async (t) => {
+  const savedVersion = process.env.CARUP_BLOCKCHAIN_KEY_VERSION;
+  const savedFrom = supabase.from;
+  const savedRpc = supabase.rpc;
+  t.after(() => {
+    if (savedVersion === undefined) delete process.env.CARUP_BLOCKCHAIN_KEY_VERSION;
+    else process.env.CARUP_BLOCKCHAIN_KEY_VERSION = savedVersion;
+    supabase.from = savedFrom;
+    supabase.rpc = savedRpc;
+  });
+
+  const VIN3 = 'VINTERMINAL000001';
+  // A legacy value on the final representable day: legitimate history that the earlier
+  // ceiling discarded outright. getOrCreateKeypair runs on every addEvent, so proving
+  // one authorization would not show that signing CONTINUES from here.
+  const terminalDayAt = '9999-12-31T23:59:59.000Z';
+  const keyCreatedAt = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+
+  process.env.CARUP_BLOCKCHAIN_KEY_VERSION = 'tv1';
+  const tv1 = deriveStakeholderKey(SIGNER);
+
+  const db = await preBoundaryFinalizedDb({ keyPem: tv1.publicKeyPem, keyCreatedAt });
+  try {
+    const client = makeClient(db);
+    supabase.from = client.from;
+    supabase.rpc = client.rpc;
+
+    const payload = { mechanicId: SIGNER, note: 'legacy event on the final representable day' };
+    const hash = calculateHash(GENESIS, VIN3, 'Mechanic Inspection', terminalDayAt, payload);
+    const sig = signLedgerHash(SIGNER, hash);
+    await db.query(`
+      INSERT INTO blockchain_events(previous_hash,current_hash,vin,event_type,payload,"timestamp",signature)
+      VALUES ($1::text,$2::text,$3::text,'Mechanic Inspection',$4::text,$5::text,$6::text)
+    `, [GENESIS, hash, VIN3, JSON.stringify(payload), terminalDayAt, `${SIGNER}:${sig.signatureHex}`]);
+
+    await db.exec(up('../../database/migrations/20260829020000_issue158_activation_boundary_hardening.sql'));
+    await db.query(`SELECT public.blockchain_authorize_custody_generation($1::text)`, [custodyGeneration()]);
+
+    // The terminal-day value is preserved as the floor rather than discarded.
+    const mark = await db.query(
+      `SELECT last_authorized_at::text AS t FROM public.blockchain_signing_watermarks WHERE user_id=$1`,
+      [SIGNER],
+    );
+    assert.equal(new Date(mark.rows[0].t).getTime(), Date.parse(terminalDayAt));
+
+    // TWO consecutive stakeholder writes must both succeed and stay parseable.
+    const first = await addEvent(VIN3, 'Mechanic Inspection', { mechanicId: SIGNER, note: 'first post-upgrade' });
+    const second = await addEvent(VIN3, 'Mechanic Inspection', { mechanicId: SIGNER, note: 'second post-upgrade' });
+    for (const evt of [first, second]) {
+      assert.ok(Number.isFinite(Date.parse(evt.timestamp)), `${evt.timestamp} must be parseable`);
+      assert.match(evt.timestamp, /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/);
+    }
+    assert.ok(Date.parse(first.timestamp) > Date.parse(terminalDayAt));
+    assert.ok(Date.parse(second.timestamp) > Date.parse(first.timestamp));
+
+    const chain = await verifyChain(VIN3);
+    assert.equal(chain.verified, true, chain.reason || 'chain must verify');
+    assert.equal(chain.count, 3);
+    assert.ok(chain.chain.every((entry) => !entry.note), 'no signature check may be skipped');
+  } finally {
+    await db.close();
+  }
+});
+
 test('Issue #158: forward-skewed pre-hardening history stays verifiable across the boundary upgrade', async (t) => {
   const savedVersion = process.env.CARUP_BLOCKCHAIN_KEY_VERSION;
   const savedFrom = supabase.from;

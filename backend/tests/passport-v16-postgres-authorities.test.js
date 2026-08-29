@@ -804,6 +804,90 @@ test('Issue #158 non-finite and unrepresentable legacy timestamps never reach th
   }
 });
 
+test('Issue #158 the terminal representable day is admitted and boundary saturation fails closed', async () => {
+  // The parser must not discard the final representable day: 9999-12-31T23:59:59.999Z
+  // is the last instant BOTH the emitted four-digit-year format and Date.parse admit.
+  // Headroom is not taken in the parser, because a boundary past that instant is
+  // refused where it is issued — to_char would otherwise emit a five-digit year that
+  // Date.parse turns into NaN with no error raised anywhere.
+  const db = await custodyDb({ generation: GEN_V1 });
+  try {
+    const bounds = await db.query(`
+      SELECT
+        public.blockchain_boundary_parse_ts('9999-12-31T10:00:00.000Z')::text AS mid_final_day,
+        public.blockchain_boundary_parse_ts('9999-12-31T23:59:59.998Z')::text AS just_below,
+        public.blockchain_boundary_parse_ts('9999-12-31T23:59:59.999Z')::text AS at_ceiling,
+        public.blockchain_boundary_parse_ts('10000-01-01T00:00:00.000Z')::text AS one_ms_above,
+        public.blockchain_boundary_parse_ts('infinity')::text AS pos_inf,
+        public.blockchain_boundary_parse_ts('-infinity')::text AS neg_inf,
+        public.blockchain_boundary_parse_ts('294276-01-01 00:00:00+00')::text AS far_future
+    `);
+    const b = bounds.rows[0];
+    assert.ok(b.mid_final_day, 'a valid afternoon on the final day must not be rejected');
+    assert.ok(b.just_below, 'one millisecond below the ceiling must be admitted');
+    assert.ok(b.at_ceiling, 'the ceiling itself must be admitted');
+    assert.equal(b.one_ms_above, null, 'one millisecond above the ceiling must be rejected');
+    // The earlier guarantees are unchanged.
+    assert.equal(b.pos_inf, null);
+    assert.equal(b.neg_inf, null);
+    assert.equal(b.far_future, null);
+
+    // CONTINUATION: a stakeholder parked near — but not at — the ceiling must be able to
+    // keep authorizing. Proving one boundary would not show the watermark can advance.
+    await db.query(`
+      INSERT INTO public.blockchain_signing_watermarks(user_id,last_authorized_at)
+      VALUES ('user-1',TIMESTAMPTZ '9999-12-31 23:59:59.000+00')
+      ON CONFLICT (user_id) DO UPDATE SET last_authorized_at=EXCLUDED.last_authorized_at
+    `);
+    const stamps = [];
+    for (let i = 0; i < 4; i += 1) {
+      const row = await activateKey(db, {
+        candidateId: `ignored-terminal-${i}`,
+        publicKey: 'PUBLIC-MATERIAL',
+        version: 'v1',
+        generation: GEN_V1,
+      });
+      assert.ok(
+        Number.isFinite(Date.parse(row.event_timestamp)),
+        `boundary ${row.event_timestamp} must stay runtime-parseable`,
+      );
+      assert.match(row.event_timestamp, /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/);
+      stamps.push(Date.parse(row.event_timestamp));
+    }
+    for (let i = 1; i < stamps.length; i += 1) {
+      assert.equal(stamps[i] - stamps[i - 1], 1, 'consecutive authorizations advance by 1ms');
+    }
+
+    // SATURATION: parked at the ceiling there is no representable next boundary, so the
+    // contract must refuse rather than emit a timestamp Date.parse cannot read.
+    await db.query(`
+      UPDATE public.blockchain_signing_watermarks
+         SET last_authorized_at=TIMESTAMPTZ '9999-12-31 23:59:59.999+00'
+       WHERE user_id='user-1'
+    `);
+    await assert.rejects(
+      () => activateKey(db, {
+        candidateId: 'ignored-saturated',
+        publicKey: 'PUBLIC-MATERIAL',
+        version: 'v1',
+        generation: GEN_V1,
+      }),
+      /exceeds the representable timestamp range/i,
+      'saturation must fail closed, not emit an unparseable timestamp',
+    );
+
+    // The refusal is not destructive: no key row was mutated and the watermark stands.
+    const after = await db.query(
+      `SELECT last_authorized_at::text AS t FROM public.blockchain_signing_watermarks WHERE user_id='user-1'`,
+    );
+    assert.equal(new Date(after.rows[0].t).getTime(), Date.parse('9999-12-31T23:59:59.999Z'));
+    const keys = await db.query(`SELECT count(*)::int AS c FROM public.public_keys WHERE user_id='user-1'`);
+    assert.equal(keys.rows[0].c, 1);
+  } finally {
+    await db.close();
+  }
+});
+
 test('Issue #158 service_role cannot authorize a custody generation', async () => {
   const db = await custodyPreparedDb();
   try {
