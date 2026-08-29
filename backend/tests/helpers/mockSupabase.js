@@ -26,6 +26,11 @@
  * here are enforced, so existing tests are unaffected.
  */
 export const UNIQUE_INDEXES = Object.freeze({
+  // Service Network S8 — service_links: UNIQUE (public_token) and UNIQUE
+  // (resource_type, resource_id) so a resource has exactly one stable address;
+  // service_capability_grants: UNIQUE (token_hash).
+  service_links: [['public_token'], ['resource_type', 'resource_id']],
+  service_capability_grants: [['token_hash']],
   // Service Network S5 — service_record_parts: UNIQUE (service_record_id, partsentry_log_id)
   // and service_record_evidence: UNIQUE (service_record_id, evidence_id). Both make the
   // attach paths retry-safe: a repeated attach must lose the race rather than record the
@@ -93,6 +98,33 @@ export function createMockSupabase(seed = {}, options = {}) {
     return tables[table];
   }
 
+  /**
+   * Postgres-like comparison. Dates and ISO date strings compare chronologically;
+   * numbers numerically; everything else lexicographically. A NULL never satisfies a
+   * comparison, matching SQL three-valued logic.
+   */
+  function compareValues(op, left, right) {
+    if (left === null || left === undefined) return false;
+    let a = left;
+    let b = right;
+    const asTime = (v) => (v instanceof Date ? v.getTime() : Date.parse(v));
+    if (!Number.isNaN(asTime(a)) && !Number.isNaN(asTime(b))
+        && typeof a !== 'number' && typeof b !== 'number') {
+      a = asTime(a); b = asTime(b);
+    } else if (!Number.isNaN(Number(a)) && !Number.isNaN(Number(b))) {
+      a = Number(a); b = Number(b);
+    } else {
+      a = String(a); b = String(b);
+    }
+    switch (op) {
+      case 'gt': return a > b;
+      case 'gte': return a >= b;
+      case 'lt': return a < b;
+      case 'lte': return a <= b;
+      default: return true;
+    }
+  }
+
   function builder(table) {
     const rows = ensure(table);
     const state = {
@@ -102,6 +134,10 @@ export function createMockSupabase(seed = {}, options = {}) {
       head: false,
       filtersEq: [],
       filtersNeq: [],
+      // Comparison filters. These were previously no-ops that returned the chain
+      // untouched, so every `.gt()/.lt()/.gte()/.lte()`-filtered query silently
+      // returned the WHOLE table — which made expiry and window checks vacuous.
+      filtersCmp: [],
       // .in() previously returned the chain untouched, so every `.in()`-filtered query returned the
       // WHOLE table and any test of such a query passed vacuously.
       filtersIn: [],
@@ -118,7 +154,8 @@ export function createMockSupabase(seed = {}, options = {}) {
       state.filtersNeq.every(([k, v]) => String(row[k]) !== String(v)) &&
       state.filtersIn.every(([k, vs]) => vs.map(String).includes(String(row[k]))) &&
       state.isNull.every((c) => row[c] === null || row[c] === undefined) &&
-      state.notNull.every((c) => row[c] !== null && row[c] !== undefined);
+      state.notNull.every((c) => row[c] !== null && row[c] !== undefined) &&
+      state.filtersCmp.every(([op, k, v]) => compareValues(op, row[k], v));
 
     function exec() {
       if (state.op === 'insert') {
@@ -207,10 +244,10 @@ export function createMockSupabase(seed = {}, options = {}) {
       neq(k, v) { state.filtersNeq.push([k, v]); return chain; },
       in(k, vals) { state.filtersIn.push([k, Array.isArray(vals) ? vals : [vals]]); return chain; },
       or() { return chain; },
-      gte() { return chain; },
-      lte() { return chain; },
-      gt() { return chain; },
-      lt() { return chain; },
+      gte(k, v) { state.filtersCmp.push(['gte', k, v]); return chain; },
+      lte(k, v) { state.filtersCmp.push(['lte', k, v]); return chain; },
+      gt(k, v) { state.filtersCmp.push(['gt', k, v]); return chain; },
+      lt(k, v) { state.filtersCmp.push(['lt', k, v]); return chain; },
       is(col, val) { if (val === null) state.isNull.push(col); return chain; },
       not(col, op, val) { if (op === 'is' && val === null) state.notNull.push(col); return chain; },
       order(col, opts) { state.orderBy = [col, opts && opts.ascending === false ? -1 : 1]; return chain; },
