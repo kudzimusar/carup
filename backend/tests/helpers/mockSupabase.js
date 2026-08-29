@@ -26,6 +26,12 @@
  * here are enforced, so existing tests are unaffected.
  */
 export const UNIQUE_INDEXES = Object.freeze({
+  // Service Network S4 — mechanic_work_orders: partial UNIQUE (service_case_id) WHERE NOT NULL
+  // (one work order per Service Case) and work_order_assignments: partial UNIQUE
+  // (work_order_id) WHERE unassigned_at IS NULL (at most one LIVE mechanic per work order —
+  // a second concurrent assign must lose the race, not produce two "current" mechanics).
+  mechanic_work_orders: [['service_case_id']],
+  work_order_assignments: [['work_order_id', 'unassigned_at']],
   // Service Network S2 — service_cases: partial UNIQUE (source_inquiry_id) WHERE NOT NULL.
   // This index IS the idempotent marketplace bridge: a retry must lose the insert race
   // rather than open a second Service Case for one inquiry.
