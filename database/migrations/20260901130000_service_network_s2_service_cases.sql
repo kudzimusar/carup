@@ -21,9 +21,12 @@
 
 CREATE TABLE IF NOT EXISTS service_cases (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  vin TEXT NOT NULL REFERENCES vehicles(vin) ON DELETE CASCADE,
-  garage_tenant_id UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
-  branch_id UUID REFERENCES garage_branches(id) ON DELETE SET NULL,
+  -- RESTRICT throughout: service history is the point of this table. Deleting a
+  -- vehicle or a tenant must not silently erase what happened to it (plan §24.3 —
+  -- no brittle cross-domain cascade that can delete history).
+  vin TEXT NOT NULL REFERENCES vehicles(vin) ON DELETE RESTRICT,
+  garage_tenant_id UUID NOT NULL REFERENCES tenants(id) ON DELETE RESTRICT,
+  branch_id UUID,
   requester_user_id TEXT REFERENCES users(id),
   source_inquiry_id TEXT,
   source_channel TEXT NOT NULL DEFAULT 'unknown',
@@ -43,7 +46,12 @@ CREATE TABLE IF NOT EXISTS service_cases (
   accepted_by_user_id TEXT REFERENCES users(id),
   created_by_user_id TEXT REFERENCES users(id),
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  -- Branch integrity as a DATABASE guarantee: a branch may only be attached together
+  -- with its owning tenant, so Garage B's branch cannot appear on Garage A's case.
+  CONSTRAINT service_cases_branch_within_tenant
+    FOREIGN KEY (branch_id, garage_tenant_id)
+    REFERENCES garage_branches(id, tenant_id) ON DELETE RESTRICT
 );
 
 -- The idempotent marketplace bridge: one case per originating inquiry.
@@ -60,7 +68,8 @@ CREATE INDEX IF NOT EXISTS idx_service_cases_requester ON service_cases(requeste
 -- Append-only transition history.
 CREATE TABLE IF NOT EXISTS service_case_events (
   id BIGSERIAL PRIMARY KEY,
-  service_case_id UUID NOT NULL REFERENCES service_cases(id) ON DELETE CASCADE,
+  -- RESTRICT: a case cannot be deleted out from under its own recorded history.
+  service_case_id UUID NOT NULL REFERENCES service_cases(id) ON DELETE RESTRICT,
   event_type TEXT NOT NULL,
   from_status TEXT,
   to_status TEXT,
@@ -90,12 +99,14 @@ CREATE TRIGGER trg_service_case_events_append_only
 ALTER TABLE service_cases ENABLE ROW LEVEL SECURITY;
 ALTER TABLE service_cases FORCE ROW LEVEL SECURITY;
 REVOKE ALL ON TABLE service_cases FROM PUBLIC, anon, authenticated;
-GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE service_cases TO service_role;
+-- No DELETE: cancellation is a real state, never a deletion (plan §7.7).
+GRANT SELECT, INSERT, UPDATE ON TABLE service_cases TO service_role;
 
 ALTER TABLE service_case_events ENABLE ROW LEVEL SECURITY;
 ALTER TABLE service_case_events FORCE ROW LEVEL SECURITY;
 REVOKE ALL ON TABLE service_case_events FROM PUBLIC, anon, authenticated;
-GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE service_case_events TO service_role;
+-- Append-only: no UPDATE and no DELETE, enforced by grant AND by trigger.
+GRANT SELECT, INSERT ON TABLE service_case_events TO service_role;
 GRANT USAGE, SELECT ON SEQUENCE service_case_events_id_seq TO service_role;
 REVOKE ALL ON SEQUENCE service_case_events_id_seq FROM PUBLIC, anon, authenticated;
 

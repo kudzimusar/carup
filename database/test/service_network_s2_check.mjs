@@ -116,10 +116,12 @@ for (const t of ['service_cases','service_case_events']) {
       if (r.any_priv) throw new Error(`${role} has privileges`);
     });
   }
-  await must(`${t}: service_role holds all four privileges`, async () => {
+  await must(`${t}: service_role cannot DELETE (history is retained)`, async () => {
     const [r] = await q(`SELECT bool_and(has_table_privilege('service_role','${t}',p)) all_priv
-      FROM unnest(ARRAY['SELECT','INSERT','UPDATE','DELETE']) p`);
-    if (!r.all_priv) throw new Error('service_role missing privileges');
+      FROM unnest(ARRAY['SELECT','INSERT']) p`);
+    if (!r.all_priv) throw new Error('service_role missing a required privilege');
+    const [del] = await q(`SELECT has_table_privilege('service_role','${t}','DELETE') can_delete`);
+    if (del.can_delete) throw new Error('DELETE is granted — history could be destroyed');
   });
 }
 await must('service_case_events sequence: service_role usable, clients revoked', async () => {
@@ -184,6 +186,28 @@ await must('many cases with NO inquiry origin coexist (partial index, NULLs dist
   if (r.n < 3) throw new Error(`expected >=3 inquiry-less cases, got ${r.n}`);
 });
 
+// ── branch integrity is a DATABASE guarantee ──
+await must('give the second garage its own branch', () => db.exec(`
+  INSERT INTO garage_branches(id, tenant_id, name)
+    VALUES ('bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb','${OTHER_TENANT}','Their Workshop');
+`));
+await mustReject("garage B's branch cannot be attached to garage A's case",
+  `INSERT INTO service_cases(vin, garage_tenant_id, branch_id, created_by_user_id)
+   VALUES ('VINCASE0001','${TENANT}','bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb','u-owner')`, '23503');
+await must("garage A's own branch attaches fine", () => db.exec(`
+  INSERT INTO service_cases(vin, garage_tenant_id, branch_id, created_by_user_id)
+  VALUES ('VINCASE0001','${TENANT}','aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa','u-owner')`));
+
+// ── retention: unrelated deletes cannot erase service history ──
+await mustReject('deleting the VEHICLE is refused while service history exists',
+  `DELETE FROM vehicles WHERE vin='VINCASE0001'`, '23503');
+await mustReject('deleting the GARAGE TENANT is refused while service history exists',
+  `DELETE FROM tenants WHERE id='${TENANT}'`, '23503');
+await must('every service case survived the deletion attempts', async () => {
+  const [r] = await q(`SELECT count(*)::int n FROM service_cases`);
+  if (r.n < 5) throw new Error(`service cases were destroyed: ${r.n}`);
+});
+
 // ── append-only history ──
 await must('a transition event can be appended', () => db.exec(`
   INSERT INTO service_case_events(service_case_id, event_type, from_status, to_status, actor_user_id, actor_tenant_id)
@@ -194,6 +218,9 @@ await mustReject('history cannot be UPDATED (append-only trigger, not convention
 await mustReject('history cannot be DELETED',
   `DELETE FROM service_case_events WHERE service_case_id='cccccccc-cccc-cccc-cccc-cccccccccccc'`,
   'append-only');
+
+await mustReject('a case cannot be deleted while it carries recorded history',
+  `DELETE FROM service_cases WHERE id='cccccccc-cccc-cccc-cccc-cccccccccccc'`, '23503');
 
 // ── Down / re-Up ──
 await must('S2 Down drops cleanly', () => db.exec(s2.down));

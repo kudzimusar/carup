@@ -26,8 +26,10 @@ CREATE TABLE IF NOT EXISTS service_records (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   work_order_id UUID NOT NULL,
   service_case_id UUID REFERENCES service_cases(id) ON DELETE SET NULL,
-  tenant_id UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
-  vin TEXT NOT NULL REFERENCES vehicles(vin) ON DELETE CASCADE,
+  -- RESTRICT: what a garage did to a vehicle is history. Deleting the tenant or the
+  -- vehicle must be an explicit, blocked-until-decided act, never a silent erasure.
+  tenant_id UUID NOT NULL REFERENCES tenants(id) ON DELETE RESTRICT,
+  vin TEXT NOT NULL REFERENCES vehicles(vin) ON DELETE RESTRICT,
   -- What was done. Private free text: never projected into a public surface.
   work_performed TEXT,
   service_category TEXT,
@@ -56,8 +58,8 @@ CREATE INDEX IF NOT EXISTS idx_service_records_tenant ON service_records(tenant_
 -- ── mileage OBSERVATIONS (never a canonical odometer write) ──
 CREATE TABLE IF NOT EXISTS service_mileage_observations (
   id BIGSERIAL PRIMARY KEY,
-  service_record_id UUID NOT NULL REFERENCES service_records(id) ON DELETE CASCADE,
-  vin TEXT NOT NULL REFERENCES vehicles(vin) ON DELETE CASCADE,
+  service_record_id UUID NOT NULL REFERENCES service_records(id) ON DELETE RESTRICT,
+  vin TEXT NOT NULL REFERENCES vehicles(vin) ON DELETE RESTRICT,
   observed_mileage INTEGER NOT NULL CHECK (observed_mileage >= 0),
   observation_source TEXT NOT NULL DEFAULT 'garage_stated'
     CHECK (observation_source IN ('garage_stated','mechanic_attributed','evidence_backed','owner_declared')),
@@ -72,7 +74,7 @@ CREATE INDEX IF NOT EXISTS idx_service_mileage_observations_vin
 -- ── governed REFERENCES to the parts and evidence authorities ──
 CREATE TABLE IF NOT EXISTS service_record_parts (
   id BIGSERIAL PRIMARY KEY,
-  service_record_id UUID NOT NULL REFERENCES service_records(id) ON DELETE CASCADE,
+  service_record_id UUID NOT NULL REFERENCES service_records(id) ON DELETE RESTRICT,
   -- PartSentry owns the part record itself; this is only the link.
   partsentry_log_id BIGINT NOT NULL,
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
@@ -81,7 +83,7 @@ CREATE TABLE IF NOT EXISTS service_record_parts (
 
 CREATE TABLE IF NOT EXISTS service_record_evidence (
   id BIGSERIAL PRIMARY KEY,
-  service_record_id UUID NOT NULL REFERENCES service_records(id) ON DELETE CASCADE,
+  service_record_id UUID NOT NULL REFERENCES service_records(id) ON DELETE RESTRICT,
   -- Evidence authority owns the evidence row; this is only the link.
   evidence_id TEXT NOT NULL,
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
@@ -96,7 +98,9 @@ BEGIN
     EXECUTE format('ALTER TABLE %I ENABLE ROW LEVEL SECURITY', t);
     EXECUTE format('ALTER TABLE %I FORCE ROW LEVEL SECURITY', t);
     EXECUTE format('REVOKE ALL ON TABLE %I FROM PUBLIC, anon, authenticated', t);
-    EXECUTE format('GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE %I TO service_role', t);
+    -- No DELETE anywhere in this set: a service record is corrected or superseded
+    -- (plan §26), never destroyed.
+    EXECUTE format('GRANT SELECT, INSERT, UPDATE ON TABLE %I TO service_role', t);
   END LOOP;
 END $$;
 

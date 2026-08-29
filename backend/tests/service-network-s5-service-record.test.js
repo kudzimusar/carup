@@ -25,12 +25,17 @@ const WO = '11111111-2222-3333-4444-555555555555';
 const mechA = { id: 'u-mech', role: 'mechanic', tenantId: TENANT_A };
 const mechB = { id: 'u-mech-b', role: 'mechanic', tenantId: TENANT_B };
 
+const CASE_ID = 'cccccccc-cccc-cccc-cccc-cccccccccccc';
+
 function seedClient(over = {}) {
   return createMockSupabase({
     vehicles: [{ vin: VIN, owner_id: 'u-owner', mileage: 120000 }],
     tenants: [{ id: TENANT_A, type: 'garage' }, { id: TENANT_B, type: 'garage' }],
+    // Evidence may only be attached through a governed engagement, so the work order
+    // carries a real Service Case for this vehicle and this garage.
+    service_cases: [{ id: CASE_ID, vin: VIN, garage_tenant_id: TENANT_A, requester_user_id: 'u-owner', status: 'active' }],
     mechanic_work_orders: [
-      { id: WO, tenant_id: TENANT_A, vin: VIN, status: 'In Progress', service_case_id: null, service_category: 'brakes' },
+      { id: WO, tenant_id: TENANT_A, vin: VIN, status: 'In Progress', service_case_id: CASE_ID, service_category: 'brakes' },
     ],
     partsentry_logs: [{ id: 42, vin: VIN, tenant_id: TENANT_A, part_name: 'Front pads' }],
     vehicle_evidence: [{ id: 'ev-1', vin: VIN }],

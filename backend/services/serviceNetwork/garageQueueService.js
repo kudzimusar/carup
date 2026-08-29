@@ -17,7 +17,7 @@ import { DatabaseError, ForbiddenError } from '../../utils/errors.js';
 
 function requireTenantContext(userContext = {}) {
   const tenantId = userContext.tenantId || null;
-  if (!tenantId) throw new ForbiddenError('A verified garage tenant context is required');
+  if (!tenantId) throw new ForbiddenError('A membership-verified garage tenant context is required');
   return tenantId;
 }
 

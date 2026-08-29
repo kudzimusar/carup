@@ -32,7 +32,9 @@ CREATE TABLE IF NOT EXISTS service_links (
   public_token TEXT NOT NULL UNIQUE,
   resource_type TEXT NOT NULL CHECK (resource_type IN ('vehicle', 'service_case', 'practitioner')),
   resource_id TEXT NOT NULL,
-  tenant_id UUID REFERENCES tenants(id) ON DELETE CASCADE,
+  -- A link is deactivated, not deleted; a departing tenant must not silently
+  -- invalidate printed codes without an explicit decision.
+  tenant_id UUID REFERENCES tenants(id) ON DELETE RESTRICT,
   is_active BOOLEAN NOT NULL DEFAULT true,
   created_by_user_id TEXT REFERENCES users(id),
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
@@ -53,7 +55,8 @@ CREATE TABLE IF NOT EXISTS service_capability_grants (
   resource_id TEXT NOT NULL,
   -- Who authorised this, and for whom.
   granted_by_user_id TEXT NOT NULL REFERENCES users(id),
-  grantee_tenant_id UUID REFERENCES tenants(id) ON DELETE CASCADE,
+  -- RESTRICT preserves the audit trail of who was granted what.
+  grantee_tenant_id UUID REFERENCES tenants(id) ON DELETE RESTRICT,
   expires_at TIMESTAMPTZ NOT NULL,
   redeemed_at TIMESTAMPTZ,
   redeemed_by_user_id TEXT REFERENCES users(id),
@@ -75,7 +78,8 @@ BEGIN
     EXECUTE format('ALTER TABLE %I ENABLE ROW LEVEL SECURITY', t);
     EXECUTE format('ALTER TABLE %I FORCE ROW LEVEL SECURITY', t);
     EXECUTE format('REVOKE ALL ON TABLE %I FROM PUBLIC, anon, authenticated', t);
-    EXECUTE format('GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE %I TO service_role', t);
+    -- No DELETE: revocation is a state (revoked_at), and the grant history is audit.
+    EXECUTE format('GRANT SELECT, INSERT, UPDATE ON TABLE %I TO service_role', t);
   END LOOP;
 END $$;
 

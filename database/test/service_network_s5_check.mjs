@@ -110,8 +110,10 @@ for (const t of ['service_records','service_mileage_observations','service_recor
       FROM unnest(ARRAY['anon','authenticated']) role, unnest(ARRAY['SELECT','INSERT','UPDATE','DELETE']) p`);
     if (priv.any_priv) throw new Error('a client role holds privileges');
     const [svc] = await q(`SELECT bool_and(has_table_privilege('service_role','${t}',p)) ok
-      FROM unnest(ARRAY['SELECT','INSERT','UPDATE','DELETE']) p`);
-    if (!svc.ok) throw new Error('service_role missing privileges');
+      FROM unnest(ARRAY['SELECT','INSERT']) p`);
+    if (!svc.ok) throw new Error('service_role missing a required privilege');
+    const [del] = await q(`SELECT has_table_privilege('service_role','${t}','DELETE') can_delete`);
+    if (del.can_delete) throw new Error('DELETE is granted — service history could be destroyed');
   });
 }
 
@@ -181,6 +183,20 @@ await must('an evidence reference can be linked once', () => db.exec(`
 await mustReject('the same evidence cannot be double-attached',
   `INSERT INTO service_record_evidence(service_record_id, evidence_id)
    VALUES ('aaaaaaaa-0000-0000-0000-000000000001', 'ev-1')`, '23505');
+
+// ── retention: service history survives unrelated deletion attempts ──
+await mustReject('deleting the vehicle is refused while service records exist',
+  `DELETE FROM vehicles WHERE vin='VINSR000001'`, '23503');
+await mustReject('deleting the garage tenant is refused while service records exist',
+  `DELETE FROM tenants WHERE id='${TENANT}'`, '23503');
+await mustReject('a service record cannot be deleted while observations reference it',
+  `DELETE FROM service_records WHERE id='aaaaaaaa-0000-0000-0000-000000000001'`, '23503');
+await must('records, observations, part and evidence links all survived', async () => {
+  for (const t of ['service_records','service_mileage_observations','service_record_parts','service_record_evidence']) {
+    const [r] = await q(`SELECT count(*)::int n FROM ${t}`);
+    if (r.n < 1) throw new Error(`${t} was emptied`);
+  }
+});
 
 await must('S5 Down drops cleanly', () => db.exec(s5.down));
 await must('tables gone after Down but the vehicle and its odometer survive', async () => {

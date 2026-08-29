@@ -187,6 +187,35 @@ await must('after unassigning, a new mechanic may be assigned and HISTORY accumu
     WHERE work_order_id='11111111-2222-3333-4444-555555555555' AND unassigned_at IS NULL`);
   if (live.mechanic_user_id !== 'u-mech-2') throw new Error('wrong live mechanic');
 });
+// The SAME invariant the in-memory mock models, proven independently against real
+// PostgreSQL so neither proof stands alone: the partial index permits unlimited
+// HISTORICAL rows but exactly one LIVE row per work order.
+await must('unlimited HISTORICAL assignments are permitted for one work order', async () => {
+  await db.exec(`
+    INSERT INTO work_order_assignments(work_order_id, tenant_id, mechanic_user_id, assigned_by_user_id, unassigned_at)
+    VALUES ('11111111-2222-3333-4444-555555555555','${TENANT}','u-mech-1','u-mgr', NOW() - INTERVAL '3 days'),
+           ('11111111-2222-3333-4444-555555555555','${TENANT}','u-mech-2','u-mgr', NOW() - INTERVAL '2 days'),
+           ('11111111-2222-3333-4444-555555555555','${TENANT}','u-mech-1','u-mgr', NOW() - INTERVAL '1 day')`);
+  const [r] = await q(`SELECT count(*)::int n FROM work_order_assignments
+    WHERE work_order_id='11111111-2222-3333-4444-555555555555' AND unassigned_at IS NOT NULL`);
+  if (r.n < 3) throw new Error(`historical rows were rejected: ${r.n}`);
+});
+await must('exactly one LIVE row may coexist with that history', async () => {
+  const [live] = await q(`SELECT count(*)::int n FROM work_order_assignments
+    WHERE work_order_id='11111111-2222-3333-4444-555555555555' AND unassigned_at IS NULL`);
+  if (live.n !== 1) throw new Error(`expected exactly 1 live assignment, found ${live.n}`);
+});
+await mustReject('a SECOND live row is refused even amid many historical rows (23505)',
+  `INSERT INTO work_order_assignments(work_order_id, tenant_id, mechanic_user_id, assigned_by_user_id)
+   VALUES ('11111111-2222-3333-4444-555555555555','${TENANT}','u-mech-1','u-mgr')`, '23505');
+await must('the partial index is genuinely predicated on unassigned_at IS NULL', async () => {
+  const [r] = await q(`SELECT indexdef FROM pg_indexes WHERE indexname='uq_work_order_assignments_live'`);
+  if (!r) throw new Error('uq_work_order_assignments_live is missing');
+  if (!/WHERE .*unassigned_at IS NULL/i.test(r.indexdef)) {
+    throw new Error(`index is not partial on the live predicate: ${r.indexdef}`);
+  }
+});
+
 await mustReject('assignment to an unknown mechanic is FK-rejected',
   `INSERT INTO work_order_assignments(work_order_id, tenant_id, mechanic_user_id, assigned_by_user_id)
    VALUES ('11111111-2222-3333-4444-999999999999','${TENANT}','u-ghost','u-mgr')`, '23503');

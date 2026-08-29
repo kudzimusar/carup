@@ -1,5 +1,6 @@
 import { ConflictError, DatabaseError, ForbiddenError, NotFoundError, ValidationError } from '../../utils/errors.js';
 import { GARAGE_SERVICE_CATEGORIES } from './garageDirectoryService.js';
+import { assertBranchBelongsToTenant } from './serviceAuthority.js';
 
 /**
  * Service Network S4 — work order convergence and mechanic assignment.
@@ -38,7 +39,7 @@ function isTerminal(status) {
 
 function requireTenantContext(userContext = {}) {
   const tenantId = userContext.tenantId || null;
-  if (!tenantId) throw new ForbiddenError('A verified garage tenant context is required');
+  if (!tenantId) throw new ForbiddenError('A membership-verified garage tenant context is required');
   return tenantId;
 }
 
@@ -101,6 +102,10 @@ export async function createWorkOrderForCase(supabaseClient, userContext, caseId
   const category = body.service_category === undefined
     ? caseRow.service_category
     : normalizeCategory(body.service_category);
+
+  // The branch propagated onto the work order must still belong to this garage — a case
+  // row carrying a foreign branch must not launder one into the work-order table.
+  await assertBranchBelongsToTenant(supabaseClient, caseRow.branch_id, tenantId);
 
   const row = {
     tenant_id: tenantId,

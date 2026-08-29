@@ -93,7 +93,11 @@ export async function bridgeInquiryToServiceCase(supabaseClient, userContext, in
       source_channel: inquirySourceChannel(inquiry),
       request_summary: inquiry.message || null,
     },
-    deps,
+    // The Marketplace inquiry is itself the governed authority path here (plan §10):
+    // the buyer raised the inquiry against this listing, so vehicle authority is
+    // established by the inquiry rather than by owner lookup. Marked explicitly so it
+    // can never be mistaken for an unchecked call.
+    { ...deps, authorityAlreadyVerified: 'marketplace_inquiry' },
   );
 }
 

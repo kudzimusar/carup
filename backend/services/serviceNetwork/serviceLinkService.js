@@ -1,5 +1,10 @@
 import crypto from 'crypto';
 import { ConflictError, DatabaseError, ForbiddenError, NotFoundError, ValidationError } from '../../utils/errors.js';
+import {
+  assertPractitionerAuthority,
+  assertServiceCaseAuthority,
+  assertVehicleAuthority,
+} from './serviceAuthority.js';
 
 /**
  * Service Network S8 — Service Link resolver and scoped capability grants.
@@ -59,6 +64,22 @@ export async function ensureServiceLink(supabaseClient, userContext, body = {}) 
   const resourceId = String(body.resource_id || '').trim();
   if (!resourceId) throw new ValidationError('resource_id is required');
 
+  // HARDENING: minting a PERMANENT public address for a resource is consequential — the
+  // token ends up on a sticker. Being signed in is not authority, so canonical authority
+  // over the specific resource is required first. Each check throws NotFoundError for an
+  // unauthorised resource, so this cannot be used to probe which VINs or cases exist.
+  let resolvedTenantId = null;
+  if (resourceType === 'vehicle') {
+    await assertVehicleAuthority(supabaseClient, userContext, resourceId);
+  } else if (resourceType === 'service_case') {
+    const { serviceCase } = await assertServiceCaseAuthority(supabaseClient, userContext, resourceId);
+    // The tenant is derived from the CASE, never from the request body.
+    resolvedTenantId = serviceCase.garage_tenant_id;
+  } else {
+    await assertPractitionerAuthority(supabaseClient, userContext, resourceId);
+    resolvedTenantId = userContext.tenantId || null;
+  }
+
   const { data: existing, error: existingError } = await supabaseClient
     .from('service_links')
     .select('*')
@@ -72,7 +93,9 @@ export async function ensureServiceLink(supabaseClient, userContext, body = {}) 
     public_token: generateToken(LINK_TOKEN_BYTES),
     resource_type: resourceType,
     resource_id: resourceId,
-    tenant_id: body.tenant_id || userContext.tenantId || null,
+    // Server-derived only. A client-supplied tenant_id is never honoured: it would let a
+    // caller stamp another garage's identity onto a permanent public link.
+    tenant_id: resolvedTenantId,
     created_by_user_id: creator,
     is_active: true,
   };
@@ -198,6 +221,11 @@ export async function resolveServiceLink(supabaseClient, userContext, publicToke
  * Grant a narrow, time-boxed capability over one resource.
  *
  * The raw secret is returned exactly once. Only its hash is stored.
+ *
+ * A capability conveys ONLY the service-context authority named by its purpose. It does
+ * NOT confer access to the canonical Communications conversation: Communications owns
+ * participation and applies its own participant rules (Invariant 6), so conversation
+ * access is never a side effect of holding a service capability.
  */
 export async function grantCapability(supabaseClient, userContext, body = {}) {
   const granter = actorId(userContext);
@@ -228,6 +256,14 @@ export async function grantCapability(supabaseClient, userContext, body = {}) {
     }
   }
 
+  // A named grantee must be a real tenant, or the binding would be meaningless.
+  const granteeTenantId = body.grantee_tenant_id ? String(body.grantee_tenant_id).trim() : null;
+  if (granteeTenantId) {
+    const { data: tenant } = await supabaseClient
+      .from('tenants').select('id').eq('id', granteeTenantId).maybeSingle();
+    if (!tenant) throw new ValidationError('Unknown grantee tenant');
+  }
+
   const rawToken = generateToken(GRANT_TOKEN_BYTES);
   const ttl = CAPABILITY_TTL_MINUTES[purpose];
   const { data, error } = await supabaseClient
@@ -238,7 +274,7 @@ export async function grantCapability(supabaseClient, userContext, body = {}) {
       resource_type: resourceType,
       resource_id: resourceId,
       granted_by_user_id: granter,
-      grantee_tenant_id: body.grantee_tenant_id || null,
+      grantee_tenant_id: granteeTenantId,
       expires_at: new Date(Date.now() + ttl * 60 * 1000).toISOString(),
     })
     .select()
@@ -259,6 +295,22 @@ export async function redeemCapability(supabaseClient, userContext, rawToken) {
   if (!token) throw new ValidationError('capability token is required');
   const tokenHash = hashCapabilityToken(token);
   const now = new Date().toISOString();
+
+  // Wrong-recipient defence. A grant bound to a garage may only be redeemed from a
+  // verified context for THAT garage. The check is made before the consuming update so a
+  // mis-delivered link is not silently burned, and it is expressed as the same
+  // "not valid" outcome so unknown / expired / revoked / wrong-recipient / replayed all
+  // remain indistinguishable to a holder.
+  const { data: candidate, error: lookupError } = await supabaseClient
+    .from('service_capability_grants')
+    .select('grantee_tenant_id')
+    .eq('token_hash', tokenHash)
+    .maybeSingle();
+  if (lookupError) throw new DatabaseError(`Failed to read capability: ${lookupError.message}`);
+  if (candidate && candidate.grantee_tenant_id
+      && candidate.grantee_tenant_id !== (userContext?.tenantId || null)) {
+    throw new NotFoundError('This access link is not valid');
+  }
 
   const { data, error } = await supabaseClient
     .from('service_capability_grants')

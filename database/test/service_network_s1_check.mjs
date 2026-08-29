@@ -108,10 +108,12 @@ for (const t of ['garage_public_profiles','garage_branches']) {
       if (r.any_priv) throw new Error(`${role} has privileges`);
     });
   }
-  await must(`${t}: service_role holds SELECT/INSERT/UPDATE/DELETE`, async () => {
+  await must(`${t}: service_role holds SELECT/INSERT/UPDATE but NOT DELETE`, async () => {
     const [r] = await q(`SELECT bool_and(has_table_privilege('service_role','${t}',p)) all_priv
-      FROM unnest(ARRAY['SELECT','INSERT','UPDATE','DELETE']) p`);
-    if (!r.all_priv) throw new Error('service_role missing privileges');
+      FROM unnest(ARRAY['SELECT','INSERT','UPDATE']) p`);
+    if (!r.all_priv) throw new Error('service_role missing a required privilege');
+    const [del] = await q(`SELECT has_table_privilege('service_role','${t}','DELETE') can_delete`);
+    if (del.can_delete) throw new Error('DELETE is granted — history could be destroyed');
   });
 }
 

@@ -22,7 +22,9 @@
 -- +migrate Up
 
 CREATE TABLE IF NOT EXISTS garage_public_profiles (
-  tenant_id UUID PRIMARY KEY REFERENCES tenants(id) ON DELETE CASCADE,
+  -- RESTRICT, not CASCADE: deleting a tenant must not silently erase its garage
+  -- identity. Unpublishing is a state; destruction requires an explicit decision.
+  tenant_id UUID PRIMARY KEY REFERENCES tenants(id) ON DELETE RESTRICT,
   display_name TEXT NOT NULL,
   slug TEXT NOT NULL UNIQUE,
   publication_status TEXT NOT NULL DEFAULT 'draft'
@@ -49,7 +51,7 @@ CREATE INDEX IF NOT EXISTS idx_garage_public_profiles_status
 
 CREATE TABLE IF NOT EXISTS garage_branches (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  tenant_id UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+  tenant_id UUID NOT NULL REFERENCES tenants(id) ON DELETE RESTRICT,
   name TEXT NOT NULL,
   location_city TEXT,
   location_province TEXT,
@@ -57,7 +59,11 @@ CREATE TABLE IF NOT EXISTS garage_branches (
   is_active BOOLEAN NOT NULL DEFAULT true,
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-  UNIQUE(tenant_id, name)
+  UNIQUE(tenant_id, name),
+  -- Composite target so a Service Case / work order can reference a branch AND its
+  -- tenant together, making "a branch from Garage B on Garage A's case" unrepresentable
+  -- in the database rather than merely rejected in application code.
+  UNIQUE(id, tenant_id)
 );
 
 CREATE INDEX IF NOT EXISTS idx_garage_branches_tenant
@@ -67,12 +73,14 @@ CREATE INDEX IF NOT EXISTS idx_garage_branches_tenant
 ALTER TABLE garage_public_profiles ENABLE ROW LEVEL SECURITY;
 ALTER TABLE garage_public_profiles FORCE ROW LEVEL SECURITY;
 REVOKE ALL ON TABLE garage_public_profiles FROM PUBLIC, anon, authenticated;
-GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE garage_public_profiles TO service_role;
+-- No DELETE: publication state changes; the record is never destroyed.
+GRANT SELECT, INSERT, UPDATE ON TABLE garage_public_profiles TO service_role;
 
 ALTER TABLE garage_branches ENABLE ROW LEVEL SECURITY;
 ALTER TABLE garage_branches FORCE ROW LEVEL SECURITY;
 REVOKE ALL ON TABLE garage_branches FROM PUBLIC, anon, authenticated;
-GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE garage_branches TO service_role;
+-- No DELETE: a branch is deactivated (is_active=false), never destroyed.
+GRANT SELECT, INSERT, UPDATE ON TABLE garage_branches TO service_role;
 
 -- +migrate Down
 DROP TABLE IF EXISTS garage_branches;

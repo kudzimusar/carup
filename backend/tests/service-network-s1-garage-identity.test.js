@@ -186,7 +186,7 @@ test('garage identity is limited to garage-type tenants and requires a verified 
   );
   await assert.rejects(
     () => upsertMyGarageProfile(client, { id: 'u-d', tenantId: null }, { display_name: 'Nobody' }),
-    /verified garage tenant context/,
+    /membership-verified garage tenant context/,
   );
 });
 

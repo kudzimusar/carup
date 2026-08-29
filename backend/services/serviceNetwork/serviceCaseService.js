@@ -1,6 +1,7 @@
 import { ConflictError, DatabaseError, ForbiddenError, NotFoundError, ValidationError } from '../../utils/errors.js';
 import { emitDomainEvent } from '../eventBus/eventBusService.js';
 import { GARAGE_SERVICE_CATEGORIES } from './garageDirectoryService.js';
+import { assertBranchBelongsToTenant, assertVehicleAuthority, findLiveCapability } from './serviceAuthority.js';
 
 /**
  * Service Network S2 — Canonical Service Case.
@@ -62,7 +63,7 @@ export const SERVICE_CASE_EVENTS = Object.freeze({
 
 function requireTenantContext(userContext = {}) {
   const tenantId = userContext.tenantId || null;
-  if (!tenantId) throw new ForbiddenError('A verified garage tenant context is required');
+  if (!tenantId) throw new ForbiddenError('A membership-verified garage tenant context is required');
   return tenantId;
 }
 
@@ -215,15 +216,44 @@ function assertGarageMayAct(caseRow, userContext) {
   return tenantId;
 }
 
-function assertParticipantMayRead(caseRow, userContext) {
+function participantRoles(caseRow, userContext) {
   const id = userContext.id || userContext.userId || null;
   const tenantId = userContext.tenantId || null;
-  const isRequester = Boolean(id) && caseRow.requester_user_id === id;
-  const isGarage = Boolean(tenantId) && caseRow.garage_tenant_id === tenantId;
-  if (!isRequester && !isGarage) {
+  return {
+    isRequester: Boolean(id) && caseRow.requester_user_id === id,
+    isGarage: Boolean(tenantId) && caseRow.garage_tenant_id === tenantId,
+  };
+}
+
+function assertParticipantMayRead(caseRow, userContext) {
+  const roles = participantRoles(caseRow, userContext);
+  if (!roles.isRequester && !roles.isGarage) {
     throw new NotFoundError('Service case not found');
   }
-  return { isRequester, isGarage };
+  return roles;
+}
+
+/**
+ * Read authorization including live capabilities.
+ *
+ * A redeemed, unexpired, unrevoked capability granted by the requester is real access —
+ * that is the whole point of granting one. It is checked against current rows on every
+ * call, so revocation and expiry take effect immediately with nothing cached.
+ *
+ * A capability grants SERVICE CONTEXT only. It never confers Communications conversation
+ * access: the conversation thread reference is withheld unless the caller is a genuine
+ * case participant, leaving Communications to apply its own participant rules.
+ */
+async function assertMayReadCase(supabaseClient, caseRow, userContext) {
+  const roles = participantRoles(caseRow, userContext);
+  if (roles.isRequester || roles.isGarage) return { ...roles, viaCapability: false };
+
+  const capability = await findLiveCapability(
+    supabaseClient, userContext, 'service_case', caseRow.id,
+    ['service_case_participation', 'service_context_read'],
+  );
+  if (!capability) throw new NotFoundError('Service case not found');
+  return { ...roles, viaCapability: true, capability };
 }
 
 // ─────────────────────────── request ───────────────────────────
@@ -240,6 +270,15 @@ export async function requestServiceCase(supabaseClient, userContext, body = {},
   if (!vin) throw new ValidationError('vin is required');
   const garageTenantId = String(body.garage_tenant_id || '').trim();
   if (!garageTenantId) throw new ValidationError('garage_tenant_id is required');
+
+  // HARDENING: authenticating the caller is not enough. Opening a service engagement
+  // against a vehicle is a consequential act, so the caller must hold canonical authority
+  // over THIS vin — as its owner, or through a live capability the owner granted.
+  // Ownership is never inferred from seller, tenant or Marketplace state.
+  // The Marketplace inquiry bridge is a separate governed path and passes its own basis.
+  if (!deps.authorityAlreadyVerified) {
+    await assertVehicleAuthority(supabaseClient, userContext, vin);
+  }
 
   // The target garage must be a real, PUBLISHED garage: a case cannot be routed
   // to a tenant that never offered itself for service work.
@@ -263,6 +302,9 @@ export async function requestServiceCase(supabaseClient, userContext, body = {},
     if (existingError) throw new DatabaseError(`Failed to check inquiry bridge: ${existingError.message}`);
     if (existing) return { case: toCaseView(existing), created: false };
   }
+
+  // A branch may only be attached together with its owning garage (also a DB composite FK).
+  await assertBranchBelongsToTenant(supabaseClient, body.branch_id, garageTenantId);
 
   const now = new Date().toISOString();
   const row = {
@@ -292,9 +334,26 @@ export async function requestServiceCase(supabaseClient, userContext, body = {},
     throw new DatabaseError(`Failed to create service case: ${error.message}`);
   }
 
-  await appendCaseEvent(supabaseClient, data, SERVICE_CASE_EVENTS.requested, null, 'requested', userContext, {
-    source_channel: data.source_channel,
-  });
+  // Same rule on creation: a case whose creation history cannot be recorded is not left
+  // half-born. There is no prior status to roll back to, so the case row is retired to
+  // 'cancelled' with the reason recorded rather than existing without provenance.
+  try {
+    await appendCaseEvent(supabaseClient, data, SERVICE_CASE_EVENTS.requested, null, 'requested', userContext, {
+      source_channel: data.source_channel,
+    });
+  } catch (historyError) {
+    await supabaseClient
+      .from('service_cases')
+      .update({
+        status: 'cancelled',
+        cancelled_at: new Date().toISOString(),
+        cancellation_reason_code: 'other',
+        updated_at: new Date().toISOString(),
+      })
+      .eq('id', data.id)
+      .eq('status', 'requested');
+    throw new DatabaseError(`Service case could not be recorded (${historyError.message})`);
+  }
   const emit = await emitCaseEvent(SERVICE_CASE_EVENTS.requested, data, {
     requesterUserId: data.requester_user_id,
     sourceChannel: data.source_channel,
@@ -324,19 +383,71 @@ async function transition(supabaseClient, userContext, caseId, toStatus, { patch
   if (error) throw new DatabaseError(`Failed to update service case: ${error.message}`);
   if (!data) throw new ConflictError('This case changed while you were acting on it; reload and try again');
 
-  await appendCaseEvent(supabaseClient, data, eventType, caseRow.status, toStatus, userContext, metadata);
+  // ATOMICITY (hardening, plan §8).
+  //
+  // Three writes make up a transition: the authoritative status change, the append-only
+  // history row, and the durable outbox event. Without a shared transaction there are two
+  // failure windows. They are handled differently because they are not equally recoverable:
+  //
+  //  1. state → history. A state change whose history row is lost is unreconstructable, so
+  //     the append is retried and, if it still fails, the transition is ROLLED BACK to the
+  //     observed prior status. The rollback is itself guarded on the row not having moved
+  //     again, so it can never clobber a concurrent writer.
+  //
+  //  2. history → outbox. An emit failure is recoverable by design: the case and its history
+  //     are intact and the event can be replayed from service_case_events, which records
+  //     every transition. It is therefore reported (notification.emitted:false) and never
+  //     rolled back — a Communications failure must not erase authoritative service truth
+  //     (plan §15.5).
+  //
+  // This is a genuine narrowing, not full atomicity. True single-transaction emission needs
+  // the SECURITY DEFINER RPC pattern #194 finalises (INSERT INTO domain_events inside the
+  // mutating transaction); adopting it is recorded as a post-rebase obligation rather than
+  // claimed here, and a competing event mechanism is deliberately not introduced.
+  try {
+    await appendCaseEvent(supabaseClient, data, eventType, caseRow.status, toStatus, userContext, metadata);
+  } catch (historyError) {
+    try {
+      await appendCaseEvent(supabaseClient, data, eventType, caseRow.status, toStatus, userContext, metadata);
+    } catch (retryError) {
+      // Restore EVERY field the transition wrote, not just the status: a rolled-back
+      // acceptance that left accepted_at set would still read as accepted downstream.
+      const restore = { status: caseRow.status, updated_at: caseRow.updated_at };
+      for (const key of Object.keys(patch)) {
+        restore[key] = caseRow[key] ?? null;
+      }
+      await supabaseClient
+        .from('service_cases')
+        .update(restore)
+        .eq('id', caseRow.id)
+        .eq('status', toStatus);
+      throw new DatabaseError(
+        `Transition rolled back: the case history could not be recorded (${retryError.message})`,
+      );
+    }
+  }
+
   const emit = await emitCaseEvent(eventType, data, extraPayload, deps);
   return { case: toCaseView(data), notification: emit };
 }
 
 export async function acceptServiceCase(supabaseClient, userContext, caseId, body = {}, deps = {}) {
   const acceptor = actorId(userContext);
+  // A garage cannot accept a case onto another garage's branch.
+  if (body.branch_id) {
+    await assertBranchBelongsToTenant(supabaseClient, body.branch_id, requireTenantContext(userContext));
+  }
+  // Only include branch_id when one was actually supplied. Spreading `undefined` into the
+  // update payload would NULL the branch recorded at request time — a silent data loss the
+  // hardening tests caught.
+  const patch = {
+    accepted_at: new Date().toISOString(),
+    accepted_by_user_id: acceptor,
+  };
+  if (body.branch_id) patch.branch_id = String(body.branch_id).trim();
+
   return transition(supabaseClient, userContext, caseId, 'accepted', {
-    patch: {
-      accepted_at: new Date().toISOString(),
-      accepted_by_user_id: acceptor,
-      branch_id: body.branch_id ? String(body.branch_id).trim() : undefined,
-    },
+    patch,
     eventType: SERVICE_CASE_EVENTS.accepted,
     extraPayload: { acceptedByUserId: acceptor },
   }, deps);
@@ -401,15 +512,22 @@ export async function cancelServiceCase(supabaseClient, userContext, caseId, bod
 
 export async function getServiceCase(supabaseClient, userContext, caseId) {
   const caseRow = await loadCase(supabaseClient, caseId);
-  assertParticipantMayRead(caseRow, userContext);
+  const access = await assertMayReadCase(supabaseClient, caseRow, userContext);
   const { data: events, error } = await supabaseClient
     .from('service_case_events')
     .select('*')
     .eq('service_case_id', caseRow.id)
     .order('created_at', { ascending: true });
   if (error) throw new DatabaseError(`Failed to load case history: ${error.message}`);
+  const view = toCaseView(caseRow);
+  if (access.viaCapability) {
+    // Service context only: conversation membership is Communications' decision, not a
+    // side effect of holding a capability.
+    view.conversation_thread_id = null;
+  }
   return {
-    case: toCaseView(caseRow),
+    case: view,
+    access_basis: access.viaCapability ? 'capability' : (access.isRequester ? 'requester' : 'garage'),
     history: (events || []).map((e) => ({
       event_type: e.event_type,
       from_status: e.from_status,

@@ -42,10 +42,14 @@ export const UNIQUE_INDEXES = Object.freeze({
   // (work_order_id) WHERE unassigned_at IS NULL (at most one LIVE mechanic per work order —
   // a second concurrent assign must lose the race, not produce two "current" mechanics).
   mechanic_work_orders: [['service_case_id']],
-  work_order_assignments: [['work_order_id', 'unassigned_at']],
+  // Partial: UNIQUE (work_order_id) WHERE unassigned_at IS NULL.
+  work_order_assignments: [
+    { columns: ['work_order_id'], where: (row) => row.unassigned_at === null || row.unassigned_at === undefined },
+  ],
   // Service Network S2 — service_cases: partial UNIQUE (source_inquiry_id) WHERE NOT NULL.
   // This index IS the idempotent marketplace bridge: a retry must lose the insert race
   // rather than open a second Service Case for one inquiry.
+  // Partial: UNIQUE (source_inquiry_id) WHERE source_inquiry_id IS NOT NULL.
   service_cases: [['source_inquiry_id']],
   // Service Network S1 — garage_public_profiles: PRIMARY KEY (tenant_id) and UNIQUE (slug).
   // Both are load-bearing: one profile per garage tenant, and a globally unique public
@@ -165,9 +169,18 @@ export function createMockSupabase(seed = {}, options = {}) {
         const uniques = UNIQUE_INDEXES[table];
         if (uniques) {
           for (const p of items) {
-            for (const cols of uniques) {
+            for (const entry of uniques) {
+              // An entry is either a plain column list, or { columns, where } for a PARTIAL
+              // unique index. Partial indexes are load-bearing in Service Network — e.g.
+              // "one LIVE assignment per work order" is UNIQUE(work_order_id) WHERE
+              // unassigned_at IS NULL — and a plain column list cannot express them,
+              // because NULLs never collide and every live row has a NULL there.
+              const cols = Array.isArray(entry) ? entry : entry.columns;
+              const predicate = Array.isArray(entry) ? null : entry.where;
+              if (predicate && !predicate(p)) continue;                       // row outside the index
               if (cols.some((c) => p[c] === undefined || p[c] === null)) continue; // NULLs never collide
-              if (rows.some((existing) => cols.every((c) => existing[c] === p[c]))) {
+              if (rows.some((existing) => (!predicate || predicate(existing))
+                  && cols.every((c) => existing[c] === p[c]))) {
                 return {
                   data: null,
                   error: {

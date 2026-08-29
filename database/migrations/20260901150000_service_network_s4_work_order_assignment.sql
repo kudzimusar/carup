@@ -40,11 +40,39 @@ CREATE UNIQUE INDEX IF NOT EXISTS uq_mechanic_work_orders_service_case
 CREATE INDEX IF NOT EXISTS idx_mechanic_work_orders_branch
   ON mechanic_work_orders(branch_id) WHERE branch_id IS NOT NULL;
 
+-- Branch integrity at the database, mirroring service_cases: a work order may only
+-- carry a branch belonging to its own tenant. MATCH SIMPLE means legacy rows with a
+-- NULL tenant_id or branch_id are unaffected, so this stays additive.
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint WHERE conname = 'mechanic_work_orders_branch_within_tenant'
+  ) THEN
+    ALTER TABLE mechanic_work_orders
+      ADD CONSTRAINT mechanic_work_orders_branch_within_tenant
+      FOREIGN KEY (branch_id, tenant_id)
+      REFERENCES garage_branches(id, tenant_id) ON DELETE RESTRICT;
+  END IF;
+END $$;
+
+-- The Service Case link becomes real referential integrity, not just a column.
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint WHERE conname = 'mechanic_work_orders_service_case_fk'
+  ) THEN
+    ALTER TABLE mechanic_work_orders
+      ADD CONSTRAINT mechanic_work_orders_service_case_fk
+      FOREIGN KEY (service_case_id) REFERENCES service_cases(id) ON DELETE RESTRICT;
+  END IF;
+END $$;
+
 -- ── durable mechanic assignment history ──
 CREATE TABLE IF NOT EXISTS work_order_assignments (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   work_order_id UUID NOT NULL,
-  tenant_id UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+  -- RESTRICT: who worked on what is history, not disposable bookkeeping.
+  tenant_id UUID NOT NULL REFERENCES tenants(id) ON DELETE RESTRICT,
   mechanic_user_id TEXT NOT NULL REFERENCES users(id),
   assigned_by_user_id TEXT NOT NULL REFERENCES users(id),
   assigned_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
@@ -68,9 +96,12 @@ CREATE INDEX IF NOT EXISTS idx_work_order_assignments_tenant
 ALTER TABLE work_order_assignments ENABLE ROW LEVEL SECURITY;
 ALTER TABLE work_order_assignments FORCE ROW LEVEL SECURITY;
 REVOKE ALL ON TABLE work_order_assignments FROM PUBLIC, anon, authenticated;
-GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE work_order_assignments TO service_role;
+-- No DELETE: unassignment closes a row (unassigned_at); history is retained.
+GRANT SELECT, INSERT, UPDATE ON TABLE work_order_assignments TO service_role;
 
 -- +migrate Down
+ALTER TABLE mechanic_work_orders DROP CONSTRAINT IF EXISTS mechanic_work_orders_service_case_fk;
+ALTER TABLE mechanic_work_orders DROP CONSTRAINT IF EXISTS mechanic_work_orders_branch_within_tenant;
 DROP TABLE IF EXISTS work_order_assignments;
 DROP INDEX IF EXISTS uq_mechanic_work_orders_service_case;
 DROP INDEX IF EXISTS idx_mechanic_work_orders_branch;

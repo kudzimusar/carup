@@ -100,10 +100,10 @@ test('an empty queue is empty, not an error', async () => {
   assert.deepEqual(result.counts, { requested: 0, accepted: 0, active: 0 });
 });
 
-test('a queue read requires a verified garage tenant context', async () => {
+test('a queue read requires a membership-verified garage tenant context', async () => {
   const client = seedClient({ service_cases: [aCase()] });
-  await assert.rejects(() => getGarageQueue(client, { id: 'u-nobody' }, {}), /verified garage tenant context/);
-  await assert.rejects(() => getGarageCustomers(client, { id: 'u-nobody' }), /verified garage tenant context/);
+  await assert.rejects(() => getGarageQueue(client, { id: 'u-nobody' }, {}), /membership-verified garage tenant context/);
+  await assert.rejects(() => getGarageCustomers(client, { id: 'u-nobody' }), /membership-verified garage tenant context/);
 });
 
 test('customers are the garage real customers, counted from its own records', async () => {

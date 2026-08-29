@@ -1,5 +1,6 @@
 import { ConflictError, DatabaseError, ForbiddenError, NotFoundError, ValidationError } from '../../utils/errors.js';
 import { GARAGE_SERVICE_CATEGORIES } from './garageDirectoryService.js';
+import { assertEvidenceUsable } from './serviceAuthority.js';
 
 /**
  * Service Network S5 — service records, mileage observations, parts and evidence.
@@ -30,7 +31,7 @@ export const MILEAGE_OBSERVATION_SOURCES = Object.freeze([
 
 function requireTenantContext(userContext = {}) {
   const tenantId = userContext.tenantId || null;
-  if (!tenantId) throw new ForbiddenError('A verified garage tenant context is required');
+  if (!tenantId) throw new ForbiddenError('A membership-verified garage tenant context is required');
   return tenantId;
 }
 
@@ -231,14 +232,15 @@ export async function linkEvidence(supabaseClient, userContext, recordId, body =
   const evidenceId = String(body.evidence_id || '').trim();
   if (!evidenceId) throw new ValidationError('evidence_id is required');
 
-  const { data: evidence, error: evidenceError } = await supabaseClient
-    .from('vehicle_evidence')
-    .select('id, vin')
-    .eq('id', evidenceId)
-    .maybeSingle();
-  if (evidenceError) throw new DatabaseError(`Failed to load evidence: ${evidenceError.message}`);
-  if (!evidence) throw new NotFoundError('Evidence not found');
-  if (evidence.vin !== record.vin) throw new ValidationError('That evidence belongs to a different vehicle');
+  // HARDENING: a matching VIN is NOT authorization — it only says the evidence concerns
+  // the same vehicle. Using an evidence item additionally requires a governed service
+  // engagement for that vehicle by this garage, and evidence provided by another party
+  // is not this garage's to reuse. Evidence itself remains the Evidence authority's.
+  await assertEvidenceUsable(supabaseClient, userContext, evidenceId, {
+    vin: record.vin,
+    tenantId,
+    serviceCaseId: record.service_case_id,
+  });
 
   const { data, error } = await supabaseClient
     .from('service_record_evidence')
