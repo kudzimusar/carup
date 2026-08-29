@@ -26,6 +26,12 @@
  * here are enforced, so existing tests are unaffected.
  */
 export const UNIQUE_INDEXES = Object.freeze({
+  // Service Network S1 — garage_public_profiles: PRIMARY KEY (tenant_id) and UNIQUE (slug).
+  // Both are load-bearing: one profile per garage tenant, and a globally unique public
+  // slug (the public identity, since internal tenant UUIDs are never published).
+  garage_public_profiles: [['tenant_id'], ['slug']],
+  // Service Network S1 — garage_branches: UNIQUE (tenant_id, name).
+  garage_branches: [['tenant_id', 'name']],
   // ledger #21 — diaspora_safetrade_provider_events: UNIQUE (provider, event_id)
   diaspora_safetrade_provider_events: [['provider', 'event_id']],
   // ledger #21 — diaspora_safetrade_operations: UNIQUE (tenant_id, idempotency_key)
@@ -76,6 +82,8 @@ export function createMockSupabase(seed = {}, options = {}) {
     const state = {
       op: 'select',
       payload: null,
+      count: null,
+      head: false,
       filtersEq: [],
       filtersNeq: [],
       // .in() previously returned the chain untouched, so every `.in()`-filtered query returned the
@@ -156,14 +164,25 @@ export function createMockSupabase(seed = {}, options = {}) {
       if (state.range) data = data.slice(state.range[0], state.range[1] + 1);
       if (state.single) {
         if (!data.length) return { data: null, error: { message: 'no rows', code: 'PGRST116' } };
-        return { data: data[0], error: null };
+        return { data: data[0], error: null, count: state.count ? data.length : null };
       }
-      if (state.maybeSingle) return { data: data[0] || null, error: null };
+      if (state.maybeSingle) return { data: data[0] || null, error: null, count: state.count ? data.length : null };
+      if (state.count) {
+        return { data: state.head ? null : data, error: null, count: data.length };
+      }
       return { data, error: null };
     }
 
     const chain = {
-      select() { return chain; },
+      select(_cols, opts) {
+        // supabase-js: .select(cols, { count: 'exact', head: true }) returns a row COUNT.
+        // Without this the mock silently answers `count: undefined`, which a service reading
+        // `count ?? 0` turns into a fabricated zero — exactly the "unknown is not zero"
+        // failure the real client would never produce.
+        if (opts && opts.count) state.count = opts.count;
+        if (opts && opts.head) state.head = true;
+        return chain;
+      },
       insert(p) { state.op = 'insert'; state.payload = p; return chain; },
       update(p) { state.op = 'update'; state.payload = p; return chain; },
       delete() { state.op = 'delete'; return chain; },
