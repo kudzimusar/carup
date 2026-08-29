@@ -71,7 +71,7 @@ export default function Register() {
   const [loading, setLoading] = useState(false)
   const [registered, setRegistered] = useState<{
     email: string
-    emailQueued: boolean
+    emailStatus: 'sent' | 'queued' | 'delivery_failed' | 'queue_failed'
     onboardingRequested: boolean
     role: string
   } | null>(null)
@@ -129,7 +129,7 @@ export default function Register() {
       const data = await apiRequest<{
         user: AuthUser
         token: string
-        email_verification?: { status?: string }
+        email_verification?: { status?: 'sent' | 'queued' | 'delivery_failed' | 'queue_failed' }
         onboarding?: { status?: string } | null
       }>({
         baseUrl: API_BASE,
@@ -164,7 +164,7 @@ export default function Register() {
       login(data.user, data.token)
       setRegistered({
         email: data.user.email,
-        emailQueued: data.email_verification?.status === 'queued',
+        emailStatus: data.email_verification?.status || 'queue_failed',
         onboardingRequested: data.onboarding?.status === 'requested',
         role: data.user.role,
       })
@@ -220,9 +220,11 @@ export default function Register() {
                 <div>
                   <p className="font-semibold text-slate-900">Verify your email</p>
                   <p className="mt-0.5 text-slate-600">
-                    {registered.emailQueued
-                      ? `A confirmation link was queued for ${registered.email}.`
-                      : `We could not confirm that the verification message was queued for ${registered.email}. You can request another below.`}
+                    {registered.emailStatus === 'sent'
+                      ? `A confirmation email was sent to ${registered.email}.`
+                      : registered.emailStatus === 'queued'
+                        ? `Your confirmation email is queued for ${registered.email}. You can resend it if it does not arrive shortly.`
+                        : `CarUp could not confirm delivery of the verification email to ${registered.email}. Use the resend button below.`}
                   </p>
                 </div>
               </div>

@@ -2235,14 +2235,21 @@ app.post('/api/auth/register', async (req, res) => {
         userAgent: req.headers?.['user-agent'] || null,
         source: 'registration',
       });
+      const deliveryStatus = verification.delivery?.status || null;
       emailVerification = {
-        status: 'queued',
+        status: deliveryStatus === 'sent'
+          ? 'sent'
+          : deliveryStatus === 'retry_scheduled'
+            ? 'queued'
+            : deliveryStatus
+              ? 'delivery_failed'
+              : 'queued',
         expires_at: verification.record?.expires_at || null,
       };
     } catch (verificationError) {
       // Account + session remain valid. The UI exposes re-send rather than pretending delivery
       // happened. Provider/worker readiness is a separate operational gate.
-      console.error('[auth] registration verification Email could not be queued:', verificationError?.message);
+      console.error('[auth] registration verification Email could not be dispatched:', verificationError?.message);
     }
 
     res.json({
