@@ -292,6 +292,7 @@ async function custodyPreparedDb() {
   `);
   await db.exec(up('../../database/migrations/20260828210000_issue158_private_key_custody.sql'));
   await db.exec(up('../../database/migrations/20260829003000_issue158_custody_rollout_upgrade.sql'));
+  await db.exec(up('../../database/migrations/20260829020000_issue158_activation_boundary_hardening.sql'));
   return db;
 }
 
@@ -336,7 +337,19 @@ test('Issue #158 PREPARED phase preserves legacy private material and blocks new
       await db.exec('RESET ROLE');
     }
 
-    // Even the current 9-argument generation-bound contract stays disabled in PREPARED.
+    // Even the current boundary generation-bound contract stays disabled in PREPARED.
+    await assert.rejects(
+      () => db.query(`
+        SELECT * FROM public.blockchain_activate_public_key_boundary(
+          'candidate-prepared','user-1','PUBLIC-DERIVED','secp256k1',
+          'derived:test:v1:prepared','v1','derived_master_secret',
+          $1::text
+        )
+      `, [GEN_V1]),
+      /cutover is not finalized/i,
+    );
+
+    // The superseded caller-clock nine-argument contract is retired, not merely gated.
     await assert.rejects(
       () => db.query(`
         SELECT * FROM public.blockchain_activate_public_key_atomic(
@@ -345,7 +358,7 @@ test('Issue #158 PREPARED phase preserves legacy private material and blocks new
           $1::text
         )
       `, [GEN_V1]),
-      /cutover is not finalized/i,
+      /obsolete custody activation contract/i,
     );
   } finally {
     await db.close();
@@ -557,8 +570,10 @@ async function legacyMonolithDb() {
       TEXT,TEXT,TEXT,TEXT,TEXT,TEXT,TEXT,TEXT
     ) TO service_role;
   `);
-  // The ONLY thing a legacy database receives is the later-version upgrade migration.
+  // The ONLY thing a legacy database receives is the later-version upgrade
+  // migrations, in order — never a rewrite of the monolithic identity it recorded.
   await db.exec(up('../../database/migrations/20260829003000_issue158_custody_rollout_upgrade.sql'));
+  await db.exec(up('../../database/migrations/20260829020000_issue158_activation_boundary_hardening.sql'));
   return db;
 }
 
@@ -622,13 +637,25 @@ test('Issue #158 legacy monolithic databases are upgraded to explicit PREPARED, 
       /obsolete custody activation contract/i,
     );
 
-    // The current 9-argument contract exists but stays disabled: PREPARED is explicit
-    // maintenance, never implied finalization.
+    // The superseded caller-clock 9-argument contract is likewise retired.
     await assert.rejects(
       () => db.query(`
         SELECT * FROM public.blockchain_activate_public_key_atomic(
           'key-9arg','user-legacy','PUBLIC-NEXT','secp256k1',
           '2026-08-29T00:00:00Z','derived:test:v1:legacy','v1','derived_master_secret',
+          $1::text
+        )
+      `, [GEN_V1]),
+      /obsolete custody activation contract/i,
+    );
+
+    // The current boundary contract exists but stays disabled: PREPARED is explicit
+    // maintenance, never implied finalization.
+    await assert.rejects(
+      () => db.query(`
+        SELECT * FROM public.blockchain_activate_public_key_boundary(
+          'key-boundary','user-legacy','PUBLIC-NEXT','secp256k1',
+          'derived:test:v1:legacy','v1','derived_master_secret',
           $1::text
         )
       `, [GEN_V1]),
@@ -761,16 +788,17 @@ async function activateKey(db, {
   candidateId,
   userId='user-1',
   publicKey,
-  at,
   version,
   generation,
 }) {
+  // The boundary contract takes NO caller timestamp; the database returns the
+  // authoritative event timestamp it established for this authorized check.
   const { rows } = await db.query(`
-    SELECT * FROM public.blockchain_activate_public_key_atomic(
-      $1::text,$2::text,$3::text,$4::text,$5::text,$6::text,$7::text,$8::text,$9::text
+    SELECT * FROM public.blockchain_activate_public_key_boundary(
+      $1::text,$2::text,$3::text,$4::text,$5::text,$6::text,$7::text,$8::text
     )
   `, [
-    candidateId,userId,publicKey,'secp256k1',at,
+    candidateId,userId,publicKey,'secp256k1',
     `derived:test:${version}:${candidateId}`,version,'derived_master_secret',generation,
   ]);
   return rows[0];
@@ -779,16 +807,17 @@ async function activateKey(db, {
 test('Issue #158 atomic activation preserves v1 -> v2 -> rollback-v1 key validity incarnations', async () => {
   const db = await custodyDb({ generation: GEN_V1 });
   try {
-    // The authorized v1 runtime activates the (already-present) v1 key.
+    // The authorized v1 runtime activates the (already-present) v1 key. The DB
+    // returns the authoritative event timestamp for this signing check.
     const v1 = await activateKey(db, {
       candidateId: 'ignored-existing-active',
       publicKey: 'PUBLIC-MATERIAL',
       version: 'v1',
-      at: '2026-08-28T09:00:00Z',
       generation: GEN_V1,
     });
     assert.equal(v1.status, 'ACTIVE');
     assert.equal(v1.id, 'key-1');
+    assert.ok(Number.isFinite(Date.parse(v1.event_timestamp)));
 
     // A v2 runtime whose generation is NOT yet owner-authorized must be rejected
     // outright — the active key must not oscillate during a rolling config cutover.
@@ -797,7 +826,6 @@ test('Issue #158 atomic activation preserves v1 -> v2 -> rollback-v1 key validit
         candidateId: 'key-v2-premature',
         publicKey: 'PUBLIC-V2',
         version: 'v2',
-        at: '2026-08-28T09:30:00Z',
         generation: GEN_V2,
       }),
       /custody generation is not authorized/i,
@@ -808,11 +836,12 @@ test('Issue #158 atomic activation preserves v1 -> v2 -> rollback-v1 key validit
       candidateId: 'key-v2-incarnation-1',
       publicKey: 'PUBLIC-V2',
       version: 'v2',
-      at: '2026-08-28T10:00:00Z',
       generation: GEN_V2,
     });
     assert.equal(v2.status, 'ACTIVE');
     assert.equal(v2.public_key_pem, 'PUBLIC-V2');
+    // The rotation boundary is strictly after the last authorized v1 signing check.
+    assert.ok(Date.parse(v2.event_timestamp) > Date.parse(v1.event_timestamp));
 
     // A superseded v1 runtime instance still running after the v2 authorization must
     // be rejected instead of flipping the active key back.
@@ -821,7 +850,6 @@ test('Issue #158 atomic activation preserves v1 -> v2 -> rollback-v1 key validit
         candidateId: 'key-v1-superseded',
         publicKey: 'PUBLIC-MATERIAL',
         version: 'v1',
-        at: '2026-08-28T11:00:00Z',
         generation: GEN_V1,
       }),
       /custody generation is not authorized/i,
@@ -833,7 +861,6 @@ test('Issue #158 atomic activation preserves v1 -> v2 -> rollback-v1 key validit
       candidateId: 'key-v1-incarnation-2',
       publicKey: 'PUBLIC-MATERIAL',
       version: 'v1',
-      at: '2026-08-29T10:00:00Z',
       generation: GEN_V1_ROLLBACK,
     });
     assert.equal(rollback.status, 'ACTIVE');
@@ -845,10 +872,10 @@ test('Issue #158 atomic activation preserves v1 -> v2 -> rollback-v1 key validit
       candidateId: 'ignored-new-candidate',
       publicKey: 'PUBLIC-MATERIAL',
       version: 'v1',
-      at: '2026-08-29T11:00:00Z',
       generation: GEN_V1_ROLLBACK,
     });
     assert.equal(replay.id, 'key-v1-incarnation-2');
+    assert.ok(Date.parse(replay.event_timestamp) > Date.parse(rollback.event_timestamp));
 
     const history = await db.query(`
       SELECT id,public_key_pem,status,created_at,revoked_at,key_version
@@ -863,10 +890,62 @@ test('Issue #158 atomic activation preserves v1 -> v2 -> rollback-v1 key validit
     const firstV2 = history.rows.find((row) => row.id === 'key-v2-incarnation-1');
     const rollbackV1 = history.rows.find((row) => row.id === 'key-v1-incarnation-2');
 
-    assert.equal(originalV1.revoked_at, '2026-08-28T10:00:00Z');
-    assert.equal(firstV2.revoked_at, '2026-08-29T10:00:00Z');
+    // DB-owned half-open validity chain: each superseded key ends at EXACTLY the
+    // boundary where its successor begins — no overlap, no gap, no caller clock.
+    assert.equal(originalV1.revoked_at, firstV2.created_at);
+    assert.equal(firstV2.revoked_at, rollbackV1.created_at);
     assert.equal(rollbackV1.revoked_at, null);
+    assert.ok(Date.parse(originalV1.created_at) < Date.parse(originalV1.revoked_at));
+    assert.ok(Date.parse(firstV2.created_at) < Date.parse(firstV2.revoked_at));
+    assert.equal(firstV2.created_at, v2.event_timestamp);
     assert.equal(rollbackV1.key_version, 'v1');
+  } finally {
+    await db.close();
+  }
+});
+
+test('Issue #158 boundary authority is strictly monotonic per stakeholder even within one millisecond', async () => {
+  const db = await custodyDb({ generation: GEN_V1 });
+  try {
+    // Repeated authorized signing checks in a tight loop land inside the same
+    // wall-clock millisecond frequently; the DB must still hand out strictly
+    // increasing millisecond-resolution event timestamps.
+    const stamps = [];
+    for (let i = 0; i < 8; i += 1) {
+      const row = await activateKey(db, {
+        candidateId: `ignored-monotonic-${i}`,
+        publicKey: 'PUBLIC-MATERIAL',
+        version: 'v1',
+        generation: GEN_V1,
+      });
+      assert.equal(row.id, 'key-1');
+      stamps.push(row.event_timestamp);
+    }
+    for (let i = 1; i < stamps.length; i += 1) {
+      assert.ok(
+        Date.parse(stamps[i]) > Date.parse(stamps[i - 1]),
+        `boundary ${stamps[i]} must be strictly after ${stamps[i - 1]}`,
+      );
+    }
+
+    // Rotation immediately after the last check chooses a boundary strictly
+    // greater than every previously authorized event timestamp.
+    await authorizeGeneration(db, GEN_V2);
+    const rotated = await activateKey(db, {
+      candidateId: 'key-v2-monotonic',
+      publicKey: 'PUBLIC-V2',
+      version: 'v2',
+      generation: GEN_V2,
+    });
+    assert.ok(Date.parse(rotated.event_timestamp) > Date.parse(stamps[stamps.length - 1]));
+
+    const boundary = await db.query(`
+      SELECT
+        (SELECT p.revoked_at FROM public_keys p WHERE p.id='key-1') AS old_end,
+        (SELECT p.created_at FROM public_keys p WHERE p.id='key-v2-monotonic') AS new_start
+    `);
+    assert.equal(boundary.rows[0].old_end, boundary.rows[0].new_start);
+    assert.equal(boundary.rows[0].new_start, rotated.event_timestamp);
   } finally {
     await db.close();
   }

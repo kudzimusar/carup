@@ -14,7 +14,7 @@ on:
       - 'database/migrations/20260828210000_issue158_private_key_custody.sql'
       - 'backend/services/blockchain/blockchainService.js'
       - 'backend/services/blockchain/blockchainKeyCustodyService.js'
-      - 'backend/tests/issue-158-private-key-custody.test.js'
+      - 'backend/tests/issue-158-*.test.js'
       - 'web/src/pages/dashboard/owner/VehicleProfile.tsx'
       - 'web/src/pages/dashboard/owner/VehicleProfile*.test.tsx'
       - 'web/src/components/VehicleLifeStageTimeline.tsx'
@@ -36,7 +36,7 @@ on:
       - 'database/migrations/20260828210000_issue158_private_key_custody.sql'
       - 'backend/services/blockchain/blockchainService.js'
       - 'backend/services/blockchain/blockchainKeyCustodyService.js'
-      - 'backend/tests/issue-158-private-key-custody.test.js'
+      - 'backend/tests/issue-158-*.test.js'
       - 'web/src/pages/dashboard/owner/VehicleProfile.tsx'
       - 'web/src/pages/dashboard/owner/VehicleProfile*.test.tsx'
       - 'web/src/components/VehicleLifeStageTimeline.tsx'
@@ -141,6 +141,9 @@ jobs:
 
       - name: Issue 158 blockchain key custody
         run: node --test backend/tests/issue-158-private-key-custody.test.js
+
+      - name: Issue 158 rotation boundary truth (colliding/skewed clocks)
+        run: node --test backend/tests/issue-158-rotation-boundary.test.js
 
       - name: Preserve Golden Vehicle fixture invariants
         run: |

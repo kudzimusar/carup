@@ -187,12 +187,37 @@ test('Issue #158: stakeholder event timestamp is bound to the successful generat
 
 test('Issue #158: finalized runtime owns all stakeholder key mutation through generation-bound atomic RPC', () => {
   const src = readFileSync('backend/services/blockchain/blockchainService.js', 'utf8');
-  assert.match(src, /blockchain_activate_public_key_atomic/);
+  assert.match(src, /blockchain_activate_public_key_boundary/);
   assert.match(src, /p_custody_generation: derived\.custodyGeneration/);
-  assert.match(src, /eventTimestamp: timestamp/);
-  assert.match(src, /return activateCustodiedPublicKey\(userId, derived, timestamp\)/);
+  assert.match(src, /eventTimestamp: authoritativeTimestamp/);
+  assert.match(src, /return activateCustodiedPublicKey\(userId, derived\)/);
   assert.doesNotMatch(src, /deterministicPublicKeyId/);
   assert.doesNotMatch(src, /isPublicKeyRegistrationConflict/);
+});
+
+test('Issue #158: activation boundary is DB-authoritative, never the caller clock, with half-open validity', () => {
+  const src = readFileSync('backend/services/blockchain/blockchainService.js', 'utf8');
+  // The runtime never supplies its own wall-clock timestamp to key activation.
+  assert.doesNotMatch(src, /p_created_at/);
+  assert.match(src, /activated\.event_timestamp/);
+  assert.match(src, /returned no authoritative event timestamp/);
+  // Verification treats validity intervals as half-open [created_at, revoked_at).
+  assert.match(src, /created <= eventTime && eventTime < revoked/);
+  assert.doesNotMatch(src, /eventTime <= revoked/);
+
+  const sql = readFileSync('database/migrations/20260829020000_issue158_activation_boundary_hardening.sql', 'utf8');
+  assert.match(sql, /NEW identity on purpose/i);
+  assert.match(sql, /blockchain_signing_watermarks/);
+  assert.match(sql, /REVOKE ALL ON TABLE public\.blockchain_signing_watermarks[\s\S]*service_role/);
+  assert.match(sql, /blockchain_activate_public_key_boundary/);
+  assert.match(sql, /date_trunc\('milliseconds', clock_timestamp\(\)\)/);
+  assert.match(sql, /v_watermark \+ interval '1 millisecond'/);
+  assert.match(sql, /revoked_at=v_boundary_text/);
+  assert.match(sql, /'ACTIVE',v_boundary_text,NULL/);
+  // The superseded nine-argument caller-clock contract is retired outright.
+  assert.match(sql, /obsolete custody activation contract/);
+  assert.match(sql, /REVOKE ALL ON FUNCTION public\.blockchain_activate_public_key_atomic\(\s*TEXT,TEXT,TEXT,TEXT,TEXT,TEXT,TEXT,TEXT,TEXT\s*\) FROM PUBLIC,anon,authenticated,service_role/);
+  assert.doesNotMatch(sql, /GRANT (?:INSERT|UPDATE|DELETE)/i);
 });
 
 test('Issue #158: migration enforces one active public key per stakeholder', () => {
@@ -206,11 +231,11 @@ test('Issue #158: migration enforces one active public key per stakeholder', () 
 
 test('Issue #158: custody runtime routes only the authorized generation through atomic activation', () => {
   const src = readFileSync('backend/services/blockchain/blockchainService.js', 'utf8');
-  assert.match(src, /blockchain_activate_public_key_atomic/);
+  assert.match(src, /blockchain_activate_public_key_boundary/);
   assert.match(src, /const candidateId = 'key_' \+ crypto\.randomUUID\(\)/);
   assert.match(src, /rollout\.state !== 'FINALIZED'/);
   assert.match(src, /rollout\.authorizedGeneration !== derived\.custodyGeneration/);
-  assert.match(src, /return activateCustodiedPublicKey\(userId, derived, timestamp\)/);
+  assert.match(src, /return activateCustodiedPublicKey\(userId, derived\)/);
 });
 
 test('Issue #158: PREPARED migration guards atomic activation until FINALIZED', () => {

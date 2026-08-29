@@ -98,14 +98,17 @@ async function custodyRolloutContract(custodyMetadataAvailable) {
   return { state, authorizedGeneration };
 }
 
-async function activateCustodiedPublicKey(userId, derived, timestamp) {
+async function activateCustodiedPublicKey(userId, derived) {
   const candidateId = 'key_' + crypto.randomUUID();
-  const { data, error } = await supabase.rpc('blockchain_activate_public_key_atomic', {
+  // The boundary contract takes NO caller timestamp: the database establishes a
+  // per-stakeholder strictly monotonic activation/event boundary under the same
+  // lock that serializes key activation, so colliding or skewed host clocks can
+  // never produce ambiguous key validity intervals.
+  const { data, error } = await supabase.rpc('blockchain_activate_public_key_boundary', {
     p_candidate_id: candidateId,
     p_user_id: String(userId),
     p_public_key_pem: derived.publicKeyPem,
     p_key_type: 'secp256k1',
-    p_created_at: timestamp,
     p_key_ref: derived.keyRef,
     p_key_version: derived.keyVersion,
     p_custody_provider: derived.custodyProvider,
@@ -118,6 +121,10 @@ async function activateCustodiedPublicKey(userId, derived, timestamp) {
   if (!activated || !samePublicKey(activated.public_key_pem, derived.publicKeyPem)) {
     throw new Error('atomic public key activation returned a different cryptographic identity');
   }
+  const authoritativeTimestamp = String(activated.event_timestamp || '').trim();
+  if (!authoritativeTimestamp) {
+    throw new Error('atomic public key activation returned no authoritative event timestamp');
+  }
   return {
     publicKeyPem: derived.publicKeyPem,
     keyRef: derived.keyRef,
@@ -125,7 +132,7 @@ async function activateCustodiedPublicKey(userId, derived, timestamp) {
     custodyGeneration: derived.custodyGeneration,
     custodyProvider: derived.custodyProvider,
     custodyMetadataPersisted: true,
-    eventTimestamp: timestamp,
+    eventTimestamp: authoritativeTimestamp,
   };
 }
 
@@ -138,7 +145,6 @@ async function activateCustodiedPublicKey(userId, derived, timestamp) {
  */
 export async function getOrCreateKeypair(userId) {
   const derived = deriveStakeholderKey(userId);
-  const timestamp = new Date().toISOString();
 
   const {
     data: existingKey,
@@ -171,12 +177,12 @@ export async function getOrCreateKeypair(userId) {
   // Even the same public key goes through the RPC so service_role needs no direct
   // INSERT/UPDATE privilege on public_keys after the finalizer.
   if (existingKey && samePublicKey(existingKey.public_key_pem, derived.publicKeyPem)) {
-    return activateCustodiedPublicKey(userId, derived, timestamp);
+    return activateCustodiedPublicKey(userId, derived);
   }
 
   // First registration, rotation and rollback-to-a-prior-version all create or
   // select the correct active incarnation atomically.
-  return activateCustodiedPublicKey(userId, derived, timestamp);
+  return activateCustodiedPublicKey(userId, derived);
 }
 
 // Re-calculate event block hash
@@ -285,11 +291,16 @@ function eventKeyForTimestamp(keys, eventTimestamp) {
   const eventTime = Date.parse(eventTimestamp);
   if (!Number.isFinite(eventTime)) return null;
 
+  // Key validity intervals are half-open: [created_at, revoked_at). At an exact
+  // rotation boundary the superseded key is excluded and the new incarnation owns
+  // the instant, so boundary-hardened histories yield exactly one eligible key per
+  // event timestamp without relying on array order. An ACTIVE (unrevoked) key
+  // remains open-ended.
   const eligible = (keys || [])
     .filter((key) => {
       const created = Date.parse(key.created_at || 0);
       const revoked = key.revoked_at ? Date.parse(key.revoked_at) : Number.POSITIVE_INFINITY;
-      return Number.isFinite(created) && created <= eventTime && eventTime <= revoked;
+      return Number.isFinite(created) && created <= eventTime && eventTime < revoked;
     })
     .sort((a, b) => Date.parse(b.created_at || 0) - Date.parse(a.created_at || 0));
 

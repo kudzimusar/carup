@@ -32,6 +32,7 @@ const { custodyGeneration } = await import('../services/blockchain/blockchainKey
 let db;
 let calls;
 let insertErrors;
+let watermarkMs;
 
 function resetDb() {
   db = {
@@ -43,6 +44,7 @@ function resetDb() {
   };
   calls = { inserts: [], updates: [], upserts: [] };
   insertErrors = {};
+  watermarkMs = 0;
 }
 
 function builder(table) {
@@ -111,7 +113,7 @@ beforeEach(() => {
         error: null,
       };
     }
-    if (name !== 'blockchain_activate_public_key_atomic') {
+    if (name !== 'blockchain_activate_public_key_boundary') {
       return { data: null, error: { message: `unsupported test RPC: ${name}` } };
     }
     if (args.p_custody_generation !== custodyGeneration()) {
@@ -121,6 +123,11 @@ beforeEach(() => {
       };
     }
 
+    // The boundary contract takes no caller timestamp: the fake DB owns a strictly
+    // monotonic activation/event boundary, exactly like the real RPC.
+    watermarkMs = Math.max(Date.now(), watermarkMs + 1);
+    const boundary = new Date(watermarkMs).toISOString();
+
     const rows = db.public_keys;
     const active = rows.find((row) => row.user_id === args.p_user_id && row.status === 'ACTIVE');
     if (active?.public_key_pem === args.p_public_key_pem) {
@@ -129,11 +136,11 @@ beforeEach(() => {
         key_version: args.p_key_version,
         custody_provider: args.p_custody_provider,
       });
-      return { data: [active], error: null };
+      return { data: [{ ...active, event_timestamp: boundary }], error: null };
     }
     if (active) {
       active.status = 'REVOKED';
-      active.revoked_at = active.revoked_at || args.p_created_at;
+      active.revoked_at = boundary;
     }
 
     const activated = {
@@ -142,14 +149,14 @@ beforeEach(() => {
       public_key_pem: args.p_public_key_pem,
       key_type: args.p_key_type,
       status: 'ACTIVE',
-      created_at: args.p_created_at,
+      created_at: boundary,
       revoked_at: null,
       key_ref: args.p_key_ref,
       key_version: args.p_key_version,
       custody_provider: args.p_custody_provider,
     };
     rows.push(activated);
-    return { data: [activated], error: null };
+    return { data: [{ ...activated, event_timestamp: boundary }], error: null };
   };
 });
 
