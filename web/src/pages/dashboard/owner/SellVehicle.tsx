@@ -301,6 +301,7 @@ export default function SellVehicle() {
       if (!form.year) e.year = 'Required'
       if (!form.vin) e.vin = 'Required'
       else if (!validateVin(form.vin)) e.vin = 'VIN must be 17 alphanumeric characters'
+      else if (identifying) e.vin = 'Wait for the CarUp Passport check to finish'
       else if (identification.state === 'passport_exists' && !form.existingPassportConfirmed) {
         e.vin = 'Confirm that this is the existing CarUp vehicle'
       } else if (identification.state === 'passport_exists' && form.existingPassportConfirmed && authorityState === 'idle') {
