@@ -61,9 +61,10 @@ test('governed Seller authority becomes listing scope without becoming legal own
   const server = readFileSync(new URL('../server.js', import.meta.url), 'utf8');
   const routes = readFileSync(new URL('../routes/vehiclesRoutes.js', import.meta.url), 'utf8');
 
-  assert.match(server, /governedClaimantBecomesCurrentSeller/);
-  assert.match(server, /current_seller_id:\s*governedClaimantBecomesCurrentSeller/);
-  assert.match(server, /current_seller_type:\s*governedClaimantBecomesCurrentSeller[\s\S]*?\? 'Private'/);
+  assert.match(server, /governedNonOwnerSeller/);
+  assert.match(server, /current_seller_id:\s*req\.userContext\.id/);
+  assert.match(server, /current_seller_type:\s*governedNonOwnerSeller[\s\S]*?\? 'Private'/);
+  assert.match(server, /tenant_id:\s*candidate\.tenant_id/);
   assert.match(server, /\.select\('owner_id, current_seller_id, tenant_id'\)[\s\S]*?isCurrentSeller/);
 
   // Seller lifecycle endpoints recognize the governed current seller while legal ownership stays
@@ -72,7 +73,7 @@ test('governed Seller authority becomes listing scope without becoming legal own
   assert.match(routes, /const isCurrentSeller = vehicle\.current_seller_id/);
   assert.match(routes, /owner, current-seller, or organizational scope/);
 
-  const reuseStart = server.indexOf('const governedClaimantBecomesCurrentSeller');
+  const reuseStart = server.indexOf('const governedNonOwnerSeller');
   const reuseEnd = server.indexOf('if (insertError) throw insertError;', reuseStart);
   const reuseBlock = server.slice(reuseStart, reuseEnd);
   assert.doesNotMatch(reuseBlock, /owner_id\s*:/, 'reusing a Passport must not mutate legal owner_id');

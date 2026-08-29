@@ -2640,9 +2640,8 @@ app.post('/api/vehicles/add', authorizeRole(['dealer', 'owner', 'admin']), async
     if (reusedExistingPassport) {
       // Re-listing must never rewrite the Passport's canonical identity. Only seller-commercial
       // assertions and listing lifecycle fields are refreshed on the existing vehicle row.
-      const governedClaimantBecomesCurrentSeller = governedSellerEvidence
-        && existing.owner_id !== req.userContext.id
-        && existing.current_seller_id !== req.userContext.id;
+      const governedNonOwnerSeller = governedSellerEvidence
+        && existing.owner_id !== req.userContext.id;
       const reusableListingRow = {
         seller_description: listingRow.seller_description,
         seller_features: listingRow.seller_features,
@@ -2652,16 +2651,18 @@ app.post('/api/vehicles/add', authorizeRole(['dealer', 'owner', 'admin']), async
         seller_listing_recorded_at: listingRow.seller_listing_recorded_at,
         price: listingRow.price,
         currency: listingRow.currency,
-        // A verified authority claim establishes who is selling THIS listing, not who legally owns
-        // the Passport. owner_id and ownership history therefore remain untouched. For an owner-role
-        // claimant whose evidence establishes authority but not a completed legal transfer, use the
-        // neutral "Private" seller label rather than falsely publishing "Private Owner".
-        current_seller_id: governedClaimantBecomesCurrentSeller
-          ? req.userContext.id
-          : existing.current_seller_id,
-        current_seller_type: governedClaimantBecomesCurrentSeller && req.userContext.role === 'owner'
+        // Starting a new listing names the authenticated submitter as the CURRENT seller and replaces
+        // any stale seller relationship from an older listing. This is listing authority, not legal
+        // ownership: owner_id and ownership history remain untouched. A non-owner using an owner-role
+        // account is labelled "Private" rather than falsely becoming "Private Owner".
+        current_seller_id: req.userContext.id,
+        current_seller_type: governedNonOwnerSeller && req.userContext.role === 'owner'
           ? 'Private'
           : listingRow.current_seller_type,
+        // tenant_id is seller-organisation context in this write path. Re-align it with the current
+        // submitter just as a brand-new listing does, so a previous dealer tenant cannot retain
+        // listing control after the legal owner/private seller starts a new listing.
+        tenant_id: candidate.tenant_id,
         public_seller_display_enabled: listingRow.public_seller_display_enabled,
         publication_status: 'draft',
       };
