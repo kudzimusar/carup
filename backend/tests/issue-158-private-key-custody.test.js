@@ -4,13 +4,14 @@ import crypto from 'node:crypto';
 import { readFileSync } from 'node:fs';
 
 import {
+  custodyGeneration,
   deriveStakeholderKey,
   signLedgerHash,
   verifyLedgerHash,
 } from '../services/blockchain/blockchainKeyCustodyService.js';
 import {
   isMissingCustodyMetadataColumn,
-  isMissingCustodyRolloutStateFunction,
+  isMissingCustodyRolloutContractFunction,
 } from '../services/blockchain/blockchainService.js';
 
 test('Issue #158: same secret + user + version derives stable public key across calls', () => {
@@ -28,6 +29,17 @@ test('Issue #158: different stakeholder IDs derive different public keys', () =>
   const b = deriveStakeholderKey('stakeholder-2', opts);
   assert.notEqual(a.publicKeyPem, b.publicKeyPem);
   assert.notEqual(a.keyRef, b.keyRef);
+});
+
+test('Issue #158: custody generation binds both configured version and master secret', () => {
+  const a = custodyGeneration({ secret: 'master-a', version: 'v1' });
+  const same = custodyGeneration({ secret: 'master-a', version: 'v1' });
+  const versionRotated = custodyGeneration({ secret: 'master-a', version: 'v2' });
+  const secretRotated = custodyGeneration({ secret: 'master-b', version: 'v1' });
+  assert.equal(a, same);
+  assert.notEqual(a, versionRotated);
+  assert.notEqual(a, secretRotated);
+  assert.match(a, /^custody:v1:[0-9a-f]{32}$/);
 });
 
 test('Issue #158: derived signature verifies with public key only', () => {
@@ -54,7 +66,7 @@ test('Issue #158 PREPARED migration is additive and keeps legacy private-key wri
   const sql = readFileSync('database/migrations/20260828210000_issue158_private_key_custody.sql', 'utf8');
   assert.match(sql, /blockchain_custody_rollout/);
   assert.match(sql, /'PREPARED'/);
-  assert.match(sql, /blockchain_custody_rollout_state/);
+  assert.match(sql, /blockchain_custody_rollout_contract/);
   assert.match(sql, /blockchain_activate_public_key_atomic/);
   assert.match(sql, /key_ref TEXT/);
   assert.match(sql, /custody_provider TEXT/);
@@ -117,15 +129,15 @@ test('Issue #158: deploy-before-migrate detection recognizes PostgreSQL and Post
     message: 'permission denied for table public_keys',
   }), false);
 
-  assert.equal(isMissingCustodyRolloutStateFunction({
+  assert.equal(isMissingCustodyRolloutContractFunction({
     code: '42883',
-    message: 'function blockchain_custody_rollout_state() does not exist',
+    message: 'function blockchain_custody_rollout_contract() does not exist',
   }), true);
-  assert.equal(isMissingCustodyRolloutStateFunction({
+  assert.equal(isMissingCustodyRolloutContractFunction({
     code: 'PGRST202',
-    message: "Could not find the function public.blockchain_custody_rollout_state in the schema cache",
+    message: "Could not find the function public.blockchain_custody_rollout_contract in the schema cache",
   }), true);
-  assert.equal(isMissingCustodyRolloutStateFunction({
+  assert.equal(isMissingCustodyRolloutContractFunction({
     code: '42501',
     message: 'permission denied',
   }), false);
@@ -141,33 +153,39 @@ test('Issue #158: pre-migration compatibility uses public-only named columns and
   assert.doesNotMatch(src, /select\(['"]\*['"]\)/);
 });
 
-test('Issue #158: new runtime does not mutate stakeholder keys before protected finalization', () => {
+test('Issue #158: new runtime fails closed before upgrade/finalization and rejects superseded custody generations', () => {
   const src = readFileSync('backend/services/blockchain/blockchainService.js', 'utf8');
-  assert.match(src, /blockchain_custody_rollout_state/);
-  assert.match(src, /rolloutState !== 'FINALIZED'/);
-  assert.match(src, /stakeholder signing is temporarily unavailable until protected finalization/);
+  assert.match(src, /blockchain_custody_rollout_contract/);
+  assert.match(src, /UPGRADE_REQUIRED/);
+  assert.doesNotMatch(src, /return \{ state: 'FINALIZED', authorizedGeneration: null \}/);
+  assert.match(src, /rollout\.state !== 'FINALIZED'/);
+  assert.match(src, /rollout\.authorizedGeneration !== derived\.custodyGeneration/);
+  assert.match(src, /superseded runtime\/configuration is blocked/);
   assert.doesNotMatch(src, /\.from\('public_keys'\)\.insert/);
   assert.doesNotMatch(src, /\.from\('public_keys'\)[\s\S]{0,120}\.update\(/);
 });
 
 
-test('Issue #158: addEvent registers stakeholder key before ledger event timestamp/hash', () => {
+test('Issue #158: stakeholder event timestamp is bound to the successful generation-authorized key check', () => {
   const src = readFileSync('backend/services/blockchain/blockchainService.js', 'utf8');
   const addStart = src.indexOf('export async function addEvent');
   const addEnd = src.indexOf('\nfunction eventKeyForTimestamp', addStart);
   const addEventSource = src.slice(addStart, addEnd);
   const registerAt = addEventSource.indexOf('await getOrCreateKeypair(signerId)');
-  const timestampAt = addEventSource.indexOf('const timestamp = new Date().toISOString()');
+  const timestampAt = addEventSource.indexOf('registeredSignerKey?.eventTimestamp');
   const hashAt = addEventSource.indexOf('const currentHash = calculateHash');
   assert.ok(registerAt >= 0, 'stakeholder key registration must exist');
-  assert.ok(timestampAt > registerAt, 'event timestamp must be captured after key registration/rotation');
-  assert.ok(hashAt > timestampAt, 'event hash must use the post-registration timestamp');
+  assert.ok(timestampAt > registerAt, 'event timestamp must come from the authorized key check');
+  assert.ok(hashAt > timestampAt, 'event hash must use the generation-authorized timestamp');
+  assert.match(addEventSource, /registeredSignerKey\?\.custodyGeneration !== signed\.custodyGeneration/);
 });
 
 
-test('Issue #158: finalized runtime owns all stakeholder key mutation through the atomic RPC', () => {
+test('Issue #158: finalized runtime owns all stakeholder key mutation through generation-bound atomic RPC', () => {
   const src = readFileSync('backend/services/blockchain/blockchainService.js', 'utf8');
   assert.match(src, /blockchain_activate_public_key_atomic/);
+  assert.match(src, /p_custody_generation: derived\.custodyGeneration/);
+  assert.match(src, /eventTimestamp: timestamp/);
   assert.match(src, /return activateCustodiedPublicKey\(userId, derived, timestamp\)/);
   assert.doesNotMatch(src, /deterministicPublicKeyId/);
   assert.doesNotMatch(src, /isPublicKeyRegistrationConflict/);
@@ -182,11 +200,12 @@ test('Issue #158: migration enforces one active public key per stakeholder', () 
 });
 
 
-test('Issue #158: custody runtime routes finalized rotations through atomic activation and fresh incarnations', () => {
+test('Issue #158: custody runtime routes only the authorized generation through atomic activation', () => {
   const src = readFileSync('backend/services/blockchain/blockchainService.js', 'utf8');
   assert.match(src, /blockchain_activate_public_key_atomic/);
   assert.match(src, /const candidateId = 'key_' \+ crypto\.randomUUID\(\)/);
-  assert.match(src, /rolloutState !== 'FINALIZED'/);
+  assert.match(src, /rollout\.state !== 'FINALIZED'/);
+  assert.match(src, /rollout\.authorizedGeneration !== derived\.custodyGeneration/);
   assert.match(src, /return activateCustodiedPublicKey\(userId, derived, timestamp\)/);
 });
 
@@ -197,4 +216,17 @@ test('Issue #158: PREPARED migration guards atomic activation until FINALIZED', 
   assert.match(sql, /LOCK TABLE public\.public_keys IN SHARE ROW EXCLUSIVE MODE/);
   assert.match(sql, /Always create a fresh incarnation/);
   assert.doesNotMatch(sql, /SET status='ACTIVE'[\s\S]{0,300}WHERE p\.id=v_active\.id/);
+});
+
+test('Issue #158: later-version rollout upgrade repairs previously recorded monolithic migration state', () => {
+  const sql = readFileSync('database/migrations/20260829003000_issue158_custody_rollout_upgrade.sql', 'utf8');
+  assert.match(sql, /NEW identity on purpose/i);
+  assert.match(sql, /public_keys_private_material_absent/);
+  assert.match(sql, /blockchain_custody_rollout_contract/);
+  assert.match(sql, /authorized_generation/);
+  assert.match(sql, /blockchain_authorize_custody_generation/);
+  assert.match(sql, /REVOKE ALL ON FUNCTION public\.blockchain_authorize_custody_generation\(TEXT\)[\s\S]*service_role/);
+  assert.match(sql, /obsolete custody activation contract/);
+  assert.match(sql, /p_custody_generation TEXT/);
+  assert.match(sql, /stakeholder signer custody generation is not authorized/);
 });
