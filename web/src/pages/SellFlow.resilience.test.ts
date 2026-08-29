@@ -39,11 +39,15 @@ describe('Marketplace progressive sell resilience', () => {
     expect(AUTHENTICATED_SELL).toContain("imageLabels: [...previous.imageLabels, ...Array(addedCount).fill('')].slice(0, LISTING_IMAGE_LIMIT)")
   })
 
-  it('the guest draft degrades by removing photos rather than business fields', () => {
-    expect(GUEST_DRAFT).toContain("JSON.stringify({ ...payload, images: [], imageLabels: [], coverImageIndex: null })")
-    expect(GUEST_DRAFT).toContain("images_omitted: true")
-    // Business/history intent remains in ...payload; only media bytes and media-only metadata are
-    // removed when browser storage is too small.
+  it('a large guest draft externalizes photo bytes without losing business or media metadata', () => {
+    expect(GUEST_DRAFT).toContain("const metadataPayload = { ...payload, images: [] as string[] }")
+    expect(GUEST_DRAFT).toContain("writeGuestSellMedia(payload.images)")
+    expect(GUEST_DRAFT).toContain("media_externalized: payload.images.length > 0")
+    expect(GUEST_DRAFT).toContain("readGuestSellDraftWithMedia")
+    // Labels, cover and history intent stay in the lightweight canonical draft. Only the heavy
+    // image payload moves to IndexedDB, so auth handoff can reconstruct the exact Seller preview.
+    expect(GUEST_DRAFT).not.toContain("imageLabels: []")
+    expect(GUEST_DRAFT).not.toContain("coverImageIndex: null })")
     expect(GUEST_DRAFT).not.toContain("historyPlan: {} })")
   })
 
@@ -52,6 +56,8 @@ describe('Marketplace progressive sell resilience', () => {
     expect(GUEST_SELL).toContain('/register?returnTo=%2Fdashboard%2Fsell-vehicle')
     expect(GUEST_SELL).toContain('/login?returnTo=%2Fdashboard%2Fsell-vehicle')
     expect(AUTHENTICATED_SELL).toContain('readGuestSellDraft()')
+    expect(AUTHENTICATED_SELL).toContain('readGuestSellDraftWithMedia()')
+    expect(AUTHENTICATED_SELL).toContain('seller-guest-media-restoring')
     expect(AUTHENTICATED_SELL).toContain('clearGuestSellDraft()')
   })
 })
