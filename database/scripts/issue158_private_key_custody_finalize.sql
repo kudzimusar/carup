@@ -17,13 +17,14 @@ DO $pre$
 DECLARE
   v_state TEXT;
   v_drained BOOLEAN;
+  v_generation TEXT;
 BEGIN
   IF to_regclass('public.blockchain_custody_rollout') IS NULL THEN
     RAISE EXCEPTION '[issue-158] custody PREPARED migration is absent';
   END IF;
 
-  SELECT state,old_writers_drained
-    INTO v_state,v_drained
+  SELECT state,old_writers_drained,authorized_generation
+    INTO v_state,v_drained,v_generation
     FROM public.blockchain_custody_rollout
    WHERE singleton=TRUE
    FOR UPDATE;
@@ -35,6 +36,12 @@ BEGIN
   IF v_drained IS DISTINCT FROM TRUE THEN
     RAISE EXCEPTION
       '[issue-158] refusing custody finalization until old runtime writers are explicitly marked drained'
+      USING ERRCODE='55000';
+  END IF;
+
+  IF nullif(btrim(v_generation),'') IS NULL THEN
+    RAISE EXCEPTION
+      '[issue-158] refusing custody finalization until a custody generation is owner-authorized'
       USING ERRCODE='55000';
   END IF;
 END
