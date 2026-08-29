@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { Link } from 'react-router-dom'
+import { Link, useSearchParams } from 'react-router-dom'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
@@ -12,12 +12,13 @@ import { zimbabweLocations, zimbabweProvinces } from '@/data/mockData'
 import { useCarUpApi } from '@/hooks/useCarUpApi'
 import { VehicleCompletenessPanel } from '@/components/VehicleCompletenessPanel'
 import { ListingQualityPanel } from '@/components/sell/ListingQualityPanel'
-import { clearGuestSellDraft, readGuestSellDraft, readGuestSellDraftWithMedia } from '@/lib/guestSellDraft'
+import { clearGuestSellDraft, readGuestSellDraft, readGuestSellDraftWithMedia, readGuestSellStep, saveGuestSellDraft, saveGuestSellStep } from '@/lib/guestSellDraft'
 import { sellerDiscoverabilityFacets } from '@/lib/sellerListingPreview'
 import { LISTING_IMAGE_LIMIT, screenListingImages } from '@/lib/listingMediaIntake'
 import { VehicleIdentificationNotice } from '@/components/sell/VehicleIdentificationNotice'
 import { useSellerVehicleIdentification } from '@/hooks/useSellerVehicleIdentification'
 import { BODY_STYLES, DRIVETRAINS, FUEL_TYPES, SELLER_CONDITIONS, TRANSMISSIONS, VEHICLE_COLORS, VEHICLE_MAKES, modelsForMake, vehicleYearOptions } from '@/data/vehicleTaxonomy'
+import type { Vehicle } from '@/types'
 
 const YEARS = vehicleYearOptions()
 const STEPS = ['Vehicle Details', 'Location & Pricing', 'Images & Features', 'Review & Save Draft']
@@ -103,9 +104,11 @@ function validateVin(vin: string) {
 }
 
 export default function SellVehicle() {
-  const { createVehicleListing, uploadVehicleImages, requestSellerAuthorityClaim } = useCarUpApi()
+  const { createVehicleListing, uploadVehicleImages, requestSellerAuthorityClaim, fetchOwnedVehicles } = useCarUpApi()
+  const [searchParams] = useSearchParams()
+  const resumeVin = String(searchParams.get('vin') || '').trim().toUpperCase()
   const [guestDraft] = useState(() => readGuestSellDraft())
-  const [step, setStep] = useState(0)
+  const [step, setStep] = useState(() => readGuestSellStep())
   const [form, setForm] = useState(() => guestDraft ? ({
     ...INITIAL,
     make: guestDraft.make,
@@ -121,6 +124,8 @@ export default function SellVehicle() {
     drivetrain: guestDraft.drivetrain,
     location: guestDraft.location,
     province: guestDraft.province,
+    locationVisibility: guestDraft.locationVisibility || INITIAL.locationVisibility,
+    publicSellerDisplay: guestDraft.publicSellerDisplay === true,
     price: guestDraft.price,
     currency: guestDraft.currency,
     description: guestDraft.description,
@@ -141,6 +146,9 @@ export default function SellVehicle() {
   const [guestHistoryPlan] = useState(() => guestDraft?.historyPlan ?? {})
   const [authorityState, setAuthorityState] = useState<'idle' | 'checking' | 'recognized' | 'evidence_required' | 'error'>('idle')
   const [authorityClaimType, setAuthorityClaimType] = useState<'owner' | 'authorised_seller' | null>(null)
+  const [serverDraftLoading, setServerDraftLoading] = useState(() => Boolean(!guestDraft && validateVin(resumeVin)))
+  const [serverDraftLoaded, setServerDraftLoaded] = useState(false)
+  const [serverDraftError, setServerDraftError] = useState<string | null>(null)
   const modelOptions = modelsForMake(form.make).map(item => item.name)
   // S1: one VIN has one Passport. The authenticated seller either has an established relationship
   // to that Passport or enters the governed seller-authority evidence path.
@@ -208,6 +216,120 @@ export default function SellVehicle() {
       return current
     })
   }
+
+  useEffect(() => {
+    if (guestDraft || !validateVin(resumeVin)) return
+    let active = true
+    setServerDraftLoading(true)
+    setServerDraftError(null)
+
+    fetchOwnedVehicles()
+      .then(vehicles => {
+        if (!active) return
+        const vehicle = (vehicles || []).find(item => String(item.vin || '').toUpperCase() === resumeVin)
+        if (!vehicle) {
+          setServerDraftError('CarUp could not find this VIN in your Seller/Garage scope.')
+          return
+        }
+
+        const raw = vehicle as Vehicle & Record<string, unknown>
+        const mediaItems = Array.isArray(vehicle.listing_media?.items) ? vehicle.listing_media!.items : []
+        const orderedMedia = [...mediaItems].sort((a, b) => Number(a.position || 0) - Number(b.position || 0))
+        const primaryIndex = orderedMedia.findIndex(item => item.is_primary === true)
+
+        setForm(previous => ({
+          ...previous,
+          make: String(raw.make || ''),
+          model: String(raw.model || ''),
+          year: raw.year ? String(raw.year) : '',
+          vin: String(raw.vin || resumeVin).toUpperCase(),
+          color: String(raw.color || ''),
+          mileage: raw.mileage === null || raw.mileage === undefined ? '' : String(raw.mileage),
+          condition: String(raw.seller_stated_condition || raw.condition || ''),
+          category: String(raw.body_style || raw.category || ''),
+          fuelType: String(raw.fuel_type || raw.fuelType || ''),
+          transmission: String(raw.transmission || ''),
+          drivetrain: String(raw.drivetrain || ''),
+          location: String(raw.location || ''),
+          province: String(raw.province || ''),
+          price: raw.price === null || raw.price === undefined ? '' : String(raw.price),
+          currency: String(raw.currency || ''),
+          description: String(raw.seller_description || raw.description || ''),
+          engineNumber: String(raw.engine_number || raw.engineNumber || ''),
+          chassisNumber: String(raw.chassis_number || ''),
+          plateNumber: String(raw.plate_number || ''),
+          tempPlateId: String(raw.temp_plate_id || raw.temporary_identification_number || ''),
+          importStatus: String(raw.import_status || ''),
+          features: Array.isArray(raw.seller_features)
+            ? raw.seller_features.map(String)
+            : Array.isArray(raw.features) ? raw.features.map(String) : [],
+          images: orderedMedia.map(item => item.url).filter(Boolean),
+          imageLabels: orderedMedia.map(() => ''),
+          locationVisibility:
+            raw.listing_location_visibility === 'public' || raw.listing_location_visibility === 'province_only'
+              ? String(raw.listing_location_visibility)
+              : 'withheld',
+          publicSellerDisplay: raw.public_seller_display_enabled === true,
+          existingPassportConfirmed: true,
+        }))
+        setCoverImageIndex(primaryIndex >= 0 ? primaryIndex : null)
+        setAuthorityState('recognized')
+        setServerDraftLoaded(true)
+        toast.success('Your existing Seller listing has been loaded from CarUp.')
+      })
+      .catch(error => {
+        if (!active) return
+        setServerDraftError(error instanceof Error ? error.message : 'CarUp could not load this Seller listing.')
+      })
+      .finally(() => { if (active) setServerDraftLoading(false) })
+
+    return () => { active = false }
+  }, [fetchOwnedVehicles, guestDraft, resumeVin])
+
+  useEffect(() => {
+    if (savedVin || serverDraftLoading) return
+    const hasProgress = Boolean(
+      form.vin || form.make || form.model || form.color || form.description || form.images.length || form.features.length
+    )
+    if (!hasProgress) return
+
+    const timer = window.setTimeout(() => {
+      void saveGuestSellDraft({
+        make: form.make,
+        model: form.model,
+        year: form.year,
+        vin: form.vin,
+        color: form.color,
+        mileage: form.mileage,
+        condition: form.condition,
+        category: form.category,
+        fuelType: form.fuelType,
+        transmission: form.transmission,
+        drivetrain: form.drivetrain,
+        location: form.location,
+        province: form.province,
+        price: form.price,
+        currency: form.currency,
+        description: form.description,
+        engineNumber: form.engineNumber,
+        chassisNumber: form.chassisNumber,
+        plateNumber: form.plateNumber,
+        tempPlateId: form.tempPlateId,
+        importStatus: form.importStatus,
+        features: form.features,
+        images: form.images,
+        imageLabels: form.imageLabels,
+        coverImageIndex,
+        historyPlan: guestHistoryPlan,
+        existingPassportConfirmed: form.existingPassportConfirmed,
+        locationVisibility: form.locationVisibility as 'withheld' | 'province_only' | 'public',
+        publicSellerDisplay: form.publicSellerDisplay,
+      })
+      saveGuestSellStep(step)
+    }, 700)
+
+    return () => window.clearTimeout(timer)
+  }, [coverImageIndex, form, guestHistoryPlan, savedVin, serverDraftLoading, step])
 
   useEffect(() => {
     if (guestDraft) toast.success('Your pre-sign-in listing draft is ready to review.')
@@ -574,8 +696,16 @@ export default function SellVehicle() {
                   checking={identifying}
                   confirmed={form.existingPassportConfirmed}
                   onConfirm={() => {
-                    set('existingPassportConfirmed', true)
+                    const found = identification.passportVehicle
+                    setForm(previous => ({
+                      ...previous,
+                      existingPassportConfirmed: true,
+                      make: previous.make.trim() || found?.make || '',
+                      model: previous.model.trim() || found?.model || '',
+                      year: previous.year || (found?.year ? String(found.year) : ''),
+                    }))
                     setAuthorityState('idle')
+                    setAuthorityClaimType(null)
                   }}
                   onUseDifferentVin={() => set('vin', '')}
                 />
