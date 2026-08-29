@@ -47,7 +47,7 @@ test('existing Passport reuse is explicit and never rewrites ownership automatic
   assert.match(server, /SELLER_AUTHORITY_CLAIM_REQUIRED/);
   assert.match(server, /governedSellerEvidence/);
   assert.match(server, /reused_existing_passport: reusedExistingPassport/);
-  assert.doesNotMatch(server, /governedSellerEvidence[\s\S]{0,400}owner_id\s*=/);
+  assert.doesNotMatch(server, /governedSellerEvidence[\s\S]{0,1600}\.update\(\{[^}]*owner_id/);
 
   assert.match(routes, /SELLER_AUTHORITY_CLAIM_REQUESTED/);
   assert.match(routes, /status: 'evidence_required'/);
