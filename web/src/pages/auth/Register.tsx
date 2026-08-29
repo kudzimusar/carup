@@ -13,12 +13,12 @@ import {
   CheckCircle,
   Eye,
   EyeOff,
-  Globe2,
   MailCheck,
   ShieldCheck,
   UserRound,
 } from 'lucide-react'
 import { toast } from 'sonner'
+import type { AuthUser } from '@shared/types'
 
 const API_BASE = resolveApiBaseUrl(
   import.meta.env.VITE_API_URL,
@@ -127,7 +127,7 @@ export default function Register() {
     setLoading(true)
     try {
       const data = await apiRequest<{
-        user: { id: string; name: string; email: string; phone?: string; role: string }
+        user: AuthUser
         token: string
         email_verification?: { status?: string }
         onboarding?: { status?: string } | null

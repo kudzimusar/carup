@@ -138,7 +138,7 @@ export async function saveGuestSellDraft(draft: Omit<GuestSellDraft, 'version' |
         volatileMedia = null
         return { ok: false as const }
       }
-      return { ok: true as const, media_externalized: payload.images.length > 0 as const }
+      return { ok: true as const, media_externalized: payload.images.length > 0 }
     } catch {
       sessionStorage.removeItem(GUEST_SELL_DRAFT_KEY)
       volatileMedia = null
