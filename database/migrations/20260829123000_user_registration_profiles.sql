@@ -45,6 +45,7 @@ COMMENT ON TABLE public.user_registration_profiles IS
 ALTER TABLE public.user_registration_profiles ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.user_registration_profiles FORCE ROW LEVEL SECURITY;
 REVOKE ALL ON public.user_registration_profiles FROM anon, authenticated;
+GRANT ALL ON public.user_registration_profiles TO service_role;
 
 -- +migrate Down
 DROP TABLE IF EXISTS public.user_registration_profiles;

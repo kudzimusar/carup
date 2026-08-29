@@ -87,3 +87,13 @@ test('terms and privacy are separately required while marketing remains optional
   const ok = normalizeRegistrationProfile({ ...base, terms_acknowledged: true, privacy_acknowledged: true }).profile;
   assert.equal(ok.marketing_consent, false);
 });
+
+
+test('registration profile migration is backend-writable and public-client closed', async () => {
+  const { readFile } = await import('node:fs/promises');
+  const sql = await readFile(new URL('../../database/migrations/20260829123000_user_registration_profiles.sql', import.meta.url), 'utf8');
+  assert.match(sql, /ENABLE ROW LEVEL SECURITY/i);
+  assert.match(sql, /FORCE ROW LEVEL SECURITY/i);
+  assert.match(sql, /REVOKE ALL ON public\.user_registration_profiles FROM anon, authenticated/i);
+  assert.match(sql, /GRANT ALL ON public\.user_registration_profiles TO service_role/i);
+});
