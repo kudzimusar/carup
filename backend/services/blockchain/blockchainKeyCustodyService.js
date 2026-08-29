@@ -26,6 +26,16 @@ function masterSecret(explicit = null) {
   );
 }
 
+export function custodyGeneration({ secret = null, version = null } = {}) {
+  const keyVersion = String(version || process.env.CARUP_BLOCKCHAIN_KEY_VERSION || DEFAULT_VERSION);
+  const commitment = crypto
+    .createHmac('sha256', masterSecret(secret))
+    .update(`carup:blockchain-custody-generation:${keyVersion}`)
+    .digest('hex')
+    .slice(0, 32);
+  return `custody:${keyVersion}:${commitment}`;
+}
+
 function scalarFor(userId, { secret = null, version = null } = {}) {
   const id = String(userId || '').trim();
   if (!id) throw new Error('stakeholder userId is required for key derivation');
@@ -40,6 +50,7 @@ function scalarFor(userId, { secret = null, version = null } = {}) {
   const scalar = (raw % (CURVE_ORDER - 1n)) + 1n;
   return {
     version: keyVersion,
+    generation: custodyGeneration({ secret, version: keyVersion }),
     bytes: Buffer.from(scalar.toString(16).padStart(64, '0'), 'hex'),
   };
 }
@@ -70,6 +81,7 @@ export function deriveStakeholderKey(userId, options = {}) {
     publicKey,
     publicKeyPem,
     keyVersion: derived.version,
+    custodyGeneration: derived.generation,
     keyRef: `derived:carup-blockchain:${derived.version}:${fingerprint.slice(0, 24)}`,
     custodyProvider: 'derived_master_secret',
     fingerprint,
@@ -84,6 +96,7 @@ export function signLedgerHash(userId, hash, options = {}) {
     publicKeyPem: key.publicKeyPem,
     keyRef: key.keyRef,
     keyVersion: key.keyVersion,
+    custodyGeneration: key.custodyGeneration,
     custodyProvider: key.custodyProvider,
     fingerprint: key.fingerprint,
   };
@@ -131,6 +144,7 @@ export function verifySystemLedgerHash(hash, signatureHex) {
 }
 
 export default {
+  custodyGeneration,
   deriveStakeholderKey,
   signLedgerHash,
   verifyLedgerHash,
