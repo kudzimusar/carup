@@ -118,6 +118,7 @@ import garageDirectoryRouter from './routes/garageDirectoryRoutes.js';
 import serviceCaseRouter from './routes/serviceCaseRoutes.js';
 import serviceWorkOrderRouter from './routes/serviceWorkOrderRoutes.js';
 import serviceRecordRouter from './routes/serviceRecordRoutes.js';
+import { getOwnerServiceHistory } from './services/serviceNetwork/ownerServiceHistoryService.js';
 import { normalizeVehicleStatus, publicVehicleStatusFilterValues, publiclyVisiblePublicationStatuses, isPublicVehicleStatus, isPubliclyVisiblePublication, PUBLIC_VEHICLE_COLUMNS } from './utils/vehicleStatus.js';
 import { attestedValue, CLAIM_VISIBILITY, LISTING_CLAIM_COLUMNS, PUBLIC_VEHICLE_SELECT, projectVehicle, toListingClaims, toPublicEvidence, toPublicPlateHistory, toPublicTimelineEvent } from './utils/publicVehicleProjection.js';
 // The canonical vehicle media contract (Issue #164 §10). Imported at MODULE scope and handed to
@@ -2838,29 +2839,19 @@ app.delete('/api/vehicles/saved/:vin', authorizeRole(['owner', 'dealer', 'admin'
 })
 
 // GET /api/service-history/me - Get service history for owned vehicles
+//
+// Service Network S6: this used to return raw mechanic_work_orders rows, which left the
+// owner surface with no provider identity, no provenance and no currency — so the UI
+// printed the literal word "Garage" and rendered an unrecorded cost as $0. It now returns
+// the governed owner projection, which states a fact or reports it as absent. The original
+// row fields are preserved so existing consumers keep working.
 app.get('/api/service-history/me', authorizeRole(['owner', 'dealer', 'admin']), async (req, res) => {
   try {
-    // 1. Get user's vehicles
-    const { data: vehicles } = await supabase
-      .from('vehicles')
-      .select('vin')
-      .eq('owner_id', req.userContext.id)
-    
-    if (!vehicles || vehicles.length === 0) return res.json([])
-    
-    const vins = vehicles.map(v => v.vin)
-
-    // 2. Get work orders for these vehicles
-    const { data, error } = await supabase
-      .from('mechanic_work_orders')
-      .select('*')
-      .in('vin', vins)
-
-    if (error) throw error
-    res.json(data || [])
+    const result = await getOwnerServiceHistory(supabase, req.userContext)
+    res.json(result.entries)
   } catch (error) {
     console.error('Error fetching service history:', error)
-    res.status(500).json({ error: error.message })
+    res.status(error.statusCode || 500).json({ error: error.message })
   }
 })
 
