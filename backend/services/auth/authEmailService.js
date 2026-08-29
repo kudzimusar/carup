@@ -23,8 +23,8 @@ export function createAuthEmailService({
 
   async function queueAuthEmail({ user, templateKey, authTemplateKey, variables }) {
     if (!user?.id || !user?.email) throw new Error('Auth Email requires a user id and email');
-    const { notificationService } = comms();
-    return notificationService.queueNotification({
+    const { notificationService, deliveryWorker } = comms();
+    const queued = await notificationService.queueNotification({
       recipientUserId: user.id,
       notificationType: templateKey,
       channel: 'email',
@@ -43,6 +43,22 @@ export function createAuthEmailService({
         ...variables,
       },
     });
+
+    // Security Email cannot rely on a periodic worker in serverless previews. It still enters the
+    // canonical queue first (audit, dedupe, classification), then that exact row is dispatched now.
+    let delivery = null;
+    if (queued?.notification && deliveryWorker?.deliverNotification) {
+      try {
+        delivery = await deliveryWorker.deliverNotification(queued.notification);
+      } catch (error) {
+        delivery = {
+          status: 'delivery_failed',
+          errorCode: 'auth_immediate_dispatch_failed',
+          errorMessage: error?.message || 'Immediate auth Email dispatch failed',
+        };
+      }
+    }
+    return { ...queued, delivery };
   }
 
   async function issueEmailVerification({
@@ -65,7 +81,7 @@ export function createAuthEmailService({
       env,
     });
 
-    await queueAuthEmail({
+    const queued = await queueAuthEmail({
       user,
       templateKey: 'auth_email_verification_v1',
       authTemplateKey: 'confirm_signup',
@@ -75,7 +91,7 @@ export function createAuthEmailService({
       },
     });
 
-    return { record };
+    return { record, delivery: queued?.delivery || null };
   }
 
   return { queueAuthEmail, issueEmailVerification };
