@@ -335,9 +335,19 @@ export default function VehicleProfile() {
 
   return (
     <main className="space-y-6 max-w-7xl mx-auto px-3 sm:px-0" aria-labelledby="vehicle-passport-title">
-      <Button variant="ghost" size="sm" className="gap-1" asChild>
-        <Link to="/dashboard/garage"><ArrowLeft className="w-4 h-4" /> Back to Garage</Link>
-      </Button>
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <Button variant="ghost" size="sm" className="gap-1" asChild>
+          <Link to="/dashboard/garage"><ArrowLeft className="w-4 h-4" /> Back to Garage</Link>
+        </Button>
+        <div className="flex flex-wrap gap-2">
+          <Button size="sm" variant="outline" asChild>
+            <Link to={`/dashboard/sell-vehicle?vin=${encodeURIComponent(vehicle.vin)}`}>Edit / continue listing</Link>
+          </Button>
+          <Button size="sm" className="bg-orange-500 hover:bg-orange-600" asChild>
+            <Link to="/dashboard/listings">Listing &amp; Marketplace</Link>
+          </Button>
+        </div>
+      </div>
 
       <div className="grid lg:grid-cols-3 gap-6">
         {/* Main */}

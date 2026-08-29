@@ -2766,6 +2766,7 @@ app.post('/api/vehicles/add', authorizeRole(['dealer', 'owner', 'admin']), async
       const { error: imageError } = await supabase.from('listing_images').insert(imageRecords);
       if (imageError) {
         console.error('⚠️ Failed to save listing images:', imageError.message);
+        throw new Error('Listing media could not be recorded. Vehicle details may have been updated, but the draft photos were not accepted.');
       } else {
         imagesRecorded = true;
         imagesRecordedCount = imageRecords.length;
@@ -3093,7 +3094,7 @@ app.get('/api/vehicles/me', authorizeRole(['owner', 'dealer', 'admin']), async (
     const { data, error } = await supabase
       .from('vehicles')
       .select('*')
-      .eq('owner_id', req.userContext.id)
+      .or(`owner_id.eq.${req.userContext.id},current_seller_id.eq.${req.userContext.id}`)
 
     if (error) throw error
     // An owner is shown their vehicle's trust position through the same authority as everyone else.

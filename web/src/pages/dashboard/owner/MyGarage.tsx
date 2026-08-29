@@ -113,7 +113,10 @@ export default function MyGarage() {
                       <span className="text-gray-600">{statedCount(vehicle.counts?.active_insurance, 'active policy', 'active policies')}</span>
                       <span className="text-gray-600">{statedCount(vehicle.counts?.parts, 'part tracked', 'parts tracked')}</span>
                     </div>
-                    <ArrowRight className="w-4 h-4 text-gray-400" />
+                    <div className="flex items-center gap-2 text-xs font-semibold text-orange-600">
+                      <span>{vehicle.publication_status === 'published' ? 'Published' : 'Listing draft'}</span>
+                      <ArrowRight className="w-4 h-4" />
+                    </div>
                   </div>
                 </div>
               </CardContent>

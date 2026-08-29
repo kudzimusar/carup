@@ -269,6 +269,9 @@ export default function MyListings() {
                           viewport and gave the page horizontal overflow. Wrapping is the whole fix —
                           the publication semantics are untouched. */}
                       <div className="flex flex-wrap gap-2 mt-3" data-testid={`listing-actions-${listing.vin}`}>
+                        <Button size="sm" variant="outline" className="text-xs gap-1" asChild>
+                          <Link to={`/dashboard/sell-vehicle?vin=${encodeURIComponent(listing.vin)}`}>Edit draft</Link>
+                        </Button>
                         <Button size="sm" className="text-xs gap-1" asChild>
                           <Link to="/dashboard/communications"><MessageSquare className="w-3 h-3" /> Conversations</Link>
                         </Button>
