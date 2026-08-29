@@ -2600,10 +2600,25 @@ app.post('/api/vehicles/add', authorizeRole(['dealer', 'owner', 'admin']), async
       publication_status: 'draft',
     };
 
+    let governedSellerEvidence = false;
+    if (existing && reuse_existing_passport === true) {
+      const { data: authorityEvidence, error: authorityEvidenceError } = await supabase
+        .from('vehicle_evidence')
+        .select('id')
+        .eq('vin', vin)
+        .eq('uploaded_by', req.userContext.id)
+        .eq('verification_status', 'verified')
+        .in('evidence_type', ['registration_document', 'ownership_transfer_document'])
+        .limit(1);
+      if (authorityEvidenceError) throw authorityEvidenceError;
+      governedSellerEvidence = Boolean(authorityEvidence?.length);
+    }
+
     const existingSellerRelationship = Boolean(existing && (
       existing.owner_id === req.userContext.id
       || (existing.current_seller_id && existing.current_seller_id === req.userContext.id)
       || (existing.tenant_id && req.userContext.tenantId && existing.tenant_id === req.userContext.tenantId)
+      || governedSellerEvidence
     ));
     if (existing && (reuse_existing_passport !== true || !existingSellerRelationship)) {
       return res.status(409).json({

@@ -54,6 +54,20 @@ const router = express.Router();
 const SELLER_AUTHORITY_CLAIM_EVENT = 'SELLER_AUTHORITY_CLAIM_REQUESTED';
 const SELLER_AUTHORITY_EVIDENCE_TYPES = new Set(['registration_document', 'ownership_transfer_document']);
 
+async function hasVerifiedSellerAuthorityEvidence(vin, userId) {
+  if (!vin || !userId) return false;
+  const { data, error } = await supabase
+    .from('vehicle_evidence')
+    .select('id')
+    .eq('vin', vin)
+    .eq('uploaded_by', userId)
+    .eq('verification_status', 'verified')
+    .in('evidence_type', Array.from(SELLER_AUTHORITY_EVIDENCE_TYPES))
+    .limit(1);
+  if (error) throw new DatabaseError(`Failed to read Seller authority evidence: ${error.message}`);
+  return Boolean(data?.length);
+}
+
 async function latestSellerAuthorityClaim(vin, userId) {
   if (!vin || !userId) return null;
   const { data, error } = await supabase
@@ -325,8 +339,18 @@ router.post('/api/vehicles/:vin/seller-claim', authorizeRole(['owner', 'dealer']
     || (vehicle.current_seller_id && vehicle.current_seller_id === req.userContext.id)
     || (vehicle.tenant_id && req.userContext.tenantId && vehicle.tenant_id === req.userContext.tenantId);
 
-  if (recognized) {
-    return res.json({ success: true, status: 'recognized', vin, claim_type: claimType });
+  const reviewedAuthority = recognized
+    ? true
+    : await hasVerifiedSellerAuthorityEvidence(vin, req.userContext.id);
+
+  if (recognized || reviewedAuthority) {
+    return res.json({
+      success: true,
+      status: 'recognized',
+      vin,
+      claim_type: claimType,
+      recognition_basis: recognized ? 'existing_relationship' : 'governed_verified_evidence',
+    });
   }
 
   const existingClaim = await latestSellerAuthorityClaim(vin, req.userContext.id);

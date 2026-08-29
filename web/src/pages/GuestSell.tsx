@@ -168,6 +168,7 @@ export default function GuestSell() {
       if (!form.model.trim()) next.model = 'Model is required'
       if (!isValidVehicleYear(form.year)) next.year = 'Enter a valid year'
       if (!validVin(form.vin)) next.vin = 'Enter the 17-character VIN'
+      else if (identifying) next.vin = 'Wait for the CarUp Passport check to finish'
       else if (identification.state === 'passport_exists' && !form.existingPassportConfirmed) {
         next.vin = 'Confirm whether this is the existing CarUp vehicle before continuing'
       }
