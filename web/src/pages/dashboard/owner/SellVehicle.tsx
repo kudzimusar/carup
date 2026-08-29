@@ -95,6 +95,7 @@ const INITIAL = {
   location: '', province: '', price: '', currency: '', description: '',
   features: [] as string[], featureInput: '',
   images: [] as string[], imageLabels: [] as string[],
+  existingPassportConfirmed: false,
 }
 
 function validateVin(vin: string) {
@@ -102,7 +103,7 @@ function validateVin(vin: string) {
 }
 
 export default function SellVehicle() {
-  const { createVehicleListing, uploadVehicleImages } = useCarUpApi()
+  const { createVehicleListing, uploadVehicleImages, requestSellerAuthorityClaim } = useCarUpApi()
   const [guestDraft] = useState(() => readGuestSellDraft())
   const [step, setStep] = useState(0)
   const [form, setForm] = useState(() => guestDraft ? ({
@@ -131,15 +132,18 @@ export default function SellVehicle() {
     features: guestDraft.features,
     images: guestDraft.images,
     imageLabels: guestDraft.imageLabels,
+    existingPassportConfirmed: guestDraft.existingPassportConfirmed,
   }) : INITIAL)
   const [errors, setErrors] = useState<Record<string, string>>({})
   const [submitting, setSubmitting] = useState(false)
   const [savedVin, setSavedVin] = useState<string | null>(null)
   const [guestDraftLoaded, setGuestDraftLoaded] = useState(() => Boolean(guestDraft))
   const [guestHistoryPlan] = useState(() => guestDraft?.historyPlan ?? {})
+  const [authorityState, setAuthorityState] = useState<'idle' | 'checking' | 'recognized' | 'evidence_required' | 'error'>('idle')
+  const [authorityClaimType, setAuthorityClaimType] = useState<'owner' | 'authorised_seller' | null>(null)
   const modelOptions = modelsForMake(form.make).map(item => item.name)
-  // S1: the same shared existing-Passport check Guest Sell runs. Advisory here too — the server's
-  // 409 stays the authoritative duplicate rejection.
+  // S1: one VIN has one Passport. The authenticated seller either has an established relationship
+  // to that Passport or enters the governed seller-authority evidence path.
   const { result: identification, checking: identifying } = useSellerVehicleIdentification(form.vin)
 
   // S4 — WHICH PHOTO THE SELLER CHOSE, or null because they have not chosen.
@@ -147,7 +151,7 @@ export default function SellVehicle() {
   // contract already expects: a bare URL claims nothing, and only `is_primary: true` is a claim.
   const [coverImageIndex, setCoverImageIndex] = useState<number | null>(() => guestDraft?.coverImageIndex ?? null)
   const [guestMediaRestoring, setGuestMediaRestoring] = useState(
-    () => Boolean(guestDraft && guestDraft.images.length === 0 && guestDraft.imageLabels.length > 0),
+    () => Boolean(guestDraft?.mediaExternalized && guestDraft.images.length === 0),
   )
 
   useEffect(() => {
@@ -167,6 +171,9 @@ export default function SellVehicle() {
         } else {
           toast.error('Your vehicle details were restored, but the browser could not recover the attached photos.')
         }
+      })
+      .catch(() => {
+        if (active) toast.error('CarUp could not restore the photo cache. Your vehicle details are still safe in this browser.')
       })
       .finally(() => {
         if (active) setGuestMediaRestoring(false)
@@ -206,7 +213,35 @@ export default function SellVehicle() {
     if (guestDraft) toast.success('Your pre-sign-in listing draft is ready to review.')
   }, [guestDraft])
 
-  const set = (field: string, value: string | number | boolean | string[]) => setForm(prev => ({ ...prev, [field]: value }))
+  const set = (field: string, value: string | number | boolean | string[]) => {
+    setForm(prev => ({
+      ...prev,
+      [field]: value,
+      ...(field === 'vin' ? { existingPassportConfirmed: false } : {}),
+    }))
+    if (field === 'vin') {
+      setAuthorityState('idle')
+      setAuthorityClaimType(null)
+    }
+  }
+
+  const resolveExistingPassportAuthority = async (claimType: 'owner' | 'authorised_seller') => {
+    if (identification.state !== 'passport_exists' || !form.existingPassportConfirmed) return
+    setAuthorityState('checking')
+    setAuthorityClaimType(claimType)
+    try {
+      const result = await requestSellerAuthorityClaim(form.vin.toUpperCase(), claimType)
+      setAuthorityState(result.status === 'recognized' ? 'recognized' : 'evidence_required')
+      if (result.status === 'recognized') {
+        toast.success('CarUp recognizes your existing relationship to this Passport.')
+      } else {
+        toast.info('Your seller-authority claim is recorded. Upload supporting evidence for governed review.')
+      }
+    } catch {
+      setAuthorityState('error')
+      toast.error('CarUp could not record the seller-authority decision. Please try again.')
+    }
+  }
 
   const setImageLabel = (index: number, label: string) => {
     setForm(previous => {
@@ -266,6 +301,15 @@ export default function SellVehicle() {
       if (!form.year) e.year = 'Required'
       if (!form.vin) e.vin = 'Required'
       else if (!validateVin(form.vin)) e.vin = 'VIN must be 17 alphanumeric characters'
+      else if (identification.state === 'passport_exists' && !form.existingPassportConfirmed) {
+        e.vin = 'Confirm that this is the existing CarUp vehicle'
+      } else if (identification.state === 'passport_exists' && form.existingPassportConfirmed && authorityState === 'idle') {
+        e.vin = 'Choose whether you own this vehicle or are authorised to sell it'
+      } else if (identification.state === 'passport_exists' && authorityState === 'checking') {
+        e.vin = 'Wait for the seller-authority check to finish'
+      } else if (identification.state === 'passport_exists' && authorityState === 'evidence_required') {
+        e.vin = 'Upload seller-authority evidence and wait for governed review before listing this Passport'
+      }
       if (!form.color) e.color = 'Required'
     }
     if (step === 1) {
@@ -355,6 +399,10 @@ export default function SellVehicle() {
         plate_number: form.plateNumber || undefined,
         temp_plate_id: form.tempPlateId || undefined,
         import_status: form.importStatus || undefined,
+        reuse_existing_passport:
+          identification.state === 'passport_exists'
+          && form.existingPassportConfirmed
+          && authorityState === 'recognized',
       })
 
       const returnedVin: string = (result as { vin?: string } | null)?.vin ?? form.vin.toUpperCase()
@@ -364,8 +412,12 @@ export default function SellVehicle() {
       toast.success('Vehicle saved as draft. Upload ownership documents to publish your listing.')
     } catch (err: unknown) {
       const errMsg = err instanceof Error ? err.message : ''
-      if (errMsg.includes('already listed')) {
-        toast.error('A vehicle with this VIN is already registered.')
+      const apiData = (err as { data?: { code?: string } } | null)?.data
+      if (apiData?.code === 'SELLER_AUTHORITY_CLAIM_REQUIRED') {
+        setAuthorityState('evidence_required')
+        toast.error('This Passport needs seller-authority review instead of a duplicate vehicle.')
+      } else if (errMsg.includes('already listed')) {
+        toast.error('This VIN already has a CarUp Passport. Confirm it above so CarUp reuses that Passport.')
       } else {
         toast.error('Failed to save vehicle. Please try again.')
       }
@@ -516,7 +568,50 @@ export default function SellVehicle() {
                 </div>
                 <p className="text-xs text-gray-400 mt-1">{form.vin.length}/17 characters</p>
                 {errors.vin && <p className="text-xs text-red-500">{errors.vin}</p>}
-                <VehicleIdentificationNotice result={identification} checking={identifying} />
+                <VehicleIdentificationNotice
+                  result={identification}
+                  checking={identifying}
+                  confirmed={form.existingPassportConfirmed}
+                  onConfirm={() => {
+                    set('existingPassportConfirmed', true)
+                    setAuthorityState('idle')
+                  }}
+                  onUseDifferentVin={() => set('vin', '')}
+                />
+                {identification.state === 'passport_exists' && form.existingPassportConfirmed && (
+                  <div className="mt-3 rounded-xl border border-slate-200 bg-slate-50 p-4" data-testid="seller-existing-passport-authority">
+                    <p className="text-sm font-semibold text-slate-900">What is your authority to sell this vehicle?</p>
+                    <p className="mt-1 text-xs leading-5 text-slate-600">
+                      CarUp reuses the existing Passport. This choice never grants ownership or Dealer privileges.
+                    </p>
+                    <div className="mt-3 flex flex-wrap gap-2">
+                      <Button type="button" size="sm" variant={authorityClaimType === 'owner' ? 'default' : 'outline'} disabled={authorityState === 'checking'} onClick={() => resolveExistingPassportAuthority('owner')}>
+                        I own this vehicle
+                      </Button>
+                      <Button type="button" size="sm" variant={authorityClaimType === 'authorised_seller' ? 'default' : 'outline'} disabled={authorityState === 'checking'} onClick={() => resolveExistingPassportAuthority('authorised_seller')}>
+                        I am authorised to sell it
+                      </Button>
+                    </div>
+                    {authorityState === 'checking' && (
+                      <p className="mt-3 flex items-center gap-2 text-xs text-slate-600"><Loader2 className="h-3.5 w-3.5 animate-spin" /> Checking the governed relationship…</p>
+                    )}
+                    {authorityState === 'recognized' && (
+                      <p className="mt-3 text-xs font-semibold text-emerald-700">Relationship recognized. Your listing will attach to this existing Passport.</p>
+                    )}
+                    {authorityState === 'evidence_required' && (
+                      <div className="mt-3 rounded-lg border border-amber-200 bg-amber-50 p-3 text-xs text-amber-900">
+                        <p className="font-semibold">Seller-authority evidence required.</p>
+                        <p className="mt-1">Your claim is recorded. The Passport is not reassigned until governed review supports it.</p>
+                        <Button asChild size="sm" variant="outline" className="mt-2">
+                          <Link to={`/dashboard/garage/${encodeURIComponent(form.vin)}?upload=1`}>Upload evidence to this Passport</Link>
+                        </Button>
+                      </div>
+                    )}
+                    {authorityState === 'error' && (
+                      <p className="mt-3 text-xs font-semibold text-red-600">The authority request could not be recorded. Try the choice again.</p>
+                    )}
+                  </div>
+                )}
               </div>
               <div className="grid sm:grid-cols-2 gap-4">
                 <div>

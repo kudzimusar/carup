@@ -2402,6 +2402,16 @@ export function useCarUpApi() {
     })
   }, [request])
 
+  const requestSellerAuthorityClaim = useCallback(async (
+    vin: string,
+    claimType: 'owner' | 'authorised_seller',
+  ): Promise<{ success: boolean; status: 'recognized' | 'evidence_required'; vin: string; claim_type: string }> => {
+    return request(`/vehicles/${encodeURIComponent(vin)}/seller-claim`, {
+      method: 'POST',
+      body: JSON.stringify({ claim_type: claimType }),
+    })
+  }, [request])
+
   const uploadVehicleImages = useCallback(async (vin: string, images: string[]): Promise<{ urls: string[] }> => {
     return request('/media/upload/vehicle', {
       method: 'POST',
@@ -2621,6 +2631,7 @@ export function useCarUpApi() {
     uploadEvidence,
     linkEvidenceToEvent,
     createVehicleListing,
+    requestSellerAuthorityClaim,
     uploadVehicleImages,
     fetchOwnedVehicles,
     fetchSavedVehicles,
