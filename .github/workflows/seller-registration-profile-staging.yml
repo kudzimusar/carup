@@ -19,10 +19,10 @@ permissions:
 
 concurrency:
   group: seller-registration-profile-staging-pr199
-  cancel-in-progress: false
+  cancel-in-progress: true
 
 env:
-  CANDIDATE_SHA: 8a1cd4e9698dca968b60180b0fa07fdb568ff791
+  CANDIDATE_SHA: 8065dd172afa446aa13b998df90db8bec3d66b53
   EXPECTED_MIGRATION_BLOB: 5f3ec18849b2c36f616222609e2e057055ee7769
   PG_DRIVER_VERSION: '8.21.0'
 
@@ -98,7 +98,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: seller-registration-profile-8a1cd4e9698dca968b60180b0fa07fdb568ff791
+          name: seller-registration-profile-8065dd172afa446aa13b998df90db8bec3d66b53
           path: seller-registration-profile-staging-receipt.json
           if-no-files-found: error
           retention-days: 30
