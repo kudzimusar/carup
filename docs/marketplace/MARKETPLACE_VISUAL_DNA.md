@@ -1,5 +1,7 @@
 # CarUp Marketplace Visual DNA — Merge Gate
 
+> **Global hierarchy:** root `DESIGN.md` is now the canonical CarUp-wide design contract. This document is the Marketplace-specific extension and may strengthen, but not contradict, that global contract.
+
 Status: **governing UI contract for PR #182**
 
 This document converts the approved Marketplace design direction into a repository-level gate so visual quality does not depend on conversational memory.
