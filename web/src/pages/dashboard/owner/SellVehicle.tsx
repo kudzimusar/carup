@@ -468,17 +468,34 @@ export default function SellVehicle() {
   const handleSubmit = async () => {
     setSubmitting(true)
     try {
-      let uploadedImageUrls: string[] = []
+      let resolvedImageUrls: string[] = []
 
       if (form.images && form.images.length > 0) {
-        try {
-          const uploadRes = await uploadVehicleImages(form.vin.toUpperCase(), form.images)
-          if (uploadRes && Array.isArray(uploadRes.urls)) {
-            uploadedImageUrls = uploadRes.urls
+        const localImages = form.images.filter(image => /^data:/i.test(image))
+        let uploadedLocalUrls: string[] = []
+
+        if (localImages.length > 0) {
+          try {
+            const uploadRes = await uploadVehicleImages(form.vin.toUpperCase(), localImages)
+            if (!uploadRes || !Array.isArray(uploadRes.urls) || uploadRes.urls.length !== localImages.length) {
+              throw new Error('CarUp did not confirm every selected photo upload.')
+            }
+            uploadedLocalUrls = uploadRes.urls
+          } catch (uploadErr) {
+            console.error('Image upload failed; preserving browser draft:', uploadErr)
+            toast.error('Your photos were not fully uploaded, so CarUp kept this draft in your browser instead of saving an incomplete listing.')
+            return
           }
-        } catch (uploadErr) {
-          console.error('Image upload failed, proceeding without images:', uploadErr)
-          toast.warning('Listing images failed to upload, but proceeding with vehicle details.')
+        }
+
+        let localCursor = 0
+        resolvedImageUrls = form.images.map(image => (
+          /^data:/i.test(image) ? uploadedLocalUrls[localCursor++] : image
+        ))
+
+        if (resolvedImageUrls.some(url => !/^https?:\/\//i.test(String(url || '')))) {
+          toast.error('One or more listing photos are not ready for server storage. The browser draft has been kept.')
+          return
         }
       }
 
@@ -508,8 +525,8 @@ export default function SellVehicle() {
         // nothing; exactly the seller's chosen photo carries `is_primary: true`. When no cover was
         // chosen, every entry stays a plain URL and the listing honestly has no primary photo.
         images: coverImageIndex === null
-          ? uploadedImageUrls
-          : uploadedImageUrls.map((url, index) => (
+          ? resolvedImageUrls
+          : resolvedImageUrls.map((url, index) => (
               index === coverImageIndex ? { url, is_primary: true } : url
             )),
         // S3 — the seller's own consent decisions, sent explicitly in both directions so the
@@ -528,7 +545,23 @@ export default function SellVehicle() {
           && authorityState === 'recognized',
       })
 
-      const returnedVin: string = (result as { vin?: string } | null)?.vin ?? form.vin.toUpperCase()
+      const resultMedia = result as {
+        vin?: string
+        images_recorded?: boolean
+        images_recorded_count?: number
+        images_unpublishable_count?: number
+      } | null
+
+      if (resolvedImageUrls.length > 0) {
+        const recordedCount = Number(resultMedia?.images_recorded_count || 0)
+        const refusedCount = Number(resultMedia?.images_unpublishable_count || 0)
+        if (resultMedia?.images_recorded !== true || recordedCount !== resolvedImageUrls.length || refusedCount > 0) {
+          toast.error('CarUp saved vehicle details but did not confirm the complete photo gallery. Your browser draft has been kept so you can retry without losing the photos.')
+          return
+        }
+      }
+
+      const returnedVin: string = resultMedia?.vin ?? form.vin.toUpperCase()
       setSavedVin(returnedVin)
       clearGuestSellDraft()
       setGuestDraftLoaded(false)
@@ -596,10 +629,47 @@ export default function SellVehicle() {
             Neither block above is a Trust score. CarUp publishes what it has actually verified on
             the vehicle&rsquo;s Passport, and only once evidence has been reviewed.
           </p>
-          <Link to={`/dashboard/garage/${encodeURIComponent(savedVin)}`} className="mt-2 inline-flex text-xs font-semibold text-orange-600 hover:underline">
-            Open this vehicle&rsquo;s Passport
-          </Link>
+          <div className="mt-3 flex flex-wrap gap-2">
+            <Button asChild size="sm"><Link to="/dashboard/listings">Manage &amp; publish listing</Link></Button>
+            <Button asChild size="sm" variant="outline">
+              <Link to={`/dashboard/sell-vehicle?vin=${encodeURIComponent(savedVin)}`}>Edit this draft</Link>
+            </Button>
+            <Link to={`/dashboard/garage/${encodeURIComponent(savedVin)}`} className="inline-flex items-center px-2 text-xs font-semibold text-orange-600 hover:underline">
+              Open Vehicle Passport
+            </Link>
+          </div>
         </div>
+      </div>
+    )
+  }
+
+  if (serverDraftLoading) {
+    return (
+      <div className="max-w-3xl mx-auto">
+        <Card className="border-0 card-shadow">
+          <CardContent className="p-8 text-center">
+            <Loader2 className="mx-auto h-7 w-7 animate-spin text-orange-500" />
+            <p className="mt-3 font-semibold text-slate-900">Loading your Seller listing…</p>
+            <p className="mt-1 text-sm text-slate-500">CarUp is restoring the vehicle and listing facts already attached to this Passport.</p>
+          </CardContent>
+        </Card>
+      </div>
+    )
+  }
+
+  if (serverDraftError && validateVin(resumeVin) && !guestDraft) {
+    return (
+      <div className="max-w-3xl mx-auto">
+        <Card className="border-amber-200 bg-amber-50">
+          <CardContent className="p-6">
+            <h1 className="text-lg font-semibold">Seller listing unavailable</h1>
+            <p className="mt-2 text-sm text-slate-700">{serverDraftError}</p>
+            <div className="mt-4 flex flex-wrap gap-2">
+              <Button asChild><Link to="/dashboard/listings">Open My Listings</Link></Button>
+              <Button asChild variant="outline"><Link to="/dashboard/garage">Back to My Garage</Link></Button>
+            </div>
+          </CardContent>
+        </Card>
       </div>
     )
   }
@@ -624,6 +694,12 @@ export default function SellVehicle() {
         <h1 className="text-2xl font-bold">Register Your Vehicle</h1>
         <p className="text-gray-500">Save your vehicle as a draft. You must upload ownership documents before your listing can be published.</p>
       </div>
+      {serverDraftLoaded && (
+        <div className="border-l-4 border-emerald-500 bg-emerald-50 p-4 text-sm text-emerald-950" data-testid="seller-server-draft-loaded">
+          <p className="font-semibold">Existing Seller listing loaded.</p>
+          <p className="mt-1">CarUp reused this VIN's Vehicle Passport and restored the listing facts already saved to your account. Edit only what has changed.</p>
+        </div>
+      )}
       {guestDraftLoaded && (
         <div className="border-l-4 border-orange-500 bg-orange-50 p-4 text-sm text-orange-950" data-testid="seller-guest-draft-loaded">
           <p className="font-semibold">Your guest preview has been restored.</p>
