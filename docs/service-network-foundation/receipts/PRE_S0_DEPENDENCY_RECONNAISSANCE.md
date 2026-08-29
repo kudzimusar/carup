@@ -80,210 +80,14 @@ Area distribution: web/src 138, backend/tests 107, backend/services 106, docs/co
 
 ## 6. Domain reconnaissance status
 
-Reconnaissance runs as 13 parallel read-only domain readers. Status at this commit:
+Reconnaissance ran as 14 parallel read-only domain readers (two passes: 7 completed in the
+first run, 7 re-ran after a session usage limit; resumed from journal cache — no findings lost).
 
-| Domain | Status |
-|---|---|
-| auth-tenant | ✅ complete (below) |
-| garage-mechanic | ✅ complete (below) |
-| marketplace | ✅ complete (below) |
-| vehicle-ownership | ✅ complete (below) |
-| communications | ✅ complete (below) |
-| email-whatsapp | ✅ complete (below) |
-| passport-evidence | ✅ complete (below) |
-| partsentry-workorders | 🔄 re-running (hit session usage limit; resumed 17:13 JST) |
-| trust | 🔄 re-running |
-| intelligence | 🔄 re-running |
-| owner-surfaces | 🔄 re-running |
-| events-outbox | 🔄 re-running |
-| pr194-cross | 🔄 re-running |
+**All 14 domains complete:** auth-tenant, garage-mechanic, vehicle-ownership, marketplace,
+communications, email-whatsapp, passport-evidence, partsentry-workorders, trust, intelligence,
+owner-surfaces, events-outbox, migrations-tests, pr194-cross.
 
-This receipt is committed incrementally so completed evidence is durable; the remaining
-domains land as an append-only follow-up commit on this same branch. No S1+ implementation
-begins before the S0 authority freeze receipt, which requires all 13 domains.
-
-## 7. Completed domain findings
-
-### Domain: garage-mechanic
-
-**Files** (30)
-- /Users/shadreckmusarurwa/Project AI/carup-service-network/backend/routes/workOrdersRoutes.js — mechanic work-order GET/POST/PATCH; creator stamped as mechanic_id; tenant-scoped update = 404 cross-tenant
-- /Users/shadreckmusarurwa/Project AI/carup-service-network/backend/routes/partsRoutes.js — mechanic_parts inventory, tenant-scoped
-- /Users/shadreckmusarurwa/Project AI/carup-service-network/backend/routes/dealerRoutes.js — dealer compliance self-service/admin/buyer-safe route set
-- /Users/shadreckmusarurwa/Project AI/carup-service-network/backend/services/dealer/dealerComplianceService.js — dealer identity, 8 lifecycle statuses, deriveCanPublish gate, append-only decision ledger, buyer-safe summary
-- /Users/shadreckmusarurwa/Project AI/carup-service-network/backend/middleware/authMiddleware.js — authorizeRole: session→users.role platform role, x-tenant-id verified against tenant_users, resolveEffectiveRole, requireProvenIdentity
-- /Users/shadreckmusarurwa/Project AI/carup-service-network/backend/server.js — /api/organizations/* endpoints (my-org via tenant_users; :id/branches and :id/users UNAUTH), /api/partsentry/add and /:vin
-- /Users/shadreckmusarurwa/Project AI/carup-service-network/backend/services/partsentry/partsentryService.js — signed repair log with mechanic_id + tenant_id provenance
-- /Users/shadreckmusarurwa/Project AI/carup-service-network/backend/services/trustGraph/trustGraphService.js — Passport service timeline; privacy-limited mechanic_work_orders select (id,vin,created_at,status,mechanic_id,total_cost)
-- /Users/shadreckmusarurwa/Project AI/carup-service-network/backend/services/marketplace/marketplaceEventTypes.js — garage_service_request inquiry type, qr source channel, referral event map
-- /Users/shadreckmusarurwa/Project AI/carup-service-network/backend/services/marketplace/marketplacePartsService.js — governed garage/service listing stub; public sanitized provider card shape; empty until provider backend exists
-- /Users/shadreckmusarurwa/Project AI/carup-service-network/backend/services/marketplace/marketplaceDiscoveryService.js — 'service' category labeled 'Garages & Services'
-- /Users/shadreckmusarurwa/Project AI/carup-service-network/backend/services/communication/emailStakeholderMatrix.js — 'garage' workflow: roles vehicle_owner+garage, transactional only, identity from work-order participant, tenant-scoped
-- /Users/shadreckmusarurwa/Project AI/carup-service-network/backend/services/communication/communicationStakeholderContractService.js — garage requiredRoles ['vehicle_owner','garage']
-- /Users/shadreckmusarurwa/Project AI/carup-service-network/backend/services/communication/communicationWorkflowService.js — garage workflow → 'general' category
-- /Users/shadreckmusarurwa/Project AI/carup-service-network/backend/services/eventBus/eventBusService.js — existing event bus (with eventWorker.js, listeners.js) for §8 reuse
-- /Users/shadreckmusarurwa/Project AI/carup-service-network/web/src/pages/GarageDirectory.tsx — deliberate honest empty state; hardcoded empty array, NO API call; comment says wire to governed registry when published
-- /Users/shadreckmusarurwa/Project AI/carup-service-network/web/src/pages/DealerDirectory.tsx — same honest-empty pattern for dealers
-- /Users/shadreckmusarurwa/Project AI/carup-service-network/web/src/App.tsx — /garages → GarageDirectory (248); /dashboard/garage → owner MyGarage (312) naming clash
-- /Users/shadreckmusarurwa/Project AI/carup-service-network/web/src/pages/dashboard/mechanic/WorkOrders.tsx — real work-order UI: create/complete/cancel via useCarUpApi; renders 'Unassigned' when mechanic_id absent
-- /Users/shadreckmusarurwa/Project AI/carup-service-network/web/src/pages/dashboard/mechanic/MechanicDashboard.tsx — stats from fetched work orders (fetchMechanicWorkOrders)
-- /Users/shadreckmusarurwa/Project AI/carup-service-network/web/src/pages/dashboard/mechanic/ServiceLogs.tsx — partsentry repair-log UI (addRepairLog/fetchRepairHistory)
-- /Users/shadreckmusarurwa/Project AI/carup-service-network/web/src/pages/dashboard/mechanic/CustomerRecords.tsx — HARDCODED mock customers with fabricated PII-like data (truth debt)
-- /Users/shadreckmusarurwa/Project AI/carup-service-network/web/src/pages/dashboard/mechanic/PartsTracking.tsx — parts inventory UI (on main still has invented defaults PR#194 fixes)
-- /Users/shadreckmusarurwa/Project AI/carup-service-network/web/src/hooks/useCarUpApi.ts — fetch/create/updateMechanicWorkOrder actions (~lines 2010-2023)
-- /Users/shadreckmusarurwa/Project AI/carup-service-network/shared/types/index.ts — UserRole has mechanic+dealer, NO garage; Organization.type incl 'garage'; ServiceRecord with mechanic_id
-- /Users/shadreckmusarurwa/Project AI/carup-service-network/shared/types/marketplace.ts — MarketplaceListingType incl 'garage'; inquiry type 'garage_service_request'
-- /Users/shadreckmusarurwa/Project AI/carup-service-network/DEALER_MECHANIC_DISCOVERY_AUDIT.md — Directive 004A type-safety audit of 6 dealer/mechanic portal pages (not a domain-model audit)
-- /Users/shadreckmusarurwa/Project AI/carup-service-network/DEALER_MECHANIC_REMEDIATION_REPORT.md — Directive 004B: @ts-nocheck removed from 4 pages, any-types eliminated, hook boundary preserved
-- /Users/shadreckmusarurwa/Project AI/carup-service-network/ROUTE_AUTHORIZATION_MATRIX.md — documents org endpoint auth gaps (audit-log rows now stale; branches/users rows still accurate)
-- /Users/shadreckmusarurwa/Project AI/carup-service-network/docs/service-network-foundation/receipts/LANE_OPENING.md — the one docs commit on top of main (001f7de2)
-
-**Tables** (17)
-- organizations — legacy org universe; type CHECK ('dealership','garage','insurance','bank','fleet','import','government'); supabase_schema.sql:163
-- organization_branches — id, organization_id, name, location, phone ONLY (no staff/capacity); supabase_schema.sql:209; read by unauth endpoint
-- organization_users / organization_roles / organization_permissions — legacy membership with role level, branch_id, department_id + resource/action perms; supabase_schema.sql:183-208
-- organization_profiles — tax_id, license_number, address, trust_score; supabase_schema.sql:171
-- organization_audit_logs — org audit trail written via /api/organizations/:id/audit-logs; supabase_schema.sql:224
-- tenants — ACTIVE org universe: name, type (free text incl 'garage'), status; 002_multi_tenant_and_auth_schema.sql:11
-- tenant_users — ACTIVE membership: tenant_id, user_id, role (mechanic/admin/manager/member), UNIQUE(tenant,user); auth authority; 002:20
-- tenant_settings / tenant_branding — org config returned by /api/organizations/my-org; 002
-- users — role CHECK ('owner','dealer','mechanic','insurance','government','bank','admin'); mechanic IS a platform role, garage is NOT; supabase_schema.sql:19
-- mechanic_work_orders — converged superset: tenant_id + legacy organization_id, vin FK, customer_id, customer_name, mechanic_id (creator-stamped), description, status CHECK ('In Progress','Completed','Cancelled'), labor_cost, total_cost, created_at only; 006/009/20260808150000
-- mechanic_parts — tenant parts inventory: tenant_id, name, sku (unique per tenant), stock_level, unit_price; 006/009
-- partsentry_logs — append-only repair ledger with mechanic_id, tenant_id, signature (written by partsentryService)
-- dealer_profiles — user-keyed dealer identity + 8 independent lifecycle statuses + listing_limit + expiry_date; 20260626150000
-- dealer_branches — dealer_id, name, address; 20260626150000
-- dealer_compliance_documents / dealer_compliance_requirements / dealer_compliance_decisions — evidence metadata (ON DELETE RESTRICT) + checklist + append-only governance ledger; 20260626150000
-- marketplace_inquiries — inquiry rows incl type garage_service_request, seller_tenant_id, source_channel incl 'qr'; 20260616120000
-- user_sessions — session token authority consumed by authorizeRole; 003/20260617120000
-
-**Services** (9)
-- backend/services/dealer/dealerComplianceService.js — dealer business identity authority: createOrUpdateProfile, addBranch, listRequirements, uploadDocument, recordDecision (append-only), evaluateCompliance, deriveCanPublish (pure publish gate), getBuyerSafeSummary
-- backend/services/partsentry/partsentryService.js — addRepairLog: signed repair ledger rows with mechanic_id + tenant_id provenance; emits 'Mechanic Inspection' vehicle event
-- backend/services/trustGraph/trustGraphService.js — Passport service-timeline projection reading mechanic_work_orders with privacy-limited column set
-- backend/services/marketplace/marketplacePartsService.js — getServiceListings: governed garage/service listing surface, sanitized card shape, honestly empty (no provider backend)
-- backend/services/marketplace/marketplaceEventTypes.js — canonical inquiry/source-channel/referral-event vocabularies incl garage_service_request and qr
-- backend/services/communication/{emailStakeholderMatrix,communicationStakeholderContractService,communicationWorkflowService}.js — existing 'garage' communications workflow (vehicle_owner+garage, transactional, tenant-scoped)
-- backend/services/eventBus/{eventBusService,eventWorker,listeners}.js — event emission/consumption infrastructure, currently no service-domain producers
-- backend/middleware/authMiddleware.js — authority for principal resolution: platform role from users.role, tenant role from tenant_users, exports authorizeRole/authorizeSessionRole/requireProvenIdentity/resolveEffectiveRole
-- backend/services/providerPlatform/* — external verification-provider framework (police/insurer data), NOT garage service providers; not a garage registry
-
-**APIs** (15)
-- GET/POST/PATCH /api/mechanic/work-orders — backend/routes/workOrdersRoutes.js, authorizeRole(['mechanic','admin']), tenant from req.userContext.tenantId; POST stamps caller as mechanic_id
-- GET/POST /api/mechanic/parts — backend/routes/partsRoutes.js, authorizeRole(['mechanic','admin']), tenant-scoped mechanic_parts
-- POST /api/partsentry/add — backend/server.js:1630, authorizeRole(['mechanic','owner','dealer','admin']); non-mechanics need own-vehicle/same-tenant proof
-- GET /api/partsentry/:vin — backend/server.js:1658, optionalAuth(); public sees governed public ledger only
-- GET /api/organizations/my-org — backend/server.js:1824, authorizeRole(); resolves org via tenant_users→tenants join
-- GET /api/organizations/:id/branches — backend/server.js:1876, NO AUTH (public branch fetch, flagged Medium Risk in ROUTE_AUTHORIZATION_MATRIX.md)
-- GET /api/organizations/:id/users — backend/server.js:1891, NO AUTH; returns staff name/email/avatar/role publicly
-- GET+POST /api/organizations/:id/audit-logs — backend/server.js:1910/1950, authorizeRole() (matrix rows saying 'public' are stale)
-- POST/GET /api/dealer/profile, POST /api/dealer/branches, GET /api/dealer/requirements, POST /api/dealer/documents — backend/routes/dealerRoutes.js, authorizeRole(['dealer','admin']), self-profile only
-- GET /api/admin/dealers[,/:id], PATCH /api/admin/dealers/:id/decision — backend/routes/dealerRoutes.js, authorizeRole(['admin','government','reviewer'])
-- GET /api/dealers/:id/summary — backend/routes/dealerRoutes.js, any authenticated; coarse status + evidence band only
-- GET /api/marketplace/services — backend/routes/marketplaceRoutes.js, public; garage/service listings stub returns empty until provider backend exists
-- POST /api/marketplace/inquiries — backend/routes/marketplaceRoutes.js, optionalAuth+rate-limit; accepts type garage_service_request, source_channel qr
-- PR#194 only: GET /api/mechanic/analytics — intelligenceProjectionRoutes.js, authorizeRole(['mechanic','admin']), person scope
-- PR#194 only: GET /api/garage/analytics — intelligenceProjectionRoutes.js, authorizeRole(['mechanic','dealer','admin']), verified-tenant scope, no org parameter; FIRST /api/garage/* namespace
-
-**Events** (5)
-- 'Mechanic Inspection' vehicle event — emitted by partsentryService.addRepairLog via blockchainService.addEvent (backend/services/partsentry/partsentryService.js:53); consumed by passport timeline
-- garage_service_request → referral event 'marketplace_service_booked' — INQUIRY_TYPE_TO_REFERRAL_EVENT in backend/services/marketplace/marketplaceEventTypes.js:59
-- Referral bridge outbox labels garage_service_request as 'mechanic service' — database/migrations/20260716033000_referral_bridge_outbox_payload_minimization.sql:38
-- eventBus infrastructure exists (backend/services/eventBus/eventBusService.js, eventWorker.js, listeners.js) but NO work-order lifecycle events are emitted today — Service Event Contract (plan §8) has no emitter yet
-- PR#194: passport timeline work-order event carries no free-text notes — contract locked by issue164-phase8-service-timeline-privacy.test.js against trustGraphService
-
-**RLS/policies** (7)
-- mechanic_work_orders — RLS enabled with ZERO policies + REVOKE ALL from anon/authenticated, GRANT service_role (20260809110000); backend service-role client is the only path
-- mechanic_parts — identical default-deny posture (20260809110000)
-- dealer_profiles — RLS: owner read/update/insert policies + oversight read (20260626150000:166-190)
-- dealer_compliance_decisions — append-only via governance_block_mutation trigger; reversal is a new row (20260626150000)
-- tenant_users — RLS enabled (002:164); diaspora self-read policy added then SELECT revoked from authenticated (013:533,783-784)
-- vehicle_evidence / vehicles — write grants revoked, SELECT-only for API roles (20260809110000); public-read posture owned by Issue #101
-- Posture locked by backend/tests/db-anon-grant-posture.test.js — any new garage/service tables must ship matching default-deny grants
-
-**Migrations** (10)
-- database/migrations/supabase_schema.sql — base users table (role CHECK: owner,dealer,mechanic,insurance,government,bank,admin — NO garage) + legacy organizations universe (type CHECK incl 'garage', organization_branches/users/roles/permissions/audit_logs)
-- database/migrations/002_multi_tenant_and_auth_schema.sql — tenants (type free text incl 'garage'), tenant_users (role incl 'mechanic'), tenant_settings/branding; tenant_users RLS enabled
-- database/migrations/006_domain1.sql — FIRST mechanic_work_orders shape (organization_id TEXT, customer_name NOT NULL, status default 'pending') + mechanic_parts
-- database/migrations/009_phase4_schema.sql — SECOND mechanic_work_orders shape (tenant_id UUID FK tenants, vin FK vehicles, mechanic_id FK users, status CHECK 'In Progress'/'Completed'/'Cancelled')
-- database/migrations/20260808150000_mechanic_work_orders_convergence.sql — converges the two shapes into a superset (adds tenant_id, mechanic_id, customer_id, costs; relaxes legacy NOT NULLs); plan 6.3 says evolve THIS table additively
-- database/migrations/20260809110000_api_role_write_hardening.sql — RLS enabled + all anon/authenticated grants revoked on mechanic_work_orders/mechanic_parts; service-role only
-- database/migrations/20260626150000_dealer_compliance.sql — dealer_profiles (8 uncollapsed lifecycle statuses), dealer_branches, compliance documents/requirements, append-only dealer_compliance_decisions via governance_block_mutation
-- database/migrations/20260616120000_marketplace_v1_inquiries.sql — marketplace_inquiries incl garage_service_request vocabulary
-- database/migrations/013_diaspora_trade_schema.sql — tenant_users self-read policy then REVOKE SELECT from authenticated (:783)
-- Migration marker contract: new migrations MUST carry '-- +migrate Up' and pass backend/tests/migration-integrity.test.js
-
-**Tests** (10)
-- backend/tests/dealer-compliance.test.js — locks publish gate, append-only decision ledger, buyer-safe summary exclusions, admin tenant scoping
-- backend/tests/dealer-routes.test.js — locks self-profile scoping (no cross-dealer reads), admin decision path, buyer summary privacy, suspend-blocks-publication
-- backend/tests/dealer-leads-inquiries.test.js — dealer lead/inquiry surface contract
-- backend/tests/issue164-phase8-service-timeline-privacy.test.js — locks the mechanic_work_orders passport-timeline select to non-free-text, non-customer-identity columns and sanitized public descriptions
-- backend/tests/partsentry-write-truth.test.js — partsentry write-truth contract (mechanic provenance path)
-- backend/tests/db-anon-grant-posture.test.js — locks default-deny grants incl mechanic_work_orders/mechanic_parts
-- backend/tests/migration-integrity.test.js — enforces '-- +migrate Up' marker contract for any new domain migration
-- web/src/pages/dashboard/mechanic/WorkOrders.test.tsx — locks PATCH completion/cancellation with DB-legal 'Completed'/'Cancelled', total_cost validation, terminal rows immutable, description rendering
-- web/src/pages/dashboard/mechanic/ServiceLogs.test.tsx — service-log UI contract over partsentry history
-- PR#194 adds: backend/tests/intelligence-service-mechanic-garage.test.js (23 tests, person-vs-tenant scoping + unavailable-vs-zero) and web ServiceIntelligence.test.tsx (12) + PartsTracking.test.tsx
-
-**Contract gaps** (13)
-- No garage public projection/publication state exists anywhere — GarageDirectory.tsx renders a hardcoded empty array with no API; no directory API, no garage detail page (S1 builds all of it)
-- No tenant/organization onboarding or membership-management API — nothing in backend inserts into tenants or tenant_users (grep-verified); garage orgs and memberships are seeded out-of-band
-- No org-level verification/onboarding state on tenants — dealer_profiles carries verification but is user-keyed and dealer-only; a garage tenant has only name/type/status
-- No mechanic assignment history model — single mechanic_id column on mechanic_work_orders; no assignment table, no assigned_by, no unassigned_at (plan 6.4/S4)
-- mechanic_work_orders has created_at ONLY — no completed_at/cancelled_at/started_at, no branch_id, no service_category, no cancellation reason (confirmed by I9 receipt and 009/20260808150000 migrations)
-- No booking/appointment/scheduling or capacity model anywhere in the schema (I9 receipt: verified against live staging)
-- No service_cases table and no garage_service_request→work-order bridge; inquiry routing proves no governed target-garage relationship (plan fact #9)
-- Work-order lifecycle lacks request/accept/decline states — only 'In Progress','Completed','Cancelled' in DB CHECK and API
-- No work-order lifecycle event emission — eventBus exists but nothing emits service events (plan §8 contract has no producer)
-- No mechanic public identity/practitioner projection and no service-link/QR resolver for mechanic resources (plan 20.3)
-- No branch model for the ACTIVE tenants universe — organization_branches belongs to the legacy organizations universe, dealer_branches to dealers; work orders carry no branch reference
-- Garage staging reality at I9 freeze: 0 mechanic_work_orders rows, one garage-type organization, one garage_service_request inquiry — no data to certify against
-- CustomerRecords.tsx still ships fabricated customer data — same class of truth debt S1 empty-states policy exists to prevent
-
-**Likely conflicts with Service Network** (12)
-- Two parallel organization universes: tenants/tenant_users (auth authority, backend/middleware/authMiddleware.js) vs organizations/organization_* (legacy server.js endpoints + supabase_schema.sql). Plan 6.5 says evolve existing org/branch model — S0 must pick one; branches exist in organization_branches AND dealer_branches, none for tenants
-- GET /api/organizations/:id/branches and /:id/users are UNAUTHENTICATED (server.js:1876/1891) — leaks staff names/emails; directly violates plan 6.5 'do not publish private staff information' and must not be the S1 directory basis
-- 'garage' naming collision: /dashboard/garage = owner MyGarage vehicle collection (web/src/App.tsx:312) and /garages = public directory; Service Network 'garage' business surfaces need distinct routes/labels
-- /api/garage/* namespace is claimed by PR #194 analytics (garage = verified-tenant intelligence); S1/S2 garage identity/case APIs must join, not clash with, that convention (no tenant params, session-verified scope)
-- tenants.type is free TEXT ('garage' by convention, 002 migration) while organizations.type has a CHECK incl 'garage' (supabase_schema.sql:166) — garage typing has no single enforced vocabulary
-- creator=mechanic conflation: POST /api/mechanic/work-orders stamps mechanic_id = caller (workOrdersRoutes.js:49) — plan 6.4/S4 requires removing this as final authority; web WorkOrders.tsx renders mechanic from that same column
-- Work-order status vocabulary is capitalized display strings ('In Progress','Completed','Cancelled') enforced by DB CHECK (009_phase4_schema.sql) and locked by web tests — plan 7.x lifecycle (request/accept/decline/assign) must be reconciled additively in S2/S3, not by mutating the CHECK
-- I9 receipt (PR #194) declares cancellation not-measurable while the current route supports 'Cancelled' — plan fact #6 requires explicit reconciliation
-- dealer publication governance (dealer_profiles) is USER-keyed (user_id) while garage identity is TENANT-keyed — the deriveCanPublish pattern can be reused but not the keying
-- serviceIntelligenceService (PR #194) counts inquiry type 'mechanic_service_request' which does NOT exist in MARKETPLACE_INQUIRY_TYPES (marketplaceEventTypes.js) — vocabulary drift to settle before S3 bridge
-- emailStakeholderMatrix 'garage' workflow already binds identity to 'work order participant' — Service Case conversations must reconcile with that contract, not create a parallel comms silo (Invariant 6)
-- PartSentry can feed vehicles mileage via signed repair logs (plan fact #8) — S0 must adjudicate that mutation under the canonical mileage fact contract before service records write mileage
-
-**Must reuse (do not duplicate)** (14)
-- tenant_users membership + authorizeRole/x-tenant-id verification (backend/middleware/authMiddleware.js) — the ONLY garage-access mechanism; plan 9.1/9.3 require reusing it
-- resolveEffectiveRole, requireProvenIdentity, authorizeSessionRole (authMiddleware.js) — proven-identity and role-escalation guards for consequential service writes (Actor Context §6.7)
-- mechanic_work_orders converged table (20260808150000) — plan 6.3 forbids a second work-order table; evolve additively (service_case_id, branch_id, completed_at, cancelled_at)
-- deriveCanPublish pure gate + 8 uncollapsed statuses + append-only decision ledger pattern (backend/services/dealer/dealerComplianceService.js, 20260626150000 migration incl governance_block_mutation) — the template for garage publication governance, re-keyed to tenant
-- Communications garage workflow contracts (emailStakeholderMatrix.js:44, communicationStakeholderContractService.js:4, communicationWorkflowService.js:6) — garage stakeholder + tenant rule already defined; S3 must plug into them (Invariant 6)
-- marketplace inquiry vocabulary: garage_service_request + source channel qr + statuses (backend/services/marketplace/marketplaceEventTypes.js) — plan §10 mandates reuse for the S3 bridge
-- eventBus (backend/services/eventBus/eventBusService.js + eventWorker + listeners) — existing transport for the Service Event Contract (§8)
-- trustGraphService passport timeline work-order projection + its privacy contract (issue164-phase8-service-timeline-privacy.test.js) — Passport stays projection authority (plan fact #7); extend, never fork
-- partsentryService provenance pattern (mechanic_id + tenant_id + signature + addEvent) — model for service-record provenance (§6.6)
-- PR#194 serviceIntelligenceService scoping rules and /api/garage/analytics session-tenant resolution — the person-vs-tenant discipline S1-S4 APIs must match
-- marketplacePartsService sanitized public provider-card shape (line ~85) — starting point for the S1 directory card contract
-- honest-empty-state pattern of GarageDirectory.tsx/DealerDirectory.tsx — S1 'truthful empty states' requirement already has its house style
-- web WorkOrders.tsx + useCarUpApi mechanic work-order actions + their tests — S4 converges this surface rather than replacing it
-- migration marker contract ('-- +migrate Up') + backend/tests/migration-integrity.test.js — every new domain migration must comply
-
-**PR #194 delta** (11)
-- backend/services/intelligence/serviceIntelligenceService.js (NEW) — I9 mechanic(person)/garage(tenant) projections; mechanic never widens to tenant, garage never narrows to caller; NOT_MEASURABLE list (bookings, capacity, team, branch, turnaround, cancellation, category) returned with reasons
-- backend/routes/intelligenceProjectionRoutes.js (NEW) — adds GET /api/mechanic/analytics (mechanic,admin) and GET /api/garage/analytics (mechanic,dealer,admin); scope only from verified session, deliberately no tenant/org parameters; failed reads return 'unavailable', never zeros
-- backend/tests/intelligence-service-mechanic-garage.test.js (NEW, 23 tests) — locks person/tenant scoping, refusal without verified tenant, unavailable-vs-zero honesty
-- docs/intelligence/receipts/I9_MECHANIC_GARAGE_PROJECTION_MODEL.md (NEW, FROZEN) — canonical mechanic-vs-garage principal model + verified schema survey; staging at freeze: 0 work orders, 1 garage org, 1 garage_service_request
-- web/src/components/intelligence/ServiceIntelligence.tsx + .test.tsx (NEW) — scope-labeled surface mounted on mechanic dashboard
-- web/src/pages/dashboard/mechanic/MechanicDashboard.tsx (M) — mounts <ServiceIntelligence scope="mechanic"/>
-- web/src/pages/dashboard/mechanic/PartsTracking.tsx (M) + PartsTracking.test.tsx (NEW) — honesty remediation: null-preserving TrackedPart, invented supplier/threshold/zero defaults removed, fake 'Upload Invoice' control deleted; adds PartsIntelligence
-- web/src/components/intelligence/DealerIntelligence.tsx + .test.tsx (NEW) and dealer pages DealerDashboard/Inventory/Promotions/SalesAnalytics (M) — I8 dealer intelligence surfaces
-- docs/intelligence/manuals/dealer.md, receipts/I8_DEALER_INTELLIGENCE.md, i0-appendices/D-web-kpi-register-owner-dealer-mechanic.md (NEW) — dealer/mechanic KPI registers
-- serviceIntelligenceService defines SERVICE_INQUIRY_TYPES incl 'mechanic_service_request' which is absent from MARKETPLACE_INQUIRY_TYPES on main — vocabulary drift Service Network must settle
-- No garage/mechanic schema, RLS, or authority changes in #194 — the delta is read-only projections plus web honesty fixes
-
-**Notes:** Workspace verified at 001f7de2 (main ba208963 + LANE_OPENING.md docs commit). Core identity model confirmed exactly as plan 9.2 wants preserved: mechanic is a person (users.role CHECK value AND a tenant_users role), garage is only an organization/tenant type — no garage login universe, no garage platform role. The live authority chain is session→users.role, x-tenant-id header verified against tenant_users membership (authMiddleware.js:151-162). Biggest structural risks for S0/S1: the dual organization universe (tenants vs organizations) and the two unauthenticated /api/organizations/:id endpoints; biggest reuse wins: the converged mechanic_work_orders table, dealerComplianceService's publish-gate/append-only-ledger pattern, Communications' existing 'garage' workflow, and PR #194's I9 scoping discipline plus its frozen receipt, which doubles as a verified schema survey of this exact domain. PR #194 (Intelligence 1.0) does not change any garage/mechanic authority or schema — it adds read-only projections, honesty fixes on mechanic/dealer pages, and claims the /api/garage/* and /api/mechanic/analytics namespaces.
+## 7. Domain findings
 
 ### Domain: auth-tenant
 
@@ -479,171 +283,186 @@ begins before the S0 authority freeze receipt, which requires all 13 domains.
 
 **Notes:** Architecture verdict for Service Network S0: CarUp auth is fully custom (auth.users empty by design; no Supabase Auth, no JWT anywhere — JWT_SECRET only signs CSRF tokens). Sessions are opaque sk_live_* bearer tokens in public.user_sessions validated per-request by authorizeRole (a factory, like optionalAuth). Tenant scope enters via client-selected x-tenant-id but is VERIFIED against tenant_users before it reaches req.userContext.tenantId — that verified field, applied as .eq('tenant_id', ...) inside each query (workOrdersRoutes is the exemplar; cross-tenant == 404), is the real isolation mechanism, because the backend runs service_role and bypasses RLS; current_tenant_id()/app.current_tenant is intentionally inert. Garage = tenants row (type 'garage' already exists), mechanic = users.role — exactly the plan 9.2 split; what is missing is every write path (tenant provisioning, membership, invitations, publication) and the capability-link layer, for which the SA1C hashed/atomic-consume token pattern is the mandated starting point (plan 6.8). PR #194 leaves the core auth contract untouched; its relevant deltas are the org-endpoint membership hardening, the durable user.email.verified outbox event, and an in-PR tenancy/authorization audit appendix that corroborates this map. Workspace inspected: /Users/shadreckmusarurwa/Project AI/carup-service-network at 001f7de2 (main ba208963 + LANE_OPENING docs commit).
 
-### Domain: marketplace
+### Domain: garage-mechanic
 
-**Files** (23)
-- backend/routes/marketplaceRoutes.js — public discovery + inquiries + saved + AI advisory router (184 lines on main)
-- backend/routes/marketplaceAdminRoutes.js — listing moderation + inquiry assign/status + analytics (reviewer roles)
-- backend/routes/leadsRoutes.js — projects seller-scoped marketplace_inquiries into the dealer Leads pipeline (inquiryToLead)
-- backend/services/marketplace/marketplaceInquiryService.js — SINGLE buyer-intent capture path; createInquiry, seller routing, risk assessment, projections; garage_service_request flows through here
-- backend/services/marketplace/marketplaceEventTypes.js — backend source of truth for inquiry types/statuses/source channels/referral-event mapping (mirror of shared/types/marketplace.ts)
-- backend/services/marketplace/marketplaceReferralBridgeService.js — marketplace→referral attribution bridge; QR channel map; idempotent inquiry→lead bridging
-- backend/services/marketplace/marketplaceListingEligibility.js — pure REAL_LISTING_ELIGIBILITY contract (reason/warning codes); wired into POST /api/vehicles/add via server.js
-- docs/CARUP_REAL_LISTING_ELIGIBILITY_CONTRACT.md — the eligibility contract document
-- backend/services/marketplace/marketplacePartsService.js — governed, deliberately EMPTY parts + garage/service listing surface; buildServiceSummary card shape (verification_status fail-closed)
-- backend/services/marketplace/listingSummaryService.js — canonical public listing summary builder + PartSentry public-card governance
-- backend/services/marketplace/marketplaceModerationService.js — listing moderation actions with independent role re-check
-- backend/services/marketplace/marketplaceInquiryService.js toSellerInquiry/toAdminInquiry — audience-scoped inquiry projections (guest PII hidden from public)
-- backend/services/eventBus/eventBusService.js — transactional outbox emitDomainEvent into domain_events; marketplace.inquiry.created idempotent by inquiryId
-- backend/services/referral/referralEngineService.js — QR/barcode scans recorded as first-class referral events (lines 516-535); share payload qr_payload = referral URL string (line 350)
-- backend/services/report/reportService.js — createShareLink/getReportByShareToken/revokeShare: existing expiring+revocable share-token infra (plaintext token)
-- shared/types/marketplace.ts — canonical TS contract: MarketplaceInquiryType incl. garage_service_request (line 298), MarketplaceSourceChannel incl. qr (line 323)
-- web/src/components/marketplace/InquiryModal.tsx — inquiry UI; label 'Request a service' for garage_service_request (line 24)
-- web/src/pages/MarketplaceCategoryPage.tsx — Garages & Services category page; CTA inquiryType garage_service_request (line 50); renders empty governed listings today
-- web/src/lib/marketplaceReferral.ts — captureReferralFromUrl + inquiryAttributionFields; source_channel limited to 'web'|'mobile'
-- web/src/pages/dashboard/admin/MarketplaceModeration.tsx — admin marketplace surface (moderation + inquiries)
-- database/migrations/20260616120000_marketplace_v1_inquiries.sql — owns marketplace_inquiries + marketplace_listing_reports
-- database/migrations/20260811132100_communications_2_reliability_closure.sql — AFTER INSERT trigger writing marketplace.inquiry.created into domain_events transactionally + dedupe_key
-- backend/server.js — mounts leads/marketplace/marketplaceAdmin routers (lines 295, 307-308); imports marketplaceListingEligibility for /api/vehicles/add
+**Files** (30)
+- /Users/shadreckmusarurwa/Project AI/carup-service-network/backend/routes/workOrdersRoutes.js — mechanic work-order GET/POST/PATCH; creator stamped as mechanic_id; tenant-scoped update = 404 cross-tenant
+- /Users/shadreckmusarurwa/Project AI/carup-service-network/backend/routes/partsRoutes.js — mechanic_parts inventory, tenant-scoped
+- /Users/shadreckmusarurwa/Project AI/carup-service-network/backend/routes/dealerRoutes.js — dealer compliance self-service/admin/buyer-safe route set
+- /Users/shadreckmusarurwa/Project AI/carup-service-network/backend/services/dealer/dealerComplianceService.js — dealer identity, 8 lifecycle statuses, deriveCanPublish gate, append-only decision ledger, buyer-safe summary
+- /Users/shadreckmusarurwa/Project AI/carup-service-network/backend/middleware/authMiddleware.js — authorizeRole: session→users.role platform role, x-tenant-id verified against tenant_users, resolveEffectiveRole, requireProvenIdentity
+- /Users/shadreckmusarurwa/Project AI/carup-service-network/backend/server.js — /api/organizations/* endpoints (my-org via tenant_users; :id/branches and :id/users UNAUTH), /api/partsentry/add and /:vin
+- /Users/shadreckmusarurwa/Project AI/carup-service-network/backend/services/partsentry/partsentryService.js — signed repair log with mechanic_id + tenant_id provenance
+- /Users/shadreckmusarurwa/Project AI/carup-service-network/backend/services/trustGraph/trustGraphService.js — Passport service timeline; privacy-limited mechanic_work_orders select (id,vin,created_at,status,mechanic_id,total_cost)
+- /Users/shadreckmusarurwa/Project AI/carup-service-network/backend/services/marketplace/marketplaceEventTypes.js — garage_service_request inquiry type, qr source channel, referral event map
+- /Users/shadreckmusarurwa/Project AI/carup-service-network/backend/services/marketplace/marketplacePartsService.js — governed garage/service listing stub; public sanitized provider card shape; empty until provider backend exists
+- /Users/shadreckmusarurwa/Project AI/carup-service-network/backend/services/marketplace/marketplaceDiscoveryService.js — 'service' category labeled 'Garages & Services'
+- /Users/shadreckmusarurwa/Project AI/carup-service-network/backend/services/communication/emailStakeholderMatrix.js — 'garage' workflow: roles vehicle_owner+garage, transactional only, identity from work-order participant, tenant-scoped
+- /Users/shadreckmusarurwa/Project AI/carup-service-network/backend/services/communication/communicationStakeholderContractService.js — garage requiredRoles ['vehicle_owner','garage']
+- /Users/shadreckmusarurwa/Project AI/carup-service-network/backend/services/communication/communicationWorkflowService.js — garage workflow → 'general' category
+- /Users/shadreckmusarurwa/Project AI/carup-service-network/backend/services/eventBus/eventBusService.js — existing event bus (with eventWorker.js, listeners.js) for §8 reuse
+- /Users/shadreckmusarurwa/Project AI/carup-service-network/web/src/pages/GarageDirectory.tsx — deliberate honest empty state; hardcoded empty array, NO API call; comment says wire to governed registry when published
+- /Users/shadreckmusarurwa/Project AI/carup-service-network/web/src/pages/DealerDirectory.tsx — same honest-empty pattern for dealers
+- /Users/shadreckmusarurwa/Project AI/carup-service-network/web/src/App.tsx — /garages → GarageDirectory (248); /dashboard/garage → owner MyGarage (312) naming clash
+- /Users/shadreckmusarurwa/Project AI/carup-service-network/web/src/pages/dashboard/mechanic/WorkOrders.tsx — real work-order UI: create/complete/cancel via useCarUpApi; renders 'Unassigned' when mechanic_id absent
+- /Users/shadreckmusarurwa/Project AI/carup-service-network/web/src/pages/dashboard/mechanic/MechanicDashboard.tsx — stats from fetched work orders (fetchMechanicWorkOrders)
+- /Users/shadreckmusarurwa/Project AI/carup-service-network/web/src/pages/dashboard/mechanic/ServiceLogs.tsx — partsentry repair-log UI (addRepairLog/fetchRepairHistory)
+- /Users/shadreckmusarurwa/Project AI/carup-service-network/web/src/pages/dashboard/mechanic/CustomerRecords.tsx — HARDCODED mock customers with fabricated PII-like data (truth debt)
+- /Users/shadreckmusarurwa/Project AI/carup-service-network/web/src/pages/dashboard/mechanic/PartsTracking.tsx — parts inventory UI (on main still has invented defaults PR#194 fixes)
+- /Users/shadreckmusarurwa/Project AI/carup-service-network/web/src/hooks/useCarUpApi.ts — fetch/create/updateMechanicWorkOrder actions (~lines 2010-2023)
+- /Users/shadreckmusarurwa/Project AI/carup-service-network/shared/types/index.ts — UserRole has mechanic+dealer, NO garage; Organization.type incl 'garage'; ServiceRecord with mechanic_id
+- /Users/shadreckmusarurwa/Project AI/carup-service-network/shared/types/marketplace.ts — MarketplaceListingType incl 'garage'; inquiry type 'garage_service_request'
+- /Users/shadreckmusarurwa/Project AI/carup-service-network/DEALER_MECHANIC_DISCOVERY_AUDIT.md — Directive 004A type-safety audit of 6 dealer/mechanic portal pages (not a domain-model audit)
+- /Users/shadreckmusarurwa/Project AI/carup-service-network/DEALER_MECHANIC_REMEDIATION_REPORT.md — Directive 004B: @ts-nocheck removed from 4 pages, any-types eliminated, hook boundary preserved
+- /Users/shadreckmusarurwa/Project AI/carup-service-network/ROUTE_AUTHORIZATION_MATRIX.md — documents org endpoint auth gaps (audit-log rows now stale; branches/users rows still accurate)
+- /Users/shadreckmusarurwa/Project AI/carup-service-network/docs/service-network-foundation/receipts/LANE_OPENING.md — the one docs commit on top of main (001f7de2)
 
-**Tables** (8)
-- marketplace_inquiries — buyer-intent capture; cols: id, listing_id, listing_type, buyer_id, guest_name/email/phone, seller_id, seller_tenant_id, inquiry_type (CHECK incl. garage_service_request), message, referral_code, campaign_code, source_channel (CHECK incl. qr), status, risk_status, assigned_operator, country, metadata jsonb; owning migration 20260616120000_marketplace_v1_inquiries.sql
-- marketplace_listing_reports — listing abuse reports; reason_code/status CHECKs; same migration
-- domain_events — transactional outbox (011_phase6_schema.sql); dedupe_key + dedupe trigger added by 20260811132100_communications_2_reliability_closure.sql; carries marketplace.inquiry.created
-- organizations — has type 'garage' in CHECK (002_multi_tenant_and_auth_schema.sql:14, supabase_schema.sql:166); existing garage identity seam; staging holds one garage org (per PR #194 I9 receipt)
-- vehicles.current_seller_id/tenant_id — the ONLY routing source createInquiry consults, and only for vehicle-bound inquiry types
-- report_versions.share_token/share_expires_at/revoked — existing expiring share-link columns (reportService.js)
-- referral events table (REFERRAL_TABLES.events) — stores marketplace referral events incl. QR_SCANNED and bridged leads keyed by metadata.source_inquiry_id
-- mechanic_work_orders — referenced by PR #194 serviceIntelligenceService; 0 rows in staging per I9 receipt (owned by mechanic domain, listed here as the convergence read target)
+**Tables** (17)
+- organizations — legacy org universe; type CHECK ('dealership','garage','insurance','bank','fleet','import','government'); supabase_schema.sql:163
+- organization_branches — id, organization_id, name, location, phone ONLY (no staff/capacity); supabase_schema.sql:209; read by unauth endpoint
+- organization_users / organization_roles / organization_permissions — legacy membership with role level, branch_id, department_id + resource/action perms; supabase_schema.sql:183-208
+- organization_profiles — tax_id, license_number, address, trust_score; supabase_schema.sql:171
+- organization_audit_logs — org audit trail written via /api/organizations/:id/audit-logs; supabase_schema.sql:224
+- tenants — ACTIVE org universe: name, type (free text incl 'garage'), status; 002_multi_tenant_and_auth_schema.sql:11
+- tenant_users — ACTIVE membership: tenant_id, user_id, role (mechanic/admin/manager/member), UNIQUE(tenant,user); auth authority; 002:20
+- tenant_settings / tenant_branding — org config returned by /api/organizations/my-org; 002
+- users — role CHECK ('owner','dealer','mechanic','insurance','government','bank','admin'); mechanic IS a platform role, garage is NOT; supabase_schema.sql:19
+- mechanic_work_orders — converged superset: tenant_id + legacy organization_id, vin FK, customer_id, customer_name, mechanic_id (creator-stamped), description, status CHECK ('In Progress','Completed','Cancelled'), labor_cost, total_cost, created_at only; 006/009/20260808150000
+- mechanic_parts — tenant parts inventory: tenant_id, name, sku (unique per tenant), stock_level, unit_price; 006/009
+- partsentry_logs — append-only repair ledger with mechanic_id, tenant_id, signature (written by partsentryService)
+- dealer_profiles — user-keyed dealer identity + 8 independent lifecycle statuses + listing_limit + expiry_date; 20260626150000
+- dealer_branches — dealer_id, name, address; 20260626150000
+- dealer_compliance_documents / dealer_compliance_requirements / dealer_compliance_decisions — evidence metadata (ON DELETE RESTRICT) + checklist + append-only governance ledger; 20260626150000
+- marketplace_inquiries — inquiry rows incl type garage_service_request, seller_tenant_id, source_channel incl 'qr'; 20260616120000
+- user_sessions — session token authority consumed by authorizeRole; 003/20260617120000
 
-**Services** (11)
-- backend/services/marketplace/marketplaceInquiryService.js — buyer-intent authority: createInquiry, resolveListingSeller (current_seller_id only, owner_id deliberately unselectable), listInquiriesForSeller/Admin, assignInquiry, updateInquiryStatus, assessInquiryRisk
-- backend/services/marketplace/marketplaceEventTypes.js — exported enums: MARKETPLACE_INQUIRY_TYPES, MARKETPLACE_INQUIRY_STATUSES, MARKETPLACE_SOURCE_CHANNELS, INQUIRY_TYPE_TO_REFERRAL_EVENT (garage_service_request → marketplace_service_booked), DIASPORA_INQUIRY_TYPES
-- backend/services/marketplace/marketplaceReferralBridgeService.js — emitMarketplaceReferralEvent (best-effort), bridgeInquiryToReferralLead (idempotent per inquiry+tenant via metadata.source_inquiry_id), SOURCE_CHANNEL_MAP qr→REFERRAL_CHANNELS.QR
-- backend/services/marketplace/marketplaceListingEligibility.js — pure REAL listing eligibility: getListingEligibility/buildVehicleListingCandidate, stable reason codes, explicit-NULL-not-default rule
-- backend/services/marketplace/marketplacePartsService.js — getPartsListings/getServiceListings (governed empty) + buildPartSummary/buildServiceSummary public card shapes
-- backend/services/marketplace/listingSummaryService.js — listMarketplaceListings + PartSentry public-status derivation
-- backend/services/marketplace/marketplaceModerationService.js — listing moderation with independent assertModerator platform-role re-check
-- backend/services/marketplace/marketplaceDiscoveryService.js / marketplaceSavedService.js / marketplaceAnalyticsService.js / marketplaceAiAssistantService.js — discovery, saved listings, admin analytics, deterministic-fallback AI advisory
-- backend/services/eventBus/eventBusService.js — emitDomainEvent transactional outbox writer (domain_events), marketplace.inquiry.created idempotency by inquiryId
-- backend/services/report/reportService.js — createShareLink/getReportByShareToken/revokeShare share-token authority
-- backend/services/referral/referralEngineService.js — validateReferralCode (records QR_SCANNED), recordReferralEvent, share assets with qr_payload=referral URL
+**Services** (9)
+- backend/services/dealer/dealerComplianceService.js — dealer business identity authority: createOrUpdateProfile, addBranch, listRequirements, uploadDocument, recordDecision (append-only), evaluateCompliance, deriveCanPublish (pure publish gate), getBuyerSafeSummary
+- backend/services/partsentry/partsentryService.js — addRepairLog: signed repair ledger rows with mechanic_id + tenant_id provenance; emits 'Mechanic Inspection' vehicle event
+- backend/services/trustGraph/trustGraphService.js — Passport service-timeline projection reading mechanic_work_orders with privacy-limited column set
+- backend/services/marketplace/marketplacePartsService.js — getServiceListings: governed garage/service listing surface, sanitized card shape, honestly empty (no provider backend)
+- backend/services/marketplace/marketplaceEventTypes.js — canonical inquiry/source-channel/referral-event vocabularies incl garage_service_request and qr
+- backend/services/communication/{emailStakeholderMatrix,communicationStakeholderContractService,communicationWorkflowService}.js — existing 'garage' communications workflow (vehicle_owner+garage, transactional, tenant-scoped)
+- backend/services/eventBus/{eventBusService,eventWorker,listeners}.js — event emission/consumption infrastructure, currently no service-domain producers
+- backend/middleware/authMiddleware.js — authority for principal resolution: platform role from users.role, tenant role from tenant_users, exports authorizeRole/authorizeSessionRole/requireProvenIdentity/resolveEffectiveRole
+- backend/services/providerPlatform/* — external verification-provider framework (police/insurer data), NOT garage service providers; not a garage registry
 
 **APIs** (15)
-- GET /api/marketplace/listings — backend/routes/marketplaceRoutes.js, public (no auth), reservation-truth overlay
-- GET /api/marketplace/services — marketplaceRoutes.js, public, governed EMPTY garage/service listing set (getServiceListings)
-- GET /api/marketplace/parts — marketplaceRoutes.js, public, governed empty parts set
-- GET /api/marketplace/listings/:id — marketplaceRoutes.js, optionalAuth(), emits best-effort referral listing_viewed
-- POST /api/marketplace/inquiries — marketplaceRoutes.js, inquiryLimiter (15/min) + optionalAuth(); guest allowed; THE garage_service_request entry point
-- GET /api/marketplace/my-listings/inquiries — marketplaceRoutes.js, authorizeRole([]) seller inbox
-- GET/POST/DELETE /api/marketplace/saved|listings/:id/save — marketplaceRoutes.js, authorizeRole([])
-- POST /api/marketplace/ai/* (listing-draft, buyer-assistant, price-estimate, share-copy) — marketplaceRoutes.js, aiLimiter, advisory-only
-- GET /api/leads — backend/routes/leadsRoutes.js, authorizeRole(['dealer','admin']); projects seller-scoped marketplace_inquiries into dealer lead pipeline
-- GET /api/admin/marketplace/inquiries — backend/routes/marketplaceAdminRoutes.js, authorizeRole(['admin','government']) + service-layer assertReviewer re-check
-- PATCH /api/admin/marketplace/inquiries/:id/assign and /status — marketplaceAdminRoutes.js, reviewer roles; only write path that mutates inquiry status
-- GET/PATCH /api/admin/marketplace/listings* (approve/reject/suppress/request-evidence/flag-risk/clear-risk) — marketplaceAdminRoutes.js, reviewer roles
-- GET /api/admin/marketplace/analytics — marketplaceAdminRoutes.js, reviewer roles
-- POST /api/report-versions/:id/share — backend/routes/reportRoutes.js, owner/dealer/admin; existing expiring share-link creation (Service Link candidate infra)
-- Routers mounted at backend/server.js:295 (leads), :307-308 (marketplace, marketplaceAdmin)
+- GET/POST/PATCH /api/mechanic/work-orders — backend/routes/workOrdersRoutes.js, authorizeRole(['mechanic','admin']), tenant from req.userContext.tenantId; POST stamps caller as mechanic_id
+- GET/POST /api/mechanic/parts — backend/routes/partsRoutes.js, authorizeRole(['mechanic','admin']), tenant-scoped mechanic_parts
+- POST /api/partsentry/add — backend/server.js:1630, authorizeRole(['mechanic','owner','dealer','admin']); non-mechanics need own-vehicle/same-tenant proof
+- GET /api/partsentry/:vin — backend/server.js:1658, optionalAuth(); public sees governed public ledger only
+- GET /api/organizations/my-org — backend/server.js:1824, authorizeRole(); resolves org via tenant_users→tenants join
+- GET /api/organizations/:id/branches — backend/server.js:1876, NO AUTH (public branch fetch, flagged Medium Risk in ROUTE_AUTHORIZATION_MATRIX.md)
+- GET /api/organizations/:id/users — backend/server.js:1891, NO AUTH; returns staff name/email/avatar/role publicly
+- GET+POST /api/organizations/:id/audit-logs — backend/server.js:1910/1950, authorizeRole() (matrix rows saying 'public' are stale)
+- POST/GET /api/dealer/profile, POST /api/dealer/branches, GET /api/dealer/requirements, POST /api/dealer/documents — backend/routes/dealerRoutes.js, authorizeRole(['dealer','admin']), self-profile only
+- GET /api/admin/dealers[,/:id], PATCH /api/admin/dealers/:id/decision — backend/routes/dealerRoutes.js, authorizeRole(['admin','government','reviewer'])
+- GET /api/dealers/:id/summary — backend/routes/dealerRoutes.js, any authenticated; coarse status + evidence band only
+- GET /api/marketplace/services — backend/routes/marketplaceRoutes.js, public; garage/service listings stub returns empty until provider backend exists
+- POST /api/marketplace/inquiries — backend/routes/marketplaceRoutes.js, optionalAuth+rate-limit; accepts type garage_service_request, source_channel qr
+- PR#194 only: GET /api/mechanic/analytics — intelligenceProjectionRoutes.js, authorizeRole(['mechanic','admin']), person scope
+- PR#194 only: GET /api/garage/analytics — intelligenceProjectionRoutes.js, authorizeRole(['mechanic','dealer','admin']), verified-tenant scope, no org parameter; FIRST /api/garage/* namespace
 
-**Events** (7)
-- marketplace.inquiry.created — emitted by createInquiry (marketplaceInquiryService.js, fail-closed) AND by DB trigger trg_marketplace_inquiry_communication_outbox; consumer: Communications 2.0 orchestrator; transport: domain_events outbox, idempotent per inquiryId (dedupe_key)
-- marketplace.inquiry.referral_bridge_requested — emitted by createInquiry via emitDomainEvent before lead bridging; transport: domain_events outbox
-- marketplace_service_booked (referral event) — mapped from garage_service_request creation via INQUIRY_TYPE_TO_REFERRAL_EVENT; emitter marketplaceReferralBridgeService.emitMarketplaceReferralEvent; transport: referral events table (recordReferralEvent), best-effort
-- marketplace_inquiry_created / marketplace_inspection_requested / marketplace_quote_requested / marketplace_listing_viewed etc. — MARKETPLACE_REFERRAL_EVENT_TYPES in marketplaceEventTypes.js, referral engine transport, best-effort
-- QR_SCANNED / BARCODE_SCANNED — referralEngineService.js:516-535 validateReferralCode records a scan event when channel is qr/barcode, reusing the referral events table (explicitly 'no separate scan-tracking system')
-- communication.share_link_created — constant SHARE_LINK_CREATED in backend/services/communication/communicationUtils.js:45
-- PR #194 adds Intelligence observations: emitSearchPerformed/emitListingOpened (marketplaceRoutes.js) and emitInquiryCreated (marketplaceInquiryService.js) via backend/services/intelligence/marketplaceActivityEmitters.js — best-effort, never-throw, authority-anchored idempotency, drops counted in intelligence_ingestion_stats
+**Events** (5)
+- 'Mechanic Inspection' vehicle event — emitted by partsentryService.addRepairLog via blockchainService.addEvent (backend/services/partsentry/partsentryService.js:53); consumed by passport timeline
+- garage_service_request → referral event 'marketplace_service_booked' — INQUIRY_TYPE_TO_REFERRAL_EVENT in backend/services/marketplace/marketplaceEventTypes.js:59
+- Referral bridge outbox labels garage_service_request as 'mechanic service' — database/migrations/20260716033000_referral_bridge_outbox_payload_minimization.sql:38
+- eventBus infrastructure exists (backend/services/eventBus/eventBusService.js, eventWorker.js, listeners.js) but NO work-order lifecycle events are emitted today — Service Event Contract (plan §8) has no emitter yet
+- PR#194: passport timeline work-order event carries no free-text notes — contract locked by issue164-phase8-service-timeline-privacy.test.js against trustGraphService
 
-**RLS/policies** (4)
-- marketplace_inquiries — RLS ENABLED, ALL revoked from anon+authenticated, GRANT ALL to service_role only (20260616120000 migration); authorization lives in the Express service layer
-- marketplace_listing_reports — same posture: RLS enabled, service_role-only
-- communication_marketplace_inquiry_outbox() function — REVOKE from PUBLIC, EXECUTE granted to service_role only (20260811132100 migration)
-- No anon/authenticated policies exist on any marketplace table — Service Network tables should follow this service_role-only + service-layer-authz pattern
+**RLS/policies** (7)
+- mechanic_work_orders — RLS enabled with ZERO policies + REVOKE ALL from anon/authenticated, GRANT service_role (20260809110000); backend service-role client is the only path
+- mechanic_parts — identical default-deny posture (20260809110000)
+- dealer_profiles — RLS: owner read/update/insert policies + oversight read (20260626150000:166-190)
+- dealer_compliance_decisions — append-only via governance_block_mutation trigger; reversal is a new row (20260626150000)
+- tenant_users — RLS enabled (002:164); diaspora self-read policy added then SELECT revoked from authenticated (013:533,783-784)
+- vehicle_evidence / vehicles — write grants revoked, SELECT-only for API roles (20260809110000); public-read posture owned by Issue #101
+- Posture locked by backend/tests/db-anon-grant-posture.test.js — any new garage/service tables must ship matching default-deny grants
 
-**Migrations** (7)
-- database/migrations/20260616120000_marketplace_v1_inquiries.sql — creates marketplace_inquiries (inquiry_type CHECK incl. garage_service_request; source_channel CHECK incl. qr) + marketplace_listing_reports; RLS + service_role-only
-- database/migrations/20260811132100_communications_2_reliability_closure.sql — domain_events.dedupe_key + dedupe trigger + AFTER INSERT trigger on marketplace_inquiries writing marketplace.inquiry.created transactionally (ON CONFLICT DO NOTHING)
-- database/migrations/011_phase6_schema.sql — creates domain_events outbox table
-- database/migrations/002_multi_tenant_and_auth_schema.sql — organizations table with type incl. 'garage' (garage identity seam)
-- database/migrations/supabase_schema.sql:166,358 — organizations type CHECK incl. 'garage'; seeds 'Simbisa Garages Ltd' garage org
-- database/migrations/20260811131700_communications_2_workflow_template_foundations.sql:18 — seeds 'garage_booking_confirmation' template (audience vehicle_owner, category garage_service)
-- database/migrations/20260716033000_referral_bridge_outbox_payload_minimization.sql — referral bridge outbox payload minimization touching marketplace inquiry events
+**Migrations** (10)
+- database/migrations/supabase_schema.sql — base users table (role CHECK: owner,dealer,mechanic,insurance,government,bank,admin — NO garage) + legacy organizations universe (type CHECK incl 'garage', organization_branches/users/roles/permissions/audit_logs)
+- database/migrations/002_multi_tenant_and_auth_schema.sql — tenants (type free text incl 'garage'), tenant_users (role incl 'mechanic'), tenant_settings/branding; tenant_users RLS enabled
+- database/migrations/006_domain1.sql — FIRST mechanic_work_orders shape (organization_id TEXT, customer_name NOT NULL, status default 'pending') + mechanic_parts
+- database/migrations/009_phase4_schema.sql — SECOND mechanic_work_orders shape (tenant_id UUID FK tenants, vin FK vehicles, mechanic_id FK users, status CHECK 'In Progress'/'Completed'/'Cancelled')
+- database/migrations/20260808150000_mechanic_work_orders_convergence.sql — converges the two shapes into a superset (adds tenant_id, mechanic_id, customer_id, costs; relaxes legacy NOT NULLs); plan 6.3 says evolve THIS table additively
+- database/migrations/20260809110000_api_role_write_hardening.sql — RLS enabled + all anon/authenticated grants revoked on mechanic_work_orders/mechanic_parts; service-role only
+- database/migrations/20260626150000_dealer_compliance.sql — dealer_profiles (8 uncollapsed lifecycle statuses), dealer_branches, compliance documents/requirements, append-only dealer_compliance_decisions via governance_block_mutation
+- database/migrations/20260616120000_marketplace_v1_inquiries.sql — marketplace_inquiries incl garage_service_request vocabulary
+- database/migrations/013_diaspora_trade_schema.sql — tenant_users self-read policy then REVOKE SELECT from authenticated (:783)
+- Migration marker contract: new migrations MUST carry '-- +migrate Up' and pass backend/tests/migration-integrity.test.js
 
-**Tests** (9)
-- backend/tests/marketplace-v1-spine.test.js — locks createInquiry contract: guest must supply contact, public projection hides PII, invalid inquiry_type rejected, metadata allow-list sanitization, outbox is a REQUIRED collaborator (fail-closed), seller inbox tenant/seller scoping + predicate push-down, referral event emission; does NOT exercise garage_service_request specifically
-- backend/tests/referral-marketplace-inquiry-lead-bridge.test.js — locks idempotent inquiry→referral-lead bridge: one lead per inquiry, concurrent executions produce one lead, invalid code yields plain inquiry, no wallet transaction before admin qualification
-- backend/tests/communications-2-marketplace-ingress-and-routing.test.js — locks inquiry→conversation: seller notified exactly once, replaying same inquiry adds no second message/notification (outbox idempotency), fail-closed ambiguous routing
-- backend/tests/communications-2-marketplace-outbox-hardening.test.js — outbox hardening for inquiry events
-- backend/tests/dealer-leads-inquiries.test.js — locks GET /api/leads: seller_id/tenant scoping, spam never surfaces, status vocabulary remap (assigned→new, qualified→negotiating)
-- backend/tests/marketplace-listing-eligibility.test.js + vehicle-create-eligibility.test.js + marketplace-onboarding-fixture.test.js — lock REAL_LISTING_ELIGIBILITY reason codes and /api/vehicles/add wiring
-- backend/tests/referral-engine-phase1.test.js:130 — locks qr_payload === short_referral_url (QR payload is the referral URL, no image infra)
-- MAIN HAS ZERO tests naming garage_service_request (grep over backend/tests) — the type's behavior is untested until PR #194
-- PR #194 backend/tests/intelligence-service-mechanic-garage.test.js (A) — first garage_service_request tests: spam/rejected excluded from enquiry counts, purchase inquiries are not service enquiries, seller_id attribution, unavailable-not-zero failure posture, no Trust leakage
+**Tests** (10)
+- backend/tests/dealer-compliance.test.js — locks publish gate, append-only decision ledger, buyer-safe summary exclusions, admin tenant scoping
+- backend/tests/dealer-routes.test.js — locks self-profile scoping (no cross-dealer reads), admin decision path, buyer summary privacy, suspend-blocks-publication
+- backend/tests/dealer-leads-inquiries.test.js — dealer lead/inquiry surface contract
+- backend/tests/issue164-phase8-service-timeline-privacy.test.js — locks the mechanic_work_orders passport-timeline select to non-free-text, non-customer-identity columns and sanitized public descriptions
+- backend/tests/partsentry-write-truth.test.js — partsentry write-truth contract (mechanic provenance path)
+- backend/tests/db-anon-grant-posture.test.js — locks default-deny grants incl mechanic_work_orders/mechanic_parts
+- backend/tests/migration-integrity.test.js — enforces '-- +migrate Up' marker contract for any new domain migration
+- web/src/pages/dashboard/mechanic/WorkOrders.test.tsx — locks PATCH completion/cancellation with DB-legal 'Completed'/'Cancelled', total_cost validation, terminal rows immutable, description rendering
+- web/src/pages/dashboard/mechanic/ServiceLogs.test.tsx — service-log UI contract over partsentry history
+- PR#194 adds: backend/tests/intelligence-service-mechanic-garage.test.js (23 tests, person-vs-tenant scoping + unavailable-vs-zero) and web ServiceIntelligence.test.tsx (12) + PartsTracking.test.tsx
 
-**Contract gaps** (12)
-- NO garage_service_request table/flow exists — it is only an inquiry_type VALUE on marketplace_inquiries (CHECK constraint, 20260616120000 migration); no acceptance, no lifecycle, no service case
-- NO target-garage routing: createInquiry sets seller_id/seller_tenant_id ONLY for VEHICLE_BOUND_TYPES (vehicle_purchase_interest, vehicle_inspection_request, dealer_stock_request, trade_in_request) — a garage_service_request row lands with NULL seller/tenant and no field says which garage it was directed to (plan §10.2's exact question is unanswerable today)
-- NO inquiry-level idempotency: POST /api/marketplace/inquiries generates randomUUID per call, accepts no idempotency key — a client retry creates duplicate inquiry rows (only the outbox event and the referral lead are deduped per inquiry id); plan §10.3 inquiry→ServiceCase dedup linkage must be built
-- NO durable inquiry→ServiceCase linkage column/table exists anywhere (nothing to persist the bridge in)
-- NO QR generation/rendering infrastructure: no qrcode/react-qr package in any package.json; 'qr' exists only as a source_channel/referral channel enum + QR_SCANNED referral events; referral qr_payload is just the referral URL string (referralEngineService.js:350)
-- NO service-link/deep-link resolver for vehicle / service case / mechanic resources (plan §6.8); the only token-resolving surface is report share tokens (reportRoutes.js)
-- Web never emits source_channel='qr': inquiryAttributionFields in web/src/lib/marketplaceReferral.ts hardcodes 'web'|'mobile', so end-to-end §20.4 QR attribution has no producing surface
-- NO garage directory data: getServiceListings returns a governed empty set ('Service provider onboarding — verified-only', marketplacePartsService.js); no provider-listing backend, no garage publication state
-- inquiry metadata allow-list (ALLOWED_METADATA_KEYS) strips any target-garage/service-context key a client might send — an additive schema change is required, metadata cannot smuggle routing
-- NO booking/appointment/capacity model (confirmed by PR #194 serviceIntelligenceService NOT_MEASURABLE list and I9 receipt: mechanic_work_orders 0 rows in staging)
-- NO test on main references garage_service_request at all — the type is entirely unlocked by tests until PR #194's intelligence-service-mechanic-garage.test.js lands
-- marketplace_inquiries.assigned_operator is a bare TEXT operator id — no operator/garage assignment authority model behind it
+**Contract gaps** (13)
+- No garage public projection/publication state exists anywhere — GarageDirectory.tsx renders a hardcoded empty array with no API; no directory API, no garage detail page (S1 builds all of it)
+- No tenant/organization onboarding or membership-management API — nothing in backend inserts into tenants or tenant_users (grep-verified); garage orgs and memberships are seeded out-of-band
+- No org-level verification/onboarding state on tenants — dealer_profiles carries verification but is user-keyed and dealer-only; a garage tenant has only name/type/status
+- No mechanic assignment history model — single mechanic_id column on mechanic_work_orders; no assignment table, no assigned_by, no unassigned_at (plan 6.4/S4)
+- mechanic_work_orders has created_at ONLY — no completed_at/cancelled_at/started_at, no branch_id, no service_category, no cancellation reason (confirmed by I9 receipt and 009/20260808150000 migrations)
+- No booking/appointment/scheduling or capacity model anywhere in the schema (I9 receipt: verified against live staging)
+- No service_cases table and no garage_service_request→work-order bridge; inquiry routing proves no governed target-garage relationship (plan fact #9)
+- Work-order lifecycle lacks request/accept/decline states — only 'In Progress','Completed','Cancelled' in DB CHECK and API
+- No work-order lifecycle event emission — eventBus exists but nothing emits service events (plan §8 contract has no producer)
+- No mechanic public identity/practitioner projection and no service-link/QR resolver for mechanic resources (plan 20.3)
+- No branch model for the ACTIVE tenants universe — organization_branches belongs to the legacy organizations universe, dealer_branches to dealers; work orders carry no branch reference
+- Garage staging reality at I9 freeze: 0 mechanic_work_orders rows, one garage-type organization, one garage_service_request inquiry — no data to certify against
+- CustomerRecords.tsx still ships fabricated customer data — same class of truth debt S1 empty-states policy exists to prevent
 
-**Likely conflicts with Service Network** (8)
-- PR #194 serviceIntelligenceService.js defines SERVICE_INQUIRY_TYPES = {garage_service_request, mechanic_service_request} but 'mechanic_service_request' exists NOWHERE else — not in MARKETPLACE_INQUIRY_TYPES (marketplaceEventTypes.js), not in shared/types/marketplace.ts, and the DB CHECK constraint (20260616120000 migration) would reject it; Service Network adding this type requires a coordinated enum+CHECK+types change
-- PR #194 service intelligence reads marketplace_inquiries.seller_id/seller_tenant_id as the SERVICE PROVIDER target (pr194.diff lines ~17195-17200), but on main createInquiry only populates seller_* for VEHICLE_BOUND_TYPES (garage_service_request excluded) — so the enquiry metric reads 0 today, AND this pre-claims seller_* as 'target garage' semantics that plan §10.2 explicitly warns against overloading
-- Referral event name 'marketplace_service_booked' is already mapped from garage_service_request creation (marketplaceEventTypes.js INQUIRY_TYPE_TO_REFERRAL_EVENT) even though no booking model exists (PR #194 I9 receipt: NOT_MEASURABLE no_booking_model) — Service Network 'booking/acceptance' vocabulary will collide with this pre-existing misnomer
-- marketplace_inquiries status vocabulary (new/assigned/contacted/qualified/closed/spam/rejected) is a LEAD pipeline (leadsRoutes.js remaps it again to new/contacted/negotiating/closed) — plan §6.2 Service Case statuses must not be conflated with or written back into inquiry status; a mapping decision is needed at the bridge
-- listing_type on a garage_service_request inquiry defaults to 'vehicle' (createInquiry sets 'diaspora_request' only for diaspora types) — misleading if Service Network queries by listing_type
-- Communications workflow template 'garage_booking_confirmation' (category garage_service, 20260811131700 migration) already exists with 'booking' naming — Service Network notification events (§15.4) must reconcile rather than duplicate this template family
-- PR #194 MarketplaceShareSheet.tsx builds share URLs with NO referral/source/utm params — a Service Network share/QR surface reusing it would silently drop plan §20.4 source attribution
-- report_versions share_token is stored in PLAINTEXT (reportService.js createShareLink) — plan §6.8 requires bearer secrets stored hashed, so this infra is a pattern to reuse but not compliant as-is
+**Likely conflicts with Service Network** (12)
+- Two parallel organization universes: tenants/tenant_users (auth authority, backend/middleware/authMiddleware.js) vs organizations/organization_* (legacy server.js endpoints + supabase_schema.sql). Plan 6.5 says evolve existing org/branch model — S0 must pick one; branches exist in organization_branches AND dealer_branches, none for tenants
+- GET /api/organizations/:id/branches and /:id/users are UNAUTHENTICATED (server.js:1876/1891) — leaks staff names/emails; directly violates plan 6.5 'do not publish private staff information' and must not be the S1 directory basis
+- 'garage' naming collision: /dashboard/garage = owner MyGarage vehicle collection (web/src/App.tsx:312) and /garages = public directory; Service Network 'garage' business surfaces need distinct routes/labels
+- /api/garage/* namespace is claimed by PR #194 analytics (garage = verified-tenant intelligence); S1/S2 garage identity/case APIs must join, not clash with, that convention (no tenant params, session-verified scope)
+- tenants.type is free TEXT ('garage' by convention, 002 migration) while organizations.type has a CHECK incl 'garage' (supabase_schema.sql:166) — garage typing has no single enforced vocabulary
+- creator=mechanic conflation: POST /api/mechanic/work-orders stamps mechanic_id = caller (workOrdersRoutes.js:49) — plan 6.4/S4 requires removing this as final authority; web WorkOrders.tsx renders mechanic from that same column
+- Work-order status vocabulary is capitalized display strings ('In Progress','Completed','Cancelled') enforced by DB CHECK (009_phase4_schema.sql) and locked by web tests — plan 7.x lifecycle (request/accept/decline/assign) must be reconciled additively in S2/S3, not by mutating the CHECK
+- I9 receipt (PR #194) declares cancellation not-measurable while the current route supports 'Cancelled' — plan fact #6 requires explicit reconciliation
+- dealer publication governance (dealer_profiles) is USER-keyed (user_id) while garage identity is TENANT-keyed — the deriveCanPublish pattern can be reused but not the keying
+- serviceIntelligenceService (PR #194) counts inquiry type 'mechanic_service_request' which does NOT exist in MARKETPLACE_INQUIRY_TYPES (marketplaceEventTypes.js) — vocabulary drift to settle before S3 bridge
+- emailStakeholderMatrix 'garage' workflow already binds identity to 'work order participant' — Service Case conversations must reconcile with that contract, not create a parallel comms silo (Invariant 6)
+- PartSentry can feed vehicles mileage via signed repair logs (plan fact #8) — S0 must adjudicate that mutation under the canonical mileage fact contract before service records write mileage
 
-**Must reuse (do not duplicate)** (15)
-- marketplace_inquiries table + inquiry_type 'garage_service_request' + source_channel 'qr' vocabularies (database/migrations/20260616120000_marketplace_v1_inquiries.sql, backend/services/marketplace/marketplaceEventTypes.js, shared/types/marketplace.ts) — plan §10 mandates reusing these
-- createInquiry single capture path (backend/services/marketplace/marketplaceInquiryService.js) — guest+auth handling, contact enrichment, risk assessment, metadata allow-list, audience-scoped projections; extend additively, do not fork a second intake
-- Transactional outbox: emitDomainEvent + domain_events + dedupe_key + AFTER INSERT trigger pattern (backend/services/eventBus/eventBusService.js, 20260811132100 migration) — the model for idempotent Service Case bridging events
-- marketplaceReferralBridgeService (backend/services/marketplace/marketplaceReferralBridgeService.js) — QR→REFERRAL_CHANNELS.QR mapping, per-inquiry idempotent lead bridging pattern (findInquiryLeadEvent keyed on source_inquiry_id) = the template for idempotent inquiry→ServiceCase
-- referralEngineService.validateReferralCode QR_SCANNED recording (backend/services/referral/referralEngineService.js:516-535) — first-class QR scan events on the existing event table; explicitly no separate scan-tracking system
-- report share-token pattern (backend/services/report/reportService.js:187-213 + reportRoutes.js) — expiring, revocable, server-validated resource links; plan §6.8 says inspect/prefer existing token infra (must add hashing)
-- organizations table with type 'garage' (002_multi_tenant_and_auth_schema.sql; supabase_schema.sql:166) — garage identity anchor; do not invent a new garage entity table without reconciling
-- Communications template 'garage_booking_confirmation' category garage_service (20260811131700 migration) — extend this template family for §15.4 service notifications
-- leadsRoutes.js inquiryToLead + marketplaceAdminRoutes inquiry assign/status — existing operational surfaces over inquiries; Garage inbox should follow this projection pattern, not raw rows
-- buildServiceSummary card shape + governed-empty getServiceListings (backend/services/marketplace/marketplacePartsService.js) — the Garage Directory card contract seed: verification_status fail-closed, statedValue() absence semantics, no fabricated labels
-- REAL_LISTING_ELIGIBILITY pattern (backend/services/marketplace/marketplaceListingEligibility.js + docs/CARUP_REAL_LISTING_ELIGIBILITY_CONTRACT.md) — pure reason-coded eligibility as the model for garage publication eligibility
-- inquiryLimiter/aiLimiter + optionalAuth guest pattern (marketplaceRoutes.js) — rate-limited guest-capable entry points
-- web captureReferralFromUrl + inquiryAttributionFields (web/src/lib/marketplaceReferral.ts) — extend for qr channel rather than a new attribution store
-- PR #194 MarketplaceShareSheet.tsx — share UX component to extend (adding attribution params) for Service Link sharing
-- PR #194 serviceIntelligenceService NOT_MEASURABLE honesty pattern — state absent capabilities with reasons instead of estimating
+**Must reuse (do not duplicate)** (14)
+- tenant_users membership + authorizeRole/x-tenant-id verification (backend/middleware/authMiddleware.js) — the ONLY garage-access mechanism; plan 9.1/9.3 require reusing it
+- resolveEffectiveRole, requireProvenIdentity, authorizeSessionRole (authMiddleware.js) — proven-identity and role-escalation guards for consequential service writes (Actor Context §6.7)
+- mechanic_work_orders converged table (20260808150000) — plan 6.3 forbids a second work-order table; evolve additively (service_case_id, branch_id, completed_at, cancelled_at)
+- deriveCanPublish pure gate + 8 uncollapsed statuses + append-only decision ledger pattern (backend/services/dealer/dealerComplianceService.js, 20260626150000 migration incl governance_block_mutation) — the template for garage publication governance, re-keyed to tenant
+- Communications garage workflow contracts (emailStakeholderMatrix.js:44, communicationStakeholderContractService.js:4, communicationWorkflowService.js:6) — garage stakeholder + tenant rule already defined; S3 must plug into them (Invariant 6)
+- marketplace inquiry vocabulary: garage_service_request + source channel qr + statuses (backend/services/marketplace/marketplaceEventTypes.js) — plan §10 mandates reuse for the S3 bridge
+- eventBus (backend/services/eventBus/eventBusService.js + eventWorker + listeners) — existing transport for the Service Event Contract (§8)
+- trustGraphService passport timeline work-order projection + its privacy contract (issue164-phase8-service-timeline-privacy.test.js) — Passport stays projection authority (plan fact #7); extend, never fork
+- partsentryService provenance pattern (mechanic_id + tenant_id + signature + addEvent) — model for service-record provenance (§6.6)
+- PR#194 serviceIntelligenceService scoping rules and /api/garage/analytics session-tenant resolution — the person-vs-tenant discipline S1-S4 APIs must match
+- marketplacePartsService sanitized public provider-card shape (line ~85) — starting point for the S1 directory card contract
+- honest-empty-state pattern of GarageDirectory.tsx/DealerDirectory.tsx — S1 'truthful empty states' requirement already has its house style
+- web WorkOrders.tsx + useCarUpApi mechanic work-order actions + their tests — S4 converges this surface rather than replacing it
+- migration marker contract ('-- +migrate Up') + backend/tests/migration-integrity.test.js — every new domain migration must comply
 
-**PR #194 delta** (19)
-- backend/routes/marketplaceRoutes.js (M) — wires fire-and-forget Intelligence I3 emitters: emitSearchPerformed on listings search, emitListingOpened on detail, req threaded into createInquiry/saveListing/unsaveListing for session context; no new endpoints, no auth changes
-- backend/services/marketplace/marketplaceInquiryService.js (M) — ALLOWED_METADATA_KEYS extended with buyer_intent, safepay_requested, fitment_taxonomy_version/make/model/year; emitInquiryCreated observation after insert; garage_service_request routing logic UNCHANGED
-- backend/services/intelligence/marketplaceActivityEmitters.js (A) — all server-emitted marketplace observations; authority-anchored idempotency; drops counted in intelligence_ingestion_stats
-- backend/services/intelligence/serviceIntelligenceService.js (A) — mechanic/garage service intelligence over marketplace_inquiries (filters seller_id / seller_tenant_id) + mechanic_work_orders; SERVICE_INQUIRY_TYPES = {garage_service_request, mechanic_service_request}; explicit NOT_MEASURABLE list (no booking/capacity model); mechanic projection never widens to tenant, garage never narrows to caller
-- backend/services/marketplace/carUpGoldService.js (A) — governed CarUp Gold qualification (projectCarUpGold, policy carup-gold-1.0.0) from canonical trust; frontend must never recreate/relax
-- backend/services/marketplace/listingSummaryService.js (M) — adds carup_gold projection + canonical taxonomy facet matchers (make/model/fuel/transmission/body/location) applied pre-sort/limit
-- backend/services/marketplace/marketplaceListingEligibility.js (M) — year bounds now come from vehicleTaxonomyService.vehicleYearBounds() instead of MIN_LISTING_YEAR=1980 const
-- backend/services/marketplace/marketplacePartsService.js (M) — part fitment claim vocabulary: normalizePartFitmentEntry, PART_FITMENT_TAXONOMY_VERSION, model-range only, VIN/plate/chassis deliberately absent
-- backend/services/marketplace/marketplaceDiscoveryService.js + marketplaceSavedService.js (M) — observation threading / facet support
-- shared/types/marketplace.ts (M) — adds MarketplacePartFitment, synthetic_demo demo-media marker (never a Trust input), display_label nullable
-- web/src/components/marketplace/InquiryModal.tsx (M) — intentMetadata pass-through merged into inquiry metadata
-- web/src/components/marketplace/MarketplaceShareSheet.tsx (A) — WhatsApp/Facebook/X/email/copy/native share; NO referral or source_channel params on shared URLs
-- web MarketplaceListingCard.tsx, VehicleIntelligenceStory.tsx, marketplaceCardModel.ts, marketplacePresentation.ts (A) — new card/presentation layer
-- mobile/app/(tabs)/marketplace.tsx + mobile/utils/marketplaceApi.ts (M) — mobile marketplace media contract
-- .github/workflows/marketplace-reference-media-*.yml + backend/fixtures/marketplace-reference-media-v1.json + backend/scripts/marketplace-reference-media-staging.mjs (A) — staging reference-media seeding pipeline (synthetic_demo provenance)
-- backend/tests/intelligence-service-mechanic-garage.test.js (A) — FIRST tests touching garage_service_request: spam/rejected excluded from service enquiries, seller_id attribution, no Trust leakage, unreadable table reports unavailable-not-zero
-- backend/tests/marketplace-carup-gold.test.js, marketplace-reference-*.test.js, marketplace-lifecycle-missing-mileage.test.js (A) + marketplace-v1-spine.test.js, marketplace-listing-eligibility.test.js (M)
-- docs/intelligence/receipts/I9_MECHANIC_GARAGE_PROJECTION_MODEL.md (A) — staging reconciliation: mechanic_work_orders 0 rows; ONE garage_service_request inquiry; ONE organization of type garage
-- backend/services/passport/passportMarketplaceConvergence.js + backend/tests/passport-v10-marketplace-convergence.test.js (A) — passport/marketplace convergence (adjacent domain, touches marketplace summaries)
+**PR #194 delta** (11)
+- backend/services/intelligence/serviceIntelligenceService.js (NEW) — I9 mechanic(person)/garage(tenant) projections; mechanic never widens to tenant, garage never narrows to caller; NOT_MEASURABLE list (bookings, capacity, team, branch, turnaround, cancellation, category) returned with reasons
+- backend/routes/intelligenceProjectionRoutes.js (NEW) — adds GET /api/mechanic/analytics (mechanic,admin) and GET /api/garage/analytics (mechanic,dealer,admin); scope only from verified session, deliberately no tenant/org parameters; failed reads return 'unavailable', never zeros
+- backend/tests/intelligence-service-mechanic-garage.test.js (NEW, 23 tests) — locks person/tenant scoping, refusal without verified tenant, unavailable-vs-zero honesty
+- docs/intelligence/receipts/I9_MECHANIC_GARAGE_PROJECTION_MODEL.md (NEW, FROZEN) — canonical mechanic-vs-garage principal model + verified schema survey; staging at freeze: 0 work orders, 1 garage org, 1 garage_service_request
+- web/src/components/intelligence/ServiceIntelligence.tsx + .test.tsx (NEW) — scope-labeled surface mounted on mechanic dashboard
+- web/src/pages/dashboard/mechanic/MechanicDashboard.tsx (M) — mounts <ServiceIntelligence scope="mechanic"/>
+- web/src/pages/dashboard/mechanic/PartsTracking.tsx (M) + PartsTracking.test.tsx (NEW) — honesty remediation: null-preserving TrackedPart, invented supplier/threshold/zero defaults removed, fake 'Upload Invoice' control deleted; adds PartsIntelligence
+- web/src/components/intelligence/DealerIntelligence.tsx + .test.tsx (NEW) and dealer pages DealerDashboard/Inventory/Promotions/SalesAnalytics (M) — I8 dealer intelligence surfaces
+- docs/intelligence/manuals/dealer.md, receipts/I8_DEALER_INTELLIGENCE.md, i0-appendices/D-web-kpi-register-owner-dealer-mechanic.md (NEW) — dealer/mechanic KPI registers
+- serviceIntelligenceService defines SERVICE_INQUIRY_TYPES incl 'mechanic_service_request' which is absent from MARKETPLACE_INQUIRY_TYPES on main — vocabulary drift Service Network must settle
+- No garage/mechanic schema, RLS, or authority changes in #194 — the delta is read-only projections plus web honesty fixes
 
-**Notes:** Headline: on main, 'garage_service_request' is only a vocabulary value (inquiry_type on marketplace_inquiries) captured through the single createInquiry path — there is no routing to a garage, no lifecycle, no dedicated table, and no test locking it. The plan's §10 claim that 'Marketplace already recognizes garage_service_request and source channel qr' is confirmed but is vocabulary-only. The biggest S0 design decision this recon surfaces: PR #194's service intelligence already reads marketplace_inquiries.seller_id/seller_tenant_id as the service-provider target while plan §10.2 forbids overloading seller semantics — whichever additive target-garage field S0 chooses must be reconciled with #194's intelligence readers before both merge. Idempotency exists at three layers (outbox event per inquiryId, referral lead per inquiry+tenant, comms trigger ON CONFLICT) but NOT at inquiry creation itself. QR is attribution vocabulary + referral scan events only; there is zero QR generation or resolver infrastructure, and the web client can never emit source_channel='qr' today. Grounding: every claim above from files opened/grepped in /Users/shadreckmusarurwa/Project AI/carup-service-network and /private/tmp/.../scratchpad/pr194.diff (+ pr194-name-status.txt); PLAN.md sections 2.3, 4 (inv. 8/11), 6.8, 10, 20 read.
+**Notes:** Workspace verified at 001f7de2 (main ba208963 + LANE_OPENING.md docs commit). Core identity model confirmed exactly as plan 9.2 wants preserved: mechanic is a person (users.role CHECK value AND a tenant_users role), garage is only an organization/tenant type — no garage login universe, no garage platform role. The live authority chain is session→users.role, x-tenant-id header verified against tenant_users membership (authMiddleware.js:151-162). Biggest structural risks for S0/S1: the dual organization universe (tenants vs organizations) and the two unauthenticated /api/organizations/:id endpoints; biggest reuse wins: the converged mechanic_work_orders table, dealerComplianceService's publish-gate/append-only-ledger pattern, Communications' existing 'garage' workflow, and PR #194's I9 scoping discipline plus its frozen receipt, which doubles as a verified schema survey of this exact domain. PR #194 (Intelligence 1.0) does not change any garage/mechanic authority or schema — it adds read-only projections, honesty fixes on mechanic/dealer pages, and claims the /api/garage/* and /api/mechanic/analytics namespaces.
 
 ### Domain: vehicle-ownership
 
@@ -841,6 +660,172 @@ begins before the S0 authority freeze receipt, which requires all 13 domains.
 - Note: issue-158 hardening continues past this diff on integration/vehicle-passport-v16-cert (e.g. 20260829040000_issue158_terminal_event_uniqueness.sql not in the diff) — S0 must re-pin the merged SHA, per the plan's 'no stale #194 assumption' gate
 
 **Notes:** Workspace audited read-only at canonical main (ba208963 + docs commit): backend/services has no passport/ or vehicle/ directory on main — the entire passport+ownership-transfer layer arrives with PR #194. Canonical identity rule as implemented: vehicles.vin TEXT PRIMARY KEY is the one canonical id (Invariant 1 is structurally enforced by the PK plus the 409 duplicate-VIN check in POST /api/vehicles/add and diaspora resolve-or-create); there is no surrogate vehicle id anywhere. Ownership model: owner_id = legal owner (custody), current_seller_id = governed selling relationship (transaction authorities read only the latter), and #194 makes ownership change an append-only, idempotent, governance-gated SQL authority that also retires the selling relationship. The two allow-lists are publicVehicleProjection.js (PUBLIC/OWNER family) and listingSummaryService.js LISTING_SELECT_COLUMNS — enforced by a repo-scanning test. Biggest Service-Network-shaped hole: no honest way to create or reference a vehicle identity outside a marketplace listing (price/mileage NOT NULL, eligibility gate), which S0 must resolve before any garage intake flow exists.
+
+### Domain: marketplace
+
+**Files** (23)
+- backend/routes/marketplaceRoutes.js — public discovery + inquiries + saved + AI advisory router (184 lines on main)
+- backend/routes/marketplaceAdminRoutes.js — listing moderation + inquiry assign/status + analytics (reviewer roles)
+- backend/routes/leadsRoutes.js — projects seller-scoped marketplace_inquiries into the dealer Leads pipeline (inquiryToLead)
+- backend/services/marketplace/marketplaceInquiryService.js — SINGLE buyer-intent capture path; createInquiry, seller routing, risk assessment, projections; garage_service_request flows through here
+- backend/services/marketplace/marketplaceEventTypes.js — backend source of truth for inquiry types/statuses/source channels/referral-event mapping (mirror of shared/types/marketplace.ts)
+- backend/services/marketplace/marketplaceReferralBridgeService.js — marketplace→referral attribution bridge; QR channel map; idempotent inquiry→lead bridging
+- backend/services/marketplace/marketplaceListingEligibility.js — pure REAL_LISTING_ELIGIBILITY contract (reason/warning codes); wired into POST /api/vehicles/add via server.js
+- docs/CARUP_REAL_LISTING_ELIGIBILITY_CONTRACT.md — the eligibility contract document
+- backend/services/marketplace/marketplacePartsService.js — governed, deliberately EMPTY parts + garage/service listing surface; buildServiceSummary card shape (verification_status fail-closed)
+- backend/services/marketplace/listingSummaryService.js — canonical public listing summary builder + PartSentry public-card governance
+- backend/services/marketplace/marketplaceModerationService.js — listing moderation actions with independent role re-check
+- backend/services/marketplace/marketplaceInquiryService.js toSellerInquiry/toAdminInquiry — audience-scoped inquiry projections (guest PII hidden from public)
+- backend/services/eventBus/eventBusService.js — transactional outbox emitDomainEvent into domain_events; marketplace.inquiry.created idempotent by inquiryId
+- backend/services/referral/referralEngineService.js — QR/barcode scans recorded as first-class referral events (lines 516-535); share payload qr_payload = referral URL string (line 350)
+- backend/services/report/reportService.js — createShareLink/getReportByShareToken/revokeShare: existing expiring+revocable share-token infra (plaintext token)
+- shared/types/marketplace.ts — canonical TS contract: MarketplaceInquiryType incl. garage_service_request (line 298), MarketplaceSourceChannel incl. qr (line 323)
+- web/src/components/marketplace/InquiryModal.tsx — inquiry UI; label 'Request a service' for garage_service_request (line 24)
+- web/src/pages/MarketplaceCategoryPage.tsx — Garages & Services category page; CTA inquiryType garage_service_request (line 50); renders empty governed listings today
+- web/src/lib/marketplaceReferral.ts — captureReferralFromUrl + inquiryAttributionFields; source_channel limited to 'web'|'mobile'
+- web/src/pages/dashboard/admin/MarketplaceModeration.tsx — admin marketplace surface (moderation + inquiries)
+- database/migrations/20260616120000_marketplace_v1_inquiries.sql — owns marketplace_inquiries + marketplace_listing_reports
+- database/migrations/20260811132100_communications_2_reliability_closure.sql — AFTER INSERT trigger writing marketplace.inquiry.created into domain_events transactionally + dedupe_key
+- backend/server.js — mounts leads/marketplace/marketplaceAdmin routers (lines 295, 307-308); imports marketplaceListingEligibility for /api/vehicles/add
+
+**Tables** (8)
+- marketplace_inquiries — buyer-intent capture; cols: id, listing_id, listing_type, buyer_id, guest_name/email/phone, seller_id, seller_tenant_id, inquiry_type (CHECK incl. garage_service_request), message, referral_code, campaign_code, source_channel (CHECK incl. qr), status, risk_status, assigned_operator, country, metadata jsonb; owning migration 20260616120000_marketplace_v1_inquiries.sql
+- marketplace_listing_reports — listing abuse reports; reason_code/status CHECKs; same migration
+- domain_events — transactional outbox (011_phase6_schema.sql); dedupe_key + dedupe trigger added by 20260811132100_communications_2_reliability_closure.sql; carries marketplace.inquiry.created
+- organizations — has type 'garage' in CHECK (002_multi_tenant_and_auth_schema.sql:14, supabase_schema.sql:166); existing garage identity seam; staging holds one garage org (per PR #194 I9 receipt)
+- vehicles.current_seller_id/tenant_id — the ONLY routing source createInquiry consults, and only for vehicle-bound inquiry types
+- report_versions.share_token/share_expires_at/revoked — existing expiring share-link columns (reportService.js)
+- referral events table (REFERRAL_TABLES.events) — stores marketplace referral events incl. QR_SCANNED and bridged leads keyed by metadata.source_inquiry_id
+- mechanic_work_orders — referenced by PR #194 serviceIntelligenceService; 0 rows in staging per I9 receipt (owned by mechanic domain, listed here as the convergence read target)
+
+**Services** (11)
+- backend/services/marketplace/marketplaceInquiryService.js — buyer-intent authority: createInquiry, resolveListingSeller (current_seller_id only, owner_id deliberately unselectable), listInquiriesForSeller/Admin, assignInquiry, updateInquiryStatus, assessInquiryRisk
+- backend/services/marketplace/marketplaceEventTypes.js — exported enums: MARKETPLACE_INQUIRY_TYPES, MARKETPLACE_INQUIRY_STATUSES, MARKETPLACE_SOURCE_CHANNELS, INQUIRY_TYPE_TO_REFERRAL_EVENT (garage_service_request → marketplace_service_booked), DIASPORA_INQUIRY_TYPES
+- backend/services/marketplace/marketplaceReferralBridgeService.js — emitMarketplaceReferralEvent (best-effort), bridgeInquiryToReferralLead (idempotent per inquiry+tenant via metadata.source_inquiry_id), SOURCE_CHANNEL_MAP qr→REFERRAL_CHANNELS.QR
+- backend/services/marketplace/marketplaceListingEligibility.js — pure REAL listing eligibility: getListingEligibility/buildVehicleListingCandidate, stable reason codes, explicit-NULL-not-default rule
+- backend/services/marketplace/marketplacePartsService.js — getPartsListings/getServiceListings (governed empty) + buildPartSummary/buildServiceSummary public card shapes
+- backend/services/marketplace/listingSummaryService.js — listMarketplaceListings + PartSentry public-status derivation
+- backend/services/marketplace/marketplaceModerationService.js — listing moderation with independent assertModerator platform-role re-check
+- backend/services/marketplace/marketplaceDiscoveryService.js / marketplaceSavedService.js / marketplaceAnalyticsService.js / marketplaceAiAssistantService.js — discovery, saved listings, admin analytics, deterministic-fallback AI advisory
+- backend/services/eventBus/eventBusService.js — emitDomainEvent transactional outbox writer (domain_events), marketplace.inquiry.created idempotency by inquiryId
+- backend/services/report/reportService.js — createShareLink/getReportByShareToken/revokeShare share-token authority
+- backend/services/referral/referralEngineService.js — validateReferralCode (records QR_SCANNED), recordReferralEvent, share assets with qr_payload=referral URL
+
+**APIs** (15)
+- GET /api/marketplace/listings — backend/routes/marketplaceRoutes.js, public (no auth), reservation-truth overlay
+- GET /api/marketplace/services — marketplaceRoutes.js, public, governed EMPTY garage/service listing set (getServiceListings)
+- GET /api/marketplace/parts — marketplaceRoutes.js, public, governed empty parts set
+- GET /api/marketplace/listings/:id — marketplaceRoutes.js, optionalAuth(), emits best-effort referral listing_viewed
+- POST /api/marketplace/inquiries — marketplaceRoutes.js, inquiryLimiter (15/min) + optionalAuth(); guest allowed; THE garage_service_request entry point
+- GET /api/marketplace/my-listings/inquiries — marketplaceRoutes.js, authorizeRole([]) seller inbox
+- GET/POST/DELETE /api/marketplace/saved|listings/:id/save — marketplaceRoutes.js, authorizeRole([])
+- POST /api/marketplace/ai/* (listing-draft, buyer-assistant, price-estimate, share-copy) — marketplaceRoutes.js, aiLimiter, advisory-only
+- GET /api/leads — backend/routes/leadsRoutes.js, authorizeRole(['dealer','admin']); projects seller-scoped marketplace_inquiries into dealer lead pipeline
+- GET /api/admin/marketplace/inquiries — backend/routes/marketplaceAdminRoutes.js, authorizeRole(['admin','government']) + service-layer assertReviewer re-check
+- PATCH /api/admin/marketplace/inquiries/:id/assign and /status — marketplaceAdminRoutes.js, reviewer roles; only write path that mutates inquiry status
+- GET/PATCH /api/admin/marketplace/listings* (approve/reject/suppress/request-evidence/flag-risk/clear-risk) — marketplaceAdminRoutes.js, reviewer roles
+- GET /api/admin/marketplace/analytics — marketplaceAdminRoutes.js, reviewer roles
+- POST /api/report-versions/:id/share — backend/routes/reportRoutes.js, owner/dealer/admin; existing expiring share-link creation (Service Link candidate infra)
+- Routers mounted at backend/server.js:295 (leads), :307-308 (marketplace, marketplaceAdmin)
+
+**Events** (7)
+- marketplace.inquiry.created — emitted by createInquiry (marketplaceInquiryService.js, fail-closed) AND by DB trigger trg_marketplace_inquiry_communication_outbox; consumer: Communications 2.0 orchestrator; transport: domain_events outbox, idempotent per inquiryId (dedupe_key)
+- marketplace.inquiry.referral_bridge_requested — emitted by createInquiry via emitDomainEvent before lead bridging; transport: domain_events outbox
+- marketplace_service_booked (referral event) — mapped from garage_service_request creation via INQUIRY_TYPE_TO_REFERRAL_EVENT; emitter marketplaceReferralBridgeService.emitMarketplaceReferralEvent; transport: referral events table (recordReferralEvent), best-effort
+- marketplace_inquiry_created / marketplace_inspection_requested / marketplace_quote_requested / marketplace_listing_viewed etc. — MARKETPLACE_REFERRAL_EVENT_TYPES in marketplaceEventTypes.js, referral engine transport, best-effort
+- QR_SCANNED / BARCODE_SCANNED — referralEngineService.js:516-535 validateReferralCode records a scan event when channel is qr/barcode, reusing the referral events table (explicitly 'no separate scan-tracking system')
+- communication.share_link_created — constant SHARE_LINK_CREATED in backend/services/communication/communicationUtils.js:45
+- PR #194 adds Intelligence observations: emitSearchPerformed/emitListingOpened (marketplaceRoutes.js) and emitInquiryCreated (marketplaceInquiryService.js) via backend/services/intelligence/marketplaceActivityEmitters.js — best-effort, never-throw, authority-anchored idempotency, drops counted in intelligence_ingestion_stats
+
+**RLS/policies** (4)
+- marketplace_inquiries — RLS ENABLED, ALL revoked from anon+authenticated, GRANT ALL to service_role only (20260616120000 migration); authorization lives in the Express service layer
+- marketplace_listing_reports — same posture: RLS enabled, service_role-only
+- communication_marketplace_inquiry_outbox() function — REVOKE from PUBLIC, EXECUTE granted to service_role only (20260811132100 migration)
+- No anon/authenticated policies exist on any marketplace table — Service Network tables should follow this service_role-only + service-layer-authz pattern
+
+**Migrations** (7)
+- database/migrations/20260616120000_marketplace_v1_inquiries.sql — creates marketplace_inquiries (inquiry_type CHECK incl. garage_service_request; source_channel CHECK incl. qr) + marketplace_listing_reports; RLS + service_role-only
+- database/migrations/20260811132100_communications_2_reliability_closure.sql — domain_events.dedupe_key + dedupe trigger + AFTER INSERT trigger on marketplace_inquiries writing marketplace.inquiry.created transactionally (ON CONFLICT DO NOTHING)
+- database/migrations/011_phase6_schema.sql — creates domain_events outbox table
+- database/migrations/002_multi_tenant_and_auth_schema.sql — organizations table with type incl. 'garage' (garage identity seam)
+- database/migrations/supabase_schema.sql:166,358 — organizations type CHECK incl. 'garage'; seeds 'Simbisa Garages Ltd' garage org
+- database/migrations/20260811131700_communications_2_workflow_template_foundations.sql:18 — seeds 'garage_booking_confirmation' template (audience vehicle_owner, category garage_service)
+- database/migrations/20260716033000_referral_bridge_outbox_payload_minimization.sql — referral bridge outbox payload minimization touching marketplace inquiry events
+
+**Tests** (9)
+- backend/tests/marketplace-v1-spine.test.js — locks createInquiry contract: guest must supply contact, public projection hides PII, invalid inquiry_type rejected, metadata allow-list sanitization, outbox is a REQUIRED collaborator (fail-closed), seller inbox tenant/seller scoping + predicate push-down, referral event emission; does NOT exercise garage_service_request specifically
+- backend/tests/referral-marketplace-inquiry-lead-bridge.test.js — locks idempotent inquiry→referral-lead bridge: one lead per inquiry, concurrent executions produce one lead, invalid code yields plain inquiry, no wallet transaction before admin qualification
+- backend/tests/communications-2-marketplace-ingress-and-routing.test.js — locks inquiry→conversation: seller notified exactly once, replaying same inquiry adds no second message/notification (outbox idempotency), fail-closed ambiguous routing
+- backend/tests/communications-2-marketplace-outbox-hardening.test.js — outbox hardening for inquiry events
+- backend/tests/dealer-leads-inquiries.test.js — locks GET /api/leads: seller_id/tenant scoping, spam never surfaces, status vocabulary remap (assigned→new, qualified→negotiating)
+- backend/tests/marketplace-listing-eligibility.test.js + vehicle-create-eligibility.test.js + marketplace-onboarding-fixture.test.js — lock REAL_LISTING_ELIGIBILITY reason codes and /api/vehicles/add wiring
+- backend/tests/referral-engine-phase1.test.js:130 — locks qr_payload === short_referral_url (QR payload is the referral URL, no image infra)
+- MAIN HAS ZERO tests naming garage_service_request (grep over backend/tests) — the type's behavior is untested until PR #194
+- PR #194 backend/tests/intelligence-service-mechanic-garage.test.js (A) — first garage_service_request tests: spam/rejected excluded from enquiry counts, purchase inquiries are not service enquiries, seller_id attribution, unavailable-not-zero failure posture, no Trust leakage
+
+**Contract gaps** (12)
+- NO garage_service_request table/flow exists — it is only an inquiry_type VALUE on marketplace_inquiries (CHECK constraint, 20260616120000 migration); no acceptance, no lifecycle, no service case
+- NO target-garage routing: createInquiry sets seller_id/seller_tenant_id ONLY for VEHICLE_BOUND_TYPES (vehicle_purchase_interest, vehicle_inspection_request, dealer_stock_request, trade_in_request) — a garage_service_request row lands with NULL seller/tenant and no field says which garage it was directed to (plan §10.2's exact question is unanswerable today)
+- NO inquiry-level idempotency: POST /api/marketplace/inquiries generates randomUUID per call, accepts no idempotency key — a client retry creates duplicate inquiry rows (only the outbox event and the referral lead are deduped per inquiry id); plan §10.3 inquiry→ServiceCase dedup linkage must be built
+- NO durable inquiry→ServiceCase linkage column/table exists anywhere (nothing to persist the bridge in)
+- NO QR generation/rendering infrastructure: no qrcode/react-qr package in any package.json; 'qr' exists only as a source_channel/referral channel enum + QR_SCANNED referral events; referral qr_payload is just the referral URL string (referralEngineService.js:350)
+- NO service-link/deep-link resolver for vehicle / service case / mechanic resources (plan §6.8); the only token-resolving surface is report share tokens (reportRoutes.js)
+- Web never emits source_channel='qr': inquiryAttributionFields in web/src/lib/marketplaceReferral.ts hardcodes 'web'|'mobile', so end-to-end §20.4 QR attribution has no producing surface
+- NO garage directory data: getServiceListings returns a governed empty set ('Service provider onboarding — verified-only', marketplacePartsService.js); no provider-listing backend, no garage publication state
+- inquiry metadata allow-list (ALLOWED_METADATA_KEYS) strips any target-garage/service-context key a client might send — an additive schema change is required, metadata cannot smuggle routing
+- NO booking/appointment/capacity model (confirmed by PR #194 serviceIntelligenceService NOT_MEASURABLE list and I9 receipt: mechanic_work_orders 0 rows in staging)
+- NO test on main references garage_service_request at all — the type is entirely unlocked by tests until PR #194's intelligence-service-mechanic-garage.test.js lands
+- marketplace_inquiries.assigned_operator is a bare TEXT operator id — no operator/garage assignment authority model behind it
+
+**Likely conflicts with Service Network** (8)
+- PR #194 serviceIntelligenceService.js defines SERVICE_INQUIRY_TYPES = {garage_service_request, mechanic_service_request} but 'mechanic_service_request' exists NOWHERE else — not in MARKETPLACE_INQUIRY_TYPES (marketplaceEventTypes.js), not in shared/types/marketplace.ts, and the DB CHECK constraint (20260616120000 migration) would reject it; Service Network adding this type requires a coordinated enum+CHECK+types change
+- PR #194 service intelligence reads marketplace_inquiries.seller_id/seller_tenant_id as the SERVICE PROVIDER target (pr194.diff lines ~17195-17200), but on main createInquiry only populates seller_* for VEHICLE_BOUND_TYPES (garage_service_request excluded) — so the enquiry metric reads 0 today, AND this pre-claims seller_* as 'target garage' semantics that plan §10.2 explicitly warns against overloading
+- Referral event name 'marketplace_service_booked' is already mapped from garage_service_request creation (marketplaceEventTypes.js INQUIRY_TYPE_TO_REFERRAL_EVENT) even though no booking model exists (PR #194 I9 receipt: NOT_MEASURABLE no_booking_model) — Service Network 'booking/acceptance' vocabulary will collide with this pre-existing misnomer
+- marketplace_inquiries status vocabulary (new/assigned/contacted/qualified/closed/spam/rejected) is a LEAD pipeline (leadsRoutes.js remaps it again to new/contacted/negotiating/closed) — plan §6.2 Service Case statuses must not be conflated with or written back into inquiry status; a mapping decision is needed at the bridge
+- listing_type on a garage_service_request inquiry defaults to 'vehicle' (createInquiry sets 'diaspora_request' only for diaspora types) — misleading if Service Network queries by listing_type
+- Communications workflow template 'garage_booking_confirmation' (category garage_service, 20260811131700 migration) already exists with 'booking' naming — Service Network notification events (§15.4) must reconcile rather than duplicate this template family
+- PR #194 MarketplaceShareSheet.tsx builds share URLs with NO referral/source/utm params — a Service Network share/QR surface reusing it would silently drop plan §20.4 source attribution
+- report_versions share_token is stored in PLAINTEXT (reportService.js createShareLink) — plan §6.8 requires bearer secrets stored hashed, so this infra is a pattern to reuse but not compliant as-is
+
+**Must reuse (do not duplicate)** (15)
+- marketplace_inquiries table + inquiry_type 'garage_service_request' + source_channel 'qr' vocabularies (database/migrations/20260616120000_marketplace_v1_inquiries.sql, backend/services/marketplace/marketplaceEventTypes.js, shared/types/marketplace.ts) — plan §10 mandates reusing these
+- createInquiry single capture path (backend/services/marketplace/marketplaceInquiryService.js) — guest+auth handling, contact enrichment, risk assessment, metadata allow-list, audience-scoped projections; extend additively, do not fork a second intake
+- Transactional outbox: emitDomainEvent + domain_events + dedupe_key + AFTER INSERT trigger pattern (backend/services/eventBus/eventBusService.js, 20260811132100 migration) — the model for idempotent Service Case bridging events
+- marketplaceReferralBridgeService (backend/services/marketplace/marketplaceReferralBridgeService.js) — QR→REFERRAL_CHANNELS.QR mapping, per-inquiry idempotent lead bridging pattern (findInquiryLeadEvent keyed on source_inquiry_id) = the template for idempotent inquiry→ServiceCase
+- referralEngineService.validateReferralCode QR_SCANNED recording (backend/services/referral/referralEngineService.js:516-535) — first-class QR scan events on the existing event table; explicitly no separate scan-tracking system
+- report share-token pattern (backend/services/report/reportService.js:187-213 + reportRoutes.js) — expiring, revocable, server-validated resource links; plan §6.8 says inspect/prefer existing token infra (must add hashing)
+- organizations table with type 'garage' (002_multi_tenant_and_auth_schema.sql; supabase_schema.sql:166) — garage identity anchor; do not invent a new garage entity table without reconciling
+- Communications template 'garage_booking_confirmation' category garage_service (20260811131700 migration) — extend this template family for §15.4 service notifications
+- leadsRoutes.js inquiryToLead + marketplaceAdminRoutes inquiry assign/status — existing operational surfaces over inquiries; Garage inbox should follow this projection pattern, not raw rows
+- buildServiceSummary card shape + governed-empty getServiceListings (backend/services/marketplace/marketplacePartsService.js) — the Garage Directory card contract seed: verification_status fail-closed, statedValue() absence semantics, no fabricated labels
+- REAL_LISTING_ELIGIBILITY pattern (backend/services/marketplace/marketplaceListingEligibility.js + docs/CARUP_REAL_LISTING_ELIGIBILITY_CONTRACT.md) — pure reason-coded eligibility as the model for garage publication eligibility
+- inquiryLimiter/aiLimiter + optionalAuth guest pattern (marketplaceRoutes.js) — rate-limited guest-capable entry points
+- web captureReferralFromUrl + inquiryAttributionFields (web/src/lib/marketplaceReferral.ts) — extend for qr channel rather than a new attribution store
+- PR #194 MarketplaceShareSheet.tsx — share UX component to extend (adding attribution params) for Service Link sharing
+- PR #194 serviceIntelligenceService NOT_MEASURABLE honesty pattern — state absent capabilities with reasons instead of estimating
+
+**PR #194 delta** (19)
+- backend/routes/marketplaceRoutes.js (M) — wires fire-and-forget Intelligence I3 emitters: emitSearchPerformed on listings search, emitListingOpened on detail, req threaded into createInquiry/saveListing/unsaveListing for session context; no new endpoints, no auth changes
+- backend/services/marketplace/marketplaceInquiryService.js (M) — ALLOWED_METADATA_KEYS extended with buyer_intent, safepay_requested, fitment_taxonomy_version/make/model/year; emitInquiryCreated observation after insert; garage_service_request routing logic UNCHANGED
+- backend/services/intelligence/marketplaceActivityEmitters.js (A) — all server-emitted marketplace observations; authority-anchored idempotency; drops counted in intelligence_ingestion_stats
+- backend/services/intelligence/serviceIntelligenceService.js (A) — mechanic/garage service intelligence over marketplace_inquiries (filters seller_id / seller_tenant_id) + mechanic_work_orders; SERVICE_INQUIRY_TYPES = {garage_service_request, mechanic_service_request}; explicit NOT_MEASURABLE list (no booking/capacity model); mechanic projection never widens to tenant, garage never narrows to caller
+- backend/services/marketplace/carUpGoldService.js (A) — governed CarUp Gold qualification (projectCarUpGold, policy carup-gold-1.0.0) from canonical trust; frontend must never recreate/relax
+- backend/services/marketplace/listingSummaryService.js (M) — adds carup_gold projection + canonical taxonomy facet matchers (make/model/fuel/transmission/body/location) applied pre-sort/limit
+- backend/services/marketplace/marketplaceListingEligibility.js (M) — year bounds now come from vehicleTaxonomyService.vehicleYearBounds() instead of MIN_LISTING_YEAR=1980 const
+- backend/services/marketplace/marketplacePartsService.js (M) — part fitment claim vocabulary: normalizePartFitmentEntry, PART_FITMENT_TAXONOMY_VERSION, model-range only, VIN/plate/chassis deliberately absent
+- backend/services/marketplace/marketplaceDiscoveryService.js + marketplaceSavedService.js (M) — observation threading / facet support
+- shared/types/marketplace.ts (M) — adds MarketplacePartFitment, synthetic_demo demo-media marker (never a Trust input), display_label nullable
+- web/src/components/marketplace/InquiryModal.tsx (M) — intentMetadata pass-through merged into inquiry metadata
+- web/src/components/marketplace/MarketplaceShareSheet.tsx (A) — WhatsApp/Facebook/X/email/copy/native share; NO referral or source_channel params on shared URLs
+- web MarketplaceListingCard.tsx, VehicleIntelligenceStory.tsx, marketplaceCardModel.ts, marketplacePresentation.ts (A) — new card/presentation layer
+- mobile/app/(tabs)/marketplace.tsx + mobile/utils/marketplaceApi.ts (M) — mobile marketplace media contract
+- .github/workflows/marketplace-reference-media-*.yml + backend/fixtures/marketplace-reference-media-v1.json + backend/scripts/marketplace-reference-media-staging.mjs (A) — staging reference-media seeding pipeline (synthetic_demo provenance)
+- backend/tests/intelligence-service-mechanic-garage.test.js (A) — FIRST tests touching garage_service_request: spam/rejected excluded from service enquiries, seller_id attribution, no Trust leakage, unreadable table reports unavailable-not-zero
+- backend/tests/marketplace-carup-gold.test.js, marketplace-reference-*.test.js, marketplace-lifecycle-missing-mileage.test.js (A) + marketplace-v1-spine.test.js, marketplace-listing-eligibility.test.js (M)
+- docs/intelligence/receipts/I9_MECHANIC_GARAGE_PROJECTION_MODEL.md (A) — staging reconciliation: mechanic_work_orders 0 rows; ONE garage_service_request inquiry; ONE organization of type garage
+- backend/services/passport/passportMarketplaceConvergence.js + backend/tests/passport-v10-marketplace-convergence.test.js (A) — passport/marketplace convergence (adjacent domain, touches marketplace summaries)
+
+**Notes:** Headline: on main, 'garage_service_request' is only a vocabulary value (inquiry_type on marketplace_inquiries) captured through the single createInquiry path — there is no routing to a garage, no lifecycle, no dedicated table, and no test locking it. The plan's §10 claim that 'Marketplace already recognizes garage_service_request and source channel qr' is confirmed but is vocabulary-only. The biggest S0 design decision this recon surfaces: PR #194's service intelligence already reads marketplace_inquiries.seller_id/seller_tenant_id as the service-provider target while plan §10.2 forbids overloading seller semantics — whichever additive target-garage field S0 chooses must be reconciled with #194's intelligence readers before both merge. Idempotency exists at three layers (outbox event per inquiryId, referral lead per inquiry+tenant, comms trigger ON CONFLICT) but NOT at inquiry creation itself. QR is attribution vocabulary + referral scan events only; there is zero QR generation or resolver infrastructure, and the web client can never emit source_channel='qr' today. Grounding: every claim above from files opened/grepped in /Users/shadreckmusarurwa/Project AI/carup-service-network and /private/tmp/.../scratchpad/pr194.diff (+ pr194-name-status.txt); PLAN.md sections 2.3, 4 (inv. 8/11), 6.8, 10, 20 read.
 
 ### Domain: communications
 
@@ -1378,3 +1363,1083 @@ begins before the S0 authority freeze receipt, which requires all 13 domains.
 - docs/vehicle-passport-lifecycle/ (A) — canonical plan, authority map, V0-V16 certification receipts
 
 **Notes:** Workspace verified read-only at canonical main. On main the passport projection authority is buildVehiclePassport in backend/server.js composing over injected collaborators (trust, claims, media) plus trustGraphService.getVehicleTimeline; there is NO backend/services/passport directory. PR #194 (branch integration/vehicle-passport-v16-cert, currently mid issue158 reconciliation per git status) introduces the entire versioned passport service layer V1-V16 including passportServicePartsProjection (the modular 'V8'), an ownership-transfer authority whose only writer to vehicle_ownership_history is a service_role-gated atomic SQL function (tests assert no JS-side insert), and threads buildCanonicalVehicleLifecycle into buildVehiclePassport. Service Network S6 work is therefore merge-order-coupled to #194: enrich source tables (garage identity, service date, provenance, evidence link) and let the existing projection — whichever shape wins — read them, per Invariant 9.
+
+### Domain: partsentry-workorders
+
+**Files** (22)
+- backend/services/partsentry/partsentryService.js — addRepairLog (odometer guard, sha256 signature, 5-min idempotency, tenant stamping, vehicles.mileage overwrite, blockchain event) + getRepairHistory with fail-closed public allowlist
+- backend/routes/workOrdersRoutes.js — the ENTIRE work-order API (91 lines): list/create/patch mechanic_work_orders, tenant-scoped, no service module behind it
+- backend/routes/partsRoutes.js — mechanic parts inventory list/create against mechanic_parts
+- backend/routes/partsentryReviewRoutes.js — 9 governed review endpoints delegating to trustGovernance/partsentryReviewService
+- backend/services/trustGovernance/partsentryReviewService.js — 790-line review authority: create/approve/reject/revoke/flag/clear/audit-trail, suspicion gating, evidence checks
+- backend/server.js:1630-1686 — POST /api/partsentry/add (ownership check for non-mechanics) and GET /api/partsentry/:vin (publicOnly widening on verified owner_id only)
+- backend/server.js:2833-2853 — GET /api/service-history/me reads mechanic_work_orders across owned VINs (owner service history surface)
+- backend/server.js:563-590 — ownerGarageCounts: services tallied from mechanic_work_orders, parts from partsentry_logs, null-not-zero semantics
+- backend/services/trustGraph/trustGraphService.js:30 — public vehicle timeline reads mechanic_work_orders with privacy-restricted select (id, vin, created_at, status, mechanic_id, total_cost only)
+- backend/check-mileage.js — dev scratch script: read-only SELECT of one hardcoded VIN; NOT a mileage authority (duplicate in backend/scratch/check-mileage.js)
+- backend/services/evidence/vehicleFactResolver.js — canonical fact resolver (Issue #164 Phase 2); covers the six verification booleans, does NOT cover mileage
+- backend/services/marketplace/marketplacePartsService.js — gated public /api/marketplace/parts and /api/marketplace/services surface; returns governed empty results, no fabricated listings
+- backend/services/golden/goldenVehicleSpecs.js:108-109 — Golden A fixture pins odometer 78450 and asserts addRepairLog rejects lower readings
+- backend/services/golden/goldenVehicleFixture.js — injects addRepairLog as a collaborator for golden dataset builds
+- backend/services/evidence/evidenceTaxonomy.js:76,102 — existing evidence classes 'odometer_reading' and 'odometer' (plan 12 odometer-photo class already exists)
+- web/src/pages/dashboard/mechanic/WorkOrders.tsx — list/create/complete/cancel UI; optimistic update w/ rollback; keeps full DB id for PATCH
+- web/src/pages/dashboard/mechanic/ServiceLogs.tsx — PartSentry log create + per-VIN history; action types mirror DB CHECK
+- web/src/pages/dashboard/mechanic/PartsTracking.tsx — garage parts inventory over /api/mechanic/parts
+- web/src/pages/dashboard/mechanic/MechanicDashboard.tsx — mechanic landing surface
+- web/src/pages/dashboard/owner/PartSentry.tsx — owner-side repair-log surface hitting /api/partsentry/add
+- web/src/hooks/useCarUpApi.ts:900,2010-2035 — client bindings: /partsentry/add, /partsentry/:vin, /mechanic/work-orders (GET/POST/PATCH), /mechanic/parts (GET/POST)
+- web/src/types/index.ts:1299 — WorkOrder interface; status union mixes DB CHECK values with lowercase normalized forms ('pending'|'in-progress'|'completed'|'cancelled'|'In Progress'|'Completed'|'Cancelled')
+
+**Tables** (6)
+- mechanic_work_orders — converged superset of two historical shapes: id UUID, tenant_id UUID, organization_id TEXT (legacy, nullable post-convergence), vin FK vehicles ON DELETE CASCADE, customer_id FK users, customer_name (legacy, nullable), mechanic_id FK users, description, issue_description (006 legacy), labor_cost, total_cost, status, created_at, updated_at; CHECK status IN ('In Progress','Completed','Cancelled') from 009_phase4_schema.sql
+- mechanic_parts — garage private stock: tenant_id UUID FK tenants, name, sku, stock_level, min_stock, supplier (free text, not a principal), unit_price, UNIQUE(tenant_id, sku); converged with legacy organization_id shape
+- partsentry_logs — repair ledger: BIGSERIAL id, vin FK vehicles, mechanic_id FK users NOT NULL, part_name, part_oem, action_type CHECK IN ('Replaced','Repaired','Inspected','Diagnosed'), description, mileage INTEGER NOT NULL, signature, timestamp TEXT, tenant_id (FK tenants, added later), verification_status + part_verification_status CHECK IN ('unverified','pending','verified','rejected','disputed'), suspicion_status CHECK IN ('none','watch','flagged','cleared'), public_card_eligible BOOLEAN DEFAULT false
+- partsentry_review_requests — governed review ledger: partsentry_log_id FK, vin FK, request_type CHECK IN ('public_card_eligible','verification_status','part_verification_status','suspicion_status'), status CHECK IN ('pending','approved','rejected','revoked','superseded'), requester/reviewer identity+role+tenant, evidence_ids[], reason, decision_notes, unique partial index enforcing one pending request per (log, type) — 20260710130000
+- vehicles.mileage — the canonical odometer column; its ONLY application writer is partsentryService.addRepairLog:51 (monotonic >= guard, then overwrite)
+- NO service_case, service_record, work_order_assignment, garage_directory, or service_link table exists in database/migrations (grep confirmed zero hits)
+
+**Services** (6)
+- backend/services/partsentry/partsentryService.js — parts/service provenance authority: addRepairLog(vin, mechanicId, partName, partOem, actionType, description, mileage, tenantId) and getRepairHistory(vin, {publicOnly}); public rows require public_card_eligible=true AND suspicion in ('','none','cleared') allowlist
+- backend/services/trustGovernance/partsentryReviewService.js — exported authority functions: createPartSentryReviewRequest, listPartSentryReviewQueue, approvePartSentryReviewRequest, rejectPartSentryReviewRequest, revokePartSentryReviewRequest, flagPartSentrySuspicion, clearPartSentrySuspicion, getPartSentryReviewAuditTrail, getPartSentryLogForReview, validatePartSentryReviewPayload; approval blocked while suspicion is watch/flagged; audits via shared auditLogger
+- NO work-order service module exists — workOrdersRoutes.js and partsRoutes.js query supabase directly; any Service Case ↔ work order bridge must either add a service layer or extend the routes
+- backend/services/trustGraph/trustGraphService.js — timeline consumer of mechanic_work_orders + partsentry_logs; its column-restricted select is contract-locked by issue164-phase8 test
+- backend/services/evidence/vehicleFactResolver.js — pure, injected-read fact resolver pattern (starts at unknown, moved only by rows actually read) that plan 13.1 mileage reconciliation should extend
+- backend/services/marketplace/marketplacePartsService.js — governed public parts/services marketplace projection; mirrors PartSentry suppression rules; explicitly forbids fabricated supplier/verification labels
+
+**APIs** (13)
+- GET /api/mechanic/work-orders — workOrdersRoutes.js, authorizeRole(['mechanic','admin']), tenant-filtered
+- POST /api/mechanic/work-orders — workOrdersRoutes.js, authorizeRole(['mechanic','admin']); VIN must exist in vehicles; customer_id auto-resolved from vehicles.owner_id; mechanic_id = creator (req.userContext.id); status forced 'In Progress'
+- PATCH /api/mechanic/work-orders/:id — workOrdersRoutes.js, authorizeRole(['mechanic','admin']); accepts only status in ('In Progress','Completed','Cancelled') + optional non-negative total_cost; tenant scoping inside the UPDATE (cross-tenant = 404); NO transition guard from terminal states
+- GET /api/mechanic/parts — partsRoutes.js, authorizeRole(['mechanic','admin'])
+- POST /api/mechanic/parts — partsRoutes.js, authorizeRole(['mechanic','admin'])
+- POST /api/partsentry/add — server.js:1630, authorizeRole(['mechanic','owner','dealer','admin']); non-mechanic/non-admin must own the vehicle or share its tenant
+- GET /api/partsentry/:vin — server.js:1658, optionalAuth(); public allowlist projection by default, full history only for mechanic/admin or verified owner_id match (forged x-tenant-id header deliberately NOT trusted)
+- POST /api/verification/partsentry/:logId/requests — partsentryReviewRoutes.js, authorizeRole(['mechanic','owner','dealer','admin'])
+- GET /api/verification/partsentry/review-queue — partsentryReviewRoutes.js, admin only
+- PATCH /api/verification/partsentry/:requestId/approve|reject|revoke — partsentryReviewRoutes.js, admin only
+- PATCH /api/verification/partsentry/:logId/flag-suspicion|clear-suspicion — partsentryReviewRoutes.js, admin only
+- GET /api/verification/partsentry/audit-trail/:vin and /logs/:logId — partsentryReviewRoutes.js, admin only
+- GET /api/service-history/me — server.js:2833, authorizeRole(['owner','dealer','admin']); mechanic_work_orders for the caller's owned VINs
+
+**Events** (3)
+- 'Mechanic Inspection' blockchain ledger event — emitted by partsentryService.addRepairLog via blockchainService.addEvent (blockchain_events table); payload: logId, partName, partOem, actionType, odometer, mechanicId, signature; emitted only AFTER the insert succeeds
+- PartSentry review audit events — partsentryReviewService via logAuditEvent (services/auditLogger.js) on every create/approve/reject/revoke/flag/clear, carrying actor, previous/new values, source route
+- NO eventBus/Communications emission exists from workOrdersRoutes, partsRoutes, or partsentryService — work-order lifecycle changes are silent (plan section 8/15 events are all net-new)
+
+**RLS/policies** (5)
+- mechanic_work_orders — RLS ENABLED, zero policies, REVOKE ALL FROM anon+authenticated, GRANT ALL TO service_role (20260809110000_api_role_write_hardening.sql:27-33); service-role-only posture, all access mediated by Express
+- mechanic_parts — same service-role-only posture (20260809110000:28-34)
+- partsentry_logs — RLS ENABLED in supabase_schema.sql:307; no anon/authenticated policies
+- partsentry_review_requests — RLS on, zero policies, explicit REVOKE anon/authenticated + GRANT service_role (20260710130000:115-125)
+- vehicles — vehicles_public_read policy (SELECT USING true) in supabase_schema.sql; mileage overwrite goes through service_role client
+
+**Migrations** (7)
+- database/migrations/006_domain1.sql — legacy mechanic_work_orders/mechanic_parts shape: organization_id TEXT NOT NULL, customer_name NOT NULL, issue_description, status DEFAULT 'pending' (no CHECK)
+- database/migrations/009_phase4_schema.sql — phase-4 shape the backend writes: tenant_id UUID FK tenants, vin FK vehicles, customer_id/mechanic_id FK users, status CHECK ('In Progress','Completed','Cancelled') DEFAULT 'In Progress', labor_cost/total_cost REAL
+- database/migrations/20260808150000_mechanic_work_orders_convergence.sql — converges BOTH shapes onto an additive superset; drops legacy NOT NULLs on organization_id/customer_name; tenant indexes; Down is a deliberate no-op (roll forward only)
+- database/migrations/supabase_schema.sql:103 — creates partsentry_logs with action_type CHECK and FK chain to vehicles/users; enables RLS
+- database/migrations/20260603132036_marketplace_listing_summary_infra.sql:30-53 — adds verification_status/part_verification_status/suspicion_status/public_card_eligible to partsentry_logs with their CHECK constraints
+- database/migrations/20260710130000_partsentry_review_requests.sql — creates the governed review-request ledger + one-pending-per-(log,type) unique index + service-role-only RLS
+- database/migrations/20260809110000_api_role_write_hardening.sql — RLS/grant hardening for mechanic_work_orders, mechanic_parts, vehicle_ownership_history
+
+**Tests** (9)
+- backend/tests/partsentry-write-truth.test.js — locks: insert error checked BEFORE odometer mutation/blockchain event; happy-path returns id + side effects; tenant stamped on log (garage) and null (owner); server.js must pass tenantId to addRepairLog; PATCH tenant-scoped in the UPDATE itself; only DB CHECK statuses; create persists customer_name + authenticated mechanic identity; mileage-rollback rejection
+- backend/tests/partsentry-review-workflow.test.js — locks the full review lifecycle against a mock client: create/approve/reject/revoke/flag/clear, payload validation, suspicion gating
+- backend/tests/issue164-phase8-service-timeline-privacy.test.js — locks the trustGraphService work-order select to NEVER fetch description/issue_description/customer_name/customer_id, MUST fetch status/total_cost; public sanitizer fixes description for workorder: events ONLY (PartSentry keeps its own)
+- backend/tests/issue164-phase1-read-contract.test.js:230 — locks GET /api/partsentry/:vin response = repair history via getRepairHistory, never the vehicle row
+- backend/tests/issue164-phase7-golden-vehicles.test.js — golden dataset builds through injected addRepairLog (odometer >= 78450 contract)
+- web/src/pages/dashboard/mechanic/WorkOrders.test.tsx — locks: PATCH with DB-legal 'Completed'/'Cancelled', optional total_cost, negative-cost client rejection, honest failure rollback, NO actions on terminal rows (client-side terminality), Phase-4 description column rendering, cancelled filter
+- web/src/pages/dashboard/mechanic/ServiceLogs.test.tsx — locks: exactly the DB CHECK action_type options, honest empty state (no mock logs), success keyed off returned id, no hardcoded mechanic id
+- backend/tests/run-tests.js:137-151 — legacy integration pass through addRepairLog/getRepairHistory
+- backend/tests/diaspora-trade-os-parts-flow.test.js — a SEPARATE 'parts' universe: diaspora buyer orders with order_type='parts' (naming overlap only, different tables)
+
+**Contract gaps** (11)
+- No service_case concept anywhere: no table, service, route, or migration mentions service_case/service_record/garage_directory/service_link
+- mechanic_work_orders has no service_case_id, no branch_id, no completed_at/cancelled_at (only created_at/updated_at + status), no cancellation reason, no structured service_category, no currency on labor_cost/total_cost — every 6.3 reconciliation column is missing
+- No mechanic assignment model: mechanic_id is stamped from the creator at insert (workOrdersRoutes.js POST) and NO API path can ever reassign it — PATCH accepts only status/total_cost; 6.4's assignment history table does not exist
+- Work-order lifecycle has only 3 DB-legal states ('In Progress','Completed','Cancelled') and no requested/accepted phase; the legacy 'pending' default (006 shape) is unreachable through the API
+- No governed mileage observation record: the mechanic-entered odometer exists only as partsentry_logs.mileage plus a direct vehicles.mileage overwrite; vehicleFactResolver does NOT cover mileage, so the 13.1 question (canonical fact vs source observation) is answered 'direct canonical mutation' today
+- No linkage partsentry_logs ↔ work order (no work_order_id column) and no work_order ↔ parts-used join (mechanic_parts is standalone inventory) — the plan-13 chain Service Case → work order → part record → PartSentry has no middle links
+- No completion/cancellation server timestamps means plan 7.6's 'authoritative server timestamp' for completion cannot be satisfied without additive columns
+- No service lifecycle events reach eventBus/Communications/notifications from any work-order or PartSentry write (plan sections 8 and 15.4 are all net-new)
+- Server does not enforce terminal-state immutability: PATCH will happily move 'Completed' back to 'In Progress' (only the UI hides actions on terminal rows) — conflicts with plan 7.6 'must remain historical'
+- No garage identity/publication projection: garages are tenants; no publication state, no public garage profile (marketplacePartsService returns a deliberately empty governed surface)
+- customer_id is auto-resolved from vehicles.owner_id at create — there is no requester identity distinct from vehicle owner, which 6.1's requester_user_id requires
+
+**Likely conflicts with Service Network** (9)
+- Mileage authority (plan 13.1): partsentryService.js:51 directly overwrites vehicles.mileage after a monotonic >= guard; reachable by owners/dealers via POST /api/partsentry/add, not just mechanics. This exact behavior is pinned by partsentry-write-truth.test.js and goldenVehicleSpecs.js:108 — reconciling it to an observation-feeds-resolver model will break those contracts unless done deliberately
+- State vocabulary collision: DB CHECK uses Title Case 'In Progress'/'Completed'/'Cancelled' while web/src/types WorkOrder.status and WorkOrders.tsx normalize to lowercase 'pending'/'in-progress'/'completed'/'cancelled' — the plan's Service Case states (requested/accepted/active/completed/declined/cancelled) overlap the lowercase set, so 'completed'/'cancelled' will be ambiguous between Case state and work-order state in shared UI code
+- Terminal-state mutability: server permits Completed→In Progress via PATCH; plan 7.6/Invariant 12 requires completed/cancelled records to remain historical — S4's 'compatible status model' must add a transition guard without breaking WorkOrders.test.tsx optimistic-update expectations
+- Provenance vocabulary drift: PR #194's passportServicePartsProjection.js freezes SERVICE_AUTHORITIES = {professional_governed, owner_declared, partner_record, unknown} — missing plan 6.6's garage_stated, mechanic_attributed, evidence_backed; if #194 merges first, Service Network's vocabulary must extend, not fork, that set
+- Public services surface overlap: marketplacePartsService already owns unauthenticated /api/marketplace/parts and /api/marketplace/services — a Garage Directory must reconcile with Invariant 8 (Marketplace owns discovery intent) and reuse its suppression rules rather than adding a second public services endpoint
+- 'parts' naming overlap: diaspora buyer orders use order_type='parts' (diaspora-trade-os-parts-flow.test.js) and mechanic_parts is garage stock — three distinct 'parts' meanings already exist before Service Network adds part records
+- PR #194 adds three NEW mechanic_work_orders consumers (canonicalVehicleLifecycleService, serviceIntelligenceService, passportServicePartsProjection) with frozen column selects — S4 additive schema evolution must not rename/repurpose existing columns those selects read
+- Timeline privacy contract: issue164-phase8 test locks the exact work-order select in trustGraphService — any S4 column additions consumed publicly must pass the same no-free-text/no-customer-identity gate
+- customer semantics: work-order 'customer' is the vehicle's owner_id resolved at create; Service Case requester_user_id is a different principal — converging them naively would misattribute requesters on owner-transferred vehicles
+
+**Must reuse (do not duplicate)** (14)
+- mechanic_work_orders table itself — plan 6.3 forbids a second work-order table; evolve additively via a sibling migration in the 20260808150000 convergence style (database/migrations/20260808150000_mechanic_work_orders_convergence.sql)
+- partsentryService.addRepairLog + its idempotency/signature/tenant-attribution — the part-record write authority (backend/services/partsentry/partsentryService.js); Service Records must link to it, not re-implement part logging
+- PartSentry public projection rule (public_card_eligible AND fail-closed non-suspicious allowlist) — partsentryService.getRepairHistory + trustGovernance/partsentryReviewService NON_SUSPICIOUS lists; any public service history must apply the same gate
+- partsentryReviewService governed review workflow + one-pending-per-(log,type) DB uniqueness — the template for any Service Network review/verification flow (backend/services/trustGovernance/partsentryReviewService.js)
+- vehicleFactResolver injected-read, unknown-first fact pattern for the 13.1 mileage reconciliation (backend/services/evidence/vehicleFactResolver.js)
+- trustGraphService timeline work-order emitter and server.js public sanitizer — the already-certified public projection of work orders (backend/services/trustGraph/trustGraphService.js:27-30)
+- tenant scoping pattern: filter inside the UPDATE so cross-tenant rows read as 404 (backend/routes/workOrdersRoutes.js PATCH) — reuse for all Service Case writes
+- authorizeRole middleware + req.userContext.tenantId (backend/middleware/authMiddleware.js usage in all three route files) — no new garage auth universe
+- service-role-only RLS posture (RLS on, zero client policies, REVOKE anon/authenticated) from 20260809110000 and 20260710130000 for every new table
+- evidence taxonomy classes odometer_reading/odometer (backend/services/evidence/evidenceTaxonomy.js:76,102) — plan 12's odometer-photo evidence class already exists; extend taxonomy, don't invent labels
+- blockchainService.addEvent ledger for tamper-evident service records (backend/services/blockchain/blockchainService.js via partsentryService)
+- ownerGarageCounts null-not-zero tally semantics (backend/server.js:563-590) — Invariant 10 already implemented for service/part counts; owner surfaces must keep it
+- marketplacePartsService governance invariants (no fabricated verification labels, suspicion suppression) for any Garage Directory card (backend/services/marketplace/marketplacePartsService.js)
+- migration marker contract '-- +migrate Up' + migration-integrity test run (per repo memory) for every new migration
+
+**PR #194 delta** (14)
+- backend/services/partsentry/partsentryService.js (M) — addRepairLog now rejects non-finite/negative mileage BEFORE any write (previously NaN sailed past the `mileage < vehicle.mileage` guard and could reset an odometer); blank description/part_oem stored as null instead of caller-fabricated strings
+- backend/services/passport/passportServicePartsProjection.js (A) — projects mechanic_work_orders rows + partsentry logs into audience-gated Passport service records; freezes SERVICE_AUTHORITIES = professional_governed/owner_declared/partner_record/unknown and SAFE_PARTSENTRY_SUSPICION = ('','none','cleared')
+- backend/services/passport/passportReadModelService.js + passportSurfaceConvergence.js + README.md (A) — Passport V8 composition layer consuming the projection; declares it does not mutate vehicles/evidence or calculate Trust
+- backend/services/report/canonicalVehicleLifecycleService.js (A) — lifecycle timeline reads mechanic_work_orders (privileged audiences only: id, created_at, status), maps them to category 'service' with sourceKind 'mechanic_work_order'; PartSentry rows publish summary-only unless public_card_eligible + non-suspicious
+- backend/services/intelligence/serviceIntelligenceService.js (A) — I9 mechanic/garage metrics over mechanic_work_orders (work_orders/completed/open counts, repeat customers) scoped by mechanic_id (PERSON) or tenant_id (GARAGE)
+- backend/services/intelligence/partsIntelligenceService.js (A) — I12: documents that parts compatibility/supplier intelligence is structurally unmeasurable (no parts catalogue, no fitment table, no supplier registry; mechanic_parts.supplier is free text); serves RFQ funnel + PartSentry provenance + own inventory only
+- backend/services/marketplace/marketplacePartsService.js (M) — adds normalizePartFitmentEntry / PART_FITMENT_TAXONOMY_VERSION: lister-supplied fitment CLAIMS, explicitly never PartSentry verification and never Trust
+- backend/tests/partsentry-write-truth.test.js (M) — adds blockchain custody RPC stubs (custodyGeneration, activation boundary) so addRepairLog's ledger side effect runs under the new custody contract; work-order route assertions unchanged
+- backend/tests/passport-v8-service-parts.test.js, intelligence-parts.test.js, intelligence-service-mechanic-garage.test.js, marketplace-lifecycle-missing-mileage.test.js (A) — new contract suites over the above
+- web/src/pages/dashboard/mechanic/PartsTracking.tsx (M) + PartsTracking.test.tsx (A) — outage no longer renders as an empty shelf; no invented 'Internal' supplier or default reorder threshold of 5
+- web/src/pages/dashboard/mechanic/MechanicDashboard.tsx (M) — embeds ServiceIntelligence scope='mechanic' (person-scoped work metrics)
+- web/src/pages/dashboard/owner/PartSentry.tsx (M) — stops fabricating 'Service performed' description, 'UNKNOWN' OEM, and 0 mileage on blank fields (the 0 previously overwrote the vehicle odometer server-side)
+- web/src/components/intelligence/PartsIntelligence.tsx/.test.tsx (A) — parts intelligence surface
+- NOT touched by #194: workOrdersRoutes.js, partsRoutes.js, partsentryReviewRoutes.js, partsentryReviewService.js, all mechanic_work_orders migrations, WorkOrders.tsx, ServiceLogs.tsx — the work-order authority itself is unchanged; #194 only adds READ consumers
+
+**Notes:** Workspace inspected read-only at /Users/shadreckmusarurwa/Project AI/carup-service-network (all relative paths above are under this root). Summary for S4/S5 planning: the work-order authority is tiny (91-line route file, no service module, 3 Title-Case states, service-role-only RLS) and is consumed today by trustGraphService (public timeline, privacy-locked select), server.js owner service-history + ownerGarageCounts, and the mechanic web surfaces; PR #194 adds three further read-only consumers plus a mileage-validation hardening inside addRepairLog. The single most consequential 13.1 fact: vehicles.mileage has exactly one writer — partsentryService.addRepairLog — which overwrites the canonical odometer under a monotonic guard, is reachable by owners/dealers, and is contract-pinned by tests and the Golden fixture; mileage is absent from vehicleFactResolver, so today the mechanic-entered odometer IS the canonical fact with no observation/provenance layer. check-mileage.js is a dev scratch query, not an authority.
+
+### Domain: trust
+
+**Files** (29)
+- backend/services/trustDecision/canonicalTrustService.js — THE canonical trust authority (ADR-001, Issue #164 Phase 3); 971 lines; single read path + single writer of vehicles.trust_score
+- backend/services/trustDecision/trustDecisionService.js — pure versioned decision engine (CALCULATION_VERSION='trust-decision-1.0.0'); dimensions: identity, completeness, source coverage, conflicts, fraud, compliance, eligibility
+- backend/services/trustGraph/trustGraphService.js — DEPRECATED 70-baseline engine; adds +5 when partsentry_logs count>=3 (literal service-activity→trust); calculateVehicleTrustScore at :473 writes trust_score WITHOUT clearing stamp columns
+- backend/services/trust-service/trustEnforcementEngine.js — penalty writes over assumed 80.0 baseline; clears stamps via UNSTAMPED_TRUST_CACHE in same update (:100, :185)
+- backend/services/trust-service/trustService.js — legacy trust helper; inserts trust_score_history
+- backend/services/trustGovernance/trustFactWorkflowService.js — governed trust-fact request/approve/reject/revoke workflow; patches vehicles fact columns + trust_audit_events
+- backend/services/trustGovernance/trustPermissionService.js — canSetTrustFact policy; fact allow-lists incl PARTSENTRY_PUBLIC_CARD_FACTS, GOVERNMENT_APPROVAL_FACTS
+- backend/services/document-intelligence/documentIntelligenceService.js — foreign trust_score writer (+20 on OCR approval, :400-410); clears stamps in same update
+- backend/services/evidence/vehicleFactResolver.js — Phase 2 fact resolver; provenance/evidence_basis input to canonical record, deliberately NOT a scoring input
+- backend/services/evidence/completenessEvaluator.js — completeness dimension input to decision engine
+- backend/routes/trustDecisionRoutes.js — trust decision HTTP surface (cache-only canonical projection + stripped decision)
+- backend/routes/trustFactRoutes.js — trust fact governance HTTP surface
+- backend/routes/vehiclesRoutes.js — evidence verify/reject handlers (:819, :914) are the ONLY production HTTP reach to refreshCanonicalTrust
+- backend/routes/escrowTrustRoutes.js — Marketplace transaction lifecycle routes; 'trust' in name only
+- backend/services/escrow/escrowTrustService.js — Issue #164 Phase 6 Marketplace transaction lifecycle, NOT the Trust authority
+- backend/services/marketplace/listingSummaryService.js — list surface trust via getCanonicalTrustBatch→toPublicTrust, cache-only (:71-73)
+- backend/services/marketplace/marketplaceTrustSummaryService.js — detail-page trust summary carrying exact toPublicTrust 10-field shape
+- backend/utils/publicVehicleProjection.js — strips raw vehicles.trust_score from public projections (:181-183); documents DEFAULT 80.0 hazard (:150)
+- backend/services/eventBus/eventBusService.js — domain_events outbox; emitDomainEvent + dedupe-key machinery
+- backend/server.js — public vehicle surfaces read via getCanonicalTrust/Batch + toPublicTrust (:496-518, :813); listing creation inserts explicit trust_score:null (:2352 area)
+- backend/scripts/production-refresh-canonical-trust-uatprd.mjs — pinned prod refresh runner; TARGET_VIN='UATPRD17830287622' module constant, NONTARGET_ROWS=351 byte-identical assertion
+- backend/scripts/issue164-refresh-canonical-trust.mjs — staging canonical trust refresh runner
+- backend/scripts/production-apply-issue164-trust-provenance.mjs — prod stamp-columns migration applier
+- web/src/pages/TrustSafety.tsx — public trust wording page (rewritten in PR #194 to remove fabricated claims)
+- web/src/components/marketplace/TrustSummaryPanel.tsx — trust rendering component
+- web/src/pages/dashboard/shared/TrustReviewQueue.tsx — trust fact review queue UI
+- web/src/pages/dashboard/admin/ReferralTrustReview.tsx — referral trust review UI (separate referral programme)
+- docs/canonical-vehicle-truth/ADR-001-trust-authority.md — the trust authority ADR
+- backend/services/referral/referralTrustReviewService.js — referral-programme trust review (person/referral scope, not vehicle trust)
+
+**Tables** (16)
+- vehicles.trust_score — materialized CACHE of decision.overall_trust.value, never an authority; column-level DEFAULT 80.0 is a legacy hazard (new inserts must set explicit null)
+- vehicles trust stamp columns — trust_calculation_version, trust_evaluated_at, trust_band, trust_confidence, trust_known_limitations, trust_evidence_basis; added by 20260817140000; NULL version = demoted to not_evaluated (load-bearing, no backfill)
+- vehicles.trust_presentation_announced_fingerprint — PR #194 R5-D1 durable announce marker (20260826120000_email_1_0_hardening.sql); absent in prod per runbook
+- trust_fact_requests — governed fact change requests; vin, trust_fact, requested/current value, status, requester+reviewer role/tenant, evidence_ids, partsentry_log_ids (20260604002000)
+- trust_audit_events — immutable trust governance audit trail (20260603233640)
+- trust_score_history — score change log; legacy prod shape REAL NOT NULL previous/new_score, TEXT timestamp (20260809100000 + 20260810120000 convergence)
+- rolling_integrity_checkpoints — vin PK, last_verified_event_id, rolling_hash (20260809100000)
+- trust_change_log — immutability-hardened change log (20260624150000)
+- mechanic_work_orders — existing work-order table; tenant_id, mechanic_id, customer_id, labor_cost, total_cost added by 20260808150000; read by trustGraphService graph read-model, NOT by canonical decision engine
+- mechanic_parts — parts inventory, tenant_id + min_stock + supplier (20260808150000)
+- partsentry_logs — PartSentry service ledger; counted (>=3 → +5) ONLY by the deprecated trustGraph engine
+- vehicle_evidence — evidence rows with trust_score_impact/trust_impact columns consumed by deprecated engine; RLS-hardened
+- domain_events — outbox transport for domain events; dedupe key per event type
+- escrow_trust_sessions / escrow_trust_events / escrow_trust_webhook_events — Marketplace escrow lifecycle (20260626180000); 'trust' naming only
+- verification_sessions — evidence_classification, ocr_execution_status, extraction_trust_status etc (20260618050000)
+- zimra_declarations / cid_clearance_records / cvr_ownership_records / vid_inspections / stolen_vehicles — registry inputs read by the deprecated trustGraph engine only
+
+**Services** (13)
+- canonicalTrustService — sole legitimate trust source; exports getCanonicalTrust, getCanonicalTrustBatch (cache-only by construction), toPublicTrust (closed 10-field contract), refreshCanonicalTrust (THE one writer, INV-TRUST-2), buildCachePatch (refuses non-canonical), canonicalFromCache/classifyCache, publicTrustViolations, CALCULATION_VERSION, TRUST_EVALUATION_STATES/BANDS/CONFIDENCE/SOURCES
+- trustDecisionService — getTrustDecision(vin), assembleDecision (pure, replayable INV-TRUST-4), toPublicDecision (strips private dimensions); score is transparent function of dimensions, AI advisory only
+- trustFactWorkflowService — createTrustFactRequest, approveTrustFactRequest, rejectTrustFactRequest, revokeTrustFactRequest, listTrustFactReviewQueue, getTrustFactAuditTrail; PHASE_2A_TRUST_FACTS = vehicle_condition_category/passport_verified/inspection_ready
+- trustPermissionService — canSetTrustFact(actor, fact, action, context); allow-lists: SOURCE_TRUST_FACTS (15 facts), GOVERNMENT_APPROVAL_FACTS, PARTSENTRY_PUBLIC_CARD_FACTS, FINANCE_FACTS, SUMMARY_FACTS — NO garage/service facts exist
+- trustGraphService — deprecated calculateVehicleTrustScore/computeVehicleTrustScoreContext (70-baseline, registry bonuses, partsentry service-count bonus, evidence trust_score_impact sum); live caller only backend/tests/run-tests.js; still writes UNCLEARED stamp
+- trustEnforcementEngine — mismatch penalties + marketplace quarantine (<60 suspends); writes trust_score with UNSTAMPED_TRUST_CACHE cleared stamps
+- documentIntelligenceService — OCR approval +20 writer; clears stamps in same update
+- vehicleFactResolver (evidence/) — resolveVehicleFacts: provenance disclosure, cannot move the score
+- marketplaceTrustSummaryService / listingSummaryService — read-only projections of the canonical contract
+- trustPresentationChangeProducer (PR #194, new) — emitTrustPresentationChange, reconcileTrustPresentation, trustPresentationFingerprint, materialTrustChanges, resolveCurrentVehicleOwner; fingerprint-idempotent, owner-only recipient, never a second writer
+- passportTrustLens (PR #194, new) — buildPassportTrustLens, assertCanonicalTrustProjection; validate-and-relay only, never derives band/score
+- escrowTrustService — Marketplace transaction lifecycle guard (naming overlap only)
+- referralTrustReviewService — referral-programme reviewer trust, separate universe
+
+**APIs** (9)
+- GET /api/vehicles/:vin/trust-decision — trustDecisionRoutes.js, authorizeRole() (any authenticated); returns toPublicTrust(cache-only canonical, RECOMPUTE.NEVER) + role-stripped decision
+- GET /api/vehicles/:vin/trust-decision/full — trustDecisionRoutes.js, authorizeRole(['admin','government','reviewer'])
+- POST /api/verification/trust-facts/:vin/requests — trustFactRoutes.js, authorizeRole(['owner','dealer','admin','government'])
+- GET /api/verification/review-queue — trustFactRoutes.js, authorizeRole(['admin','government'])
+- PATCH /api/verification/trust-facts/:requestId/approve — trustFactRoutes.js, authorizeRole(['admin','government'])
+- PATCH /api/verification/trust-facts/:requestId/reject — trustFactRoutes.js, authorizeRole(['admin','government'])
+- PATCH /api/verification/trust-facts/:requestId/revoke — trustFactRoutes.js, authorizeRole(['admin','government'])
+- GET /api/verification/audit-trail/:vin — trustFactRoutes.js, authorizeRole(['owner','dealer','admin','government'])
+- evidence verify + reject handlers — vehiclesRoutes.js (:819, :914), admin/government; the ONLY production call sites of refreshCanonicalTrust (best-effort, review is durable fact, cache re-materializable)
+
+**Events** (5)
+- vehicle.trust.presentation_changed — PR #194 only; emitter trustPresentationChangeProducer (literal string at diff :22587) right after refreshCanonicalTrust's write; consumers communicationEventListeners.js → communicationNotificationService.js → R5 owner email (referenceVehicleTrustUpdate.js); transport domain_events outbox, dedupe key presentation_fingerprint (eventBusService map + DB trigger in 20260826120000)
+- DOCUMENT_VERIFICATION_APPROVED — dispatchAutomationWebhook from documentIntelligenceService after OCR approval trust write
+- trust_score_history inserts — trustGraphService/trustService/enforcementEngine/documentIntelligence record score transitions as rows, not bus events
+- trust_audit_events inserts — trustFactWorkflowService via logAuditEvent; audit ledger, not a bus event
+- on main there is NO trust change event at all — canonicalTrustService header/PR194 producer records this as R5_PRODUCER_GAP ('refreshCanonicalTrust... told nobody')
+
+**RLS/policies** (4)
+- trust_fact_requests — RLS ENABLED (20260604002000)
+- trust_audit_events — RLS ENABLED (20260603233640)
+- trust_score_history + rolling_integrity_checkpoints — RLS ENABLED (20260809100000)
+- 20260624120000_vehicle_trust_security_hardening.sql — enables RLS + policies across the trust evidence universe: vehicle_evidence ('uploader or admin read'), vehicle_plate_history ('admin read'), evidence sets ('owner or admin read'), provenance ('admin or reviewer read'), ai_analysis_jobs/ai_observations, temporal_findings, disclosure_claims/conflicts, report_versions ('public share'/'owner read'/'admin read'), review_tasks/review_decisions ('admin or reviewer read'), disputes ('raiser read'), dispute_events, trust_change_log ('admin or reviewer read'); plus fallback 'authenticated read' policies for several tables
+
+**Migrations** (11)
+- database/migrations/20260603233640_governance_foundation_trust_audit_events.sql — trust_audit_events + RLS
+- database/migrations/20260604002000_trust_fact_requests_phase2a.sql — trust_fact_requests + RLS
+- database/migrations/20260618050000_verification_evidence_trust_columns.sql — verification_sessions evidence/trust status columns
+- database/migrations/20260624120000_vehicle_trust_security_hardening.sql — RLS across trust evidence tables
+- database/migrations/20260624150000_trust_change_log_immutability.sql — trust_change_log immutability
+- database/migrations/20260626180000_escrow_trust_sessions.sql — escrow lifecycle tables (naming overlap only)
+- database/migrations/20260808150000_mechanic_work_orders_convergence.sql — mechanic_work_orders/mechanic_parts tenant + cost columns (Service Network's likely substrate, plan 6.3)
+- database/migrations/20260809100000_trust_side_tables.sql — trust_score_history, rolling_integrity_checkpoints + RLS
+- database/migrations/20260810120000_trust_side_convergence.sql — converges legacy prod trust_score_history shape (proof-tested against run 31360753528 shape)
+- database/migrations/20260817140000_issue164_trust_cache_provenance.sql — adds the six trust stamp columns to vehicles; NULL version deliberately demotes entire legacy population; partial index on trust_calculation_version
+- PR #194: database/migrations/20260826120000_email_1_0_hardening.sql — R5-D1 adds vehicles.trust_presentation_announced_fingerprint + partial index + domain_events dedupe trigger branch for vehicle.trust.presentation_changed
+
+**Tests** (17)
+- backend/tests/issue164-phase3-trust-authority.test.js — THE permanent guard suite: closed public shape, replay reproducibility (INV-TRUST-4), zero evidence scores 0/insufficient_evidence not verified (INV-TRUST-3), stale/unversioned never published, batch==single (INV-TRUST-1), one stamping writer (INV-TRUST-2), fact resolver is provenance-not-score
+- backend/tests/trust-decision.test.js — decision engine dimensions/score function
+- backend/tests/trust-decision-integration.test.js — decision over real fetch path
+- backend/tests/trust-fact-workflow.test.js — governed fact request/approve/reject/revoke lifecycle
+- backend/tests/trust-governance.test.js — canSetTrustFact permission matrix
+- backend/tests/trust-side-convergence.test.js — proof battery for trust_score_history/rolling_integrity_checkpoints legacy-shape migration
+- backend/tests/issue164-canonical-trust-refresh-runner.test.js — locks the pinned single-VIN prod refresh runner
+- backend/tests/issue164-trust-cutover-runner.test.js — locks the trust cutover runner
+- backend/tests/trust-network-journey.test.js — end-to-end trust journey
+- backend/tests/escrow-trust.test.js — escrow lifecycle (not Trust authority)
+- backend/tests/referral-trust-review-phase7(.hardening).test.js — referral trust review
+- web/src/pages/VehicleDetail.trust.test.tsx — vehicle detail renders canonical contract
+- web/src/pages/dashboard/owner/OwnerDashboard.trust.test.tsx — owner dashboard trust rendering (modified by PR #194)
+- web/e2e/trust-review-queue.spec.ts — review queue e2e
+- PR #194: backend/tests/passport-v5-trust-lens.test.js — lens validates/relays, never derives
+- PR #194: backend/tests/email-hardening-c3-trust-event-idempotency.test.js — event DB-idempotent on fingerprint
+- PR #194: backend/tests/email-reference-r5-vehicle-trust-update.test.js — R5 email + pins TRUST_PRESENTATION_CHANGED_EVENT literal
+
+**Contract gaps** (6)
+- No approved Trust input contract exists for service activity: plan 14.2 says Service Network may only invoke the canonical workflow 'under an already-approved Trust input contract' — none is defined; the decision engine's dimensions (identity/completeness/coverage/conflicts/fraud/eligibility) read nothing from mechanic_work_orders or service records
+- No garage/mechanic trust facts: trustPermissionService's SOURCE_TRUST_FACTS has no garage_identity_verified, mechanic_affiliation_confirmed, or any service-dimension fact — 14.3 dimensional wording ('Garage identity verified', 'Mechanic affiliation confirmed') has no governed backing fact today
+- Plan 14.1 claim-state vocabulary ('garage stated', 'mechanic attributed', 'evidence backed', 'disputed', 'superseded') exists nowhere as a shared enum; nearest artifacts are PR #194 passportServicePartsProjection's SERVICE_AUTHORITIES ('professional_governed','owner_declared','partner_record','unknown') and trust_fact_requests.status ('superseded' used at trustFactWorkflowService:463)
+- No general trust refresh job: the batch read is cache-only and the doc says 'the refresh job is what fills it', but the only production refresh is pinned to one VIN (UATPRD17830287622); 351 legacy rows deliberately unstamped — a Garage Directory listing vehicles will show not_evaluated for nearly all prod vehicles by design
+- Trust is exclusively VIN-keyed: no trust/verification model for a garage or mechanic as a principal (reputationService is user reputation, separate); Garage 'identity verified' state needs a new governed home, not the vehicle trust cache
+- No Service Case → Communications trust wording surface; TrustSafety.tsx (post-PR194) intentionally documents that no inspection network or certified-garage programme exists
+
+**Likely conflicts with Service Network** (7)
+- Invariant 4 hazard, exact location: trustGraphService.computeVehicleTrustScoreContext (~:377) already implements 'serviceCount >= 3 → baseScore += 5.0' from partsentry_logs — the precise service-activity-as-trust pattern the plan bans; it is deprecated (only backend/tests/run-tests.js calls it) but a Service Case completion handler copying or resurrecting it would violate Invariant 4 through an existing, importable function
+- Sharpest wrong-wiring: trustGraphService.calculateVehicleTrustScore:473 updates vehicles.trust_score WITHOUT clearing the six stamp columns — after a legitimate refresh, such a write inherits the stamped calculation_version and PUBLISHES AS CANONICAL (documented as 'uncleared stamp' in canonicalTrustService header); any naive service-completion trust write via bare update({trust_score}) has the same effect — the unversioned-row guard only works when stamps are nulled in the SAME update (UNSTAMPED_TRUST_CACHE pattern)
+- PR #194 side effect: refreshCanonicalTrust now emails the owner on material presentation change — wiring refresh into service completion (even harmlessly for the score) would generate owner trust emails per service event; opts.announce exists but disabling it silently defers announcements
+- vehicles.trust_score column DEFAULT 80.0 — any Service Network path inserting vehicle rows (garage customer intake) must insert explicit trust_score: null like server.js listing creation, or it fabricates a score
+- Naming overlap: escrowTrustService/escrow_trust_sessions/escrowTrustRoutes are Marketplace transaction lifecycle, not Trust — 'Service Network trust' naming must not blur further; also referralTrustReview* is yet another 'trust' universe
+- Wording (14.3): web/src/data/mockData.ts:667 'Certified mechanics for all major brands' in mock garage data — reusing mock garage content in a Garage Directory violates 14.3; PR #194's TrustSafety.tsx rewrite deliberately deleted 'certified partner garages'/'master mechanics'/150-point-inspection claims — Foundation 1.0 must not reintroduce them
+- trust_presentation_announced_fingerprint sits on vehicles (PR #194): new service-related vehicle-row writers must not clobber it; and any Service Network announce machinery should reuse this fingerprint/marker pattern rather than invent a parallel one
+
+**Must reuse (do not duplicate)** (12)
+- canonicalTrustService.getCanonicalTrust / getCanonicalTrustBatch / toPublicTrust (backend/services/trustDecision/canonicalTrustService.js) — the ONLY way any garage/service surface may display vehicle trust; batch is cache-only by construction for directory lists
+- refreshCanonicalTrust (same file) — the only writer if a governed service fact is ever approved as a Trust input; never write vehicles.trust_score or its stamps directly
+- trustFactWorkflowService + trustPermissionService (backend/services/trustGovernance/) — the governed request→review→approve→audit pipeline for ANY new fact class (e.g. a future garage-identity fact); extend canSetTrustFact allow-lists, do not bypass
+- publicVehicleProjection (backend/utils/publicVehicleProjection.js) — strips raw trust_score; every public vehicle payload from Service Network must pass through it
+- trustDecisionRoutes GET /api/vehicles/:vin/trust-decision — existing buyer-safe trust endpoint; reuse instead of a new trust read route
+- passportServicePartsProjection.js (PR #194) — SERVICE_AUTHORITIES vocabulary ('professional_governed','owner_declared','partner_record','unknown') + projectWorkOrderServiceRecord; the plan §6.6 provenance vocabulary and Invariant 9 passport convergence must build on this, not a parallel projection
+- passportTrustLens.js (PR #194) — validated trust presentation for passport surfaces; garage-facing passport views relay through it
+- emitDomainEvent / domain_events outbox (backend/services/eventBus/eventBusService.js) — the transport for Service Event Contract (plan §8), with per-event dedupe keys
+- trustPresentationChangeProducer (PR #194) — fingerprint-idempotency + durable-marker + terminal-vs-transient pattern to copy for service notifications; also the proof that announcing ≠ writing
+- UNSTAMPED_TRUST_CACHE pattern (trustEnforcementEngine.js:19, documentIntelligenceService.js:19) — the mandatory stamp-clearing contract for any legacy-style writer (but prefer adding no writers at all)
+- mechanic_work_orders table (20260808150000) — plan §6.3 says existing work orders are the substrate; Service Case must reference, not duplicate
+- trust_audit_events via logAuditEvent (backend/services/auditLogger.js) — audit trail for any trust-adjacent governance action
+
+**PR #194 delta** (11)
+- backend/services/trustDecision/canonicalTrustService.js M — refreshCanonicalTrust gains post-write R5 announcement: reads previous canonical position BEFORE the write, emits via trustPresentationChangeProducer after, swallows announce failures, returns presentation verdict; opts.announce/previousRecord/tenantId added; still the one writer
+- backend/services/trustDecision/trustPresentationChangeProducer.js A — new producer for vehicle.trust.presentation_changed: sha256 fingerprint of material public fields (excludes evaluated_at/vin), durable marker column is the authority, unknown-is-not-permission fail-closed, owner-only recipient via vehicles.owner_id resolved internally, reconcileTrustPresentation recovery path, TRUST_MARKER_STATES recorded/pending
+- backend/services/passport/passportTrustLens.js A — passport presentation lens; hard-asserts the canonical 10-field contract, withholds score/band unless evaluated, never derives
+- backend/services/passport/passportServicePartsProjection.js A — projects mechanic work orders into passport service records with SERVICE_AUTHORITIES provenance vocabulary and audience gating
+- database/migrations/20260826120000_email_1_0_hardening.sql A — ADD vehicles.trust_presentation_announced_fingerprint + partial index; domain_events trigger computes dedupe key from presentation_fingerprint for the trust event (DB-level idempotency)
+- backend/services/communication/emailExperience/referenceVehicleTrustUpdate.js A — R5 vehicle-trust-update owner email (evaluated/not_evaluated/stale/unavailable variants, previews in docs/communications/email-previews/)
+- backend/services/communication/communicationEventListeners.js M + communicationNotificationService.js M — register and consume vehicle.trust.presentation_changed into the notification pipeline
+- backend/services/eventBus/eventBusService.js M — dedupe-key mapping 'vehicle.trust.presentation_changed': ['presentation_fingerprint']
+- web/src/pages/TrustSafety.tsx M — replaces fabricated verification story (CVR/ZINARA sync, 150-point inspection at 'certified partner garages', ECU tooling, crypto certificate) with truthful who-did-what stages; states provider_registry is empty and no inspection network exists
+- backend/tests/email-hardening-c3-trust-event-idempotency.test.js A, email-reference-r5-vehicle-trust-update.test.js A (pins event literal == exported constant), passport-v5-trust-lens.test.js A; web/src/pages/dashboard/owner/OwnerDashboard.trust.test.tsx M
+- docs/communications/EMAIL_1_0_MIGRATION_RUNBOOK.md A — records trust_presentation_announced_fingerprint ABSENT in prod, ADD COLUMN required before the announce path is live
+
+**Notes:** WHERE 'service completed → trust up' would be wired WRONGLY, precisely: (1) resurrecting/importing trustGraphService.calculateVehicleTrustScore from a Service Case completion handler — it already contains the banned pattern (partsentry_logs>=3 → +5) AND writes vehicles.trust_score without clearing the six stamp columns, so its output inherits the previous refresh's calculation_version and publishes as canonical (the classifyCache unversioned-row guard is defeated whenever stamps are not nulled in the SAME update); (2) any direct update({trust_score}) from a service route — same stamp-inheritance defect; (3) adding a service fact to trustFactWorkflowService/trustPermissionService allow-lists without a governance review — approve() patches vehicles columns directly; (4) calling refreshCanonicalTrust on completion is score-safe (the decision engine reads no service records) but post-PR194 emails the owner per material change. GUARDS THAT EXIST: version-stamped cache with stale/unversioned withholding; buildCachePatch refusing non-canonical records; batch path structurally unable to recompute; refreshCanonicalTrust reachable in HTTP only from admin/government evidence review; publicVehicleProjection stripping raw trust_score; guard suite issue164-phase3-trust-authority.test.js locking all invariants; foreign writers clearing stamps via UNSTAMPED_TRUST_CACHE. Prod stamping state confirmed in-code: production-refresh-canonical-trust-uatprd.mjs pins TARGET_VIN UATPRD17830287622 as a module constant and asserts the other 351 rows stay byte-identical.
+
+### Domain: intelligence
+
+**Files** (26)
+- [main] backend/routes/intelligenceRoutes.js — Milestone 3 visual/disclosure intelligence: 5 endpoints, public output strictly allowlisted (confirmed + public_summary only); mounted app.use(intelligenceRouter) at backend/server.js:327
+- [main] backend/services/intelligence/disclosureConflict.js — seller claim extraction (regex CLAIM_RULES) + conflict classification; never auto-publishes, defaults reviewer_state pending_review
+- [main] backend/services/intelligence/temporalComparison.js — per-component temporal change findings; SAME_VEHICLE_MIN=0.75 gate; cautious public summaries
+- [main] backend/tests/intelligence-routes.test.js — locks public allowlist (non-privileged never see pending findings/raw model output)
+- [main] backend/services/document-intelligence/documentIntelligenceRouter.js — separate 'document intelligence' namespace at /api/verification (server.js:292); unrelated to I0–I19 but shares the word
+- [main] backend/services/eventBus/{eventBusService,listeners,eventWorker}.js — existing event/outbox infra; zero intelligence references
+- [#194] backend/routes/intelligenceActivityRoutes.js — client activity batch ingestion + admin ingestion health
+- [#194] backend/routes/intelligenceProjectionRoutes.js — ~20 role-scoped analytics/projection endpoints (I5/I7–I19)
+- [#194] backend/routes/intelligenceRollupRoutes.js — I4 rollup execution endpoint (worker secret or proven admin) + freshness status
+- [#194] backend/services/intelligence/activityEventTypes.js — canonical taxonomy schema_version 1: EVENT_VERSIONS, RESERVED_EVENT_TYPES, PRIVACY_CLASS, METADATA_ALLOWLIST/ENUMS/FORMATS, EXCLUSION_FLAGS, SELLER_FACING_EXCLUDED_FLAGS
+- [#194] backend/services/intelligence/activityLedgerService.js — ingestion core: server-derived identity/scope (client values DROPPED and counted), clientIdempotencyKey, bot UA heuristic, 24h late-event clamp, computeExclusionFlags (self-traffic via resolveObjectScope), insertEvents, recordServerEvent, recordIngestionStats
+- [#194] backend/services/intelligence/marketplaceActivityEmitters.js — every server-emitted marketplace observation; best-effort, never throws, never blocks domain write
+- [#194] backend/services/intelligence/rollupService.js — reproducible UTC-day rollups (ROLLUP_CALCULATION_VERSION 'rollup@1'), upsert onConflict metric_date+id+calculation_version, run ledger intelligence_rollup_runs
+- [#194] backend/services/intelligence/intelligenceProjectionService.js — availability envelope (metric/unavailable/rate), privacy floors MIN_CONVERSION_DENOMINATOR=20 / MIN_BENCHMARK_COHORT=8, resolveOwnedListings/assertListingOwnership/requireVerifiedTenant/requirePlatformAdmin; identity never leaves aggregates
+- [#194] backend/services/intelligence/serviceIntelligenceService.js — I9 mechanic-person vs garage-tenant projections + frozen NOT_MEASURABLE registry; reads mechanic_work_orders, marketplace_inquiries (garage/mechanic_service_request), partsentry_logs, vehicles
+- [#194] backend/services/intelligence/recommendationService.js — I17 next-best-action rules, ABSTAIN-first, evidenceFingerprint suppression via intelligence_recommendation_state
+- [#194] backend/services/intelligence/aiIntelligenceContextService.js — I18 closed fact-set AI context (unmeasured facts stay present AS unmeasured) + validateAnswer() rejecting numbers not in context
+- [#194] backend/services/intelligence/reportService.js — I19 weekly/monthly seller report + CSV export preserving unavailability semantics
+- [#194] backend/services/intelligence/kpiCatalogue.js — I16 KPI catalogue (kpi_catalogue@1) served unauthenticated
+- [#194] backend/services/intelligence/listingCompletenessService.js — I6 listing completeness scoring feeding recommendations
+- [#194] backend/services/intelligence/commandCentreService.js — I16 admin command centre aggregation
+- [#194] backend/services/intelligence/{financeIntelligenceService,insuranceIntelligenceService,governmentIntelligenceService,partsIntelligenceService,tradeIntelligenceService,referralIntelligenceService}.js — I10–I15 persona projections
+- [#194] backend/services/referral/referralEngineService.js — adds buildVerifiedActorContext (G1/G4 forgery closure); main has only spoofable buildActorContext (line 57)
+- [#194] backend/routes/referralRoutes.js — switched to buildVerifiedActorContext on validate/attribution paths
+- [#194] web/src/components/intelligence/* (16 components + tests), web/src/lib/intelligenceActivity.ts + intelligenceDisplay.ts, web/src/components/marketplace/VehicleIntelligenceStory.tsx — entire web intelligence surface; ABSENT on main (verified)
+- [#194] docs/intelligence/receipts/I0–I19 + SECURITY_CLOSURE_G1_G2_G3.md + manuals/* — programme receipts incl. I9_MECHANIC_GARAGE_PROJECTION_MODEL.md and I1 canonical metric/event contract
+
+**Tables** (11)
+- [main] ai_analysis_jobs — durable AI analysis job state machine (task_type/status CHECKs, attempts, result JSONB); 20260621140000
+- [main] ai_observations — typed per-task AI outputs keyed to job_id; 20260621140000
+- [main] temporal_findings — component-change findings, reviewer_state gate, public_summary vs internal_explanation split; 20260621140000
+- [main] disclosure_claims / disclosure_conflicts — seller claim ledger + classified conflicts with correction_history; 20260621140000
+- [#194] marketplace_activity_events — THE single analytical event store: schema_version, event_type (CHECK of 23), occurred_at_client vs clamped occurred_at, actor_scope, pseudonymous_session_key, internal-only authenticated_user_id/tenant_id/organization_id (server-derived), identity_erased_at tombstone, listing_id/vehicle_reference/object refs, exclusion_flags, unique idempotency key; 20260827120000 (diff only)
+- [#194] intelligence_ingestion_stats — per-window ingest health counters (received/accepted/rejected/duplicate/flagged/opened_without_context/storage_failures); 20260827120000
+- [#194] listing_daily_metrics — per-listing per-UTC-day rollup, upsert key metric_date+listing_id+calculation_version; 20260827130000
+- [#194] seller_daily_metrics / tenant_daily_metrics / platform_daily_metrics — scope rollups (seller_user_id / tenant_id / platform); 20260827130000
+- [#194] intelligence_rollup_runs — rollup run ledger (never blocks the rollup itself); 20260827130000
+- [#194] intelligence_recommendation_state — I17 suppression/cooldown only (rule_key, subject, evidence_fingerprint, dismissed/acted/snoozed); recommendations always recomputed, never stored; 20260828120000
+- READ-ONLY authorities consumed, never owned: mechanic_work_orders (20260808150000 on main), partsentry_logs (002_multi_tenant on main), marketplace_inquiries, vehicles, saved_vehicles, vehicle_reservations, message_threads
+
+**Services** (13)
+- [main] disclosureConflict.js — extractClaims/classifyConflict/persistClaims/persistConflict/applySellerResponse; advisory only, pending_review default
+- [main] temporalComparison.js — classifyComponentChange/listTemporalFindings; SAME_VEHICLE_MIN=0.75 publication gate
+- [#194] activityEventTypes.js — taxonomy authority: EVENT_TYPES, RESERVED_EVENT_TYPES, PRIVACY_CLASS, METADATA_ALLOWLIST, EXCLUSION_FLAGS, isClientEmittable
+- [#194] activityLedgerService.js — ingestClientBatch, recordServerEvent, deriveActorContext, resolveObjectScope, computeExclusionFlags, clientIdempotencyKey, insertEvents, recordIngestionStats; MAX_EVENTS_PER_BATCH=50, MAX_BODY_BYTES=64KB, LATE_EVENT_WINDOW_MS=24h
+- [#194] marketplaceActivityEmitters.js — emitSearchPerformed, emitListingOpened, emitListingSaved/Unsaved, emitInquiryCreated (+ price/publish/sold/reservation emitters); clientContextFrom, isPrefetch, normalizeSearchFilters, hashQueryText
+- [#194] rollupService.js — rollupDay, rollupFreshness, computeListingMetrics/computeScopeMetrics/computePlatformMetrics, readInquiryAuthority/readReservationAuthority/readWatchlistSnapshot; ROLLUP_CALCULATION_VERSION='rollup@1'
+- [#194] intelligenceProjectionService.js — getListingInsights, getSellerPulse, getDealerIntelligence, getAdminIntelligence, readListingGuidance; authority helpers assertListingOwnership/requireVerifiedTenant/requirePlatformAdmin; floors + AVAILABILITY envelope
+- [#194] serviceIntelligenceService.js — getMechanicIntelligence (person scope, AuthorizationError without id), getGarageIntelligence (tenant scope), demandByVehicle, repeatCustomers, NOT_MEASURABLE registry; SERVICE_INTELLIGENCE_VERSION='service@1'
+- [#194] recommendationService.js — RULES, evaluateSubject, evidenceFingerprint, loadState/recordEmission (idempotent on rule+subject+fingerprint), requireSubjectAccess; RECOMMENDATION_VERSION='next_best_action@1'
+- [#194] aiIntelligenceContextService.js — buildAuthorizedContext (closed fact set, role-scoped), validateAnswer (rejects numbers absent from context); AI_CONTEXT_VERSION='ai_context@1'
+- [#194] reportService.js — buildSellerReport, toCsv, resolvePeriod (weekly/monthly); unavailability survives export
+- [#194] kpiCatalogue.js — KPI_CATALOGUE (listing_views, unique_visitors, inquiries, listing_completeness, lost_opportunity, trust_position, ...); kpi_catalogue@1
+- [#194] listingCompletenessService.js (I6), commandCentreService.js (I16 getCommandCentre), finance/insurance/government/parts/trade/referral IntelligenceServices (I10–I15) — persona read-model projections
+
+**APIs** (26)
+- [main] POST /api/evidence/:evidenceId/analyze — backend/routes/intelligenceRoutes.js, authorizeRole(['admin','government'])
+- [main] GET /api/vehicles/:vin/temporal-findings — intelligenceRoutes.js, optionalAuth() factory called; public gets only confirmed+public_summary allowlist
+- [main] GET /api/vehicles/:vin/disclosure-conflicts — intelligenceRoutes.js, optionalAuth(); same public allowlist
+- [main] POST /api/vehicles/:vin/disclosure-scan — intelligenceRoutes.js, authorizeRole(['admin','government'])
+- [main] POST /api/disclosure-conflicts/:id/seller-response — intelligenceRoutes.js, authorizeRole(['owner','dealer','admin'])
+- [#194] POST /api/intelligence/activity — intelligenceActivityRoutes.js, optionalAuth()+rateLimiter; client batch ingest (max 50 events / 64KB), identity/scope server-derived
+- [#194] GET /api/admin/intelligence/ingestion-health — intelligenceActivityRoutes.js, authorizeRole(['admin'])
+- [#194] GET /api/marketplace/my-listings/:vin/analytics — intelligenceProjectionRoutes.js, authorizeRole([]) any-authed + assertListingOwnership in service
+- [#194] GET /api/marketplace/my-analytics — projectionRoutes, authorizeRole([]) (seller pulse)
+- [#194] GET /api/dealer/analytics — projectionRoutes, authorizeRole(['dealer','admin']) + requireVerifiedTenant
+- [#194] GET /api/admin/marketplace/intelligence — projectionRoutes, authorizeRole(['admin'])
+- [#194] GET /api/government/intelligence — projectionRoutes, authorizeRole(['government','admin'])
+- [#194] GET /api/mechanic/analytics — projectionRoutes, authorizeRole(['mechanic','admin']) (I9 person scope)
+- [#194] GET /api/garage/analytics — projectionRoutes, authorizeRole(['mechanic','dealer','admin']) (I9 tenant scope)
+- [#194] GET /api/insurance/demand-intelligence — authorizeRole(['insurance','admin'])
+- [#194] GET /api/finance/demand-intelligence — authorizeRole(['admin','finance','bank'])
+- [#194] GET /api/parts/intelligence — authorizeRole(['mechanic','admin']); /api/admin/parts/intelligence — admin
+- [#194] GET /api/trade/intelligence — authorizeRole(['owner','dealer','admin'])
+- [#194] GET /api/admin/referrals/intelligence — admin; GET /api/government/provenance-intelligence — government/admin
+- [#194] GET /api/admin/intelligence/command-centre — admin (I16)
+- [#194] GET /api/marketplace/my-recommendations — authorizeRole([]) (I17); GET /api/admin/intelligence/recommendations — admin
+- [#194] GET /api/intelligence/assistant-context — authorizeRole([]) (I18 governed AI context)
+- [#194] GET /api/intelligence/kpi-catalogue — NO auth middleware (static catalogue, deliberate)
+- [#194] GET /api/marketplace/my-report — authorizeRole([]) (I19 weekly/monthly report + CSV)
+- [#194] POST /api/internal/intelligence/rollup — intelligenceRollupRoutes.js, optionalAuth() then workerAuthorized (x-carup-worker-secret vs INTELLIGENCE_WORKER_SECRET, timingSafeEqual) OR adminAuthorized (rejects identityAsserted=true x-user-id fallback); max 31-day backfill
+- [#194] GET /api/admin/intelligence/rollup-status — rollup freshness, admin-proven identity only
+
+**Events** (10)
+- [#194] marketplace_search_performed / marketplace_search_zero_results — emitted by backend/routes/marketplaceRoutes.js via emitSearchPerformed(req,{query,resultCount}); transport = direct best-effort insert into marketplace_activity_events (fire-and-forget .catch(()=>{}))
+- [#194] marketplace_listing_opened — emitted by marketplaceRoutes.js detail handler via emitListingOpened; server-emitted but session-scoped (clientContextFrom(req)); prefetch filtered (isPrefetch)
+- [#194] marketplace_listing_saved / marketplace_listing_unsaved — emitted by backend/services/marketplace/marketplaceSavedService.js via emitListingSaved/emitListingUnsaved
+- [#194] marketplace_inquiry_created — emitted by backend/services/marketplace/marketplaceInquiryService.js via emitInquiryCreated(inserted,…); marketplace_inquiries stays the authority, event is observation only
+- [#194] client-emitted set (POST /api/intelligence/activity): listing_impression, listing_engaged, inquiry_started, compare_added/removed/viewed, contact_clicked, listing_shared, inspection_requested + process_step_recorded (generic journey step, privacy class P1, metadata allowlist [process,step,outcome,elapsed_ms,validation_error_code]) — defined in activityEventTypes.js CLIENT_EMITTED
+- [#194] server lifecycle set in enum: price_changed, listing_created/submitted/published/sold, reservation_started/completed — recordServerEvent in activityLedgerService.js with idempotencyMaterial derived from the authority row
+- [#194] RESERVED_EVENT_TYPES (future, migration required to use): listing_paused, listing_archived, reservation_closed, listing_paid, purchase_confirmed, recommendation_served, recommendation_clicked — no service_* events reserved
+- [#194] consumer: rollupService.rollupDay reads the day's ledger rows + authority tables (marketplace_inquiries, vehicle_reservations, saved_vehicles) into 4 daily-metrics tables; ONLY caller is POST /api/internal/intelligence/rollup — no scheduler/cron exists in the repo
+- [main] eventBus (backend/services/eventBus/eventBusService.js, in-memory EventEmitter + domain_events/outbox_events tables from migrations 002/011) is NOT consumed by Intelligence — #194 deliberately bypasses it with direct ledger inserts
+- Invariant 7 compliance: ledger migration header states saved_vehicles/marketplace_inquiries/message_threads/vehicles/escrow+reservations/trust services remain the authorities; Intelligence only counts (20260827120000 in pr194.diff)
+
+**RLS/policies** (7)
+- [main] ai_analysis_jobs/ai_observations/temporal_findings/disclosure_claims/disclosure_conflicts — RLS enabled, REVOKE ALL FROM anon (20260621140000 lines 140-150); backend reads via service-role client
+- [#194] marketplace_activity_events — ENABLE + FORCE RLS, REVOKE ALL from anon/authenticated/PUBLIC, GRANT full CRUD to service_role only; no policies defined = deny-all except service_role bypass
+- [#194] intelligence_ingestion_stats — FORCE RLS, service_role SELECT/INSERT/UPDATE only
+- [#194] listing/seller/tenant/platform_daily_metrics + intelligence_rollup_runs — FORCE RLS + service_role-only applied via DO-loop EXECUTE over all five tables
+- [#194] intelligence_recommendation_state — FORCE RLS + service_role-only (DO block)
+- [#194] intelligence_erase_actor(TEXT), intelligence_purge_activity_events(TIMESTAMPTZ), intelligence_bump_ingestion_stats(...) — SECURITY DEFINER, search_path pinned, EXECUTE granted to service_role only; purge hard-fails inside the 24-month retention window
+- Net effect: all authorization for Intelligence data is APPLICATION-layer (authorizeRole + projection service guards); Postgres roles other than service_role can touch nothing
+
+**Migrations** (6)
+- [main] database/migrations/20260621140000_ai_temporal_disclosure_intelligence.sql — ai_analysis_jobs (task/status state machine), ai_observations, temporal_findings, disclosure_claims, disclosure_conflicts; RLS enabled + anon revoked (lines 140-150)
+- [#194 only] database/migrations/20260827120000_intelligence_activity_ledger.sql — marketplace_activity_events (single analytical event store, CHECK enum of 23 event types, actor_scope/platform/surface CHECKs, uq_mae_idempotency_key, 6 indexes), intelligence_ingestion_stats, intelligence_erase_actor(), intelligence_purge_activity_events() (refuses purge inside 24-month retention), RLS FORCE + service_role-only
+- [#194 only] database/migrations/20260827130000_intelligence_rollups.sql — listing_daily_metrics, seller_daily_metrics, tenant_daily_metrics, platform_daily_metrics, intelligence_rollup_runs; RLS FORCE + service_role-only via DO loop
+- [#194 only] database/migrations/20260827140000_intelligence_post_review_hardening.sql — recreates intelligence_erase_actor (tombstones authenticated_user_id + identity_erased_at) and adds intelligence_bump_ingestion_stats() SECURITY DEFINER upsert; all service_role-only
+- [#194 only] database/migrations/20260828120000_intelligence_recommendations.sql — intelligence_recommendation_state (I17 suppression state only; unique on rule_key+subject_type+subject_id+evidence_fingerprint); RLS FORCE service_role-only; comment declares 'never the recommendation itself'
+- Marker contract: all four #194 files start '-- +migrate Up' (per carup migration marker contract); they exist ONLY in pr194.diff, not on main (verified ls of database/migrations)
+
+**Tests** (14)
+- [main] backend/tests/intelligence-routes.test.js — locks Milestone-3 public allowlist: anonymous callers never see pending findings, internal_explanation, or raw model output
+- [#194] intelligence-activity-ledger.test.js — ingestion contract: client identity/scope dropped, idempotency, batch caps, late clamp
+- [#194] intelligence-marketplace-instrumentation.test.js — I3: emitters fire on search/open/save/inquiry and never break the domain write
+- [#194] intelligence-rollups.test.js — rollup reproducibility/idempotence and authority reads
+- [#194] intelligence-rollup-route-auth.test.js — worker-secret + proven-admin gate; x-user-id asserted identity rejected
+- [#194] intelligence-projections.test.js — I5 privacy floors, ownership scoping, availability envelope
+- [#194] intelligence-service-mechanic-garage.test.js — I9: mechanic scope never widens to tenant, garage scope never narrows to caller, NOT_MEASURABLE stays refused
+- [#194] intelligence-recommendations.test.js — I17 abstain-first rules + fingerprint suppression
+- [#194] intelligence-ai-context.test.js — I18 closed fact set + validateAnswer rejects invented numbers
+- [#194] intelligence-reports.test.js — I19 export preserves unavailability; intelligence-listing-completeness.test.js — I6 scoring
+- [#194] intelligence-command-centre.test.js, intelligence-finance/government/insurance/parts/referral/trade.test.js — persona projection contracts I10–I16
+- [#194] intelligence-review-regressions.test.js — I6 post-review regression locks (incl. purge-inside-retention refusal assertion)
+- [#194] intelligence-schema-contract.test.js — locks seller_id vs current_seller_id key discipline per table and that every table an Intelligence service reads exists
+- [#194] security-closure-g1-g2-g3.test.js + security-closure-g4-referral-attribution.test.js — G-closures: verified actor context ignores every forgeable header; no ungated referral route builds actors from headers; tenant on validation events comes from the code row
+
+**Contract gaps** (9)
+- No service-domain events exist anywhere: the ledger enum, activityEventTypes.js, and emitters are 100% marketplace_*; S7 'service event/activity instrumentation' (PLAN.md:1633) needs new event types (migration + registry + emitter module) end to end
+- No scheduler: rollupDay's only caller is the #194 HTTP endpoint gated by INTELLIGENCE_WORKER_SECRET; no cron/worker config exists in the repo, so daily metrics (and any future service metrics) go stale without an external trigger
+- No I9 reconciliation artifact: plan 19.3 requires S0 to update the not-measurable registry to the final Foundation schema; NOT_MEASURABLE lives only inside #194's serviceIntelligenceService.js and still lists items 19.1 makes measurable (turnaround_time, cancellation_rate, service_category_demand, bookings)
+- Nothing of I0–I19 is on main: main's whole intelligence layer is Milestone-3 visual/disclosure AI (2 services, 1 route file, 1 migration); every ledger/rollup/projection/recommendation/report capability Service Network wants to converge with is unmerged #194 code
+- No service_cases/work-order coverage in rollups: rollupService reads only marketplace_inquiries, vehicle_reservations, saved_vehicles authorities; request-to-accept and completion elapsed-time metrics (19.1) have no source until Service Network writes authoritative timestamps and rollups learn to read them
+- No branch attribution: 19.1 allows 'branch activity where branch attribution exists'; mechanic_work_orders columns read by I9 (id, vin, status, created_at, customer_id, mechanic_id, tenant_id, organization_id) carry no branch_id
+- No response-time-from-Communications metric: 19.1 names it, but no #194 intelligence service reads message_threads/messages
+- No Service Case / QR source-channel analytics: plan 20.4 source attribution has no landing place in the ledger (source_surface enum lacks any service/qr surface beyond 'external_link')
+- Production DB gap: #194 intelligence migrations applied to staging only (PR #185 lane); prod lacks marketplace_activity_events and all rollup tables
+
+**Likely conflicts with Service Network** (8)
+- NAMING: plan §16 recommended boundary 'serviceIntelligence emitters' collides with #194's existing backend/services/intelligence/serviceIntelligenceService.js (an I9 READER, not an emitter); Service Network must pick a distinct name (e.g. serviceActivityEmitters mirroring marketplaceActivityEmitters.js)
+- PLAN ASSUMES #194: PLAN.md §3 lists 'garage/mechanic Intelligence' as current-state truth to preserve, but I9 (serviceIntelligenceService, /api/mechanic/analytics, /api/garage/analytics) exists ONLY in unmerged #194 — Service Network built off main alone would find no Intelligence layer to converge with
+- SCHEMA AUTHORITY: marketplace_activity_events event enum is a hard CHECK constraint (mae_event_type_valid, 23 marketplace_* types + process_step_recorded); S7 service events cannot be inserted without a new migration extending the CHECK plus activityEventTypes.js registry — RESERVED_EVENT_TYPES reserves 7 future marketplace types, zero service_* types
+- I9 NOT_MEASURABLE registry (serviceIntelligenceService.js: bookings, booking_conversion, capacity_utilisation, team_performance, branch_performance, turnaround_time, cancellation_rate, service_category_demand) directly overlaps plan 19.1 'measurable after Foundation' (requests, accept/decline, request-to-accept time, category demand) — plan 19.3 mandates S0 reconciliation of this exact registry; plan §3.6 already flags the cancellation contradiction
+- SCOPE SEMANTICS: I9 keys garage scope on tenant_id/organization_id and mechanic scope on mechanic_id from mechanic_work_orders; plan §6.4 assignment and Invariant 3 (garage vs mechanic principals) must map onto these same columns or I9 projections silently miss Service Network work
+- INQUIRY VOCABULARY: serviceIntelligenceService counts demand from marketplace_inquiries with inquiry_type in ('garage_service_request','mechanic_service_request'); if Service Case creation moves requests out of marketplace_inquiries (plan §10.3 bridge), I9 demand metrics break unless re-pointed at service_cases
+- ROLLUP CLOCK: #194 fixes UTC as the rollup day (rollupService dayBounds); any Service Network SLA metrics (request-to-accept elapsed) must adopt the same clock discipline or reconcile explicitly
+- intelligence migrations in #194 were applied STAGING-only (PR #185 lane per memory); production Postgres has none of these tables — Service Network gating on prod metrics would fail
+
+**Must reuse (do not duplicate)** (12)
+- backend/services/intelligence/activityLedgerService.js recordServerEvent — the ONLY sanctioned way to write an observation; S7 service emitters must call it (idempotencyMaterial from the authority row), never insert into the ledger directly
+- backend/services/intelligence/marketplaceActivityEmitters.js pattern — best-effort never-throw emitter module; clone as serviceActivityEmitters per plan §16 boundary instead of inventing a second transport
+- backend/services/intelligence/activityEventTypes.js — single event taxonomy (versions, privacy class, metadata allowlist, exclusion flags); extend it + the mae_event_type_valid CHECK, do not create a parallel service-event registry
+- backend/services/intelligence/rollupService.js — readAllPages, dayBounds (UTC), isCountable/isSelfTraffic, versioned idempotent upserts, intelligence_rollup_runs ledger; add service metrics as new computed columns/tables under the same calculation_version discipline
+- backend/services/intelligence/intelligenceProjectionService.js — metric()/unavailable()/rate() availability envelope + MIN_CONVERSION_DENOMINATOR=20/MIN_BENCHMARK_COHORT=8 floors; the plan's 'no fake zeros' checklist item (PLAN.md:1951) is already implemented here
+- backend/services/intelligence/serviceIntelligenceService.js — I9 mechanic-person/garage-tenant separation and NOT_MEASURABLE registry; S7 must UPDATE this module (19.3 reconciliation), not build a rival mechanic/garage analytics service
+- backend/services/referral/referralEngineService.js buildVerifiedActorContext (#194) — proven-identity actor pattern (rejects x-user-id fallback via identityAsserted); reuse for QR/service-link source attribution (plan 20.4) so scan attribution cannot be forged
+- intelligenceRollupRoutes.js workerAuthorized pattern (timingSafeEqual on INTELLIGENCE_WORKER_SECRET) — reuse for any internal service-network worker endpoint
+- process_step_recorded event (P1, metadata allowlist process/step/outcome/elapsed_ms) — already covers generic journey instrumentation; service request/accept UI funnels may ride it before dedicated events exist
+- intelligence_erase_actor / intelligence_purge_activity_events / intelligence_bump_ingestion_stats DB functions — governed erasure/retention/stats; service events stored in the same ledger inherit them for free
+- optionalAuth()/authorizeRole() factories from backend/middleware/authMiddleware.js — optionalAuth is a FACTORY (must be called), a known footgun documented in #194 route comments
+- backend/tests/intelligence-schema-contract.test.js (#194) — locks seller_id vs current_seller_id key discipline and that every read table exists; extend it when service tables join the read set
+
+**PR #194 delta** (14)
+- backend/routes/intelligenceActivityRoutes.js (A) — client activity ingestion + ingestion health
+- backend/routes/intelligenceProjectionRoutes.js (A) — all role-scoped analytics endpoints I5–I19
+- backend/routes/intelligenceRollupRoutes.js (A) — rollup trigger (worker secret/admin) + freshness
+- backend/services/intelligence/ 15 new modules (A) — activityEventTypes, activityLedgerService, marketplaceActivityEmitters, rollupService, intelligenceProjectionService, serviceIntelligenceService (I9), recommendationService, aiIntelligenceContextService, reportService, kpiCatalogue, listingCompletenessService, commandCentreService, 6 persona services; main's 2 modules (disclosureConflict, temporalComparison) untouched
+- backend/server.js (M) — imports + app.use of the 3 new intelligence routers
+- backend/routes/marketplaceRoutes.js (M) — emitSearchPerformed on search, emitListingOpened on detail (fire-and-forget)
+- backend/services/marketplace/marketplaceInquiryService.js (M) — emitInquiryCreated after insert
+- backend/services/marketplace/marketplaceSavedService.js (M) — emitListingSaved/Unsaved
+- backend/services/referral/referralEngineService.js (M) — adds buildVerifiedActorContext (ignores forgeable x-user-id/x-tenant-id headers); backend/routes/referralRoutes.js (M) uses it — the G1/G4 attribution-forgery closure
+- database/migrations/ 4 new intelligence migrations (A) — activity ledger, rollups, post-review hardening, recommendations (none on main)
+- backend/tests/ 19 new intelligence-*.test.js (A) + security-closure-g1-g2-g3.test.js + security-closure-g4-referral-attribution.test.js (A)
+- web/src/components/intelligence/ 16 components + tests (A); web/src/lib/intelligenceActivity.ts + intelligenceDisplay.ts (A); VehicleIntelligenceStory.tsx (A) — main has zero web intelligence surface
+- docs/intelligence/ receipts I0–I19 + G-closure + manuals + i0/i1 appendices (A)
+- adjacent in same PR: 20260828133000_global_vehicle_taxonomy_s0.sql adds vehicles seller_description/body_style/make_taxon_id etc. — taxonomy domain but feeds listing-completeness evidence
+
+**Notes:** Workspace verified read-only at /Users/shadreckmusarurwa/Project AI/carup-service-network. Clean split: MAIN's 'intelligence' = Milestone-3 visual/disclosure AI (advisory findings, pending_review default, public allowlist) and is orthogonal to the I0–I19 programme; EVERYTHING the Service Network plan means by 'Intelligence' (ledger, rollups, projections, I9 mechanic/garage, recommendations, AI context, reports) exists only in unmerged PR #194 (PR #185 lane folded in). Architecture is three-layer: observation ledger (marketplace_activity_events, service_role-only) -> reproducible UTC-day rollups (versioned, idempotent upserts) -> authorized projections with availability envelopes (unknown != zero, matching plan Invariant 10). Invariant 7 is already enforced in-code and in migration prose: Intelligence never writes business state; erasure/purge are governed SECURITY DEFINER functions. The single sharpest Pre-S0 decision: whether Foundation S7 extends the mae_event_type_valid CHECK with service_* events (migration + activityEventTypes registry + a new serviceActivityEmitters module patterned on marketplaceActivityEmitters) or reads Service Case authority tables directly in rollups — both paths exist as proven patterns in #194. S0 must also produce the I9 reconciliation (plan 19.3) against #194's NOT_MEASURABLE registry and decide the merge-order dependency: the plan's current-state assumptions (§3 'garage/mechanic Intelligence') are only true if #194 lands before Foundation work starts.
+
+### Domain: owner-surfaces
+
+**Files** (18)
+- web/src/pages/dashboard/owner/MyGarage.tsx — owner vehicle grid at /dashboard/garage; fetchOwnedVehicles only; truthful stated values via ownerStatedValues; NO per-vehicle service entry point
+- web/src/pages/dashboard/owner/ServiceHistory.tsx — owner service history at /dashboard/service-history; fetchOwnedVehicles + fetchServiceHistory; carries the exact truth debt plan 22.2 orders removed
+- web/src/pages/dashboard/owner/VehicleProfile.tsx — per-VIN passport surface (/dashboard/garage/:id); Service History tab built from passportData.timeline split by id prefix workorder:/partsentry:; truthful 'Garage not recorded'/'—' cost
+- web/src/pages/GarageDirectory.tsx — public /garages; deliberately honest empty state over a hardcoded empty array; zero API wiring, ready shell for governed registry
+- web/src/pages/dashboard/mechanic/MechanicDashboard.tsx — stats/chart derived only from fetched work orders; create-work-order dialog; promise-chain loading pattern documented in-file
+- web/src/pages/dashboard/mechanic/WorkOrders.tsx — list/create/complete/cancel work orders; optimistic update with rollback; keeps FULL DB id for PATCH; 'Unassigned' or mechanic-id-prefix label (no real assignment model)
+- web/src/pages/dashboard/mechanic/ServiceLogs.tsx — VIN-keyed PartSentry log viewer + signed log recorder; ACTION_TYPES mirror DB CHECK
+- web/src/pages/dashboard/mechanic/CustomerRecords.tsx — 100% hardcoded demo customers (4 invented people with phones/emails/spend); no API, no backend endpoint exists
+- web/src/pages/dashboard/mechanic/PartsTracking.tsx — tenant parts inventory; on main still has fake 'Upload Invoice' (toast-only, no request), invented supplier 'Internal', invented minStock 5, 0-fallbacks — PR #194 rewrites all of this
+- web/src/App.tsx — route registration: /garages public; owner routes under DashboardLayout role=owner; /mechanic{,/work-orders,/service-logs,/parts,/customers} under role=mechanic
+- web/src/components/layout/DashboardLayout.tsx — sidebar rendered from featureRegistry through resolveFeatureVisibility + evaluateRouteAccess (sidebar visibility == direct-route decision)
+- web/src/config/featureRegistry.ts — governed feature ids: owner.garage, owner.service-history, mechanic.overview/work-orders/service-logs/parts/customers, product.garages (public /garages, roles:[])
+- web/src/config/navigationManifest.ts — mega-menu/mobile entries pointing at /garages, /dashboard/service-history, /mechanic/work-orders
+- web/src/hooks/useCarUpApi.ts — 2932-line aggregate API hook; returns a NEW object literal every render (no useMemo) while loading/error state mutates — consumers MUST destructure the useCallback-stable functions
+- web/src/lib/apiClient.ts — resolveApiBaseUrl(configured, hostname): configured → local /api → stable-staging → fail-closed UNPAIRED_PREVIEW sentinel → PRODUCTION default; plus CSRF/session core
+- web/src/pages/dashboard/owner/ownerStatedValues.ts — truthful stated-value helpers (readOwnerTrustClaim fails closed; statedMileage/Price/Date/Count render missing as words, never 0)
+- web/src/components/marketplace/ListingImage.tsx — truthful vehicle-image fallback (no stock-photo claims)
+- web/src/components/layout/CompactBottomNav.tsx — PR #194 mobile bottom nav; role-aware account destination includes mechanic → /mechanic
+
+**Tables** (4)
+- vehicles — owner_id-filtered by /api/vehicles/me (select('*'); no media column, photos come from listing_media elsewhere)
+- mechanic_work_orders — tenant_id-scoped work orders; vin FK; status CHECK 'In Progress'|'Completed'|'Cancelled'; ALSO the raw source of owner /service-history/me
+- mechanic_parts — tenant_id-scoped parts inventory (workOrders/partsRoutes)
+- partsentry_logs — signed part logs; action_type CHECK Replaced|Repaired|Inspected|Diagnosed; read per VIN
+
+**Services** (3)
+- web/src/hooks/useCarUpApi.ts — single frontend API authority for all these surfaces; per-endpoint useCallbacks over a shared request() that binds x-user-id/x-session-token/x-stakeholder-role/x-tenant-id + CSRF
+- web/src/lib/apiClient.ts — framework-agnostic request core: resolveApiBaseUrl, CSRF token binding, SessionExpiredError/401 handling, extractApiErrorMessage
+- web/src/config/featureRegistry.ts + lib feature-governance (resolveFeatureVisibility, evaluateRouteAccess) — nav and route access authority for every one of these pages
+
+**APIs** (9)
+- GET /api/vehicles/me — backend/server.js:2743, authorizeRole(['owner','dealer','admin']) (MyGarage, ServiceHistory)
+- GET /api/service-history/me — backend/server.js:2833, authorizeRole(['owner','dealer','admin']); returns RAW mechanic_work_orders rows for owned VINs — no garage/provider join
+- GET+POST /api/mechanic/work-orders — backend/routes/workOrdersRoutes.js, authorizeRole(['mechanic','admin']), tenant_id from req.userContext.tenantId
+- PATCH /api/mechanic/work-orders/:id — workOrdersRoutes.js:59; tenant-scoped in the UPDATE (cross-tenant == 404); status + optional total_cost
+- GET+POST /api/mechanic/parts — backend/routes/partsRoutes.js, tenant_id-scoped (PartsTracking)
+- POST /api/partsentry/add — backend/server.js:1630, authorizeRole(['mechanic','owner','dealer','admin']); mechanic identity server-derived (ServiceLogs, owner PartSentry)
+- GET /api/partsentry/:vin — backend/server.js:1658, optionalAuth() (ServiceLogs, VehicleProfile parts)
+- GET /api/mechanic/analytics?window= — PR #194 fetchMechanicIntelligence for ServiceIntelligence scope=mechanic panel
+- GET /api/passport/:vin family — via fetchVehiclePassport; timeline is VehicleProfile's only service-history source
+
+**RLS/policies** (1)
+- Not inspected (frontend recon); observed enforcement for these surfaces is app-layer: authorizeRole middleware + explicit .eq('tenant_id', req.userContext.tenantId) filters in workOrdersRoutes.js/partsRoutes.js via service-role client — do not assume DB RLS backs them
+
+**Tests** (11)
+- web/src/pages/dashboard/mechanic/WorkOrders.test.tsx — locks PATCH completion/cancel with FULL DB id and DB-legal status values ('In Progress'|'Completed'|'Cancelled')
+- web/src/pages/dashboard/mechanic/ServiceLogs.test.tsx — locks DB CHECK action_type set, no fabricated seed logs, no client-chosen mechanic id
+- web/src/pages/dashboard/owner/OwnerDashboard.truthfulness.test.tsx — fresh owner must never see prototype balances/trust/verified/sample docs
+- web/src/pages/dashboard/owner/OwnerDashboard.trust.test.tsx + OwnerDashboard.identity.test.tsx — trust-claim and identity truth on the owner surface
+- web/src/pages/dashboard/owner/VehicleProfile.claims.test.tsx — grounded claim badges on the per-VIN surface
+- web/src/pages/dashboard/owner/PartSentry.test.tsx — owner PartSentry page contract
+- web/src/components/layout/dashboardSidebar.visibility.test.ts — sidebar visibility must AGREE with direct-route decision (disabled/hidden/role-denied)
+- web/src/lib/apiClient.test.ts — full resolveApiBaseUrl matrix (staging/preview/production/local) + CSRF binding + 401-vs-403 session semantics
+- web/src/pages/dashboard/owner/MyListings.responsive.test.tsx — only responsive test in owner surfaces; nothing equivalent for mechanic pages
+- PR #194 adds: web/src/pages/dashboard/mechanic/PartsTracking.test.tsx (locks error-vs-empty + no invented supplier/threshold/invoice) and web/src/pages/dashboard/owner/VehicleProfile.passport-v15.test.tsx
+- NO test covers GarageDirectory.tsx or owner ServiceHistory.tsx
+
+**Contract gaps** (12)
+- No Service Request CTA, page, route, or API exists anywhere (grep 'Service Request|Book Service|service-request' → only a comment about the removed fake CTA in GarageDirectory.tsx)
+- No Service Case concept anywhere: grep ServiceCase/service_case across web/src and backend returns zero hits — no case detail page, no case list, no case API
+- GarageDirectory.tsx has no data source: hardcoded empty garages array, no directory endpoint, no governed garage registry to wire to (in-file comment says exactly this)
+- No garage detail page and no garage queue (tenant intake) surface for plan 22.1/22.3
+- No mechanic-assignment model or UI: WorkOrders renders 'Unassigned' or a synthetic label from a mechanic_id prefix; intake user vs assigned mechanic are not separated (plan 22.3)
+- GET /api/service-history/me returns raw mechanic_work_orders with no provider identity — the frontend can only print the literal word 'Garage' (ServiceHistory.tsx renders a bare 'Garage' span)
+- ServiceHistory.tsx truth debt plan 22.2 orders removed: hard-coded 'Next Service 500 km' tile, '$'+ (total_cost||0) prints $0 for cost-not-recorded, no provenance labels, no PartSentry links
+- MyGarage.tsx has no truthful service entry point per vehicle (plan 22.2 'My Garage' requirement)
+- CustomerRecords.tsx is pure demo data with NO backend endpoint (/mechanic/customers API does not exist) — plan needs owner-linked customer/case records instead
+- No service link / QR surface exists in web (plan section 20)
+- No mobile minimum-width or touch-target tests for mechanic or service surfaces (plan 22.4); only MyListings has a responsive test
+- No web test coverage for GarageDirectory's empty-state contract or ServiceHistory's rendering
+
+**Likely conflicts with Service Network** (6)
+- Naming: 'My Garage' = the OWNER'S vehicle collection (/dashboard/garage, feature id owner.garage, nav-garage) while the plan's 'garage' = a service business — every new garage-identity surface must avoid this route/label/feature-id namespace
+- Status vocabulary: mechanic_work_orders CHECK ('In Progress'|'Completed'|'Cancelled') plus lowercase legacy rows normalized in WorkOrders.tsx vs plan section 7's service lifecycle state machine — needs an explicit mapping since plan 22.3 says evolve WorkOrders, not replace it
+- mechanic_work_orders is already BOTH the mechanic work-order store AND the owner service-history feed (/service-history/me) AND the passport 'workorder:' timeline source — a new service_records/case schema overlaps all three consumers at once
+- featureRegistry 'product.garages' already owns route /garages (public, roles:[], header/footer placements) — the governed directory must take over this feature id/route, not add a parallel one
+- PR #194 puts ServiceIntelligence (scope=mechanic, GET /mechanic/analytics) on MechanicDashboard — service-case KPIs must converge with that panel, not duplicate it
+- PR #194 fully rewrites PartsTracking.tsx (nullable TrackedPart model, invoice control removed) — any Service Network edit to that file on top of main will conflict textually with #194
+
+**Must reuse (do not duplicate)** (11)
+- useCarUpApi request core (web/src/hooks/useCarUpApi.ts) — add service-network functions as per-endpoint useCallbacks there; consumers MUST destructure (the returned aggregate is a new object every render — confirmed: no useMemo on the return, loading/error state churns identity)
+- resolveApiBaseUrl(import.meta.env.VITE_API_URL, window.location.hostname) (web/src/lib/apiClient.ts) — all 13 existing call sites pass both args and ZERO bare calls exist today (bare call returns PRODUCTION); new code must copy this exact pattern
+- ownerStatedValues.ts helpers (readOwnerTrustClaim/statedMileage/statedPrice/statedDate/statedCount) — the canonical truthful-rendering vocabulary for owner surfaces
+- featureRegistry + resolveFeatureVisibility + evaluateRouteAccess (web/src/config/featureRegistry.ts, DashboardLayout.tsx) — register every new page here so sidebar visibility and route access stay in lockstep; never hand-roll nav
+- shadcn design system web/src/components/ui (card, badge, dialog, input, empty, tabs...) + card-shadow/hover-lift utility classes — plan 22 says propagate this language, not invent a workshop one
+- WorkOrders.tsx page itself — plan 22.3: evolve this page (it already has tenant-scoped list/create/complete/cancel with optimistic rollback and full-DB-id discipline)
+- Truthful empty/error-state patterns: GarageDirectory's honest empty card (data-testid garage-directory-empty), work-orders-empty/error split in MechanicDashboard, PR #194 PartsTracking outage-vs-empty distinction
+- PartSentry endpoints (POST /partsentry/add with server-derived mechanic identity, GET /partsentry/:vin) and ServiceLogs.tsx for part-fitment records tied to service work
+- VehicleProfile's passport-timeline convergence (workorder:/partsentry: id-prefix split) — service records shown to owners already flow through the passport timeline; extend that channel rather than a second feed
+- ListingImage truthful image fallback for any vehicle imagery on service surfaces
+- CompactBottomNav + PR #194's min-h-11 touch-target tab pattern for the plan 22.4 mobile requirement
+
+**PR #194 delta** (11)
+- web/src/pages/dashboard/mechanic/MechanicDashboard.tsx — adds <ServiceIntelligence scope="mechanic"> governed practitioner-intelligence panel (I9)
+- web/src/pages/dashboard/mechanic/PartsTracking.tsx — truthfulness rewrite: removes the fake toast-only 'Upload Invoice', nullable TrackedPart (no invented supplier 'Internal', no invented minStock 5, no 0-fallbacks), outage distinguishable from empty shelf; adds PartsIntelligence
+- web/src/pages/dashboard/mechanic/PartsTracking.test.tsx — NEW, locks the rewrite's contracts
+- web/src/pages/dashboard/owner/VehicleProfile.tsx — loadPassport refactor, explicit empty service-history message ('No service records are available to CarUp for this vehicle'), min-h-11 touch-target tabs
+- web/src/pages/dashboard/owner/VehicleProfile.passport-v15.test.tsx — NEW passport-v15 contract test
+- web/src/pages/dashboard/owner/OwnerDashboard.tsx — adds MarketplacePulse, NextBestActions, PeriodicReport intelligence panels
+- web/src/hooks/useCarUpApi.ts — adds ~15 intelligence fetchers incl. fetchMechanicIntelligence → GET /mechanic/analytics?window= and fetchPartsIntelligence → GET /parts/intelligence
+- web/src/App.tsx — adds ActivityInstrumentation, /sell (GuestSell), /support, /security routes
+- web/src/components/layout/CompactBottomNav.tsx — NEW mobile bottom nav; mechanic account destination /mechanic
+- web/src/lib/apiClient.ts — comment-level change re Intelligence observation attribution
+- UNTOUCHED by #194: MyGarage.tsx, ServiceHistory.tsx, GarageDirectory.tsx, WorkOrders.tsx, ServiceLogs.tsx, CustomerRecords.tsx, featureRegistry.ts, DashboardLayout.tsx
+
+**Notes:** Two loudest truth-debt items for S0: CustomerRecords.tsx (four wholly invented customers with phone numbers and emails on a live mechanic surface, no backend at all) and ServiceHistory.tsx (hard-coded 'Next Service 500 km', provider rendered as the bare word 'Garage', $0 printed for unrecorded cost) — the latter is verbatim what plan 22.2 orders removed. GarageDirectory is already an honest empty shell awaiting the governed registry. The owner-visible service truth currently flows through TWO channels that must converge, not triplicate: /service-history/me (raw mechanic_work_orders) and the passport timeline (workorder:/partsentry: prefixes in VehicleProfile). All resolveApiBaseUrl call sites are currently safe (explicit env+hostname); the hazard is only for NEW code. useCarUpApi render-loop hazard confirmed structurally: the hook returns a fresh object literal each render with loading/error state churn — destructuring is mandatory and every existing page plus every test mock already follows it.
+
+### Domain: events-outbox
+
+**Files** (13)
+- /Users/shadreckmusarurwa/Project AI/carup-service-network/backend/services/eventBus/eventBusService.js — emitDomainEvent (transactional outbox write, memory re-emit, marketplace-inquiry idempotent recovery on main), publishMemoryEvent, memoryBroker EventEmitter
+- /Users/shadreckmusarurwa/Project AI/carup-service-network/backend/services/eventBus/eventWorker.js — singleton EventWorker: pg.Pool poller, subscribe(), pollEvents() batch-10 FOR UPDATE SKIP LOCKED, MAX_OUTBOX_ATTEMPTS=5, dead_letter transition, reprocessDeadLetters() replay
+- /Users/shadreckmusarurwa/Project AI/carup-service-network/backend/services/eventBus/listeners.js — registerDomainListeners: referral bridge consumer + legacy VEHICLE_RESERVED/PAYMENT_RECEIVED/ESCROW_CREATED audit-only listeners
+- /Users/shadreckmusarurwa/Project AI/carup-service-network/backend/services/eventBus/automationWebhookService.js — dispatchAutomationWebhook to n8n, env-gated, fail-safe non-fatal
+- /Users/shadreckmusarurwa/Project AI/carup-service-network/backend/services/communication/communicationEventListeners.js — COMMUNICATION_EVENT_TYPES closed list → orchestrator.handleDomainEvent, forwards RAW outbox record for event_id dedupe
+- /Users/shadreckmusarurwa/Project AI/carup-service-network/backend/server.js — lines 355-357: registerDomainListeners(eventWorker); registerCommunicationListeners(eventWorker); eventWorker.start(1000)
+- /Users/shadreckmusarurwa/Project AI/carup-service-network/backend/routes/communicationRoutes.js — /api/internal/events/process worker-secret-guarded serverless outbox drain (lines 26-100)
+- /Users/shadreckmusarurwa/Project AI/carup-service-network/backend/routes/communicationBaseRoutes.js — /api/internal/communications/process notification delivery drain
+- /Users/shadreckmusarurwa/Project AI/carup-service-network/backend/services/diaspora/tradegraph/diasporaTradeGraphProjectionService.js — exemplar event-sourced consumer: makeProjectionSubscriber, event.id idempotency, checkpoints
+- /Users/shadreckmusarurwa/Project AI/carup-service-network/backend/services/metrics.js — metricsHub.recordOutboxBatch/recordOutboxSuccess/recordOutboxFailure (lines 67-76)
+- /Users/shadreckmusarurwa/Project AI/carup-service-network/backend/services/marketplace/marketplaceInquiryService.js — canonical app-side emitter (lines 141-247), deps-injectable emitDomainEvent
+- /Users/shadreckmusarurwa/Project AI/carup-service-network/backend/services/blockchain/blockchainService.js — addEvent(vin,...) writes blockchain_events + rolling_integrity_checkpoints: the Passport ledger channel, SEPARATE from domain_events
+- /Users/shadreckmusarurwa/Project AI/carup-service-network/backend/vercel.json — {} empty: no Vercel crons; drains are pg_cron-driven
+
+**Tables** (9)
+- domain_events — the single transactional outbox: id, event_type, payload jsonb, status(pending/processed/failed/dead_letter), attempts, error_log, tenant_id, created_at, dead_lettered_at, dedupe_key + dormant aggregate_type/aggregate_id/correlation_id/causation_id/available_at/processed_at/locked_at/locked_by; owning migration 011_phase6_schema.sql (+ 20260621170000, 20260623143000, 20260811132100)
+- notification_queue — event-driven notification sink; dedupe_key UNIQUE since 20260817180000; event_id column stores originating domain_events.id; owning 002_add_notification_queue.sql
+- trade_graph_projection_checkpoints — per-tenant consumer checkpoint (last_event_created_at), UNIQUE(tenant_id); 20260621140000
+- trade_graph_processed_events — per-event consumer dedup ledger; 20260621140000
+- trade_graph_dead_letters — consumer-side dead letters; 20260621140000
+- blockchain_events + rolling_integrity_checkpoints — Passport/vehicle ledger (SEPARATE channel from domain_events), written via blockchainService.addEvent
+- webhook_logs / message_delivery_attempts — communications delivery evidence tables (20260623143000)
+- communication_reconciliation_work — PR #194 ONLY (20260826120000): sweep-lane work items recovering missed event emissions via triggers on users/vehicles
+- vehicle_ownership_transfer_events — PR #194 ONLY (20260828203000): per-aggregate append-only event history ordered by (transfer_id, created_at, id)
+
+**Services** (8)
+- backend/services/eventBus/eventBusService.js — outbox emit authority: emitDomainEvent, publishMemoryEvent, memoryBroker; PR #194 adds deterministicEventIdentity export
+- backend/services/eventBus/eventWorker.js — delivery authority: subscribe, start/stop, pollEvents, processEvent, reprocessDeadLetters, MAX_OUTBOX_ATTEMPTS=5; interval poller auto-disabled on Vercel (isVercelServerlessRuntime)
+- backend/services/eventBus/listeners.js — registerDomainListeners: cross-domain compat/audit listeners; explicit doctrine that events are NOT authority for money/state (Issue #164 Phase 6 comments)
+- backend/services/eventBus/automationWebhookService.js — dispatchAutomationWebhook: optional n8n fanout, ENABLE_AUTOMATION_WEBHOOKS-gated, never throws into the caller
+- backend/services/communication/communicationEventListeners.js — registerCommunicationListeners: the event→notification bridge (one handler closure per COMMUNICATION_EVENT_TYPES entry → orchestrator.handleDomainEvent)
+- backend/services/communication/communicationOrchestratorService.js — handleDomainEvent(eventRecord, pgClient, tenantId): notification policy/template resolution into notification_queue
+- backend/services/diaspora/tradegraph/diasporaTradeGraphProjectionService.js — event-sourced projector; documents the 4th-raw-record handler argument contract (event.id as idempotency key)
+- backend/services/metrics.js — metricsHub outbox instrumentation (backlog gauge, success/failure counters)
+
+**APIs** (2)
+- GET+POST /api/internal/events/process — backend/routes/communicationRoutes.js:99-100 (processEventOutboxBatch), auth requireWorkerSecret Bearer CARUP_WORKER_SECRET; runs ONE bounded eventWorker poll cycle, returns {processed, backlog}
+- GET+POST /api/internal/communications/process — backend/routes/communicationBaseRoutes.js:99-100 (processWorkerBatch), same requireWorkerSecret pattern; drains notification_queue delivery worker
+
+**Events** (11)
+- marketplace.inquiry.created — emitted by marketplaceInquiryService.js:224 AND by DB trigger trg_marketplace_inquiry_communication_outbox (20260811132100); consumed by communicationEventListeners; transport domain_events outbox, dedupe_key marketplace.inquiry.created:<inquiryId>
+- marketplace.inquiry.referral_bridge_requested — emitter marketplaceInquiryService.js:247; consumer eventBus/listeners.js → marketplaceReferralBridge; payload minimized by migration 20260716033000
+- marketplace.listing.moderated — emitter marketplaceModerationService.js; consumer communication orchestrator
+- finance.application.status_changed / .approved / .declined — emitters financeService.js + financeRoutes.js (fire-and-forget .catch(()=>{})); consumer communication orchestrator
+- identity.verification.decided — emitter identity/decisionRecorder.js; consumer communication orchestrator
+- evidence.review.decided — emitter evidence/evidenceReviewNotifier.js; consumer communication orchestrator
+- VEHICLE_RESERVED / PAYMENT_RECEIVED / ESCROW_CREATED — legacy SCREAMING_SNAKE compat events; consumers in eventBus/listeners.js are audit/informational only (VEHICLE_RESERVED → blockchain addEvent passport ledger); no state mutation by design (Issue #164 Phase 6)
+- MARKETPLACE_PAYMENT_INITIATED/INSPECTION_PENDING/RELEASE_APPROVED/DISPUTED/CANCELLED + FUNDS_HELD/SETTLED/REFUNDED/FAILED/PAYMENT_FAILED — emitted transactionally INSIDE DB RPCs issue164_transition_session_atomic / issue164_record_payment_state_atomic (INSERT INTO domain_events in 20260819121000 etc.); on main NOTHING subscribes them (PR #194 adds subscriptions)
+- diaspora safetrade events — emitter diasporaNotificationService.js (emitDomainEvent with variable eventType); trade-graph projector consumes via makeProjectionSubscriber (event.id = idempotency key + checkpoint)
+- outbox:<eventType> — memoryBroker re-emit after outbox settlement (eventWorker.processEvent); plus publishMemoryEvent for non-durable realtime; automationWebhookService n8n webhook dispatch disabled by default (ENABLE_AUTOMATION_WEBHOOKS)
+- PR #194 adds: user.email.verified (durable welcome work item, identity recipientUserId), vehicle.trust.presentation_changed (identity presentation_fingerprint), vehicle.ownership.transfer_started/_action_required/_state_changed/_completed (emitted inside transfer RPC transactions)
+
+**RLS/policies** (3)
+- domain_events — NO RLS enabled and NO policies in any migration (grep across database/migrations); readable/writable only via service-role Supabase client and direct pg pool; payload privacy rests on emitter discipline
+- notification_queue — RLS enabled with notification_queue_user_read policy (recipient_user_id = auth.uid) in 20260623143000_omnichannel_communication_engine.sql; other comm tables (message_threads, messages, ...) RLS'd in same migration
+- trade_graph_* consumer tables — created in 20260621140000_diaspora_phase10_trade_graph.sql (service-role projection tables)
+
+**Migrations** (11)
+- database/migrations/011_phase6_schema.sql — creates domain_events (id uuid, event_type, payload jsonb, status pending/processed/failed, attempts, error_log, tenant_id text, created_at) + idx_domain_events_pending partial index
+- database/migrations/20260621170000_outbox_dead_letter.sql — adds dead_lettered_at + idx_domain_events_dead_letter; introduces terminal 'dead_letter' status (status is plain TEXT, no CHECK)
+- database/migrations/20260623143000_omnichannel_communication_engine.sql — adds aggregate_type/aggregate_id/correlation_id/causation_id/dedupe_key/available_at/processed_at/locked_at/locked_by + idx_domain_events_dedupe + idx_domain_events_available (all DORMANT: unused by emitter/worker)
+- database/migrations/20260811132100_communications_2_reliability_closure.sql — dedupe_key + unique idx_domain_events_dedupe_key + BEFORE INSERT trigger communication_domain_event_dedupe_key() + AFTER INSERT trigger on marketplace_inquiries writing domain_events in-transaction
+- database/migrations/20260809120000_events_outbox_pg_cron.sql — pg_cron job carup-events-outbox-every-minute → pg_net POST to /api/internal/events/process, Vault-secret gated, fail-closed if pg_cron/pg_net missing
+- database/migrations/20260626120000_communication_supabase_cron.sql — same pg_cron/Vault architecture for /api/internal/communications/process delivery worker
+- database/migrations/20260716033000_referral_bridge_outbox_payload_minimization.sql — minimize_referral_bridge_outbox_payload(): PII-stripping precedent for outbox payloads + irreversible redaction of existing rows
+- database/migrations/20260817180000_notification_dedupe_uniqueness.sql — unique notification_queue.dedupe_key: DB-enforced one-intent-one-send downstream of events
+- database/migrations/20260621140000_diaspora_phase10_trade_graph.sql — trade_graph_projection_checkpoints (per-tenant), trade_graph_processed_events, trade_graph_dead_letters: consumer-side idempotency exemplar
+- database/migrations/20260819110000/120000/121000/124000/125000/126000 (issue164 phase6) — DB RPCs INSERT INTO domain_events inside the mutating transaction (MARKETPLACE_* stage/outcome events): the transactional-emit pattern plan sec 8 mandates
+- database/migrations/002_add_notification_queue.sql — notification_queue table (event-driven notification sink)
+
+**Tests** (10)
+- backend/tests/outbox-dead-letter.test.js — locks attempts escalation, dead_letter transition + dead_lettered_at stamp, pre-threshold retry stays pending, reprocessDeadLetters filters
+- backend/tests/communication-event-coverage.test.js — CI gate: every COMMUNICATION_EVENT_TYPES entry must have a literal emitter under backend/services|routes; also covers /api/internal/events/process route pair + notification policies
+- backend/tests/communications-2-marketplace-outbox-hardening.test.js — locks marketplace.inquiry.created idempotent emit/recovery through createInquiry
+- backend/tests/communication-outbox-dedupe.test.js — locks listener registration + notification dedupe via injected fakeWorker/services
+- backend/tests/communication-engine.test.js — locks that registerCommunicationListeners subscribes the same handler closure per event type; orchestrator handling
+- backend/tests/diaspora-safetrade-outbox.test.js — locks diaspora event emission through the outbox
+- backend/tests/issue164-phase6-event-side-effect-containment.test.js — locks that domain events CANNOT mutate transaction/escrow state (events-are-not-authority doctrine)
+- backend/tests/referral-marketplace-inquiry-lead-bridge.test.js — locks referral bridge consumer + minimized payload contract
+- PR #194: backend/tests/email-hardening-c3-trust-event-idempotency.test.js + email-hardening-durability-scheduler.test.js — pin deterministicEventIdentity JS registry ↔ SQL communication_domain_event_dedupe_key() parity (both read 20260826120000_email_1_0_hardening.sql)
+- PR #194: backend/tests/email-hardening-r1-welcome-durability.test.js — locks user.email.verified durable-welcome semantics via /api/internal/communications/process
+
+**Contract gaps** (11)
+- No service.* event namespace exists anywhere (full emitDomainEvent call-site inventory: marketplace/finance/identity/evidence/diaspora only) — plan sec 8's service.case.*, service.work_order.*, service.mechanic.*, service.mileage/part/evidence.*, service.work.* namespace is entirely greenfield
+- No occurred_at field: domain_events has only created_at (insert time); plan envelope requires occurred_at distinct from persistence time — needs payload convention or new column
+- No first-class envelope population: aggregate_type/aggregate_id/correlation_id/causation_id columns exist (20260623143000) but emitDomainEvent never writes them; plan's service_case_id/vin/work_order_id/actor_user_id identifiers currently have nowhere structured to live except JSON payload
+- No per-aggregate ordering guarantee: poller orders globally by created_at ASC but a failed event returns to pending and can be overtaken by later events for the same aggregate; plan lifecycle transitions (requested→accepted→completed) need consumer-side tolerance or an ordering mechanism
+- Handlers run inside the poller's shared batch transaction (eventWorker.pollEvents BEGIN..COMMIT over up to 10 events); one handler error rolls back status updates of the whole batch on transaction failure — long-running service-event handlers (notifications, projections) amplify this; no per-event transaction isolation
+- Consumer idempotency is per-consumer, not generic: at-least-once delivery with retries means every service.* handler must be idempotent itself (patterns exist: notification_queue.dedupe_key unique 20260817180000; trade_graph_processed_events) — no shared processed-events ledger for new consumers
+- Producer idempotency is a closed allow-list: on main only marketplace.inquiry.created recovers from duplicate insert; every deduplicatable service.* event needs BOTH a communication_domain_event_dedupe_key() trigger branch AND (post-#194) a DETERMINISTIC_EVENT_IDENTITY_FIELDS entry
+- No event schema versioning: no version column on domain_events, no envelope version convention (only navigation_analytics_events has schema_version — different table)
+- No RLS on domain_events: grep of all migrations finds zero policies/grants on it; payload privacy is enforced only by emitter discipline (referral minimization precedent 20260716033000) — service payload rules (plan sec 8 no-PII) need the same treatment
+- pg_cron events drain is per-environment activation via Vault secrets (CARUP_EVENTS_ENDPOINT_URL + CARUP_WORKER_SECRET) — service events inherit whatever drain cadence exists; no new infra needed but staging/production activation state must be verified, not assumed
+- Interval poller is OFF on Vercel serverless (isVercelServerlessRuntime guard) — local/dedicated only; service-event latency in deployed envs = pg_cron minute cadence
+
+**Likely conflicts with Service Network** (7)
+- Naming split: plan's dot-lowercase service.case.* matches marketplace.inquiry.created / vehicle.ownership.transfer_* convention, but the CURRENT canonical marketplace authority emits SCREAMING_SNAKE (MARKETPLACE_PAYMENT_INITIATED etc. from issue164 RPCs, PR #194 subscribes them) — plan sec 8 says 'one canonical namespace, no duplicate synonyms'; S0 must pick dot-lowercase and not mirror the RPC style
+- File-collision with PR #194: it rewrites backend/services/eventBus/eventBusService.js (deterministicEventIdentity registry) and communicationEventListeners.js (16 new subscriptions); Service Network eventing built on main@ba208963 will conflict — must build on the #194 registry form
+- Dedupe function ownership: public.communication_domain_event_dedupe_key() is defined in 20260811132100 and REDEFINED by PR #194's 20260826120000_email_1_0_hardening.sql; adding service.* dedupe branches means a third CREATE OR REPLACE — land-order with #194 must be settled or the later migration silently drops the other's branches
+- Idempotency is dual-registration: DB trigger branch AND JS DETERMINISTIC_EVENT_IDENTITY_FIELDS must agree per event type (tests pin parity in #194: email-hardening-c3-trust-event-idempotency.test.js, email-hardening-durability-scheduler.test.js); a service.* event registered in only one place turns recovery into insert failure
+- Schema overlap: omnichannel migration 20260623143000 added aggregate_type/aggregate_id/correlation_id/causation_id/available_at/processed_at/locked_at/locked_by to domain_events but NEITHER emitDomainEvent nor eventWorker uses them (insert = event_type,payload,status,attempts,tenant_id; poll = status+attempts only) — plan-envelope fields must not be 'added' twice; decide populate-dormant-columns vs payload-carried
+- Two overlapping unique dedupe indexes exist on domain_events(dedupe_key): idx_domain_events_dedupe (20260623143000) and idx_domain_events_dedupe_key (20260811132100) — error-message matching in isDedupeUniqueViolation greps only the latter's name
+- communication-event-coverage.test.js gate: every COMMUNICATION_EVENT_TYPES entry must have a literal emitter under backend/services|routes — service.* notification events (plan 15.4) must add emitter+subscription together or CI fails
+
+**Must reuse (do not duplicate)** (13)
+- emitDomainEvent(pgClient,...) in backend/services/eventBus/eventBusService.js — the ONLY app-side durable emit path; pass the transaction's pg client for atomic emit (plan sec 8 'preferably transactionally')
+- DB-side transactional emit pattern — INSERT INTO domain_events inside the mutating RPC/trigger (database/migrations/20260819121000_issue164_phase6_atomic_session_actions.sql, 20260811132100 marketplace trigger); service case RPCs should emit the same way
+- eventWorker.subscribe + registerDomainListeners/registerCommunicationListeners wiring in backend/server.js:355-357 — add a registerServiceNetworkListeners there; NEVER a second poller (singleton eventWorker, FOR UPDATE SKIP LOCKED already multi-worker safe)
+- pg_cron→pg_net→/api/internal/events/process drain (20260809120000 + backend/routes/communicationRoutes.js:26-100 requireWorkerSecret) — service events ride the existing minute drain; no new cron, no vercel.json cron (backend/vercel.json is {})
+- Dead-letter + replay: MAX_OUTBOX_ATTEMPTS/dead_letter status/reprocessDeadLetters() in eventWorker.js — do not invent a service-specific retry ladder
+- Idempotency stack: dedupe_key + idx_domain_events_dedupe_key + communication_domain_event_dedupe_key() trigger + (post-#194) DETERMINISTIC_EVENT_IDENTITY_FIELDS — register service.* deterministic identities in both, with a parity test like email-hardening-c3-trust-event-idempotency.test.js
+- COMMUNICATION_EVENT_TYPES + orchestrator.handleDomainEvent (backend/services/communication/communicationEventListeners.js) for plan 15.4 service notifications — subscription list is gated by communication-event-coverage.test.js (emitter must exist)
+- notification_queue.dedupe_key uniqueness (20260817180000) keyed on outbox event_id — downstream one-event-one-notification; always forward the raw outbox record (4th handler arg)
+- Consumer-side idempotency exemplar for any service projection: trade_graph_processed_events + trade_graph_projection_checkpoints + makeProjectionSubscriber (backend/services/diaspora/tradegraph/diasporaTradeGraphProjectionService.js)
+- Payload minimization precedent (20260716033000) for plan sec 8 no-PII rule — identifiers + controlled hints only
+- Correlation context: asyncStore.run({correlationId, tenantId}) around handlers (eventWorker.processEvent) + metricsHub outbox metrics (backend/services/metrics.js:67-76) — free observability if events go through the worker
+- memoryBroker / publishMemoryEvent for realtime-only fanout and outbox:<type> settlement signals — not a durability substitute
+- Passport history channel stays blockchainService.addEvent (blockchain_events) — service completion facts that must appear in Passport go through that authority, not via a duplicate ledger
+
+**PR #194 delta** (9)
+- backend/services/eventBus/eventBusService.js — replaces marketplace-only idempotency with exported deterministicEventIdentity() + frozen DETERMINISTIC_EVENT_IDENTITY_FIELDS registry {marketplace.inquiry.created, vehicle.trust.presentation_changed, user.email.verified}; duplicate recovery now looks up by dedupe_key for new types (marketplace keeps payload-contains lookup for historical NULL-key rows)
+- backend/services/communication/communicationEventListeners.js — COMMUNICATION_EVENT_TYPES grows by 16: ten MARKETPLACE_* stage/outcome events (finally subscribing the issue164 RPC emissions), vehicle.trust.presentation_changed, four vehicle.ownership.transfer_* events, user.email.verified
+- database/migrations/20260826120000_email_1_0_hardening.sql (A) — CREATE OR REPLACE communication_domain_event_dedupe_key() adding user.email.verified:<recipient> + trust-presentation dedupe branches; adds communication_reconciliation_work table + enqueue triggers on users/vehicles (sweep lane recovering missed event emissions); REVOKE/grant hygiene on trigger functions
+- database/migrations/20260828203000_passport_ownership_transfer_authority.sql (A) — vehicle_ownership_transfer_events per-aggregate append-only event table (indexed transfer_id, created_at, id) + transfer RPCs emit vehicle.ownership.transfer_* into domain_events transactionally
+- database/migrations/20260828220000_passport_ownership_transfer_communications.sql (A) — notification wiring for the transfer events
+- New emitters: user.email.verified (EMAIL_VERIFIED_EVENT constant; verification route now writes durable outbox event instead of inline welcome send) and vehicle.trust.presentation_changed (TRUST_PRESENTATION_CHANGED_EVENT, emitted with pgClient, fingerprint-idempotent)
+- backend/tests/email-hardening-c3-trust-event-idempotency.test.js, email-hardening-durability-scheduler.test.js, email-hardening-r1-welcome-durability.test.js (A) — pin the JS identity registry to the SQL dedupe function (both reference 20260826120000_email_1_0_hardening.sql) and drive POST /api/internal/communications/process as the production entry point
+- docs/intelligence/receipts/i0-appendices/C-event-emission-inventory.md (A) — written inventory of event emission across the codebase
+- eventWorker.js itself is UNTOUCHED by #194 (name-status shows only eventBusService.js modified under eventBus/)
+
+**Notes:** Transport summary Service Network must target: write-side emitDomainEvent(pgClient, type, payload, tenantId) with the caller's pg client for transactional emit (or DB-side INSERT INTO domain_events inside RPCs/triggers, the pattern issue164 and PR #194 passport transfers use); read-side eventWorker.subscribe(type, handler(payload, pgClient, tenantId, rawEvent)) registered at server.js:355-357; delivery is at-least-once, globally created_at-ordered batches of 10 under FOR UPDATE SKIP LOCKED, 5 attempts then dead_letter with operator replay; deployed drain is pg_cron→pg_net→/api/internal/events/process each minute. Plan sec 8 read fully: its envelope (event id/type/service_case_id/vin/garage_tenant_id/work_order_id/actor_user_id/occurred_at) maps cleanly onto the DORMANT omnichannel columns (aggregate_id, correlation_id, available_at...) — activating those columns in emitDomainEvent is the lowest-conflict way to satisfy it, but that touches the exact file PR #194 rewrites, so S0 must sequence after #194 or cherry-pick its registry. PR #194 is the closest prior art for the whole plan-sec-8 shape: transactional DB-side emit + deterministic dedupe identity + subscription + reconciliation sweep (communication_reconciliation_work) for missed emissions; vehicle_ownership_transfer_events (per-aggregate append-only, ordered by id) is its answer to ordering — service_case events likely need the same per-case event table alongside broadcast domain_events. All claims grounded in files opened/grepped in /Users/shadreckmusarurwa/Project AI/carup-service-network and the pr194.diff.
+
+### Domain: migrations-tests
+
+**Files** (18)
+- /Users/shadreckmusarurwa/Project AI/carup-service-network/backend/db/migrationParser.js — SINGLE canonical migration parser; fail-loud MigrationIntegrityError codes (MISSING_UP_MARKER, EMPTY_UP_SECTION, DOWN_BEFORE_UP, DUPLICATE_UP/DOWN_MARKER, NON_MIGRATION_FILE, AMBIGUOUS_VERSION, PROVENANCE_PIN_BROKEN, RETIRED_MIGRATION); version = FULL filename, not timestamp prefix
+- /Users/shadreckmusarurwa/Project AI/carup-service-network/backend/db/migrate.js — LOCAL SQLite-only runner (backend/db/carup.db, table schema_migrations); never touches Postgres; canonical PG ledger is supabase_migrations.schema_migrations
+- /Users/shadreckmusarurwa/Project AI/carup-service-network/backend/db/supabase.js — service_role supabase-js client; module-scope dotenv.config() is the env inheritance vector for the whole backend suite; applies testDatabaseContainment
+- /Users/shadreckmusarurwa/Project AI/carup-service-network/backend/db/testDatabaseContainment.js — Issue #164 Phase 8 guard: strips production DB creds inherited from a dev machine's .env when NODE_ENV=test
+- /Users/shadreckmusarurwa/Project AI/carup-service-network/backend/tests/helpers/mockSupabase.js — shared in-memory supabase-js builder mock (32 test files import it); UNIQUE_INDEXES registry makes 23505 races testable; supports rpc impls + fault injection
+- /Users/shadreckmusarurwa/Project AI/carup-service-network/backend/tests/migration-integrity.test.js — globs ALL database/migrations/*.sql and enforces the marker contract repo-wide (>100 files sanity floor)
+- /Users/shadreckmusarurwa/Project AI/carup-service-network/database/test/migration_pglite_check.mjs — PGlite (PG17 WASM) Up→Down-reverse→re-Up chain over an EXPLICIT NEW_MIGRATIONS list (ends 20260810120000_trust_side_convergence.sql); Supabase-compat bootstrap (roles, auth.uid stub, prerequisite tables)
+- /Users/shadreckmusarurwa/Project AI/carup-service-network/.github/workflows/ci.yml — the PR-gating validate job; single source of the backend test env contract
+- /Users/shadreckmusarurwa/Project AI/carup-service-network/scripts/lint-baseline-gate.mjs — lints base AND head, fails only on net-new path::ruleId::severity counts (main carries lint debt)
+- /Users/shadreckmusarurwa/Project AI/carup-service-network/scripts/cr1-secret-scan.mjs — BLOCKING credential scan (matches eyJ-style JWTs; use goldenTestTokens.mjs runtime-built fixtures instead of literals)
+- /Users/shadreckmusarurwa/Project AI/carup-service-network/backend/tests/realpg/README.md — 5 standalone embedded-postgres proofs (FOR UPDATE SKIP LOCKED concurrency, 27-table ACL, RLS); NOT in CI, own package.json (embedded-postgres + pg)
+- /Users/shadreckmusarurwa/Project AI/carup-service-network/playwright.config.ts — testDir tests/agents (32 specs), testIgnore diaspora-staging-browser, webServer localhost:5173
+- /Users/shadreckmusarurwa/Project AI/carup-service-network/playwright.staging.config.ts — deployed-staging acceptance (specs 32-37) with STAGING_EXPECTED_BUNDLE hash pinning so acceptance can never run against a stale deploy
+- /Users/shadreckmusarurwa/Project AI/carup-service-network/web/playwright.config.ts — separate web/e2e suite (PLAYWRIGHT_BASE_URL or localhost:5173)
+- /Users/shadreckmusarurwa/Project AI/carup-service-network/web/vite.config.ts — vitest config: jsdom, globals, setupFiles ./src/test/setup.ts, excludes e2e/**; 104 web unit test files
+- /Users/shadreckmusarurwa/Project AI/carup-service-network/web/src/test/setup.ts — jest-dom, crypto.randomUUID polyfill, act()-warning suppression
+- /Users/shadreckmusarurwa/Project AI/carup-service-network/backend/tests/helpers/goldenTestTokens.mjs — runtime-built unsigned JWT fixtures that survive the CR-1 scanner
+- /Users/shadreckmusarurwa/Project AI/carup-service-network/backend/tests/helpers/ — also diasporaRpcReference.js, schedulerRpcModel.js, googleDriveFixtures.js etc. (RPC reference models mirrored from SQL)
+
+**Tables** (3)
+- supabase_migrations.schema_migrations — the ONLY canonical Postgres migration ledger; never public.schema_migrations (migration-integrity.test.js asserts the runner never references that name)
+- schema_migrations (SQLite, backend/db/carup.db) — local dev ledger of backend/db/migrate.js; not Postgres
+- database/migrations/ — 141 files; supabase_schema.sql is an enumerated NON_MIGRATION_FILE; provenance-pinned unmarked files (e.g. 20260619201406_production_access_containment.sql) are sha256-pinned and must NEVER be edited or marker-repaired; 009_phase4_schema.sql is RETIRED_UNAPPLIABLE
+
+**Services** (3)
+- backend/db/migrationParser.js — exports parseMigrationSource, assertDeterministicVersions, deriveVersion, findTimestampPrefixCollisions, isNonMigrationFile/isProvenancePinned/isRetiredMigration + the frozen exemption registries (NON_MIGRATION_FILES, KNOWN_TIMESTAMP_PREFIX_COLLISIONS, PROVENANCE_PINNED_UNMARKED, RETIRED_UNAPPLIABLE)
+- backend/tests/helpers/mockSupabase.js — createMockSupabase(seed, {rpc, faults}); the mock enforces only registered UNIQUE_INDEXES, so dedupe/idempotency paths are untestable until the new index is registered there
+- database/test/*.mjs — 20 files: migration_pglite_check + 5 issue101 chain proofs (p0_hardening, parity, parity_then_p0_chain, public_keys_transition, post_cutover_certifier) + 11 diaspora_*_check (CI-globbed) + communications_2_provider_binding_check, mobile_certification_migration_check, referral_v1_lead_idempotency_migration_check (MANUAL-ONLY: referenced by no workflow and no wrapper test)
+
+**RLS/policies** (1)
+- No RLS policies owned by this domain; RLS proof PATTERN lives in database/test PGlite harnesses (SET ROLE anon/authenticated/service_role + has_*_privilege asserts) and backend/tests/realpg/* — plan 24.6 requires this for every new Service Network table
+
+**Migrations** (6)
+- Marker contract (verified by sampling 20260817120000, 20260819100000, 20260825090000 and PR #194's 5 sampled adds — all carry it): '-- +migrate Up' required, non-empty Up, at most one optional '-- +migrate Down' after Up; inline marker text in SQL literals is safe
+- Filename contract: YYYYMMDDHHMMSS_snake_name.sql; version = full filename; a NEW timestamp-prefix collision fails migration-integrity unless added to KNOWN_TIMESTAMP_PREFIX_COLLISIONS (don't — pick a distinct timestamp)
+- database/test/migration_pglite_check.mjs — its NEW_MIGRATIONS chain is FROZEN at the M1-M6 lineage through 20260810120000_trust_side_convergence.sql; migrations added since (incl. all 14 in PR #194) are NOT in it and instead prove themselves via dedicated PGlite-backed backend/tests/*.test.js wrappers
+- 20260808150000_mechanic_work_orders_convergence.sql — in the PGlite chain; proves convergence over the divergent legacy 006_domain1.sql mechanic_work_orders/mechanic_parts shape (directly relevant to Service Network S4)
+- PR #194 adds 14 migrations 20260826120000..20260829020000 (email_1_0_hardening, 4x intelligence, 3x global_vehicle_taxonomy, seller_s3_location_visibility, 2x passport_ownership_transfer, 3x issue158 custody) — Service Network timestamps must sort AFTER 20260829020000 (and after the in-flight 20260829040000_issue158_terminal_event_uniqueness on the #194 lane) to avoid prefix collisions
+- Staging application pattern: dedicated workflow_dispatch gate per programme with immutable CANDIDATE_SHA env pin + branch assert + preflight-in-rollback-only-transaction → apply → verify (publication-gate-staging-migrations.yml on main; seller-s0/s3 gates in #194); add a SIBLING gate for Service Network, never mutate a certified one
+
+**Tests** (11)
+- backend/tests/migration-integrity.test.js — locks the marker/parse/version/provenance-pin/retired contract over EVERY *.sql in database/migrations (auto-glob: a new well-formed migration needs no registration to be parse-gated)
+- backend/tests — 296 *.test.js files run as one glob: node --test backend/tests/*.test.js (ci.yml step 'Backend tests'); most use the in-memory mock, some boot PGlite inline (issue164-phase6-*-postgres, trust-side-convergence, issue-101-p0-hardening)
+- database/test/migration_pglite_check.mjs — locks Up/Down/re-Up idempotency + catalog shape for the M1-M6 lineage against real PG semantics
+- database/test/issue101_*.mjs (5 files, each an explicit ci.yml step so none can be silently dropped) — locks anon/authenticated denial, TRUNCATE removal, security_invoker views, staging parity, public_keys transition, post-cutover certifier self-falsification
+- ci.yml diaspora glob step — runs all database/test/diaspora_*_check.mjs (currently 11); ZERO matches is an explicit failure; keeps going past one failure then fails once
+- backend/tests/realpg/*.mjs — manual-only real-Postgres proofs for properties PGlite/mock can't show (two-connection SKIP LOCKED, BYPASSRLS service_role, PG17 MAINTAIN privilege)
+- backend/tests/helpers/mockSupabase.js UNIQUE_INDEXES — the registry that makes constraint-race tests honest; mock deliberately mirrors real constraints including their bugs
+- web: vitest (104 test files, jsdom) via npm run test:unit --workspace=web — run by referral-ci.yml and navigation-intelligence-ci.yml, NOT by root ci.yml
+- Playwright: tests/agents (32 specs, local webServer), web/e2e (marketplace/homepage specs, grown by #194), staging specs 32-37 via playwright.staging.config.ts — none run in root ci.yml; navigation-intelligence-ci.yml runs selected agent specs
+- backend/tests/issue164-phase8-test-database-containment.test.js — locks the production-.env containment behaviour
+- backend/tests/cr1-credential-guards.test.js — locks the blocking secret-scan contract
+
+**Contract gaps** (7)
+- No Service Network test surface exists anywhere: zero service-case/garage-directory/service-link tests in backend/tests, database/test, web/src, tests/agents, web/e2e (only legacy tests/agents/03-garage-mechanic.spec.ts agent-QA)
+- Plan §32 Golden A-H E2E journeys have no spec files; plan §33 'Service Network dedicated tests' gate does not exist — a dedicated workflow (pattern: #194's vehicle-passport-foundation-ci.yml) must be created
+- Root ci.yml runs NO web vitest, NO Playwright, NO accessibility step — plan §33 requires Playwright/E2E + accessibility, so Service Network must wire these into its own CI lane rather than assume ci.yml covers them
+- migration_pglite_check.mjs will NOT exercise new Service Network migrations (frozen explicit list); each new migration needs its own PGlite behavioural proof wired into CI
+- mockSupabase.js UNIQUE_INDEXES has no service-network entries — idempotent bridge (plan 10.3) and duplicate-creation defense (plan §25) races are untestable in the mock until indexes are registered
+- 3 database/test harnesses (communications_2_provider_binding, mobile_certification, referral_v1_lead_idempotency) run in NO workflow — precedent shows harnesses rot unless CI-wired; don't add a Service Network harness without wiring
+- No exact-head certification runner exists for Service Network (plan §33: 'a passing earlier SHA does not certify the final receipt-bearing SHA'); the STAGING_EXPECTED_BUNDLE / CANDIDATE_SHA mechanisms exist but only for other programmes
+
+**Likely conflicts with Service Network** (5)
+- Timestamp namespace: PR #194 (unmerged) owns 20260826120000-20260829020000 plus in-flight 20260829040000; Service Network migrations authored against main before #194 merges risk prefix collisions and ordering inversions — pick timestamps after the #194 lane settles
+- Naming: 'mechanic_work_orders'/'mechanic_parts' already have a convergence migration (20260808150000) with catalog shape locked by the PGlite chain and trust-side-convergence.test.js — Service Network S4 must extend that shape, not create service_work_orders parallel tables
+- Two divergent CI env keys now exist: ci.yml uses test-service-role-key/test-anon-key/test-jwt-secret while #194's vehicle-passport-foundation-ci.yml uses passport-foundation-* values — a Service Network workflow must pick one contract deliberately (tests that hardcode expectations on either will diverge)
+- Root package.json 'test' script (lint+build+playwright+agent-15-discovery) is NOT the CI contract — following it instead of ci.yml manufactures phantom failures (matches the backend-suite-env-contract memory: ~33 phantom failures without the ci.yml env)
+- migration-integrity forbids editing provenance-pinned/retired migrations — any Service Network 'cleanup' touching 20260619* or 009_phase4_schema.sql breaks PROVENANCE_PIN_BROKEN sha256 checks
+
+**Must reuse (do not duplicate)** (10)
+- backend/db/migrationParser.js — parse every Service Network migration through it; never add a second parser (the whole module exists because divergent parsers made one file mean 'do nothing' and 'run everything' simultaneously)
+- backend/tests/helpers/mockSupabase.js — extend UNIQUE_INDEXES for new service-network unique constraints instead of writing a new mock
+- migration_pglite_check.mjs bootstrap pattern (roles anon/authenticated/service_role, auth.uid() stub, splitMigration Up/Down splitter) — copy for a service_network_migration_check harness
+- #194's wrapper-test pattern (backend/tests/email-hardening-reconciliation-privileges.test.js shells out to database/test/email_reconciliation_privilege_check.mjs) — the proven way to get a standalone PGlite harness into the ci.yml backend glob without editing ci.yml
+- scripts/lint-baseline-gate.mjs + LINT_BASE_REF — do not attempt a zero-error lint gate; main carries debt by design
+- backend/tests/helpers/goldenTestTokens.mjs — runtime-built JWT fixtures; hardcoded eyJ literals fail the blocking cr1-secret-scan
+- backend/db/testDatabaseContainment.js — inherited automatically via any import chain reaching backend/db/supabase.js; never bypass it with a direct createClient in tests
+- Immutable CANDIDATE_SHA staging-gate workflow pattern (publication-gate-staging-migrations.yml on main; seller-s0-global-taxonomy-staging.yml in #194: pin SHA, assert checkout, preflight in rollback-only txn, apply, verify) for Service Network staging migration application
+- playwright.staging.config.ts STAGING_EXPECTED_BUNDLE bundle-hash pinning + backend/scripts/staging-create-test-identities.mjs + tests/agents/staging-helpers.ts signIn for S10 exact-head staging certification
+- backend/tests/realpg/ package pattern (embedded-postgres + pg, own package.json) for any Service Network property needing two real connections (e.g. concurrent acceptance races)
+
+**PR #194 delta** (10)
+- .github/workflows/vehicle-passport-foundation-ci.yml (A) — new PR-gating job running ~20 EXPLICITLY LISTED node --test files (passport-foundation-contract, v2-v13, v16 x4, partsentry-review-workflow, issue164-phase8-service-timeline-privacy, migration-integrity, issue-158-private-key-custody) with its own env key values (passport-foundation-*)
+- .github/workflows/seller-s0-global-taxonomy-staging.yml (A) — immutable-candidate staging gate, CANDIDATE_SHA 7b2506870df4 pinned to feat/marketplace-reliability-reference-ux; preflight/apply/backfill/verify via backend/scripts/seller-s0-taxonomy-*.mjs
+- .github/workflows/seller-s3-location-visibility-staging.yml (A) — same gate pattern for the S3 migration (preflight/apply/verify)
+- .github/workflows/marketplace-reference-media-staging.yml (A) — staging apply/verify via backend/scripts/marketplace-reference-media-staging.mjs
+- .github/workflows/marketplace-reference-regression.yml (A) — marketplace reference regression lane
+- database/migrations: 14 added (20260826120000_email_1_0_hardening → 20260829020000_issue158_activation_boundary_hardening); all sampled files carry '-- +migrate Up'; NONE added to migration_pglite_check.mjs NEW_MIGRATIONS
+- database/test/email_reconciliation_privilege_check.mjs (A) — new PGlite privilege proof, CI-wired via wrapper backend/tests/email-hardening-reconciliation-privileges.test.js (not via ci.yml edit)
+- backend/tests: 107 files touched (mostly A: email-experience-*, email-hardening-*, email-reference-r1-r6, intelligence-*, global-vehicle-taxonomy-*, passport-v9..v16, check-constraint-vocabulary) — all picked up automatically by the ci.yml backend glob
+- web/e2e: +marketplace-reference-ux.spec.ts, +marketplace-staging-certification.spec.ts; M homepage.spec.ts, marketplace-v1-flows.spec.ts
+- UNTOUCHED by #194: ci.yml, migrationParser.js, migrate.js, mockSupabase.js, migration_pglite_check.mjs, lint-baseline-gate.mjs, root/staging/web playwright configs — the migrations-tests infrastructure itself is stable
+
+**Notes:** Commands a Service Network phase must keep green (the ci.yml validate contract, run with env NODE_ENV=test SUPABASE_URL=http://localhost:54321 SUPABASE_SERVICE_ROLE_KEY=test-service-role-key SUPABASE_ANON_KEY=test-anon-key JWT_SECRET=test-jwt-secret ALLOW_OCR_MOCK=true): 1) node scripts/lint-baseline-gate.mjs (LINT_BASE_REF=origin/main; blocking on net-new errors AND warnings); 2) npx tsc --noEmit --project web/tsconfig.app.json; 3) npm run build; 4) node --test backend/tests/*.test.js; 5) node database/test/migration_pglite_check.mjs; 6) the five explicit issue101 harnesses (issue101_p0_hardening_check, issue101_parity_check, issue101_parity_then_p0_chain, issue101_public_keys_transition_check, issue101_post_cutover_certifier_check); 7) the database/test/diaspora_*_check.mjs glob (11 files, zero-match fails); 8) node scripts/cr1-secret-scan.mjs (blocking, in secret-scan job); plus after #194 merges, the vehicle-passport-foundation-ci.yml explicit list including node --test backend/tests/migration-integrity.test.js. Registering a NEW table/migration to satisfy migration-integrity: drop database/migrations/<distinct-timestamp>_<name>.sql with a single '-- +migrate Up', non-empty Up SQL, optional single '-- +migrate Down' AFTER Up — the integrity suite auto-globs it; no list edit needed unless you (wrongly) reuse a timestamp (KNOWN_TIMESTAMP_PREFIX_COLLISIONS), add a non-executable file (NON_MIGRATION_FILES), or touch pinned/retired files (forbidden). For real-PG behavioural proof, add a database/test harness and CI-wire it via a backend/tests wrapper .test.js (the #194 pattern) or an explicit workflow step; also register any new unique constraints in mockSupabase.js UNIQUE_INDEXES so backend idempotency tests can observe 23505. Staging application goes through a NEW sibling immutable-CANDIDATE_SHA workflow, never a mutated certified gate. apis/events are empty because this domain owns no HTTP surface or event emitters.
+
+### Domain: pr194-cross
+
+**Files** (35)
+- /Users/shadreckmusarurwa/Project AI/carup-service-network/backend/services/eventBus/eventBusService.js — outbox emitter; #194 generalizes idempotent recovery via DETERMINISTIC_EVENT_IDENTITY_FIELDS + dedupe_key
+- /Users/shadreckmusarurwa/Project AI/carup-service-network/backend/services/communication/communicationEventListeners.js — domain-event→notification subscription table; #194 adds ownership/trust/email-verified subscriptions
+- /Users/shadreckmusarurwa/Project AI/carup-service-network/backend/services/communication/adapters/safeTradeDomainEventAdapter.js — NEW: single dialect-normalization + recipient-resolution boundary (pattern for a future service adapter)
+- /Users/shadreckmusarurwa/Project AI/carup-service-network/backend/services/communication/reconcileCommunicationDurability.js — NEW: drains trigger-fed communication_reconciliation_work queue; recovery is scheduled, never inferred
+- /Users/shadreckmusarurwa/Project AI/carup-service-network/backend/services/communication/emailExperience/ — NEW ~20 modules: canonical renderer, template registry, sender persona, recipient resolution, R1–R6 reference emails
+- /Users/shadreckmusarurwa/Project AI/carup-service-network/backend/services/intelligence/activityEventTypes.js — NEW: closed event taxonomy, client/server emitter split, per-type metadata allowlist
+- /Users/shadreckmusarurwa/Project AI/carup-service-network/backend/services/intelligence/activityLedgerService.js — NEW: governed ingestion into marketplace_activity_events (server derives identity/tenant, drops client-supplied)
+- /Users/shadreckmusarurwa/Project AI/carup-service-network/backend/services/intelligence/serviceIntelligenceService.js — NEW: I9 mechanic(person)/garage(tenant) projections over mechanic_work_orders + garage_service_request inquiries; explicit NOT_MEASURABLE registry
+- /Users/shadreckmusarurwa/Project AI/carup-service-network/backend/services/intelligence/intelligenceProjectionService.js — NEW: AVAILABILITY/metric/rate/AuthorizationError shared projection helpers
+- /Users/shadreckmusarurwa/Project AI/carup-service-network/backend/services/intelligence/rollupService.js — NEW: daily rollup computation + readAllPages
+- /Users/shadreckmusarurwa/Project AI/carup-service-network/backend/routes/intelligenceActivityRoutes.js — NEW: public bounded ingestion + admin ingestion-health
+- /Users/shadreckmusarurwa/Project AI/carup-service-network/backend/routes/intelligenceProjectionRoutes.js — NEW: 18 role-gated projection endpoints incl. /api/mechanic/analytics and /api/garage/analytics
+- /Users/shadreckmusarurwa/Project AI/carup-service-network/backend/routes/intelligenceRollupRoutes.js — NEW: internal rollup trigger + admin freshness
+- /Users/shadreckmusarurwa/Project AI/carup-service-network/backend/routes/passportOwnershipTransferRoutes.js — NEW: session-only transfer begin/transition/read with mandatory idempotency key
+- /Users/shadreckmusarurwa/Project AI/carup-service-network/backend/services/passport/passportOwnershipTransferService.js — NEW: beginOwnershipTransfer/transitionOwnershipTransfer/getOwnershipTransfer over atomic RPCs
+- /Users/shadreckmusarurwa/Project AI/carup-service-network/backend/services/passport/passportTransferStateMachine.js — NEW: V7 transfer state graph
+- /Users/shadreckmusarurwa/Project AI/carup-service-network/backend/services/passport/passportServicePartsProjection.js — NEW: V8 service/parts projection authority — projectWorkOrderServiceRecord whitelist + SERVICE_AUTHORITIES vocabulary
+- /Users/shadreckmusarurwa/Project AI/carup-service-network/backend/services/passport/passportCommunicationIntent.js — NEW: 8 communication-intent classes incl. service_maintenance + ownership_transfer; forbids transport keys in payloads
+- /Users/shadreckmusarurwa/Project AI/carup-service-network/backend/services/passport/passportContract.js — NEW: PASSPORT_AUDIENCES public/buyer/owner + visibility whitelist matrix
+- /Users/shadreckmusarurwa/Project AI/carup-service-network/backend/services/trustDecision/trustPresentationChangeProducer.js — NEW: R5 announce-after-write producer; refreshCanonicalTrust stays the ONE trust writer
+- /Users/shadreckmusarurwa/Project AI/carup-service-network/backend/services/trustDecision/canonicalTrustService.js — MODIFIED: refreshCanonicalTrust now reads previous record, announces presentation change, returns presentation field
+- /Users/shadreckmusarurwa/Project AI/carup-service-network/backend/services/marketplace/marketplaceInquiryService.js — MODIFIED: metadata allowlist widened (buyer_intent/safepay_requested/fitment_*), Intelligence observation on create
+- /Users/shadreckmusarurwa/Project AI/carup-service-network/backend/services/marketplace/marketplaceListingEligibility.js — MODIFIED: year bounds now from taxonomy vehicleYearBounds(), MIN_LISTING_YEAR constant removed
+- /Users/shadreckmusarurwa/Project AI/carup-service-network/backend/services/marketplace/marketplacePartsService.js — MODIFIED: part fitment claim vocabulary (taxonomy-versioned, no VIN/PII)
+- /Users/shadreckmusarurwa/Project AI/carup-service-network/backend/services/taxonomy/vehicleTaxonomyService.js — NEW: resolves make/model/color/fuel/transmission/drivetrain/bodyStyle/year against shared catalog
+- /Users/shadreckmusarurwa/Project AI/carup-service-network/shared/taxonomy/vehicle/catalog.json — NEW: carup-vehicle-taxonomy-1.0.0 canonical catalog (backend + web + mobile consume)
+- /Users/shadreckmusarurwa/Project AI/carup-service-network/backend/services/blockchain/blockchainKeyCustodyService.js — NEW: HMAC-derived signing keys from CARUP_BLOCKCHAIN_SIGNING_MASTER_SECRET; custody generation commitment; no persisted private keys
+- /Users/shadreckmusarurwa/Project AI/carup-service-network/backend/services/blockchain/blockchainService.js — MODIFIED heavily (and still uncommitted edits in PR worktree): custody-generation-gated signing, DB-owned monotonic activation boundary
+- /Users/shadreckmusarurwa/Project AI/carup-service-network/backend/services/report/canonicalVehicleLifecycleService.js — NEW: the ONE public vehicle-lifecycle read model injected into vehiclesRoutes
+- /Users/shadreckmusarurwa/Project AI/carup-service-network/backend/utils/checkConstraintVocabulary.js — NEW: audits DB CHECK vocabularies against code expectations
+- /Users/shadreckmusarurwa/Project AI/carup-service-network/backend/server.js — MODIFIED: mounts 4 new routers + taxonomy normalization + lifecycle builder
+- /Users/shadreckmusarurwa/Project AI/carup-kimi/database/migrations/20260829040000_issue158_terminal_event_uniqueness.sql — UNTRACKED in PR worktree only: terminal ledger uniqueness + recoverable terminal activation (not on branch head, not in pr194.diff)
+- /Users/shadreckmusarurwa/Project AI/carup-service-network/docs/intelligence/receipts/I9_MECHANIC_GARAGE_PROJECTION_MODEL.md — the frozen registry plan §19.3 requires S0 to reconcile (records mechanic_work_orders = 0 rows in staging)
+- /Users/shadreckmusarurwa/Project AI/carup-service-network/docs/vehicle-passport-lifecycle/receipts/V7_OWNERSHIP_TRANSFER_CERTIFICATION.md — transfer contract certification receipt
+- /Users/shadreckmusarurwa/Project AI/carup-service-network/docs/security/PREEXISTING_USERS_TABLE_WRITE_PRIVILEGE.md — records staging anon/authenticated UPDATE grant on public.users (why public-table flags were rejected)
+
+**Tables** (16)
+- vehicle_ownership_transfers — governed transfer state machine; 9-state CHECK, unique active-per-VIN partial index, unique idempotency_key, version; 20260828203000
+- vehicle_ownership_transfer_events — append-only transition audit (from_state/to_state/actor/payload); 20260828203000
+- vehicle_ownership_history — gains transfer_id FK + unique partial index (one history row per transfer); 20260828203000
+- marketplace_activity_events — single analytical observation ledger; unique idempotency_key, privacy_class, exclusion_flags, internal-only identity columns; 20260827120000
+- listing_daily_metrics / seller_daily_metrics / tenant_daily_metrics / platform_daily_metrics — versioned derived rollups, never product-written; 20260827130000
+- intelligence_rollup_runs — rollup run/freshness bookkeeping; 20260827130000
+- intelligence_recommendation_state — seen/acted/dismissed suppression by rule+subject+evidence fingerprint; 20260828120000
+- communication_reconciliation_work — service-only durable work queue, UNIQUE(work_type, subject_id), trigger-populated; 20260826120000
+- domain_events — gains dedupe_key via trigger communication_domain_event_dedupe_key(); historical rows keep NULL; 20260826120000
+- blockchain_custody_rollout — PREPARED/FINALIZED singleton + old_writers_drained + authorized_generation; 20260828210000/20260829003000
+- public_keys — gains key_ref/key_version/custody_provider; active-key uniqueness + generation binding; 20260828210000 chain
+- vehicles — gains make/model/body_style/fuel/transmission/drivetrain _taxon_id columns (20260828133000), trust_presentation_announced_fingerprint (20260826120000), listing_location_visibility widened to province_only (20260828160000), seller commercial-fact assertion columns with source/recorded_at
+- vehicle_taxonomy_observations — governance queue for unresolved seller/import taxonomy values; 20260828133000
+- communication_templates / communication_template_versions — gain ownership_transfer_v1 row, business_workflow='vehicle_ownership' (free TEXT column, no CHECK — 'service' value is open); 20260828220000
+- mechanic_work_orders — pre-existing on main (006_domain1.sql, 20260808150000_mechanic_work_orders_convergence.sql); the authority I9 Intelligence and V8 Passport projection read; 0 rows in staging per I9 receipt
+- marketplace_inquiries — pre-existing inquiry authority; no target-garage field exists (only metadata allowlist widened by #194)
+
+**Services** (21)
+- backend/services/eventBus/eventBusService.js — transactional outbox authority; deterministicEventIdentity, emitDomainEvent
+- backend/services/communication/communicationOrchestratorService.js (+ factory/repository/listeners) — canonical Communications delivery authority; #194-modified
+- backend/services/communication/adapters/safeTradeDomainEventAdapter.js — SafeTrade→Communications normalization boundary
+- backend/services/communication/reconcileCommunicationDurability.js — durability reconciliation controller (exports reconcileCommunicationDurability)
+- backend/services/communication/emailExperience/renderEmail.js + emailTemplateRegistry.js — canonical email rendering authority
+- backend/services/intelligence/activityLedgerService.js — governed ingestion; server-derived identity/tenant
+- backend/services/intelligence/serviceIntelligenceService.js — I9 mechanic/garage projections; SERVICE_INTELLIGENCE_VERSION 'service@1', NOT_MEASURABLE
+- backend/services/intelligence/intelligenceProjectionService.js — shared authorization/availability/metric helpers
+- backend/services/intelligence/rollupService.js — rollup computation; rollupDay/rollupFreshness/readAllPages
+- backend/services/intelligence/marketplaceActivityEmitters.js — server-side emit helpers (emitSearchPerformed/emitListingOpened/emitInquiryCreated)
+- backend/services/passport/passportOwnershipTransferService.js — beginOwnershipTransfer/transitionOwnershipTransfer/getOwnershipTransfer via atomic RPCs
+- backend/services/passport/passportTransferStateMachine.js — V7 transfer state graph authority
+- backend/services/passport/passportServicePartsProjection.js — V8 service/parts projection; projectWorkOrderServiceRecord
+- backend/services/passport/passportCommunicationIntent.js — PASSPORT_COMMUNICATION_CLASSES incl. service_maintenance
+- backend/services/passport/passportReadModelService.js + passportContract.js — assemblePassportReadModel, audience matrix
+- backend/services/trustDecision/canonicalTrustService.js — the ONE Trust writer (refreshCanonicalTrust); returns presentation result
+- backend/services/trustDecision/trustPresentationChangeProducer.js — emitTrustPresentationChange/reconcileTrustPresentation
+- backend/services/marketplace/marketplaceInquiryService.js — createInquiry (inquiry authority incl. garage_service_request type)
+- backend/services/taxonomy/vehicleTaxonomyService.js — normalizeVehicleTaxonomyInput, resolveVehicleMake/Model, vehicleYearBounds
+- backend/services/blockchain/blockchainKeyCustodyService.js — custodyGeneration, derived signing keys; blockchainService.js consumes (still in flux)
+- backend/services/report/canonicalVehicleLifecycleService.js — buildCanonicalVehicleLifecycle single lifecycle read model
+
+**APIs** (13)
+- POST /api/vehicles/:vin/ownership-transfers — backend/routes/passportOwnershipTransferRoutes.js, authorizeSessionRole([]) (real session only, x-user-id fallback rejected), x-idempotency-key header required
+- GET /api/ownership-transfers/:transferId — backend/routes/passportOwnershipTransferRoutes.js, authorizeSessionRole([])
+- PATCH /api/ownership-transfers/:transferId — backend/routes/passportOwnershipTransferRoutes.js, authorizeSessionRole([]); body carries state/reason/registry_authority/completion_reference
+- POST /api/intelligence/activity — backend/routes/intelligenceActivityRoutes.js, rateLimiter + optionalAuth() (public bounded ingestion; server-emitted types rejected from clients)
+- GET /api/admin/intelligence/ingestion-health — backend/routes/intelligenceActivityRoutes.js, authorizeRole(['admin'])
+- POST /api/internal/intelligence/rollup — backend/routes/intelligenceRollupRoutes.js, optionalAuth + internal authorization checks
+- GET /api/admin/intelligence/rollup-status — backend/routes/intelligenceRollupRoutes.js, authorizeRole(['admin'])
+- GET /api/mechanic/analytics — backend/routes/intelligenceProjectionRoutes.js, authorizeRole(['mechanic','admin']) — I9 practitioner-scope projection
+- GET /api/garage/analytics — backend/routes/intelligenceProjectionRoutes.js, authorizeRole(['mechanic','dealer','admin']) — I9 tenant-scope projection (refused when no verified tenant; never narrows to caller)
+- GET /api/marketplace/my-listings/:vin/analytics, /api/marketplace/my-analytics, /api/dealer/analytics — intelligenceProjectionRoutes.js, authorizeRole role-scoped
+- GET /api/admin/marketplace/intelligence, /api/government/intelligence, /api/insurance/demand-intelligence, /api/finance/demand-intelligence, /api/parts/intelligence, /api/trade/intelligence — intelligenceProjectionRoutes.js, role-gated
+- GET /api/intelligence/kpi-catalogue, /api/intelligence/assistant-context, /api/marketplace/my-recommendations, /api/marketplace/my-report — intelligenceProjectionRoutes.js
+- Marketplace search/detail/save/inquiry routes in backend/routes/marketplaceRoutes.js — now thread { req } into services for fire-and-forget Intelligence observation (signatures changed)
+
+**Events** (9)
+- vehicle.ownership.transfer_started / _action_required / _state_changed / _completed — produced via passport transfer service + passportCommunicationIntent, durable in domain_events outbox; newly SUBSCRIBED by communicationEventListeners.js (first subscription ever)
+- vehicle.trust.presentation_changed — emitter backend/services/trustDecision/trustPresentationChangeProducer.js (runs inside refreshCanonicalTrust after the one canonical write); deterministic identity presentation_fingerprint; consumer communicationEventListeners (R5 email)
+- user.email.verified — emitter backend/services/communication/producers/leadershipWelcomeProducer.js; deterministic identity recipientUserId (one welcome per account); consumer communicationEventListeners (R1)
+- MARKETPLACE_PAYMENT_INITIATED, MARKETPLACE_FUNDS_HELD, MARKETPLACE_TRANSACTION_SETTLED + 7 more SafeTrade types — emitted by issue164 SQL atomics (payload has NO principal); backend/services/communication/adapters/safeTradeDomainEventAdapter.js is the single normalization boundary that looks up the recipient and canonical status from the session
+- marketplace.inquiry.created — backend/services/marketplace/marketplaceInquiryService.js via emitDomainEvent; deterministic identity inquiryId/inquiry_id (legacy payload-contains lookup preserved for pre-dedupe rows)
+- domain_events.dedupe_key — trigger communication_domain_event_dedupe_key() (20260826120000) stamps '<eventType>:<value>'; eventBusService recovers 23505 collisions by key; format pinned by test
+- marketplace_activity_events taxonomy (23 types, schema_version 1) — CLIENT_EMITTED (impression/engaged/compare/contact/share/process_step) vs SERVER_EMITTED (search/opened/saved/inquiry_created/reservation/price_changed/listing lifecycle) in activityEventTypes.js; transport is the ledger TABLE, not domain_events
+- RESERVED_EVENT_TYPES — marketplace_listing_paused/_archived, reservation_closed, listing_paid, purchase_confirmed, recommendation_served/_clicked declared reserved, gated on gap G10
+- NO service.* domain events exist anywhere in #194 or main — plan §8 namespace (service.case.*, service.work_order.*, service.mechanic.*, service.work.*) is entirely unclaimed
+
+**RLS/policies** (8)
+- marketplace_activity_events — ENABLE + FORCE ROW LEVEL SECURITY, REVOKE ALL from anon/authenticated/PUBLIC, GRANT service_role only (20260827120000)
+- listing/seller/tenant/platform_daily_metrics + intelligence_rollup_runs — same service_role-only pattern (20260827130000, hardened in 20260827140000)
+- vehicle_ownership_transfers — RLS enabled, REVOKE anon/authenticated, GRANT service_role SELECT/INSERT/UPDATE (no DELETE — transfers are never erased) (20260828203000)
+- vehicle_ownership_transfer_events — RLS enabled, service_role SELECT/INSERT only (append-only audit) (20260828203000)
+- vehicle_taxonomy_observations — RLS enabled + explicit REVOKE from anon/authenticated: governance queue is not a public PostgREST surface (20260828133000)
+- communication_reconciliation_work — RLS on + FORCE, every client privilege revoked; rows written only by DB triggers in-transaction (20260826120000)
+- blockchain_custody_rollout — private DB control plane; runtime reads only via SECURITY DEFINER scalar blockchain_custody_rollout_state (20260828210000)
+- Documented hazard: docs/security/PREEXISTING_USERS_TABLE_WRITE_PRIVILEGE.md — live staging grants anon/authenticated table-level UPDATE on public.users, which is why #194 rejected public-table boolean flags; Service Network tables must ship the REVOKE+FORCE pattern from day one
+
+**Migrations** (16)
+- database/migrations/20260826120000_email_1_0_hardening.sql — domain_events dedupe trigger (communication_domain_event_dedupe_key), communication_reconciliation_work + users/vehicles enqueue triggers, vehicles.trust_presentation_announced_fingerprint, email_reply_tokens v2 default
+- database/migrations/20260827120000_intelligence_activity_ledger.sql — marketplace_activity_events observation ledger; FORCE RLS, service_role-only, unique idempotency_key, privacy classes, 24-month retention SQL
+- database/migrations/20260827130000_intelligence_rollups.sql — listing/seller/tenant/platform_daily_metrics + intelligence_rollup_runs; derived, calculation_version-stamped, never product-written
+- database/migrations/20260827140000_intelligence_post_review_hardening.sql — post-review ACL/constraint hardening for the ledger/rollups
+- database/migrations/20260828120000_intelligence_recommendations.sql — intelligence_recommendation_state: suppression fingerprints only, never recommendation content
+- database/migrations/20260828133000_global_vehicle_taxonomy_s0.sql — vehicles *_taxon_id columns + indexes + vehicle_taxonomy_observations governance queue (RLS + revoked); additive, raw values untouched
+- database/migrations/20260828140000_global_vehicle_taxonomy_imports_s0.sql — taxonomy resolution for import pipelines
+- database/migrations/20260828143000_global_vehicle_taxonomy_color_s0.sql — color dimension addition
+- database/migrations/20260828160000_seller_s3_location_visibility_province_only.sql — widens vehicles.listing_location_visibility CHECK to public|withheld|province_only; pre/post digest guard proves no seller data rewritten
+- database/migrations/20260828203000_passport_ownership_transfer_authority.sql — vehicle_ownership_transfers (9-state machine, unique active-per-VIN, idempotency), vehicle_ownership_transfer_events, vehicle_ownership_history.transfer_id, passport_begin/transition_ownership_transfer_atomic SECURITY DEFINER RPCs
+- database/migrations/20260828210000_issue158_private_key_custody.sql — public_keys custody columns (key_ref/key_version/custody_provider) + blockchain_custody_rollout PREPARED singleton; destructive erase deferred to protected finalizer
+- database/migrations/20260828220000_passport_ownership_transfer_communications.sql — ownership_transfer_v1 template under business_workflow='vehicle_ownership'; transactional + in-app only by policy
+- database/migrations/20260829003000_issue158_custody_rollout_upgrade.sql — NEW identity on purpose: generation authority upgrade for databases that recorded the monolithic 210000
+- database/migrations/20260829020000_issue158_activation_boundary_hardening.sql — DB-owned per-stakeholder monotonic watermark; rotation boundary partitions key validity half-open [created_at, revoked_at) (still receiving uncommitted edits in PR worktree)
+- database/migrations/20260829040000_issue158_terminal_event_uniqueness.sql — UNCOMMITTED (PR worktree only): at-most-one terminal ledger event per signer + recoverable terminal re-issue; not on branch head
+- database/scripts/issue158_mark_old_writers_drained.sql + issue158_private_key_custody_finalize.sql — manual protected custody finalization steps, not yet executed
+
+**Tests** (19)
+- backend/tests/passport-v16-ownership-authority.test.js — locks governed transfer authority (seller retirement on completion, no post-completion cancel)
+- backend/tests/passport-v16-postgres-authorities.test.js — PG-level transfer + custody authority contract (still receiving uncommitted edits in PR worktree)
+- backend/tests/passport-v7-ownership-transfer.test.js — V7 transfer state machine contract
+- backend/tests/passport-v8-service-parts.test.js — V8 whitelist projection of work orders (free text/customer identity never projected)
+- backend/tests/passport-v16-golden-lifecycle.test.js — end-to-end golden vehicle lifecycle certification
+- backend/tests/intelligence-activity-ledger.test.js — pins JS taxonomy == DB CHECK == I1 receipt three ways
+- backend/tests/intelligence-service-mechanic-garage.test.js — locks I9 mechanic-never-widens / garage-never-narrows + not-measurable registry
+- backend/tests/intelligence-rollup-route-auth.test.js — rollup endpoint authorization
+- backend/tests/intelligence-schema-contract.test.js — intelligence schema contract
+- backend/tests/communication-event-coverage.test.js — every domain event must be mapped or explicitly excluded for Communications (gate for new service.* events)
+- backend/tests/email-hardening-durability-scheduler.test.js — reconciliation queue drain + fault isolation semantics
+- backend/tests/email-hardening-c3-trust-event-idempotency.test.js — trust presentation event dedupe
+- backend/tests/issue-158-private-key-custody.test.js + issue-158-boundary-upgrade-postgres.test.js + issue-158-rotation-boundary.test.js — custody rollout/watermark/terminal-boundary contract (first two modified uncommitted in worktree)
+- backend/tests/global-vehicle-taxonomy.test.js + -antifork + global-taxonomy-marketplace-filter — taxonomy resolution, anti-fork, marketplace filter binding
+- backend/tests/marketplace-listing-eligibility.test.js — taxonomy-driven year bounds
+- backend/tests/check-constraint-vocabulary.test.js — DB CHECK vocabularies pinned to code (any new service CHECK vocab must register)
+- backend/tests/public-truth-hardening.test.js — buyer-safe public projection lock
+- backend/tests/passport-v12-communications.test.js — passport communication intent contract (incl. transfer_action_required mapping)
+- backend/tests/seller-location-province-only.test.js — S3 three-value visibility vocabulary
+
+**Contract gaps** (10)
+- issue158 custody chain is visibly STILL IN FLUX inside #194: database/migrations/20260829040000_issue158_terminal_event_uniqueness.sql exists only as an UNTRACKED file in the PR worktree (/Users/shadreckmusarurwa/Project AI/carup-kimi), alongside uncommitted modifications to blockchainService.js, issue-158-boundary-upgrade-postgres.test.js, issue-158-private-key-custody.test.js, passport-v16-postgres-authorities.test.js, the 20260829020000 migration and issue158_private_key_custody_finalize.sql — branch head 24422686 does not contain the 4th migration
+- pr194.diff snapshot lags origin/integration/vehicle-passport-v16-cert head: zero matches for commit 24422686's terminal-event content — issue158 claims must be re-verified against the branch, not the diff
+- Custody FINALIZED state not reached: destructive legacy-key erase lives in manual protected scripts (issue158_mark_old_writers_drained.sql, issue158_private_key_custody_finalize.sql) that have not run; rollout singleton sits PREPARED
+- Ownership-transfer notifications are deliberately transactional/in-app only 'until canonical recipient-address enrichment exists for policy-driven notifications' (20260828220000) — the same enrichment gap will constrain Service Network notification channels (§15.3/15.4)
+- Every #194 migration (email hardening, intelligence x4, taxonomy x3, seller S3, passport transfer x2, custody x3) is explicitly STAGING-ONLY pending owner production approval — production schema will lack all these tables at S0
+- RESERVED_EVENT_TYPES (listing paused/archived, reservation_closed, purchase_confirmed, recommendation events) are declared but gated on gap G10 (vehicles.publication_status lacks those states) — the activity taxonomy is deliberately unfinished
+- I9 was certified against an EMPTY authority — the receipt records mechanic_work_orders: 0 rows in staging, one garage_service_request inquiry — so real Service Network facts will materially re-open the mechanic/garage projections and the not-measurable registry
+- No 'service' business_workflow value, template, or thread convention exists anywhere in #194 or main (business_workflow is free TEXT, default 'growth'; #194 establishes only 'vehicle_ownership') — plan §15.1 binding is greenfield
+- No service.* domain-event namespace exists in domain_events emitters or communicationEventListeners — plan §8 contract entirely unimplemented
+- Marketplace inquiry schema still has no target-garage/provider-tenant field (allowlist gained buyer_intent/fitment keys only) — plan §10.2 'smallest truthful additive bridge' remains an open S0 design decision
+
+**Likely conflicts with Service Network** (19)
+- backend/server.js — #194 mounts intelligenceActivity/Projection/Rollup + passportOwnershipTransfer routers and injects lifecycleBuilder; Service Network S1–S8 mounts serviceCase routes in the same block
+- backend/services/eventBus/eventBusService.js — DETERMINISTIC_EVENT_IDENTITY_FIELDS is a closed registry pinned byte-for-byte to communication_domain_event_dedupe_key() in 20260826120000; adding service.* idempotent events edits both sides
+- backend/services/communication/communicationEventListeners.js — #194 rewrote the subscription/policy table (ownership + trust + email events); §15.4 service notification subscriptions land in the same structures
+- backend/tests/communication-event-coverage.test.js — modified by #194; every new service.* domain event must be mapped or explicitly excluded there or CI fails
+- backend/services/marketplace/marketplaceInquiryService.js — §10.2 target-garage bridge edits createInquiry, which #194 already changed (metadata allowlist widened, emitInquiryCreated added, 4th deps arg { req })
+- backend/routes/marketplaceRoutes.js — #194 threaded { req } through search/detail/save/inquiry handlers; garage_service_request routing edits collide
+- backend/services/intelligence/serviceIntelligenceService.js — the I9 NOT_MEASURABLE registry lives here and plan §19.3 requires S0 to update it; same-file edits guaranteed
+- backend/services/intelligence/activityEventTypes.js — taxonomy is 3-way pinned (JS / DB CHECK in 20260827120000 / I1 receipt) by intelligence-activity-ledger.test.js; adding service telemetry needs a synchronized 3-way change
+- backend/services/passport/passportServicePartsProjection.js — plan §11 richer service history extends this exact V8 authority file
+- backend/routes/vehiclesRoutes.js — #194 added the canonicalVehicleLifecycleService lifecycle read model + availability-stated collection reads; service-history surfacing converges here
+- shared/types/index.ts + shared/types/marketplace.ts — modified by #194; Service Network shared types land in the same files
+- web/src/App.tsx + web/src/components/layout/MainLayout.tsx — #194 added public routes (Security/Support/GuestSell) and CompactBottomNav; Garage Directory routes/nav collide
+- database/migrations timestamp ordering — #194 occupies 20260826120000–20260829020000 (plus an uncommitted 20260829040000); Service Network migrations must stamp strictly after the final custody migration or replay order breaks
+- Naming: /api/garage/analytics exists with roles ['mechanic','dealer','admin'] — consistent with plan §9.2 (no global garage role) but the 'garage' API namespace is now partially claimed by Intelligence
+- 'service' namespace already claimed twice in different senses: passportCommunicationIntent class 'service_maintenance' and SERVICE_INTELLIGENCE_VERSION 'service@1'; Service Case vocabulary must not collide
+- vehicle_ownership_transfers state vocabulary (initiated/under_review/complete/disputed/cancelled…) overlaps plan §6.2 Service Case status words — keep CHECK vocabularies table-scoped (checkConstraintVocabulary.js now audits these)
+- web/vercel.json + web/preview-backend-pairing.json — #194 pins exact-SHA frontend/backend staging pairing (commits a1826911, 0d2dc17a); Service Network staging gates must re-pin, not inherit
+- backend/services/communication/communicationOrchestratorService.js — modified by #194; service-workflow orchestration touches the same module
+- backend/utils/publicVehicleProjection.js + vehicleMediaProjection.js — modified by #194 and locked by public-truth-hardening.test.js; public service-history projection edits the same guarded files
+
+**Must reuse (do not duplicate)** (20)
+- backend/services/eventBus/eventBusService.js emitDomainEvent + deterministicEventIdentity — service.* events go through this outbox; idempotent service events extend DETERMINISTIC_EVENT_IDENTITY_FIELDS in lockstep with the DB dedupe trigger
+- backend/services/communication/adapters/safeTradeDomainEventAdapter.js — the adapter PATTERN (single normalization boundary, DB recipient lookup, frozen dialect map) for a service domain-event→notification adapter
+- backend/services/communication/communicationEventListeners.js — subscribe service notification events here (§15.4); do not build a second listener
+- communication_templates/communication_template_versions INSERT pattern from database/migrations/20260828220000 — service workflow templates ride the existing thread/template model, no new messages table (§15.1)
+- backend/services/passport/passportServicePartsProjection.js projectWorkOrderServiceRecord + SERVICE_AUTHORITIES vocabulary — extend this V8 authority for richer service history (§11), never fork it
+- backend/services/passport/passportCommunicationIntent.js — 'service_maintenance' class already reserved; reuse the transport-key firewall for service intents
+- backend/services/passport/passportContract.js PASSPORT_AUDIENCES/PASSPORT_VISIBILITY — audience whitelist matrix for public/buyer/owner service projections (§11.1)
+- backend/services/intelligence/serviceIntelligenceService.js + docs/intelligence/receipts/I9_MECHANIC_GARAGE_PROJECTION_MODEL.md — plan §19.3 requires updating THIS registry in place; /api/mechanic/analytics and /api/garage/analytics already exist
+- backend/services/intelligence/activityEventTypes.js discipline — client/server emitter split + per-type metadata allowlist for any service telemetry; extend the pinned 3-way taxonomy, do not create a parallel ledger
+- backend/services/intelligence/rollupService.js readAllPages + intelligenceProjectionService.js AVAILABILITY/metric/rate helpers — for service metrics rollups/projections
+- backend/services/taxonomy/vehicleTaxonomyService.js + shared/taxonomy/vehicle/catalog.json — make/model/year resolution for service records and Garage Directory filters; never re-derive vocabularies
+- Existing inquiry vocabulary — inquiry_type 'garage_service_request' (recognized on main, plan §10) and SERVICE_INQUIRY_TYPES set; the §10.2 bridge builds on marketplace_inquiries, not a new intake table
+- backend/routes/passportOwnershipTransferRoutes.js precedent — authorizeSessionRole([]) (x-user-id fallback rejected) + mandatory x-idempotency-key for every consequential service write
+- database/migrations/20260828203000 as the structural template for service_cases — state-machine table + append-only events table + SECURITY DEFINER atomic transition RPC + partial unique index for the single active case (§7, §10.3 idempotent bridge)
+- RLS template from #194 migrations — ENABLE+FORCE RLS, REVOKE anon/authenticated/PUBLIC, GRANT service_role, sequence grants — for every new service table
+- backend/services/trustDecision/canonicalTrustService.js refreshCanonicalTrust — the ONLY path that may move Trust (§14.2); trustPresentationChangeProducer shows the announce-after-single-write pattern
+- backend/services/communication/reconcileCommunicationDurability.js + communication_reconciliation_work — trigger-fed durable recovery pattern for required conversation bindings (§15.5 recoverable receipt, not pretended success)
+- backend/middleware/authMiddleware.js — authorizeRole/authorizeSessionRole/optionalAuth factories (optionalAuth is a FACTORY — must be invoked, a #194 route comment records the hang caused by passing it bare)
+- backend/services/report/canonicalVehicleLifecycleService.js — the single buyer-safe lifecycle read model; service history must feed it rather than fork a per-surface story
+- Migration marker contract — every #194 migration carries '-- +migrate Up', idempotent DDL, and a Down section; new-identity-migration convention (never edit a published file) demonstrated by 20260829003000/20260829020000
+
+**PR #194 delta** (24)
+- Communications: backend/services/communication/adapters/safeTradeDomainEventAdapter.js — the single dialect-normalization boundary; resolves recipient from the canonical session because emitter payloads carry no principal; the template for any future service domain-event adapter
+- Communications: backend/services/communication/communicationEventListeners.js — first-ever subscriptions for vehicle.ownership.transfer_{started,action_required,state_changed,completed}, vehicle.trust.presentation_changed, user.email.verified
+- Communications: database/migrations/20260826120000_email_1_0_hardening.sql — domain_events.dedupe_key trigger + communication_reconciliation_work trigger-fed recovery queue + trust announcement fingerprint column
+- Communications: backend/services/communication/reconcileCommunicationDurability.js — scheduled durability reconciler; work rows created by DB triggers in the same transaction as the state change
+- Communications: backend/services/communication/emailExperience/* — canonical email renderer/registry/persona/recipient-resolution; R1–R6 reference emails frozen with runtime previews
+- Intelligence: database/migrations/20260827120000_intelligence_activity_ledger.sql — marketplace_activity_events single analytical store; identity columns internal-only, server-derived; authority tables explicitly named as un-overridable
+- Intelligence: backend/services/intelligence/activityEventTypes.js — closed 23-type taxonomy, CLIENT_EMITTED vs SERVER_EMITTED, per-type metadata allowlist, reserved types gated on G10
+- Intelligence: backend/services/intelligence/serviceIntelligenceService.js — I9: mechanic projection never widens to tenant, garage projection never narrows to caller; SERVICE_INQUIRY_TYPES={garage_service_request,mechanic_service_request}; NOT_MEASURABLE registry (bookings, capacity, team/branch performance…) returned with reasons
+- Intelligence: backend/routes/intelligenceProjectionRoutes.js — /api/mechanic/analytics + /api/garage/analytics live now; 20260827130000 rollups + 20260828120000 recommendation suppression
+- Passport: database/migrations/20260828203000_passport_ownership_transfer_authority.sql — governed transfer writer beneath certified V7: state machine + append-only events + atomic begin/transition RPCs; completion atomically retires seller authority and seals history (commits 80cd6067, f864552f, 89a12da2)
+- Passport: backend/routes/passportOwnershipTransferRoutes.js + passportOwnershipTransferService.js — session-only, idempotency-key-mandatory transfer API
+- Passport: backend/services/passport/passportServicePartsProjection.js — V8 service/parts projection authority: whitelist projection of mechanic_work_orders, SERVICE_AUTHORITIES={professional_governed,owner_declared,partner_record,unknown}, free text and customer identity never projected
+- Passport: backend/services/passport/passportCommunicationIntent.js — communication intents as classes ('service_maintenance' reserved) with transport-key firewall; database/migrations/20260828220000 pins ownership_transfer_v1 template (in-app/transactional only)
+- Passport: ownership notifications redact counterparty IDs (commit d4a87e9a) — privacy precedent every service notification must follow
+- Trust: backend/services/trustDecision/trustPresentationChangeProducer.js + canonicalTrustService.js — refreshCanonicalTrust remains the ONE trust writer and now announces audience-safe presentation changes post-write with a durable fingerprint marker
+- Marketplace: backend/services/marketplace/marketplaceInquiryService.js — metadata allowlist gains buyer_intent/safepay_requested/fitment_* keys; createInquiry emits Intelligence observation via new 4th deps arg
+- Marketplace: backend/services/marketplace/marketplaceListingEligibility.js — year bounds sourced from taxonomy catalog (vehicleYearBounds), hardcoded 1980 removed; marketplacePartsService gains taxonomy-versioned fitment claims
+- Marketplace: media items gain synthetic_demo flag (marketplaceListingDetailService) + marketplace-reference media fixtures/workflows
+- EventBus: backend/services/eventBus/eventBusService.js — deterministicEventIdentity() closed registry {marketplace.inquiry.created, vehicle.trust.presentation_changed, user.email.verified} with dedupe-key 23505 recovery pinned to the DB trigger format
+- Seller/taxonomy: shared/taxonomy/vehicle/catalog.json + backend/services/taxonomy/vehicleTaxonomyService.js + 3 S0 migrations — global vehicle taxonomy with vehicles.*_taxon_id, governance observation queue, staging backfill runners
+- Seller: database/migrations/20260828160000 — listing_location_visibility gains province_only (privacy widening, digest-guarded no-rewrite)
+- issue158: 20260828210000 (prepare: custody columns + PREPARED rollout singleton) → 20260829003000 (generation authority upgrade) → 20260829020000 (DB-owned monotonic activation watermark) + blockchainKeyCustodyService (HMAC-derived keys, master secret env, no persisted private material) + manual drain/finalize scripts
+- Server: backend/server.js mounts intelligence x3 + passport transfer routers; vehiclesRoutes gains the canonicalVehicleLifecycleService single lifecycle read model with availability-stated reads (error never collapses to clean-history [])
+- Staging: web/preview-backend-pairing.json + vercel.json pin exact frontend SHA to exact backend (commits 0d2dc17a, a1826911) — pairing is proven, not assumed
+
+**Notes:** Branch origin/integration/vehicle-passport-v16-cert is 596 commits ahead of main (ba208963); head 24422686 (2026-08-29 15:03 +0900). The pr194.diff snapshot lags that head (it lacks commit 24422686's terminal-event content), and the PR worktree at /Users/shadreckmusarurwa/Project AI/carup-kimi carries further uncommitted issue158 work including an untracked 4th custody migration — so of the six contract surfaces Service Network waits on, five (Communications/email, Intelligence, Passport ownership transfer, Marketplace instrumentation+reference, Seller taxonomy/S3) are finalized-and-committed with certification receipts, while the issue158 custody chain is the one contract visibly still moving. Everything #194 ships is staging-only by explicit migration policy; production activation is separately owner-gated (plan Invariant 13 holds). The plan's §10/§11/§14/§15/§19 bindings all have concrete, already-landed anchor points listed in reuse; the two genuinely open S0 design questions are the marketplace target-garage bridge field (§10.2) and the 'service' business_workflow + service.* event namespace, both of which are absent from #194 by design rather than in conflict with it.
