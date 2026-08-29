@@ -6,14 +6,21 @@
  * and `@/hooks/useSellerVehicleIdentification`.
  */
 import { AlertTriangle, CheckCircle2, Info, Loader2 } from 'lucide-react'
+import { Button } from '@/components/ui/button'
 import { sellerIdentificationMessage, type SellerVehicleIdentification } from '@/lib/sellerVehicleIdentification'
 
 export function VehicleIdentificationNotice({
   result,
   checking,
+  confirmed = false,
+  onConfirm,
+  onUseDifferentVin,
 }: {
   result: SellerVehicleIdentification
   checking: boolean
+  confirmed?: boolean
+  onConfirm?: () => void
+  onUseDifferentVin?: () => void
 }) {
   if (checking) {
     return (
@@ -49,6 +56,30 @@ export function VehicleIdentificationNotice({
         <p className="mt-1 pl-6">
           CarUp will not copy that record's details into this form. Every fact below stays yours to state.
         </p>
+        {confirmed ? (
+          <div className="mt-3 ml-6 rounded-lg border border-emerald-200 bg-emerald-50 p-2.5 text-emerald-800" data-testid="sell-vin-passport-confirmed">
+            <p className="flex items-center gap-2 font-semibold">
+              <CheckCircle2 className="h-4 w-4" aria-hidden="true" />
+              Same vehicle confirmed. CarUp will reuse this Passport; it will not create a duplicate.
+            </p>
+            {onUseDifferentVin && (
+              <button type="button" onClick={onUseDifferentVin} className="mt-2 text-xs font-semibold underline underline-offset-2">
+                This is not my vehicle — use a different VIN
+              </button>
+            )}
+          </div>
+        ) : onConfirm ? (
+          <div className="mt-3 ml-6 flex flex-wrap gap-2" data-testid="sell-vin-passport-actions">
+            <Button type="button" size="sm" onClick={onConfirm} className="bg-amber-900 text-white hover:bg-amber-800">
+              Yes — this is the same vehicle
+            </Button>
+            {onUseDifferentVin && (
+              <Button type="button" size="sm" variant="outline" onClick={onUseDifferentVin}>
+                No — use another VIN
+              </Button>
+            )}
+          </div>
+        ) : null}
       </div>
     )
   }

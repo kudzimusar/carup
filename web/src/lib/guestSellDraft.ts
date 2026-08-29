@@ -33,6 +33,8 @@ export interface GuestSellDraft {
   imageLabels: string[]
   coverImageIndex: number | null
   historyPlan: Record<string, 'now' | 'later'>
+  existingPassportConfirmed: boolean
+  mediaExternalized: boolean
 }
 
 // Same-tab continuity should never depend on a browser quota write. This cache survives React Router
@@ -104,11 +106,14 @@ async function clearGuestSellMedia() {
   }
 }
 
-export async function saveGuestSellDraft(draft: Omit<GuestSellDraft, 'version' | 'saved_at'>) {
+export async function saveGuestSellDraft(
+  draft: Omit<GuestSellDraft, 'version' | 'saved_at' | 'mediaExternalized'>,
+) {
   const payload: GuestSellDraft = {
     ...draft,
     version: 1,
     saved_at: new Date().toISOString(),
+    mediaExternalized: false,
   }
 
   volatileMedia = [...payload.images]
@@ -123,7 +128,11 @@ export async function saveGuestSellDraft(draft: Omit<GuestSellDraft, 'version' |
     // Camera images routinely exceed the ~5–10 MB Web Storage budget. Preserve every business
     // field plus media annotations in sessionStorage, and move only the heavy image payload into
     // IndexedDB. Never silently convert "7 photos" into "0 photos" at the auth boundary.
-    const metadataPayload = { ...payload, images: [] as string[] }
+    const metadataPayload = {
+      ...payload,
+      images: [] as string[],
+      mediaExternalized: payload.images.length > 0,
+    }
     try {
       sessionStorage.setItem(GUEST_SELL_DRAFT_KEY, JSON.stringify(metadataPayload))
     } catch {
@@ -189,6 +198,8 @@ function parseGuestSellDraft(raw: string): GuestSellDraft | null {
               .filter(([, value]) => value === 'now' || value === 'later')
           ) as Record<string, 'now' | 'later'>
         : {},
+      existingPassportConfirmed: parsed.existingPassportConfirmed === true,
+      mediaExternalized: parsed.mediaExternalized === true,
     }
   } catch {
     return null
@@ -206,7 +217,7 @@ export function readGuestSellDraft(): GuestSellDraft | null {
 
 export async function readGuestSellDraftWithMedia(): Promise<GuestSellDraft | null> {
   const draft = readGuestSellDraft()
-  if (!draft || draft.images.length > 0 || draft.imageLabels.length === 0) return draft
+  if (!draft || draft.images.length > 0 || !draft.mediaExternalized) return draft
 
   try {
     const images = await readGuestSellMedia()

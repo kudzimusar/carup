@@ -64,6 +64,7 @@ const INITIAL = {
   features: [] as string[], images: [] as string[], imageLabels: [] as string[],
   coverImageIndex: null as number | null,
   historyPlan: {} as Record<string, HistoryEvidencePlanState>,
+  existingPassportConfirmed: false,
 }
 
 type GuestForm = typeof INITIAL
@@ -113,7 +114,11 @@ export default function GuestSell() {
   }, [fetchEvidenceTaxonomy, fetchEvidenceSources, historyCatalogAvailable])
 
   const set = <K extends keyof GuestForm>(key: K, value: GuestForm[K]) => {
-    setForm(previous => ({ ...previous, [key]: value }))
+    setForm(previous => ({
+      ...previous,
+      [key]: value,
+      ...(key === 'vin' ? { existingPassportConfirmed: false } : {}),
+    }))
     setDraftSaved(false)
   }
 
@@ -163,6 +168,9 @@ export default function GuestSell() {
       if (!form.model.trim()) next.model = 'Model is required'
       if (!isValidVehicleYear(form.year)) next.year = 'Enter a valid year'
       if (!validVin(form.vin)) next.vin = 'Enter the 17-character VIN'
+      else if (identification.state === 'passport_exists' && !form.existingPassportConfirmed) {
+        next.vin = 'Confirm whether this is the existing CarUp vehicle before continuing'
+      }
       if (!form.color.trim()) next.color = 'Colour is required'
     }
     if (step === 1) {
@@ -412,7 +420,13 @@ export default function GuestSell() {
                       <div className="mt-5">
                         <Field label="VIN" error={errors.vin} dark>
                           <Input value={form.vin} onChange={e => set('vin', e.target.value.toUpperCase())} maxLength={17} placeholder="17-character VIN" className="border-white/15 bg-white/10 font-mono text-white placeholder:text-slate-500" data-testid="guest-sell-vin" />
-                          <VehicleIdentificationNotice result={identification} checking={identifying} />
+                          <VehicleIdentificationNotice
+                            result={identification}
+                            checking={identifying}
+                            confirmed={form.existingPassportConfirmed}
+                            onConfirm={() => set('existingPassportConfirmed', true)}
+                            onUseDifferentVin={() => set('vin', '')}
+                          />
                         </Field>
                       </div>
                     </div>
