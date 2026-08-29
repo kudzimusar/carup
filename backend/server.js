@@ -2640,6 +2640,9 @@ app.post('/api/vehicles/add', authorizeRole(['dealer', 'owner', 'admin']), async
     if (reusedExistingPassport) {
       // Re-listing must never rewrite the Passport's canonical identity. Only seller-commercial
       // assertions and listing lifecycle fields are refreshed on the existing vehicle row.
+      const governedClaimantBecomesCurrentSeller = governedSellerEvidence
+        && existing.owner_id !== req.userContext.id
+        && existing.current_seller_id !== req.userContext.id;
       const reusableListingRow = {
         seller_description: listingRow.seller_description,
         seller_features: listingRow.seller_features,
@@ -2649,7 +2652,16 @@ app.post('/api/vehicles/add', authorizeRole(['dealer', 'owner', 'admin']), async
         seller_listing_recorded_at: listingRow.seller_listing_recorded_at,
         price: listingRow.price,
         currency: listingRow.currency,
-        current_seller_type: listingRow.current_seller_type,
+        // A verified authority claim establishes who is selling THIS listing, not who legally owns
+        // the Passport. owner_id and ownership history therefore remain untouched. For an owner-role
+        // claimant whose evidence establishes authority but not a completed legal transfer, use the
+        // neutral "Private" seller label rather than falsely publishing "Private Owner".
+        current_seller_id: governedClaimantBecomesCurrentSeller
+          ? req.userContext.id
+          : existing.current_seller_id,
+        current_seller_type: governedClaimantBecomesCurrentSeller && req.userContext.role === 'owner'
+          ? 'Private'
+          : listingRow.current_seller_type,
         public_seller_display_enabled: listingRow.public_seller_display_enabled,
         publication_status: 'draft',
       };
@@ -2819,15 +2831,16 @@ app.get('/api/vehicles/:vin/completeness', authorizeRole(['owner', 'dealer', 'ad
     if (req.userContext.role !== 'admin' && req.userContext.role !== 'reviewer') {
       const { data: vehicleRow, error: vehicleErr } = await supabase
         .from('vehicles')
-        .select('owner_id, tenant_id')
+        .select('owner_id, current_seller_id, tenant_id')
         .eq('vin', vin)
         .maybeSingle();
-      if (vehicleErr) return res.status(500).json({ error: 'Vehicle ownership lookup failed.' });
+      if (vehicleErr) return res.status(500).json({ error: 'Vehicle seller-scope lookup failed.' });
       if (!vehicleRow) return res.status(404).json({ error: `Vehicle not found: ${vin}` });
       const ownsVehicle = vehicleRow.owner_id && vehicleRow.owner_id === req.userContext.id;
+      const isCurrentSeller = vehicleRow.current_seller_id && vehicleRow.current_seller_id === req.userContext.id;
       const sameTenant = vehicleRow.tenant_id && vehicleRow.tenant_id === req.userContext.tenantId;
-      if (!ownsVehicle && !sameTenant) {
-        return res.status(403).json({ error: 'Forbidden. You do not have ownership or organizational scope over this vehicle.' });
+      if (!ownsVehicle && !isCurrentSeller && !sameTenant) {
+        return res.status(403).json({ error: 'Forbidden. You do not have owner, current-seller, or organizational scope over this vehicle.' });
       }
     }
     const result = await evaluateCompleteness(vin);

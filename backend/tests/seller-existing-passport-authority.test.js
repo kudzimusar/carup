@@ -55,3 +55,26 @@ test('existing Passport reuse is explicit and never rewrites ownership automatic
   assert.match(routes, /registration_document/);
   assert.match(routes, /ownership_transfer_document/);
 });
+
+
+test('governed Seller authority becomes listing scope without becoming legal ownership', () => {
+  const server = readFileSync(new URL('../server.js', import.meta.url), 'utf8');
+  const routes = readFileSync(new URL('../routes/vehiclesRoutes.js', import.meta.url), 'utf8');
+
+  assert.match(server, /governedClaimantBecomesCurrentSeller/);
+  assert.match(server, /current_seller_id:\s*governedClaimantBecomesCurrentSeller/);
+  assert.match(server, /current_seller_type:\s*governedClaimantBecomesCurrentSeller[\s\S]*?\? 'Private'/);
+  assert.match(server, /\.select\('owner_id, current_seller_id, tenant_id'\)[\s\S]*?isCurrentSeller/);
+
+  // Seller lifecycle endpoints recognize the governed current seller while legal ownership stays
+  // governed by the Passport transfer authority. Do not reintroduce owner_id into the reuse update.
+  assert.match(routes, /\.select\('vin, status, publication_status, owner_id, current_seller_id, tenant_id, price'\)/);
+  assert.match(routes, /const isCurrentSeller = vehicle\.current_seller_id/);
+  assert.match(routes, /owner, current-seller, or organizational scope/);
+
+  const reuseStart = server.indexOf('const governedClaimantBecomesCurrentSeller');
+  const reuseEnd = server.indexOf('if (insertError) throw insertError;', reuseStart);
+  const reuseBlock = server.slice(reuseStart, reuseEnd);
+  assert.doesNotMatch(reuseBlock, /owner_id\s*:/, 'reusing a Passport must not mutate legal owner_id');
+  assert.doesNotMatch(reuseBlock, /vehicle_ownership_history/, 'seller authority is not an ownership transfer');
+});

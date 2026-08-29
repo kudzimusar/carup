@@ -99,7 +99,7 @@ router.patch('/api/vehicles/:vin/status', authorizeRole(['admin', 'dealer', 'own
   // Fetch current status and ownership details
   const { data: vehicle, error: vehicleErr } = await supabase
     .from('vehicles')
-    .select('status, owner_id, tenant_id')
+    .select('status, owner_id, current_seller_id, tenant_id')
     .eq('vin', vin)
     .single();
 
@@ -110,9 +110,10 @@ router.patch('/api/vehicles/:vin/status', authorizeRole(['admin', 'dealer', 'own
   // belong to the tenant dealership (tenant_id matches req.userContext.tenantId)
   if (req.userContext.role !== 'admin') {
     const isOwner = vehicle.owner_id === req.userContext.id;
+    const isCurrentSeller = vehicle.current_seller_id && vehicle.current_seller_id === req.userContext.id;
     const isDealerTenant = vehicle.tenant_id && vehicle.tenant_id === req.userContext.tenantId;
-    if (!isOwner && !isDealerTenant) {
-      throw new ForbiddenError('Forbidden. You do not have ownership or organizational scope over this vehicle.');
+    if (!isOwner && !isCurrentSeller && !isDealerTenant) {
+      throw new ForbiddenError('Forbidden. You do not have owner, current-seller, or organizational scope over this vehicle.');
     }
   }
 
@@ -164,15 +165,16 @@ router.patch('/api/vehicles/:vin/status', authorizeRole(['admin', 'dealer', 'own
 async function loadScopedVehicle(req, vin) {
   const { data: vehicle, error: vehicleErr } = await supabase
     .from('vehicles')
-    .select('vin, status, publication_status, owner_id, tenant_id, price')
+    .select('vin, status, publication_status, owner_id, current_seller_id, tenant_id, price')
     .eq('vin', vin)
     .single();
   if (vehicleErr || !vehicle) throw new NotFoundError('Vehicle not found');
   if (req.userContext.role !== 'admin') {
     const isOwner = vehicle.owner_id === req.userContext.id;
+    const isCurrentSeller = vehicle.current_seller_id && vehicle.current_seller_id === req.userContext.id;
     const isDealerTenant = vehicle.tenant_id && vehicle.tenant_id === req.userContext.tenantId;
-    if (!isOwner && !isDealerTenant) {
-      throw new ForbiddenError('Forbidden. You do not have ownership or organizational scope over this vehicle.');
+    if (!isOwner && !isCurrentSeller && !isDealerTenant) {
+      throw new ForbiddenError('Forbidden. You do not have owner, current-seller, or organizational scope over this vehicle.');
     }
   }
   return vehicle;
@@ -414,9 +416,10 @@ function assertEvidenceOwnershipScope(vehicle, userContext) {
   if (activeRole === 'admin' || activeRole === 'government') return;
 
   const isOwner = vehicle.owner_id === userContext.id;
+  const isCurrentSeller = vehicle.current_seller_id && vehicle.current_seller_id === userContext.id;
   const isDealerTenant = vehicle.tenant_id && vehicle.tenant_id === userContext.tenantId;
-  if (!isOwner && !isDealerTenant) {
-    throw new ForbiddenError('Forbidden. You do not have ownership or organizational scope over this vehicle.');
+  if (!isOwner && !isCurrentSeller && !isDealerTenant) {
+    throw new ForbiddenError('Forbidden. You do not have owner, current-seller, or organizational scope over this vehicle.');
   }
 }
 
@@ -1148,7 +1151,7 @@ router.patch('/api/vehicles/:vin/evidence/:evidenceId/link-event', authorizeRole
   // Fetch vehicle details to verify ownership
   const { data: vehicle, error: vehicleErr } = await supabase
     .from('vehicles')
-    .select('owner_id, tenant_id')
+    .select('owner_id, current_seller_id, tenant_id')
     .eq('vin', vin)
     .single();
 
@@ -1162,9 +1165,10 @@ router.patch('/api/vehicles/:vin/evidence/:evidenceId/link-event', authorizeRole
 
   if (activeRole !== 'admin' && activeRole !== 'government') {
     const isOwner = vehicle.owner_id === activeUserId;
+    const isCurrentSeller = vehicle.current_seller_id && vehicle.current_seller_id === activeUserId;
     const isDealerTenant = vehicle.tenant_id && vehicle.tenant_id === activeTenantId;
-    if (!isOwner && !isDealerTenant) {
-      throw new ForbiddenError('Forbidden. You do not have ownership scope to link evidence.');
+    if (!isOwner && !isCurrentSeller && !isDealerTenant) {
+      throw new ForbiddenError('Forbidden. You do not have owner, current-seller, or organizational scope to link evidence.');
     }
   }
 
