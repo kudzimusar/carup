@@ -38,8 +38,8 @@ beforeEach(() => {
 })
 
 describe('guest Seller continuity metadata', () => {
-  it('carries photo angle labels, cover choice and evidence preparation through account handoff', () => {
-    expect(saveGuestSellDraft(DRAFT).ok).toBe(true)
+  it('carries photo angle labels, cover choice and evidence preparation through account handoff', async () => {
+    expect((await saveGuestSellDraft(DRAFT)).ok).toBe(true)
     const restored = readGuestSellDraft()
     expect(restored?.imageLabels).toEqual(DRAFT.imageLabels)
     expect(restored?.coverImageIndex).toBe(0)
@@ -61,8 +61,8 @@ describe('guest Seller continuity metadata', () => {
     expect(restored?.historyPlan).toEqual({})
   })
 
-  it('clears the enriched draft with the same canonical key', () => {
-    saveGuestSellDraft(DRAFT)
+  it('clears the enriched draft with the same canonical key', async () => {
+    await saveGuestSellDraft(DRAFT)
     clearGuestSellDraft()
     expect(readGuestSellDraft()).toBeNull()
   })

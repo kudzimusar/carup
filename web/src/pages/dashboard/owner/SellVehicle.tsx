@@ -12,7 +12,7 @@ import { zimbabweLocations, zimbabweProvinces } from '@/data/mockData'
 import { useCarUpApi } from '@/hooks/useCarUpApi'
 import { VehicleCompletenessPanel } from '@/components/VehicleCompletenessPanel'
 import { ListingQualityPanel } from '@/components/sell/ListingQualityPanel'
-import { clearGuestSellDraft, readGuestSellDraft } from '@/lib/guestSellDraft'
+import { clearGuestSellDraft, readGuestSellDraft, readGuestSellDraftWithMedia } from '@/lib/guestSellDraft'
 import { sellerDiscoverabilityFacets } from '@/lib/sellerListingPreview'
 import { LISTING_IMAGE_LIMIT, screenListingImages } from '@/lib/listingMediaIntake'
 import { VehicleIdentificationNotice } from '@/components/sell/VehicleIdentificationNotice'
@@ -146,6 +146,34 @@ export default function SellVehicle() {
   // `null` is the honest state for a question not answered, and it is what the server's media
   // contract already expects: a bare URL claims nothing, and only `is_primary: true` is a claim.
   const [coverImageIndex, setCoverImageIndex] = useState<number | null>(() => guestDraft?.coverImageIndex ?? null)
+  const [guestMediaRestoring, setGuestMediaRestoring] = useState(
+    () => Boolean(guestDraft && guestDraft.images.length === 0 && guestDraft.imageLabels.length > 0),
+  )
+
+  useEffect(() => {
+    if (!guestMediaRestoring) return
+
+    let active = true
+    readGuestSellDraftWithMedia()
+      .then(restored => {
+        if (!active || !restored) return
+        if (restored.images.length > 0) {
+          setForm(previous => ({
+            ...previous,
+            images: restored.images,
+            imageLabels: restored.imageLabels,
+          }))
+          setCoverImageIndex(restored.coverImageIndex)
+        } else {
+          toast.error('Your vehicle details were restored, but the browser could not recover the attached photos.')
+        }
+      })
+      .finally(() => {
+        if (active) setGuestMediaRestoring(false)
+      })
+
+    return () => { active = false }
+  }, [guestMediaRestoring])
 
   /**
    * Move one photo one step. The stored order IS the submitted array order — the write path
@@ -397,6 +425,20 @@ export default function SellVehicle() {
             Open this vehicle&rsquo;s Passport
           </Link>
         </div>
+      </div>
+    )
+  }
+
+  if (guestMediaRestoring) {
+    return (
+      <div className="max-w-3xl mx-auto">
+        <Card className="border-0 card-shadow">
+          <CardContent className="p-8 text-center" data-testid="seller-guest-media-restoring">
+            <Loader2 className="mx-auto h-7 w-7 animate-spin text-orange-500" />
+            <p className="mt-3 font-semibold text-slate-900">Restoring your complete Seller draft…</p>
+            <p className="mt-1 text-sm text-slate-500">Vehicle details, photo labels and your chosen cover are being recovered from this browser.</p>
+          </CardContent>
+        </Card>
       </div>
     )
   }

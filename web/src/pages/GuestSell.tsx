@@ -229,18 +229,25 @@ export default function GuestSell() {
     setFeature('')
   }
 
-  const saveForAccount = () => {
-    const result = saveGuestSellDraft(form)
-    if (!result.ok) {
-      toast.error('This browser could not keep the draft for sign-in. Keep this page open and try again.')
-      return
+  const [savingForAccount, setSavingForAccount] = useState(false)
+
+  const saveForAccount = async () => {
+    setSavingForAccount(true)
+    try {
+      const result = await saveGuestSellDraft(form)
+      if (!result.ok) {
+        toast.error('This browser could not keep the complete draft for sign-in. Keep this page open and try again.')
+        return
+      }
+      if (result.media_externalized) {
+        toast.success('Draft ready. Your photos are secured in this browser while you create or sign in to your account.')
+      } else {
+        toast.success('Draft ready. Your account will claim and persist it only after you sign in.')
+      }
+      setDraftSaved(true)
+    } finally {
+      setSavingForAccount(false)
     }
-    if (result.images_omitted) {
-      toast.info('Your vehicle details are saved. Re-attach the photos after sign-in because the browser draft was too large.')
-    } else {
-      toast.success('Draft ready. Your account will claim and persist it only after you sign in.')
-    }
-    setDraftSaved(true)
   }
 
   const completeness = useMemo(() => {
@@ -671,8 +678,8 @@ export default function GuestSell() {
                     </div>
                   </div>
 
-                  <Button type="button" onClick={saveForAccount} className="h-12 w-full rounded-2xl bg-slate-950 text-white hover:bg-orange-600" data-testid="guest-sell-commit">
-                    <ShieldCheck className="mr-2 h-4 w-4" /> {isAuthenticated ? 'Continue to save this draft' : 'Continue with an account to save'}
+                  <Button type="button" onClick={saveForAccount} disabled={savingForAccount} className="h-12 w-full rounded-2xl bg-slate-950 text-white hover:bg-orange-600" data-testid="guest-sell-commit">
+                    <ShieldCheck className="mr-2 h-4 w-4" /> {savingForAccount ? 'Securing complete draft…' : isAuthenticated ? 'Continue to save this draft' : 'Continue with an account to save'}
                   </Button>
                   {draftSaved && (
                     <div className="grid gap-2 sm:grid-cols-2" data-testid="guest-sell-auth-options">

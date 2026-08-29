@@ -1,5 +1,9 @@
 export const GUEST_SELL_DRAFT_KEY = 'carup_guest_sell_draft_v1'
 
+const GUEST_SELL_MEDIA_DB = 'carup_guest_sell_draft_media_v1'
+const GUEST_SELL_MEDIA_STORE = 'draft_media'
+const GUEST_SELL_MEDIA_KEY = 'active'
+
 export interface GuestSellDraft {
   version: 1
   saved_at: string
@@ -31,33 +35,124 @@ export interface GuestSellDraft {
   historyPlan: Record<string, 'now' | 'later'>
 }
 
-export function saveGuestSellDraft(draft: Omit<GuestSellDraft, 'version' | 'saved_at'>) {
+// Same-tab continuity should never depend on a browser quota write. This cache survives React Router
+// navigation through register/login and is cleared with the canonical draft. IndexedDB below is the
+// durable browser fallback for hard reloads and for large camera files that exceed sessionStorage.
+let volatileMedia: string[] | null = null
+
+function openMediaDb(): Promise<IDBDatabase | null> {
+  if (typeof indexedDB === 'undefined') return Promise.resolve(null)
+  return new Promise((resolve, reject) => {
+    const request = indexedDB.open(GUEST_SELL_MEDIA_DB, 1)
+    request.onupgradeneeded = () => {
+      if (!request.result.objectStoreNames.contains(GUEST_SELL_MEDIA_STORE)) {
+        request.result.createObjectStore(GUEST_SELL_MEDIA_STORE)
+      }
+    }
+    request.onsuccess = () => resolve(request.result)
+    request.onerror = () => reject(request.error || new Error('Could not open guest Seller media store'))
+  })
+}
+
+async function writeGuestSellMedia(images: string[]) {
+  const db = await openMediaDb()
+  if (!db) return false
+  try {
+    await new Promise<void>((resolve, reject) => {
+      const tx = db.transaction(GUEST_SELL_MEDIA_STORE, 'readwrite')
+      tx.objectStore(GUEST_SELL_MEDIA_STORE).put(images, GUEST_SELL_MEDIA_KEY)
+      tx.oncomplete = () => resolve()
+      tx.onerror = () => reject(tx.error || new Error('Could not persist guest Seller media'))
+      tx.onabort = () => reject(tx.error || new Error('Guest Seller media persistence aborted'))
+    })
+    return true
+  } finally {
+    db.close()
+  }
+}
+
+async function readGuestSellMedia() {
+  if (volatileMedia) return [...volatileMedia]
+  const db = await openMediaDb()
+  if (!db) return []
+  try {
+    return await new Promise<string[]>((resolve, reject) => {
+      const tx = db.transaction(GUEST_SELL_MEDIA_STORE, 'readonly')
+      const request = tx.objectStore(GUEST_SELL_MEDIA_STORE).get(GUEST_SELL_MEDIA_KEY)
+      request.onsuccess = () => resolve(Array.isArray(request.result) ? request.result.map(String) : [])
+      request.onerror = () => reject(request.error || new Error('Could not restore guest Seller media'))
+    })
+  } finally {
+    db.close()
+  }
+}
+
+async function clearGuestSellMedia() {
+  volatileMedia = null
+  const db = await openMediaDb().catch(() => null)
+  if (!db) return
+  try {
+    await new Promise<void>((resolve) => {
+      const tx = db.transaction(GUEST_SELL_MEDIA_STORE, 'readwrite')
+      tx.objectStore(GUEST_SELL_MEDIA_STORE).delete(GUEST_SELL_MEDIA_KEY)
+      tx.oncomplete = () => resolve()
+      tx.onerror = () => resolve()
+      tx.onabort = () => resolve()
+    })
+  } finally {
+    db.close()
+  }
+}
+
+export async function saveGuestSellDraft(draft: Omit<GuestSellDraft, 'version' | 'saved_at'>) {
   const payload: GuestSellDraft = {
     ...draft,
     version: 1,
     saved_at: new Date().toISOString(),
   }
+
+  volatileMedia = [...payload.images]
+
   try {
+    // Small drafts stay self-contained and synchronous to read.
     sessionStorage.setItem(GUEST_SELL_DRAFT_KEY, JSON.stringify(payload))
-    return { ok: true as const }
+    await clearGuestSellMedia()
+    volatileMedia = [...payload.images]
+    return { ok: true as const, media_externalized: false as const }
   } catch {
-    // Large camera files can exceed sessionStorage. Keep the business fields and ask the newly
-    // authenticated seller to re-attach the images rather than silently dropping the whole draft.
+    // Camera images routinely exceed the ~5–10 MB Web Storage budget. Preserve every business
+    // field plus media annotations in sessionStorage, and move only the heavy image payload into
+    // IndexedDB. Never silently convert "7 photos" into "0 photos" at the auth boundary.
+    const metadataPayload = { ...payload, images: [] as string[] }
     try {
-      sessionStorage.setItem(GUEST_SELL_DRAFT_KEY, JSON.stringify({ ...payload, images: [], imageLabels: [], coverImageIndex: null }))
-      return { ok: true as const, images_omitted: true as const }
+      sessionStorage.setItem(GUEST_SELL_DRAFT_KEY, JSON.stringify(metadataPayload))
     } catch {
+      volatileMedia = null
+      return { ok: false as const }
+    }
+
+    try {
+      const persisted = await writeGuestSellMedia(payload.images)
+      if (payload.images.length > 0 && !persisted) {
+        sessionStorage.removeItem(GUEST_SELL_DRAFT_KEY)
+        volatileMedia = null
+        return { ok: false as const }
+      }
+      return { ok: true as const, media_externalized: payload.images.length > 0 as const }
+    } catch {
+      sessionStorage.removeItem(GUEST_SELL_DRAFT_KEY)
+      volatileMedia = null
       return { ok: false as const }
     }
   }
 }
 
-export function readGuestSellDraft(): GuestSellDraft | null {
+function parseGuestSellDraft(raw: string): GuestSellDraft | null {
   try {
-    const raw = sessionStorage.getItem(GUEST_SELL_DRAFT_KEY)
-    if (!raw) return null
     const parsed = JSON.parse(raw) as Partial<GuestSellDraft>
     if (parsed.version !== 1 || typeof parsed.vin !== 'string') return null
+    const storedImages = Array.isArray(parsed.images) ? parsed.images : []
+    const images = storedImages.length > 0 ? storedImages : (volatileMedia ? [...volatileMedia] : [])
     return {
       version: 1,
       saved_at: typeof parsed.saved_at === 'string' ? parsed.saved_at : '',
@@ -83,7 +178,7 @@ export function readGuestSellDraft(): GuestSellDraft | null {
       tempPlateId: parsed.tempPlateId || '',
       importStatus: parsed.importStatus || '',
       features: Array.isArray(parsed.features) ? parsed.features : [],
-      images: Array.isArray(parsed.images) ? parsed.images : [],
+      images,
       imageLabels: Array.isArray(parsed.imageLabels) ? parsed.imageLabels.map(value => String(value || '')) : [],
       coverImageIndex: typeof parsed.coverImageIndex === 'number' && Number.isInteger(parsed.coverImageIndex)
         ? parsed.coverImageIndex
@@ -100,6 +195,31 @@ export function readGuestSellDraft(): GuestSellDraft | null {
   }
 }
 
+export function readGuestSellDraft(): GuestSellDraft | null {
+  try {
+    const raw = sessionStorage.getItem(GUEST_SELL_DRAFT_KEY)
+    return raw ? parseGuestSellDraft(raw) : null
+  } catch {
+    return null
+  }
+}
+
+export async function readGuestSellDraftWithMedia(): Promise<GuestSellDraft | null> {
+  const draft = readGuestSellDraft()
+  if (!draft || draft.images.length > 0 || draft.imageLabels.length === 0) return draft
+
+  try {
+    const images = await readGuestSellMedia()
+    if (images.length === 0) return draft
+    volatileMedia = [...images]
+    return { ...draft, images }
+  } catch {
+    return draft
+  }
+}
+
 export function clearGuestSellDraft() {
   try { sessionStorage.removeItem(GUEST_SELL_DRAFT_KEY) } catch { /* best effort */ }
+  volatileMedia = null
+  void clearGuestSellMedia()
 }
