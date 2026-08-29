@@ -119,6 +119,7 @@ import serviceCaseRouter from './routes/serviceCaseRoutes.js';
 import serviceWorkOrderRouter from './routes/serviceWorkOrderRoutes.js';
 import serviceRecordRouter from './routes/serviceRecordRoutes.js';
 import serviceLinkRouter from './routes/serviceLinkRoutes.js';
+import garageQueueRouter from './routes/garageQueueRoutes.js';
 import { getOwnerServiceHistory } from './services/serviceNetwork/ownerServiceHistoryService.js';
 import { normalizeVehicleStatus, publicVehicleStatusFilterValues, publiclyVisiblePublicationStatuses, isPublicVehicleStatus, isPubliclyVisiblePublication, PUBLIC_VEHICLE_COLUMNS } from './utils/vehicleStatus.js';
 import { attestedValue, CLAIM_VISIBILITY, LISTING_CLAIM_COLUMNS, PUBLIC_VEHICLE_SELECT, projectVehicle, toListingClaims, toPublicEvidence, toPublicPlateHistory, toPublicTimelineEvent } from './utils/publicVehicleProjection.js';
@@ -346,6 +347,7 @@ app.use(serviceCaseRouter);
 app.use(serviceWorkOrderRouter);
 app.use(serviceRecordRouter);
 app.use(serviceLinkRouter);
+app.use(garageQueueRouter);
 
 // Mount isolated Diaspora Trade bounded context
 app.use('/api/diaspora', diasporaRouter);
