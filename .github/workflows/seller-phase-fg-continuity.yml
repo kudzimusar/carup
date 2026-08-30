@@ -10,6 +10,7 @@ on:
       - 'backend/services/marketplace/**'
       - 'backend/tests/issue164-phase5-media-contract.test.js'
       - 'database/migrations/20260830123000_seller_listing_photo_labels.sql'
+      - 'database/migrations/20260831100000_seller_listing_submission_id.sql'
       - 'shared/types/marketplace.ts'
       - 'web/src/lib/guestSellDraft.ts'
       - 'web/src/lib/listingMedia.ts'
@@ -18,6 +19,8 @@ on:
       - 'web/src/pages/SellFlow.media.test.tsx'
       - 'web/src/pages/SellerResume.contract.test.ts'
       - 'web/src/lib/guestSellDraft.continuity.test.ts'
+      - 'web/src/lib/guestSellDraft.annotations.test.ts'
+      - 'backend/tests/seller-listing-idempotency.test.js'
       - 'tests/agents/38-seller-staging-browser-golden.spec.ts'
       - '.github/workflows/seller-phase-fg-continuity.yml'
   workflow_dispatch: {}
@@ -38,12 +41,16 @@ jobs:
           node-version: 20
           cache: npm
       - run: npm ci
-      - name: Canonical media/write authority contract
-        run: node --test backend/tests/issue164-phase5-media-contract.test.js
+      - name: Canonical media/write and idempotency authority contracts
+        run: |
+          node --test \
+            backend/tests/issue164-phase5-media-contract.test.js \
+            backend/tests/seller-listing-idempotency.test.js
       - name: Seller browser/server continuity contracts
         run: |
           npm run test:unit --workspace=web -- \
             src/lib/guestSellDraft.continuity.test.ts \
+            src/lib/guestSellDraft.annotations.test.ts \
             src/pages/SellerResume.contract.test.ts \
             src/pages/SellFlow.media.test.tsx
       - name: Web typecheck/build
