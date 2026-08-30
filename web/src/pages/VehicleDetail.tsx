@@ -248,6 +248,18 @@ function toMediaIdentity(value: unknown): string | null {
   return trimmed.toLowerCase()
 }
 
+function toSellerOrder(value: unknown): number | null {
+  return typeof value === 'number' && Number.isFinite(value) && value >= 0
+    ? Math.trunc(value)
+    : null
+}
+
+function toPhotoLabel(value: unknown): string | null {
+  if (typeof value !== 'string') return null
+  const trimmed = value.trim()
+  return trimmed ? trimmed.slice(0, 80) : null
+}
+
 /**
  * Classify a media URL string. `null` means unpublishable. Order matters: `//` must be tested before
  * the single-slash case, or a foreign host would be published as if it resolved against our origin.
@@ -325,7 +337,16 @@ function toListingMediaBlock(rows: WireMarketplaceMedia[] | null | undefined): M
   if (!Array.isArray(rows)) return notLoadedBlock()
 
   let unpublishable = 0
-  const candidates: Array<{ mediaId: string | null; url: string; form: MediaUrlForm; claimsPrimary: boolean; syntheticDemo: boolean; index: number }> = []
+  const candidates: Array<{
+    mediaId: string | null
+    url: string
+    form: MediaUrlForm
+    claimsPrimary: boolean
+    syntheticDemo: boolean
+    sellerOrder: number | null
+    photoLabel: string | null
+    index: number
+  }> = []
   const identitiesTaken = new Set<string>()
   rows.forEach((row, index) => {
     // Video and document entries are not gallery photos. They are not "unpublishable" either — the
@@ -354,6 +375,8 @@ function toListingMediaBlock(rows: WireMarketplaceMedia[] | null | undefined): M
       form,
       claimsPrimary: row.is_primary === true,
       syntheticDemo: row.synthetic_demo === true || String(row.url).includes('/marketplace-reference-synthetic/'),
+      sellerOrder: toSellerOrder(row.seller_order),
+      photoLabel: toPhotoLabel(row.photo_label),
       index,
     })
   })
@@ -384,7 +407,16 @@ function toListingMediaBlock(rows: WireMarketplaceMedia[] | null | undefined): M
     // those photos would blank the gallery of every such vehicle — the original defect, re-entered
     // through the identity door. A photograph we cannot name is still a photograph the seller
     // added; only the ability to NAME it is missing, and the page says which.
-    return { media_id: candidate.mediaId, url: candidate.url, url_form: candidate.form, position, is_primary: isPrimary, synthetic_demo: candidate.syntheticDemo }
+    return {
+      media_id: candidate.mediaId,
+      url: candidate.url,
+      url_form: candidate.form,
+      position,
+      seller_order: candidate.sellerOrder,
+      is_primary: isPrimary,
+      synthetic_demo: candidate.syntheticDemo,
+      photo_label: candidate.photoLabel,
+    }
   })
 
   return sealBlock(items.length ? 'published' : 'none', items, unpublishable, LISTING_MEDIA_EMPTY_STATEMENT)
@@ -596,8 +628,10 @@ function readListingMediaBlock(raw: unknown): MediaBlock<ListingMediaItem> | nul
       url: String(entry.url).trim(),
       url_form: form,
       position: items.length,
+      seller_order: toSellerOrder(entry.seller_order),
       is_primary: isPrimary,
       synthetic_demo: entry.synthetic_demo === true || String(entry.url).includes('/marketplace-reference-synthetic/'),
+      photo_label: toPhotoLabel(entry.photo_label),
     })
   }
   // The SENTENCE is ours, not the server's. `empty_statement` arrives on the wire, but rendering a
