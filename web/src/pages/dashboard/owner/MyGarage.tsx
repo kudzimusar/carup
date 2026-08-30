@@ -48,7 +48,7 @@ function contextualAction(vehicle: Vehicle) {
     || publication !== 'draft',
   )
 
-  if (publication === 'published') {
+  if (vehicle.publication_status === 'published') {
     return { label: 'Manage listing', href: '/dashboard/listings', testId: `garage-manage-${vehicle.vin}` }
   }
   if (hasSellerThread) {
@@ -183,7 +183,7 @@ export default function MyGarage() {
                       </p>
                     </div>
                     <div className="border-l-2 border-orange-500 pl-4 text-right">
-                      <p className="text-[10px] font-black uppercase tracking-[0.17em] text-slate-400">Recorded asking price</p>
+                      <p className="text-[10px] font-black uppercase tracking-[0.17em] text-slate-400">Asking Price</p>
                       <p className="mt-1 text-xl font-black text-slate-950" data-testid={`vehicle-price-${vehicle.vin}`}>
                         {statedPrice(vehicle.price)}
                       </p>
@@ -197,8 +197,9 @@ export default function MyGarage() {
                     </div>
                     <div className="bg-white px-4 py-4">
                       <p className="text-[10px] font-black uppercase tracking-[0.16em] text-slate-400">Commerce lifecycle</p>
-                      <p className="mt-2 text-sm font-bold text-slate-800" data-testid={`vehicle-status-${vehicle.vin}`}>
-                        {publication}
+                      <p className="mt-2 text-sm font-bold text-slate-800">{publication}</p>
+                      <p className="mt-1 text-xs text-slate-500" data-testid={`vehicle-status-${vehicle.vin}`}>
+                        {vehicle.status ? `Availability: ${vehicle.status}` : 'Status not recorded'}
                       </p>
                     </div>
                     <div className="bg-white px-4 py-4">
@@ -212,23 +213,18 @@ export default function MyGarage() {
                       <div className="flex items-end justify-between gap-3">
                         <div>
                           <p className="text-[10px] font-black uppercase tracking-[0.16em] text-slate-400">Canonical Trust</p>
-                          <p className="mt-2 text-sm font-bold text-slate-800">
-                            {trust.score !== null ? `${trust.score} / 100 · ${trust.headline}` : trust.headline}
-                          </p>
+                          {trust.score !== null ? (
+                            <p className="mt-2 text-sm font-bold text-slate-800" data-testid={`trust-claim-score-${vehicle.vin}`}>
+                              {trust.score} / 100 · {trust.headline}
+                            </p>
+                          ) : (
+                            <p className="mt-2 text-sm font-bold text-slate-500" data-testid={`trust-claim-state-${vehicle.vin}`}>
+                              {trust.headline}
+                            </p>
+                          )}
                         </div>
-                        {trust.score !== null && (
-                          <span className="font-mono text-xs text-slate-500" data-testid={`trust-claim-score-${vehicle.vin}`}>
-                            evaluated
-                          </span>
-                        )}
                       </div>
-                      {trust.score !== null ? (
-                        <Progress value={trust.score} className="mt-3 h-1.5" />
-                      ) : (
-                        <p className="mt-2 text-xs leading-5 text-slate-500" data-testid={`trust-claim-state-${vehicle.vin}`}>
-                          No decorative score substitutes for an unavailable canonical assessment.
-                        </p>
-                      )}
+                      {trust.score !== null && <Progress value={trust.score} className="mt-3 h-1.5" />}
                     </div>
 
                     <div>
