@@ -6,10 +6,11 @@
  * Chrome and Pixel 5 by playwright.staging.config.ts.
  *
  * Coverage:
- *   draft create + persisted listing media -> My Garage -> owner Passport -> authenticated buyer
- *   preview (not public / no buyer transaction controls) -> publish refusal -> ownership evidence ->
- *   reviewer verification -> publish -> public Marketplace -> guest inquiry -> Seller Communications
- *   -> Seller Intelligence -> price change -> unpublish -> sold.
+ *   integration lifecycle proof only. This test is deliberately NOT the human-facing Golden Seller
+ *   Journey from the canonical remediation plan; that journey must enter through Home/Sell and the
+ *   real Seller UI. This lower-level deployed acceptance still proves governed create/media,
+ *   publication, inquiry and retirement contracts, and now guarantees it cannot contaminate human UAT.
+ *
  */
 import { readFileSync } from 'node:fs';
 import type { APIRequestContext, Page } from '@playwright/test';
@@ -40,8 +41,14 @@ interface EnvTruth {
 const SELLER_EMAIL = 'uat.buyer@carup-staging.test';
 const REVIEWER_EMAIL = 'uat.reviewer@carup-staging.test';
 
-// Valid 1x1 PNG. The media/evidence routes verify magic bytes before storage.
-const ONE_PIXEL_PNG =
+// Human-facing visual acceptance must never be satisfied by a technically valid but visually
+// meaningless 1x1 image. This 96x64 PNG has distinct vehicle-like geometry and is large enough for
+// browser naturalWidth/naturalHeight assertions while remaining tiny in CI.
+const VISUAL_TEST_PNG =
+  'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAGAAAABACAIAAABqVuVZAAABZklEQVR4nO2bIVIDQRBFNxRoTEwQGBQGgcegsRwiJ8ohsGgMh8AjwMSgMbGphOTNzvT0pqj3XHZru3+97cnspiqzxc39IIc5mzrAqaMgQEGAggAFAQoCFAQoCFAQoCBAQYCCAAUBCgIUBCgIUBBwHljr/e01sFoLD49PUaWcIEBBgIIABQEKAhQEKAhQEKAgQEGAgoCD72Ifz59ja63bogRSEX4YhtuX6/2DThCgIEBBgIIABQEKAiJ/cp2v7gKrnQhOEKAgQEGAggAFAQoCwrb5q9XF9sev5W9U5WkzBAjaibV9ME1TvwytS+zPZIVno+iaoUlQSe/ejnpnqBdU3rWfo4QM7mJApaCxN6THEOVkmNX9JfNn/T32ksv5oqLR5BlcYoCCAAUBlYLGLubwL6C0DE4QUC+o/Ib0GJ+0DE0TVNK1n52cDK1L7Hjv3nYSMlQ+KO6z89iWoyYhQ5ig/4q7GKAgYAPmszSenKqEXgAAAABJRU5ErkJggg==';
+
+// Evidence transport only needs a valid image document; it is not a visual-product fixture.
+const EVIDENCE_TEST_PNG =
   'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9WlYV1sAAAAASUVORK5CYII=';
 
 function envTruth(): EnvTruth {
@@ -107,6 +114,42 @@ async function reviewerAuth(request: APIRequestContext): Promise<SessionAuth> {
   return { token: body.token!, user: body.user! };
 }
 
+async function retireAutomationVehicle(
+  request: APIRequestContext,
+  vin: string,
+  sellerMutationHeaders: Record<string, string>,
+) {
+  // Cleanup is part of the acceptance contract. It must run even when the test fails midway so an
+  // automated vehicle can never become human-UAT inventory, a Home hero, a count, or a recommendation.
+  const unpublish = await request.post(`${API_URL}/vehicles/${vin}/unpublish`, {
+    headers: sellerMutationHeaders,
+    data: {},
+  });
+  expect([200, 404], `automation cleanup could not unpublish ${vin}: ${await unpublish.text()}`).toContain(unpublish.status());
+
+  const sold = await request.patch(`${API_URL}/vehicles/${vin}/status`, {
+    headers: sellerMutationHeaders,
+    data: { status: 'sold' },
+  });
+  expect([200, 404], `automation cleanup could not retire ${vin}: ${await sold.text()}`).toContain(sold.status());
+
+  const discovery = await request.get(`${API_URL}/marketplace/listings?q=${encodeURIComponent(vin)}`);
+  expect(discovery.status(), `automation cleanup could not verify Marketplace removal for ${vin}`).toBe(200);
+  const body = await discovery.json() as { listings?: Array<{ vin?: string }> };
+  expect((body.listings || []).some((listing) => listing.vin === vin), `automation vehicle ${vin} still contaminates public Marketplace`).toBe(false);
+}
+
+async function expectMeaningfulRenderedImage(page: Page) {
+  const image = page.getByTestId('listing-media-primary').locator('img').first();
+  await expect(image).toBeVisible();
+  const size = await image.evaluate((node: HTMLImageElement) => ({
+    width: node.naturalWidth,
+    height: node.naturalHeight,
+  }));
+  expect(size.width, 'visual acceptance image is too narrow to be meaningful').toBeGreaterThanOrEqual(64);
+  expect(size.height, 'visual acceptance image is too short to be meaningful').toBeGreaterThanOrEqual(40);
+}
+
 test.describe('Golden Dynamic Seller — exact-head deployed acceptance', () => {
   test('fresh Seller lifecycle holds end-to-end without a seed/reference vehicle', async ({ page, request }, testInfo) => {
     const truth = envTruth();
@@ -117,19 +160,22 @@ test.describe('Golden Dynamic Seller — exact-head deployed acceptance', () => 
     const suffix = sixDigits(`${RUN_ID}-${testInfo.project.name}`);
     const vin = `JTDKARFP0H3${suffix}`;
     const newPrice = 29_000;
+    let sellerMutationHeaders: Record<string, string> | null = null;
+    let vehicleCreated = false;
 
+    try {
     // Use the real login UI. The staging "buyer" identity is role=owner and therefore is also a
     // legitimate private Seller; no privileged role is needed to sell the owner's own vehicle.
     await signInViaUi(page, 'buyer');
     await expect(page.locator('body')).not.toContainText(/permission denied|42501/i);
     const sellerAuth = await authFromPage(page);
     expect(sellerAuth.user.role).toBe('owner');
-    const sellerMutationHeaders = await mutationHeaders(request, sellerAuth);
+    sellerMutationHeaders = await mutationHeaders(request, sellerAuth);
 
     // Listing media is uploaded before the vehicle exists, exactly as Seller Studio does.
     const mediaResponse = await request.post(`${API_URL}/media/upload/vehicle`, {
       headers: sellerMutationHeaders,
-      data: { vin, images: [ONE_PIXEL_PNG] },
+      data: { vin, images: [VISUAL_TEST_PNG] },
     });
     expect(mediaResponse.status(), await mediaResponse.text()).toBe(200);
     const mediaBody = await mediaResponse.json() as { urls?: string[] };
@@ -184,6 +230,7 @@ test.describe('Golden Dynamic Seller — exact-head deployed acceptance', () => 
     expect(created.images_unpublishable_count).toBe(0);
     expect(created.images_replacement_complete).not.toBe(false);
     expect(created.location_recorded).toBe(true);
+    vehicleCreated = true;
 
     // Owner convergence: the same dynamic VIN exists in Garage and My Listings.
     await page.goto('/dashboard/garage');
@@ -198,6 +245,7 @@ test.describe('Golden Dynamic Seller — exact-head deployed acceptance', () => 
     await page.goto(`/marketplace/${vin}`);
     await expect(page.getByTestId('vehicle-detail-intelligence-hero')).toBeVisible({ timeout: 20_000 });
     await expect(page.getByTestId('listing-media-primary')).toBeVisible();
+    await expectMeaningfulRenderedImage(page);
     await expect(page.getByTestId('marketplace-inquiry-open')).toHaveCount(0);
 
     // Publication must fail while the blocking ownership evidence is genuinely absent.
@@ -219,7 +267,7 @@ test.describe('Golden Dynamic Seller — exact-head deployed acceptance', () => 
       headers: sellerMutationHeaders,
       data: {
         evidence_type: 'registration_document',
-        file: ONE_PIXEL_PNG,
+        file: EVIDENCE_TEST_PNG,
         visibility_level: 'restricted',
         verification_notes: `Golden Dynamic Seller ${RUN_ID} registration evidence`,
       },
@@ -262,6 +310,7 @@ test.describe('Golden Dynamic Seller — exact-head deployed acceptance', () => 
     await publicLink.click();
     await expect(page.getByTestId('vehicle-detail-primary-actions')).toBeVisible({ timeout: 20_000 });
     await expect(page.getByTestId('listing-media-primary')).toBeVisible();
+    await expectMeaningfulRenderedImage(page);
 
     // Real guest buyer intent -> governed Marketplace inquiry -> Communications bridge.
     await page.getByTestId('marketplace-inquiry-open').first().click();
@@ -316,5 +365,10 @@ test.describe('Golden Dynamic Seller — exact-head deployed acceptance', () => 
 
     // Keep these literal identities referenced so accidental fixture drift is caught by review.
     expect(SELLER_EMAIL).toBe('uat.buyer@carup-staging.test');
+    } finally {
+      if (vehicleCreated && sellerMutationHeaders) {
+        await retireAutomationVehicle(request, vin, sellerMutationHeaders);
+      }
+    }
   });
 });
