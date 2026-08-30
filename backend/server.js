@@ -640,7 +640,7 @@ async function ownerListingMedia(vins) {
   try {
     const { data, error } = await supabase
       .from('listing_images')
-      .select('id, vin, image_url, is_primary, display_order')
+      .select('id, vin, image_url, is_primary, display_order, photo_label')
       .in('vin', wanted);
     // `error` leaves `rows` null on purpose: see the note above.
     if (!error) rows = data || [];
@@ -981,7 +981,7 @@ async function buildVehiclePassport(
     // status, which is precisely why nothing in this block may make a trust claim.
     const { data: listingImages, error: listingImagesError } = await supabase
       .from('listing_images')
-      .select('id, image_url, is_primary, display_order')
+      .select('id, image_url, is_primary, display_order, photo_label')
       .eq('vin', vin)
       .order('display_order', { ascending: true });
 
@@ -2380,9 +2380,12 @@ app.post('/api/vehicles/add', authorizeRole(['dealer', 'owner', 'admin']), async
   // key is an absence, so primacy can never be acquired by accident.
   const submittedMedia = (Array.isArray(images) ? images : []).map((entry) => {
     const isObject = entry !== null && typeof entry === 'object' && !Array.isArray(entry);
+    const rawLabel = isObject ? submittedText(entry.label ?? entry.photo_label) : null;
     return {
       url: isObject ? entry.url : entry,
       claimsPrimary: isObject ? entry.is_primary === true : false,
+      // Commercial presentation metadata only. This label never becomes Evidence/Trust.
+      label: rawLabel === null ? null : rawLabel.slice(0, 80),
     };
   });
   // TWO PRIMARIES IS NOT A CHOICE, IT IS A CONTRADICTION, and it is refused BEFORE the vehicle row
@@ -2757,6 +2760,7 @@ app.post('/api/vehicles/add', authorizeRole(['dealer', 'owner', 'admin']), async
       // primary-claimants first and then by `display_order`, and image 0 still carries
       // `display_order: 0`; only the LABEL on it stops lying.
       is_primary: entry.claimsPrimary,
+      photo_label: entry.label,
       // Dense over the PUBLISHABLE set, so a refused URL leaves no gap in the running order.
       display_order: idx,
     }));
@@ -2766,8 +2770,21 @@ app.post('/api/vehicles/add', authorizeRole(['dealer', 'owner', 'admin']), async
     let imagesRecorded = false;
     let imagesRecordedCount = 0;
     let imagesReplacementComplete = true;
+    let imageLabelsRecorded = imageRecords.every(record => record.photo_label === null);
     if (imageRecords.length > 0) {
-      const { error: imageError } = await supabase.from('listing_images').insert(imageRecords);
+      let imageInsert = await supabase.from('listing_images').insert(imageRecords);
+      // Controlled migration fallback: keep the image save available on an older schema, but say
+      // explicitly that labels were NOT persisted. Phase G cannot certify until the migration is
+      // applied and this flag is true for a labelled seven-image gallery.
+      if (imageInsert.error && isMissingListingClaimColumnError({
+        ...imageInsert.error,
+        message: String(imageInsert.error?.message || '').replace(/photo_label/gi, 'listing_city'),
+      })) {
+        imageLabelsRecorded = false;
+        const legacyImageRecords = imageRecords.map(({ photo_label, ...record }) => record);
+        imageInsert = await supabase.from('listing_images').insert(legacyImageRecords);
+      }
+      const imageError = imageInsert.error;
       if (imageError) {
         // The vehicle row already exists at this point. Returning 500 would falsely imply the
         // whole write failed and would hide the established media outcome fields below. Keep the
@@ -2777,6 +2794,7 @@ app.post('/api/vehicles/add', authorizeRole(['dealer', 'owner', 'admin']), async
       } else {
         imagesRecorded = true;
         imagesRecordedCount = imageRecords.length;
+        if (imageLabelsRecorded !== false) imageLabelsRecorded = true;
         // Delete prior listing media only after the replacement rows exist. The cleanup is scoped
         // by the vehicle the caller already named plus this request's internal batch watermark.
         if (reusedExistingPassport) {
@@ -2829,6 +2847,7 @@ app.post('/api/vehicles/add', authorizeRole(['dealer', 'owner', 'admin']), async
       images_recorded_count: imagesRecordedCount,
       images_unpublishable_count: imagesUnpublishableCount,
       images_primary_recorded: imagesRecorded && imageRecords.some((record) => record.is_primary === true),
+      images_labels_recorded: imagesRecorded && imageLabelsRecorded,
       // A replacement is not complete if the new rows landed but the previous VIN-scoped gallery
       // could not be retired. Seller Studio treats false as a partial save and keeps its local draft.
       images_replacement_complete: imagesReplacementComplete,
