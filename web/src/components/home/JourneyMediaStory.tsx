@@ -56,6 +56,22 @@ function VehicleBackdrop({
   src?: string | null
   alt: string
 }) {
+  if (!src) {
+    return (
+      <div
+        className="absolute inset-0 flex items-center justify-center bg-[radial-gradient(circle_at_68%_35%,rgba(249,115,22,0.2),transparent_27%),linear-gradient(145deg,#eef2f7,#dfe7ef)]"
+        role="img"
+        aria-label={`${alt} — listing media not available`}
+        data-testid="home-journey-media-fallback"
+      >
+        <div className="relative flex h-40 w-56 items-center justify-center border border-slate-300/70 bg-white/45 shadow-[0_28px_70px_rgba(15,23,42,0.14)]">
+          <div className="absolute h-24 w-36 rounded-[50%] bg-orange-200/60 blur-2xl" />
+          <CarFront aria-hidden="true" className="relative h-24 w-24 stroke-[1.15] text-slate-700" />
+        </div>
+      </div>
+    )
+  }
+
   return (
     <ListingImage
       src={src}
