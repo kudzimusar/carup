@@ -342,9 +342,9 @@ test.describe('Golden Dynamic Seller — exact-head deployed acceptance', () => 
     // Drive the shareable Marketplace search contract directly through its governed URL state.
     // Typing into the command bar is intentionally debounced; using the URL avoids making UAT
     // timing-sensitive while still exercising the real Marketplace page + backend q filter.
-    await page.goto(`/marketplace?q=${encodeURIComponent(vin)}`);
+    await page.goto(`/marketplace?q=${encodeURIComponent(vin)}&fixture_scope=${encodeURIComponent(RUN_ID)}`);
     await expect(page.getByTestId('marketplace-results-count')).toContainText('1', { timeout: 20_000 });
-    const publicLink = page.locator(`a[href="/marketplace/${vin}"]`).first();
+    const publicLink = page.locator(`a[href^="/marketplace/${vin}"]`).first();
     await expect(publicLink).toBeVisible({ timeout: 20_000 });
     await publicLink.click();
     await expect(page.getByTestId('vehicle-detail-primary-actions')).toBeVisible({ timeout: 20_000 });
@@ -398,15 +398,20 @@ test.describe('Golden Dynamic Seller — exact-head deployed acceptance', () => 
 
     // Public Marketplace must no longer expose the retired VIN.
     await page.evaluate(() => localStorage.clear());
-    await page.goto(`/marketplace?q=${encodeURIComponent(vin)}`);
+    await page.goto(`/marketplace?q=${encodeURIComponent(vin)}&fixture_scope=${encodeURIComponent(RUN_ID)}`);
     await expect(page.getByTestId('marketplace-results-count')).toContainText('0', { timeout: 20_000 });
-    await expect(page.locator(`a[href="/marketplace/${vin}"]`)).toHaveCount(0);
+    await expect(page.locator(`a[href^="/marketplace/${vin}"]`)).toHaveCount(0);
 
     // Keep these literal identities referenced so accidental fixture drift is caught by review.
     expect(SELLER_EMAIL).toBe('uat.buyer@carup-staging.test');
     } finally {
-      if (vehicleCreated && sellerMutationHeaders) {
-        await retireAutomationVehicle(request, vin, sellerMutationHeaders);
+      if (vehicleCreated) {
+        // A later UI sign-in rotates the staging session, so the first login's mutation headers can
+        // become stale. Cleanup is safety-critical: re-authenticate and mint fresh CSRF authority.
+        await signInViaUi(page, 'buyer');
+        const cleanupAuth = await authFromPage(page);
+        const cleanupHeaders = await mutationHeaders(request, cleanupAuth);
+        await retireAutomationVehicle(request, vin, cleanupHeaders);
       }
     }
   });
