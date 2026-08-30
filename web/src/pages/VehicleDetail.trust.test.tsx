@@ -38,6 +38,7 @@ const fetchVehicle = vi.fn()
 const fetchVehiclePassport = vi.fn()
 const lookupVehiclePassport = vi.fn()
 const fetchMarketplaceListingDetail = vi.fn()
+const fetchOwnedVehicles = vi.fn()
 const saveMarketplaceListing = vi.fn()
 const unsaveMarketplaceListing = vi.fn()
 const fetchSavedMarketplaceListings = vi.fn()
@@ -54,7 +55,7 @@ const fetchVehicleEvidence = vi.fn()
 vi.mock('@/hooks/useCarUpApi', () => ({
   useCarUpApi: () => ({
     reserveVehicle, createSafePayEscrow, submitFinancing, fetchVehicle, fetchVehiclePassport,
-    lookupVehiclePassport, fetchMarketplaceListingDetail, saveMarketplaceListing,
+    lookupVehiclePassport, fetchMarketplaceListingDetail, fetchOwnedVehicles, saveMarketplaceListing,
     unsaveMarketplaceListing, fetchSavedMarketplaceListings, fetchEvidenceTaxonomy,
     fetchEvidenceSources, fetchTemporalFindings, fetchDisclosureConflicts, fetchVehicleReport,
     generateReportVersion, createReportShareLink, fetchVehicleTrustDecision, fetchVehicleEvidence,
@@ -63,7 +64,7 @@ vi.mock('@/hooks/useCarUpApi', () => ({
 
 vi.mock('@/context/AuthContext', () => ({
   useAuth: () => ({
-    user: { id: 'buyer-1', name: 'Buyer', email: 'buyer@staging.carup.local', role: 'buyer' },
+    user: { id: 'owner-1', name: 'Owner', email: 'owner@staging.carup.local', role: 'owner' },
     isAuthenticated: true,
     loading: false,
   }),
@@ -181,7 +182,7 @@ function servePassportTrust(trust: unknown, signals?: unknown) {
 
 function renderDetail() {
   return render(
-    <MemoryRouter initialEntries={[`/marketplace/${VIN}`]}>
+    <MemoryRouter initialEntries={[`/marketplace/${VIN}?mode=seller_preview`]}>
       <Routes>
         <Route path="/marketplace/:id" element={<VehicleDetail />} />
       </Routes>
@@ -220,6 +221,7 @@ const evaluated = (score: number, band: string, extra: Record<string, unknown> =
 
 beforeEach(() => {
   vi.clearAllMocks()
+  fetchOwnedVehicles.mockResolvedValue([{ vin: VIN }])
   servePassportTrust(publicTrust())
   fetchVehicle.mockResolvedValue(passportFixture().vehicle)
   // Not a public marketplace listing: the page renders the passport view, which is the path that
