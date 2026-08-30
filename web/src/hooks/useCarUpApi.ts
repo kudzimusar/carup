@@ -544,7 +544,7 @@ export function useCarUpApi() {
   }, [request])
 
   // ── Marketplace v1 (detail / inquiry / save / compare / recommendations / AI) ──
-  const fetchMarketplaceListingDetail = useCallback(async (vin: string, attribution?: { ref?: string; campaign?: string; source?: string }): Promise<MarketplaceListingDetail> => {
+  const fetchMarketplaceListingDetail = useCallback(async (vin: string, attribution?: { ref?: string; campaign?: string; source?: string; fixture_scope?: string }): Promise<MarketplaceListingDetail> => {
     const query = attribution
       ? '?' + new URLSearchParams(Object.entries(attribution).filter(([, v]) => v).map(([k, v]) => [k, String(v)])).toString()
       : ''
