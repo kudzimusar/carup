@@ -26,6 +26,7 @@ export type ListingMediaItem = {
   url: string
   url_form: string
   position: number
+  seller_order?: number | null
   is_primary: boolean
   photo_label?: string | null
 }
