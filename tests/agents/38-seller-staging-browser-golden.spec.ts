@@ -361,8 +361,24 @@ test.describe('Golden Dynamic Seller — exact-head deployed acceptance', () => 
     await expect(primaryImage).toHaveAttribute('src', mediaBody.urls![2]);
     await expectMeaningfulRenderedImage(page);
     const coverSrc = await primaryImage.getAttribute('src');
+
+    // G4: all viewport classes must navigate the gallery. Touch profiles use a real tap so mobile/
+    // tablet acceptance does not accidentally pass only because Playwright synthesized a mouse.
+    const nextPhoto = page.getByTestId('listing-media-next');
+    const previousPhoto = page.getByTestId('listing-media-previous');
+    await expect(nextPhoto).toBeVisible();
+    await expect(previousPhoto).toBeVisible();
+    if (testInfo.project.name === 'chromium') await nextPhoto.click();
+    else await nextPhoto.tap();
+    await expect.poll(() => primaryImage.getAttribute('src'), { message: 'next-photo control did not change the rendered image' })
+      .not.toBe(coverSrc);
+    if (testInfo.project.name === 'chromium') await previousPhoto.click();
+    else await previousPhoto.tap();
+    await expect.poll(() => primaryImage.getAttribute('src'), { message: 'previous-photo control did not restore the cover image' })
+      .toBe(coverSrc);
+
     await page.getByTestId('listing-media-thumb').nth(1).click();
-    await expect.poll(() => primaryImage.getAttribute('src'), { message: 'gallery navigation did not change the rendered image' })
+    await expect.poll(() => primaryImage.getAttribute('src'), { message: 'thumbnail gallery navigation did not change the rendered image' })
       .not.toBe(coverSrc);
     await expect(page.getByTestId('marketplace-inquiry-open')).toHaveCount(0);
     await expect(page.getByTestId('seller-preview-sidebar-disabled')).toBeVisible();
