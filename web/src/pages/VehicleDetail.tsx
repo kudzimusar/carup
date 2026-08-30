@@ -1592,23 +1592,6 @@ export default function VehicleDetail() {
     )
   }
 
-  if (!isSellerPreview && !detailLoading && !detail) {
-    return (
-      <div className="min-h-screen bg-gray-50 flex items-center justify-center px-4">
-        <div className="max-w-md text-center" data-testid="marketplace-listing-unavailable">
-          <Car className="mx-auto h-14 w-14 text-gray-300" />
-          <h1 className="mt-4 text-2xl font-black">Marketplace listing unavailable</h1>
-          <p className="mt-2 text-sm leading-6 text-gray-500">
-            This Vehicle Passport is not currently published as an active Marketplace listing. A public URL never turns a private draft into buyer inventory.
-          </p>
-          <Button className="mt-6 bg-orange-500 hover:bg-orange-600" asChild>
-            <Link to="/marketplace">Back to Marketplace</Link>
-          </Button>
-        </div>
-      </div>
-    )
-  }
-
   if (!vehicle) {
     return (
       <div className="min-h-screen bg-gray-50 flex items-center justify-center">
