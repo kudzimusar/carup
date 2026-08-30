@@ -901,29 +901,35 @@ export default function SellVehicle() {
           {/* STEP 0: Vehicle Details */}
           {step === 0 && (
             <>
+              {canonicalLocked && (
+                <div className="border-l-2 border-sky-500 bg-sky-50 p-4 text-sm text-slate-700" data-testid="seller-canonical-fields-locked">
+                  <p className="font-black text-slate-950">Vehicle Passport facts are read-only here.</p>
+                  <p className="mt-1 leading-5">Make, model, year, VIN, colour, identifiers and recorded specification facts come from the existing Passport. Correct those through governed Vehicle Passport/evidence workflows; Seller Studio edits only listing assertions.</p>
+                </div>
+              )}
               <div className="grid sm:grid-cols-2 gap-4">
                 <div>
                   <label className="text-sm font-medium mb-1.5 block">Make *</label>
-                  <Input list="carup-seller-makes" value={form.make} onChange={e => set('make', e.target.value)} placeholder="e.g. Toyota" className={errors.make ? 'border-red-400' : ''} data-testid="vehicle-make-input" />
+                  <Input list="carup-seller-makes" value={form.make} onChange={e => set('make', e.target.value)} placeholder="e.g. Toyota" className={errors.make ? 'border-red-400' : ''} data-testid="vehicle-make-input" disabled={canonicalLocked} />
                   <datalist id="carup-seller-makes">{VEHICLE_MAKES.map(make => <option key={make} value={make} />)}</datalist>
                   {errors.make && <p className="text-xs text-red-500 mt-1">{errors.make}</p>}
                 </div>
                 <div>
                   <label className="text-sm font-medium mb-1.5 block">Model *</label>
-                  <Input list="carup-seller-models" value={form.model} onChange={e => set('model', e.target.value)} placeholder="e.g. Hilux" className={errors.model ? 'border-red-400' : ''} data-testid="vehicle-model-input" />
+                  <Input list="carup-seller-models" value={form.model} onChange={e => set('model', e.target.value)} placeholder="e.g. Hilux" className={errors.model ? 'border-red-400' : ''} data-testid="vehicle-model-input" disabled={canonicalLocked} />
                   <datalist id="carup-seller-models">{modelOptions.map(model => <option key={model} value={model} />)}</datalist>
                   {errors.model && <p className="text-xs text-red-500 mt-1">{errors.model}</p>}
                 </div>
                 <div>
                   <label className="text-sm font-medium mb-1.5 block">Year *</label>
-                  <Select value={form.year} onValueChange={v => set('year', v)}>
+                  <Select value={form.year} onValueChange={v => set('year', v)} disabled={canonicalLocked}>
                     <SelectTrigger><SelectValue /></SelectTrigger>
                     <SelectContent>{YEARS.map(y => <SelectItem key={y} value={y}>{y}</SelectItem>)}</SelectContent>
                   </Select>
                 </div>
                 <div>
                   <label className="text-sm font-medium mb-1.5 block">Color *</label>
-                  <Input list="carup-seller-colours" value={form.color} onChange={e => set('color', e.target.value)} placeholder="e.g. Pearl White" className={errors.color ? 'border-red-400' : ''} />
+                  <Input list="carup-seller-colours" value={form.color} onChange={e => set('color', e.target.value)} placeholder="e.g. Pearl White" className={errors.color ? 'border-red-400' : ''} disabled={canonicalLocked} />
                   <datalist id="carup-seller-colours">{VEHICLE_COLORS.map(colour => <option key={colour} value={colour} />)}</datalist>
                   {errors.color && <p className="text-xs text-red-500 mt-1">{errors.color}</p>}
                 </div>
@@ -938,6 +944,7 @@ export default function SellVehicle() {
                     maxLength={17}
                     className={`font-mono pr-10 ${errors.vin ? 'border-red-400' : vinValid === true ? 'border-green-400' : ''}`}
                     data-testid="vehicle-vin-input"
+                    disabled={canonicalLocked}
                   />
                   {vinValid === true && <CheckCircle className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-green-500" />}
                   {vinValid === false && <AlertCircle className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-red-500" />}
@@ -1000,29 +1007,29 @@ export default function SellVehicle() {
               <div className="grid sm:grid-cols-2 gap-4">
                 <div>
                   <label className="text-sm font-medium mb-1.5 block">Engine Number</label>
-                  <Input value={form.engineNumber} onChange={e => set('engineNumber', e.target.value.toUpperCase())} placeholder="e.g. 1GD-789012" className="font-mono" />
+                  <Input value={form.engineNumber} onChange={e => set('engineNumber', e.target.value.toUpperCase())} placeholder="e.g. 1GD-789012" className="font-mono" disabled={canonicalLocked} />
                   <p className="text-xs text-gray-400 mt-1">Required to publish your listing</p>
                 </div>
                 <div>
                   <label className="text-sm font-medium mb-1.5 block">Chassis Number</label>
-                  <Input value={form.chassisNumber} onChange={e => set('chassisNumber', e.target.value.toUpperCase())} placeholder="e.g. ZW1234567890" className="font-mono" />
+                  <Input value={form.chassisNumber} onChange={e => set('chassisNumber', e.target.value.toUpperCase())} placeholder="e.g. ZW1234567890" className="font-mono" disabled={canonicalLocked} />
                   <p className="text-xs text-gray-400 mt-1">Required to publish your listing</p>
                 </div>
               </div>
               <div className="grid sm:grid-cols-2 gap-4">
                 <div>
                   <label className="text-sm font-medium mb-1.5 block">Number Plate</label>
-                  <Input value={form.plateNumber} onChange={e => set('plateNumber', e.target.value.toUpperCase())} placeholder="e.g. ABC 1234" className="font-mono" />
+                  <Input value={form.plateNumber} onChange={e => set('plateNumber', e.target.value.toUpperCase())} placeholder="e.g. ABC 1234" className="font-mono" disabled={canonicalLocked} />
                 </div>
                 <div>
                   <label className="text-sm font-medium mb-1.5 block">Temporary Import Permit No.</label>
-                  <Input value={form.tempPlateId} onChange={e => set('tempPlateId', e.target.value.toUpperCase())} placeholder="e.g. TIP-2024-00123" className="font-mono" />
+                  <Input value={form.tempPlateId} onChange={e => set('tempPlateId', e.target.value.toUpperCase())} placeholder="e.g. TIP-2024-00123" className="font-mono" disabled={canonicalLocked} />
                   <p className="text-xs text-gray-400 mt-1">If no local plate yet — provide plate or TIP</p>
                 </div>
               </div>
               <div>
                 <label className="text-sm font-medium mb-1.5 block">Import Status</label>
-                <Select value={form.importStatus} onValueChange={v => set('importStatus', v)}>
+                <Select value={form.importStatus} onValueChange={v => set('importStatus', v)} disabled={canonicalLocked}>
                   <SelectTrigger><SelectValue placeholder="Select status" /></SelectTrigger>
                   <SelectContent>
                     <SelectItem value="local">Locally registered in Zimbabwe</SelectItem>
@@ -1036,10 +1043,15 @@ export default function SellVehicle() {
           {/* STEP 1: Location & Pricing */}
           {step === 1 && (
             <>
+              {canonicalLocked && (
+                <div className="border-l-2 border-sky-500 bg-sky-50 p-4 text-xs leading-5 text-slate-700">
+                  Recorded mileage/fuel/transmission/drivetrain are Passport facts and remain read-only. Condition, body style, price, location, privacy and Seller description below are Seller listing assertions.
+                </div>
+              )}
               <div className="grid sm:grid-cols-3 gap-4">
                 <div>
                   <label className="text-sm font-medium mb-1.5 block">Mileage (km) *</label>
-                  <Input type="number" value={form.mileage} onChange={e => set('mileage', e.target.value)} placeholder="e.g. 45000" className={errors.mileage ? 'border-red-400' : ''} />
+                  <Input type="number" value={form.mileage} onChange={e => set('mileage', e.target.value)} placeholder="e.g. 45000" className={errors.mileage ? 'border-red-400' : ''} disabled={canonicalLocked} />
                   {errors.mileage && <p className="text-xs text-red-500 mt-1">{errors.mileage}</p>}
                 </div>
                 <div>
@@ -1062,7 +1074,7 @@ export default function SellVehicle() {
                 </div>
                 <div>
                   <label className="text-sm font-medium mb-1.5 block">Fuel Type *</label>
-                  <Select value={form.fuelType} onValueChange={v => set('fuelType', v)}>
+                  <Select value={form.fuelType} onValueChange={v => set('fuelType', v)} disabled={canonicalLocked}>
                     <SelectTrigger className={errors.fuelType ? 'border-red-400' : ''}><SelectValue placeholder="Select" /></SelectTrigger>
                     <SelectContent>
                       {FUEL_TYPES.map(fuel => <SelectItem key={fuel} value={fuel}>{fuel}</SelectItem>)}
@@ -1071,7 +1083,7 @@ export default function SellVehicle() {
                 </div>
                 <div>
                   <label className="text-sm font-medium mb-1.5 block">Transmission *</label>
-                  <Select value={form.transmission} onValueChange={v => set('transmission', v)}>
+                  <Select value={form.transmission} onValueChange={v => set('transmission', v)} disabled={canonicalLocked}>
                     <SelectTrigger className={errors.transmission ? 'border-red-400' : ''}><SelectValue placeholder="Select" /></SelectTrigger>
                     <SelectContent>
                       {TRANSMISSIONS.map(transmission => <SelectItem key={transmission} value={transmission}>{transmission}</SelectItem>)}
@@ -1080,7 +1092,7 @@ export default function SellVehicle() {
                 </div>
                 <div>
                   <label className="text-sm font-medium mb-1.5 block">Drivetrain</label>
-                  <Select value={form.drivetrain} onValueChange={v => set('drivetrain', v)}>
+                  <Select value={form.drivetrain} onValueChange={v => set('drivetrain', v)} disabled={canonicalLocked}>
                     <SelectTrigger><SelectValue placeholder="Optional" /></SelectTrigger>
                     <SelectContent>
                       {DRIVETRAINS.map(drivetrain => <SelectItem key={drivetrain} value={drivetrain}>{drivetrain}</SelectItem>)}
