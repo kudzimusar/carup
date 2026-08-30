@@ -77,7 +77,11 @@ beforeEach(() => {
   sessionStorage.clear()
   lookupVehiclePassport.mockRejectedValue(new Error('404 VIN not found'))
   uploadVehicleImages.mockResolvedValue({ urls: [] })
-  createVehicleListing.mockResolvedValue({ vin: VIN })
+  createVehicleListing.mockResolvedValue({
+    vin: VIN,
+    submission_id_recorded: true,
+    idempotent_replay: false,
+  })
 })
 
 describe('S7 the three measurements stay three', () => {
