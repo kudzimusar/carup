@@ -74,44 +74,96 @@ export function isLedgerUniquenessConflict(error) {
 // one event there per signer.
 const TERMINAL_EVENT_TIMESTAMP = '9999-12-31T23:59:59.999Z';
 
-// Deterministic content comparison that does not depend on key order.
+// JSON persistence is the first normalization boundary. This mirrors the value that is
+// handed to storage: Date becomes an ISO string, undefined object properties disappear,
+// undefined array slots become null, and unsupported top-level values fail closed.
+export function normalizePersistedPayload(value) {
+  const serialized = JSON.stringify(value);
+  if (serialized === undefined) {
+    throw new Error('ledger payload is not JSON-persistable');
+  }
+  return JSON.parse(serialized);
+}
+
+// Deterministic comparison AFTER persistence normalization. Object key order is
+// irrelevant; array order remains meaningful.
 function canonicalize(value) {
   if (value === null || typeof value !== 'object') return JSON.stringify(value) ?? 'null';
   if (Array.isArray(value)) return `[${value.map(canonicalize).join(',')}]`;
   return `{${Object.keys(value).sort().map((k) => `${JSON.stringify(k)}:${canonicalize(value[k])}`).join(',')}}`;
 }
 
+function canonicalPersistedPayload(value) {
+  return canonicalize(normalizePersistedPayload(value));
+}
+
+function operationIdFrom(options) {
+  if (typeof options === 'string') return options.trim() || null;
+  const candidate = options?.operationId ?? options?.operation_id ?? null;
+  return typeof candidate === 'string' && candidate.trim() ? candidate.trim() : null;
+}
+
+function signerFromSignature(signature, fallbackSignerId) {
+  const raw = String(signature || '');
+  const separator = raw.indexOf(':');
+  return separator > 0 ? raw.slice(0, separator) : String(fallbackSignerId);
+}
+
 /**
- * Decide whether a terminal-instant conflict is this exact write landing twice.
+ * Classify a terminal uniqueness conflict using the durable operation identity.
  *
- * The identity is deliberately NOT the event hash. A retry re-reads the VIN tail, which
- * by then contains the terminal row, so it computes a different previous_hash and
- * therefore a different current_hash than the row it is retrying — a hash-equality rule
- * would refuse a legitimate lost-response retry.
- *
- * The stable identity is the logical write itself: signer, VIN, event type and
- * canonically compared payload. That is sound only at the terminal instant, because no
- * representable later event exists there, so a stakeholder can have exactly one such
- * event and any divergence in the logical content is necessarily a different write.
+ * Content equality is only a consistency guard. It is NOT the idempotency identity:
+ * two independent business operations may have identical VIN/event/payload content.
+ * The caller must reuse the same durable operation id after a lost response.
  */
-async function findIdempotentTerminalEvent({ vin, eventType, payload, signerId, timestamp }) {
+async function findIdempotentTerminalEvent({
+  vin,
+  eventType,
+  payload,
+  signerId,
+  timestamp,
+  operationId,
+}) {
   if (timestamp !== TERMINAL_EVENT_TIMESTAMP) return null;
+  if (!operationId) {
+    throw new Error('terminal ledger retry classification requires a durable operation id');
+  }
 
   const { data, error } = await supabase
     .from('blockchain_events')
-    .select(EVENT_SELECT)
-    .eq('timestamp', TERMINAL_EVENT_TIMESTAMP)
-    .eq('vin', vin);
-  if (error) return null;
+    .select(`${EVENT_SELECT},operation_id`)
+    .eq('timestamp', TERMINAL_EVENT_TIMESTAMP);
+  if (error) {
+    throw new Error(`terminal ledger retry lookup failed: ${error.message}`);
+  }
 
-  const wanted = canonicalize(payload);
-  return (data || []).find((row) => {
+  const signerRow = (data || []).find((row) => {
     const separator = String(row.signature || '').indexOf(':');
-    if (separator < 0 || String(row.signature).slice(0, separator) !== String(signerId)) return false;
-    if (row.event_type !== eventType) return false;
-    const stored = typeof row.payload === 'string' ? JSON.parse(row.payload) : row.payload;
-    return canonicalize(stored) === wanted;
+    return separator >= 0 && String(row.signature).slice(0, separator) === String(signerId);
   }) || null;
+
+  if (!signerRow) return null;
+
+  if (String(signerRow.operation_id || '') !== String(operationId)) {
+    throw new Error(
+      'terminal ledger conflict: a distinct durable operation already owns the signer terminal instant',
+    );
+  }
+
+  const stored = typeof signerRow.payload === 'string'
+    ? JSON.parse(signerRow.payload)
+    : signerRow.payload;
+  const sameContent = signerRow.vin === vin
+    && signerRow.event_type === eventType
+    && canonicalPersistedPayload(stored) === canonicalPersistedPayload(payload);
+
+  if (!sameContent) {
+    throw new Error(
+      'terminal ledger operation id reuse refused: persisted VIN/event/payload differs from this attempt',
+    );
+  }
+
+  return signerRow;
 }
 
 export function isMissingCustodyRolloutContractFunction(error) {
@@ -239,13 +291,20 @@ export async function getOrCreateKeypair(userId) {
   return activateCustodiedPublicKey(userId, derived);
 }
 
-// Re-calculate event block hash
+// Re-calculate event block hash from the same JSON semantics storage receives.
 export function calculateHash(previousHash, vin, eventType, timestamp, payload) {
-  const data = previousHash + vin + eventType + timestamp + JSON.stringify(payload);
+  const persistedPayload = normalizePersistedPayload(payload);
+  const data = previousHash + vin + eventType + timestamp + JSON.stringify(persistedPayload);
   return crypto.createHash('sha256').update(data).digest('hex');
 }
 
-export async function addEvent(vin, eventType, payload, signature = 'SYSTEM_SIGNATURE') {
+export async function addEvent(
+  vin,
+  eventType,
+  payload,
+  signature = 'SYSTEM_SIGNATURE',
+  options = {},
+) {
   const { data: lastEvents } = await supabase
     .from('blockchain_events')
     .select('current_hash,id')
@@ -277,7 +336,18 @@ export async function addEvent(vin, eventType, payload, signature = 'SYSTEM_SIGN
   // event remains inside the old key's validity interval instead of being misclassified
   // under the newly active key. Superseded writers are rejected on their next call.
   const timestamp = registeredSignerKey?.eventTimestamp || new Date().toISOString();
-  const currentHash = calculateHash(previousHash, vin, eventType, timestamp, payload);
+  const persistedPayload = normalizePersistedPayload(payload);
+  const operationId = operationIdFrom(options);
+
+  // The terminal boundary is retry-only. If the caller cannot name the durable
+  // business/request operation that may be retried after a lost response, fail closed
+  // instead of guessing from equal content. The already-allocated same-key boundary is
+  // deliberately recoverable, so a subsequent correctly identified retry can proceed.
+  if (timestamp === TERMINAL_EVENT_TIMESTAMP && !operationId) {
+    throw new Error('terminal ledger event requires a durable operation id');
+  }
+
+  const currentHash = calculateHash(previousHash, vin, eventType, timestamp, persistedPayload);
 
   let dynamicSignature = signature;
   if (signature === 'SYSTEM_SIGNATURE') {
@@ -302,9 +372,10 @@ export async function addEvent(vin, eventType, payload, signature = 'SYSTEM_SIGN
       current_hash: currentHash,
       vin,
       event_type: eventType,
-      payload: JSON.stringify(payload),
+      payload: JSON.stringify(persistedPayload),
       timestamp,
       signature: dynamicSignature,
+      ...(timestamp === TERMINAL_EVENT_TIMESTAMP ? { operation_id: operationId } : {}),
     })
     .select('id');
 
@@ -316,8 +387,16 @@ export async function addEvent(vin, eventType, payload, signature = 'SYSTEM_SIGN
     // either this exact logical write landing twice — a retry whose first response was
     // lost — or a genuinely different write competing for the same instant. Only the
     // former is idempotent.
+    const durableSignerId = signerFromSignature(dynamicSignature, signerId);
     const duplicate = isLedgerUniquenessConflict(insertError)
-      ? await findIdempotentTerminalEvent({ vin, eventType, payload, signerId, timestamp })
+      ? await findIdempotentTerminalEvent({
+          vin,
+          eventType,
+          payload: persistedPayload,
+          signerId: durableSignerId,
+          timestamp,
+          operationId,
+        })
       : null;
 
     if (!duplicate) {
@@ -335,6 +414,7 @@ export async function addEvent(vin, eventType, payload, signature = 'SYSTEM_SIGN
       payload: typeof duplicate.payload === 'string' ? JSON.parse(duplicate.payload) : duplicate.payload,
       timestamp: duplicate.timestamp,
       signature: duplicate.signature,
+      operationId: duplicate.operation_id || operationId,
       idempotent: true,
     };
   }
@@ -360,9 +440,10 @@ export async function addEvent(vin, eventType, payload, signature = 'SYSTEM_SIGN
     currentHash,
     vin,
     eventType,
-    payload,
+    payload: persistedPayload,
     timestamp,
     signature: dynamicSignature,
+    operationId: timestamp === TERMINAL_EVENT_TIMESTAMP ? operationId : null,
   };
 }
 
