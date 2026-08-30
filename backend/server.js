@@ -632,18 +632,31 @@ async function ownerGarageCounts(vins) {
  * `ownerGarageCounts` draws for counts, and the reason a broken query can never again be published
  * to an owner as an absence of their own photographs.
  */
+async function readListingImagesCompat({ vin = null, vins = [] } = {}) {
+  const applyScope = (query) => vin
+    ? query.eq('vin', vin)
+    : query.in('vin', [...new Set((vins || []).filter(Boolean))]);
+
+  const wide = await applyScope(
+    supabase.from('listing_images').select('id, vin, image_url, is_primary, display_order, photo_label'),
+  ).order('display_order', { ascending: true });
+  if (!wide.error) return wide.data || [];
+  if (!isMissingNamedColumnError(wide.error, 'photo_label')) return null;
+
+  const legacy = await applyScope(
+    supabase.from('listing_images').select('id, vin, image_url, is_primary, display_order'),
+  ).order('display_order', { ascending: true });
+  if (legacy.error) return null;
+  return (legacy.data || []).map(row => ({ ...row, photo_label: null }));
+}
+
 async function ownerListingMedia(vins) {
   const wanted = [...new Set((vins || []).filter(Boolean))];
   if (wanted.length === 0) return new Map();
 
   let rows = null;
   try {
-    const { data, error } = await supabase
-      .from('listing_images')
-      .select('id, vin, image_url, is_primary, display_order, photo_label')
-      .in('vin', wanted);
-    // `error` leaves `rows` null on purpose: see the note above.
-    if (!error) rows = data || [];
+    rows = await readListingImagesCompat({ vins: wanted });
   } catch {
     rows = null;
   }
@@ -979,18 +992,14 @@ async function buildVehiclePassport(
     // reads as when the photo was taken. `vehicle_evidence` has `captured_at` for that, behind a
     // review; `listing_images` has no such column and no reviewer, no uploader, no checksum and no
     // status, which is precisely why nothing in this block may make a trust claim.
-    const { data: listingImages, error: listingImagesError } = await supabase
-      .from('listing_images')
-      .select('id, image_url, is_primary, display_order, photo_label')
-      .eq('vin', vin)
-      .order('display_order', { ascending: true });
+    const listingImages = await readListingImagesCompat({ vin });
 
     // A failed gallery read must NOT 500 the passport (unlike evidence above, whose absence would
     // silently understate governance), and it must not be laundered into `[]` either. Leaving the
     // value undefined yields `state: 'not_loaded'` with a NULL statement, so the surface renders
-    // nothing rather than an empty-gallery sentence about a table we could not reach. Saying "none"
-    // on the strength of a read that never succeeded is the original defect.
-    if (!listingImagesError) listingImageRows = listingImages || [];
+    // nothing rather than an empty-gallery sentence about a table we could not reach. A preview
+    // schema missing only photo_label still returns the established gallery with null annotations.
+    if (listingImages !== null) listingImageRows = listingImages;
   }
 
   // ── WHY THE GALLERY IS STILL READ FOR A LISTING WE MAY NOT PUBLISH ────────────────────────────
