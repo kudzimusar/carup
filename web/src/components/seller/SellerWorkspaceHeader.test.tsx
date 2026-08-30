@@ -14,7 +14,7 @@ vi.mock('@/hooks/useCarUpApi', () => ({
   useCarUpApi: () => ({ fetchOwnedVehicles }),
 }))
 
-const { SellIntentRouter } = await import('./SellIntentRouter')
+const { SellIntentRouter } = await import('@/components/sell/SellIntentRouter')
 
 describe('Seller workspace orientation', () => {
   beforeEach(() => {
