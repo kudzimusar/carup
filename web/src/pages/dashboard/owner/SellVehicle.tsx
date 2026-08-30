@@ -6,7 +6,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Separator } from '@/components/ui/separator'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
-import { CheckCircle, ChevronRight, ChevronLeft, Upload, X, Loader2, AlertCircle, FileWarning } from 'lucide-react'
+import { CheckCircle, ChevronRight, ChevronLeft, Upload, X, Loader2, AlertCircle, FileWarning, Eye, ShieldCheck, Images } from 'lucide-react'
 import { toast } from 'sonner'
 import { zimbabweLocations, zimbabweProvinces } from '@/data/mockData'
 import { useCarUpApi } from '@/hooks/useCarUpApi'
@@ -20,6 +20,9 @@ import { useSellerVehicleIdentification } from '@/hooks/useSellerVehicleIdentifi
 import { BODY_STYLES, DRIVETRAINS, FUEL_TYPES, SELLER_CONDITIONS, TRANSMISSIONS, VEHICLE_COLORS, VEHICLE_MAKES, modelsForMake, vehicleYearOptions } from '@/data/vehicleTaxonomy'
 import type { Vehicle } from '@/types'
 import { SellerWorkspaceHeader } from '@/components/seller/SellerWorkspaceHeader'
+import { ListingImage } from '@/components/marketplace/ListingImage'
+import { primaryListingImageUrl } from '@/lib/listingMedia'
+import { readOwnerTrustClaim, statedCount } from './ownerStatedValues'
 
 const YEARS = vehicleYearOptions()
 const STEPS = ['Vehicle Details', 'Location & Pricing', 'Images & Features', 'Review & Save Draft']
@@ -149,6 +152,7 @@ export default function SellVehicle() {
   const [authorityClaimType, setAuthorityClaimType] = useState<'owner' | 'authorised_seller' | null>(null)
   const [serverDraftLoading, setServerDraftLoading] = useState(() => Boolean(!guestDraft && validateVin(resumeVin)))
   const [serverDraftLoaded, setServerDraftLoaded] = useState(false)
+  const [serverVehicle, setServerVehicle] = useState<Vehicle | null>(null)
   const [serverDraftError, setServerDraftError] = useState<string | null>(null)
   const [serverAutosaveState, setServerAutosaveState] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle')
   const modelOptions = modelsForMake(form.make).map(item => item.name)
@@ -241,6 +245,7 @@ export default function SellVehicle() {
         })
         const primaryIndex = orderedMedia.findIndex(item => item.is_primary === true)
 
+        setServerVehicle(vehicle)
         setForm(previous => ({
           ...previous,
           make: String(raw.make || ''),
@@ -646,6 +651,15 @@ export default function SellVehicle() {
   }
 
   const vinValid = form.vin.length >= 2 ? validateVin(form.vin) : null
+  const canonicalLocked = serverDraftLoaded
+  const studioTrust = serverVehicle ? readOwnerTrustClaim(serverVehicle) : null
+  const studioMedia = serverVehicle ? primaryListingImageUrl(serverVehicle.listing_media) : (form.images[coverImageIndex ?? 0] || form.images[0] || null)
+  const verifiedDocumentCopy = serverVehicle
+    ? statedCount(serverVehicle.counts?.verified_documents, 'verified document')
+    : 'Evidence state available after account draft loads'
+  const sellerCopyState = form.description.length >= 50
+    ? `${form.description.length}/500 description characters`
+    : `${form.description.length}/50 minimum description characters`
 
   // Post-save: show completeness panel instead of the form
   if (savedVin) {
@@ -762,6 +776,85 @@ export default function SellVehicle() {
         objectIdentity={resumeVin || form.vin || null}
         statusLabel="Draft workspace · not public"
       />
+      <section
+        className="relative overflow-hidden bg-[#07111f] text-white"
+        data-testid="seller-studio-stage-hero"
+        aria-labelledby="seller-studio-stage-title"
+      >
+        <div className="absolute inset-0 opacity-80 [background-image:radial-gradient(circle_at_84%_18%,rgba(249,115,22,0.26),transparent_28%),radial-gradient(circle_at_35%_120%,rgba(37,99,235,0.18),transparent_34%)]" />
+        <div className="relative grid gap-0 lg:grid-cols-[1.25fr_0.75fr]">
+          <div className="p-6 sm:p-8 lg:p-10">
+            <div className="flex flex-wrap items-center gap-2 text-[10px] font-black uppercase tracking-[0.2em] text-orange-300">
+              <span>Seller Studio</span>
+              <span className="text-slate-600">/</span>
+              <span>Stage {step + 1} of {STEPS.length}</span>
+              <span className="text-slate-600">/</span>
+              <span>Private draft</span>
+            </div>
+            <h2 id="seller-studio-stage-title" className="mt-4 max-w-3xl text-3xl font-black tracking-[-0.05em] sm:text-5xl">
+              {form.year || form.make || form.model
+                ? [form.year, form.make, form.model].filter(Boolean).join(' ')
+                : 'Build the buyer story around one Vehicle Passport.'}
+            </h2>
+            <p className="mt-4 max-w-2xl text-sm leading-6 text-slate-300">
+              {canonicalLocked
+                ? 'Canonical vehicle identity/specification fields are locked to this Passport. Seller-commercial copy, price, privacy and listing media remain editable.'
+                : 'Vehicle identity becomes canonical when the draft is claimed to an account. Seller statements remain separate from reviewed evidence and canonical Trust.'}
+            </p>
+
+            <div className="mt-7 grid gap-px bg-white/10 sm:grid-cols-2 xl:grid-cols-4">
+              <div className="bg-[#0b1625] p-4">
+                <p className="text-[10px] font-black uppercase tracking-[0.16em] text-slate-500">Media readiness</p>
+                <p className="mt-2 text-sm font-bold">{form.images.length} listing photo{form.images.length === 1 ? '' : 's'} · {coverImageIndex === null ? 'cover not chosen' : 'cover chosen'}</p>
+              </div>
+              <div className="bg-[#0b1625] p-4">
+                <p className="text-[10px] font-black uppercase tracking-[0.16em] text-slate-500">Seller copy</p>
+                <p className="mt-2 text-sm font-bold">{sellerCopyState}</p>
+              </div>
+              <div className="bg-[#0b1625] p-4">
+                <p className="text-[10px] font-black uppercase tracking-[0.16em] text-slate-500">Evidence</p>
+                <p className="mt-2 text-sm font-bold">{verifiedDocumentCopy}</p>
+              </div>
+              <div className="bg-[#0b1625] p-4">
+                <p className="text-[10px] font-black uppercase tracking-[0.16em] text-slate-500">Canonical Trust</p>
+                <p className="mt-2 text-sm font-bold" data-testid="seller-studio-trust-state">
+                  {studioTrust
+                    ? (studioTrust.score !== null ? `${studioTrust.score} / 100 · ${studioTrust.headline}` : studioTrust.headline)
+                    : 'Not loaded for this draft yet'}
+                </p>
+              </div>
+            </div>
+
+            <div className="mt-6 flex flex-wrap items-center gap-x-5 gap-y-2 text-xs font-semibold text-slate-300">
+              <span className="inline-flex items-center gap-1.5"><ShieldCheck className="h-3.5 w-3.5 text-orange-400" /> Location: {form.locationVisibility === 'public' ? 'public' : form.locationVisibility === 'province_only' ? 'province only' : 'withheld'}</span>
+              <span className="inline-flex items-center gap-1.5"><ShieldCheck className="h-3.5 w-3.5 text-orange-400" /> Seller identity: {form.publicSellerDisplay ? 'public opt-in' : 'withheld'}</span>
+              <span className="inline-flex items-center gap-1.5"><Images className="h-3.5 w-3.5 text-orange-400" /> Listing media ≠ verified evidence</span>
+            </div>
+
+            {validateVin(form.vin) && (
+              <Button asChild variant="outline" className="mt-6 min-h-11 rounded-none border-white/25 bg-transparent text-white hover:bg-white/10 hover:text-white">
+                <Link to={`/marketplace/${encodeURIComponent(form.vin)}`} data-testid="seller-buyer-preview">
+                  <Eye className="mr-2 h-4 w-4" /> Buyer Preview — not public
+                </Link>
+              </Button>
+            )}
+          </div>
+
+          <div className="relative min-h-[260px] border-t border-white/10 bg-black/20 lg:min-h-full lg:border-l lg:border-t-0">
+            <ListingImage
+              src={studioMedia}
+              alt={`${[form.year, form.make, form.model].filter(Boolean).join(' ') || 'Seller draft'} listing media`}
+              className="absolute inset-0 h-full w-full"
+              imgClassName="h-full w-full"
+            />
+            <div className="pointer-events-none absolute inset-0 bg-gradient-to-t from-[#07111f] via-transparent to-transparent" />
+            <div className="absolute inset-x-0 bottom-0 p-5">
+              <p className="font-mono text-[11px] text-slate-300">{form.vin || 'VIN not entered'}</p>
+              <p className="mt-1 text-xs text-slate-400">{STEPS[step]}</p>
+            </div>
+          </div>
+        </div>
+      </section>
       {serverDraftLoaded && (
         <p
           className={`text-xs font-semibold ${serverAutosaveState === 'error' ? 'text-amber-700' : 'text-slate-500'}`}
