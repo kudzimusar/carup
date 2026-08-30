@@ -19,6 +19,8 @@ import { VehicleIdentificationNotice } from '@/components/sell/VehicleIdentifica
 import { useSellerVehicleIdentification } from '@/hooks/useSellerVehicleIdentification'
 import { BODY_STYLES, DRIVETRAINS, FUEL_TYPES, SELLER_CONDITIONS, TRANSMISSIONS, VEHICLE_COLORS, VEHICLE_MAKES, modelsForMake, vehicleYearOptions } from '@/data/vehicleTaxonomy'
 import type { Vehicle } from '@/types'
+import { SellerIntentRouter } from '@/components/sell/SellerIntentRouter'
+import { WorkspaceHeader } from '@/components/dashboard/WorkspaceHeader'
 
 const YEARS = vehicleYearOptions()
 const STEPS = ['Vehicle Details', 'Location & Pricing', 'Images & Features', 'Review & Save Draft']
@@ -107,6 +109,7 @@ export default function SellVehicle() {
   const { createVehicleListing, uploadVehicleImages, requestSellerAuthorityClaim, fetchOwnedVehicles } = useCarUpApi()
   const [searchParams] = useSearchParams()
   const resumeVin = String(searchParams.get('vin') || '').trim().toUpperCase()
+  const sellerMode = String(searchParams.get('mode') || '').trim().toLowerCase()
   const [guestDraft] = useState(() => readGuestSellDraft())
   const [step, setStep] = useState(() => readGuestSellStep())
   const [form, setForm] = useState(() => guestDraft ? ({
@@ -647,6 +650,14 @@ export default function SellVehicle() {
     )
   }
 
+  if (!guestDraft && !resumeVin && sellerMode !== 'known' && sellerMode !== 'new') {
+    return (
+      <div className="mx-auto max-w-[1440px]">
+        <SellerIntentRouter compact />
+      </div>
+    )
+  }
+
   if (serverDraftLoading) {
     return (
       <div className="max-w-3xl mx-auto">
@@ -693,11 +704,20 @@ export default function SellVehicle() {
   }
 
   return (
-    <div className="max-w-3xl mx-auto space-y-6">
-      <div>
-        <h1 className="text-2xl font-bold">Register Your Vehicle</h1>
-        <p className="text-gray-500">Save your vehicle as a draft. You must upload ownership documents before your listing can be published.</p>
-      </div>
+    <div className="mx-auto max-w-[1440px] space-y-8" data-testid="authenticated-seller-studio" data-seller-mode={sellerMode || (resumeVin ? 'resume' : 'guest-handoff')}>
+      <WorkspaceHeader
+        eyebrow="Seller Studio"
+        title={serverDraftLoaded ? 'Continue the vehicle story.' : sellerMode === 'known' ? 'Connect a known CarUp vehicle.' : 'Build a credible vehicle listing.'}
+        subtitle="Seller statements, listing media, Vehicle Passport evidence and canonical Trust remain separate while the same vehicle thread moves toward publication."
+        breadcrumbs={[
+          { label: 'Seller home', href: '/dashboard' },
+          { label: 'My Listings', href: '/dashboard/listings' },
+          { label: serverDraftLoaded ? 'Continue listing' : 'Seller Studio' },
+        ]}
+        backHref="/sell"
+        backLabel="Change sell path"
+        status={serverDraftLoaded ? <span className="text-xs font-black uppercase tracking-[0.16em] text-emerald-700">Existing listing loaded</span> : undefined}
+      />
       {serverDraftLoaded && (
         <div className="border-l-4 border-emerald-500 bg-emerald-50 p-4 text-sm text-emerald-950" data-testid="seller-server-draft-loaded">
           <p className="font-semibold">Existing Seller listing loaded.</p>
