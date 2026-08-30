@@ -992,14 +992,31 @@ async function buildVehiclePassport(
     // reads as when the photo was taken. `vehicle_evidence` has `captured_at` for that, behind a
     // review; `listing_images` has no such column and no reviewer, no uploader, no checksum and no
     // status, which is precisely why nothing in this block may make a trust claim.
-    const listingImages = await readListingImagesCompat({ vin });
+    const wideListingImages = await supabase
+      .from('listing_images')
+      .select('id, image_url, is_primary, display_order, photo_label')
+      .eq('vin', vin)
+      .order('display_order', { ascending: true });
+
+    if (!wideListingImages.error) {
+      listingImageRows = wideListingImages.data || [];
+    } else if (isMissingNamedColumnError(wideListingImages.error, 'photo_label')) {
+      // Additive Seller metadata may briefly lag the exact-head preview deployment. Preserve the
+      // established gallery while representing only the NEW label as unavailable.
+      const legacyListingImages = await supabase
+        .from('listing_images')
+        .select('id, image_url, is_primary, display_order')
+        .eq('vin', vin)
+        .order('display_order', { ascending: true });
+      if (!legacyListingImages.error) {
+        listingImageRows = (legacyListingImages.data || []).map(row => ({ ...row, photo_label: null }));
+      }
+    }
 
     // A failed gallery read must NOT 500 the passport (unlike evidence above, whose absence would
     // silently understate governance), and it must not be laundered into `[]` either. Leaving the
     // value undefined yields `state: 'not_loaded'` with a NULL statement, so the surface renders
-    // nothing rather than an empty-gallery sentence about a table we could not reach. A preview
-    // schema missing only photo_label still returns the established gallery with null annotations.
-    if (listingImages !== null) listingImageRows = listingImages;
+    // nothing rather than an empty-gallery sentence about a table we could not reach.
   }
 
   // ── WHY THE GALLERY IS STILL READ FOR A LISTING WE MAY NOT PUBLISH ────────────────────────────
@@ -2787,7 +2804,7 @@ app.post('/api/vehicles/add', authorizeRole(['dealer', 'owner', 'admin']), async
     let imagesRecorded = false;
     let imagesRecordedCount = 0;
     let imagesReplacementComplete = true;
-    let imageLabelsRecorded = imageRecords.every(record => record.photo_label === null);
+    let imageLabelsRecorded = true;
     if (imageRecords.length > 0) {
       let imageInsert = await supabase.from('listing_images').insert(imageRecords);
       // Controlled migration fallback: keep the image save available on an older schema, but say
