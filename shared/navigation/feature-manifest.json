@@ -1084,6 +1084,20 @@
     "betaCapable": true
   },
   {
+    "id": "owner.intelligence",
+    "domain": "commerce",
+    "route": "/dashboard/intelligence",
+    "defaultLifecycle": "active",
+    "defaultRoles": [
+      "owner"
+    ],
+    "immutableRoles": [
+      "owner"
+    ],
+    "requiresAuth": true,
+    "betaCapable": true
+  },
+  {
     "id": "owner.listings",
     "domain": "safepay",
     "route": "/dashboard/listings",
