@@ -417,6 +417,14 @@ test.describe('Golden Dynamic Seller — exact-head deployed acceptance', () => 
     // timing-sensitive while still exercising the real Marketplace page + backend q filter.
     await page.goto(`/marketplace?q=${encodeURIComponent(vin)}&fixture_scope=${encodeURIComponent(RUN_ID)}`);
     await expect(page.getByTestId('marketplace-results-count')).toContainText('1', { timeout: 20_000 });
+
+    // Phase N client instrumentation: the real Marketplace result must become a viewport impression,
+    // and a real compare selection must be recorded before we leave the list surface.
+    const compareToggle = page.getByTestId('marketplace-compare-toggle').first();
+    await expect(compareToggle).toBeVisible({ timeout: 20_000 });
+    await compareToggle.click();
+    await expect(compareToggle).toHaveAttribute('aria-pressed', 'true');
+
     const publicLink = page.locator(`a[href^="/marketplace/${vin}"]`).first();
     await expect(publicLink).toBeVisible({ timeout: 20_000 });
     await publicLink.click();
@@ -454,11 +462,43 @@ test.describe('Golden Dynamic Seller — exact-head deployed acceptance', () => 
     expect([200, 201]).toContain(inquiryResponse.status());
     await expect(page.getByTestId('marketplace-inquiry-modal')).toHaveCount(0, { timeout: 15_000 });
 
+    // Phase N inspection-request instrumentation is a separate authoritative inquiry type.
+    const inspectionTrigger = page.getByRole('button', { name: /Request (an )?inspection/i }).first();
+    await expect(inspectionTrigger).toBeVisible({ timeout: 20_000 });
+    await inspectionTrigger.click();
+    await expect(page.getByTestId('marketplace-inquiry-modal')).toBeVisible();
+    await page.getByTestId('marketplace-inquiry-name').fill('Golden Dynamic Buyer');
+    await page.getByTestId('marketplace-inquiry-email').fill(`inspection-${suffix}@example.test`);
+    await page.getByTestId('marketplace-inquiry-phone').fill('+263771234568');
+    await page.getByTestId('marketplace-inquiry-message').fill(`Please arrange an inspection for ${vin}.`);
+    const inspectionWait = page.waitForResponse((response) =>
+      response.request().method() === 'POST' && response.url().includes('/api/marketplace/inquiries')
+    );
+    await page.getByTestId('marketplace-inquiry-submit').click();
+    const inspectionResponse = await inspectionWait;
+    expect([200, 201]).toContain(inspectionResponse.status());
+    await expect(page.getByTestId('marketplace-inquiry-modal')).toHaveCount(0, { timeout: 15_000 });
+
     // Return as Seller. Marketplace inquiry capture is immediate and has its own governed inbox on
     // My Listings. Communication threads are an asynchronous downstream projection and must not be
     // confused with the durable inquiry itself.
     await signInViaUi(page, 'buyer');
     cleanupAuth = await authFromPage(page);
+
+    // Phase N save instrumentation must come from the real authenticated save route. This Seller is
+    // intentionally saving their own staging fixture; the event is later audited as self-traffic and
+    // excluded from Seller-facing performance totals rather than being laundered into a buyer metric.
+    await page.goto(`/marketplace?q=${encodeURIComponent(vin)}&fixture_scope=${encodeURIComponent(RUN_ID)}`);
+    const saveToggle = page.getByTestId('marketplace-save-toggle').first();
+    await expect(saveToggle).toBeVisible({ timeout: 20_000 });
+    const saveWait = page.waitForResponse((response) =>
+      response.request().method() === 'POST' && response.url().includes(`/api/marketplace/listings/${vin}/save`)
+    );
+    await saveToggle.click();
+    const saveResponse = await saveWait;
+    expect(saveResponse.status(), await saveResponse.text()).toBe(200);
+    await expect(saveToggle).toHaveAttribute('aria-pressed', 'true');
+
     await page.goto('/dashboard/listings');
     const sellerCard = page.getByTestId(`my-listing-card-${vin}`);
     await expect(sellerCard).toBeVisible({ timeout: 20_000 });
@@ -523,6 +563,14 @@ test.describe('Golden Dynamic Seller — exact-head deployed acceptance', () => 
     await page.getByTestId(`price-input-${vin}`).fill(String(newPrice));
     await page.getByTestId(`price-save-${vin}`).click();
     await expect(page.getByTestId(`listing-price-${vin}`)).toContainText(/29,?000/, { timeout: 20_000 });
+
+    // Remove the temporary saved-state row after its event has been recorded; the ledger retains both
+    // save and unsave observations while the buyer-facing watchlist is left clean.
+    const sellerCleanupHeaders = await mutationHeaders(request, cleanupAuth);
+    const unsaveResponse = await request.delete(`${API_URL}/marketplace/listings/${vin}/save`, {
+      headers: sellerCleanupHeaders,
+    });
+    expect(unsaveResponse.status(), await unsaveResponse.text()).toBe(200);
 
     // Unpublish from the Seller UI, then mark sold so the UAT vehicle is retired from active stock.
     await page.getByTestId(`publish-toggle-${vin}`).click();
