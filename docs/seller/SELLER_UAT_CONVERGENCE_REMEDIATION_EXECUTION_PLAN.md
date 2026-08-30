@@ -137,8 +137,8 @@ Required rows:
 
 - [x] Marketplace count label explicitly describes what is counted. Marketplace now says **published listing(s)** at `857c1e8fd6e44806d92ac52e692af16e66bf037d`.
 - [ ] Drafts/sold/test fixtures do not appear in public active-listing counts.
-- [ ] Define and document Home “Featured” selection semantics.
-- [ ] Do not silently equate newest listing with editorial/quality “Featured” status unless that is the explicit product rule.
+- [x] Define and document Home “Featured” selection semantics. Home is explicitly a **live showroom**, not an editorial award; it prefers the newest published listing with renderable seller media (`7d75e55637f26eb874138dae1608094f3c149072`).
+- [x] Do not silently equate newest listing with editorial/quality “Featured” status unless that is the explicit product rule. UI now labels the hero `Live from Marketplace · published inventory`.
 - [ ] Automated fixtures cannot become Featured.
 
 ---
@@ -320,8 +320,8 @@ The exact selected cover image must remain recognizable in:
 
 ## 7A. Home live vehicle media
 
-- [ ] Hero/live vehicle uses governed published listing media only.
-- [ ] Missing/broken media produces a deliberate bounded state, not a huge accidental blank region.
+- [x] Hero/live vehicle uses governed published listing media only. `Landing` continues to consume the canonical public Marketplace listing projection.
+- [~] Missing/broken media produces a deliberate bounded state, not a huge accidental blank region. Source fallback implemented at `7d75e55637f26eb874138dae1608094f3c149072`; visual staging proof pending.
 - [ ] Human Seller publication/unpublication updates Home truthfully.
 - [ ] Draft vehicles never appear.
 
@@ -329,13 +329,13 @@ The exact selected cover image must remain recognizable in:
 
 - [ ] Buy visual communicates inventory/discovery.
 - [ ] Sell visual communicates Seller workflow.
-- [ ] Verify visual remains meaningful even if live vehicle photography is unavailable.
-- [ ] Diaspora visual is conceptual/process-led and does not depend on a random listing image.
-- [ ] Finance visual remains meaningful without fabricating approval.
-- [ ] Protection/insurance visual remains meaningful without fabricating coverage.
-- [ ] Service visual remains meaningful without fabricating service history.
-- [ ] Parts visual remains meaningful without fabricating fitment/availability.
-- [ ] Conceptual scenes do not collapse because Marketplace media is missing.
+- [x] Verify visual remains meaningful even if live vehicle photography is unavailable. Conceptual scenes no longer borrow random live inventory media.
+- [x] Diaspora visual is conceptual/process-led and does not depend on a random listing image.
+- [x] Finance visual remains meaningful without fabricating approval; conceptual scene is now independent of live inventory media.
+- [x] Protection/insurance visual remains meaningful without fabricating coverage; conceptual scene is now independent of live inventory media.
+- [x] Service visual remains meaningful without fabricating service history; it remains an illustration.
+- [x] Parts visual remains meaningful without fabricating fitment/availability; it remains an illustration.
+- [x] Conceptual scenes do not collapse because Marketplace media is missing. Buy/Sell have designed media fallback; other scenes are process-led (`7a64a0fa9e5206e8b953307ebc3b4d3b9af3d6db`, `7d75e55637f26eb874138dae1608094f3c149072`).
 - [ ] No fake gamification/progress.
 - [ ] desktop/tablet/mobile remain visually balanced.
 
@@ -754,7 +754,7 @@ This section must be updated after **every** cleared task.
 | 4 Sell intent | [ ] | | |
 | 5 Draft/resume | [ ] | | |
 | 6 Media | [ ] | | |
-| 7 Home visuals | [ ] | | |
+| 7 Home visuals | [~] | Resilient media/process scenes `7d75e55637f26eb874138dae1608094f3c149072` | Responsive visual staging evidence pending |
 | 8 My Garage | [ ] | | |
 | 9 My Listings | [ ] | | |
 | 10 Seller Studio | [ ] | | |
