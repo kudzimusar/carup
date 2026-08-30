@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -26,6 +26,65 @@ import { readOwnerTrustClaim, statedCount } from './ownerStatedValues'
 
 const YEARS = vehicleYearOptions()
 const STEPS = ['Vehicle Details', 'Location & Pricing', 'Images & Features', 'Review & Save Draft']
+
+const SERVER_AUTOSAVE_FIELDS = new Set([
+  'description', 'features', 'category', 'condition', 'price', 'currency',
+  'location', 'province', 'locationVisibility', 'publicSellerDisplay',
+])
+
+type SellerAutosavePayload = {
+  description?: string
+  features?: string[]
+  body_style?: string
+  seller_stated_condition?: string
+  price?: number
+  currency?: string
+  location?: string
+  province?: string
+  listing_country?: string
+  location_visibility?: 'withheld' | 'province_only' | 'public'
+  public_seller_display_enabled?: boolean
+}
+
+function autosaveReceiptMatches(
+  payload: SellerAutosavePayload,
+  receipt: {
+    description: string
+    features: string[]
+    body_style: string
+    seller_stated_condition: string
+    price: number | null
+    currency: string
+    location: string
+    province: string
+    listing_country: string
+    location_visibility: 'withheld' | 'province_only' | 'public'
+    public_seller_display_enabled: boolean
+  } | null | undefined,
+) {
+  if (!receipt) return false
+  const sameStrings = [
+    ['description', 'description'],
+    ['body_style', 'body_style'],
+    ['seller_stated_condition', 'seller_stated_condition'],
+    ['currency', 'currency'],
+    ['location', 'location'],
+    ['province', 'province'],
+    ['listing_country', 'listing_country'],
+    ['location_visibility', 'location_visibility'],
+  ] as const
+  for (const [requestKey, receiptKey] of sameStrings) {
+    if (Object.prototype.hasOwnProperty.call(payload, requestKey)
+      && String(payload[requestKey] ?? '') !== String(receipt[receiptKey] ?? '')) return false
+  }
+  if (Object.prototype.hasOwnProperty.call(payload, 'features')) {
+    if (JSON.stringify(payload.features || []) !== JSON.stringify(receipt.features || [])) return false
+  }
+  if (Object.prototype.hasOwnProperty.call(payload, 'price') && Number(payload.price) !== Number(receipt.price)) return false
+  if (Object.prototype.hasOwnProperty.call(payload, 'public_seller_display_enabled')
+    && Boolean(payload.public_seller_display_enabled) !== receipt.public_seller_display_enabled) return false
+  return true
+}
 
 /**
  * Seller Journey S4 — the shot list buyers actually ask for, in the order it is easiest to walk
@@ -158,6 +217,8 @@ export default function SellVehicle() {
   const [serverVehicle, setServerVehicle] = useState<Vehicle | null>(null)
   const [serverDraftError, setServerDraftError] = useState<string | null>(null)
   const [serverAutosaveState, setServerAutosaveState] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle')
+  // A late response for revision N must never mark revision N+1 as saved.
+  const serverAutosaveRevision = useRef(0)
   const modelOptions = modelsForMake(form.make).map(item => item.name)
   // S1: one VIN has one Passport. The authenticated seller either has an established relationship
   // to that Passport or enters the governed seller-authority evidence path.
@@ -352,22 +413,37 @@ export default function SellVehicle() {
   useEffect(() => {
     if (!serverDraftLoaded || serverDraftLoading || submitting || !validateVin(form.vin)) return
 
+    const revision = serverAutosaveRevision.current
+    const payload: SellerAutosavePayload = {
+      description: form.description,
+      features: form.features,
+      body_style: form.category,
+      seller_stated_condition: form.condition,
+      ...(form.price && Number.isFinite(Number(form.price)) && Number(form.price) > 0 ? { price: Number(form.price) } : {}),
+      ...(form.currency ? { currency: form.currency } : {}),
+      location: form.location,
+      province: form.province,
+      location_visibility: form.locationVisibility as 'withheld' | 'province_only' | 'public',
+      public_seller_display_enabled: form.publicSellerDisplay,
+    }
+
     const timer = window.setTimeout(() => {
+      // A newer edit superseded this debounced revision before it even left the browser.
+      if (revision !== serverAutosaveRevision.current) return
       setServerAutosaveState('saving')
-      void updateSellerDraft(form.vin.toUpperCase(), {
-        description: form.description,
-        features: form.features,
-        body_style: form.category,
-        seller_stated_condition: form.condition,
-        ...(form.price && Number.isFinite(Number(form.price)) && Number(form.price) > 0 ? { price: Number(form.price) } : {}),
-        ...(form.currency ? { currency: form.currency } : {}),
-        location: form.location,
-        province: form.province,
-        location_visibility: form.locationVisibility as 'withheld' | 'province_only' | 'public',
-        public_seller_display_enabled: form.publicSellerDisplay,
-      })
-        .then(() => setServerAutosaveState('saved'))
-        .catch(() => setServerAutosaveState('error'))
+      void updateSellerDraft(form.vin.toUpperCase(), payload)
+        .then((result) => {
+          // A slow older PATCH cannot turn a newer dirty form back into a green "saved" claim.
+          if (revision !== serverAutosaveRevision.current) return
+          if (!result?.success || !autosaveReceiptMatches(payload, result.draft)) {
+            setServerAutosaveState('error')
+            return
+          }
+          setServerAutosaveState('saved')
+        })
+        .catch(() => {
+          if (revision === serverAutosaveRevision.current) setServerAutosaveState('error')
+        })
     }, 1200)
 
     return () => window.clearTimeout(timer)
@@ -398,6 +474,10 @@ export default function SellVehicle() {
   }, [guestDraft])
 
   const set = (field: string, value: string | number | boolean | string[]) => {
+    if (serverDraftLoaded && SERVER_AUTOSAVE_FIELDS.has(field)) {
+      serverAutosaveRevision.current += 1
+      setServerAutosaveState('idle')
+    }
     setForm(prev => ({
       ...prev,
       [field]: value,
