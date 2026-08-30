@@ -37,7 +37,7 @@ export interface Vehicle extends Omit<SharedVehicle, 'status'> {
    */
   listing_media?: {
     state: 'published' | 'none' | 'not_loaded';
-    items: Array<{ media_id: string; url: string; url_form: string; position: number; is_primary: boolean; photo_label?: string | null }>;
+    items: Array<{ media_id: string; url: string; url_form: string; position: number; seller_order?: number | null; is_primary: boolean; photo_label?: string | null }>;
     unpublishable_count: number;
     empty_statement: string | null;
   } | null;
