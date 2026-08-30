@@ -17,6 +17,7 @@ import { useSellerVehicleIdentification } from '@/hooks/useSellerVehicleIdentifi
 import { useCarUpApi } from '@/hooks/useCarUpApi'
 import { VehicleHistoryCoveragePanel, type HistoryEvidencePlanState } from '@/components/sell/VehicleHistoryCoveragePanel'
 import { SellerDocumentAutofillNotice } from '@/components/sell/SellerDocumentAutofillNotice'
+import { SellIntentRouter, type SellerEntryIntent } from '@/components/sell/SellIntentRouter'
 import type { EvidenceSourcesResponse, EvidenceTaxonomyResponse } from '@/types'
 import { toast } from 'sonner'
 
@@ -77,6 +78,7 @@ export default function GuestSell() {
   const { isAuthenticated } = useAuth()
   const { fetchEvidenceTaxonomy, fetchEvidenceSources } = useCarUpApi()
   const [initialDraft] = useState(() => readGuestSellDraft())
+  const [sellerIntent, setSellerIntent] = useState<SellerEntryIntent | null>(null)
   const [step, setStep] = useState(() => readGuestSellStep())
   const [form, setForm] = useState<GuestForm>(() => initialDraft ? ({
     ...INITIAL,
@@ -326,6 +328,29 @@ export default function GuestSell() {
     return Math.round((fields.filter(Boolean).length / fields.length) * 100)
   }, [form])
 
+  const resolveSellerIntent = (intent: SellerEntryIntent) => {
+    setSellerIntent(intent)
+    if (intent === 'known_vehicle' || intent === 'new_vehicle') {
+      // Choosing a different vehicle identity is explicit. Reset the in-memory working form while
+      // leaving the saved browser draft untouched until this new path itself makes progress; the
+      // seller can still return to the chooser and recover the prior draft instead of losing it
+      // merely by exploring an option.
+      setForm(INITIAL)
+      setStep(0)
+      setErrors({})
+      setDraftSaved(false)
+    }
+  }
+
+  if (!sellerIntent) {
+    return (
+      <SellIntentRouter
+        hasLocalDraft={Boolean(initialDraft)}
+        onResolve={resolveSellerIntent}
+      />
+    )
+  }
+
   return (
     <div className="min-h-screen bg-[#f6f7f9] pb-24 text-slate-950" data-testid="guest-sell-page">
       <header className="relative overflow-hidden border-b border-slate-800 bg-[#07111f] text-white">
@@ -334,14 +359,19 @@ export default function GuestSell() {
         <div className="absolute right-[-2rem] top-[-1rem] h-44 w-44 rounded-full border border-orange-400/20" />
 
         <div className="section-padding relative mx-auto max-w-7xl py-7 sm:py-10">
-          <Link to="/marketplace" className="inline-flex items-center gap-1.5 text-sm font-semibold text-slate-400 transition hover:text-white">
-            <ArrowLeft className="h-4 w-4" /> Back to marketplace
-          </Link>
+          <button
+            type="button"
+            onClick={() => setSellerIntent(null)}
+            className="inline-flex items-center gap-1.5 text-sm font-semibold text-slate-400 transition hover:text-white"
+            data-testid="sell-change-intent"
+          >
+            <ArrowLeft className="h-4 w-4" /> Change vehicle path
+          </button>
 
           <div className="mt-7 grid items-end gap-8 lg:grid-cols-[1.45fr_0.75fr]">
             <div>
               <div className="inline-flex items-center gap-2 rounded-full border border-orange-400/25 bg-orange-400/10 px-3 py-1 text-[11px] font-black uppercase tracking-[0.2em] text-orange-300">
-                <Sparkles className="h-3.5 w-3.5" /> Seller studio
+                <Sparkles className="h-3.5 w-3.5" /> Seller studio · {sellerIntent === 'known_vehicle' ? 'known CarUp vehicle' : sellerIntent === 'new_vehicle' ? 'vehicle new to CarUp' : 'resume draft'}
               </div>
               <h1 className="mt-5 max-w-4xl text-[2.65rem] font-black leading-[0.96] tracking-[-0.055em] text-white sm:text-6xl">
                 Tell the car story.
