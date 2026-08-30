@@ -14,9 +14,6 @@ on:
       - '.github/workflows/seller-exact-head-staging-uat.yml'
   workflow_dispatch: {}
 
-concurrency:
-  group: seller-exact-head-staging-uat-${{ github.event.pull_request.number || github.ref_name }}
-  cancel-in-progress: true
 
 concurrency:
   # These deployed Seller journeys rotate the same staging-only owner identity. Serializing them
