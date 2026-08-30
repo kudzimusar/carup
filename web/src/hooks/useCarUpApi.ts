@@ -2402,6 +2402,25 @@ export function useCarUpApi() {
     })
   }, [request])
 
+  const updateSellerDraft = useCallback(async (vin: string, payload: {
+    description?: string
+    features?: string[]
+    body_style?: string
+    seller_stated_condition?: string
+    price?: number
+    currency?: string
+    location?: string
+    province?: string
+    listing_country?: string
+    location_visibility?: 'withheld' | 'province_only' | 'public'
+    public_seller_display_enabled?: boolean
+  }): Promise<{ success: boolean; vin: string; publication_status: string; claim_provenance_recorded?: boolean; unchanged?: boolean }> => {
+    return request(`/vehicles/${encodeURIComponent(vin)}/seller-draft`, {
+      method: 'PATCH',
+      body: JSON.stringify(payload),
+    })
+  }, [request])
+
   const requestSellerAuthorityClaim = useCallback(async (
     vin: string,
     claimType: 'owner' | 'authorised_seller',
@@ -2631,6 +2650,7 @@ export function useCarUpApi() {
     uploadEvidence,
     linkEvidenceToEvent,
     createVehicleListing,
+    updateSellerDraft,
     requestSellerAuthorityClaim,
     uploadVehicleImages,
     fetchOwnedVehicles,
