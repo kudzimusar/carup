@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -48,6 +48,7 @@ import {
 } from '@/lib/marketplaceParams'
 import type { ActiveFilterKey, MarketplaceSort, MarketplaceUrlState } from '@/lib/marketplaceParams'
 import { isAdversePlateStatus, plateStatusLabel, primaryImageForListing } from '@/lib/marketplacePresentation'
+import { track as trackActivity } from '@/lib/intelligenceActivity'
 import { BODY_STYLES, FUEL_TYPES, TRANSMISSIONS, VEHICLE_COLORS, VEHICLE_MAKES, VEHICLE_TAXONOMY, modelsForMake, vehicleYearOptions } from '@/data/vehicleTaxonomy'
 
 const MAX_COMPARE = 4
@@ -58,6 +59,40 @@ const marketplaceYears = vehicleYearOptions()
 const allTaxonomyModels = Array.from(new Set(VEHICLE_TAXONOMY.flatMap(make => make.models.map(model => model.name)))).sort()
 const CONDITION_CHIPS = [...CATEGORY_CHIPS, 'Parts & Accessories']
 const TRUST_CHIPS = TRUST_TAG_CHIPS
+
+
+function MarketplaceImpression({
+  vin,
+  position,
+  children,
+}: {
+  vin: string
+  position: number
+  children: ReactNode
+}) {
+  const ref = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    const node = ref.current
+    if (!node || typeof IntersectionObserver === 'undefined') return
+
+    const observer = new IntersectionObserver((entries) => {
+      if (!entries.some(entry => entry.isIntersecting && entry.intersectionRatio >= 0.25)) return
+      trackActivity({
+        event_type: 'marketplace_listing_impression',
+        listing_id: vin,
+        source_surface: 'marketplace_list',
+        metadata: { position: position + 1, result_page: 1 },
+      })
+      observer.disconnect()
+    }, { threshold: 0.25 })
+
+    observer.observe(node)
+    return () => observer.disconnect()
+  }, [position, vin])
+
+  return <div ref={ref}>{children}</div>
+}
 
 const ALLOW_MOCK_LISTINGS = import.meta.env.DEV || import.meta.env.VITE_MARKETPLACE_ALLOW_MOCK === 'true'
 
@@ -475,12 +510,20 @@ export default function Marketplace() {
     event.preventDefault()
     event.stopPropagation()
     setCompareVins(previous => {
-      if (previous.includes(vin)) return previous.filter(value => value !== vin)
-      if (previous.length >= MAX_COMPARE) {
+      const removing = previous.includes(vin)
+      if (!removing && previous.length >= MAX_COMPARE) {
         toast.info(`You can compare up to ${MAX_COMPARE} listings.`)
         return previous
       }
-      return [...previous, vin]
+      const next = removing ? previous.filter(value => value !== vin) : [...previous, vin]
+      trackActivity({
+        event_type: removing ? 'marketplace_compare_removed' : 'marketplace_compare_added',
+        listing_id: vin,
+        source_surface: 'marketplace_list',
+        compare_listing_ids: next,
+        metadata: { compare_set_size: next.length },
+      })
+      return next
     })
   }, [])
 
@@ -978,7 +1021,7 @@ export default function Marketplace() {
             </div>
           ) : (
             <div className="grid gap-x-7 gap-y-12 md:grid-cols-2" data-testid="marketplace-results-grid">
-              {visibleListings.map(listing => {
+              {visibleListings.map((listing, position) => {
                 const vin = listing.vin
                 const vehicleName = [listing.year, listing.make, listing.model].filter(value => value !== null && value !== undefined && value !== '').join(' ')
                 const labels = listingLabels(listing)
@@ -1006,20 +1049,21 @@ export default function Marketplace() {
                 }
 
                 return (
-                  <MarketplaceListingCard
-                    key={vin}
-                    vehicle={model}
-                    href={href}
-                    isFavorite={favorites.includes(vin)}
-                    isCompared={compareVins.includes(vin)}
-                    onFavorite={event => toggleFavorite(event, vin, model.name)}
-                    onCompare={event => toggleCompare(event, vin)}
-                    onShare={event => {
-                      event.preventDefault()
-                      event.stopPropagation()
-                      shareListing(vin, model.name)
-                    }}
-                  />
+                  <MarketplaceImpression key={vin} vin={vin} position={position}>
+                    <MarketplaceListingCard
+                      vehicle={model}
+                      href={href}
+                      isFavorite={favorites.includes(vin)}
+                      isCompared={compareVins.includes(vin)}
+                      onFavorite={event => toggleFavorite(event, vin, model.name)}
+                      onCompare={event => toggleCompare(event, vin)}
+                      onShare={event => {
+                        event.preventDefault()
+                        event.stopPropagation()
+                        shareListing(vin, model.name)
+                      }}
+                    />
+                  </MarketplaceImpression>
                 )
               })}
             </div>
@@ -1070,7 +1114,15 @@ export default function Marketplace() {
                 size="sm"
                 className="min-w-[9.5rem] rounded-none bg-orange-500 font-black text-white hover:bg-orange-600 disabled:bg-slate-700 disabled:text-slate-400"
                 disabled={compareVins.length < 2}
-                onClick={() => navigate(`/marketplace/compare?vins=${compareVins.join(',')}`)}
+                onClick={() => {
+                  trackActivity({
+                    event_type: 'marketplace_compare_viewed',
+                    source_surface: 'marketplace_list',
+                    compare_listing_ids: compareVins,
+                    metadata: { compare_set_size: compareVins.length },
+                  })
+                  navigate(`/marketplace/compare?vins=${compareVins.join(',')}`)
+                }}
                 data-testid="marketplace-compare-go"
               >
                 <GitCompare className="mr-1 h-4 w-4" />
