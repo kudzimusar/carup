@@ -188,3 +188,13 @@ test('getFixtureExclusion is null for a real-looking row, which can still qualif
   assert.equal(r.included, true);
   assert.equal(r.proposed, 'locally_used');
 });
+
+
+test('reserved Golden Dynamic Seller description marks a valid VIN as an automation fixture', () => {
+  const row = {
+    vin: 'JTDKARFP0H3123456',
+    owner_id: '550e8400-e29b-41d4-a716-446655440000',
+    seller_description: 'Golden Dynamic Seller seller-12345-1: staging-only vehicle',
+  };
+  assert.match(getFixtureExclusion(row) || '', /seller_automation_fixture\(seller-12345-1\)/);
+});
