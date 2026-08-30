@@ -31,6 +31,7 @@ const fetchVehicle = vi.fn()
 const fetchVehiclePassport = vi.fn()
 const lookupVehiclePassport = vi.fn()
 const fetchMarketplaceListingDetail = vi.fn()
+const fetchOwnedVehicles = vi.fn()
 const saveMarketplaceListing = vi.fn()
 const unsaveMarketplaceListing = vi.fn()
 const fetchSavedMarketplaceListings = vi.fn()
@@ -48,7 +49,7 @@ const createMarketplaceInquiry = vi.fn()
 vi.mock('@/hooks/useCarUpApi', () => ({
   useCarUpApi: () => ({
     submitFinancing, fetchVehicle, fetchVehiclePassport,
-    lookupVehiclePassport, fetchMarketplaceListingDetail, saveMarketplaceListing,
+    lookupVehiclePassport, fetchMarketplaceListingDetail, fetchOwnedVehicles, saveMarketplaceListing,
     unsaveMarketplaceListing, fetchSavedMarketplaceListings, fetchEvidenceTaxonomy,
     fetchEvidenceSources, fetchTemporalFindings, fetchDisclosureConflicts, fetchVehicleReport,
     generateReportVersion, createReportShareLink, fetchVehicleTrustDecision,
@@ -58,7 +59,7 @@ vi.mock('@/hooks/useCarUpApi', () => ({
 
 vi.mock('@/context/AuthContext', () => ({
   useAuth: () => ({
-    user: { id: 'buyer-1', name: 'Buyer', email: 'buyer@carup.dev', role: 'buyer' },
+    user: { id: 'owner-1', name: 'Owner', email: 'owner@carup.dev', role: 'owner' },
     isAuthenticated: true,
     loading: false,
   }),
@@ -114,7 +115,7 @@ function passportFixture(vehicleOverrides: Record<string, unknown> = {}) {
 
 const renderDetail = () =>
   render(
-    <MemoryRouter initialEntries={[`/vehicle/${VIN}`]}>
+    <MemoryRouter initialEntries={[`/vehicle/${VIN}?mode=seller_preview`]}>
       <Routes><Route path="/vehicle/:id" element={<VehicleDetail />} /></Routes>
     </MemoryRouter>,
   )
@@ -122,6 +123,7 @@ const renderDetail = () =>
 beforeEach(() => {
   vi.clearAllMocks()
   cleanup()
+  fetchOwnedVehicles.mockResolvedValue([{ vin: VIN }])
   fetchMarketplaceListingDetail.mockRejectedValue(new Error('not listed'))
   fetchSavedMarketplaceListings.mockResolvedValue([])
   fetchEvidenceTaxonomy.mockResolvedValue([])
