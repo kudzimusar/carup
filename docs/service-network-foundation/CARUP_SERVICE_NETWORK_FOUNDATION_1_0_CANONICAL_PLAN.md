@@ -459,7 +459,16 @@ Foundation requirements include reconciliation for:
 - compatibility with legacy rows;
 - existing tenant scoping.
 
-The exact state vocabulary must be frozen in S2/S3 after live schema reconciliation.
+S0 is the one and only freeze point for the work-order contract. During S0 live schema reconciliation, the implementation MUST freeze, record in the S0 receipt, and test the exact:
+- additive `mechanic_work_orders` schema delta;
+- writable work-order states;
+- allowed state transitions, including terminal-state immutability;
+- work-order/assignment event vocabulary;
+- legacy read-compatibility rules.
+
+S2, S3 and S4 are consumers of that S0-frozen contract. They MUST NOT introduce, rename, broaden or reinterpret a work-order state, transition or event name. If repository truth discovered after S0 makes the freeze unsafe, execution stops and S0 is explicitly amended/re-certified before later phases continue; a later phase may never quietly revise an allegedly frozen vocabulary.
+
+For the reconciled Foundation 1.0 contract, S0 must preserve the existing write vocabulary `In Progress | Completed | Cancelled` unless live schema evidence proves that vocabulary itself is not authoritative. Reads remain tolerant of historical/legacy values rather than rewriting history. `Completed` and `Cancelled` are terminal and may not be reopened.
 
 Foundation does NOT need the entire later appointment/DVI state machine.
 
@@ -691,7 +700,7 @@ service.work.cancelled
 service.case.completed
 ```
 
-Exact names may be adjusted to existing event naming conventions during S0, but there must be one canonical namespace and no duplicate synonyms.
+S0 MUST reconcile these proposed names to the live outbox/event conventions and then freeze the exact canonical namespace in the S0 receipt. After S0 passes, S2/S3/S4 and every later phase consume those exact event names; no later phase may add a synonym or silently rename one. There must be one canonical namespace and no duplicate synonyms.
 
 Each event should carry only the minimum identifiers needed by consumers:
 
@@ -1512,7 +1521,10 @@ Tasks:
 - audit action-token/capability infrastructure;
 - freeze exact authority matrix;
 - freeze exact Foundation schema delta;
-- freeze state/event vocabulary;
+- freeze exact Service Case state vocabulary and transitions;
+- freeze exact work-order write-state vocabulary, terminal states and transition table;
+- freeze exact work-order/assignment event vocabulary and canonical namespace;
+- freeze legacy work-order read-compatibility rules;
 - identify all legacy compatibility obligations.
 
 Deliverable:
@@ -1523,7 +1535,8 @@ Gate:
 
 - no unresolved duplicate authority;
 - no stale #194 assumption;
-- no migration written against an unverified schema shape.
+- no migration written against an unverified schema shape;
+- S0 receipt contains the exact work-order schema delta, writable states, transition rules, terminal-state policy and event vocabulary that S2/S3/S4 will consume unchanged.
 
 ## S1 — Governed Garage Identity and Publication
 
@@ -1591,7 +1604,7 @@ Build:
 - assignment history;
 - tenant/branch scope;
 - completion/cancellation timestamps;
-- compatible status/state model;
+- consume the S0-frozen status/transition/event contract without redefining it;
 - current Work Orders/Mechanic Dashboard convergence.
 
 Receipt:
