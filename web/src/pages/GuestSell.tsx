@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
-import { Link } from 'react-router-dom'
+import { Link, useSearchParams } from 'react-router-dom'
 import { ArrowLeft, ArrowRight, BadgeCheck, Camera, CarFront, CircleDot, Eye, FileCheck2, Gauge, LockKeyhole, LogIn, MapPin, ScanLine, ShieldCheck, Sparkles, UploadCloud, WalletCards, X } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -17,6 +17,7 @@ import { useSellerVehicleIdentification } from '@/hooks/useSellerVehicleIdentifi
 import { useCarUpApi } from '@/hooks/useCarUpApi'
 import { VehicleHistoryCoveragePanel, type HistoryEvidencePlanState } from '@/components/sell/VehicleHistoryCoveragePanel'
 import { SellerDocumentAutofillNotice } from '@/components/sell/SellerDocumentAutofillNotice'
+import { SellerIntentRouter } from '@/components/sell/SellerIntentRouter'
 import type { EvidenceSourcesResponse, EvidenceTaxonomyResponse } from '@/types'
 import { toast } from 'sonner'
 
@@ -75,6 +76,8 @@ function validVin(vin: string) {
 
 export default function GuestSell() {
   const { isAuthenticated } = useAuth()
+  const [searchParams] = useSearchParams()
+  const sellerIntent = searchParams.get('intent')
   const { fetchEvidenceTaxonomy, fetchEvidenceSources } = useCarUpApi()
   const [initialDraft] = useState(() => readGuestSellDraft())
   const [step, setStep] = useState(() => readGuestSellStep())
@@ -326,8 +329,12 @@ export default function GuestSell() {
     return Math.round((fields.filter(Boolean).length / fields.length) * 100)
   }, [form])
 
+  if (sellerIntent !== 'known' && sellerIntent !== 'new') {
+    return <SellerIntentRouter />
+  }
+
   return (
-    <div className="min-h-screen bg-[#f6f7f9] pb-24 text-slate-950" data-testid="guest-sell-page">
+    <div className="min-h-screen bg-[#f6f7f9] pb-24 text-slate-950" data-testid="guest-sell-page" data-seller-intent={sellerIntent}>
       <header className="relative overflow-hidden border-b border-slate-800 bg-[#07111f] text-white">
         <div className="absolute inset-0 opacity-80 [background-image:radial-gradient(circle_at_82%_18%,rgba(249,115,22,0.26),transparent_26%),radial-gradient(circle_at_60%_120%,rgba(59,130,246,0.16),transparent_34%)]" />
         <div className="absolute right-[-8rem] top-[-7rem] h-80 w-80 rounded-full border border-white/10" />
