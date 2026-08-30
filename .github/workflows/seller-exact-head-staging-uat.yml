@@ -10,6 +10,7 @@ on:
       - 'backend/**'
       - 'web/**'
       - 'tests/agents/38-seller-staging-browser-golden.spec.ts'
+      - 'tests/agents/seller-uat-automation-cleanup.mjs'
       - 'playwright.staging.config.ts'
       - '.github/workflows/seller-exact-head-staging-uat.yml'
   workflow_dispatch: {}
@@ -194,8 +195,15 @@ jobs:
           console.log('Staging-only Seller owner and reviewer identities rotated without printing credentials.');
           NODE
 
+      - name: Retire leaked Seller automation inventory before certification
+        run: node tests/agents/seller-uat-automation-cleanup.mjs
+
       - name: Run Golden Dynamic Seller desktop + mobile Chromium
         run: npx playwright test tests/agents/38-seller-staging-browser-golden.spec.ts --config=playwright.staging.config.ts
+
+      - name: Retire Seller automation inventory after certification
+        if: always()
+        run: node tests/agents/seller-uat-automation-cleanup.mjs
 
       - name: Upload Seller deployed-UAT evidence
         if: always()
