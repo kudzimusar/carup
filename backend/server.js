@@ -3125,7 +3125,7 @@ app.patch('/api/vehicles/:vin/seller-draft', authorizeRole(['owner', 'dealer', '
       .from('vehicles')
       .update(patch)
       .eq('vin', vin)
-      .select('vin, publication_status, price, currency, seller_description, seller_features, body_style, seller_stated_condition, public_seller_display_enabled')
+      .select('vin, publication_status, price, currency, seller_description, seller_features, body_style, seller_stated_condition, public_seller_display_enabled, listing_city, listing_province, listing_country, listing_location_visibility')
       .single();
 
     // Controlled mixed-schema fallback: never turn an unapplied provenance migration into a Seller
@@ -3141,7 +3141,7 @@ app.patch('/api/vehicles/:vin/seller-draft', authorizeRole(['owner', 'dealer', '
         .from('vehicles')
         .update(legacyPatch)
         .eq('vin', vin)
-        .select('vin, publication_status, price, currency, seller_description, seller_features, body_style, seller_stated_condition, public_seller_display_enabled')
+        .select('vin, publication_status, price, currency, seller_description, seller_features, body_style, seller_stated_condition, public_seller_display_enabled, listing_city, listing_province, listing_country, listing_location_visibility')
         .single());
     }
     if (updateError) throw updateError;
@@ -3151,7 +3151,21 @@ app.patch('/api/vehicles/:vin/seller-draft', authorizeRole(['owner', 'dealer', '
       vin,
       publication_status: updated?.publication_status ?? existing.publication_status,
       claim_provenance_recorded,
-      draft: updated || null,
+      // Semantic persistence receipt: the browser may call an edit "saved" only after these
+      // returned values match the revision it submitted. DB column names stay private to this route.
+      draft: updated ? {
+        description: updated.seller_description ?? '',
+        features: Array.isArray(updated.seller_features) ? updated.seller_features : [],
+        body_style: updated.body_style ?? '',
+        seller_stated_condition: updated.seller_stated_condition ?? '',
+        price: updated.price ?? null,
+        currency: updated.currency ?? '',
+        location: updated.listing_city ?? '',
+        province: updated.listing_province ?? '',
+        listing_country: updated.listing_country ?? '',
+        location_visibility: updated.listing_location_visibility ?? 'withheld',
+        public_seller_display_enabled: updated.public_seller_display_enabled === true,
+      } : null,
     });
   } catch (error) {
     res.status(500).json({ error: error.message });
