@@ -1202,16 +1202,30 @@ export async function selectListingRows(client, shape = (query) => query) {
 async function readListingImages(supabaseClient, vins) {
   if (!vins.length) return { ok: true, rows: [] };
   try {
-    const { data, error } = await supabaseClient
+    const wide = await supabaseClient
       .from('listing_images')
       .select('id, vin, image_url, is_primary, display_order, photo_label')
       .in('vin', vins)
       .order('display_order', { ascending: true });
-    if (error) throw error;
-    return { ok: true, rows: data || [] };
+    if (!wide.error) return { ok: true, rows: wide.data || [], labelsAvailable: true };
+    if (!isMissingSchemaColumnError(wide.error)) throw wide.error;
+
+    // Additive Phase G migration may lag the preview deployment briefly. Preserve the established
+    // gallery contract and represent only the NEW annotation as absent until the column lands.
+    const legacy = await supabaseClient
+      .from('listing_images')
+      .select('id, vin, image_url, is_primary, display_order')
+      .in('vin', vins)
+      .order('display_order', { ascending: true });
+    if (legacy.error) throw legacy.error;
+    return {
+      ok: true,
+      labelsAvailable: false,
+      rows: (legacy.data || []).map(row => ({ ...row, photo_label: null })),
+    };
   } catch (error) {
     console.warn('Marketplace summary could not read listing_images:', error.message);
-    return { ok: false, rows: null };
+    return { ok: false, rows: null, labelsAvailable: false };
   }
 }
 
