@@ -234,7 +234,11 @@ export default function SellVehicle() {
 
         const raw = vehicle as Vehicle & Record<string, unknown>
         const mediaItems = Array.isArray(vehicle.listing_media?.items) ? vehicle.listing_media!.items : []
-        const orderedMedia = [...mediaItems].sort((a, b) => Number(a.position || 0) - Number(b.position || 0))
+        const orderedMedia = [...mediaItems].sort((a, b) => {
+          const aOrder = typeof a.seller_order === 'number' ? a.seller_order : Number(a.position || 0)
+          const bOrder = typeof b.seller_order === 'number' ? b.seller_order : Number(b.position || 0)
+          return aOrder - bOrder
+        })
         const primaryIndex = orderedMedia.findIndex(item => item.is_primary === true)
 
         setForm(previous => ({
