@@ -173,19 +173,19 @@ This table is the mandatory roll call against the earlier `SELLER_MARKETPLACE_CO
 
 Capture desktop, narrow/tablet, and mobile evidence for:
 
-- [ ] **B1.1 Home**
-- [ ] **B1.2 Marketplace**
-- [ ] **B1.3 Rich reference Marketplace Vehicle Detail**
-- [ ] **B1.4 Public/guest Sell**
-- [ ] **B1.5 Owner Dashboard**
-- [ ] **B1.6 My Garage**
-- [ ] **B1.7 Evidence Vault**
-- [ ] **B1.8 My Listings**
-- [ ] **B1.9 Authenticated Seller Studio**
-- [ ] **B1.10 Seller-created draft Buyer Preview / Vehicle Detail**
-- [ ] **B1.11 Communications Seller surface**
-- [ ] **B1.12 Seller Intelligence**
-- [ ] **B1.13 Verify / Passport entry for the Seller-created vehicle**
+- [x] **B1.1 Home**
+- [x] **B1.2 Marketplace**
+- [x] **B1.3 Rich reference Marketplace Vehicle Detail**
+- [x] **B1.4 Public/guest Sell**
+- [x] **B1.5 Owner Dashboard**
+- [x] **B1.6 My Garage**
+- [x] **B1.7 Evidence Vault**
+- [x] **B1.8 My Listings**
+- [x] **B1.9 Authenticated Seller Studio**
+- [x] **B1.10 Seller-created draft Buyer Preview / Vehicle Detail**
+- [x] **B1.11 Communications Seller surface**
+- [x] **B1.12 Seller Intelligence**
+- [x] **B1.13 Verify / Passport entry for the Seller-created vehicle**
 
 Acceptance for B1:
 - screenshots/artifacts are from exact-head staging;
@@ -230,7 +230,9 @@ Parity-matrix columns must include:
   - **Evidence:** `docs/seller/SELLER_MARKETPLACE_BASELINE_PARITY_AUDIT.md`; frozen runtime `106f76509ae1d1d10a3c4a26b4f93f7993d55027`; reference `CARUPGLDNA0000001`; human UAT `UAT20260828SELL01`; commit `cce9a059d6ab14700f991824612a83bc97a7786d`. B2.1–B2.26 are audited row-by-row there.
 
 ### Phase B roll call
-- [ ] **B-RC. Phase B complete:** every B1/B2 item is `[x]`, and no redesign proceeds based on memory alone.
+- [x] **B-RC. Phase B complete:** every B1/B2 item is `[x]`, and no redesign proceeds based on memory alone.
+  - **Evidence:** workflow run `33307316382`, job `99246029931`, artifact `9730920923`, digest `sha256:e1d605dc88784c1422bca5699a975fc82c90c919393b258d86c678eb043157b3`; 39 screenshots = 13 required surfaces × desktop/tablet/mobile; receipt `docs/seller/SELLER_PHASE_B_VISUAL_BASELINE_RECEIPT.md`; field parity audit `docs/seller/SELLER_MARKETPLACE_BASELINE_PARITY_AUDIT.md`.
+  - **ROLL CALL PASS:** every B1/B2 item is evidenced. Known baseline invariant violations (notably automation contamination and duplicate Garage/Evidence navigation) are preserved as defects assigned to later phases; this audit introduced no new product behavior and did not weaken acceptance criteria.
 
 ---
 
@@ -1012,7 +1014,7 @@ At creation time, prior automated certification is treated as **historical engin
 | Phase | State | Reason |
 |---|---|---|
 | A — Governance reset/baseline | COMPLETE | A1–A5 and A-RC cleared on frozen baseline `106f765...`; documentation-only evidence |
-| B — Parity audit | IN PROGRESS | B2.1–B2.27 complete; B1 desktop/tablet/mobile baseline visual capture still required |
+| B — Parity audit | COMPLETE | B1 39-view visual baseline + B2 full parity matrix accepted; defects preserved for remediation |
 | C — UAT integrity | NOT STARTED | automation leakage confirmed |
 | D — Account continuity | NOT STARTED | owner account unresolved |
 | E — Navigation/Sell intent | NOT STARTED | chooser missing |
