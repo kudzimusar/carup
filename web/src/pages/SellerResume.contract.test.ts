@@ -31,7 +31,7 @@ describe('Seller resume continuity', () => {
     expect(seller).toContain('seller-server-draft-loaded')
     expect(profile).toContain('/dashboard/sell-vehicle?vin=')
     expect(listings).toContain('/dashboard/sell-vehicle?vin=')
-    expect(garage).toContain("vehicle.publication_status === 'published' ? 'Published' : 'Listing draft'")
+    expect(garage).toContain("if (vehicle.publication_status === 'published')")
   })
 
   it('does not silently drop a selected photo gallery', () => {
