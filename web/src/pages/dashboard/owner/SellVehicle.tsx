@@ -105,7 +105,7 @@ function validateVin(vin: string) {
 }
 
 export default function SellVehicle() {
-  const { createVehicleListing, uploadVehicleImages, requestSellerAuthorityClaim, fetchOwnedVehicles } = useCarUpApi()
+  const { createVehicleListing, updateSellerDraft, uploadVehicleImages, requestSellerAuthorityClaim, fetchOwnedVehicles } = useCarUpApi()
   const [searchParams] = useSearchParams()
   const resumeVin = String(searchParams.get('vin') || '').trim().toUpperCase()
   const [guestDraft] = useState(() => readGuestSellDraft())
@@ -150,6 +150,7 @@ export default function SellVehicle() {
   const [serverDraftLoading, setServerDraftLoading] = useState(() => Boolean(!guestDraft && validateVin(resumeVin)))
   const [serverDraftLoaded, setServerDraftLoaded] = useState(false)
   const [serverDraftError, setServerDraftError] = useState<string | null>(null)
+  const [serverAutosaveState, setServerAutosaveState] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle')
   const modelOptions = modelsForMake(form.make).map(item => item.name)
   // S1: one VIN has one Passport. The authenticated seller either has an established relationship
   // to that Passport or enters the governed seller-authority evidence path.
@@ -329,6 +330,49 @@ export default function SellVehicle() {
 
     return () => window.clearTimeout(timer)
   }, [coverImageIndex, form, guestHistoryPlan, savedVin, serverDraftLoading, step])
+
+  // Once an account-scoped server draft exists, it becomes the durable authority for Seller-
+  // commercial/privacy edits. The browser draft remains crash-recovery only; this PATCH cannot
+  // rewrite Passport identity, Trust, Evidence, ownership or publication state.
+  useEffect(() => {
+    if (!serverDraftLoaded || serverDraftLoading || submitting || !validateVin(form.vin)) return
+
+    const timer = window.setTimeout(() => {
+      setServerAutosaveState('saving')
+      void updateSellerDraft(form.vin.toUpperCase(), {
+        description: form.description,
+        features: form.features,
+        body_style: form.category,
+        seller_stated_condition: form.condition,
+        ...(form.price && Number.isFinite(Number(form.price)) && Number(form.price) > 0 ? { price: Number(form.price) } : {}),
+        ...(form.currency ? { currency: form.currency } : {}),
+        location: form.location,
+        province: form.province,
+        location_visibility: form.locationVisibility as 'withheld' | 'province_only' | 'public',
+        public_seller_display_enabled: form.publicSellerDisplay,
+      })
+        .then(() => setServerAutosaveState('saved'))
+        .catch(() => setServerAutosaveState('error'))
+    }, 1200)
+
+    return () => window.clearTimeout(timer)
+  }, [
+    form.category,
+    form.condition,
+    form.currency,
+    form.description,
+    form.features,
+    form.location,
+    form.locationVisibility,
+    form.price,
+    form.province,
+    form.publicSellerDisplay,
+    form.vin,
+    serverDraftLoaded,
+    serverDraftLoading,
+    submitting,
+    updateSellerDraft,
+  ])
 
   useEffect(() => {
     if (guestDraft) toast.success('Your pre-sign-in listing draft is ready to review.')
@@ -704,6 +748,22 @@ export default function SellVehicle() {
         objectIdentity={resumeVin || form.vin || null}
         statusLabel="Draft workspace · not public"
       />
+      {serverDraftLoaded && (
+        <p
+          className={`text-xs font-semibold ${serverAutosaveState === 'error' ? 'text-amber-700' : 'text-slate-500'}`}
+          data-testid="seller-server-autosave-state"
+          role="status"
+          aria-live="polite"
+        >
+          {serverAutosaveState === 'saving'
+            ? 'Saving commercial draft changes to your account…'
+            : serverAutosaveState === 'saved'
+              ? 'Commercial draft changes saved to your account.'
+              : serverAutosaveState === 'error'
+                ? 'Account autosave is unavailable right now. Your browser recovery copy is still being kept.'
+                : 'Account draft loaded. Changes will autosave after you pause.'}
+        </p>
+      )}
       {serverDraftLoaded && (
         <div className="border-l-4 border-emerald-500 bg-emerald-50 p-4 text-sm text-emerald-950" data-testid="seller-server-draft-loaded">
           <p className="font-semibold">Existing Seller listing loaded.</p>
