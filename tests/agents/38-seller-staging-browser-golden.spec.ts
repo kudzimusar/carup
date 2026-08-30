@@ -242,6 +242,8 @@ test.describe('Golden Dynamic Seller — exact-head deployed acceptance', () => 
     expect(mediaBody.urls).toHaveLength(7);
     expect(mediaBody.urls![0]).toMatch(/^https:\/\//);
 
+    const photoLabels = ['Front three-quarter', 'Front', 'Driver side', 'Passenger side', 'Rear three-quarter', 'Interior', 'Dashboard'];
+
     const createResponse = await request.post(`${API_URL}/vehicles/add`, {
       headers: sellerMutationHeaders,
       data: {
@@ -272,7 +274,11 @@ test.describe('Golden Dynamic Seller — exact-head deployed acceptance', () => 
         chassis_number: `CHS-${suffix}`,
         plate_number: `UAT${suffix.slice(0, 3)}`,
         import_status: 'locally_registered',
-        images: mediaBody.urls!.map((url, index) => ({ url, is_primary: index === 2 })),
+        images: mediaBody.urls!.map((url, index) => ({
+          url,
+          photo_label: photoLabels[index],
+          is_primary: index === 2,
+        })),
       },
     });
     expect(createResponse.status(), await createResponse.text()).toBe(201);
@@ -282,6 +288,7 @@ test.describe('Golden Dynamic Seller — exact-head deployed acceptance', () => 
       images_recorded_count?: number;
       images_unpublishable_count?: number;
       images_replacement_complete?: boolean;
+      images_labels_recorded?: boolean;
       location_recorded?: boolean;
     };
     expect(created.publication_status).toBe('draft');
@@ -289,8 +296,20 @@ test.describe('Golden Dynamic Seller — exact-head deployed acceptance', () => 
     expect(created.images_recorded_count).toBe(7);
     expect(created.images_unpublishable_count).toBe(0);
     expect(created.images_replacement_complete).not.toBe(false);
+    expect(created.images_labels_recorded).toBe(true);
     expect(created.location_recorded).toBe(true);
     vehicleCreated = true;
+
+    // Fresh server resume must restore Seller-authored labels/order/cover from CarUp, not from
+    // the browser upload payload. This page was never used to create the fixture.
+    await page.goto(`/dashboard/sell-vehicle?vin=${vin}`);
+    await expect(page.getByTestId('seller-server-draft-loaded')).toBeVisible({ timeout: 20_000 });
+    const restoredLabelTriggers = page.getByRole('combobox', { name: /Photo \d+ angle or view/i });
+    await expect(restoredLabelTriggers).toHaveCount(7);
+    for (let index = 0; index < photoLabels.length; index += 1) {
+      await expect(restoredLabelTriggers.nth(index)).toContainText(photoLabels[index]);
+    }
+    await expect(page.getByTestId('listing-media-cover-badge-2')).toBeVisible();
 
     // Owner convergence: the same dynamic VIN exists in Garage and My Listings.
     await page.goto('/dashboard/garage');
@@ -378,6 +397,21 @@ test.describe('Golden Dynamic Seller — exact-head deployed acceptance', () => 
     await expect(page.getByTestId('vehicle-detail-primary-actions')).toBeVisible({ timeout: 20_000 });
     await expect(page.getByTestId('listing-media-primary')).toBeVisible();
     await expectMeaningfulRenderedImage(page);
+
+    const labelledDetailResponse = await request.get(
+      `${API_URL}/marketplace/listings/${vin}?fixture_scope=${encodeURIComponent(RUN_ID)}`,
+    );
+    expect(labelledDetailResponse.status(), await labelledDetailResponse.text()).toBe(200);
+    const labelledDetail = await labelledDetailResponse.json() as {
+      listing_media?: { items?: Array<{ photo_label?: string | null; seller_order?: number | null; is_primary?: boolean }> };
+    };
+    const projectedItems = labelledDetail.listing_media?.items || [];
+    expect(projectedItems).toHaveLength(7);
+    expect(projectedItems.find(item => item.is_primary)?.photo_label).toBe('Driver side');
+    expect([...projectedItems]
+      .sort((a, b) => Number(a.seller_order) - Number(b.seller_order))
+      .map(item => item.photo_label))
+      .toEqual(photoLabels);
 
     // Real guest buyer intent -> governed Marketplace inquiry -> Communications bridge.
     await page.getByTestId('marketplace-inquiry-open').first().click();
