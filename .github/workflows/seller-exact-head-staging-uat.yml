@@ -292,6 +292,88 @@ jobs:
           }
           NODE
 
+      - name: Explain Marketplace population semantics
+        if: always()
+        run: |
+          mkdir -p test-results
+          node --input-type=module <<'NODE'
+          import fs from 'node:fs';
+          import pg from 'pg';
+          import { getFixtureExclusion } from './backend/services/marketplace/marketplaceClassificationRules.js';
+
+          const dbUrl = process.env.DIASPORA_STAGING_DATABASE_URL || '';
+          if (!dbUrl.includes(process.env.EXPECTED_STAGING_PROJECT_REF)) {
+            throw new Error('Refusing Marketplace population audit outside approved staging.');
+          }
+          const cleaned = dbUrl.replace(/([?&])sslmode=[^&]*&?/i, '$1').replace(/[?&]$/, '');
+          const client = new pg.Client({ connectionString: cleaned, ssl: { rejectUnauthorized: false } });
+          await client.connect();
+          try {
+            const { rows } = await client.query(`
+              select vin, owner_id, tenant_id, seller_description, publication_status, status, created_at
+                from public.vehicles
+               order by created_at desc
+            `);
+
+            const isLivePublic = (row) =>
+              ['published', 'public'].includes(String(row.publication_status || '').toLowerCase()) &&
+              ['available', 'reserved'].includes(String(row.status || '').toLowerCase());
+            const isSellerAutomation = (row) => /^Golden Dynamic Seller [^:]+:/.test(String(row.seller_description || ''));
+            const enriched = rows.map((row) => ({
+              ...row,
+              live_public: isLivePublic(row),
+              fixture_reason: getFixtureExclusion(row),
+              seller_automation: isSellerAutomation(row),
+              human_uat: row.vin === 'UAT20260828SELL01',
+            }));
+
+            const apiResponse = await fetch(`${process.env.STAGING_API_URL}/marketplace/listings?limit=100`, { cache: 'no-store' });
+            if (!apiResponse.ok) throw new Error(`Marketplace listing read failed during count reconciliation: ${apiResponse.status}`);
+            const apiBody = await apiResponse.json();
+
+            const receipt = {
+              expected_head_sha: process.env.EXPECTED_HEAD_SHA,
+              public_discovery_api_total: Number(apiBody.total ?? (apiBody.listings || []).length),
+              database: {
+                vehicle_identities_total: enriched.length,
+                live_public_rows_total: enriched.filter((row) => row.live_public).length,
+                live_public_discovery_eligible: enriched.filter((row) => row.live_public && !row.fixture_reason).length,
+                live_public_automation: enriched.filter((row) => row.live_public && row.seller_automation).length,
+                live_public_other_fixtures: enriched.filter((row) => row.live_public && row.fixture_reason && !row.seller_automation).length,
+                draft_or_nonpublic: enriched.filter((row) => !row.live_public && !['sold', 'retired'].includes(String(row.status || '').toLowerCase())).length,
+                sold_or_retired: enriched.filter((row) => ['sold', 'retired'].includes(String(row.status || '').toLowerCase())).length,
+              },
+              owner_uat_vehicle: enriched.find((row) => row.human_uat) || null,
+              semantics: {
+                marketplace_count: 'published, active, non-fixture listings eligible for human discovery',
+                vehicle_identity_count: 'all durable vehicle identities regardless of listing/publication state',
+                automation_policy: 'Seller automation rows are excluded from human discovery and must finish non-public/retired',
+                featured_policy: 'Home live showroom is newest eligible published inventory, not editorial Featured endorsement',
+              },
+            };
+
+            if (receipt.public_discovery_api_total !== receipt.database.live_public_discovery_eligible) {
+              throw new Error(`Marketplace count mismatch: API=${receipt.public_discovery_api_total}, eligible_db=${receipt.database.live_public_discovery_eligible}`);
+            }
+            if (receipt.database.live_public_automation !== 0) {
+              throw new Error(`Human UAT contamination: ${receipt.database.live_public_automation} live Seller automation rows remain.`);
+            }
+
+            fs.writeFileSync('test-results/seller-marketplace-population-semantics.json', JSON.stringify(receipt, null, 2));
+            console.log(JSON.stringify({
+              public_discovery_api_total: receipt.public_discovery_api_total,
+              live_public_discovery_eligible: receipt.database.live_public_discovery_eligible,
+              live_public_automation: receipt.database.live_public_automation,
+              live_public_other_fixtures: receipt.database.live_public_other_fixtures,
+              draft_or_nonpublic: receipt.database.draft_or_nonpublic,
+              sold_or_retired: receipt.database.sold_or_retired,
+              owner_uat_publication_status: receipt.owner_uat_vehicle?.publication_status || null,
+            }));
+          } finally {
+            await client.end();
+          }
+          NODE
+
       - name: Upload Seller deployed-UAT evidence
         if: always()
         uses: actions/upload-artifact@v4
@@ -303,5 +385,6 @@ jobs:
             test-results/staging-uat-html
             test-results/staging-uat-artifacts
             test-results/seller-automation-inventory.json
+            test-results/seller-marketplace-population-semantics.json
           if-no-files-found: warn
           retention-days: 14
