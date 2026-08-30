@@ -10,6 +10,7 @@ on:
       - 'backend/services/auth/**'
       - 'backend/utils/passwordAuth.js'
       - 'backend/tests/auth-*.test.js'
+      - 'backend/tests/auth-email-service.test.js'
       - 'backend/tests/email-experience-auth-equivalence.test.js'
       - 'database/migrations/20260817120000_sa1_auth_action_tokens.sql'
       - 'database/migrations/20260829123000_user_registration_profiles.sql'
@@ -42,6 +43,7 @@ jobs:
           node --test \
             backend/tests/auth-login.test.js \
             backend/tests/auth-recovery-security.test.js \
+            backend/tests/auth-email-service.test.js \
             backend/tests/auth-register-privilege.test.js \
             backend/tests/auth-registration-profile.test.js \
             backend/tests/auth-email-templates.test.js \
