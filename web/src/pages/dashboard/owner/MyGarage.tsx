@@ -15,9 +15,23 @@ import type { Vehicle } from '@/types'
 export default function MyGarage() {
   const { fetchOwnedVehicles } = useCarUpApi()
   const [vehicles, setVehicles] = useState<Vehicle[]>([])
+  const [vehiclesState, setVehiclesState] = useState<'loading' | 'ready' | 'error'>('loading')
 
   useEffect(() => {
-    fetchOwnedVehicles().then(setVehicles)
+    let active = true
+    setVehiclesState('loading')
+    fetchOwnedVehicles()
+      .then(rows => {
+        if (!active) return
+        setVehicles(Array.isArray(rows) ? rows : [])
+        setVehiclesState('ready')
+      })
+      .catch(() => {
+        if (!active) return
+        setVehicles([])
+        setVehiclesState('error')
+      })
+    return () => { active = false }
   }, [fetchOwnedVehicles])
 
   return (
@@ -26,7 +40,13 @@ export default function MyGarage() {
         eyebrow="Vehicle workspace"
         title="My Garage"
         description="Manage the vehicles you own without breaking their Vehicle Passport, evidence, listing or lifecycle thread."
-        statusLabel={vehicles.length === 1 ? '1 owned vehicle loaded' : `${vehicles.length} owned vehicles loaded`}
+        statusLabel={vehiclesState === 'loading'
+          ? 'Loading owned vehicles'
+          : vehiclesState === 'error'
+            ? 'Garage read unavailable'
+            : vehicles.length === 1
+              ? '1 owned vehicle loaded'
+              : `${vehicles.length} owned vehicles loaded`}
         primaryAction={(
           <Button className="rounded-none bg-orange-600 hover:bg-orange-700 gap-1" data-testid="create-vehicle-button" asChild>
             <Link to="/sell"><Plus className="w-4 h-4" /> Add or sell a vehicle</Link>
@@ -34,6 +54,20 @@ export default function MyGarage() {
         )}
       />
 
+      {vehiclesState === 'loading' && (
+        <div className="border-y border-slate-200 py-12 text-sm text-slate-500" role="status">
+          Loading your Garage…
+        </div>
+      )}
+
+      {vehiclesState === 'error' && (
+        <div className="border-y border-amber-200 bg-amber-50 px-5 py-8" role="alert">
+          <p className="font-bold text-slate-950">Your Garage could not be read.</p>
+          <p className="mt-1 text-sm text-slate-600">CarUp has not converted that failure into an empty Garage.</p>
+        </div>
+      )}
+
+      {vehiclesState === 'ready' && (
       <div className="grid md:grid-cols-2 gap-6" data-testid="owner-vehicles-table">
         {vehicles.map((vehicle) => {
           const trust = readOwnerTrustClaim(vehicle)
@@ -129,12 +163,17 @@ export default function MyGarage() {
         })}
 
         {/* Add Vehicle Card */}
-        <button className="border-2 border-dashed border-gray-300 rounded-xl p-8 flex flex-col items-center justify-center text-gray-400 hover:border-orange-500 hover:text-orange-500 hover:bg-orange-50 transition-all min-h-[200px]" data-testid="create-vehicle-button">
+        <Link
+          to="/sell"
+          className="border-2 border-dashed border-gray-300 rounded-xl p-8 flex flex-col items-center justify-center text-gray-400 hover:border-orange-500 hover:text-orange-500 hover:bg-orange-50 transition-all min-h-[200px]"
+          data-testid="create-vehicle-card"
+        >
           <Plus className="w-10 h-10 mb-3" />
-          <span className="font-medium">Add New Vehicle</span>
-          <span className="text-sm">Scan logbook or enter VIN</span>
-        </button>
+          <span className="font-medium">Add or sell another vehicle</span>
+          <span className="text-sm">Choose an existing Passport or add a new vehicle</span>
+        </Link>
       </div>
+      )}
     </div>
   )
 }
