@@ -1147,7 +1147,7 @@ export default function VehicleDetail() {
   const { id } = useParams()
   const [searchParams] = useSearchParams()
   const navigate = useNavigate()
-  const { fetchVehicle, fetchVehiclePassport, lookupVehiclePassport, fetchMarketplaceListingDetail, saveMarketplaceListing, unsaveMarketplaceListing, fetchSavedMarketplaceListings, fetchEvidenceTaxonomy, fetchEvidenceSources, fetchTemporalFindings, fetchDisclosureConflicts, fetchVehicleReport, generateReportVersion, createReportShareLink, fetchVehicleTrustDecision } = useCarUpApi()
+  const { fetchVehicle, fetchVehiclePassport, lookupVehiclePassport, fetchMarketplaceListingDetail, fetchOwnedVehicles, saveMarketplaceListing, unsaveMarketplaceListing, fetchSavedMarketplaceListings, fetchEvidenceTaxonomy, fetchEvidenceSources, fetchTemporalFindings, fetchDisclosureConflicts, fetchVehicleReport, generateReportVersion, createReportShareLink, fetchVehicleTrustDecision } = useCarUpApi()
   const { isAuthenticated, user, loading: authLoading } = useAuth()
   const presentationMode = searchParams.get('mode') === 'seller_preview'
     ? 'seller_preview'
@@ -1163,6 +1163,7 @@ export default function VehicleDetail() {
   const [detail, setDetail]     = useState<MarketplaceListingDetail | null>(null)
   const [detailLoading, setDetailLoading] = useState(true)
   const [loading, setLoading]   = useState(true)
+  const [sellerPreviewAuthorization, setSellerPreviewAuthorization] = useState<'idle' | 'checking' | 'allowed' | 'denied' | 'error'>('idle')
   // A plate / temporary-identifier lookup is refused for signed-out visitors by design. That is a
   // statement about the caller, not about the vehicle, so it must not render as "Vehicle Not Found".
   const [lookupNeedsSignIn, setLookupNeedsSignIn] = useState(false)
@@ -1186,6 +1187,30 @@ export default function VehicleDetail() {
   const [financeInterestRequested, setFinanceInterestRequested] = useState(false)
 
   const [lookupQuery, setLookupQuery] = useState('')
+
+  useEffect(() => {
+    if (!isSellerPreview) {
+      setSellerPreviewAuthorization('idle')
+      return
+    }
+    if (authLoading) return
+    if (!isAuthenticated || !id) {
+      setSellerPreviewAuthorization('denied')
+      return
+    }
+
+    let active = true
+    setSellerPreviewAuthorization('checking')
+    fetchOwnedVehicles()
+      .then((rows) => {
+        if (!active) return
+        const allowed = (rows || []).some((row) => String(row.vin || '').toUpperCase() === String(id).toUpperCase())
+        setSellerPreviewAuthorization(allowed ? 'allowed' : 'denied')
+      })
+      .catch(() => { if (active) setSellerPreviewAuthorization('error') })
+
+    return () => { active = false }
+  }, [authLoading, fetchOwnedVehicles, id, isAuthenticated, isSellerPreview])
 
   // Vehicle Life Evidence Taxonomy (M1) — used to derive a life-stage class for
   // legacy evidence and to resolve human-readable source labels in the timeline.
@@ -1423,6 +1448,7 @@ export default function VehicleDetail() {
       campaign: attr.campaign_code,
       source: attr.source,
       fixture_scope: searchParams.get('fixture_scope') || undefined,
+      presentation_mode: isSellerPreview ? 'seller_preview' : undefined,
     })
       .then((d) => {
         if (!mounted) return
@@ -1442,7 +1468,7 @@ export default function VehicleDetail() {
       .catch(() => { if (mounted) setDetail(null) })
       .finally(() => { if (mounted) setDetailLoading(false) })
     return () => { mounted = false }
-  }, [id, searchParams, fetchMarketplaceListingDetail])
+  }, [id, isSellerPreview, searchParams, fetchMarketplaceListingDetail])
 
   // Saved state is SERVER-backed + account-scoped for authenticated users (existing /marketplace/saved
   // API), so it survives refresh and never leaks across accounts. Guests keep the browser-local list.
