@@ -1,4 +1,4 @@
-import { useParams, Link, useNavigate } from 'react-router-dom'
+import { useParams, Link, useNavigate, useSearchParams } from 'react-router-dom'
 import { useState, useEffect, useCallback } from 'react'
 import { PremiumEvidenceGallery } from '@/components/PremiumEvidenceGallery'
 import VehicleLifeStageTimeline from '@/components/VehicleLifeStageTimeline'
@@ -1107,6 +1107,7 @@ function governedPrice(price: unknown, currency: unknown): string {
 // ─────────────────────────────────────────────────────────────────────────────
 export default function VehicleDetail() {
   const { id } = useParams()
+  const [searchParams] = useSearchParams()
   const navigate = useNavigate()
   const { fetchVehicle, fetchVehiclePassport, lookupVehiclePassport, fetchMarketplaceListingDetail, saveMarketplaceListing, unsaveMarketplaceListing, fetchSavedMarketplaceListings, fetchEvidenceTaxonomy, fetchEvidenceSources, fetchTemporalFindings, fetchDisclosureConflicts, fetchVehicleReport, generateReportVersion, createReportShareLink, fetchVehicleTrustDecision } = useCarUpApi()
   const { isAuthenticated, user, loading: authLoading } = useAuth()
@@ -1375,7 +1376,12 @@ export default function VehicleDetail() {
     captureReferralFromUrl()
     const attr = getStoredAttribution()
     setDetailLoading(true)
-    fetchMarketplaceListingDetail(id, { ref: attr.referral_code, campaign: attr.campaign_code, source: attr.source })
+    fetchMarketplaceListingDetail(id, {
+      ref: attr.referral_code,
+      campaign: attr.campaign_code,
+      source: attr.source,
+      fixture_scope: searchParams.get('fixture_scope') || undefined,
+    })
       .then((d) => {
         if (!mounted) return
         setDetail(d)
@@ -1394,7 +1400,7 @@ export default function VehicleDetail() {
       .catch(() => { if (mounted) setDetail(null) })
       .finally(() => { if (mounted) setDetailLoading(false) })
     return () => { mounted = false }
-  }, [id, fetchMarketplaceListingDetail])
+  }, [id, searchParams, fetchMarketplaceListingDetail])
 
   // Saved state is SERVER-backed + account-scoped for authenticated users (existing /marketplace/saved
   // API), so it survives refresh and never leaks across accounts. Guests keep the browser-local list.
