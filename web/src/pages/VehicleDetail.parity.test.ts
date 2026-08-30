@@ -8,6 +8,7 @@ const detail = readFileSync(resolve(here, 'VehicleDetail.tsx'), 'utf8')
 const trustSummary = readFileSync(resolve(here, '../components/marketplace/TrustSummaryPanel.tsx'), 'utf8')
 const allInPrice = readFileSync(resolve(here, '../components/marketplace/AllInPricePanel.tsx'), 'utf8')
 const sourceCoverage = readFileSync(resolve(here, '../components/SourceCoveragePanel.tsx'), 'utf8')
+const inquiryModal = readFileSync(resolve(here, '../components/marketplace/InquiryModal.tsx'), 'utf8')
 const studio = readFileSync(resolve(here, 'dashboard/owner/SellVehicle.tsx'), 'utf8')
 
 describe('Seller master Phase L/M — shared detail parity and semantic separation', () => {
@@ -38,7 +39,8 @@ describe('Seller master Phase L/M — shared detail parity and semantic separati
     expect(detail).toContain('aria-label="Save this vehicle"')
     expect(detail).toContain('data-testid="vehicle-detail-compare"')
     expect(detail).toContain('data-testid="vehicle-detail-share"')
-    expect(detail).toContain('data-testid="marketplace-inquiry-open"')
+    expect(detail).toContain('<InquiryModal')
+    expect(inquiryModal).toContain('data-testid="marketplace-inquiry-open"')
     expect(detail).toContain('Request reservation')
     expect(detail).toContain('SafePay opens only after CarUp verifies transaction eligibility')
     expect(detail).toContain('detail && !isSellerPreview')
