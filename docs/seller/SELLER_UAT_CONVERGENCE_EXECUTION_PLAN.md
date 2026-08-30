@@ -30,16 +30,16 @@
 
 # PHASE 0 — Baseline, parity matrix, and environment truth
 
-- [ ] 0.1 Capture/record current exact-head source/deployment provenance before changes.
-- [ ] 0.2 Build Seller↔Marketplace parity matrix for Home, Marketplace, reference Vehicle Detail, public Sell, Owner Dashboard, My Garage, My Listings, Seller Studio, draft Vehicle Detail and `UAT20260828SELL01`.
-- [ ] 0.3 Record current human-UAT inventory count and identify automated/generated vehicles separately.
-- [ ] 0.4 Record `UAT20260828SELL01` publication, media, Trust, ownership/seller, evidence and account state without mutating it.
-- [ ] 0.5 Record current account continuity problem for `buynsellpvtltd@gmail.com` and distinguish authentication, verification-email and password-recovery concerns.
-- [ ] 0.6 Record current Home/Marketplace media selection behavior and 1×1 Golden test contamination.
-- [ ] 0.7 Record current Trust presentation semantics including low-confidence score behavior.
-- [ ] 0.8 Confirm #198 is already merged into #194's branch and #199 is already closed/unmerged; treat these as historical integration facts, not work to repeat.
+- [x] 0.1 Capture/record current exact-head source/deployment provenance before changes.
+- [x] 0.2 Build Seller↔Marketplace parity matrix for Home, Marketplace, reference Vehicle Detail, public Sell, Owner Dashboard, My Garage, My Listings, Seller Studio, draft Vehicle Detail and `UAT20260828SELL01`.
+- [x] 0.3 Record current human-UAT inventory count and identify automated/generated vehicles separately.
+- [x] 0.4 Record `UAT20260828SELL01` publication, media, Trust, ownership/seller, evidence and account state without mutating it.
+- [x] 0.5 Record current account continuity problem for `buynsellpvtltd@gmail.com` and distinguish authentication, verification-email and password-recovery concerns.
+- [x] 0.6 Record current Home/Marketplace media selection behavior and 1×1 Golden test contamination.
+- [x] 0.7 Record current Trust presentation semantics including low-confidence score behavior.
+- [x] 0.8 Confirm #198 is already merged into #194's branch and #199 is already closed/unmerged; treat these as historical integration facts, not work to repeat.
 
-**Phase 0 gate:** finite defect ledger exists before broad implementation.
+**Phase 0 gate:** ✅ finite defect ledger recorded in `docs/seller/SELLER_MARKETPLACE_PARITY_MATRIX.md`.
 
 ---
 
