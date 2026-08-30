@@ -8,7 +8,7 @@ const detail = readFileSync(resolve(here, 'VehicleDetail.tsx'), 'utf8')
 const sell = readFileSync(resolve(here, 'dashboard/owner/SellVehicle.tsx'), 'utf8')
 const listings = readFileSync(resolve(here, 'dashboard/owner/MyListings.tsx'), 'utf8')
 const hook = readFileSync(resolve(here, '../hooks/useCarUpApi.ts'), 'utf8')
-const route = readFileSync(resolve(here, '../../backend/routes/marketplaceRoutes.js'), 'utf8')
+const route = readFileSync(resolve(here, '../../../backend/routes/marketplaceRoutes.js'), 'utf8')
 
 describe('Seller Phase K — one buyer presentation, two governed modes', () => {
   it('routes Seller preview into the same VehicleDetail architecture', () => {
