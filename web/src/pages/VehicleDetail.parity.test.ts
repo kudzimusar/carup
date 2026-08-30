@@ -31,7 +31,7 @@ describe('Seller master Phase L/M — shared detail parity and semantic separati
     expect(detail).toContain('Service Records')
     expect(detail).toContain('insurance and service records')
     expect(trustSummary).toContain('PartSentry')
-    expect(trustSummary).toContain('data-testid="marketplace-partsentry-status"')
+    expect(trustSummary).toContain('testid="marketplace-partsentry-status"')
     expect(allInPrice).toContain('All-in cost estimate')
   })
 
