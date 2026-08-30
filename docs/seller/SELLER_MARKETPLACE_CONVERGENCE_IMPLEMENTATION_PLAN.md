@@ -1,7 +1,9 @@
 # Seller ↔ Marketplace Convergence Implementation Plan
 
-**Status:** Implementation plan — do not treat current Seller UI as certified until this plan closes
-**Target branch/PR context:** current Seller account-handoff lane / PR #198
+**Status:** Design/implementation source plan — execution is tracked task-by-task in the master roll-call file below
+**Target branch/PR context:** `integration/vehicle-passport-v16-cert` / Draft PR #194 (Seller #198 has already been integrated into this branch)
+**Operational execution tracker:** `docs/seller/SELLER_UAT_REMEDIATION_EXECUTION_MASTER_PLAN.md`
+**Execution rule:** Do not mark this plan complete independently. The master tracker must be updated every time a task is cleared, with evidence, and all phase roll calls must pass before Seller may be called certified or owner-UAT-ready.
 **Governing design:** root `DESIGN.md` plus `docs/marketplace/MARKETPLACE_VISUAL_DNA.md`
 **Primary test vehicle:** `UAT20260828SELL01`
 **Goal:** Make Seller, Garage, Listings, Passport, Marketplace and Intelligence behave and look like one CarUp product.
