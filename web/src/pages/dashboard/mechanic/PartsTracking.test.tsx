@@ -86,7 +86,10 @@ describe('nothing unrecorded is filled in', () => {
       { id: 'p1', name: 'Filter', sku: 'F-1', stock_level: 1, unit_price: 10, min_stock: 5 },
     ])
     render(<PartsTracking />)
-    expect(await screen.findByTestId('parts-low-stock')).toHaveTextContent('1')
+    // The Low Stock tile exists in the initial empty render, before the promised
+    // inventory read settles. Wait for the governed fetch result rather than racing
+    // findByTestId against that legitimate initial state.
+    await waitFor(() => expect(screen.getByTestId('parts-low-stock')).toHaveTextContent('1'))
     expect(screen.getByTestId('part-row-p1')).toHaveTextContent('Low Stock')
   })
 })
