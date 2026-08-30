@@ -390,6 +390,18 @@ export const FEATURE_REGISTRY: FeatureRegistryItem[] = [
     icon: 'Heart',
   },
   {
+    id: 'owner.intelligence',
+    label: 'Seller Intelligence',
+    route: '/dashboard/intelligence',
+    domain: 'commerce',
+    roles: ['owner'],
+    placements: ['dashboard_sidebar', 'user_menu'],
+    requiresAuth: true,
+    icon: 'BarChart3',
+    description: 'Governed Marketplace performance for your own listings',
+    lifecycle: 'active',
+  },
+  {
     id: 'owner.ai',
     label: 'Gutu AI',
     route: '/dashboard/ai',
