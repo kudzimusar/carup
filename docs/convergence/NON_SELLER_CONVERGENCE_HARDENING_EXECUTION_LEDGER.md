@@ -12,6 +12,32 @@
 
 > This file is the roll-call authority for this cycle. A phase is not considered cleared until its checklist is checked here with evidence. The execution must continue phase-to-phase without pausing for narrative status updates unless an external authorization/credential/production gate prevents further work.
 
+## Execution status and evidence index
+
+This ledger is the PLAN. The executed evidence lives in `docs/hardening/`, produced after the
+two concurrent hardening lanes were reconciled (see the receipt's "Concurrency event"). Read
+them together: this file states what was to be done, those state what was done and proven.
+
+| Phase | Status | Evidence |
+|---|---|---|
+| 0 Re-fetch truth | done | receipt §1 — three authorities moved mid-cycle |
+| 1 Seller boundary | done | `hardening/SELLER_JOIN_BOUNDARY_AND_CONTRACT.md` §2 |
+| 2 Isolated lane | done | this branch |
+| 3 Durable terminal identity | done | receipt §2; both #194 threads closed |
+| 4 Payload idempotency semantics | done | `issue-158-terminal-operation-identity.test.js` §1 |
+| 5 Adversarial battery | done | 19/19 incl. 3 mutation kills |
+| 6 Referral nondeterminism | done | fixed at the product source, receipt §2 |
+| 7 Cross-system authority audit | done | `hardening/AUTHORITY_AUDIT_REGISTER.md` — 79 agents, 70 candidates, **30 confirmed / 40 refuted**, 7 closed |
+| 8 Migration integrity | done | `hardening/PRODUCTION_READINESS_PACKAGE.md` §1–2 — full DAG; rehearsal found a real defect |
+| 9 #196 | **stood down** | another session pushed an equivalent fix (`be8706db`) first; the historical CI failure did NOT reproduce in 5 local full-suite runs |
+| 10 #197 audit | done | `hardening/PR197_AUDIT_AND_MERGE_REHEARSAL.md` — 20 obligations (not 12), no second event mechanism |
+| 11 Merge rehearsal | done | same document §4 — one conflicted file, semantic resolution rule stated |
+| 12 Seller Join Contract | done | boundary document §4–5, incl. a 16-check join battery |
+| 13 Production readiness | done | `hardening/PRODUCTION_READINESS_PACKAGE.md` — verdict BLOCKED, 7 named gates |
+| 14 Full battery | done | receipt §3 |
+| 15 Receipt | done | `hardening/NON_SELLER_HARDENING_RECEIPT.md` |
+| 16 Seller join gate | done | receipt §8 |
+
 ## Mission guardrails
 
 - [x] Do not modify active Seller implementation.

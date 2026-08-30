@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import crypto from 'node:crypto';
-import { readFileSync } from 'node:fs';
+import { readFileSync, readdirSync } from 'node:fs';
 
 import {
   custodyGeneration,
@@ -121,12 +121,29 @@ test('Issue #158 source contract: blockchain runtime never selects or writes pri
 });
 
 test('Issue #158: system ledger signing secret is configuration-backed, not hard-coded', () => {
-  const runtime = readFileSync('backend/services/blockchain/blockchainService.js', 'utf8');
   const custody = readFileSync('backend/services/blockchain/blockchainKeyCustodyService.js', 'utf8');
-  assert.doesNotMatch(runtime, /carup-system-secret/i);
-  assert.doesNotMatch(custody, /carup-system-secret/i);
   assert.match(custody, /CARUP_BLOCKCHAIN_SYSTEM_HMAC_SECRET/);
   assert.match(custody, /CARUP_BLOCKCHAIN_LEGACY_SYSTEM_HMAC_SECRETS/);
+
+  // REPO-WIDE, not two files. The previous form checked only blockchainService and
+  // blockchainKeyCustodyService, so a COPY of the retired literal in
+  // diasporaOwnershipHandoffService escaped it entirely — and that copy signed real
+  // ownership-handoff ledger events, every one of which would fail verifyChain forever
+  // because the verifier holds the configured secret, not the retired constant. A guard
+  // scoped to the file it was written for cannot catch the next copy.
+  const offenders = [];
+  const walk = (dir) => {
+    for (const entry of readdirSync(dir, { withFileTypes: true })) {
+      if (entry.name === 'node_modules' || entry.name === 'tests') continue;
+      const full = `${dir}/${entry.name}`;
+      if (entry.isDirectory()) walk(full);
+      else if (entry.name.endsWith('.js') || entry.name.endsWith('.mjs')) {
+        if (/carup-system-secret/i.test(readFileSync(full, 'utf8'))) offenders.push(full);
+      }
+    }
+  };
+  walk('backend');
+  assert.deepEqual(offenders, [], `the retired system-secret literal must not survive anywhere: ${offenders.join(', ')}`);
 });
 
 test('Issue #158: blockchain compatibility API returns public metadata only', () => {

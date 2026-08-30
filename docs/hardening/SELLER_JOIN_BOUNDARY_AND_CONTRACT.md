@@ -102,11 +102,17 @@ are consumed by Seller rather than owned by it.
 
 ### 2.3 Proof of non-interference for this cycle
 
-Files changed by `hardening/non-seller-convergence`:
+Files changed by this lane relative to the #194 authority `43204bee`:
 
 ```
 .gitignore
+backend/env.example
+backend/middleware/authMiddleware.js
+backend/server.js                                    <- see the note below
+backend/services/blockchain/blockchainKeyCustodyService.js
 backend/services/blockchain/blockchainService.js
+backend/services/diaspora/diasporaOwnershipHandoffService.js
+backend/services/document-intelligence/documentIntelligenceRouter.js
 backend/services/eventBus/listeners.js
 backend/services/finance/financeService.js
 backend/services/insurance/insuranceService.js
@@ -114,20 +120,38 @@ backend/services/partsentry/partsentryService.js
 backend/services/security/securityService.js
 backend/tests/helpers/issue158LedgerHarness.mjs
 backend/tests/issue-158-boundary-upgrade-postgres.test.js
+backend/tests/issue-158-private-key-custody.test.js
 backend/tests/issue-158-terminal-operation-identity.test.js
-database/migrations/20260830010000_issue158_ledger_operation_identity.sql
+backend/tests/non-seller-authority-hardening.test.js
+backend/tests/passport-v16-postgres-authorities.test.js
+database/migrations/20260830060000_issue158_terminal_operation_identity.sql
+database/scripts/issue158_private_key_custody_finalize.sql
+docs/convergence/NON_SELLER_CONVERGENCE_HARDENING_EXECUTION_LEDGER.md
 docs/hardening/**
 web/src/pages/dashboard/mechanic/PartsTracking.test.tsx
 web/src/pages/dashboard/mechanic/PartsTracking.tsx
 ```
 
-Set intersection against §2.1 and §2.2 is **empty**, verified mechanically:
+**Intersection with §2.1 (the ACTIVE Seller lane, PR #200): EMPTY.** Verified mechanically:
 
 ```sh
 comm -12 <(gh pr diff 200 --name-only | sort) <(git diff --name-only 43204bee..HEAD | sort)
 ```
 
----
+**Intersection with §2.2 (the Seller DOMAIN list): one file, `backend/server.js`** — and the
+raw set-intersection overstates it, so state it plainly rather than let it read as a breach.
+
+`backend/server.js` appears in the merged PR #198's diff, which is why it lands in the domain
+list mechanically. It is **not** in PR #200 (`gh pr diff 200 --name-only | grep -c
+backend/server.js` → `0`), so no agent is editing it. It is also the application's shared
+entry point, touched by every lane; treating it as Seller-owned would freeze the whole
+backend. §2.2 therefore names Seller *behaviour* files explicitly and does not list it.
+
+The three changes made to it are all non-Seller, and none touches a Seller route or handler:
+
+1. import `authorizeSessionRole` alongside the existing auth imports;
+2. gate the `/api/verification` router mount (a trust/registry surface, not a Seller one);
+3. add boot-time validation for three production secrets.
 
 ## 3. Seller join obligations register
 
@@ -142,6 +166,8 @@ Seller joins.
 | SJO-3 | `web/src/components/layout/DashboardLayout.tsx`, `web/src/components/dashboard/WorkspaceHeader.tsx` | Shell/nav is whatever #200 lands. | One shell, one nav authority; owner and mechanic surfaces share it. | `web/src/components/layout/dashboardSidebar.visibility.test.ts` | Actively edited by the Seller lane this cycle. |
 | SJO-4 | `backend/services/marketplace/listingSummaryService.js` | Seller lane is changing listing summary shape. | Buyer/discovery projection stays truthful: no unrecorded field rendered as a measured value. | `web/src/lib/marketplacePresentation.test.ts`, `web/src/lib/sellerListingPreview.media.test.tsx` | The summary contract is being rewritten inside #200. |
 | SJO-5 | `web/src/pages/dashboard/owner/*` | Owner surfaces are Seller-owned this cycle. | The "unknown is not zero" rule proven for mechanic PartsTracking must hold on every owner tile too. | new sibling of `PartsTracking.test.tsx` per surface | Six of these files are in the hard-exclusion set; fixing them now would collide. See §5.2. |
+| SJO-6 | `web/src/pages/SellFlow.identification.test.tsx` | Three tests wait on **real wall-clock timers**: `waitFor(..., { timeout: 3000 })` against a real debounce, plus a literal `await new Promise(r => setTimeout(r, 700))`. | Deterministic timing — fake timers, or a seam that resolves the identification check without a wall-clock wait. | the same three tests, run three times under load | Latent load-sensitivity, not a demonstrated CI flake: it did **not** fail in CI, only under the artificial CPU saturation this cycle produced (load average 160), where the 3000 ms budget was exceeded. Seller-owned, and the Seller lane may be rewriting these very tests as part of UAT convergence. |
+| SJO-7 | `web/src/pages/SellFlow*`, `web/src/pages/Seller*` | Not audited for the "unknown is not zero" rule. | Same rule as SJO-5. | per-surface | Domain-excluded; testing them is fine, redesigning them is not. |
 
 Additional obligations discovered by the cross-system authority audit are appended to this
 register in the hardening receipt rather than duplicated here.
@@ -233,6 +259,36 @@ B5–B16 must pass **three consecutive times** on the joined head. This cycle cl
 flake by fixing its cause (`PartsTracking` rendered measured zeros before its read settled,
 so `findByTestId` could resolve against the pre-read paint). A single green run would not
 have caught it; three would.
+
+---
+
+## 5.4 Concurrency discipline — learned the hard way this cycle
+
+Two Claude sessions were given this same mission and worked it simultaneously. The evidence:
+
+- A second session pushed five commits to `hardening/non-seller-convergence` — the branch
+  name this brief specifies — implementing the SAME Issue #158 durable-identity contract and
+  the SAME PartsTracking fix, independently.
+- It also pushed `be8706db` to PR #196, fixing the SAME review thread this session had
+  already fixed locally.
+- PR #200's file list grew from 17 to 24 files mid-cycle.
+
+Nothing was clobbered, because every push was checked for fast-forward first and the local
+#196 commit was discarded rather than forced. But two sessions independently produced two
+migrations adding the same `operation_id` column with different constraint and index names —
+which, had both landed, would have left `blockchain_events` carrying two equivalent CHECKs
+and two overlapping unique indexes. That is precisely the "no duplicate system authorities"
+non-negotiable, arrived at by process failure rather than design failure.
+
+**Rules for the Seller join:**
+
+1. **Re-fetch and re-verify every SHA immediately before acting.** Every authority in §1 was
+   re-verified at the start of this cycle and three of them moved during it.
+2. **Never force-push a shared branch.** If a push is rejected, read the other side's commits
+   before deciding anything.
+3. **One lane owns one branch.** If two lanes must touch the same concern, one merges onto the
+   other as the base — the losing migration is DELETED, not kept alongside.
+4. **Deconflict before starting**, not after pushing.
 
 ---
 

@@ -7,7 +7,7 @@ import crypto from 'crypto';
 import { supabase } from './db/supabase.js';
 
 // Import Middleware
-import { authorizeRole, optionalAuth, isPrivateEvidenceFallbackAllowed } from './middleware/authMiddleware.js';
+import { authorizeRole, authorizeSessionRole, optionalAuth, isPrivateEvidenceFallbackAllowed } from './middleware/authMiddleware.js';
 import { evaluateLoginCredentials, hashPassword } from './utils/passwordAuth.js';
 
 // Import Services
@@ -167,6 +167,38 @@ if (
   );
 }
 
+// Secrets whose absence is INVISIBLE until a user hits the affected path.
+//
+// Boot-time validation previously covered only the two Supabase variables. A deployment
+// missing JWT_SECRET or the ledger signing secrets therefore booted, reported
+// `status: 'UP'` on /api/health, and failed at the first CSRF check or the first ledger
+// write — the failure surfacing as a user-facing 500 in production rather than as a refused
+// deploy. Each of these is resolved lazily, so nothing earlier can catch it:
+//   JWT_SECRET                              -> resolveCsrfSecret (securityMiddleware)
+//   CARUP_BLOCKCHAIN_SIGNING_MASTER_SECRET  -> masterSecret (blockchainKeyCustodyService)
+//   CARUP_BLOCKCHAIN_SYSTEM_HMAC_SECRET     -> currentSystemSecret (blockchainKeyCustodyService)
+//
+// Gated on the DEPLOYMENT environment, not NODE_ENV: local runs and CI must be unaffected,
+// and NODE_ENV has already proven an unreliable proxy for "is this production" in this
+// codebase. Communication configuration deliberately stays non-fatal — a degraded channel
+// should not take down the marketplace — but a missing signing or CSRF secret must not boot.
+const IS_PRODUCTION_DEPLOYMENT = process.env.CARUP_ENV === 'production'
+  || process.env.VERCEL_ENV === 'production';
+if (IS_PRODUCTION_DEPLOYMENT) {
+  const requiredInProduction = [
+    'JWT_SECRET',
+    'CARUP_BLOCKCHAIN_SIGNING_MASTER_SECRET',
+    'CARUP_BLOCKCHAIN_SYSTEM_HMAC_SECRET',
+  ];
+  const missing = requiredInProduction.filter((name) => !String(process.env[name] || '').trim());
+  if (missing.length) {
+    throw new Error(
+      `FATAL: required production secrets are missing in environment variables: ${missing.join(', ')}. `
+      + 'Refusing to boot rather than serving a healthy status and failing at first use.',
+    );
+  }
+}
+
 const startupCommunicationConfiguration = validateCommunicationConfiguration();
 const startupCommunicationLog = {
   status: startupCommunicationConfiguration.status,
@@ -296,8 +328,19 @@ app.use('/api/payments', paymentRouter);
 // Mount media upload unified routes
 app.use('/api/media', mediaRouter);
 
-// Mount Trust & Identity verification routes
-app.use('/api/verification', documentIntelligenceRouter);
+// Mount Trust & Identity verification routes.
+//
+// FAIL CLOSED. This router was mounted bare, with no auth middleware on the mount and none
+// on any of its five routes, which made it a SECOND authority over vehicle trust, registry
+// records (cvr_ownership_records / zimra_declarations) and user verification level —
+// reachable by an unauthenticated caller. CSRF was not a barrier: the token endpoint issues
+// a guest-bound token to anyone.
+//
+// It is gated at the mount rather than per-route so a future route added to this router is
+// closed by default instead of inheriting the old omission. `authorizeSessionRole` is used
+// deliberately in preference to `authorizeRole`: it disables the x-user-id fallback, so a
+// registry/trust decision always requires a PROVEN session, never an asserted header.
+app.use('/api/verification', authorizeSessionRole(['admin', 'government']), documentIntelligenceRouter);
 
 // Mount centralized routes (Batch 1)
 app.use(leadsRouter);
