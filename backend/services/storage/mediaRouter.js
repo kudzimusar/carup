@@ -412,8 +412,9 @@ router.get('/document/signed-url', authorizeRole(['admin', 'government', 'owner'
       return res.status(500).json({ error: 'Vehicle ownership lookup failed.' });
     }
     const ownsVehicle = vehicleRow?.owner_id && vehicleRow.owner_id === req.userContext?.id;
+    const isCurrentSeller = vehicleRow?.current_seller_id && vehicleRow.current_seller_id === req.userContext?.id;
     const sameTenant = vehicleRow?.tenant_id && vehicleRow.tenant_id === req.userContext?.tenantId;
-    if (!ownsVehicle && !sameTenant) {
+    if (!ownsVehicle && !isCurrentSeller && !sameTenant) {
       await logAuditEvent(supabase, {
         req,
         event_type: 'SECURITY_DOCUMENT_READ_DENIED',

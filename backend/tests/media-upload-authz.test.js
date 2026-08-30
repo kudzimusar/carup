@@ -69,8 +69,8 @@ test('vehicle upload route is role-guarded and ownership-scoped (source contract
     'vehicle upload must require an authenticated owner/dealer/admin',
   );
   assert.ok(
-    mediaRouterSource.includes("select('owner_id, tenant_id')"),
-    'handler must resolve the VIN owner/tenant before accepting an upload',
+    mediaRouterSource.includes("select('owner_id, current_seller_id, tenant_id')"),
+    'handler must resolve the VIN owner/current-seller/tenant before accepting an upload',
   );
   assert.ok(
     mediaRouterSource.includes('SECURITY_MEDIA_UPLOAD_DENIED'),
@@ -101,8 +101,8 @@ test('document upload is ownership-scoped and takes its actor from the session, 
     'the spoofable x-user-id header must never identify the document uploader',
   );
   assert.ok(
-    docSection.includes("select('owner_id, tenant_id')"),
-    'handler must resolve the VIN owner/tenant before accepting a document',
+    docSection.includes("select('owner_id, current_seller_id, tenant_id')"),
+    'handler must resolve the VIN owner/current-seller/tenant before accepting a document',
   );
   assert.ok(
     docSection.includes('SECURITY_MEDIA_UPLOAD_DENIED'),
@@ -125,8 +125,8 @@ test('signed upload URL generation is ownership-scoped for non-admins (source co
     'non-admin callers must be ownership-checked before a signed upload URL is minted',
   );
   assert.ok(
-    signedSection.includes("select('owner_id, tenant_id')"),
-    'handler must resolve the VIN owner/tenant before signing an upload grant',
+    signedSection.includes("select('owner_id, current_seller_id, tenant_id')"),
+    'handler must resolve the VIN owner/current-seller/tenant before signing an upload grant',
   );
   assert.ok(
     signedSection.includes('SECURITY_MEDIA_UPLOAD_DENIED'),
@@ -158,8 +158,8 @@ test('document read signed-url enforces the VIN path shape and owner scope (sour
     'owner/dealer sessions must be VIN-ownership-checked (admin/government stay global)',
   );
   assert.ok(
-    readSection.includes("select('owner_id, tenant_id')"),
-    'handler must resolve the VIN owner/tenant before signing a read grant',
+    readSection.includes("select('owner_id, current_seller_id, tenant_id')"),
+    'handler must resolve the VIN owner/current-seller/tenant before signing a read grant',
   );
   assert.match(
     readSection,

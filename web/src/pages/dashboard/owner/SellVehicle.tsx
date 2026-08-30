@@ -548,12 +548,18 @@ export default function SellVehicle() {
         images_recorded?: boolean
         images_recorded_count?: number
         images_unpublishable_count?: number
+        images_replacement_complete?: boolean
       } | null
 
       if (resolvedImageUrls.length > 0) {
         const recordedCount = Number(resultMedia?.images_recorded_count || 0)
         const refusedCount = Number(resultMedia?.images_unpublishable_count || 0)
-        if (resultMedia?.images_recorded !== true || recordedCount !== resolvedImageUrls.length || refusedCount > 0) {
+        if (
+          resultMedia?.images_recorded !== true
+          || recordedCount !== resolvedImageUrls.length
+          || refusedCount > 0
+          || resultMedia?.images_replacement_complete === false
+        ) {
           toast.error('CarUp saved vehicle details but did not confirm the complete photo gallery. Your browser draft has been kept so you can retry without losing the photos.')
           return
         }

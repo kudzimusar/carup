@@ -94,5 +94,5 @@ test('the price route touches price alone — not status, publication or trust',
 test('the scoped loader selects price so the before value is real, not assumed', () => {
   // `loadScopedVehicle` is shared, so the price route can only report a truthful "before" if the
   // loader actually reads that column.
-  assert.match(routes, /\.select\('vin, status, publication_status, owner_id, tenant_id, price'\)/);
+  assert.match(routes, /\.select\('vin, status, publication_status, owner_id, current_seller_id, tenant_id, price'\)/);
 });

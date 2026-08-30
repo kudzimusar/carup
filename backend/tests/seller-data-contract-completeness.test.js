@@ -93,6 +93,9 @@ const CANONICAL_DESTINATION = {
   registration_country: 'registration_country',
   listing_country: 'listing_country',
   country: 'listing_country',
+  // Governed control field: confirmation is consumed by the existing-Passport authority gate and
+  // resolves to the explicit reusedExistingPassport outcome; it must not rewrite canonical identity.
+  reuse_existing_passport: 'reusedExistingPassport',
 };
 
 test('every field POST /api/vehicles/add accepts has a canonical destination', () => {

@@ -2735,9 +2735,13 @@ app.post('/api/vehicles/add', authorizeRole(['dealer', 'owner', 'admin']), async
     // exists to close; 400-ing the whole listing would discard the vehicle too.
     const publishableMedia = submittedMedia.filter((entry) => isPublishableMediaUrl(entry.url));
     const imagesUnpublishableCount = submittedMedia.length - publishableMedia.length;
+    const mediaReplacementRecordedAt = new Date().toISOString();
     const imageRecords = publishableMedia.map((entry, idx) => ({
       vin,
       image_url: String(entry.url).trim(),
+      // Internal replacement watermark: public listing_images.id is an outbound identity, never
+      // accepted back as a database locator.
+      created_at: mediaReplacementRecordedAt,
       // RULE 6, AT THE LAYER THAT WAS BREAKING IT. `is_primary: idx === 0` fabricated the seller's
       // main-photo choice out of ARRAY ORDER and persisted it in a column no reader can distinguish
       // from a real choice — so `primary_image_state: 'seller_primary'`, which Phase 5 publishes
@@ -2756,13 +2760,8 @@ app.post('/api/vehicles/add', authorizeRole(['dealer', 'owner', 'admin']), async
     // follows; it is not a new idiom invented here.
     let imagesRecorded = false;
     let imagesRecordedCount = 0;
+    let imagesReplacementComplete = true;
     if (imageRecords.length > 0) {
-      let previousImageIds = [];
-      if (reusedExistingPassport) {
-        const { data: previousImages } = await supabase.from('listing_images').select('id').eq('vin', vin);
-        previousImageIds = (previousImages || []).map((row) => row.id).filter(Boolean);
-      }
-
       const { error: imageError } = await supabase.from('listing_images').insert(imageRecords);
       if (imageError) {
         // The vehicle row already exists at this point. Returning 500 would falsely imply the
@@ -2773,9 +2772,18 @@ app.post('/api/vehicles/add', authorizeRole(['dealer', 'owner', 'admin']), async
       } else {
         imagesRecorded = true;
         imagesRecordedCount = imageRecords.length;
-        // Delete prior listing media only after the replacement rows exist.
-        if (previousImageIds.length > 0) {
-          await supabase.from('listing_images').delete().in('id', previousImageIds);
+        // Delete prior listing media only after the replacement rows exist. The cleanup is scoped
+        // by the vehicle the caller already named plus this request's internal batch watermark.
+        if (reusedExistingPassport) {
+          const { error: previousImageDeleteError } = await supabase
+            .from('listing_images')
+            .delete()
+            .eq('vin', vin)
+            .lt('created_at', mediaReplacementRecordedAt);
+          if (previousImageDeleteError) {
+            imagesReplacementComplete = false;
+            console.error('⚠️ Replacement gallery stored but prior VIN-scoped media cleanup failed:', previousImageDeleteError.message);
+          }
         }
       }
     }
@@ -2816,6 +2824,9 @@ app.post('/api/vehicles/add', authorizeRole(['dealer', 'owner', 'admin']), async
       images_recorded_count: imagesRecordedCount,
       images_unpublishable_count: imagesUnpublishableCount,
       images_primary_recorded: imagesRecorded && imageRecords.some((record) => record.is_primary === true),
+      // A replacement is not complete if the new rows landed but the previous VIN-scoped gallery
+      // could not be retired. Seller Studio treats false as a partial save and keeps its local draft.
+      images_replacement_complete: imagesReplacementComplete,
       reused_existing_passport: reusedExistingPassport,
       message: reusedExistingPassport
         ? 'Listing draft attached to the existing Vehicle Passport. No duplicate Passport was created.'
