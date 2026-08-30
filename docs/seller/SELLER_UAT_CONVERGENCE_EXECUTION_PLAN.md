@@ -45,16 +45,16 @@
 
 # PHASE 1 — Certification / human-UAT environment isolation
 
-- [ ] 1.1 Automated Golden Seller vehicles are clearly identifiable as automation.
-- [ ] 1.2 Golden lifecycle guarantees deterministic cleanup/retirement even after failure/interruption.
-- [ ] 1.3 Automated vehicles cannot appear in normal human UAT Marketplace discovery after cleanup.
-- [ ] 1.4 Automated vehicles cannot become Home hero/featured inventory.
-- [ ] 1.5 Automated vehicles cannot alter human-UAT Marketplace counts.
-- [ ] 1.6 Golden visual media fixture is meaningful and minimum-dimension compliant; 1×1 media cannot satisfy visual acceptance.
-- [ ] 1.7 Certification distinguishes technical image validity from visual/media quality.
-- [ ] 1.8 Existing leaked automation inventory is reconciled through a governed cleanup mechanism, not silent ad-hoc database editing.
+- [x] 1.1 Automated Golden Seller vehicles are clearly identifiable as automation.
+- [x] 1.2 Golden lifecycle guarantees deterministic cleanup/retirement even after failure/interruption.
+- [x] 1.3 Automated vehicles cannot appear in normal human UAT Marketplace discovery after cleanup.
+- [x] 1.4 Automated vehicles cannot become Home hero/featured inventory.
+- [x] 1.5 Automated vehicles cannot alter human-UAT Marketplace counts.
+- [x] 1.6 Golden visual media fixture is meaningful and minimum-dimension compliant; 1×1 media cannot satisfy visual acceptance.
+- [x] 1.7 Certification distinguishes technical image validity from visual/media quality.
+- [x] 1.8 Existing leaked automation inventory is reconciled through a governed cleanup mechanism, not silent ad-hoc database editing.
 
-**Phase 1 gate:** automated certification can run repeatedly without polluting owner UAT.
+**Phase 1 gate:** ✅ automation is marked, default discovery isolates it, seven meaningful 640×400 images are required, and governed API cleanup runs before/after the staging gate.
 
 ---
 
