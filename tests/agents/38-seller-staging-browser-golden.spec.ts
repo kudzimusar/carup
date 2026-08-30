@@ -158,6 +158,16 @@ async function retireStaleAutomationVehicles(
 async function expectMeaningfulRenderedImage(page: Page) {
   const image = page.getByTestId('vehicle-image').first();
   await expect(image).toBeVisible();
+  // Visibility can precede image decode: wait for the browser to finish loading a genuinely
+  // meaningful asset instead of sampling naturalWidth/naturalHeight during the transient 0x0 state.
+  await expect.poll(
+    async () => image.evaluate((node: HTMLImageElement) =>
+      node.complete && node.naturalWidth >= 64 && node.naturalHeight >= 40),
+    {
+      timeout: 20_000,
+      message: 'visual acceptance image never finished decoding at a meaningful size',
+    },
+  ).toBe(true);
   const size = await image.evaluate((node: HTMLImageElement) => ({
     width: node.naturalWidth,
     height: node.naturalHeight,
