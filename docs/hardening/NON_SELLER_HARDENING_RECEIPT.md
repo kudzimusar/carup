@@ -13,11 +13,19 @@ moved *during* it, which is why re-verification is the first step of the join se
 | Ref | Branch | SHA at cycle start | SHA at cycle end |
 |---|---|---|---|
 | `main` | `main` | `ba208963d863654157335189c60f587cbe330041` | unchanged |
-| PR #194 | `integration/vehicle-passport-v16-cert` | `43204beeec40123b0cce0c457aded6d0f733c4bc` | unchanged |
+| PR #194 | `integration/vehicle-passport-v16-cert` | `43204beeec40123b0cce0c457aded6d0f733c4bc` | **`e02988aff867290b573767034d2a6be9237e0fc9`** — advanced during the cycle by 12 Seller-only commits |
 | PR #196 | `docs/service-network-foundation-1-0-plan` | `30728299e9e60b1c1d51b3eff8363db080edf22f` | **`be8706db80e7c14f839d917b72384041141958dc`** (another session) |
 | PR #197 | `feat/service-network-foundation-1-0` | `5683b74edaaa86a01c55005839b8f092aea8fccb` | unchanged (**frozen, not rebased**) |
 | PR #200 (Seller, active) | `fix/seller-uat-convergence-final-194` | `fa2ce13528a5e7721f5fcf0e2cd77a2a77985999` | **`3778e5dfa4fdbf32233d8764a917cc8cea5ff5e3`** |
 | Hardening lane | `hardening/non-seller-convergence` | branched from `43204bee` | see §2 |
+
+**#194 moved under this lane, and that is fine.** It gained 12 commits between the gate check
+and the push, every one of them Seller-owned (`docs/seller/**`, `tests/agents/39-seller-*`,
+`playwright.seller-baseline.config.ts`, `.github/workflows/seller-baseline-visual-audit.yml`).
+**Zero overlap with this lane's files**, and `git merge-tree` against the advanced head returns
+a tree with no conflict, so this lane still merges cleanly onto current #194. The lane was
+deliberately NOT rebased onto it: the Seller lane is moving continuously, chasing it achieves
+nothing before the join, and rebasing would rewrite pushed history another session is tracking.
 
 **PR #198 is history, not the Seller product.** It merged into #194 at 2026-08-30T03:29:48Z.
 The active Seller lane is **PR #200**, whose file list grew from 17 to 24 during this cycle.
@@ -318,6 +326,21 @@ arrived at by process failure rather than design failure.
 - **#197 FINAL REBASE NOT YET PERFORMED.** #197 frozen at `5683b74e`.
 - **PRODUCTION NOT ACTIVATED.** No production write, migration, secret change or deployment
   was performed.
-- **#194 was not merged. #196 was not merged. `main` was not changed.**
+- **#194 was not merged. #196 was not merged. `main` was not changed** — `origin/main` is
+  still `ba208963d863654157335189c60f587cbe330041`, byte for byte the value it had at the
+  start of the cycle.
+
+### Remote state at the gate
+
+| Ref | SHA |
+|---|---|
+| `hardening/non-seller-convergence` (local **==** remote) | `ddd74992cae706aeb5b9f14baff01d0366fe1f4d` |
+| `hardening/non-seller-issue158-operation-identity` (preserved mirror) | `ddd74992cae706aeb5b9f14baff01d0366fe1f4d` |
+| `origin/main` | `ba208963d863654157335189c60f587cbe330041` (unchanged) |
+| `origin/integration/vehicle-passport-v16-cert` (#194) | `e02988aff867290b573767034d2a6be9237e0fc9` (Seller-only advance) |
+| `origin/feat/service-network-foundation-1-0` (#197) | `5683b74edaaa86a01c55005839b8f092aea8fccb` (frozen) |
+
+Working tree clean (0 changes). The push to `hardening/non-seller-convergence` was verified to
+be a **fast-forward** over the other session's head before it was made — never a force.
 
 **Next trigger: FINAL SELLER CANDIDATE READY.**
