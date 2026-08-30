@@ -304,6 +304,11 @@ test.describe('Golden Dynamic Seller — exact-head deployed acceptance', () => 
     // the browser upload payload. This page was never used to create the fixture.
     await page.goto(`/dashboard/sell-vehicle?vin=${vin}`);
     await expect(page.getByTestId('seller-server-draft-loaded')).toBeVisible({ timeout: 20_000 });
+    // Resume lands at the persisted/current Seller Studio stage. Navigate through the real form to
+    // Images & Features before asserting the seven restored controls; their absence on step 0 is not
+    // media loss.
+    await page.getByRole('button', { name: /^next$/i }).click();
+    await page.getByRole('button', { name: /^next$/i }).click();
     const restoredLabelTriggers = page.getByRole('combobox', { name: /Photo \d+ angle or view/i });
     await expect(restoredLabelTriggers).toHaveCount(7);
     for (let index = 0; index < photoLabels.length; index += 1) {
@@ -312,9 +317,10 @@ test.describe('Golden Dynamic Seller — exact-head deployed acceptance', () => 
     await expect(page.getByTestId('listing-media-cover-badge-2')).toBeVisible();
 
     // F: prove an EXISTING account draft autosaves to the server, not merely sessionStorage.
-    // Move to Location & Pricing, change a Seller-commercial field, wait for the real PATCH result,
-    // erase browser recovery state, then reload the exact server draft and require the value back.
-    await page.getByRole('button', { name: /^next$/i }).click();
+    // Return through the real Studio navigation to Location & Pricing, change a Seller-commercial
+    // field, wait for the real PATCH result, erase browser recovery state, then reload and require
+    // the server value back.
+    await page.getByRole('button', { name: /^back$/i }).click();
     const autosaveDescription = `Golden Dynamic Seller ${RUN_ID}: server autosave survived browser recovery deletion and exact-head reload.`;
     await page.getByTestId('seller-description-input').fill(autosaveDescription);
     await expect(page.getByTestId('seller-server-autosave-state'))
