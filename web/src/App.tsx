@@ -91,6 +91,7 @@ import { SellerRouteErrorBoundary } from './components/sell/SellerRouteErrorBoun
 import AIDashboard from './pages/dashboard/owner/AIDashboard'
 import ReferralWallet from './pages/dashboard/owner/ReferralWallet'
 import Communications from './pages/dashboard/owner/Communications'
+import SellerIntelligence from './pages/dashboard/owner/SellerIntelligence'
 
 // Dealer Dashboard
 import DealerDashboard from './pages/dashboard/dealer/DealerDashboard'
@@ -336,6 +337,7 @@ export default function App() {
           <Route path="/dashboard/ai" element={<AIDashboard />} />
           <Route path="/dashboard/referrals" element={<ReferralWallet />} />
           <Route path="/dashboard/communications" element={<Communications />} />
+          <Route path="/dashboard/intelligence" element={<SellerIntelligence />} />
         </Route>
 
         {/* Dealer Dashboard */}
