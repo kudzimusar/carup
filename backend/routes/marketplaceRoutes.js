@@ -38,6 +38,14 @@ const asyncHandler = (fn) => (req, res, next) => {
 const aiLimiter = rateLimiter({ max: 20, windowMs: 60 * 1000, isSensitive: true });
 const inquiryLimiter = rateLimiter({ max: 15, windowMs: 60 * 1000, isSensitive: true });
 
+/** Explicit Seller automation fixture scope for PREVIEW/TEST traffic only. */
+function sellerAutomationFixtureScope(req) {
+  const scope = String(req.query?.fixture_scope ?? '').trim();
+  if (!scope || !/^seller-[0-9]+-[0-9]+$/.test(scope)) return null;
+  const previewLike = process.env.NODE_ENV === 'test' || process.env.VERCEL_ENV === 'preview';
+  return previewLike ? scope : null;
+}
+
 /** Extract referral attribution from query/body without trusting it for anything but attribution. */
 function referralContextFromReq(req) {
   const q = req.query || {};
@@ -75,7 +83,8 @@ async function withCanonicalReservationTruth(page) {
 // ---- Public discovery ------------------------------------------------------
 
 router.get('/api/marketplace/listings', asyncHandler(async (req, res) => {
-  const page = await listMarketplaceListings(supabase, req.query);
+  const fixtureScope = sellerAutomationFixtureScope(req);
+  const page = await listMarketplaceListings(supabase, { ...req.query, __fixtureScope: fixtureScope });
   const body = await withCanonicalReservationTruth(page);
   // Governed search observation (Intelligence I3). Fire-and-forget: a shopper's
   // results must never wait on, or fail because of, analytics. The event carries
@@ -115,7 +124,10 @@ router.post('/api/marketplace/compare', asyncHandler(async (req, res) => {
 // referral-bridge event, which remains the referral engine's own workflow record.
 // Before this, an ordinary view (no ref/campaign on the URL) was recorded nowhere.
 router.get('/api/marketplace/listings/:id', optionalAuth(), asyncHandler(async (req, res) => {
-  const detail = await getMarketplaceListingDetail(supabase, req.params.id, { audience: 'public' });
+  const detail = await getMarketplaceListingDetail(supabase, req.params.id, {
+    audience: 'public',
+    fixtureScope: sellerAutomationFixtureScope(req),
+  });
   emitListingOpened(req, { vin: detail?.vin || req.params.id }).catch(() => {});
   const { referralCode, campaignCode, sourceChannel } = referralContextFromReq(req);
   if (referralCode || campaignCode) {
