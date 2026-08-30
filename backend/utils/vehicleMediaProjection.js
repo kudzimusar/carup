@@ -659,6 +659,10 @@ export function toListingMediaBlock(rows) {
       // Synthetic reference media lives under a dedicated CarUp storage prefix. This marker is
       // presentation provenance only; it confers no verification status and is never a Trust input.
       syntheticDemo: String(row.image_url).includes('/marketplace-reference-synthetic/'),
+      // Seller-authored presentation metadata only. A label is not evidence, verification or Trust.
+      label: typeof row?.photo_label === 'string' && row.photo_label.trim() !== ''
+        ? row.photo_label.trim().slice(0, 80)
+        : null,
       // Coerced only for ORDERING. A non-numeric display_order sorts last rather than poisoning
       // the comparator with NaN; it is never published, so no fabricated value escapes.
       order: Number.isFinite(Number(row?.display_order)) ? Number(row.display_order) : Number.MAX_SAFE_INTEGER,
@@ -688,6 +692,7 @@ export function toListingMediaBlock(rows) {
       position,
       is_primary: isPrimary,
       synthetic_demo: candidate.syntheticDemo,
+      label: candidate.label,
     });
   });
 
