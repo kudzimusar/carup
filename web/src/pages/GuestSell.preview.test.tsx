@@ -50,6 +50,7 @@ beforeEach(() => {
 describe('S6 guest buyer preview', () => {
   it('advances out of vehicle details on the entries the step validates', async () => {
     render(<MemoryRouter><GuestSell /></MemoryRouter>)
+    fireEvent.click(screen.getByTestId('sell-intent-new'))
     for (const [testId, value] of Object.entries({
       'guest-sell-make': 'Toyota',
       'guest-sell-model': 'Hilux',
