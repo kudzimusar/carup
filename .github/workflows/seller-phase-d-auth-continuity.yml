@@ -1,0 +1,50 @@
+name: Seller Phase D Auth Continuity Gate
+
+on:
+  pull_request:
+    branches:
+      - integration/vehicle-passport-v16-cert
+    paths:
+      - 'backend/server.js'
+      - 'backend/routes/authRecoveryRoutes.js'
+      - 'backend/services/auth/**'
+      - 'backend/utils/passwordAuth.js'
+      - 'backend/tests/auth-*.test.js'
+      - 'backend/tests/email-experience-auth-equivalence.test.js'
+      - 'database/migrations/20260817120000_sa1_auth_action_tokens.sql'
+      - 'database/migrations/20260829123000_user_registration_profiles.sql'
+      - '.github/workflows/seller-phase-d-auth-continuity.yml'
+      - 'web/src/pages/Register.tsx'
+      - 'web/src/pages/Login.tsx'
+      - 'web/src/pages/ForgotPassword.tsx'
+      - 'web/src/pages/ResetPassword.tsx'
+      - 'web/src/pages/VerifyEmail.tsx'
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+jobs:
+  auth-continuity:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      - name: Auth and recovery backend contracts
+        run: |
+          node --test \
+            backend/tests/auth-login.test.js \
+            backend/tests/auth-recovery-security.test.js \
+            backend/tests/auth-register-privilege.test.js \
+            backend/tests/auth-registration-profile.test.js \
+            backend/tests/auth-email-templates.test.js \
+            backend/tests/email-experience-auth-equivalence.test.js
+      - name: Web auth surfaces typecheck/build
+        run: npm run build --workspace=web
