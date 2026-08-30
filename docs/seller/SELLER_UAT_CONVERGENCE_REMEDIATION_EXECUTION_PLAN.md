@@ -46,7 +46,7 @@ Seller convergence is complete only when **all mandatory checkboxes in this docu
 
 ## 0A. Preserve and baseline current state
 
-- [ ] Record exact source head and staging frontend/backend provenance.
+- [x] Record exact source head and staging frontend/backend provenance. Baseline: `43204beeec40123b0cce0c457aded6d0f733c4bc`; paired staging provenance was verified before remediation.
 - [ ] Capture current desktop, narrow/tablet, and mobile evidence for:
   - Home
   - Marketplace
@@ -60,8 +60,8 @@ Seller convergence is complete only when **all mandatory checkboxes in this docu
   - Seller-created draft Buyer Preview / Vehicle Detail
   - Seller Intelligence
   - Communications
-- [ ] Preserve the current state of `UAT20260828SELL01` without publishing it.
-- [ ] Preserve the historical account issue for `buynsellpvtltd@gmail.com` without deleting or recreating the account.
+- [x] Preserve the current state of `UAT20260828SELL01` without publishing it. Baseline confirmed draft/non-public before remediation.
+- [x] Preserve the historical account issue for `buynsellpvtltd@gmail.com` without deleting or recreating the account. Read-only forensic state retained.
 
 ## 0B. Full Seller ↔ Marketplace parity matrix
 
@@ -80,35 +80,35 @@ Create/maintain a parity matrix with, at minimum:
 - evidence
 
 Required rows:
-- [ ] listing gallery
-- [ ] make/model/year/VIN identity
-- [ ] price/currency
-- [ ] mileage/specification
-- [ ] seller-stated condition
-- [ ] seller description/features
-- [ ] seller identity/privacy projection
-- [ ] location/privacy projection
-- [ ] canonical Trust
-- [ ] Trust confidence/source coverage
-- [ ] listing completeness/readiness
-- [ ] publication readiness
-- [ ] evidence/registration
-- [ ] government/partner checks
-- [ ] cost/pricing context
-- [ ] lifecycle/history
-- [ ] ownership
-- [ ] service
-- [ ] PartSentry
-- [ ] insurance
-- [ ] reservation/SafePay state
-- [ ] save
-- [ ] compare
-- [ ] share
-- [ ] recommendations/related inventory
-- [ ] inquiry
-- [ ] Communications linkage
-- [ ] Intelligence instrumentation
-- [ ] sold/retired persistence
+- [x] listing gallery
+- [x] make/model/year/VIN identity
+- [x] price/currency
+- [x] mileage/specification
+- [x] seller-stated condition
+- [x] seller description/features
+- [x] seller identity/privacy projection
+- [x] location/privacy projection
+- [x] canonical Trust
+- [x] Trust confidence/source coverage
+- [x] listing completeness/readiness
+- [x] publication readiness
+- [x] evidence/registration
+- [x] government/partner checks
+- [x] cost/pricing context
+- [x] lifecycle/history
+- [x] ownership
+- [x] service
+- [x] PartSentry
+- [x] insurance
+- [x] reservation/SafePay state
+- [x] save
+- [x] compare
+- [x] share
+- [x] recommendations/related inventory
+- [x] inquiry
+- [x] Communications linkage
+- [x] Intelligence instrumentation
+- [x] sold/retired persistence
 
 **Phase 0 gate:** no phase may be called complete until this matrix exists and remains current.
 
@@ -195,7 +195,7 @@ Required rows:
 
 Every Seller/Owner route must answer “Where am I?”, “How do I go back/up?”, “What is the next action?”
 
-- [ ] shared workspace header/breadcrumb pattern
+- [x] shared workspace header/breadcrumb pattern
 - [ ] Seller/Owner Home orientation
 - [ ] My Garage orientation
 - [ ] vehicle profile orientation
@@ -245,7 +245,7 @@ The global Sell entry must resolve **intent before form entry**.
 
 - [ ] identity fields
 - [ ] commercial fields
-- [ ] seller description/features
+- [x] seller description/features
 - [ ] seller history/plan selections
 - [ ] privacy selections
 - [ ] seller display preferences
@@ -302,7 +302,7 @@ The exact selected cover image must remain recognizable in:
 - [ ] Marketplace card
 - [ ] Home live/featured vehicle surface where eligible
 - [ ] Marketplace Vehicle Detail
-- [ ] recommendations/related inventory where applicable
+- [x] recommendations/related inventory where applicable
 
 ## 6C. Full-gallery continuity
 
@@ -347,13 +347,13 @@ The exact selected cover image must remain recognizable in:
 - [ ] meaningful vehicle media
 - [ ] make/model/year + safe identifier
 - [ ] Passport identity/state
-- [ ] ownership/relationship state
+- [x] ownership/relationship state
 - [ ] listing/publication lifecycle
-- [ ] canonical Trust state
+- [x] canonical Trust state
 - [ ] evidence/readiness
-- [ ] service summary where governed
-- [ ] insurance summary where governed
-- [ ] PartSentry summary where governed
+- [x] service summary where governed
+- [x] insurance summary where governed
+- [x] PartSentry summary where governed
 - [ ] one dominant contextual next action
 - [ ] draft → **Continue listing**
 - [ ] published → **Manage listing**
@@ -422,13 +422,13 @@ Seller Buyer Preview and public Marketplace Vehicle Detail must use one presenta
 Shared composition:
 - [ ] gallery
 - [ ] vehicle/commercial identity panel
-- [ ] canonical Trust/source coverage
+- [x] canonical Trust/source coverage
 - [ ] pricing/cost context
-- [ ] inquiry region
+- [x] inquiry region
 - [ ] registration/evidence
-- [ ] seller description/features
-- [ ] lifecycle/history
-- [ ] ownership/service/insurance/PartSentry
+- [x] seller description/features
+- [x] lifecycle/history
+- [x] ownership/service/insurance/PartSentry
 - [ ] reservation/SafePay readiness where governed
 
 Seller-preview mode:
@@ -452,14 +452,14 @@ For a fresh Seller-created vehicle, before and after publication:
 - [ ] no alternate legacy layout
 - [ ] seller-selected cover on Marketplace card
 - [ ] complete gallery on Vehicle Detail
-- [ ] canonical Trust only
+- [x] canonical Trust only
 - [ ] source coverage explicit
 - [ ] privacy projection preserved
 - [ ] exact VIN/facet/search discovery works after publish
 - [ ] draft remains undiscoverable publicly
-- [ ] save works where supported
-- [ ] compare works where supported
-- [ ] share works where supported
+- [x] save works where supported
+- [x] compare works where supported
+- [x] share works where supported
 - [ ] recommendations do not use contaminated automation fixtures
 
 ---
@@ -486,9 +486,9 @@ These are three different concepts and must never collapse into one decorative p
 Where governed data exists:
 - [ ] KPI band
 - [ ] views time-series
-- [ ] saves
-- [ ] compares
-- [ ] shares
+- [x] saves
+- [x] compares
+- [x] shares
 - [ ] inquiries
 - [ ] inspection requests where tracked
 - [ ] conversion funnel
@@ -556,7 +556,7 @@ Acceptance:
 
 ## 16B. Conversation projection
 
-- [ ] inquiry projects into canonical Communications thread when architecture requires it
+- [x] inquiry projects into canonical Communications thread when architecture requires it
 - [ ] same vehicle/listing context
 - [ ] correct participants
 - [ ] authorization enforced
@@ -576,7 +576,7 @@ Pre-publication:
 - [ ] evidence requirements validated
 - [ ] privacy validated
 - [ ] seller copy validated
-- [ ] canonical Trust displayed as-is
+- [x] canonical Trust displayed as-is
 - [ ] exact blocking gaps displayed
 - [ ] Buyer Preview available while still private
 
@@ -591,7 +591,7 @@ Lifecycle:
 - [ ] mark sold ends active commerce
 - [ ] sold vehicle disappears from active Marketplace
 - [ ] Vehicle Passport persists after sold state
-- [ ] ownership/lifecycle history persists
+- [x] ownership/lifecycle history persists
 
 ---
 
@@ -747,7 +747,7 @@ This section must be updated after **every** cleared task.
 
 | Phase | Status | Current evidence / exact SHA | Re-open reason if any |
 |---|---|---|---|
-| 0 Baseline + parity | [ ] | | |
+| 0 Baseline + parity | [~] | Parity matrix committed at `b25a89dc690d17d9e253ae4358edec64eea6532b`; baseline screenshots still pending | |
 | 1 UAT/harness integrity | [ ] | | |
 | 2 Account continuity | [ ] | | |
 | 3 Navigation | [ ] | | |
