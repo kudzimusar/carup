@@ -1793,23 +1793,43 @@ export default function VehicleDetail() {
               <span className="text-white">{vehicle.make} {vehicle.model}</span>
             </div>
 
-            <form onSubmit={handleLookupSubmit} className="flex gap-2 max-w-sm w-full">
-              <div className="relative flex-1">
-                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
-                <Input
-                  placeholder="Enter VIN, chassis, plate, or temporary ID"
-                  value={lookupQuery}
-                  onChange={(e) => setLookupQuery(e.target.value)}
-                  className="h-10 rounded-none border-slate-700 bg-slate-950 pl-9 text-xs text-white placeholder:text-slate-500 focus-visible:ring-orange-500"
-                />
-              </div>
-              <Button type="submit" size="sm" className="h-10 rounded-none bg-orange-500 px-4 text-xs font-bold text-white hover:bg-orange-600">Lookup</Button>
-            </form>
+            {isSellerPreview ? (
+              <Button asChild variant="outline" className="min-h-10 rounded-none border-white/20 bg-transparent text-white hover:bg-white/10 hover:text-white">
+                <Link to={`/dashboard/sell-vehicle?vin=${encodeURIComponent(vehicle.vin)}`}>
+                  Back to Seller Studio
+                </Link>
+              </Button>
+            ) : (
+              <form onSubmit={handleLookupSubmit} className="flex gap-2 max-w-sm w-full">
+                <div className="relative flex-1">
+                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+                  <Input
+                    placeholder="Enter VIN, chassis, plate, or temporary ID"
+                    value={lookupQuery}
+                    onChange={(e) => setLookupQuery(e.target.value)}
+                    className="h-10 rounded-none border-slate-700 bg-slate-950 pl-9 text-xs text-white placeholder:text-slate-500 focus-visible:ring-orange-500"
+                  />
+                </div>
+                <Button type="submit" size="sm" className="h-10 rounded-none bg-orange-500 px-4 text-xs font-bold text-white hover:bg-orange-600">Lookup</Button>
+              </form>
+            )}
           </div>
         </div>
       </div>
 
       <div className="section-padding mx-auto max-w-[1440px] py-7 sm:py-9">
+        {isSellerPreview && (
+          <div className="mb-6 flex flex-col gap-4 border-l-4 border-orange-500 bg-orange-50 px-5 py-4 sm:flex-row sm:items-center sm:justify-between" data-testid="seller-preview-banner">
+            <div>
+              <p className="text-[10px] font-black uppercase tracking-[0.2em] text-orange-700">Buyer Preview — not public</p>
+              <p className="mt-1 text-sm font-bold text-slate-950">This is the shared buyer presentation, shown inside your authenticated Seller scope.</p>
+              <p className="mt-1 text-xs leading-5 text-slate-600">Save, compare, share, inquiry, reservation and financing controls are disabled here. Publication state is not changed by previewing.</p>
+            </div>
+            <Button asChild className="min-h-11 rounded-none bg-slate-950 font-black hover:bg-orange-600">
+              <Link to={`/dashboard/sell-vehicle?vin=${encodeURIComponent(vehicle.vin)}`}>Return to editing</Link>
+            </Button>
+          </div>
+        )}
         <Button variant="ghost" size="sm" className="mb-4 gap-1" onClick={() => navigate(-1)}>
           <ArrowLeft className="w-4 h-4" /> Back
         </Button>
@@ -1853,13 +1873,19 @@ export default function VehicleDetail() {
                   />
                   {/* Rule 6: shown only where a row claims it. No primary is elected when the
                       seller named none — that choice is theirs to make or leave unmade. */}
-                  {activeImage.is_primary && (
-                    <span
-                      className="absolute bottom-3 left-3 rounded-full bg-black/50 px-2 py-1 text-xs text-white"
-                      data-testid="listing-media-primary"
-                    >
-                      Seller’s main photo
-                    </span>
+                  {(activeImage.is_primary || activeImage.photo_label) && (
+                    <div className="absolute bottom-3 left-3 flex flex-wrap gap-2">
+                      {activeImage.is_primary && (
+                        <span className="rounded-full bg-black/55 px-2 py-1 text-xs text-white" data-testid="listing-media-primary">
+                          Seller’s main photo
+                        </span>
+                      )}
+                      {activeImage.photo_label && (
+                        <span className="rounded-full bg-white/90 px-2 py-1 text-xs font-bold text-slate-900" data-testid="listing-media-photo-label">
+                          {activeImage.photo_label}
+                        </span>
+                      )}
+                    </div>
                   )}
                   {galleryItems.length > 1 && (
                     <>
@@ -1949,22 +1975,24 @@ export default function VehicleDetail() {
                 )}
                 {isReservedOnServer && <Badge className="bg-amber-500 text-white">Reserved</Badge>}
               </div>
-              <div className="absolute top-4 right-4 flex gap-2">
-                <button onClick={toggleFavorite} aria-label="Save this vehicle" className="flex h-10 w-10 items-center justify-center rounded-full border border-white/70 bg-white/90 transition hover:scale-105 hover:bg-white">
-                  <Heart className={`w-5 h-5 ${isFav ? 'fill-red-500 text-red-500' : 'text-gray-600'}`} />
-                </button>
-                <Link
-                  to={compareHref}
-                  aria-label="Compare this vehicle"
-                  className="flex h-10 w-10 items-center justify-center rounded-full border border-white/70 bg-white/90 transition hover:scale-105 hover:bg-white"
-                  data-testid="vehicle-detail-compare"
-                >
-                  <GitCompare className="w-5 h-5 text-gray-600" />
-                </Link>
-                <button onClick={handleShare} aria-label="Share this listing" data-testid="vehicle-detail-share" className="flex h-10 w-10 items-center justify-center rounded-full border border-white/70 bg-white/90 transition hover:scale-105 hover:bg-white">
-                  <Share2 className="w-5 h-5 text-gray-600" />
-                </button>
-              </div>
+              {!isSellerPreview && (
+                <div className="absolute top-4 right-4 flex gap-2">
+                  <button onClick={toggleFavorite} aria-label="Save this vehicle" className="flex h-10 w-10 items-center justify-center rounded-full border border-white/70 bg-white/90 transition hover:scale-105 hover:bg-white">
+                    <Heart className={`w-5 h-5 ${isFav ? 'fill-red-500 text-red-500' : 'text-gray-600'}`} />
+                  </button>
+                  <Link
+                    to={compareHref}
+                    aria-label="Compare this vehicle"
+                    className="flex h-10 w-10 items-center justify-center rounded-full border border-white/70 bg-white/90 transition hover:scale-105 hover:bg-white"
+                    data-testid="vehicle-detail-compare"
+                  >
+                    <GitCompare className="w-5 h-5 text-gray-600" />
+                  </Link>
+                  <button onClick={handleShare} aria-label="Share this listing" data-testid="vehicle-detail-share" className="flex h-10 w-10 items-center justify-center rounded-full border border-white/70 bg-white/90 transition hover:scale-105 hover:bg-white">
+                    <Share2 className="w-5 h-5 text-gray-600" />
+                  </button>
+                </div>
+              )}
             </div>
 
             {/* Rule 5: counted, never silently dropped. A short gallery that hides what it could
@@ -2003,7 +2031,7 @@ export default function VehicleDetail() {
                   <button key={item.media_id ?? `${item.position}-${item.url}`} onClick={() => setCurrentImageIdx(galleryIndex)}
                     data-testid="listing-media-thumb"
                     data-media-id={item.media_id ?? undefined}
-                    aria-label={`Show photo ${galleryIndex + 1}`}
+                    aria-label={item.photo_label ? `Show photo ${galleryIndex + 1}: ${item.photo_label}` : `Show photo ${galleryIndex + 1}`}
                     className={`h-20 w-28 flex-shrink-0 overflow-hidden border-b-4 transition-all ${galleryIndex === activeImageIdx ? 'border-orange-500 opacity-100' : 'border-transparent opacity-65 hover:opacity-100'}`}>
                     <img src={item.url} alt="" className="w-full h-full object-cover" onError={() => markListingMediaFailed(item.url)} />
                   </button>
@@ -2043,7 +2071,7 @@ export default function VehicleDetail() {
             </div>
           </div>
 
-          {detail && (
+          {detail && !isSellerPreview && (
             <div className="mt-6 space-y-2" data-testid="vehicle-detail-primary-actions">
               <InquiryModal
                 listingId={detail.vin}
