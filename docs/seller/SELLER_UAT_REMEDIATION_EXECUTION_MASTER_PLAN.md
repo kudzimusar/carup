@@ -16,6 +16,17 @@
 
 This file is the **single operational roll-call tracker** for the Seller UAT remediation programme. It does not replace `DESIGN.md`, the Seller convergence plan, or Marketplace visual DNA; it converts them into a task-by-task execution ledger that must be updated as work is completed.
 
+
+### 0.0 Tracker bootstrap roll call
+
+- [x] **BOOT-1. Master execution tracker created on the active #194 integration branch.**  
+  **Evidence:** commit `e4401654888764c0c4683880070fe320599599bc`.
+- [x] **BOOT-2. Existing Seller convergence plan bound to this tracker and corrected to the current #194 branch context.**  
+  **Evidence:** commit `e3b2a9c957389a39a92b4123d48d3806abdebf23`.
+- [x] **BOOT-3. Previous automated Seller PASS explicitly demoted to historical engineering evidence, not owner-facing Golden completion.**  
+  **Evidence:** "Current programme roll call" in this tracker initializes every remediation phase as NOT STARTED and Phase S requires the full UI Golden journey.
+
+
 ### 0.1 Mandatory task-state notation
 
 Every task below must carry one of these states:
@@ -73,6 +84,36 @@ Examples:
 - Direct API vehicle creation proves backend capability, **not Home → Sell → Seller Studio UAT**.
 - A seeded Marketplace vehicle proves reference rendering, **not Seller-created parity**.
 
+
+### 0.6 Source-plan coverage map — no orphan phases
+
+This table is the mandatory roll call against the earlier `SELLER_MARKETPLACE_CONVERGENCE_IMPLEMENTATION_PLAN.md`. It prevents a later agent from implementing only the defects most recently discussed in chat.
+
+| Earlier convergence-plan requirement | Master tracker coverage |
+|---|---|
+| Phase 0 — freeze, baseline, parity audit | A + B |
+| Phase 1 — navigation architecture | E1 |
+| Phase 2 — Sell intent router | E2 |
+| Phase 3 — canonical draft/resume | F |
+| Phase 4 — media persistence/identity | G |
+| Phase 5 — My Garage redesign | H |
+| Phase 6 — My Listings redesign | I |
+| Phase 7 — authenticated Seller Studio | J |
+| Phase 8 — one buyer presentation component | K |
+| Phase 9 — section-by-section dynamic parity | L |
+| Phase 10 — Seller Intelligence visual upgrade | N |
+| Phase 11 — Owner Dashboard convergence | O |
+| Phase 12 — publication readiness / Marketplace transition | R + P |
+| Phase 13 — Golden Dynamic Seller Journey | S |
+| Unit/component/integration/E2E test strategy | S + T + U |
+| Desktop/mobile visual regression | B + S + T |
+| Exit criteria / exact-head / owner UAT | U + V + W |
+| Truth & Trust / privacy / no fake data | M + permanent invariants |
+| New gaps exposed by owner UAT: test-data isolation, account continuity, Featured/count semantics, Communications proof, Home resilience, tablet/accessibility | C + D + P + Q + T |
+
+**Coverage rule:** if a requirement is added to `DESIGN.md`, the Seller convergence plan, Marketplace visual DNA, or an accepted owner UAT defect, this table and the task list must be updated before implementation can call that requirement in scope.
+
+
 ---
 
 # PHASE A — Governance reset and frozen baseline
@@ -113,10 +154,10 @@ Examples:
   - Acceptance: account reconciliation procedure documented before mutation.
   - Evidence: `TBD`.
 
-- [ ] **A5. Reconcile the old Seller convergence plan against this tracker.**
-  - Every Phase 0–13 requirement in `SELLER_MARKETPLACE_CONVERGENCE_IMPLEMENTATION_PLAN.md` must map to at least one task here.
+- [x] **A5. Reconcile the old Seller convergence plan against this tracker.**
+  - Every Phase 0–13 requirement in `SELLER_MARKETPLACE_CONVERGENCE_IMPLEMENTATION_PLAN.md` maps to at least one task here.
   - Acceptance: no orphan requirement.
-  - Evidence: `TBD`.
+  - **Evidence:** §0.6 source-plan coverage map in this tracker; convergence plan cross-link commit `e3b2a9c957389a39a92b4123d48d3806abdebf23`.
 
 ### Phase A roll call
 - [ ] **A-RC. Phase A complete:** A1–A5 all `[x]`; no product behavior changed before baseline capture.
