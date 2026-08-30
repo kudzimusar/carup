@@ -65,7 +65,7 @@ const PERSISTED_PHOTOS = [
 ]
 
 /** A complete draft plus photos, so the media step is reachable without driving Radix selects. */
-function seedDraft(images: string[]) {
+function seedDraft(images: string[], imageLabels: string[] = []) {
   sessionStorage.setItem('carup_guest_sell_draft_v1', JSON.stringify({
     version: 1,
     saved_at: new Date().toISOString(),
@@ -74,12 +74,12 @@ function seedDraft(images: string[]) {
     transmission: 'Automatic', drivetrain: '4WD', location: 'Harare', province: 'Harare',
     price: '28500', currency: 'USD', description: 'x'.repeat(60),
     engineNumber: '', chassisNumber: '', plateNumber: '', tempPlateId: '', importStatus: '',
-    features: [], images,
+    features: [], images, imageLabels, coverImageIndex: null, historyPlan: {}, existingPassportConfirmed: false,
   }))
 }
 
-async function advanceToMediaStep(images = PHOTOS) {
-  seedDraft(images)
+async function advanceToMediaStep(images = PHOTOS, imageLabels: string[] = []) {
+  seedDraft(images, imageLabels)
   render(<MemoryRouter><SellVehicle /></MemoryRouter>)
   // The first step intentionally waits for the existing-Passport lookup to resolve. The test's
   // no-record mock must therefore become visible before it asks the form to advance.
@@ -119,6 +119,8 @@ beforeEach(() => {
     images_recorded: true,
     images_recorded_count: payload.images?.length || 0,
     images_unpublishable_count: 0,
+    images_replacement_complete: true,
+    images_labels_recorded: true,
   }))
 })
 
@@ -167,6 +169,19 @@ describe('S4 seller-chosen cover photo', () => {
     // Unchosen photos stay bare URLs — a string claims nothing.
     expect(typeof images[0]).toBe('string')
     expect(typeof images[2]).toBe('string')
+  })
+
+  it('submits Seller photo labels with their photographs and does not convert them into evidence', async () => {
+    await advanceToMediaStep(PHOTOS, ['Front', 'Rear', 'Interior'])
+    fireEvent.click(screen.getByTestId('listing-media-choose-cover-2'))
+    const images = await submitAndReadImages()
+
+    expect(images).toEqual([
+      { url: PERSISTED_PHOTOS[0], photo_label: 'Front' },
+      { url: PERSISTED_PHOTOS[1], photo_label: 'Rear' },
+      { url: PERSISTED_PHOTOS[2], photo_label: 'Interior', is_primary: true },
+    ])
+    expect(JSON.stringify(images).toLowerCase()).not.toMatch(/verified|evidence|trust/)
   })
 
   it('submits no primacy claim at all when the seller chose no cover', async () => {
