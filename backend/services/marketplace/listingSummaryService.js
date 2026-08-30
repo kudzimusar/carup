@@ -744,6 +744,16 @@ export function buildMarketplaceListingSummary({
  * this endpoint an identifier oracle (confirm/deny a plate or chassis) even though the value is no
  * longer echoed. Registry-identifier lookup belongs to authenticated/owner paths only.
  */
+export function isSellerAutomationListing(summary = {}) {
+  return String(summary?.seller_description || '').trim().startsWith('UAT_AUTOMATION[');
+}
+
+function automationListingVisibleForQuery(summary, query) {
+  if (!isSellerAutomationListing(summary)) return true;
+  const normalizedQuery = normalizeText(query);
+  return Boolean(normalizedQuery) && normalizedQuery === normalizeText(summary?.vin);
+}
+
 function summaryMatchesSearch(summary, query) {
   if (!query) return true;
   const normalized = normalizeText(query);
@@ -1303,6 +1313,10 @@ export async function listMarketplaceListings(supabaseClient, params = {}) {
   // All buyer-facing facets operate on canonical public summaries BEFORE sort/limit. This avoids
   // the first-page bug where a valid vehicle outside the initial 48 could never be discovered.
   const filtered = summaries
+    // Golden Seller automation must be publicly reachable by its exact VIN so the browser
+    // acceptance can prove the real Marketplace route, but it is intentionally excluded from
+    // normal human-UAT discovery, counts, Home newest/featured selection and broad search.
+    .filter(summary => automationListingVisibleForQuery(summary, params.q))
     .filter(summary => summaryMatchesSearch(summary, params.q))
     .filter(summary => summaryMatchesMakeFacet(summary, params.make))
     .filter(summary => summaryMatchesModelFacet(summary, params.model, params.make))
