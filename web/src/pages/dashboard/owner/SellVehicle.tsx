@@ -618,7 +618,18 @@ export default function SellVehicle() {
         images_unpublishable_count?: number
         images_replacement_complete?: boolean
         images_labels_recorded?: boolean
+        submission_id_recorded?: boolean
+        idempotent_replay?: boolean
       } | null
+
+      // F17: a keyed Seller create may clear its crash-recovery draft only after the backend
+      // confirms that the durable replay key reached the vehicle row. During a rolling schema
+      // migration the server returns 503 instead, but this guard also protects against any older
+      // paired backend silently accepting the listing without idempotency.
+      if (form.submissionId && resultMedia?.submission_id_recorded !== true) {
+        toast.error('CarUp could not confirm safe retry protection for this draft. Your browser copy has been kept.')
+        return
+      }
 
       if (resolvedImageUrls.length > 0) {
         const recordedCount = Number(resultMedia?.images_recorded_count || 0)
