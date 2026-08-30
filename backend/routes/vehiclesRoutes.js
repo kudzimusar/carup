@@ -48,6 +48,11 @@ import {
   isVehicleRestoredToMarketplaceStatus,
   normalizeVehicleStatus
 } from '../utils/vehicleStatus.js';
+import {
+  emitListingPublished,
+  emitListingSold,
+  emitPriceChanged,
+} from '../services/intelligence/marketplaceActivityEmitters.js';
 
 const router = express.Router();
 
@@ -153,6 +158,10 @@ router.patch('/api/vehicles/:vin/status', authorizeRole(['admin', 'dealer', 'own
     console.warn('[Audit Log Error] Failed to log vehicle status change:', auditErr.message);
   }
   
+  if (String(afterStatus).toLowerCase() === 'sold' && String(beforeStatus).toLowerCase() !== 'sold') {
+    emitListingSold({ req, vin, fromStatus: beforeStatus, toStatus: afterStatus }).catch(() => {});
+  }
+
   res.json({ success: true, vin, status: afterStatus });
 }));
 
@@ -165,7 +174,7 @@ router.patch('/api/vehicles/:vin/status', authorizeRole(['admin', 'dealer', 'own
 async function loadScopedVehicle(req, vin) {
   const { data: vehicle, error: vehicleErr } = await supabase
     .from('vehicles')
-    .select('vin, status, publication_status, owner_id, current_seller_id, tenant_id, price')
+    .select('vin, status, publication_status, owner_id, current_seller_id, tenant_id, price, currency')
     .eq('vin', vin)
     .single();
   if (vehicleErr || !vehicle) throw new NotFoundError('Vehicle not found');
@@ -239,6 +248,12 @@ router.post('/api/vehicles/:vin/publish', authorizeRole(['owner', 'dealer', 'adm
   if (error) throw new DatabaseError(error.message);
 
   auditPublicationChange(req, vin, 'VEHICLE_LISTING_PUBLISHED', vehicle.publication_status, 'published');
+  emitListingPublished({
+    req,
+    vin,
+    fromStatus: vehicle.publication_status,
+    toStatus: 'published',
+  }).catch(() => {});
   res.json({ success: true, vin, publication_status: 'published' });
 }));
 
@@ -315,6 +330,14 @@ router.patch('/api/vehicles/:vin/price', authorizeRole(['owner', 'dealer', 'admi
   } catch (auditErr) {
     console.warn('[Audit Log Error] Failed to log price change:', auditErr.message);
   }
+
+  emitPriceChanged({
+    req,
+    vin,
+    oldPrice: before,
+    newPrice: price,
+    currency: vehicle.currency || null,
+  }).catch(() => {});
 
   res.json({ success: true, vin, price, previous_price: before ?? null });
 }));
