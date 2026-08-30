@@ -2414,7 +2414,26 @@ export function useCarUpApi() {
     listing_country?: string
     location_visibility?: 'withheld' | 'province_only' | 'public'
     public_seller_display_enabled?: boolean
-  }): Promise<{ success: boolean; vin: string; publication_status: string; claim_provenance_recorded?: boolean; unchanged?: boolean }> => {
+  }): Promise<{
+    success: boolean
+    vin: string
+    publication_status: string
+    claim_provenance_recorded?: boolean
+    unchanged?: boolean
+    draft?: {
+      description: string
+      features: string[]
+      body_style: string
+      seller_stated_condition: string
+      price: number | null
+      currency: string
+      location: string
+      province: string
+      listing_country: string
+      location_visibility: 'withheld' | 'province_only' | 'public'
+      public_seller_display_enabled: boolean
+    } | null
+  }> => {
     return request(`/vehicles/${encodeURIComponent(vin)}/seller-draft`, {
       method: 'PATCH',
       body: JSON.stringify(payload),
