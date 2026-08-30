@@ -404,3 +404,33 @@ test('the admin intelligence route does NOT admit the government role', () => {
   assert.ok(!adminBlock.includes('government'),
     'gap G5 (government holding platform-wide commercial analytics) must not be repeated');
 });
+
+
+test('seller pulse exposes only computed daily points and never synthesizes missing dates as zero', async () => {
+  const client = createClient({
+    sellerMetrics: [
+      {
+        metric_date: '2026-08-28', seller_user_id: 'seller-1', active_listings: 1,
+        impressions: 12, views: 7, unique_viewers: 5, saves: 2, unsaves: 0,
+        shares_confirmed: 1, inquiry_starts: 1, inquiries: 1, inspections: 0,
+        reservations: 0, calculation_version: ROLLUP_CALCULATION_VERSION,
+      },
+      {
+        metric_date: '2026-08-26', seller_user_id: 'seller-1', active_listings: 2,
+        impressions: 20, views: 10, unique_viewers: 8, saves: 3, unsaves: 0,
+        shares_confirmed: 1, inquiry_starts: 2, inquiries: 2, inspections: 1,
+        reservations: 0, calculation_version: ROLLUP_CALCULATION_VERSION,
+      },
+    ],
+  });
+
+  const result = await getSellerPulse(client, SELLER, { windowDays: 7 });
+  assert.equal(result.availability, AVAILABILITY.VALUE);
+  assert.equal(result.metrics.active_listings.value, 2);
+  assert.deepEqual(result.series.map((point) => point.date), ['2026-08-26', '2026-08-28']);
+  assert.equal(result.series.length, 2, '2026-08-27 is missing coverage, not a fabricated zero day');
+  assert.deepEqual(
+    Object.keys(result.series[0]).sort(),
+    ['active_listings', 'date', 'impressions', 'inquiries', 'inspections', 'saves', 'views'],
+  );
+});
