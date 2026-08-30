@@ -139,6 +139,22 @@ async function retireAutomationVehicle(
   expect((body.listings || []).some((listing) => listing.vin === vin), `automation vehicle ${vin} still contaminates public Marketplace`).toBe(false);
 }
 
+async function retireStaleAutomationVehicles(
+  request: APIRequestContext,
+  sellerAuth: SessionAuth,
+  sellerMutationHeaders: Record<string, string>,
+) {
+  const owned = await request.get(`${API_URL}/vehicles/me`, { headers: baseHeaders(sellerAuth) });
+  expect(owned.status(), 'could not inspect owned vehicles before Seller automation run').toBe(200);
+  const vehicles = await owned.json() as Array<{ vin?: string; seller_description?: string | null }>;
+  const stale = vehicles.filter((vehicle) =>
+    Boolean(vehicle.vin) && String(vehicle.seller_description || '').startsWith('Golden Dynamic Seller '));
+
+  for (const vehicle of stale) {
+    await retireAutomationVehicle(request, vehicle.vin!, sellerMutationHeaders);
+  }
+}
+
 async function expectMeaningfulRenderedImage(page: Page) {
   const image = page.getByTestId('listing-media-primary').locator('img').first();
   await expect(image).toBeVisible();
@@ -171,6 +187,7 @@ test.describe('Golden Dynamic Seller — exact-head deployed acceptance', () => 
     const sellerAuth = await authFromPage(page);
     expect(sellerAuth.user.role).toBe('owner');
     sellerMutationHeaders = await mutationHeaders(request, sellerAuth);
+    await retireStaleAutomationVehicles(request, sellerAuth, sellerMutationHeaders);
 
     // Listing media is uploaded before the vehicle exists, exactly as Seller Studio does.
     const mediaResponse = await request.post(`${API_URL}/media/upload/vehicle`, {
