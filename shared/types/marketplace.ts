@@ -212,7 +212,7 @@ export interface MarketplaceListingMediaItem {
    */
   synthetic_demo: boolean;
   /** Seller-authored listing presentation label; never a verification/evidence claim. */
-  label: string | null;
+  photo_label: string | null;
 }
 
 /**
