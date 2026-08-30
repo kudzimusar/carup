@@ -2104,26 +2104,35 @@ export default function VehicleDetail() {
             </div>
             <div className="space-y-4">
               <AllInPricePanel pricing={detail.pricing_summary} />
-              <div className="border-y border-slate-200 bg-white py-4">
+              {isSellerPreview ? (
+                <div className="border-y border-orange-200 bg-orange-50 py-4" data-testid="seller-preview-transactions-disabled">
+                  <h3 className="text-sm font-black text-slate-950">Buyer transactions disabled in preview</h3>
+                  <p className="mt-2 text-[11px] leading-5 text-slate-600">
+                    Pricing and Trust presentation are shared with Marketplace, but inquiry and inspection actions do not run from the Seller&rsquo;s own preview.
+                  </p>
+                </div>
+              ) : (
+                <div className="border-y border-slate-200 bg-white py-4">
                 <h3 className="mb-2 text-sm font-semibold text-gray-900">Contact &amp; inquire</h3>
                 <div className="flex flex-col gap-2">
-                  <InquiryModal
-                    listingId={detail.vin}
-                    inquiryTypes={['vehicle_purchase_interest', 'vehicle_inspection_request']}
-                    triggerLabel="Send inquiry"
-                    triggerClassName="w-full"
-                  />
-                  <InquiryModal
-                    listingId={detail.vin}
-                    inquiryTypes={['vehicle_inspection_request']}
-                    defaultInquiryType="vehicle_inspection_request"
-                    triggerLabel="Request inspection"
-                    triggerVariant="outline"
-                    triggerClassName="w-full"
-                  />
+                <InquiryModal
+                listingId={detail.vin}
+                inquiryTypes={['vehicle_purchase_interest', 'vehicle_inspection_request']}
+                triggerLabel="Send inquiry"
+                triggerClassName="w-full"
+                />
+                <InquiryModal
+                listingId={detail.vin}
+                inquiryTypes={['vehicle_inspection_request']}
+                defaultInquiryType="vehicle_inspection_request"
+                triggerLabel="Request inspection"
+                triggerVariant="outline"
+                triggerClassName="w-full"
+                />
                 </div>
                 <p className="mt-2 text-[11px] text-gray-500">Inquiries are safe — the CarUp team helps connect you. Never pay outside CarUp.</p>
-              </div>
+                </div>
+              )}
             </div>
           </div>
         )}
@@ -2730,7 +2739,19 @@ export default function VehicleDetail() {
                       : `CarUp Trust: ${trust.headline}`}
                   </span>
                 </div>
-                {detail ? (
+                {isSellerPreview ? (
+                  <div className="mt-6 border border-orange-400/30 bg-orange-400/10 p-4" data-testid="seller-preview-sidebar-disabled">
+                    <div className="flex items-center gap-2 text-sm font-black text-white">
+                      <Lock className="h-4 w-4 text-orange-400" /> Buyer actions are disabled
+                    </div>
+                    <p className="mt-2 text-xs leading-5 text-slate-300">
+                      This is the Seller&rsquo;s buyer-facing preview. Contact, reservation, financing and SafePay requests only activate for a governed public buyer context.
+                    </p>
+                    <Button asChild variant="outline" className="mt-4 w-full rounded-none border-white/20 bg-transparent text-white hover:bg-white/10 hover:text-white">
+                      <Link to={`/dashboard/sell-vehicle?vin=${encodeURIComponent(vehicle.vin)}`}>Return to Seller Studio</Link>
+                    </Button>
+                  </div>
+                ) : detail ? (
                   <>
                     {sellerContactNumber && sellerWhatsAppLink ? (
                       <div className="flex gap-2 mt-6">
@@ -2845,7 +2866,9 @@ export default function VehicleDetail() {
                   <div className="flex items-center gap-2">
                     <Phone className="w-4 h-4 text-gray-400" />
                     {sellerContactNumber ? (
-                      <a href={`tel:${sellerContactNumber}`} className="hover:text-orange-500">{sellerContactNumber}</a>
+                      isSellerPreview
+                        ? <span data-testid="seller-phone-preview">{sellerContactNumber}</span>
+                        : <a href={`tel:${sellerContactNumber}`} className="hover:text-orange-500">{sellerContactNumber}</a>
                     ) : (
                       <span className="text-gray-500" data-testid="seller-phone-unavailable">No contact number published</span>
                     )}
