@@ -156,7 +156,7 @@ async function retireStaleAutomationVehicles(
 }
 
 async function expectMeaningfulRenderedImage(page: Page) {
-  const image = page.getByTestId('listing-media-primary').locator('img').first();
+  const image = page.getByTestId('vehicle-image').first();
   await expect(image).toBeVisible();
   const size = await image.evaluate((node: HTMLImageElement) => ({
     width: node.naturalWidth,
