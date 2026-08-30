@@ -1,0 +1,208 @@
+name: Seller Exact-Head Staging UAT
+
+# Mandatory Golden Dynamic Seller deployed acceptance for the Seller remediation lane.
+# Runs only for PRs into the Passport integration branch; it never promotes or targets main.
+on:
+  pull_request:
+    branches:
+      - integration/vehicle-passport-v16-cert
+    paths:
+      - 'backend/**'
+      - 'web/**'
+      - 'tests/agents/38-seller-staging-browser-golden.spec.ts'
+      - 'playwright.staging.config.ts'
+      - '.github/workflows/seller-exact-head-staging-uat.yml'
+  workflow_dispatch: {}
+
+concurrency:
+  group: seller-exact-head-staging-uat-${{ github.event.pull_request.number || github.ref_name }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  golden-dynamic-seller:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    env:
+      EXPECTED_HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+      CANDIDATE_BRANCH: ${{ github.event.pull_request.head.ref || github.ref_name }}
+      STAGING_RUN_ID: seller-${{ github.run_id }}-${{ github.run_attempt }}
+      DIASPORA_STAGING_DATABASE_URL: ${{ secrets.DIASPORA_STAGING_DATABASE_URL }}
+      EXPECTED_STAGING_PROJECT_REF: eoyenigwevnxwwhyhaer
+
+    steps:
+      - name: Checkout exact candidate head
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ env.EXPECTED_HEAD_SHA }}
+
+      - name: Assert exact candidate checkout
+        run: test "$(git rev-parse HEAD)" = "$EXPECTED_HEAD_SHA"
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Require staging operator secret
+        run: |
+          if [ -z "$DIASPORA_STAGING_DATABASE_URL" ]; then
+            echo '::error::DIASPORA_STAGING_DATABASE_URL is not configured; Golden Dynamic Seller acceptance cannot provision its isolated staging identities.'
+            exit 1
+          fi
+          case "$DIASPORA_STAGING_DATABASE_URL" in
+            *"$EXPECTED_STAGING_PROJECT_REF"*) ;;
+            *)
+              echo '::error::Refusing Seller UAT identity rotation: database URL is not the approved carup-staging project.'
+              exit 1
+              ;;
+          esac
+
+      - name: Resolve governed exact-head preview pair
+        run: |
+          node <<'NODE'
+          const fs = require('fs');
+          const branch = process.env.CANDIDATE_BRANCH;
+          const frontendPairs = JSON.parse(fs.readFileSync('web/preview-frontend-pairing.json', 'utf8')).branches || {};
+          const backendPairs = JSON.parse(fs.readFileSync('web/preview-backend-pairing.json', 'utf8')).branches || {};
+          const frontend = frontendPairs[branch];
+          const backend = backendPairs[branch];
+          if (!frontend || !backend) {
+            console.error(JSON.stringify({
+              error: 'Seller candidate preview pair is not governed',
+              branch,
+              frontend_configured: Boolean(frontend),
+              backend_configured: Boolean(backend),
+            }));
+            process.exit(1);
+          }
+          fs.appendFileSync(process.env.GITHUB_ENV,
+            `STAGING_WEB_URL=${frontend}\nSTAGING_API_URL=${backend.replace(/\/$/, '')}/api\n`);
+          console.log(JSON.stringify({ branch, frontend, backend }));
+          NODE
+
+      - name: Wait for exact-head frontend and backend provenance
+        run: |
+          node --input-type=module <<'NODE'
+          const expected = process.env.EXPECTED_HEAD_SHA;
+          const web = process.env.STAGING_WEB_URL;
+          const api = process.env.STAGING_API_URL;
+          const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
+
+          for (let attempt = 1; attempt <= 72; attempt += 1) {
+            try {
+              const [provRes, healthRes] = await Promise.all([
+                fetch(`${web}/carup-provenance.json?attempt=${attempt}`, { cache: 'no-store' }),
+                fetch(`${api}/health?attempt=${attempt}`, { cache: 'no-store' }),
+              ]);
+              const provenance = provRes.ok ? await provRes.json() : null;
+              const health = healthRes.ok ? await healthRes.json() : null;
+              const frontendOk = provenance?.commit_sha === expected && provenance?.unpaired === false;
+              const backendOk = health?.status === 'UP' && health?.build?.commit_sha === expected;
+              if (frontendOk && backendOk) {
+                console.log(JSON.stringify({
+                  frontend_sha: provenance.commit_sha,
+                  backend_sha: health.build.commit_sha,
+                  deployment_id: health.build.deployment_id,
+                  api_base_url: provenance.api_base_url,
+                }));
+                process.exit(0);
+              }
+              console.log(`provenance attempt ${attempt}: frontend=${provenance?.commit_sha || 'not-ready'} backend=${health?.build?.commit_sha || 'not-ready'}`);
+            } catch (error) {
+              console.log(`provenance attempt ${attempt}: ${error.message}`);
+            }
+            await sleep(5000);
+          }
+          console.error('Exact-head Seller preview pair never reported the candidate SHA.');
+          process.exit(1);
+          NODE
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Install Chromium
+        run: npx playwright install --with-deps chromium
+
+      - name: Freeze exact candidate bundle
+        run: |
+          node --input-type=module <<'NODE'
+          const fs = require('fs');
+          const response = await fetch(process.env.STAGING_WEB_URL, { cache: 'no-store' });
+          if (!response.ok) throw new Error(`frontend returned ${response.status}`);
+          const html = await response.text();
+          const bundle = (html.match(/\/assets\/(index-[A-Za-z0-9_-]+\.js)/) || [])[1];
+          if (!bundle) throw new Error('Seller preview did not expose a Vite entry bundle');
+          fs.appendFileSync(process.env.GITHUB_ENV, `STAGING_EXPECTED_BUNDLE=${bundle}\n`);
+          console.log(`Frozen Seller exact-head bundle: ${bundle}`);
+          NODE
+
+      - name: Rotate staging-only owner and reviewer identities
+        run: |
+          node --input-type=module <<'NODE'
+          import crypto from 'node:crypto';
+          import fs from 'node:fs';
+          import pg from 'pg';
+
+          const dbUrl = process.env.DIASPORA_STAGING_DATABASE_URL || '';
+          const expectedRef = process.env.EXPECTED_STAGING_PROJECT_REF;
+          if (!dbUrl.includes(expectedRef)) throw new Error('Refusing identity setup outside the approved staging project.');
+
+          const password = crypto.randomBytes(30).toString('base64url');
+          const salt = crypto.randomBytes(16).toString('hex');
+          const derived = await new Promise((resolve, reject) => {
+            crypto.scrypt(password, salt, 64, (error, key) => error ? reject(error) : resolve(key));
+          });
+          const passwordHash = `scrypt:${salt}:${derived.toString('hex')}`;
+
+          const cleanedDbUrl = dbUrl.replace(/([?&])sslmode=[^&]*&?/i, '$1').replace(/[?&]$/, '');
+          const client = new pg.Client({ connectionString: cleanedDbUrl, ssl: { rejectUnauthorized: false } });
+          await client.connect();
+          try {
+            await client.query('BEGIN');
+            for (const [email, role] of [
+              ['uat.buyer@carup-staging.test', 'owner'],
+              ['uat.reviewer@carup-staging.test', 'admin'],
+            ]) {
+              const result = await client.query(
+                'update public.users set password_hash = $1, role = $2 where email = $3 returning id',
+                [passwordHash, role, email],
+              );
+              if (result.rowCount !== 1) throw new Error(`Missing staging UAT identity: ${email}`);
+            }
+            await client.query('COMMIT');
+          } catch (error) {
+            await client.query('ROLLBACK');
+            throw error;
+          } finally {
+            await client.end();
+          }
+
+          fs.appendFileSync(
+            process.env.GITHUB_ENV,
+            [
+              `STAGING_UAT_BUYER_PASSWORD=${password}`,
+              `STAGING_UAT_REVIEWER_PASSWORD=${password}`,
+            ].join('\n') + '\n',
+            { mode: 0o600 },
+          );
+          console.log('Staging-only Seller owner and reviewer identities rotated without printing credentials.');
+          NODE
+
+      - name: Run Golden Dynamic Seller desktop + mobile Chromium
+        run: npx playwright test tests/agents/38-seller-staging-browser-golden.spec.ts --config=playwright.staging.config.ts
+
+      - name: Upload Seller deployed-UAT evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: seller-exact-head-staging-uat-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            test-results/staging-env-truth.json
+            test-results/staging-uat-results.json
+            test-results/staging-uat-html
+            test-results/staging-uat-artifacts
+          if-no-files-found: warn
+          retention-days: 14
