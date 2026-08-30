@@ -390,7 +390,9 @@ export default function MyListings() {
                     <p className="text-[10px] font-black uppercase tracking-[0.16em] text-slate-400">Manage this listing</p>
                     <div className="flex flex-wrap gap-2 mt-3" data-testid={`listing-actions-${listing.vin}`}>
                       <Button size="sm" variant="outline" className="min-h-10 rounded-none text-xs font-bold" asChild>
-                        <Link to={`/marketplace/${encodeURIComponent(listing.vin)}`}>
+                        <Link to={isPublished
+                          ? `/marketplace/${encodeURIComponent(listing.vin)}`
+                          : `/marketplace/${encodeURIComponent(listing.vin)}?mode=seller_preview`}>
                           <Eye className="mr-1.5 h-3.5 w-3.5" /> {isPublished ? 'Public detail' : 'Buyer Preview'}
                         </Link>
                       </Button>
