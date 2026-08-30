@@ -111,6 +111,7 @@ export default function SellVehicle() {
   const { createVehicleListing, updateSellerDraft, uploadVehicleImages, requestSellerAuthorityClaim, fetchOwnedVehicles } = useCarUpApi()
   const [searchParams] = useSearchParams()
   const resumeVin = String(searchParams.get('vin') || '').trim().toUpperCase()
+  const requestedStage = searchParams.get('stage')
   const [guestDraft] = useState(() => readGuestSellDraft())
   const [step, setStep] = useState(() => readGuestSellStep())
   const [form, setForm] = useState(() => guestDraft ? ({
@@ -382,6 +383,10 @@ export default function SellVehicle() {
     submitting,
     updateSellerDraft,
   ])
+
+  useEffect(() => {
+    if (serverDraftLoaded && requestedStage === 'review') setStep(STEPS.length - 1)
+  }, [requestedStage, serverDraftLoaded])
 
   useEffect(() => {
     if (guestDraft) toast.success('Your pre-sign-in listing draft is ready to review.')
