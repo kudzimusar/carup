@@ -1,12 +1,13 @@
 import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { ArrowLeft, ArrowRight, FileCheck2, FileText, ShieldCheck, Upload } from 'lucide-react'
+import { ArrowRight, FileCheck2, FileText, ShieldCheck, Upload } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { ListingImage } from '@/components/marketplace/ListingImage'
 import { primaryListingImageUrl } from '@/lib/listingMedia'
 import { useCarUpApi } from '@/hooks/useCarUpApi'
 import { statedCount } from './ownerStatedValues'
 import type { Vehicle } from '@/types'
+import { SellerWorkspaceHeader } from '@/components/seller/SellerWorkspaceHeader'
 
 export default function EvidenceVault() {
   const { fetchOwnedVehicles } = useCarUpApi()
@@ -29,23 +30,17 @@ export default function EvidenceVault() {
 
   return (
     <div className="mx-auto max-w-[1440px] space-y-8" data-testid="owner-evidence-vault">
-      <header className="border-b border-slate-200 pb-7">
-        <Link to="/dashboard" className="inline-flex items-center gap-2 text-sm font-bold text-slate-500 hover:text-slate-950">
-          <ArrowLeft className="h-4 w-4" /> Seller / Owner home
-        </Link>
-        <div className="mt-5 flex flex-col gap-5 lg:flex-row lg:items-end lg:justify-between">
-          <div>
-            <p className="text-[10px] font-black uppercase tracking-[0.22em] text-orange-600">Evidence & provenance</p>
-            <h1 className="mt-2 text-4xl font-black tracking-[-0.05em] text-slate-950 sm:text-5xl">Evidence Vault</h1>
-            <p className="mt-3 max-w-2xl text-sm leading-6 text-slate-600">
-              Upload and review evidence against the correct Vehicle Passport. Listing photography stays separate from governed evidence.
-            </p>
-          </div>
-          <div className="max-w-md border-l-2 border-orange-500 bg-orange-50 px-4 py-3 text-xs leading-5 text-slate-700">
-            Evidence can be pending, verified, rejected, private or public-safe. A file is never treated as verified simply because it was uploaded.
-          </div>
-        </div>
-      </header>
+      <SellerWorkspaceHeader
+        eyebrow="Evidence & provenance"
+        title="Evidence Vault"
+        description="Upload and review evidence against the correct Vehicle Passport. Listing photography stays separate from governed evidence."
+        statusLabel={state === 'loading' ? 'Loading governed evidence workspaces' : state === 'error' ? 'Evidence read unavailable' : `${vehicles.length} vehicle evidence workspaces`}
+        primaryAction={(
+          <Button asChild className="rounded-none bg-orange-600 hover:bg-orange-700">
+            <Link to="/dashboard/garage">Open My Garage <ArrowRight className="ml-2 h-4 w-4" /></Link>
+          </Button>
+        )}
+      />
 
       {state === 'loading' && (
         <div className="border-y border-slate-200 py-12 text-sm text-slate-500" role="status">
