@@ -196,38 +196,38 @@ Acceptance for B1:
 
 For a rich reference VIN and `UAT20260828SELL01`, record:
 
-- [ ] **B2.1 Listing gallery / cover / carousel**
-- [ ] **B2.2 Make/model/year / identity**
-- [ ] **B2.3 Price / currency**
-- [ ] **B2.4 Mileage / fuel / transmission / drivetrain / body style / condition**
-- [ ] **B2.5 Seller description / features**
-- [ ] **B2.6 Seller identity and seller type**
-- [ ] **B2.7 Location / privacy projection**
-- [ ] **B2.8 Canonical Trust**
-- [ ] **B2.9 Trust confidence / source coverage**
-- [ ] **B2.10 Government/partner checks**
-- [ ] **B2.11 Registration / plate / identifier state**
-- [ ] **B2.12 Evidence state**
-- [ ] **B2.13 Lifecycle/history**
-- [ ] **B2.14 Ownership**
-- [ ] **B2.15 Service**
-- [ ] **B2.16 PartSentry**
-- [ ] **B2.17 Insurance**
-- [ ] **B2.18 Pricing/cost estimate**
-- [ ] **B2.19 Inquiry**
-- [ ] **B2.20 Reservation/SafePay readiness**
-- [ ] **B2.21 Save**
-- [ ] **B2.22 Compare**
-- [ ] **B2.23 Share**
-- [ ] **B2.24 Recommendations/related vehicles**
-- [ ] **B2.25 Publication state**
-- [ ] **B2.26 Missing / pending / unavailable design state**
+- [x] **B2.1 Listing gallery / cover / carousel**
+- [x] **B2.2 Make/model/year / identity**
+- [x] **B2.3 Price / currency**
+- [x] **B2.4 Mileage / fuel / transmission / drivetrain / body style / condition**
+- [x] **B2.5 Seller description / features**
+- [x] **B2.6 Seller identity and seller type**
+- [x] **B2.7 Location / privacy projection**
+- [x] **B2.8 Canonical Trust**
+- [x] **B2.9 Trust confidence / source coverage**
+- [x] **B2.10 Government/partner checks**
+- [x] **B2.11 Registration / plate / identifier state**
+- [x] **B2.12 Evidence state**
+- [x] **B2.13 Lifecycle/history**
+- [x] **B2.14 Ownership**
+- [x] **B2.15 Service**
+- [x] **B2.16 PartSentry**
+- [x] **B2.17 Insurance**
+- [x] **B2.18 Pricing/cost estimate**
+- [x] **B2.19 Inquiry**
+- [x] **B2.20 Reservation/SafePay readiness**
+- [x] **B2.21 Save**
+- [x] **B2.22 Compare**
+- [x] **B2.23 Share**
+- [x] **B2.24 Recommendations/related vehicles**
+- [x] **B2.25 Publication state**
+- [x] **B2.26 Missing / pending / unavailable design state**
 
 Parity-matrix columns must include:
 `capability/section | reference VIN | UAT VIN | canonical source | seller-stated/governed/computed/private | expected missing state | component | gap | severity | owner decision if any`.
 
-- [ ] **B2.27 Commit parity matrix to repository.**
-  - Evidence: `TBD`.
+- [x] **B2.27 Commit parity matrix to repository.**
+  - **Evidence:** `docs/seller/SELLER_MARKETPLACE_BASELINE_PARITY_AUDIT.md`; frozen runtime `106f76509ae1d1d10a3c4a26b4f93f7993d55027`; reference `CARUPGLDNA0000001`; human UAT `UAT20260828SELL01`; commit `cce9a059d6ab14700f991824612a83bc97a7786d`. B2.1–B2.26 are audited row-by-row there.
 
 ### Phase B roll call
 - [ ] **B-RC. Phase B complete:** every B1/B2 item is `[x]`, and no redesign proceeds based on memory alone.
@@ -1012,7 +1012,7 @@ At creation time, prior automated certification is treated as **historical engin
 | Phase | State | Reason |
 |---|---|---|
 | A — Governance reset/baseline | COMPLETE | A1–A5 and A-RC cleared on frozen baseline `106f765...`; documentation-only evidence |
-| B — Parity audit | NOT STARTED | complete matrix not yet accepted |
+| B — Parity audit | IN PROGRESS | B2.1–B2.27 complete; B1 desktop/tablet/mobile baseline visual capture still required |
 | C — UAT integrity | NOT STARTED | automation leakage confirmed |
 | D — Account continuity | NOT STARTED | owner account unresolved |
 | E — Navigation/Sell intent | NOT STARTED | chooser missing |
