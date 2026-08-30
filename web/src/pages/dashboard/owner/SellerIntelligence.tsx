@@ -8,8 +8,6 @@ import {
   MessageSquare,
   MousePointerClick,
   RefreshCw,
-  Share2,
-  TrendingUp,
   Users,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
