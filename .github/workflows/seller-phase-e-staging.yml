@@ -17,10 +17,8 @@ on:
 
 
 concurrency:
-  # These deployed Seller journeys rotate the same staging-only owner identity. Serializing them
-  # prevents one valid workflow from invalidating another workflow's just-exported UI password.
-  group: seller-staging-shared-identities
-  cancel-in-progress: false
+  group: seller-phase-e-staging-${{ github.event.pull_request.number || github.ref_name }}
+  cancel-in-progress: true
 
 permissions:
   contents: read
@@ -36,6 +34,7 @@ jobs:
       STAGING_RUN_ID: seller-e-${{ github.run_id }}-${{ github.run_attempt }}
       DIASPORA_STAGING_DATABASE_URL: ${{ secrets.DIASPORA_STAGING_DATABASE_URL }}
       EXPECTED_STAGING_PROJECT_REF: eoyenigwevnxwwhyhaer
+      STAGING_UAT_BUYER_EMAIL: uat.seller@carup-staging.test
 
     steps:
       - uses: actions/checkout@v4
@@ -91,7 +90,7 @@ jobs:
           try {
             const result = await client.query(
               'update public.users set password_hash=$1, role=$2 where email=$3 returning id',
-              [hash, 'owner', 'uat.buyer@carup-staging.test'],
+              [hash, 'owner', process.env.STAGING_UAT_BUYER_EMAIL],
             )
             if (result.rowCount !== 1) throw new Error('Synthetic owner identity missing.')
           } finally {
