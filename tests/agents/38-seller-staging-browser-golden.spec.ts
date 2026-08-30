@@ -2,8 +2,8 @@
  * 38 — Golden Dynamic Seller deployed-staging acceptance.
  *
  * Creates a fresh Seller vehicle for every run/project. No Golden Reference vehicle, DB seed or
- * page.route() shortcut is used. The same exact-head frontend/backend pair is driven on Desktop
- * Chrome and Pixel 5 by playwright.staging.config.ts.
+ * page.route() shortcut is used. The same exact-head frontend/backend pair is driven on desktop,
+ * touch-tablet and mobile Chromium profiles by playwright.staging.config.ts.
  *
  * Coverage:
  *   integration lifecycle proof only. This test is deliberately NOT the human-facing Golden Seller
