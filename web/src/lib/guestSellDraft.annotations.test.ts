@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it } from 'vitest'
 import { clearGuestSellDraft, readGuestSellDraft, saveGuestSellDraft } from '@/lib/guestSellDraft'
 
 const DRAFT = {
+  submissionId: '123e4567-e89b-42d3-a456-426614174000',
   make: 'Toyota',
   model: 'Hilux',
   year: '2021',
@@ -44,6 +45,7 @@ describe('guest Seller continuity metadata', () => {
     expect(restored?.imageLabels).toEqual(DRAFT.imageLabels)
     expect(restored?.coverImageIndex).toBe(0)
     expect(restored?.historyPlan).toEqual(DRAFT.historyPlan)
+    expect(restored?.submissionId).toBe(DRAFT.submissionId)
   })
 
   it('keeps older v1 drafts compatible when the new workflow metadata is absent', () => {
@@ -59,6 +61,7 @@ describe('guest Seller continuity metadata', () => {
     expect(restored?.imageLabels).toEqual([])
     expect(restored?.coverImageIndex).toBeNull()
     expect(restored?.historyPlan).toEqual({})
+    expect(restored?.submissionId).toBe(DRAFT.submissionId)
   })
 
   it('clears the enriched draft with the same canonical key', async () => {
