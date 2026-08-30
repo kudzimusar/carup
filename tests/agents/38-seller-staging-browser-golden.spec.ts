@@ -573,6 +573,13 @@ test.describe('Golden Dynamic Seller — exact-head deployed acceptance', () => 
     await expect(inquiryKpi).toBeVisible({ timeout: 20_000 });
     await expect(inquiryKpi).not.toContainText('Unavailable');
     await expect(inquiryKpi).toContainText(new RegExp(`\\b${observedInquiryCount}\\b`));
+    await expect(page.getByTestId('seller-intelligence-time-series')).toBeVisible();
+    await expect(page.getByTestId('seller-intelligence-funnel')).toBeVisible();
+    await expect(page.getByTestId('seller-intelligence-listing-comparison')).toBeVisible();
+    const noPageOverflow = await page.evaluate(() =>
+      document.documentElement.scrollWidth <= window.innerWidth + 1
+    );
+    expect(noPageOverflow, `Seller Intelligence overflows the ${testInfo.project.name} viewport`).toBe(true);
 
     // Keep the listing-level intelligence disclosure present as well: measured data and unavailable
     // are distinct states, but the portfolio proof above now certifies the generated-event chain.
