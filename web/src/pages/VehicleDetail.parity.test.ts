@@ -56,7 +56,8 @@ describe('Seller master Phase L/M — shared detail parity and semantic separati
       expect(detail.toLowerCase()).toContain(copy.toLowerCase())
     }
     expect(sourceCoverage).toContain("pending")
-    expect(sourceCoverage).toContain('Not connected')
+    expect(sourceCoverage).toContain('Source unavailable')
+    expect(sourceCoverage).toContain('Not yet checked')
   })
 
   it('separates canonical Trust from publication readiness and listing completeness', () => {
