@@ -1013,12 +1013,25 @@ export function shouldShowFixtures(env = process.env) {
 }
 
 /** Keep only public, non-fixture vehicles (fixtures retained only when showFixtures is true). */
-export function filterVisibleVehicles(vehicles, { showFixtures } = {}) {
+function sellerAutomationScope(vehicle = {}) {
+  const description = String(vehicle.seller_description ?? '').trim();
+  const match = description.match(/^Golden Dynamic Seller ([a-z0-9-]+):/i);
+  return match?.[1] || null;
+}
+
+/** Keep only public, non-fixture vehicles. A preview-only Seller automation request may reveal
+ * exactly the fixture whose reserved marker matches its run scope; ordinary discovery never does. */
+export function filterVisibleVehicles(vehicles, { showFixtures, fixtureScope } = {}) {
   const show = showFixtures ?? shouldShowFixtures();
+  const requestedScope = String(fixtureScope ?? '').trim();
   return (vehicles || [])
     .filter(vehicle => isPublicVehicleStatus(vehicle.status))
     .filter(vehicle => isPubliclyVisiblePublication(vehicle.publication_status))
-    .filter(vehicle => show || getFixtureExclusion(vehicle) === null);
+    .filter(vehicle => {
+      const exclusion = getFixtureExclusion(vehicle);
+      if (exclusion === null || show) return true;
+      return Boolean(requestedScope) && sellerAutomationScope(vehicle) === requestedScope;
+    });
 }
 
 /** Columns selected for a marketplace listing. owner_id/tenant_id are fetched ONLY for fixture
@@ -1280,7 +1293,7 @@ export async function listMarketplaceListings(supabaseClient, params = {}) {
   const { data: vehicles, error } = await selectListingRows(supabaseClient, shapeListQuery);
   if (error) throw error;
 
-  const publicVehicles = filterVisibleVehicles(vehicles);
+  const publicVehicles = filterVisibleVehicles(vehicles, { fixtureScope: params.__fixtureScope });
   const vins = publicVehicles.map(vehicle => vehicle.vin).filter(Boolean);
   const [related, trustByVin] = await Promise.all([
     fetchListingRelatedRows(supabaseClient, vins),
