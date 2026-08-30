@@ -147,8 +147,16 @@ async function retireStaleAutomationVehicles(
   const owned = await request.get(`${API_URL}/vehicles/me`, { headers: baseHeaders(sellerAuth) });
   expect(owned.status(), 'could not inspect owned vehicles before Seller automation run').toBe(200);
   const vehicles = await owned.json() as Array<{ vin?: string; seller_description?: string | null }>;
-  const stale = vehicles.filter((vehicle) =>
-    Boolean(vehicle.vin) && String(vehicle.seller_description || '').startsWith('Golden Dynamic Seller '));
+  // Desktop and mobile projects share one staging Seller and may overlap. Retire automation from
+  // OLDER workflow runs only; a sibling project from this same RUN_ID is current inventory, not
+  // stale inventory, and retiring it creates a false My Listings disappearance mid-journey.
+  const currentRunPrefix = `Golden Dynamic Seller ${RUN_ID}:`;
+  const stale = vehicles.filter((vehicle) => {
+    const description = String(vehicle.seller_description || '');
+    return Boolean(vehicle.vin)
+      && description.startsWith('Golden Dynamic Seller ')
+      && !description.startsWith(currentRunPrefix);
+  });
 
   for (const vehicle of stale) {
     await retireAutomationVehicle(request, vehicle.vin!, sellerMutationHeaders);
@@ -178,6 +186,10 @@ async function expectMeaningfulRenderedImage(page: Page) {
 
 test.describe('Golden Dynamic Seller — exact-head deployed acceptance', () => {
   test('fresh Seller lifecycle holds end-to-end without a seed/reference vehicle', async ({ page, request }, testInfo) => {
+    // This is a deployed-staging lifecycle across auth, storage, evidence, publication, inquiry and
+    // Seller surfaces. Keep strict per-action timeouts, but do not let the suite-level 90s ceiling
+    // terminate a healthy journey before its cleanup/lifecycle assertions can finish.
+    test.setTimeout(180_000);
     const truth = envTruth();
     expect(truth.mode, 'Seller acceptance is not pinned to the frozen exact-head bundle').toBe('acceptance');
     expect(requireIdentity('buyer'), 'owner Seller identity is unavailable').toBe(true);
