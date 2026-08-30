@@ -221,8 +221,12 @@ type ListingMediaItem = {
   url: string
   url_form: MediaUrlForm
   position: number
+  /** Seller-authored stored sequence; buyer projection may still place the cover first. */
+  seller_order: number | null
   is_primary: boolean
   synthetic_demo: boolean
+  /** Seller presentation metadata only — never verification/evidence. */
+  photo_label: string | null
 }
 
 /**
@@ -1111,6 +1115,10 @@ export default function VehicleDetail() {
   const navigate = useNavigate()
   const { fetchVehicle, fetchVehiclePassport, lookupVehiclePassport, fetchMarketplaceListingDetail, saveMarketplaceListing, unsaveMarketplaceListing, fetchSavedMarketplaceListings, fetchEvidenceTaxonomy, fetchEvidenceSources, fetchTemporalFindings, fetchDisclosureConflicts, fetchVehicleReport, generateReportVersion, createReportShareLink, fetchVehicleTrustDecision } = useCarUpApi()
   const { isAuthenticated, user, loading: authLoading } = useAuth()
+  const presentationMode = searchParams.get('mode') === 'seller_preview'
+    ? 'seller_preview'
+    : 'marketplace_public'
+  const isSellerPreview = presentationMode === 'seller_preview'
 
   // Buyers/owners can generate a snapshot + share link; backend enforces the role.
   // Keep the owner actions unobtrusive: only authenticated privileged roles see them.
