@@ -106,6 +106,8 @@ const INTEGRATION_VIN_RE = /(^|[_-])(int|integ|integration|trans|e2e|smoke|qa)([
 const SYNTHETIC_VIN_RE = /^(vin|test|demo|seed|fixture|sample|mock|dummy)/i
 /** Structurally valid 17-char VIN (no I/O/Q, per ISO 3779). Real VINs never contain "_" or "I". */
 const VALID_VIN_RE = /^[A-HJ-NPR-Z0-9]{17}$/i
+/** Reserved Seller automation marker. Human listings using this exact prefix are treated as fixtures. */
+export const SELLER_AUTOMATION_DESCRIPTION_RE = /^Golden Dynamic Seller ([a-z0-9-]+):/i
 
 /**
  * Return a fixture/seed/demo exclusion reason for a vehicle, or null when it looks like real data.
@@ -117,6 +119,10 @@ export function getFixtureExclusion(vehicle = {}) {
   const vin = String(vehicle.vin ?? '').trim()
   const owner = norm(vehicle.owner_id ?? vehicle.seller_id ?? vehicle.user_id)
   const tenant = norm(vehicle.tenant_id)
+
+  const sellerDescription = String(vehicle.seller_description ?? '').trim()
+  const automationMatch = sellerDescription.match(SELLER_AUTOMATION_DESCRIPTION_RE)
+  if (automationMatch) return `seller_automation_fixture(${automationMatch[1]})`
 
   if (vin && !VALID_VIN_RE.test(vin)) {
     if (INTEGRATION_VIN_RE.test(vin)) return `integration_fixture_vin(${vin})`
