@@ -1,0 +1,42 @@
+name: Seller Phase H-I-J Convergence Gate
+
+on:
+  pull_request:
+    branches:
+      - integration/vehicle-passport-v16-cert
+    paths:
+      - 'web/src/pages/dashboard/owner/MyGarage.tsx'
+      - 'web/src/pages/dashboard/owner/MyListings.tsx'
+      - 'web/src/pages/dashboard/owner/SellVehicle.tsx'
+      - 'web/src/pages/dashboard/owner/SellerWorkspaceConvergence.test.ts'
+      - 'web/src/pages/dashboard/owner/MyListings.*.test.*'
+      - 'web/src/pages/SellFlow.*.test.*'
+      - '.github/workflows/seller-phase-hij-convergence.yml'
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+jobs:
+  hij:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      - name: H-I-J focused contracts
+        run: |
+          npm run test:unit --workspace=web -- \
+            src/pages/dashboard/owner/SellerWorkspaceConvergence.test.ts \
+            src/pages/dashboard/owner/MyListings.price.test.tsx \
+            src/pages/dashboard/owner/MyListings.responsive.test.tsx \
+            src/pages/SellFlow.identification.test.tsx \
+            src/pages/SellFlow.media.test.tsx
+      - name: Web production build
+        run: npm run build --workspace=web
