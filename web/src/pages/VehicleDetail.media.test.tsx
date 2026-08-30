@@ -62,6 +62,7 @@ const fetchVehicle = vi.fn()
 const fetchVehiclePassport = vi.fn()
 const lookupVehiclePassport = vi.fn()
 const fetchMarketplaceListingDetail = vi.fn()
+const fetchOwnedVehicles = vi.fn()
 const saveMarketplaceListing = vi.fn()
 const unsaveMarketplaceListing = vi.fn()
 const fetchSavedMarketplaceListings = vi.fn()
@@ -79,7 +80,7 @@ const createMarketplaceInquiry = vi.fn()
 vi.mock('@/hooks/useCarUpApi', () => ({
   useCarUpApi: () => ({
     submitFinancing, fetchVehicle, fetchVehiclePassport,
-    lookupVehiclePassport, fetchMarketplaceListingDetail, saveMarketplaceListing,
+    lookupVehiclePassport, fetchMarketplaceListingDetail, fetchOwnedVehicles, saveMarketplaceListing,
     unsaveMarketplaceListing, fetchSavedMarketplaceListings, fetchEvidenceTaxonomy,
     fetchEvidenceSources, fetchTemporalFindings, fetchDisclosureConflicts, fetchVehicleReport,
     generateReportVersion, createReportShareLink, fetchVehicleTrustDecision,
@@ -89,7 +90,7 @@ vi.mock('@/hooks/useCarUpApi', () => ({
 
 vi.mock('@/context/AuthContext', () => ({
   useAuth: () => ({
-    user: { id: 'buyer-1', name: 'Buyer', email: 'buyer@carup.dev', role: 'buyer' },
+    user: { id: 'owner-1', name: 'Owner', email: 'owner@carup.dev', role: 'owner' },
     isAuthenticated: true,
     loading: false,
   }),
@@ -325,13 +326,16 @@ function serveListingMedia(media: unknown[] | undefined) {
 }
 
 /** The marketplace detail did NOT resolve — so `listing_images` was never consulted. */
+let sellerPreviewMode = false
+
 function serveNoListingRead() {
+  sellerPreviewMode = true
   fetchMarketplaceListingDetail.mockRejectedValue(new Error('not a public marketplace listing'))
 }
 
 function renderDetail() {
   return render(
-    <MemoryRouter initialEntries={[`/marketplace/${VIN}`]}>
+    <MemoryRouter initialEntries={[`/marketplace/${VIN}${sellerPreviewMode ? '?mode=seller_preview' : ''}`]}>
       <Routes>
         <Route path="/marketplace/:id" element={<VehicleDetail />} />
       </Routes>
@@ -351,6 +355,8 @@ async function renderSettled() {
 
 beforeEach(() => {
   vi.clearAllMocks()
+  sellerPreviewMode = false
+  fetchOwnedVehicles.mockResolvedValue([{ vin: VIN }])
   servePassport(passportFixture({ evidenceVault: [] }))
   fetchVehicle.mockResolvedValue((passportFixture() as { vehicle: unknown }).vehicle)
   serveListingMedia([image(CARD_IMAGE)])
