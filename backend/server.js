@@ -2338,6 +2338,14 @@ function isMissingListingClaimColumnError(error) {
   return saysMissing && LISTING_CLAIM_COLUMNS.some((column) => text.includes(column));
 }
 
+function isMissingNamedColumnError(error, column) {
+  const code = String(error?.code ?? '').toUpperCase();
+  const text = [error?.message, error?.details, error?.hint].filter(Boolean).join(' ').toLowerCase();
+  if ((code === 'PGRST204' || code === '42703') && text.includes(String(column).toLowerCase())) return true;
+  const saysMissing = text.includes('could not find') || text.includes('does not exist') || text.includes('schema cache');
+  return saysMissing && text.includes(String(column).toLowerCase());
+}
+
 // --- VEHICLE LISTING: Create new listing (saves as draft) ---
 app.post('/api/vehicles/add', authorizeRole(['dealer', 'owner', 'admin']), async (req, res) => {
   // Seller commercial assertions are persisted separately from governed Marketplace
@@ -2776,10 +2784,7 @@ app.post('/api/vehicles/add', authorizeRole(['dealer', 'owner', 'admin']), async
       // Controlled migration fallback: keep the image save available on an older schema, but say
       // explicitly that labels were NOT persisted. Phase G cannot certify until the migration is
       // applied and this flag is true for a labelled seven-image gallery.
-      if (imageInsert.error && isMissingListingClaimColumnError({
-        ...imageInsert.error,
-        message: String(imageInsert.error?.message || '').replace(/photo_label/gi, 'listing_city'),
-      })) {
+      if (imageInsert.error && isMissingNamedColumnError(imageInsert.error, 'photo_label')) {
         imageLabelsRecorded = false;
         const legacyImageRecords = imageRecords.map(({ photo_label, ...record }) => record);
         imageInsert = await supabase.from('listing_images').insert(legacyImageRecords);
