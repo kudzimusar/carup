@@ -389,6 +389,7 @@ export default function Marketplace() {
   const [mobileFiltersOpen, setMobileFiltersOpen] = useState(false)
 
   const url = useMemo(() => paramsToState(searchParams), [searchParams])
+  const fixtureScope = searchParams.get('fixture_scope') || undefined
   const [searchQuery, setSearchQuery] = useState(url.searchQuery)
   const [priceRange, setPriceRange] = useState<number[]>(url.priceRange)
 
@@ -442,6 +443,7 @@ export default function Marketplace() {
   useEffect(() => {
     let cancelled = false
     const apiFilters = stateToApiFilters(url) as Record<string, string | number | boolean | undefined>
+    if (fixtureScope) apiFilters.fixture_scope = fixtureScope
 
     /* eslint-disable react-hooks/set-state-in-effect */
     setLoadingVehicles(true)
@@ -467,7 +469,7 @@ export default function Marketplace() {
       })
 
     return () => { cancelled = true }
-  }, [url, fetchMarketplaceListings])
+  }, [url, fixtureScope, fetchMarketplaceListings])
 
   const toggleCompare = useCallback((event: React.MouseEvent, vin: string) => {
     event.preventDefault()
@@ -723,7 +725,7 @@ export default function Marketplace() {
               <div className="absolute -right-8 top-0 h-[88%] w-[92%] border border-white/10 [clip-path:polygon(9%_0,100%_0,100%_88%,82%_100%,0_91%,0_14%)]" />
               {spotlightListing ? (
                 <Link
-                  to={`/marketplace/${encodeURIComponent(spotlightListing.vin)}`}
+                  to={`/marketplace/${encodeURIComponent(spotlightListing.vin)}${fixtureScope ? `?fixture_scope=${encodeURIComponent(fixtureScope)}` : ''}`}
                   className="group absolute inset-x-0 top-3 block h-[82%] overflow-hidden bg-slate-900 shadow-[0_38px_100px_rgba(0,0,0,0.52)] [clip-path:polygon(8%_0,100%_0,100%_88%,82%_100%,0_91%,0_14%)]"
                   aria-label={`Open ${[spotlightListing.year, spotlightListing.make, spotlightListing.model].filter(Boolean).join(' ')}`}
                 >
@@ -980,7 +982,7 @@ export default function Marketplace() {
                 const vin = listing.vin
                 const vehicleName = [listing.year, listing.make, listing.model].filter(value => value !== null && value !== undefined && value !== '').join(' ')
                 const labels = listingLabels(listing)
-                const href = `/marketplace/${encodeURIComponent(vin)}`
+                const href = `/marketplace/${encodeURIComponent(vin)}${fixtureScope ? `?fixture_scope=${encodeURIComponent(fixtureScope)}` : ''}`
                 const model: MarketplaceListingCardModel = {
                   vin,
                   name: vehicleName || `${listing.make} ${listing.model}`,
