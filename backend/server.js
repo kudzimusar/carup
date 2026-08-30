@@ -2405,9 +2405,20 @@ app.post('/api/vehicles/add', authorizeRole(['dealer', 'owner', 'admin']), async
     seller_stated_condition, price, currency, location, province, images,
     // Phase 4 identity fields
     engine_number, chassis_number, plate_number, temp_plate_id, import_status,
-    reuse_existing_passport,
+    reuse_existing_passport, client_submission_id,
   } = req.body;
   if (!vin || !make || !model || !price) return res.status(400).json({ error: 'VIN, make, model, and price are required' });
+
+  // F17 — one logical Seller create attempt gets one durable UUID. The UUID is private mutation
+  // metadata, never vehicle identity, ownership, Trust or a public listing field. Legacy callers may
+  // omit it, but a malformed key is refused rather than becoming a weak dedupe token.
+  const submittedSellerSubmissionId = submittedText(client_submission_id);
+  if (
+    submittedSellerSubmissionId !== null
+    && !/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(submittedSellerSubmissionId)
+  ) {
+    return res.status(400).json({ error: 'client_submission_id must be a UUID v4', code: 'SELLER_SUBMISSION_ID_INVALID' });
+  }
 
   // `mileage` is NOT NULL on public.vehicles with no default, so the column cannot hold "not known"
   // and `mileage || 0` resolved that by writing 0 km as a fact — a reading a shopper cannot tell
@@ -2565,11 +2576,29 @@ app.post('/api/vehicles/add', authorizeRole(['dealer', 'owner', 'admin']), async
   };
 
   try {
-    const { data: existing } = await supabase
+    // The new idempotency column is rollout-critical for new Seller clients. If the exact-head code
+    // reaches an older database before the additive migration lands, fail CLOSED for keyed requests
+    // so the browser keeps its draft. Legacy unkeyed callers may continue through the old projection.
+    let existingRead = await supabase
       .from('vehicles')
-      .select('vin, owner_id, current_seller_id, tenant_id')
+      .select('vin, owner_id, current_seller_id, tenant_id, publication_status, status, listing_location_source, listing_location_visibility, seller_listing_submission_id')
       .eq('vin', vin)
       .maybeSingle();
+    if (existingRead.error && isMissingNamedColumnError(existingRead.error, 'seller_listing_submission_id')) {
+      if (submittedSellerSubmissionId !== null) {
+        return res.status(503).json({
+          error: 'Seller submission safety is still being activated. Your browser draft is unchanged; retry shortly.',
+          code: 'SELLER_IDEMPOTENCY_SCHEMA_REQUIRED',
+        });
+      }
+      existingRead = await supabase
+        .from('vehicles')
+        .select('vin, owner_id, current_seller_id, tenant_id, publication_status, status, listing_location_source, listing_location_visibility')
+        .eq('vin', vin)
+        .maybeSingle();
+    }
+    if (existingRead.error) throw existingRead.error;
+    const existing = existingRead.data;
 
     const listingRow = {
       vin: candidate.vin,
@@ -2652,6 +2681,7 @@ app.post('/api/vehicles/add', authorizeRole(['dealer', 'owner', 'admin']), async
       current_seller_id: req.userContext.id,
       tenant_id: candidate.tenant_id,
       current_seller_type: candidate.current_seller_type,
+      seller_listing_submission_id: submittedSellerSubmissionId,
       // Written explicitly rather than left to a column default, so the row records a decision this
       // seller actually made. `false` is the honest value for a seller who did not opt in.
       public_seller_display_enabled: publicSellerDisplayEnabled,
@@ -2685,6 +2715,71 @@ app.post('/api/vehicles/add', authorizeRole(['dealer', 'owner', 'admin']), async
       || (existing.tenant_id && req.userContext.tenantId && existing.tenant_id === req.userContext.tenantId)
       || governedSellerEvidence
     ));
+
+    // F17 — a retry after a lost success response is the SAME mutation only when the durable key
+    // matches the row written by that Seller attempt. It must never bypass scope: knowing a UUID is
+    // not authority over somebody else's Passport.
+    if (
+      existing
+      && submittedSellerSubmissionId !== null
+      && existing.seller_listing_submission_id === submittedSellerSubmissionId
+    ) {
+      if (!existingSellerRelationship) {
+        return res.status(409).json({
+          error: 'This Seller submission belongs to an existing Passport outside your governed Seller scope.',
+          code: 'SELLER_AUTHORITY_CLAIM_REQUIRED',
+          vin,
+          existing_passport: true,
+        });
+      }
+
+      const requestedPublishableMedia = submittedMedia.filter((entry) => isPublishableMediaUrl(entry.url));
+      const { data: storedMedia, error: storedMediaError } = await supabase
+        .from('listing_images')
+        .select('image_url, is_primary, photo_label, display_order')
+        .eq('vin', vin)
+        .order('display_order', { ascending: true });
+      if (storedMediaError) throw storedMediaError;
+      const stored = Array.isArray(storedMedia) ? storedMedia : [];
+      const mediaMatches = stored.length === requestedPublishableMedia.length
+        && requestedPublishableMedia.every((entry, index) => {
+          const row = stored[index];
+          return Boolean(row)
+            && String(row.image_url || '').trim() === String(entry.url || '').trim()
+            && Boolean(row.is_primary) === entry.claimsPrimary
+            && String(row.photo_label || '') === String(entry.label || '');
+        });
+
+      if (!mediaMatches) {
+        return res.status(409).json({
+          error: 'This submission id already completed with different listing media. Start a new Seller submission instead of mutating a replay.',
+          code: 'SELLER_SUBMISSION_REPLAY_MISMATCH',
+          vin,
+        });
+      }
+
+      return res.status(200).json({
+        success: true,
+        vin,
+        publication_status: existing.publication_status || 'draft',
+        status: existing.status || null,
+        location_recorded: Boolean(existing.listing_location_source),
+        location_visibility: existing.listing_location_visibility || null,
+        images_recorded: stored.length > 0,
+        images_recorded_count: stored.length,
+        images_unpublishable_count: submittedMedia.length - requestedPublishableMedia.length,
+        images_primary_recorded: stored.some((row) => row.is_primary === true),
+        images_labels_recorded: requestedPublishableMedia.every((entry, index) =>
+          !entry.label || String(stored[index]?.photo_label || '') === String(entry.label)
+        ),
+        images_replacement_complete: true,
+        submission_id_recorded: true,
+        idempotent_replay: true,
+        reused_existing_passport: true,
+        message: 'Existing successful Seller submission returned. No duplicate Vehicle Passport or listing was created.',
+      });
+    }
+
     if (existing && (reuse_existing_passport !== true || !existingSellerRelationship)) {
       return res.status(409).json({
         error: existingSellerRelationship
@@ -2724,6 +2819,7 @@ app.post('/api/vehicles/add', authorizeRole(['dealer', 'owner', 'admin']), async
         current_seller_type: governedNonOwnerSeller && req.userContext.role === 'owner'
           ? 'Private'
           : listingRow.current_seller_type,
+        seller_listing_submission_id: submittedSellerSubmissionId,
         // tenant_id is seller-organisation context in this write path. Re-align it with the current
         // submitter just as a brand-new listing does, so a previous dealer tenant cannot retain
         // listing control after the legal owner/private seller starts a new listing.
@@ -2905,6 +3001,8 @@ app.post('/api/vehicles/add', authorizeRole(['dealer', 'owner', 'admin']), async
       // A replacement is not complete if the new rows landed but the previous VIN-scoped gallery
       // could not be retired. Seller Studio treats false as a partial save and keeps its local draft.
       images_replacement_complete: imagesReplacementComplete,
+      submission_id_recorded: submittedSellerSubmissionId !== null,
+      idempotent_replay: false,
       reused_existing_passport: reusedExistingPassport,
       message: reusedExistingPassport
         ? 'Listing draft attached to the existing Vehicle Passport. No duplicate Passport was created.'
