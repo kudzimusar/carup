@@ -2903,7 +2903,7 @@ app.patch('/api/vehicles/:vin/seller-draft', authorizeRole(['owner', 'dealer', '
 
     const publication = String(existing.publication_status || '').toLowerCase();
     const lifecycle = String(existing.status || '').toLowerCase();
-    if (!['draft', 'publishable'].includes(publication) || lifecycle === 'sold') {
+    if (!['draft', 'identity_complete', 'documents_submitted', 'review_pending', 'publishable'].includes(publication) || lifecycle === 'sold') {
       return res.status(409).json({
         error: 'Only an unpublished active Seller draft can be autosaved',
         publication_status: existing.publication_status ?? null,
