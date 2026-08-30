@@ -157,6 +157,7 @@ export default function DashboardLayout({ role }: { role: string }) {
         <nav className="flex-1 overflow-y-auto p-3 space-y-1">
           {visibleItems.map(({ item, vis }) => {
             const isActive = location.pathname === item.route
+              || (item.route !== '/dashboard' && location.pathname.startsWith(`${item.route}/`))
             const navIdMap: Record<string, string> = {
               'Overview': 'nav-dashboard',
               'My Garage': 'nav-garage',
