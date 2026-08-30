@@ -2,7 +2,6 @@ import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import {
   ArrowRight,
-  CalendarDays,
   FileCheck2,
   Gauge,
   Plus,
