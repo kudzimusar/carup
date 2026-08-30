@@ -41,7 +41,7 @@ interface EnvTruth {
 const SELLER_EMAIL = 'uat.buyer@carup-staging.test';
 const REVIEWER_EMAIL = 'uat.reviewer@carup-staging.test';
 
-// Browser visual acceptance uses seven distinct 320x180 vehicle-like PNGs. They are deliberately
+// Browser visual acceptance uses seven 320x180 vehicle-like PNG entries with multiple distinct views. They are deliberately
 // different and large enough for intrinsic-dimension/render assertions; a 1x1 transport fixture can
 // never satisfy Seller media certification.
 const VISUAL_TEST_PNGS = [
@@ -292,7 +292,13 @@ test.describe('Golden Dynamic Seller — exact-head deployed acceptance', () => 
     await expect(page.getByTestId('vehicle-detail-intelligence-hero')).toBeVisible({ timeout: 20_000 });
     await expect(page.getByTestId('listing-media-primary')).toBeVisible();
     await expect(page.getByTestId('listing-media-thumb')).toHaveCount(7);
+    const primaryImage = page.getByTestId('listing-media-primary').getByTestId('vehicle-image');
+    await expect(primaryImage).toHaveAttribute('src', mediaBody.urls![2]);
     await expectMeaningfulRenderedImage(page);
+    const coverSrc = await primaryImage.getAttribute('src');
+    await page.getByTestId('listing-media-thumb').nth(1).click();
+    await expect.poll(() => primaryImage.getAttribute('src'), { message: 'gallery navigation did not change the rendered image' })
+      .not.toBe(coverSrc);
     await expect(page.getByTestId('marketplace-inquiry-open')).toHaveCount(0);
 
     // Publication must fail while the blocking ownership evidence is genuinely absent.
