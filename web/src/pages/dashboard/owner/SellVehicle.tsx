@@ -1419,6 +1419,13 @@ export default function SellVehicle() {
                 </div>
               )}
 
+              {serverDraftLoaded && validateVin(form.vin) && (
+                <div className="border-y border-slate-200 py-4" data-testid="seller-studio-publication-readiness">
+                  <p className="mb-3 text-[10px] font-black uppercase tracking-[0.16em] text-slate-400">Governed publication readiness</p>
+                  <VehicleCompletenessPanel vin={form.vin.toUpperCase()} />
+                </div>
+              )}
+
               {/* Publication requirements notice */}
               {missingIdentityFields.length > 0 && (
                 <div className="bg-amber-50 border border-amber-200 rounded-lg p-4 text-sm">
