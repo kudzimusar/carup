@@ -17,7 +17,7 @@ export const RUN_ID = process.env.STAGING_RUN_ID || `staging-${Date.now()}`;
 
 /** Staging-only test identities (deterministic, clearly marked). Passwords come from env only. */
 export const IDENTITIES = {
-  buyer: { email: 'uat.buyer@carup-staging.test', envPassword: 'STAGING_UAT_BUYER_PASSWORD', state: '.staging-auth/buyer.json' },
+  buyer: { email: process.env.STAGING_UAT_BUYER_EMAIL || 'uat.buyer@carup-staging.test', envPassword: 'STAGING_UAT_BUYER_PASSWORD', state: '.staging-auth/buyer.json' },
   seller: { email: 'uat.seller@carup-staging.test', envPassword: 'STAGING_UAT_SELLER_PASSWORD', state: '.staging-auth/seller.json' },
   reviewer: { email: 'uat.reviewer@carup-staging.test', envPassword: 'STAGING_UAT_REVIEWER_PASSWORD', state: '.staging-auth/reviewer.json' },
   tenantAdmin: { email: 'uat.tenant-admin@carup-staging.test', envPassword: 'STAGING_UAT_TENANT_ADMIN_PASSWORD', state: '.staging-auth/tenant-admin.json' },
