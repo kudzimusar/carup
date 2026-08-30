@@ -94,9 +94,28 @@ export async function signInViaUi(page: Page, role: Role): Promise<void> {
     await page.goto('/login');
     await page.getByTestId('email-input').fill(id.email);
     await page.getByTestId('password-input').fill(password);
-    await page.getByTestId('login-button').click();
-    await page.waitForURL((url) => !url.pathname.startsWith('/login'), { timeout: 20_000 });
-    return;
+
+    // Deployed acceptance can exercise the same staging identity several times across desktop and
+    // mobile projects. Respect the real auth limiter rather than converting a legitimate 429 into
+    // a false UI-navigation failure. We still drive the actual Login form on every attempt.
+    for (let attempt = 0; attempt < 5; attempt += 1) {
+      const responsePromise = page.waitForResponse((response) =>
+        response.request().method() === 'POST' && /\/api\/auth\/login(?:\?|$)/.test(response.url())
+      , { timeout: 20_000 });
+      await page.getByTestId('login-button').click();
+      const response = await responsePromise;
+      if (response.ok()) {
+        await page.waitForURL((url) => !url.pathname.startsWith('/login'), { timeout: 20_000 });
+        return;
+      }
+      if (response.status() !== 429) {
+        throw new Error(`UI login failed for ${role} with HTTP ${response.status()}`);
+      }
+      const retryAfterSeconds = Number(response.headers()['retry-after'] || 1);
+      await page.waitForTimeout(Math.max(1000, Math.min(retryAfterSeconds * 1000, 15_000)));
+      await page.getByTestId('password-input').fill(password);
+    }
+    throw new Error(`UI login remained rate-limited for ${role} after bounded retries`);
   }
   if (existsSync(id.state)) {
     const state = JSON.parse(readFileSync(id.state, 'utf8')) as { origins: Array<{ origin: string; localStorage: Array<{ name: string; value: string }> }> };
