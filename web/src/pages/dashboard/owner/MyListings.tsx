@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { BarChart3, DollarSign, Eye, FileText, Loader2, MessageSquare, Plus, ShieldCheck, Tag, TrendingUp } from 'lucide-react'
 import { Link } from 'react-router-dom'
+import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { ListingImage } from '@/components/marketplace/ListingImage'
@@ -416,5 +417,3 @@ export default function MyListings() {
     </div>
   )
 }
-
-import { toast } from 'sonner'
