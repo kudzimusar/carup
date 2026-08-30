@@ -18,6 +18,12 @@ concurrency:
   group: seller-exact-head-staging-uat-${{ github.event.pull_request.number || github.ref_name }}
   cancel-in-progress: true
 
+concurrency:
+  # These deployed Seller journeys rotate the same staging-only owner identity. Serializing them
+  # prevents one valid workflow from invalidating another workflow's just-exported UI password.
+  group: seller-staging-shared-identities
+  cancel-in-progress: false
+
 permissions:
   contents: read
 
