@@ -1156,7 +1156,9 @@ export default function VehicleDetail() {
 
   // Buyers/owners can generate a snapshot + share link; backend enforces the role.
   // Keep the owner actions unobtrusive: only authenticated privileged roles see them.
-  const canManageReport = isAuthenticated && ['owner', 'dealer', 'admin', 'government'].includes(user?.role ?? '')
+  const canManageReport = !isSellerPreview
+    && isAuthenticated
+    && ['owner', 'dealer', 'admin', 'government'].includes(user?.role ?? '')
 
   const [vehicle, setVehicle]   = useState<Vehicle | null>(null)
   const [passport, setPassport] = useState<VehiclePassport | null>(null)
@@ -1189,26 +1191,30 @@ export default function VehicleDetail() {
   const [lookupQuery, setLookupQuery] = useState('')
 
   useEffect(() => {
-    if (!isSellerPreview) {
-      setSellerPreviewAuthorization('idle')
-      return
-    }
-    if (authLoading) return
-    if (!isAuthenticated || !id) {
-      setSellerPreviewAuthorization('denied')
-      return
-    }
-
     let active = true
-    setSellerPreviewAuthorization('checking')
-    fetchOwnedVehicles()
-      .then((rows) => {
-        if (!active) return
-        const allowed = (rows || []).some((row) => String(row.vin || '').toUpperCase() === String(id).toUpperCase())
-        setSellerPreviewAuthorization(allowed ? 'allowed' : 'denied')
-      })
-      .catch(() => { if (active) setSellerPreviewAuthorization('error') })
+    Promise.resolve().then(async () => {
+      if (!active) return
+      if (!isSellerPreview) {
+        setSellerPreviewAuthorization('idle')
+        return
+      }
+      if (authLoading) return
+      if (!isAuthenticated || !id) {
+        setSellerPreviewAuthorization('denied')
+        return
+      }
 
+      setSellerPreviewAuthorization('checking')
+      try {
+        const rows = await fetchOwnedVehicles()
+        if (!active) return
+        const allowed = (rows || []).some((row) =>
+          String(row.vin || '').toUpperCase() === String(id).toUpperCase())
+        setSellerPreviewAuthorization(allowed ? 'allowed' : 'denied')
+      } catch {
+        if (active) setSellerPreviewAuthorization('error')
+      }
+    })
     return () => { active = false }
   }, [authLoading, fetchOwnedVehicles, id, isAuthenticated, isSellerPreview])
 
@@ -1534,10 +1540,31 @@ export default function VehicleDetail() {
 
 
   // ── Loading / 404 states ─────────────────────────────────────────────────
-  if (loading || (!vehicle && detailLoading)) {
+  if (
+    loading
+    || (isSellerPreview && (authLoading || sellerPreviewAuthorization === 'idle' || sellerPreviewAuthorization === 'checking'))
+    || (!isSellerPreview && detailLoading)
+  ) {
     return (
       <div className="min-h-screen bg-gray-50 flex items-center justify-center">
         <Loader2 className="w-8 h-8 animate-spin text-orange-500" />
+      </div>
+    )
+  }
+
+  if (isSellerPreview && sellerPreviewAuthorization !== 'allowed') {
+    return (
+      <div className="min-h-screen bg-slate-950 flex items-center justify-center px-4">
+        <div className="max-w-lg border border-white/10 bg-[#0b1625] p-8 text-white" data-testid="seller-preview-not-authorized">
+          <Lock className="h-10 w-10 text-orange-400" />
+          <h1 className="mt-4 text-2xl font-black">Seller Preview is private to this vehicle&rsquo;s Seller scope.</h1>
+          <p className="mt-2 text-sm leading-6 text-slate-300">
+            CarUp could not confirm this VIN in your owned/current-Seller Garage scope. No unpublished listing has been exposed.
+          </p>
+          <Button asChild className="mt-6 rounded-none bg-orange-500 font-black hover:bg-orange-600">
+            <Link to="/dashboard/listings">Back to My Listings</Link>
+          </Button>
+        </div>
       </div>
     )
   }
@@ -1560,6 +1587,23 @@ export default function VehicleDetail() {
               <Link to="/marketplace">Back to Marketplace</Link>
             </Button>
           </div>
+        </div>
+      </div>
+    )
+  }
+
+  if (!isSellerPreview && !detailLoading && !detail) {
+    return (
+      <div className="min-h-screen bg-gray-50 flex items-center justify-center px-4">
+        <div className="max-w-md text-center" data-testid="marketplace-listing-unavailable">
+          <Car className="mx-auto h-14 w-14 text-gray-300" />
+          <h1 className="mt-4 text-2xl font-black">Marketplace listing unavailable</h1>
+          <p className="mt-2 text-sm leading-6 text-gray-500">
+            This Vehicle Passport is not currently published as an active Marketplace listing. A public URL never turns a private draft into buyer inventory.
+          </p>
+          <Button className="mt-6 bg-orange-500 hover:bg-orange-600" asChild>
+            <Link to="/marketplace">Back to Marketplace</Link>
+          </Button>
         </div>
       </div>
     )
