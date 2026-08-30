@@ -7,6 +7,7 @@ const here = dirname(fileURLToPath(import.meta.url))
 const detail = readFileSync(resolve(here, 'VehicleDetail.tsx'), 'utf8')
 const trustSummary = readFileSync(resolve(here, '../components/marketplace/TrustSummaryPanel.tsx'), 'utf8')
 const allInPrice = readFileSync(resolve(here, '../components/marketplace/AllInPricePanel.tsx'), 'utf8')
+const sourceCoverage = readFileSync(resolve(here, '../components/SourceCoveragePanel.tsx'), 'utf8')
 const studio = readFileSync(resolve(here, 'dashboard/owner/SellVehicle.tsx'), 'utf8')
 
 describe('Seller master Phase L/M — shared detail parity and semantic separation', () => {
@@ -48,13 +49,14 @@ describe('Seller master Phase L/M — shared detail parity and semantic separati
     for (const copy of [
       'Not recorded',
       'not evaluated',
-      'Source unavailable',
       'Marketplace actions unavailable',
       'Vehicle lifecycle was not loaded',
       'History report unavailable',
     ]) {
       expect(detail.toLowerCase()).toContain(copy.toLowerCase())
     }
+    expect(sourceCoverage).toContain("pending")
+    expect(sourceCoverage).toContain('Not connected')
   })
 
   it('separates canonical Trust from publication readiness and listing completeness', () => {
