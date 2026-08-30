@@ -86,10 +86,20 @@ async function mutationHeaders(request: APIRequestContext, auth: SessionAuth): P
 async function reviewerAuth(request: APIRequestContext): Promise<SessionAuth> {
   const password = process.env.STAGING_UAT_REVIEWER_PASSWORD;
   expect(password, 'STAGING_UAT_REVIEWER_PASSWORD is not configured').toBeTruthy();
+
+  // /api/auth/login is an unsafe POST and is intentionally protected by the same global CSRF
+  // middleware as every browser mutation. The UI obtains a guest-bound token before login; this
+  // direct staging harness must do exactly the same rather than bypassing production protection.
+  const csrfResponse = await request.get(`${API_URL}/security/csrf-token`);
+  expect(csrfResponse.status(), 'guest CSRF token request failed before reviewer login').toBe(200);
+  const csrfBody = await csrfResponse.json() as { csrfToken?: string };
+  expect(csrfBody.csrfToken, 'guest CSRF token response omitted csrfToken').toBeTruthy();
+
   const response = await request.post(`${API_URL}/auth/login`, {
+    headers: { 'x-csrf-token': csrfBody.csrfToken! },
     data: { email: REVIEWER_EMAIL, password },
   });
-  expect(response.status(), 'reviewer staging login failed').toBe(200);
+  expect(response.status(), `reviewer staging login failed: ${await response.text()}`).toBe(200);
   const body = await response.json() as { token?: string; user?: SessionAuth['user'] };
   expect(body.token).toBeTruthy();
   expect(body.user?.id).toBeTruthy();

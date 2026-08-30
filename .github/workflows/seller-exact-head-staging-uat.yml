@@ -180,6 +180,9 @@ jobs:
             await client.end();
           }
 
+          // The random password exists only for this workflow run. Register it with the Actions
+          // masker BEFORE exporting it so a later failing command cannot echo the credential.
+          console.log(`::add-mask::${password}`);
           fs.appendFileSync(
             process.env.GITHUB_ENV,
             [
