@@ -22,8 +22,8 @@ describe('Seller Phase K — one buyer presentation, two governed modes', () => 
   it('requires a real Seller scope for preview and a real public detail for Marketplace mode', () => {
     expect(detail).toContain('fetchOwnedVehicles()')
     expect(detail).toContain("sellerPreviewAuthorization !== 'allowed'")
-    expect(detail).toContain('!isSellerPreview && !detailLoading && !detail')
-    expect(detail).toContain('data-testid="marketplace-listing-unavailable"')
+    expect(detail).toContain('data-testid="marketplace-actions-unavailable"')
+    expect(detail).not.toContain('data-testid="marketplace-listing-unavailable"')
   })
 
   it('keeps buyer transactions out of Seller Preview', () => {
