@@ -211,6 +211,8 @@ export interface MarketplaceListingMediaItem {
    * provenance marker, never a verification/evidence claim and never a Trust input.
    */
   synthetic_demo: boolean;
+  /** Seller-authored listing presentation label; never a verification/evidence claim. */
+  label: string | null;
 }
 
 /**
