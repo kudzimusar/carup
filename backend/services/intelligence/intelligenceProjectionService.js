@@ -485,6 +485,12 @@ export async function getSellerPulse(client, actor, { windowDays = 7 } = {}) {
   const views = sumRows(sellerRows, 'views');
   const saves = sumRows(sellerRows, 'saves');
   const inquiries = sumRows(sellerRows, 'inquiries');
+  const orderedSellerRows = sellerRows
+    .slice()
+    .sort((a, b) => String(a.metric_date).localeCompare(String(b.metric_date)));
+  const activeListings = orderedSellerRows.length
+    ? Math.max(...orderedSellerRows.map((row) => Number(row.active_listings) || 0))
+    : 0;
 
   return {
     window_days: windowDays,
@@ -493,6 +499,7 @@ export async function getSellerPulse(client, actor, { windowDays = 7 } = {}) {
     as_of: freshness.computed_at,
     listings_owned: owned.length,
     metrics: {
+      active_listings: metric(activeListings),
       impressions: metric(sumRows(sellerRows, 'impressions')),
       views: metric(views),
       unique_viewers: windowUnique(sellerRows, 'unique_viewers'),
@@ -506,6 +513,17 @@ export async function getSellerPulse(client, actor, { windowDays = 7 } = {}) {
       view_to_inquiry: rate(inquiries, views),
     },
     coverage: { days_with_data: sellerRows.length, days_requested: windowDays },
+    // Only days that were actually computed are returned. The client must never manufacture
+    // missing days as zero; coverage above makes any gap explicit.
+    series: orderedSellerRows.map((row) => ({
+      date: String(row.metric_date),
+      active_listings: Number(row.active_listings) || 0,
+      impressions: Number(row.impressions) || 0,
+      views: Number(row.views) || 0,
+      saves: Number(row.saves) || 0,
+      inquiries: Number(row.inquiries) || 0,
+      inspections: Number(row.inspections) || 0,
+    })),
   };
 }
 
