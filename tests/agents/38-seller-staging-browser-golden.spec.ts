@@ -121,7 +121,7 @@ async function reviewerAuth(request: APIRequestContext): Promise<SessionAuth> {
   return { token: body.token!, user: body.user! };
 }
 
-async function mutationWithRateLimitRetry(
+async function requestWithRateLimitRetry(
   action: () => Promise<import('@playwright/test').APIResponse>,
 ) {
   let response = await action();
@@ -138,22 +138,24 @@ async function retireAutomationVehicle(
   vin: string,
   sellerMutationHeaders: Record<string, string>,
 ) {
-  // Cleanup is part of the acceptance contract. Respect the real rate limiter instead of turning
-  // a transient 429 after a long lifecycle into a false contamination failure.
-  const unpublish = await mutationWithRateLimitRetry(() => request.post(`${API_URL}/vehicles/${vin}/unpublish`, {
+  // Cleanup is part of the acceptance contract. Respect the real rate limiter on both mutations
+  // and the final discovery read instead of turning a transient 429 into a false contamination failure.
+  const unpublish = await requestWithRateLimitRetry(() => request.post(`${API_URL}/vehicles/${vin}/unpublish`, {
     headers: sellerMutationHeaders,
     data: {},
   }));
   expect([200, 404], `automation cleanup could not unpublish ${vin}: ${await unpublish.text()}`).toContain(unpublish.status());
 
-  const sold = await mutationWithRateLimitRetry(() => request.patch(`${API_URL}/vehicles/${vin}/status`, {
+  const sold = await requestWithRateLimitRetry(() => request.patch(`${API_URL}/vehicles/${vin}/status`, {
     headers: sellerMutationHeaders,
     data: { status: 'sold' },
   }));
   expect([200, 404], `automation cleanup could not retire ${vin}: ${await sold.text()}`).toContain(sold.status());
 
-  const discovery = await request.get(`${API_URL}/marketplace/listings?q=${encodeURIComponent(vin)}`);
-  expect(discovery.status(), `automation cleanup could not verify Marketplace removal for ${vin}`).toBe(200);
+  const discovery = await requestWithRateLimitRetry(() =>
+    request.get(`${API_URL}/marketplace/listings?q=${encodeURIComponent(vin)}`)
+  );
+  expect(discovery.status(), `automation cleanup could not verify Marketplace removal for ${vin}: ${await discovery.text()}`).toBe(200);
   const body = await discovery.json() as { listings?: Array<{ vin?: string }> };
   expect((body.listings || []).some((listing) => listing.vin === vin), `automation vehicle ${vin} still contaminates public Marketplace`).toBe(false);
 }
@@ -307,8 +309,13 @@ test.describe('Golden Dynamic Seller — exact-head deployed acceptance', () => 
     // Resume lands at the persisted/current Seller Studio stage. Navigate through the real form to
     // Images & Features before asserting the seven restored controls; their absence on step 0 is not
     // media loss.
-    await page.getByRole('button', { name: /^next$/i }).click();
-    await page.getByRole('button', { name: /^next$/i }).click();
+    const nextButton = page.getByRole('button', { name: /^next$/i });
+    await expect(nextButton).toBeEnabled({ timeout: 20_000 });
+    await nextButton.click();
+    await expect(page.getByTestId('seller-studio-stage-hero')).toContainText('Stage 2 of 4', { timeout: 20_000 });
+    await expect(nextButton).toBeEnabled({ timeout: 20_000 });
+    await nextButton.click();
+    await expect(page.getByTestId('seller-studio-stage-hero')).toContainText('Stage 3 of 4', { timeout: 20_000 });
     const restoredLabelTriggers = page.getByRole('combobox', { name: /Photo \d+ angle or view/i });
     await expect(restoredLabelTriggers).toHaveCount(7);
     for (let index = 0; index < photoLabels.length; index += 1) {
