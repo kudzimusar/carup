@@ -128,7 +128,12 @@ router.get('/api/marketplace/listings/:id', optionalAuth(), asyncHandler(async (
     audience: 'public',
     fixtureScope: sellerAutomationFixtureScope(req),
   });
-  emitListingOpened(req, { vin: detail?.vin || req.params.id }).catch(() => {});
+  // Seller preview reuses the public detail architecture when the listing is already public,
+  // but looking at one's own preview is not a buyer Marketplace view and must not inflate Seller
+  // Intelligence. The service remains public-gated; this query cannot expose an unpublished row.
+  if (req.query?.presentation_mode !== 'seller_preview') {
+    emitListingOpened(req, { vin: detail?.vin || req.params.id }).catch(() => {});
+  }
   const { referralCode, campaignCode, sourceChannel } = referralContextFromReq(req);
   if (referralCode || campaignCode) {
     marketplaceReferralBridge
