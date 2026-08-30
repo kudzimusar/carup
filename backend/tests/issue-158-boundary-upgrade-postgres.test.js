@@ -423,7 +423,6 @@ test('Issue #158: a non-finite legacy timestamp cannot brick stakeholder signing
 
     await db.exec(up('../../database/migrations/20260829020000_issue158_activation_boundary_hardening.sql'));
     await db.exec(up('../../database/migrations/20260829040000_issue158_terminal_event_uniqueness.sql'));
-  await db.exec(up('../../database/migrations/20260830060000_issue158_terminal_operation_identity.sql'));
     await db.exec(up('../../database/migrations/20260830060000_issue158_terminal_operation_identity.sql'));
     await db.query(`SELECT public.blockchain_authorize_custody_generation($1::text)`, [custodyGeneration()]);
 
@@ -487,7 +486,6 @@ test('Issue #158: repeated signing continues near the terminal representable ins
 
     await db.exec(up('../../database/migrations/20260829020000_issue158_activation_boundary_hardening.sql'));
     await db.exec(up('../../database/migrations/20260829040000_issue158_terminal_event_uniqueness.sql'));
-  await db.exec(up('../../database/migrations/20260830060000_issue158_terminal_operation_identity.sql'));
     await db.exec(up('../../database/migrations/20260830060000_issue158_terminal_operation_identity.sql'));
     await db.query(`SELECT public.blockchain_authorize_custody_generation($1::text)`, [custodyGeneration()]);
 
@@ -544,7 +542,6 @@ test('Issue #158: a failed ledger write does not permanently consume the termina
 
     await db.exec(up('../../database/migrations/20260829020000_issue158_activation_boundary_hardening.sql'));
     await db.exec(up('../../database/migrations/20260829040000_issue158_terminal_event_uniqueness.sql'));
-  await db.exec(up('../../database/migrations/20260830060000_issue158_terminal_operation_identity.sql'));
     await db.exec(up('../../database/migrations/20260830060000_issue158_terminal_operation_identity.sql'));
     await db.query(`SELECT public.blockchain_authorize_custody_generation($1::text)`, [custodyGeneration()]);
 
@@ -855,7 +852,6 @@ test('Issue #158: a lost-response retry after a persisted terminal event is idem
 
     await db.exec(up('../../database/migrations/20260829020000_issue158_activation_boundary_hardening.sql'));
     await db.exec(up('../../database/migrations/20260829040000_issue158_terminal_event_uniqueness.sql'));
-  await db.exec(up('../../database/migrations/20260830060000_issue158_terminal_operation_identity.sql'));
     await db.exec(up('../../database/migrations/20260830060000_issue158_terminal_operation_identity.sql'));
     await db.query(`SELECT public.blockchain_authorize_custody_generation($1::text)`, [custodyGeneration()]);
     await db.query(`
@@ -1093,7 +1089,6 @@ test('Issue #158: forward-skewed pre-hardening history stays verifiable across t
     // THE UPGRADE.
     await db.exec(up('../../database/migrations/20260829020000_issue158_activation_boundary_hardening.sql'));
     await db.exec(up('../../database/migrations/20260829040000_issue158_terminal_event_uniqueness.sql'));
-  await db.exec(up('../../database/migrations/20260830060000_issue158_terminal_operation_identity.sql'));
     await db.exec(up('../../database/migrations/20260830060000_issue158_terminal_operation_identity.sql'));
     await db.query(
       `SELECT public.blockchain_authorize_custody_generation($1::text)`,
