@@ -4,6 +4,7 @@ import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Progress } from '@/components/ui/progress'
 import { Plus, ArrowRight, Gauge, Calendar, FileText, Shield } from 'lucide-react'
+import { SellerWorkspaceHeader } from '@/components/seller/SellerWorkspaceHeader'
 import { useState, useEffect } from 'react'
 import { ListingImage } from '@/components/marketplace/ListingImage'
 import { primaryListingImageUrl } from '@/lib/listingMedia'
@@ -20,16 +21,18 @@ export default function MyGarage() {
   }, [fetchOwnedVehicles])
 
   return (
-    <div className="space-y-6 max-w-7xl mx-auto">
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-bold">My Garage</h1>
-          <p className="text-gray-500">Manage your vehicles and their digital identities</p>
-        </div>
-        <Button className="bg-orange-500 hover:bg-orange-600 gap-1" data-testid="create-vehicle-button">
-          <Plus className="w-4 h-4" /> Add Vehicle
-        </Button>
-      </div>
+    <div className="space-y-8 max-w-[1440px] mx-auto">
+      <SellerWorkspaceHeader
+        eyebrow="Vehicle workspace"
+        title="My Garage"
+        description="Manage the vehicles you own without breaking their Vehicle Passport, evidence, listing or lifecycle thread."
+        statusLabel={vehicles.length === 1 ? '1 owned vehicle loaded' : `${vehicles.length} owned vehicles loaded`}
+        primaryAction={(
+          <Button className="rounded-none bg-orange-600 hover:bg-orange-700 gap-1" data-testid="create-vehicle-button" asChild>
+            <Link to="/sell"><Plus className="w-4 h-4" /> Add or sell a vehicle</Link>
+          </Button>
+        )}
+      />
 
       <div className="grid md:grid-cols-2 gap-6" data-testid="owner-vehicles-table">
         {vehicles.map((vehicle) => {
