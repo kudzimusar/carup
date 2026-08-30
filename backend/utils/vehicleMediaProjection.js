@@ -455,7 +455,7 @@ export const MEDIA_URL_FORM_VALUES = Object.freeze(Object.values(MEDIA_URL_FORMS
  * ZERO key names in common — see Rule 6b and Rule 7.
  */
 export const LISTING_MEDIA_ITEM_FIELDS = Object.freeze([
-  'media_id', 'url', 'url_form', 'position', 'is_primary', 'synthetic_demo',
+  'media_id', 'url', 'url_form', 'position', 'is_primary', 'synthetic_demo', 'photo_label',
 ]);
 
 /**
@@ -660,7 +660,7 @@ export function toListingMediaBlock(rows) {
       // presentation provenance only; it confers no verification status and is never a Trust input.
       syntheticDemo: String(row.image_url).includes('/marketplace-reference-synthetic/'),
       // Seller-authored presentation metadata only. A label is not evidence, verification or Trust.
-      label: typeof row?.photo_label === 'string' && row.photo_label.trim() !== ''
+      photoLabel: typeof row?.photo_label === 'string' && row.photo_label.trim() !== ''
         ? row.photo_label.trim().slice(0, 80)
         : null,
       // Coerced only for ORDERING. A non-numeric display_order sorts last rather than poisoning
@@ -692,7 +692,7 @@ export function toListingMediaBlock(rows) {
       position,
       is_primary: isPrimary,
       synthetic_demo: candidate.syntheticDemo,
-      label: candidate.label,
+      photo_label: candidate.photoLabel,
     });
   });
 
