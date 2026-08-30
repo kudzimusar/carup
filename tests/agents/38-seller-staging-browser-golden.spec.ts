@@ -12,6 +12,7 @@
  *   publication, inquiry and retirement contracts, and now guarantees it cannot contaminate human UAT.
  *
  */
+import { randomUUID } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import type { APIRequestContext, Page } from '@playwright/test';
 import {
@@ -218,6 +219,7 @@ test.describe('Golden Dynamic Seller — exact-head deployed acceptance', () => 
 
     const suffix = sixDigits(`${RUN_ID}-${testInfo.project.name}`);
     const vin = `JTDKARFP0H3${suffix}`;
+    const submissionId = randomUUID();
     const newPrice = 29_000;
     let sellerMutationHeaders: Record<string, string> | null = null;
     let cleanupAuth: SessionAuth | null = null;
@@ -246,42 +248,45 @@ test.describe('Golden Dynamic Seller — exact-head deployed acceptance', () => 
 
     const photoLabels = ['Front three-quarter', 'Front', 'Driver side', 'Passenger side', 'Rear three-quarter', 'Interior', 'Dashboard'];
 
+    const createPayload = {
+      client_submission_id: submissionId,
+      vin,
+      make: 'Toyota',
+      model: 'Hilux',
+      year: 2021,
+      color: 'White',
+      mileage: 45_000,
+      fuel_type: 'Diesel',
+      transmission: 'Automatic',
+      drivetrain: '4WD',
+      condition: 'Used',
+      seller_stated_condition: 'Used',
+      category: 'Pickup',
+      body_style: 'Pickup',
+      description: `Golden Dynamic Seller ${RUN_ID}: one staging-only vehicle created by Playwright for exact-head acceptance.`,
+      features: ['Reverse camera', 'Tow bar'],
+      price: 28_500,
+      currency: 'USD',
+      location: 'Harare',
+      province: 'Harare',
+      listing_country: 'ZW',
+      registration_country: 'ZW',
+      location_visibility: 'public',
+      public_seller_display_enabled: false,
+      engine_number: `ENG-${suffix}`,
+      chassis_number: `CHS-${suffix}`,
+      plate_number: `UAT${suffix.slice(0, 3)}`,
+      import_status: 'locally_registered',
+      images: mediaBody.urls!.map((url, index) => ({
+        url,
+        photo_label: photoLabels[index],
+        is_primary: index === 2,
+      })),
+    };
+
     const createResponse = await request.post(`${API_URL}/vehicles/add`, {
       headers: sellerMutationHeaders,
-      data: {
-        vin,
-        make: 'Toyota',
-        model: 'Hilux',
-        year: 2021,
-        color: 'White',
-        mileage: 45_000,
-        fuel_type: 'Diesel',
-        transmission: 'Automatic',
-        drivetrain: '4WD',
-        condition: 'Used',
-        seller_stated_condition: 'Used',
-        category: 'Pickup',
-        body_style: 'Pickup',
-        description: `Golden Dynamic Seller ${RUN_ID}: one staging-only vehicle created by Playwright for exact-head acceptance.`,
-        features: ['Reverse camera', 'Tow bar'],
-        price: 28_500,
-        currency: 'USD',
-        location: 'Harare',
-        province: 'Harare',
-        listing_country: 'ZW',
-        registration_country: 'ZW',
-        location_visibility: 'public',
-        public_seller_display_enabled: false,
-        engine_number: `ENG-${suffix}`,
-        chassis_number: `CHS-${suffix}`,
-        plate_number: `UAT${suffix.slice(0, 3)}`,
-        import_status: 'locally_registered',
-        images: mediaBody.urls!.map((url, index) => ({
-          url,
-          photo_label: photoLabels[index],
-          is_primary: index === 2,
-        })),
-      },
+      data: createPayload,
     });
     expect(createResponse.status(), await createResponse.text()).toBe(201);
     const created = await createResponse.json() as {
@@ -292,6 +297,8 @@ test.describe('Golden Dynamic Seller — exact-head deployed acceptance', () => 
       images_replacement_complete?: boolean;
       images_labels_recorded?: boolean;
       location_recorded?: boolean;
+      submission_id_recorded?: boolean;
+      idempotent_replay?: boolean;
     };
     expect(created.publication_status).toBe('draft');
     expect(created.images_recorded).toBe(true);
@@ -300,7 +307,29 @@ test.describe('Golden Dynamic Seller — exact-head deployed acceptance', () => 
     expect(created.images_replacement_complete).not.toBe(false);
     expect(created.images_labels_recorded).toBe(true);
     expect(created.location_recorded).toBe(true);
+    expect(created.submission_id_recorded).toBe(true);
+    expect(created.idempotent_replay).toBe(false);
     vehicleCreated = true;
+
+    // F17: simulate a lost 201 response by replaying the exact logical submission. This must return
+    // the already-created draft, preserve all seven media rows and never enter Passport-reuse flow.
+    const replayResponse = await request.post(`${API_URL}/vehicles/add`, {
+      headers: sellerMutationHeaders,
+      data: createPayload,
+    });
+    expect(replayResponse.status(), await replayResponse.text()).toBe(200);
+    const replayed = await replayResponse.json() as {
+      vin?: string;
+      idempotent_replay?: boolean;
+      submission_id_recorded?: boolean;
+      images_recorded_count?: number;
+      images_replacement_complete?: boolean;
+    };
+    expect(replayed.vin).toBe(vin);
+    expect(replayed.idempotent_replay).toBe(true);
+    expect(replayed.submission_id_recorded).toBe(true);
+    expect(replayed.images_recorded_count).toBe(7);
+    expect(replayed.images_replacement_complete).toBe(true);
 
     // Fresh server resume must restore Seller-authored labels/order/cover from CarUp, not from
     // the browser upload payload. This page was never used to create the fixture.
