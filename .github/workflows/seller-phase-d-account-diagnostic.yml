@@ -1,0 +1,167 @@
+name: Seller Phase D Account Diagnostic
+
+on:
+  pull_request:
+    branches:
+      - integration/vehicle-passport-v16-cert
+    paths:
+      - '.github/workflows/seller-phase-d-account-diagnostic.yml'
+      - 'backend/server.js'
+      - 'backend/routes/authRecoveryRoutes.js'
+      - 'backend/utils/passwordAuth.js'
+      - 'backend/services/auth/**'
+      - 'database/migrations/20260817120000_sa1_auth_action_tokens.sql'
+      - 'database/migrations/20260829123000_user_registration_profiles.sql'
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+jobs:
+  account-diagnostic:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    env:
+      DIASPORA_STAGING_DATABASE_URL: ${{ secrets.DIASPORA_STAGING_DATABASE_URL }}
+      EXPECTED_STAGING_PROJECT_REF: eoyenigwevnxwwhyhaer
+      DIAGNOSTIC_EMAIL: buynsellpvtltd@gmail.com
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      - name: Read-only account continuity diagnostic
+        run: |
+          mkdir -p test-results
+          node --input-type=module <<'NODE'
+          import fs from 'node:fs';
+          import pg from 'pg';
+
+          const dbUrl = process.env.DIASPORA_STAGING_DATABASE_URL || '';
+          if (!dbUrl.includes(process.env.EXPECTED_STAGING_PROJECT_REF)) {
+            throw new Error('Refusing Seller account diagnostic outside approved staging.');
+          }
+          const cleaned = dbUrl.replace(/([?&])sslmode=[^&]*&?/i, '$1').replace(/[?&]$/, '');
+          const client = new pg.Client({ connectionString: cleaned, ssl: { rejectUnauthorized: false } });
+          await client.connect();
+          try {
+            await client.query('BEGIN READ ONLY');
+            const email = process.env.DIAGNOSTIC_EMAIL;
+            const userResult = await client.query(
+              `select id, name, email, role, join_date, email_verified_at, password_hash
+                 from public.users
+                where lower(email) = lower($1)
+                limit 2`,
+              [email],
+            );
+            const users = userResult.rows;
+            const user = users[0] || null;
+            const credentialState = !user
+              ? 'account_absent'
+              : !user.password_hash
+                ? 'legacy_passwordless'
+                : String(user.password_hash).startsWith('scrypt:')
+                  ? 'current_scrypt_password'
+                  : 'unsupported_legacy_hash';
+
+            let profile = null;
+            let vehicleRows = [];
+            let sessions = { total: 0, valid: 0 };
+            let authTokens = [];
+            let authNotifications = [];
+
+            if (user) {
+              const profileResult = await client.query(
+                `select account_kind, market_relationship, country_of_residence, city, province,
+                        intended_use, organization_name, business_type, onboarding_status, created_at
+                   from public.user_registration_profiles
+                  where user_id = $1`,
+                [user.id],
+              );
+              profile = profileResult.rows[0] || null;
+
+              const vehiclesResult = await client.query(
+                `select vin, make, model, year, publication_status, status, created_at
+                   from public.vehicles
+                  where owner_id = $1 or current_seller_id = $1
+                  order by created_at desc`,
+                [user.id],
+              );
+              vehicleRows = vehiclesResult.rows;
+
+              const sessionResult = await client.query(
+                `select count(*)::int total,
+                        count(*) filter (where is_valid = true and expires_at > now())::int valid
+                   from public.user_sessions
+                  where user_id = $1`,
+                [user.id],
+              );
+              sessions = sessionResult.rows[0] || sessions;
+
+              const tokenResult = await client.query(
+                `select purpose,
+                        count(*)::int total,
+                        count(*) filter (where used_at is null and revoked_at is null and expires_at > now())::int live,
+                        max(created_at) latest_created_at
+                   from public.auth_action_tokens
+                  where user_id = $1
+                  group by purpose
+                  order by purpose`,
+                [user.id],
+              );
+              authTokens = tokenResult.rows;
+
+              const notificationResult = await client.query(
+                `select template_key, status, channel, created_at, sent_at, delivered_at,
+                        last_error_code, left(coalesce(last_error_message, ''), 160) last_error_message
+                   from public.notification_queue
+                  where recipient_user_id = $1
+                    and template_key like 'auth_%'
+                  order by created_at desc
+                  limit 20`,
+                [user.id],
+              );
+              authNotifications = notificationResult.rows;
+            }
+
+            const receipt = {
+              email,
+              duplicate_user_rows: Math.max(0, users.length - 1),
+              account_exists: Boolean(user),
+              role: user?.role || null,
+              join_date: user?.join_date || null,
+              email_verified: Boolean(user?.email_verified_at),
+              email_verified_at: user?.email_verified_at || null,
+              credential_state: credentialState,
+              registration_profile: profile,
+              linked_vehicle_count: vehicleRows.length,
+              linked_vehicles: vehicleRows,
+              sessions,
+              auth_action_tokens: authTokens,
+              auth_notifications: authNotifications,
+              mutation_performed: false,
+            };
+            fs.writeFileSync('test-results/seller-account-diagnostic.json', JSON.stringify(receipt, null, 2));
+            console.log(JSON.stringify({
+              account_exists: receipt.account_exists,
+              credential_state: receipt.credential_state,
+              email_verified: receipt.email_verified,
+              linked_vehicle_count: receipt.linked_vehicle_count,
+              profile_present: Boolean(profile),
+              auth_notification_count: authNotifications.length,
+              mutation_performed: false,
+            }));
+            await client.query('ROLLBACK');
+          } finally {
+            await client.end();
+          }
+          NODE
+      - name: Upload sanitized diagnostic
+        uses: actions/upload-artifact@v4
+        with:
+          name: seller-account-diagnostic-${{ github.run_id }}
+          path: test-results/seller-account-diagnostic.json
+          if-no-files-found: error
+          retention-days: 14
