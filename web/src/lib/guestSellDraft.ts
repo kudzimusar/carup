@@ -1,6 +1,16 @@
 export const GUEST_SELL_DRAFT_KEY = 'carup_guest_sell_draft_v1'
 export const GUEST_SELL_STEP_KEY = 'carup_guest_sell_step_v1'
 
+export function createSellerSubmissionId(): string {
+  if (typeof globalThis.crypto?.randomUUID === 'function') return globalThis.crypto.randomUUID()
+  const bytes = new Uint8Array(16)
+  globalThis.crypto.getRandomValues(bytes)
+  bytes[6] = (bytes[6] & 0x0f) | 0x40
+  bytes[8] = (bytes[8] & 0x3f) | 0x80
+  const hex = [...bytes].map(value => value.toString(16).padStart(2, '0')).join('')
+  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`
+}
+
 const GUEST_SELL_MEDIA_DB = 'carup_guest_sell_draft_media_v1'
 const GUEST_SELL_MEDIA_STORE = 'draft_media'
 const GUEST_SELL_MEDIA_KEY = 'active'
@@ -8,6 +18,7 @@ const GUEST_SELL_MEDIA_KEY = 'active'
 export interface GuestSellDraft {
   version: 1
   saved_at: string
+  submissionId: string
   make: string
   model: string
   year: string
@@ -170,6 +181,7 @@ function parseGuestSellDraft(raw: string): GuestSellDraft | null {
     return {
       version: 1,
       saved_at: typeof parsed.saved_at === 'string' ? parsed.saved_at : '',
+      submissionId: typeof parsed.submissionId === 'string' && parsed.submissionId ? parsed.submissionId : createSellerSubmissionId(),
       make: parsed.make || '',
       model: parsed.model || '',
       year: parsed.year || '',
