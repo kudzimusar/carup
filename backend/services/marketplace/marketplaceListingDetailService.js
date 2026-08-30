@@ -157,10 +157,10 @@ function buildTransactionIntent(trustSummary, reservationSummary) {
 /**
  * @param {object} supabaseClient
  * @param {string} vin
- * @param {{ audience?: 'public'|'admin', showFixtures?: boolean }} [options]
+ * @param {{ audience?: 'public'|'admin', showFixtures?: boolean, fixtureScope?: string|null }} [options]
  * @returns {Promise<object>} MarketplaceListingDetail
  */
-export async function getMarketplaceListingDetail(supabaseClient, vin, { audience = 'public', showFixtures } = {}) {
+export async function getMarketplaceListingDetail(supabaseClient, vin, { audience = 'public', showFixtures, fixtureScope } = {}) {
   if (!vin) throw new NotFoundError('Listing not found');
 
   const { data: rows, error } = await selectListingRows(supabaseClient, (q) => q.eq('vin', vin));
@@ -179,7 +179,7 @@ export async function getMarketplaceListingDetail(supabaseClient, vin, { audienc
     }
   } else {
     // Public/buyer audience: only publicly-visible, non-fixture listings resolve.
-    const visible = filterVisibleVehicles([candidate], { showFixtures });
+    const visible = filterVisibleVehicles([candidate], { showFixtures, fixtureScope });
     if (!visible.length) throw new NotFoundError('Listing not found');
   }
   const vehicle = candidate;
