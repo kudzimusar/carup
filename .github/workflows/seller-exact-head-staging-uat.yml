@@ -374,6 +374,85 @@ jobs:
           }
           NODE
 
+      - name: Audit Phase N generated-event chain
+        if: always()
+        run: |
+          mkdir -p test-results
+          node --input-type=module <<'NODE'
+          import fs from 'node:fs';
+          import pg from 'pg';
+
+          const dbUrl = process.env.DIASPORA_STAGING_DATABASE_URL || '';
+          if (!dbUrl.includes(process.env.EXPECTED_STAGING_PROJECT_REF)) {
+            throw new Error('Refusing Seller Intelligence event audit outside approved staging.');
+          }
+          const cleaned = dbUrl.replace(/([?&])sslmode=[^&]*&?/i, '$1').replace(/[?&]$/, '');
+          const client = new pg.Client({ connectionString: cleaned, ssl: { rejectUnauthorized: false } });
+          await client.connect();
+          try {
+            const vehicleResult = await client.query(
+              `select vin
+                 from public.vehicles
+                where seller_description like $1
+                order by vin`,
+              [`Golden Dynamic Seller ${process.env.STAGING_RUN_ID}:%`],
+            );
+            const vins = vehicleResult.rows.map((row) => row.vin);
+            if (!vins.length) throw new Error('No current-run Golden Seller VINs found for Phase N audit.');
+
+            const eventResult = await client.query(
+              `select event_type, listing_id, vehicle_reference, occurred_at, exclusion_flags
+                 from public.marketplace_activity_events
+                where listing_id = any($1::text[])
+                   or vehicle_reference = any($1::text[])
+                order by occurred_at asc`,
+              [vins],
+            );
+
+            const required = [
+              'marketplace_listing_impression',
+              'marketplace_listing_opened',
+              'marketplace_compare_added',
+              'marketplace_listing_saved',
+              'marketplace_inquiry_created',
+              'marketplace_inspection_requested',
+              'marketplace_price_changed',
+            ];
+
+            const byVin = Object.fromEntries(vins.map((vin) => [vin, {}]));
+            for (const row of eventResult.rows) {
+              const vin = vins.includes(row.vehicle_reference) ? row.vehicle_reference : row.listing_id;
+              if (!vin || !byVin[vin]) continue;
+              byVin[vin][row.event_type] = (byVin[vin][row.event_type] || 0) + 1;
+            }
+
+            const missing = [];
+            for (const vin of vins) {
+              for (const eventType of required) {
+                if (!byVin[vin][eventType]) missing.push({ vin, event_type: eventType });
+              }
+            }
+
+            const receipt = {
+              expected_head_sha: process.env.EXPECTED_HEAD_SHA,
+              run_id: process.env.STAGING_RUN_ID,
+              vins,
+              required_event_types: required,
+              counts_by_vin: byVin,
+              missing,
+              events: eventResult.rows,
+            };
+            fs.writeFileSync('test-results/seller-intelligence-event-chain.json', JSON.stringify(receipt, null, 2));
+            console.log(JSON.stringify({ vins, counts_by_vin: byVin, missing }));
+
+            if (missing.length) {
+              throw new Error(`Phase N generated-event chain is incomplete: ${JSON.stringify(missing)}`);
+            }
+          } finally {
+            await client.end();
+          }
+          NODE
+
       - name: Upload Seller deployed-UAT evidence
         if: always()
         uses: actions/upload-artifact@v4
@@ -386,5 +465,6 @@ jobs:
             test-results/staging-uat-artifacts
             test-results/seller-automation-inventory.json
             test-results/seller-marketplace-population-semantics.json
+            test-results/seller-intelligence-event-chain.json
           if-no-files-found: warn
           retention-days: 14
