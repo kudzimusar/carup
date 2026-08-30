@@ -1000,16 +1000,39 @@ async function buildVehiclePassport(
 
     if (!wideListingImages.error) {
       listingImageRows = wideListingImages.data || [];
-    } else if (isMissingNamedColumnError(wideListingImages.error, 'photo_label')) {
-      // Additive Seller metadata may briefly lag the exact-head preview deployment. Preserve the
-      // established gallery while representing only the NEW label as unavailable.
-      const legacyListingImages = await supabase
-        .from('listing_images')
-        .select('id, image_url, is_primary, display_order')
-        .eq('vin', vin)
-        .order('display_order', { ascending: true });
-      if (!legacyListingImages.error) {
-        listingImageRows = (legacyListingImages.data || []).map(row => ({ ...row, photo_label: null }));
+    } else {
+      // Keep the passport builder self-contained: its certification harness executes this function
+      // body in isolation with a deliberately closed collaborator list. Only the additive
+      // photo_label column may trigger this compatibility fallback.
+      const galleryErrorCode = String(wideListingImages.error?.code ?? '').toUpperCase();
+      const galleryErrorText = [
+        wideListingImages.error?.message,
+        wideListingImages.error?.details,
+        wideListingImages.error?.hint,
+      ].filter(Boolean).join(' ').toLowerCase();
+      const photoLabelMissing = (
+        (galleryErrorCode === 'PGRST204' || galleryErrorCode === '42703')
+        && galleryErrorText.includes('photo_label')
+      ) || (
+        galleryErrorText.includes('photo_label')
+        && (
+          galleryErrorText.includes('could not find')
+          || galleryErrorText.includes('does not exist')
+          || galleryErrorText.includes('schema cache')
+        )
+      );
+
+      if (photoLabelMissing) {
+        // Additive Seller metadata may briefly lag the exact-head preview deployment. Preserve the
+        // established gallery while representing only the NEW label as unavailable.
+        const legacyListingImages = await supabase
+          .from('listing_images')
+          .select('id, image_url, is_primary, display_order')
+          .eq('vin', vin)
+          .order('display_order', { ascending: true });
+        if (!legacyListingImages.error) {
+          listingImageRows = (legacyListingImages.data || []).map(row => ({ ...row, photo_label: null }));
+        }
       }
     }
 
