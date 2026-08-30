@@ -130,14 +130,58 @@ absent.
 
 No retry, no loosened assertion, no `waitFor` papering over a product bug.
 
+### A second, distinct flake found by deliberately overloading the machine
+
+Running the web suite repeatedly under CPU saturation (load average 95–160) surfaced two
+further failures that CI had never shown. Both are the same class — **tests that wait on real
+wall-clock timers** — and they are reported separately because their dispositions differ.
+
+**`VehicleSearch.test.tsx` — non-Seller, FIXED.** `VehicleSearch.tsx` debounces the search box
+for 350 ms, while the tests relied on the async-utility default budget of 1000 ms. That left
+650 ms of real wall-clock to cover the debounce, an async passport lookup and a React commit.
+The coupling was invisible: `350` lived in the component, the budget was an unstated default.
+`SEARCH_DEBOUNCE_MS` is now exported and every wait derives its budget from it, so changing the
+debounce cannot silently shorten the tests' allowance. **11/11, five consecutive runs, under
+the same load that failed it.**
+
+This is a **budget made explicit, not a determinism proof** — say so plainly. `waitFor` polls
+until the condition holds and fails the instant the budget expires, so a longer deadline cannot
+make a wrong result pass, and the assertions are byte-identical. But the wait is still
+wall-clock. Full determinism needs fake timers across that file, which is a larger change than
+this cycle should make to a suite it did not otherwise touch. Recorded as residual §6.10.
+
+**`SellFlow.identification.test.tsx` — Seller-owned, NOT edited.** Three tests use
+`waitFor(..., { timeout: 3000 })` against a real debounce plus a literal
+`await new Promise(r => setTimeout(r, 700))`. It is in the Seller domain and the Seller lane may
+be rewriting these very tests, so it is recorded as **SJO-6** rather than edited.
+
+**Then a third one appeared — `VehicleDetail.trust.test.tsx` — and that changed the diagnosis.**
+Three consecutive saturated runs produced a *different* innocent test each time. Fixing them
+one at a time is whack-a-mole; the defect is not in any of those files, it is that the shared
+async budget (1000 ms) is too small for suites that render a full page behind a debounce.
+
+The class is therefore fixed at **one point**: `configure({ asyncUtilTimeout: 5000 })` in
+`web/src/test/setup.ts`, with the reasoning in the file. This weakens no assertion — `waitFor`
+polls until the condition holds and fails the instant the deadline passes, so a longer deadline
+cannot make a wrong result pass; it can only stop a right result being reported as wrong. The
+one real cost is that a test whose element never appears now takes longer to go red.
+
+It also, incidentally, covers the Seller-owned file — because the change is to the shared
+harness, not to any Seller test. SJO-6 stays open regardless: those three tests carry their own
+explicit 3000 ms caps and a literal 700 ms sleep, which the suite-wide budget does not touch.
+
+None of the three failed in CI. All are **latent**, exposed only by saturation — which is the
+point of running the suite that way. Only `PartsTracking` had actually failed in CI, and that
+one had a genuine product cause and was fixed at the source.
+
 ---
 
 ## 3. Evidence
 
 | Battery | Result |
 |---|---|
-| Backend full suite | **5542 tests, 5521 pass, 0 fail, 21 skipped** |
-| Web full suite ×3 | see §3.1 |
+| Backend full suite | **5543 tests, 5522 pass, 0 fail, 21 skipped** |
+| Web full suite ×3, under sustained CPU saturation | **1447/1447** · **1446/1447** · **1446/1447** — the two misses are the SAME Seller-owned test (SJO-6), see below |
 | Issue #158 (all suites incl. PGlite/PostgreSQL) | **68/68 → 76/76** |
 | Issue #158 terminal identity battery | **19/19**, incl. **3 mutation kills** |
 | Non-Seller authority hardening | **8/8** |
@@ -145,7 +189,14 @@ No retry, no loosened assertion, no `waitFor` papering over a product bug.
 | Web typecheck (`tsc --noEmit`) | **clean** |
 | Lint regression gate vs `origin/main` | **NET_NEW_ERRORS=0, NET_NEW_WARNINGS=0** |
 | CR-1 secret scan | **clean, 2439 tracked files** |
-| Production build | see §3.1 |
+| Production build | **✓ built in 43.56s** |
+| Web suite, non-Seller subset | **green in all three runs** |
+
+**The web suite is NOT claimed green three times over, because it was not.** Runs 2 and 3 each
+failed on `SellFlow.identification.test.tsx` — the same test both times, in a Seller-owned file
+this cycle is forbidden to edit, with a mechanism and remedy recorded as SJO-6. Every
+non-Seller test passed in all three runs. Saying "3× green" here would be false; saying
+"1446/1447 with one known, located, boundary-blocked exception" is what happened.
 
 **All 21 skips are live-environment probes with a documented reason in the skip string**
 (`db-anon-grant-posture` ×9 needing `CARUP_ANON_PROBE_URL/KEY`, `diaspora-supabase-integration`
@@ -227,7 +278,12 @@ distinct items. An obligation register that under-counts is how one gets missed.
 7. **`20260826120000` has no Down marker and no in-file rollback note.**
 8. **PR #197 carries a P1 in its own saga** — the compensating rollback discards its error and
    reports success unconditionally (`serviceCaseService.js:419`). Not fixed; #197 is frozen.
-9. **No claim of full state + history + outbox atomicity.** #197 does not claim it and neither
+10. **The web suite is budget-bounded, not deterministic.** `asyncUtilTimeout` is now 5000 ms
+    suite-wide and `VehicleSearch`'s waits derive from the product's debounce constant, but
+    these remain wall-clock waits. The real remedy for the worst offenders is fake timers so
+    the debounce is advanced rather than awaited. Stated as an open item rather than dressed
+    up as determinism.
+11. **No claim of full state + history + outbox atomicity.** #197 does not claim it and neither
    does this receipt. **No claim of general non-terminal same-VIN append serialization** — the
    uniqueness and idempotency guarantees are scoped as the migration states.
 
