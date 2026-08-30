@@ -2221,8 +2221,8 @@ describe('Marketplace media — the declared contract matches the published one'
   it('declares every key the service publishes on a media entry, and no key it does not', () => {
     const published = serviceMediaKeys()
     // ANTI-VACUITY: an empty extraction agrees with everything. The compatibility view publishes
-    // seven keys; synthetic_demo is explicit provenance and may not disappear from either wire/type.
-    expect(published.sort()).toEqual(['is_primary', 'media_id', 'position', 'synthetic_demo', 'type', 'url', 'url_form'])
+    // nine keys; synthetic_demo is explicit provenance, while photo_label/seller_order preserve Seller presentation intent without becoming evidence.
+    expect(published.sort()).toEqual(['is_primary', 'media_id', 'photo_label', 'position', 'seller_order', 'synthetic_demo', 'type', 'url', 'url_form'])
 
     const declared = resolvedInterfaceKeys(SHARED_MARKETPLACE_CODE, 'MarketplaceMedia').sort()
     expect(declared, 'the declared media shape has drifted from the wire').toEqual(published.sort())
