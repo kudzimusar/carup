@@ -113,13 +113,21 @@ export async function submitFinancingApplication(vin, userId, bankId, requestedA
   const { error: insertError } = await supabase.from('finance_applications').insert(applicationRow);
   if (insertError) throw new Error(`Failed to record finance request: ${insertError.message}`);
 
-  await addEvent(vin, 'Financing Application', {
-    applicationId: id,
-    bankId: lender,
-    requestedAmount: amount,
-    requestedCurrency: currency,
-    status,
-  });
+  // The finance_applications id is allocated and committed before this ledger write, so a
+  // retry of this same application recomputes the same operation identity.
+  await addEvent(
+    vin,
+    'Financing Application',
+    {
+      applicationId: id,
+      bankId: lender,
+      requestedAmount: amount,
+      requestedCurrency: currency,
+      status,
+    },
+    'SYSTEM_SIGNATURE',
+    { operationId: `finance_application:${encodeURIComponent(id)}` },
+  );
 
   emitDomainEvent(null, 'finance.application.status_changed', {
     applicationId: id,

@@ -24,7 +24,16 @@ export async function reportVehicleStolen(vin, policeReportNumber, reportingOwne
     throw new Error(`Failed to update vehicle status to Flagged: ${updateError.message}`);
   }
   
-  await addEvent(vin, 'Stolen Vehicle Flagged', { policeReportNumber, reportingOwnerId, timestamp, status: 'ACTIVE_POLICE_ALERT' });
+  // stolen_vehicles is keyed by VIN and upserted, so the durable identity of THIS report
+  // is the VIN plus the police report number: a retry of the same report reproduces it, a
+  // genuinely new report carries a different report number.
+  await addEvent(
+    vin,
+    'Stolen Vehicle Flagged',
+    { policeReportNumber, reportingOwnerId, timestamp, status: 'ACTIVE_POLICE_ALERT' },
+    'SYSTEM_SIGNATURE',
+    { operationId: `stolen_alert:${encodeURIComponent(vin)}:${encodeURIComponent(String(policeReportNumber))}` },
+  );
 
   return { vin, policeReportNumber, flagged: true, status: 'ACTIVE_POLICE_ALERT', persistedToDatabase: true };
 }
@@ -46,6 +55,20 @@ export async function checkStolenStatus(vin) {
 
 export async function clearStolenStatus(vin, clearedByUserId) {
   const timestamp = new Date().toISOString();
+
+  // Read the alert being cleared BEFORE mutating it, purely to derive a durable operation
+  // identity for the ledger event. The alert's own creation instant is committed state, so
+  // a retry of this same clearance reproduces the identity while a clearance of a LATER
+  // re-report does not. Best-effort: this lookup never changes clearing behaviour.
+  const { data: clearingAlert } = await supabase
+    .from('stolen_vehicles')
+    .select('created_at,police_report_number')
+    .eq('vin', vin)
+    .maybeSingle();
+  const clearanceOperationId = clearingAlert?.created_at
+    ? `stolen_clear:${encodeURIComponent(vin)}:${encodeURIComponent(String(clearingAlert.created_at))}`
+    : undefined;
+
   
   const { error: updateStolenError } = await supabase.from('stolen_vehicles').update({ status: 'RECOVERED', cleared_at: timestamp, cleared_by: clearedByUserId }).eq('vin', vin);
   if (updateStolenError) throw new Error(`Failed to clear stolen status: ${updateStolenError.message}`);
@@ -53,7 +76,13 @@ export async function clearStolenStatus(vin, clearedByUserId) {
   const { error: updateVehicleError } = await supabase.from('vehicles').update({ police_verified: true, status: 'Available' }).eq('vin', vin);
   if (updateVehicleError) throw new Error(`Failed to clear vehicle status: ${updateVehicleError.message}`);
   
-  await addEvent(vin, 'Stolen Vehicle Cleared', { clearedByUserId, timestamp, status: 'RECOVERED' });
+  await addEvent(
+    vin,
+    'Stolen Vehicle Cleared',
+    { clearedByUserId, timestamp, status: 'RECOVERED' },
+    'SYSTEM_SIGNATURE',
+    { operationId: clearanceOperationId },
+  );
   
   return { vin, cleared: true, clearedAt: timestamp };
 }

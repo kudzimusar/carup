@@ -71,10 +71,25 @@ export function isLedgerUniquenessConflict(error) {
 
 // The last instant the ledger timestamp format can represent. It is the only instant at
 // which the custody contract may re-issue a boundary, and the database admits at most
-// one event there per signer.
+// one event there per signer and at most one event there per operation identity.
 const TERMINAL_EVENT_TIMESTAMP = '9999-12-31T23:59:59.999Z';
 
-// Deterministic content comparison that does not depend on key order.
+export function isMissingLedgerOperationIdentityColumn(error) {
+  if (!error) return false;
+  const message = String(error.message || error.details || error.hint || '').toLowerCase();
+  const code = String(error.code || '').toUpperCase();
+  return code === '42703'
+    || code === 'PGRST204'
+    || (
+      /column|schema cache/.test(message)
+      && /operation_id/.test(message)
+      && /does not exist|not found|could not find/.test(message)
+    );
+}
+
+// Deterministic content comparison that does not depend on object key order. Array order
+// stays meaningful: an array is canonicalized in its own order, so a reordered array is a
+// different logical content, while a reordered object is the same content.
 function canonicalize(value) {
   if (value === null || typeof value !== 'object') return JSON.stringify(value) ?? 'null';
   if (Array.isArray(value)) return `[${value.map(canonicalize).join(',')}]`;
@@ -82,36 +97,127 @@ function canonicalize(value) {
 }
 
 /**
- * Decide whether a terminal-instant conflict is this exact write landing twice.
+ * Canonicalize a payload EXACTLY as the ledger persists it.
  *
- * The identity is deliberately NOT the event hash. A retry re-reads the VIN tail, which
- * by then contains the terminal row, so it computes a different previous_hash and
- * therefore a different current_hash than the row it is retrying — a hash-equality rule
- * would refuse a legitimate lost-response retry.
+ * The insert stores `JSON.stringify(payload)`, which is lossy in ways a direct structural
+ * comparison is not: an `undefined` property is omitted rather than emitted as null, a
+ * Date becomes an ISO string rather than `{}`, a `toJSON()` object becomes its projection,
+ * and non-finite numbers become null. Comparing the in-memory attempt against the stored
+ * row therefore has to go through the same serialization first, or a legitimate
+ * lost-response retry is rejected forever because the row it wrote no longer "matches"
+ * the values it holds in memory.
  *
- * The stable identity is the logical write itself: signer, VIN, event type and
- * canonically compared payload. That is sound only at the terminal instant, because no
- * representable later event exists there, so a stakeholder can have exactly one such
- * event and any divergence in the logical content is necessarily a different write.
+ * Callers pass the very string that was (or would be) persisted, so the comparison can
+ * never drift from the write.
  */
-async function findIdempotentTerminalEvent({ vin, eventType, payload, signerId, timestamp }) {
+function canonicalizeAsPersisted(persistedJson) {
+  if (persistedJson === undefined) return canonicalize(null);
+  return canonicalize(JSON.parse(persistedJson));
+}
+
+// A durable operation identity is a namespaced, non-empty token. The namespace prefix is
+// required so two subsystems cannot collide on a bare row id: the terminal uniqueness
+// index is global, not per-signer.
+const LEDGER_OPERATION_ID_PATTERN = /^[a-z][a-z0-9_]*:[\x21-\x7e]+$/;
+const MAX_LEDGER_OPERATION_ID_LENGTH = 200;
+
+/**
+ * Normalize and validate a caller-supplied durable operation identity.
+ *
+ * Returns null when the caller supplied none. Throws when the caller supplied something
+ * that is not usable as an identity, because silently discarding a malformed identity
+ * would degrade a terminal write back to content-equality classification.
+ */
+export function normalizeLedgerOperationId(operationId) {
+  if (operationId === undefined || operationId === null) return null;
+  if (typeof operationId !== 'string') {
+    throw new Error('ledger operation identity must be a string');
+  }
+  const trimmed = operationId.trim();
+  if (!trimmed) return null;
+  if (trimmed.length > MAX_LEDGER_OPERATION_ID_LENGTH) {
+    throw new Error('ledger operation identity exceeds the maximum representable length');
+  }
+  if (!LEDGER_OPERATION_ID_PATTERN.test(trimmed)) {
+    throw new Error(
+      'ledger operation identity must be a namespaced token of the form "<namespace>:<durable-id>"',
+    );
+  }
+  return trimmed;
+}
+
+/**
+ * Decide whether a terminal-instant conflict is this exact operation landing twice.
+ *
+ * The identity is deliberately NOT the event hash. A retry re-reads the VIN tail, which by
+ * then contains the terminal row, so it computes a different previous_hash and therefore a
+ * different current_hash than the row it is retrying — a hash-equality rule would refuse a
+ * legitimate lost-response retry.
+ *
+ * The identity is also deliberately NOT the content. Signer, VIN, event type and payload
+ * describe WHAT was written, never WHICH INVOCATION wrote it: two independent calls with
+ * the same subject data are content-identical, so a content rule acknowledges the loser of
+ * a race as though its write had persisted. The identity is the caller's own durable
+ * operation id, which survives commit, a lost response, a caller crash and a restart, and
+ * which a genuinely new invocation cannot reproduce.
+ *
+ * Content equality is still checked, but only as a consistency guard against MISUSE of an
+ * operation id — never as the identity itself.
+ *
+ * Outcomes:
+ *   same operation id + same persisted content -> the stored row (idempotent)
+ *   same operation id + different content      -> throws (operation identity reuse)
+ *   different operation id                     -> null (caller reports a genuine conflict)
+ *   no operation id                            -> unreachable; addEvent refuses earlier
+ */
+async function findIdempotentTerminalEvent({
+  vin, eventType, persistedPayloadJson, signerId, timestamp, operationId,
+}) {
   if (timestamp !== TERMINAL_EVENT_TIMESTAMP) return null;
+  if (!operationId) return null;
 
   const { data, error } = await supabase
     .from('blockchain_events')
-    .select(EVENT_SELECT)
+    .select(`${EVENT_SELECT},operation_id`)
     .eq('timestamp', TERMINAL_EVENT_TIMESTAMP)
-    .eq('vin', vin);
-  if (error) return null;
+    .eq('operation_id', operationId);
 
-  const wanted = canonicalize(payload);
-  return (data || []).find((row) => {
-    const separator = String(row.signature || '').indexOf(':');
-    if (separator < 0 || String(row.signature).slice(0, separator) !== String(signerId)) return false;
-    if (row.event_type !== eventType) return false;
-    const stored = typeof row.payload === 'string' ? JSON.parse(row.payload) : row.payload;
-    return canonicalize(stored) === wanted;
-  }) || null;
+  if (error) {
+    if (isMissingLedgerOperationIdentityColumn(error)) {
+      throw new Error(
+        'terminal ledger retry classification requires blockchain_events.operation_id; '
+        + 'apply migration 20260830010000_issue158_ledger_operation_identity',
+      );
+    }
+    // Never degrade an unreadable ledger into "not a retry": that would let a lookup
+    // outage turn a completed terminal write into a hard failure with no way back.
+    throw new Error(`terminal ledger retry lookup failed: ${error.message}`);
+  }
+
+  const rows = data || [];
+  if (rows.length === 0) return null;
+  if (rows.length > 1) {
+    throw new Error('terminal ledger operation identity is not unique; ledger integrity is compromised');
+  }
+
+  const row = rows[0];
+  const separator = String(row.signature || '').indexOf(':');
+  const rowSigner = separator < 0 ? null : String(row.signature).slice(0, separator);
+  const storedJson = typeof row.payload === 'string' ? row.payload : JSON.stringify(row.payload);
+
+  const sameWrite = rowSigner === String(signerId)
+    && row.vin === vin
+    && row.event_type === eventType
+    && canonicalizeAsPersisted(storedJson) === canonicalizeAsPersisted(persistedPayloadJson);
+
+  if (!sameWrite) {
+    throw new Error(
+      `terminal ledger operation identity '${operationId}' is already bound to a different `
+      + 'logical write; a distinct operation must use a distinct identity',
+    );
+  }
+
+  return row;
 }
 
 export function isMissingCustodyRolloutContractFunction(error) {
@@ -245,7 +351,23 @@ export function calculateHash(previousHash, vin, eventType, timestamp, payload) 
   return crypto.createHash('sha256').update(data).digest('hex');
 }
 
-export async function addEvent(vin, eventType, payload, signature = 'SYSTEM_SIGNATURE') {
+/**
+ * Append an event to a VIN's hash-chained ledger.
+ *
+ * @param {string} vin
+ * @param {string} eventType
+ * @param {object} payload
+ * @param {string} [signature] - 'SYSTEM_SIGNATURE' asks the service to sign.
+ * @param {{operationId?: string}} [options] - `operationId` is the DURABLE identity of the
+ *   logical operation this call belongs to, taken from the caller's own committed state
+ *   (a parts log id, a policy id, an application id, a police report number). It is what
+ *   makes a retry distinguishable from a new invocation, so it must be recomputable by a
+ *   fresh retry and must never be freshly generated inside this function. Required for any
+ *   write that lands on the terminal instant; recorded for auditability otherwise.
+ */
+export async function addEvent(vin, eventType, payload, signature = 'SYSTEM_SIGNATURE', options = {}) {
+  const operationId = normalizeLedgerOperationId(options?.operationId);
+
   const { data: lastEvents } = await supabase
     .from('blockchain_events')
     .select('current_hash,id')
@@ -277,6 +399,24 @@ export async function addEvent(vin, eventType, payload, signature = 'SYSTEM_SIGN
   // event remains inside the old key's validity interval instead of being misclassified
   // under the newly active key. Superseded writers are rejected on their next call.
   const timestamp = registeredSignerKey?.eventTimestamp || new Date().toISOString();
+
+  // Serialize ONCE. This exact string is what gets persisted and what any later retry
+  // classification compares against, so the comparison can never drift from the write.
+  const persistedPayloadJson = JSON.stringify(payload);
+  const isTerminalWrite = timestamp === TERMINAL_EVENT_TIMESTAMP;
+
+  // The terminal instant is the only timestamp two competing writes can ever share, so it
+  // is the only place a uniqueness conflict has to be classified. Without a durable
+  // operation identity that classification is impossible, and the only sound alternatives
+  // are to acknowledge a write that did not persist or to refuse one that did. Refuse the
+  // attempt instead: fail closed, loudly, before anything is written.
+  if (isTerminalWrite && !operationId) {
+    throw new Error(
+      'terminal ledger write requires a durable operation identity; '
+      + `'${eventType}' for VIN ${vin} was attempted at the terminal instant without one`,
+    );
+  }
+
   const currentHash = calculateHash(previousHash, vin, eventType, timestamp, payload);
 
   let dynamicSignature = signature;
@@ -295,29 +435,52 @@ export async function addEvent(vin, eventType, payload, signature = 'SYSTEM_SIGN
     }
   }
 
-  const { data: insertedRows, error: insertError } = await supabase
+  const baseRow = {
+    previous_hash: previousHash,
+    current_hash: currentHash,
+    vin,
+    event_type: eventType,
+    payload: persistedPayloadJson,
+    timestamp,
+    signature: dynamicSignature,
+  };
+  const insertLedgerRow = (row) => supabase
     .from('blockchain_events')
-    .insert({
-      previous_hash: previousHash,
-      current_hash: currentHash,
-      vin,
-      event_type: eventType,
-      payload: JSON.stringify(payload),
-      timestamp,
-      signature: dynamicSignature,
-    })
+    .insert(row)
     .select('id');
+
+  let { data: insertedRows, error: insertError } = await insertLedgerRow(
+    operationId ? { ...baseRow, operation_id: operationId } : baseRow,
+  );
+
+  // Deploy-before-migrate: a runtime that already records operation identities may reach a
+  // database that has not applied 20260830010000 yet. A NON-terminal write may proceed
+  // without recording the identity, because no uniqueness or idempotency guarantee is
+  // claimed for non-terminal rows. A TERMINAL write may not: its whole contract depends on
+  // the column, so it fails closed and names the migration the operator must apply.
+  if (insertError && operationId && isMissingLedgerOperationIdentityColumn(insertError)) {
+    if (isTerminalWrite) {
+      throw new Error(
+        'terminal ledger writes require blockchain_events.operation_id; '
+        + 'apply migration 20260830010000_issue158_ledger_operation_identity',
+      );
+    }
+    ({ data: insertedRows, error: insertError } = await insertLedgerRow(baseRow));
+  }
 
   let newEventId = insertedRows?.[0]?.id;
 
   if (insertError) {
     // The terminal instant is the only timestamp the custody contract can re-issue, and
-    // the ledger admits at most one terminal event per signer. A conflict there is
-    // either this exact logical write landing twice — a retry whose first response was
-    // lost — or a genuinely different write competing for the same instant. Only the
-    // former is idempotent.
+    // the ledger admits at most one terminal event per signer AND at most one per
+    // operation identity. A conflict there is either this exact OPERATION landing twice —
+    // a retry whose first response was lost — or a genuinely different operation competing
+    // for the same instant. Only the former is idempotent, and only the durable operation
+    // identity can tell them apart.
     const duplicate = isLedgerUniquenessConflict(insertError)
-      ? await findIdempotentTerminalEvent({ vin, eventType, payload, signerId, timestamp })
+      ? await findIdempotentTerminalEvent({
+        vin, eventType, persistedPayloadJson, signerId, timestamp, operationId,
+      })
       : null;
 
     if (!duplicate) {
@@ -335,6 +498,7 @@ export async function addEvent(vin, eventType, payload, signature = 'SYSTEM_SIGN
       payload: typeof duplicate.payload === 'string' ? JSON.parse(duplicate.payload) : duplicate.payload,
       timestamp: duplicate.timestamp,
       signature: duplicate.signature,
+      operationId: duplicate.operation_id ?? null,
       idempotent: true,
     };
   }
@@ -363,6 +527,7 @@ export async function addEvent(vin, eventType, payload, signature = 'SYSTEM_SIGN
     payload,
     timestamp,
     signature: dynamicSignature,
+    operationId,
   };
 }
 
