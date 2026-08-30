@@ -19,6 +19,12 @@ describe('Seller resume continuity', () => {
     }
   })
 
+  it('restores Seller listing location from the governed listing projection', () => {
+    expect(seller).toContain("location: String(raw.listing_city || raw.location || '')")
+    expect(seller).toContain("province: String(raw.listing_province || raw.province || '')")
+    expect(seller).toContain("raw.listing_location_visibility === 'public'")
+  })
+
   it('autosaves and restores stage across refresh/auth handoff', () => {
     expect(guest).toContain('saveGuestSellStep(step)')
     expect(seller).toContain('readGuestSellStep()')
