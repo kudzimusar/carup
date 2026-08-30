@@ -467,8 +467,53 @@ test.describe('Golden Dynamic Seller — exact-head deployed acceptance', () => 
     await expect(inquiryInbox).toContainText(vin, { timeout: 20_000 });
     await expect(inquiryInbox).toContainText(`Is ${vin} still available for inspection?`, { timeout: 20_000 });
 
-    // Seller Intelligence may have measured data OR may truthfully say it is unavailable. Both are
-    // valid; rendering fabricated zeroes as a substitute for missing measurement is not.
+    // Phase N: a successful write is not enough. Recompute the governed read model for the UTC day
+    // that contains this real inquiry, then require the Seller projection to observe it. The reviewer
+    // is a proven staging admin using the same authenticated + CSRF path as any manual rollup.
+    const intelligenceDate = new Date().toISOString().slice(0, 10);
+    const intelligenceAdmin = await reviewerAuth(request);
+    const intelligenceAdminHeaders = await mutationHeaders(request, intelligenceAdmin);
+    const rollupResponse = await request.post(`${API_URL}/internal/intelligence/rollup`, {
+      headers: intelligenceAdminHeaders,
+      data: { date: intelligenceDate, days: 1 },
+    });
+    expect(rollupResponse.status(), `Seller Intelligence rollup failed: ${await rollupResponse.text()}`).toBe(200);
+
+    const sellerReadHeaders = baseHeaders(cleanupAuth);
+    let observedInquiryCount: number | null = null;
+    await expect.poll(async () => {
+      const response = await request.get(`${API_URL}/marketplace/my-analytics?window=7`, {
+        headers: sellerReadHeaders,
+      });
+      if (response.status() !== 200) return null;
+      const body = await response.json() as {
+        availability?: string;
+        metrics?: { inquiries?: { availability?: string; value?: number | null } };
+        series?: Array<{ date?: string; inquiries?: number }>;
+      };
+      const metric = body.metrics?.inquiries;
+      const point = (body.series || []).find(item => item.date === intelligenceDate);
+      if (body.availability !== 'value' || metric?.availability !== 'value') return null;
+      if (!point || Number(point.inquiries || 0) < 1) return null;
+      observedInquiryCount = Number(metric.value);
+      return observedInquiryCount;
+    }, {
+      message: 'generated Marketplace inquiry never reached the governed Seller Intelligence projection',
+      timeout: 20_000,
+      intervals: [500, 1000, 2000],
+    }).toBeGreaterThanOrEqual(1);
+
+    // The dedicated Seller cockpit must consume the same projection; "Unavailable" is explicitly not
+    // accepted here because the bounded rollup/read assertion above proved measured data exists.
+    await page.goto('/dashboard/intelligence');
+    const inquiryKpi = page.getByTestId('seller-intelligence-kpi-inquiries');
+    await expect(inquiryKpi).toBeVisible({ timeout: 20_000 });
+    await expect(inquiryKpi).not.toContainText('Unavailable');
+    await expect(inquiryKpi).toContainText(new RegExp(`\\b${observedInquiryCount}\\b`));
+
+    // Keep the listing-level intelligence disclosure present as well: measured data and unavailable
+    // are distinct states, but the portfolio proof above now certifies the generated-event chain.
+    await page.goto('/dashboard/listings');
     await page.getByTestId(`toggle-insights-${vin}`).click();
     const insights = page.getByTestId('listing-insights').or(page.getByTestId('listing-insights-unavailable'));
     await expect(insights.first()).toBeVisible({ timeout: 20_000 });
