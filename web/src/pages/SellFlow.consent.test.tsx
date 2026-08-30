@@ -73,6 +73,10 @@ function seedClaimedDraft() {
 async function advanceToLocationStep() {
   seedClaimedDraft()
   renderSell()
+  // A complete VIN is now held at the governed Passport-identification gate until the lookup
+  // resolves. Wait for the mocked no-record outcome before advancing instead of racing the 400ms
+  // debounce and accidentally testing a state the real Seller flow correctly blocks.
+  await waitFor(() => expect(screen.getByTestId('sell-vin-no-carup-record')).toBeTruthy(), { timeout: 3000 })
   fireEvent.click(screen.getByRole('button', { name: /next/i }))
   await waitFor(() => expect(screen.getByTestId('seller-privacy-controls')).toBeTruthy())
 }

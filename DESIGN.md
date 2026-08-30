@@ -1,9 +1,9 @@
 # CarUp Global Product Design System
 
-**Status:** Canonical global UI/UX contract  
-**Scope:** Every CarUp web surface — public, authenticated, operational, administrative, mobile and desktop  
-**Authority:** Root-level product design law. Feature-specific design documents may extend this file but may not contradict it.  
-**Reference implementations:** current Home, Marketplace and Marketplace Vehicle Detail experiences.  
+**Status:** Canonical global UI/UX contract
+**Scope:** Every CarUp web surface — public, authenticated, operational, administrative, mobile and desktop
+**Authority:** Root-level product design law. Feature-specific design documents may extend this file but may not contradict it.
+**Reference implementations:** current Home, Marketplace and Marketplace Vehicle Detail experiences.
 **Supersedes:** undocumented legacy dashboard conventions and feature-local visual improvisation.
 
 ---

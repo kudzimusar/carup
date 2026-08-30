@@ -75,6 +75,9 @@ function seedDraft(images: string[]) {
 async function advanceToMediaStep(images = PHOTOS) {
   seedDraft(images)
   render(<MemoryRouter><SellVehicle /></MemoryRouter>)
+  // The first step intentionally waits for the existing-Passport lookup to resolve. The test's
+  // no-record mock must therefore become visible before it asks the form to advance.
+  await waitFor(() => expect(screen.getByTestId('sell-vin-no-carup-record')).toBeTruthy(), { timeout: 3000 })
   fireEvent.click(screen.getByRole('button', { name: /next/i }))
   await waitFor(() => expect(screen.getByTestId('seller-privacy-controls')).toBeTruthy())
   fireEvent.click(screen.getByRole('button', { name: /next/i }))

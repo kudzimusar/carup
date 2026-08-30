@@ -2765,8 +2765,11 @@ app.post('/api/vehicles/add', authorizeRole(['dealer', 'owner', 'admin']), async
 
       const { error: imageError } = await supabase.from('listing_images').insert(imageRecords);
       if (imageError) {
+        // The vehicle row already exists at this point. Returning 500 would falsely imply the
+        // whole write failed and would hide the established media outcome fields below. Keep the
+        // draft response truthful (images_recorded: false) and let Seller Studio retain its local
+        // media until a complete gallery is confirmed.
         console.error('⚠️ Failed to save listing images:', imageError.message);
-        throw new Error('Listing media could not be recorded. Vehicle details may have been updated, but the draft photos were not accepted.');
       } else {
         imagesRecorded = true;
         imagesRecordedCount = imageRecords.length;

@@ -220,8 +220,6 @@ export default function SellVehicle() {
   useEffect(() => {
     if (guestDraft || !validateVin(resumeVin)) return
     let active = true
-    setServerDraftLoading(true)
-    setServerDraftError(null)
 
     fetchOwnedVehicles()
       .then(vehicles => {

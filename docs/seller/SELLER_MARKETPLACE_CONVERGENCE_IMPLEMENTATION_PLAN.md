@@ -1,9 +1,9 @@
 # Seller ↔ Marketplace Convergence Implementation Plan
 
-**Status:** Implementation plan — do not treat current Seller UI as certified until this plan closes  
-**Target branch/PR context:** current Seller account-handoff lane / PR #198  
-**Governing design:** root `DESIGN.md` plus `docs/marketplace/MARKETPLACE_VISUAL_DNA.md`  
-**Primary test vehicle:** `UAT20260828SELL01`  
+**Status:** Implementation plan — do not treat current Seller UI as certified until this plan closes
+**Target branch/PR context:** current Seller account-handoff lane / PR #198
+**Governing design:** root `DESIGN.md` plus `docs/marketplace/MARKETPLACE_VISUAL_DNA.md`
+**Primary test vehicle:** `UAT20260828SELL01`
 **Goal:** Make Seller, Garage, Listings, Passport, Marketplace and Intelligence behave and look like one CarUp product.
 
 ---
