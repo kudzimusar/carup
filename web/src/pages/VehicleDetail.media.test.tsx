@@ -326,16 +326,13 @@ function serveListingMedia(media: unknown[] | undefined) {
 }
 
 /** The marketplace detail did NOT resolve — so `listing_images` was never consulted. */
-let sellerPreviewMode = false
-
 function serveNoListingRead() {
-  sellerPreviewMode = true
   fetchMarketplaceListingDetail.mockRejectedValue(new Error('not a public marketplace listing'))
 }
 
 function renderDetail() {
   return render(
-    <MemoryRouter initialEntries={[`/marketplace/${VIN}${sellerPreviewMode ? '?mode=seller_preview' : ''}`]}>
+    <MemoryRouter initialEntries={[`/marketplace/${VIN}`]}>
       <Routes>
         <Route path="/marketplace/:id" element={<VehicleDetail />} />
       </Routes>
@@ -355,7 +352,6 @@ async function renderSettled() {
 
 beforeEach(() => {
   vi.clearAllMocks()
-  sellerPreviewMode = false
   fetchOwnedVehicles.mockResolvedValue([{ vin: VIN }])
   servePassport(passportFixture({ evidenceVault: [] }))
   fetchVehicle.mockResolvedValue((passportFixture() as { vehicle: unknown }).vehicle)
