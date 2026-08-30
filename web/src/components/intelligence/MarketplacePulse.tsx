@@ -103,44 +103,75 @@ export default function MarketplacePulse({ windowDays = 7 }: { windowDays?: 7 | 
 
   const asOf = formatAsOf(payload?.as_of)
   const coverage = coverageNote(payload)
+  const measured = PULSE_METRICS
+    .map(item => ({ ...item, metric: payload?.metrics?.[item.key] }))
+    .filter(item => hasValue(item.metric))
+  const maxMeasured = measured.reduce((max, item) => Math.max(max, Number(item.metric?.value || 0)), 0)
 
   return (
-    <section className="rounded-xl border bg-white p-5" data-testid="marketplace-pulse">
-      <div className="flex items-center justify-between">
-        <h3 className="flex items-center gap-2 text-sm font-semibold text-gray-700">
-          <TrendingUp className="h-4 w-4 text-blue-600" aria-hidden="true" />
-          Marketplace Pulse
-        </h3>
-        <span className="text-xs text-gray-500">Last {payload?.window_days ?? windowDays} days</span>
+    <section className="border-y border-slate-200 bg-white py-6" data-testid="marketplace-pulse">
+      <div className="flex flex-wrap items-end justify-between gap-3">
+        <div>
+          <h3 className="flex items-center gap-2 text-xl font-black tracking-[-0.03em] text-slate-950">
+            <TrendingUp className="h-5 w-5 text-orange-500" aria-hidden="true" />
+            Marketplace Pulse
+          </h3>
+          <p className="mt-1 text-xs text-slate-500">Measured buyer activity · last {payload?.window_days ?? windowDays} days</p>
+        </div>
+        {asOf && <span className="text-[11px] font-semibold text-slate-400" data-testid="pulse-as-of">As of {asOf}</span>}
       </div>
 
-      <dl className="mt-4 grid grid-cols-2 gap-4 sm:grid-cols-4">
+      <dl className="mt-6 grid gap-px bg-slate-200 sm:grid-cols-2 xl:grid-cols-4">
         {PULSE_METRICS.map(({ key, label }) => {
           const metric = payload?.metrics?.[key]
           const qualifier = metricQualifier(metric)
           return (
-            <div key={key} data-testid={`pulse-${key}`}>
+            <div key={key} className="bg-white p-4" data-testid={`pulse-${key}`}>
+              <dt className="text-[10px] font-black uppercase tracking-[0.15em] text-slate-400">{label}</dt>
               <dd
-                className={hasValue(metric) ? 'text-2xl font-semibold text-gray-900' : 'text-sm italic text-gray-500'}
+                className={hasValue(metric) ? 'mt-2 text-3xl font-black tracking-[-0.04em] text-slate-950' : 'mt-2 text-sm font-semibold text-slate-500'}
                 data-testid={`pulse-${key}-value`}
               >
                 {displayMetric(metric)}
               </dd>
-              <dt className="mt-0.5 text-xs text-gray-600">{label}</dt>
-              {qualifier && <p className="mt-0.5 text-[11px] text-gray-400">{qualifier}</p>}
+              {qualifier && <p className="mt-1 text-[11px] text-slate-400">{qualifier}</p>}
             </div>
           )
         })}
       </dl>
 
-      {/* Provenance, not decoration: an owner can see how fresh the figures are
-          and how much of the window was actually measured. */}
-      <div className="mt-4 space-y-1 border-t pt-3 text-[11px] text-gray-400">
-        {asOf && <p data-testid="pulse-as-of">As of {asOf}</p>}
-        {coverage && <p data-testid="pulse-coverage">{coverage}</p>}
-        {payload?.calculation_version && (
-          <p data-testid="pulse-calc-version">Calculation {payload.calculation_version}</p>
+      <div className="mt-7" data-testid="marketplace-pulse-visual">
+        <div className="flex items-end justify-between gap-4">
+          <div>
+            <p className="text-[10px] font-black uppercase tracking-[0.15em] text-slate-400">Activity comparison</p>
+            <p className="mt-1 text-xs text-slate-500">Bar lengths compare only measured counts in this period. They are not conversion rates.</p>
+          </div>
+        </div>
+        {measured.length > 0 && maxMeasured > 0 ? (
+          <div className="mt-4 space-y-3">
+            {measured.map(({ key, label, metric }) => (
+              <div key={key} className="grid grid-cols-[80px_minmax(0,1fr)_auto] items-center gap-3">
+                <span className="text-xs font-bold text-slate-600">{label}</span>
+                <div className="h-3 overflow-hidden bg-slate-100" aria-hidden="true">
+                  <div
+                    className="h-full bg-slate-950"
+                    style={{ width: `${Math.max(3, (Number(metric?.value || 0) / maxMeasured) * 100)}%` }}
+                  />
+                </div>
+                <span className="min-w-10 text-right text-xs font-black tabular-nums text-slate-950">{displayMetric(metric)}</span>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <div className="mt-4 border-l-2 border-slate-300 pl-4 text-sm text-slate-500">
+            No measured counts are available for a comparative visual in this period.
+          </div>
         )}
+      </div>
+
+      <div className="mt-5 space-y-1 border-t border-slate-200 pt-4 text-[11px] text-slate-400">
+        {coverage && <p data-testid="pulse-coverage">{coverage}</p>}
+        {payload?.calculation_version && <p data-testid="pulse-calc-version">Calculation {payload.calculation_version}</p>}
       </div>
     </section>
   )
