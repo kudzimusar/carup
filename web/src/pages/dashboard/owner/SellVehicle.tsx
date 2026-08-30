@@ -833,7 +833,7 @@ export default function SellVehicle() {
 
             {validateVin(form.vin) && (
               <Button asChild variant="outline" className="mt-6 min-h-11 rounded-none border-white/25 bg-transparent text-white hover:bg-white/10 hover:text-white">
-                <Link to={`/marketplace/${encodeURIComponent(form.vin)}`} data-testid="seller-buyer-preview">
+                <Link to={`/marketplace/${encodeURIComponent(form.vin)}?mode=seller_preview`} data-testid="seller-buyer-preview">
                   <Eye className="mr-2 h-4 w-4" /> Buyer Preview — not public
                 </Link>
               </Button>
