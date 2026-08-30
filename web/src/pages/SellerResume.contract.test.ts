@@ -40,6 +40,26 @@ describe('Seller resume continuity', () => {
     expect(garage).toContain("if (vehicle.publication_status === 'published')")
   })
 
+  it('never reports a newer server-draft revision saved from an older autosave receipt', () => {
+    expect(seller).toContain('const serverAutosaveRevision = useRef(0)')
+    expect(seller).toContain('serverAutosaveRevision.current += 1')
+    expect(seller).toContain("setServerAutosaveState('idle')")
+    expect(seller).toContain('if (revision !== serverAutosaveRevision.current) return')
+    expect(seller).toContain('autosaveReceiptMatches(payload, result.draft)')
+    expect(seller).toContain("setServerAutosaveState('saved')")
+  })
+
+  it('requires the server to echo the exact persisted Seller draft before showing saved', () => {
+    expect(seller).toContain('if (!receipt) return false')
+    expect(seller).toContain("['description', 'description']")
+    expect(seller).toContain("['location', 'location']")
+    expect(seller).toContain("['province', 'province']")
+    expect(seller).toContain("['location_visibility', 'location_visibility']")
+    expect(seller).toContain("Object.prototype.hasOwnProperty.call(payload, 'features')")
+    expect(seller).toContain("Object.prototype.hasOwnProperty.call(payload, 'price')")
+    expect(seller).toContain("Object.prototype.hasOwnProperty.call(payload, 'public_seller_display_enabled')")
+  })
+
   it('does not silently drop a selected photo gallery', () => {
     expect(seller).toContain('CarUp did not confirm every selected photo upload.')
     expect(seller).toContain('images_recorded_count')
