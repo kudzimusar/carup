@@ -1204,7 +1204,7 @@ async function readListingImages(supabaseClient, vins) {
   try {
     const { data, error } = await supabaseClient
       .from('listing_images')
-      .select('id, vin, image_url, is_primary, display_order')
+      .select('id, vin, image_url, is_primary, display_order, photo_label')
       .in('vin', vins)
       .order('display_order', { ascending: true });
     if (error) throw error;
