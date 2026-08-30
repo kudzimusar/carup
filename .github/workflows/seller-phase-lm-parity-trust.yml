@@ -53,6 +53,9 @@ jobs:
         run: |
           node --test \
             backend/tests/seller-reconciliation-privacy.test.js \
+            backend/tests/seller-location-province-only.test.js \
+            backend/tests/seller-consent-controls.test.js \
+            backend/tests/seller-cross-surface-convergence.test.js \
             backend/tests/issue164-phase3-trust-authority.test.js \
             backend/tests/marketplace-listing-summary.test.js
 
