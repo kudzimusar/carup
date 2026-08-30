@@ -20,6 +20,7 @@ import type {
   EvidenceSource,
 } from '@/types'
 import EvidenceUploadModal from '@/components/EvidenceUploadModal'
+import { WorkspaceHeader } from '@/components/dashboard/WorkspaceHeader'
 import VehicleLifeStageTimeline from '@/components/VehicleLifeStageTimeline'
 import { ListingImage } from '@/components/marketplace/ListingImage'
 import { primaryListingImageUrl } from '@/lib/listingMedia'
@@ -110,6 +111,8 @@ export default function VehicleProfile() {
   const [evidenceList, setEvidenceList] = useState<VehicleEvidence[]>([])
   const [evidenceLoadState, setEvidenceLoadState] = useState<'loading' | 'ready' | 'error'>('loading')
   const [isUploadModalOpen, setIsUploadModalOpen] = useState(() => searchParams.get('upload') === '1')
+  const requestedTab = searchParams.get('tab')
+  const [activeTab, setActiveTab] = useState(() => requestedTab === 'evidence' ? 'evidence' : 'documents')
 
   // Deep-link support: /dashboard/garage/<vin>?upload=1 (e.g. from the completeness panel's
   // "Upload documents" action) opens the evidence upload modal on arrival — via the modal
@@ -334,20 +337,29 @@ export default function VehicleProfile() {
     : (TRUST_STATE_DETAIL[trustState] ?? TRUST_STATE_DETAIL.unavailable)
 
   return (
-    <main className="space-y-6 max-w-7xl mx-auto px-3 sm:px-0" aria-labelledby="vehicle-passport-title">
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <Button variant="ghost" size="sm" className="gap-1" asChild>
-          <Link to="/dashboard/garage"><ArrowLeft className="w-4 h-4" /> Back to Garage</Link>
-        </Button>
-        <div className="flex flex-wrap gap-2">
-          <Button size="sm" variant="outline" asChild>
-            <Link to={`/dashboard/sell-vehicle?vin=${encodeURIComponent(vehicle.vin)}`}>Edit / continue listing</Link>
-          </Button>
-          <Button size="sm" className="bg-orange-500 hover:bg-orange-600" asChild>
-            <Link to="/dashboard/listings">Listing &amp; Marketplace</Link>
-          </Button>
-        </div>
-      </div>
+    <main className="mx-auto max-w-[1440px] space-y-8 px-3 sm:px-0" aria-labelledby="vehicle-passport-title">
+      <WorkspaceHeader
+        eyebrow="Vehicle Passport"
+        title={[vehicle.year, vehicle.make, vehicle.model].filter(Boolean).join(' ') || 'Vehicle identity'}
+        subtitle="Listing, evidence, service and ownership activity stay attached to this durable vehicle identity."
+        backHref="/dashboard/garage"
+        backLabel="Back to My Garage"
+        breadcrumbs={[
+          { label: 'Seller home', href: '/dashboard' },
+          { label: 'My Garage', href: '/dashboard/garage' },
+          { label: [vehicle.year, vehicle.make, vehicle.model].filter(Boolean).join(' ') || vehicle.vin },
+        ]}
+        action={(
+          <div className="flex flex-wrap gap-2">
+            <Button size="sm" variant="outline" className="min-h-11 rounded-none" asChild>
+              <Link to={`/dashboard/sell-vehicle?vin=${encodeURIComponent(vehicle.vin)}`}>Edit / continue listing</Link>
+            </Button>
+            <Button size="sm" className="min-h-11 rounded-none bg-orange-500 hover:bg-orange-600" asChild>
+              <Link to="/dashboard/listings">Listing &amp; Marketplace</Link>
+            </Button>
+          </div>
+        )}
+      />
 
       <div className="grid lg:grid-cols-3 gap-6">
         {/* Main */}
@@ -469,7 +481,17 @@ export default function VehicleProfile() {
             </Card>
           )}
 
-          <Tabs defaultValue="documents" className="w-full">
+          <Tabs
+            value={activeTab}
+            onValueChange={(value) => {
+              setActiveTab(value)
+              const next = new URLSearchParams(searchParams)
+              if (value === 'documents') next.delete('tab')
+              else next.set('tab', value)
+              setSearchParams(next, { replace: true })
+            }}
+            className="w-full"
+          >
             <TabsList className="grid h-auto w-full grid-cols-2 gap-1 sm:grid-cols-3 lg:grid-cols-5">
               <TabsTrigger value="documents" className="min-h-11 px-2 text-xs sm:text-sm">Documents</TabsTrigger>
               <TabsTrigger value="service" className="min-h-11 px-2 text-xs sm:text-sm">Service History</TabsTrigger>
