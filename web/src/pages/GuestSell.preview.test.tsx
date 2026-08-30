@@ -59,6 +59,7 @@ describe('S6 guest buyer preview', () => {
     })) {
       fireEvent.change(screen.getByTestId(testId), { target: { value } })
     }
+    await waitFor(() => expect(screen.getByTestId('sell-vin-no-carup-record')).toBeTruthy(), { timeout: 3000 })
     fireEvent.click(screen.getByRole('button', { name: /continue/i }))
     await waitFor(() => expect(screen.getByTestId('guest-sell-listing-step')).toBeTruthy())
   })

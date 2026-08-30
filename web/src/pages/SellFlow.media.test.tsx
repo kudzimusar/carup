@@ -58,6 +58,12 @@ const PHOTOS = [
   'data:image/png;base64,interior',
 ]
 
+const PERSISTED_PHOTOS = [
+  'https://media.example.test/listings/front.png',
+  'https://media.example.test/listings/rear.png',
+  'https://media.example.test/listings/interior.png',
+]
+
 /** A complete draft plus photos, so the media step is reachable without driving Radix selects. */
 function seedDraft(images: string[]) {
   sessionStorage.setItem('carup_guest_sell_draft_v1', JSON.stringify({
@@ -98,10 +104,22 @@ beforeEach(() => {
   cleanup()
   sessionStorage.clear()
   lookupVehiclePassport.mockRejectedValue(new Error('404 VIN not found'))
-  // Echoes the order it was handed, as the real endpoint does: it maps each submitted image to a
-  // URL in sequence. A mock returning a fixed array would silently defeat any ordering assertion.
-  uploadVehicleImages.mockImplementation(async (_vin: string, images: string[]) => ({ urls: images }))
-  createVehicleListing.mockResolvedValue({ vin: 'JTDKARFP0H3000731' })
+  // The real upload endpoint replaces browser-local data URLs with durable HTTP URLs while
+  // preserving order. Returning data: URLs here would model a server contract production now
+  // deliberately rejects and would make the test stop before createVehicleListing.
+  uploadVehicleImages.mockImplementation(async (_vin: string, images: string[]) => ({
+    urls: images.map((image) => {
+      const sourceIndex = PHOTOS.indexOf(image)
+      if (sourceIndex < 0) throw new Error(`unexpected image fixture: ${image}`)
+      return PERSISTED_PHOTOS[sourceIndex]
+    }),
+  }))
+  createVehicleListing.mockImplementation(async (payload: { images?: unknown[] }) => ({
+    vin: 'JTDKARFP0H3000731',
+    images_recorded: true,
+    images_recorded_count: payload.images?.length || 0,
+    images_unpublishable_count: 0,
+  }))
 })
 
 describe('S4 seller-chosen cover photo', () => {
@@ -145,7 +163,7 @@ describe('S4 seller-chosen cover photo', () => {
     // exactly one entry may carry it — and it must be the one the seller picked.
     const claimants = images.filter((entry: unknown) => typeof entry === 'object' && entry !== null && (entry as { is_primary?: unknown }).is_primary === true)
     expect(claimants).toHaveLength(1)
-    expect(images[1]).toEqual({ url: PHOTOS[1], is_primary: true })
+    expect(images[1]).toEqual({ url: PERSISTED_PHOTOS[1], is_primary: true })
     // Unchosen photos stay bare URLs — a string claims nothing.
     expect(typeof images[0]).toBe('string')
     expect(typeof images[2]).toBe('string')
@@ -156,7 +174,7 @@ describe('S4 seller-chosen cover photo', () => {
     const images = await submitAndReadImages()
 
     // A question the seller did not answer must not be answered for them on the way out.
-    expect(images).toEqual(PHOTOS)
+    expect(images).toEqual(PERSISTED_PHOTOS)
     expect(images.every((entry: unknown) => typeof entry === 'string')).toBe(true)
   })
 
@@ -181,9 +199,9 @@ describe('S4 seller-chosen cover photo', () => {
 
     const images = await submitAndReadImages()
     // Photo 1 moved ahead of photo 0; stored order is the submitted array order.
-    expect(images[0]).toBe(PHOTOS[1])
-    expect(images[1]).toBe(PHOTOS[0])
-    expect(images[2]).toBe(PHOTOS[2])
+    expect(images[0]).toBe(PERSISTED_PHOTOS[1])
+    expect(images[1]).toBe(PERSISTED_PHOTOS[0])
+    expect(images[2]).toBe(PERSISTED_PHOTOS[2])
   })
 
   it('reordering carries the chosen cover with the photo, not with the position', async () => {
@@ -198,7 +216,7 @@ describe('S4 seller-chosen cover photo', () => {
 
     const images = await submitAndReadImages()
     // The seller's chosen photo is still the primary, at its new position.
-    expect(images[1]).toEqual({ url: PHOTOS[2], is_primary: true })
+    expect(images[1]).toEqual({ url: PERSISTED_PHOTOS[2], is_primary: true })
     expect(typeof images[0]).toBe('string')
     expect(typeof images[2]).toBe('string')
   })
@@ -213,7 +231,7 @@ describe('S4 seller-chosen cover photo', () => {
     await waitFor(() => expect(screen.getByTestId('listing-media-cover-badge-0')).toBeTruthy())
 
     const images = await submitAndReadImages()
-    expect(images[0]).toEqual({ url: PHOTOS[0], is_primary: true })
+    expect(images[0]).toEqual({ url: PERSISTED_PHOTOS[0], is_primary: true })
   })
 
   it('offers no move control past either end', async () => {

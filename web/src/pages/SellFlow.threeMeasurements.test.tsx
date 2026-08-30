@@ -60,6 +60,7 @@ function seedDraft() {
 async function reachSavedState() {
   seedDraft()
   render(<MemoryRouter><SellVehicle /></MemoryRouter>)
+  await waitFor(() => expect(screen.getByTestId('sell-vin-no-carup-record')).toBeTruthy(), { timeout: 3000 })
   fireEvent.click(screen.getByRole('button', { name: /next/i }))
   await waitFor(() => expect(screen.getByTestId('seller-privacy-controls')).toBeTruthy())
   fireEvent.click(screen.getByRole('button', { name: /next/i }))

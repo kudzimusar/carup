@@ -40,6 +40,8 @@ on:
       - 'web/src/data/vehicleTaxonomy.ts'
       - 'web/src/data/vehicleTaxonomy.test.ts'
       - 'web/src/lib/guestSellDraft.ts'
+      - 'web/preview-backend-pairing.json'
+      - 'web/preview-frontend-pairing.json'
       - 'web/src/lib/marketplace*.ts'
       - 'web/src/lib/marketplace*.test.ts'
       - 'web/e2e/marketplace-*.spec.ts'
@@ -76,6 +78,33 @@ jobs:
 
       - name: Assert exact candidate checkout
         run: test "$(git rev-parse HEAD)" = "$EXPECTED_HEAD_SHA"
+
+      - name: Resolve exact-head preview pair
+        env:
+          CANDIDATE_BRANCH: ${{ github.event.pull_request.head.ref || github.ref_name }}
+        run: |
+          node <<'NODE'
+          const fs = require('fs');
+
+          const branch = process.env.CANDIDATE_BRANCH;
+          const backendPairs = JSON.parse(fs.readFileSync('web/preview-backend-pairing.json', 'utf8')).branches || {};
+          const frontendPairs = JSON.parse(fs.readFileSync('web/preview-frontend-pairing.json', 'utf8')).branches || {};
+          const frontend = frontendPairs[branch];
+          const backend = backendPairs[branch];
+
+          if (!frontend || !backend) {
+            console.error(JSON.stringify({
+              error: 'candidate preview pair is not governed',
+              branch,
+              frontend_configured: Boolean(frontend),
+              backend_configured: Boolean(backend),
+            }));
+            process.exit(1);
+          }
+
+          fs.appendFileSync(process.env.GITHUB_ENV, `STAGING_FRONTEND_URL=${frontend}\nSTAGING_BACKEND_URL=${backend}\n`);
+          console.log(JSON.stringify({ branch, frontend, backend }));
+          NODE
 
       - name: Setup Node.js 20
         uses: actions/setup-node@v4
