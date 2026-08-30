@@ -187,9 +187,9 @@ Required rows:
 
 ## 3A. Garage / Evidence Vault
 
-- [ ] My Garage and Evidence Vault have distinct navigation intents and distinct destinations, or Evidence Vault is intentionally nested and removed as a duplicate top-level entry.
-- [ ] Only one sidebar entry is active for a given destination.
-- [ ] Evidence Vault can be reached directly and from a vehicle context.
+- [x] My Garage and Evidence Vault have distinct navigation intents and distinct destinations. Evidence Vault now uses `/dashboard/evidence` (`e98ca7a468cf81aa4923e2a10f7c89b80bbc430b`).
+- [~] Only one sidebar entry is active for a given destination. Duplicate route removed and nested-route active logic added at `68006c247c4e56dc408f5e13e5a63276ccde3025`; runtime/mobile proof pending.
+- [x] Evidence Vault can be reached directly at `/dashboard/evidence`; vehicle rows link into governed Passport evidence/upload contexts (`370936aee949fe824dfda154e66753791368e745`).
 
 ## 3B. Shared authenticated workspace orientation
 
@@ -201,7 +201,7 @@ Every Seller/Owner route must answer “Where am I?”, “How do I go back/up?�
 - [ ] vehicle profile orientation
 - [ ] My Listings orientation
 - [ ] Seller Studio orientation
-- [ ] Evidence Vault orientation
+- [x] Evidence Vault orientation — dedicated workspace header, Seller/Owner Home back link, vehicle identity and one primary Upload action.
 - [ ] Communications orientation
 - [ ] Intelligence orientation
 - [ ] stable mobile drawer/back behavior
@@ -750,7 +750,7 @@ This section must be updated after **every** cleared task.
 | 0 Baseline + parity | [~] | Parity matrix committed at `b25a89dc690d17d9e253ae4358edec64eea6532b`; baseline screenshots still pending | |
 | 1 UAT/harness integrity | [~] | Harness cleanup/media hardening `bd5910c6ce26e609e2038c82537b727710cadb0e`; governed preview pair `acb2a04bc59b7f93f9e6940640c7eca2b766c06e`; count semantics `857c1e8fd6e44806d92ac52e692af16e66bf037d` | Staging run evidence pending on current head |
 | 2 Account continuity | [ ] | | |
-| 3 Navigation | [ ] | | |
+| 3 Navigation | [~] | Distinct Evidence Vault `370936aee949fe824dfda154e66753791368e745` / registry `e98ca7a468cf81aa4923e2a10f7c89b80bbc430b`; nested active nav `68006c247c4e56dc408f5e13e5a63276ccde3025` | Shared orientation and runtime/mobile proof still pending |
 | 4 Sell intent | [ ] | | |
 | 5 Draft/resume | [ ] | | |
 | 6 Media | [ ] | | |
