@@ -358,7 +358,7 @@ export default function MyListings() {
                     <div className="bg-white px-4 py-4" data-testid={`listing-views-${listing.vin}`}>
                       <p className="text-[10px] font-black uppercase tracking-[0.14em] text-slate-400">Views</p>
                       <p className="mt-2 text-sm font-bold text-slate-800">
-                        {typeof listing.viewCount === 'number' ? `${listing.viewCount} tracked` : 'Not tracked'}
+                        {typeof listing.viewCount === 'number' ? `${listing.viewCount} views` : 'Views not tracked'}
                       </p>
                     </div>
                     <div className="bg-white px-4 py-4" data-testid={`trust-claim-${listing.vin}`}>
@@ -383,7 +383,8 @@ export default function MyListings() {
                     </div>
                   </div>
 
-                  {latest && <p className="mt-4 line-clamp-2 text-xs leading-5 text-slate-600">Latest buyer message: “{latest}”</p>}
+                  <p className="mt-4 text-xs text-slate-500">Listing date not recorded</p>
+                  {latest && <p className="mt-2 line-clamp-2 text-xs leading-5 text-slate-600">Latest buyer message: “{latest}”</p>}
 
                   <div className="mt-6 border-t border-slate-200 pt-5">
                     <p className="text-[10px] font-black uppercase tracking-[0.16em] text-slate-400">Manage this listing</p>
