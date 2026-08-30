@@ -25,6 +25,13 @@ export interface MarketplaceCardTrust {
   confidence?: string | null
   calculation_version?: string | null
   known_limitations?: unknown[] | null
+  evidence_basis?: {
+    governed_facts_total?: number | null
+    governed_facts_substantiated?: number | null
+    governed_facts_adverse?: number | null
+    connected_sources?: number | null
+    unbacked_legacy_claims?: number | null
+  } | null
 }
 
 export interface MarketplaceListingCardModel {
@@ -100,10 +107,21 @@ function TrustPreview({ trust }: { trust?: MarketplaceCardTrust | null }) {
             <div className="flex items-center gap-1.5 text-[9px] font-black uppercase tracking-[0.18em] text-orange-300">
               <ShieldCheck className="h-3.5 w-3.5" /> CarUp Trust lens
             </div>
-            <div className="mt-1 flex items-baseline gap-2">
+            <div className="mt-1 flex flex-wrap items-baseline gap-x-2 gap-y-1">
               <span className="text-lg font-black">{score}<span className="text-xs font-semibold text-slate-400">/100</span></span>
               <span className="text-xs font-semibold text-slate-300">{titleCase(trust?.band) || 'Evaluated'}</span>
             </div>
+            {trust?.evidence_basis && (
+              <p className="mt-1.5 text-[10px] leading-4 text-slate-400" data-testid="marketplace-card-trust-basis">
+                {typeof trust.evidence_basis.governed_facts_substantiated === 'number'
+                  ? `${trust.evidence_basis.governed_facts_substantiated} substantiated governed ${trust.evidence_basis.governed_facts_substantiated === 1 ? 'fact' : 'facts'}`
+                  : 'Substantiated fact count not available'}
+                {' · '}
+                {typeof trust.evidence_basis.connected_sources === 'number'
+                  ? `${trust.evidence_basis.connected_sources} connected authoritative ${trust.evidence_basis.connected_sources === 1 ? 'source' : 'sources'}`
+                  : 'Source count not available'}
+              </p>
+            )}
           </div>
           {trust?.confidence && (
             <div className="border-l border-white/10 pl-4 text-right">
