@@ -8,7 +8,7 @@ import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } f
 import { useAuth } from '@/context/AuthContext'
 import { zimbabweLocations, zimbabweProvinces } from '@/data/mockData'
 import { BODY_STYLES, DRIVETRAINS, FUEL_TYPES, SELLER_CONDITIONS, TRANSMISSIONS, VEHICLE_COLORS, VEHICLE_MAKES, isValidVehicleYear, modelsForMake } from '@/data/vehicleTaxonomy'
-import { readGuestSellDraft, readGuestSellDraftWithMedia, readGuestSellStep, saveGuestSellDraft, saveGuestSellStep } from '@/lib/guestSellDraft'
+import { createSellerSubmissionId, readGuestSellDraft, readGuestSellDraftWithMedia, readGuestSellStep, saveGuestSellDraft, saveGuestSellStep } from '@/lib/guestSellDraft'
 import { LISTING_IMAGE_LIMIT, screenListingImages } from '@/lib/listingMediaIntake'
 import { MarketplaceListingCard } from '@/components/marketplace/MarketplaceListingCard'
 import { sellerDiscoverabilityFacets, sellerDraftToCardModel } from '@/lib/sellerListingPreview'
@@ -58,6 +58,7 @@ function ListChecksIcon({ className = '' }: { className?: string }) {
 }
 
 const INITIAL = {
+  submissionId: '',
   make: '', model: '', year: '', vin: '', color: '',
   mileage: '', condition: '', category: '', fuelType: '', transmission: '', drivetrain: '',
   location: '', province: '', price: '', currency: '', description: '',
@@ -69,6 +70,17 @@ const INITIAL = {
 }
 
 type GuestForm = typeof INITIAL
+
+function freshGuestForm(): GuestForm {
+  return {
+    ...INITIAL,
+    submissionId: createSellerSubmissionId(),
+    features: [],
+    images: [],
+    imageLabels: [],
+    historyPlan: {},
+  }
+}
 
 function validVin(vin: string) {
   return /^[A-HJ-NPR-Z0-9]{17}$/i.test(vin)
@@ -82,6 +94,7 @@ export default function GuestSell() {
   const [step, setStep] = useState(() => readGuestSellStep())
   const [form, setForm] = useState<GuestForm>(() => initialDraft ? ({
     ...INITIAL,
+    submissionId: initialDraft.submissionId,
     make: initialDraft.make,
     model: initialDraft.model,
     year: initialDraft.year,
@@ -109,7 +122,7 @@ export default function GuestSell() {
     coverImageIndex: initialDraft.coverImageIndex,
     historyPlan: initialDraft.historyPlan,
     existingPassportConfirmed: initialDraft.existingPassportConfirmed,
-  }) : INITIAL)
+  }) : freshGuestForm())
   const [feature, setFeature] = useState('')
   const [errors, setErrors] = useState<Record<string, string>>({})
   const [draftSaved, setDraftSaved] = useState(false)
@@ -335,7 +348,7 @@ export default function GuestSell() {
       // leaving the saved browser draft untouched until this new path itself makes progress; the
       // seller can still return to the chooser and recover the prior draft instead of losing it
       // merely by exploring an option.
-      setForm(INITIAL)
+      setForm(freshGuestForm())
       setStep(0)
       setErrors({})
       setDraftSaved(false)
