@@ -27,6 +27,7 @@ export type ListingMediaItem = {
   url_form: string
   position: number
   is_primary: boolean
+  label?: string | null
 }
 
 export type ListingMediaBlock = {
