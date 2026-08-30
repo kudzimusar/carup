@@ -2842,6 +2842,151 @@ app.post('/api/vehicles/add', authorizeRole(['dealer', 'owner', 'admin']), async
   }
 });
 
+// --- SELLER DRAFT AUTOSAVE: commercial/privacy fields only; Passport identity is immutable here ---
+app.patch('/api/vehicles/:vin/seller-draft', authorizeRole(['owner', 'dealer', 'admin']), async (req, res) => {
+  const vin = String(req.params.vin || '').trim().toUpperCase();
+  if (!vin) return res.status(400).json({ error: 'VIN is required' });
+
+  try {
+    const { data: existing, error: readError } = await supabase
+      .from('vehicles')
+      .select('vin, owner_id, current_seller_id, tenant_id, publication_status, status')
+      .eq('vin', vin)
+      .maybeSingle();
+    if (readError) throw readError;
+    if (!existing) return res.status(404).json({ error: 'Vehicle not found' });
+
+    const isAdmin = req.userContext.role === 'admin';
+    const isActorSeller = existing.owner_id === req.userContext.id
+      || existing.current_seller_id === req.userContext.id;
+    const isActorTenant = Boolean(
+      existing.tenant_id
+      && req.userContext.tenantId
+      && existing.tenant_id === req.userContext.tenantId
+    );
+    if (!isAdmin && !isActorSeller && !isActorTenant) {
+      return res.status(403).json({ error: 'Seller draft is outside your vehicle scope' });
+    }
+
+    const publication = String(existing.publication_status || '').toLowerCase();
+    const lifecycle = String(existing.status || '').toLowerCase();
+    if (!['draft', 'publishable'].includes(publication) || lifecycle === 'sold') {
+      return res.status(409).json({
+        error: 'Only an unpublished active Seller draft can be autosaved',
+        publication_status: existing.publication_status ?? null,
+        status: existing.status ?? null,
+      });
+    }
+
+    const body = req.body || {};
+    const has = (key) => Object.prototype.hasOwnProperty.call(body, key);
+    const patch = {};
+    const source = submittedClaimSource(req.userContext);
+    const now = new Date().toISOString();
+
+    // Seller-commercial assertions only. These are intentionally the same fields the existing-
+    // Passport branch of /vehicles/add is allowed to refresh; VIN identity/spec authority is not
+    // duplicated by autosave.
+    let sellerCommercialTouched = false;
+    if (has('description')) {
+      patch.seller_description = submittedText(body.description);
+      sellerCommercialTouched = true;
+    }
+    if (has('features')) {
+      patch.seller_features = Array.isArray(body.features)
+        ? Array.from(new Set(body.features.map(value => submittedText(value)).filter(Boolean))).slice(0, 50)
+        : null;
+      sellerCommercialTouched = true;
+    }
+    if (has('body_style')) {
+      patch.body_style = submittedText(body.body_style);
+      sellerCommercialTouched = true;
+    }
+    if (has('seller_stated_condition')) {
+      patch.seller_stated_condition = submittedText(body.seller_stated_condition);
+      sellerCommercialTouched = true;
+    }
+    if (sellerCommercialTouched) {
+      patch.seller_listing_claim_source = source;
+      patch.seller_listing_recorded_at = now;
+    }
+
+    if (has('price')) {
+      const price = Number(body.price);
+      if (!Number.isFinite(price) || price <= 0) {
+        return res.status(400).json({ error: 'price must be a positive number when autosaved' });
+      }
+      patch.price = price;
+    }
+    if (has('currency')) {
+      const currency = submittedText(body.currency);
+      if (currency === null) return res.status(400).json({ error: 'currency cannot be blank when autosaved' });
+      patch.currency = currency;
+      patch.currency_source = source;
+    }
+
+    if (has('public_seller_display_enabled')) {
+      // Exact boolean only; string coercion could publish an identity the Seller did not consent to.
+      patch.public_seller_display_enabled = body.public_seller_display_enabled === true;
+    }
+
+    const locationTouched = has('location') || has('province') || has('listing_country') || has('location_visibility');
+    if (locationTouched) {
+      const submittedVisibility = submittedText(body.location_visibility);
+      const visibility = submittedVisibility === CLAIM_VISIBILITY.PUBLIC
+        ? CLAIM_VISIBILITY.PUBLIC
+        : submittedVisibility === CLAIM_VISIBILITY.PROVINCE_ONLY
+          ? CLAIM_VISIBILITY.PROVINCE_ONLY
+          : CLAIM_VISIBILITY.WITHHELD;
+      if (has('location')) patch.listing_city = submittedText(body.location);
+      if (has('province')) patch.listing_province = submittedText(body.province);
+      if (has('listing_country')) patch.listing_country = submittedText(body.listing_country);
+      patch.listing_location_visibility = visibility;
+      patch.listing_location_source = source;
+      patch.listing_location_recorded_at = now;
+    }
+
+    if (Object.keys(patch).length === 0) {
+      return res.status(200).json({ success: true, vin, unchanged: true, publication_status: existing.publication_status });
+    }
+
+    let { data: updated, error: updateError } = await supabase
+      .from('vehicles')
+      .update(patch)
+      .eq('vin', vin)
+      .select('vin, publication_status, price, currency, seller_description, seller_features, body_style, seller_stated_condition, public_seller_display_enabled')
+      .single();
+
+    // Controlled mixed-schema fallback: never turn an unapplied provenance migration into a Seller
+    // outage. Drop only claim columns that the older schema cannot name; the response explicitly
+    // reports that claim provenance was not recorded.
+    let claim_provenance_recorded = true;
+    if (updateError && isMissingListingClaimColumnError(updateError)) {
+      claim_provenance_recorded = false;
+      const legacyPatch = { ...patch };
+      for (const key of LISTING_CLAIM_COLUMNS) delete legacyPatch[key];
+      delete legacyPatch.currency_source;
+      ({ data: updated, error: updateError } = await supabase
+        .from('vehicles')
+        .update(legacyPatch)
+        .eq('vin', vin)
+        .select('vin, publication_status, price, currency, seller_description, seller_features, body_style, seller_stated_condition, public_seller_display_enabled')
+        .single());
+    }
+    if (updateError) throw updateError;
+
+    res.json({
+      success: true,
+      vin,
+      publication_status: updated?.publication_status ?? existing.publication_status,
+      claim_provenance_recorded,
+      draft: updated || null,
+    });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
 // --- VEHICLE COMPLETENESS: Publication readiness evaluation ---
 // Scope rule mirrors loadScopedVehicle (vehiclesRoutes): the requirement matrix
 // exposes identity-document state, so a non-admin/non-reviewer may only read a
