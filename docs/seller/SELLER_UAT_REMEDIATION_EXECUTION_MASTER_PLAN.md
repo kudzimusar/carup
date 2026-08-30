@@ -120,11 +120,11 @@ This table is the mandatory roll call against the earlier `SELLER_MARKETPLACE_CO
 
 **Goal:** establish one trustworthy baseline and prevent further contamination before product changes.
 
-- [ ] **A1. Freeze current candidate for forensic baseline.** Record exact frontend SHA, backend SHA, staging project, PR #194 head, and current Marketplace public inventory count.
+- [x] **A1. Freeze current candidate for forensic baseline.** Record exact frontend SHA, backend SHA, staging project, PR #194 head, and current Marketplace public inventory count.
   - Acceptance: provenance values recorded here; no mutation required.
-  - Evidence: `TBD`.
+  - **Evidence:** forensic baseline frozen on pre-remediation exact head `106f76509ae1d1d10a3c4a26b4f93f7993d55027`. Frontend `dpl_758ugDwdTKYNQuUyCcXWeg5XeR6E` READY; `/carup-provenance.json` reports the exact SHA, branch `integration/vehicle-passport-v16-cert`, paired backend, `unpaired=false`. Backend `dpl_2exP3xuQNVZk7eNFqq2FX85BqvjM` READY; `/api/health` reports the same exact SHA, Supabase healthy, outbox backlog 0. `GET /api/marketplace/listings` returned `total=9` published listings on 2026-08-30. No runtime/data mutation was used to collect this evidence.
 
-- [ ] **A2. Capture the owner-reported UAT defects as a formal defect ledger.**
+- [x] **A2. Capture the owner-reported UAT defects as a formal defect ledger.**
   - Must include:
     - `buynsellpvtltd@gmail.com` login failure;
     - old verification email not received;
@@ -141,18 +141,18 @@ This table is the mandatory roll call against the earlier `SELLER_MARKETPLACE_CO
     - My Garage / Evidence Vault navigation defect;
     - any other defects found during Phase B parity audit.
   - Acceptance: ledger is finite, uniquely numbered, and cross-linked to tasks below.
-  - Evidence: `TBD`.
+  - **Evidence:** `docs/seller/SELLER_UAT_REMEDIATION_BASELINE_DEFECT_LEDGER.md`, defects `SELL-UAT-001`…`SELL-UAT-020`; commit `9ec6247d0dba2391f10098b6289a5403576835e7`.
 
-- [ ] **A3. Protect the owner UAT specimen.**
+- [x] **A3. Protect the owner UAT specimen.**
   - `UAT20260828SELL01` must remain identifiable and must not be silently deleted, published, overwritten, or converted into automation data.
   - Expected current state: 2021 Toyota Hilux, USD 23,000, `draft`.
   - Acceptance: read-only proof of identity and state.
-  - Evidence: `TBD`.
+  - **Evidence:** read-only exact-head `GET /api/vehicles/UAT20260828SELL01/passport` on baseline `106f765...`: 2021 Toyota Hilux, USD 23,000, 45,000 km, Diesel/Automatic/AWD/Pickup, `publication_status=draft`, listing media `state=none`, canonical Trust `not_evaluated`, Vehicle Passport lifecycle present. The specimen was not mutated.
 
-- [ ] **A4. Protect the owner account under investigation.**
+- [x] **A4. Protect the owner account under investigation.**
   - Do not recreate, delete, reset, or merge `buynsellpvtltd@gmail.com` until account-state diagnosis is complete and the owner approves any credential mutation.
   - Acceptance: account reconciliation procedure documented before mutation.
-  - Evidence: `TBD`.
+  - **Evidence:** protected-account procedure recorded in `docs/seller/SELLER_UAT_REMEDIATION_BASELINE_DEFECT_LEDGER.md` at commit `9ec6247d0dba2391f10098b6289a5403576835e7`: no delete/recreate/merge/reset before Phase D read-only diagnosis; preserve vehicle/listing/ownership relationships; owner approval required for non-self-service credential mutation.
 
 - [x] **A5. Reconcile the old Seller convergence plan against this tracker.**
   - Every Phase 0–13 requirement in `SELLER_MARKETPLACE_CONVERGENCE_IMPLEMENTATION_PLAN.md` maps to at least one task here.
@@ -160,7 +160,8 @@ This table is the mandatory roll call against the earlier `SELLER_MARKETPLACE_CO
   - **Evidence:** §0.6 source-plan coverage map in this tracker; convergence plan cross-link commit `e3b2a9c957389a39a92b4123d48d3806abdebf23`.
 
 ### Phase A roll call
-- [ ] **A-RC. Phase A complete:** A1–A5 all `[x]`; no product behavior changed before baseline capture.
+- [x] **A-RC. Phase A complete:** A1–A5 all `[x]`; no product behavior changed before baseline capture.
+  - **ROLL CALL PASS:** baseline/provenance, finite defect ledger, protected UAT specimen, protected-account procedure, and source-plan mapping are all recorded. Phase A introduced documentation only; no application behavior, staging data, account, configuration, deployment policy, or `main` mutation was used to clear the gate.
 
 ---
 
@@ -1010,7 +1011,7 @@ At creation time, prior automated certification is treated as **historical engin
 
 | Phase | State | Reason |
 |---|---|---|
-| A — Governance reset/baseline | NOT STARTED | tracker created before execution |
+| A — Governance reset/baseline | COMPLETE | A1–A5 and A-RC cleared on frozen baseline `106f765...`; documentation-only evidence |
 | B — Parity audit | NOT STARTED | complete matrix not yet accepted |
 | C — UAT integrity | NOT STARTED | automation leakage confirmed |
 | D — Account continuity | NOT STARTED | owner account unresolved |
