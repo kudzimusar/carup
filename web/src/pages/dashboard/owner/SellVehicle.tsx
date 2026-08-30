@@ -12,7 +12,7 @@ import { zimbabweLocations, zimbabweProvinces } from '@/data/mockData'
 import { useCarUpApi } from '@/hooks/useCarUpApi'
 import { VehicleCompletenessPanel } from '@/components/VehicleCompletenessPanel'
 import { ListingQualityPanel } from '@/components/sell/ListingQualityPanel'
-import { clearGuestSellDraft, readGuestSellDraft, readGuestSellDraftWithMedia, readGuestSellStep, saveGuestSellDraft, saveGuestSellStep } from '@/lib/guestSellDraft'
+import { clearGuestSellDraft, createSellerSubmissionId, readGuestSellDraft, readGuestSellDraftWithMedia, readGuestSellStep, saveGuestSellDraft, saveGuestSellStep } from '@/lib/guestSellDraft'
 import { sellerDiscoverabilityFacets } from '@/lib/sellerListingPreview'
 import { LISTING_IMAGE_LIMIT, screenListingImages } from '@/lib/listingMediaIntake'
 import { VehicleIdentificationNotice } from '@/components/sell/VehicleIdentificationNotice'
@@ -91,6 +91,7 @@ function StepIndicator({ step, total }: { step: number; total: number }) {
 }
 
 const INITIAL = {
+  submissionId: '',
   // S3 consent. Both default to the PRIVATE answer: a seller has to choose to publish, and a
   // seller who never reached this step has not consented to anything.
   locationVisibility: 'withheld', publicSellerDisplay: false,
@@ -116,6 +117,7 @@ export default function SellVehicle() {
   const [step, setStep] = useState(() => readGuestSellStep())
   const [form, setForm] = useState(() => guestDraft ? ({
     ...INITIAL,
+    submissionId: guestDraft.submissionId,
     make: guestDraft.make,
     model: guestDraft.model,
     year: guestDraft.year || INITIAL.year,
@@ -143,7 +145,7 @@ export default function SellVehicle() {
     images: guestDraft.images,
     imageLabels: guestDraft.imageLabels,
     existingPassportConfirmed: guestDraft.existingPassportConfirmed,
-  }) : INITIAL)
+  }) : ({ ...INITIAL, submissionId: createSellerSubmissionId() }))
   const [errors, setErrors] = useState<Record<string, string>>({})
   const [submitting, setSubmitting] = useState(false)
   const [savedVin, setSavedVin] = useState<string | null>(null)
@@ -305,6 +307,7 @@ export default function SellVehicle() {
 
     const timer = window.setTimeout(() => {
       void saveGuestSellDraft({
+        submissionId: form.submissionId,
         make: form.make,
         model: form.model,
         year: form.year,
@@ -557,6 +560,7 @@ export default function SellVehicle() {
       }
 
       const result = await createVehicleListing({
+        client_submission_id: form.submissionId,
         vin: form.vin.toUpperCase(),
         make: form.make,
         model: form.model,
