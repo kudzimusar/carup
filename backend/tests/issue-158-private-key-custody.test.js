@@ -97,6 +97,10 @@ test('Issue #158 protected finalizer erases private material and removes direct 
   assert.match(sql, /superseded caller-clock activation contract is still executable by service_role/);
   assert.match(sql, /terminal ledger uniqueness invariant is absent/);
   assert.match(sql, /uq_blockchain_events_terminal_signer/);
+  assert.match(sql, /durable terminal operation identity migration is absent/);
+  assert.match(sql, /blockchain_events_terminal_operation_id_required/);
+  assert.match(sql, /uq_blockchain_events_signer_operation_id/);
+  assert.match(sql, /terminal ledger row lacks durable operation identity/);
   // The PREPARED window keeps legacy writers alive, so the watermark must be reseeded
   // after the drain and BEFORE anything that makes FINALIZED reachable.
   assert.match(sql, /POST-DRAIN WATERMARK RESEED/);
@@ -254,6 +258,14 @@ test('Issue #158: activation boundary is DB-authoritative, never the caller cloc
   assert.match(terminalSql, /NEW identity on purpose/i);
   assert.match(terminalSql, /CREATE UNIQUE INDEX IF NOT EXISTS uq_blockchain_events_terminal_signer/);
   assert.match(terminalSql, /AT MOST ONE TERMINAL EVENT PER SIGNER/);
+
+  const operationSql = readFileSync('database/migrations/20260830060000_issue158_terminal_operation_identity.sql', 'utf8');
+  assert.match(operationSql, /NEW forward-only migration identity/i);
+  assert.match(operationSql, /ADD COLUMN IF NOT EXISTS operation_id TEXT/);
+  assert.match(operationSql, /legacy-terminal:/);
+  assert.match(operationSql, /blockchain_events_terminal_operation_id_required/);
+  assert.match(operationSql, /CREATE UNIQUE INDEX IF NOT EXISTS uq_blockchain_events_signer_operation_id/);
+  assert.match(operationSql, /split_part\(signature,':',1\), operation_id/);
   // It must be self-sufficient: it re-publishes the activation contract too.
   assert.match(terminalSql, /CREATE OR REPLACE FUNCTION public\.blockchain_activate_public_key_boundary/);
   // Honest operational cost, not a claim that the partial predicate makes it free.
@@ -266,10 +278,15 @@ test('Issue #158: activation boundary is DB-authoritative, never the caller cloc
   const runtimeSrc = readFileSync('backend/services/blockchain/blockchainService.js', 'utf8');
   assert.match(runtimeSrc, /isLedgerUniquenessConflict/);
   assert.match(runtimeSrc, /findIdempotentTerminalEvent/);
+  assert.match(runtimeSrc, /normalizePersistedPayload/);
+  assert.match(runtimeSrc, /operationIdFrom/);
+  assert.match(runtimeSrc, /terminal ledger event requires a durable operation id/);
+  assert.match(runtimeSrc, /distinct durable operation already owns/);
+  assert.match(runtimeSrc, /operation id reuse refused/);
   // Identity must NOT be the event hash: a retry re-reads an advanced tail and so
   // computes a different predecessor, and therefore a different current_hash.
   assert.match(runtimeSrc, /TERMINAL_EVENT_TIMESTAMP/);
-  assert.match(runtimeSrc, /canonicalize/);
+  assert.match(runtimeSrc, /canonicalPersistedPayload/);
   assert.doesNotMatch(runtimeSrc, /findLedgerEventByHash/);
   assert.match(sql, /REVOKE ALL ON FUNCTION public\.blockchain_boundary_parse_ts\(TEXT\)[\s\S]*service_role/);
   assert.match(sql, /WATERMARK RESEED/);
