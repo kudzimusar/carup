@@ -252,8 +252,11 @@ test.describe('Golden Dynamic Seller — exact-head deployed acceptance', () => 
 
     // Drop Seller auth and prove the VIN is genuinely public through the real Marketplace.
     await page.evaluate(() => localStorage.clear());
-    await page.goto('/marketplace');
-    await page.getByTestId('marketplace-search-input').fill(vin);
+    // Drive the shareable Marketplace search contract directly through its governed URL state.
+    // Typing into the command bar is intentionally debounced; using the URL avoids making UAT
+    // timing-sensitive while still exercising the real Marketplace page + backend q filter.
+    await page.goto(`/marketplace?q=${encodeURIComponent(vin)}`);
+    await expect(page.getByTestId('marketplace-results-count')).toContainText('1', { timeout: 20_000 });
     const publicLink = page.locator(`a[href="/marketplace/${vin}"]`).first();
     await expect(publicLink).toBeVisible({ timeout: 20_000 });
     await publicLink.click();
@@ -275,12 +278,17 @@ test.describe('Golden Dynamic Seller — exact-head deployed acceptance', () => 
     expect([200, 201]).toContain(inquiryResponse.status());
     await expect(page.getByTestId('marketplace-inquiry-modal')).toHaveCount(0, { timeout: 15_000 });
 
-    // Return as Seller. The inquiry must surface as a real conversation on My Listings.
+    // Return as Seller. Marketplace inquiry capture is immediate and has its own governed inbox on
+    // My Listings. Communication threads are an asynchronous downstream projection and must not be
+    // confused with the durable inquiry itself.
     await signInViaUi(page, 'buyer');
     await page.goto('/dashboard/listings');
     const sellerCard = page.getByTestId(`my-listing-card-${vin}`);
     await expect(sellerCard).toBeVisible({ timeout: 20_000 });
-    await expect(sellerCard).toContainText(/[1-9]\d* conversations/, { timeout: 20_000 });
+    const inquiryInbox = page.getByTestId('seller-inquiries-card');
+    await expect(inquiryInbox).toBeVisible({ timeout: 20_000 });
+    await expect(inquiryInbox).toContainText(vin, { timeout: 20_000 });
+    await expect(inquiryInbox).toContainText(`Is ${vin} still available for inspection?`, { timeout: 20_000 });
 
     // Seller Intelligence may have measured data OR may truthfully say it is unavailable. Both are
     // valid; rendering fabricated zeroes as a substitute for missing measurement is not.
@@ -302,9 +310,9 @@ test.describe('Golden Dynamic Seller — exact-head deployed acceptance', () => 
 
     // Public Marketplace must no longer expose the retired VIN.
     await page.evaluate(() => localStorage.clear());
-    await page.goto('/marketplace');
-    await page.getByTestId('marketplace-search-input').fill(vin);
-    await expect(page.locator(`a[href="/marketplace/${vin}"]`)).toHaveCount(0, { timeout: 20_000 });
+    await page.goto(`/marketplace?q=${encodeURIComponent(vin)}`);
+    await expect(page.getByTestId('marketplace-results-count')).toContainText('0', { timeout: 20_000 });
+    await expect(page.locator(`a[href="/marketplace/${vin}"]`)).toHaveCount(0);
 
     // Keep these literal identities referenced so accidental fixture drift is caught by review.
     expect(SELLER_EMAIL).toBe('uat.buyer@carup-staging.test');
