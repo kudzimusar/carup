@@ -21,6 +21,12 @@ test.describe('Seller Phase E — deployed navigation and intent', () => {
     test.setTimeout(180_000)
     expect(requireIdentity('buyer'), 'staging owner identity is unavailable').toBe(true)
 
+    // Authenticate once through the real UI, then reuse that exact server-backed session while
+    // changing viewport size. Repeated logins are not part of responsive acceptance and can trip
+    // the staging auth limiter, producing a harness failure unrelated to layout/navigation.
+    await signInViaUi(page, 'buyer')
+    const authenticatedStorage = await page.evaluate(() => Object.entries(localStorage))
+
     for (const viewport of VIEWPORTS) {
       await page.setViewportSize({ width: viewport.width, height: viewport.height })
       await clearIdentity(page)
@@ -32,7 +38,11 @@ test.describe('Seller Phase E — deployed navigation and intent', () => {
       await expect(page.getByTestId('sell-intent-sign-in')).toBeVisible()
       await expect(page.getByTestId('guest-sell-page')).toHaveCount(0)
 
-      await signInViaUi(page, 'buyer')
+      await page.goto('/')
+      await page.evaluate((entries) => {
+        localStorage.clear()
+        for (const [key, value] of entries) localStorage.setItem(key, value)
+      }, authenticatedStorage)
       await page.goto('/sell')
       await expect(page.getByTestId('sell-intent-router')).toBeVisible()
       await expect(page.getByTestId('sell-intent-garage')).toBeVisible()
