@@ -311,6 +311,20 @@ test.describe('Golden Dynamic Seller — exact-head deployed acceptance', () => 
     }
     await expect(page.getByTestId('listing-media-cover-badge-2')).toBeVisible();
 
+    // F: prove an EXISTING account draft autosaves to the server, not merely sessionStorage.
+    // Move to Location & Pricing, change a Seller-commercial field, wait for the real PATCH result,
+    // erase browser recovery state, then reload the exact server draft and require the value back.
+    await page.getByRole('button', { name: /^next$/i }).click();
+    const autosaveDescription = `Golden Dynamic Seller ${RUN_ID}: server autosave survived browser recovery deletion and exact-head reload.`;
+    await page.getByTestId('seller-description-input').fill(autosaveDescription);
+    await expect(page.getByTestId('seller-server-autosave-state'))
+      .toContainText('saved to your account', { timeout: 20_000 });
+    await page.evaluate(() => sessionStorage.clear());
+    await page.reload();
+    await expect(page.getByTestId('seller-server-draft-loaded')).toBeVisible({ timeout: 20_000 });
+    await page.getByRole('button', { name: /^next$/i }).click();
+    await expect(page.getByTestId('seller-description-input')).toHaveValue(autosaveDescription);
+
     // Owner convergence: the same dynamic VIN exists in Garage and My Listings.
     await page.goto('/dashboard/garage');
     await expect(page.getByTestId(`vehicle-row-${vin}`)).toBeVisible({ timeout: 20_000 });
