@@ -129,7 +129,7 @@ jobs:
       - name: Freeze exact candidate bundle
         run: |
           node --input-type=module <<'NODE'
-          const fs = require('fs');
+          import fs from 'node:fs';
           const response = await fetch(process.env.STAGING_WEB_URL, { cache: 'no-store' });
           if (!response.ok) throw new Error(`frontend returned ${response.status}`);
           const html = await response.text();
