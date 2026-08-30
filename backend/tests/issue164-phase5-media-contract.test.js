@@ -1320,7 +1320,10 @@ describe('Phase 5 — the write path records the seller`s media, and invents non
       if (op.action === 'update') return { data: null, error: null };
       const matched = vehicles.filter((row) => Object.entries(op.filters).every(([k, v]) => row[k] === v));
       if (op.single) {
-        return matched.length ? { data: matched[0], error: null } : { data: null, error: { code: 'PGRST116', message: 'no rows' } };
+        if (matched.length) return { data: matched[0], error: null };
+        return op.maybeSingle
+          ? { data: null, error: null }
+          : { data: null, error: { code: 'PGRST116', message: 'no rows' } };
       }
       return { data: matched, error: null, count: matched.length };
     }
@@ -1337,7 +1340,7 @@ describe('Phase 5 — the write path records the seller`s media, and invents non
     const { app } = await import('../server.js');
     const { supabase } = await import('../db/supabase.js');
     supabase.from = (table) => {
-      const op = { table, action: 'select', filters: {}, payload: null, single: false };
+      const op = { table, action: 'select', filters: {}, payload: null, single: false, maybeSingle: false };
       const declared = {
         select() { return proxy; },
         insert(payload) { op.action = 'insert'; op.payload = payload; return proxy; },
@@ -1345,7 +1348,7 @@ describe('Phase 5 — the write path records the seller`s media, and invents non
         update(payload) { op.action = 'update'; op.payload = payload; return proxy; },
         delete() { op.action = 'delete'; return proxy; },
         eq(key, value) { op.filters[key] = value; return proxy; },
-        maybeSingle() { op.single = true; return proxy; },
+        maybeSingle() { op.single = true; op.maybeSingle = true; return proxy; },
         single() { op.single = true; return proxy; },
         then(f, r) { return Promise.resolve(handle(op)).then(f, r); },
       };
