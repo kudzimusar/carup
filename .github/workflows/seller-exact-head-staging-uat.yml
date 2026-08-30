@@ -127,7 +127,7 @@ jobs:
       - name: Install Chromium
         run: npx playwright install --with-deps chromium
 
-      - name: Apply additive Seller photo-label migration to approved staging
+      - name: Apply additive Seller migrations to approved staging
         run: |
           node --input-type=module <<'NODE'
           import fs from 'node:fs'
@@ -137,20 +137,43 @@ jobs:
           if (!dbUrl.includes(process.env.EXPECTED_STAGING_PROJECT_REF)) {
             throw new Error('Refusing Seller migration outside the approved staging project.')
           }
-          const source = fs.readFileSync('database/migrations/20260830123000_seller_listing_photo_labels.sql', 'utf8')
-          const up = source.split('-- +migrate Down')[0].replace('-- +migrate Up', '')
+          const migrationPaths = [
+            'database/migrations/20260830123000_seller_listing_photo_labels.sql',
+            'database/migrations/20260831100000_seller_listing_submission_id.sql',
+          ]
           const cleaned = dbUrl.replace(/([?&])sslmode=[^&]*&?/i, '$1').replace(/[?&]$/, '')
           const client = new pg.Client({ connectionString: cleaned, ssl: { rejectUnauthorized: false } })
           await client.connect()
           try {
             await client.query('BEGIN')
-            await client.query(up)
-            const { rows } = await client.query(`
-              select column_name
-              from information_schema.columns
-              where table_schema='public' and table_name='listing_images' and column_name='photo_label'
+            for (const migrationPath of migrationPaths) {
+              const source = fs.readFileSync(migrationPath, 'utf8')
+              const up = source.split('-- +migrate Down')[0].replace('-- +migrate Up', '')
+              await client.query(up)
+            }
+
+            const columnProof = await client.query(`
+              select table_name, column_name
+                from information_schema.columns
+               where table_schema='public'
+                 and (
+                   (table_name='listing_images' and column_name='photo_label')
+                   or (table_name='vehicles' and column_name='seller_listing_submission_id')
+                 )
+               order by table_name, column_name
             `)
-            if (rows.length !== 1) throw new Error('photo_label migration did not land')
+            if (columnProof.rows.length !== 2) {
+              throw new Error(`Seller additive columns did not land: ${JSON.stringify(columnProof.rows)}`)
+            }
+
+            const indexProof = await client.query(`
+              select indexname
+                from pg_indexes
+               where schemaname='public'
+                 and tablename='vehicles'
+                 and indexname='vehicles_seller_listing_submission_id_unique'
+            `)
+            if (indexProof.rows.length !== 1) throw new Error('Seller submission id unique index did not land')
             await client.query('COMMIT')
           } catch (error) {
             await client.query('ROLLBACK')
