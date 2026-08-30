@@ -294,6 +294,7 @@ async function custodyPreparedDb() {
   await db.exec(up('../../database/migrations/20260829003000_issue158_custody_rollout_upgrade.sql'));
   await db.exec(up('../../database/migrations/20260829020000_issue158_activation_boundary_hardening.sql'));
   await db.exec(up('../../database/migrations/20260829040000_issue158_terminal_event_uniqueness.sql'));
+  await db.exec(up('../../database/migrations/20260830060000_issue158_terminal_operation_identity.sql'));
   return db;
 }
 
@@ -447,7 +448,7 @@ test('Issue #158 finalizer refuses to FINALIZE a database that lacks the boundar
     // caller-clock contracts are already closed to service_role at that point.
     await db.exec(up('../../database/migrations/20260829020000_issue158_activation_boundary_hardening.sql'));
     await db.exec(up('../../database/migrations/20260829040000_issue158_terminal_event_uniqueness.sql'));
-  await db.exec(up('../../database/migrations/20260829040000_issue158_terminal_event_uniqueness.sql'));
+    await db.exec(up('../../database/migrations/20260830060000_issue158_terminal_operation_identity.sql'));
 
     const superseded = await db.query(`
       SELECT p.pronargs,
@@ -551,7 +552,7 @@ test('Issue #158 boundary upgrade never rewinds time behind forward-skewed pre-h
     // THE UPGRADE.
     await db.exec(up('../../database/migrations/20260829020000_issue158_activation_boundary_hardening.sql'));
     await db.exec(up('../../database/migrations/20260829040000_issue158_terminal_event_uniqueness.sql'));
-  await db.exec(up('../../database/migrations/20260829040000_issue158_terminal_event_uniqueness.sql'));
+    await db.exec(up('../../database/migrations/20260830060000_issue158_terminal_operation_identity.sql'));
 
     // 1. The watermark is bootstrapped past every trustworthy historical boundary,
     //    including the ledger event that postdates the key row.
@@ -748,7 +749,7 @@ test('Issue #158 non-finite and unrepresentable legacy timestamps never reach th
     await db.exec(up('../../database/migrations/20260829003000_issue158_custody_rollout_upgrade.sql'));
     await db.exec(up('../../database/migrations/20260829020000_issue158_activation_boundary_hardening.sql'));
     await db.exec(up('../../database/migrations/20260829040000_issue158_terminal_event_uniqueness.sql'));
-  await db.exec(up('../../database/migrations/20260829040000_issue158_terminal_event_uniqueness.sql'));
+    await db.exec(up('../../database/migrations/20260830060000_issue158_terminal_operation_identity.sql'));
 
     // The parser rejects every non-representable form and keeps the valid one.
     const parsed = await db.query(`
@@ -977,11 +978,23 @@ test('Issue #158 finalizer refuses a fresh rollout that lacks the terminal uniqu
     assert.equal(state.rows[0].state, 'PREPARED');
     assert.equal(state.rows[0].finalized_at, null);
 
-    // Applying the terminal migration unblocks the same finalizer.
+    // Applying terminal uniqueness alone is no longer sufficient: durable operation
+    // identity is a separate later invariant and the finalizer must fail closed until it lands.
     await db.exec(up('../../database/migrations/20260829040000_issue158_terminal_event_uniqueness.sql'));
     assert.ok(
       (await db.query(`SELECT to_regclass('public.uq_blockchain_events_terminal_signer') AS ix`)).rows[0].ix,
       'the terminal uniqueness index must exist after the later migration',
+    );
+    await assert.rejects(
+      () => db.exec(readFileSync('database/scripts/issue158_private_key_custody_finalize.sql', 'utf8')),
+      /durable terminal operation identity migration is absent/i,
+    );
+    await db.exec('ROLLBACK');
+
+    await db.exec(up('../../database/migrations/20260830060000_issue158_terminal_operation_identity.sql'));
+    assert.ok(
+      (await db.query(`SELECT to_regclass('public.uq_blockchain_events_signer_operation_id') AS ix`)).rows[0].ix,
+      'the durable signer operation identity index must exist before finalization',
     );
     await db.exec(readFileSync('database/scripts/issue158_private_key_custody_finalize.sql', 'utf8'));
     const finalized = await db.query(
@@ -1175,6 +1188,7 @@ async function legacyMonolithDb() {
   await db.exec(up('../../database/migrations/20260829003000_issue158_custody_rollout_upgrade.sql'));
   await db.exec(up('../../database/migrations/20260829020000_issue158_activation_boundary_hardening.sql'));
   await db.exec(up('../../database/migrations/20260829040000_issue158_terminal_event_uniqueness.sql'));
+  await db.exec(up('../../database/migrations/20260830060000_issue158_terminal_operation_identity.sql'));
   return db;
 }
 

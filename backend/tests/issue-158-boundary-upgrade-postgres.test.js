@@ -270,6 +270,7 @@ async function preparedDbWithLegacyWriter({ keyPem, keyCreatedAt }) {
   await db.exec(up('../../database/migrations/20260829003000_issue158_custody_rollout_upgrade.sql'));
   await db.exec(up('../../database/migrations/20260829020000_issue158_activation_boundary_hardening.sql'));
   await db.exec(up('../../database/migrations/20260829040000_issue158_terminal_event_uniqueness.sql'));
+  await db.exec(up('../../database/migrations/20260830060000_issue158_terminal_operation_identity.sql'));
   return db;
 }
 
@@ -422,7 +423,7 @@ test('Issue #158: a non-finite legacy timestamp cannot brick stakeholder signing
 
     await db.exec(up('../../database/migrations/20260829020000_issue158_activation_boundary_hardening.sql'));
     await db.exec(up('../../database/migrations/20260829040000_issue158_terminal_event_uniqueness.sql'));
-    await db.exec(up('../../database/migrations/20260830010000_issue158_ledger_operation_identity.sql'));
+    await db.exec(up('../../database/migrations/20260830060000_issue158_terminal_operation_identity.sql'));
     await db.query(`SELECT public.blockchain_authorize_custody_generation($1::text)`, [custodyGeneration()]);
 
     // The watermark took the valid value, not the poison.
@@ -485,7 +486,7 @@ test('Issue #158: repeated signing continues near the terminal representable ins
 
     await db.exec(up('../../database/migrations/20260829020000_issue158_activation_boundary_hardening.sql'));
     await db.exec(up('../../database/migrations/20260829040000_issue158_terminal_event_uniqueness.sql'));
-    await db.exec(up('../../database/migrations/20260830010000_issue158_ledger_operation_identity.sql'));
+    await db.exec(up('../../database/migrations/20260830060000_issue158_terminal_operation_identity.sql'));
     await db.query(`SELECT public.blockchain_authorize_custody_generation($1::text)`, [custodyGeneration()]);
 
     // The terminal-day value is preserved as the floor rather than discarded.
@@ -528,8 +529,6 @@ test('Issue #158: a failed ledger write does not permanently consume the termina
 
   const VIN4 = 'VINRESERVE0000001';
   const TERMINAL = '9999-12-31T23:59:59.999Z';
-  // The durable operation identity of the single logical write this test loses and retries.
-  const RESERVE_OP = 'partsentry_log:rv-reserved-1';
   const keyCreatedAt = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
 
   process.env.CARUP_BLOCKCHAIN_KEY_VERSION = 'rv1';
@@ -543,7 +542,7 @@ test('Issue #158: a failed ledger write does not permanently consume the termina
 
     await db.exec(up('../../database/migrations/20260829020000_issue158_activation_boundary_hardening.sql'));
     await db.exec(up('../../database/migrations/20260829040000_issue158_terminal_event_uniqueness.sql'));
-    await db.exec(up('../../database/migrations/20260830010000_issue158_ledger_operation_identity.sql'));
+    await db.exec(up('../../database/migrations/20260830060000_issue158_terminal_operation_identity.sql'));
     await db.query(`SELECT public.blockchain_authorize_custody_generation($1::text)`, [custodyGeneration()]);
 
     // 1. Park the stakeholder one millisecond below the terminal instant.
@@ -554,12 +553,18 @@ test('Issue #158: a failed ledger write does not permanently consume the termina
     `, [SIGNER]);
 
     // 2-3. The first write allocates the terminal boundary, then the ledger insert fails
-    //      AFTER that activation has already committed.
+    //      AFTER that activation has already committed. The business operation id is
+    //      durable outside addEvent and is reused by the caller after the failure.
+    const reservedPayload = { mechanicId: SIGNER, note: 'lost to a transient failure' };
+    const reservedOperationId = 'issue158:terminal-failed-insert:1';
     injected.failNextEventInsert = true;
     await assert.rejects(
       () => addEvent(
-        VIN4, 'Mechanic Inspection', { mechanicId: SIGNER, note: 'lost to a transient failure' },
-        'SYSTEM_SIGNATURE', { operationId: RESERVE_OP },
+        VIN4,
+        'Mechanic Inspection',
+        reservedPayload,
+        'SYSTEM_SIGNATURE',
+        { operationId: reservedOperationId },
       ),
       /ledger event persistence failed/i,
     );
@@ -587,8 +592,11 @@ test('Issue #158: a failed ledger write does not permanently consume the termina
     await db.query(`SELECT public.blockchain_authorize_custody_generation($1::text)`, [custodyGeneration()]);
     await assert.rejects(
       () => addEvent(
-        VIN4, 'Mechanic Inspection', { mechanicId: SIGNER, note: 'rotation must not consume the reservation' },
-        'SYSTEM_SIGNATURE', { operationId: 'partsentry_log:rv-rotation-probe' },
+        VIN4,
+        'Mechanic Inspection',
+        { mechanicId: SIGNER, note: 'rotation must not consume the reservation' },
+        'SYSTEM_SIGNATURE',
+        { operationId: 'issue158:terminal-rotation-refusal' },
       ),
       /exceeds the representable timestamp range/i,
     );
@@ -612,14 +620,15 @@ test('Issue #158: a failed ledger write does not permanently consume the termina
     await db.query(`SELECT public.blockchain_authorize_custody_generation($1::text)`, [custodyGeneration()]);
 
     // 5. The retry recovers: the unpersisted terminal allocation is re-issued.
-    // The SAME durable operation identity as the write whose insert failed. That is what
-    // makes this a retry rather than a new invocation.
     const recovered = await addEvent(
-      VIN4, 'Mechanic Inspection', { mechanicId: SIGNER, note: 'retry after transient failure' },
-      'SYSTEM_SIGNATURE', { operationId: RESERVE_OP },
+      VIN4,
+      'Mechanic Inspection',
+      { ...reservedPayload },
+      'SYSTEM_SIGNATURE',
+      { operationId: reservedOperationId },
     );
-    assert.equal(recovered.operationId, RESERVE_OP);
     assert.equal(recovered.timestamp, TERMINAL, 'the retry must recover the terminal instant');
+    assert.equal(recovered.operationId, reservedOperationId);
     assert.ok(Number.isFinite(Date.parse(recovered.timestamp)));
 
     // 6. The recovered event verifies cryptographically.
@@ -634,10 +643,13 @@ test('Issue #158: a failed ledger write does not permanently consume the termina
     //    lost-response retry can reach conflict classification.
     await assert.rejects(
       () => addEvent(
-        VIN4, 'Mechanic Inspection', { mechanicId: SIGNER, note: 'beyond the representable range' },
-        'SYSTEM_SIGNATURE', { operationId: 'partsentry_log:rv-distinct-operation' },
+        VIN4,
+        'Mechanic Inspection',
+        { mechanicId: SIGNER, note: 'beyond the representable range' },
+        'SYSTEM_SIGNATURE',
+        { operationId: 'issue158:terminal-independent-after-commit' },
       ),
-      /ledger event persistence failed/i,
+      /distinct durable operation/i,
     );
     const afterDenial = await db.query(
       `SELECT count(*)::int AS c FROM blockchain_events WHERE vin=$1`, [VIN4],
@@ -652,8 +664,11 @@ test('Issue #158: a failed ledger write does not permanently consume the termina
     await db.query(`SELECT public.blockchain_authorize_custody_generation($1::text)`, [custodyGeneration()]);
     await assert.rejects(
       () => addEvent(
-        VIN4, 'Mechanic Inspection', { mechanicId: SIGNER, note: 'rotation at saturation' },
-        'SYSTEM_SIGNATURE', { operationId: 'partsentry_log:rv-saturation-rotation' },
+        VIN4,
+        'Mechanic Inspection',
+        { mechanicId: SIGNER, note: 'rotation at saturation' },
+        'SYSTEM_SIGNATURE',
+        { operationId: 'issue158:terminal-rotation-at-saturation' },
       ),
       /exceeds the representable timestamp range/i,
     );
@@ -673,20 +688,24 @@ test('Issue #158: a failed ledger write does not permanently consume the termina
 
 // Drives two terminal activations through the barrier so BOTH complete their boundary
 // allocation before EITHER event is persisted, then releases them together.
-async function terminalRace(db, { payloads, vin, operationIds }) {
+async function terminalRace(db, { attempts, vin }) {
   let release;
   injected.eventInsertsWaiting = 0;
   injected.eventInsertGate = new Promise((resolve) => { release = resolve; });
 
-  const writes = payloads.map((payload, i) => addEvent(
-    vin, 'Mechanic Inspection', payload, 'SYSTEM_SIGNATURE', { operationId: operationIds[i] },
+  const writes = attempts.map(({ payload, operationId }) => addEvent(
+    vin,
+    'Mechanic Inspection',
+    payload,
+    'SYSTEM_SIGNATURE',
+    { operationId },
   ));
 
-  // Wait until both writes have allocated a boundary and are parked at the insert.
-  for (let spin = 0; spin < 2000 && injected.eventInsertsWaiting < payloads.length; spin += 1) {
+  // Wait until all writes have allocated a boundary and are parked at the insert.
+  for (let spin = 0; spin < 2000 && injected.eventInsertsWaiting < attempts.length; spin += 1) {
     await new Promise((resolve) => setImmediate(resolve));
   }
-  const bothAllocated = injected.eventInsertsWaiting === payloads.length;
+  const bothAllocated = injected.eventInsertsWaiting === attempts.length;
 
   release();
   injected.eventInsertGate = null;
@@ -710,30 +729,39 @@ test('Issue #158: competing terminal activations cannot fork the ledger', async 
   const TERMINAL = '9999-12-31T23:59:59.999Z';
   const keyCreatedAt = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
 
-  // The three cases the terminal contract must separate. Content is NOT the identity:
-  // 'independent same-content operations' is the case a content-equality rule got wrong,
-  // acknowledging the loser of a race as though its write had persisted.
   for (const scenario of [
     {
-      name: 'one operation retried concurrently',
-      vin: 'VINRACESAME000001',
-      payloads: [{ mechanicId: SIGNER, note: 'same logical write' }, { mechanicId: SIGNER, note: 'same logical write' }],
-      operationIds: ['partsentry_log:race-retry-1', 'partsentry_log:race-retry-1'],
-      expectIdempotent: true,
+      name: 'same durable operation retry',
+      vin: 'VINRACESAMEOP0001',
+      attempts: [
+        { payload: { mechanicId: SIGNER, note: 'same logical write' }, operationId: 'race:same-op' },
+        { payload: { mechanicId: SIGNER, note: 'same logical write' }, operationId: 'race:same-op' },
+      ],
+      expectedSucceeded: 2,
+      expectedRefused: 0,
+      refusalPattern: null,
     },
     {
-      name: 'independent same-content operations',
-      vin: 'VINRACEIND0000001',
-      payloads: [{ mechanicId: SIGNER, note: 'same logical write' }, { mechanicId: SIGNER, note: 'same logical write' }],
-      operationIds: ['partsentry_log:race-a-1', 'partsentry_log:race-a-2'],
-      expectIdempotent: false,
+      name: 'same-content independent operations',
+      vin: 'VINRACEINDEPEND001',
+      attempts: [
+        { payload: { mechanicId: SIGNER, note: 'same content' }, operationId: 'race:independent:a' },
+        { payload: { mechanicId: SIGNER, note: 'same content' }, operationId: 'race:independent:b' },
+      ],
+      expectedSucceeded: 1,
+      expectedRefused: 1,
+      refusalPattern: /distinct durable operation/i,
     },
     {
-      name: 'distinct payloads',
+      name: 'distinct payload independent operations',
       vin: 'VINRACEDIFF000001',
-      payloads: [{ mechanicId: SIGNER, note: 'write A' }, { mechanicId: SIGNER, note: 'write B' }],
-      operationIds: ['partsentry_log:race-b-1', 'partsentry_log:race-b-2'],
-      expectIdempotent: false,
+      attempts: [
+        { payload: { mechanicId: SIGNER, note: 'write A' }, operationId: 'race:diff:a' },
+        { payload: { mechanicId: SIGNER, note: 'write B' }, operationId: 'race:diff:b' },
+      ],
+      expectedSucceeded: 1,
+      expectedRefused: 1,
+      refusalPattern: /distinct durable operation/i,
     },
   ]) {
     process.env.CARUP_BLOCKCHAIN_KEY_VERSION = 'cv1';
@@ -746,8 +774,7 @@ test('Issue #158: competing terminal activations cannot fork the ledger', async 
 
       await db.exec(up('../../database/migrations/20260829020000_issue158_activation_boundary_hardening.sql'));
       await db.exec(up('../../database/migrations/20260829040000_issue158_terminal_event_uniqueness.sql'));
-      await db.exec(up('../../database/migrations/20260830010000_issue158_ledger_operation_identity.sql'));
-    await db.exec(up('../../database/migrations/20260830010000_issue158_ledger_operation_identity.sql'));
+      await db.exec(up('../../database/migrations/20260830060000_issue158_terminal_operation_identity.sql'));
       await db.query(`SELECT public.blockchain_authorize_custody_generation($1::text)`, [custodyGeneration()]);
       await db.query(`
         INSERT INTO public.blockchain_signing_watermarks(user_id,last_authorized_at)
@@ -755,13 +782,14 @@ test('Issue #158: competing terminal activations cannot fork the ledger', async 
         ON CONFLICT (user_id) DO UPDATE SET last_authorized_at=EXCLUDED.last_authorized_at
       `, [SIGNER]);
 
-      const { payloads, operationIds } = scenario;
-
-      const { bothAllocated, settled } = await terminalRace(db, { payloads, operationIds, vin: scenario.vin });
+      const { bothAllocated, settled } = await terminalRace(db, {
+        attempts: scenario.attempts,
+        vin: scenario.vin,
+      });
       assert.ok(bothAllocated, `${scenario.name}: both activations must allocate before either insert`);
 
-      // Whatever the outcome per call, the ledger must hold AT MOST ONE terminal event
-      // for this signer, and the chain must still verify.
+      // Whatever the outcome per call, the ledger holds exactly one terminal row for
+      // the signer and the chain stays valid.
       const terminalRows = await db.query(`
         SELECT count(*)::int AS c FROM blockchain_events
          WHERE "timestamp"=$1::text AND split_part(signature,':',1)=$2::text
@@ -778,27 +806,19 @@ test('Issue #158: competing terminal activations cannot fork the ledger', async 
 
       const succeeded = settled.filter((s) => s.status === 'fulfilled');
       const refused = settled.filter((s) => s.status === 'rejected');
+      assert.equal(succeeded.length, scenario.expectedSucceeded, `${scenario.name}: success count`);
+      assert.equal(refused.length, scenario.expectedRefused, `${scenario.name}: refusal count`);
 
-      if (scenario.expectIdempotent) {
-        // ONE operation retried: both callers are told their write landed, and they are
-        // told so about the SAME single row.
-        assert.equal(succeeded.length, 2, `${scenario.name}: a retry of one operation must be idempotent`);
-        assert.equal(
-          succeeded[0].value.currentHash,
-          succeeded[1].value.currentHash,
-          `${scenario.name}: both callers must observe the same event`,
-        );
+      if (scenario.name === 'same durable operation retry') {
+        assert.equal(succeeded[0].value.currentHash, succeeded[1].value.currentHash);
         assert.equal(succeeded[0].value.id, succeeded[1].value.id);
-      } else {
-        // TWO operations: exactly one may persist, and the loser must be told it FAILED.
-        // This is the case content equality got wrong when the payloads were identical.
-        assert.equal(succeeded.length, 1, `${scenario.name}: exactly one write may succeed`);
-        assert.equal(refused.length, 1, `${scenario.name}: the competing write must be refused`);
-        assert.match(String(refused[0].reason?.message), /ledger event persistence failed/i);
-        assert.ok(
-          !succeeded[0].value.idempotent,
-          `${scenario.name}: the winner is a first write, not a retry`,
+        assert.equal(
+          succeeded.filter((entry) => entry.value.idempotent === true).length,
+          1,
+          'exactly the losing same-operation call is classified as idempotent',
         );
+      } else {
+        assert.match(String(refused[0].reason?.message), scenario.refusalPattern);
       }
     } finally {
       await db.close();
@@ -819,7 +839,6 @@ test('Issue #158: a lost-response retry after a persisted terminal event is idem
 
   const VIN5 = 'VINLOSTRESP000001';
   const TERMINAL = '9999-12-31T23:59:59.999Z';
-  const LOST_OP = 'partsentry_log:lr-terminal-1';
   const keyCreatedAt = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
 
   process.env.CARUP_BLOCKCHAIN_KEY_VERSION = 'lr1';
@@ -833,7 +852,7 @@ test('Issue #158: a lost-response retry after a persisted terminal event is idem
 
     await db.exec(up('../../database/migrations/20260829020000_issue158_activation_boundary_hardening.sql'));
     await db.exec(up('../../database/migrations/20260829040000_issue158_terminal_event_uniqueness.sql'));
-    await db.exec(up('../../database/migrations/20260830010000_issue158_ledger_operation_identity.sql'));
+    await db.exec(up('../../database/migrations/20260830060000_issue158_terminal_operation_identity.sql'));
     await db.query(`SELECT public.blockchain_authorize_custody_generation($1::text)`, [custodyGeneration()]);
     await db.query(`
       INSERT INTO public.blockchain_signing_watermarks(user_id,last_authorized_at)
@@ -841,20 +860,28 @@ test('Issue #158: a lost-response retry after a persisted terminal event is idem
       ON CONFLICT (user_id) DO UPDATE SET last_authorized_at=EXCLUDED.last_authorized_at
     `, [SIGNER]);
 
-    // 1. The terminal write persists successfully.
+    // 1. The terminal write persists successfully with a caller-owned durable identity.
     const logical = { mechanicId: SIGNER, note: 'the one terminal write' };
+    const operationId = 'issue158:lost-response:terminal-write';
     const first = await addEvent(
-      VIN5, 'Mechanic Inspection', { ...logical }, 'SYSTEM_SIGNATURE', { operationId: LOST_OP },
+      VIN5,
+      'Mechanic Inspection',
+      { ...logical },
+      'SYSTEM_SIGNATURE',
+      { operationId },
     );
     assert.equal(first.timestamp, TERMINAL);
-    assert.equal(first.operationId, LOST_OP);
+    assert.equal(first.operationId, operationId);
 
-    // 2-3. The caller lost the response and retries from scratch. A fresh addEvent
-    //      re-reads the VIN tail, which now INCLUDES the terminal row, so the
-    //      recomputed current_hash differs from the stored one — a hash-equality rule
-    //      would wrongly refuse this legitimate retry.
+    // 2-3. The caller lost the response and retries from scratch with the SAME durable
+    //      operation id. A fresh addEvent re-reads the advanced VIN tail, so hash
+    //      equality cannot be used to identify the retry.
     const retry = await addEvent(
-      VIN5, 'Mechanic Inspection', { ...logical }, 'SYSTEM_SIGNATURE', { operationId: LOST_OP },
+      VIN5,
+      'Mechanic Inspection',
+      { ...logical },
+      'SYSTEM_SIGNATURE',
+      { operationId },
     );
 
     // 4. The same logical event is classified idempotently against the stored row.
@@ -863,76 +890,53 @@ test('Issue #158: a lost-response retry after a persisted terminal event is idem
     assert.equal(retry.timestamp, TERMINAL);
     assert.equal(retry.idempotent, true, 'the retry must be reported as idempotent');
 
-    // 5. THE CORE INVARIANT. An INDEPENDENT operation whose content is byte-for-byte
-    //    identical to the completed write must be refused, not acknowledged. Content
-    //    equality cannot establish that two writes are the same invocation, and this is
-    //    exactly the case a content-keyed rule got wrong.
+    // 5. Durable identity is primary; payload equality is only a misuse guard.
     await assert.rejects(
       () => addEvent(
-        VIN5, 'Mechanic Inspection', { ...logical },
-        'SYSTEM_SIGNATURE', { operationId: 'partsentry_log:lr-independent-1' },
+        VIN5,
+        'Mechanic Inspection',
+        { mechanicId: SIGNER, note: 'a different payload' },
+        'SYSTEM_SIGNATURE',
+        { operationId },
       ),
-      /ledger event persistence failed/i,
-      'a distinct operation with identical content must be refused',
-    );
-
-    // 6. Reusing the completed operation identity for a DIFFERENT logical write is an
-    //    explicit misuse refusal, distinguishable from a plain conflict.
-    for (const [label, run] of [
-      ['payload', () => addEvent(
-        VIN5, 'Mechanic Inspection', { mechanicId: SIGNER, note: 'a different payload' },
-        'SYSTEM_SIGNATURE', { operationId: LOST_OP },
-      )],
-      ['event type', () => addEvent(
-        VIN5, 'Damage Report', { ...logical }, 'SYSTEM_SIGNATURE', { operationId: LOST_OP },
-      )],
-      ['VIN', () => addEvent(
-        'VINLOSTRESP000002', 'Mechanic Inspection', { ...logical },
-        'SYSTEM_SIGNATURE', { operationId: LOST_OP },
-      )],
-    ]) {
-      await assert.rejects(
-        run,
-        /already bound to a different logical write/i,
-        `reusing an operation identity for a different ${label} must be an explicit refusal`,
-      );
-    }
-
-    // 7. Distinct operations differing in payload / type / VIN are ordinary conflicts.
-    await assert.rejects(
-      () => addEvent(
-        VIN5, 'Mechanic Inspection', { mechanicId: SIGNER, note: 'a different payload' },
-        'SYSTEM_SIGNATURE', { operationId: 'partsentry_log:lr-other-payload' },
-      ),
-      /ledger event persistence failed/i,
-      'a different payload must not be mistaken for the completed write',
+      /operation id reuse refused/i,
+      'same operation id with different payload must be refused',
     );
     await assert.rejects(
       () => addEvent(
-        VIN5, 'Damage Report', { ...logical },
-        'SYSTEM_SIGNATURE', { operationId: 'partsentry_log:lr-other-type' },
+        VIN5,
+        'Damage Report',
+        { ...logical },
+        'SYSTEM_SIGNATURE',
+        { operationId },
       ),
-      /ledger event persistence failed/i,
-      'a different event type must be refused',
+      /operation id reuse refused/i,
+      'same operation id with different event type must be refused',
     );
     await assert.rejects(
       () => addEvent(
-        'VINLOSTRESP000002', 'Mechanic Inspection', { ...logical },
-        'SYSTEM_SIGNATURE', { operationId: 'partsentry_log:lr-other-vin' },
+        'VINLOSTRESP000002',
+        'Mechanic Inspection',
+        { ...logical },
+        'SYSTEM_SIGNATURE',
+        { operationId },
       ),
-      /ledger event persistence failed/i,
-      'a different VIN must be refused',
+      /operation id reuse refused/i,
+      'same operation id with different VIN must be refused',
     );
-
-    // 8. A terminal write with NO durable operation identity is refused outright rather
-    //    than falling back to content-equality classification.
     await assert.rejects(
-      () => addEvent(VIN5, 'Mechanic Inspection', { ...logical }),
-      /terminal ledger write requires a durable operation identity/i,
-      'an unidentifiable terminal write must fail closed before persisting anything',
+      () => addEvent(
+        VIN5,
+        'Mechanic Inspection',
+        { ...logical },
+        'SYSTEM_SIGNATURE',
+        { operationId: 'issue158:lost-response:independent-identical-content' },
+      ),
+      /distinct durable operation/i,
+      'different operation id with identical content must be refused',
     );
 
-    // 9. Exactly one terminal row for this signer, and the chain still verifies.
+    // 6. Exactly one terminal row for this signer, and the chain still verifies.
     const terminalRows = await db.query(`
       SELECT count(*)::int AS c FROM blockchain_events
        WHERE "timestamp"=$1::text AND split_part(signature,':',1)=$2::text
@@ -940,6 +944,104 @@ test('Issue #158: a lost-response retry after a persisted terminal event is idem
     assert.equal(terminalRows.rows[0].c, 1, 'exactly one terminal event may exist per signer');
 
     const chain = await verifyChain(VIN5);
+    assert.equal(chain.verified, true, chain.reason || 'chain must verify');
+    assert.equal(chain.count, 1);
+    assert.ok(chain.chain.every((entry) => !entry.note));
+  } finally {
+    await db.close();
+  }
+});
+
+test('Issue #158: terminal retry compares the JSON value that persistence actually stores', async (t) => {
+  const savedVersion = process.env.CARUP_BLOCKCHAIN_KEY_VERSION;
+  const savedFrom = supabase.from;
+  const savedRpc = supabase.rpc;
+  t.after(() => {
+    if (savedVersion === undefined) delete process.env.CARUP_BLOCKCHAIN_KEY_VERSION;
+    else process.env.CARUP_BLOCKCHAIN_KEY_VERSION = savedVersion;
+    supabase.from = savedFrom;
+    supabase.rpc = savedRpc;
+  });
+
+  const VIN = 'VINJSONSEMANTIC001';
+  const TERMINAL = '9999-12-31T23:59:59.999Z';
+  const keyCreatedAt = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+  const when = new Date('2026-08-30T00:00:00.000Z');
+  const operationId = 'issue158:json-semantics:1';
+
+  process.env.CARUP_BLOCKCHAIN_KEY_VERSION = 'json1';
+  const key = deriveStakeholderKey(SIGNER);
+  const db = await preBoundaryFinalizedDb({ keyPem: key.publicKeyPem, keyCreatedAt });
+  try {
+    const client = makeClient(db);
+    supabase.from = client.from;
+    supabase.rpc = client.rpc;
+
+    await db.exec(up('../../database/migrations/20260829020000_issue158_activation_boundary_hardening.sql'));
+    await db.exec(up('../../database/migrations/20260829040000_issue158_terminal_event_uniqueness.sql'));
+    await db.exec(up('../../database/migrations/20260830060000_issue158_terminal_operation_identity.sql'));
+    await db.query(`SELECT public.blockchain_authorize_custody_generation($1::text)`, [custodyGeneration()]);
+    await db.query(`
+      INSERT INTO public.blockchain_signing_watermarks(user_id,last_authorized_at)
+      VALUES ($1::text,TIMESTAMPTZ '9999-12-31 23:59:59.998+00')
+      ON CONFLICT (user_id) DO UPDATE SET last_authorized_at=EXCLUDED.last_authorized_at
+    `, [SIGNER]);
+
+    const firstPayload = {
+      mechanicId: SIGNER,
+      dropMe: undefined,
+      when,
+      nested: { z: 3, a: 1, omit: undefined },
+      array: [1, undefined, { z: true, a: false }],
+      nullable: null,
+      bool: true,
+      number: 42,
+      string: 'same',
+    };
+    const first = await addEvent(
+      VIN,
+      'Mechanic Inspection',
+      firstPayload,
+      'SYSTEM_SIGNATURE',
+      { operationId },
+    );
+    assert.equal(first.timestamp, TERMINAL);
+
+    // Same persisted JSON with Date already stringified, undefined object fields
+    // omitted, undefined array slot represented as null, and object keys reordered.
+    const equivalent = {
+      string: 'same',
+      number: 42,
+      bool: true,
+      nullable: null,
+      array: [1, null, { a: false, z: true }],
+      nested: { a: 1, z: 3 },
+      when: when.toISOString(),
+      mechanicId: SIGNER,
+    };
+    const retry = await addEvent(
+      VIN,
+      'Mechanic Inspection',
+      equivalent,
+      'SYSTEM_SIGNATURE',
+      { operationId },
+    );
+    assert.equal(retry.id, first.id);
+    assert.equal(retry.idempotent, true);
+
+    // Array order remains semantically meaningful even when the operation id is reused.
+    await assert.rejects(
+      () => addEvent(
+        VIN,
+        'Mechanic Inspection',
+        { ...equivalent, array: [null, 1, { a: false, z: true }] },
+        'SYSTEM_SIGNATURE',
+        { operationId },
+      ),
+      /operation id reuse refused/i,
+    );
+
+    const chain = await verifyChain(VIN);
     assert.equal(chain.verified, true, chain.reason || 'chain must verify');
     assert.equal(chain.count, 1);
     assert.ok(chain.chain.every((entry) => !entry.note));
@@ -987,7 +1089,7 @@ test('Issue #158: forward-skewed pre-hardening history stays verifiable across t
     // THE UPGRADE.
     await db.exec(up('../../database/migrations/20260829020000_issue158_activation_boundary_hardening.sql'));
     await db.exec(up('../../database/migrations/20260829040000_issue158_terminal_event_uniqueness.sql'));
-    await db.exec(up('../../database/migrations/20260830010000_issue158_ledger_operation_identity.sql'));
+    await db.exec(up('../../database/migrations/20260830060000_issue158_terminal_operation_identity.sql'));
     await db.query(
       `SELECT public.blockchain_authorize_custody_generation($1::text)`,
       [custodyGeneration()],

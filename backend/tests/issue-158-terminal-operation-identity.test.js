@@ -14,11 +14,15 @@
  *
  *   same operation id + same persisted content -> idempotent return of the existing row
  *   same operation id + different content      -> explicit refusal (identity reuse)
- *   different operation id + identical content -> explicit refusal (genuine conflict)
+ *   different operation id + identical content -> explicit refusal (distinct operation)
  *   no operation id at the terminal instant    -> explicit refusal before anything is written
  *
  * and that the identity is DURABLE: it survives commit, a lost response, a caller crash and
  * a process restart, because it is derived from state the caller has already committed.
+ *
+ * It complements issue-158-boundary-upgrade-postgres.test.js, which owns the boundary and
+ * race scenarios. This suite owns payload normalization, identity validation, the
+ * database-level guards, the pre-migration upgrade path, and mutation coverage.
  */
 import test from 'node:test';
 import assert from 'node:assert/strict';
@@ -32,21 +36,21 @@ process.env.CARUP_BLOCKCHAIN_SYSTEM_HMAC_SECRET = 'issue158-operation-identity-s
 
 const {
   finalizedLedgerDb, makeClient, parkAtTerminalMinusOne, up,
-  ISSUE_158_MIGRATIONS, injected, resetInjection, TERMINAL, GENESIS,
+  ISSUE_158_MIGRATIONS, resetInjection, TERMINAL, GENESIS,
 } = await import('./helpers/issue158LedgerHarness.mjs');
 
 const { supabase } = await import('../db/supabase.js');
 const {
-  addEvent, verifyChain, calculateHash, normalizeLedgerOperationId,
-  isMissingLedgerOperationIdentityColumn,
+  addEvent, verifyChain, calculateHash, normalizePersistedPayload,
 } = await import('../services/blockchain/blockchainService.js');
 const {
   custodyGeneration, deriveStakeholderKey, signLedgerHash,
 } = await import('../services/blockchain/blockchainKeyCustodyService.js');
 
 const SERVICE_SOURCE_URL = new URL('../services/blockchain/blockchainService.js', import.meta.url);
+const IDENTITY_MIGRATION = '20260830060000_issue158_terminal_operation_identity.sql';
 
-// Migrations applied on top of the finalized baseline for every terminal scenario.
+// Migrations applied on top of the finalized custody baseline.
 const TERMINAL_MIGRATIONS = ISSUE_158_MIGRATIONS.slice(2);
 
 /** Standard fixture: a finalized DB with one ACTIVE key, parked one ms below terminal. */
@@ -84,6 +88,17 @@ function withKeyVersion(t, version) {
   });
 }
 
+/** Register an extra signer's ACTIVE key directly (the harness owns the database). */
+async function registerSigner(db, signerId, keyVersion) {
+  const keyCreatedAt = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+  const derived = deriveStakeholderKey(signerId);
+  await db.query(`
+    INSERT INTO public_keys(id,user_id,public_key_pem,key_type,status,created_at,key_ref,key_version,custody_provider)
+    VALUES ($1::text,$2::text,$3::text,'secp256k1','ACTIVE',$4::text,$5::text,$6::text,'derived_master_secret')
+  `, [`key-${signerId}`, signerId, derived.publicKeyPem, keyCreatedAt, derived.keyRef, keyVersion]);
+  await parkAtTerminalMinusOne(db, signerId);
+}
+
 const terminalRowCount = async (db, signerId) => (await db.query(`
   SELECT count(*)::int AS c FROM blockchain_events
    WHERE "timestamp"=$1::text AND split_part(signature,':',1)=$2::text
@@ -104,28 +119,26 @@ function preFixCanonicalize(value) {
 }
 
 test('Issue #158: the pre-fix canonicalizer genuinely diverges from what the ledger persists', () => {
-  // These are exactly the shapes the review named. Each proves the OLD rule compared two
-  // different representations of one attempted write, so this is a real defect and the
-  // normalization guard is load-bearing rather than defensive decoration.
+  // Each entry proves the OLD rule compared two different representations of ONE attempted
+  // write, so this is a real defect and the normalization guard is load-bearing rather
+  // than defensive decoration.
   const divergent = [
     { name: 'undefined object field', payload: { a: 1, b: undefined } },
     { name: 'Date value', payload: { at: new Date('2026-08-30T00:00:00.000Z') } },
     { name: 'nested undefined', payload: { outer: { keep: 'x', drop: undefined } } },
     { name: 'toJSON projection', payload: { wrapped: { toJSON: () => ({ v: 1 }) } } },
   ];
-
   for (const { name, payload } of divergent) {
-    const persisted = JSON.stringify(payload);
     assert.notEqual(
-      preFixCanonicalize(payload), preFixCanonicalize(JSON.parse(persisted)),
+      preFixCanonicalize(payload), preFixCanonicalize(normalizePersistedPayload(payload)),
       `${name}: the pre-fix rule must be shown to compare two different representations`,
     );
   }
 
   // Not every JSON-lossy shape was broken, and saying so precisely matters: `undefined`
   // inside an ARRAY serializes to null rather than being dropped, and a non-finite number
-  // serializes to null, so both sides already agreed on these. The defect was specific to
-  // shapes where serialization CHANGES the key set or the value's type.
+  // serializes to null, so both sides already agreed. The defect was specific to shapes
+  // where serialization CHANGES the key set or the value's type.
   const alreadyAgreed = [
     { name: 'undefined inside an array', payload: { list: [1, undefined, 3] } },
     { name: 'non-finite number', payload: { ratio: Number.POSITIVE_INFINITY } },
@@ -134,52 +147,41 @@ test('Issue #158: the pre-fix canonicalizer genuinely diverges from what the led
   ];
   for (const { name, payload } of alreadyAgreed) {
     assert.equal(
-      preFixCanonicalize(payload), preFixCanonicalize(JSON.parse(JSON.stringify(payload))),
+      preFixCanonicalize(payload), preFixCanonicalize(normalizePersistedPayload(payload)),
       `${name}: must be reported honestly as a shape the old rule already handled`,
-    );
-  }
-
-  // The fix is total regardless: normalizing through the persisted serialization makes
-  // BOTH groups agree, which is what the runtime relies on.
-  for (const { name, payload } of [...divergent, ...alreadyAgreed]) {
-    const persisted = JSON.stringify(payload);
-    assert.equal(
-      preFixCanonicalize(JSON.parse(persisted)), preFixCanonicalize(JSON.parse(persisted)),
-      `${name}: normalized comparison must be reflexive`,
     );
   }
 });
 
+test('Issue #158: normalizePersistedPayload fails closed on a non-persistable payload', () => {
+  assert.deepEqual(normalizePersistedPayload({ a: 1, b: undefined }), { a: 1 });
+  assert.deepEqual(normalizePersistedPayload({ at: new Date('2026-08-30T00:00:00.000Z') }), {
+    at: '2026-08-30T00:00:00.000Z',
+  });
+  assert.deepEqual(normalizePersistedPayload({ list: [1, undefined, 3] }), { list: [1, null, 3] });
+  assert.deepEqual(normalizePersistedPayload({ r: Number.POSITIVE_INFINITY }), { r: null });
+  // A value JSON cannot represent at all must not be silently written as nothing.
+  assert.throws(() => normalizePersistedPayload(undefined), /not JSON-persistable/i);
+  assert.throws(() => normalizePersistedPayload(() => {}), /not JSON-persistable/i);
+});
+
 test('Issue #158: a lost-response retry is idempotent across every JSON-lossy payload shape', async (t) => {
   withKeyVersion(t, 'pn1');
-  const SIGNER = 'payload-mech';
-  const db = await terminalReadyDb(SIGNER);
+  const db = await terminalReadyDb('payload-root');
   bind(t, db);
   try {
-    // One terminal write per signer, so each shape needs its own signer AND its own key
-    // row. Register the extra signers directly (the harness owns the database).
     const shapes = [
-      { id: 'undefinedField', payload: () => ({ mechanicId: null, a: 1, b: undefined }) },
-      { id: 'dateValue', payload: () => ({ mechanicId: null, at: new Date('2026-08-30T00:00:00.000Z') }) },
-      { id: 'nestedMixed', payload: () => ({ mechanicId: null, o: { z: 1, a: [1, { q: null }, 'x'] } }) },
-      { id: 'scalars', payload: () => ({ mechanicId: null, n: null, t: true, f: false, i: 0, s: '', d: -1.5 }) },
-      { id: 'nonFinite', payload: () => ({ mechanicId: null, r: Number.POSITIVE_INFINITY, nan: Number.NaN }) },
+      { id: 'undefinedfield', payload: () => ({ a: 1, b: undefined }) },
+      { id: 'datevalue', payload: () => ({ at: new Date('2026-08-30T00:00:00.000Z') }) },
+      { id: 'nestedmixed', payload: () => ({ o: { z: 1, a: [1, { q: null }, 'x'] } }) },
+      { id: 'scalars', payload: () => ({ n: null, t: true, f: false, i: 0, s: '', d: -1.5 }) },
+      { id: 'nonfinite', payload: () => ({ r: Number.POSITIVE_INFINITY, nan: Number.NaN }) },
     ];
-
-    const keyCreatedAt = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
-    for (const shape of shapes) {
-      const signer = `payload-${shape.id}`;
-      const derived = deriveStakeholderKey(signer);
-      await db.query(`
-        INSERT INTO public_keys(id,user_id,public_key_pem,key_type,status,created_at,key_ref,key_version,custody_provider)
-        VALUES ($1::text,$2::text,$3::text,'secp256k1','ACTIVE',$4::text,$5::text,'pn1','derived_master_secret')
-      `, [`key-${signer}`, signer, derived.publicKeyPem, keyCreatedAt, derived.keyRef]);
-      await parkAtTerminalMinusOne(db, signer);
-    }
+    for (const shape of shapes) await registerSigner(db, `payload-${shape.id}`, 'pn1');
 
     for (const shape of shapes) {
       const signer = `payload-${shape.id}`;
-      const vin = `VINPAYLOAD${shape.id.slice(0, 6).toUpperCase().padEnd(6, '0')}`;
+      const vin = `VINPAY${shape.id.slice(0, 10).toUpperCase()}`;
       const operationId = `partsentry_log:${shape.id}`;
       const build = () => ({ ...shape.payload(), mechanicId: signer });
 
@@ -212,7 +214,6 @@ test('Issue #158: object key order is irrelevant but array order is meaningful',
     const VIN = 'VINKEYORDER00001';
     const OP = 'partsentry_log:key-order-1';
 
-    // Two differently ordered JS objects that serialize to the same logical content.
     const first = await addEvent(
       VIN, 'Mechanic Inspection',
       { mechanicId: SIGNER, alpha: 1, beta: { x: 1, y: [1, 2, 3] }, gamma: 'g' },
@@ -233,41 +234,48 @@ test('Issue #158: object key order is irrelevant but array order is meaningful',
         { mechanicId: SIGNER, alpha: 1, beta: { x: 1, y: [3, 2, 1] }, gamma: 'g' },
         'SYSTEM_SIGNATURE', { operationId: OP },
       ),
-      /already bound to a different logical write/i,
+      /operation id reuse refused/i,
       'array order must remain meaningful',
     );
 
     assert.equal(await terminalRowCount(db, SIGNER), 1);
-    const chain = await verifyChain(VIN);
-    assert.equal(chain.verified, true, chain.reason || 'chain must verify');
+    assert.equal((await verifyChain(VIN)).verified, true);
   } finally {
     await db.close();
   }
 });
 
 // ═══════════════════════════════════════════════════════════════════════════════════
-// 2. OPERATION IDENTITY VALIDATION — an unusable identity must be rejected, never
-//    silently discarded back into content classification.
+// 2. IDENTITY VALIDATION AND PROVENANCE.
 // ═══════════════════════════════════════════════════════════════════════════════════
 
-test('Issue #158: operation identities are validated, never silently discarded', () => {
-  assert.equal(normalizeLedgerOperationId(undefined), null);
-  assert.equal(normalizeLedgerOperationId(null), null);
-  assert.equal(normalizeLedgerOperationId('   '), null, 'blank is "none", not a usable identity');
-  assert.equal(normalizeLedgerOperationId('  partsentry_log:42  '), 'partsentry_log:42');
+test('Issue #158: a malformed operation identity is loud, never silently discarded', async (t) => {
+  withKeyVersion(t, 'iv1');
+  const SIGNER = 'validate-mech';
+  const db = await terminalReadyDb(SIGNER);
+  bind(t, db);
+  try {
+    const payload = { mechanicId: SIGNER, note: 'validation' };
+    const call = (operationId) => addEvent('VINVALIDATE00001', 'Mechanic Inspection', payload, 'SYSTEM_SIGNATURE', { operationId });
 
-  for (const bad of [42, {}, [], true]) {
-    assert.throws(() => normalizeLedgerOperationId(bad), /must be a string/i, `${typeof bad} must be refused`);
+    // A non-string is a caller BUG. Coercing it to null would silently downgrade a caller
+    // that believes it supplied an identity, and it would never learn why its terminal
+    // write was refused.
+    for (const bad of [42, {}, [], true]) {
+      await assert.rejects(() => call(bad), /operation id must be a string/i, `${typeof bad} must be refused`);
+    }
+    await assert.rejects(() => call('x'.repeat(400)), /maximum representable length/i);
+
+    // Absent / blank is "no identity", which at the terminal instant is itself fatal.
+    for (const none of [undefined, null, '   ']) {
+      await assert.rejects(() => call(none), /requires a durable operation id/i);
+    }
+
+    const written = await db.query('SELECT count(*)::int AS c FROM blockchain_events');
+    assert.equal(written.rows[0].c, 0, 'no refused attempt may have written anything');
+  } finally {
+    await db.close();
   }
-  for (const bad of ['nonamespace', ':42', 'Upper:42', '9lead:42', 'ns:', 'ns:has space', 'ns:tab\there']) {
-    assert.throws(
-      () => normalizeLedgerOperationId(bad), /namespaced token/i,
-      `'${bad}' must be refused rather than silently accepted`,
-    );
-  }
-  assert.throws(
-    () => normalizeLedgerOperationId(`ns:${'x'.repeat(400)}`), /maximum representable length/i,
-  );
 });
 
 test('Issue #158: every stakeholder ledger writer supplies a DURABLE operation identity', () => {
@@ -293,6 +301,17 @@ test('Issue #158: every stakeholder ledger writer supplies a DURABLE operation i
   assert.doesNotMatch(addEventBody, /operationId\s*=\s*`?[^;]*Date\.now/, 'addEvent must not clock an identity');
 });
 
+test('Issue #158: PartSentry refuses to write an unidentifiable ledger event', () => {
+  // The durable identity is the COMMITTED parts-log row id. If the insert returned no id
+  // there is nothing durable to key on, and the service must abort rather than fall back
+  // to an identity a retry could not reproduce.
+  const src = readFileSync(new URL('../services/partsentry/partsentryService.js', import.meta.url), 'utf8');
+  assert.match(src, /refusing to write an unidentifiable ledger event/i);
+  const guardAt = src.indexOf('refusing to write an unidentifiable ledger event');
+  const addEventAt = src.indexOf("addEvent(\n    vin,\n    'Mechanic Inspection'");
+  assert.ok(guardAt > 0 && addEventAt > guardAt, 'the guard must precede the ledger write');
+});
+
 // ═══════════════════════════════════════════════════════════════════════════════════
 // 3. THE FOUR TERMINAL OUTCOMES, PLUS DATABASE-LEVEL TOTALITY.
 // ═══════════════════════════════════════════════════════════════════════════════════
@@ -311,6 +330,7 @@ test('Issue #158: the terminal instant separates retries from independent operat
     const first = await addEvent(VIN, 'Mechanic Inspection', { ...content }, 'SYSTEM_SIGNATURE', { operationId: OP });
     assert.equal(first.timestamp, TERMINAL);
     assert.ok(!first.idempotent, 'a first write is not a retry');
+    assert.equal(first.operationId, OP);
 
     // (b) same operation id + same content -> idempotent
     const retry = await addEvent(VIN, 'Mechanic Inspection', { ...content }, 'SYSTEM_SIGNATURE', { operationId: OP });
@@ -321,25 +341,36 @@ test('Issue #158: the terminal instant separates retries from independent operat
     // (c) same operation id + different content -> explicit identity-reuse refusal
     await assert.rejects(
       () => addEvent(VIN, 'Mechanic Inspection', { ...content, odometer: 120001 }, 'SYSTEM_SIGNATURE', { operationId: OP }),
-      /already bound to a different logical write/i,
+      /operation id reuse refused/i,
     );
 
     // (d) different operation id + IDENTICAL content -> explicit refusal.
-    //     This is the invariant content equality could not express.
+    //     This is the invariant content equality could not express: same signer, same VIN,
+    //     same event type and same payload is NOT the same operation.
     await assert.rejects(
       () => addEvent(VIN, 'Mechanic Inspection', { ...content }, 'SYSTEM_SIGNATURE', { operationId: 'partsentry_log:outcome-2' }),
-      /ledger event persistence failed/i,
+      /a distinct durable operation already owns the signer terminal instant/i,
     );
 
     // (e) no operation id at all -> refused BEFORE anything is written
     await assert.rejects(
       () => addEvent(VIN, 'Mechanic Inspection', { ...content }),
-      /terminal ledger write requires a durable operation identity/i,
+      /terminal ledger event requires a durable operation id/i,
     );
 
-    // Same signer + same VIN + same event type + same payload is NOT the same operation.
+    // (f) a different VIN or event type under the same identity is still the same signer's
+    //     one terminal slot, and the content guard refuses it.
+    await assert.rejects(
+      () => addEvent('VINOUTCOME000002', 'Mechanic Inspection', { ...content }, 'SYSTEM_SIGNATURE', { operationId: OP }),
+      /operation id reuse refused/i,
+    );
+    await assert.rejects(
+      () => addEvent(VIN, 'Damage Report', { ...content }, 'SYSTEM_SIGNATURE', { operationId: OP }),
+      /operation id reuse refused/i,
+    );
+
     assert.equal(await terminalRowCount(db, SIGNER), 1, 'exactly one terminal event per signer');
-    const total = await db.query('SELECT count(*)::int AS c FROM blockchain_events WHERE vin=$1', [VIN]);
+    const total = await db.query('SELECT count(*)::int AS c FROM blockchain_events');
     assert.equal(total.rows[0].c, 1, 'no refusal may have written anything');
 
     const chain = await verifyChain(VIN);
@@ -364,8 +395,16 @@ test('Issue #158: the database itself refuses an unidentifiable or duplicated te
         INSERT INTO blockchain_events(previous_hash,current_hash,vin,event_type,payload,"timestamp",signature)
         VALUES ('0','h','VINDBGUARD000001','Mechanic Inspection','{}',$1::text,$2::text)
       `, [TERMINAL, `${SIGNER}:sig`]),
-      /blockchain_events_terminal_requires_operation/,
+      /blockchain_events_terminal_operation_id_required/,
       'the CHECK constraint must make the refusal total',
+    );
+    // A whitespace-only identity is not an identity.
+    await assert.rejects(
+      db.query(`
+        INSERT INTO blockchain_events(previous_hash,current_hash,vin,event_type,payload,"timestamp",signature,operation_id)
+        VALUES ('0','h','VINDBGUARD000001','Mechanic Inspection','{}',$1::text,$2::text,'   ')
+      `, [TERMINAL, `${SIGNER}:sig`]),
+      /blockchain_events_terminal_operation_id_required/,
     );
 
     // A non-terminal row needs no identity: no guarantee is claimed for it.
@@ -374,8 +413,7 @@ test('Issue #158: the database itself refuses an unidentifiable or duplicated te
       VALUES ('0','h2','VINDBGUARD000001','Mechanic Inspection','{}','2026-08-30T00:00:00.000Z','sys:sig')
     `);
 
-    // One operation identity may be consumed at most once at the terminal instant, even
-    // across different signers — the index is global, which is why identities are namespaced.
+    // One signer may consume a given operation identity at most ONCE, at any timestamp.
     await db.query(`
       INSERT INTO blockchain_events(previous_hash,current_hash,vin,event_type,payload,"timestamp",signature,operation_id)
       VALUES ('0','h3','VINDBGUARD000002','Mechanic Inspection','{}',$1::text,'signer-a:sig','partsentry_log:shared')
@@ -383,17 +421,24 @@ test('Issue #158: the database itself refuses an unidentifiable or duplicated te
     await assert.rejects(
       db.query(`
         INSERT INTO blockchain_events(previous_hash,current_hash,vin,event_type,payload,"timestamp",signature,operation_id)
-        VALUES ('0','h4','VINDBGUARD000003','Mechanic Inspection','{}',$1::text,'signer-b:sig','partsentry_log:shared')
-      `, [TERMINAL]),
-      /uq_blockchain_events_terminal_operation/,
-      'an operation identity may be consumed at most once at the terminal instant',
+        VALUES ('0','h4','VINDBGUARD000003','Mechanic Inspection','{}','2026-08-30T00:00:01.000Z','signer-a:sig','partsentry_log:shared')
+      `),
+      /uq_blockchain_events_signer_operation_id/,
+      'one signer may not reuse a durable operation identity for a second ledger event',
     );
 
-    // The pre-existing per-signer invariant is untouched.
+    // The index is scoped PER SIGNER, so a different signer may legitimately hold the same
+    // identity string. Asserted explicitly so the scope of the guarantee is not overstated.
+    await db.query(`
+      INSERT INTO blockchain_events(previous_hash,current_hash,vin,event_type,payload,"timestamp",signature,operation_id)
+      VALUES ('0','h5','VINDBGUARD000004','Mechanic Inspection','{}','2026-08-30T00:00:02.000Z','signer-b:sig','partsentry_log:shared')
+    `);
+
+    // The pre-existing per-signer terminal invariant is untouched.
     await assert.rejects(
       db.query(`
         INSERT INTO blockchain_events(previous_hash,current_hash,vin,event_type,payload,"timestamp",signature,operation_id)
-        VALUES ('0','h5','VINDBGUARD000004','Mechanic Inspection','{}',$1::text,'signer-a:sig2','partsentry_log:other')
+        VALUES ('0','h6','VINDBGUARD000005','Mechanic Inspection','{}',$1::text,'signer-a:sig2','partsentry_log:other')
       `, [TERMINAL]),
       /uq_blockchain_events_terminal_signer/,
       'at most one terminal event per signer must still hold',
@@ -420,13 +465,13 @@ test('Issue #158: a terminal row written before the identity migration cannot be
       VALUES ($1::text,$2::text,$3::text,'Mechanic Inspection',$4::text,$5::text,$6::text)
     `, [GENESIS, hash, VIN, JSON.stringify(content), TERMINAL, `${SIGNER}:${sig.signatureHex}`]);
 
-    await db.exec(up('20260830010000_issue158_ledger_operation_identity.sql'));
+    await db.exec(up(IDENTITY_MIGRATION));
 
     const backfilled = await db.query(
       'SELECT operation_id FROM blockchain_events WHERE "timestamp"=$1::text', [TERMINAL],
     );
     assert.match(
-      backfilled.rows[0].operation_id, /^legacy-unidentified:/,
+      backfilled.rows[0].operation_id, /^legacy-terminal:/,
       'a pre-identity terminal row must be marked unidentifiable',
     );
 
@@ -434,7 +479,7 @@ test('Issue #158: a terminal row written before the identity migration cannot be
     // genuinely cannot be proven to be the same invocation.
     await assert.rejects(
       () => addEvent(VIN, 'Mechanic Inspection', { ...content }, 'SYSTEM_SIGNATURE', { operationId: 'partsentry_log:straddle-1' }),
-      /ledger event persistence failed/i,
+      /a distinct durable operation already owns the signer terminal instant/i,
       'a straddling retry must fail closed rather than be falsely acknowledged',
     );
     assert.equal(await terminalRowCount(db, SIGNER), 1);
@@ -446,7 +491,7 @@ test('Issue #158: a terminal row written before the identity migration cannot be
   }
 });
 
-test('Issue #158: deploy-before-migrate keeps non-terminal writes alive and fails terminal ones closed', async (t) => {
+test('Issue #158: deploy-before-migrate keeps ordinary writes alive and fails terminal ones closed', async (t) => {
   withKeyVersion(t, 'dm1');
   const SIGNER = 'premigrate-mech';
   // The runtime already records identities; the database has NOT applied the identity
@@ -454,17 +499,8 @@ test('Issue #158: deploy-before-migrate keeps non-terminal writes alive and fail
   const db = await terminalReadyDb(SIGNER, { migrations: TERMINAL_MIGRATIONS.slice(0, -1) });
   bind(t, db);
   try {
-    // Detection recognises both PostgreSQL and PostgREST shapes.
-    assert.equal(isMissingLedgerOperationIdentityColumn({ code: '42703' }), true);
-    assert.equal(isMissingLedgerOperationIdentityColumn({ code: 'PGRST204' }), true);
-    assert.equal(isMissingLedgerOperationIdentityColumn({
-      message: "Could not find the 'operation_id' column of 'blockchain_events' in the schema cache",
-    }), true);
-    assert.equal(isMissingLedgerOperationIdentityColumn({ code: '23505', message: 'duplicate key' }), false);
-    assert.equal(isMissingLedgerOperationIdentityColumn(null), false);
-
-    // A NON-terminal write proceeds without recording the identity: no guarantee is
-    // claimed for non-terminal rows, so a rolling deploy must not break ordinary signing.
+    // A NON-terminal write never references the column, so a rolling deploy cannot break
+    // ordinary signing. No uniqueness or idempotency guarantee is claimed for such rows.
     await db.query(`
       INSERT INTO public.blockchain_signing_watermarks(user_id,last_authorized_at)
       VALUES ($1::text,TIMESTAMPTZ '2026-08-30 00:00:00+00')
@@ -475,19 +511,19 @@ test('Issue #158: deploy-before-migrate keeps non-terminal writes alive and fail
       'SYSTEM_SIGNATURE', { operationId: 'partsentry_log:premigrate-1' },
     );
     assert.notEqual(ordinary.timestamp, TERMINAL);
-    const chain = await verifyChain('VINPREMIG0000001');
-    assert.equal(chain.verified, true, chain.reason || 'chain must verify');
+    assert.equal(ordinary.operationId, null, 'a non-terminal row records no identity');
+    assert.equal((await verifyChain('VINPREMIG0000001')).verified, true);
 
-    // A TERMINAL write may NOT proceed: its entire contract depends on the column, so it
-    // fails closed and names the migration the operator must apply.
+    // A TERMINAL write may NOT proceed: its whole contract depends on the column. It fails
+    // closed, and the error names the missing column so an operator can diagnose it.
     await parkAtTerminalMinusOne(db, SIGNER);
     await assert.rejects(
       () => addEvent(
         'VINPREMIG0000002', 'Mechanic Inspection', { mechanicId: SIGNER, note: 'terminal without the column' },
         'SYSTEM_SIGNATURE', { operationId: 'partsentry_log:premigrate-2' },
       ),
-      /20260830010000_issue158_ledger_operation_identity/,
-      'a terminal write must name the migration it requires',
+      /operation_id/,
+      'a terminal write must fail closed naming the absent column',
     );
     const written = await db.query(
       'SELECT count(*)::int AS c FROM blockchain_events WHERE vin=$1', ['VINPREMIG0000002'],
@@ -555,29 +591,27 @@ test('Issue #158: the boundary parser quarantines every unusable timestamp shape
 const MUTANTS = [
   {
     name: 'terminal writes no longer require a durable operation identity',
-    find: '  if (isTerminalWrite && !operationId) {',
-    replace: '  if (false && isTerminalWrite && !operationId) {',
-    /** With the guard gone, an unidentified terminal write must NOT fail closed. */
+    find: '  if (timestamp === TERMINAL_EVENT_TIMESTAMP && !operationId) {',
+    replace: '  if (false && timestamp === TERMINAL_EVENT_TIMESTAMP && !operationId) {',
     async expectMutantMisbehaves(mutant, ctx) {
       const outcome = await mutant.addEvent(ctx.vin, 'Mechanic Inspection', { mechanicId: ctx.signer, note: 'unidentified' })
         .then(() => 'accepted', (e) => e.message);
       assert.doesNotMatch(
-        String(outcome), /requires a durable operation identity/i,
+        String(outcome), /requires a durable operation id/i,
         'the mutant must lose the fail-closed precondition',
       );
     },
     async expectRealHolds(ctx) {
       await assert.rejects(
         () => addEvent(ctx.vin, 'Mechanic Inspection', { mechanicId: ctx.signer, note: 'unidentified' }),
-        /terminal ledger write requires a durable operation identity/i,
+        /terminal ledger event requires a durable operation id/i,
       );
     },
   },
   {
     name: 'the content consistency guard on a reused operation identity',
-    find: '  if (!sameWrite) {',
-    replace: '  if (false && !sameWrite) {',
-    /** With the guard gone, reusing an identity for different content is acknowledged. */
+    find: '  if (!sameContent) {',
+    replace: '  if (false && !sameContent) {',
     async expectMutantMisbehaves(mutant, ctx) {
       const OP = 'partsentry_log:mutant-content-1';
       await mutant.addEvent(ctx.vin, 'Mechanic Inspection', { mechanicId: ctx.signer, v: 1 }, 'SYSTEM_SIGNATURE', { operationId: OP });
@@ -590,17 +624,18 @@ const MUTANTS = [
       await addEvent(ctx.vin, 'Mechanic Inspection', { mechanicId: ctx.signer, v: 1 }, 'SYSTEM_SIGNATURE', { operationId: OP });
       await assert.rejects(
         () => addEvent(ctx.vin, 'Mechanic Inspection', { mechanicId: ctx.signer, v: 2 }, 'SYSTEM_SIGNATURE', { operationId: OP }),
-        /already bound to a different logical write/i,
+        /operation id reuse refused/i,
       );
     },
   },
   {
-    name: 'the operation-identity lookup key (reverting to content classification)',
-    find: "    .eq('operation_id', operationId);",
-    replace: "    .eq('event_type', eventType);",
+    name: 'the operation-identity match (reverting to pure content classification)',
+    find: "  if (String(signerRow.operation_id || '') !== String(operationId)) {",
+    replace: "  if (false && String(signerRow.operation_id || '') !== String(operationId)) {",
     /**
-     * With the lookup keyed on content rather than identity, an INDEPENDENT operation with
-     * identical content is acknowledged as a retry — the exact defect under review.
+     * This mutant IS the reviewed defect: with the identity comparison gone, classification
+     * falls back to content alone, so an INDEPENDENT operation with identical content is
+     * acknowledged as a retry of a write it never made.
      */
     async expectMutantMisbehaves(mutant, ctx) {
       const content = { mechanicId: ctx.signer, note: 'same content, different operations' };
@@ -617,7 +652,7 @@ const MUTANTS = [
       await addEvent(ctx.vin, 'Mechanic Inspection', { ...content }, 'SYSTEM_SIGNATURE', { operationId: 'partsentry_log:real-lookup-a' });
       await assert.rejects(
         () => addEvent(ctx.vin, 'Mechanic Inspection', { ...content }, 'SYSTEM_SIGNATURE', { operationId: 'partsentry_log:real-lookup-b' }),
-        /ledger event persistence failed/i,
+        /a distinct durable operation already owns the signer terminal instant/i,
       );
     },
   },
@@ -627,13 +662,11 @@ test('Issue #158: every terminal guard is load-bearing under mutation', async (t
   const source = readFileSync(SERVICE_SOURCE_URL, 'utf8');
 
   for (const [index, mutant] of MUTANTS.entries()) {
-    assert.ok(source.includes(mutant.find), `guard ${index} must be present in the source: ${mutant.name}`);
     assert.equal(
       source.split(mutant.find).length - 1, 1,
-      `guard ${index} must be uniquely locatable so the mutation is precise`,
+      `guard ${index} must be uniquely locatable so the mutation is precise: ${mutant.name}`,
     );
 
-    // The REAL module holds the invariant.
     await t.test(`real module holds: ${mutant.name}`, async (st) => {
       withKeyVersion(st, `mu${index}r`);
       const signer = `mutant-real-${index}`;
@@ -646,7 +679,6 @@ test('Issue #158: every terminal guard is load-bearing under mutation', async (t
       }
     });
 
-    // The MUTANT does not. A guard whose removal is invisible protects nothing.
     const mutantUrl = new URL(`../services/blockchain/__mutant__${index}.blockchainService.js`, import.meta.url);
     writeFileSync(mutantUrl, source.replace(mutant.find, mutant.replace), 'utf8');
     try {

@@ -32,7 +32,7 @@ export const ISSUE_158_MIGRATIONS = [
   '20260829003000_issue158_custody_rollout_upgrade.sql',
   '20260829020000_issue158_activation_boundary_hardening.sql',
   '20260829040000_issue158_terminal_event_uniqueness.sql',
-  '20260830010000_issue158_ledger_operation_identity.sql',
+  '20260830060000_issue158_terminal_operation_identity.sql',
 ];
 
 const quote = (col) => `"${String(col).trim()}"`;
