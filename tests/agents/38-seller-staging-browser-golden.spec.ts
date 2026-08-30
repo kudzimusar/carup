@@ -121,23 +121,35 @@ async function reviewerAuth(request: APIRequestContext): Promise<SessionAuth> {
   return { token: body.token!, user: body.user! };
 }
 
+async function mutationWithRateLimitRetry(
+  action: () => Promise<import('@playwright/test').APIResponse>,
+) {
+  let response = await action();
+  for (let attempt = 0; response.status() === 429 && attempt < 4; attempt += 1) {
+    const retryAfter = Number(response.headers()['retry-after'] || 1);
+    await new Promise(resolve => setTimeout(resolve, Math.max(1000, Math.min(retryAfter * 1000, 5000))));
+    response = await action();
+  }
+  return response;
+}
+
 async function retireAutomationVehicle(
   request: APIRequestContext,
   vin: string,
   sellerMutationHeaders: Record<string, string>,
 ) {
-  // Cleanup is part of the acceptance contract. It must run even when the test fails midway so an
-  // automated vehicle can never become human-UAT inventory, a Home hero, a count, or a recommendation.
-  const unpublish = await request.post(`${API_URL}/vehicles/${vin}/unpublish`, {
+  // Cleanup is part of the acceptance contract. Respect the real rate limiter instead of turning
+  // a transient 429 after a long lifecycle into a false contamination failure.
+  const unpublish = await mutationWithRateLimitRetry(() => request.post(`${API_URL}/vehicles/${vin}/unpublish`, {
     headers: sellerMutationHeaders,
     data: {},
-  });
+  }));
   expect([200, 404], `automation cleanup could not unpublish ${vin}: ${await unpublish.text()}`).toContain(unpublish.status());
 
-  const sold = await request.patch(`${API_URL}/vehicles/${vin}/status`, {
+  const sold = await mutationWithRateLimitRetry(() => request.patch(`${API_URL}/vehicles/${vin}/status`, {
     headers: sellerMutationHeaders,
     data: { status: 'sold' },
-  });
+  }));
   expect([200, 404], `automation cleanup could not retire ${vin}: ${await sold.text()}`).toContain(sold.status());
 
   const discovery = await request.get(`${API_URL}/marketplace/listings?q=${encodeURIComponent(vin)}`);
@@ -206,6 +218,7 @@ test.describe('Golden Dynamic Seller — exact-head deployed acceptance', () => 
     const vin = `JTDKARFP0H3${suffix}`;
     const newPrice = 29_000;
     let sellerMutationHeaders: Record<string, string> | null = null;
+    let cleanupAuth: SessionAuth | null = null;
     let vehicleCreated = false;
 
     try {
@@ -214,6 +227,7 @@ test.describe('Golden Dynamic Seller — exact-head deployed acceptance', () => 
     await signInViaUi(page, 'buyer');
     await expect(page.locator('body')).not.toContainText(/permission denied|42501/i);
     const sellerAuth = await authFromPage(page);
+    cleanupAuth = sellerAuth;
     expect(sellerAuth.user.role).toBe('owner');
     sellerMutationHeaders = await mutationHeaders(request, sellerAuth);
     await retireStaleAutomationVehicles(request, sellerAuth, sellerMutationHeaders);
@@ -384,6 +398,7 @@ test.describe('Golden Dynamic Seller — exact-head deployed acceptance', () => 
     // My Listings. Communication threads are an asynchronous downstream projection and must not be
     // confused with the durable inquiry itself.
     await signInViaUi(page, 'buyer');
+    cleanupAuth = await authFromPage(page);
     await page.goto('/dashboard/listings');
     const sellerCard = page.getByTestId(`my-listing-card-${vin}`);
     await expect(sellerCard).toBeVisible({ timeout: 20_000 });
@@ -419,11 +434,9 @@ test.describe('Golden Dynamic Seller — exact-head deployed acceptance', () => 
     // Keep these literal identities referenced so accidental fixture drift is caught by review.
     expect(SELLER_EMAIL).toBe('uat.buyer@carup-staging.test');
     } finally {
-      if (vehicleCreated) {
-        // A later UI sign-in rotates the staging session, so the first login's mutation headers can
-        // become stale. Cleanup is safety-critical: re-authenticate and mint fresh CSRF authority.
-        await signInViaUi(page, 'buyer');
-        const cleanupAuth = await authFromPage(page);
+      if (vehicleCreated && cleanupAuth) {
+        // Reuse the last real Seller session captured during the journey. Cleanup mints fresh CSRF
+        // authority, but does not perform a third UI login merely to clean an already-retired fixture.
         const cleanupHeaders = await mutationHeaders(request, cleanupAuth);
         await retireAutomationVehicle(request, vin, cleanupHeaders);
       }
