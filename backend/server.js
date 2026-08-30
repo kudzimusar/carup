@@ -2585,6 +2585,11 @@ app.post('/api/vehicles/add', authorizeRole(['dealer', 'owner', 'admin']), async
       status: normalizeVehicleStatus(candidate.status), trust_score: null, price: candidate.price,
       currency: submittedCurrency,
       owner_id: candidate.owner_id,
+      // Creating a listing establishes LISTING authority for the authenticated submitter. Legal
+      // ownership remains the separate owner_id/Passport history fact; current_seller_id is the
+      // governed relationship Marketplace inquiries and Seller lifecycle commands route through.
+      // Re-listing already writes this relationship below. Brand-new listings must do the same.
+      current_seller_id: req.userContext.id,
       tenant_id: candidate.tenant_id,
       current_seller_type: candidate.current_seller_type,
       // Written explicitly rather than left to a column default, so the row records a decision this

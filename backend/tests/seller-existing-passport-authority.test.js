@@ -79,3 +79,28 @@ test('governed Seller authority becomes listing scope without becoming legal own
   assert.doesNotMatch(reuseBlock, /owner_id\s*:/, 'reusing a Passport must not mutate legal owner_id');
   assert.doesNotMatch(reuseBlock, /vehicle_ownership_history/, 'seller authority is not an ownership transfer');
 });
+
+
+test('brand-new Seller listings establish governed current-seller routing authority', () => {
+  const server = readFileSync(new URL('../server.js', import.meta.url), 'utf8');
+  const addStart = server.indexOf("app.post('/api/vehicles/add'");
+  const listingStart = server.indexOf('const listingRow = {', addStart);
+  const existingGate = server.indexOf('let governedSellerEvidence = false;', listingStart);
+  assert.ok(addStart > -1 && listingStart > addStart && existingGate > listingStart);
+
+  const newListingRow = server.slice(listingStart, existingGate);
+  assert.match(
+    newListingRow,
+    /current_seller_id:\s*req\.userContext\.id/,
+    'a newly created listing must route buyer intent to the authenticated current seller',
+  );
+  assert.match(newListingRow, /owner_id:\s*candidate\.owner_id/);
+  assert.match(newListingRow, /tenant_id:\s*candidate\.tenant_id/);
+
+  // Listing authority is not a substitute for legal ownership: the two facts must remain distinct.
+  assert.doesNotMatch(
+    newListingRow,
+    /owner_id:\s*req\.userContext\.id/,
+    'current Seller authority must not overwrite the separately governed legal owner fact',
+  );
+});
