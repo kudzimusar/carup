@@ -309,20 +309,14 @@ export const FEATURE_REGISTRY: FeatureRegistryItem[] = [
   {
     id: 'owner.evidence-vault',
     label: 'Evidence Vault',
-    route: '/dashboard/garage',
+    route: '/dashboard/evidence',
     domain: 'evidence',
     roles: ['owner'],
     placements: ['dashboard_sidebar'],
     requiresAuth: true,
     icon: 'FileText',
     badge: 'Upload',
-    description: 'Upload and manage vehicle evidence photos and documents',
-    // `isHidden` here means "exclude from duplicate-route validation" (it shares
-    // /dashboard/garage with owner.garage) — NOT "hide from navigation". It is a
-    // legitimately VISIBLE sidebar entry, so its lifecycle is explicitly active
-    // (explicit lifecycle wins over the legacy boolean in getStaticLifecycle).
-    lifecycle: 'active',
-    isHidden: true,
+    description: 'Open vehicle-scoped evidence and upload governed documents or media',
   },
   {
     id: 'owner.service-history',
