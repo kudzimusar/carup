@@ -1,0 +1,45 @@
+name: Seller Phase E Navigation Intent Gate
+
+on:
+  pull_request:
+    branches:
+      - integration/vehicle-passport-v16-cert
+    paths:
+      - 'web/src/components/seller/**'
+      - 'web/src/components/layout/DashboardLayout.tsx'
+      - 'web/src/config/featureRegistry.ts'
+      - 'web/src/App.tsx'
+      - 'web/src/pages/GuestSell.tsx'
+      - 'web/src/pages/dashboard/owner/MyGarage.tsx'
+      - 'web/src/pages/dashboard/owner/EvidenceVault.tsx'
+      - 'web/src/pages/dashboard/owner/MyListings.tsx'
+      - 'web/src/pages/dashboard/owner/SellVehicle.tsx'
+      - 'web/src/pages/dashboard/owner/VehicleProfile.tsx'
+      - 'web/src/pages/SellFlow.identification.test.tsx'
+      - '.github/workflows/seller-phase-e-navigation-intent.yml'
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+jobs:
+  navigation-intent:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      - name: Seller navigation and intent component contracts
+        run: |
+          npm run test:unit --workspace=web -- \
+            src/components/seller/SellerWorkspaceHeader.test.tsx \
+            src/pages/SellFlow.identification.test.tsx \
+            src/pages/GuestSell.preview.test.tsx
+      - name: Web typecheck/build
+        run: npm run build --workspace=web
