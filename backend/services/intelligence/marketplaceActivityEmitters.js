@@ -359,3 +359,109 @@ export async function emitInquiryCreated(inquiry, { req = null, client = default
     return { recorded: false, reason: 'emit_failed' };
   }
 }
+
+
+/**
+ * Record a seller price mutation after the vehicle row has been updated.
+ *
+ * The request id is the mutation anchor. A retry that arrives as a new request sees the already-
+ * changed authoritative price and the route exits as `unchanged`, so it never emits a duplicate.
+ * No buyer-facing telemetry value is trusted as the authority for either price.
+ */
+export async function emitPriceChanged({
+  req,
+  vin,
+  oldPrice,
+  newPrice,
+  currency = null,
+  client = defaultClient,
+} = {}) {
+  try {
+    const requestId = req?.requestId || req?.correlationId || req?.headers?.['x-request-id'] || null;
+    if (!requestId || !vin || !Number.isFinite(Number(oldPrice)) || !Number.isFinite(Number(newPrice))) {
+      return { recorded: false, reason: 'missing_authority_material' };
+    }
+    const ctx = clientContextFrom(req);
+    return await recordServerEvent({
+      eventType: 'marketplace_price_changed',
+      vin,
+      listingId: vin,
+      idempotencyMaterial: [String(requestId), String(vin), String(oldPrice), String(newPrice)],
+      actor: actorFrom(req, ctx.platform),
+      sessionKey: ctx.sessionKey,
+      pageViewId: ctx.pageViewId,
+      sourceSurface: 'dashboard',
+      metadata: {
+        old_price: Number(oldPrice),
+        new_price: Number(newPrice),
+        old_currency: currency || null,
+        new_currency: currency || null,
+      },
+      client,
+    });
+  } catch {
+    return { recorded: false, reason: 'emit_failed' };
+  }
+}
+
+/** Record an actual draft/publishable → published transition. */
+export async function emitListingPublished({
+  req,
+  vin,
+  fromStatus,
+  toStatus = 'published',
+  client = defaultClient,
+} = {}) {
+  try {
+    const requestId = req?.requestId || req?.correlationId || req?.headers?.['x-request-id'] || null;
+    if (!requestId || !vin) return { recorded: false, reason: 'missing_authority_material' };
+    const ctx = clientContextFrom(req);
+    return await recordServerEvent({
+      eventType: 'marketplace_listing_published',
+      vin,
+      listingId: vin,
+      idempotencyMaterial: [String(requestId), String(vin), String(fromStatus || ''), String(toStatus)],
+      actor: actorFrom(req, ctx.platform),
+      sessionKey: ctx.sessionKey,
+      pageViewId: ctx.pageViewId,
+      sourceSurface: 'dashboard',
+      metadata: { from_status: fromStatus || 'unknown', to_status: toStatus },
+      client,
+    });
+  } catch {
+    return { recorded: false, reason: 'emit_failed' };
+  }
+}
+
+/** Record an actual availability transition into Sold. */
+export async function emitListingSold({
+  req,
+  vin,
+  fromStatus,
+  toStatus = 'Sold',
+  client = defaultClient,
+} = {}) {
+  try {
+    const requestId = req?.requestId || req?.correlationId || req?.headers?.['x-request-id'] || null;
+    if (!requestId || !vin) return { recorded: false, reason: 'missing_authority_material' };
+    const ctx = clientContextFrom(req);
+    return await recordServerEvent({
+      eventType: 'marketplace_listing_sold',
+      vin,
+      listingId: vin,
+      idempotencyMaterial: [String(requestId), String(vin), String(fromStatus || ''), String(toStatus)],
+      actor: actorFrom(req, ctx.platform),
+      sessionKey: ctx.sessionKey,
+      pageViewId: ctx.pageViewId,
+      sourceSurface: 'dashboard',
+      metadata: {
+        from_status: fromStatus || 'unknown',
+        to_status: toStatus,
+        sold_source: 'vehicles_status',
+      },
+      client,
+    });
+  } catch {
+    return { recorded: false, reason: 'emit_failed' };
+  }
+}
