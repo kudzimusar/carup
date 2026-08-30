@@ -179,19 +179,27 @@ export default function Landing() {
     return () => { cancelled = true }
   }, [fetchMarketplaceListings])
 
-  const heroVehicle = featuredVehicles[0] ?? null
+  // Home's live showroom is deliberately "latest public listing with meaningful media", not
+  // "featured". Featured is an editorial/commercial claim CarUp has no governed selector for yet.
+  const heroVehicle = featuredVehicles.find(vehicle =>
+    canRenderMarketplacePrimaryImage(vehicle.primary_image_state, vehicle.primary_image_url)
+  ) ?? featuredVehicles[0] ?? null
   const heroImage = heroVehicle && canRenderMarketplacePrimaryImage(heroVehicle.primary_image_state, heroVehicle.primary_image_url)
     ? heroVehicle.primary_image_url
     : null
 
-  const journeyMediaAt = (index: number) => {
-    if (featuredVehicles.length === 0) return { src: null, alt: 'CarUp vehicle journey' }
-    const vehicle = featuredVehicles[index % featuredVehicles.length]
-    const src = canRenderMarketplacePrimaryImage(vehicle.primary_image_state, vehicle.primary_image_url)
-      ? vehicle.primary_image_url
-      : null
+  // Only journeys that genuinely benefit from a real listing photo borrow Marketplace media.
+  // Verify, finance, protection, diaspora, service and parts must keep their conceptual diagrams
+  // when live inventory has no usable image; one broken listing must never blank Home storytelling.
+  const journeyMediaAt = (index: number, scene: JourneyScene) => {
+    if (scene !== 'buy' && scene !== 'sell') return { src: null, alt: `CarUp ${scene} journey` }
+    const visualVehicles = featuredVehicles.filter(vehicle =>
+      canRenderMarketplacePrimaryImage(vehicle.primary_image_state, vehicle.primary_image_url)
+    )
+    if (visualVehicles.length === 0) return { src: null, alt: 'CarUp vehicle journey' }
+    const vehicle = visualVehicles[index % visualVehicles.length]
     const alt = [vehicle.year, vehicle.make, vehicle.model].filter(Boolean).join(' ') || 'CarUp Marketplace vehicle'
-    return { src, alt }
+    return { src: vehicle.primary_image_url, alt }
   }
 
   const submitBuy = (event: React.FormEvent<HTMLFormElement>) => {
@@ -301,7 +309,7 @@ export default function Landing() {
                     Live from Marketplace
                   </div>
                   <div className="absolute inset-x-0 bottom-0 p-6 sm:p-8">
-                    <p className="text-[10px] font-black uppercase tracking-[0.18em] text-orange-300">Start with a real vehicle</p>
+                    <p className="text-[10px] font-black uppercase tracking-[0.18em] text-orange-300">Latest public listing</p>
                     <p className="mt-2 text-3xl font-black tracking-[-0.045em] sm:text-4xl">
                       {[heroVehicle.year, heroVehicle.make, heroVehicle.model].filter(Boolean).join(' ')}
                     </p>
@@ -359,7 +367,7 @@ export default function Landing() {
 
           <div className="mt-10 grid gap-5 xl:grid-cols-2" data-testid="home-journey-grid">
             {ecosystemJourneys.map((journey, index) => {
-              const media = journeyMediaAt(index)
+              const media = journeyMediaAt(index, journey.scene)
               return (
                 <Link
                   key={journey.title}
