@@ -401,6 +401,13 @@ export default function MyListings() {
                           <FileCheck2 className="mr-1.5 h-3.5 w-3.5" /> Evidence &amp; Trust
                         </Link>
                       </Button>
+                      {!isSold && !isPublished && (
+                        <Button size="sm" variant="outline" className="min-h-10 rounded-none text-xs font-bold" asChild>
+                          <Link to={`/dashboard/sell-vehicle?vin=${encodeURIComponent(listing.vin)}&stage=review`} data-testid={`publication-readiness-${listing.vin}`}>
+                            <FileCheck2 className="mr-1.5 h-3.5 w-3.5" /> Publication readiness
+                          </Link>
+                        </Button>
+                      )}
                       <Button size="sm" variant="outline" className="min-h-10 rounded-none text-xs font-bold" asChild>
                         <Link to="/dashboard/communications">
                           <MessageSquare className="mr-1.5 h-3.5 w-3.5" /> Conversations
