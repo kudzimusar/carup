@@ -19,6 +19,7 @@ import { VehicleIdentificationNotice } from '@/components/sell/VehicleIdentifica
 import { useSellerVehicleIdentification } from '@/hooks/useSellerVehicleIdentification'
 import { BODY_STYLES, DRIVETRAINS, FUEL_TYPES, SELLER_CONDITIONS, TRANSMISSIONS, VEHICLE_COLORS, VEHICLE_MAKES, modelsForMake, vehicleYearOptions } from '@/data/vehicleTaxonomy'
 import type { Vehicle } from '@/types'
+import { SellerWorkspaceHeader } from '@/components/seller/SellerWorkspaceHeader'
 
 const YEARS = vehicleYearOptions()
 const STEPS = ['Vehicle Details', 'Location & Pricing', 'Images & Features', 'Review & Save Draft']
@@ -693,11 +694,16 @@ export default function SellVehicle() {
   }
 
   return (
-    <div className="max-w-3xl mx-auto space-y-6">
-      <div>
-        <h1 className="text-2xl font-bold">Register Your Vehicle</h1>
-        <p className="text-gray-500">Save your vehicle as a draft. You must upload ownership documents before your listing can be published.</p>
-      </div>
+    <div className="max-w-[1100px] mx-auto space-y-8">
+      <SellerWorkspaceHeader
+        eyebrow="Seller Studio"
+        title={resumeVin ? 'Continue listing' : 'Build your listing'}
+        description="Save commercial details and listing media as a private draft. Ownership evidence and publication readiness remain governed separately."
+        backHref="/dashboard/garage"
+        backLabel="Back to My Garage"
+        objectIdentity={resumeVin || form.vin || null}
+        statusLabel="Draft workspace · not public"
+      />
       {serverDraftLoaded && (
         <div className="border-l-4 border-emerald-500 bg-emerald-50 p-4 text-sm text-emerald-950" data-testid="seller-server-draft-loaded">
           <p className="font-semibold">Existing Seller listing loaded.</p>
