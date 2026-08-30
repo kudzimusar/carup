@@ -93,7 +93,11 @@ jobs:
 
               const sessionResult = await client.query(
                 `select count(*)::int total,
-                        count(*) filter (where is_valid = true and expires_at > now())::int valid
+                        count(*) filter (
+                          where is_valid = true
+                            and nullif(expires_at, '') is not null
+                            and nullif(expires_at, '')::timestamptz > now()
+                        )::int valid
                    from public.user_sessions
                   where user_id = $1`,
                 [user.id],
