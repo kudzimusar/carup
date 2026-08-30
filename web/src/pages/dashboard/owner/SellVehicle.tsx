@@ -1463,8 +1463,17 @@ export default function SellVehicle() {
               <ChevronLeft className="w-4 h-4 mr-1" /> Back
             </Button>
             {step < STEPS.length - 1 ? (
-              <Button className="bg-orange-500 hover:bg-orange-600" onClick={nextStep}>
-                Next <ChevronRight className="w-4 h-4 ml-1" />
+              <Button
+                className="bg-orange-500 hover:bg-orange-600"
+                onClick={nextStep}
+                disabled={step === 0 && (identifying || authorityState === 'checking')}
+                aria-busy={step === 0 && (identifying || authorityState === 'checking') ? true : undefined}
+              >
+                {step === 0 && (identifying || authorityState === 'checking') ? (
+                  <><Loader2 className="mr-2 h-4 w-4 animate-spin" />Checking vehicle…</>
+                ) : (
+                  <>Next <ChevronRight className="w-4 h-4 ml-1" /></>
+                )}
               </Button>
             ) : (
               <Button className="bg-orange-500 hover:bg-orange-600 min-w-36" onClick={handleSubmit} disabled={submitting} data-testid="submit-vehicle-button">
