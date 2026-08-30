@@ -32,7 +32,11 @@ const SellVehicle = (await import('./dashboard/owner/SellVehicle')).default
 
 const EXISTING_VIN = 'JTDKARFP0H3000731'
 
-const renderGuest = () => render(<MemoryRouter><GuestSell /></MemoryRouter>)
+const renderGuest = () => {
+  const rendered = render(<MemoryRouter><GuestSell /></MemoryRouter>)
+  fireEvent.click(screen.getByTestId('sell-intent-known'))
+  return rendered
+}
 const renderAuthenticated = () => render(<MemoryRouter><SellVehicle /></MemoryRouter>)
 
 beforeEach(() => {
