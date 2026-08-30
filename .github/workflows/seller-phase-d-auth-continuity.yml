@@ -29,6 +29,10 @@ jobs:
   auth-continuity:
     runs-on: ubuntu-latest
     timeout-minutes: 20
+    env:
+      NODE_ENV: test
+      SUPABASE_URL: http://127.0.0.1:54321
+      SUPABASE_SERVICE_ROLE_KEY: seller-phase-d-test-service-role-key
     steps:
       - uses: actions/checkout@v4
         with:
