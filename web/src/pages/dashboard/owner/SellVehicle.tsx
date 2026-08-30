@@ -264,7 +264,7 @@ export default function SellVehicle() {
             ? raw.seller_features.map(String)
             : Array.isArray(raw.features) ? raw.features.map(String) : [],
           images: orderedMedia.map(item => item.url).filter(Boolean),
-          imageLabels: orderedMedia.map(() => ''),
+          imageLabels: orderedMedia.map(item => String(item.photo_label || '')),
           locationVisibility:
             raw.listing_location_visibility === 'public' || raw.listing_location_visibility === 'province_only'
               ? String(raw.listing_location_visibility)
@@ -567,11 +567,16 @@ export default function SellVehicle() {
         // S4 — the media-primacy contract, in the shape the server defines. A bare URL claims
         // nothing; exactly the seller's chosen photo carries `is_primary: true`. When no cover was
         // chosen, every entry stays a plain URL and the listing honestly has no primary photo.
-        images: coverImageIndex === null
-          ? resolvedImageUrls
-          : resolvedImageUrls.map((url, index) => (
-              index === coverImageIndex ? { url, is_primary: true } : url
-            )),
+        images: resolvedImageUrls.map((url, index) => {
+          const photoLabel = String(form.imageLabels[index] || '').trim()
+          const isPrimary = index === coverImageIndex
+          if (!photoLabel && !isPrimary) return url
+          return {
+            url,
+            ...(photoLabel ? { photo_label: photoLabel } : {}),
+            ...(isPrimary ? { is_primary: true } : {}),
+          }
+        }),
         // S3 — the seller's own consent decisions, sent explicitly in both directions so the
         // server records a choice rather than inferring one from silence.
         location_visibility: form.locationVisibility,
@@ -594,18 +599,23 @@ export default function SellVehicle() {
         images_recorded_count?: number
         images_unpublishable_count?: number
         images_replacement_complete?: boolean
+        images_labels_recorded?: boolean
       } | null
 
       if (resolvedImageUrls.length > 0) {
         const recordedCount = Number(resultMedia?.images_recorded_count || 0)
         const refusedCount = Number(resultMedia?.images_unpublishable_count || 0)
+        const hasPhotoLabels = form.imageLabels.some(label => String(label || '').trim() !== '')
         if (
           resultMedia?.images_recorded !== true
           || recordedCount !== resolvedImageUrls.length
           || refusedCount > 0
           || resultMedia?.images_replacement_complete === false
+          || (hasPhotoLabels && resultMedia?.images_labels_recorded !== true)
         ) {
-          toast.error('CarUp saved vehicle details but did not confirm the complete photo gallery. Your browser draft has been kept so you can retry without losing the photos.')
+          toast.error(hasPhotoLabels && resultMedia?.images_labels_recorded !== true
+            ? 'CarUp saved the photos but could not confirm their labels. Your browser draft has been kept so you can retry without losing the labelled gallery.'
+            : 'CarUp saved vehicle details but did not confirm the complete photo gallery. Your browser draft has been kept so you can retry without losing the photos.')
           return
         }
       }
