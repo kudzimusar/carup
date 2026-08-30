@@ -199,6 +199,8 @@ export interface MarketplaceListingMediaItem {
   url_form: MarketplaceMediaUrlForm;
   /** The projection's dense 0-based ordinal AFTER sorting — NOT the raw `display_order` column. */
   position: number;
+  /** Seller-authored stored gallery order, distinct from cover-first projected position. */
+  seller_order: number | null;
   /**
    * RULE 6: PRIMACY IS THE SELLER'S CHOICE OR IT DOES NOT EXIST. `true` only where a row claims it;
    * no primary is elected when nobody claimed one. Where several rows claim it — nothing in the
