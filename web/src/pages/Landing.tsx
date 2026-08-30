@@ -179,7 +179,13 @@ export default function Landing() {
     return () => { cancelled = true }
   }, [fetchMarketplaceListings])
 
-  const heroVehicle = featuredVehicles[0] ?? null
+  // This is a live showroom, not an editorial "featured" award. Prefer the newest published
+  // listing whose seller media is actually renderable; if none has usable media, keep the newest
+  // listing identity but render the deliberate visual fallback below. Automated fixtures are also
+  // retired by the Seller staging harness and must never be allowed to define this surface.
+  const heroVehicle = featuredVehicles.find(vehicle =>
+    canRenderMarketplacePrimaryImage(vehicle.primary_image_state, vehicle.primary_image_url)
+  ) ?? featuredVehicles[0] ?? null
   const heroImage = heroVehicle && canRenderMarketplacePrimaryImage(heroVehicle.primary_image_state, heroVehicle.primary_image_url)
     ? heroVehicle.primary_image_url
     : null
@@ -289,16 +295,27 @@ export default function Landing() {
                   className="group absolute inset-x-0 top-5 block h-[84%] overflow-hidden bg-slate-900 shadow-[0_40px_110px_rgba(0,0,0,0.58)] [clip-path:polygon(8%_0,100%_0,100%_88%,82%_100%,0_91%,0_14%)]"
                   data-testid="featured-view-passport"
                 >
-                  <ListingImage
-                    src={heroImage}
-                    alt={[heroVehicle.year, heroVehicle.make, heroVehicle.model].filter(Boolean).join(' ') || 'Live marketplace vehicle'}
-                    className="h-full w-full"
-                    imgClassName="transition duration-700 ease-out group-hover:scale-[1.035]"
-                    loading="eager"
-                  />
+                  {heroImage ? (
+                    <ListingImage
+                      src={heroImage}
+                      alt={[heroVehicle.year, heroVehicle.make, heroVehicle.model].filter(Boolean).join(' ') || 'Live marketplace vehicle'}
+                      className="h-full w-full"
+                      imgClassName="transition duration-700 ease-out group-hover:scale-[1.035]"
+                      loading="eager"
+                    />
+                  ) : (
+                    <div
+                      className="absolute inset-0 flex items-center justify-center bg-[radial-gradient(circle_at_65%_30%,rgba(249,115,22,0.22),transparent_28%),linear-gradient(145deg,#172033,#080d16)]"
+                      data-testid="home-live-showroom-media-fallback"
+                      role="img"
+                      aria-label="Seller listing media is not available for this live vehicle"
+                    >
+                      <CarFront className="h-36 w-36 stroke-[1.05] text-white/35" aria-hidden="true" />
+                    </div>
+                  )}
                   <div className="absolute inset-0 bg-gradient-to-t from-black/85 via-black/5 to-black/10" />
                   <div className="absolute left-5 top-5 border border-white/20 bg-black/35 px-3 py-1.5 text-[10px] font-black uppercase tracking-[0.16em] backdrop-blur-sm">
-                    Live from Marketplace
+                    Live from Marketplace · published inventory
                   </div>
                   <div className="absolute inset-x-0 bottom-0 p-6 sm:p-8">
                     <p className="text-[10px] font-black uppercase tracking-[0.18em] text-orange-300">Start with a real vehicle</p>
@@ -359,7 +376,13 @@ export default function Landing() {
 
           <div className="mt-10 grid gap-5 xl:grid-cols-2" data-testid="home-journey-grid">
             {ecosystemJourneys.map((journey, index) => {
-              const media = journeyMediaAt(index)
+              // Buy/Sell may use real Marketplace photography because the vehicle itself is the
+              // subject. Conceptual journeys must remain communicative when live inventory media
+              // is absent, so Verify/Diaspora/Finance/Protection/Service/Parts use their own
+              // process illustrations instead of borrowing a random listing photo.
+              const media = journey.scene === 'buy' || journey.scene === 'sell'
+                ? journeyMediaAt(index)
+                : { src: null, alt: `CarUp ${journey.eyebrow} journey` }
               return (
                 <Link
                   key={journey.title}
