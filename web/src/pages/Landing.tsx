@@ -414,7 +414,7 @@ export default function Landing() {
           <div className="flex flex-col gap-5 border-b border-slate-200 pb-6 md:flex-row md:items-end md:justify-between">
             <div>
               <p className="text-[10px] font-black uppercase tracking-[0.22em] text-orange-600">Live Marketplace</p>
-              <h2 className="mt-2 text-4xl font-black tracking-[-0.05em] sm:text-5xl">Cars worth opening.</h2>
+              <h2 className="mt-2 text-4xl font-black tracking-[-0.05em] sm:text-5xl">Published vehicles to explore.</h2>
               <p className="mt-3 max-w-2xl text-sm leading-6 text-slate-600">
                 The same published vehicle stories used in Marketplace — not a second homepage-only card system.
               </p>
@@ -433,7 +433,7 @@ export default function Landing() {
             </p>
           )}
           {featuredState === 'ready' && featuredVehicles.length === 0 && (
-            <p className="py-12 text-sm text-slate-500" data-testid="featured-empty">No published listings are available to feature.</p>
+            <p className="py-12 text-sm text-slate-500" data-testid="featured-empty">No published listings are available for the live showroom.</p>
           )}
 
           {featuredVehicles.length > 0 && (
