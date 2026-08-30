@@ -76,6 +76,7 @@ export default function Register() {
     role: string
   } | null>(null)
   const [resending, setResending] = useState(false)
+  const [existingAccount, setExistingAccount] = useState(false)
 
   const { login } = useAuth()
 
@@ -124,6 +125,7 @@ export default function Register() {
       return
     }
 
+    setExistingAccount(false)
     setLoading(true)
     try {
       const data = await apiRequest<{
@@ -170,7 +172,13 @@ export default function Register() {
       })
       toast.success('Account created. Your Seller draft is still waiting for you.')
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : 'Registration failed')
+      const message = error instanceof Error ? error.message : 'Registration failed'
+      if (/already exists/i.test(message)) {
+        setExistingAccount(true)
+        toast.info('This email already belongs to a CarUp account. Sign in or recover the password instead of creating a duplicate.')
+      } else {
+        toast.error(message)
+      }
     } finally {
       setLoading(false)
     }
@@ -292,6 +300,16 @@ export default function Register() {
 
         <Card className="border-0 card-shadow">
           <CardContent className="p-6 sm:p-7">
+            {existingAccount && (
+              <div className="mb-5 border-l-4 border-orange-500 bg-orange-50 p-4 text-sm text-orange-950" role="status" data-testid="existing-account-recovery">
+                <p className="font-black">This email is already a CarUp account.</p>
+                <p className="mt-1 leading-5">Keep the existing account and its vehicle relationships. Do not register a second identity.</p>
+                <div className="mt-3 flex flex-wrap gap-3">
+                  <Link to={returnTo ? `/login?returnTo=${encodeURIComponent(returnTo)}` : '/login'} className="font-black underline underline-offset-2">Sign in</Link>
+                  <Link to="/auth/forgot-password" className="font-black underline underline-offset-2">Recover password</Link>
+                </div>
+              </div>
+            )}
             <form onSubmit={handleSubmit} className="space-y-4">
               {step === 1 && (
                 <>

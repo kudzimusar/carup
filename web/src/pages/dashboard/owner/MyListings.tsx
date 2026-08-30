@@ -1,12 +1,11 @@
-import { useState, useEffect } from 'react'
+import { useEffect, useMemo, useState } from 'react'
+import { BarChart3, DollarSign, Eye, FileText, Loader2, MessageSquare, Plus, ShieldCheck, Tag, TrendingUp } from 'lucide-react'
 import { Link } from 'react-router-dom'
-import { Card, CardContent } from '@/components/ui/card'
-import { Button } from '@/components/ui/button'
-import { Badge } from '@/components/ui/badge'
-import { Input } from '@/components/ui/input'
-import { Plus, Eye, DollarSign, TrendingUp, Loader2, Car, MessageSquare } from 'lucide-react'
 import { toast } from 'sonner'
+import { Button } from '@/components/ui/button'
+import { Input } from '@/components/ui/input'
 import { ListingImage } from '@/components/marketplace/ListingImage'
+import { WorkspaceHeader } from '@/components/dashboard/WorkspaceHeader'
 import ListingInsights from '@/components/intelligence/ListingInsights'
 import { primaryListingImageUrl } from '@/lib/listingMedia'
 import { useCarUpApi } from '@/hooks/useCarUpApi'
@@ -16,12 +15,6 @@ import { describePublicationRefusal } from '@/lib/publicationRefusal'
 import { readOwnerTrustClaim, statedPrice } from './ownerStatedValues'
 import type { Vehicle } from '@/types'
 
-const STATUS_BADGE: Record<string, string> = {
-  available: 'bg-green-100 text-green-700',
-  reserved: 'bg-amber-100 text-amber-700',
-  sold: 'bg-gray-100 text-gray-500',
-}
-
 export function normalizeListingStatus(status?: string | null) {
   return String(status || '').toLowerCase()
 }
@@ -30,10 +23,6 @@ export function isSoldListingStatus(status?: string | null) {
   return normalizeListingStatus(status) === 'sold'
 }
 
-/**
- * An absent listing status used to default to 'available', so a row whose lifecycle state had never
- * been written was advertised to its own seller as live. Absent is its own answer.
- */
 export function formatListingStatus(status?: string | null) {
   const value = String(status || '').trim()
   if (!value) return 'Status not recorded'
@@ -55,9 +44,28 @@ type ListingConversation = {
   latest_message?: { text?: string } | null
 }
 
+function lifecycleLabel(status: string, publication: string | null | undefined) {
+  if (status === 'sold') return 'Sold'
+  if (publication === 'published') return 'Published'
+  if (publication === 'publishable') return 'Ready to publish'
+  if (publication === 'draft') return 'Draft'
+  return publication ? publication.replace(/_/g, ' ') : 'Listing state not recorded'
+}
+
+function primaryAction(listing: Vehicle, publication: string | null | undefined, status: string) {
+  if (status === 'sold') {
+    return { label: 'Open Vehicle Passport', href: `/dashboard/garage/${encodeURIComponent(listing.vin)}` }
+  }
+  if (publication === 'published') {
+    return { label: 'Manage published listing', href: `/marketplace/${encodeURIComponent(listing.vin)}` }
+  }
+  if (publication === 'publishable') {
+    return { label: 'Review & publish', href: `/dashboard/sell-vehicle?vin=${encodeURIComponent(listing.vin)}` }
+  }
+  return { label: 'Continue listing', href: `/dashboard/sell-vehicle?vin=${encodeURIComponent(listing.vin)}` }
+}
+
 export default function MyListings() {
-  // Destructured, never held as an aggregate object — the aggregate identity changes
-  // every render and re-triggers the effects below.
   const {
     fetchOwnedVehicles,
     updateVehicleStatus,
@@ -73,19 +81,13 @@ export default function MyListings() {
   const [publicationStatuses, setPublicationStatuses] = useState<Record<string, string>>({})
   const [myListings, setMyListings] = useState<Vehicle[]>([])
   const [conversations, setConversations] = useState<ListingConversation[]>([])
-  // Lets SellerInquiriesCard tell "owned listings not loaded yet" apart from
-  // "loaded and genuinely empty" — it receives undefined until the fetch lands.
   const [ownedLoaded, setOwnedLoaded] = useState(false)
-  // S8 — the seller's own price. `editingPriceVin` is the open editor; `priceDraft` is what they
-  // typed, kept as a STRING so an empty box stays empty rather than becoming 0.
   const [editingPriceVin, setEditingPriceVin] = useState<string | null>(null)
   const [priceDraft, setPriceDraft] = useState('')
   const [savingPriceVin, setSavingPriceVin] = useState<string | null>(null)
 
   const openPriceEditor = (vin: string, current: unknown) => {
     setEditingPriceVin(vin)
-    // Pre-filled from the current price when there is one, and left EMPTY when there is not —
-    // seeding '0' would offer the seller a free car as a starting point.
     setPriceDraft(typeof current === 'number' && Number.isFinite(current) ? String(current) : '')
   }
 
@@ -97,8 +99,6 @@ export default function MyListings() {
   const handlePriceSave = async (vin: string) => {
     if (savingPriceVin) return
     const parsed = Number(priceDraft.trim())
-    // The same rule the route enforces, applied before the request so the seller gets an immediate
-    // answer — not instead of the server check, which stays authoritative.
     if (!priceDraft.trim() || !Number.isFinite(parsed) || parsed <= 0) {
       toast.error('Enter a price greater than zero.')
       return
@@ -106,8 +106,6 @@ export default function MyListings() {
     setSavingPriceVin(vin)
     try {
       const result = await updateVehiclePrice(vin, parsed)
-      // The SERVER's price is displayed, never the typed one: echoing the input would show a price
-      // that was never stored if the write were refused or adjusted.
       const persisted = typeof result?.price === 'number' ? result.price : parsed
       setMyListings(prev => prev.map(item => (item.vin === vin ? { ...item, price: persisted } : item)))
       toast.success('Price updated. Buyers will see the new price on your listing.')
@@ -129,7 +127,7 @@ export default function MyListings() {
       setPublicationStatuses(prev => ({ ...prev, [vin]: result.publication_status }))
       toast.success(currentlyPublished
         ? 'Listing unpublished — it is no longer publicly visible.'
-        : 'Listing published! Buyers can now find it on the marketplace.')
+        : 'Listing published. Buyers can now find it on Marketplace.')
     } catch (e: unknown) {
       toast.error(describePublicationRefusal(e))
     } finally {
@@ -144,7 +142,7 @@ export default function MyListings() {
       fetchCommunicationThreads().catch(() => ({ threads: [] })),
     ]).then(([vehicles, communications]) => {
       if (!mounted) return
-      setMyListings(vehicles)
+      setMyListings(vehicles || [])
       setConversations((communications.threads || []) as ListingConversation[])
       setOwnedLoaded(true)
     })
@@ -159,7 +157,7 @@ export default function MyListings() {
       const persistedStatus = String(result?.status || 'Sold')
       setListingStatuses(prev => ({ ...prev, [vehicleId]: persistedStatus }))
       setMyListings(prev => applyPersistedListingStatus(prev, vin, persistedStatus))
-      toast.success('Vehicle marked as sold! It will be removed from active listings.')
+      toast.success('Vehicle marked as sold. Active commerce for this listing has ended.')
     } catch {
       toast.error('Could not mark this vehicle as sold. Please try again.')
     } finally {
@@ -167,242 +165,255 @@ export default function MyListings() {
     }
   }
 
-  const marketplaceConversations = conversations.filter((conversation) =>
-    conversation.business_workflow === 'marketplace' || conversation.thread_type === 'marketplace_inquiry')
+  const marketplaceConversations = useMemo(() => conversations.filter((conversation) =>
+    conversation.business_workflow === 'marketplace' || conversation.thread_type === 'marketplace_inquiry'), [conversations])
   const totalUnread = marketplaceConversations.reduce((sum, conversation) => sum + Number(conversation.unread_count || 0), 0)
+  const publishedCount = myListings.filter(listing => (publicationStatuses[listing.vin] || listing.publication_status) === 'published').length
+  const draftCount = myListings.filter(listing => {
+    const publication = publicationStatuses[listing.vin] || listing.publication_status
+    return publication === 'draft' || publication === 'publishable'
+  }).length
 
   return (
-    <div className="space-y-6 max-w-7xl mx-auto">
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-bold">My Listings</h1>
-          <p className="text-gray-500">
-            {myListings.length} listings · {marketplaceConversations.length} conversations · {totalUnread} unread
-          </p>
-        </div>
-        <Button className="bg-orange-500 hover:bg-orange-600 gap-1" asChild>
-          <Link to="/dashboard/sell-vehicle"><Plus className="w-4 h-4" /> New Listing</Link>
-        </Button>
-      </div>
+    <div className="mx-auto max-w-[1440px] space-y-8" data-testid="my-listings-page">
+      <WorkspaceHeader
+        eyebrow="Seller commerce"
+        title="My Listings"
+        subtitle="Move each vehicle from draft to public Marketplace without losing its Vehicle Passport, media, evidence or buyer context."
+        breadcrumbs={[
+          { label: 'Seller home', href: '/dashboard' },
+          { label: 'My Listings' },
+        ]}
+        action={(
+          <Button asChild className="min-h-11 rounded-none bg-orange-500 px-5 font-black text-white hover:bg-orange-600">
+            <Link to="/dashboard/sell-vehicle"><Plus className="mr-2 h-4 w-4" /> New listing</Link>
+          </Button>
+        )}
+      />
+
+      <section className="grid gap-px overflow-hidden border-y border-slate-200 bg-slate-200 sm:grid-cols-2 xl:grid-cols-4" aria-label="Listing summary">
+        {[
+          ['Published', String(publishedCount), 'Public Marketplace inventory'],
+          ['Drafts needing action', String(draftCount), 'Draft or ready-to-publish listings'],
+          ['Conversation threads', String(marketplaceConversations.length), 'Projected Marketplace conversations'],
+          ['Unread', String(totalUnread), 'Unread projected conversation messages'],
+        ].map(([label, value, note]) => (
+          <div key={label} className="bg-white px-5 py-5">
+            <p className="text-[10px] font-black uppercase tracking-[0.16em] text-slate-400">{label}</p>
+            <p className="mt-2 text-3xl font-black tracking-[-0.04em] text-slate-950">{value}</p>
+            <p className="mt-1 text-xs leading-5 text-slate-500">{note}</p>
+          </div>
+        ))}
+      </section>
 
       <SellerInquiriesCard ownedListings={ownedLoaded ? myListings : undefined} />
 
-      {myListings.length === 0 ? (
-        <Card className="border-0 card-shadow">
-          <CardContent className="p-12 text-center">
-            <Car className="w-12 h-12 text-gray-300 mx-auto mb-4" />
-            <h3 className="text-lg font-semibold mb-2">No Listings Yet</h3>
-            <p className="text-gray-500 mb-4">List your vehicle on the marketplace to reach thousands of buyers across Zimbabwe.</p>
-            <Button className="bg-orange-500 hover:bg-orange-600" asChild>
-              <Link to="/dashboard/sell-vehicle">Create Your First Listing</Link>
-            </Button>
-          </CardContent>
-        </Card>
+      {ownedLoaded && myListings.length === 0 ? (
+        <section className="border-y border-slate-200 py-14 text-center">
+          <Tag className="mx-auto h-10 w-10 text-slate-300" />
+          <h2 className="mt-4 text-3xl font-black tracking-[-0.04em] text-slate-950">No Seller listing yet.</h2>
+          <p className="mx-auto mt-3 max-w-xl text-sm leading-6 text-slate-600">
+            Start with a vehicle in My Garage, a known CarUp Passport or a vehicle that is genuinely new to CarUp.
+          </p>
+          <Button asChild className="mt-6 min-h-11 rounded-none bg-orange-500 px-6 font-black text-white hover:bg-orange-600">
+            <Link to="/sell">Start a Seller journey</Link>
+          </Button>
+        </section>
       ) : (
-        <div className="space-y-4">
+        <div className="divide-y divide-slate-200 border-y border-slate-200">
           {myListings.map((listing) => {
             const effectiveStatus = listingStatuses[listing.vin] || listing.status || ''
             const normalizedStatus = normalizeListingStatus(effectiveStatus)
             const trust = readOwnerTrustClaim(listing)
             const isSold = isSoldListingStatus(effectiveStatus)
+            const publication = publicationStatuses[listing.vin] || listing.publication_status
+            const pubMeta = publication ? PUBLICATION_BADGE[publication] : null
+            const action = primaryAction(listing, publication, normalizedStatus)
             const listingConversations = marketplaceConversations.filter((conversation) =>
               String(conversation.marketplace_listing_id || '').toUpperCase() === String(listing.vin || '').toUpperCase())
             const listingUnread = listingConversations.reduce((sum, conversation) => sum + Number(conversation.unread_count || 0), 0)
             const latest = listingConversations[0]?.latest_message?.text
+
             return (
-              <Card key={listing.vin} className={`border-0 card-shadow transition-opacity ${isSold ? 'opacity-60' : ''}`}>
-                <CardContent className="p-5" data-testid={`my-listing-card-${listing.vin}`}>
-                  <div className="flex gap-4">
-                    {/* No stock-photo stand-in: an unrelated car is a claim about this listing. */}
-                    <ListingImage
-                      src={primaryListingImageUrl(listing.listing_media)}
-                      alt={`${listing.year} ${listing.make} ${listing.model}`}
-                      className="w-32 h-24 rounded-lg overflow-hidden flex-shrink-0"
-                    />
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-start justify-between gap-2 flex-wrap">
-                        <div>
-                          <h3 className="font-semibold">{listing.year} {listing.make} {listing.model}</h3>
-                          <p className="text-lg font-bold text-orange-600 mt-0.5" data-testid={`listing-price-${listing.vin}`}>
-                            {statedPrice(listing.price)}
-                          </p>
-                        </div>
-                        <div className="flex gap-1.5 flex-wrap justify-end">
-                          <Badge className={`text-xs font-medium ${STATUS_BADGE[normalizedStatus] || 'bg-gray-100 text-gray-600'}`}>
-                            {formatListingStatus(effectiveStatus)}
-                          </Badge>
-                          {(() => {
-                            const pub = publicationStatuses[listing.vin] || listing.publication_status
-                            const meta = pub ? PUBLICATION_BADGE[pub] : null
-                            return meta ? (
-                              <Badge data-testid={`publication-badge-${listing.vin}`} className={`text-xs font-medium ${meta.className}`}>
-                                {meta.label}
-                              </Badge>
-                            ) : null
-                          })()}
-                        </div>
-                      </div>
-                      <div className="flex flex-wrap gap-3 mt-2 text-xs text-gray-500">
-                        {/* `viewCount || 0` reported "0 views" on a listing nothing counts views
-                            for — a measurement of zero where no measurement is taken. */}
-                        <span className="flex items-center gap-1" data-testid={`listing-views-${listing.vin}`}>
-                          <Eye className="w-3 h-3" />
-                          {typeof listing.viewCount === 'number' ? `${listing.viewCount} views` : 'Views not tracked'}
-                        </span>
-                        <span className="flex items-center gap-1" data-testid={`trust-claim-${listing.vin}`}>
-                          <TrendingUp className="w-3 h-3" />
-                          {trust.score !== null ? (
-                            <span data-testid={`trust-claim-score-${listing.vin}`}>Trust: {trust.score} / 100 · {trust.headline}</span>
-                          ) : (
-                            <span className="italic text-gray-400" data-testid={`trust-claim-state-${listing.vin}`}>Trust: {trust.headline}</span>
-                          )}
-                        </span>
-                        <span className="flex items-center gap-1"><MessageSquare className="w-3 h-3" />{listingConversations.length} conversations · {listingUnread} unread</span>
-                        {/* `vehicles.created_at` is the row-insert timestamp, not the date this
-                            listing was published — there is no governed publication date, so the
-                            absence is stated rather than filled with the record's birthday. */}
-                        <span>Listing date not recorded</span>
-                      </div>
-                      {latest && <p className="mt-2 line-clamp-1 text-xs text-gray-600">Latest: “{latest}”</p>}
-                      {/* OBS-16: a non-wrapping flex row of four actions, the last of them the long
-                          "Publish to Marketplace", pushed the CTA outside the card on a narrow
-                          viewport and gave the page horizontal overflow. Wrapping is the whole fix —
-                          the publication semantics are untouched. */}
-                      <div className="flex flex-wrap gap-2 mt-3" data-testid={`listing-actions-${listing.vin}`}>
-                        <Button size="sm" variant="outline" className="text-xs gap-1" asChild>
-                          <Link to={`/dashboard/sell-vehicle?vin=${encodeURIComponent(listing.vin)}`}>Edit draft</Link>
-                        </Button>
-                        <Button size="sm" className="text-xs gap-1" asChild>
-                          <Link to="/dashboard/communications"><MessageSquare className="w-3 h-3" /> Conversations</Link>
-                        </Button>
-                        <Button size="sm" variant="outline" className="text-xs gap-1" asChild>
-                          <Link to={`/marketplace/${listing.vin}`}><Eye className="w-3 h-3" /> View listing</Link>
-                        </Button>
-                        {!isSold && (
-                          <Button
-                            size="sm"
-                            variant="outline"
-                            className="text-xs gap-1"
-                            data-testid={`change-price-${listing.vin}`}
-                            onClick={() => openPriceEditor(listing.vin, listing.price)}
-                          >
-                            <DollarSign className="w-3 h-3" /> Change price
-                          </Button>
-                        )}
-                        {!isSold && (
-                          <Button
-                            size="sm"
-                            variant="outline"
-                            className="text-xs gap-1"
-                            data-testid={`mark-sold-${listing.vin}`}
-                            disabled={markingId === listing.vin}
-                            onClick={() => handleMarkSold(listing.vin, listing.vin)}
-                          >
-                            {markingId === listing.vin
-                              ? <><Loader2 className="w-3 h-3 animate-spin" /> Updating...</>
-                              : <><DollarSign className="w-3 h-3" /> Mark sold</>
-                            }
-                          </Button>
-                        )}
-                        {!isSold && (() => {
-                          const pub = publicationStatuses[listing.vin] || listing.publication_status
-                          if (!pub) return null
-                          const isPublished = pub === 'published'
-                          return (
-                            <Button
-                              size="sm"
-                              variant={isPublished ? 'outline' : 'default'}
-                              className={`text-xs gap-1 ${isPublished ? '' : 'bg-green-600 hover:bg-green-700'}`}
-                              data-testid={`publish-toggle-${listing.vin}`}
-                              disabled={publishingVin === listing.vin}
-                              onClick={() => handlePublishToggle(listing.vin, isPublished)}
-                            >
-                              {publishingVin === listing.vin
-                                ? <><Loader2 className="w-3 h-3 animate-spin" /> Updating...</>
-                                : (isPublished ? 'Unpublish' : 'Publish to Marketplace')
-                              }
-                            </Button>
-                          )
-                        })()}
-                        {isSold && <Badge className="text-xs text-gray-400 font-normal">Sale completed</Badge>}
-                      </div>
+              <article
+                key={listing.vin}
+                className={`grid gap-6 py-7 lg:grid-cols-[300px_minmax(0,1fr)] ${isSold ? 'opacity-75' : ''}`}
+                data-testid={`my-listing-card-${listing.vin}`}
+              >
+                <div className="relative min-h-[220px] overflow-hidden bg-slate-100">
+                  <ListingImage
+                    src={primaryListingImageUrl(listing.listing_media)}
+                    alt={[listing.year, listing.make, listing.model].filter(Boolean).join(' ') || 'Vehicle'}
+                    className="absolute inset-0 h-full w-full"
+                  />
+                  <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/85 to-transparent p-5 pt-16 text-white">
+                    <p className="font-mono text-[11px] text-white/70">{listing.vin}</p>
+                    <h2 className="mt-1 text-2xl font-black tracking-[-0.04em]">{[listing.year, listing.make, listing.model].filter(Boolean).join(' ')}</h2>
+                  </div>
+                </div>
 
-                      <div className="mt-3">
-                        <Button
-                          size="sm"
-                          variant="ghost"
-                          className="text-xs gap-1 px-2"
-                          data-testid={`toggle-insights-${listing.vin}`}
-                          aria-expanded={insightsFor === listing.vin}
-                          onClick={() => setInsightsFor(insightsFor === listing.vin ? null : listing.vin)}
-                        >
-                          <TrendingUp className="w-3 h-3" />
-                          {insightsFor === listing.vin ? 'Hide insights' : 'Full insights'}
-                        </Button>
-                        {insightsFor === listing.vin && (
-                          <div className="mt-3" data-testid={`listing-insights-panel-${listing.vin}`}>
-                            <ListingInsights vin={listing.vin} />
-                          </div>
+                <div className="min-w-0">
+                  <div className="flex flex-wrap items-start justify-between gap-4 border-b border-slate-200 pb-5">
+                    <div>
+                      <div className="flex flex-wrap gap-2">
+                        <span className="border border-slate-300 px-2 py-1 text-[10px] font-black uppercase tracking-[0.12em] text-slate-700">
+                          {formatListingStatus(effectiveStatus)}
+                        </span>
+                        {pubMeta && (
+                          <span data-testid={`publication-badge-${listing.vin}`} className={`px-2 py-1 text-[10px] font-black uppercase tracking-[0.12em] ${pubMeta.className}`}>
+                            {pubMeta.label}
+                          </span>
                         )}
                       </div>
-
-                      {editingPriceVin === listing.vin && (
-                        <div
-                          className="mt-3 rounded-xl border border-slate-200 bg-slate-50 p-3"
-                          data-testid={`price-editor-${listing.vin}`}
-                        >
-                          <label className="text-xs font-semibold text-slate-700" htmlFor={`price-input-${listing.vin}`}>
-                            New price
-                            {/* The currency is SHOWN and not editable. Changing it here would
-                                redenominate an existing listing, which the price route refuses to
-                                accept precisely because nobody restated the vehicle. */}
-                            {listing.currency && <span className="ml-1 font-normal text-slate-500">({listing.currency})</span>}
-                          </label>
-                          <div className="mt-1.5 flex flex-wrap items-center gap-2">
-                            <Input
-                              id={`price-input-${listing.vin}`}
-                              data-testid={`price-input-${listing.vin}`}
-                              type="number"
-                              min="1"
-                              value={priceDraft}
-                              onChange={e => setPriceDraft(e.target.value)}
-                              className="h-8 w-40 text-sm"
-                            />
-                            <Button
-                              size="sm"
-                              className="text-xs"
-                              data-testid={`price-save-${listing.vin}`}
-                              disabled={savingPriceVin === listing.vin}
-                              onClick={() => handlePriceSave(listing.vin)}
-                            >
-                              {savingPriceVin === listing.vin
-                                ? <><Loader2 className="w-3 h-3 mr-1 animate-spin" /> Saving...</>
-                                : 'Save price'}
-                            </Button>
-                            <Button
-                              size="sm"
-                              variant="ghost"
-                              className="text-xs"
-                              data-testid={`price-cancel-${listing.vin}`}
-                              onClick={closePriceEditor}
-                            >
-                              Cancel
-                            </Button>
-                          </div>
-                          <p className="mt-1.5 text-[11px] text-slate-500">
-                            Only the amount changes. Your listing&rsquo;s currency, availability and
-                            verification stay exactly as they are.
-                          </p>
-                        </div>
-                      )}
+                      <p className="mt-4 text-[10px] font-black uppercase tracking-[0.16em] text-slate-400">Lifecycle</p>
+                      <p className="mt-1 text-xl font-black text-slate-950">{lifecycleLabel(normalizedStatus, publication)}</p>
+                    </div>
+                    <div className="text-right">
+                      <p className="text-[10px] font-black uppercase tracking-[0.16em] text-slate-400">Asking price</p>
+                      <p className="mt-1 text-3xl font-black tracking-[-0.04em] text-slate-950" data-testid={`listing-price-${listing.vin}`}>
+                        {statedPrice(listing.price)}
+                      </p>
                     </div>
                   </div>
-                </CardContent>
-              </Card>
+
+                  <div className="grid gap-px bg-slate-200 sm:grid-cols-3">
+                    <div className="bg-white py-4 pr-4">
+                      <p className="text-[10px] font-black uppercase tracking-[0.14em] text-slate-400">Views</p>
+                      <p className="mt-1 text-sm font-black text-slate-900" data-testid={`listing-views-${listing.vin}`}>
+                        {typeof listing.viewCount === 'number' ? listing.viewCount.toLocaleString() : 'Not tracked'}
+                      </p>
+                    </div>
+                    <div className="bg-white p-4" data-testid={`trust-claim-${listing.vin}`}>
+                      <p className="text-[10px] font-black uppercase tracking-[0.14em] text-slate-400">Canonical Trust</p>
+                      {trust.score !== null ? (
+                        <>
+                          <p className="mt-1 text-sm font-black text-slate-900" data-testid={`trust-claim-score-${listing.vin}`}>{trust.score}/100 · {trust.headline}</p>
+                          <p className="mt-1 text-[11px] text-slate-500">Evidence basis and confidence live on Passport.</p>
+                        </>
+                      ) : (
+                        <p className="mt-1 text-sm font-black text-slate-600" data-testid={`trust-claim-state-${listing.vin}`}>{trust.headline}</p>
+                      )}
+                    </div>
+                    <div className="bg-white py-4 pl-4">
+                      <p className="text-[10px] font-black uppercase tracking-[0.14em] text-slate-400">Buyer communication</p>
+                      <p className="mt-1 text-sm font-black text-slate-900">{listingConversations.length} threads · {listingUnread} unread</p>
+                    </div>
+                  </div>
+
+                  {latest && (
+                    <p className="mt-4 border-l-2 border-orange-400 pl-3 text-xs leading-5 text-slate-600">
+                      Latest projected conversation: “{latest}”
+                    </p>
+                  )}
+
+                  <div className="mt-5 flex flex-wrap items-center gap-2 border-t border-slate-950 pt-5" data-testid={`listing-actions-${listing.vin}`}>
+                    <Button asChild className="min-h-11 rounded-none bg-orange-500 px-5 font-black text-white hover:bg-orange-600">
+                      <Link to={action.href} data-testid={`listing-primary-action-${listing.vin}`}>{action.label}</Link>
+                    </Button>
+
+                    {!isSold && publication === 'published' && (
+                      <Button
+                        variant="outline"
+                        className="min-h-11 rounded-none"
+                        data-testid={`publish-toggle-${listing.vin}`}
+                        disabled={publishingVin === listing.vin}
+                        onClick={() => handlePublishToggle(listing.vin, true)}
+                      >
+                        {publishingVin === listing.vin ? <><Loader2 className="mr-2 h-4 w-4 animate-spin" /> Updating…</> : 'Unpublish'}
+                      </Button>
+                    )}
+
+                    {!isSold && publication !== 'published' && publication && (
+                      <Button
+                        variant="outline"
+                        className="min-h-11 rounded-none"
+                        data-testid={`publish-toggle-${listing.vin}`}
+                        disabled={publishingVin === listing.vin}
+                        onClick={() => handlePublishToggle(listing.vin, false)}
+                      >
+                        {publishingVin === listing.vin ? <><Loader2 className="mr-2 h-4 w-4 animate-spin" /> Checking…</> : 'Publish'}
+                      </Button>
+                    )}
+
+                    <Button variant="outline" className="min-h-11 rounded-none" asChild>
+                      <Link to={`/marketplace/${encodeURIComponent(listing.vin)}`}>
+                        <Eye className="mr-2 h-4 w-4" /> {publication === 'published' ? 'View on Marketplace' : 'Preview buyer listing'}
+                      </Link>
+                    </Button>
+
+                    <Button variant="outline" className="min-h-11 rounded-none" asChild>
+                      <Link to="/dashboard/communications"><MessageSquare className="mr-2 h-4 w-4" /> Communications</Link>
+                    </Button>
+
+                    {!isSold && (
+                      <Button
+                        variant="ghost"
+                        className="min-h-11 rounded-none"
+                        data-testid={`change-price-${listing.vin}`}
+                        onClick={() => openPriceEditor(listing.vin, listing.price)}
+                      >
+                        <DollarSign className="mr-2 h-4 w-4" /> Price
+                      </Button>
+                    )}
+
+                    <Button
+                      variant="ghost"
+                      className="min-h-11 rounded-none"
+                      data-testid={`toggle-insights-${listing.vin}`}
+                      aria-expanded={insightsFor === listing.vin}
+                      onClick={() => setInsightsFor(insightsFor === listing.vin ? null : listing.vin)}
+                    >
+                      <BarChart3 className="mr-2 h-4 w-4" /> {insightsFor === listing.vin ? 'Hide performance' : 'Performance'}
+                    </Button>
+
+                    {!isSold && (
+                      <Button
+                        variant="ghost"
+                        className="min-h-11 rounded-none text-slate-500 hover:text-red-700"
+                        data-testid={`mark-sold-${listing.vin}`}
+                        disabled={markingId === listing.vin}
+                        onClick={() => handleMarkSold(listing.vin, listing.vin)}
+                      >
+                        {markingId === listing.vin
+                          ? <><Loader2 className="mr-2 h-4 w-4 animate-spin" /> Updating…</>
+                          : <><Tag className="mr-2 h-4 w-4" /> Mark sold</>}
+                      </Button>
+                    )}
+                  </div>
+
+                  {editingPriceVin === listing.vin && (
+                    <div className="mt-4 border-l-4 border-orange-500 bg-slate-50 p-4" data-testid={`price-editor-${listing.vin}`}>
+                      <label className="text-xs font-black uppercase tracking-[0.12em] text-slate-600" htmlFor={`price-input-${listing.vin}`}>
+                        New price {listing.currency && <span className="font-semibold normal-case tracking-normal text-slate-500">({listing.currency})</span>}
+                      </label>
+                      <div className="mt-2 flex flex-wrap items-center gap-2">
+                        <Input id={`price-input-${listing.vin}`} data-testid={`price-input-${listing.vin}`} type="number" min="1" value={priceDraft} onChange={e => setPriceDraft(e.target.value)} className="h-10 w-44 rounded-none" />
+                        <Button className="rounded-none" data-testid={`price-save-${listing.vin}`} disabled={savingPriceVin === listing.vin} onClick={() => handlePriceSave(listing.vin)}>
+                          {savingPriceVin === listing.vin ? <><Loader2 className="mr-1 h-3 w-3 animate-spin" /> Saving…</> : 'Save price'}
+                        </Button>
+                        <Button variant="ghost" className="rounded-none" data-testid={`price-cancel-${listing.vin}`} onClick={closePriceEditor}>Cancel</Button>
+                      </div>
+                      <p className="mt-2 text-[11px] text-slate-500">Only the amount changes. Currency, availability and verification are unchanged.</p>
+                    </div>
+                  )}
+
+                  {insightsFor === listing.vin && (
+                    <div className="mt-5 border-t border-slate-200 pt-5" data-testid={`listing-insights-panel-${listing.vin}`}>
+                      <ListingInsights vin={listing.vin} />
+                    </div>
+                  )}
+                </div>
+              </article>
             )
           })}
         </div>
       )}
+
+      <section className="grid gap-4 border-t border-slate-200 pt-8 md:grid-cols-3" aria-label="Seller operating principles">
+        <div><ShieldCheck className="h-5 w-5 text-orange-500" /><p className="mt-2 text-sm font-black text-slate-950">Trust is evidence-led</p><p className="mt-1 text-xs leading-5 text-slate-500">Listing quality and publication readiness never substitute for canonical Trust.</p></div>
+        <div><FileText className="h-5 w-5 text-orange-500" /><p className="mt-2 text-sm font-black text-slate-950">Passport persists</p><p className="mt-1 text-xs leading-5 text-slate-500">Selling changes commerce state, not the durable vehicle identity.</p></div>
+        <div><TrendingUp className="h-5 w-5 text-orange-500" /><p className="mt-2 text-sm font-black text-slate-950">Performance is measured</p><p className="mt-1 text-xs leading-5 text-slate-500">Untracked metrics stay labelled untracked instead of becoming fake zeroes.</p></div>
+      </section>
     </div>
   )
 }

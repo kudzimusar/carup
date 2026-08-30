@@ -776,7 +776,7 @@ export default function Marketplace() {
               </div>
               {!loadingVehicles && (
                 <p className="hidden text-xs font-semibold text-slate-500 sm:block">
-                  <span className="text-slate-950">{visibleListings.length}</span> published {visibleListings.length === 1 ? 'vehicle' : 'vehicles'}
+                  <span className="text-slate-950">{visibleListings.length}</span> published {visibleListings.length === 1 ? 'listing' : 'listings'}
                 </p>
               )}
             </div>
@@ -859,7 +859,7 @@ export default function Marketplace() {
                 <SheetFooter className="sticky bottom-0 flex-row gap-2 border-t border-slate-200 bg-white p-4">
                   <Button variant="ghost" className="flex-1 rounded-none" onClick={resetFilters}>Clear all</Button>
                   <Button className="flex-1 rounded-none bg-orange-600 hover:bg-orange-700" onClick={() => setMobileFiltersOpen(false)} data-testid="marketplace-mobile-filter-close">
-                    Show {visibleListings.length} {visibleListings.length === 1 ? 'vehicle' : 'vehicles'}
+                    Show {visibleListings.length} published {visibleListings.length === 1 ? 'listing' : 'listings'}
                   </Button>
                 </SheetFooter>
               </SheetContent>
@@ -949,7 +949,7 @@ export default function Marketplace() {
               <p className="text-sm text-slate-500" data-testid="marketplace-results-count">
                 {loadingVehicles
                   ? <span className="flex items-center gap-2"><Loader2 className="h-4 w-4 animate-spin" />Loading vehicles…</span>
-                  : <><span className="text-2xl font-black text-slate-950">{visibleListings.length}</span> {visibleListings.length === 1 ? 'vehicle' : 'vehicles'}</>}
+                  : <><span className="text-2xl font-black text-slate-950">{visibleListings.length}</span> published {visibleListings.length === 1 ? 'listing' : 'listings'}</>}
               </p>
               <Button
                 variant="ghost"

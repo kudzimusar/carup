@@ -157,6 +157,7 @@ export default function DashboardLayout({ role }: { role: string }) {
         <nav className="flex-1 overflow-y-auto p-3 space-y-1">
           {visibleItems.map(({ item, vis }) => {
             const isActive = location.pathname === item.route
+              || (item.route !== '/dashboard' && location.pathname.startsWith(`${item.route}/`))
             const navIdMap: Record<string, string> = {
               'Overview': 'nav-dashboard',
               'My Garage': 'nav-garage',
@@ -177,10 +178,10 @@ export default function DashboardLayout({ role }: { role: string }) {
                 to={item.route}
                 onClick={() => setSidebarOpen(false)}
                 aria-current={isActive ? 'page' : undefined}
-                className={`relative flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors ${
+                className={`relative flex min-h-11 items-center gap-3 border-l-2 px-3 py-2.5 text-sm font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange-500 ${
                   isActive
-                    ? 'bg-orange-50 text-orange-700 before:absolute before:left-0 before:top-1.5 before:bottom-1.5 before:w-1 before:rounded-r before:bg-orange-500'
-                    : 'text-gray-600 hover:bg-gray-50 hover:text-gray-900'
+                    ? 'border-orange-500 bg-orange-50/80 text-orange-800'
+                    : 'border-transparent text-slate-600 hover:border-slate-200 hover:bg-slate-50 hover:text-slate-950'
                 }`}
                 data-testid={navIdMap[item.label]}
               >

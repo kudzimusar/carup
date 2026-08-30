@@ -40,9 +40,56 @@ interface EnvTruth {
 const SELLER_EMAIL = 'uat.buyer@carup-staging.test';
 const REVIEWER_EMAIL = 'uat.reviewer@carup-staging.test';
 
-// Valid 1x1 PNG. The media/evidence routes verify magic bytes before storage.
-const ONE_PIXEL_PNG =
-  'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9WlYV1sAAAAASUVORK5CYII=';
+const AUTOMATION_DESCRIPTION_PREFIX = 'UAT_AUTOMATION[';
+
+async function meaningfulListingImages(page: Page, count = 7): Promise<string[]> {
+  return page.evaluate(({ count: requested, runId }) => {
+    const output: string[] = [];
+    for (let index = 0; index < requested; index += 1) {
+      const canvas = document.createElement('canvas');
+      canvas.width = 640;
+      canvas.height = 400;
+      const ctx = canvas.getContext('2d');
+      if (!ctx) throw new Error('Canvas 2D context unavailable in staging browser');
+
+      ctx.fillStyle = '#f4f6f8';
+      ctx.fillRect(0, 0, 640, 400);
+      ctx.fillStyle = '#0f172a';
+      ctx.fillRect(70, 190, 500, 130);
+      ctx.fillStyle = '#475569';
+      ctx.fillRect(170, 120, 300, 110);
+      ctx.fillStyle = '#bfdbfe';
+      ctx.fillRect(190, 145, 95, 60);
+      ctx.fillRect(300, 145, 145, 60);
+      ctx.fillStyle = '#020617';
+      ctx.beginPath();
+      ctx.arc(170, 320, 45, 0, Math.PI * 2);
+      ctx.arc(470, 320, 45, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = '#f97316';
+      ctx.fillRect(70 + (index * 8), 225, 44, 28);
+      ctx.fillStyle = '#111827';
+      ctx.font = 'bold 20px sans-serif';
+      ctx.fillText(`CarUp Seller UAT ${index + 1}/${requested}`, 20, 34);
+      ctx.font = '14px sans-serif';
+      ctx.fillText(`Automation certification media · ${runId}`, 20, 60);
+      output.push(canvas.toDataURL('image/png'));
+    }
+    return output;
+  }, { count, runId: RUN_ID });
+}
+
+async function expectMeaningfulPrimaryMedia(page: Page) {
+  const primary = page.getByTestId('listing-media-primary');
+  await expect(primary).toBeVisible({ timeout: 20_000 });
+  const dimensions = await primary.evaluate((element) => {
+    const image = element instanceof HTMLImageElement ? element : element.querySelector('img');
+    return image ? { width: image.naturalWidth, height: image.naturalHeight } : null;
+  });
+  expect(dimensions, 'listing media primary element did not contain an image').toBeTruthy();
+  expect(dimensions!.width, 'listing media is too narrow to satisfy visual UAT').toBeGreaterThanOrEqual(320);
+  expect(dimensions!.height, 'listing media is too short to satisfy visual UAT').toBeGreaterThanOrEqual(200);
+}
 
 function envTruth(): EnvTruth {
   return JSON.parse(readFileSync('test-results/staging-env-truth.json', 'utf8')) as EnvTruth;
@@ -125,16 +172,19 @@ test.describe('Golden Dynamic Seller — exact-head deployed acceptance', () => 
     const sellerAuth = await authFromPage(page);
     expect(sellerAuth.user.role).toBe('owner');
     const sellerMutationHeaders = await mutationHeaders(request, sellerAuth);
+    const listingImages = await meaningfulListingImages(page, 7);
 
     // Listing media is uploaded before the vehicle exists, exactly as Seller Studio does.
+    // The Golden visual gate deliberately uses seven meaningful 640x400 images: a syntactically
+    // valid 1x1 image is not acceptable evidence that the human-facing media experience works.
     const mediaResponse = await request.post(`${API_URL}/media/upload/vehicle`, {
       headers: sellerMutationHeaders,
-      data: { vin, images: [ONE_PIXEL_PNG] },
+      data: { vin, images: listingImages },
     });
     expect(mediaResponse.status(), await mediaResponse.text()).toBe(200);
     const mediaBody = await mediaResponse.json() as { urls?: string[] };
-    expect(mediaBody.urls).toHaveLength(1);
-    expect(mediaBody.urls![0]).toMatch(/^https:\/\//);
+    expect(mediaBody.urls).toHaveLength(7);
+    for (const url of mediaBody.urls || []) expect(url).toMatch(/^https:\/\//);
 
     const createResponse = await request.post(`${API_URL}/vehicles/add`, {
       headers: sellerMutationHeaders,
@@ -152,7 +202,7 @@ test.describe('Golden Dynamic Seller — exact-head deployed acceptance', () => 
         seller_stated_condition: 'Used',
         category: 'Pickup',
         body_style: 'Pickup',
-        description: `Golden Dynamic Seller ${RUN_ID}: one staging-only vehicle created by Playwright for exact-head acceptance.`,
+        description: `${AUTOMATION_DESCRIPTION_PREFIX}${RUN_ID}] Golden Dynamic Seller: staging-only vehicle created by Playwright for exact-head acceptance.`,
         features: ['Reverse camera', 'Tow bar'],
         price: 28_500,
         currency: 'USD',
@@ -166,7 +216,7 @@ test.describe('Golden Dynamic Seller — exact-head deployed acceptance', () => 
         chassis_number: `CHS-${suffix}`,
         plate_number: `UAT${suffix.slice(0, 3)}`,
         import_status: 'locally_registered',
-        images: [{ url: mediaBody.urls![0], is_primary: true }],
+        images: mediaBody.urls!.map((url, index) => ({ url, is_primary: index === 2 })),
       },
     });
     expect(createResponse.status(), await createResponse.text()).toBe(201);
@@ -180,7 +230,7 @@ test.describe('Golden Dynamic Seller — exact-head deployed acceptance', () => 
     };
     expect(created.publication_status).toBe('draft');
     expect(created.images_recorded).toBe(true);
-    expect(created.images_recorded_count).toBe(1);
+    expect(created.images_recorded_count).toBe(7);
     expect(created.images_unpublishable_count).toBe(0);
     expect(created.images_replacement_complete).not.toBe(false);
     expect(created.location_recorded).toBe(true);
@@ -197,7 +247,7 @@ test.describe('Golden Dynamic Seller — exact-head deployed acceptance', () => 
     // buyer transactional controls must therefore be absent.
     await page.goto(`/marketplace/${vin}`);
     await expect(page.getByTestId('vehicle-detail-intelligence-hero')).toBeVisible({ timeout: 20_000 });
-    await expect(page.getByTestId('listing-media-primary')).toBeVisible();
+    await expectMeaningfulPrimaryMedia(page);
     await expect(page.getByTestId('marketplace-inquiry-open')).toHaveCount(0);
 
     // Publication must fail while the blocking ownership evidence is genuinely absent.
@@ -219,7 +269,7 @@ test.describe('Golden Dynamic Seller — exact-head deployed acceptance', () => 
       headers: sellerMutationHeaders,
       data: {
         evidence_type: 'registration_document',
-        file: ONE_PIXEL_PNG,
+        file: listingImages[0],
         visibility_level: 'restricted',
         verification_notes: `Golden Dynamic Seller ${RUN_ID} registration evidence`,
       },
