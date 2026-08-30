@@ -135,7 +135,7 @@ Required rows:
 
 ## 1C. Marketplace count and Featured semantics
 
-- [ ] Marketplace count label explicitly describes what is counted.
+- [x] Marketplace count label explicitly describes what is counted. Marketplace now says **published listing(s)** at `857c1e8fd6e44806d92ac52e692af16e66bf037d`.
 - [ ] Drafts/sold/test fixtures do not appear in public active-listing counts.
 - [ ] Define and document Home “Featured” selection semantics.
 - [ ] Do not silently equate newest listing with editorial/quality “Featured” status unless that is the explicit product rule.
@@ -748,7 +748,7 @@ This section must be updated after **every** cleared task.
 | Phase | Status | Current evidence / exact SHA | Re-open reason if any |
 |---|---|---|---|
 | 0 Baseline + parity | [~] | Parity matrix committed at `b25a89dc690d17d9e253ae4358edec64eea6532b`; baseline screenshots still pending | |
-| 1 UAT/harness integrity | [~] | Harness cleanup/media hardening `bd5910c6ce26e609e2038c82537b727710cadb0e`; governed preview pair `acb2a04bc59b7f93f9e6940640c7eca2b766c06e` | Staging run evidence pending on current head |
+| 1 UAT/harness integrity | [~] | Harness cleanup/media hardening `bd5910c6ce26e609e2038c82537b727710cadb0e`; governed preview pair `acb2a04bc59b7f93f9e6940640c7eca2b766c06e`; count semantics `857c1e8fd6e44806d92ac52e692af16e66bf037d` | Staging run evidence pending on current head |
 | 2 Account continuity | [ ] | | |
 | 3 Navigation | [ ] | | |
 | 4 Sell intent | [ ] | | |
