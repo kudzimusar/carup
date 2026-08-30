@@ -335,9 +335,14 @@ test.describe('Golden Dynamic Seller — exact-head deployed acceptance', () => 
 
     // Authenticated Buyer Preview is allowed for this Seller, but it is NOT a public listing and
     // buyer transactional controls must therefore be absent.
-    await page.goto(`/marketplace/${vin}`);
+    await page.goto(`/marketplace/${vin}?mode=seller_preview`);
     await expect(page.getByTestId('vehicle-detail-intelligence-hero')).toBeVisible({ timeout: 20_000 });
+    await expect(page.getByTestId('seller-preview-banner')).toContainText('Buyer Preview — not public');
+    await expect(page.getByTestId('vehicle-detail-primary-actions')).toHaveCount(0);
+    await expect(page.getByTestId('vehicle-detail-compare')).toHaveCount(0);
+    await expect(page.getByTestId('vehicle-detail-share')).toHaveCount(0);
     await expect(page.getByTestId('listing-media-primary')).toBeVisible();
+    await expect(page.getByTestId('listing-media-photo-label')).toContainText('Driver side');
     await expect(page.getByTestId('listing-media-thumb')).toHaveCount(7);
     const primaryImage = page.getByTestId('listing-media-primary').getByTestId('vehicle-image');
     await expect(primaryImage).toHaveAttribute('src', mediaBody.urls![2]);
@@ -347,6 +352,7 @@ test.describe('Golden Dynamic Seller — exact-head deployed acceptance', () => 
     await expect.poll(() => primaryImage.getAttribute('src'), { message: 'gallery navigation did not change the rendered image' })
       .not.toBe(coverSrc);
     await expect(page.getByTestId('marketplace-inquiry-open')).toHaveCount(0);
+    await expect(page.getByTestId('seller-preview-sidebar-disabled')).toBeVisible();
 
     // Publication must fail while the blocking ownership evidence is genuinely absent.
     const blockedPublish = await request.post(`${API_URL}/vehicles/${vin}/publish`, {
