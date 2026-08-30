@@ -2,8 +2,11 @@
 
 **Status:** ACTIVE — authoritative execution tracker  
 **Repository:** `kudzimusar/carup`  
-**Working branch / PR:** `integration/vehicle-passport-v16-cert` / Draft PR #194  
-**Baseline exact head when this tracker was created:** `43204beeec40123b0cce0c457aded6d0f733c4bc`  
+**Integration authority / merge target:** `integration/vehicle-passport-v16-cert` / Draft PR #194  
+**Seller implementation lane:** `fix/seller-uat-convergence-remediation` / Draft PR #202  
+**Master synchronized into implementation lane:** merge commit `2639ba01cabd75630c64bdf7b019333e7309ddcb` via non-main sync PR #204  
+**Tracker creation ancestor:** `43204beeec40123b0cce0c457aded6d0f733c4bc`  
+**Forensic pre-remediation baseline:** `106f76509ae1d1d10a3c4a26b4f93f7993d55027`  
 **Primary owner UAT vehicle:** `UAT20260828SELL01` — 2021 Toyota Hilux, USD 23,000, expected `publication_status=draft`  
 **Owner UAT account under reconciliation:** `buynsellpvtltd@gmail.com`  
 **Governing design law:** root `DESIGN.md`  
@@ -25,6 +28,8 @@ This file is the **single operational roll-call tracker** for the Seller UAT rem
   **Evidence:** commit `e3b2a9c957389a39a92b4123d48d3806abdebf23`.
 - [x] **BOOT-3. Previous automated Seller PASS explicitly demoted to historical engineering evidence, not owner-facing Golden completion.**  
   **Evidence:** "Current programme roll call" in this tracker initializes every remediation phase as NOT STARTED and Phase S requires the full UI Golden journey.
+- [x] **BOOT-4. Authoritative tracker and completed Phase A/B baseline evidence synchronized into the Seller implementation lane without rewriting prior remediation history.**  
+  **Evidence:** sync PR #204 merged `integration/vehicle-passport-v16-cert@e02988aff867290b573767034d2a6be9237e0fc9` into `fix/seller-uat-convergence-remediation` at merge commit `2639ba01cabd75630c64bdf7b019333e7309ddcb`. The pre-existing 25 #202 commits remain ancestors and must be re-certified item-by-item before receiving master-plan credit.
 
 
 ### 0.1 Mandatory task-state notation
@@ -1004,6 +1009,7 @@ These are not one-time tasks. Every phase roll call must verify them.
 - [ ] **INV-12 Accessibility remains part of acceptance.**
 - [ ] **INV-13 No routine conversational stop between tasks once implementation begins.**
 - [ ] **INV-14 This tracker is updated every time a task is cleared.**
+- [ ] **INV-15 Existing authority seams are preserved:** Seller remediation must not fork or create competing writers/read models for Vehicle Passport lifecycle, ownership, canonical Trust, Evidence, Marketplace publication, Communications, Intelligence, PartSentry, or Service Network authority.
 
 ---
 
