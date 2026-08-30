@@ -509,23 +509,21 @@ export default function Marketplace() {
   const toggleCompare = useCallback((event: React.MouseEvent, vin: string) => {
     event.preventDefault()
     event.stopPropagation()
-    setCompareVins(previous => {
-      const removing = previous.includes(vin)
-      if (!removing && previous.length >= MAX_COMPARE) {
-        toast.info(`You can compare up to ${MAX_COMPARE} listings.`)
-        return previous
-      }
-      const next = removing ? previous.filter(value => value !== vin) : [...previous, vin]
-      trackActivity({
-        event_type: removing ? 'marketplace_compare_removed' : 'marketplace_compare_added',
-        listing_id: vin,
-        source_surface: 'marketplace_list',
-        compare_listing_ids: next,
-        metadata: { compare_set_size: next.length },
-      })
-      return next
+    const removing = compareVins.includes(vin)
+    if (!removing && compareVins.length >= MAX_COMPARE) {
+      toast.info(`You can compare up to ${MAX_COMPARE} listings.`)
+      return
+    }
+    const next = removing ? compareVins.filter(value => value !== vin) : [...compareVins, vin]
+    setCompareVins(next)
+    trackActivity({
+      event_type: removing ? 'marketplace_compare_removed' : 'marketplace_compare_added',
+      listing_id: vin,
+      source_surface: 'marketplace_list',
+      compare_listing_ids: next,
+      metadata: { compare_set_size: next.length },
     })
-  }, [])
+  }, [compareVins])
 
   const toggleFavorite = useCallback(async (event: React.MouseEvent, vin: string, vehicleName: string) => {
     event.preventDefault()
