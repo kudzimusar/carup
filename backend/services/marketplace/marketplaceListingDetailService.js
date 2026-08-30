@@ -238,6 +238,7 @@ export async function getMarketplaceListingDetail(supabaseClient, vin, { audienc
     url: item.url,
     url_form: item.url_form,
     position: item.position,
+    seller_order: item.seller_order,
     is_primary: item.is_primary,
     synthetic_demo: item.synthetic_demo,
     photo_label: item.photo_label,
