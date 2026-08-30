@@ -15,6 +15,7 @@ import { PUBLICATION_BADGE } from '@/lib/publicationStatus'
 import { describePublicationRefusal } from '@/lib/publicationRefusal'
 import { readOwnerTrustClaim, statedPrice } from './ownerStatedValues'
 import type { Vehicle } from '@/types'
+import { SellerWorkspaceHeader } from '@/components/seller/SellerWorkspaceHeader'
 
 const STATUS_BADGE: Record<string, string> = {
   available: 'bg-green-100 text-green-700',
@@ -172,18 +173,20 @@ export default function MyListings() {
   const totalUnread = marketplaceConversations.reduce((sum, conversation) => sum + Number(conversation.unread_count || 0), 0)
 
   return (
-    <div className="space-y-6 max-w-7xl mx-auto">
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-bold">My Listings</h1>
-          <p className="text-gray-500">
-            {myListings.length} listings · {marketplaceConversations.length} conversations · {totalUnread} unread
-          </p>
-        </div>
-        <Button className="bg-orange-500 hover:bg-orange-600 gap-1" asChild>
-          <Link to="/dashboard/sell-vehicle"><Plus className="w-4 h-4" /> New Listing</Link>
-        </Button>
-      </div>
+    <div className="space-y-8 max-w-[1440px] mx-auto">
+      <SellerWorkspaceHeader
+        eyebrow="Commerce workspace"
+        title="My Listings"
+        description="Continue drafts, review publication state and manage buyer activity without creating a second vehicle identity."
+        statusLabel={ownedLoaded
+          ? `${myListings.length} listings · ${marketplaceConversations.length} conversations · ${totalUnread} unread`
+          : 'Loading listing and conversation state'}
+        primaryAction={(
+          <Button className="rounded-none bg-orange-600 hover:bg-orange-700 gap-1" asChild>
+            <Link to="/sell"><Plus className="w-4 h-4" /> Sell another vehicle</Link>
+          </Button>
+        )}
+      />
 
       <SellerInquiriesCard ownedListings={ownedLoaded ? myListings : undefined} />
 
