@@ -118,18 +118,18 @@ Required rows:
 
 ## 1A. Automated test inventory isolation
 
-- [ ] Identify all Seller Golden automation vehicles by deterministic metadata/identity.
+- [x] Identify all Seller Golden automation vehicles by deterministic metadata/identity. Integration harness marks them via `seller_description` prefix `Golden Dynamic Seller `.
 - [ ] Prevent automated UAT vehicles from contaminating human Marketplace discovery, Home hero, Home live inventory, featured inventory, counts, recommendations, or visual-story media.
-- [ ] Add deterministic cleanup/retirement in `finally`/teardown so interrupted tests cannot leave public stock.
-- [ ] Cleanup must be idempotent.
-- [ ] Failed cleanup must fail the certification job loudly.
+- [x] Add deterministic cleanup/retirement in `finally`/teardown so interrupted tests cannot leave public stock. Implemented at `7c0a8eb441e393adb14d85e45ecef2cdc771b11c`.
+- [~] Cleanup must be idempotent. Code path accepts already-unpublished states and retires stale automation inventory; staging proof pending.
+- [x] Failed cleanup must fail the certification job loudly. Cleanup assertions are blocking in the deployed acceptance.
 - [ ] Human UAT inventory/counts must not change because an automated Golden test ran.
 
 ## 1B. Meaningful automation media
 
-- [ ] Replace 1×1 PNG as the visual acceptance fixture with a meaningful, non-trivial test image for human-facing visual gates.
-- [ ] Technical media tests may keep minimal binary fixtures only in lower-level tests.
-- [ ] Visual acceptance must enforce sensible decoded dimensions.
+- [x] Replace 1×1 PNG as the visual acceptance fixture with a meaningful, non-trivial test image for human-facing visual gates. Implemented at `7c0a8eb441e393adb14d85e45ecef2cdc771b11c`.
+- [x] Technical media tests may keep minimal binary fixtures only in lower-level tests. Evidence transport retains the minimal fixture; human-facing listing media does not.
+- [x] Visual acceptance must enforce sensible decoded dimensions. Browser asserts natural width >=64 and height >=40.
 - [ ] Visual acceptance must prove non-blank rendered media.
 - [ ] Visual acceptance must prove cover crop is visible on desktop/mobile.
 
@@ -748,7 +748,7 @@ This section must be updated after **every** cleared task.
 | Phase | Status | Current evidence / exact SHA | Re-open reason if any |
 |---|---|---|---|
 | 0 Baseline + parity | [~] | Parity matrix committed at `b25a89dc690d17d9e253ae4358edec64eea6532b`; baseline screenshots still pending | |
-| 1 UAT/harness integrity | [ ] | | |
+| 1 UAT/harness integrity | [~] | Harness cleanup/media hardening `bd5910c6ce26e609e2038c82537b727710cadb0e`; governed preview pair `acb2a04bc59b7f93f9e6940640c7eca2b766c06e` | Staging run evidence pending on current head |
 | 2 Account continuity | [ ] | | |
 | 3 Navigation | [ ] | | |
 | 4 Sell intent | [ ] | | |
