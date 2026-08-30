@@ -1089,6 +1089,7 @@ export default function SellVehicle() {
                   maxLength={500}
                   placeholder="Describe the vehicle's condition, history, special features..."
                   className={`w-full rounded-md border px-3 py-2 text-sm resize-none focus:outline-none focus:ring-2 focus:ring-orange-400 ${errors.description ? 'border-red-400' : 'border-gray-200'}`}
+                  data-testid="seller-description-input"
                 />
                 {errors.description && <p className="text-xs text-red-500">{errors.description}</p>}
               </div>
