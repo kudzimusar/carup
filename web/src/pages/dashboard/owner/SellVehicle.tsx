@@ -262,8 +262,10 @@ export default function SellVehicle() {
           fuelType: String(raw.fuel_type || raw.fuelType || ''),
           transmission: String(raw.transmission || ''),
           drivetrain: String(raw.drivetrain || ''),
-          location: String(raw.location || ''),
-          province: String(raw.province || ''),
+          // Seller listing location is stored in the governed listing_* columns. The legacy
+          // raw.location/raw.province aliases are retained only as a compatibility fallback.
+          location: String(raw.listing_city || raw.location || ''),
+          province: String(raw.listing_province || raw.province || ''),
           price: raw.price === null || raw.price === undefined ? '' : String(raw.price),
           currency: String(raw.currency || ''),
           description: String(raw.seller_description || raw.description || ''),
