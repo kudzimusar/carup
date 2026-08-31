@@ -16,6 +16,8 @@ import { VehicleIdentificationNotice } from '@/components/sell/VehicleIdentifica
 import { useSellerVehicleIdentification } from '@/hooks/useSellerVehicleIdentification'
 import { useCarUpApi } from '@/hooks/useCarUpApi'
 import { VehicleHistoryCoveragePanel, type HistoryEvidencePlanState } from '@/components/sell/VehicleHistoryCoveragePanel'
+import { VehicleHistoryDisclosuresSection } from '@/components/sell/VehicleHistoryDisclosuresSection'
+import type { AccidentDisclosure, FinanceDisclosure, InsuranceDisclosure } from '@/lib/vehicleHistoryDisclosures'
 import { SellerDocumentAutofillNotice } from '@/components/sell/SellerDocumentAutofillNotice'
 import { SellIntentRouter, type SellerEntryIntent } from '@/components/sell/SellIntentRouter'
 import type { EvidenceSourcesResponse, EvidenceTaxonomyResponse } from '@/types'
@@ -67,6 +69,11 @@ const INITIAL = {
   coverImageIndex: null as number | null,
   historyPlan: {} as Record<string, HistoryEvidencePlanState>,
   existingPassportConfirmed: false,
+  // Vehicle History & Obligations (F18–F20): null = not answered; the UI never preselects and the
+  // pipeline never converts absence into a "No".
+  accidentDisclosure: null as AccidentDisclosure | null,
+  insuranceDisclosure: null as InsuranceDisclosure | null,
+  financeDisclosure: null as FinanceDisclosure | null,
 }
 
 type GuestForm = typeof INITIAL
@@ -122,6 +129,9 @@ export default function GuestSell() {
     coverImageIndex: initialDraft.coverImageIndex,
     historyPlan: initialDraft.historyPlan,
     existingPassportConfirmed: initialDraft.existingPassportConfirmed,
+    accidentDisclosure: initialDraft.accidentDisclosure,
+    insuranceDisclosure: initialDraft.insuranceDisclosure,
+    financeDisclosure: initialDraft.financeDisclosure,
   }) : freshGuestForm())
   const [feature, setFeature] = useState('')
   const [errors, setErrors] = useState<Record<string, string>>({})
@@ -644,6 +654,16 @@ export default function GuestSell() {
                       <span>{form.description.trim().length}/500</span>
                     </div>
                   </div>
+
+                  <VehicleHistoryDisclosuresSection
+                    accident={form.accidentDisclosure}
+                    insurance={form.insuranceDisclosure}
+                    finance={form.financeDisclosure}
+                    onAccidentChange={value => set('accidentDisclosure', value)}
+                    onInsuranceChange={value => set('insuranceDisclosure', value)}
+                    onFinanceChange={value => set('financeDisclosure', value)}
+                    idPrefix="guest-sell"
+                  />
 
                   <SellerDocumentAutofillNotice />
 

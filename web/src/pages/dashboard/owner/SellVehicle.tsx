@@ -23,6 +23,15 @@ import { SellerWorkspaceHeader } from '@/components/seller/SellerWorkspaceHeader
 import { ListingImage } from '@/components/marketplace/ListingImage'
 import { primaryListingImageUrl } from '@/lib/listingMedia'
 import { readOwnerTrustClaim, statedCount } from './ownerStatedValues'
+import { VehicleHistoryDisclosuresSection } from '@/components/sell/VehicleHistoryDisclosuresSection'
+import {
+  parseAccidentDisclosure,
+  parseFinanceDisclosure,
+  parseInsuranceDisclosure,
+  type AccidentDisclosure,
+  type FinanceDisclosure,
+  type InsuranceDisclosure,
+} from '@/lib/vehicleHistoryDisclosures'
 
 const YEARS = vehicleYearOptions()
 const STEPS = ['Vehicle Details', 'Location & Pricing', 'Images & Features', 'Review & Save Draft']
@@ -30,6 +39,7 @@ const STEPS = ['Vehicle Details', 'Location & Pricing', 'Images & Features', 'Re
 const SERVER_AUTOSAVE_FIELDS = new Set([
   'description', 'features', 'category', 'condition', 'price', 'currency',
   'location', 'province', 'locationVisibility', 'publicSellerDisplay',
+  'accidentDisclosure', 'insuranceDisclosure', 'financeDisclosure',
 ])
 
 type SellerAutosavePayload = {
@@ -44,6 +54,9 @@ type SellerAutosavePayload = {
   listing_country?: string
   location_visibility?: 'withheld' | 'province_only' | 'public'
   public_seller_display_enabled?: boolean
+  accident_disclosure?: AccidentDisclosure
+  insurance_disclosure?: InsuranceDisclosure
+  finance_disclosure?: FinanceDisclosure
 }
 
 function autosaveReceiptMatches(
@@ -60,6 +73,9 @@ function autosaveReceiptMatches(
     listing_country: string
     location_visibility: 'withheld' | 'province_only' | 'public'
     public_seller_display_enabled: boolean
+    accident_disclosure?: AccidentDisclosure | null
+    insurance_disclosure?: InsuranceDisclosure | null
+    finance_disclosure?: FinanceDisclosure | null
   } | null | undefined,
 ) {
   if (!receipt) return false
@@ -83,6 +99,13 @@ function autosaveReceiptMatches(
   if (Object.prototype.hasOwnProperty.call(payload, 'price') && Number(payload.price) !== Number(receipt.price)) return false
   if (Object.prototype.hasOwnProperty.call(payload, 'public_seller_display_enabled')
     && Boolean(payload.public_seller_display_enabled) !== receipt.public_seller_display_enabled) return false
+  // History disclosures (F18–F20): the receipt must echo the exact structured statement the seller
+  // submitted — the same deep-equality bar features already meet.
+  const sameDisclosures = ['accident_disclosure', 'insurance_disclosure', 'finance_disclosure'] as const
+  for (const key of sameDisclosures) {
+    if (Object.prototype.hasOwnProperty.call(payload, key)
+      && JSON.stringify(payload[key] ?? null) !== JSON.stringify(receipt[key] ?? null)) return false
+  }
   return true
 }
 
@@ -161,6 +184,10 @@ const INITIAL = {
   features: [] as string[], featureInput: '',
   images: [] as string[], imageLabels: [] as string[],
   existingPassportConfirmed: false,
+  // Vehicle History & Obligations (F18–F20): null = not answered, never preselected, never "No".
+  accidentDisclosure: null as AccidentDisclosure | null,
+  insuranceDisclosure: null as InsuranceDisclosure | null,
+  financeDisclosure: null as FinanceDisclosure | null,
 }
 
 function validateVin(vin: string) {
@@ -204,6 +231,9 @@ export default function SellVehicle() {
     images: guestDraft.images,
     imageLabels: guestDraft.imageLabels,
     existingPassportConfirmed: guestDraft.existingPassportConfirmed,
+    accidentDisclosure: guestDraft.accidentDisclosure,
+    insuranceDisclosure: guestDraft.insuranceDisclosure,
+    financeDisclosure: guestDraft.financeDisclosure,
   }) : ({ ...INITIAL, submissionId: createSellerSubmissionId() }))
   const [errors, setErrors] = useState<Record<string, string>>({})
   const [submitting, setSubmitting] = useState(false)
@@ -346,6 +376,11 @@ export default function SellVehicle() {
               : 'withheld',
           publicSellerDisplay: raw.public_seller_display_enabled === true,
           existingPassportConfirmed: true,
+          // Parse, never trust: an invalid stored disclosure hydrates as null (unanswered) rather
+          // than being repaired into an answer the seller did not give.
+          accidentDisclosure: parseAccidentDisclosure(raw.seller_accident_disclosure),
+          insuranceDisclosure: parseInsuranceDisclosure(raw.seller_insurance_disclosure),
+          financeDisclosure: parseFinanceDisclosure(raw.seller_finance_disclosure),
         }))
         setCoverImageIndex(primaryIndex >= 0 ? primaryIndex : null)
         setAuthorityState('recognized')
@@ -400,6 +435,9 @@ export default function SellVehicle() {
         existingPassportConfirmed: form.existingPassportConfirmed,
         locationVisibility: form.locationVisibility as 'withheld' | 'province_only' | 'public',
         publicSellerDisplay: form.publicSellerDisplay,
+        accidentDisclosure: form.accidentDisclosure,
+        insuranceDisclosure: form.insuranceDisclosure,
+        financeDisclosure: form.financeDisclosure,
       })
       saveGuestSellStep(step)
     }, 700)
@@ -425,6 +463,11 @@ export default function SellVehicle() {
       province: form.province,
       location_visibility: form.locationVisibility as 'withheld' | 'province_only' | 'public',
       public_seller_display_enabled: form.publicSellerDisplay,
+      // Only ANSWERED disclosures travel: an absent key leaves the server value untouched, so an
+      // autosave can never silently retract a stored answer the seller did not change.
+      ...(form.accidentDisclosure ? { accident_disclosure: form.accidentDisclosure } : {}),
+      ...(form.insuranceDisclosure ? { insurance_disclosure: form.insuranceDisclosure } : {}),
+      ...(form.financeDisclosure ? { finance_disclosure: form.financeDisclosure } : {}),
     }
 
     const timer = window.setTimeout(() => {
@@ -448,11 +491,14 @@ export default function SellVehicle() {
 
     return () => window.clearTimeout(timer)
   }, [
+    form.accidentDisclosure,
     form.category,
     form.condition,
     form.currency,
     form.description,
     form.features,
+    form.financeDisclosure,
+    form.insuranceDisclosure,
     form.location,
     form.locationVisibility,
     form.price,
@@ -473,7 +519,10 @@ export default function SellVehicle() {
     if (guestDraft) toast.success('Your pre-sign-in listing draft is ready to review.')
   }, [guestDraft])
 
-  const set = (field: string, value: string | number | boolean | string[]) => {
+  const set = (
+    field: string,
+    value: string | number | boolean | string[] | AccidentDisclosure | InsuranceDisclosure | FinanceDisclosure | null,
+  ) => {
     if (serverDraftLoaded && SERVER_AUTOSAVE_FIELDS.has(field)) {
       serverAutosaveRevision.current += 1
       setServerAutosaveState('idle')
@@ -681,6 +730,11 @@ export default function SellVehicle() {
         // server records a choice rather than inferring one from silence.
         location_visibility: form.locationVisibility,
         public_seller_display_enabled: form.publicSellerDisplay,
+        // Vehicle History & Obligations (F18–F20): only ANSWERED disclosures are sent; a skipped
+        // question stays absent and is stored as NULL ("not recorded"), never as a "No".
+        ...(form.accidentDisclosure ? { accident_disclosure: form.accidentDisclosure } : {}),
+        ...(form.insuranceDisclosure ? { insurance_disclosure: form.insuranceDisclosure } : {}),
+        ...(form.financeDisclosure ? { finance_disclosure: form.financeDisclosure } : {}),
         // Phase 4: identity fields sent to backend for completeness gate
         engine_number: form.engineNumber || undefined,
         chassis_number: form.chassisNumber || undefined,
@@ -1300,6 +1354,16 @@ export default function SellVehicle() {
                 />
                 {errors.description && <p className="text-xs text-red-500">{errors.description}</p>}
               </div>
+
+              <VehicleHistoryDisclosuresSection
+                accident={form.accidentDisclosure}
+                insurance={form.insuranceDisclosure}
+                finance={form.financeDisclosure}
+                onAccidentChange={value => set('accidentDisclosure', value)}
+                onInsuranceChange={value => set('insuranceDisclosure', value)}
+                onFinanceChange={value => set('financeDisclosure', value)}
+                idPrefix="seller-studio"
+              />
             </>
           )}
 

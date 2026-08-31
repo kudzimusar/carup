@@ -1,6 +1,7 @@
 import { useState, useCallback, useMemo } from 'react'
 import { useAuth } from '@/context/AuthContext'
 import { apiRequest, resolveApiBaseUrl, DEFAULT_PRODUCTION_API_BASE_URL, extractApiErrorMessage, fetchCsrfToken, type AuthHeaders } from '@/lib/apiClient'
+import type { AccidentDisclosure, FinanceDisclosure, InsuranceDisclosure } from '@/lib/vehicleHistoryDisclosures'
 import {
   fetchVerificationReviewQueue as fetchVerificationReviewQueueRequest,
   fetchVerificationSessionDetail as fetchVerificationSessionDetailRequest,
@@ -2414,6 +2415,9 @@ export function useCarUpApi() {
     listing_country?: string
     location_visibility?: 'withheld' | 'province_only' | 'public'
     public_seller_display_enabled?: boolean
+    accident_disclosure?: AccidentDisclosure | null
+    insurance_disclosure?: InsuranceDisclosure | null
+    finance_disclosure?: FinanceDisclosure | null
   }): Promise<{
     success: boolean
     vin: string
@@ -2432,6 +2436,10 @@ export function useCarUpApi() {
       listing_country: string
       location_visibility: 'withheld' | 'province_only' | 'public'
       public_seller_display_enabled: boolean
+      // Present only when the request touched a disclosure; echoes exactly what the DB stored.
+      accident_disclosure?: AccidentDisclosure | null
+      insurance_disclosure?: InsuranceDisclosure | null
+      finance_disclosure?: FinanceDisclosure | null
     } | null
   }> => {
     return request(`/vehicles/${encodeURIComponent(vin)}/seller-draft`, {

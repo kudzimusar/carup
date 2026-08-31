@@ -1,3 +1,12 @@
+import {
+  parseAccidentDisclosure,
+  parseFinanceDisclosure,
+  parseInsuranceDisclosure,
+  type AccidentDisclosure,
+  type FinanceDisclosure,
+  type InsuranceDisclosure,
+} from './vehicleHistoryDisclosures'
+
 export const GUEST_SELL_DRAFT_KEY = 'carup_guest_sell_draft_v1'
 export const GUEST_SELL_STEP_KEY = 'carup_guest_sell_step_v1'
 
@@ -49,6 +58,11 @@ export interface GuestSellDraft {
   mediaExternalized: boolean
   locationVisibility?: 'withheld' | 'province_only' | 'public'
   publicSellerDisplay?: boolean
+  // Vehicle History & Obligations (F18–F20). null = the Seller has not answered — the parser must
+  // never turn an absent or invalid answer into a legitimate-looking one.
+  accidentDisclosure: AccidentDisclosure | null
+  insuranceDisclosure: InsuranceDisclosure | null
+  financeDisclosure: FinanceDisclosure | null
 }
 
 // Same-tab continuity should never depend on a browser quota write. This cache survives React Router
@@ -222,6 +236,9 @@ function parseGuestSellDraft(raw: string): GuestSellDraft | null {
           ? parsed.locationVisibility
           : 'withheld',
       publicSellerDisplay: parsed.publicSellerDisplay === true,
+      accidentDisclosure: parseAccidentDisclosure(parsed.accidentDisclosure),
+      insuranceDisclosure: parseInsuranceDisclosure(parsed.insuranceDisclosure),
+      financeDisclosure: parseFinanceDisclosure(parsed.financeDisclosure),
     }
   } catch {
     return null

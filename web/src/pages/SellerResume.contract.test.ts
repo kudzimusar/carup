@@ -58,6 +58,27 @@ describe('Seller resume continuity', () => {
     expect(seller).toContain("Object.prototype.hasOwnProperty.call(payload, 'features')")
     expect(seller).toContain("Object.prototype.hasOwnProperty.call(payload, 'price')")
     expect(seller).toContain("Object.prototype.hasOwnProperty.call(payload, 'public_seller_display_enabled')")
+    // F18–F20: an answered history disclosure earns "saved" only when the receipt echoes the exact
+    // structured statement — deep equality, same bar as features.
+    expect(seller).toContain("['accident_disclosure', 'insurance_disclosure', 'finance_disclosure'] as const")
+    expect(seller).toContain('JSON.stringify(payload[key] ?? null) !== JSON.stringify(receipt[key] ?? null)')
+  })
+
+  it('persists Vehicle History & Obligations disclosures through guest draft, autosave and resume', () => {
+    // Guest form + browser draft + Studio hydration all carry the three disclosures…
+    for (const source of [guest, seller]) {
+      expect(source).toContain('accidentDisclosure')
+      expect(source).toContain('insuranceDisclosure')
+      expect(source).toContain('financeDisclosure')
+    }
+    // …the server autosave sends only ANSWERED disclosures (absence never retracts or defaults)…
+    expect(seller).toContain('...(form.accidentDisclosure ? { accident_disclosure: form.accidentDisclosure } : {})')
+    expect(seller).toContain('...(form.insuranceDisclosure ? { insurance_disclosure: form.insuranceDisclosure } : {})')
+    expect(seller).toContain('...(form.financeDisclosure ? { finance_disclosure: form.financeDisclosure } : {})')
+    // …and resume parses the stored value instead of trusting it (invalid hydrates as unanswered).
+    expect(seller).toContain('parseAccidentDisclosure(raw.seller_accident_disclosure)')
+    expect(seller).toContain('parseInsuranceDisclosure(raw.seller_insurance_disclosure)')
+    expect(seller).toContain('parseFinanceDisclosure(raw.seller_finance_disclosure)')
   })
 
   it('does not silently drop a selected photo gallery', () => {
