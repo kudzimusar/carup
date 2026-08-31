@@ -137,6 +137,11 @@ const CANONICAL_SELECT_IDENTIFIERS = [
   // Seller S0 extends the claims-wide canonical selector by interpolation with its reviewed taxonomy
   // column set; Phase 8 proves that composition and the three-generation fallback behavior.
   'LISTING_SELECT_COLUMNS_WITH_SELLER_TAXONOMY',
+  // LISTING_SELECT_COLUMNS plus the three seller_*_disclosure columns the Vehicle History &
+  // Obligations block projects. Like the variants above it is a NAMED canonical list, not a
+  // hand-rolled one, so it satisfies the rule this scan enforces; it needs its own entry only
+  // because `\bLISTING_SELECT_COLUMNS\b` does not match the longer identifier.
+  'LISTING_SELECT_COLUMNS_WITH_HISTORY_DISCLOSURES',
 ];
 
 /**

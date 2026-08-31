@@ -69,7 +69,11 @@ test('governed Seller authority becomes listing scope without becoming legal own
 
   // Seller lifecycle endpoints recognize the governed current seller while legal ownership stays
   // governed by the Passport transfer authority. Do not reintroduce owner_id into the reuse update.
-  assert.match(routes, /\.select\('vin, status, publication_status, owner_id, current_seller_id, tenant_id, price'\)/);
+  // Prefix-anchored rather than exact: the loader later gained `currency` so the price_changed
+  // event can name the currency it is already holding instead of issuing a second read. The
+  // invariant this guards is that the loader still selects `price` — so the "before" value is read
+  // and not assumed — which an appended column cannot weaken, while dropping `price` still fails.
+  assert.match(routes, /\.select\('vin, status, publication_status, owner_id, current_seller_id, tenant_id, price[,']/);
   assert.match(routes, /const isCurrentSeller = vehicle\.current_seller_id/);
   assert.match(routes, /owner, current-seller, or organizational scope/);
 

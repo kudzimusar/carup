@@ -66,7 +66,18 @@ test('a FAILED read publishes "not looked", never "none" — the whole point of 
 
   // `rows` must start null and only become an array on a successful read.
   assert.match(bodyText, /let rows = null/, 'rows must default to null (not read)');
-  assert.match(bodyText, /if \(!error\) rows = data \|\| \[\]/, 'rows becomes an array only when the read succeeded');
+  // The read itself moved into `readListingImagesCompat` — the photo_label schema-compat wrapper —
+  // so "an array only when the read succeeded" is now that helper's property. Assert it where it
+  // actually lives rather than deleting the guard, and pin that the helper is the ONLY thing `rows`
+  // is ever assigned from, so the compat path cannot be bypassed by a future inline read.
+  assert.match(bodyText, /rows = await readListingImagesCompat\(/,
+    'rows must be assigned only from the canonical compat reader');
+  const compatFn = SERVER_CODE.slice(SERVER_CODE.indexOf('async function readListingImagesCompat'));
+  const compatBody = compatFn.slice(0, compatFn.indexOf('\n}\n') + 2);
+  assert.match(compatBody, /if \(!wide\.error\) return wide\.data \|\| \[\]/,
+    'rows becomes an array only when the read succeeded');
+  assert.match(compatBody, /if \(legacy\.error\) return null/,
+    'a failed fallback read answers null, never an empty gallery');
   assert.match(
     bodyText,
     /rows === null \? null : rows\.filter/,

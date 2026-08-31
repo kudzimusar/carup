@@ -66,8 +66,17 @@ test('the price route refuses anything that is not a positive number', () => {
 test('the price route never accepts a currency', () => {
   const source = priceRouteSource();
   // Redenominating an existing listing is not a price change. Currency is stated once, at creation.
+  // The client may never state a currency on a price change.
   assert.doesNotMatch(source, /req\.body\.currency/);
-  assert.doesNotMatch(source, /currency:\s*[^}]/);
+  // And no currency may reach the write. Scoped to the UPDATE payload rather than the whole route:
+  // the emitted price_changed event legitimately reports the currency ALREADY stored on the row the
+  // scoped loader returned (`currency: vehicle.currency`). Naming the stored currency in an event is
+  // the opposite of re-stating one — an amount-only event would be ambiguous — and the blanket
+  // `currency:` scan could not tell the two apart.
+  const updated = /\.update\(\{([\s\S]*?)\}\)/.exec(source);
+  assert.ok(updated, 'the update payload must remain statically readable');
+  assert.doesNotMatch(updated[1], /currency/,
+    'a price change must never write the currency column');
 });
 
 test('the price route audits the before and the after', () => {
@@ -94,5 +103,9 @@ test('the price route touches price alone — not status, publication or trust',
 test('the scoped loader selects price so the before value is real, not assumed', () => {
   // `loadScopedVehicle` is shared, so the price route can only report a truthful "before" if the
   // loader actually reads that column.
-  assert.match(routes, /\.select\('vin, status, publication_status, owner_id, current_seller_id, tenant_id, price'\)/);
+  // Prefix-anchored rather than exact: the loader later gained `currency` so the price_changed
+  // event can name the currency it is already holding instead of issuing a second read. The
+  // invariant this guards is that the loader still selects `price` — so the "before" value is read
+  // and not assumed — which an appended column cannot weaken, while dropping `price` still fails.
+  assert.match(routes, /\.select\('vin, status, publication_status, owner_id, current_seller_id, tenant_id, price[,']/);
 });

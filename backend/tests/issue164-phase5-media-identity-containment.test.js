@@ -196,6 +196,20 @@ const SOURCES = SOURCE_FILES.map((path) => ({
 }));
 
 /**
+ * `readListingImagesCompat` applies the vin scope through a HELPER rather than inline:
+ *
+ *   const applyScope = (query) => vin ? query.eq('vin', vin) : query.in('vin', [...vins]);
+ *   const wide = await applyScope(supabase.from('listing_images').select(...)).order(...);
+ *
+ * The scope is real, but it is not lexically inside the chain, so the chain scanner below cannot
+ * see it. That is an aperture in the SCANNER, never in the contract — so the exemption is granted
+ * only while the helper is PROVEN to key on vin, and evaporates the moment it stops.
+ */
+const SCOPE_HELPER_IS_VIN_KEYED = SOURCES.some(({ code }) => (
+  /const applyScope = \(query\) =>[\s\S]{0,200}?query\.eq\('vin'[\s\S]{0,200}?query\.in\('vin'/.test(code)
+));
+
+/**
  * Find every place `code` accepts one of `names` as an INBOUND request value.
  *
  * Four doors, because those are the four a value comes through:
@@ -296,15 +310,24 @@ describe('Phase 5 containment — no query resolves a row BY a listing-image ide
     const offenders = [];
     let chainCount = 0;
     for (const { path, code } of SOURCES) {
+      // `extractQueryChains` collapses whitespace, so a chain string cannot be located in the raw
+      // source. Search the same normalised space the chain came from.
+      const flat = code.replace(/\s+/g, ' ');
       for (const chain of extractQueryChains(code, 'listing_images')) {
         chainCount += 1;
         const columns = filterColumnsOf(chain);
+        // A chain handed straight to the vin-keyed scope helper is scoped even though the scanner
+        // cannot read the filter out of the chain text itself.
+        const chainAt = flat.indexOf(chain);
+        const scopedByVinHelper = SCOPE_HELPER_IS_VIN_KEYED
+          && chainAt > 0
+          && /applyScope\(\s*supabase\s*$/.test(flat.slice(Math.max(0, chainAt - 48), chainAt));
         // An INSERT legitimately filters on nothing at all; a READ must be keyed by the FK.
         const isWrite = /\.(?:insert|upsert|update|delete)\s*\(/.test(chain);
         if (columns.includes('id')) {
           offenders.push(`${path}: filters listing_images by id -> ${chain.slice(0, 140)}`);
         }
-        if (!isWrite && !columns.includes('vin')) {
+        if (!isWrite && !columns.includes('vin') && !scopedByVinHelper) {
           offenders.push(`${path}: reads listing_images unkeyed by vin -> ${chain.slice(0, 140)}`);
         }
       }
@@ -315,6 +338,14 @@ describe('Phase 5 containment — no query resolves a row BY a listing-image ide
       'a listing_images read keyed by `id` can be handed an identity the caller did not obtain from '
       + 'a passport they were entitled to. Keyed by `vin`, the query can only ever return photographs '
       + 'of a vehicle the caller had already named.');
+  });
+
+  it('ANTI-VACUITY: the scope-helper exemption is earned, not assumed', () => {
+    // The exemption above is the only way a listing_images read may lack an inline vin filter. If
+    // `applyScope` ever stops keying on vin, this fails FIRST and loudly, rather than the exemption
+    // silently widening into a hole in the containment contract.
+    assert.equal(SCOPE_HELPER_IS_VIN_KEYED, true,
+      'readListingImagesCompat must scope every listing_images read by vin — .eq(vin) or .in(vin)');
   });
 
   it('no vehicles query is filtered by a media identity', () => {
@@ -338,8 +369,13 @@ describe('Phase 5 containment — no query resolves a row BY a listing-image ide
     // Rule 6b's mechanical half, restated as a containment property: the only thing travelling out
     // beside the identity is a URL the caller can already see. There is no bucket, path or key that
     // a recipient could turn back into a query.
+    // `photo_label` (the seller's own label for the shot) and `seller_order` (the seller's chosen
+    // ordering) joined the shape with the Seller media work. Both are DESCRIPTIONS of a photograph
+    // the caller is already looking at — neither is a locator, and neither can be turned back into
+    // a query for a row the caller was not entitled to. The forbidden-locator assertion below is
+    // what actually holds the line, and it is unchanged.
     assert.deepEqual([...LISTING_MEDIA_ITEM_FIELDS].sort(),
-      ['is_primary', 'media_id', 'position', 'synthetic_demo', 'url', 'url_form']);
+      ['is_primary', 'media_id', 'photo_label', 'position', 'seller_order', 'synthetic_demo', 'url', 'url_form']);
     for (const forbidden of ['file_path', 'storage_bucket', 'object_key', 'uploaded_by', 'tenant_id', 'vin']) {
       assert.equal(LISTING_MEDIA_ITEM_FIELDS.includes(forbidden), false,
         `${forbidden} on a listing item would let a holder address something other than this photo`);
