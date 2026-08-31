@@ -319,7 +319,9 @@ export async function listInquiriesForAdmin(client, filters = {}, actor = filter
 
 async function fetchInquiries(client, refine) {
   try {
-    let query = client.from(TABLE).select('*');
+    // Newest first: callers that cap the list (the seller inbox card slices to the first 8) must
+    // see their most RECENT inquiries, not whatever order the database happens to return unsorted.
+    let query = client.from(TABLE).select('*').order('created_at', { ascending: false });
     if (refine) query = refine(query);
     const { data, error } = await query;
     if (error) throw error;
