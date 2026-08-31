@@ -118,6 +118,31 @@ This table is the mandatory roll call against the earlier `SELLER_MARKETPLACE_CO
 
 **Coverage rule:** if a requirement is added to `DESIGN.md`, the Seller convergence plan, Marketplace visual DNA, or an accepted owner UAT defect, this table and the task list must be updated before implementation can call that requirement in scope.
 
+### 0.7 Accepted scope amendment — Vehicle History & Obligations
+
+**Accepted 2026-08-31 during Seller remediation.** This is not a parallel programme. It closes a buyer-decision / Truth & Trust gap discovered while the Seller convergence work was still active.
+
+**Why it is being added now:**
+- CarUp already has first-class Vehicle Life accident/repair evidence, insurer/provider infrastructure, insurance policy records, a seller disclosure/conflict engine, lender/provider infrastructure, and a buyer Vehicle History Report.
+- The Seller/vehicle-onboarding form does **not** currently ask structured questions about current insurance, prior accidents, or an existing finance/lease/lender interest.
+- Existing finance flows answer mainly whether a **buyer can finance a purchase**; they do not model whether the **vehicle being sold is already encumbered** by a loan, lease, hire-purchase agreement, lien or other lender interest.
+- Accident evidence exists, but Seller accident disclosure and accident media are not first-class Seller inputs. Accident/claim/repair images must remain lifecycle evidence, never listing media.
+- A vehicle being insured, financed or previously repaired is not itself a negative Trust fact. Trust must reflect disclosure consistency, provenance, governed evidence, unresolved conflicts and transaction blockers — not reward a flattering checkbox.
+- In the intended Zimbabwe/Africa market, explicit disclosure of accident history and lender interest is a differentiating buyer-protection capability and belongs in the durable Vehicle Passport story.
+
+**Existing authorities to reuse — do not fork them:**
+- accident/repair evidence: `vehicle_evidence`, `evidence_sets`, Vehicle Life evidence taxonomy;
+- insurer policy truth: `insurance_records` and the insurer/provider workflow;
+- insurer claims: existing `insurance_claims` domain data, to be converged into the canonical lifecycle rather than treated as a parallel history;
+- Seller honesty/conflict model: `disclosure_claims`, `disclosure_conflicts`, and the existing neutral reviewer-governed conflict engine;
+- lender/provider connectivity: existing finance/lender consent, eligibility and provider-decision infrastructure;
+- buyer history projection: canonical Vehicle Lifecycle + Vehicle History Report;
+- canonical Trust: existing Trust authority only.
+
+**New canonical capability required:** a vehicle financial-obligation / encumbrance lifecycle record distinct from a buyer finance application. It must represent active or cleared loan/lease/hire-purchase/lender interest, coarse payment/settlement stage, valuation-at-origination where available, and lender clearance — while keeping private banking terms private.
+
+**Coverage added by this amendment:** F18–F20, G5.1–G5.4, K17–K20, L24–L27, M14–M18, R22–R28, S53–S60, T21–T24, U26–U31, plus `DESIGN.md §11.7` and the Marketplace/Vehicle Detail ordering rule in `DESIGN.md §14`.
+
 
 ---
 
@@ -530,6 +555,19 @@ For signed-out users:
 
   - **Evidence:** database/migrations/20260831100000_seller_listing_submission_id.sql (unique index + shape-check constraint); backend/server.js:2405-2419 (UUID validation, fail-closed 503 on missing schema), :2715-2783 (exact-replay detection: same submission id + matching Seller scope + matching media -> 200 idempotent_replay, mismatched scope -> 409 SELLER_AUTHORITY_CLAIM_REQUIRED, mismatched media -> 409 SELLER_SUBMISSION_REPLAY_MISMATCH). backend/tests/seller-listing-idempotency.test.js ran locally: 6/6 PASS. Deployed staging test spec:287-332 creates then replays the identical request against the real backend+DB and asserts idempotent_replay true/false and image-count parity exactly — PASSED at run 33345485423 (exact-head commit 823b6e8a).
   - **Note:** Minor residual gap: a true concurrent double-submit race (two simultaneous inserts before either commits) is not caught with a friendly response — there is no explicit handling of a Postgres unique-violation on this column, so it would surface as a generic 500 rather than a graceful replay response. The DB unique constraint still guarantees no duplicate row is ever created, so the core 'no duplicate identity' guarantee holds even in that edge case.
+- [ ] **F18. Persist structured accident disclosure through guest draft → registration/login → authenticated server draft → refresh/resume.**
+  - Required states: `yes`, `no_known_accident_history`, `unknown`, or an equivalent closed vocabulary that never defaults absence to "No".
+  - If yes, preserve structured event fields such as approximate date, mileage if known, damage area/severity as Seller-stated, insurer involvement, police report state, repair state and repairer/garage when known.
+  - Acceptance: Seller statement remains separately attributed from governed accident/repair evidence.
+
+- [ ] **F19. Persist structured current-insurance disclosure through the same continuity path.**
+  - Required states: insured / not insured / unknown, with insurer/policy metadata optional until an authenticated/provider-backed record exists.
+  - Acceptance: Seller statement never overwrites or masquerades as `insurance_records` provider truth.
+
+- [ ] **F20. Persist structured vehicle finance/lease/lender-interest disclosure through the same continuity path.**
+  - Required states must distinguish none-known / active / settlement-pending / cleared / unknown and finance type where known.
+  - Acceptance: this describes an obligation already attached to the vehicle being sold; it must not be conflated with a buyer `finance_application`.
+
 ### Phase F roll call
 - [~] **F-RC. Phase F complete:** refresh/auth/navigation cannot silently destroy Seller progress or duplicate the vehicle.
 
@@ -646,6 +684,19 @@ The full 7-image gallery must appear in:
 
   - **Evidence:** web/src/pages/VehicleDetail.tsx:1834-1837 caption reads 'Photos supplied by the seller... CarUp does not review them and makes no claim about what they show.' web/src/pages/VehicleDetail.media.test.tsx:447-503 describe('VehicleDetail — listing media is never labelled verified') is a real, currently-passing test (ran locally, part of 97/97) that renders the block across published/none/not_loaded states and scans the actual DOM innerHTML for any trust/governance language, asserting none is present, with an anti-vacuity check (lines 494-501) proving the scanner does detect such language when it's genuinely present (in the separate verified-evidence block).
   - **Note:** Direct, executed, passing test of exactly this contract.
+## G5. Accident / claim / repair evidence-media separation
+
+- [ ] **G5.1 Accident, insurance-claim and repair-history images are never persisted as `listing_images`.**
+  - They belong to the canonical Vehicle Life evidence model (`evidence_sets` + `vehicle_evidence`) with appropriate accident/repair subtype and provenance.
+
+- [ ] **G5.2 Seller can add accident-event media from the vehicle-history/obligations flow without altering the 7-photo commercial listing gallery.**
+  - Seller-provided historical media must be labelled as Seller-provided/unverified unless governed review/source provenance supports a stronger claim.
+
+- [ ] **G5.3 Insurer-sourced claim/assessment images preserve insurer/source provenance and remain distinguishable from Seller-uploaded accident photos.**
+  - A URL or file alone must never imply insurer provenance.
+
+- [ ] **G5.4 Accident → repair evidence continuity supports before/during/after repair sets where available and can link to garage/PartSentry history without treating repair evidence as listing photography.**
+
 ### Phase G roll call
 - [ ] **G-RC. Phase G complete:** 7/7 meaningful photos + labels + order + cover survive the full journey and render correctly on desktop/tablet/mobile.
 
@@ -904,6 +955,18 @@ The full 7-image gallery must appear in:
 
   - **Evidence:** git show a1a2db83 (MyListings.tsx): unpublished listings link to `/marketplace/${vin}?mode=seller_preview` ('Buyer Preview'), only published ones get the bare `/marketplace/${vin}` ('Public detail') URL. Combined with K13's proof that `detail` stays gated/null for an unpublished VIN even when presentation_mode=seller_preview, the draft case renders VehicleDetail.tsx's isSellerPreview-disabled sidebar (line 2727, 'Buyer actions are disabled... Publication state is not changed by previewing') rather than fabricating a published marketplace state.
   - **Note:** No marketplace-only fields (trust_summary/pricing_summary/inquiry CTAs) are invented for a draft in seller_preview — they simply stay absent (same `detail`-gated block used everywhere), which is the correct way to avoid 'pretending the draft is public'.
+- [ ] **K17. Shared Buyer Preview / Marketplace Vehicle Detail contains a first-class Accident, damage & repair history section.**
+  - It must render Seller disclosure, governed evidence, insurer/police/garage provenance and unknown/unavailable states separately.
+
+- [ ] **K18. Shared buyer presentation contains a current Insurance state/history section.**
+  - Current policy state must come from the governed insurer/insurance-record authority when available; Seller declaration is visibly separate.
+
+- [ ] **K19. Shared buyer presentation contains a Finance, lease & title-obligations section.**
+  - It may expose public-safe state such as active lender interest, finance type, valuation-at-origination/date/source, settlement required/cleared and lender clearance.
+  - Exact balance, APR, monthly payment, account/reference identifiers and private credit data remain private unless a separate governed policy explicitly permits otherwise.
+
+- [ ] **K20. Buyer Preview and public Marketplace use the same components/data semantics for K17–K19; preview mode does not invent stronger evidence than public mode.**
+
 ### Phase K roll call
 - [~] **K-RC. Phase K complete:** preview/public cannot drift because they share the same presentation contract.
 
@@ -974,6 +1037,15 @@ The full 7-image gallery must appear in:
 - [x] **L23. No seeded/reference-only presentation path is required.**
 
   - **Evidence:** VehicleDetail.parity.test.ts:18-19 asserts source contains no mockVehicles and no /referenceVehicle|goldenVehicle|seededVehicle/. Independently confirmed by grep: no GOLDEN/Golden/hardcoded golden-VIN branch in VehicleDetail.tsx or backend/services/marketplace/marketplaceListingDetailService.js/listingSummaryService.js — getMarketplaceListingDetail() (marketplaceListingDetailService.js:163-273) is a single query-by-VIN function with no reference-vehicle special case.
+- [ ] **L24. Seller-created vehicle achieves accident/repair-history parity with the rich Vehicle History architecture.**
+  - An accident-disclosed dynamic Seller vehicle must show the same canonical lifecycle/report structures used by any other vehicle, not a Seller-only summary card.
+
+- [ ] **L25. Seller-created vehicle achieves insurance-state/history parity across Passport, Buyer Preview and public Vehicle Detail.**
+
+- [ ] **L26. Seller-created vehicle achieves finance/encumbrance parity across Passport, Buyer Preview and public Vehicle Detail using the new vehicle-obligation authority, not buyer-finance application data.**
+
+- [ ] **L27. Missing accident, insurance or lender data renders as unknown/not recorded/not connected as appropriate; absence never becomes "clean history", "not financed" or "uninsured" without an attributable source or Seller statement.**
+
 ### Phase L roll call
 - [~] **L-RC. Phase L complete:** Seller-created and reference vehicles share the same structural experience without copied fake data.
 
@@ -1027,6 +1099,23 @@ The full 7-image gallery must appear in:
 
   - **Evidence:** backend/tests/marketplace-listing-summary.test.js:236 (part of a passing 20/20 file) directly asserts `assert.equal('sellerPhone' in summary, false)` after feeding a fixture with `sellerPhone: '+263772000000'` into buildMarketplaceListingSummary; backend/utils/publicVehicleProjection.js:170-192 PUBLIC_VEHICLE_FIELDS is an explicit allow-list with no phone/email column at all, and grep across backend/server.js, publicVehicleProjection.js and listingSummaryService.js finds no code path that attaches seller phone/email to any public vehicle/listing/passport response (the only `select(...phone, email...)` calls in server.js are the self-scoped /api/auth/login and /api/auth/me routes)
   - **Gap:** The Marketplace-summary path has a direct, targeted, passing regression test naming 'sellerPhone'. The Vehicle Detail/Passport public-projection path (toPublicVehicle/toListingClaims) has no equivalent test that feeds a seller_phone/seller_email field into a fixture and asserts absence — its guarantee rests on the allow-list architecture (traced by reading, not test-proven for that specific field name), so downgraded to '~' for that leg.
+- [ ] **M14. Seller accident disclosure is source-separated from governed accident evidence.**
+  - Extend/reuse `disclosure_claims` / `disclosure_conflicts`; a Seller "no known accident" statement may be compared with accident/repair/insurer evidence but never auto-label the Seller fraudulent.
+
+- [ ] **M15. Seller insurance disclosure is source-separated from insurer/insurance-record truth.**
+  - Conflicting states route to a neutral governed reconciliation/review state.
+
+- [ ] **M16. Seller finance/lease/lender-interest disclosure is source-separated from lender/encumbrance truth.**
+  - "No finance outstanding" cannot become a governed fact merely because the Seller selected it.
+
+- [ ] **M17. Public/private finance data classification is explicit and tested.**
+  - Public-safe candidates: finance type, active/cleared/settlement-required state, lender identity when policy/consent permits, valuation-at-origination/date/source, clearance date/state.
+  - Private by default: exact outstanding balance, monthly payment, APR, account/contract/reference identifiers, repayment transaction history and applicant credit data.
+
+- [ ] **M18. Trust semantics do not reward flattering declarations.**
+  - Insurance, previous accident or active finance are not automatically negative Trust facts.
+  - Evidence completeness, provenance and disclosure consistency may affect confidence/limitations; verified undisclosed conflicts and unresolved title/finance obligations may affect governed risk/readiness/transaction gating under existing Trust authority.
+
 ### Phase M roll call
 - [~] **M-RC. Phase M complete:** Trust, readiness, completeness, and privacy remain distinct and truthful.
 
@@ -1225,6 +1314,14 @@ After generating a known event in E2E:
 - [ ] **R20. Passport persists after sold/retirement.**
 - [ ] **R21. Ownership/history persists; sold/unpublish does not erase durable vehicle identity.**
 
+- [ ] **R22. Publication readiness shows accident/insurance/finance disclosure state without turning unknown into a clean claim.**
+- [ ] **R23. An active vehicle finance/lease/lender interest can coexist with a public listing, but the transaction/title state explicitly says settlement or lender clearance is required where applicable.**
+- [ ] **R24. Ownership transfer / transaction completion is blocked when a governed active encumbrance requires settlement or lender release.**
+- [ ] **R25. Lender settlement/clearance is recorded as a durable lifecycle transition; clearing finance does not erase the earlier finance history.**
+- [ ] **R26. Valuation-at-finance-origination, when supplied by a governed lender/valuation source, remains historical evidence and is never silently replaced by the current asking price.**
+- [ ] **R27. Insurance claim → accident event → repair evidence can remain visible after listing unpublish/sold; commerce lifecycle never deletes the durable history.**
+- [ ] **R28. Future SafePay/lender settlement handoff uses governed settlement status and never exposes private bank terms to the buyer-facing public projection.**
+
 ### Phase R roll call
 - [ ] **R-RC. Phase R complete:** full publish → unpublish → republish → sold lifecycle is proven.
 
@@ -1294,8 +1391,19 @@ This test may use APIs only for actions that have **no intended UI** (for exampl
 - [ ] **S51. Touch/gallery interactions usable**
 - [ ] **S52. Persistent navigation remains reachable**
 
+## Vehicle History & Obligations acceptance extension
+
+- [ ] **S53. Through the real Seller UI, make an explicit accident-history disclosure for the dynamic vehicle; do not rely on free-text description.**
+- [ ] **S54. Add at least one accident/repair evidence asset through the intended history/evidence UI and prove it is absent from the commercial `listing_images` gallery.**
+- [ ] **S55. Through the real Seller UI, make an explicit current-insurance disclosure and prove the Seller statement survives guest/auth/refresh/resume.**
+- [ ] **S56. Through the real Seller UI, make an explicit finance/lease/lender-interest disclosure and prove it survives guest/auth/refresh/resume.**
+- [ ] **S57. Buyer Preview and public Vehicle Detail show the same accident/repair, insurance and finance/title-obligation sections with correct source labels and privacy.**
+- [ ] **S58. Where the dynamic scenario uses a governed active lender interest, prove the listing can remain visible while ownership transfer/settlement is truthfully gated until clearance.**
+- [ ] **S59. Prove Vehicle Passport/history retains accident/insurance/finance lifecycle records after unpublish, republish and sold.**
+- [ ] **S60. Golden assertions prove a missing provider/source does not become "no accident", "not insured" or "finance clear".**
+
 ### Phase S roll call
-- [ ] **S-RC. Phase S complete:** all S1–S52 are `[x]`; no API shortcut substituted for an intended UI journey.
+- [ ] **S-RC. Phase S complete:** all S1–S60 are `[x]`; no API shortcut substituted for an intended UI journey.
 
 ---
 
@@ -1323,6 +1431,11 @@ This test may use APIs only for actions that have **no intended UI** (for exampl
 - [ ] **T18. Touch target acceptance**
 - [ ] **T19. Alt text / missing-media semantics**
 - [ ] **T20. Automated accessibility gate green on exact head**
+
+- [ ] **T21. Vehicle History & Obligations form controls have accessible labels, explicit unknown states, keyboard/focus coverage and no color-only meaning.**
+- [ ] **T22. Accident evidence gallery/media has meaningful alt text/source labels and is visually distinct from commercial listing media.**
+- [ ] **T23. Finance/title-obligation presentation remains readable on desktop/tablet/mobile without exposing private values through truncation/tooltips/DOM text.**
+- [ ] **T24. Visual regression covers accident/repair, insurance and finance/title sections in Seller Studio, Buyer Preview, Vehicle Detail and Vehicle Passport/history report.**
 
 ### Phase T roll call
 - [ ] **T-RC. Phase T complete:** visual and accessibility evidence reviewed for all modified Seller/downstream surfaces.
@@ -1360,6 +1473,13 @@ Required exact-head battery:
 - [ ] **U23. Frontend/backend exact SHA provenance match**
 - [ ] **U24. No pending/failing required checks**
 - [ ] **U25. No unresolved P0/P1 review threads**
+
+- [ ] **U26. Accident/repair evidence taxonomy + disclosure-conflict regression battery.**
+- [ ] **U27. Insurance policy + insurer-provider + insurance-claim lifecycle convergence tests.**
+- [ ] **U28. Vehicle finance/lease/lender-interest/encumbrance migration and authority tests, including privacy/RLS.**
+- [ ] **U29. Marketplace/Passport cross-surface tests for accident, insurance and finance/title obligations.**
+- [ ] **U30. Transaction/ownership lifecycle regression proving active encumbrance blocks only the governed transfer/settlement step required by policy, not arbitrary listing visibility.**
+- [ ] **U31. Security/privacy tests prove exact balance, APR, monthly payment, lender account/reference and private applicant credit data cannot leak through Marketplace, Passport public projection, reports, Communications or Intelligence.**
 
 ### Phase U roll call
 - [ ] **U-RC. Phase U complete:** complete affected battery green on one stable exact head.
@@ -1435,6 +1555,10 @@ These are not one-time tasks. Every phase roll call must verify them.
 - [ ] **INV-13 No routine conversational stop between tasks once implementation begins.**
 - [ ] **INV-14 This tracker is updated every time a task is cleared.**
 - [ ] **INV-15 Existing authority seams are preserved:** Seller remediation must not fork or create competing writers/read models for Vehicle Passport lifecycle, ownership, canonical Trust, Evidence, Marketplace publication, Communications, Intelligence, PartSentry, or Service Network authority.
+- [ ] **INV-16 Accident/claim/repair media is lifecycle evidence, never commercial listing media.**
+- [ ] **INV-17 Seller "no accident / insured / finance clear" declarations never become governed facts without attributable authority.**
+- [ ] **INV-18 Private lender/insurance financial data remains private; buyer-facing surfaces expose only the minimum public-safe vehicle state needed for decision-making and transfer safety.**
+- [ ] **INV-19 Active insurance, prior accident/repair, or active finance is not automatically a negative Trust verdict; provenance, disclosure consistency, evidence strength and unresolved governed blockers drive the truthful state.**
 
 ---
 
@@ -1444,7 +1568,8 @@ At creation time, prior automated certification is treated as **historical engin
 
 **Reconciled against real evidence (code, local test runs, live staging queries, exact-head CI) by a
 13-agent audit at commit `823b6e8a` — see per-item Evidence/Gap lines above. Counts exclude the
-phase's own `-RC` line.** Several `~`/blank findings below (notably C7's mobile gallery-button
+phase's own `-RC` line. The numerical C–N counts below describe that pre-amendment audit only.
+The 2026-08-31 Vehicle History & Obligations scope amendment added new mandatory open tasks in F/G/K/L/M/R/S/T/U; those new tasks must be included in the next roll call and are not silently absorbed into the old counts.** Several `~`/blank findings below (notably C7's mobile gallery-button
 occlusion, and the F-G/timeout/save-toggle/inquiry-ordering defects it led to investigating further)
 have since been fixed on top of `823b6e8a`; those fixes are not yet re-certified by a green exact-head
 gate, so phase states below are intentionally not upgraded until that happens.
