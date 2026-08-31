@@ -1876,7 +1876,7 @@ export default function VehicleDetail() {
                         onClick={() => setCurrentImageIdx((activeImageIdx - 1 + galleryItems.length) % galleryItems.length)}
                         aria-label="Previous photo"
                         data-testid="listing-media-previous"
-                        className="absolute left-4 top-1/2 flex h-11 w-11 -translate-y-1/2 items-center justify-center rounded-full border border-white/30 bg-black/45 text-white backdrop-blur-sm transition hover:bg-orange-500"
+                        className="absolute left-4 top-1/2 z-[60] flex h-11 w-11 -translate-y-1/2 items-center justify-center rounded-full border border-white/30 bg-black/45 text-white backdrop-blur-sm transition hover:bg-orange-500"
                       >
                         <ChevronLeft className="w-5 h-5" />
                       </button>
@@ -1884,7 +1884,7 @@ export default function VehicleDetail() {
                         onClick={() => setCurrentImageIdx((activeImageIdx + 1) % galleryItems.length)}
                         aria-label="Next photo"
                         data-testid="listing-media-next"
-                        className="absolute right-4 top-1/2 flex h-11 w-11 -translate-y-1/2 items-center justify-center rounded-full border border-white/30 bg-black/45 text-white backdrop-blur-sm transition hover:bg-orange-500"
+                        className="absolute right-4 top-1/2 z-[60] flex h-11 w-11 -translate-y-1/2 items-center justify-center rounded-full border border-white/30 bg-black/45 text-white backdrop-blur-sm transition hover:bg-orange-500"
                       >
                         <ChevronRight className="w-5 h-5" />
                       </button>
