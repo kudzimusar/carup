@@ -34,6 +34,19 @@ function labelize(slug: string): string {
     .join(' ')
 }
 
+
+/**
+ * How long the search box waits before committing a query.
+ *
+ * EXPORTED ON PURPOSE. Every test that types into the search box must outwait this, and the
+ * coupling used to be invisible: 350 lived here while the test relied on the async-utility
+ * default of 1000 ms. That left a real wall-clock budget of 650 ms to cover a debounce, an
+ * async passport lookup and a React commit — thin enough to fail on a loaded machine while
+ * asserting nothing about behaviour. Tests now derive their budget from this value, so
+ * changing the debounce cannot silently shorten it.
+ */
+export const SEARCH_DEBOUNCE_MS = 350
+
 export default function VehicleSearch() {
   const {
     fetchMarketplaceListings,
@@ -55,7 +68,7 @@ export default function VehicleSearch() {
   const [categoryOptions, setCategoryOptions] = useState<{ slug: string; label: string }[]>([])
 
   useEffect(() => {
-    const timer = setTimeout(() => setCommittedQuery(query.trim()), 350)
+    const timer = setTimeout(() => setCommittedQuery(query.trim()), SEARCH_DEBOUNCE_MS)
     return () => clearTimeout(timer)
   }, [query])
 

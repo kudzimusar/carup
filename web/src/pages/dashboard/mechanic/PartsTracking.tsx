@@ -64,6 +64,10 @@ export default function PartsTracking() {
   const { fetchMechanicParts, createMechanicPart, loading } = useCarUpApi()
   const [parts, setParts] = useState<TrackedPart[]>([])
   const [loadFailed, setLoadFailed] = useState(false)
+  // An unread inventory is not an empty one either. Until the read settles this page has
+  // counted nothing, so it must not render tiles whose values would be indistinguishable
+  // from a measured zero — the same rule that makes a FAILED read refuse to show figures.
+  const [readSettled, setReadSettled] = useState(false)
   const [search, setSearch] = useState('')
 
   const [isModalOpen, setIsModalOpen] = useState(false)
@@ -84,6 +88,8 @@ export default function PartsTracking() {
       console.error(err)
       setLoadFailed(true)
       toast.error('Failed to load Parts Inventory.')
+    }).finally(() => {
+      setReadSettled(true)
     })
   }, [fetchMechanicParts])
 
@@ -181,7 +187,14 @@ export default function PartsTracking() {
           and the list of what CarUp cannot measure about parts at all. */}
       <PartsIntelligence scope="mechanic" windowDays={30} />
 
-      {loadFailed ? (
+      {!readSettled ? (
+        <Card className="border-0 card-shadow" data-testid="parts-not-yet-counted">
+          <CardContent className="p-5 text-sm text-gray-600">
+            Your parts inventory has not been read yet. No figures are shown below, because
+            none have been counted.
+          </CardContent>
+        </Card>
+      ) : loadFailed ? (
         <Card className="border-0 card-shadow" data-testid="parts-load-failed">
           <CardContent className="p-5 text-sm text-gray-600">
             Your parts inventory could not be loaded. These figures are NOT zero — nothing below

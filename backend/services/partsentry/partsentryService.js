@@ -69,7 +69,19 @@ export async function addRepairLog(vin, mechanicId, partName, partOem, actionTyp
   // Update vehicle odometer
   await supabase.from('vehicles').update({ mileage: odometer }).eq('vin', vin);
 
-  await addEvent(vin, 'Mechanic Inspection', { logId: newId, partName, partOem: cleanPartOem, actionType, odometer, mechanicId, signature });
+  // The committed partsentry_logs row id IS the durable operation identity: it exists
+  // before the ledger write, survives a lost response and a process restart, and a fresh
+  // retry of this same service call recomputes it, while a genuinely new inspection cannot.
+  if (newId === undefined || newId === null) {
+    throw new Error('parts log persisted without an id; refusing to write an unidentifiable ledger event');
+  }
+  await addEvent(
+    vin,
+    'Mechanic Inspection',
+    { logId: newId, partName, partOem: cleanPartOem, actionType, odometer, mechanicId, signature },
+    'SYSTEM_SIGNATURE',
+    { operationId: `partsentry_log:${encodeURIComponent(String(newId))}` },
+  );
 
   return { id: newId, vin, mechanicId, partName, partOem: cleanPartOem, actionType, description: cleanDescription, mileage: odometer, signature, timestamp };
 }

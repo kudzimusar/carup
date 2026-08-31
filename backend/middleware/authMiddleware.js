@@ -55,9 +55,26 @@ export function isPrivateEvidenceFallbackAllowed(env = process.env) {
   return env.CARUP_ALLOW_X_USER_ID_FALLBACK === 'true';
 }
 
+/**
+ * Deployment environments that must NEVER honour a NODE_ENV inference, whatever NODE_ENV says.
+ *
+ * CarUp has already run NODE_ENV=test inside a Vercel PRODUCTION environment, which turned the
+ * spoofable x-user-id header into a working identity — including admin. A single mis-set
+ * variable was enough. Conjoining the inference with the deployment environment means no single
+ * mis-set variable can open it again: the incident that happened is closed, because VERCEL_ENV
+ * was 'production' throughout it.
+ *
+ * The explicit CARUP_ALLOW_X_USER_ID_FALLBACK opt-in is unchanged and still overrides, so local
+ * development and the test suite are unaffected.
+ */
+function isProductionDeployment(env) {
+  return env.CARUP_ENV === 'production' || env.VERCEL_ENV === 'production';
+}
+
 export function isUserIdFallbackAllowed(env = process.env) {
-  return env.CARUP_ALLOW_X_USER_ID_FALLBACK === 'true' ||
-    env.NODE_ENV === 'test' ||
+  if (env.CARUP_ALLOW_X_USER_ID_FALLBACK === 'true') return true;
+  if (isProductionDeployment(env)) return false;
+  return env.NODE_ENV === 'test' ||
     env.NODE_ENV === 'development' ||
     env.NODE_ENV === 'local';
 }

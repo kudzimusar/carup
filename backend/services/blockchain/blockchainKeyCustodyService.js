@@ -9,13 +9,31 @@ function toBase64Url(buffer) {
   return Buffer.from(buffer).toString('base64url');
 }
 
+/**
+ * A test-only ephemeral secret is safe in a test process and CATASTROPHIC in a deployed one.
+ *
+ * Both resolvers below fall back to `crypto.randomBytes` when NODE_ENV === 'test'. In a real
+ * deployment that would not fail closed — it would silently sign with a per-process key, so
+ * every event signed by one instance would be unverifiable by any other instance and by the
+ * same instance after a restart. The ledger would keep accepting writes while quietly losing
+ * verifiability, which is worse than refusing to sign.
+ *
+ * CarUp has already run NODE_ENV=test inside a Vercel PRODUCTION environment. The deployment
+ * environment therefore overrides the NODE_ENV inference: in production the absence of a
+ * configured secret throws, whatever NODE_ENV claims.
+ */
+function isEphemeralTestSecretAllowed() {
+  if (process.env.CARUP_ENV === 'production' || process.env.VERCEL_ENV === 'production') return false;
+  return process.env.NODE_ENV === 'test';
+}
+
 function masterSecret(explicit = null) {
   if (explicit) return Buffer.from(String(explicit), 'utf8');
 
   const configured = process.env.CARUP_BLOCKCHAIN_SIGNING_MASTER_SECRET;
   if (configured) return Buffer.from(configured, 'utf8');
 
-  if (process.env.NODE_ENV === 'test') {
+  if (isEphemeralTestSecretAllowed()) {
     if (!testProcessSecret) testProcessSecret = crypto.randomBytes(32);
     return testProcessSecret;
   }
@@ -115,7 +133,7 @@ export function verifyLedgerHash(publicKeyPem, hash, signatureHex) {
 function currentSystemSecret() {
   const configured = process.env.CARUP_BLOCKCHAIN_SYSTEM_HMAC_SECRET;
   if (configured) return configured;
-  if (process.env.NODE_ENV === 'test') {
+  if (isEphemeralTestSecretAllowed()) {
     if (!testSystemSecret) testSystemSecret = crypto.randomBytes(32).toString('hex');
     return testSystemSecret;
   }

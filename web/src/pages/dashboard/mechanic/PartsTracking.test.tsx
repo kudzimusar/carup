@@ -32,6 +32,31 @@ beforeEach(() => {
   })
 })
 
+describe('an unread inventory is not an empty shelf either', () => {
+  it('states nothing at all until the read has actually settled', async () => {
+    // Before this gate existed the tiles rendered on first paint from the empty initial
+    // state: `parts-total` said 0, `parts-value` said $0 and `parts-low-stock` said
+    // "No reorder level set" — unrecorded facts presented as measured values. It also made
+    // every `findByTestId(...)`-then-assert-content test in this file racy, because those
+    // testids already existed before the data arrived, so the assertion could run against
+    // the pre-read paint. Both are fixed at the source rather than waited around.
+    let settleRead: (value: unknown) => void = () => {}
+    fetchMechanicParts.mockReturnValue(new Promise(resolve => { settleRead = resolve }))
+
+    render(<PartsTracking />)
+
+    expect(screen.getByTestId('parts-not-yet-counted')).toBeInTheDocument()
+    for (const id of ['parts-total', 'parts-value', 'parts-low-stock', 'parts-out-of-stock', 'no-parts-state']) {
+      expect(screen.queryByTestId(id)).toBeNull()
+    }
+
+    settleRead([{ id: 'p1', name: 'Filter', sku: 'F-1', stock_level: 1, unit_price: 10, min_stock: 5 }])
+
+    expect(await screen.findByTestId('parts-low-stock')).toHaveTextContent('1')
+    expect(screen.queryByTestId('parts-not-yet-counted')).toBeNull()
+  })
+})
+
 describe('a failed read is not an empty shelf', () => {
   it('says the inventory could not be loaded, and shows no tiles', async () => {
     fetchMechanicParts.mockRejectedValue(new Error('backend down'))
@@ -86,7 +111,10 @@ describe('nothing unrecorded is filled in', () => {
       { id: 'p1', name: 'Filter', sku: 'F-1', stock_level: 1, unit_price: 10, min_stock: 5 },
     ])
     render(<PartsTracking />)
-    expect(await screen.findByTestId('parts-low-stock')).toHaveTextContent('1')
+    // `parts-low-stock` now only exists once the read has settled, so finding it IS
+    // waiting for the counted state — there is no earlier paint to race against.
+    const lowStock = await screen.findByTestId('parts-low-stock')
+    await waitFor(() => expect(lowStock).toHaveTextContent('1'))
     expect(screen.getByTestId('part-row-p1')).toHaveTextContent('Low Stock')
   })
 })

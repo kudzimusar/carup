@@ -69,6 +69,54 @@ BEGIN
       USING ERRCODE='55000';
   END IF;
 
+  -- Terminal conflict classification is safe only after the durable operation identity
+  -- migration is present. A content-equality-only runtime can acknowledge a genuinely
+  -- independent event as a retry, so FINALIZED must not become reachable without the
+  -- persisted identity, its required-at-terminal constraint and its signer-scoped
+  -- uniqueness guard.
+  IF to_regclass('public.blockchain_events') IS NOT NULL THEN
+    IF NOT EXISTS (
+      SELECT 1
+        FROM pg_attribute
+       WHERE attrelid='public.blockchain_events'::regclass
+         AND attname='operation_id'
+         AND NOT attisdropped
+    ) THEN
+      RAISE EXCEPTION
+        '[issue-158] refusing custody finalization: durable terminal operation identity migration is absent'
+        USING ERRCODE='55000';
+    END IF;
+
+    IF NOT EXISTS (
+      SELECT 1
+        FROM pg_constraint
+       WHERE conrelid='public.blockchain_events'::regclass
+         AND conname='blockchain_events_terminal_operation_id_required'
+         AND convalidated
+    ) THEN
+      RAISE EXCEPTION
+        '[issue-158] refusing custody finalization: terminal operation identity constraint is absent or unvalidated'
+        USING ERRCODE='55000';
+    END IF;
+
+    IF to_regclass('public.uq_blockchain_events_signer_operation_id') IS NULL THEN
+      RAISE EXCEPTION
+        '[issue-158] refusing custody finalization: signer operation identity uniqueness invariant is absent'
+        USING ERRCODE='55000';
+    END IF;
+
+    IF EXISTS (
+      SELECT 1
+        FROM public.blockchain_events
+       WHERE "timestamp"='9999-12-31T23:59:59.999Z'
+         AND nullif(btrim(operation_id),'') IS NULL
+    ) THEN
+      RAISE EXCEPTION
+        '[issue-158] refusing custody finalization: terminal ledger row lacks durable operation identity'
+        USING ERRCODE='55000';
+    END IF;
+  END IF;
+
   -- The superseded caller-clock contracts must already be closed to the application
   -- role before any key activation becomes possible.
   FOR v_superseded IN
