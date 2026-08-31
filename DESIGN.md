@@ -379,6 +379,36 @@ A draft preview is not a public Marketplace listing.
 Publication is a governed transition.
 Blocked publication must state the exact blocker and the next action.
 
+### 11.7 Vehicle History & Obligations
+
+Seller and general vehicle-onboarding flows must explicitly capture material buyer-decision disclosures that belong to the durable Vehicle Passport story rather than hiding them inside free text.
+
+The minimum structured disclosures are:
+
+1. **Accident / collision history**
+   - seller states yes / no known accident history / unknown;
+   - no answer may default to "No";
+   - if yes, capture an accident event with date/time precision appropriate to what is actually known, mileage when known, damaged areas/severity as seller-stated, insurer/police involvement, repair state and repairer/garage when known;
+   - accident, claim and repair images are Vehicle Life evidence, not listing media.
+
+2. **Current insurance**
+   - seller states insured / not insured / unknown;
+   - insurer/policy metadata may be captured as seller-stated, but provider-backed `insurance_records` remain the governed insurance authority;
+   - a seller statement never overwrites or upgrades an insurer record.
+
+3. **Existing finance / lease / lender interest**
+   - seller states none known / active / settlement pending / cleared / unknown and finance type when known;
+   - this describes an obligation already attached to the vehicle and is distinct from a buyer applying for finance;
+   - lender/provider evidence may add finance type, lender identity where policy permits, finance state, valuation at origination, valuation date/source, settlement requirement and clearance state;
+   - exact outstanding balance, APR, monthly payment, contract/account/reference identifiers, repayment transactions and applicant credit data are private by default.
+
+Truth rules:
+- insured, financed, previously damaged or repaired are not automatically negative Trust states;
+- CarUp must distinguish **seller declaration**, **governed evidence/provider state**, and **reviewed disclosure conflict**;
+- a seller claim such as "no accident" or "finance clear" may be compared with contrary evidence, but the product must use neutral conflict/review language and must not automatically label fraud;
+- unknown/missing source coverage must remain unknown, never "clean history";
+- the same history/obligation state must travel through Seller Studio, Vehicle Passport, Buyer Preview and public Vehicle Detail through shared authorities.
+
 ---
 
 ## 12. My Garage standard
@@ -456,8 +486,13 @@ Vehicle Detail order:
 6. Registration/evidence identity
 7. Seller-stated description/features
 8. Vehicle history/lifecycle intelligence
-9. ownership/service/insurance/PartSentry context where available
-10. transaction/reservation path where governed
+9. Accident, damage and repair history — seller disclosure and governed insurer/police/garage evidence kept visibly distinct
+10. Insurance history/current governed state where available
+11. Finance, lease and title-obligation state — public-safe lender interest, valuation/settlement/clearance only; private banking terms withheld
+12. Ownership/service/PartSentry context where available
+13. Transaction/reservation path where governed
+
+An active lender interest is not, by itself, a reason to hide a legitimate listing. Where policy requires settlement or lender release before transfer, Vehicle Detail must state that exact transaction/title condition and the next governed step.
 
 A newly Seller-created listing must render through the same structure. Missing facts produce designed states; they do not trigger an alternate legacy page.
 
@@ -528,6 +563,13 @@ Specialized roles may add domain-specific controls, but:
 - charts must be based on governed data;
 - role-specific operational density is allowed;
 - no feature may introduce a competing brand system.
+
+Provider convergence rules:
+- insurer integrations may attest policy state, claim state, insurer assessments and claim-media provenance, but an insurance policy alone must never be interpreted as accident evidence;
+- lender integrations may attest an existing vehicle obligation/encumbrance, valuation, settlement state and clearance, separately from buyer finance eligibility/applications;
+- public Marketplace/Passport projections expose only the minimum vehicle-level state needed for buyer decision and safe transfer;
+- private policy/loan/account/credit terms remain behind consent and object-level authorization;
+- insurer/lender records append to the same Vehicle Passport lifecycle rather than creating a second vehicle-history authority.
 
 ---
 
