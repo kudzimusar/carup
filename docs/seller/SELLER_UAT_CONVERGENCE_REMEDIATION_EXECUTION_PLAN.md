@@ -5,13 +5,13 @@
 > This file remains useful as historical design/implementation context only. Do not clear work,
 > declare completion, or choose the next task from this file.
 
-**Status:** Historical/context document — master tracker governs execution  
-**Branch:** `fix/seller-uat-convergence-remediation`  
-**Base:** `integration/vehicle-passport-v16-cert@43204beeec40123b0cce0c457aded6d0f733c4bc`  
-**Governing UX:** root `DESIGN.md` + `docs/marketplace/MARKETPLACE_VISUAL_DNA.md`  
-**Supersedes as execution authority:** informal Seller remediation checklists and the reduced Golden Seller acceptance interpretation  
-**Primary human UAT vehicle:** `UAT20260828SELL01`  
-**Primary human UAT account:** historical Seller account continuity must be reconciled without deleting/recreating user data  
+**Status:** Historical/context document — master tracker governs execution\
+**Branch:** `fix/seller-uat-convergence-remediation`\
+**Base:** `integration/vehicle-passport-v16-cert@43204beeec40123b0cce0c457aded6d0f733c4bc`\
+**Governing UX:** root `DESIGN.md` + `docs/marketplace/MARKETPLACE_VISUAL_DNA.md`\
+**Supersedes as execution authority:** informal Seller remediation checklists and the reduced Golden Seller acceptance interpretation\
+**Primary human UAT vehicle:** `UAT20260828SELL01`\
+**Primary human UAT account:** historical Seller account continuity must be reconciled without deleting/recreating user data\
 **Production/main rule:** do not modify or merge to `main` during this programme
 
 ---

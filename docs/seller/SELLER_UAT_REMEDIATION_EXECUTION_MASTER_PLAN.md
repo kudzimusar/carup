@@ -1,16 +1,16 @@
 # Seller UAT Remediation — Master Execution & Roll-Call Plan
 
-**Status:** ACTIVE — authoritative execution tracker  
-**Repository:** `kudzimusar/carup`  
-**Integration authority / merge target:** `integration/vehicle-passport-v16-cert` / Draft PR #194  
-**Seller implementation lane:** `fix/seller-uat-convergence-remediation` / Draft PR #202  
-**Master synchronized into implementation lane:** merge commit `2639ba01cabd75630c64bdf7b019333e7309ddcb` via non-main sync PR #204  
-**Tracker creation ancestor:** `43204beeec40123b0cce0c457aded6d0f733c4bc`  
-**Forensic pre-remediation baseline:** `106f76509ae1d1d10a3c4a26b4f93f7993d55027`  
-**Primary owner UAT vehicle:** `UAT20260828SELL01` — 2021 Toyota Hilux, USD 23,000, expected `publication_status=draft`  
-**Owner UAT account under reconciliation:** `buynsellpvtltd@gmail.com`  
-**Governing design law:** root `DESIGN.md`  
-**Existing convergence plan:** `docs/seller/SELLER_MARKETPLACE_CONVERGENCE_IMPLEMENTATION_PLAN.md`  
+**Status:** ACTIVE — authoritative execution tracker\
+**Repository:** `kudzimusar/carup`\
+**Integration authority / merge target:** `integration/vehicle-passport-v16-cert` / Draft PR #194\
+**Seller implementation lane:** `fix/seller-uat-convergence-remediation` / Draft PR #202\
+**Master synchronized into implementation lane:** merge commit `2639ba01cabd75630c64bdf7b019333e7309ddcb` via non-main sync PR #204\
+**Tracker creation ancestor:** `43204beeec40123b0cce0c457aded6d0f733c4bc`\
+**Forensic pre-remediation baseline:** `106f76509ae1d1d10a3c4a26b4f93f7993d55027`\
+**Primary owner UAT vehicle:** `UAT20260828SELL01` — 2021 Toyota Hilux, USD 23,000, expected `publication_status=draft`\
+**Owner UAT account under reconciliation:** `buynsellpvtltd@gmail.com`\
+**Governing design law:** root `DESIGN.md`\
+**Existing convergence plan:** `docs/seller/SELLER_MARKETPLACE_CONVERGENCE_IMPLEMENTATION_PLAN.md`\
 **Marketplace visual extension:** `docs/marketplace/MARKETPLACE_VISUAL_DNA.md`
 
 ---
@@ -22,13 +22,13 @@ This file is the **single operational roll-call tracker** for the Seller UAT rem
 
 ### 0.0 Tracker bootstrap roll call
 
-- [x] **BOOT-1. Master execution tracker created on the active #194 integration branch.**  
+- [x] **BOOT-1. Master execution tracker created on the active #194 integration branch.**\
   **Evidence:** commit `e4401654888764c0c4683880070fe320599599bc`.
-- [x] **BOOT-2. Existing Seller convergence plan bound to this tracker and corrected to the current #194 branch context.**  
+- [x] **BOOT-2. Existing Seller convergence plan bound to this tracker and corrected to the current #194 branch context.**\
   **Evidence:** commit `e3b2a9c957389a39a92b4123d48d3806abdebf23`.
-- [x] **BOOT-3. Previous automated Seller PASS explicitly demoted to historical engineering evidence, not owner-facing Golden completion.**  
+- [x] **BOOT-3. Previous automated Seller PASS explicitly demoted to historical engineering evidence, not owner-facing Golden completion.**\
   **Evidence:** "Current programme roll call" in this tracker initializes every remediation phase as NOT STARTED and Phase S requires the full UI Golden journey.
-- [x] **BOOT-4. Authoritative tracker and completed Phase A/B baseline evidence synchronized into the Seller implementation lane without rewriting prior remediation history.**  
+- [x] **BOOT-4. Authoritative tracker and completed Phase A/B baseline evidence synchronized into the Seller implementation lane without rewriting prior remediation history.**\
   **Evidence:** sync PR #204 merged `integration/vehicle-passport-v16-cert@e02988aff867290b573767034d2a6be9237e0fc9` into `fix/seller-uat-convergence-remediation` at merge commit `2639ba01cabd75630c64bdf7b019333e7309ddcb`. The pre-existing 25 #202 commits remain ancestors and must be re-certified item-by-item before receiving master-plan credit.
 
 

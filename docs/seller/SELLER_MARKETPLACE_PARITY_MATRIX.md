@@ -1,9 +1,9 @@
 # Seller ↔ Marketplace Parity Matrix
 
-**Execution authority:** `docs/seller/SELLER_UAT_CONVERGENCE_REMEDIATION_EXECUTION_PLAN.md`  
-**Baseline head:** `200c08b4599952cb35ce7d63538380249b91d1e9`  
-**Human UAT vehicle:** `UAT20260828SELL01` — 2021 Toyota Hilux, USD 23,000, draft  
-**Reference comparison:** current rich public Marketplace vehicle(s), plus the live Marketplace presentation contract  
+**Execution authority:** `docs/seller/SELLER_UAT_CONVERGENCE_REMEDIATION_EXECUTION_PLAN.md`\
+**Baseline head:** `200c08b4599952cb35ce7d63538380249b91d1e9`\
+**Human UAT vehicle:** `UAT20260828SELL01` — 2021 Toyota Hilux, USD 23,000, draft\
+**Reference comparison:** current rich public Marketplace vehicle(s), plus the live Marketplace presentation contract\
 **Status:** living audit; update after every relevant implementation task
 
 | Capability / section | Reference/public source | UAT20260828SELL01 current state | Authority class | Expected missing state | Current gap | Severity |
