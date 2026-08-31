@@ -413,18 +413,43 @@ test('INV-2: the listing read prefers provenance and degrades instead of failing
   assert.ok(asked[0].includes('currency_source'), 'the first attempt must ask for provenance');
   assert.deepEqual(ok.data, [{ vin: 'V' }]);
 
-  // Claims-migrated but pre-Seller-S0 database: only the taxonomy-wide read fails, then claims-wide succeeds.
+  // RE-AIMED DELIBERATELY when the Vehicle History & Obligations rung was added (K17–K19), which
+  // made this a FOUR-generation ladder: history-disclosures → Seller S0 → claims → narrow. The
+  // invariant is unchanged and is what the counts below still pin — degrade exactly ONE schema
+  // generation per step, in order, never skipping a rung and never looping. Only the arithmetic
+  // moved, and it is re-stated explicitly rather than loosened to a `>=`, because a ladder that
+  // silently retried more times than it has rungs is precisely the defect this guards.
+
+  // Seller-S0-migrated but pre-history-disclosures database: the newest rung fails, the next
+  // succeeds. This is the generation the history-disclosure columns actually introduced, and it
+  // had no coverage until this case was added.
+  asked.length = 0;
+  const preHistory = await listing.selectListingRows(clientFor((columns) =>
+    columns.includes('seller_accident_disclosure')
+      ? Promise.resolve({ data: null, error: { code: '42703', message: 'column vehicles.seller_accident_disclosure does not exist' } })
+      : Promise.resolve({ data: [{ vin: 'V' }], error: null })));
+  assert.equal(asked.length, 2, 'a missing history-disclosure column must fall back exactly once, to the Seller S0 selector');
+  assert.ok(asked[0].includes('seller_accident_disclosure'), 'the preferred selector must ask for the history-disclosure columns');
+  assert.ok(!asked[1].includes('seller_accident_disclosure') && asked[1].includes('seller_description'),
+    'the second selector must drop history disclosures but KEEP Seller S0 — one generation at a time');
+  assert.deepEqual(preHistory.data, [{ vin: 'V' }]);
+
+  // Claims-migrated but pre-Seller-S0 database: the two newest rungs fail, then claims-wide succeeds.
   asked.length = 0;
   const claimsOnly = await listing.selectListingRows(clientFor((columns) =>
     columns.includes('seller_description')
       ? Promise.resolve({ data: null, error: { code: '42703', message: 'column vehicles.seller_description does not exist' } })
       : Promise.resolve({ data: [{ vin: 'V' }], error: null })));
-  assert.equal(asked.length, 2, 'a missing Seller S0 column must fall back exactly once to the claims-wide selector');
-  assert.ok(asked[0].includes('seller_description'), 'the preferred selector must include Seller S0 columns');
-  assert.ok(!asked[1].includes('seller_description') && asked[1].includes('currency_source'), 'the second selector must keep claims but drop Seller S0 columns');
+  assert.equal(asked.length, 3, 'a missing Seller S0 column must fall back through history-disclosures and Seller S0 to the claims-wide selector');
+  assert.ok(asked[0].includes('seller_accident_disclosure') && asked[0].includes('seller_description'),
+    'the preferred selector must include both the history-disclosure and Seller S0 columns');
+  assert.ok(asked[1].includes('seller_description') && !asked[1].includes('seller_accident_disclosure'),
+    'the second selector drops only the newest generation');
+  assert.ok(!asked[2].includes('seller_description') && asked[2].includes('currency_source'),
+    'the third selector must keep claims but drop Seller S0 columns');
   assert.deepEqual(claimsOnly.data, [{ vin: 'V' }]);
 
-  // Pre-claims database: Seller-wide fails, claims-wide fails, then the narrow baseline succeeds.
+  // Pre-claims database: every wider generation fails, then the narrow baseline succeeds.
   asked.length = 0;
   const degraded = await listing.selectListingRows(clientFor((columns) => {
     if (columns.includes('seller_description')) {
@@ -435,8 +460,9 @@ test('INV-2: the listing read prefers provenance and degrades instead of failing
     }
     return Promise.resolve({ data: [{ vin: 'V' }], error: null });
   }));
-  assert.equal(asked.length, 3, 'a pre-claims database must degrade through Seller S0, claims-wide, then narrow');
-  assert.ok(!asked[2].includes('currency_source') && !asked[2].includes('seller_description'), 'the final fallback must drop provenance and Seller S0 columns');
+  assert.equal(asked.length, 4, 'a pre-claims database must degrade through history-disclosures, Seller S0, claims-wide, then narrow');
+  assert.ok(!asked[3].includes('currency_source') && !asked[3].includes('seller_description') && !asked[3].includes('seller_accident_disclosure'),
+    'the final fallback must drop provenance, Seller S0 and history-disclosure columns');
   assert.deepEqual(degraded.data, [{ vin: 'V' }], 'cards must still render across controlled schema generations');
   assert.equal(degraded.error, null);
 
