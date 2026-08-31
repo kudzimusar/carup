@@ -14,6 +14,7 @@
  */
 import express from 'express';
 import { authorizeRole } from '../middleware/authMiddleware.js';
+import { requireVehicleObjectAuthority } from '../middleware/vehicleObjectAuthority.js';
 import { getTrustDecision } from '../services/trustDecision/trustDecisionService.js';
 import {
   requestInsurerEligibility, getInsurerStatus, getInsurerDecisionHistory,
@@ -62,8 +63,10 @@ async function gateContextFor(vin) {
 
 // ── owner/dealer: consent + request + status ────────────────────────────────────
 
+// OBJECT SCOPE — same rule as the finance siblings. See vehicleObjectAuthority.js.
 router.post('/api/vehicles/:vin/insurer/consent',
   authorizeRole(['owner', 'dealer', 'admin']),
+  requireVehicleObjectAuthority(),
   async (req, res, next) => {
     try {
       const consent = await recordConsent(req.params.vin, {
@@ -81,6 +84,7 @@ router.post('/api/vehicles/:vin/insurer/consent',
 
 router.post('/api/vehicles/:vin/insurer/eligibility',
   authorizeRole(['owner', 'dealer', 'admin']),
+  requireVehicleObjectAuthority(),
   async (req, res, next) => {
     try {
       const gateContext = await gateContextFor(req.params.vin);
@@ -101,8 +105,11 @@ router.post('/api/vehicles/:vin/insurer/eligibility',
     }
   });
 
+// The READ path had the same omission as its mutating siblings: it returned an insurer decision
+// projection for ANY vin to any account holding the ubiquitous 'owner' role.
 router.get('/api/vehicles/:vin/insurer/eligibility',
   authorizeRole(['owner', 'dealer', 'admin', 'reviewer']),
+  requireVehicleObjectAuthority(),
   async (req, res, next) => {
     try { res.json({ status: await getInsurerStatus(req.params.vin) }); }
     catch (err) { next(err); }

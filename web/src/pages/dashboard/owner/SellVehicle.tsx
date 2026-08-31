@@ -385,6 +385,10 @@ export default function SellVehicle() {
         setCoverImageIndex(primaryIndex >= 0 ? primaryIndex : null)
         setAuthorityState('recognized')
         setServerDraftLoaded(true)
+        // Honour ?stage=review HERE, in the callback that loads the draft, rather than in a
+        // separate effect that mirrored the same fact. An effect would repaint step 1 first and
+        // then jump — a cascading render the seller can actually see.
+        if (requestedStage === 'review') setStep(STEPS.length - 1)
         toast.success('Your existing Seller listing has been loaded from CarUp.')
       })
       .catch(error => {
@@ -394,7 +398,7 @@ export default function SellVehicle() {
       .finally(() => { if (active) setServerDraftLoading(false) })
 
     return () => { active = false }
-  }, [fetchOwnedVehicles, guestDraft, resumeVin])
+  }, [fetchOwnedVehicles, guestDraft, requestedStage, resumeVin])
 
   useEffect(() => {
     if (savedVin || serverDraftLoading) return
@@ -510,10 +514,6 @@ export default function SellVehicle() {
     submitting,
     updateSellerDraft,
   ])
-
-  useEffect(() => {
-    if (serverDraftLoaded && requestedStage === 'review') setStep(STEPS.length - 1)
-  }, [requestedStage, serverDraftLoaded])
 
   useEffect(() => {
     if (guestDraft) toast.success('Your pre-sign-in listing draft is ready to review.')

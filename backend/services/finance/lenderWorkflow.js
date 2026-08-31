@@ -85,6 +85,31 @@ function consentIsActive(consent) {
   return !!consent && !consent.revoked_at && !consent.deletion_requested_at;
 }
 
+/**
+ * A consent satisfies the mandatory-consent gate only if it is BOUND to this request.
+ *
+ * `loadConsent` resolves a row by id alone, and "active" only ever meant not-revoked and
+ * not-erasure-requested. Neither `consent.vin` nor `consent.applicant_user_id` was compared to the
+ * vehicle being underwritten or the caller asking — so any consent reference the caller could
+ * produce satisfied the gate for any vin, and a lender decision for a stranger's vehicle came back
+ * in the response body.
+ *
+ * Both halves are required:
+ *   · VIN      — a consent is granted for ONE vehicle. Reusing it for another is not consent.
+ *   · APPLICANT— consent is personal. A consent granted by someone else is not the caller's to spend.
+ *
+ * Fail closed: a consent row that does not carry the field cannot be shown to match, so it does
+ * not satisfy the gate.
+ */
+function consentBindsRequest(consent, vin, requestedBy) {
+  if (!consentIsActive(consent)) return false;
+  if (consent.vin !== vin) return false;
+  // `requestedBy` is the authenticated caller. A consent with no recorded applicant cannot be
+  // proven to be theirs, so it does not bind.
+  if (!requestedBy || !consent.applicant_user_id) return false;
+  return consent.applicant_user_id === requestedBy;
+}
+
 function validityFrom(days) {
   if (!days) return null;
   return new Date(Date.now() + days * 86400000).toISOString();
@@ -177,9 +202,10 @@ export async function requestLenderEligibility(vin, opts = {}) {
   const vehicle = await loadVehicle(vin);
   if (!vehicle) throw new Error(`Vehicle not found: ${vin}`);
 
-  // 1. Consent is mandatory (minimum approved data projection cannot proceed without it).
+  // 1. Consent is mandatory (minimum approved data projection cannot proceed without it), and it
+  //    must be THIS applicant's consent for THIS vehicle — see consentBindsRequest.
   const consent = await loadConsent(opts.applicantConsentRef);
-  const consentOk = consentIsActive(consent);
+  const consentOk = consentBindsRequest(consent, vin, opts.requestedBy);
   const snapshot = buildGateSnapshot(gateContext);
 
   // 2. Trust gates (finance without consent => manual_review; hard blocks => declined).

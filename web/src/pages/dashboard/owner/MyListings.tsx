@@ -141,8 +141,9 @@ export default function MyListings() {
 
   useEffect(() => {
     let mounted = true
-    setListingsState('loading')
-    setCommunicationsState('loading')
+    // Both states already INITIALISE to 'loading' and both readers are stable useCallbacks, so this
+    // effect runs once per mount; re-asserting 'loading' in the effect body was a redundant
+    // cascading render. The 'ready'/'error' transitions below still ride the async boundary.
     Promise.allSettled([
       fetchOwnedVehicles(),
       fetchCommunicationThreads(),

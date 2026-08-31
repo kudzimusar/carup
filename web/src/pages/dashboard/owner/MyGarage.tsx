@@ -73,7 +73,9 @@ export default function MyGarage() {
 
   useEffect(() => {
     let active = true
-    setVehiclesState('loading')
+    // No synchronous setVehiclesState('loading') here: the state already INITIALISES to 'loading',
+    // and `fetchOwnedVehicles` is a stable useCallback, so this effect runs once per mount. Setting
+    // it again in the effect body was a redundant cascading render.
     fetchOwnedVehicles()
       .then(rows => {
         if (!active) return

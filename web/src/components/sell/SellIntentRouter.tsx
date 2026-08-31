@@ -67,24 +67,27 @@ export function SellIntentRouter({
   const { isAuthenticated } = useAuth()
   const { fetchOwnedVehicles } = useCarUpApi()
   const [vehicles, setVehicles] = useState<Vehicle[]>([])
-  const [garageState, setGarageState] = useState<'idle' | 'loading' | 'ready' | 'error'>('idle')
+  const [fetchState, setFetchState] = useState<'loading' | 'ready' | 'error'>('loading')
+
+  // A signed-out visitor has no Garage to read. DERIVED from the auth context rather than copied
+  // into state by an effect: mirroring a fact `useAuth` already holds gives it two sources of
+  // truth, and writing it synchronously in the effect body is a cascading render. The visible
+  // behaviour is unchanged — signed out reads 'idle', signed in reads 'loading' until the fetch
+  // settles, and a FAILED read still reports 'error' rather than "you have no vehicles".
+  const garageState: 'idle' | 'loading' | 'ready' | 'error' = isAuthenticated ? fetchState : 'idle'
+  const garageVehicles = isAuthenticated ? vehicles : []
 
   useEffect(() => {
-    if (!isAuthenticated) {
-      setVehicles([])
-      setGarageState('idle')
-      return
-    }
+    if (!isAuthenticated) return
     let active = true
-    setGarageState('loading')
     fetchOwnedVehicles()
       .then(rows => {
         if (!active) return
         setVehicles(rows)
-        setGarageState('ready')
+        setFetchState('ready')
       })
       .catch(() => {
-        if (active) setGarageState('error')
+        if (active) setFetchState('error')
       })
     return () => { active = false }
   }, [fetchOwnedVehicles, isAuthenticated])
@@ -137,13 +140,13 @@ export function SellIntentRouter({
                 CarUp could not read your Garage right now. This is not treated as “you have no vehicles”; you can still identify another known vehicle below.
               </div>
             )}
-            {garageState === 'ready' && vehicles.length === 0 && (
+            {garageState === 'ready' && garageVehicles.length === 0 && (
               <p className="py-8 text-sm text-slate-500">No Garage vehicle is recorded for this account yet.</p>
             )}
 
-            {vehicles.length > 0 && (
+            {garageVehicles.length > 0 && (
               <div className="divide-y divide-slate-200">
-                {vehicles.map(vehicle => {
+                {garageVehicles.map(vehicle => {
                   const action = vehicleAction(vehicle)
                   return (
                     <article key={vehicle.vin} className="grid gap-5 py-5 sm:grid-cols-[150px_minmax(0,1fr)_auto] sm:items-center" data-testid={`sell-garage-vehicle-${vehicle.vin}`}>

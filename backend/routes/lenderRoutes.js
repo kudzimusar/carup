@@ -14,6 +14,7 @@
  */
 import express from 'express';
 import { authorizeRole, optionalAuth } from '../middleware/authMiddleware.js';
+import { requireVehicleObjectAuthority } from '../middleware/vehicleObjectAuthority.js';
 import { supabase } from '../db/supabase.js';
 import {
   recordApplicantConsent, requestApplicantDeletion, requestLenderEligibility,
@@ -76,8 +77,12 @@ async function gateContextFor(vin) {
 }
 
 // Record applicant consent — required before requesting lender eligibility.
+// OBJECT SCOPE. Role alone admits every registered account (public registration creates all of
+// them as 'owner'), so without this a stranger could record consent against any vin and then drive
+// a real lender call off it.
 router.post('/api/vehicles/:vin/finance/consent',
   authorizeRole(['owner', 'dealer', 'admin']),
+  requireVehicleObjectAuthority(),
   asyncHandler(async (req, res) => {
     const consent = await recordApplicantConsent(req.params.vin, req.userContext?.userId, {
       consentVersion: req.body?.consent_version || 'consent-v1',
@@ -91,6 +96,7 @@ router.post('/api/vehicles/:vin/finance/consent',
 // Request lender eligibility (consent required; gates enforced; lender called via framework).
 router.post('/api/vehicles/:vin/finance/lender/eligibility',
   authorizeRole(['owner', 'dealer', 'admin']),
+  requireVehicleObjectAuthority(),
   asyncHandler(async (req, res) => {
     try {
       const gateContext = await gateContextFor(req.params.vin);

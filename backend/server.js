@@ -8,6 +8,7 @@ import { supabase } from './db/supabase.js';
 
 // Import Middleware
 import { authorizeRole, authorizeSessionRole, optionalAuth, isPrivateEvidenceFallbackAllowed } from './middleware/authMiddleware.js';
+import { requireVehicleObjectAuthority, resolveVehicleObjectAuthority } from './middleware/vehicleObjectAuthority.js';
 import { evaluateLoginCredentials, hashPassword } from './utils/passwordAuth.js';
 
 // Import Services
@@ -35,8 +36,8 @@ import { runFraudAnalysis, runOcrParsing, runRiskScoring } from './services/ai/a
 import { submitFinancingApplication } from './services/finance/financeService.js';
 import { calculateInsuranceQuote, createInsurancePolicy } from './services/insurance/insuranceService.js';
 import { calculateZimraDuty } from './services/import/importService.js';
-import { reportVehicleStolen, checkStolenStatus } from './services/security/securityService.js';
-import { calculateDealerReputation } from './services/reputation/reputationService.js';
+import { reportVehicleStolen, checkStolenStatus, clearStolenStatus } from './services/security/securityService.js';
+import { readDealerReputation, recalculateDealerReputation } from './services/reputation/reputationService.js';
 import { getSmartRecommendations } from './services/recommendation/recommendationService.js';
 import { reserveVehicle } from './services/reservation/reservationService.js';
 
@@ -1936,15 +1937,60 @@ app.post('/api/import/duty-estimate', (req, res) => {
 });
 
 // --- PILLAR 13: STOLEN ALERT SECURITY NETWORK ---
-app.post('/api/security/report-stolen', authorizeRole(['owner', 'government']), async (req, res) => {
-  const { vin, policeReportNumber, ownerId } = req.body;
-  try {
-    const result = await reportVehicleStolen(vin, policeReportNumber, ownerId);
-    res.json(result);
-  } catch (error) {
-    res.status(500).json({ error: error.message });
-  }
-});
+//
+// FAIL CLOSED, OBJECT-SCOPED, AND REVERSIBLE.
+//
+// `authorizeRole(['owner','government'])` was not a restriction: public registration creates every
+// account with role 'owner' ("Public registration cannot assign a role; accounts are created as
+// 'owner'"), so the route admitted EVERY registered user. It then took the reporter's identity
+// straight from `req.body.ownerId` and, for ANY vin on the platform, wrote an ACTIVE_POLICE_ALERT
+// row, set `vehicles.status = 'Flagged'`, and appended a PERMANENT hash-chained ledger event. With
+// no route mounting `clearStolenStatus`, that was a one-way takedown of any listing by any account,
+// attributable to somebody else.
+//
+// Three changes, each closing a distinct half of it:
+//
+//   1. `authorizeSessionRole` — a takedown requires a PROVEN session. The x-user-id fallback must
+//      never be able to flag a vehicle, and that fallback has already been live in a deployed
+//      staging environment once.
+//   2. OBJECT SCOPE — a non-government caller must hold a verified relationship to the vin
+//      (owner / current seller / tenant). Government and platform admins keep platform-wide
+//      authority, which is the entire point of those roles: a police report is theirs to file.
+//   3. The reporter is `req.userContext.id`. `req.body.ownerId` is ignored, so a report can no
+//      longer be attributed to an account that did not make it.
+app.post('/api/security/report-stolen',
+  authorizeSessionRole(['owner', 'government']),
+  requireVehicleObjectAuthority(),
+  async (req, res) => {
+    const { vin, policeReportNumber } = req.body;
+    try {
+      // The reporter is the authenticated caller, never the body. `reportVehicleStolen` persists
+      // this verbatim as `stolen_vehicles.reporting_owner_id` and into the ledger payload.
+      const result = await reportVehicleStolen(vin, policeReportNumber, req.userContext.id);
+      res.json(result);
+    } catch (error) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+// The missing other half. `clearStolenStatus` was exported and fully implemented — including the
+// durable `stolen_clear:` operation identity Issue #158 requires — but NO route mounted it, so a
+// flag could be raised and never lowered through any product path.
+//
+// Deliberately NARROWER than reporting: clearing an alert is a police/registry decision, not a
+// seller's, so object scope does not admit the owner here. Platform-wide roles only.
+app.post('/api/security/clear-stolen',
+  authorizeSessionRole(['government']),
+  async (req, res) => {
+    const { vin } = req.body;
+    if (!vin) return res.status(400).json({ error: 'vin is required.' });
+    try {
+      const result = await clearStolenStatus(vin, req.userContext.id);
+      res.json(result);
+    } catch (error) {
+      res.status(500).json({ error: error.message });
+    }
+  });
 
 app.get('/api/security/check-stolen/:vin', async (req, res) => {
   const { vin } = req.params;
@@ -1957,15 +2003,37 @@ app.get('/api/security/check-stolen/:vin', async (req, res) => {
 });
 
 // --- PILLAR 14: DEALER REPUTATION ---
+//
+// A GET NO LONGER WRITES. This route called `calculateDealerReputation`, which recomputed a
+// 75.0-baseline score and PERSISTED it to `stakeholder_profiles.trust_score` on every request —
+// unauthenticated. Any crawler re-scored every dealer it touched, and a dealer with no escrows was
+// published as 75 / 'Standard Verified' with no evidence behind it. That column is read as
+// authority by trustEnforcementEngine (which propagates stakeholder risk onto every one of that
+// seller's vehicles) and by insuranceService (which prices premiums off it), so a GET was moving
+// trust across the platform.
+//
+// The read now publishes only what was actually stored, and distinguishes 'unmeasured' from a
+// score — an unscored dealer is not a 75 and not a zero.
 app.get('/api/reputation/:dealerId', async (req, res) => {
   const { dealerId } = req.params;
   try {
-    const result = await calculateDealerReputation(dealerId);
-    res.json(result);
+    res.json(await readDealerReputation(dealerId));
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
 });
+
+// The recompute — the single writer — behind a proven session and a platform role.
+app.post('/api/reputation/:dealerId/recalculate',
+  authorizeSessionRole(['admin', 'government']),
+  async (req, res) => {
+    const { dealerId } = req.params;
+    try {
+      res.json(await recalculateDealerReputation(dealerId));
+    } catch (error) {
+      res.status(500).json({ error: error.message });
+    }
+  });
 
 // --- PILLAR 19: AI RECOMMENDATIONS ---
 app.get('/api/vehicles/:vin/recommendations', async (req, res) => {

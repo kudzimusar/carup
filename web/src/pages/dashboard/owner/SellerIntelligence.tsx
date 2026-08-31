@@ -144,12 +144,20 @@ export default function SellerIntelligence() {
   const [listingInsights, setListingInsights] = useState<Record<string, ListingInsight | null>>({})
   const [inquiries, setInquiries] = useState<Inquiry[] | null>(null)
   const [threads, setThreads] = useState<Thread[] | null>(null)
-  const [state, setState] = useState<'loading' | 'ready' | 'error'>('loading')
   const [refreshKey, setRefreshKey] = useState(0)
+
+  // The read this page is currently showing. Returning to 'loading' when the window or a refresh
+  // changes is an ADJUSTMENT to a changed input, not a synchronisation with an external system —
+  // so it is DERIVED here rather than written by the effect, where a synchronous setState is a
+  // cascading render. `settled` records which read produced the outcome, so a stale 'ready' from
+  // the previous window can never be shown as the answer for the new one: the moment `readKey`
+  // changes, `state` reads 'loading' again on the very same render.
+  const readKey = `${windowDays}:${refreshKey}`
+  const [settled, setSettled] = useState<{ key: string; status: 'ready' | 'error' } | null>(null)
+  const state: 'loading' | 'ready' | 'error' = settled?.key === readKey ? settled.status : 'loading'
 
   useEffect(() => {
     let active = true
-    setState('loading')
 
     Promise.allSettled([
       fetchSellerIntelligence(windowDays),
@@ -177,7 +185,7 @@ export default function SellerIntelligence() {
       }))
       if (!active) return
       setListingInsights(Object.fromEntries(insightPairs))
-      setState(pulseResult.status === 'fulfilled' ? 'ready' : 'error')
+      setSettled({ key: readKey, status: pulseResult.status === 'fulfilled' ? 'ready' : 'error' })
     })
 
     return () => { active = false }
@@ -187,6 +195,7 @@ export default function SellerIntelligence() {
     fetchMyMarketplaceInquiries,
     fetchOwnedVehicles,
     fetchSellerIntelligence,
+    readKey,
     refreshKey,
     windowDays,
   ])
