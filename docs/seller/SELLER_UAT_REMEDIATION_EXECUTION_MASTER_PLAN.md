@@ -1119,16 +1119,25 @@ The full 7-image gallery must appear in:
 - [ ] **M15. Seller insurance disclosure is source-separated from insurer/insurance-record truth.**
   - Conflicting states route to a neutral governed reconciliation/review state.
 
-- [ ] **M16. Seller finance/lease/lender-interest disclosure is source-separated from lender/encumbrance truth.**
+- [~] **M16. Seller finance/lease/lender-interest disclosure is source-separated from lender/encumbrance truth.**
   - "No finance outstanding" cannot become a governed fact merely because the Seller selected it.
+  - Evidence (@636e1ee5): `public.vehicle_finance_obligations` is a GOVERNED-ONLY authority — `source_authority` has no `seller_asserted` member at all, so the Seller's statement (which lives in `vehicles.seller_finance_disclosure`, block-attributed `authority: 'seller_stated'`) structurally cannot enter it. Proven behaviourally against real PostgreSQL: "seller_asserted is not a member of source_authority" → REJECTED (`database/test/finance_obligation_pglite_check.mjs`).
+  - Evidence: the comparison is routed through the ONE existing engine — a `no_finance_outstanding` arm added to `classifyConflict()` in `backend/services/intelligence/disclosureConflict.js`, persisted via the existing `persistClaims`/`persistConflict`. It caps at `possible_conflict`/`pending_review`, carries `confidence: null` (a deterministic record-vs-record comparison has no inference confidence), puts NO obligation id in `evidence_ids` (that array's length is published to buyers as `evidence_count` by reportService), and its summary is scanned for fraud/accusatory wording.
+  - Gap: `reconcileSellerFinanceDisclosure` is best-effort and idempotent-by-read-then-write only — there is no unique constraint behind it. Gap: no lender/provider is configured in any environment, so the comparison has never run against a real governed obligation; only unit + PGlite evidence exists.
 
-- [ ] **M17. Public/private finance data classification is explicit and tested.**
+- [~] **M17. Public/private finance data classification is explicit and tested.**
   - Public-safe candidates: finance type, active/cleared/settlement-required state, lender identity when policy/consent permits, valuation-at-origination/date/source, clearance date/state.
   - Private by default: exact outstanding balance, monthly payment, APR, account/contract/reference identifiers, repayment transaction history and applicant credit data.
+  - Evidence (@636e1ee5): the strongest form of the guarantee is that the private set is NOT STORED — there is no balance, payment, rate, term, account/loan/contract identifier or credit column anywhere in this authority. The three fields that do exist and are private (`attestation_reference`, `release_reference`, `settlement_context`) have no route into any projection: `toVehicleFinanceObligation()` constructs its result field-by-field with no spread, and a direct test feeds it a row carrying all three plus tenant/user ids and asserts none survives.
+  - Evidence: `settlement_context` is a CLOSED SHAPE (key allow-list enforced by `vfo_settlement_context_shape_chk`), not a banned-key list. This is deliberate — `jsonb ?| ARRAY[...]` inspects only TOP-LEVEL keys, so a ban list is defeated by one level of nesting. Proven: `{"notes_internal_ref": {"apr": 21.5}}` → REJECTED.
+  - Evidence: `arrears` — a private repayment-delinquency fact about a named individual — is recorded for the R24 gate but collapses to `active` in the public projection; asserted directly.
+  - Gap: lender identity is published only behind `lender_disclosure_permitted` (fail-closed default false, strict `=== true`), but NO policy field yet exists that authorises setting it. Until one does, no lender is ever named to a buyer.
 
-- [ ] **M18. Trust semantics do not reward flattering declarations.**
+- [~] **M18. Trust semantics do not reward flattering declarations.**
   - Insurance, previous accident or active finance are not automatically negative Trust facts.
   - Evidence completeness, provenance and disclosure consistency may affect confidence/limitations; verified undisclosed conflicts and unresolved title/finance obligations may affect governed risk/readiness/transaction gating under existing Trust authority.
+  - Evidence (@636e1ee5): delivered as its correct NEGATIVE. Trust is not wired to this authority at all, and that is pinned by a source-scan over `backend/services/trustDecision/*.js` asserting no reference to `vehicle_finance_obligation` or the service — so a future edit that silently wires an encumbrance into the score fails the suite rather than shipping. `CALCULATION_VERSION` is unchanged; a financed vehicle costs exactly zero.
+  - Note: the second clause ("verified undisclosed conflicts … MAY affect governed risk/readiness") is deliberately NOT implemented. Verified during design: no conflict→Trust path exists anywhere today (`disclosure_conflicts` is an orphan from the decision, FACT_MODEL.md). Building one is a change to the single-writer Trust authority and needs its own review; the required deliverable here is the proof of non-effect, and the item's own verb is "may".
 
 ### Phase M roll call
 - [~] **M-RC. Phase M complete:** Trust, readiness, completeness, and privacy remain distinct and truthful.
@@ -1328,13 +1337,26 @@ After generating a known event in E2E:
 - [ ] **R20. Passport persists after sold/retirement.**
 - [ ] **R21. Ownership/history persists; sold/unpublish does not erase durable vehicle identity.**
 
-- [ ] **R22. Publication readiness shows accident/insurance/finance disclosure state without turning unknown into a clean claim.**
-- [ ] **R23. An active vehicle finance/lease/lender interest can coexist with a public listing, but the transaction/title state explicitly says settlement or lender clearance is required where applicable.**
-- [ ] **R24. Ownership transfer / transaction completion is blocked when a governed active encumbrance requires settlement or lender release.**
-- [ ] **R25. Lender settlement/clearance is recorded as a durable lifecycle transition; clearing finance does not erase the earlier finance history.**
-- [ ] **R26. Valuation-at-finance-origination, when supplied by a governed lender/valuation source, remains historical evidence and is never silently replaced by the current asking price.**
+- [~] **R22. Publication readiness shows accident/insurance/finance disclosure state without turning unknown into a clean claim.**
+  - Evidence (@636e1ee5): `evaluateCompleteness` gains a `finance_obligation_disclosure` requirement whose label never says "clear"/"no finance"/"unencumbered", asserted by a string scan (with comments stripped, and with an anti-vacuity check proving the scanner fires on the string it exists to catch). The buyer-facing block reports `source_state: 'unavailable'` — never a governed zero — whenever no finance attestation channel exists or the read failed.
+  - Gap: the accident and insurance halves of R22 are NOT covered here; they belong to the M14/M15/G5 lane.
+- [~] **R23. An active vehicle finance/lease/lender interest can coexist with a public listing, but the transaction/title state explicitly says settlement or lender clearance is required where applicable.**
+  - Evidence (@636e1ee5): the completeness requirement is pushed with `blocking: false`, so it is arithmetically incapable of moving `is_publishable` or `completeness_percent` (`blockingReqs` filters on `r.blocking`) and can never fire the publish route's 400. An encumbrance is therefore visible but never hides a legitimate listing. The public projection carries a derived `transfer_condition` (`settlement_required` / `release_confirmation_outstanding` / `obligation_under_review`) so the condition is stated rather than implied.
+  - Gap: the buyer-facing UI does not yet RENDER the governed `finance_obligation` block — the payload publishes it on both the passport and the marketplace detail, but `VehicleHistoryObligationsSections.tsx` still shows the static "no connected lender source" line. That is the next slice.
+- [~] **R24. Ownership transfer / transaction completion is blocked when a governed active encumbrance requires settlement or lender release.**
+  - Evidence (@636e1ee5): enforced by `trg_block_encumbered_owner_change` on `vehicles.owner_id` DIRECTLY, so it holds regardless of which ownership-transfer RPC is installed — deliberately NOT by re-emitting `passport_transition_ownership_transfer_atomic`, whose `RETURNS public.vehicle_ownership_transfers` is resolved at parse time and would have aborted the entire migration in an environment lacking that table (staging today). Proven behaviourally: a governed obligation REJECTS the `owner_id` update; an unencumbered vehicle transfers; the same vehicle is then refused once an obligation is added (anti-vacuity); and the transfer PROCEEDS once the obligation reaches `released` — the gate has a real exit, not a deadlock.
+  - Evidence: `document_extracted` obligations never block — `vehicle_evidence.verification_status` defaults to `'unverified'`, and an unverified upload must not freeze a legal transfer. Asserted.
+  - Gap: `vehicle_ownership_transfers` (20260828203000) is still unapplied in staging, so the end-to-end transfer path itself has not been exercised there; the service-layer message guard is best-effort and the trigger is the authority.
+- [~] **R25. Lender settlement/clearance is recorded as a durable lifecycle transition; clearing finance does not erase the earlier finance history.**
+  - Evidence (@636e1ee5): both tables are append-only under `governance_block_mutation()` / `carup_finance_obligation_guard()` — UPDATE and DELETE on the event ledger and DELETE on the obligation row all REJECTED in the PGlite run. The full trail `['active','settled_pending_release','released']` survives, and the settled row itself still exists afterwards.
+  - Note: the governed settled stage is named `settled_pending_release`, NOT `cleared` — `cleared` already means "finished" in the seller vocabulary (20260831150000), and one token carrying two opposite operational meanings was being rendered adjacently on the same page.
+- [~] **R26. Valuation-at-finance-origination, when supplied by a governed lender/valuation source, remains historical evidence and is never silently replaced by the current asking price.**
+  - Evidence (@636e1ee5): the asking price is structurally UNREPRESENTABLE — `origination_valuation_source` is a closed vocabulary with no listing/asking-price member. The group is all-or-nothing (a partial group is REJECTED) and every origination column is in the immutability guard's frozen set, so an in-place UPDATE of the valuation is REJECTED; a restatement must be a new superseding row. The projection reads the stored valuation with its OWN date and source and never reads `vehicles.price`.
 - [ ] **R27. Insurance claim → accident event → repair evidence can remain visible after listing unpublish/sold; commerce lifecycle never deletes the durable history.**
-- [ ] **R28. Future SafePay/lender settlement handoff uses governed settlement status and never exposes private bank terms to the buyer-facing public projection.**
+  - NOT this lane. R27 is about the accident/insurance/repair half and about visibility surviving the COMMERCE lifecycle (unpublish/sold), not about row deletion — recording it from the finance slice would be a false closure.
+- [~] **R28. Future SafePay/lender settlement handoff uses governed settlement status and never exposes private bank terms to the buyer-facing public projection.**
+  - Evidence (@636e1ee5): `getGovernedEncumbrance()` is the single read intended for that handoff and returns state + `transfer_condition` only — it never selects `settlement_context`, and the four-gate split (write allow-list, closed-shape schema CHECK, REVOKE from anon/authenticated, field-by-field read projection) means no private term has a route to a buyer.
+  - Gap: no SafePay/lender settlement handoff exists yet to consume it; this records the shape the handoff must use, not a working integration.
 
 ### Phase R roll call
 - [ ] **R-RC. Phase R complete:** full publish → unpublish → republish → sold lifecycle is proven.
