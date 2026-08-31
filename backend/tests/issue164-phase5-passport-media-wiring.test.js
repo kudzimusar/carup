@@ -93,6 +93,7 @@ import {
   toPublicEvidence,
   toPublicPlateHistory,
   toPublicTimelineEvent,
+  toVehicleHistoryDisclosures,
 } from '../utils/publicVehicleProjection.js';
 
 import { isPublicVehicleStatus, isPubliclyVisiblePublication } from '../utils/vehicleStatus.js';
@@ -237,6 +238,11 @@ function resolveCallSiteArguments(site, { vin, req }) {
     ['attestedValue', attestedValue],
     ['toVehicleMedia', toVehicleMedia],
     ['buildCanonicalVehicleLifecycle', replayLifecycleBuilder],
+    // Vehicle History & Obligations (K17–K19). Routed through the replay deliberately, exactly as
+    // this resolver's header requires of a new call-site argument — the real projection, so the
+    // replayed body carries the block the routes actually publish rather than an `undefined` the
+    // test would go on passing over.
+    ['toVehicleHistoryDisclosures', toVehicleHistoryDisclosures],
   ]);
   return site.arguments.map((expression) => {
     assert.ok(
@@ -728,11 +734,19 @@ describe('Phase 5 wiring — every shipped route hands the contract in (M3)', ()
 
     assert.deepEqual(
       params,
-      ['vin', 'req', 'canonicalTrust', 'listingClaimContract', 'attestClaim', 'mediaContract', 'lifecycleBuilder'],
+      [
+        'vin', 'req', 'canonicalTrust', 'listingClaimContract', 'attestClaim', 'mediaContract',
+        'lifecycleBuilder',
+        // 8th: the Vehicle History & Obligations projection (K17–K19), added as a PARAMETER rather
+        // than a free module-scope name so the four source-executing harnesses keep their fixed
+        // 11-name dependency list. Re-aimed here deliberately, per the note below.
+        'historyDisclosureContract',
+      ],
       'the passport composes over authorities it is HANDED. If this signature changes, the replay '
       + 'below must be re-aimed deliberately rather than left pointing at a stale position.',
     );
     assert.equal(params[5], 'mediaContract');
+    assert.equal(params[7], 'historyDisclosureContract');
   });
 
   it('M3: every call site passes toVehicleMedia at position 6 — present-in-the-list is not enough', () => {
@@ -741,12 +755,19 @@ describe('Phase 5 wiring — every shipped route hands the contract in (M3)', ()
     for (const site of sites) {
       const resolved = resolveCallSiteArguments(site, { vin: GALLERY_VIN, req: anonymous() });
       assert.equal(
-        resolved.length, 7,
-        `server.js:${site.lineNumber} calls buildVehiclePassport with ${resolved.length} arguments; the media and lifecycle collaborators must both remain wired:\n  ${site.line}`,
+        resolved.length, 8,
+        `server.js:${site.lineNumber} calls buildVehiclePassport with ${resolved.length} arguments; the media, lifecycle and history-disclosure collaborators must all remain wired:\n  ${site.line}`,
       );
       assert.equal(
         resolved[5], toVehicleMedia,
         `server.js:${site.lineNumber} does not pass the media contract as the 6th argument:\n  ${site.line}`,
+      );
+      // The same guarantee for the history/obligations projection: an injected collaborator that
+      // no route hands in is a surface that is dead by construction, and the buyer-facing
+      // accident/insurance/finance sections would silently publish nothing.
+      assert.equal(
+        resolved[7], toVehicleHistoryDisclosures,
+        `server.js:${site.lineNumber} does not pass the history-disclosure contract as the 8th argument, so its Vehicle History & Obligations sections are dead:\n  ${site.line}`,
       );
       assert.equal(
         resolved[4], attestedValue,

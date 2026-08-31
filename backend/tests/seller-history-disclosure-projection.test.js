@@ -67,8 +67,26 @@ test('private banking keys cannot survive the projection even if both upstream b
 test('the marketplace detail payload and the passport both publish the block through this one projection', () => {
   const detail = fs.readFileSync(new URL('../services/marketplace/marketplaceListingDetailService.js', import.meta.url), 'utf8');
   assert.match(detail, /history_disclosures: toVehicleHistoryDisclosures\(vehicle\)/);
+
   const server = fs.readFileSync(new URL('../server.js', import.meta.url), 'utf8');
-  assert.match(server, /history_disclosures: toVehicleHistoryDisclosures\(vehicle\)/);
+  // The passport takes the projection as an INJECTED PARAMETER rather than a free module-scope
+  // name: four harnesses execute buildVehiclePassport's source against a fixed dependency list, so
+  // a free name there is a ReferenceError instead of a failure that names what changed.
+  assert.match(server, /historyDisclosureContract = null,/);
+  assert.match(server, /const historyDisclosures = typeof historyDisclosureContract === 'function'/);
+  // An UNWIRED render publishes NO key — a block whose topics were all null would be the factual
+  // claim "not recorded" made on the vehicle's behalf by a harness that simply forgot to inject.
+  assert.match(server, /\.\.\.\(historyDisclosures \? \{ history_disclosures: historyDisclosures \} : \{\}\)/);
+  // …and every shipped call site must actually hand it in, or the buyer-facing sections are dead.
+  const callSites = [...server.matchAll(/await buildVehiclePassport\(([^;]*?)\);/gs)];
+  assert.equal(callSites.length, 2, 'expected the VIN passport route and the identifier lookup route');
+  for (const [whole, args] of callSites) {
+    assert.ok(
+      args.includes('toVehicleHistoryDisclosures'),
+      `a buildVehiclePassport call site does not pass the history-disclosure contract:\n${whole}`,
+    );
+  }
+
   // The list read prefers the disclosure columns and degrades instead of erroring (select ladder).
   const summary = fs.readFileSync(new URL('../services/marketplace/listingSummaryService.js', import.meta.url), 'utf8');
   assert.match(summary, /LISTING_SELECT_COLUMNS_WITH_HISTORY_DISCLOSURES/);

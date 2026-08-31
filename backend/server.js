@@ -895,6 +895,18 @@ async function canonicalPassportTrust(vin) {
 // that, it fell out of the wiring. The remedy has to live where the definition of "published" is
 // already imported, because deciding it here would mean inlining a second copy of that definition
 // into the one function whose whole subject is that there is only one.
+//
+// `historyDisclosureContract` (8th) is the Vehicle History & Obligations projection (K17–K19),
+// injected for exactly the reason `mediaContract` is: four harnesses execute this function's SOURCE
+// against a fixed 11-name dependency list, so a free module-scope name here is a ReferenceError
+// there rather than a failure that says what changed. Its presence at every shipped call site is
+// asserted separately (issue164-phase5-passport-media-wiring), so an injected collaborator cannot
+// quietly become dead in production — and an unwired render publishes NO key rather than a block
+// whose `null` topics would read as the factual claim "not recorded".
+//
+// NOTE: keep this parameter list free of inline comments — `passportParameterNames()` in that
+// harness splits the shipped list on top-level commas, and a comment inside it becomes part of a
+// parameter name.
 async function buildVehiclePassport(
   vin,
   req,
@@ -903,6 +915,7 @@ async function buildVehiclePassport(
   attestClaim = null,
   mediaContract = null,
   lifecycleBuilder = null,
+  historyDisclosureContract = null,
 ) {
   const { data: vehicle, error: vehicleError } = await supabase
     .from('vehicles')
@@ -1106,6 +1119,13 @@ async function buildVehiclePassport(
   // lifecycle is the shared buyer-safe story, which is exactly what must not fork by surface.
   const lifecycle = typeof lifecycleBuilder === 'function'
     ? await lifecycleBuilder(supabase, vin, { audience: 'public', vehicle })
+    : null;
+
+  // The Seller's history/obligations statements, projected by the injected contract. Same
+  // closed-collaborator discipline as `lifecycleBuilder` above; the projection re-validates the
+  // stored vocabulary and strips private finance terms, so this call site adds no policy of its own.
+  const historyDisclosures = typeof historyDisclosureContract === 'function'
+    ? historyDisclosureContract(vehicle)
     : null;
 
   // THE PASSPORT'S TRUST NUMBER, FROM THE CANONICAL AUTHORITY AND NOWHERE ELSE.
@@ -1474,7 +1494,11 @@ async function buildVehiclePassport(
     // statements, block-attributed `authority: 'seller_stated'`. Null per topic = "not recorded".
     // Same audience for everyone — these are the seller's public statements about their own listing,
     // and they never merge with the governed evidence/insurer/lender authorities on this payload.
-    history_disclosures: toVehicleHistoryDisclosures(vehicle),
+    //
+    // An UNWIRED passport publishes NO key at all, exactly as the media contract does: a block
+    // saying `accident: null` is the factual claim "not recorded", and a harness that forgot to
+    // inject the projection must not be able to make that claim on the vehicle's behalf.
+    ...(historyDisclosures ? { history_disclosures: historyDisclosures } : {}),
     // THE THIRD ANONYMOUS DOOR.
     //
     // `verifiedEvidence` above is `select('*')`, and this array was returned unchanged to every
@@ -1533,7 +1557,7 @@ async function buildVehiclePassport(
 app.get('/api/vehicles/:vin/passport', passportLimiter, optionalAuth(), async (req, res) => {
   const { vin } = req.params;
   try {
-    const passport = await buildVehiclePassport(vin, req, await canonicalPassportTrust(vin), toListingClaims, attestedValue, toVehicleMedia, buildCanonicalVehicleLifecycle);
+    const passport = await buildVehiclePassport(vin, req, await canonicalPassportTrust(vin), toListingClaims, attestedValue, toVehicleMedia, buildCanonicalVehicleLifecycle, toVehicleHistoryDisclosures);
     if (!passport) {
       return res.status(404).json({ error: 'VIN not found' });
     }
@@ -1578,7 +1602,7 @@ app.get('/api/vehicles/passport/lookup/:identifier', passportLookupLimiter, opti
     }
 
     const resolvedVin = Array.from(matchingVins)[0];
-    const passport = await buildVehiclePassport(resolvedVin, req, await canonicalPassportTrust(resolvedVin), toListingClaims, attestedValue, toVehicleMedia, buildCanonicalVehicleLifecycle);
+    const passport = await buildVehiclePassport(resolvedVin, req, await canonicalPassportTrust(resolvedVin), toListingClaims, attestedValue, toVehicleMedia, buildCanonicalVehicleLifecycle, toVehicleHistoryDisclosures);
     if (!passport) {
       return res.status(404).json({ error: 'Vehicle not found' });
     }
