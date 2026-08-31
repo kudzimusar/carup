@@ -1090,3 +1090,101 @@ export function toVehicleHistoryDisclosures(vehicle) {
     finance: projectFinanceDisclosure(vehicle?.seller_finance_disclosure),
   });
 }
+
+// ─────────────────────────────────────────────────────────────────────────────────────────────
+// GOVERNED VEHICLE FINANCE OBLIGATION / ENCUMBRANCE (Track 1: M16, M17, M18, R22–R26, R28).
+//
+// `authority: 'governed'` — the block-level attribution that must never be confused with
+// `history_disclosures`'s `authority: 'seller_stated'` above. There is no `seller_asserted` member
+// anywhere here: a Seller's own finance statement lives ONLY in `history_disclosures.finance` and
+// never enters this block. `document_extracted` obligations ARE recorded but are not GOVERNED for
+// this projection's purposes and therefore emit no `attribution` beyond the row's raw kind — see
+// GOVERNED_SOURCE_AUTHORITIES in vehicleFinanceObligationService.js.
+//
+// THREE-STATE HONESTY, not two. `source_state` answers "does a finance attestation channel exist
+// and could CarUp read it", completely independent of whether any obligation rows were found:
+//   - 'unavailable' — no channel is configured, OR the read failed. A governed authority that does
+//     not exist cannot have found "no obligations"; that would be a governed zero manufactured
+//     from a read that never happened.
+//   - 'available'   — a channel exists and the read succeeded, whether or not it found any rows.
+// `rows === undefined` (the read was never attempted / failed) always yields 'unavailable', never a
+// truthy envelope — see toVehicleFinanceObligationBlock.
+// ─────────────────────────────────────────────────────────────────────────────────────────────
+export const FINANCE_OBLIGATION_PUBLIC_FIELDS = Object.freeze([
+  'id', 'state', 'obligation_kind', 'lender_name', 'transfer_condition',
+  'valuation_at_origination', 'cleared_on', 'released_on', 'recorded_on', 'superseded',
+]);
+
+const OBLIGATION_STATES_PUBLIC = Object.freeze([
+  'active', 'arrears', 'settlement_pending', 'settled_pending_release', 'released', 'disputed',
+]);
+const OBLIGATION_KINDS_PUBLIC = FINANCE_TYPES;
+const VALUATION_SOURCES_PUBLIC = Object.freeze([
+  'lender_valuation', 'independent_valuer', 'insurer_valuation', 'auction_result', 'customs_declared_value',
+]);
+// 'arrears' names a private individual's repayment-delinquency status (M17's private list:
+// "repayment transaction history"). It is recorded and used for the R24 gate, but it is never the
+// PUBLIC state — it collapses to 'active' ("settlement required") on the way out, same as the
+// non-public `transfer_condition` derivation already does internally.
+function publicObligationState(state) {
+  return state === 'arrears' ? 'active' : state;
+}
+
+/**
+ * One obligation row, explicitly constructed field-by-field (no spread — the same discipline as
+ * `projectFinanceDisclosure` above), re-validating every vocabulary on the way out. `settlement_context`,
+ * `attestation_reference` and `release_reference` have no field to travel through even if a caller
+ * handed the raw row straight in.
+ */
+export function toVehicleFinanceObligation(row, { supersededIds = new Set() } = {}) {
+  if (!row || typeof row !== 'object') return null;
+  if (!OBLIGATION_STATES_PUBLIC.includes(row.state)) return null;
+  if (!OBLIGATION_KINDS_PUBLIC.includes(row.obligation_kind)) return null;
+
+  const value = {
+    id: typeof row.id === 'string' ? row.id : null,
+    state: publicObligationState(row.state),
+    obligation_kind: row.obligation_kind,
+    transfer_condition: row.state === 'settled_pending_release' ? 'release_confirmation_outstanding'
+      : row.state === 'released' ? null
+      : row.state === 'disputed' ? 'obligation_under_review'
+      : 'settlement_required',
+    superseded: supersededIds.has(row.id),
+  };
+  if (row.lender_disclosure_permitted === true) {
+    const name = projectedDisclosureText(row.lender_display_name);
+    if (name !== undefined) value.lender_name = name;
+  }
+  if (row.origination_valuation_amount !== null && row.origination_valuation_amount !== undefined
+      && row.origination_valuation_currency && row.origination_valuation_date
+      && VALUATION_SOURCES_PUBLIC.includes(row.origination_valuation_source)) {
+    value.valuation_at_origination = {
+      amount: Number(row.origination_valuation_amount),
+      currency: String(row.origination_valuation_currency),
+      date: String(row.origination_valuation_date),
+      source: row.origination_valuation_source,
+    };
+  }
+  if (row.cleared_at) value.cleared_on = row.cleared_at;
+  if (row.released_at) value.released_on = row.released_at;
+  if (row.recorded_at) value.recorded_on = row.recorded_at;
+  return Object.freeze(value);
+}
+
+/**
+ * The block-level envelope. `rows === undefined` means "no reader was wired / the read failed" and
+ * MUST produce `source_state: 'unavailable'` — never a truthy 'none_recorded' object manufactured
+ * from a read that never happened. `channelAvailable` additionally requires that a real finance
+ * attestation channel (an active lender or a live finance provider) exists at all; with none
+ * configured every vehicle honestly reports 'unavailable', not a governed zero.
+ */
+export function toVehicleFinanceObligationBlock(rows, { channelAvailable = false } = {}) {
+  if (rows === undefined || rows === null || !channelAvailable) {
+    return Object.freeze({ authority: 'governed', source_state: 'unavailable', obligations: [] });
+  }
+  const supersededIds = new Set(rows.filter((r) => r?.supersedes_obligation_id).map((r) => r.supersedes_obligation_id));
+  const obligations = rows
+    .map((row) => toVehicleFinanceObligation(row, { supersededIds }))
+    .filter(Boolean);
+  return Object.freeze({ authority: 'governed', source_state: 'available', obligations });
+}

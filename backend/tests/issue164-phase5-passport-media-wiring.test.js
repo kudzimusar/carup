@@ -96,6 +96,8 @@ import {
   toVehicleHistoryDisclosures,
 } from '../utils/publicVehicleProjection.js';
 
+import { projectFinanceObligationForVehicle } from '../services/finance/vehicleFinanceObligationService.js';
+
 import { isPublicVehicleStatus, isPubliclyVisiblePublication } from '../utils/vehicleStatus.js';
 
 const serverSrc = readFileSync(new URL('../server.js', import.meta.url), 'utf8');
@@ -243,6 +245,9 @@ function resolveCallSiteArguments(site, { vin, req }) {
     // replayed body carries the block the routes actually publish rather than an `undefined` the
     // test would go on passing over.
     ['toVehicleHistoryDisclosures', toVehicleHistoryDisclosures],
+    // Vehicle Finance Obligation / Encumbrance (Track 1). Same discipline as the entry above: the
+    // real collaborator, so the replayed body carries the block the routes actually publish.
+    ['projectFinanceObligationForVehicle', projectFinanceObligationForVehicle],
   ]);
   return site.arguments.map((expression) => {
     assert.ok(
@@ -741,12 +746,16 @@ describe('Phase 5 wiring — every shipped route hands the contract in (M3)', ()
         // than a free module-scope name so the four source-executing harnesses keep their fixed
         // 11-name dependency list. Re-aimed here deliberately, per the note below.
         'historyDisclosureContract',
+        // 9th: the GOVERNED Vehicle Finance Obligation / Encumbrance projection (Track 1). Same
+        // closed-collaborator reason, and re-aimed here deliberately for the identical cause.
+        'financeObligationContract',
       ],
       'the passport composes over authorities it is HANDED. If this signature changes, the replay '
       + 'below must be re-aimed deliberately rather than left pointing at a stale position.',
     );
     assert.equal(params[5], 'mediaContract');
     assert.equal(params[7], 'historyDisclosureContract');
+    assert.equal(params[8], 'financeObligationContract');
   });
 
   it('M3: every call site passes toVehicleMedia at position 6 — present-in-the-list is not enough', () => {
@@ -755,8 +764,8 @@ describe('Phase 5 wiring — every shipped route hands the contract in (M3)', ()
     for (const site of sites) {
       const resolved = resolveCallSiteArguments(site, { vin: GALLERY_VIN, req: anonymous() });
       assert.equal(
-        resolved.length, 8,
-        `server.js:${site.lineNumber} calls buildVehiclePassport with ${resolved.length} arguments; the media, lifecycle and history-disclosure collaborators must all remain wired:\n  ${site.line}`,
+        resolved.length, 9,
+        `server.js:${site.lineNumber} calls buildVehiclePassport with ${resolved.length} arguments; the media, lifecycle, history-disclosure and finance-obligation collaborators must all remain wired:\n  ${site.line}`,
       );
       assert.equal(
         resolved[5], toVehicleMedia,
@@ -768,6 +777,12 @@ describe('Phase 5 wiring — every shipped route hands the contract in (M3)', ()
       assert.equal(
         resolved[7], toVehicleHistoryDisclosures,
         `server.js:${site.lineNumber} does not pass the history-disclosure contract as the 8th argument, so its Vehicle History & Obligations sections are dead:\n  ${site.line}`,
+      );
+      // And for the GOVERNED finance obligation / encumbrance projection (Track 1): an unwired
+      // route would silently publish `finance_obligation` as absent from every passport forever.
+      assert.equal(
+        resolved[8], projectFinanceObligationForVehicle,
+        `server.js:${site.lineNumber} does not pass the finance-obligation contract as the 9th argument, so its governed encumbrance section is dead:\n  ${site.line}`,
       );
       assert.equal(
         resolved[4], attestedValue,

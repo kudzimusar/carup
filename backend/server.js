@@ -125,8 +125,10 @@ import intelligenceRollupRouter from './routes/intelligenceRollupRoutes.js';
 import identityVerificationAdminRouter from './routes/identityVerificationAdminRoutes.js';
 import partsentryReviewRouter from './routes/partsentryReviewRoutes.js';
 import passportOwnershipTransferRouter from './routes/passportOwnershipTransferRoutes.js';
+import vehicleFinanceObligationRouter from './routes/vehicleFinanceObligationRoutes.js';
 import { normalizeVehicleStatus, publicVehicleStatusFilterValues, publiclyVisiblePublicationStatuses, isPublicVehicleStatus, isPubliclyVisiblePublication, PUBLIC_VEHICLE_COLUMNS } from './utils/vehicleStatus.js';
 import { attestedValue, CLAIM_VISIBILITY, LISTING_CLAIM_COLUMNS, PUBLIC_VEHICLE_SELECT, projectVehicle, toListingClaims, toPublicEvidence, toPublicPlateHistory, toPublicTimelineEvent, toVehicleHistoryDisclosures } from './utils/publicVehicleProjection.js';
+import { projectFinanceObligationForVehicle } from './services/finance/vehicleFinanceObligationService.js';
 // The canonical vehicle media contract (Issue #164 §10). Imported at MODULE scope and handed to
 // buildVehiclePassport as a PARAMETER — never referenced as a free name inside that function, for
 // the reason the function's own header gives: two harnesses execute its source against a fixed
@@ -352,6 +354,7 @@ app.use(intelligenceRollupRouter);
 app.use(identityVerificationAdminRouter);
 app.use(partsentryReviewRouter);
 app.use(passportOwnershipTransferRouter);
+app.use(vehicleFinanceObligationRouter);
 
 // Mount isolated Diaspora Trade bounded context
 app.use('/api/diaspora', diasporaRouter);
@@ -904,6 +907,15 @@ async function canonicalPassportTrust(vin) {
 // quietly become dead in production — and an unwired render publishes NO key rather than a block
 // whose `null` topics would read as the factual claim "not recorded".
 //
+// `financeObligationContract` (9th) is the GOVERNED Vehicle Finance Obligation / Encumbrance
+// projection (Track 1: M16–M18, R22–R26, R28) — the counterpart to `historyDisclosureContract`
+// that is attributed `authority: 'governed'` rather than `'seller_stated'`, because it lives in a
+// separate table (`vehicle_finance_obligations`) the vehicle `select('*')` below cannot see.
+// Injected for the identical closed-collaborator reason: a free module-scope name here is a
+// ReferenceError in the four harnesses that execute this function's SOURCE against a fixed
+// dependency list. An unwired render must publish `source_state: 'unavailable'`, never a governed
+// zero — see `toVehicleFinanceObligationBlock`'s handling of an `undefined` read.
+//
 // NOTE: keep this parameter list free of inline comments — `passportParameterNames()` in that
 // harness splits the shipped list on top-level commas, and a comment inside it becomes part of a
 // parameter name.
@@ -916,6 +928,7 @@ async function buildVehiclePassport(
   mediaContract = null,
   lifecycleBuilder = null,
   historyDisclosureContract = null,
+  financeObligationContract = null,
 ) {
   const { data: vehicle, error: vehicleError } = await supabase
     .from('vehicles')
@@ -1126,6 +1139,15 @@ async function buildVehiclePassport(
   // stored vocabulary and strips private finance terms, so this call site adds no policy of its own.
   const historyDisclosures = typeof historyDisclosureContract === 'function'
     ? historyDisclosureContract(vehicle)
+    : null;
+
+  // The GOVERNED counterpart to `historyDisclosures` above — same audience for everyone, and never
+  // merged with it: `authority: 'governed'` here, `authority: 'seller_stated'` there. An unwired
+  // render (contract not injected, or the read failed) publishes NO key at all, exactly like
+  // `historyDisclosures` — see the parameter-header comment for why a governed zero must never be
+  // manufactured from a read that never happened.
+  const financeObligation = typeof financeObligationContract === 'function'
+    ? await financeObligationContract(supabase, vin)
     : null;
 
   // THE PASSPORT'S TRUST NUMBER, FROM THE CANONICAL AUTHORITY AND NOWHERE ELSE.
@@ -1499,6 +1521,10 @@ async function buildVehiclePassport(
     // saying `accident: null` is the factual claim "not recorded", and a harness that forgot to
     // inject the projection must not be able to make that claim on the vehicle's behalf.
     ...(historyDisclosures ? { history_disclosures: historyDisclosures } : {}),
+    // Governed finance obligation / encumbrance (Track 1). Same "unwired publishes no key" rule as
+    // history_disclosures immediately above, and the same never-merge rule: this is `authority:
+    // 'governed'`, the Seller's own statement above is `authority: 'seller_stated'`.
+    ...(financeObligation ? { finance_obligation: financeObligation } : {}),
     // THE THIRD ANONYMOUS DOOR.
     //
     // `verifiedEvidence` above is `select('*')`, and this array was returned unchanged to every
@@ -1557,7 +1583,7 @@ async function buildVehiclePassport(
 app.get('/api/vehicles/:vin/passport', passportLimiter, optionalAuth(), async (req, res) => {
   const { vin } = req.params;
   try {
-    const passport = await buildVehiclePassport(vin, req, await canonicalPassportTrust(vin), toListingClaims, attestedValue, toVehicleMedia, buildCanonicalVehicleLifecycle, toVehicleHistoryDisclosures);
+    const passport = await buildVehiclePassport(vin, req, await canonicalPassportTrust(vin), toListingClaims, attestedValue, toVehicleMedia, buildCanonicalVehicleLifecycle, toVehicleHistoryDisclosures, projectFinanceObligationForVehicle);
     if (!passport) {
       return res.status(404).json({ error: 'VIN not found' });
     }
@@ -1602,7 +1628,7 @@ app.get('/api/vehicles/passport/lookup/:identifier', passportLookupLimiter, opti
     }
 
     const resolvedVin = Array.from(matchingVins)[0];
-    const passport = await buildVehiclePassport(resolvedVin, req, await canonicalPassportTrust(resolvedVin), toListingClaims, attestedValue, toVehicleMedia, buildCanonicalVehicleLifecycle, toVehicleHistoryDisclosures);
+    const passport = await buildVehiclePassport(resolvedVin, req, await canonicalPassportTrust(resolvedVin), toListingClaims, attestedValue, toVehicleMedia, buildCanonicalVehicleLifecycle, toVehicleHistoryDisclosures, projectFinanceObligationForVehicle);
     if (!passport) {
       return res.status(404).json({ error: 'Vehicle not found' });
     }

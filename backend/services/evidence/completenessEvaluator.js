@@ -25,6 +25,7 @@
  * `confidence` score.
  */
 import { reconcileSellerFacts } from './sellerFactReconciliation.js';
+import { getGovernedEncumbrance } from '../finance/vehicleFinanceObligationService.js';
 
 async function getDefaultClient() {
   const { supabase } = await import('../../db/supabase.js');
@@ -193,6 +194,35 @@ export async function evaluateCompleteness(vin, opts = {}) {
       status: docStatus(evidenceRows, type),
     });
   }
+
+  // ── Governed finance obligation / encumbrance (Track 1: R22, R23) ────────────────────────────
+  //
+  // ADVISORY ONLY (blocking: false). R23 is explicit: "an active vehicle finance/lease/lender
+  // interest can coexist with a public listing" — a prior or active encumbrance must never hide an
+  // otherwise legitimate listing. Pushing this with `blocking: false` keeps it out of
+  // `blockingReqs` below, so it is arithmetically incapable of moving `is_publishable` or
+  // `completeness_percent`, and cannot fire the 400 on the publish route.
+  //
+  // Fails closed toward "not recorded", never toward "clear": a read failure here must not read as
+  // an all-clear the evaluator never actually confirmed.
+  let encumbranceStatus = 'not_available';
+  try {
+    const encumbrance = await getGovernedEncumbrance(client, vin);
+    encumbranceStatus = encumbrance.blocking ? 'pending_review' : 'present';
+  } catch {
+    encumbranceStatus = 'not_available';
+  }
+  requirements.push({
+    key: 'finance_obligation_disclosure',
+    // Never "clear" / "no finance" — a not_available or present status here says only that the
+    // GOVERNED encumbrance check ran (or could not run), never that no obligation exists anywhere.
+    label: encumbranceStatus === 'pending_review'
+      ? 'A governed finance obligation is recorded on this vehicle — visible to buyers, does not block publishing'
+      : 'Governed finance/encumbrance record (not recorded is not a claim of "clear")',
+    category: 'finance',
+    blocking: false,
+    status: encumbranceStatus,
+  });
 
   // ── Compute publication readiness ─────────────────────────────────────────
 

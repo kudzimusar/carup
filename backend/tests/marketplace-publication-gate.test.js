@@ -158,14 +158,44 @@ test('a verified ownership_transfer_document satisfies the blocking ownership re
     assert.equal(result.is_publishable, true, 'verified ownership_transfer_document must satisfy the ownership gate');
     const ownership = result.requirements.find((r) => r.key === 'ownership_document');
     assert.equal(ownership.status, 'verified');
-    // Advisory matrix carries only CHECK-legal keys, with key-derived labels.
-    const advisory = result.requirements.filter((r) => !r.blocking);
+    // Advisory DOCUMENT matrix carries only CHECK-legal keys, with key-derived labels.
+    //
+    // RE-AIMED DELIBERATELY, and narrowed to what this assertion actually protects. It used to read
+    // `requirements.filter((r) => !r.blocking)` and pin the result to these four. The guarantee was
+    // never "there are exactly four advisory requirements" — it is that every advisory requirement
+    // DERIVED FROM AN evidence_type carries a CHECK-legal value, because an illegal one can never
+    // match a DB row and would silently lock that requirement at 'missing' (see the file-contract
+    // test above, which pins ADVISORY_DOC_TYPES itself and forbids the illegal legacy values).
+    //
+    // R22/R23 add a non-document advisory requirement — the governed finance obligation — which is
+    // not an evidence_type, queries no vehicle_evidence row, and therefore cannot express that
+    // defect. Filtering by category keeps the original guarantee exact instead of letting an
+    // unrelated key either break it or, worse, be waved through by loosening it to a subset check.
+    const advisoryDocs = result.requirements.filter((r) => !r.blocking && r.category === 'documents');
     assert.deepEqual(
-      advisory.map((r) => r.key),
+      advisoryDocs.map((r) => r.key),
       ['customs_photo', 'inspection_photo', 'insurance_document', 'police_clearance_document'],
     );
-    assert.equal(advisory.find((r) => r.key === 'customs_photo').status, 'pending_review');
-    assert.equal(advisory.find((r) => r.key === 'customs_photo').label, 'Customs Photo');
+    assert.equal(advisoryDocs.find((r) => r.key === 'customs_photo').status, 'pending_review');
+    assert.equal(advisoryDocs.find((r) => r.key === 'customs_photo').label, 'Customs Photo');
+
+    // AND THE STRENGTHENING that keeps the original protection whole: no advisory requirement
+    // outside the documents category may borrow an evidence_type key, which is the only way the
+    // silently-locked-at-'missing' defect could re-enter through a different category.
+    const CHECK_LEGAL_EVIDENCE_TYPES = new Set([
+      'customs_photo', 'inspection_photo', 'insurance_document', 'police_clearance_document',
+      'registration_document', 'ownership_transfer_document', 'damage_photo', 'repair_photo',
+      'odometer_photo', 'import_photo', 'auction_photo', 'dealer_listing_photo', 'owner_handover_photo',
+    ]);
+    for (const req of result.requirements.filter((r) => !r.blocking && r.category !== 'documents')) {
+      assert.ok(
+        !CHECK_LEGAL_EVIDENCE_TYPES.has(req.key),
+        `advisory requirement '${req.key}' is keyed on an evidence_type but sits outside the documents `
+        + 'category, so it is not derived from ADVISORY_DOC_TYPES and its status can never be satisfied by a document',
+      );
+      // R22: a non-document advisory requirement must never assert the vehicle is "clear".
+      assert.doesNotMatch(String(req.label), /no finance|not financed|finance clear|unencumbered/i);
+    }
   } finally {
     supabase.from = originalFrom;
   }

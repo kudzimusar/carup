@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto';
-import { ValidationError, ForbiddenError, DatabaseError } from '../../utils/errors.js';
+import { ValidationError, ForbiddenError, ConflictError, DatabaseError } from '../../utils/errors.js';
+import { getGovernedEncumbrance } from '../finance/vehicleFinanceObligationService.js';
 
 const GOVERNANCE_ROLES = new Set(['admin','government','reviewer','platform_admin','super_admin']);
 
@@ -61,6 +62,34 @@ export async function transitionOwnershipTransfer(client, {
   }
   if (toState === 'complete' && (!registryAuthority || !completionReference)) {
     throw new ValidationError('Completion requires registryAuthority and completionReference.');
+  }
+
+  // R24 — MESSAGE LAYER ONLY. The real authority is `trg_block_encumbered_owner_change` on
+  // `vehicles.owner_id` (20260901120000), which fires inside the same transaction under the
+  // `FOR UPDATE` the RPC already takes and therefore cannot be raced by a concurrent obligation
+  // insert the way this pre-check can. This check exists purely to turn a bare constraint-violation
+  // error into a message that names the actual condition, so it is deliberately best-effort: a
+  // failure to even LOOK UP the transfer's vin here must fall through to the RPC/trigger rather
+  // than block a legitimate transfer on a message-layer read error.
+  if (toState === 'complete') {
+    try {
+      const { data: transferRow } = await client
+        .from('vehicle_ownership_transfers')
+        .select('vin')
+        .eq('id', transferId)
+        .maybeSingle();
+      if (transferRow?.vin) {
+        const encumbrance = await getGovernedEncumbrance(client, transferRow.vin);
+        if (encumbrance.blocking) {
+          throw new ConflictError(
+            `Ownership transfer completion is blocked by a governed finance obligation on this vehicle (${encumbrance.transfer_condition}); lender settlement or release is required.`,
+          );
+        }
+      }
+    } catch (guardError) {
+      if (guardError instanceof ConflictError) throw guardError;
+      // Swallow lookup/read failures here — the trigger inside the RPC below remains authoritative.
+    }
   }
 
   const { data, error } = await client.rpc('passport_transition_ownership_transfer_atomic', {
