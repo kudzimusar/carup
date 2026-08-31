@@ -447,3 +447,39 @@ test('P1: a moderated-away review stops moving the average', () => {
   assert.match(src, /\.select\('rating, dispute_flag, verification_status'\)/,
     'the state must be selected, or the filter above is reading undefined on every row');
 });
+
+// ═══════════════════════════════════════════════════════════════════════════════════
+// 7. P1 — any effective-mechanic could raise the canonical odometer of every VIN
+// ═══════════════════════════════════════════════════════════════════════════════════
+
+test('P1: a mechanic must hold a relationship to the vehicle before writing its repair ledger', () => {
+  const src = routeSource('/api/partsentry/add');
+
+  // THE DEFECT. The ownership check was skipped for the role outright:
+  //   if (req.userContext.role !== 'mechanic' && req.userContext.role !== 'admin') { ...check... }
+  // `role` is the EFFECTIVE role, and authMiddleware grants a requested role that matches the
+  // caller's tenant_users role — so membership as 'mechanic' in ANY single tenant conferred write
+  // authority over every vin on the platform. The write lands on vehicles.mileage, is guarded only
+  // monotonically, and has no correction path, so one inflated reading is permanent.
+  assert.doesNotMatch(src, /role !== 'mechanic'/,
+    'the mechanic role must not be exempted from the vehicle relationship check');
+
+  // Only platform-wide roles bypass, and that decision comes from the ONE definition of it.
+  assert.match(src, /if \(!hasPlatformWideVehicleAuthority\(req\.userContext\)\)/);
+  // A mechanic is admitted by a real relationship, not by their role.
+  assert.match(src, /req\.userContext\.role === 'mechanic'\s*\n?\s*\?\s*await mechanicIsAssignedToVehicle\(/);
+});
+
+test('P1: the mechanic relationship is a tenant link or an assigned work order, and fails closed', () => {
+  const fn = SERVER.slice(SERVER.indexOf('async function mechanicIsAssignedToVehicle'));
+  const body = fn.slice(0, fn.indexOf('\n}\n') + 2);
+
+  assert.match(body, /vehicleRow\.tenant_id === userContext\.tenantId/,
+    'the vehicle must belong to the mechanic’s organisation');
+  assert.match(body, /\.from\('mechanic_work_orders'\)/);
+  assert.match(body, /\.eq\('vin', vin\)/, 'the work order must be for THIS vin');
+  assert.match(body, /\.eq\('mechanic_id', userContext\.id\)/, 'and assigned to THIS mechanic');
+  // A failed lookup must refuse, not admit.
+  assert.match(body, /if \(error\) return false;/);
+  assert.doesNotMatch(body, /if \(error\) return true;/);
+});

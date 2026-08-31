@@ -15,18 +15,43 @@ Severity is the auditor's; `Status` is this cycle's disposition.
 
 ## Disposition summary
 
+Counts below are as of the V16 convergence (PR #194 head `55c2f894`). The non-Seller hardening
+cycle that produced this register closed 6 and mitigated 1; the convergence closed a further 6
+and mitigated 2 more.
+
 | Status | Count | Meaning |
 |---|---|---|
-| CLOSED | 6 | fixed in this cycle, each with a regression test |
-| MITIGATED | 1 | the recorded incident is closed; the maximal remedy remains open |
-| OPEN | 23 | precisely located, not fixed — see the scope note below |
+| CLOSED | 12 | fixed, each with a regression test |
+| MITIGATED | 3 | the exploitable reach is closed; a named residual remains, recorded per finding |
+| OPEN | 15 | precisely located, not fixed — see the scope note below |
 
-**Why 23 remain open.** The cycle's mandate was to fix what is *independent of Seller and
-safe to remediate now*, not to broaden into unrelated feature work. The 23 open items are
-overwhelmingly pre-existing `main` defects rather than #194 convergence defects, and several
-(the parallel diaspora trust engines, the odometer authority fragmentation, the JS/SQL
-transfer state-machine duplication) are genuine architectural decisions that need an owner,
-not a patch. Each is located to file and line here so the next lane starts from evidence.
+### What the V16 convergence closed
+
+Every P0 and every P1 that was reachable and bounded:
+
+| Finding | Now |
+|---|---|
+| P0 — any registered user could flag any VIN stolen, irreversibly | CLOSED |
+| P1 — finance/lender routes authorized by role only; consent unbound | CLOSED |
+| P1 — insurer/eligibility routes, same gap, including the read path | CLOSED |
+| P1 — an unauthenticated GET persisted a dealer trust score | CLOSED |
+| P1 — the odometer-reversal detector was dead by construction | CLOSED |
+| P1 — any authenticated user could drive a diaspora trust score to 0 or 100 | CLOSED |
+| P1 — mechanic odometer write reached every VIN (two findings, one root cause) | MITIGATED — reach closed, irreversibility recorded |
+
+**Why 15 remain open.** The mandate was to fix what is bounded and safe to remediate now, not
+to broaden into unrelated feature work. The remaining items are overwhelmingly pre-existing
+`main` defects rather than #194 convergence defects, and several (the parallel diaspora trust
+engines, the odometer authority fragmentation, the JS/SQL transfer state-machine duplication)
+are genuine architectural decisions that need an owner, not a patch. Each is located to file
+and line here so the next lane starts from evidence.
+
+**Two of the open items are NOT #194's to close.** The service-case saga rollback belongs to
+`backend/services/serviceNetwork/`, which does not exist on this branch at all — it arrives with
+PR #197, and is that lane's obligation. The `notification_queue` second-writer finding is a
+Communications integration that would mean registering the DIASPORA_* event types and routing
+milestones through `CommunicationProductNotificationService`; it is recorded here as a bounded
+residual rather than attempted inside a convergence whose job was to join two frozen lanes.
 
 **One finding fixed here does not appear above**, because the verifier refuted the finding as
 stated while the underlying hazard was real: `masterSecret()` and `currentSystemSecret()` fell
@@ -38,13 +63,16 @@ and restarts. Closed with the same deployment-environment conjunction.
 
 ## P0 (4)
 
-### [OPEN] Any self-registered user can flag any VIN as stolen; the reporter identity is client-supplied and there is no un-flag route
+### [CLOSED] Any self-registered user can flag any VIN as stolen; the reporter identity is client-supplied and there is no un-flag route
 
 **Location:** `backend/server.js:1787`
 
 **Evidence:** backend/server.js:1787 `app.post('/api/security/report-stolen', authorizeRole(['owner','government']), async (req,res) => { const { vin, policeReportNumber, ownerId } = req.body; ... await reportVehicleStolen(vin, policeReportNumber, ownerId)`. There is NO check that the caller owns `vin`. backend/server.js:2141-2157 shows public registration accepts only role 'owner' and every public account is created as 'owner' (`"Public registration cannot assign a role; accounts are created as 'owner'."`), so `authorizeRole(['owner','government'])` admits every registered user. The service then writes vehicle state unconditionally: backend/services/security/securityService.js:13-16 upserts `stolen_vehicles` with `reporting_owner_id: reportingOwnerId` taken verbatim from the body, and line 22 `await supabase.from('vehicles').update({ police_verified: false, status: 'Flagged' }).eq('vin', vin)`, then appends a permanent 'Stolen Vehicle Flagged' hash-chain event. `clearStolenStatus` (securityService.js:56) is exported but grep over backend (excluding tests) finds NO route mounting it — only `reportVehicleStolen` and `checkStolenStatus` are imported at backend/server.js:38.
 
 **Required behaviour:** Gate the route on a verified relationship to the VIN (owner_id / current_seller_id / tenant scope) or restrict it to role 'government'/platform-admin, and derive the reporter from `req.userContext.id` instead of `req.body.ownerId`. Add a governed clear/appeal route (or mount `clearStolenStatus` behind government/admin authority) so the flag is not a one-way, unauthenticated-in-practice takedown of any listing.
+
+
+**Disposition (V16 convergence, c260c3bb):** CLOSED. The route is now `authorizeSessionRole(['owner','government'])` plus `requireVehicleObjectAuthority()`, so a takedown needs a PROVEN session and a verified relationship to the vin; government and platform admins keep platform-wide authority. The reporter is `req.userContext.id` and `ownerId` is no longer read from the body. `POST /api/security/clear-stolen` mounts the existing `clearStolenStatus` behind `authorizeSessionRole(['government'])`, so the flag is reversible. Regression tests: `backend/tests/v16-authority-hardening.test.js` (section 2).
 
 ### [CLOSED] Unauthenticated OCR approval endpoint is a second vehicle trust + registry authority
 
@@ -73,7 +101,7 @@ and restarts. Closed with the same deployment-environment conjunction.
 
 ## P1 (11)
 
-### [OPEN] Any mechanic account can permanently inflate any VIN's odometer, and no path exists to correct vehicles.mileage afterwards
+### [MITIGATED] Any mechanic account can permanently inflate any VIN's odometer, and no path exists to correct vehicles.mileage afterwards
 
 **Location:** `backend/server.js:1667`
 
@@ -81,7 +109,12 @@ and restarts. Closed with the same deployment-environment conjunction.
 
 **Required behaviour:** Scope the mechanic branch to a real work-order/assignment relationship for that VIN rather than allowing any mechanic to write any vehicle. Treat `partsentry_logs.mileage` as an observation and derive `vehicles.mileage` from the governed observation set, and add a governance-authored correction path (audited, reason-required) so a bad reading is repairable instead of permanent.
 
-### [OPEN] The odometer-reversal fraud detector reads a field the canonical evidence writer never populates, so it is dead by construction
+
+**Disposition (V16 convergence, 55c2f894):** MITIGATED — the AUTHORIZATION half is closed, the ARCHITECTURAL half is not. `POST /api/partsentry/add` no longer exempts the mechanic role wholesale: only platform-wide roles bypass, and a mechanic must now hold a tenant link to the vehicle or an assigned `mechanic_work_orders` row for that exact vin, failing closed on a lookup error. The "every VIN on the platform" exposure is therefore gone.
+
+**Residual, deliberately left open:** `addRepairLog` still writes `vehicles.mileage` directly and the guard is still only monotonic, so a bad-but-authorised high reading is still permanent and still blocks that vehicle's later genuine logs. Treating `partsentry_logs.mileage` as an OBSERVATION and deriving the canonical value through a single odometer-resolution service — with an audited, reason-required correction path — is a design change that needs an owner, not a patch, and is out of scope for this convergence.
+
+### [CLOSED] The odometer-reversal fraud detector reads a field the canonical evidence writer never populates, so it is dead by construction
 
 **Location:** `backend/services/fraud/fraudEngine.js:390`
 
@@ -89,7 +122,10 @@ and restarts. Closed with the same deployment-environment conjunction.
 
 **Required behaviour:** Add `odometer_value, odometer_unit` to the fraudEngine evidence select and read them first (keeping the metadata keys only as a legacy fallback), so the publication-blocking reversal check sees the readings the platform actually stores. Separately, make the loader distinguish 'no evidence' from 'could not read evidence' rather than returning [] on error.
 
-### [OPEN] Unauthenticated GET /api/reputation/:dealerId persists a second-engine dealer trust score
+
+**Disposition (V16 convergence, c260c3bb):** CLOSED. `loadEvidence` now selects `odometer_value, odometer_unit` and `detectMileageAnomalies` reads the column first, keeping the metadata keys as a legacy fallback; miles are normalised to km so a unit change cannot manufacture a reversal. `loadEvidence` also returns `null` on a read error instead of `[]`, and the evaluator surfaces a non-blocking `evidence_not_readable` signal, so "could not look" is no longer indistinguishable from "looked and found nothing". A BEHAVIOURAL test proves the reversal signal now fires on column-form evidence.
+
+### [CLOSED] Unauthenticated GET /api/reputation/:dealerId persists a second-engine dealer trust score
 
 **Location:** `backend/server.js:1808`
 
@@ -97,13 +133,19 @@ and restarts. Closed with the same deployment-environment conjunction.
 
 **Required behaviour:** Make the GET a pure read (return the stored value, never `.update()`), and gate the recompute behind an authenticated, role-checked POST. A GET that mutates a trust column means any crawler re-scores dealers.
 
-### [OPEN] Any authenticated user can drive a diaspora trade profile's trust_score to 0 or 100
+
+**Disposition (V16 convergence, c260c3bb):** CLOSED. Split into `readDealerReputation` (pure read, no write) and `recalculateDealerReputation` (the single writer), the latter mounted at `POST /api/reputation/:dealerId/recalculate` behind `authorizeSessionRole(['admin','government'])`. The read distinguishes `unmeasured` from a score and returns a null tier for an unscored dealer, so the 75.0 baseline is no longer published as evidence.
+
+### [CLOSED] Any authenticated user can drive a diaspora trade profile's trust_score to 0 or 100
 
 **Location:** `backend/services/diaspora/diasporaReputationService.js:38`
 
 **Evidence:** Route: backend/routes/diasporaRoutes.js:328 `router.post('/reputation', auth, ... createReputationRecord(req.body, req.userContext, req))` where `auth = authorizeRole()` (diasporaRoutes.js:34) — any authenticated role. `createReputationRecord` validates only `if (!payload.trade_profile_id || !payload.rating) throw ...` (line 6): no rating range check, no self-review guard, no proof the reviewer transacted with the profile, and `verification_status: payload.verification_status || 'PUBLISHED'` (line 17) is taken straight from the body. It then calls `recalculateTradeProfileReputation`, which at line 37-38 computes `const trustScore = Math.max(0, Math.min(100, 50 + ratingAverage * 10 - disputeCount * 5));` and writes `await supabase.from('diaspora_trade_profiles').update({ rating_average, dispute_count, trust_score: trustScore, ... })`. A single POST with `rating: 1000` clamps to 100; `rating: -1000` clamps to 0. This is a second trust-score authority with effectively no authority check.
 
 **Required behaviour:** Validate `rating` to the intended 1..5 range, reject self-review (`reviewer_id === profile.user_id`), require a completed import order linking reviewer and profile, and make `verification_status` server-decided (always 'PENDING_REVIEW' on create) rather than body-supplied.
+
+
+**Disposition (V16 convergence, 55c2f894):** CLOSED. `rating` must be 1..5; the reviewer is `req.userContext.id` and never `payload.reviewer_id`; self-review is refused; `verification_status` is server-decided (`PENDING_REVIEW`); and the review must cite a **COMPLETED** import order on which BOTH the reviewer and the reviewed profile appear in `diaspora_import_order_participants`. Every lookup fails closed. `recalculateTradeProfileReputation` now excludes `REMOVED` and `FLAGGED` records, so a moderated-away review stops moving the average.
 
 ### [OPEN] Second, ungoverned writer into the canonical notification_queue: queueDiasporaNotification bypasses CommunicationNotificationService
 
@@ -113,7 +155,7 @@ and restarts. Closed with the same deployment-environment conjunction.
 
 **Required behaviour:** Route diaspora milestones through the canonical path — emit the domain event only, register the DIASPORA_* types in COMMUNICATION_EVENT_TYPES, and let CommunicationProductNotificationService.queueNotification mint the row (dedupe_key, channel from preferences, tenant_id, thread linkage). If a direct insert must remain short-term, it must at minimum set an explicit `channel` and a deterministic `dedupe_key` so the partial unique index actually protects it.
 
-### [OPEN] Finance/lender capability routes authorize by role only — no check that the caller has any relationship to :vin, and the consent ref is not bound to the vehicle or applicant
+### [CLOSED] Finance/lender capability routes authorize by role only — no check that the caller has any relationship to :vin, and the consent ref is not bound to the vehicle or applicant
 
 **Location:** `backend/routes/lenderRoutes.js:79`
 
@@ -121,7 +163,10 @@ and restarts. Closed with the same deployment-environment conjunction.
 
 **Required behaviour:** Call `ownsVehicleOrPrivileged(req)` at the top of both mutating handlers, exactly as the GET at line 126 does. In `requestLenderEligibility`, additionally reject a consent whose `vin !== vin` or whose `applicant_user_id !== opts.requestedBy` before treating it as satisfying the mandatory-consent gate.
 
-### [OPEN] Insurer and generic eligibility routes have the same missing object-level authorization, including on the read path
+
+**Disposition (V16 convergence, c260c3bb):** CLOSED. Both mutating routes now carry `requireVehicleObjectAuthority()` from the new `backend/middleware/vehicleObjectAuthority.js` — ONE definition of vehicle object authority, applying the same owner / current-seller / tenant rule `loadScopedVehicle` uses. The consent binding is closed separately by `consentBindsRequest`, which requires `consent.vin === vin` AND `consent.applicant_user_id === requestedBy` and fails closed when either is absent.
+
+### [CLOSED] Insurer and generic eligibility routes have the same missing object-level authorization, including on the read path
 
 **Location:** `backend/routes/insurerRoutes.js:104`
 
@@ -129,13 +174,19 @@ and restarts. Closed with the same deployment-environment conjunction.
 
 **Required behaviour:** Extract the `ownsVehicleOrPrivileged` helper from lenderRoutes.js:37 into one shared module and apply it as middleware to every `/api/vehicles/:vin/...` capability route in insurerRoutes.js and eligibilityRoutes.js, so vehicle-object authority is decided in one place rather than per route.
 
-### [OPEN] PartSentry: any effective-mechanic can irreversibly raise the canonical odometer of every VIN on the platform
+
+**Disposition (V16 convergence, c260c3bb):** CLOSED. The three insurer routes and the four eligibility routes all carry `requireVehicleObjectAuthority()`, decided in the one shared module rather than per route. The coarse PUBLIC finance availability endpoint is deliberately NOT gated, and a test pins that too — over-gating a documented public surface would be its own defect. A test asserts all NINE capability routes are covered.
+
+### [MITIGATED] PartSentry: any effective-mechanic can irreversibly raise the canonical odometer of every VIN on the platform
 
 **Location:** `backend/services/partsentry/partsentryService.js:70`
 
 **Evidence:** `await supabase.from('vehicles').update({ mileage: odometer }).eq('vin', vin);` — the submitted reading overwrites the vehicle's canonical odometer. The only guard is monotonic (line 32: `if (vehicle && odometer < vehicle.mileage) throw`), so a value can be raised without bound and can never be lowered again through any product path (grep for writers of vehicles.mileage returns only this line and backend/services/document-intelligence/documentIntelligenceService.js:406, which does not touch mileage). The calling route at backend/server.js:1662 exempts mechanics from every relationship check: line 1666 reads `if (req.userContext.role !== 'mechanic' && req.userContext.role !== 'admin')` before the owner/tenant lookup, so a mechanic never reaches it. `req.userContext.role` is the EFFECTIVE role, and backend/middleware/authMiddleware.js:78-80 grants a requested role whenever it matches the caller's `tenant_users` role (`if (trustedTenantRole && requested === trustedTenantRole && requested !== 'admin') return requested;`) — so membership as 'mechanic' in any single tenant, asserted via x-stakeholder-role plus that tenant's x-tenant-id, confers platform-wide odometer write authority. The write also emits a signed ledger event (`addEvent(vin, 'Mechanic Inspection', ...)`, line 78) and feeds trust scoring.
 
 **Required behaviour:** Require a relationship between mechanic and vehicle before the odometer write — an assigned work order, a tenant link, or an owner-issued service authorization — rather than exempting the role wholesale at server.js:1666. Separately, stop letting a repair log mutate `vehicles.mileage` directly: record the reading on partsentry_logs and let a single odometer-resolution service publish the canonical value, so a bad high reading can be superseded instead of permanently blocking every later genuine log.
+
+
+**Disposition (V16 convergence, 55c2f894):** MITIGATED. Same root cause and same fix as the odometer finding above — the effective-role exemption at the route is closed, so the reach is no longer platform-wide. The irreversibility of an authorised write is the same recorded residual.
 
 ### [OPEN] Compensating rollback in the service-case saga discards its own error and reports success unconditionally
 

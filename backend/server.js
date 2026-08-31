@@ -8,7 +8,7 @@ import { supabase } from './db/supabase.js';
 
 // Import Middleware
 import { authorizeRole, authorizeSessionRole, optionalAuth, isPrivateEvidenceFallbackAllowed } from './middleware/authMiddleware.js';
-import { requireVehicleObjectAuthority, resolveVehicleObjectAuthority } from './middleware/vehicleObjectAuthority.js';
+import { requireVehicleObjectAuthority, hasPlatformWideVehicleAuthority } from './middleware/vehicleObjectAuthority.js';
 import { evaluateLoginCredentials, hashPassword } from './utils/passwordAuth.js';
 
 // Import Services
@@ -1812,22 +1812,65 @@ app.post('/api/safepay/webhook', async (req, res) => {
 // Mechanics log freely; an owner/dealer/admin may only log against a vehicle
 // they own or that belongs to their tenant (the owner PartSentry page was
 // 403-dead against the mechanic-only guard while faking success client-side).
+/**
+ * A mechanic's relationship to ONE vehicle.
+ *
+ * The role was previously exempted from the ownership check wholesale, and `req.userContext.role`
+ * is the EFFECTIVE role: membership as 'mechanic' in any single tenant, asserted through
+ * x-stakeholder-role plus that tenant's x-tenant-id, therefore conferred write authority over
+ * EVERY vin on the platform. That write lands on `vehicles.mileage` through addRepairLog, is
+ * guarded only monotonically, and has no correction path — so a single inflated reading is
+ * permanent and blocks every later genuine log for that vehicle.
+ *
+ * Two relationships count, and both are server-verified:
+ *   · the vehicle belongs to the mechanic's organisation (authorizeRole has already proven the
+ *     caller's membership of the tenant it names, unlike optionalAuth's unverified header), or
+ *   · the mechanic is assigned to a work order for this exact vin.
+ *
+ * Fails closed: a lookup error is refused, never treated as an absent restriction.
+ */
+async function mechanicIsAssignedToVehicle(vin, userContext, vehicleRow) {
+  if (vehicleRow?.tenant_id && vehicleRow.tenant_id === userContext.tenantId) return true;
+  const { data, error } = await supabase
+    .from('mechanic_work_orders')
+    .select('id')
+    .eq('vin', vin)
+    .eq('mechanic_id', userContext.id)
+    .limit(1);
+  if (error) return false;
+  return Array.isArray(data) && data.length > 0;
+}
+
 app.post('/api/partsentry/add', authorizeRole(['mechanic', 'owner', 'dealer', 'admin']), async (req, res) => {
   const { vin, partName, partOem, actionType, description, mileage } = req.body;
   const actorId = req.userContext.id;
   try {
-    if (req.userContext.role !== 'mechanic' && req.userContext.role !== 'admin') {
+    // Platform admins keep platform-wide authority. EVERY other role -- mechanic included -- must
+    // hold a relationship to this specific vehicle before it may write to its repair ledger and
+    // its canonical odometer.
+    if (!hasPlatformWideVehicleAuthority(req.userContext)) {
       const { data: vehicleRow, error: vehicleErr } = await supabase
         .from('vehicles')
-        .select('owner_id, tenant_id')
+        .select('owner_id, current_seller_id, tenant_id')
         .eq('vin', vin)
         .maybeSingle();
       if (vehicleErr) throw new Error('Vehicle ownership lookup failed.');
       if (!vehicleRow) return res.status(404).json({ error: 'Vehicle not found.' });
+
       const ownsVehicle = vehicleRow.owner_id && vehicleRow.owner_id === req.userContext.id;
+      const isCurrentSeller = vehicleRow.current_seller_id && vehicleRow.current_seller_id === req.userContext.id;
       const sameTenant = vehicleRow.tenant_id && vehicleRow.tenant_id === req.userContext.tenantId;
-      if (!ownsVehicle && !sameTenant) {
-        return res.status(403).json({ error: 'You may only log parts against your own vehicle.' });
+
+      const permitted = req.userContext.role === 'mechanic'
+        ? await mechanicIsAssignedToVehicle(vin, req.userContext, vehicleRow)
+        : (ownsVehicle || isCurrentSeller || sameTenant);
+
+      if (!permitted) {
+        return res.status(403).json({
+          error: req.userContext.role === 'mechanic'
+            ? 'You may only log parts against a vehicle in your organisation or one you are assigned to by a work order.'
+            : 'You may only log parts against your own vehicle.',
+        });
       }
     }
     const log = await addRepairLog(vin, actorId, partName, partOem, actionType, description, mileage, req.userContext.tenantId ?? null);
