@@ -19,6 +19,15 @@ export default defineConfig({
       name: 'chromium',
       use: { ...devices['Desktop Chrome'] },
     },
+    {
+      // Mobile Chromium, scoped to the media-continuity journey. Media defects are overwhelmingly
+      // LAYOUT defects at narrow widths — a collapsed image container, a clipped thumbnail, an
+      // overlay sitting on top of the photograph — and none of those is visible at 1280px.
+      // Scoped by testMatch so adding this viewport does not silently re-run every other spec.
+      name: 'mobile-chromium',
+      testMatch: /seller-media-continuity\.spec\.ts/,
+      use: { ...devices['Pixel 5'] },
+    },
   ],
 
   // Vite dev server is started externally by the user before running tests

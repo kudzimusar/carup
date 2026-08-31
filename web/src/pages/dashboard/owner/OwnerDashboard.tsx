@@ -22,8 +22,7 @@ import {
   Wallet,
   Upload
 } from 'lucide-react'
-import { ListingImage } from '@/components/marketplace/ListingImage'
-import { primaryListingImageUrl } from '@/lib/listingMedia'
+import { OwnerListingMedia } from '@/components/listing/OwnerListingMedia'
 import { useCarUpApi } from '@/hooks/useCarUpApi'
 import { useAuth } from '@/context/AuthContext'
 import type { Vehicle, Notification, Escrow } from '@/types'
@@ -311,8 +310,8 @@ export default function OwnerDashboard() {
                   {/* An unrelated stock car is a claim about this vehicle's condition. ListingImage
                       renders a neutral "Image unavailable" placeholder instead. */}
                   {!lowBandwidth && (
-                    <ListingImage
-                      src={primaryListingImageUrl(vehicle.listing_media)}
+                    <OwnerListingMedia
+                      media={vehicle.listing_media}
                       alt={`${vehicle.year} ${vehicle.make} ${vehicle.model}`}
                       className="w-20 h-14 rounded-lg overflow-hidden shrink-0"
                     />

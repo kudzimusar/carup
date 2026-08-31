@@ -5,9 +5,8 @@ import { Badge } from '@/components/ui/badge'
 import { Input } from '@/components/ui/input'
 import { Plus, Eye, DollarSign, TrendingUp, Loader2, Car, MessageSquare, ArrowRight, FileCheck2 } from 'lucide-react'
 import { toast } from 'sonner'
-import { ListingImage } from '@/components/marketplace/ListingImage'
 import ListingInsights from '@/components/intelligence/ListingInsights'
-import { primaryListingImageUrl } from '@/lib/listingMedia'
+import { OwnerListingMedia } from '@/components/listing/OwnerListingMedia'
 import { useCarUpApi } from '@/hooks/useCarUpApi'
 import { SellerInquiriesCard } from '@/components/marketplace/SellerInquiriesCard'
 import { PUBLICATION_BADGE } from '@/lib/publicationStatus'
@@ -308,8 +307,8 @@ export default function MyListings() {
                 data-testid={`my-listing-card-${listing.vin}`}
               >
                 <div className="relative min-h-[230px] overflow-hidden bg-slate-100">
-                  <ListingImage
-                    src={primaryListingImageUrl(listing.listing_media)}
+                  <OwnerListingMedia
+                    media={listing.listing_media}
                     alt={`${listing.year || ''} ${listing.make || ''} ${listing.model || ''}`.trim() || 'Vehicle listing media'}
                     className="absolute inset-0 h-full w-full"
                     imgClassName="h-full w-full"

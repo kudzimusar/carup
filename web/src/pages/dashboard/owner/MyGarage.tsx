@@ -10,11 +10,11 @@ import {
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Progress } from '@/components/ui/progress'
-import { ListingImage } from '@/components/marketplace/ListingImage'
 import { SellerWorkspaceHeader } from '@/components/seller/SellerWorkspaceHeader'
 import { useCarUpApi } from '@/hooks/useCarUpApi'
 import { useAuth } from '@/context/AuthContext'
 import { primaryListingImageUrl } from '@/lib/listingMedia'
+import { OwnerListingMedia } from '@/components/listing/OwnerListingMedia'
 import { readOwnerTrustClaim, statedDate, statedMileage, statedPrice, statedCount } from './ownerStatedValues'
 import type { Vehicle } from '@/types'
 
@@ -157,8 +157,8 @@ export default function MyGarage() {
                 data-testid={`vehicle-row-${vehicle.vin}`}
               >
                 <div className="relative min-h-[250px] overflow-hidden bg-slate-100 sm:min-h-[320px]">
-                  <ListingImage
-                    src={media}
+                  <OwnerListingMedia
+                    media={vehicle.listing_media}
                     alt={`${vehicle.year || ''} ${vehicle.make || ''} ${vehicle.model || ''}`.trim() || 'Vehicle listing media'}
                     className="absolute inset-0 h-full w-full"
                     imgClassName="h-full w-full"
