@@ -11,6 +11,10 @@ type OcrProviderMap = Record<string, boolean>
 
 export function SellerDocumentAutofillNotice() {
   const [providers, setProviders] = useState<OcrProviderMap | null>(null)
+  // A FAILED health read is not an answer about provider availability. It used to be written as
+  // `setProviders({})`, which made `known` true and `enabled` false — so an unreachable backend
+  // rendered "Coming soon on this preview", a claim about the PRODUCT derived from a network fault.
+  const [readFailed, setReadFailed] = useState(false)
 
   useEffect(() => {
     let active = true
@@ -24,7 +28,7 @@ export function SellerDocumentAutofillNotice() {
         setProviders(body?.ocrProviders && typeof body.ocrProviders === 'object' ? body.ocrProviders : {})
       })
       .catch(() => {
-        if (active) setProviders({})
+        if (active) setReadFailed(true)
       })
     return () => { active = false }
   }, [])
@@ -42,14 +46,23 @@ export function SellerDocumentAutofillNotice() {
           <div>
             <div className="flex flex-wrap items-center gap-2">
               <h3 className="text-sm font-black text-slate-950">Smart document scan & autofill</h3>
-              <span className={'rounded-full px-2.5 py-1 text-[10px] font-black ' + (
-                enabled
-                  ? 'bg-emerald-100 text-emerald-700'
-                  : known
-                    ? 'bg-violet-100 text-violet-700'
-                    : 'bg-slate-100 text-slate-500'
-              )}>
-                {enabled ? 'OCR provider available' : known ? 'Coming soon on this preview' : 'Checking availability…'}
+              <span
+                data-testid="seller-autofill-availability"
+                className={'rounded-full px-2.5 py-1 text-[10px] font-black ' + (
+                  enabled
+                    ? 'bg-emerald-100 text-emerald-700'
+                    : known
+                      ? 'bg-violet-100 text-violet-700'
+                      : 'bg-slate-100 text-slate-500'
+                )}
+              >
+                {enabled
+                  ? 'OCR provider available'
+                  : readFailed
+                    ? 'Availability could not be checked'
+                    : known
+                      ? 'Coming soon on this preview'
+                      : 'Checking availability…'}
               </span>
             </div>
             <p className="mt-2 max-w-2xl text-xs leading-5 text-slate-600">

@@ -21,9 +21,9 @@ and mitigated 2 more.
 
 | Status | Count | Meaning |
 |---|---|---|
-| CLOSED | 12 | fixed, each with a regression test |
+| CLOSED | 13 | fixed, each with a regression test |
 | MITIGATED | 3 | the exploitable reach is closed; a named residual remains, recorded per finding |
-| OPEN | 16 | precisely located, not fixed — see the scope note below |
+| OPEN | 15 | precisely located, not fixed — see the scope note below |
 
 **31, not 30.** The convergence's own SJO-4 audit surfaced one finding the original 79-agent audit
 did not: a failed marketplace evidence/PartSentry/ownership read published as a governed negative.
@@ -43,7 +43,7 @@ Every P0 and every P1 that was reachable and bounded:
 | P1 — any authenticated user could drive a diaspora trust score to 0 or 100 | CLOSED |
 | P1 — mechanic odometer write reached every VIN (two findings, one root cause) | MITIGATED — reach closed, irreversibility recorded |
 
-**Why 16 remain open.** The mandate was to fix what is bounded and safe to remediate now, not
+**Why 15 remain open.** The mandate was to fix what is bounded and safe to remediate now, not
 to broaden into unrelated feature work. The remaining items are overwhelmingly pre-existing
 `main` defects rather than #194 convergence defects, and several (the parallel diaspora trust
 engines, the odometer authority fragmentation, the JS/SQL transfer state-machine duplication)
@@ -225,7 +225,7 @@ open obligation rather than attempted here.
 **Required behaviour:** Add every name above to backend/env.example (and the frontend-relevant ones to .env.example) with the same explanatory comments the Email 1.0 block uses, marking which are REQUIRED-in-production versus optional. Pair this with finding 7 so a missing required secret is caught at boot rather than at first use.
 
 
-### [OPEN] A FAILED marketplace evidence/PartSentry/ownership read is published as a governed negative
+### [CLOSED] A FAILED marketplace evidence/PartSentry/ownership read is published as a governed negative
 
 **Location:** `backend/services/marketplace/listingSummaryService.js:939`
 
@@ -249,13 +249,30 @@ uses, propagate an `ok` flag per source through `fetchListingRelatedRows`, and m
 publish an explicit unavailable/unknown state instead of a negative when its source did not
 resolve.
 
-**Disposition (V16 convergence):** NOT fixed in this convergence, deliberately. The function is
-**byte-identical to `origin/main`** and was touched by neither joined lane, so it is a pre-existing
-main defect rather than joined-state drift; and the correction threads a read-status flag through
-five consuming services (`marketplaceListingDetailService`, `marketplaceDiscoveryService`,
-`marketplaceModerationService`, `marketplaceSavedService`, and `listingSummaryService` itself).
-Expanding that refactor into a convergence whose job was to join two frozen lanes would have been
-the wrong trade. Located to file and line here so the next lane starts from evidence.
+**Disposition (V16 convergence): CLOSED.** Initially recorded as a bounded residual on the grounds
+that the function is byte-identical to `origin/main` and the fix looked like a five-service refactor.
+Independent adversarial verification (3 lenses, 7 confirmations across the finding's verifiers) then
+established that the consequence is worse than the original write-up: it is not merely an evidence
+count, it is a SAFETY-SIGNAL INVERSION. `deriveSuspicionLevel([])` is `'clear'`, so a failed
+`partsentry_logs` read publishes `risk_status: 'clear'`, suppresses the marketplace risk banner and
+sets `operator_review_required: false` — for a vehicle whose rows might carry `flagged`. That
+reclassification made the trade obvious, and the fix turned out to be contained: `buildTrustSummary`
+has exactly ONE production call site.
+
+`maybeFetchRows` and `fetchPartSentryRows` now return `{ ok, rows }` — the same discriminator
+`readListingImages` already used, and for the same stated reason. `fetchListingRelatedRows`
+publishes `evidenceRead` / `partSentryRead` / `ownershipRead`; `buildTrustSummary` maps an unread
+input to `'unavailable'` for both `evidence_status` and `suspicion_status` and FAILS CLOSED on
+`risk_status`, which carries the vehicle into `operator_review_required` rather than quietly passing
+it. The shared `MarketplaceRiskStatus` / `MarketplaceEvidenceStatus` enums gained `'unavailable'`,
+and `TrustSummaryPanel` renders it as "Not checked" with an explicit banner stating that the absence
+of a warning is not an all-clear.
+
+**Evidence:** `backend/tests/marketplace-trust-inputs-unreadable.test.js` — 8/8, including the
+inversion case (a failed read and a clean vehicle must not produce the same verdict), the
+anti-vacuity twin (a SUCCESSFUL empty read still reads `clear`/`none`, because a measured zero is
+correct), a real `flagged` row still raising the alarm, and a quarantined vehicle still outranking
+an unreadable input.
 
 ## P2 (13)
 

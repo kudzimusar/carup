@@ -1477,20 +1477,30 @@ export interface Promotion {
 }
 
 // 13. InsuranceRecord
+//
+// `provider`, `type`, `premium` and `coverage` were REQUIRED, and the passport-timeline mapper in
+// VehicleProfile satisfies none of them — it sets `insurer` and leaves the rest absent, then casts
+// `as unknown as InsuranceRecord[]` to get past the compiler. The renderer then printed
+// `${ir.premium}/year` as a bare "$/year" and a blank provider for every governed record.
+//
+// A field CarUp does not hold is OPTIONAL, and a surface must say so rather than render an empty
+// money token. The cast is gone, so the compiler now checks the mapper against this shape.
 export interface InsuranceRecord {
   id: string;
-  provider: string;
-  policyNumber?: string;
+  /** Named on the governed passport timeline. */
+  insurer?: string | null;
+  provider?: string;
+  policyNumber?: string | null;
   policy_number?: string;
-  type: string;
+  type?: string;
   startDate?: string;
   start_date?: string;
   expiryDate?: string;
   expiry_date?: string;
-  premium: number;
+  premium?: number;
   currency?: string;
   status: 'active' | 'expired' | 'pending' | string;
-  coverage: string[];
+  coverage?: string[];
 }
 
 // 14. ServiceRecord

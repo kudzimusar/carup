@@ -32,7 +32,13 @@ export type MarketplacePublicStatus =
   | 'rejected'
   | 'archived';
 
-export type MarketplaceRiskStatus = 'clear' | 'watch' | 'flagged' | 'blocked';
+/**
+ * `'unavailable'` means the trust INPUTS could not be read — not that they were read and found
+ * clean. Without it, a failed `vehicle_evidence` / `partsentry_logs` query published `'clear'`,
+ * suppressed the risk banner and set `operator_review_required: false` for a vehicle whose rows
+ * might carry `flagged`. "Not checked" and "checked and clean" are different facts.
+ */
+export type MarketplaceRiskStatus = 'clear' | 'watch' | 'flagged' | 'blocked' | 'unavailable';
 
 export type MarketplacePartSentryPublicStatus =
   | 'not_applicable'
@@ -52,7 +58,7 @@ export interface MarketplacePartFitment {
   variant?: string | null;
 }
 
-export type MarketplaceEvidenceStatus = 'none' | 'partial' | 'verified' | 'review_required';
+export type MarketplaceEvidenceStatus = 'none' | 'partial' | 'verified' | 'review_required' | 'unavailable';
 
 export type MarketplaceIdentityStatus = 'unverified' | 'pending_review' | 'verified' | 'rejected';
 
@@ -65,7 +71,7 @@ export interface MarketplaceTrustSummary {
   identity_verified: boolean;
   dealer_verified: boolean;
   partsentry_public_status: MarketplacePartSentryPublicStatus;
-  suspicion_status: 'clear' | 'watch' | 'flagged';
+  suspicion_status: 'clear' | 'watch' | 'flagged' | 'unavailable';
   risk_status: MarketplaceRiskStatus;
   risk_reasons: string[];
   safe_public_copy: string;

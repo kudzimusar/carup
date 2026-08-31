@@ -936,17 +936,31 @@ function describeTrustRanking(summaries, sort) {
   };
 }
 
+/**
+ * Read rows for a set of VINs, reporting WHETHER THE READ HAPPENED as well as what it found.
+ *
+ * This used to `return []` on any error, and for the trust inputs that was not a degradation but an
+ * inversion: `deriveSuspicionLevel([])` is `'clear'` and `deriveEvidenceStatus([])` is `'none'`, so
+ * a failed `partsentry_logs` read published a governed all-clear — risk_status 'clear', no risk
+ * banner, `operator_review_required: false` — for a vehicle whose rows might carry `flagged`. The
+ * buyer could not tell it from a vehicle that was actually checked and found clean.
+ *
+ * The rule was already stated in this file, one reader down: `readListingImages` is deliberately
+ * kept OUT of this helper because "`[]` is a FINDING … and a read that threw has found nothing of
+ * the sort". Evidence and PartSentry were simply left inside it. They now carry the same `ok`
+ * discriminator the image reader already returns.
+ */
 async function maybeFetchRows(supabaseClient, table, select, vins, order) {
-  if (!vins.length) return [];
+  if (!vins.length) return { ok: true, rows: [] };
   try {
     let query = supabaseClient.from(table).select(select).in('vin', vins);
     if (order) query = query.order(order.column, { ascending: order.ascending });
     const { data, error } = await query;
     if (error) throw error;
-    return data || [];
+    return { ok: true, rows: data || [] };
   } catch (error) {
-    console.warn(`Marketplace summary skipped ${table}:`, error.message);
-    return [];
+    console.warn(`Marketplace summary could not read ${table}:`, error.message);
+    return { ok: false, rows: [] };
   }
 }
 
@@ -973,7 +987,7 @@ function withApprovalProvenance(rows, available) {
 }
 
 async function fetchPartSentryRows(supabaseClient, vins) {
-  if (!vins.length) return [];
+  if (!vins.length) return { ok: true, rows: [] };
   const run = async (select) => {
     const { data, error } = await supabaseClient
       .from('partsentry_logs')
@@ -985,18 +999,20 @@ async function fetchPartSentryRows(supabaseClient, vins) {
   };
 
   try {
-    return withApprovalProvenance(await run(PARTSENTRY_GOVERNED_SELECT), true);
+    return { ok: true, rows: withApprovalProvenance(await run(PARTSENTRY_GOVERNED_SELECT), true) };
   } catch (error) {
     if (!isMissingApprovedByError(error)) {
-      console.warn('Marketplace summary skipped partsentry_logs:', error.message);
-      return [];
+      // A HARD failure. Not the same thing as the approved_by column drift below, which is a
+      // known additive-migration lag with its own honest degraded state.
+      console.warn('Marketplace summary could not read partsentry_logs:', error.message);
+      return { ok: false, rows: [] };
     }
     console.warn('Marketplace summary using legacy partsentry_logs projection: approved_by unavailable.');
     try {
-      return withApprovalProvenance(await run(PARTSENTRY_LEGACY_SELECT), false);
+      return { ok: true, rows: withApprovalProvenance(await run(PARTSENTRY_LEGACY_SELECT), false) };
     } catch (legacyError) {
-      console.warn('Marketplace summary skipped partsentry_logs legacy projection:', legacyError.message);
-      return [];
+      console.warn('Marketplace summary could not read partsentry_logs legacy projection:', legacyError.message);
+      return { ok: false, rows: [] };
     }
   }
 }
@@ -1259,7 +1275,7 @@ async function readListingImages(supabaseClient, vins) {
  * media may be published from this result.
  */
 export async function fetchListingRelatedRows(supabaseClient, vins = []) {
-  const [evidenceRows, partSentryRows, ownershipRows, imageRead] = await Promise.all([
+  const [evidenceRead, partSentryRead, ownershipRead, imageRead] = await Promise.all([
     maybeFetchRows(supabaseClient, 'vehicle_evidence', 'vin, verification_status, visibility_level', vins),
     // approved_by/mechanic_id are fetched ONLY for the in-memory self-approval guard; never echoed publicly.
     fetchPartSentryRows(supabaseClient, vins),
@@ -1267,11 +1283,17 @@ export async function fetchListingRelatedRows(supabaseClient, vins = []) {
     readListingImages(supabaseClient, vins),
   ]);
   return {
-    evidenceByVin: toRecordMap(evidenceRows),
-    partSentryByVin: toRecordMap(partSentryRows),
-    ownershipByVin: toRecordMap(ownershipRows),
+    evidenceByVin: toRecordMap(evidenceRead.rows),
+    partSentryByVin: toRecordMap(partSentryRead.rows),
+    ownershipByVin: toRecordMap(ownershipRead.rows),
     imagesByVin: toRecordMap(imageRead.rows || []),
     listingImagesRead: imageRead.ok,
+    // The same discriminator, for the two reads the trust summary is derived from. `false` means
+    // the query did not resolve, and NO governed negative — not 'clear', not 'none', not a zero —
+    // may be published from that result.
+    evidenceRead: evidenceRead.ok,
+    partSentryRead: partSentryRead.ok,
+    ownershipRead: ownershipRead.ok,
   };
 }
 

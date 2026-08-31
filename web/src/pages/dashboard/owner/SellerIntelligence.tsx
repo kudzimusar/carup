@@ -153,8 +153,12 @@ export default function SellerIntelligence() {
   // the previous window can never be shown as the answer for the new one: the moment `readKey`
   // changes, `state` reads 'loading' again on the very same render.
   const readKey = `${windowDays}:${refreshKey}`
-  const [settled, setSettled] = useState<{ key: string; status: 'ready' | 'error' } | null>(null)
+  const [settled, setSettled] = useState<{ key: string; status: 'ready' | 'error'; vehiclesRead: boolean } | null>(null)
   const state: 'loading' | 'ready' | 'error' = settled?.key === readKey ? settled.status : 'loading'
+  // The owned-vehicles read settles INDEPENDENTLY of the pulse read (Promise.allSettled), and a
+  // rejected one becomes `[]`. Tracked separately so an unreadable listing set cannot render as an
+  // empty comparison table — which reads as "you have no listings", a claim nobody measured.
+  const vehiclesRead = settled?.key === readKey ? settled.vehiclesRead : false
 
   useEffect(() => {
     let active = true
@@ -185,7 +189,11 @@ export default function SellerIntelligence() {
       }))
       if (!active) return
       setListingInsights(Object.fromEntries(insightPairs))
-      setSettled({ key: readKey, status: pulseResult.status === 'fulfilled' ? 'ready' : 'error' })
+      setSettled({
+        key: readKey,
+        status: pulseResult.status === 'fulfilled' ? 'ready' : 'error',
+        vehiclesRead: vehicleResult.status === 'fulfilled',
+      })
     })
 
     return () => { active = false }
@@ -359,7 +367,20 @@ export default function SellerIntelligence() {
                   </tr>
                 </thead>
                 <tbody>
-                  {vehicles.map(vehicle => {
+                  {!vehiclesRead ? (
+                    <tr className="border-b border-slate-200">
+                      <td colSpan={6} className="py-6 text-sm text-slate-600" data-testid="seller-intelligence-listings-unavailable">
+                        CarUp could not read your listings. This table is empty because nothing was
+                        read — it is not a statement that you have no listings.
+                      </td>
+                    </tr>
+                  ) : vehicles.length === 0 ? (
+                    <tr className="border-b border-slate-200">
+                      <td colSpan={6} className="py-6 text-sm text-slate-600" data-testid="seller-intelligence-no-listings">
+                        You have no listings yet.
+                      </td>
+                    </tr>
+                  ) : vehicles.map(vehicle => {
                     const insight = listingInsights[vehicle.vin]
                     return (
                       <tr key={vehicle.vin} className="border-b border-slate-200">

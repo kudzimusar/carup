@@ -198,142 +198,24 @@ and `partsentry_logs`; `insurance_records` is privileged-only and reports
 Verifier: `backend/tests/r27-durable-history-survives-commerce.test.js` — 9/9. The provider-gated
 `[~]` items (M16–M18, R22–R26, R28) keep their qualifications unchanged; none was upgraded.
 
-### One finding deliberately NOT fixed here
+### What the independent audit added
 
-`maybeFetchRows` in `listingSummaryService.js` swallows a FAILED `vehicle_evidence` /
-`partsentry_logs` / `vehicle_ownership_history` read into `return []`, so a read fault becomes a
-governed negative on the buyer-facing summary — the same class the file already solved for images
-(`readListingImages` returns `{rows, ok}` and its comment states that `false` means "NO negative
-about listing media may be published"). It is recorded rather than fixed because it is
-**byte-identical to `origin/main`** and untouched by either joined lane: it is a pre-existing main
-defect, and correcting it means threading a read-status flag through five consuming services.
-Recorded as a bounded residual in `AUTHORITY_AUDIT_REGISTER.md`.
+A 47-agent read-only audit of the joined head, with every finding handed to three adversarial
+verifiers instructed to REFUTE it, produced **four surviving findings** beyond the SJO rows above.
+All four are fixed; the four findings it raised against surfaces already corrected during the same
+cycle were REFUTED by verifiers reading current source, which is independent confirmation those
+fixes landed.
 
----
-
-## 4. Seller Join Contract
-
-### 4.1 Seller MUST consume, never re-implement
-
-| Concern | Canonical authority Seller must use |
+| Finding | Fix |
 |---|---|
-| Authentication / session | the custom backend auth (**not** Supabase Auth — `auth.users` is empty by design) |
-| Identity | the canonical user/identity service |
-| Ownership | the canonical ownership/transfer authority (`20260828203000_passport_ownership_transfer_authority`) — seller identity is `current_seller_id`, never `owner_id` |
-| Vehicle Passport | the canonical passport projection |
-| Trust | `canonicalTrustService` — the single trust authority |
-| Evidence | the canonical evidence authority and its taxonomy |
-| Marketplace publication | the canonical publication authority |
-| Communications | the canonical communications routing + outbound transport |
-| Intelligence | the canonical activity ledger and rollups — observation only |
-| Lifecycle / events | `blockchainService.addEvent` and the existing event/outbox architecture |
+| `listingSummaryService.js:939` — a FAILED `vehicle_evidence` / `partsentry_logs` read published as a governed all-clear | `{ ok, rows }` discriminator; `buildTrustSummary` fails closed to `'unavailable'`; `TrustSummaryPanel` renders "Not checked". See the CLOSED entry in `AUTHORITY_AUDIT_REGISTER.md`. Verifier: `marketplace-trust-inputs-unreadable.test.js` (8). |
+| `SellerIntelligence.tsx:362` — a failed owned-vehicles read rendered an empty comparison table, reading as "you have no listings" | the vehicles read is now tracked separately from the pulse read; unread and empty are distinct messages. |
+| `VehicleProfile.tsx:546` — every governed insurance record printed a blank provider and a bare `"$/year"` with no figure | the renderer read `ir.provider`/`ir.premium`, which the passport-timeline mapper never sets; it set `insurer`. The `as unknown as InsuranceRecord[]` cast that let that shape through is removed and the type made honest, so the compiler now checks the mapper. |
+| `SellerDocumentAutofillNotice.tsx:27` — a failed OCR health read was written as an empty successful result, rendering "Coming soon on this preview" | a distinct `readFailed` state; the measured negative still renders. |
 
-### 4.2 Seller MUST NOT introduce
+Verifier for the last three: `web/src/pages/dashboard/owner/ownerSurfaces.truthStates.test.tsx` (9).
 
-- a second ownership model;
-- a second trust score authority, or any client-supplied trust value;
-- a second Passport lifecycle;
-- a second communication transport, or a direct provider call;
-- a second analytics writer;
-- a duplicate evidence authority;
-- alternate listing publication semantics;
-- client-owned security decisions;
-- a second ledger writer. **Any Seller ledger write goes through `addEvent` and must
-  supply a durable `operationId`** from state Seller has already committed. See §4.3.
-
-### 4.3 The ledger contract Seller inherits from this cycle
-
-`addEvent(vin, eventType, payload, signature, { operationId })` now requires a **durable
-operation identity** for any write that lands on the terminal instant, and records one
-whenever the caller has one.
-
-Durable means: derived from state the caller has **already committed**, so a fresh retry
-recomputes it and a genuinely new invocation cannot. A value minted inside the write path
-(`randomUUID()`, `Date.now()`) is not an identity and is explicitly rejected.
-
-Namespaced form: `<namespace>:<durable-id>`, e.g. `partsentry_log:4711`.
-Existing namespaces: `partsentry_log`, `insurance_policy`, `finance_application`,
-`stolen_alert`, `stolen_clear`, `reservation_recorded`, `escrow_initiated`.
-
-Seller must claim its own namespace(s) and must not reuse another domain's.
-
----
-
-## 5. Seller Join Verification Battery
-
-Run in this order as soon as the final Seller candidate is merged into the hardened #194.
-Every item is executable; none is a review opinion.
-
-### 5.1 Seller behaviour
-
-| # | Check | Command / evidence |
-|---|---|---|
-| B1 | Seller unit + contract suites green | `cd web && npx vitest run src/pages/SellFlow* src/pages/Seller* src/lib/guestSellDraft*` |
-| B2 | Seller backend contracts green | `node --test backend/tests/seller-*.test.js backend/tests/auth-registration-profile.test.js` |
-| B3 | Seller Golden staging UAT | `.github/workflows/seller-exact-head-staging-uat.yml` at the joined head |
-| B4 | Registration/profile staging gate | `.github/workflows/seller-registration-profile-staging.yml` |
-
-### 5.2 Invariants Seller must preserve in the rest of the platform
-
-| # | Invariant | How it is proven |
-|---|---|---|
-| B5 | **One route per path.** No duplicate registration after both lanes' `App.tsx` edits merge. | `routeAccess.advancement.test.ts`, `RegistryRouteBoundary.test.tsx`, plus a grep for duplicate `path=` literals |
-| B6 | **Registry/manifest agree.** | `featureManifest.drift.test.ts` |
-| B7 | **One trust authority.** No Seller path writes a trust score. | `grep -rn "trust_score" backend/services` → writes only via `canonicalTrustService` |
-| B8 | **One ownership authority.** | no Seller `.from('vehicles').update` touching ownership columns |
-| B9 | **One ledger writer, with durable identity.** | `node --test backend/tests/issue-158-terminal-operation-identity.test.js` — includes a source contract asserting every stakeholder writer binds a durable identity; extend its writer table with Seller's |
-| B10 | **Terminal ledger invariants intact.** | `node --test backend/tests/issue-158-*.test.js` — 24 checks, incl. 3 mutation kills |
-| B11 | **Unknown is not zero.** No Seller surface renders an unread value as a measured zero. | the `parts-not-yet-counted` pattern; assert each Seller tile is absent before its read settles |
-| B12 | **No second communication transport.** | `grep -rn "nodemailer\|twilio\|whatsapp" backend/services` outside the canonical communications service |
-| B13 | **No duplicate analytics writer.** | `grep -rn "activity_ledger\|analytics_events" backend/services` — one writer |
-| B14 | **Migration integrity.** Seller's migrations carry `-- +migrate Up`, use unused version names and never edit a published migration. | `node --test backend/tests/migration-integrity*.test.js` + `git diff origin/main -- database/migrations/` shows only additions |
-| B15 | **Tenant isolation.** No Seller query drops `tenant_id` scoping. | `node --test backend/tests/db-compat-legacy-scopes.test.js` |
-| B16 | **Full non-Seller battery still green at the joined head.** | the §14 battery in the hardening receipt, re-run unchanged |
-
-### 5.3 Determinism gate
-
-B5–B16 must pass **three consecutive times** on the joined head. This cycle closed a real
-flake by fixing its cause (`PartsTracking` rendered measured zeros before its read settled,
-so `findByTestId` could resolve against the pre-read paint). A single green run would not
-have caught it; three would.
-
----
-
-## 5.4 Concurrency discipline — learned the hard way this cycle
-
-Two Claude sessions were given this same mission and worked it simultaneously. The evidence:
-
-- A second session pushed five commits to `hardening/non-seller-convergence` — the branch
-  name this brief specifies — implementing the SAME Issue #158 durable-identity contract and
-  the SAME PartsTracking fix, independently.
-- It also pushed `be8706db` to PR #196, fixing the SAME review thread this session had
-  already fixed locally.
-- PR #200's file list grew from 17 to 24 files mid-cycle.
-
-Nothing was clobbered, because every push was checked for fast-forward first and the local
-#196 commit was discarded rather than forced. But two sessions independently produced two
-migrations adding the same `operation_id` column with different constraint and index names —
-which, had both landed, would have left `blockchain_events` carrying two equivalent CHECKs
-and two overlapping unique indexes. That is precisely the "no duplicate system authorities"
-non-negotiable, arrived at by process failure rather than design failure.
-
-**Rules for the Seller join:**
-
-1. **Re-fetch and re-verify every SHA immediately before acting.** Every authority in §1 was
-   re-verified at the start of this cycle and three of them moved during it.
-2. **Never force-push a shared branch.** If a push is rejected, read the other side's commits
-   before deciding anything.
-3. **One lane owns one branch.** If two lanes must touch the same concern, one merges onto the
-   other as the base — the losing migration is DELETED, not kept alongside.
-4. **Deconflict before starting**, not after pushing.
-
----
-
-## 6. Status
-
-- **FINAL SELLER INTEGRATION NOT YET CERTIFIED.**
-- **FINAL #194 RECEIPT NOT YET AUTHORIZED.**
-- **#197 FINAL REBASE NOT YET PERFORMED.**
-- **PRODUCTION NOT ACTIVATED.**
-
-Next trigger: **FINAL SELLER CANDIDATE READY.**
+One methodological note worth keeping: the verification ran CONCURRENTLY with the fixes, so four
+findings show as "refuted" purely because the verifiers read source that had already been corrected.
+A refuted verdict in that window means "not present now", not "was never real" — each of those four
+was confirmed against the original source before it was changed.

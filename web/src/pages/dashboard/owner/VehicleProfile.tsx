@@ -255,7 +255,7 @@ export default function VehicleProfile() {
         policyNumber: null as string | null,
         startDate: statedDate(e.timestamp) ?? 'Date not recorded',
         status: 'recorded',
-      })) as unknown as InsuranceRecord[],
+      })) as InsuranceRecord[],
     // PARTS and SERVICES ARE NOT THE SAME EVENTS. Both collections used to filter
     // `event_source === 'service'`, and the only 'service'-sourced timeline entries are PartSentry
     // part logs — so Golden A's single part log was published as "Total Services 1 AND Total Parts 1",
@@ -535,16 +535,33 @@ export default function VehicleProfile() {
                   )}
                   {vehicle.insuranceRecords.map((ir) => (
                     <div key={ir.id} className={`p-4 rounded-lg border ${ir.status === 'active' ? 'bg-green-50 border-green-200' : 'bg-gray-50 border-gray-200'}`}>
+                      {/* RENDER ONLY WHAT WAS RECORDED. This block read `ir.provider`, `ir.type`,
+                          `ir.premium` and `ir.expiryDate`, none of which the passport timeline
+                          mapper above sets — it sets `insurer`, and leaves `policyNumber` null. So
+                          every governed insurance record rendered a blank provider, "Policy: ", a
+                          bare "$/year" money token with no figure, and a dangling "… to ". A money
+                          symbol with no amount is not a smaller fact than a premium; it is an
+                          invented one, and the premium is not a field CarUp holds here at all. */}
                       <div className="flex items-center justify-between mb-2">
                         <div className="flex items-center gap-2">
                           <Shield className="w-5 h-5 text-green-600" />
-                          <span className="font-medium">{ir.provider}</span>
+                          <span className="font-medium" data-testid="insurance-record-insurer">
+                            {ir.insurer || 'Insurer not recorded'}
+                          </span>
                         </div>
                         <Badge className={ir.status === 'active' ? 'bg-green-500 text-white' : 'bg-gray-500 text-white'}>{ir.status}</Badge>
                       </div>
-                      <p className="text-sm text-gray-600 mb-2">Policy: {ir.policyNumber}</p>
-                      <p className="text-sm text-gray-600">{ir.type} • ${ir.premium}/year</p>
-                      <p className="text-xs text-gray-500 mt-1">{ir.startDate} to {ir.expiryDate}</p>
+                      <p className="text-sm text-gray-600 mb-2" data-testid="insurance-record-policy">
+                        Policy: {ir.policyNumber || 'not recorded'}
+                      </p>
+                      <p className="text-xs text-gray-500 mt-1" data-testid="insurance-record-dates">
+                        {ir.startDate}
+                        {ir.expiryDate ? ` to ${ir.expiryDate}` : ' — end date not recorded'}
+                      </p>
+                      <p className="mt-2 text-xs text-gray-500">
+                        Cover type and premium are not held by CarUp for this record. Their absence
+                        here is not a statement about the policy.
+                      </p>
                     </div>
                   ))}
                 </CardContent>

@@ -222,7 +222,14 @@ export async function getMarketplaceListingDetail(supabaseClient, vin, { audienc
   });
   const projectedListingStatus = projectListingStatusWithReservation(listingSummary.status, reservationSummary);
 
-  const trust_summary = buildTrustSummary({ vehicle, listingSummary, evidenceRows, partSentryRows, audience });
+  const trust_summary = buildTrustSummary({
+    vehicle, listingSummary, evidenceRows, partSentryRows, audience,
+    // Carry WHETHER each trust input actually resolved, so an unreadable table cannot be published
+    // as a governed all-clear. `related` defaults these to true when a caller supplies pre-fetched
+    // rows without the discriminators.
+    evidenceRead: related?.evidenceRead !== false,
+    partSentryRead: related?.partSentryRead !== false,
+  });
   const verification_summary = buildVerificationSummary({ vehicle, listingSummary, evidenceRows, partSentryRows });
   const pricing_summary = buildPricingSummary({ listingSummary, listingType: 'vehicle' });
 
