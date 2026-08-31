@@ -217,7 +217,16 @@ test.describe('Golden Dynamic Seller — exact-head deployed acceptance', () => 
     // consumes it by the evidence-verification step alone, well before publish/marketplace/inquiry.
     // The job-level timeout-minutes: 35 in seller-exact-head-staging-uat.yml has ample headroom for
     // this across all three (sequential, workers: 1) viewport projects.
-    test.setTimeout(300_000);
+    //
+    // 300s was then measured to be too tight to be a gate rather than a coin flip: the first runs in
+    // which the journey actually completed took 4.8m (288s) on desktop and tablet — 4% under the
+    // ceiling — and the very next run timed out all three at exactly 300s while doing the same work.
+    // A budget that close to the measured runtime fails healthy journeys, which is the failure mode
+    // this ceiling exists to prevent, not one it should cause. 480s keeps ~66% headroom over the
+    // measured pass; three sequential projects at that worst case is ~24m, still inside the job's
+    // 35m cap with room for setup and teardown. Per-action timeouts are unchanged, so a genuinely
+    // hung step still fails fast on its own assertion rather than idling to this ceiling.
+    test.setTimeout(480_000);
     const truth = envTruth();
     expect(truth.mode, 'Seller acceptance is not pinned to the frozen exact-head bundle').toBe('acceptance');
     expect(requireIdentity('buyer'), 'owner Seller identity is unavailable').toBe(true);

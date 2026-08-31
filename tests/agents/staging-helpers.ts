@@ -90,10 +90,16 @@ async function instrument(page: Page, cap: Capture) {
  */
 const PREVIEW_TOOLBAR_ORIGIN = /^https:\/\/vercel\.live\//;
 
-export const stagingTest = base.extend<{ cap: Capture }>({
+export const stagingTest = base.extend<{ cap: Capture; previewToolbarBlocked: void }>({
+  // AUTO. It must apply to every staging test, not only the ones that opt into `cap` — the Golden
+  // journey takes `{ page, request }` and would otherwise still be measured through the overlay.
+  previewToolbarBlocked: [async ({ page }, use) => {
+    await page.context().route(PREVIEW_TOOLBAR_ORIGIN, (route) => route.abort());
+    await use();
+  }, { auto: true }],
+
   cap: async ({ page }, use, testInfo) => {
     const cap: Capture = { consoleErrors: [], pageErrors: [], fiveHundreds: [], fourHundreds: [] };
-    await page.context().route(PREVIEW_TOOLBAR_ORIGIN, (route) => route.abort());
     await instrument(page, cap);
     await use(cap);
     // Record failed 4xx with request context (informational), fail hard on 5xx + console/page errors.
