@@ -422,6 +422,9 @@ export default function Marketplace() {
   const [trustRanking, setTrustRanking] = useState<TrustRanking | null>(null)
   const [favorites, setFavoritesState] = useState<string[]>(getFavorites)
   const [mobileFiltersOpen, setMobileFiltersOpen] = useState(false)
+  // Set the instant a save/unsave click fires, so the in-flight initial-load fetch (which started
+  // before that click and can resolve after it) never overwrites a more recent optimistic update.
+  const favoritesMutatedRef = useRef(false)
 
   const url = useMemo(() => paramsToState(searchParams), [searchParams])
   const fixtureScope = searchParams.get('fixture_scope') || undefined
@@ -466,7 +469,12 @@ export default function Marketplace() {
     let active = true
     fetchSavedMarketplaceListings()
       .then(response => {
-        if (active) setFavoritesState((response.listings || []).map(listing => listing.vin).filter(Boolean))
+        // A save/unsave click already told us the true state more recently than this request
+        // started; applying this response on top would revert that optimistic update back to
+        // whatever was saved before the click, even though the mutation itself succeeded.
+        if (active && !favoritesMutatedRef.current) {
+          setFavoritesState((response.listings || []).map(listing => listing.vin).filter(Boolean))
+        }
       })
       .catch(() => { /* retain current view; never copy authenticated state to guest localStorage */ })
     return () => { active = false }
@@ -528,6 +536,7 @@ export default function Marketplace() {
   const toggleFavorite = useCallback(async (event: React.MouseEvent, vin: string, vehicleName: string) => {
     event.preventDefault()
     event.stopPropagation()
+    favoritesMutatedRef.current = true
     const isSaved = favorites.includes(vin)
     const optimistic = isSaved ? favorites.filter(id => id !== vin) : [...favorites, vin]
 
