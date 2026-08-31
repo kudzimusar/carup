@@ -210,8 +210,14 @@ test.describe('Golden Dynamic Seller — exact-head deployed acceptance', () => 
   test('fresh Seller lifecycle holds end-to-end without a seed/reference vehicle', async ({ page, request }, testInfo) => {
     // This is a deployed-staging lifecycle across auth, storage, evidence, publication, inquiry and
     // Seller surfaces. Keep strict per-action timeouts, but do not let the suite-level 90s ceiling
-    // terminate a healthy journey before its cleanup/lifecycle assertions can finish.
-    test.setTimeout(180_000);
+    // terminate a healthy journey before its cleanup/lifecycle assertions can finish. 180s was sized
+    // for an earlier, shorter version of this journey; real (non-mocked) staging latency for the
+    // steps now in scope — evidence upload/verify (each several seconds, verify includes a full
+    // canonical Trust refresh), multiple full page navigations, and 7 real image uploads — reliably
+    // consumes it by the evidence-verification step alone, well before publish/marketplace/inquiry.
+    // The job-level timeout-minutes: 35 in seller-exact-head-staging-uat.yml has ample headroom for
+    // this across all three (sequential, workers: 1) viewport projects.
+    test.setTimeout(300_000);
     const truth = envTruth();
     expect(truth.mode, 'Seller acceptance is not pinned to the frozen exact-head bundle').toBe('acceptance');
     expect(requireIdentity('buyer'), 'owner Seller identity is unavailable').toBe(true);
