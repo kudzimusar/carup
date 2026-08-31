@@ -23,7 +23,11 @@ and mitigated 2 more.
 |---|---|---|
 | CLOSED | 12 | fixed, each with a regression test |
 | MITIGATED | 3 | the exploitable reach is closed; a named residual remains, recorded per finding |
-| OPEN | 15 | precisely located, not fixed — see the scope note below |
+| OPEN | 16 | precisely located, not fixed — see the scope note below |
+
+**31, not 30.** The convergence's own SJO-4 audit surfaced one finding the original 79-agent audit
+did not: a failed marketplace evidence/PartSentry/ownership read published as a governed negative.
+It is recorded in P2 with its disposition rather than folded silently into the original count.
 
 ### What the V16 convergence closed
 
@@ -39,7 +43,7 @@ Every P0 and every P1 that was reachable and bounded:
 | P1 — any authenticated user could drive a diaspora trust score to 0 or 100 | CLOSED |
 | P1 — mechanic odometer write reached every VIN (two findings, one root cause) | MITIGATED — reach closed, irreversibility recorded |
 
-**Why 15 remain open.** The mandate was to fix what is bounded and safe to remediate now, not
+**Why 16 remain open.** The mandate was to fix what is bounded and safe to remediate now, not
 to broaden into unrelated feature work. The remaining items are overwhelmingly pre-existing
 `main` defects rather than #194 convergence defects, and several (the parallel diaspora trust
 engines, the odometer authority fragmentation, the JS/SQL transfer state-machine duplication)
@@ -220,6 +224,38 @@ open obligation rather than attempted here.
 
 **Required behaviour:** Add every name above to backend/env.example (and the frontend-relevant ones to .env.example) with the same explanatory comments the Email 1.0 block uses, marking which are REQUIRED-in-production versus optional. Pair this with finding 7 so a missing required secret is caught at boot rather than at first use.
 
+
+### [OPEN] A FAILED marketplace evidence/PartSentry/ownership read is published as a governed negative
+
+**Location:** `backend/services/marketplace/listingSummaryService.js:939`
+
+**Found by:** the V16 convergence SJO-4 audit. Recorded rather than fixed — see the disposition.
+
+**Evidence:** `maybeFetchRows` catches ANY error and `return []` (line 951), with only a
+`console.warn`. It is the reader for `vehicle_evidence`, `vehicle_ownership_history` and (via
+`fetchPartSentryRows`) `partsentry_logs` in `fetchListingRelatedRows` (:1262-1267). Downstream an
+empty array is indistinguishable from a successful empty read: `derivePartSentryPublicStatus`
+returns `'not_applicable'` for `!allRows.length` (:467), and the evidence/ownership counts become 0.
+So a database fault publishes a governed negative — "no PartSentry record applies", zero verified
+evidence, zero ownership history — to a buyer, on the marketplace card and the listing detail.
+The SAME file already solves this correctly one line down for images: `readListingImages` returns
+`{ rows, ok }`, `fetchListingRelatedRows` publishes `listingImagesRead: imageRead.ok`, and its
+comment states that `false` means "the query did not resolve and NO negative about listing media
+may be published from this result" (:1257-1259). Evidence, PartSentry and ownership have no such
+discriminator.
+
+**Required behaviour:** give `maybeFetchRows` the `{ rows, ok }` shape the image reader already
+uses, propagate an `ok` flag per source through `fetchListingRelatedRows`, and make each consumer
+publish an explicit unavailable/unknown state instead of a negative when its source did not
+resolve.
+
+**Disposition (V16 convergence):** NOT fixed in this convergence, deliberately. The function is
+**byte-identical to `origin/main`** and was touched by neither joined lane, so it is a pre-existing
+main defect rather than joined-state drift; and the correction threads a read-status flag through
+five consuming services (`marketplaceListingDetailService`, `marketplaceDiscoveryService`,
+`marketplaceModerationService`, `marketplaceSavedService`, and `listingSummaryService` itself).
+Expanding that refactor into a convergence whose job was to join two frozen lanes would have been
+the wrong trade. Located to file and line here so the next lane starts from evidence.
 
 ## P2 (13)
 

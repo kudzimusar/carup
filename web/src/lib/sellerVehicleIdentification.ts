@@ -49,14 +49,25 @@ export function isCompleteVin(value: string): boolean {
 }
 
 /**
- * A transport failure and a "no such passport" answer must not collapse into the same message.
- * Claiming "CarUp holds no record" when the request never reached CarUp would be a fabricated fact.
+ * "CarUp holds no Passport for this VIN" is a POSITIVE FACT, and only a positive answer may
+ * produce it. Everything else is "we could not check".
+ *
+ * This used to be asked the other way round — `isTransportFailure`, defaulting to FALSE — so any
+ * error whose message did not happen to match a network-ish word was classified as "no record".
+ * A 500, a 503, a 401, a 429, or any failure whose body supplied its own message (the API client
+ * throws `extractApiErrorMessage(body) || 'HTTP error! status: N'`) therefore told the seller CarUp
+ * holds no Passport, and the copy for that state invites them to create one. That is a fabricated
+ * negative fact, and its consequence is a duplicate Vehicle Passport.
+ *
+ * The API client attaches the real `status` to the thrown Error, so the question is answered from
+ * the status code where one exists, and only falls back to the message when it does not.
  */
-function isTransportFailure(error: unknown): boolean {
-  if (error instanceof TypeError) return true
+function indicatesNoCarUpRecord(error: unknown): boolean {
+  const status = (error as { status?: unknown } | null)?.status
+  if (typeof status === 'number') return status === 404
+  if (error instanceof TypeError) return false
   const message = error instanceof Error ? error.message : String(error ?? '')
-  if (/\b(404|not found)\b/i.test(message)) return false
-  return /network|fetch|timeout|aborted|ECONN|ENOTFOUND|Failed to fetch/i.test(message)
+  return /\b(404|not found)\b/i.test(message)
 }
 
 type PassportLookup = (identifier: string) => Promise<unknown>
@@ -88,7 +99,8 @@ export async function identifySellerVehicle(
     return { state: 'passport_exists', vin, passportVehicle: identified }
   } catch (error) {
     return {
-      state: isTransportFailure(error) ? 'check_unavailable' : 'no_carup_record',
+      // FAIL CLOSED: anything that is not a positive "not found" is an unchecked VIN.
+      state: indicatesNoCarUpRecord(error) ? 'no_carup_record' : 'check_unavailable',
       vin,
       passportVehicle: null,
     }

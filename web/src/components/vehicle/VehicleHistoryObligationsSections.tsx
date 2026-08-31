@@ -57,6 +57,28 @@ function NotRecorded({ topic }: { topic: string }) {
   )
 }
 
+/**
+ * "We could not read this" is not "the seller did not answer".
+ *
+ * `VehicleDetail` passes `passport?.history_disclosures ?? null`, and `passport` is null both
+ * BEFORE the read settles and AFTER it fails. Routing that through `NotRecorded` told the buyer
+ * "the seller has not answered this question" — a statement about the SELLER'S CONDUCT, derived
+ * from a fault on CarUp's side. The three states have to stay three.
+ */
+function HistoryNotRead({ topic }: { topic: string }) {
+  return (
+    <p className="text-sm text-slate-500" data-testid={`history-${topic}-not-read`}>
+      CarUp has not read this vehicle’s recorded history. Nothing here is a statement about what the
+      seller did or did not declare, and this is not a clean-history claim.
+    </p>
+  )
+}
+
+/** Picks the honest statement for a topic with no answer: unread block, or answered-nothing. */
+function TopicUnanswered({ blockRead, topic }: { blockRead: boolean; topic: string }) {
+  return blockRead ? <NotRecorded topic={topic} /> : <HistoryNotRead topic={topic} />
+}
+
 function GovernedBadge() {
   return (
     <span className="inline-flex items-center rounded-full border border-emerald-300 bg-emerald-50 px-2 py-0.5 text-[10px] font-black uppercase tracking-[0.12em] text-emerald-800">
@@ -72,6 +94,10 @@ export function VehicleHistoryObligationsSections({
   disclosures: VehicleHistoryDisclosuresBlock | null | undefined
   financeObligation?: FinanceObligationBlock | null
 }) {
+  // An ABSENT block (unread / failed read) is a different fact from a block that was read and
+  // carries no answer. `disclosures === null` is the former; `disclosures.accident === null` the
+  // latter. Collapsing them attributes CarUp's read failure to the seller.
+  const blockRead = disclosures != null
   const accident = disclosures?.accident ?? null
   const insurance = disclosures?.insurance ?? null
   const finance = disclosures?.finance ?? null
@@ -118,7 +144,7 @@ export function VehicleHistoryObligationsSections({
                 )}
               </div>
             ) : (
-              <div className="mt-1.5"><NotRecorded topic="accident" /></div>
+              <div className="mt-1.5"><TopicUnanswered blockRead={blockRead} topic="accident" /></div>
             )}
           </div>
           <p className="border-t border-slate-100 pt-3 text-xs leading-5 text-slate-500" data-testid="history-accident-governed-state">
@@ -148,7 +174,7 @@ export function VehicleHistoryObligationsSections({
                 {insurance.insurer_name ? <span className="font-normal text-slate-600"> — {insurance.insurer_name} (seller-stated)</span> : null}
               </p>
             ) : (
-              <div className="mt-1.5"><NotRecorded topic="insurance" /></div>
+              <div className="mt-1.5"><TopicUnanswered blockRead={blockRead} topic="insurance" /></div>
             )}
           </div>
           <p className="border-t border-slate-100 pt-3 text-xs leading-5 text-slate-500" data-testid="history-insurance-governed-state">
@@ -190,7 +216,7 @@ export function VehicleHistoryObligationsSections({
                 )}
               </div>
             ) : (
-              <div className="mt-1.5"><NotRecorded topic="finance" /></div>
+              <div className="mt-1.5"><TopicUnanswered blockRead={blockRead} topic="finance" /></div>
             )}
           </div>
           {/* GOVERNED half — a SEPARATE line from the seller's statement above, never merged with

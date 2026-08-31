@@ -31,12 +31,36 @@ describe('VehicleHistoryObligationsSections', () => {
     expect(screen.getByTestId('detail-finance-obligations-section')).toBeTruthy()
   })
 
-  it('states "Not recorded" for every unanswered topic and never a clean-history claim', () => {
-    const { container } = render(<VehicleHistoryObligationsSections disclosures={null} />)
+  it('states "Not recorded" for a topic the seller left unanswered, and never a clean-history claim', () => {
+    // The block WAS read; it simply carries no answer for any topic. That is a fact about the
+    // seller's declaration, so "Not recorded — the seller has not answered" is correct here.
+    const { container } = render(<VehicleHistoryObligationsSections disclosures={{
+      authority: 'seller_stated', accident: null, insurance: null, finance: null,
+    }} />)
     for (const topic of ['accident', 'insurance', 'finance']) {
       const node = screen.getByTestId(`history-${topic}-not-recorded`)
       expect(node.textContent).toMatch(/Not recorded/)
       expect(node.textContent).toMatch(/not a\s+clean-history claim/)
+    }
+    const text = container.textContent || ''
+    for (const forbidden of FORBIDDEN_CLEAN_CLAIMS) {
+      expect(text).not.toMatch(forbidden)
+    }
+  })
+
+  it('an UNREAD block is never attributed to the seller', () => {
+    // VehicleDetail passes `passport?.history_disclosures ?? null`, and `passport` is null both
+    // before the read settles and after it FAILS. Routing that through the same copy told the buyer
+    // "the seller has not answered this question" — a statement about the seller's conduct derived
+    // from a fault on CarUp's side. Unread, unanswered and answered are three states, not two.
+    const { container } = render(<VehicleHistoryObligationsSections disclosures={null} />)
+    for (const topic of ['accident', 'insurance', 'finance']) {
+      const node = screen.getByTestId(`history-${topic}-not-read`)
+      expect(node.textContent).toMatch(/has not read/i)
+      expect(node.textContent).not.toMatch(/seller has not answered/i)
+      // And still refuses a clean-history claim, which was already right and must stay right.
+      expect(node.textContent).toMatch(/this is not a clean-history claim/i)
+      expect(screen.queryByTestId(`history-${topic}-not-recorded`)).toBeNull()
     }
     const text = container.textContent || ''
     for (const forbidden of FORBIDDEN_CLEAN_CLAIMS) {

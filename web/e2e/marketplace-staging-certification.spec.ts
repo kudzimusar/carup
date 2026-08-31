@@ -501,6 +501,31 @@ test('guest can build a listing to private preview before authentication', async
   await page.getByTestId('guest-sell-year').fill('2019')
   await page.getByTestId('guest-sell-color').fill('Silver')
   await page.getByTestId('guest-sell-vin').fill('JT123456789012345')
+
+  // A COMPLETE VIN starts CarUp's existing-Passport check, and step-0 validation REFUSES to advance
+  // while it is in flight ("Wait for the CarUp Passport check to finish"). The check is a 400 ms
+  // debounce plus a staging round-trip, so clicking Continue straight after fill() was a race this
+  // test only won when the lookup happened to beat Playwright's own input latency — which is
+  // exactly why it passed on one candidate SHA and failed on the next.
+  //
+  // Waited out through the product's OWN settled state rather than a timeout or a retry: the
+  // spinner detaches and exactly one of the three settled notices appears. Nothing at all renders
+  // for an incomplete VIN, so this cannot pass before the check has actually run.
+  await expect(page.getByTestId('sell-vin-identification-checking')).toHaveCount(0)
+  await expect(
+    page.locator([
+      '[data-testid="sell-vin-no-carup-record"]',
+      '[data-testid="sell-vin-check-unavailable"]',
+      '[data-testid="sell-vin-passport-exists"]',
+    ].join(', ')).first(),
+  ).toBeVisible()
+
+  // Staging data is not this test's to control. If CarUp already holds a Passport for this VIN the
+  // product requires the guest to say whether it is the same vehicle before continuing, so answer
+  // through the intended control instead of routing around the gate.
+  const confirmSameVehicle = page.getByRole('button', { name: 'Yes — this is the same vehicle' })
+  if (await confirmSameVehicle.count()) await confirmSameVehicle.click()
+
   await page.getByRole('button', { name: 'Continue' }).click()
   await expect(page.getByTestId('guest-sell-listing-step')).toBeVisible()
 

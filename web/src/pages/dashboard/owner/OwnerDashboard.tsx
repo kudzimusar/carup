@@ -424,11 +424,30 @@ export default function OwnerDashboard() {
             <CardHeader className="pb-3">
               <div className="flex items-center justify-between">
                 <CardTitle className="text-lg">Notifications</CardTitle>
-                <Badge className="bg-orange-100 text-orange-700 text-[10px]">{recentNotifications.filter(n => !n.read).length} new</Badge>
+                {/* The badge is a COUNT, so it may only exist once something has been counted. It was
+                    rendered unconditionally off `recentNotifications`, which is [] both before the
+                    read settles and after it fails — so a pending or broken read published a
+                    measured "0 new". The same file already gates `unreadNotifications` on this exact
+                    state; this is that rule applied to the surface a user actually reads. */}
+                {notificationsState === 'ready' && (
+                  <Badge className="bg-orange-100 text-orange-700 text-[10px]">{recentNotifications.filter(n => !n.read).length} new</Badge>
+                )}
               </div>
             </CardHeader>
             <CardContent className="space-y-3">
-              {recentNotifications.map((n) => (
+              {notificationsState === 'loading' ? (
+                <p className="text-xs text-gray-600" data-testid="owner-notifications-not-read">
+                  Your notifications have not been read yet. No count is shown, because none has been counted.
+                </p>
+              ) : notificationsState === 'unavailable' ? (
+                <p className="text-xs text-gray-600" data-testid="owner-notifications-unavailable">
+                  CarUp could not read your notifications. This is NOT “you have no notifications” — nothing below has been counted.
+                </p>
+              ) : recentNotifications.length === 0 ? (
+                <p className="text-xs text-gray-600" data-testid="owner-notifications-none">
+                  No notifications yet.
+                </p>
+              ) : recentNotifications.map((n) => (
                 <div key={n.id} className={`p-3 rounded-lg ${n.read ? 'bg-gray-50' : 'bg-orange-50 border border-orange-100 text-xs'}`}>
                   <div className="flex items-start gap-2">
                     <div className={`w-1.5 h-1.5 rounded-full mt-1.5 shrink-0 ${n.type === 'warning' ? 'bg-amber-500' : n.type === 'success' ? 'bg-green-500' : 'bg-blue-500'}`} />

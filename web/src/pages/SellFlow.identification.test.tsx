@@ -5,8 +5,8 @@
  * These tests render the real Sell surfaces and assert the seller actually sees the S1 result, so
  * the detector cannot regress into an unreferenced module.
  */
-import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { render, screen, waitFor, fireEvent } from '@testing-library/react'
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
+import { act, render, screen, fireEvent } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
 
 const lookupVehiclePassport = vi.fn()
@@ -42,7 +42,31 @@ const renderAuthenticated = () => render(<MemoryRouter><SellVehicle /></MemoryRo
 beforeEach(() => {
   lookupVehiclePassport.mockReset()
   sessionStorage.clear()
+  // SJO-6. These tests used to wait on the WALL CLOCK: three `waitFor(..., { timeout: 3000 })`
+  // against a real 400 ms debounce, plus a literal 700 ms sleep. That is a latent load-sensitivity,
+  // not a CI flake — it failed 2 of 3 full-suite runs only under deliberate CPU saturation, where
+  // the 3000 ms budget was exceeded. Raising the budget would have hidden it; retries would have
+  // hidden it. The cause is the dependence on real time, so real time is removed.
+  //
+  // ONLY the timer functions are faked. Everything else — promises, React's scheduler, RTL — keeps
+  // its real implementation, so this narrows the test's coupling rather than replacing its runtime.
+  vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
 })
+
+afterEach(() => {
+  vi.useRealTimers()
+})
+
+/**
+ * Advance past `useSellerVehicleIdentification`'s 400 ms debounce and flush the lookup promise and
+ * the React update it causes. Deterministic: it costs no wall-clock time and cannot be lost to a
+ * saturated machine.
+ */
+async function settleIdentification() {
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(500)
+  })
+}
 
 describe.each([
   ['guest sell', renderGuest, 'guest-sell-vin'],
@@ -56,7 +80,8 @@ describe.each([
 
     fireEvent.change(screen.getByTestId(vinTestId), { target: { value: EXISTING_VIN } })
 
-    await waitFor(() => expect(screen.getByTestId('sell-vin-passport-exists')).toBeTruthy(), { timeout: 3000 })
+    await settleIdentification()
+    expect(screen.getByTestId('sell-vin-passport-exists')).toBeTruthy()
     expect(lookupVehiclePassport).toHaveBeenCalledWith(EXISTING_VIN)
 
     const notice = screen.getByTestId('sell-vin-passport-exists').textContent || ''
@@ -73,7 +98,7 @@ describe.each([
 
     fireEvent.change(screen.getByTestId(vinTestId), { target: { value: EXISTING_VIN } })
 
-    await waitFor(() => expect(screen.getByTestId('sell-vin-no-carup-record')).toBeTruthy(), { timeout: 3000 })
+    await settleIdentification()
     const notice = screen.getByTestId('sell-vin-no-carup-record').textContent || ''
     expect(notice).toContain('CarUp holds no Passport for this VIN')
     expect(notice).not.toMatch(/does not exist|never registered|new vehicle/i)
@@ -85,14 +110,16 @@ describe.each([
 
     fireEvent.change(screen.getByTestId(vinTestId), { target: { value: EXISTING_VIN } })
 
-    await waitFor(() => expect(screen.getByTestId('sell-vin-check-unavailable')).toBeTruthy(), { timeout: 3000 })
+    await settleIdentification()
     expect(screen.getByTestId('sell-vin-check-unavailable').textContent).toContain('could not check')
   })
 
   it('does not look up an incomplete VIN', async () => {
     renderSurface()
     fireEvent.change(screen.getByTestId(vinTestId), { target: { value: 'JTDKARFP0H30' } })
-    await new Promise(resolve => setTimeout(resolve, 700))
+    // Virtual time, and deliberately well past the debounce: proving NO lookup fires is a stronger
+    // claim the further the clock moves, and it now costs nothing to move it further.
+    await act(async () => { await vi.advanceTimersByTimeAsync(5000) })
     expect(lookupVehiclePassport).not.toHaveBeenCalled()
     expect(screen.queryByTestId('sell-vin-passport-exists')).toBeNull()
   })

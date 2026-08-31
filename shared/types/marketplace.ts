@@ -89,9 +89,31 @@ export interface MarketplaceVerificationSummary {
   verification_notes_public: string[];
 }
 
+/**
+ * The four states `attestedValue` can publish (backend/utils/publicVehicleProjection.js
+ * FIELD_STATES). A value is present ONLY in the 'recorded' state; every other state carries null,
+ * and a consumer that substitutes a default for one of them re-creates the fabrication the
+ * provenance gate exists to remove.
+ */
+export type MarketplaceFieldState = 'recorded' | 'not_recorded' | 'withheld' | 'not_applicable';
+
 export interface MarketplacePricingSummary {
   asking_price?: number;
-  currency?: string;
+  asking_price_state?: MarketplaceFieldState;
+  /**
+   * PROVENANCE-GATED. `marketplacePricingService` publishes this as null unless `currency_source`
+   * names who asserted it — `currency_state` says which case you are in. It is NOT optional
+   * information: `currency || 'USD'` on a consumer is exactly the fabrication the service removed,
+   * and it made the panel print "USD 25,000" beside its own warning that the currency is unknown.
+   */
+  currency?: string | null;
+  currency_state?: MarketplaceFieldState;
+  currency_source?: string | null;
+  /**
+   * The currency the fixed ESTIMATE components are denominated in — a fact about the estimate, not
+   * about the listing. Present only when there is a denominated figure to attach it to.
+   */
+  estimate_denomination?: string;
   estimated_fair_min?: number;
   estimated_fair_max?: number;
   price_confidence: 'low' | 'medium' | 'high';

@@ -85,3 +85,59 @@ describe('S1 seller vehicle identification', () => {
     expect(result.passportVehicle).toBeNull()
   })
 })
+
+/**
+ * SJO-7 — "no record" is a POSITIVE fact and only a positive answer may produce it.
+ *
+ * The classifier used to ask `isTransportFailure(error)` and DEFAULT TO FALSE, so any error whose
+ * message did not happen to contain a network-ish word became 'no_carup_record'. The API client
+ * throws `extractApiErrorMessage(body) || 'HTTP error! status: N'`, so a 500 carrying its own
+ * message ("Internal server error") landed in exactly that gap — and the copy for that state tells
+ * the seller "CarUp holds no Passport for this VIN yet. Continuing will start one", which is how a
+ * duplicate Vehicle Passport gets created off a server fault.
+ */
+describe('S1 identification fails CLOSED — only a real 404 means "no record"', () => {
+  const VIN = 'JTDKARFP0H3000731'
+  const withStatus = (status: number, message: string) =>
+    Object.assign(new Error(message), { status })
+
+  it('a 404 — and only a 404 — is published as "CarUp holds no Passport"', async () => {
+    const result = await identifySellerVehicle(VIN, vi.fn().mockRejectedValue(withStatus(404, 'Vehicle not found')))
+    expect(result.state).toBe('no_carup_record')
+  })
+
+  it('a server or auth fault is NEVER published as "no record"', async () => {
+    // Each of these previously produced 'no_carup_record'. None of their messages matches the
+    // network vocabulary, and none of them is an answer about whether the VIN exists.
+    for (const error of [
+      withStatus(500, 'Internal server error'),
+      withStatus(503, 'Service temporarily unavailable'),
+      withStatus(502, 'Bad gateway'),
+      withStatus(401, 'Unauthorized'),
+      withStatus(403, 'Forbidden'),
+      withStatus(429, 'Too many requests'),
+      new Error('Something went wrong'),
+    ]) {
+      const result = await identifySellerVehicle(VIN, vi.fn().mockRejectedValue(error))
+      expect(result.state, `${String((error as { status?: number }).status ?? 'no-status')} must not claim "no record"`)
+        .toBe('check_unavailable')
+      expect(result.passportVehicle).toBeNull()
+    }
+  })
+
+  it('the status code wins over a misleading message', async () => {
+    // A 500 whose body happens to say "not found" is still a fault, not an answer.
+    const result = await identifySellerVehicle(VIN, vi.fn().mockRejectedValue(withStatus(500, 'not found in cache')))
+    expect(result.state).toBe('check_unavailable')
+
+    // ANTI-VACUITY: with the status present and equal to 404, the same shape DOES report no record,
+    // so the assertion above measures the status rule and not a guard that refuses everything.
+    const positive = await identifySellerVehicle(VIN, vi.fn().mockRejectedValue(withStatus(404, 'not found in cache')))
+    expect(positive.state).toBe('no_carup_record')
+  })
+
+  it('a transport failure with no status stays unavailable', async () => {
+    const result = await identifySellerVehicle(VIN, vi.fn().mockRejectedValue(new TypeError('Failed to fetch')))
+    expect(result.state).toBe('check_unavailable')
+  })
+})

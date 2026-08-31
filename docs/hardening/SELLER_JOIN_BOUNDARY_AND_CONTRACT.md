@@ -174,6 +174,43 @@ register in the hardening receipt rather than duplicated here.
 
 ---
 
+## 3.1 Seller join obligations — DISPOSITION (V16 convergence)
+
+Closed against the actual joined head, not against intent. Every row carries an executable
+verifier; none was closed by inspection alone.
+
+| ID | Disposition | Evidence |
+|---|---|---|
+| SJO-1 | **CLOSED** | `App.tsx` carries 119 `path=` literals with ZERO duplicates. `routeAccess.advancement.test.ts` + `RegistryRouteBoundary.test.tsx` green. No orphaned or duplicated Seller/owner route survived the join. |
+| SJO-2 | **CLOSED** | `featureManifest.drift.test.ts` green; the registry carries no duplicate feature id. The Seller lane adds exactly ONE entry versus main — `owner.intelligence`, placements `['dashboard_sidebar','user_menu']`, roles `['owner']` — so `roleItemCounts['owner']` moves 20 → 21 and no other role moves. Recomputed from the live registry in `tests/agents/27-feature-registry-navigation-map.spec.ts`, never hand-added. |
+| SJO-3 | **CLOSED** | `dashboardSidebar.visibility.test.ts` green. One shell, one nav authority; owner and mechanic surfaces share it. |
+| SJO-4 | **CLOSED** | Two truthfulness defects found on the joined projection and fixed: (a) `AllInPricePanel` substituted `'USD'` for a currency the SAME payload reports as not recorded — re-creating one layer out exactly the fabrication `marketplacePricingService` removed. The shared `MarketplacePricingSummary` type was missing `currency_state`/`currency_source`/`estimate_denomination`, which is WHY the panel fell back to a default; the declaration now matches the authority. (b) `VehicleHistoryObligationsSections` rendered an UNREAD disclosures block as "the seller has not answered this question" — attributing CarUp's own read failure to the seller. Verifiers: `AllInPricePanel.test.tsx` (6, incl. anti-vacuity that a RECORDED currency still prints and that a stateless legacy payload does not regress) and `VehicleHistoryObligationsSections.test.tsx` (15). |
+| SJO-5 | **CLOSED** | The Notifications card on `OwnerDashboard` rendered a measured "0 new" beside an empty list both BEFORE the read settled and AFTER it failed, while the same file already gated `unreadNotifications` on `notificationsState`. Now three distinct states. Verifier: `OwnerDashboard.truthfulness.test.tsx` — 4 new cases including the anti-vacuity that a SUCCESSFUL empty read still says zero, because a measured zero is correct. |
+| SJO-6 | **CLOSED** | The recorded flake is gone at its cause, not hidden. `SellFlow.identification.test.tsx` waited on the WALL CLOCK — three `waitFor(..., { timeout: 3000 })` against a real 400 ms debounce plus a literal 700 ms sleep. Real time is now removed: `vi.useFakeTimers({ toFake: ['setTimeout','clearTimeout'] })` fakes ONLY the timers, and the debounce is advanced deterministically. No budget was raised and no retry was added. 8/8, green on three consecutive runs. |
+| SJO-7 | **CLOSED** | `identifySellerVehicle` asked `isTransportFailure(error)` and DEFAULTED TO FALSE, so any error whose message did not match a network-ish word became `no_carup_record` — and that state's copy tells the seller "CarUp holds no Passport for this VIN yet. Continuing will start one." A 500/503/401/429, or any failure whose body supplied its own message, therefore invited a DUPLICATE Vehicle Passport off a server fault. Inverted to fail closed: only a positive not-found (status 404, or a 404/not-found message when no status is present) produces `no_carup_record`. Verifier: `sellerVehicleIdentification.test.ts` — 4 new cases incl. status-wins-over-message and an anti-vacuity twin. |
+
+### R27 — disposed, not left ambiguous
+
+**CLOSED**, and source/test resolvable rather than provider-gated: the publicly visible
+claim→event→repair chain comes from `vehicle_evidence` class mapping, `vehicles.seller_*_disclosure`
+and `partsentry_logs`; `insurance_records` is privileged-only and reports
+`source_states.insurance_registry = 'unavailable'` publicly, so no insurer feed is required.
+Verifier: `backend/tests/r27-durable-history-survives-commerce.test.js` — 9/9. The provider-gated
+`[~]` items (M16–M18, R22–R26, R28) keep their qualifications unchanged; none was upgraded.
+
+### One finding deliberately NOT fixed here
+
+`maybeFetchRows` in `listingSummaryService.js` swallows a FAILED `vehicle_evidence` /
+`partsentry_logs` / `vehicle_ownership_history` read into `return []`, so a read fault becomes a
+governed negative on the buyer-facing summary — the same class the file already solved for images
+(`readListingImages` returns `{rows, ok}` and its comment states that `false` means "NO negative
+about listing media may be published"). It is recorded rather than fixed because it is
+**byte-identical to `origin/main`** and untouched by either joined lane: it is a pre-existing main
+defect, and correcting it means threading a read-status flag through five consuming services.
+Recorded as a bounded residual in `AUTHORITY_AUDIT_REGISTER.md`.
+
+---
+
 ## 4. Seller Join Contract
 
 ### 4.1 Seller MUST consume, never re-implement
