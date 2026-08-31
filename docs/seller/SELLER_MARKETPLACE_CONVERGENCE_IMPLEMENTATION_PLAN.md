@@ -39,6 +39,34 @@ This is therefore a **convergence programme**, not a patch list.
 8. Listing media remains separate from verified evidence.
 9. Communications and Intelligence use their governed APIs/contracts.
 10. Mobile and desktop are both first-class acceptance targets.
+11. Vehicle-history disclosures must distinguish Seller statements from governed accident/repair/insurance/lender evidence.
+12. Accident/claim/repair media is Vehicle Life evidence and must never be stored or presented as commercial listing photography.
+13. Existing finance/lease/lender interest attached to the vehicle is a separate lifecycle/transaction concept from a buyer finance application.
+14. Insurance, accident history and active finance are not automatically negative Trust facts; provenance, disclosure consistency, evidence strength and unresolved governed blockers determine the truthful state.
+
+### 2.1 2026-08-31 accepted convergence amendment — Vehicle History & Obligations
+
+Owner review during the active Seller remediation identified three material buyer-decision questions that the current Seller/vehicle-onboarding form does not structure explicitly:
+
+- Is the vehicle currently insured?
+- Has the vehicle had a known accident/collision, and what accident/repair evidence exists?
+- Is there an active or cleared loan, lease, hire-purchase agreement, lien or other lender interest attached to the vehicle?
+
+This is in-scope convergence work, not a new side programme. The repository already contains most of the required authorities: Vehicle Life accident/repair taxonomy and evidence sets, `insurance_records`, insurer/provider workflows, `insurance_claims`, lender/provider workflows, disclosure claims/conflicts, canonical lifecycle/report projection and canonical Trust. The missing work is to connect those authorities to Seller disclosure, vehicle onboarding, Passport, Buyer Preview, Marketplace and the commerce/ownership-transfer lifecycle.
+
+The authoritative execution items are in:
+- `docs/seller/SELLER_UAT_REMEDIATION_EXECUTION_MASTER_PLAN.md §0.7`
+- F18–F20
+- G5.1–G5.4
+- K17–K20
+- L24–L27
+- M14–M18
+- R22–R28
+- S53–S60
+- T21–T24
+- U26–U31
+
+The governing UI/data rules are in `DESIGN.md §11.7`, with buyer ordering/provider rules extended in `DESIGN.md §14` and §19.
 
 ---
 
