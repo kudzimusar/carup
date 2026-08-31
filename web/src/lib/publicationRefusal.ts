@@ -34,13 +34,20 @@ export type PublicationRefusal = {
 
 const MAX_NAMED = 3
 
-function nameOf(gap: PublicationGap): string {
+/**
+ * The display name of a publication gap.
+ *
+ * EXPORTED because `VehicleCompletenessPanel` needs exactly this and had its own, wrong, answer:
+ * it rendered the gap object itself as a React child. `blocking_gaps` and `pending_gaps` are
+ * `Array<{key, label}>` on the wire (completenessEvaluator.js), not strings.
+ */
+export function publicationGapName(gap: PublicationGap): string {
   if (typeof gap === 'string') return gap
   return gap.label || gap.requirement || gap.key || 'requirement'
 }
 
 function namesOf(gaps: PublicationGap[]): string {
-  const named = gaps.map(nameOf).slice(0, MAX_NAMED).join(', ')
+  const named = gaps.map(publicationGapName).slice(0, MAX_NAMED).join(', ')
   return gaps.length > MAX_NAMED ? `${named}…` : named
 }
 

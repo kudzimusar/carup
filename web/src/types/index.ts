@@ -1,3 +1,6 @@
+export type { PublicationGap } from '@/lib/publicationRefusal';
+import type { PublicationGap } from '@/lib/publicationRefusal';
+
 import type { 
   AuthUser as SharedAuthUser, 
   Vehicle as SharedVehicle,
@@ -1660,8 +1663,13 @@ export interface VehicleCompleteness {
   requirements: EvidenceRequirement[];
   completeness_percent: number;
   is_publishable: boolean;
-  blocking_gaps: string[];
-  pending_gaps: string[];
+  // ON THE WIRE THESE ARE OBJECTS, NOT STRINGS. `completenessEvaluator.js` builds them as
+  // `missingBlocking.map((r) => ({ key: r.key, label: r.label }))`. Declaring them as `string[]`
+  // is how `VehicleCompletenessPanel` came to render `{gap}` directly and crash the Seller
+  // publication-readiness surface with React error #31 ("Objects are not valid as a React child",
+  // args: object with keys {key, label}). Use `publicationGapName` to display one.
+  blocking_gaps: PublicationGap[];
+  pending_gaps: PublicationGap[];
   publication_status: string;
   /** S5: why a contradiction gate refused, without a second round trip. */
   reconciliation?: SellerFactReconciliation;

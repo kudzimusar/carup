@@ -1,3 +1,4 @@
+import { publicationGapName } from '@/lib/publicationRefusal'
 import { useEffect, useState } from 'react'
 import { CheckCircle2, XCircle, Clock, AlertCircle, FileWarning, ExternalLink } from 'lucide-react'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
@@ -156,7 +157,13 @@ export function VehicleCompletenessPanel({ vin, initialData, className = '' }: P
           <div className="bg-red-50 border border-red-200 rounded-lg p-3 text-sm">
             <p className="font-semibold text-red-800 mb-1">Publication is blocked</p>
             <ul className="list-disc list-inside text-red-700 space-y-0.5">
-              {data.blocking_gaps.map(gap => <li key={gap}>{gap}</li>)}
+              {/* A gap is `{key, label}` on the wire, not a string. Rendering it directly crashed
+                  this panel with React error #31 the moment a draft had any blocking requirement —
+                  which is every newly created listing. One naming authority, shared with
+                  describePublicationRefusal. */}
+              {data.blocking_gaps.map((gap, index) => (
+                <li key={typeof gap === 'string' ? gap : gap.key ?? index}>{publicationGapName(gap)}</li>
+              ))}
             </ul>
           </div>
         )}
@@ -166,7 +173,7 @@ export function VehicleCompletenessPanel({ vin, initialData, className = '' }: P
           <div className="bg-amber-50 border border-amber-200 rounded-lg p-3 text-sm">
             <p className="font-semibold text-amber-800 mb-1">Awaiting review</p>
             <p className="text-amber-700">
-              {data.pending_gaps.join(', ')} — submitted and under review. Publication will advance once approved.
+              {data.pending_gaps.map(publicationGapName).join(', ')} — submitted and under review. Publication will advance once approved.
             </p>
           </div>
         )}
