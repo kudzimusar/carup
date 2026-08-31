@@ -294,4 +294,3 @@ open obligation rather than attempted here.
 **Evidence:** `tenantId: req.headers['x-tenant-id'] || null,` inside `optionalAuth()` — unlike `authorizeRole`, which validates the same header against `tenant_users` and 403s a non-member (lines 150-162), optionalAuth performs no membership check. No live exploit today: the one consumer that could widen access on it defends itself explicitly (backend/server.js:1699-1704 refuses to use it for PartSentry full-history and falls back to an owner_id match), and lenderRoutes.js:85 reads `req.userContext?.tenantId` only on an authorizeRole route. It is a loaded gun for the next optionalAuth route that scopes a query by tenant.
 
 **Required behaviour:** Either verify membership in optionalAuth the way authorizeRole does, or stop publishing `tenantId` from optionalAuth at all and expose only a `claimedTenantId` name that reads as untrusted at every call site.
-

@@ -1,10 +1,10 @@
 # Seller ↔ Marketplace Baseline Parity Audit
 
-**Authority:** `docs/seller/SELLER_UAT_REMEDIATION_EXECUTION_MASTER_PLAN.md`  
-**Frozen baseline runtime:** `integration/vehicle-passport-v16-cert@106f76509ae1d1d10a3c4a26b4f93f7993d55027`  
-**Reference VIN:** `CARUPGLDNA0000001` — 2019 Toyota Hilux, public Marketplace reference  
-**Human UAT VIN:** `UAT20260828SELL01` — 2021 Toyota Hilux, USD 23,000, draft  
-**Captured:** 2026-08-30  
+**Authority:** `docs/seller/SELLER_UAT_REMEDIATION_EXECUTION_MASTER_PLAN.md`\
+**Frozen baseline runtime:** `integration/vehicle-passport-v16-cert@106f76509ae1d1d10a3c4a26b4f93f7993d55027`\
+**Reference VIN:** `CARUPGLDNA0000001` — 2019 Toyota Hilux, public Marketplace reference\
+**Human UAT VIN:** `UAT20260828SELL01` — 2021 Toyota Hilux, USD 23,000, draft\
+**Captured:** 2026-08-30\
 **Purpose:** record the Phase B field/section truth before Seller redesign proceeds. This is a baseline audit, not evidence that the gaps are fixed.
 
 ## Source evidence used
@@ -64,4 +64,3 @@ The public Marketplace endpoint reported 9 published listings at the same frozen
 - B2.27: this committed audit is the repository artifact.
 - B1.1–B1.13: pending exact-head desktop/tablet/mobile visual capture.
 - Phase B roll call: remains open until B1 is complete.
-

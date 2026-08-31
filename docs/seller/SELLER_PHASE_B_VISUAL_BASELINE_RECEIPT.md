@@ -1,13 +1,13 @@
 # Seller Phase B Visual Baseline Receipt
 
-**Master authority:** `docs/seller/SELLER_UAT_REMEDIATION_EXECUTION_MASTER_PLAN.md`  
-**Exact audit head / deployed runtime:** `cba7071a6d28f0972a87eb2ce79deba3334ac042`  
-**Frozen pre-remediation product ancestor:** `106f76509ae1d1d10a3c4a26b4f93f7993d55027`  
-**Workflow:** Seller Phase B Baseline Visual Audit  
-**Run:** `33307316382`  
-**Job:** `99246029931`  
-**Artifact:** `9730920923` — `seller-phase-b-baseline-33307316382-1`  
-**Artifact digest:** `sha256:e1d605dc88784c1422bca5699a975fc82c90c919393b258d86c678eb043157b3`  
+**Master authority:** `docs/seller/SELLER_UAT_REMEDIATION_EXECUTION_MASTER_PLAN.md`\
+**Exact audit head / deployed runtime:** `cba7071a6d28f0972a87eb2ce79deba3334ac042`\
+**Frozen pre-remediation product ancestor:** `106f76509ae1d1d10a3c4a26b4f93f7993d55027`\
+**Workflow:** Seller Phase B Baseline Visual Audit\
+**Run:** `33307316382`\
+**Job:** `99246029931`\
+**Artifact:** `9730920923` — `seller-phase-b-baseline-33307316382-1`\
+**Artifact digest:** `sha256:e1d605dc88784c1422bca5699a975fc82c90c919393b258d86c678eb043157b3`\
 **Result:** PASS — 39 requested visual captures preserved
 
 ## What was captured

@@ -1,13 +1,13 @@
 # CARUP — Non-Seller Convergence Hardening & Production-Readiness Execution Ledger
 
-**Status:** ACTIVE — continuous execution ledger  
-**Branch:** `hardening/non-seller-convergence`  
-**Source #194 SHA:** `43204beeec40123b0cce0c457aded6d0f733c4bc`  
-**Source main SHA:** `ba208963d863654157335189c60f587cbe330041`  
-**Source #196 SHA:** `30728299e9e60b1c1d51b3eff8363db080edf22f`  
-**Frozen #197 SHA:** `5683b74edaaa86a01c55005839b8f092aea8fccb`  
-**Active Seller remediation:** PR #200, branch `fix/seller-uat-convergence-final-194`, observed head `3778e5dfa4fdbf32233d8764a917cc8cea5ff5e3` at lane opening.  
-**Historical Seller PR #198:** already merged into #194 at `43204bee...`; do not attempt to merge it again.  
+**Status:** ACTIVE — continuous execution ledger\
+**Branch:** `hardening/non-seller-convergence`\
+**Source #194 SHA:** `43204beeec40123b0cce0c457aded6d0f733c4bc`\
+**Source main SHA:** `ba208963d863654157335189c60f587cbe330041`\
+**Source #196 SHA:** `30728299e9e60b1c1d51b3eff8363db080edf22f`\
+**Frozen #197 SHA:** `5683b74edaaa86a01c55005839b8f092aea8fccb`\
+**Active Seller remediation:** PR #200, branch `fix/seller-uat-convergence-final-194`, observed head `3778e5dfa4fdbf32233d8764a917cc8cea5ff5e3` at lane opening.\
+**Historical Seller PR #198:** already merged into #194 at `43204bee...`; do not attempt to merge it again.\
 **Historical probe #199:** already closed/unmerged; do not reopen.
 
 > This file is the roll-call authority for this cycle. A phase is not considered cleared until its checklist is checked here with evidence. The execution must continue phase-to-phase without pausing for narrative status updates unless an external authorization/credential/production gate prevents further work.

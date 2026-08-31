@@ -1,9 +1,9 @@
 # Seller UAT Remediation — Baseline Defect Ledger
 
-**Authority:** `docs/seller/SELLER_UAT_REMEDIATION_EXECUTION_MASTER_PLAN.md`  
-**Baseline branch:** `integration/vehicle-passport-v16-cert` / Draft PR #194  
-**Baseline exact head:** `106f76509ae1d1d10a3c4a26b4f93f7993d55027`  
-**Captured:** 2026-08-30  
+**Authority:** `docs/seller/SELLER_UAT_REMEDIATION_EXECUTION_MASTER_PLAN.md`\
+**Baseline branch:** `integration/vehicle-passport-v16-cert` / Draft PR #194\
+**Baseline exact head:** `106f76509ae1d1d10a3c4a26b4f93f7993d55027`\
+**Captured:** 2026-08-30\
 **Rule:** this ledger records the finite baseline defect set. A defect is not closed merely because later code exists; closure must be evidenced in the master tracker.
 
 | ID | Defect / observation | Baseline evidence | Master phase |
@@ -68,4 +68,3 @@ Until Phase D completes diagnosis for `buynsellpvtltd@gmail.com`:
 5. keep public authentication errors opaque while internal diagnosis distinguishes account/credential state where authorized;
 6. require explicit owner approval for any credential mutation that is not already a normal self-service recovery action;
 7. use the governed password/email verification recovery path once its delivery semantics are proven.
-

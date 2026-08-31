@@ -314,3 +314,136 @@ test('P1: "could not read evidence" is distinguishable from "no evidence"', () =
   assert.doesNotMatch(body, /if \(error\) return \[\];/);
   assert.match(src, /evidence_not_readable/, 'the distinction must be surfaced, not merely made');
 });
+
+// ═══════════════════════════════════════════════════════════════════════════════════
+// 6. P1 — a second trust-score authority with effectively no authority check
+// ═══════════════════════════════════════════════════════════════════════════════════
+
+/**
+ * Serve the four tables `createReputationRecord` touches. Each entry is the answer for that table;
+ * `diaspora_reputation_records` records the attempted insert so a test can assert nothing was
+ * written when the review was refused.
+ */
+function stubDiaspora({ profile, order, participants }) {
+  const original = supabase.from;
+  const inserted = [];
+  supabase.from = (table) => {
+    const chain = {
+      _payload: null,
+      select() { return chain; },
+      insert(payload) { chain._payload = payload; inserted.push(payload); return chain; },
+      // The success path continues into recalculateTradeProfileReputation, which updates the
+      // profile's derived columns. Not the subject here, so it is accepted and discarded.
+      update() { return chain; },
+      eq() { return chain; },
+      is() { return chain; },
+      order() { return chain; },
+      maybeSingle: async () => {
+        if (table === 'diaspora_trade_profiles') return { data: profile ?? null, error: null };
+        if (table === 'diaspora_import_orders') return { data: order ?? null, error: null };
+        return { data: null, error: null };
+      },
+      single: async () => ({ data: { id: 'rep-1', ...(chain._payload || {}) }, error: null }),
+      then(res, rej) {
+        const answer = table === 'diaspora_import_order_participants'
+          ? { data: participants ?? [], error: null }
+          : { data: [], error: null };
+        return Promise.resolve(answer).then(res, rej);
+      },
+    };
+    return chain;
+  };
+  return { inserted, restore: () => { supabase.from = original; } };
+}
+
+const REVIEWER = 'user-buyer';
+const PROFILE = { id: 'profile-seller', user_id: 'user-seller' };
+const COMPLETED_ORDER = { id: 'order-1', status: 'COMPLETED' };
+const BOTH_PARTICIPANTS = [
+  { user_id: REVIEWER, trade_profile_id: 'profile-buyer' },
+  { user_id: 'user-seller', trade_profile_id: 'profile-seller' },
+];
+const validReview = { trade_profile_id: 'profile-seller', import_order_id: 'order-1', rating: 5 };
+
+test('P1: a rating outside 1..5 is refused, so the derived score cannot be clamped to either end', async () => {
+  const { createReputationRecord } = await import('../services/diaspora/diasporaReputationService.js');
+  const stub = stubDiaspora({ profile: PROFILE, order: COMPLETED_ORDER, participants: BOTH_PARTICIPANTS });
+  try {
+    // trustScore = 50 + ratingAverage*10 - disputes*5, so rating:1000 clamped to 100 and
+    // rating:-1000 clamped to 0. One POST could set any profile to either end of the scale.
+    for (const rating of [1000, -1000, 0, 5.5, Number.NaN, 'five']) {
+      await assert.rejects(
+        () => createReputationRecord({ ...validReview, rating }, { id: REVIEWER }),
+        /rating must be a number between 1 and 5|trade_profile_id and rating are required/,
+        `rating ${String(rating)} must be refused`,
+      );
+    }
+    assert.deepEqual(stub.inserted, [], 'a refused review must write nothing');
+    // ANTI-VACUITY: the in-range case really does proceed, so the test above measures the range
+    // check and not a guard that refuses everything.
+    const ok = await createReputationRecord({ ...validReview, rating: 4 }, { id: REVIEWER });
+    assert.equal(ok.rating, 4);
+  } finally { stub.restore(); }
+});
+
+test('P1: a profile cannot review itself', async () => {
+  const { createReputationRecord } = await import('../services/diaspora/diasporaReputationService.js');
+  const stub = stubDiaspora({ profile: PROFILE, order: COMPLETED_ORDER, participants: BOTH_PARTICIPANTS });
+  try {
+    await assert.rejects(
+      () => createReputationRecord(validReview, { id: 'user-seller' }),
+      /cannot review itself/,
+    );
+    assert.deepEqual(stub.inserted, []);
+  } finally { stub.restore(); }
+});
+
+test('P1: a review must cite a COMPLETED order both parties participated in', async () => {
+  const { createReputationRecord } = await import('../services/diaspora/diasporaReputationService.js');
+  const cases = [
+    ['an order still in flight', { profile: PROFILE, order: { id: 'order-1', status: 'SHIPPED' }, participants: BOTH_PARTICIPANTS }],
+    ['an order that does not exist', { profile: PROFILE, order: null, participants: BOTH_PARTICIPANTS }],
+    ['an order the reviewer was not on', { profile: PROFILE, order: COMPLETED_ORDER, participants: [{ user_id: 'someone-else', trade_profile_id: 'profile-seller' }] }],
+    ['an order the reviewed profile was not on', { profile: PROFILE, order: COMPLETED_ORDER, participants: [{ user_id: REVIEWER, trade_profile_id: 'profile-buyer' }] }],
+  ];
+  for (const [label, fixture] of cases) {
+    const stub = stubDiaspora(fixture);
+    try {
+      await assert.rejects(
+        () => createReputationRecord(validReview, { id: REVIEWER }),
+        /COMPLETED import order/,
+        `${label} must not admit a review`,
+      );
+      assert.deepEqual(stub.inserted, [], `${label}: nothing may be written`);
+    } finally { stub.restore(); }
+  }
+  // And with no cited order at all.
+  const stub = stubDiaspora({ profile: PROFILE, order: COMPLETED_ORDER, participants: BOTH_PARTICIPANTS });
+  try {
+    await assert.rejects(
+      () => createReputationRecord({ ...validReview, import_order_id: null }, { id: REVIEWER }),
+      /COMPLETED import order/,
+    );
+  } finally { stub.restore(); }
+});
+
+test('P1: the reviewer and the publication state are server-decided, never body-supplied', async () => {
+  const { createReputationRecord } = await import('../services/diaspora/diasporaReputationService.js');
+  const stub = stubDiaspora({ profile: PROFILE, order: COMPLETED_ORDER, participants: BOTH_PARTICIPANTS });
+  try {
+    const written = await createReputationRecord(
+      { ...validReview, reviewer_id: 'user-impersonated', verification_status: 'PUBLISHED' },
+      { id: REVIEWER },
+    );
+    assert.equal(written.reviewer_id, REVIEWER, 'the body must not be able to file a review as someone else');
+    assert.equal(written.verification_status, 'PENDING_REVIEW',
+      'a caller must not publish their own review straight into the reputation average');
+  } finally { stub.restore(); }
+});
+
+test('P1: a moderated-away review stops moving the average', () => {
+  const src = read('../services/diaspora/diasporaReputationService.js');
+  assert.match(src, /verification_status !== 'REMOVED' && row\.verification_status !== 'FLAGGED'/);
+  assert.match(src, /\.select\('rating, dispute_flag, verification_status'\)/,
+    'the state must be selected, or the filter above is reading undefined on every row');
+});

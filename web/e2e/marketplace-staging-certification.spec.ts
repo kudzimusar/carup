@@ -484,6 +484,15 @@ test('guest can build a listing to private preview before authentication', async
   await page.setViewportSize({ width: 1000, height: 900 })
   await page.goto('/sell', { waitUntil: 'domcontentloaded' })
   await expect(page).toHaveURL(/\/sell$/)
+
+  // /sell now opens on the Seller INTENT CHOOSER, not straight into the form. A guest must say
+  // which journey they are on before the listing form exists — "CarUp already knows this vehicle"
+  // reuses an existing Passport, while this path creates the vehicle identity and the listing
+  // together. That is the journey this test certifies, so it is chosen explicitly rather than
+  // relied on as a default.
+  await expect(page.getByTestId('sell-intent-router')).toBeVisible()
+  await page.getByTestId('sell-intent-new').click()
+
   await expect(page.getByTestId('guest-sell-page')).toBeVisible()
   await expect(page.getByTestId('guest-sell-vehicle-step')).toBeVisible()
 

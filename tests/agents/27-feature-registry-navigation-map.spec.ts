@@ -141,7 +141,14 @@ test.describe('Feature Registry & Navigation Map', () => {
       // dashboard_sidebar entry for roles admin / government, so those two rise by 1 again.
       // Recomputed 2026-07-28 (Issue #127, Deliverable B): `diaspora.workbook-import` adds ONE
       // dashboard_sidebar entry for roles admin / dealer.
-      expect(result.roleItemCounts['owner']).toBe(20);
+      // Recomputed 2026-08-31 (V16 convergence): the Seller lane registers ONE new feature,
+      // `owner.intelligence` ("Seller Intelligence", route /dashboard/intelligence), with
+      // placements ['dashboard_sidebar', 'user_menu'], roles ['owner'] and lifecycle 'active'.
+      // Owner therefore rises 20 -> 21 and NO other role moves. Verified against the joined
+      // registry rather than hand-added: it is the only entry added versus main, and the registry
+      // carries no duplicate feature id, so this is one new surface and not a second registration
+      // of an existing one.
+      expect(result.roleItemCounts['owner']).toBe(21);
       expect(result.roleItemCounts['dealer']).toBe(16);
       expect(result.roleItemCounts['mechanic']).toBe(5);
       expect(result.roleItemCounts['insurance']).toBe(4);
