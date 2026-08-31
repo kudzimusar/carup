@@ -999,3 +999,94 @@ export function toListingClaims(vehicle, options) {
     publication: toPublicationClaim(vehicle),
   });
 }
+
+/**
+ * ── Vehicle History & Obligations — Seller disclosure projection (DESIGN.md §11.7, K17–K19) ─────
+ *
+ * The three seller_*_disclosure columns are SELLER STATEMENTS, written only through the
+ * seller-attributed create/autosave routes and validated there against closed vocabularies.
+ * This projection re-validates on the way OUT (defense in depth, same posture as toListingClaims):
+ * a row value outside the declared vocabulary projects as null — junk is never published as an
+ * answer. `null` per topic is the honest "not recorded" state; the read surface must render it as
+ * such and never as "no accident" / "not insured" / "finance clear" (L27, INV-17).
+ *
+ * Private banking terms cannot appear here twice over: the write path refuses them (400) and the
+ * migration CHECK bans them; this allow-list would drop them even if both failed (M17, INV-18).
+ */
+export const HISTORY_DISCLOSURE_COLUMNS = Object.freeze([
+  'seller_accident_disclosure', 'seller_insurance_disclosure', 'seller_finance_disclosure',
+]);
+
+const ACCIDENT_DISCLOSURE_STATES = Object.freeze(['yes', 'no_known_accident_history', 'unknown']);
+const INSURANCE_DISCLOSURE_STATES = Object.freeze(['insured', 'not_insured', 'unknown']);
+const FINANCE_DISCLOSURE_STATES = Object.freeze(['none_known', 'active', 'settlement_pending', 'cleared', 'unknown']);
+const FINANCE_TYPES = Object.freeze(['bank_loan', 'vehicle_finance', 'lease', 'hire_purchase', 'secured_lien', 'other']);
+const ACCIDENT_EVENT_PUBLIC_FIELDS = Object.freeze([
+  'approx_date', 'mileage', 'damage_area', 'severity',
+  'insurer_involved', 'police_report_state', 'repair_state', 'repairer',
+]);
+
+function projectedDisclosureText(value) {
+  if (value === null || value === undefined) return undefined;
+  const text = String(value).trim();
+  return text === '' ? undefined : text.slice(0, 200);
+}
+
+function projectAccidentDisclosure(raw) {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null;
+  if (!ACCIDENT_DISCLOSURE_STATES.includes(raw.state)) return null;
+  const value = { state: raw.state };
+  if (raw.state === 'yes' && Array.isArray(raw.events)) {
+    const events = raw.events.slice(0, 10)
+      .map((entry) => {
+        if (!entry || typeof entry !== 'object' || Array.isArray(entry)) return null;
+        const event = {};
+        for (const field of ACCIDENT_EVENT_PUBLIC_FIELDS) {
+          const text = projectedDisclosureText(entry[field]);
+          if (text !== undefined) event[field] = text;
+        }
+        return Object.keys(event).length > 0 ? event : null;
+      })
+      .filter(Boolean);
+    if (events.length > 0) value.events = events;
+  }
+  return value;
+}
+
+function projectInsuranceDisclosure(raw) {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null;
+  if (!INSURANCE_DISCLOSURE_STATES.includes(raw.state)) return null;
+  const value = { state: raw.state };
+  if (raw.state === 'insured') {
+    const insurerName = projectedDisclosureText(raw.insurer_name);
+    if (insurerName !== undefined) value.insurer_name = insurerName;
+  }
+  return value;
+}
+
+function projectFinanceDisclosure(raw) {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null;
+  if (!FINANCE_DISCLOSURE_STATES.includes(raw.state)) return null;
+  const value = { state: raw.state };
+  if (FINANCE_TYPES.includes(raw.finance_type)) value.finance_type = raw.finance_type;
+  const lenderName = projectedDisclosureText(raw.lender_name);
+  if (lenderName !== undefined) value.lender_name = lenderName;
+  return value;
+}
+
+/**
+ * The buyer-facing Vehicle History & Obligations block. Safe on an over-broad select AND on a
+ * narrow one: a row that never carried the columns (unmigrated schema, degraded select rung)
+ * projects every topic as null — "not recorded", which is exactly true of such a row.
+ *
+ * `authority: 'seller_stated'` is the block-level attribution the read surfaces must keep visibly
+ * separate from governed accident evidence, insurer records and lender/encumbrance truth.
+ */
+export function toVehicleHistoryDisclosures(vehicle) {
+  return Object.freeze({
+    authority: 'seller_stated',
+    accident: projectAccidentDisclosure(vehicle?.seller_accident_disclosure),
+    insurance: projectInsuranceDisclosure(vehicle?.seller_insurance_disclosure),
+    finance: projectFinanceDisclosure(vehicle?.seller_finance_disclosure),
+  });
+}

@@ -1142,6 +1142,22 @@ export const LISTING_SELECT_COLUMNS_WITH_SELLER_TAXONOMY = `${LISTING_SELECT_COL
       ${SELLER_TAXONOMY_LISTING_COLUMNS.join(',\n      ')}
     `;
 
+/**
+ * Newest rung: the Vehicle History & Obligations seller-disclosure columns
+ * (20260831150000_seller_vehicle_history_disclosures.sql). Preferred first; a database that
+ * predates the migration degrades one rung rather than erroring the read — and a row read without
+ * these columns honestly projects every disclosure as "not recorded" (toVehicleHistoryDisclosures).
+ */
+export const HISTORY_DISCLOSURE_LISTING_COLUMNS = Object.freeze([
+  'seller_accident_disclosure',
+  'seller_insurance_disclosure',
+  'seller_finance_disclosure',
+]);
+
+export const LISTING_SELECT_COLUMNS_WITH_HISTORY_DISCLOSURES = `${LISTING_SELECT_COLUMNS_WITH_SELLER_TAXONOMY},
+      ${HISTORY_DISCLOSURE_LISTING_COLUMNS.join(',\n      ')}
+    `;
+
 function isMissingSchemaColumnError(error) {
   const code = String(error?.code ?? '').toUpperCase();
   if (code === 'PGRST204' || code === '42703') return true;
@@ -1166,8 +1182,13 @@ function isMissingSchemaColumnError(error) {
  * landed and working cards where it has not.
  */
 export async function selectListingRows(client, shape = (query) => query) {
-  // Prefer the complete Seller S0 + claim projection. During controlled migration, degrade one
-  // schema generation at a time rather than taking Marketplace down or pretending new fields exist.
+  // Prefer the complete Seller S0 + claim + history-disclosure projection. During controlled
+  // migration, degrade one schema generation at a time rather than taking Marketplace down or
+  // pretending new fields exist.
+  const historyWide = await shape(client.from('vehicles').select(LISTING_SELECT_COLUMNS_WITH_HISTORY_DISCLOSURES));
+  if (!historyWide?.error) return historyWide;
+  if (!isMissingSchemaColumnError(historyWide.error)) return historyWide;
+
   const sellerWide = await shape(client.from('vehicles').select(LISTING_SELECT_COLUMNS_WITH_SELLER_TAXONOMY));
   if (!sellerWide?.error) return sellerWide;
   if (!isMissingSchemaColumnError(sellerWide.error)) return sellerWide;

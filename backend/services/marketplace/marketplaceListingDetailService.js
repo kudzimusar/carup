@@ -65,6 +65,7 @@ import {
   shouldShowFixtures,
 } from './listingSummaryService.js';
 import { toListingMediaBlock } from '../../utils/vehicleMediaProjection.js';
+import { toVehicleHistoryDisclosures } from '../../utils/publicVehicleProjection.js';
 import { getFixtureExclusion } from './marketplaceClassificationRules.js';
 import { buildTrustSummary, buildVerificationSummary } from './marketplaceTrustSummaryService.js';
 import { buildPricingSummary } from './marketplacePricingService.js';
@@ -262,6 +263,11 @@ export async function getMarketplaceListingDetail(supabaseClient, vin, { audienc
     // Derived from it, never computed beside it. See the header note on why the key survives.
     media,
     seller_summary: buildSellerSummary(listingSummary),
+    // Vehicle History & Obligations (K17–K19): the Seller's structured accident/insurance/finance
+    // statements, block-attributed as seller_stated. A topic the seller never answered is null and
+    // must render "not recorded" — never a clean-history claim (L27). Governed accident evidence,
+    // insurer records and lender truth are separate authorities and never merge into this block.
+    history_disclosures: toVehicleHistoryDisclosures(vehicle),
     trust_summary,
     verification_summary,
     pricing_summary,

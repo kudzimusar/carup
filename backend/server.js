@@ -126,7 +126,7 @@ import identityVerificationAdminRouter from './routes/identityVerificationAdminR
 import partsentryReviewRouter from './routes/partsentryReviewRoutes.js';
 import passportOwnershipTransferRouter from './routes/passportOwnershipTransferRoutes.js';
 import { normalizeVehicleStatus, publicVehicleStatusFilterValues, publiclyVisiblePublicationStatuses, isPublicVehicleStatus, isPubliclyVisiblePublication, PUBLIC_VEHICLE_COLUMNS } from './utils/vehicleStatus.js';
-import { attestedValue, CLAIM_VISIBILITY, LISTING_CLAIM_COLUMNS, PUBLIC_VEHICLE_SELECT, projectVehicle, toListingClaims, toPublicEvidence, toPublicPlateHistory, toPublicTimelineEvent } from './utils/publicVehicleProjection.js';
+import { attestedValue, CLAIM_VISIBILITY, LISTING_CLAIM_COLUMNS, PUBLIC_VEHICLE_SELECT, projectVehicle, toListingClaims, toPublicEvidence, toPublicPlateHistory, toPublicTimelineEvent, toVehicleHistoryDisclosures } from './utils/publicVehicleProjection.js';
 // The canonical vehicle media contract (Issue #164 §10). Imported at MODULE scope and handed to
 // buildVehiclePassport as a PARAMETER — never referenced as a free name inside that function, for
 // the reason the function's own header gives: two harnesses execute its source against a fixed
@@ -1470,6 +1470,11 @@ async function buildVehiclePassport(
     timeline: sanitizedTimeline,
     evidenceTimeline: sanitizedTimeline.filter(event => event.event_source === 'evidence'),
     ...(lifecycle ? { lifecycle } : {}),
+    // Vehicle History & Obligations (K17–K19): the Seller's structured accident/insurance/finance
+    // statements, block-attributed `authority: 'seller_stated'`. Null per topic = "not recorded".
+    // Same audience for everyone — these are the seller's public statements about their own listing,
+    // and they never merge with the governed evidence/insurer/lender authorities on this payload.
+    history_disclosures: toVehicleHistoryDisclosures(vehicle),
     // THE THIRD ANONYMOUS DOOR.
     //
     // `verifiedEvidence` above is `select('*')`, and this array was returned unchanged to every

@@ -2130,6 +2130,12 @@ export interface VehiclePassport {
   /** Rows were withheld from this audience, so an empty list is not an empty history. */
   plateHistoryRedacted?: boolean;
   ownershipSummary: OwnershipSummary;
+  /**
+   * Vehicle History & Obligations (K17–K19): the seller's structured accident/insurance/finance
+   * statements, block-attributed seller_stated. Null per topic = "not recorded" — never a
+   * clean-history claim. Shape defined by the shared web lib (vehicleHistoryDisclosures).
+   */
+  history_disclosures?: import('@/lib/vehicleHistoryDisclosures').VehicleHistoryDisclosuresBlock;
 }
 
 // 18. FinanceApplication

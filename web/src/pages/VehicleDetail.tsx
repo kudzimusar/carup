@@ -5,6 +5,7 @@ import VehicleLifeStageTimeline from '@/components/VehicleLifeStageTimeline'
 import VehicleTemporalComparison from '@/components/VehicleTemporalComparison'
 import VehicleDisclosurePanel from '@/components/VehicleDisclosurePanel'
 import VehicleHistoryReport from '@/components/VehicleHistoryReport'
+import { VehicleHistoryObligationsSections } from '@/components/vehicle/VehicleHistoryObligationsSections'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Card, CardContent } from '@/components/ui/card'
@@ -2396,6 +2397,14 @@ export default function VehicleDetail() {
                 navigating into the deeper report/evidence tools. It renders only the public-safe
                 report projection already governed by Truth & Trust. */}
             {report && <VehicleIntelligenceStory report={report} />}
+
+            {/* §14 items 9–11 (K17–K19): accident/damage/repair · insurance · finance/title
+                obligations. Renders the seller_stated history_disclosures block — identical in
+                Buyer Preview and public mode (K20) — with "Not recorded" as the honest state for
+                every unanswered topic. Governed evidence stays in its own sections above/below. */}
+            <VehicleHistoryObligationsSections
+              disclosures={passport?.history_disclosures ?? null}
+            />
 
             {/* ── Tabs ─────────────────────────────────────────────────── */}
             <Card className="border-0 card-shadow">

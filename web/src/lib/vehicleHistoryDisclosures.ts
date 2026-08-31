@@ -42,6 +42,18 @@ export interface FinanceDisclosure {
   lender_name?: string
 }
 
+/**
+ * The buyer-facing projection block published by the backend (passport + marketplace detail).
+ * Block-level `authority` is the attribution every surface must keep visibly separate from
+ * governed evidence/insurer/lender truth; null per topic = "not recorded".
+ */
+export interface VehicleHistoryDisclosuresBlock {
+  authority: 'seller_stated'
+  accident: AccidentDisclosure | null
+  insurance: InsuranceDisclosure | null
+  finance: FinanceDisclosure | null
+}
+
 /** Seller-facing copy. The honest options are explicit; there is deliberately no bare "No". */
 export const ACCIDENT_STATE_LABELS: Record<AccidentDisclosureState, string> = {
   yes: 'Yes — it has been in an accident',
