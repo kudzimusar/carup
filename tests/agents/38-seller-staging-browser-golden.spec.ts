@@ -386,7 +386,7 @@ test.describe('Golden Dynamic Seller — exact-head deployed acceptance', () => 
     await expect(page.getByTestId('listing-media-primary')).toBeVisible();
     await expect(page.getByTestId('listing-media-photo-label')).toContainText('Driver side');
     await expect(page.getByTestId('listing-media-thumb')).toHaveCount(7);
-    const primaryImage = page.getByTestId('listing-media-primary').getByTestId('vehicle-image');
+    const primaryImage = page.getByTestId('vehicle-image').first();
     await expect(primaryImage).toHaveAttribute('src', mediaBody.urls![2]);
     await expectMeaningfulRenderedImage(page);
     const coverSrc = await primaryImage.getAttribute('src');
