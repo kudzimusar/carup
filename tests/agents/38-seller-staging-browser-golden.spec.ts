@@ -607,7 +607,11 @@ test.describe('Golden Dynamic Seller — exact-head deployed acceptance', () => 
     const inquiryKpi = page.getByTestId('seller-intelligence-kpi-inquiries');
     await expect(inquiryKpi).toBeVisible({ timeout: 20_000 });
     await expect(inquiryKpi).not.toContainText('Unavailable');
-    await expect(inquiryKpi).toContainText(new RegExp(`\\b${observedInquiryCount}\\b`));
+    // Digit boundaries, not \b word boundaries: toContainText receives the KPI card's concatenated
+    // text ("Inquiries19Authoritative inquiry rows"), where the count sits directly between letters.
+    // Letters and digits are both \w, so \b19\b can never match there even though the KPI value is
+    // exactly right. (?<!\d)N(?!\d) still rejects the count embedded in a longer number (190, 119).
+    await expect(inquiryKpi).toContainText(new RegExp(`(?<!\\d)${observedInquiryCount}(?!\\d)`));
     await expect(page.getByTestId('seller-intelligence-time-series')).toBeVisible();
     await expect(page.getByTestId('seller-intelligence-funnel')).toBeVisible();
     await expect(page.getByTestId('seller-intelligence-listing-comparison')).toBeVisible();

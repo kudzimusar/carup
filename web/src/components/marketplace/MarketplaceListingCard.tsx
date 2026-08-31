@@ -234,7 +234,7 @@ export function MarketplaceListingCard({
         </div>
 
         {(onCompare || onShare || onFavorite) && (
-          <div className="absolute right-3 top-3 flex translate-y-9 items-center gap-1.5 sm:translate-y-0">
+          <div className="absolute right-3 top-3 z-[60] flex translate-y-9 items-center gap-1.5 sm:translate-y-0">
             {onCompare && (
               <button
                 type="button"
