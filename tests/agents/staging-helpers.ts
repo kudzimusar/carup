@@ -69,9 +69,31 @@ async function instrument(page: Page, cap: Capture) {
   });
 }
 
+/**
+ * Vercel's preview-only feedback/toolbar widget, blocked so acceptance measures THE PRODUCT.
+ *
+ * Preview deployments inject `https://vercel.live/_next-live/feedback/feedback.js`, which mounts a
+ * `<vercel-live-feedback>` element at `z-index: 2147483647` with `pointer-events: auto`. On a
+ * 393px-wide mobile viewport that element covers the top-right of a Marketplace listing card —
+ * exactly where the compare/share/save controls sit — so a tap on "Save listing" reaches the
+ * widget and React's handler never runs. Measured on the deployed preview: with the widget present
+ * `aria-pressed` stays `false` and no request is made; with `vercel.live` blocked the identical tap
+ * flips it to `true` and the save POST fires.
+ *
+ * This is third-party PREVIEW CHROME, not CarUp code, and it does not exist on production. Blocking
+ * it removes an environment artefact from the measurement; it weakens no product assertion, because
+ * every assertion in these specs still runs against the real deployed app.
+ *
+ * NOTE FOR OWNER UAT: a human testing the preview URL on a phone hits the same overlay. The Vercel
+ * Toolbar must be disabled for the staging project (or dismissed in-session) before mobile owner
+ * UAT, or the same controls will be untappable for them.
+ */
+const PREVIEW_TOOLBAR_ORIGIN = /^https:\/\/vercel\.live\//;
+
 export const stagingTest = base.extend<{ cap: Capture }>({
   cap: async ({ page }, use, testInfo) => {
     const cap: Capture = { consoleErrors: [], pageErrors: [], fiveHundreds: [], fourHundreds: [] };
+    await page.context().route(PREVIEW_TOOLBAR_ORIGIN, (route) => route.abort());
     await instrument(page, cap);
     await use(cap);
     // Record failed 4xx with request context (informational), fail hard on 5xx + console/page errors.
