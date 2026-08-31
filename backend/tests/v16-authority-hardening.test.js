@@ -12,6 +12,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
+import { execSync } from 'node:child_process';
+import { fileURLToPath } from 'node:url';
 
 process.env.NODE_ENV = 'test';
 process.env.SUPABASE_URL = process.env.SUPABASE_URL || 'http://localhost:54321';
@@ -482,4 +484,105 @@ test('P1: the mechanic relationship is a tenant link or an assigned work order, 
   // A failed lookup must refuse, not admit.
   assert.match(body, /if \(error\) return false;/);
   assert.doesNotMatch(body, /if \(error\) return true;/);
+});
+
+// ═══════════════════════════════════════════════════════════════════════════════════
+// 8. B7 — ONE vehicle trust authority (Seller Join Battery)
+// ═══════════════════════════════════════════════════════════════════════════════════
+
+import { readdirSync, statSync } from 'node:fs';
+import { join, relative } from 'node:path';
+
+/** Every non-test backend .js file, as repo-relative paths. */
+function backendSources(dir, out = []) {
+  for (const entry of readdirSync(dir)) {
+    if (entry === 'node_modules' || entry === 'tests') continue;
+    const full = join(dir, entry);
+    const st = statSync(full);
+    if (st.isDirectory()) backendSources(full, out);
+    else if (entry.endsWith('.js')) out.push(full);
+  }
+  return out;
+}
+
+/**
+ * Resolve which TABLE each `.update({ trust_score ... })` writes, by walking back to the nearest
+ * preceding `.from('<table>')`.
+ *
+ * A single-line grep for `from('vehicles') ... trust_score` is VACUOUS here: the two writes in
+ * trustEnforcementEngine are multi-line chains
+ *   `await supabase\n  .from('vehicles')\n  .update({ trust_score: newScore, ... })`
+ * and would not be seen at all. A gate that cannot see the writers it exists to count is worse
+ * than no gate, so the table is resolved structurally.
+ */
+function vehicleTrustWriters() {
+  const BACKEND = fileURLToPath(new URL('../', import.meta.url));
+  const writers = new Set();
+  for (const file of backendSources(BACKEND)) {
+    const src = readFileSync(file, 'utf8');
+    for (const m of src.matchAll(/\.update\(\s*\{\s*trust_score/g)) {
+      const before = src.slice(0, m.index);
+      const from = [...before.matchAll(/\.from\(\s*['"`]([a-z_]+)['"`]\s*\)/g)].pop();
+      if (from && from[1] === 'vehicles') writers.add(relative(BACKEND, file));
+    }
+  }
+  return [...writers].sort();
+}
+
+test('B7: the canonical vehicle trust column has exactly the known governed writers', () => {
+  // `vehicles.trust_score` is the CANONICAL vehicle trust cache. `stakeholder_profiles.trust_score`
+  // and `diaspora_trade_profiles.trust_score` are different columns with their own authorities and
+  // their own register entries; they are deliberately not counted here.
+  //
+  // Both writers below are governed: each clears UNSTAMPED_TRUST_CACHE or is the deprecated
+  // graph writer, and neither may STAMP a canonical score — only refreshCanonicalTrust does that.
+  // Pinning the SET is what makes this discriminating: a new writer anywhere fails, which is the
+  // "one trust authority" invariant the Seller Join Battery's B7 exists to hold.
+  //
+  // THREE writers, and the set is pinned rather than asserted to be one. All three are governed by
+  // the same discipline — each owns the NUMBER and none of the provenance behind it, so each clears
+  // UNSTAMPED_TRUST_CACHE in the SAME update. Only refreshCanonicalTrust may STAMP a canonical
+  // score, and none of these does. A write that kept a previous refresh's calculation_version would
+  // be published as canonical with a band and confidence describing the score it replaced.
+  //
+  //   trustGraphService              the deprecated graph writer
+  //   trustEnforcementEngine         stakeholder-risk penalties (two multi-line chains)
+  //   documentIntelligenceService    the OCR approval write, now reachable only behind
+  //                                  authorizeSessionRole(['admin','government']) -- see the CLOSED
+  //                                  P0 in AUTHORITY_AUDIT_REGISTER.md. Its `(trust_score || 80) + 20`
+  //                                  arithmetic remains a recorded residual there: the finding's
+  //                                  authorization half is closed, its "route through
+  //                                  refreshCanonicalTrust" half is not.
+  assert.deepEqual(vehicleTrustWriters(), [
+    'services/document-intelligence/documentIntelligenceService.js',
+    'services/trust-service/trustEnforcementEngine.js',
+    'services/trustGraph/trustGraphService.js',
+  ]);
+});
+
+test('B7: the Seller lane introduces no trust-score writer of any kind', () => {
+  // The join obligation itself. Scoped to the SELLER LANE's own increment — diffing to HEAD would
+  // flag this convergence's dealer-reputation split and diaspora reputation guard, which are not
+  // Seller and are the opposite of a new authority.
+  const sellerTouched = execSync(
+    'git diff --name-only 43204beeec40123b0cce0c457aded6d0f733c4bc 16d0070ae817320764f56b10c881688daa1686c8 -- backend/',
+    { cwd: fileURLToPath(new URL('../../', import.meta.url)), encoding: 'utf8' },
+  )
+    .split('\n')
+    .filter((f) => f.endsWith('.js') && !f.includes('/tests/'));
+
+  assert.ok(sellerTouched.length > 0, 'anti-vacuity: the Seller lane must have touched backend files');
+
+  const offenders = [];
+  for (const rel of sellerTouched) {
+    let src;
+    try { src = readFileSync(new URL(`../../${rel}`, import.meta.url), 'utf8'); } catch { continue; }
+    for (const m of src.matchAll(/trust_score/g)) {
+      const line = src.slice(0, m.index).split('\n').length;
+      const text = src.split('\n')[line - 1];
+      if (/\.(update|insert|upsert)\s*\(/.test(text)) offenders.push(`${rel}:${line}`);
+    }
+  }
+  assert.deepEqual(offenders, [],
+    `a Seller path must never write a trust score; found: ${offenders.join(', ')}`);
 });
