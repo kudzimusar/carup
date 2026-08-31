@@ -2404,6 +2404,7 @@ export default function VehicleDetail() {
                 every unanswered topic. Governed evidence stays in its own sections above/below. */}
             <VehicleHistoryObligationsSections
               disclosures={passport?.history_disclosures ?? null}
+              financeObligation={passport?.finance_obligation ?? null}
             />
 
             {/* ── Tabs ─────────────────────────────────────────────────── */}

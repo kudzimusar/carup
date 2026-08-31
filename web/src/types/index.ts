@@ -2136,6 +2136,10 @@ export interface VehiclePassport {
    * clean-history claim. Shape defined by the shared web lib (vehicleHistoryDisclosures).
    */
   history_disclosures?: import('@/lib/vehicleHistoryDisclosures').VehicleHistoryDisclosuresBlock;
+  // The GOVERNED counterpart, published as a sibling key and never merged with the seller-stated
+  // block above. Optional because an unwired passport publishes NO key at all — which is different
+  // from a wired one reporting `source_state: 'unavailable'`.
+  finance_obligation?: import('@/lib/vehicleHistoryDisclosures').FinanceObligationBlock;
 }
 
 // 18. FinanceApplication

@@ -102,3 +102,141 @@ describe('VehicleHistoryObligationsSections', () => {
       .toMatch(/balances, repayment amounts, rates and account identifiers are private/i)
   })
 })
+
+/**
+ * GOVERNED finance obligation / encumbrance (Track 1). The rules under test are the ones the
+ * adversarial design review insisted on: the governed half is THREE-STATE (no connected source /
+ * connected but holding nothing / a real record), a superseded row stops speaking, the seller's
+ * statement and the governed record never merge, and no private banking term can render.
+ */
+describe('VehicleHistoryObligationsSections — governed finance obligation', () => {
+  const NO_DISCLOSURES = { authority: 'seller_stated', accident: null, insurance: null, finance: null } as const
+
+  it('keeps the honest "no connected lender source" line when the source is unavailable', () => {
+    render(<VehicleHistoryObligationsSections
+      disclosures={NO_DISCLOSURES}
+      financeObligation={{ authority: 'governed', source_state: 'unavailable', obligations: [] }}
+    />)
+    expect(screen.getByTestId('history-finance-governed-state').textContent)
+      .toMatch(/no connected lender source/i)
+    expect(screen.queryByTestId('history-finance-governed-record')).toBeNull()
+  })
+
+  it('treats an ABSENT block exactly like an unavailable one — never as "no finance"', () => {
+    const { container } = render(<VehicleHistoryObligationsSections disclosures={NO_DISCLOSURES} />)
+    expect(screen.getByTestId('history-finance-governed-state').textContent)
+      .toMatch(/no connected lender source/i)
+    for (const pattern of FORBIDDEN_CLEAN_CLAIMS) {
+      expect(container.textContent || '').not.toMatch(pattern)
+    }
+  })
+
+  it('distinguishes "connected but holding nothing" from "no connected source" — and still claims nothing', () => {
+    const { container } = render(<VehicleHistoryObligationsSections
+      disclosures={NO_DISCLOSURES}
+      financeObligation={{ authority: 'governed', source_state: 'available', obligations: [] }}
+    />)
+    const governed = screen.getByTestId('history-finance-governed-state').textContent || ''
+    expect(governed).toMatch(/no lender record is held/i)
+    // The distinction is the whole point of the three-state contract.
+    expect(governed).not.toMatch(/no connected lender source/i)
+    // …and an empty governed result is still not a clean-finance claim.
+    expect(governed).toMatch(/not a guarantee that none exists/i)
+    for (const pattern of FORBIDDEN_CLEAN_CLAIMS) {
+      expect(container.textContent || '').not.toMatch(pattern)
+    }
+  })
+
+  it('renders a real governed obligation under its OWN authority label, separate from the seller statement', () => {
+    render(<VehicleHistoryObligationsSections
+      disclosures={{
+        authority: 'seller_stated', accident: null, insurance: null,
+        finance: { state: 'none_known' },
+      }}
+      financeObligation={{
+        authority: 'governed', source_state: 'available',
+        obligations: [{
+          id: 'o1', state: 'active', obligation_kind: 'hire_purchase',
+          transfer_condition: 'settlement_required', superseded: false,
+        }],
+      }}
+    />)
+    // Both authorities are on the page, and they are DIFFERENT elements — the seller said
+    // "none known" while the lender record says an interest is active. Neither overwrites the other.
+    expect(screen.getByTestId('history-finance-statement').textContent).toMatch(/no finance|none/i)
+    const governed = screen.getByTestId('history-finance-governed-record')
+    expect(governed.textContent).toMatch(/Governed record/i)
+    expect(governed.textContent).toMatch(/settlement required before transfer/i)
+  })
+
+  it('a SUPERSEDED obligation stops speaking — a correction actually takes effect', () => {
+    render(<VehicleHistoryObligationsSections
+      disclosures={NO_DISCLOSURES}
+      financeObligation={{
+        authority: 'governed', source_state: 'available',
+        obligations: [{
+          id: 'o1', state: 'active', obligation_kind: 'bank_loan',
+          transfer_condition: 'settlement_required', superseded: true,
+        }],
+      }}
+    />)
+    expect(screen.queryByTestId('history-finance-governed-record')).toBeNull()
+    expect(screen.getByTestId('history-finance-governed-state').textContent)
+      .toMatch(/no lender record is held/i)
+  })
+
+  it('does not tell a seller who has already settled to pay twice (settled_pending_release)', () => {
+    render(<VehicleHistoryObligationsSections
+      disclosures={NO_DISCLOSURES}
+      financeObligation={{
+        authority: 'governed', source_state: 'available',
+        obligations: [{
+          id: 'o1', state: 'settled_pending_release', obligation_kind: 'bank_loan',
+          transfer_condition: 'release_confirmation_outstanding', superseded: false,
+        }],
+      }}
+    />)
+    const condition = screen.getByTestId('history-finance-governed-transfer-condition').textContent || ''
+    expect(condition).toMatch(/release confirmation is outstanding/i)
+    expect(condition).toMatch(/No further payment is implied/i)
+    expect(condition).not.toMatch(/settlement.*required/i)
+  })
+
+  it('renders valuation-at-origination with its own date and source, never as a current price (R26)', () => {
+    render(<VehicleHistoryObligationsSections
+      disclosures={NO_DISCLOSURES}
+      financeObligation={{
+        authority: 'governed', source_state: 'available',
+        obligations: [{
+          id: 'o1', state: 'active', obligation_kind: 'bank_loan',
+          transfer_condition: 'settlement_required', superseded: false,
+          valuation_at_origination: { amount: 12000, currency: 'USD', date: '2022-01-01', source: 'lender_valuation' },
+        }],
+      }}
+    />)
+    const valuation = screen.getByTestId('history-finance-origination-valuation').textContent || ''
+    expect(valuation).toMatch(/2022-01-01/)
+    expect(valuation).toMatch(/Lender valuation/i)
+    expect(valuation).toMatch(/not a current valuation/i)
+    expect(valuation).toMatch(/not this listing’s asking price/i)
+  })
+
+  it('never renders a private banking term that reached the governed props', () => {
+    const { container } = render(<VehicleHistoryObligationsSections
+      disclosures={NO_DISCLOSURES}
+      financeObligation={{
+        authority: 'governed', source_state: 'available',
+        obligations: [{
+          id: 'o1', state: 'active', obligation_kind: 'bank_loan',
+          transfer_condition: 'settlement_required', superseded: false,
+          // Deliberately malformed: both upstream bans would have stripped these.
+          outstanding_balance: 9999, apr: 17.25, account_number: 'ACC-777',
+        } as never],
+      }}
+    />)
+    const text = container.textContent || ''
+    expect(text).not.toMatch(/9999/)
+    expect(text).not.toMatch(/17\.25/)
+    expect(text).not.toMatch(/ACC-777/)
+  })
+})
