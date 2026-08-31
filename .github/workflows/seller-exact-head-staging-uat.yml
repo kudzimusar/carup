@@ -140,6 +140,7 @@ jobs:
           const migrationPaths = [
             'database/migrations/20260830123000_seller_listing_photo_labels.sql',
             'database/migrations/20260831100000_seller_listing_submission_id.sql',
+            'database/migrations/20260831150000_seller_vehicle_history_disclosures.sql',
           ]
           const cleaned = dbUrl.replace(/([?&])sslmode=[^&]*&?/i, '$1').replace(/[?&]$/, '')
           const client = new pg.Client({ connectionString: cleaned, ssl: { rejectUnauthorized: false } })
@@ -159,10 +160,13 @@ jobs:
                  and (
                    (table_name='listing_images' and column_name='photo_label')
                    or (table_name='vehicles' and column_name='seller_listing_submission_id')
+                   or (table_name='vehicles' and column_name='seller_accident_disclosure')
+                   or (table_name='vehicles' and column_name='seller_insurance_disclosure')
+                   or (table_name='vehicles' and column_name='seller_finance_disclosure')
                  )
                order by table_name, column_name
             `)
-            if (columnProof.rows.length !== 2) {
+            if (columnProof.rows.length !== 5) {
               throw new Error(`Seller additive columns did not land: ${JSON.stringify(columnProof.rows)}`)
             }
 

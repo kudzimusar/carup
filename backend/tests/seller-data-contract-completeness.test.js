@@ -96,6 +96,16 @@ const CANONICAL_DESTINATION = {
   // Governed control field: confirmation is consumed by the existing-Passport authority gate and
   // resolves to the explicit reusedExistingPassport outcome; it must not rewrite canonical identity.
   reuse_existing_passport: 'reusedExistingPassport',
+  // F17 durable idempotency key: private mutation metadata with a real column destination. It was
+  // added to the handler without being recorded here, which made this guard red — the fix is to
+  // name its destination, not to stop accepting it.
+  client_submission_id: 'seller_listing_submission_id',
+  // Vehicle History & Obligations (F18–F20): structured Seller disclosures, each with its own
+  // seller_* column so a Seller statement never masquerades as governed accident/insurer/lender
+  // truth. NULL column = unanswered = "not recorded", never a clean-history default.
+  accident_disclosure: 'seller_accident_disclosure',
+  insurance_disclosure: 'seller_insurance_disclosure',
+  finance_disclosure: 'seller_finance_disclosure',
 };
 
 test('every field POST /api/vehicles/add accepts has a canonical destination', () => {

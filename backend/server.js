@@ -68,6 +68,11 @@ import { corsOptions } from './config/corsOptions.js';
 import { buildSessionRow } from './services/auth/sessionRow.js';
 import { createAuthEmailService } from './services/auth/authEmailService.js';
 import { normalizeRegistrationProfile } from './services/auth/registrationProfileService.js';
+import {
+  normalizeAccidentDisclosure,
+  normalizeInsuranceDisclosure,
+  normalizeFinanceDisclosure,
+} from './services/seller/vehicleHistoryDisclosures.js';
 
 // Centralized Routes Imports (Batch 1)
 import leadsRouter from './routes/leadsRoutes.js';
@@ -2406,6 +2411,8 @@ app.post('/api/vehicles/add', authorizeRole(['dealer', 'owner', 'admin']), async
     // Phase 4 identity fields
     engine_number, chassis_number, plate_number, temp_plate_id, import_status,
     reuse_existing_passport, client_submission_id,
+    // Vehicle History & Obligations — structured Seller disclosures (DESIGN.md §11.7, F18–F20).
+    accident_disclosure, insurance_disclosure, finance_disclosure,
   } = req.body;
   if (!vin || !make || !model || !price) return res.status(400).json({ error: 'VIN, make, model, and price are required' });
 
@@ -2535,6 +2542,36 @@ app.post('/api/vehicles/add', authorizeRole(['dealer', 'owner', 'admin']), async
   // form serializer, publish a person who never agreed to be published.
   const publicSellerDisplayEnabled = req.body.public_seller_display_enabled === true;
 
+  // Vehicle History & Obligations (F18–F20). Each disclosure is a Seller statement from a CLOSED
+  // vocabulary; an unanswered disclosure stays NULL and is never defaulted to a "no". Out-of-
+  // vocabulary values — and any finance payload carrying private banking terms (M17) — are refused
+  // rather than coerced, so a malformed client cannot manufacture a disclosure the Seller never made.
+  const accidentDisclosureResult = normalizeAccidentDisclosure(accident_disclosure);
+  if (!accidentDisclosureResult.ok) {
+    return res.status(400).json({ error: accidentDisclosureResult.error, code: 'SELLER_DISCLOSURE_INVALID' });
+  }
+  const insuranceDisclosureResult = normalizeInsuranceDisclosure(insurance_disclosure);
+  if (!insuranceDisclosureResult.ok) {
+    return res.status(400).json({ error: insuranceDisclosureResult.error, code: 'SELLER_DISCLOSURE_INVALID' });
+  }
+  const financeDisclosureResult = normalizeFinanceDisclosure(finance_disclosure);
+  if (!financeDisclosureResult.ok) {
+    return res.status(400).json({ error: financeDisclosureResult.error, code: 'SELLER_DISCLOSURE_INVALID' });
+  }
+  // Keys appear only when the Seller actually answered: an absent key leaves the nullable column
+  // NULL, and a request with no disclosures cannot fail against a database that predates them.
+  const sellerHistoryDisclosureColumns = {};
+  if (accidentDisclosureResult.value !== null) {
+    sellerHistoryDisclosureColumns.seller_accident_disclosure = accidentDisclosureResult.value;
+  }
+  if (insuranceDisclosureResult.value !== null) {
+    sellerHistoryDisclosureColumns.seller_insurance_disclosure = insuranceDisclosureResult.value;
+  }
+  if (financeDisclosureResult.value !== null) {
+    sellerHistoryDisclosureColumns.seller_finance_disclosure = financeDisclosureResult.value;
+  }
+  const hasSellerHistoryDisclosure = Object.keys(sellerHistoryDisclosureColumns).length > 0;
+
   const sellerDescription = submittedText(description);
   const sellerFeatures = Array.isArray(features)
     ? Array.from(new Set(features.map(value => submittedText(value)).filter(Boolean))).slice(0, 50)
@@ -2544,7 +2581,9 @@ app.post('/api/vehicles/add', authorizeRole(['dealer', 'owner', 'admin']), async
   const hasSellerCommercialClaim = sellerDescription !== null
     || (sellerFeatures && sellerFeatures.length > 0)
     || sellerBodyStyle !== null
-    || sellerCondition !== null;
+    || sellerCondition !== null
+    // History disclosures are Seller claims too: answering one stamps the same claim provenance.
+    || hasSellerHistoryDisclosure;
 
   const listingClaimColumns = {
     // No location fact without provenance — the read path refuses to publish one, and after the
@@ -2624,6 +2663,10 @@ app.post('/api/vehicles/add', authorizeRole(['dealer', 'owner', 'admin']), async
       seller_stated_condition: sellerCondition,
       seller_listing_claim_source: hasSellerCommercialClaim ? claimSource : null,
       seller_listing_recorded_at: hasSellerCommercialClaim ? new Date().toISOString() : null,
+      // Vehicle History & Obligations — Seller statements only; keys present only when answered so
+      // seller_accident_disclosure / seller_insurance_disclosure / seller_finance_disclosure stay
+      // NULL (rendered "not recorded") for every question the Seller did not answer.
+      ...sellerHistoryDisclosureColumns,
       make_taxon_id: taxonomy.make.canonical_id,
       model_taxon_id: taxonomy.model.canonical_id,
       generation_taxon_id: null,
@@ -2825,6 +2868,9 @@ app.post('/api/vehicles/add', authorizeRole(['dealer', 'owner', 'admin']), async
         // listing control after the legal owner/private seller starts a new listing.
         tenant_id: candidate.tenant_id,
         public_seller_display_enabled: listingRow.public_seller_display_enabled,
+        // Re-listing refreshes the Seller's history disclosures alongside the other commercial
+        // statements; unanswered questions stay untouched on the existing row (keys absent).
+        ...sellerHistoryDisclosureColumns,
         publication_status: 'draft',
       };
       ({ error: insertError } = await supabase
@@ -2842,6 +2888,20 @@ app.post('/api/vehicles/add', authorizeRole(['dealer', 'owner', 'admin']), async
         listingClaimsRecorded = false;
         ({ error: insertError } = await supabase.from('vehicles').insert(listingRow));
       }
+    }
+    // A Seller who ANSWERED a history question must never have that answer silently dropped by an
+    // older database. Fail closed (same contract as SELLER_IDEMPOTENCY_SCHEMA_REQUIRED): the browser
+    // keeps its draft and retries once the additive migration lands. Requests with no disclosures
+    // never carry these keys and cannot reach this branch.
+    if (
+      insertError && hasSellerHistoryDisclosure
+      && ['seller_accident_disclosure', 'seller_insurance_disclosure', 'seller_finance_disclosure']
+        .some((column) => isMissingNamedColumnError(insertError, column))
+    ) {
+      return res.status(503).json({
+        error: 'Vehicle history disclosures are still being activated. Your browser draft is unchanged; retry shortly.',
+        code: 'SELLER_DISCLOSURE_SCHEMA_REQUIRED',
+      });
     }
     if (insertError) throw insertError;
 
@@ -3002,6 +3062,9 @@ app.post('/api/vehicles/add', authorizeRole(['dealer', 'owner', 'admin']), async
       // could not be retired. Seller Studio treats false as a partial save and keeps its local draft.
       images_replacement_complete: imagesReplacementComplete,
       submission_id_recorded: submittedSellerSubmissionId !== null,
+      // True only when the Seller answered at least one history/obligations question; the write
+      // above fails closed (503) rather than ever dropping an answered disclosure.
+      history_disclosures_recorded: hasSellerHistoryDisclosure,
       idempotent_replay: false,
       reused_existing_passport: reusedExistingPassport,
       message: reusedExistingPassport
@@ -3077,6 +3140,33 @@ app.patch('/api/vehicles/:vin/seller-draft', authorizeRole(['owner', 'dealer', '
       patch.seller_stated_condition = submittedText(body.seller_stated_condition);
       sellerCommercialTouched = true;
     }
+
+    // Vehicle History & Obligations (F18–F20): same closed-vocabulary refusal as /vehicles/add.
+    // An explicit null retracts the answer (column back to NULL = "not recorded"); an absent key
+    // leaves the stored answer untouched; an out-of-vocabulary value is a 400, never a coercion.
+    let disclosureTouched = false;
+    if (has('accident_disclosure')) {
+      const result = normalizeAccidentDisclosure(body.accident_disclosure);
+      if (!result.ok) return res.status(400).json({ error: result.error, code: 'SELLER_DISCLOSURE_INVALID' });
+      patch.seller_accident_disclosure = result.value;
+      disclosureTouched = true;
+      sellerCommercialTouched = true;
+    }
+    if (has('insurance_disclosure')) {
+      const result = normalizeInsuranceDisclosure(body.insurance_disclosure);
+      if (!result.ok) return res.status(400).json({ error: result.error, code: 'SELLER_DISCLOSURE_INVALID' });
+      patch.seller_insurance_disclosure = result.value;
+      disclosureTouched = true;
+      sellerCommercialTouched = true;
+    }
+    if (has('finance_disclosure')) {
+      const result = normalizeFinanceDisclosure(body.finance_disclosure);
+      if (!result.ok) return res.status(400).json({ error: result.error, code: 'SELLER_DISCLOSURE_INVALID' });
+      patch.seller_finance_disclosure = result.value;
+      disclosureTouched = true;
+      sellerCommercialTouched = true;
+    }
+
     if (sellerCommercialTouched) {
       patch.seller_listing_claim_source = source;
       patch.seller_listing_recorded_at = now;
@@ -3121,12 +3211,31 @@ app.patch('/api/vehicles/:vin/seller-draft', authorizeRole(['owner', 'dealer', '
       return res.status(200).json({ success: true, vin, unchanged: true, publication_status: existing.publication_status });
     }
 
+    // The disclosure columns join the receipt select ONLY when this request touched them, so an
+    // autosave that says nothing about disclosures still succeeds against a database that predates
+    // the 20260831150000 migration.
+    const receiptColumns = 'vin, publication_status, price, currency, seller_description, seller_features, body_style, seller_stated_condition, public_seller_display_enabled, listing_city, listing_province, listing_country, listing_location_visibility'
+      + (disclosureTouched ? ', seller_accident_disclosure, seller_insurance_disclosure, seller_finance_disclosure' : '');
+
     let { data: updated, error: updateError } = await supabase
       .from('vehicles')
       .update(patch)
       .eq('vin', vin)
-      .select('vin, publication_status, price, currency, seller_description, seller_features, body_style, seller_stated_condition, public_seller_display_enabled, listing_city, listing_province, listing_country, listing_location_visibility')
+      .select(receiptColumns)
       .single();
+
+    // An ANSWERED disclosure must never be silently dropped by an older schema: fail closed so the
+    // browser keeps its local copy (same contract as SELLER_DISCLOSURE_SCHEMA_REQUIRED on create).
+    if (
+      updateError && disclosureTouched
+      && ['seller_accident_disclosure', 'seller_insurance_disclosure', 'seller_finance_disclosure']
+        .some((column) => isMissingNamedColumnError(updateError, column))
+    ) {
+      return res.status(503).json({
+        error: 'Vehicle history disclosures are still being activated. Your edit was not saved; retry shortly.',
+        code: 'SELLER_DISCLOSURE_SCHEMA_REQUIRED',
+      });
+    }
 
     // Controlled mixed-schema fallback: never turn an unapplied provenance migration into a Seller
     // outage. Drop only claim columns that the older schema cannot name; the response explicitly
@@ -3141,7 +3250,7 @@ app.patch('/api/vehicles/:vin/seller-draft', authorizeRole(['owner', 'dealer', '
         .from('vehicles')
         .update(legacyPatch)
         .eq('vin', vin)
-        .select('vin, publication_status, price, currency, seller_description, seller_features, body_style, seller_stated_condition, public_seller_display_enabled, listing_city, listing_province, listing_country, listing_location_visibility')
+        .select(receiptColumns)
         .single());
     }
     if (updateError) throw updateError;
@@ -3165,6 +3274,13 @@ app.patch('/api/vehicles/:vin/seller-draft', authorizeRole(['owner', 'dealer', '
         listing_country: updated.listing_country ?? '',
         location_visibility: updated.listing_location_visibility ?? 'withheld',
         public_seller_display_enabled: updated.public_seller_display_enabled === true,
+        // Present only when this request touched a disclosure — the receipt echoes exactly what the
+        // database now stores (null = retracted/unanswered), never a coerced default.
+        ...(disclosureTouched ? {
+          accident_disclosure: updated.seller_accident_disclosure ?? null,
+          insurance_disclosure: updated.seller_insurance_disclosure ?? null,
+          finance_disclosure: updated.seller_finance_disclosure ?? null,
+        } : {}),
       } : null,
     });
   } catch (error) {
