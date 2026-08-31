@@ -343,3 +343,49 @@ test('buildVehiclePassport never references the projection function as a free mo
   assert.doesNotMatch(body, /toVehicleFinanceObligationBlock/,
     'the projection must never be called as a free name inside the source-executed passport body');
 });
+
+// ── The UN-MIGRATED database. Staging does not have 20260901120000 applied, and the Golden UAT
+//    runs the real passport route against it — so every one of these paths must degrade to an
+//    honest "unavailable" rather than throwing, 500-ing, or (worst) reporting a governed zero.
+//    Reasoning about this is not enough; it is the difference between a working staging UAT and a
+//    broken passport route.
+
+/** A client whose every table read fails the way PostgREST reports a missing relation. */
+function missingTableClient() {
+  const failure = { data: null, error: { code: '42P01', message: 'relation "vehicle_finance_obligations" does not exist' } };
+  const builder = {
+    select() { return this; },
+    eq() { return this; },
+    neq() { return this; },
+    order() { return Promise.resolve(failure); },
+    maybeSingle() { return Promise.resolve(failure); },
+    then(resolve) { return Promise.resolve(failure).then(resolve); },
+  };
+  return { from: () => builder, rpc: () => Promise.resolve(failure) };
+}
+
+test('an un-migrated database projects source_state "unavailable" — never a governed zero, never a throw', async () => {
+  const { projectFinanceObligationForVehicle } = await import('../services/finance/vehicleFinanceObligationService.js');
+  const block = await projectFinanceObligationForVehicle(missingTableClient(), 'VIN-UNMIGRATED');
+  assert.equal(block.authority, 'governed');
+  assert.equal(block.source_state, 'unavailable');
+  assert.deepEqual(block.obligations, []);
+});
+
+test('the M16 reconciler never throws on an un-migrated database', async () => {
+  const { reconcileSellerFinanceDisclosure } = await import('../services/finance/vehicleFinanceObligationService.js');
+  const result = await reconcileSellerFinanceDisclosure(missingTableClient(), 'VIN-UNMIGRATED');
+  assert.equal(result.recorded, false);
+});
+
+test('the completeness evaluator degrades the finance requirement instead of failing the publish gate', async () => {
+  // R23's hard requirement: an encumbrance check that cannot run must not be able to block
+  // publication. The requirement is advisory, so the only way it could break publishing is by
+  // THROWING out of evaluateCompleteness — which is what this pins.
+  const src = fs.readFileSync(new URL('../services/evidence/completenessEvaluator.js', import.meta.url), 'utf8');
+  const start = src.indexOf('let encumbranceStatus');
+  const block = src.slice(start, src.indexOf("key: 'finance_obligation_disclosure'", start));
+  assert.match(block, /try\s*\{/, 'the encumbrance read must be guarded');
+  assert.match(block, /catch/, 'a failed encumbrance read must not propagate out of the evaluator');
+  assert.match(block, /not_available/, 'a failed read degrades to not_available, never to a clean claim');
+});
