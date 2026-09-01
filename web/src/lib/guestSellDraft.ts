@@ -9,6 +9,11 @@ import {
 
 export const GUEST_SELL_DRAFT_KEY = 'carup_guest_sell_draft_v1'
 export const GUEST_SELL_STEP_KEY = 'carup_guest_sell_step_v1'
+// Durable browser checkpoint for owner UAT and real Sellers. Session storage remains the fast
+// same-tab copy, while localStorage preserves typed business fields across refresh/logout/relogin
+// and browser restarts on the same device. Media bytes remain in IndexedDB.
+export const GUEST_SELL_DURABLE_DRAFT_KEY = 'carup_guest_sell_draft_durable_v1'
+export const GUEST_SELL_DURABLE_STEP_KEY = 'carup_guest_sell_step_durable_v1'
 
 export function createSellerSubmissionId(): string {
   if (typeof globalThis.crypto?.randomUUID === 'function') return globalThis.crypto.randomUUID()
@@ -148,12 +153,32 @@ export async function saveGuestSellDraft(
 
   volatileMedia = [...payload.images]
 
+  // Write the lightweight checkpoint synchronously BEFORE any await. This is the "never start
+  // again" guarantee for typed fields: even if navigation/deploy/logout interrupts the async media
+  // write, all non-media Seller answers and media annotations survive on this browser.
+  const durablePayload: GuestSellDraft = {
+    ...payload,
+    images: [],
+    mediaExternalized: payload.images.length > 0,
+  }
+  try {
+    localStorage.setItem(GUEST_SELL_DURABLE_DRAFT_KEY, JSON.stringify(durablePayload))
+  } catch { /* sessionStorage/IndexedDB still provide best-effort recovery */ }
+
+  // Keep media outside Web Storage so large camera galleries survive a browser restart without
+  // repeatedly exhausting the 5–10 MB local/session quota.
+  if (payload.images.length > 0) {
+    try { await writeGuestSellMedia(payload.images) } catch { /* session copy may still hold them */ }
+  } else {
+    await clearGuestSellMedia()
+    volatileMedia = []
+  }
+
   try {
     // Small drafts stay self-contained and synchronous to read.
     sessionStorage.setItem(GUEST_SELL_DRAFT_KEY, JSON.stringify(payload))
-    await clearGuestSellMedia()
     volatileMedia = [...payload.images]
-    return { ok: true as const, media_externalized: false as const }
+    return { ok: true as const, media_externalized: payload.images.length > 0 }
   } catch {
     // Camera images routinely exceed the ~5–10 MB Web Storage budget. Preserve every business
     // field plus media annotations in sessionStorage, and move only the heavy image payload into
@@ -246,12 +271,21 @@ function parseGuestSellDraft(raw: string): GuestSellDraft | null {
 }
 
 export function readGuestSellDraft(): GuestSellDraft | null {
+  const candidates: GuestSellDraft[] = []
   try {
-    const raw = sessionStorage.getItem(GUEST_SELL_DRAFT_KEY)
-    return raw ? parseGuestSellDraft(raw) : null
-  } catch {
-    return null
-  }
+    const sessionRaw = sessionStorage.getItem(GUEST_SELL_DRAFT_KEY)
+    const sessionDraft = sessionRaw ? parseGuestSellDraft(sessionRaw) : null
+    if (sessionDraft) candidates.push(sessionDraft)
+  } catch { /* continue to durable browser copy */ }
+  try {
+    const durableRaw = localStorage.getItem(GUEST_SELL_DURABLE_DRAFT_KEY)
+    const durableDraft = durableRaw ? parseGuestSellDraft(durableRaw) : null
+    if (durableDraft) candidates.push(durableDraft)
+  } catch { /* no durable storage available */ }
+  if (candidates.length === 0) return null
+  return candidates.sort((a, b) =>
+    Date.parse(b.saved_at || '') - Date.parse(a.saved_at || '')
+  )[0]
 }
 
 export async function readGuestSellDraftWithMedia(): Promise<GuestSellDraft | null> {
@@ -269,26 +303,30 @@ export async function readGuestSellDraftWithMedia(): Promise<GuestSellDraft | nu
 }
 
 export function readGuestSellStep() {
-  try {
-    const raw = sessionStorage.getItem(GUEST_SELL_STEP_KEY)
-    const parsed = Number(raw)
-    return Number.isInteger(parsed) && parsed >= 0 && parsed <= 3 ? parsed : 0
-  } catch {
-    return 0
+  for (const storage of [sessionStorage, localStorage]) {
+    try {
+      const raw = storage.getItem(storage === sessionStorage ? GUEST_SELL_STEP_KEY : GUEST_SELL_DURABLE_STEP_KEY)
+      const parsed = Number(raw)
+      if (Number.isInteger(parsed) && parsed >= 0 && parsed <= 3) return parsed
+    } catch { /* try the next browser store */ }
   }
+  return 0
 }
 
 export function saveGuestSellStep(step: number) {
-  try {
-    const normalized = Math.max(0, Math.min(3, Math.trunc(Number(step) || 0)))
-    sessionStorage.setItem(GUEST_SELL_STEP_KEY, String(normalized))
-  } catch { /* best effort */ }
+  const normalized = Math.max(0, Math.min(3, Math.trunc(Number(step) || 0)))
+  try { sessionStorage.setItem(GUEST_SELL_STEP_KEY, String(normalized)) } catch { /* best effort */ }
+  try { localStorage.setItem(GUEST_SELL_DURABLE_STEP_KEY, String(normalized)) } catch { /* best effort */ }
 }
 
 export function clearGuestSellDraft() {
   try {
     sessionStorage.removeItem(GUEST_SELL_DRAFT_KEY)
     sessionStorage.removeItem(GUEST_SELL_STEP_KEY)
+  } catch { /* best effort */ }
+  try {
+    localStorage.removeItem(GUEST_SELL_DURABLE_DRAFT_KEY)
+    localStorage.removeItem(GUEST_SELL_DURABLE_STEP_KEY)
   } catch { /* best effort */ }
   volatileMedia = null
   void clearGuestSellMedia()

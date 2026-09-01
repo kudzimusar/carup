@@ -29,9 +29,9 @@ export interface SellerIdentifiedVehicle {
 export type SellerVehicleIdentificationState =
   /** Not enough characters yet — no lookup was attempted. */
   | 'incomplete'
-  /** CarUp already holds a Vehicle Passport for this VIN. Reuse it; do not create a duplicate. */
+  /** CarUp already holds a Vehicle Passport for this vehicle identifier. Reuse it; do not create a duplicate. */
   | 'passport_exists'
-  /** CarUp holds no Passport for this VIN. Says nothing about the vehicle's real-world existence. */
+  /** CarUp holds no Passport for this vehicle identifier. Says nothing about the vehicle's real-world existence. */
   | 'no_carup_record'
   /** The check could not be completed. Advisory only — the seller continues either way. */
   | 'check_unavailable'
@@ -42,10 +42,16 @@ export interface SellerVehicleIdentification {
   passportVehicle: SellerIdentifiedVehicle | null
 }
 
-const VIN_PATTERN = /^[A-HJ-NPR-Z0-9]{17}$/
+// Owner UAT 2026-09-01 proved a real Zimbabwe-bound Japanese import whose official
+// Cotecna document labels GFC27-027051 as "Chassis/VIN Number". Japanese domestic
+// frame/chassis identifiers are not always ISO 3779 17-character VINs. For Seller
+// intake we therefore accept the documented vehicle identifier CarUp actually has:
+// 12–17 uppercase letters/numbers, with an optional hyphen used by frame numbers.
+// This is syntax only; provenance/ownership/verification remain governed separately.
+const SELLER_VEHICLE_IDENTIFIER_PATTERN = /^[A-Z0-9-]{12,17}$/
 
 export function isCompleteVin(value: string): boolean {
-  return VIN_PATTERN.test(String(value ?? '').trim().toUpperCase())
+  return SELLER_VEHICLE_IDENTIFIER_PATTERN.test(String(value ?? '').trim().toUpperCase())
 }
 
 /**

@@ -53,6 +53,14 @@ describe('S1 guest draft continuity', () => {
     expect(dropped, `The draft persists these but authenticated Sell never reads them: ${dropped.join(', ')}`).toEqual([])
   })
 
+  it('keeps a durable browser checkpoint across refresh/logout/relogin before server creation', () => {
+    expect(GUEST_DRAFT).toContain('GUEST_SELL_DURABLE_DRAFT_KEY')
+    expect(GUEST_DRAFT).toContain('localStorage.setItem(GUEST_SELL_DURABLE_DRAFT_KEY')
+    expect(GUEST_DRAFT).toContain('localStorage.getItem(GUEST_SELL_DURABLE_DRAFT_KEY')
+    expect(GUEST_DRAFT).toContain('GUEST_SELL_DURABLE_STEP_KEY')
+    expect(GUEST_DRAFT).toContain('mediaExternalized: payload.images.length > 0')
+  })
+
   it('the draft is versioned and rejects a shape it does not understand', () => {
     expect(GUEST_DRAFT).toContain('version: 1')
     expect(GUEST_DRAFT).toContain("if (parsed.version !== 1")

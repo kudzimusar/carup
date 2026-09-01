@@ -14,6 +14,7 @@ import { MarketplaceListingCard } from '@/components/marketplace/MarketplaceList
 import { sellerDiscoverabilityFacets, sellerDraftToCardModel } from '@/lib/sellerListingPreview'
 import { VehicleIdentificationNotice } from '@/components/sell/VehicleIdentificationNotice'
 import { useSellerVehicleIdentification } from '@/hooks/useSellerVehicleIdentification'
+import { isCompleteVin } from '@/lib/sellerVehicleIdentification'
 import { useCarUpApi } from '@/hooks/useCarUpApi'
 import { VehicleHistoryCoveragePanel, type HistoryEvidencePlanState } from '@/components/sell/VehicleHistoryCoveragePanel'
 import { VehicleHistoryDisclosuresSection } from '@/components/sell/VehicleHistoryDisclosuresSection'
@@ -87,10 +88,6 @@ function freshGuestForm(): GuestForm {
     imageLabels: [],
     historyPlan: {},
   }
-}
-
-function validVin(vin: string) {
-  return /^[A-HJ-NPR-Z0-9]{17}$/i.test(vin)
 }
 
 export default function GuestSell() {
@@ -176,7 +173,7 @@ export default function GuestSell() {
     const timer = window.setTimeout(() => {
       void saveGuestSellDraft(form)
       saveGuestSellStep(step)
-    }, 700)
+    }, 300)
     return () => window.clearTimeout(timer)
   }, [form, step])
 
@@ -254,7 +251,7 @@ export default function GuestSell() {
       if (!form.make.trim()) next.make = 'Make is required'
       if (!form.model.trim()) next.model = 'Model is required'
       if (!isValidVehicleYear(form.year)) next.year = 'Enter a valid year'
-      if (!validVin(form.vin)) next.vin = 'Enter the 17-character VIN'
+      if (!isCompleteVin(form.vin)) next.vin = 'Enter a documented vehicle identifier (12–17 letters, numbers or hyphens)'
       else if (identifying) next.vin = 'Wait for the CarUp Passport check to finish'
       else if (identification.state === 'passport_exists' && !form.existingPassportConfirmed) {
         next.vin = 'Confirm whether this is the existing CarUp vehicle before continuing'
@@ -532,7 +529,7 @@ export default function GuestSell() {
                     <div className="rounded-3xl bg-[#0b1625] p-5 text-white sm:p-6">
                       <ScanLine className="h-6 w-6 text-orange-400" />
                       <h3 className="mt-4 font-black">Vehicle fingerprint</h3>
-                      <p className="mt-1 text-xs leading-5 text-slate-400">The VIN lets CarUp check whether this car already has a Passport before you invest more time.</p>
+                      <p className="mt-1 text-xs leading-5 text-slate-400">Use the VIN or the documented chassis/frame identifier. CarUp accepts 12–17 characters for imported vehicles and checks whether this car already has a Passport.</p>
                       <div className="mt-5">
                         <Field label="VIN" error={errors.vin} dark>
                           <Input value={form.vin} onChange={e => set('vin', e.target.value.toUpperCase())} maxLength={17} placeholder="17-character VIN" className="border-white/15 bg-white/10 font-mono text-white placeholder:text-slate-500" data-testid="guest-sell-vin" />

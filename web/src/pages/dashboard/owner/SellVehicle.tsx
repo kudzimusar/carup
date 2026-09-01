@@ -17,6 +17,7 @@ import { sellerDiscoverabilityFacets } from '@/lib/sellerListingPreview'
 import { LISTING_IMAGE_LIMIT, screenListingImages } from '@/lib/listingMediaIntake'
 import { VehicleIdentificationNotice } from '@/components/sell/VehicleIdentificationNotice'
 import { useSellerVehicleIdentification } from '@/hooks/useSellerVehicleIdentification'
+import { isCompleteVin } from '@/lib/sellerVehicleIdentification'
 import { BODY_STYLES, DRIVETRAINS, FUEL_TYPES, SELLER_CONDITIONS, TRANSMISSIONS, VEHICLE_COLORS, VEHICLE_MAKES, modelsForMake, vehicleYearOptions } from '@/data/vehicleTaxonomy'
 import type { Vehicle } from '@/types'
 import { SellerWorkspaceHeader } from '@/components/seller/SellerWorkspaceHeader'
@@ -190,10 +191,6 @@ const INITIAL = {
   financeDisclosure: null as FinanceDisclosure | null,
 }
 
-function validateVin(vin: string) {
-  return /^[A-HJ-NPR-Z0-9]{17}$/i.test(vin)
-}
-
 export default function SellVehicle() {
   const { createVehicleListing, updateSellerDraft, uploadVehicleImages, requestSellerAuthorityClaim, fetchOwnedVehicles } = useCarUpApi()
   const [searchParams] = useSearchParams()
@@ -242,7 +239,7 @@ export default function SellVehicle() {
   const [guestHistoryPlan] = useState(() => guestDraft?.historyPlan ?? {})
   const [authorityState, setAuthorityState] = useState<'idle' | 'checking' | 'recognized' | 'evidence_required' | 'error'>('idle')
   const [authorityClaimType, setAuthorityClaimType] = useState<'owner' | 'authorised_seller' | null>(null)
-  const [serverDraftLoading, setServerDraftLoading] = useState(() => Boolean(!guestDraft && validateVin(resumeVin)))
+  const [serverDraftLoading, setServerDraftLoading] = useState(() => Boolean(!guestDraft && isCompleteVin(resumeVin)))
   const [serverDraftLoaded, setServerDraftLoaded] = useState(false)
   const [serverVehicle, setServerVehicle] = useState<Vehicle | null>(null)
   const [serverDraftError, setServerDraftError] = useState<string | null>(null)
@@ -318,7 +315,7 @@ export default function SellVehicle() {
   }
 
   useEffect(() => {
-    if (guestDraft || !validateVin(resumeVin)) return
+    if (guestDraft || !isCompleteVin(resumeVin)) return
     let active = true
 
     fetchOwnedVehicles()
@@ -444,7 +441,7 @@ export default function SellVehicle() {
         financeDisclosure: form.financeDisclosure,
       })
       saveGuestSellStep(step)
-    }, 700)
+    }, 300)
 
     return () => window.clearTimeout(timer)
   }, [coverImageIndex, form, guestHistoryPlan, savedVin, serverDraftLoading, step])
@@ -453,7 +450,7 @@ export default function SellVehicle() {
   // commercial/privacy edits. The browser draft remains crash-recovery only; this PATCH cannot
   // rewrite Passport identity, Trust, Evidence, ownership or publication state.
   useEffect(() => {
-    if (!serverDraftLoaded || serverDraftLoading || submitting || !validateVin(form.vin)) return
+    if (!serverDraftLoaded || serverDraftLoading || submitting || !isCompleteVin(form.vin)) return
 
     const revision = serverAutosaveRevision.current
     const payload: SellerAutosavePayload = {
@@ -613,7 +610,7 @@ export default function SellVehicle() {
       if (!form.model) e.model = 'Required'
       if (!form.year) e.year = 'Required'
       if (!form.vin) e.vin = 'Required'
-      else if (!validateVin(form.vin)) e.vin = 'VIN must be 17 alphanumeric characters'
+      else if (!isCompleteVin(form.vin)) e.vin = 'Vehicle identifier must be 12–17 letters, numbers or hyphens'
       else if (identifying) e.vin = 'Wait for the CarUp Passport check to finish'
       else if (identification.state === 'passport_exists' && !form.existingPassportConfirmed) {
         e.vin = 'Confirm that this is the existing CarUp vehicle'
@@ -806,7 +803,7 @@ export default function SellVehicle() {
     }
   }
 
-  const vinValid = form.vin.length >= 2 ? validateVin(form.vin) : null
+  const vinValid = form.vin.length >= 2 ? isCompleteVin(form.vin) : null
   const canonicalLocked = serverDraftLoaded
   const studioTrust = serverVehicle ? readOwnerTrustClaim(serverVehicle) : null
   const studioMedia = serverVehicle ? primaryListingImageUrl(serverVehicle.listing_media) : (form.images[coverImageIndex ?? 0] || form.images[0] || null)
@@ -890,7 +887,7 @@ export default function SellVehicle() {
     )
   }
 
-  if (serverDraftError && validateVin(resumeVin) && !guestDraft) {
+  if (serverDraftError && isCompleteVin(resumeVin) && !guestDraft) {
     return (
       <div className="max-w-3xl mx-auto">
         <Card className="border-amber-200 bg-amber-50">
@@ -987,7 +984,7 @@ export default function SellVehicle() {
               <span className="inline-flex items-center gap-1.5"><Images className="h-3.5 w-3.5 text-orange-400" /> Listing media ≠ verified evidence</span>
             </div>
 
-            {validateVin(form.vin) && (
+            {isCompleteVin(form.vin) && (
               <Button asChild variant="outline" className="mt-6 min-h-11 rounded-none border-white/25 bg-transparent text-white hover:bg-white/10 hover:text-white">
                 <Link to={`/marketplace/${encodeURIComponent(form.vin)}?mode=seller_preview`} data-testid="seller-buyer-preview">
                   <Eye className="mr-2 h-4 w-4" /> Buyer Preview — not public
@@ -1091,12 +1088,13 @@ export default function SellVehicle() {
                 </div>
               </div>
               <div>
-                <label className="text-sm font-medium mb-1.5 block">VIN (Vehicle Identification Number) *</label>
+                <label className="text-sm font-medium mb-1.5 block">VIN / Vehicle Identifier *</label>
                 <div className="relative">
                   <Input
                     value={form.vin}
                     onChange={e => set('vin', e.target.value.toUpperCase())}
-                    placeholder="17-character VIN e.g. JTELU9FJ9K5987234"
+                    placeholder="VIN or documented chassis/frame ID"
+                    minLength={12}
                     maxLength={17}
                     className={`font-mono pr-10 ${errors.vin ? 'border-red-400' : vinValid === true ? 'border-green-400' : ''}`}
                     data-testid="vehicle-vin-input"
@@ -1105,7 +1103,7 @@ export default function SellVehicle() {
                   {vinValid === true && <CheckCircle className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-green-500" />}
                   {vinValid === false && <AlertCircle className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-red-500" />}
                 </div>
-                <p className="text-xs text-gray-400 mt-1">{form.vin.length}/17 characters</p>
+                <p className="text-xs text-gray-400 mt-1">{form.vin.length}/17 characters · minimum 12. Japanese chassis/frame identifiers are accepted when documented.</p>
                 {errors.vin && <p className="text-xs text-red-500">{errors.vin}</p>}
                 <VehicleIdentificationNotice
                   result={identification}
@@ -1585,7 +1583,7 @@ export default function SellVehicle() {
                 </div>
               )}
 
-              {serverDraftLoaded && validateVin(form.vin) && (
+              {serverDraftLoaded && isCompleteVin(form.vin) && (
                 <div className="border-y border-slate-200 py-4" data-testid="seller-studio-publication-readiness">
                   <p className="mb-3 text-[10px] font-black uppercase tracking-[0.16em] text-slate-400">Governed publication readiness</p>
                   <VehicleCompletenessPanel vin={form.vin.toUpperCase()} />

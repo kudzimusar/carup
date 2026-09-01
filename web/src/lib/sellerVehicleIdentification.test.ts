@@ -24,16 +24,25 @@ const passportFor = (vin: string) => ({
 })
 
 describe('S1 seller vehicle identification', () => {
-  it('only looks up a syntactically complete VIN', async () => {
-    expect(isCompleteVin('JTDKARFP0H300073')).toBe(false)
+  it('accepts documented 12–17 character VIN/frame identifiers and rejects shorter/unsafe values', async () => {
+    expect(isCompleteVin('GFC27-02705')).toBe(false)
+    expect(isCompleteVin('GFC27-027051')).toBe(true)
     expect(isCompleteVin('JTDKARFP0H3000731')).toBe(true)
-    // I, O and Q are not VIN characters and must not trigger a lookup.
-    expect(isCompleteVin('ITDKARFP0H3000731')).toBe(false)
+    expect(isCompleteVin('GFC27_027051')).toBe(false)
+    expect(isCompleteVin('JTDKARFP0H30007312')).toBe(false)
 
     const lookup = vi.fn()
-    const result = await identifySellerVehicle('JTDKARFP0H30007', lookup)
+    const result = await identifySellerVehicle('GFC27-02705', lookup)
     expect(lookup).not.toHaveBeenCalled()
     expect(result.state).toBe('incomplete')
+  })
+
+  it('looks up a Japanese frame/chassis identifier exactly as documented', async () => {
+    const lookup = vi.fn().mockRejectedValue(Object.assign(new Error('Vehicle not found'), { status: 404 }))
+    const result = await identifySellerVehicle('gfc27-027051', lookup)
+    expect(lookup).toHaveBeenCalledWith('GFC27-027051')
+    expect(result.state).toBe('no_carup_record')
+    expect(result.vin).toBe('GFC27-027051')
   })
 
   it('reports an existing Passport as a CarUp record, not as a verified seller fact', async () => {

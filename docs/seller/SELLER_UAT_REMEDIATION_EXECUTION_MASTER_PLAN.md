@@ -1544,6 +1544,11 @@ Required exact-head battery:
 - [ ] **V14. Owner verifies inquiry/Communications/Intelligence.**
 - [ ] **V15. Owner verifies Home/Marketplace/Vehicle Detail appearance.**
 - [ ] **V16. Owner UAT decision recorded as PASS.**
+- [~] **V17. Japanese-import vehicle identifiers and mid-form recovery are accepted in owner UAT.**
+  - UAT finding: official Zimbabwe/Cotecna paperwork identifies a real Japanese import as `GFC27-027051` ("Chassis/VIN Number"), while the frozen Seller UI required exactly 17 characters and blocked continuation.
+  - Remediation: Seller intake accepts documented 12–17 character letters/numbers/hyphens; no identifier is fabricated or padded.
+  - Draft recovery: typed Seller fields are checkpointed in durable browser storage before server draft creation and retained across refresh/logout/relogin on the same device; media remains in IndexedDB.
+  - Evidence required for `[x]`: exact-head deployed owner UAT resumes the blocked Serena draft and completes identifier → save/resume without re-entry.
 
 ### Phase V roll call
 - [ ] **V-RC. Phase V complete:** owner has accepted the visual/product result; automated PASS alone is insufficient.

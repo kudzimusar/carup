@@ -2546,6 +2546,16 @@ function submittedText(value) {
   return text === '' ? null : text;
 }
 
+// Owner UAT 2026-09-01: Zimbabwe import paperwork can legitimately identify a Japanese
+// domestic-market vehicle with a manufacturer frame/chassis number rather than a 17-character
+// ISO VIN. Cotecna labels GFC27-027051 "Chassis/VIN Number". Seller intake therefore accepts
+// 12–17 letters/numbers/hyphens. This is only a syntax gate; evidence/ownership/Passport review
+// still determines authority and provenance.
+function validSellerVehicleIdentifier(value) {
+  const identifier = submittedText(value);
+  return identifier !== null && /^[A-Z0-9-]{12,17}$/i.test(identifier);
+}
+
 /**
  * WHO asserted the values on this submission, drawn from CLAIM_SOURCES.
  *
@@ -2623,7 +2633,13 @@ app.post('/api/vehicles/add', authorizeRole(['dealer', 'owner', 'admin']), async
     // Vehicle History & Obligations — structured Seller disclosures (DESIGN.md §11.7, F18–F20).
     accident_disclosure, insurance_disclosure, finance_disclosure,
   } = req.body;
-  if (!vin || !make || !model || !price) return res.status(400).json({ error: 'VIN, make, model, and price are required' });
+  if (!vin || !make || !model || !price) return res.status(400).json({ error: 'Vehicle identifier, make, model, and price are required' });
+  if (!validSellerVehicleIdentifier(vin)) {
+    return res.status(400).json({
+      error: 'Vehicle identifier must be 12 to 17 letters, numbers, or hyphens',
+      code: 'SELLER_VEHICLE_IDENTIFIER_INVALID',
+    });
+  }
 
   // F17 — one logical Seller create attempt gets one durable UUID. The UUID is private mutation
   // metadata, never vehicle identity, ownership, Trust or a public listing field. Legacy callers may
