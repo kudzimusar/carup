@@ -44,7 +44,18 @@ const COVER = PHOTOS[1];
 
 /** A VIN excludes I, O and Q. A malformed one never completes, so the Passport check never fires. */
 const VIN_SAFE = (v: string) => v.toUpperCase().replace(/[IOQ]/g, 'X').replace(/[^A-HJ-NPR-Z0-9]/g, '0');
-const VIN = `JTMLC${VIN_SAFE(RUN_ID)}`.padEnd(17, '0').slice(0, 17);
+
+/**
+ * The VIN is unique per PROJECT as well as per run.
+ *
+ * `STAGING_RUN_ID` is one value for the whole workflow, so desktop and mobile would otherwise create
+ * the SAME vin — and the second project would find that CarUp already holds a Passport for it. That
+ * is not a failure of the media contract: step-0 validation correctly refuses to advance until the
+ * seller confirms whether it is the same vehicle, so the mobile run simply never reached stage 2.
+ * Each viewport gets its own vehicle instead of the two runs colliding.
+ */
+const vinFor = (project: string) =>
+  `JTMLC${VIN_SAFE(project.slice(0, 3) + RUN_ID)}`.padEnd(17, '0').slice(0, 17);
 
 type SessionAuth = { token: string; user: { id: string; role: string } };
 
@@ -162,7 +173,7 @@ async function expectCover(page: Page, scope: string, where: string) {
 }
 
 /** The owner's gallery, read as ASSERTION EVIDENCE only — it performs no user action. */
-async function ownerGallery(page: Page) {
+async function ownerGallery(page: Page, VIN: string) {
   return page.evaluate(async (vin) => {
     const p = await (await fetch('/carup-provenance.json')).json();
     const r = await fetch(`${p.api_base_url}/api/vehicles/me`, {
@@ -198,8 +209,10 @@ test.describe('Seller media continuity across the commerce lifecycle', () => {
     + 'backend/scripts/staging-create-test-identities.mjs. The draft half is covered unconditionally '
     + 'by web/e2e/seller-media-continuity.spec.ts.');
 
-  test('the seller-selected cover survives publish, unpublish, republish and sold', async ({ page, request }) => {
+  test('the seller-selected cover survives publish, unpublish, republish and sold', async ({ page, request }, testInfo) => {
     test.slow();
+    const VIN = vinFor(testInfo.project.name);
+    testInfo.annotations.push({ type: 'vin', description: VIN });
     const password = process.env.STAGING_UAT_BUYER_PASSWORD;
     expect(password, 'STAGING_UAT_BUYER_PASSWORD is not configured').toBeTruthy();
 
@@ -263,7 +276,7 @@ test.describe('Seller media continuity across the commerce lifecycle', () => {
     // ── the draft already shows the seller's cover to its owner ───────────────────────────────
     await page.goto('/dashboard/listings', { waitUntil: 'domcontentloaded' });
     const draftShot = await expectCover(page, `[data-testid="my-listing-card-${VIN}"]`, 'My Listings (draft)');
-    const draft = await ownerGallery(page);
+    const draft = await ownerGallery(page, VIN);
     expect(draft.unpaired, 'evidence must come from the paired exact head').toBe(false);
     expect(draft.publication_status).toBe('draft');
     expectGalleryIntact(draft.media, 'draft');
@@ -272,7 +285,7 @@ test.describe('Seller media continuity across the commerce lifecycle', () => {
     await press(page, page.getByRole('button', { name: 'Publish to Marketplace' }), 'Publish (refused)');
     await expect(page.getByText(/Ownership \/ Registration Document|not publishable|blocking/i).first())
       .toBeVisible({ timeout: 20_000 });
-    expect((await ownerGallery(page)).publication_status,
+    expect((await ownerGallery(page, VIN)).publication_status,
       'a refused publish must leave the listing a draft').toBe('draft');
 
     // ── upload the ownership document through the Evidence UI ─────────────────────────────────
@@ -300,7 +313,7 @@ test.describe('Seller media continuity across the commerce lifecycle', () => {
     // ── PUBLISH from the Seller UI ────────────────────────────────────────────────────────────
     await page.goto('/dashboard/listings', { waitUntil: 'domcontentloaded' });
     await press(page, page.getByRole('button', { name: 'Publish to Marketplace' }), 'Publish');
-    await expect.poll(async () => (await ownerGallery(page)).publication_status,
+    await expect.poll(async () => (await ownerGallery(page, VIN)).publication_status,
       { message: 'the listing must reach published', timeout: 40_000 }).toBe('published');
     await page.reload({ waitUntil: 'domcontentloaded' });
     const publishedShot = await expectCover(page, `[data-testid="my-listing-card-${VIN}"]`, 'My Listings (published)');
@@ -320,10 +333,10 @@ test.describe('Seller media continuity across the commerce lifecycle', () => {
     // ── UNPUBLISH: public disappears, owner media remains ─────────────────────────────────────
     await page.goto('/dashboard/listings', { waitUntil: 'domcontentloaded' });
     await press(page, page.getByRole('button', { name: /Unpublish/i }), 'Unpublish');
-    await expect.poll(async () => (await ownerGallery(page)).publication_status,
+    await expect.poll(async () => (await ownerGallery(page, VIN)).publication_status,
       { message: 'unpublish must return the listing to publishable', timeout: 40_000 }).not.toBe('published');
 
-    const afterUnpublish = await ownerGallery(page);
+    const afterUnpublish = await ownerGallery(page, VIN);
     expectGalleryIntact(afterUnpublish.media, 'after unpublish');
     await page.reload({ waitUntil: 'domcontentloaded' });
     await expectCover(page, `[data-testid="my-listing-card-${VIN}"]`, 'My Listings (unpublished — owner still sees it)');
@@ -334,22 +347,22 @@ test.describe('Seller media continuity across the commerce lifecycle', () => {
 
     // ── REPUBLISH: the same cover, gallery, order and labels return ───────────────────────────
     await press(page, page.getByRole('button', { name: 'Publish to Marketplace' }), 'Republish');
-    await expect.poll(async () => (await ownerGallery(page)).publication_status,
+    await expect.poll(async () => (await ownerGallery(page, VIN)).publication_status,
       { message: 'republish must reach published', timeout: 40_000 }).toBe('published');
     await page.reload({ waitUntil: 'domcontentloaded' });
     const republished = await expectCover(page, `[data-testid="my-listing-card-${VIN}"]`, 'My Listings (republished)');
     expect(republished.src, 'republishing restores the same cover asset').toBe(draftShot.src);
-    expectGalleryIntact((await ownerGallery(page)).media, 'after republish');
+    expectGalleryIntact((await ownerGallery(page, VIN)).media, 'after republish');
 
     // ── SOLD / RETIRED: commerce exits, the owner's durable media does not ────────────────────
     page.once('dialog', (d) => d.accept());
     await press(page, page.getByRole('button', { name: /Mark sold/i }), 'Mark sold');
-    await expect.poll(async () => (await ownerGallery(page)).status,
+    await expect.poll(async () => (await ownerGallery(page, VIN)).status,
       { message: 'the vehicle must reach a sold state', timeout: 40_000 }).toMatch(/sold/i);
 
     await page.reload({ waitUntil: 'domcontentloaded' });
     await expectCover(page, `[data-testid="my-listing-card-${VIN}"]`, 'My Listings (sold — historical owner view)');
-    expectGalleryIntact((await ownerGallery(page)).media, 'after sold');
+    expectGalleryIntact((await ownerGallery(page, VIN)).media, 'after sold');
 
     const publicAfterSold = await request.get(`${API_URL}/vehicles/${VIN}/details`);
     expect(publicAfterSold.status(), 'a sold vehicle must exit active public commerce').toBe(404);
@@ -366,7 +379,7 @@ test.describe('Seller media continuity across the commerce lifecycle', () => {
     // An earlier version of this test demanded `publication_status !== 'published'` here. That was
     // asserting the opposite of the verified contract, and it is recorded rather than quietly
     // deleted because "the test was wrong" is the finding.
-    const retired = await ownerGallery(page);
+    const retired = await ownerGallery(page, VIN);
     expect(retired.status, 'availability carries the retirement').toMatch(/sold/i);
     expect(retired.publication_status, 'publication history is not rewritten by retirement').toBe('published');
   });
