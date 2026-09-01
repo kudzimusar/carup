@@ -71,7 +71,7 @@ describe('Marketplace progressive sell resilience', () => {
     expect(mutation).toBeGreaterThan(checkpoint)
 
     const resumeAnchor = AUTHENTICATED_SELL.indexOf(
-      'navigate(`/dashboard/sell-vehicle?vin=\${encodeURIComponent(returnedVin)}`, { replace: true })',
+      'navigate(`/dashboard/sell-vehicle?vin=${encodeURIComponent(returnedVin)}`, { replace: true })',
       mutation,
     )
     const clear = AUTHENTICATED_SELL.indexOf('clearGuestSellDraft()', mutation)
