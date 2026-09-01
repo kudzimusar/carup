@@ -10,8 +10,17 @@ name: Seller Media Lifecycle Staging UAT
 # Every seller action runs through the product UI. The single exception is reviewer verification of
 # the ownership document, which has no seller-facing UI and is performed through the real
 # login + CSRF + verify endpoints as the reviewer identity provisioned below.
+#
+# TRIGGERED ON PUSH TO THE CANDIDATE BRANCH, not on pull_request.
+#
+# PR #194's base is `main`, so a `pull_request` trigger scoped to the integration branch never fires
+# for the very PR being certified; and widening it to `main` would run a workflow that needs the
+# staging operator secret and MUTATES shared staging state on every unrelated PR. `workflow_dispatch`
+# alone is not enough either — GitHub only accepts a dispatch for a workflow that already exists on
+# the DEFAULT branch, which this one will not until #194 merges. Push on the candidate branch is the
+# one trigger that fires exactly where certification happens and nowhere else.
 on:
-  pull_request:
+  push:
     branches:
       - integration/vehicle-passport-v16-cert
     paths:
