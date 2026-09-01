@@ -12,7 +12,7 @@ import {
 } from '../services/marketplace/marketplaceListingEligibility.js';
 import { vehicleYearBounds } from '../services/taxonomy/vehicleTaxonomyService.js';
 
-// Base real listings (valid VINs: 17 chars, no I/O/Q, no underscore)
+// Base real listings (standard VINs remain valid; documented 12–17 char import frame IDs are too)
 const realPrivate = {
   vin: '1HGBH41JXMN109186', make: 'Toyota', model: 'Hilux', year: 2021, price: 25000,
   status: 'Available', owner_id: 'd4e5f6a7-1111-2222-3333-444455556666', tenant_id: null,
@@ -59,17 +59,16 @@ test('VIN with underscore fails', () => {
 });
 
 // 6
-test('VIN with I/O/Q fails', () => {
-  assert.equal(isStructurallyValidVin('1HGBH41JIMN109186'), false); // contains I
-  assert.equal(isStructurallyValidVin('1HGBH41JOMN109186'), false); // contains O
-  assert.equal(isStructurallyValidVin('1HGBH41JQMN109186'), false); // contains Q
-  assert.ok(reasons(P({ vin: '1HGBH41JIMN109186' })).includes('invalid_vin_format'));
+test('documented Japanese frame/chassis identifier is accepted as a real vehicle identifier', () => {
+  assert.equal(isStructurallyValidVin('GFC27-027051'), true);
+  const r = getListingEligibility(P({ vin: 'GFC27-027051' }));
+  assert.equal(r.reasons.includes('invalid_vin_format'), false, JSON.stringify(r.reasons));
 });
 
 // 7
-test('16-character VIN fails', () => {
-  assert.equal(isStructurallyValidVin('1HGBH41JXMN10918'), false);
-  assert.ok(reasons(P({ vin: '1HGBH41JXMN10918' })).includes('invalid_vin_format'));
+test('11-character identifier fails the minimum-length gate', () => {
+  assert.equal(isStructurallyValidVin('GFC27-02705'), false);
+  assert.ok(reasons(P({ vin: 'GFC27-02705' })).includes('invalid_vin_format'));
 });
 
 // 8

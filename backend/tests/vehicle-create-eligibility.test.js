@@ -38,11 +38,14 @@ test('valid real dealer listing is eligible; tenant from context, dealer seller 
   assert.equal(getListingEligibility(c).eligible, true);
 });
 
-// 4 / 5 / 6 / 7 — VIN rejections
+// 4 / 5 / 6 / 7 — vehicle identifier contract
 test('VIN_REF_* is rejected', () => assert.ok(reasonsFor(ownerCtx, { vin: 'VIN_REF_776997' }).includes('invalid_vin_format')));
 test('VIN_INT_* is rejected', () => assert.ok(reasonsFor(ownerCtx, { vin: 'VIN_INT_081059' }).includes('invalid_vin_format')));
-test('16-char VIN is rejected', () => assert.ok(reasonsFor(ownerCtx, { vin: '1HGBH41JXMN10918' }).includes('invalid_vin_format')));
-test('VIN with I/O/Q is rejected', () => assert.ok(reasonsFor(ownerCtx, { vin: '1HGBH41JIMN109186' }).includes('invalid_vin_format')));
+test('11-char identifier is rejected', () => assert.ok(reasonsFor(ownerCtx, { vin: 'GFC27-02705' }).includes('invalid_vin_format')));
+test('documented Japanese frame/chassis identifier is eligible', () => {
+  const c = candidate(ownerCtx, { vin: 'GFC27-027051', import_source: 'Japan' });
+  assert.equal(getListingEligibility(c).reasons.includes('invalid_vin_format'), false);
+});
 
 // 8 / 9 — placeholder make/model
 test("make='Test' is rejected", () => assert.ok(reasonsFor(ownerCtx, { make: 'Test' }).includes('placeholder_make')));

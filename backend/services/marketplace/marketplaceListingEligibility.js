@@ -51,7 +51,9 @@ import {
   SEED_TENANT_IDS,
 } from './marketplaceClassificationRules.js';
 
-const VALID_VIN_RE = /^[A-HJ-NPR-Z0-9]{17}$/i; // 17 chars, no I/O/Q, no underscore (per ISO 3779)
+// Real-market identity: standard ISO VINs remain valid, and documented import frame/chassis
+// identifiers are also valid when they are 12–17 characters using letters/numbers/hyphens.
+const VALID_VEHICLE_IDENTIFIER_RE = /^[A-Z0-9-]{12,17}$/i;
 const SYNTHETIC_VIN_RE = /^(vin|test|demo|seed|fixture|sample|mock|dummy)/i;
 const SEED_OWNER_RE = /^u\d+$/;
 
@@ -65,11 +67,14 @@ function norm(value) {
   return value == null ? '' : String(value).trim().toLowerCase();
 }
 
-/** A structurally valid 17-char VIN with no synthetic/test prefix. */
+/**
+ * A structurally valid real-market vehicle identifier with no synthetic/test prefix.
+ * Kept under the historical function name for API compatibility.
+ */
 export function isStructurallyValidVin(vin) {
   const v = String(vin ?? '').trim();
-  if (!VALID_VIN_RE.test(v)) return false;
-  if (SYNTHETIC_VIN_RE.test(v)) return false; // belt-and-suspenders for "VIN…"/test prefixes
+  if (!VALID_VEHICLE_IDENTIFIER_RE.test(v)) return false;
+  if (SYNTHETIC_VIN_RE.test(v)) return false; // belt-and-suspenders for test/fixture prefixes
   return true;
 }
 
