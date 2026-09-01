@@ -266,3 +266,12 @@ test('normalizeListingInput coerces year/price and defaults currency', () => {
   assert.equal(n.price, 15000);
   assert.equal(n.currency, 'USD');
 });
+
+
+test('fixture detector does not misclassify a documented Japanese chassis/frame identifier', () => {
+  const listing = P({ vin: 'GFC27-027051' });
+  const result = getListingEligibility(listing);
+  assert.equal(result.reasons.includes('invalid_vin_format'), false, JSON.stringify(result.reasons));
+  assert.equal(result.reasons.includes('fixture_excluded'), false, JSON.stringify(result.reasons));
+  assert.equal(result.eligible, true, JSON.stringify(result.reasons));
+});

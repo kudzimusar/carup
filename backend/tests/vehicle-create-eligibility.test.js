@@ -179,3 +179,12 @@ test('dealer with the default/seed tenant is rejected (real tenant required)', (
   const c = buildVehicleListingCandidate({ body: baseBody, userContext: { role: 'dealer', id: 'u9', tenantId: '00000000-0000-0000-0000-000000000001' } });
   assert.ok(getListingEligibility(c).reasons.includes('seed_tenant_id'));
 });
+
+
+test('Japanese chassis identifier clears both syntax and fixture eligibility gates', () => {
+  const c = candidate(ownerCtx, { vin: 'GFC27-027051', import_source: 'Japan' });
+  const r = getListingEligibility(c);
+  assert.equal(r.eligible, true, JSON.stringify(r.reasons));
+  assert.equal(r.reasons.includes('invalid_vin_format'), false);
+  assert.equal(r.reasons.includes('fixture_excluded'), false);
+});

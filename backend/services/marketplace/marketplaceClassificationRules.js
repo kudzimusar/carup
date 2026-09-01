@@ -100,12 +100,16 @@ export const SEED_TENANT_IDS = new Set([
   '00000000-0000-0000-0000-000000000000',
   '00000000-0000-0000-0000-000000000001',
 ])
-/** VIN encodes an integration/QA fixture (only checked for VINs that are not structurally valid). */
+/** Vehicle identifier encodes an integration/QA fixture (only checked when not structurally valid). */
 const INTEGRATION_VIN_RE = /(^|[_-])(int|integ|integration|trans|e2e|smoke|qa)([_-]|\d|$)/i
-/** Obviously synthetic VIN (starts with the literal letters "VIN" or a test/demo prefix). */
+/** Obviously synthetic identifier (starts with the literal letters "VIN" or a test/demo prefix). */
 const SYNTHETIC_VIN_RE = /^(vin|test|demo|seed|fixture|sample|mock|dummy)/i
-/** Structurally valid 17-char VIN (no I/O/Q, per ISO 3779). Real VINs never contain "_" or "I". */
-const VALID_VIN_RE = /^[A-HJ-NPR-Z0-9]{17}$/i
+/**
+ * Real-market Seller identifiers. Standard 17-char VINs remain accepted, while documented
+ * Japanese domestic frame/chassis identifiers such as GFC27-027051 are valid 12–17 character
+ * identifiers. Hyphen is permitted; underscore remains reserved/synthetic.
+ */
+const VALID_VEHICLE_IDENTIFIER_RE = /^[A-Z0-9-]{12,17}$/i
 /** Reserved Seller automation marker. Human listings using this exact prefix are treated as fixtures. */
 export const SELLER_AUTOMATION_DESCRIPTION_RE = /^Golden Dynamic Seller ([a-z0-9-]+):/i
 
@@ -124,7 +128,7 @@ export function getFixtureExclusion(vehicle = {}) {
   const automationMatch = sellerDescription.match(SELLER_AUTOMATION_DESCRIPTION_RE)
   if (automationMatch) return `seller_automation_fixture(${automationMatch[1]})`
 
-  if (vin && !VALID_VIN_RE.test(vin)) {
+  if (vin && !VALID_VEHICLE_IDENTIFIER_RE.test(vin)) {
     if (INTEGRATION_VIN_RE.test(vin)) return `integration_fixture_vin(${vin})`
     if (SYNTHETIC_VIN_RE.test(vin) || vin.includes('_')) return `synthetic_vin_prefix(${vin})`
     return `invalid_vin_format(${vin})`
