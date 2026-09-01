@@ -128,11 +128,20 @@ async function clearGuestSellMedia() {
   if (!db) return
   try {
     await new Promise<void>((resolve) => {
-      const tx = db.transaction(GUEST_SELL_MEDIA_STORE, 'readwrite')
-      tx.objectStore(GUEST_SELL_MEDIA_STORE).delete(GUEST_SELL_MEDIA_KEY)
-      tx.oncomplete = () => resolve()
-      tx.onerror = () => resolve()
-      tx.onabort = () => resolve()
+      // `db.transaction()` THROWS synchronously — InvalidStateError on a closing connection,
+      // NotFoundError when another tab's version upgrade removed the store. Every other path here
+      // resolves rather than rejects, and this one did not: it was the single unguarded await in an
+      // otherwise fail-soft writer, and it reached `handleSubmit` as a rejected save. Clearing a
+      // crash-recovery copy failing is never a reason to fail the save it was protecting.
+      try {
+        const tx = db.transaction(GUEST_SELL_MEDIA_STORE, 'readwrite')
+        tx.objectStore(GUEST_SELL_MEDIA_STORE).delete(GUEST_SELL_MEDIA_KEY)
+        tx.oncomplete = () => resolve()
+        tx.onerror = () => resolve()
+        tx.onabort = () => resolve()
+      } catch {
+        resolve()
+      }
     })
   } finally {
     db.close()

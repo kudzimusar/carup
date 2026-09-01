@@ -166,10 +166,13 @@ router.patch('/api/vehicles/:vin/status', authorizeRole(['admin', 'dealer', 'own
 }));
 
 // --- PUBLICATION LIFECYCLE ---
-// The marketplace read path only shows publication_status in ('publishable','published').
-// Publishing is a deliberate seller action gated on the deterministic completeness
-// evaluator; unpublishing returns the listing to 'publishable' without touching
-// availability status. Scope rules mirror the status PATCH above.
+// The marketplace read path shows publication_status = 'published' and NOTHING else
+// (PUBLICLY_VISIBLE_PUBLICATION_STATUSES in utils/vehicleStatus.js). This comment used to name
+// 'publishable' as visible too, which would have made unpublish a no-op for public discovery;
+// it never was, and the constant is the authority. Publishing is a deliberate seller action gated
+// on the deterministic completeness evaluator; unpublishing returns the listing to 'publishable'
+// — off the public surface, still the seller's — without touching availability status.
+// Scope rules mirror the status PATCH above.
 
 async function loadScopedVehicle(req, vin) {
   const { data: vehicle, error: vehicleErr } = await supabase

@@ -17,7 +17,7 @@ import { sellerDiscoverabilityFacets } from '@/lib/sellerListingPreview'
 import { LISTING_IMAGE_LIMIT, screenListingImages } from '@/lib/listingMediaIntake'
 import { VehicleIdentificationNotice } from '@/components/sell/VehicleIdentificationNotice'
 import { useSellerVehicleIdentification } from '@/hooks/useSellerVehicleIdentification'
-import { isCompleteVin } from '@/lib/sellerVehicleIdentification'
+import { isCompleteVin, sellerVehicleIdentifierProblem } from '@/lib/sellerVehicleIdentification'
 import { BODY_STYLES, DRIVETRAINS, FUEL_TYPES, SELLER_CONDITIONS, TRANSMISSIONS, VEHICLE_COLORS, VEHICLE_MAKES, modelsForMake, vehicleYearOptions } from '@/data/vehicleTaxonomy'
 import type { Vehicle } from '@/types'
 import { SellerWorkspaceHeader } from '@/components/seller/SellerWorkspaceHeader'
@@ -604,6 +604,22 @@ export default function SellVehicle() {
     })
   }
 
+  /**
+   * CarUp has ALREADY established, from the authenticated Seller scope read, that this identifier
+   * is this seller's own vehicle. `fetchOwnedVehicles()` returned it inside their Seller/Garage
+   * scope, and that is a governed answer — not the advisory public Passport lookup, which is
+   * rate-limited, may 429 a seller who resumes twice, and says only "CarUp holds a Passport".
+   *
+   * Once this is true the advisory check may not gate anything. Before, a seller resuming their own
+   * draft was held at step 0 behind "Wait for the CarUp Passport check to finish" whenever that
+   * public read was slow, and was offered an authority-claim panel whose buttons could demote the
+   * authority the authenticated load had already proved — leaving them unable to save their own
+   * listing until they reloaded the page.
+   */
+  const governedScopeEstablished = serverDraftLoaded
+    && String(serverVehicle?.vin || '').trim().toUpperCase() === form.vin.trim().toUpperCase()
+    && authorityState === 'recognized'
+
   const validateStep = () => {
     const e: Record<string, string> = {}
     if (step === 0) {
@@ -611,7 +627,14 @@ export default function SellVehicle() {
       if (!form.model) e.model = 'Required'
       if (!form.year) e.year = 'Required'
       if (!form.vin) e.vin = 'Required'
-      else if (!isCompleteVin(form.vin)) e.vin = 'Vehicle identifier must be 12–17 letters, numbers or hyphens'
+      else if (!isCompleteVin(form.vin)) {
+        // Name the actual problem. Repeating the shape rule at a 17-character VIN that already
+        // satisfies it tells the seller nothing they can act on.
+        e.vin = sellerVehicleIdentifierProblem(form.vin) === 'vin_alphabet'
+          ? 'A 17-character VIN never contains I, O or Q — they are excluded so they cannot be read as 1 and 0. Check those characters.'
+          : 'Vehicle identifier must be 12–17 letters, numbers or hyphens'
+      }
+      else if (governedScopeEstablished) { /* governed scope answers this; the advisory check may not gate it */ }
       else if (identifying) e.vin = 'Wait for the CarUp Passport check to finish'
       else if (identification.state === 'passport_exists' && !form.existingPassportConfirmed) {
         e.vin = 'Confirm that this is the existing CarUp vehicle'
@@ -658,7 +681,15 @@ export default function SellVehicle() {
     // UAT 2026-09-01: the autosave timer is not a sufficient last line of defence. A Seller can
     // press Save before the 300 ms checkpoint fires, or a deployment can interrupt the route after
     // the server accepts the listing. Persist the exact final form state before any upload/mutation.
-    await saveGuestSellDraft({
+    //
+    // It is GUARDED. `saveGuestSellDraft` is fail-soft on every storage path it wraps, but its
+    // no-media branch awaits `clearGuestSellMedia()` unguarded, so an IndexedDB connection error
+    // (store dropped by a version upgrade in another tab) rejects. Unguarded here, that rejection
+    // escaped before `setSubmitting(true)` — the Seller pressed Save on a photo-less draft and got
+    // nothing at all: no spinner, no toast, no listing, no error. Crash recovery is a safety net,
+    // never a precondition for the save it exists to protect.
+    try {
+      await saveGuestSellDraft({
       submissionId: form.submissionId,
       make: form.make,
       model: form.model,
@@ -692,9 +723,10 @@ export default function SellVehicle() {
       accidentDisclosure: form.accidentDisclosure,
       insuranceDisclosure: form.insuranceDisclosure,
       financeDisclosure: form.financeDisclosure,
-    })
-    saveGuestSellStep(step)
-    setGuestDraftLoaded(true)
+      })
+      saveGuestSellStep(step)
+      setGuestDraftLoaded(true)
+    } catch { /* the browser copy is best-effort; the governed save proceeds regardless */ }
 
     setSubmitting(true)
     try {
@@ -781,11 +813,7 @@ export default function SellVehicle() {
         temp_plate_id: form.tempPlateId || undefined,
         import_status: form.importStatus || undefined,
         reuse_existing_passport:
-          (
-            serverDraftLoaded
-            && String(serverVehicle?.vin || '').trim().toUpperCase() === form.vin.trim().toUpperCase()
-            && authorityState === 'recognized'
-          )
+          governedScopeEstablished
           || (
             identification.state === 'passport_exists'
             && form.existingPassportConfirmed
@@ -1192,7 +1220,7 @@ export default function SellVehicle() {
                   }}
                   onUseDifferentVin={() => set('vin', '')}
                 />
-                {identification.state === 'passport_exists' && form.existingPassportConfirmed && (
+                {identification.state === 'passport_exists' && form.existingPassportConfirmed && !governedScopeEstablished && (
                   <div className="mt-3 rounded-xl border border-slate-200 bg-slate-50 p-4" data-testid="seller-existing-passport-authority">
                     <p className="text-sm font-semibold text-slate-900">What is your authority to sell this vehicle?</p>
                     <p className="mt-1 text-xs leading-5 text-slate-600">
@@ -1696,10 +1724,10 @@ export default function SellVehicle() {
               <Button
                 className="bg-orange-500 hover:bg-orange-600"
                 onClick={nextStep}
-                disabled={step === 0 && (identifying || authorityState === 'checking')}
-                aria-busy={step === 0 && (identifying || authorityState === 'checking') ? true : undefined}
+                disabled={step === 0 && !governedScopeEstablished && (identifying || authorityState === 'checking')}
+                aria-busy={step === 0 && !governedScopeEstablished && (identifying || authorityState === 'checking') ? true : undefined}
               >
-                {step === 0 && (identifying || authorityState === 'checking') ? (
+                {step === 0 && !governedScopeEstablished && (identifying || authorityState === 'checking') ? (
                   <><Loader2 className="mr-2 h-4 w-4 animate-spin" />Checking vehicle…</>
                 ) : (
                   <>Next <ChevronRight className="w-4 h-4 ml-1" /></>

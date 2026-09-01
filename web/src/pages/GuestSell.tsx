@@ -14,7 +14,7 @@ import { MarketplaceListingCard } from '@/components/marketplace/MarketplaceList
 import { sellerDiscoverabilityFacets, sellerDraftToCardModel } from '@/lib/sellerListingPreview'
 import { VehicleIdentificationNotice } from '@/components/sell/VehicleIdentificationNotice'
 import { useSellerVehicleIdentification } from '@/hooks/useSellerVehicleIdentification'
-import { isCompleteVin } from '@/lib/sellerVehicleIdentification'
+import { isCompleteVin, sellerVehicleIdentifierProblem } from '@/lib/sellerVehicleIdentification'
 import { useCarUpApi } from '@/hooks/useCarUpApi'
 import { VehicleHistoryCoveragePanel, type HistoryEvidencePlanState } from '@/components/sell/VehicleHistoryCoveragePanel'
 import { VehicleHistoryDisclosuresSection } from '@/components/sell/VehicleHistoryDisclosuresSection'
@@ -251,7 +251,13 @@ export default function GuestSell() {
       if (!form.make.trim()) next.make = 'Make is required'
       if (!form.model.trim()) next.model = 'Model is required'
       if (!isValidVehicleYear(form.year)) next.year = 'Enter a valid year'
-      if (!isCompleteVin(form.vin)) next.vin = 'Enter a documented vehicle identifier (12–17 letters, numbers or hyphens)'
+      if (!isCompleteVin(form.vin)) {
+        // Same rule, same obligation to say WHY: a 17-character VIN refused for containing I,
+        // O or Q already satisfies the shape rule, so repeating it would explain nothing.
+        next.vin = sellerVehicleIdentifierProblem(form.vin) === 'vin_alphabet'
+          ? 'A 17-character VIN never contains I, O or Q — they are excluded so they cannot be read as 1 and 0. Check those characters.'
+          : 'Enter a documented vehicle identifier (12–17 letters, numbers or hyphens)'
+      }
       else if (identifying) next.vin = 'Wait for the CarUp Passport check to finish'
       else if (identification.state === 'passport_exists' && !form.existingPassportConfirmed) {
         next.vin = 'Confirm whether this is the existing CarUp vehicle before continuing'

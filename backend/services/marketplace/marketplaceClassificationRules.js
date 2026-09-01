@@ -131,11 +131,15 @@ export function getFixtureExclusion(vehicle = {}) {
   // Syntax widening for genuine Japanese frame IDs must never make an explicit fixture marker
   // look real. Provenance markers win over shape: "VIN...", test/demo/seed prefixes and integration
   // identifiers remain excluded even when their character count happens to fall inside 12–17.
-  if (vin && SYNTHETIC_VIN_RE.test(vin)) return `synthetic_vin_prefix(${vin})`
-  if (vin && (INTEGRATION_VIN_RE.test(vin) || vin.includes('_'))) {
-    if (INTEGRATION_VIN_RE.test(vin)) return `integration_fixture_vin(${vin})`
-    return `synthetic_vin_prefix(${vin})`
-  }
+  //
+  // The INTEGRATION marker is asked FIRST because it is the more specific diagnosis. Asking the
+  // synthetic-prefix question first shadowed it completely: every integration fixture is also named
+  // `VIN...`, so `SYNTHETIC_VIN_RE` claimed it and the `integration_fixture_vin` branch below became
+  // unreachable — an operator reading an exclusion report was told "synthetic prefix" about a row
+  // that was excluded for being an integration fixture. Both orders exclude exactly the same rows
+  // (synthetic OR integration OR underscored); only the reported reason differs.
+  if (vin && INTEGRATION_VIN_RE.test(vin)) return `integration_fixture_vin(${vin})`
+  if (vin && (SYNTHETIC_VIN_RE.test(vin) || vin.includes('_'))) return `synthetic_vin_prefix(${vin})`
   if (vin && !VALID_VEHICLE_IDENTIFIER_RE.test(vin)) {
     return `invalid_vin_format(${vin})`
   }

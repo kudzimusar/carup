@@ -201,23 +201,97 @@ jobs:
       - name: Seller media lifecycle — mobile Chromium
         run: npx playwright test tests/agents/42-seller-media-lifecycle-staging.spec.ts --config=playwright.staging.config.ts --project=mobile-chromium
 
-      - name: Refuse to leave an automation listing public
+      - name: Retire every automation listing left publicly discoverable
         if: always()
         run: |
           node --input-type=module <<'NODE'
-          // The spec retires its own listing. This is the independent check that it actually did:
-          // a media run that left a public automation listing behind would contaminate human UAT.
+          // The spec retires its own listing. This step is the independent check that it did —
+          // and, when it did not, the REMEDIATION. Detection alone was not enough:
+          //
+          //   `concurrency: cancel-in-progress: true` means every push to the candidate branch
+          //   SIGKILLs the run in flight. That is routine during certification, not a freak event,
+          //   and a run killed between "Publish to Marketplace" and mark-sold leaves a published
+          //   automation listing on the shared staging marketplace with nothing to retire it.
+          //   Run 33505710788 failed here on JTMLCMXB053051151 — a listing left behind by run
+          //   33505305115, CANCELLED eight minutes earlier. The gate was therefore reporting a
+          //   defect this candidate did not have, while the actual contamination stayed public and
+          //   would have reddened every later run for ever.
+          //
+          // "Publicly discoverable" is asked with the PRODUCT's own rule (filterVisibleVehicles):
+          // publication_status === 'published' AND an available/reserved status. A listing this run
+          // correctly retired via mark-sold is status 'Sold' — off the public surface with its
+          // publication history intact — and must NOT be touched here. Unpublishing it would
+          // rewrite the durable history that R27 exists to protect and that the spec asserts.
           const api = process.env.STAGING_API_URL;
-          const response = await fetch(`${api}/marketplace/listings?limit=100`, { cache: 'no-store' });
-          if (!response.ok) throw new Error(`Marketplace read failed during contamination audit: ${response.status}`);
-          const body = await response.json();
-          const rows = Array.isArray(body) ? body : (body.listings || body.data || []);
-          const leaked = rows.filter((row) => typeof row?.vin === 'string' && row.vin.startsWith('JTMLC'));
-          if (leaked.length) {
-            console.error(JSON.stringify({ error: 'media lifecycle left public automation listings', vins: leaked.map((r) => r.vin) }));
+          const RUN_TOKEN = String(process.env.STAGING_RUN_ID || '').replace(/\D/g, '').slice(-9).padStart(9, '0');
+          const PUBLIC_STATUS = new Set(['Available', 'Reserved', 'available', 'reserved', 'ACTIVE', 'RESERVED']);
+          const isAutomationVin = (vin) => typeof vin === 'string' && vin.startsWith('JTMLC');
+          // vinFor(): 'JTMLC' + 3-char project token + 9-digit run token.
+          const attribute = (vin) => (vin.slice(8) === RUN_TOKEN ? 'this run' : 'an earlier run');
+
+          const publiclyLeakedVins = async () => {
+            const response = await fetch(`${api}/marketplace/listings?limit=100`, { cache: 'no-store' });
+            if (!response.ok) throw new Error(`Marketplace read failed during contamination audit: ${response.status}`);
+            const body = await response.json();
+            const rows = Array.isArray(body) ? body : (body.listings || body.data || []);
+            return rows.filter((row) => isAutomationVin(row?.vin)).map((row) => row.vin);
+          };
+
+          const before = await publiclyLeakedVins();
+          if (!before.length) {
+            console.log('No media-lifecycle automation listing is publicly discoverable.');
+            process.exit(0);
+          }
+          console.error(JSON.stringify({
+            contamination: 'automation listings are publicly discoverable',
+            vins: before.map((vin) => ({ vin, from: attribute(vin) })),
+          }));
+
+          // Retire them through the SAME governed endpoint the seller UI calls — real login, real
+          // CSRF, real owner scope. A sweeper that reached past the product's authority rules could
+          // hide a scope defect instead of proving the listing was genuinely the seller's to retire.
+          const csrf = await fetch(`${api}/security/csrf-token`);
+          const { csrfToken } = await csrf.json();
+          const login = await fetch(`${api}/auth/login`, {
+            method: 'POST',
+            headers: { 'content-type': 'application/json', 'x-csrf-token': csrfToken },
+            body: JSON.stringify({ email: 'uat.buyer@carup-staging.test', password: process.env.STAGING_UAT_BUYER_PASSWORD }),
+          });
+          if (!login.ok) throw new Error(`Cleanup login failed: ${login.status}`);
+          const session = await login.json();
+          const auth = {
+            'content-type': 'application/json',
+            'x-session-token': session.token,
+            'x-user-id': session.user.id,
+            'x-stakeholder-role': session.user.role,
+          };
+          const freshCsrf = await (await fetch(`${api}/security/csrf-token`, { headers: auth })).json();
+          const mutate = { ...auth, 'x-csrf-token': freshCsrf.csrfToken };
+
+          const owned = await fetch(`${api}/vehicles/me`, { headers: auth });
+          if (!owned.ok) throw new Error(`Owner scope read failed during cleanup: ${owned.status}`);
+          const mine = await owned.json();
+          const retirable = (Array.isArray(mine) ? mine : []).filter((v) => isAutomationVin(v?.vin)
+            && v.publication_status === 'published' && PUBLIC_STATUS.has(v.status));
+
+          for (const vehicle of retirable) {
+            const response = await fetch(`${api}/vehicles/${vehicle.vin}/unpublish`, { method: 'POST', headers: mutate });
+            console.log(`unpublish ${vehicle.vin} (${attribute(vehicle.vin)}) -> ${response.status}`);
+          }
+
+          const after = await publiclyLeakedVins();
+          if (after.length) {
+            console.error(JSON.stringify({ error: 'automation listings remain publicly discoverable after remediation', vins: after }));
             process.exit(1);
           }
-          console.log('No media-lifecycle automation listing remains public.');
+          // Remediation worked. Fail anyway if THIS run leaked: the spec must retire its own
+          // listing, and a green gate here would hide that it stopped doing so.
+          const ownLeak = before.filter((vin) => attribute(vin) === 'this run');
+          if (ownLeak.length) {
+            console.error(JSON.stringify({ error: 'this run left its own listing public; it was retired, but the spec must do this itself', vins: ownLeak }));
+            process.exit(1);
+          }
+          console.log(`Retired ${retirable.length} automation listing(s) left behind by earlier aborted runs. Public surface is clean.`);
           NODE
 
       - name: Upload media lifecycle evidence

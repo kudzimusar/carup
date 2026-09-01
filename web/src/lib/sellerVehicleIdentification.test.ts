@@ -37,6 +37,25 @@ describe('S1 seller vehicle identification', () => {
     expect(result.state).toBe('incomplete')
   })
 
+  it('refuses a 17-character VIN carrying I, O or Q so one typo cannot mint a second Passport', () => {
+    // ISO 3779 excludes these three characters so they can never be read as 1, 0 and 0. Widening
+    // the alphabet for Japanese frame identifiers must not also widen it for real VINs: accepting
+    // `...5987O34` beside `...5987034` gives one vehicle two Passports — precisely the duplicate
+    // this identification flow exists to prevent.
+    expect(isCompleteVin('JTELU9FJ9K5987O34')).toBe(false)
+    expect(isCompleteVin('JTELU9FJ9K5987I34')).toBe(false)
+    expect(isCompleteVin('JTELU9FJ9K5987Q34')).toBe(false)
+    expect(isCompleteVin('JTELU9FJ9K5987034')).toBe(true)
+
+    // A shorter or hyphenated identifier is NOT a VIN and keeps the wider alphabet, or the rule
+    // would re-break the import that the widening was introduced for.
+    expect(isCompleteVin('GFO27-027051')).toBe(true)
+    expect(isCompleteVin('GFO27-0270511234O')).toBe(true)
+
+    // The Seller media lifecycle staging gate builds its own identifiers; they must stay valid.
+    expect(isCompleteVin('JTMLCMXB053051151')).toBe(true)
+  })
+
   it('looks up a Japanese frame/chassis identifier exactly as documented', async () => {
     const lookup = vi.fn().mockRejectedValue(Object.assign(new Error('Vehicle not found'), { status: 404 }))
     const result = await identifySellerVehicle('gfc27-027051', lookup)

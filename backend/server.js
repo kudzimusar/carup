@@ -127,6 +127,7 @@ import identityVerificationAdminRouter from './routes/identityVerificationAdminR
 import partsentryReviewRouter from './routes/partsentryReviewRoutes.js';
 import passportOwnershipTransferRouter from './routes/passportOwnershipTransferRoutes.js';
 import vehicleFinanceObligationRouter from './routes/vehicleFinanceObligationRoutes.js';
+import { sellerVehicleIdentifierProblem } from './utils/sellerVehicleIdentifier.js';
 import { normalizeVehicleStatus, publicVehicleStatusFilterValues, publiclyVisiblePublicationStatuses, isPublicVehicleStatus, isPubliclyVisiblePublication, PUBLIC_VEHICLE_COLUMNS } from './utils/vehicleStatus.js';
 import { attestedValue, CLAIM_VISIBILITY, LISTING_CLAIM_COLUMNS, PUBLIC_VEHICLE_SELECT, projectVehicle, toListingClaims, toPublicEvidence, toPublicPlateHistory, toPublicTimelineEvent, toVehicleHistoryDisclosures } from './utils/publicVehicleProjection.js';
 import { projectFinanceObligationForVehicle } from './services/finance/vehicleFinanceObligationService.js';
@@ -2546,15 +2547,8 @@ function submittedText(value) {
   return text === '' ? null : text;
 }
 
-// Owner UAT 2026-09-01: Zimbabwe import paperwork can legitimately identify a Japanese
-// domestic-market vehicle with a manufacturer frame/chassis number rather than a 17-character
-// ISO VIN. Cotecna labels GFC27-027051 "Chassis/VIN Number". Seller intake therefore accepts
-// 12–17 letters/numbers/hyphens. This is only a syntax gate; evidence/ownership/Passport review
-// still determines authority and provenance.
-function validSellerVehicleIdentifier(value) {
-  const identifier = submittedText(value);
-  return identifier !== null && /^[A-Z0-9-]{12,17}$/i.test(identifier);
-}
+// See utils/sellerVehicleIdentifier.js for the rule and why a 17-character identifier is held to
+// the ISO 3779 alphabet while a shorter documented frame identifier is not.
 
 /**
  * WHO asserted the values on this submission, drawn from CLAIM_SOURCES.
@@ -2634,11 +2628,19 @@ app.post('/api/vehicles/add', authorizeRole(['dealer', 'owner', 'admin']), async
     accident_disclosure, insurance_disclosure, finance_disclosure,
   } = req.body;
   if (!vin || !make || !model || !price) return res.status(400).json({ error: 'Vehicle identifier, make, model, and price are required' });
-  if (!validSellerVehicleIdentifier(vin)) {
-    return res.status(400).json({
-      error: 'Vehicle identifier must be 12 to 17 letters, numbers, or hyphens',
-      code: 'SELLER_VEHICLE_IDENTIFIER_INVALID',
-    });
+  const identifierProblem = sellerVehicleIdentifierProblem(vin);
+  if (identifierProblem !== null) {
+    return res.status(400).json(identifierProblem === 'vin_alphabet'
+      ? {
+        // Naming the offending letters is the whole point: a 17-character VIN is refused here
+        // BECAUSE it matches the shape rule, so repeating that rule would tell the seller nothing.
+        error: 'A 17-character VIN never contains the letters I, O or Q — they are excluded so they cannot be confused with 1 and 0. Check those characters and re-enter the identifier.',
+        code: 'SELLER_VEHICLE_IDENTIFIER_NOT_ISO_VIN',
+      }
+      : {
+        error: 'Vehicle identifier must be 12 to 17 letters, numbers, or hyphens',
+        code: 'SELLER_VEHICLE_IDENTIFIER_INVALID',
+      });
   }
 
   // F17 — one logical Seller create attempt gets one durable UUID. The UUID is private mutation

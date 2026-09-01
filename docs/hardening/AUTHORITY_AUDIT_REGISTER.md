@@ -398,3 +398,127 @@ an unreadable input.
 **Evidence:** `tenantId: req.headers['x-tenant-id'] || null,` inside `optionalAuth()` — unlike `authorizeRole`, which validates the same header against `tenant_users` and 403s a non-member (lines 150-162), optionalAuth performs no membership check. No live exploit today: the one consumer that could widen access on it defends itself explicitly (backend/server.js:1699-1704 refuses to use it for PartSentry full-history and falls back to an owner_id match), and lenderRoutes.js:85 reads `req.userContext?.tenantId` only on an authorizeRole route. It is a loaded gun for the next optionalAuth route that scopes a query by tenant.
 
 **Required behaviour:** Either verify membership in optionalAuth the way authorizeRole does, or stop publishing `tenantId` from optionalAuth at all and expose only a `claimedTenantId` name that reads as untrusted at every call site.
+
+---
+
+# Addendum — restored-draft save path, independent audit at `52352271`
+
+Raised by the PR #194 directive of 2026-09-01, which required the restored Seller draft /
+existing-Passport save path to be **inspected independently rather than accepted as already fixed**.
+This addendum is a separate cycle from the 79-agent audit above; its counts are its own.
+
+The eleven commits `8a068e6b…52352271` were read against exact head, not against their description.
+
+## Verified correct — no change made
+
+Recording these explicitly, because "no finding" is only meaningful if it says what was examined.
+
+- **The identity-conflict 409 cannot leak to an unauthorised caller.** `SELLER_IDENTITY_CONFLICT_REVIEW_REQUIRED`
+  and its `conflicting_fields` are produced only inside the `existing && reuse_existing_passport === true
+  && existingSellerRelationship` branch (`backend/server.js`). A caller without that relationship
+  falls through to `SELLER_AUTHORITY_CLAIM_REQUIRED`, which names no field and reveals no recorded value.
+- **`authorityState === 'recognized'` on a restored draft is governed, not advisory.** It is set from the
+  authenticated `fetchOwnedVehicles()` scope match, never from the public passport lookup.
+- **The VIN input is locked on a restored draft** (`disabled={canonicalLocked}`), so the `set('vin')`
+  authority reset is unreachable there.
+- **The identification notice hides its confirm control once confirmed**, so its `setAuthorityState('idle')`
+  handler cannot clobber established authority.
+- **A sold listing genuinely leaves the public surface.** `PUBLICLY_VISIBLE_PUBLICATION_STATUSES` is
+  `['published']` alone and `isPublicVehicleStatus` excludes `Sold`; mark-sold retires correctly while
+  preserving publication history, exactly as R27 requires.
+
+## Findings
+
+### [CLOSED] P1 — a restored draft was held hostage by the advisory Passport lookup
+
+**Location:** `web/src/pages/dashboard/owner/SellVehicle.tsx` — `validateStep()`, and the step-0 Next button.
+
+**Evidence:** `else if (identifying) e.vin = 'Wait for the CarUp Passport check to finish'`, plus
+`disabled={step === 0 && (identifying || authorityState === 'checking')}`. Both consult
+`useSellerVehicleIdentification`, the public, rate-limited, audience-gated check. On a restored draft the
+authenticated scope read had *already* answered the same question, yet a slow or 429-throttled advisory
+read pinned the seller at step 0 of their own listing. The save itself was decoupled; reaching it was not.
+
+**Disposition:** one named predicate, `governedScopeEstablished`, now gates the step-0 ladder, the Next
+button and `reuse_existing_passport`. The relaxation is scoped to a restored draft: a seller who merely
+types an identifier CarUp already holds still faces the full confirm-and-declare-authority gate.
+Regression test `web/src/pages/dashboard/owner/SellVehicle.restoredDraft.test.tsx` (3 tests); the two
+behavioural ones were confirmed to FAIL against the pre-fix component.
+
+### [CLOSED] P1 — the authority-claim panel could demote authority already proved
+
+**Location:** same file, the `seller-existing-passport-authority` block.
+
+**Evidence:** rendered on `identification.state === 'passport_exists' && form.existingPassportConfirmed`,
+both of which are true on a restored draft. Its buttons call `resolveExistingPassportAuthority`, which sets
+`evidence_required` on a non-recognized answer and `error` on a transport failure. Nothing restores
+`recognized` short of a page reload, so on the seller's *own* draft the panel could only ever take authority
+away — after which `reuse_existing_passport` went false and the save returned 409.
+
+**Disposition:** the panel is no longer offered once `governedScopeEstablished` holds. Covered by the same
+regression file.
+
+### [CLOSED] P2 — a 17-character identifier carrying I, O or Q was accepted
+
+**Location:** `web/src/lib/sellerVehicleIdentification.ts`, `backend/server.js`.
+
+**Evidence:** the widening to `/^[A-Z0-9-]{12,17}$/`, made for genuine Japanese frame identifiers, also
+widened the alphabet for real VINs. ISO 3779 excludes I, O and Q precisely so they cannot be read as 1, 0
+and 0; accepting `…5987O34` beside `…5987034` lets one mistyped character mint a SECOND Passport — the
+duplicate the identification flow exists to prevent.
+
+**Disposition:** an identifier of exactly 17 characters with no hyphen is held to the ISO 3779 alphabet;
+shorter or hyphenated documented frame identifiers keep the wider one, so the import that motivated the
+widening still lists. The rule moved to `backend/utils/sellerVehicleIdentifier.js` so it is importable and
+directly testable; `backend/tests/seller-vehicle-identifier.test.js` (8 tests) covers it and asserts
+mechanically that the browser and server patterns agree, rather than trusting a comment to keep them in step.
+
+### [CLOSED] P2 — a failed crash-recovery write silently killed the save
+
+**Location:** `web/src/lib/guestSellDraft.ts` `clearGuestSellMedia()`; `SellVehicle.tsx` `handleSubmit`.
+
+**Evidence:** `saveGuestSellDraft` is fail-soft on every storage path it guards except one — its no-media
+branch awaited `clearGuestSellMedia()` unguarded, and `IDBDatabase.transaction()` throws synchronously
+(InvalidStateError on a closing connection, NotFoundError after another tab's version upgrade). The new
+pre-save checkpoint awaited that call *outside* `handleSubmit`'s try and ahead of `setSubmitting(true)`, so
+a seller pressing "Save as Draft" on a photo-less listing got nothing at all: no spinner, no toast, no
+listing, no error.
+
+**Disposition:** fixed at the source, so the fail-soft contract holds for every caller, and guarded again at
+the call site. `web/src/lib/guestSellDraft.failSoft.test.ts` (2 tests), confirmed to fail pre-fix at
+`clearGuestSellMedia:130 → saveGuestSellDraft:173`.
+
+### [CLOSED] P1 — the media-lifecycle contamination gate detected but never remediated
+
+**Location:** `.github/workflows/seller-media-lifecycle-staging-uat.yml`.
+
+**Evidence:** run `33505710788` (head `52352271`) passed desktop and mobile lifecycle and then failed
+"Refuse to leave an automation listing public" on `JTMLCMXB053051151`. Decoding that identifier — `JTMLC` +
+project token `MXB` (mobile-chromium) + run token `053051151` — attributes it to run `33505305115`, which was
+**cancelled** eight minutes earlier. With `concurrency: cancel-in-progress: true`, every push to the candidate
+branch SIGKILLs the run in flight; a run killed between publish and mark-sold leaves a published automation
+listing on shared staging with nothing to retire it. The step only detected, and scanned the global `JTMLC`
+prefix, so one aborted run reddened every later run for ever while the actual contamination stayed public.
+The listing was confirmed live and publicly discoverable as "Available" at the time of this audit.
+
+**Disposition:** the step now retires what it finds, through the product's own authenticated login + CSRF +
+`POST /api/vehicles/:vin/unpublish` rather than reaching past the authority rules. "Publicly discoverable"
+is asked with the product's own predicate (`publication_status === 'published'` AND an available/reserved
+status), so a listing this run correctly retired via mark-sold is left untouched and its publication history
+is not rewritten. Residue from an earlier aborted run is remediated and reported as such; residue from *this*
+run still fails the gate, because the spec must retire its own listing. Residual, stated plainly: a cancelled
+run's contamination persists until the next run sweeps it, since nothing can execute after SIGKILL.
+
+### [CLOSED] P3 — fixture exclusion reported a reason that could not be reached
+
+**Location:** `backend/services/marketplace/marketplaceClassificationRules.js` `getFixtureExclusion()`.
+
+**Evidence:** two backend tests were RED at exact head `52352271` (confirmed pre-existing, not introduced by
+this cycle). `SYNTHETIC_VIN_RE` was tested before `INTEGRATION_VIN_RE`, and every integration fixture is also
+named `VIN…`, so the `integration_fixture_vin` branch was unreachable: an operator reading an exclusion
+report was told "synthetic prefix" about a row excluded for being an integration fixture. The rows were
+always excluded — only the diagnosis was wrong.
+
+**Disposition:** the more specific marker is asked first. Both orders exclude exactly the same set
+(synthetic OR integration OR underscored); no acceptance criterion was weakened to obtain green.
+`marketplace-classification-rules` + `-backfill` now 35/35.

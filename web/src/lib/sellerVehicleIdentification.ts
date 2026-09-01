@@ -50,8 +50,36 @@ export interface SellerVehicleIdentification {
 // This is syntax only; provenance/ownership/verification remain governed separately.
 const SELLER_VEHICLE_IDENTIFIER_PATTERN = /^[A-Z0-9-]{12,17}$/
 
+// ISO 3779 excludes I, O and Q from a VIN precisely so they can never be read as 1, 0 and 0.
+// Widening the alphabet to admit Japanese frame identifiers must not also widen it for real VINs:
+// a 17-character identifier IS a VIN, and accepting `JTELU9FJ9K5987O34` for `...5987034` mints a
+// SECOND Passport for a vehicle CarUp already holds — the exact duplicate this whole identification
+// flow exists to prevent. A documented frame/chassis identifier is shorter, or carries a hyphen, so
+// it keeps the wider alphabet; the strict rule applies only where the input is unambiguously a VIN.
+const ISO_3779_VIN_PATTERN = /^[A-HJ-NPR-Z0-9]{17}$/
+
+/**
+ * WHY an identifier was refused, or null when it is acceptable.
+ *
+ * Shape and alphabet are different refusals and must not share one message. "Must be 12–17 letters,
+ * numbers or hyphens" is a true description of the shape rule and a FALSE explanation of why
+ * `JTELU9FJ9K5987O34` was refused — that identifier satisfies it exactly. A seller told this about
+ * an identifier that plainly matches it is left re-reading a correct-looking VIN with no way to
+ * find their own typo. Mirrors backend/utils/sellerVehicleIdentifier.js.
+ */
+export type SellerIdentifierProblem = 'shape' | 'vin_alphabet'
+
+export function sellerVehicleIdentifierProblem(value: string): SellerIdentifierProblem | null {
+  const identifier = String(value ?? '').trim().toUpperCase()
+  if (!SELLER_VEHICLE_IDENTIFIER_PATTERN.test(identifier)) return 'shape'
+  if (identifier.length === 17 && !identifier.includes('-') && !ISO_3779_VIN_PATTERN.test(identifier)) {
+    return 'vin_alphabet'
+  }
+  return null
+}
+
 export function isCompleteVin(value: string): boolean {
-  return SELLER_VEHICLE_IDENTIFIER_PATTERN.test(String(value ?? '').trim().toUpperCase())
+  return sellerVehicleIdentifierProblem(value) === null
 }
 
 /**
