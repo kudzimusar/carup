@@ -279,6 +279,19 @@ test.describe('Seller media continuity across the commerce lifecycle', () => {
     await press(page, page.getByTestId('submit-vehicle-button'), 'Save as Draft');
     await expect(page.getByTestId('submit-vehicle-button')).toHaveCount(0, { timeout: 60_000 });
 
+    // ── REOPEN + SAVE AGAIN: the exact owner-UAT regression from 2026-09-01 ───────────────────
+    // A server-restored draft is an EXISTING Passport in governed Seller scope. It must reuse that
+    // Passport when the Seller presses Save again; POST /vehicles/add must not fall back to
+    // EXISTING_PASSPORT_CONFIRM_REQUIRED simply because the advisory Passport lookup is stale or
+    // temporarily unavailable.
+    await page.goto(`/dashboard/sell-vehicle?vin=${encodeURIComponent(VIN)}&stage=review`, { waitUntil: 'domcontentloaded' });
+    await expect(page.getByTestId('seller-server-draft-loaded')).toBeVisible({ timeout: 30_000 });
+    await expect(page.getByTestId('submit-vehicle-button')).toBeVisible();
+    await press(page, page.getByTestId('submit-vehicle-button'), 'Save restored server draft');
+    await expect(page.getByTestId('submit-vehicle-button')).toHaveCount(0, { timeout: 60_000 });
+    expect((await ownerGallery(page, VIN)).publication_status,
+      'saving a restored server draft must reuse the Passport and remain a draft').toBe('draft');
+
     // ── the draft already shows the seller's cover to its owner ───────────────────────────────
     await page.goto('/dashboard/listings', { waitUntil: 'domcontentloaded' });
     const ownedListingCard = page.locator(`[data-testid="my-listing-card-${VIN}"]`);
