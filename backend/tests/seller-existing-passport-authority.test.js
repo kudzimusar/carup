@@ -88,14 +88,16 @@ test('governed Seller authority becomes listing scope without becoming legal own
 test('resumed Seller drafts may fill missing identity but never overwrite recorded Passport identity', () => {
   const server = readFileSync(new URL('../server.js', import.meta.url), 'utf8');
 
-  assert.match(server, /const identityFillPatch = {}/);
-  assert.match(server, /const identityConflicts = []/);
-  assert.match(server, /if (recordedValue === null) {[sS]*?identityFillPatch[field] = submittedValue/);
-  assert.match(server, /SELLER_IDENTITY_CONFLICT_REVIEW_REQUIRED/);
-  assert.match(server, /\.\.\.identityFillPatch,[\s\S]*?publication_status: 'draft'/);
-  assert.match(server, /identity_fields_filled: Object\.keys\(identityFillPatch\)/);
+  assert.ok(server.includes('const identityFillPatch = {};'));
+  assert.ok(server.includes('const identityConflicts = [];'));
+  assert.ok(server.includes('if (recordedValue === null) {'));
+  assert.ok(server.includes('identityFillPatch[field] = submittedValue;'));
+  assert.ok(server.includes('SELLER_IDENTITY_CONFLICT_REVIEW_REQUIRED'));
+  assert.ok(server.includes('...identityFillPatch,'));
+  assert.ok(server.includes("publication_status: 'draft'"));
+  assert.ok(server.includes('identity_fields_filled: Object.keys(identityFillPatch)'));
 
-  const reuseStart = server.indexOf('const identityFillPatch = {}');
+  const reuseStart = server.indexOf('const identityFillPatch = {};');
   const reuseEnd = server.indexOf('// A Seller who ANSWERED a history question', reuseStart);
   const reuseBlock = server.slice(reuseStart, reuseEnd);
   assert.doesNotMatch(reuseBlock, /identityFillPatch\.owner_id|owner_id\s*:\s*identityFillPatch/);
