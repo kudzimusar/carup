@@ -2879,26 +2879,6 @@ app.post('/api/vehicles/add', authorizeRole(['dealer', 'owner', 'admin']), async
     const sameIdentityValue = (left, right) =>
       String(left ?? '').trim().toUpperCase() === String(right ?? '').trim().toUpperCase();
 
-    if (existing && reuse_existing_passport === true) {
-      for (const [field, submittedValue] of Object.entries(submittedIdentity)) {
-        if (submittedValue === null) continue;
-        const recordedValue = submittedText(existing[field]);
-        if (recordedValue === null) {
-          identityFillPatch[field] = submittedValue;
-        } else if (!sameIdentityValue(recordedValue, submittedValue)) {
-          identityConflicts.push(field);
-        }
-      }
-      if (identityConflicts.length > 0) {
-        return res.status(409).json({
-          error: 'One or more vehicle identity values differ from the existing Passport. CarUp did not overwrite the recorded identity; review is required.',
-          code: 'SELLER_IDENTITY_CONFLICT_REVIEW_REQUIRED',
-          vin,
-          conflicting_fields: identityConflicts,
-        });
-      }
-    }
-
     const listingRow = {
       vin: candidate.vin,
       make: candidate.make,
@@ -3018,6 +2998,29 @@ app.post('/api/vehicles/add', authorizeRole(['dealer', 'owner', 'admin']), async
       || (existing.tenant_id && req.userContext.tenantId && existing.tenant_id === req.userContext.tenantId)
       || governedSellerEvidence
     ));
+
+    // Identity completion is evaluated only AFTER governed Seller scope is established. This
+    // prevents an unrelated authenticated account from probing which canonical identity fields
+    // differ on a Passport it does not control.
+    if (existing && reuse_existing_passport === true && existingSellerRelationship) {
+      for (const [field, submittedValue] of Object.entries(submittedIdentity)) {
+        if (submittedValue === null) continue;
+        const recordedValue = submittedText(existing[field]);
+        if (recordedValue === null) {
+          identityFillPatch[field] = submittedValue;
+        } else if (!sameIdentityValue(recordedValue, submittedValue)) {
+          identityConflicts.push(field);
+        }
+      }
+      if (identityConflicts.length > 0) {
+        return res.status(409).json({
+          error: 'One or more vehicle identity values differ from the existing Passport. CarUp did not overwrite the recorded identity; review is required.',
+          code: 'SELLER_IDENTITY_CONFLICT_REVIEW_REQUIRED',
+          vin,
+          conflicting_fields: identityConflicts,
+        });
+      }
+    }
 
     // F17 — a retry after a lost success response is the SAME mutation only when the durable key
     // matches the row written by that Seller attempt. It must never bypass scope: knowing a UUID is
