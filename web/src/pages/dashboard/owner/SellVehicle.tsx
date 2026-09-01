@@ -781,9 +781,16 @@ export default function SellVehicle() {
         temp_plate_id: form.tempPlateId || undefined,
         import_status: form.importStatus || undefined,
         reuse_existing_passport:
-          identification.state === 'passport_exists'
-          && form.existingPassportConfirmed
-          && authorityState === 'recognized',
+          (
+            serverDraftLoaded
+            && String(serverVehicle?.vin || '').trim().toUpperCase() === form.vin.trim().toUpperCase()
+            && authorityState === 'recognized'
+          )
+          || (
+            identification.state === 'passport_exists'
+            && form.existingPassportConfirmed
+            && authorityState === 'recognized'
+          ),
       })
 
       const resultMedia = result as {
@@ -844,6 +851,15 @@ export default function SellVehicle() {
         toast.error('This Passport needs seller-authority review instead of a duplicate vehicle.')
       } else if (apiData?.code === 'SELLER_IDEMPOTENCY_SCHEMA_REQUIRED') {
         toast.error(apiData.error || 'Seller save safety is still being activated. Your browser recovery copy has been kept; do not re-enter the form.')
+      } else if (apiData?.code === 'EXISTING_PASSPORT_CONFIRM_REQUIRED') {
+        if (serverDraftLoaded && isCompleteVin(form.vin)) {
+          navigate(`/dashboard/sell-vehicle?vin=${encodeURIComponent(form.vin.toUpperCase())}`, { replace: true })
+          toast.error('CarUp already has this vehicle as a server draft. The existing draft has been kept; do not create another listing.')
+        } else {
+          toast.error('This vehicle already has a CarUp Passport. Confirm that you are reusing that vehicle before saving.')
+        }
+      } else if (apiData?.code === 'SELLER_IDENTITY_CONFLICT_REVIEW_REQUIRED') {
+        toast.error(apiData.error || 'A recorded vehicle identity value differs from this form. CarUp kept the existing Passport unchanged for review.')
       } else if (status === 503) {
         toast.error('CarUp staging is temporarily unavailable. Your browser recovery copy has been kept; do not re-enter the form.')
       } else if (errMsg.includes('already listed')) {
@@ -1654,7 +1670,9 @@ export default function SellVehicle() {
                       <ul className="list-disc list-inside text-amber-700 space-y-0.5">
                         {missingIdentityFields.map(f => <li key={f}>{f}</li>)}
                       </ul>
-                      <p className="text-amber-600 mt-2">You can add them now or after saving the draft. You must also upload an ownership/registration document.</p>
+                      <p className="text-amber-600 mt-2">
+                        This does not block draft saving. You can fill a missing identity value now or on the resumed draft; CarUp will not silently overwrite an identity value already recorded. You must also upload an ownership/registration document before publication.
+                      </p>
                     </div>
                   </div>
                 </div>

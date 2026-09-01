@@ -29,6 +29,18 @@ describe('Seller existing-Passport and handoff regression', () => {
     expect(seller).toContain("authorityState === 'evidence_required'")
   })
 
+  it('a server-restored Seller draft reuses its scoped Passport instead of POSTing a duplicate VIN', () => {
+    expect(seller).toContain('serverDraftLoaded')
+    expect(seller).toContain("String(serverVehicle?.vin || '').trim().toUpperCase() === form.vin.trim().toUpperCase()")
+    expect(seller).toContain("apiData?.code === 'EXISTING_PASSPORT_CONFIRM_REQUIRED'")
+    expect(seller).toContain('CarUp already has this vehicle as a server draft')
+  })
+
+  it('states that missing identity blocks publication, not draft save', () => {
+    expect(seller).toContain('This does not block draft saving.')
+    expect(seller).toContain('will not silently overwrite an identity value already recorded')
+  })
+
   it('restores large media from explicit persisted state and never infers it from labels', () => {
     expect(draft).toContain('mediaExternalized: payload.images.length > 0')
     expect(draft).toContain('!draft.mediaExternalized')

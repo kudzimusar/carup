@@ -2845,7 +2845,7 @@ app.post('/api/vehicles/add', authorizeRole(['dealer', 'owner', 'admin']), async
     // so the browser keeps its draft. Legacy unkeyed callers may continue through the old projection.
     let existingRead = await supabase
       .from('vehicles')
-      .select('vin, owner_id, current_seller_id, tenant_id, publication_status, status, listing_location_source, listing_location_visibility, seller_listing_submission_id')
+      .select('vin, owner_id, current_seller_id, tenant_id, publication_status, status, listing_location_source, listing_location_visibility, seller_listing_submission_id, engine_number, chassis_number, plate_number, temp_plate_id')
       .eq('vin', vin)
       .maybeSingle();
     if (existingRead.error && isMissingNamedColumnError(existingRead.error, 'seller_listing_submission_id')) {
@@ -2857,12 +2857,47 @@ app.post('/api/vehicles/add', authorizeRole(['dealer', 'owner', 'admin']), async
       }
       existingRead = await supabase
         .from('vehicles')
-        .select('vin, owner_id, current_seller_id, tenant_id, publication_status, status, listing_location_source, listing_location_visibility')
+        .select('vin, owner_id, current_seller_id, tenant_id, publication_status, status, listing_location_source, listing_location_visibility, engine_number, chassis_number, plate_number, temp_plate_id')
         .eq('vin', vin)
         .maybeSingle();
     }
     if (existingRead.error) throw existingRead.error;
     const existing = existingRead.data;
+
+    // A resumed Seller draft may complete identity facts that were genuinely missing at creation
+    // time (for example a vehicle awaiting its Zimbabwe plate / temporary import permit). Reuse is
+    // fill-only: once a Passport already carries a value, this listing route never overwrites it.
+    // A disagreement is routed to review instead of choosing which source is "true".
+    const submittedIdentity = {
+      engine_number: submittedText(engine_number),
+      chassis_number: submittedText(chassis_number),
+      plate_number: submittedText(plate_number),
+      temp_plate_id: submittedText(temp_plate_id),
+    };
+    const identityFillPatch = {};
+    const identityConflicts = [];
+    const sameIdentityValue = (left, right) =>
+      String(left ?? '').trim().toUpperCase() === String(right ?? '').trim().toUpperCase();
+
+    if (existing && reuse_existing_passport === true) {
+      for (const [field, submittedValue] of Object.entries(submittedIdentity)) {
+        if (submittedValue === null) continue;
+        const recordedValue = submittedText(existing[field]);
+        if (recordedValue === null) {
+          identityFillPatch[field] = submittedValue;
+        } else if (!sameIdentityValue(recordedValue, submittedValue)) {
+          identityConflicts.push(field);
+        }
+      }
+      if (identityConflicts.length > 0) {
+        return res.status(409).json({
+          error: 'One or more vehicle identity values differ from the existing Passport. CarUp did not overwrite the recorded identity; review is required.',
+          code: 'SELLER_IDENTITY_CONFLICT_REVIEW_REQUIRED',
+          vin,
+          conflicting_fields: identityConflicts,
+        });
+      }
+    }
 
     const listingRow = {
       vin: candidate.vin,
@@ -3096,6 +3131,9 @@ app.post('/api/vehicles/add', authorizeRole(['dealer', 'owner', 'admin']), async
         // Re-listing refreshes the Seller's history disclosures alongside the other commercial
         // statements; unanswered questions stay untouched on the existing row (keys absent).
         ...sellerHistoryDisclosureColumns,
+        // Identity completion is WRITE-ONCE through this Seller path. Existing values were checked
+        // above and cannot enter this patch; only previously-null fields are present here.
+        ...identityFillPatch,
         publication_status: 'draft',
       };
       ({ error: insertError } = await supabase
@@ -3292,6 +3330,7 @@ app.post('/api/vehicles/add', authorizeRole(['dealer', 'owner', 'admin']), async
       history_disclosures_recorded: hasSellerHistoryDisclosure,
       idempotent_replay: false,
       reused_existing_passport: reusedExistingPassport,
+      identity_fields_filled: Object.keys(identityFillPatch),
       message: reusedExistingPassport
         ? 'Listing draft attached to the existing Vehicle Passport. No duplicate Passport was created.'
         : 'Vehicle saved as draft. Upload ownership documents to advance toward publication.',

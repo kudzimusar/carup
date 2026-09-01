@@ -85,6 +85,22 @@ test('governed Seller authority becomes listing scope without becoming legal own
 });
 
 
+test('resumed Seller drafts may fill missing identity but never overwrite recorded Passport identity', () => {
+  const server = readFileSync(new URL('../server.js', import.meta.url), 'utf8');
+
+  assert.match(server, /const identityFillPatch = {}/);
+  assert.match(server, /const identityConflicts = []/);
+  assert.match(server, /if (recordedValue === null) {[sS]*?identityFillPatch[field] = submittedValue/);
+  assert.match(server, /SELLER_IDENTITY_CONFLICT_REVIEW_REQUIRED/);
+  assert.match(server, /...identityFillPatch,[sS]*?publication_status: 'draft'/);
+  assert.match(server, /identity_fields_filled: Object.keys(identityFillPatch)/);
+
+  const reuseStart = server.indexOf('const identityFillPatch = {}');
+  const reuseEnd = server.indexOf('// A Seller who ANSWERED a history question', reuseStart);
+  const reuseBlock = server.slice(reuseStart, reuseEnd);
+  assert.doesNotMatch(reuseBlock, /identityFillPatch.owner_id|owner_ids*:s*identityFillPatch/);
+});
+
 test('brand-new Seller listings establish governed current-seller routing authority', () => {
   const server = readFileSync(new URL('../server.js', import.meta.url), 'utf8');
   const addStart = server.indexOf("app.post('/api/vehicles/add'");
