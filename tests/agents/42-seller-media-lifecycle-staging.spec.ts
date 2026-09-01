@@ -281,6 +281,7 @@ test.describe('Seller media continuity across the commerce lifecycle', () => {
 
     // ── the draft already shows the seller's cover to its owner ───────────────────────────────
     await page.goto('/dashboard/listings', { waitUntil: 'domcontentloaded' });
+    const ownedListingCard = page.locator(`[data-testid="my-listing-card-${VIN}"]`);
     const draftShot = await expectCover(page, `[data-testid="my-listing-card-${VIN}"]`, 'My Listings (draft)');
     const draft = await ownerGallery(page, VIN);
     expect(draft.unpaired, 'evidence must come from the paired exact head').toBe(false);
@@ -288,7 +289,7 @@ test.describe('Seller media continuity across the commerce lifecycle', () => {
     expectGalleryIntact(draft.media, 'draft');
 
     // ── the publication gate is REAL: refuse before the ownership document is verified ─────────
-    await press(page, page.getByRole('button', { name: 'Publish to Marketplace' }), 'Publish (refused)');
+    await press(page, ownedListingCard.getByRole('button', { name: 'Publish to Marketplace' }), 'Publish (refused)');
     await expect(page.getByText(/Ownership \/ Registration Document|not publishable|blocking/i).first())
       .toBeVisible({ timeout: 20_000 });
     expect((await ownerGallery(page, VIN)).publication_status,
@@ -318,7 +319,7 @@ test.describe('Seller media continuity across the commerce lifecycle', () => {
 
     // ── PUBLISH from the Seller UI ────────────────────────────────────────────────────────────
     await page.goto('/dashboard/listings', { waitUntil: 'domcontentloaded' });
-    await press(page, page.getByRole('button', { name: 'Publish to Marketplace' }), 'Publish');
+    await press(page, ownedListingCard.getByRole('button', { name: 'Publish to Marketplace' }), 'Publish');
     await expect.poll(async () => (await ownerGallery(page, VIN)).publication_status,
       { message: 'the listing must reach published', timeout: 40_000 }).toBe('published');
     await page.reload({ waitUntil: 'domcontentloaded' });
@@ -338,7 +339,7 @@ test.describe('Seller media continuity across the commerce lifecycle', () => {
 
     // ── UNPUBLISH: public disappears, owner media remains ─────────────────────────────────────
     await page.goto('/dashboard/listings', { waitUntil: 'domcontentloaded' });
-    await press(page, page.getByRole('button', { name: /Unpublish/i }), 'Unpublish');
+    await press(page, ownedListingCard.getByRole('button', { name: /Unpublish/i }), 'Unpublish');
     await expect.poll(async () => (await ownerGallery(page, VIN)).publication_status,
       { message: 'unpublish must return the listing to publishable', timeout: 40_000 }).not.toBe('published');
 
@@ -352,7 +353,7 @@ test.describe('Seller media continuity across the commerce lifecycle', () => {
     expect(publicAfterUnpublish.status(), 'an unpublished listing must leave the public surface').toBe(404);
 
     // ── REPUBLISH: the same cover, gallery, order and labels return ───────────────────────────
-    await press(page, page.getByRole('button', { name: 'Publish to Marketplace' }), 'Republish');
+    await press(page, ownedListingCard.getByRole('button', { name: 'Publish to Marketplace' }), 'Republish');
     await expect.poll(async () => (await ownerGallery(page, VIN)).publication_status,
       { message: 'republish must reach published', timeout: 40_000 }).toBe('published');
     await page.reload({ waitUntil: 'domcontentloaded' });
@@ -362,7 +363,7 @@ test.describe('Seller media continuity across the commerce lifecycle', () => {
 
     // ── SOLD / RETIRED: commerce exits, the owner's durable media does not ────────────────────
     page.once('dialog', (d) => d.accept());
-    await press(page, page.getByRole('button', { name: /Mark sold/i }), 'Mark sold');
+    await press(page, ownedListingCard.getByRole('button', { name: /Mark sold/i }), 'Mark sold');
     await expect.poll(async () => (await ownerGallery(page, VIN)).status,
       { message: 'the vehicle must reach a sold state', timeout: 40_000 }).toMatch(/sold/i);
 
