@@ -354,7 +354,20 @@ test.describe('Seller media continuity across the commerce lifecycle', () => {
     const publicAfterSold = await request.get(`${API_URL}/vehicles/${VIN}/details`);
     expect(publicAfterSold.status(), 'a sold vehicle must exit active public commerce').toBe(404);
 
-    // Leaves no public automation listing behind — the staging contamination audit depends on it.
-    expect((await ownerGallery(page)).publication_status).not.toBe('published');
+    // AVAILABILITY AND PUBLICATION ARE TWO AXES, and retirement moves only one of them.
+    //
+    // `publication_status` deliberately STAYS 'published' after mark-sold: the status PATCH writes
+    // `{status}` alone — asserted independently in
+    // backend/tests/r27-durable-history-survives-commerce.test.js — and the record that this listing
+    // was once published is itself durable history. What removes it from the public surface is
+    // `isPublicVehicleStatus('Sold') === false`, which the 404 above proves and which the workflow's
+    // own contamination audit re-proves from the marketplace query.
+    //
+    // An earlier version of this test demanded `publication_status !== 'published'` here. That was
+    // asserting the opposite of the verified contract, and it is recorded rather than quietly
+    // deleted because "the test was wrong" is the finding.
+    const retired = await ownerGallery(page);
+    expect(retired.status, 'availability carries the retirement').toMatch(/sold/i);
+    expect(retired.publication_status, 'publication history is not rewritten by retirement').toBe('published');
   });
 });
