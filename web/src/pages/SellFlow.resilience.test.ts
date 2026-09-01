@@ -61,4 +61,21 @@ describe('Marketplace progressive sell resilience', () => {
     expect(AUTHENTICATED_SELL).toContain('seller-guest-media-restoring')
     expect(AUTHENTICATED_SELL).toContain('clearGuestSellDraft()')
   })
+
+  it('checkpoints the final form before submit and establishes a server resume URL before clearing it', () => {
+    const submit = AUTHENTICATED_SELL.indexOf('const handleSubmit = async () =>')
+    const checkpoint = AUTHENTICATED_SELL.indexOf('await saveGuestSellDraft({', submit)
+    const mutation = AUTHENTICATED_SELL.indexOf('const result = await createVehicleListing({', submit)
+    expect(submit).toBeGreaterThanOrEqual(0)
+    expect(checkpoint).toBeGreaterThan(submit)
+    expect(mutation).toBeGreaterThan(checkpoint)
+
+    const resumeAnchor = AUTHENTICATED_SELL.indexOf(
+      'navigate(`/dashboard/sell-vehicle?vin=\${encodeURIComponent(returnedVin)}`, { replace: true })',
+      mutation,
+    )
+    const clear = AUTHENTICATED_SELL.indexOf('clearGuestSellDraft()', mutation)
+    expect(resumeAnchor).toBeGreaterThan(mutation)
+    expect(clear).toBeGreaterThan(resumeAnchor)
+  })
 })

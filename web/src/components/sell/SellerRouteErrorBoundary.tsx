@@ -2,6 +2,7 @@ import { Component, type ErrorInfo, type ReactNode } from 'react'
 import { Link } from 'react-router-dom'
 import { AlertTriangle, RefreshCw } from 'lucide-react'
 import { Button } from '@/components/ui/button'
+import { readGuestSellDraft } from '@/lib/guestSellDraft'
 
 type Props = { children: ReactNode }
 type State = { failed: boolean }
@@ -20,14 +21,17 @@ export class SellerRouteErrorBoundary extends Component<Props, State> {
   render() {
     if (!this.state.failed) return this.props.children
 
+    const browserCheckpointPresent = Boolean(readGuestSellDraft())
+
     return (
       <div className="mx-auto max-w-2xl p-4 sm:p-8" data-testid="seller-route-recovery">
         <div className="rounded-2xl border border-amber-200 bg-amber-50 p-6">
           <AlertTriangle className="h-6 w-6 text-amber-700" />
-          <h1 className="mt-3 text-xl font-bold text-slate-950">Your Seller draft is still in this browser</h1>
+          <h1 className="mt-3 text-xl font-bold text-slate-950">This Seller page stopped rendering</h1>
           <p className="mt-2 text-sm leading-6 text-slate-700">
-            The Seller workspace could not render this view. CarUp has not converted that failure
-            into a blank screen or silently discarded your browser draft.
+            {browserCheckpointPresent
+              ? 'A browser recovery copy is present. Retry this exact page; do not clear browser data.'
+              : 'No active browser recovery copy is present. If Save already succeeded, retry this exact VIN-tagged Seller URL so CarUp restores the server draft; otherwise open My Listings before re-entering anything.'}
           </p>
           <div className="mt-5 flex flex-wrap gap-2">
             <Button type="button" onClick={() => window.location.reload()}>

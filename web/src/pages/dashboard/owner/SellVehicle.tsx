@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { Link, useSearchParams } from 'react-router-dom'
+import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
@@ -193,6 +193,7 @@ const INITIAL = {
 
 export default function SellVehicle() {
   const { createVehicleListing, updateSellerDraft, uploadVehicleImages, requestSellerAuthorityClaim, fetchOwnedVehicles } = useCarUpApi()
+  const navigate = useNavigate()
   const [searchParams] = useSearchParams()
   const resumeVin = String(searchParams.get('vin') || '').trim().toUpperCase()
   const requestedStage = searchParams.get('stage')
@@ -654,6 +655,47 @@ export default function SellVehicle() {
   ].filter(Boolean) as string[]
 
   const handleSubmit = async () => {
+    // UAT 2026-09-01: the autosave timer is not a sufficient last line of defence. A Seller can
+    // press Save before the 300 ms checkpoint fires, or a deployment can interrupt the route after
+    // the server accepts the listing. Persist the exact final form state before any upload/mutation.
+    await saveGuestSellDraft({
+      submissionId: form.submissionId,
+      make: form.make,
+      model: form.model,
+      year: form.year,
+      vin: form.vin,
+      color: form.color,
+      mileage: form.mileage,
+      condition: form.condition,
+      category: form.category,
+      fuelType: form.fuelType,
+      transmission: form.transmission,
+      drivetrain: form.drivetrain,
+      location: form.location,
+      province: form.province,
+      price: form.price,
+      currency: form.currency,
+      description: form.description,
+      engineNumber: form.engineNumber,
+      chassisNumber: form.chassisNumber,
+      plateNumber: form.plateNumber,
+      tempPlateId: form.tempPlateId,
+      importStatus: form.importStatus,
+      features: form.features,
+      images: form.images,
+      imageLabels: form.imageLabels,
+      coverImageIndex,
+      historyPlan: guestHistoryPlan,
+      existingPassportConfirmed: form.existingPassportConfirmed,
+      locationVisibility: form.locationVisibility as 'withheld' | 'province_only' | 'public',
+      publicSellerDisplay: form.publicSellerDisplay,
+      accidentDisclosure: form.accidentDisclosure,
+      insuranceDisclosure: form.insuranceDisclosure,
+      financeDisclosure: form.financeDisclosure,
+    })
+    saveGuestSellStep(step)
+    setGuestDraftLoaded(true)
+
     setSubmitting(true)
     try {
       let resolvedImageUrls: string[] = []
@@ -783,20 +825,31 @@ export default function SellVehicle() {
       }
 
       const returnedVin: string = resultMedia?.vin ?? form.vin.toUpperCase()
+
+      // Establish the durable SERVER resume anchor before clearing browser crash-recovery. If this
+      // route crashes or the deployment returns an error after the 201, reload now carries the VIN
+      // and SellVehicle restores the saved listing from the authenticated server draft instead of
+      // opening a fresh empty form.
+      navigate(`/dashboard/sell-vehicle?vin=${encodeURIComponent(returnedVin)}`, { replace: true })
       setSavedVin(returnedVin)
       clearGuestSellDraft()
       setGuestDraftLoaded(false)
       toast.success('Vehicle saved as draft. Upload ownership documents to publish your listing.')
     } catch (err: unknown) {
       const errMsg = err instanceof Error ? err.message : ''
-      const apiData = (err as { data?: { code?: string } } | null)?.data
+      const apiData = (err as { data?: { code?: string; error?: string }; status?: number } | null)?.data
+      const status = (err as { status?: number } | null)?.status
       if (apiData?.code === 'SELLER_AUTHORITY_CLAIM_REQUIRED') {
         setAuthorityState('evidence_required')
         toast.error('This Passport needs seller-authority review instead of a duplicate vehicle.')
+      } else if (apiData?.code === 'SELLER_IDEMPOTENCY_SCHEMA_REQUIRED') {
+        toast.error(apiData.error || 'Seller save safety is still being activated. Your browser recovery copy has been kept; do not re-enter the form.')
+      } else if (status === 503) {
+        toast.error('CarUp staging is temporarily unavailable. Your browser recovery copy has been kept; do not re-enter the form.')
       } else if (errMsg.includes('already listed')) {
         toast.error('This VIN already has a CarUp Passport. Confirm it above so CarUp reuses that Passport.')
       } else {
-        toast.error('Failed to save vehicle. Please try again.')
+        toast.error('Failed to save vehicle. Your browser recovery copy has been kept so you can retry.')
       }
     } finally {
       setSubmitting(false)

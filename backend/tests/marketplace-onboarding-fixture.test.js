@@ -86,7 +86,7 @@ test('fixture VIN / seed owner / default tenant / import_source=Test / invalid V
   assert.ok(getListingEligibility({ ...realPrivateListing, owner_id: 'u3' }).reasons.includes('seed_owner_id'));
   assert.ok(getListingEligibility({ ...realDealerListing, tenant_id: '00000000-0000-0000-0000-000000000001' }).reasons.includes('seed_tenant_id'));
   assert.ok(getListingEligibility({ ...realPrivateListing, import_source: 'Test' }).reasons.includes('invalid_import_source'));
-  assert.ok(getListingEligibility({ ...realPrivateListing, vin: '1HGBH41JXMN10918' }).reasons.includes('invalid_vin_format')); // 16 chars
+  assert.ok(getListingEligibility({ ...realPrivateListing, vin: '1HGBH41JXMN' }).reasons.includes('invalid_vin_format')); // 11 chars
 });
 
 test('a real row survives the production fixture filter; a fixture row does not', () => {

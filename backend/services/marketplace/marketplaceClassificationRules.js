@@ -128,9 +128,15 @@ export function getFixtureExclusion(vehicle = {}) {
   const automationMatch = sellerDescription.match(SELLER_AUTOMATION_DESCRIPTION_RE)
   if (automationMatch) return `seller_automation_fixture(${automationMatch[1]})`
 
-  if (vin && !VALID_VEHICLE_IDENTIFIER_RE.test(vin)) {
+  // Syntax widening for genuine Japanese frame IDs must never make an explicit fixture marker
+  // look real. Provenance markers win over shape: "VIN...", test/demo/seed prefixes and integration
+  // identifiers remain excluded even when their character count happens to fall inside 12–17.
+  if (vin && SYNTHETIC_VIN_RE.test(vin)) return `synthetic_vin_prefix(${vin})`
+  if (vin && (INTEGRATION_VIN_RE.test(vin) || vin.includes('_'))) {
     if (INTEGRATION_VIN_RE.test(vin)) return `integration_fixture_vin(${vin})`
-    if (SYNTHETIC_VIN_RE.test(vin) || vin.includes('_')) return `synthetic_vin_prefix(${vin})`
+    return `synthetic_vin_prefix(${vin})`
+  }
+  if (vin && !VALID_VEHICLE_IDENTIFIER_RE.test(vin)) {
     return `invalid_vin_format(${vin})`
   }
   if (owner && (SEED_OWNER_IDS.has(owner) || /^u\d+$/.test(owner))) return `seed_owner_id(${owner})`

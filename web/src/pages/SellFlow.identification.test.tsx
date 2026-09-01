@@ -116,7 +116,7 @@ describe.each([
 
   it('does not look up an incomplete VIN', async () => {
     renderSurface()
-    fireEvent.change(screen.getByTestId(vinTestId), { target: { value: 'JTDKARFP0H30' } })
+    fireEvent.change(screen.getByTestId(vinTestId), { target: { value: 'GFC27-02705' } })
     // Virtual time, and deliberately well past the debounce: proving NO lookup fires is a stronger
     // claim the further the clock moves, and it now costs nothing to move it further.
     await act(async () => { await vi.advanceTimersByTimeAsync(5000) })

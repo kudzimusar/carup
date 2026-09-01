@@ -1549,6 +1549,11 @@ Required exact-head battery:
   - Remediation: Seller intake accepts documented 12–17 character letters/numbers/hyphens; no identifier is fabricated or padded.
   - Draft recovery: typed Seller fields are checkpointed in durable browser storage before server draft creation and retained across refresh/logout/relogin on the same device; media remains in IndexedDB.
   - Evidence required for `[x]`: exact-head deployed owner UAT resumes the blocked Serena draft and completes identifier → save/resume without re-entry.
+- [~] **V18. Successful Seller save survives a route/deployment failure without returning an empty form.**
+  - Owner UAT 2026-09-01: `GFC27-027051` reached the current staging backend and `POST /api/vehicles/add` returned **201 Created**; all ten selected photos uploaded and the immediate completeness read returned **200**. The vehicle was saved, but the route later reopened empty because the browser checkpoint had been cleared while the saved VIN existed only in React state.
+  - Remediation: checkpoint the exact final form before network work; after a confirmed keyed save, replace the Seller URL with `/dashboard/sell-vehicle?vin=<saved VIN>` before clearing browser recovery; a reload therefore hydrates the authenticated server draft. The Seller error boundary no longer claims a browser draft exists without checking.
+  - Harness repair: keep explicit fixture prefixes excluded after the 12–17 identifier widening; update stale <12/16-character test assumptions; derive lifecycle automation VINs from the changing run-id suffix so repeated staging runs cannot collide with retired Passports.
+  - Evidence required for `[x]`: exact-head CI + Seller Media Lifecycle desktop/mobile green, paired staging serves the same SHA, and owner opens `GFC27-027051` through the VIN-tagged Seller resume route with the saved vehicle/media intact.
 
 ### Phase V roll call
 - [ ] **V-RC. Phase V complete:** owner has accepted the visual/product result; automated PASS alone is insufficient.

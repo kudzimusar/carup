@@ -54,8 +54,14 @@ const VIN_SAFE = (v: string) => v.toUpperCase().replace(/[IOQ]/g, 'X').replace(/
  * seller confirms whether it is the same vehicle, so the mobile run simply never reached stage 2.
  * Each viewport gets its own vehicle instead of the two runs colliding.
  */
-const vinFor = (project: string) =>
-  `JTMLC${VIN_SAFE(project.slice(0, 3) + RUN_ID)}`.padEnd(17, '0').slice(0, 17);
+const vinFor = (project: string) => {
+  // Keep the changing end of the workflow run id INSIDE the 17 characters. The previous builder
+  // truncated after the shared "media-334..." prefix, so different runs could reuse one Passport
+  // and correctly hit the existing-Passport confirmation gate before Stage 2.
+  const projectToken = VIN_SAFE(project.slice(0, 3)).padEnd(3, 'X').slice(0, 3);
+  const runToken = RUN_ID.replace(/\D/g, '').slice(-9).padStart(9, '0');
+  return `JTMLC${projectToken}${runToken}`;
+};
 
 type SessionAuth = { token: string; user: { id: string; role: string } };
 
