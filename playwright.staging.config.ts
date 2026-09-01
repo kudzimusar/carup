@@ -20,7 +20,9 @@ export default defineConfig({
   testDir: './tests/agents',
   // 32–35: vehicle / parts / security / recovery. 36–37: Issue #127 go-to-market. 38: the
   // Golden Dynamic Seller lifecycle. Every set runs against the same frozen deployed candidate.
-  testMatch: /(?:3[2-7]-diaspora-staging-browser-.*|38-seller-staging-browser-golden|41-seller-phase-e-staging)\.spec\.ts/,
+  // 42 is ADDITIVE: the certified Seller Exact-Head Staging UAT names spec 38 on its own command
+  // line, so widening this pattern cannot change what that gate runs.
+  testMatch: /(?:3[2-7]-diaspora-staging-browser-.*|38-seller-staging-browser-golden|41-seller-phase-e-staging|42-seller-media-lifecycle-staging)\.spec\.ts/,
   timeout: 90_000,
   expect: { timeout: 15_000 },
   fullyParallel: false, // journeys mutate shared staging state; keep deterministic order
