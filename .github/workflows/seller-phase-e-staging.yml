@@ -13,6 +13,8 @@ on:
       - 'web/src/pages/dashboard/owner/**'
       - 'tests/agents/41-seller-phase-e-staging.spec.ts'
       - '.github/workflows/seller-phase-e-staging.yml'
+      - 'web/preview-frontend-pairing.json'
+      - 'web/preview-backend-pairing.json'
   workflow_dispatch: {}
 
 
@@ -29,8 +31,7 @@ jobs:
     timeout-minutes: 30
     env:
       EXPECTED_HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
-      STAGING_WEB_URL: https://carup-staging-git-fix-seller-uat-convergence-remediation-11-11.vercel.app
-      STAGING_API_URL: https://carup-backend-staging-git-fix-seller-uat-convergen-e5670a-11-11.vercel.app/api
+      CANDIDATE_BRANCH: ${{ github.event.pull_request.head.ref || github.ref_name }}
       STAGING_RUN_ID: seller-e-${{ github.run_id }}-${{ github.run_attempt }}
       DIASPORA_STAGING_DATABASE_URL: ${{ secrets.DIASPORA_STAGING_DATABASE_URL }}
       EXPECTED_STAGING_PROJECT_REF: eoyenigwevnxwwhyhaer
@@ -52,6 +53,23 @@ jobs:
             *"$EXPECTED_STAGING_PROJECT_REF"*) ;;
             *) echo '::error::Approved staging database is unavailable.'; exit 1 ;;
           esac
+      - name: Resolve governed exact-head preview pair
+        run: |
+          node <<'NODE'
+          const fs = require('fs')
+          const branch = process.env.CANDIDATE_BRANCH
+          const frontendPairs = JSON.parse(fs.readFileSync('web/preview-frontend-pairing.json', 'utf8')).branches || {}
+          const backendPairs = JSON.parse(fs.readFileSync('web/preview-backend-pairing.json', 'utf8')).branches || {}
+          const frontend = frontendPairs[branch]
+          const backend = backendPairs[branch]
+          if (!frontend || !backend) {
+            throw new Error(`Phase E candidate preview pair is not governed for ${branch}`)
+          }
+          fs.appendFileSync(process.env.GITHUB_ENV,
+            `STAGING_WEB_URL=${frontend}\nSTAGING_API_URL=${backend.replace(/\/$/, '')}/api\n`)
+          console.log(JSON.stringify({ branch, frontend, backend }))
+          NODE
+
       - name: Wait for exact-head frontend/backend
         run: |
           node --input-type=module <<'NODE'
