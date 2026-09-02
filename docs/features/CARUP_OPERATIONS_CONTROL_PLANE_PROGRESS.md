@@ -1,6 +1,6 @@
 # CarUp Operations Control Plane — Implementation Progress & Roll-Call
 
-**Status:** IN EXECUTION — M0–M1 complete 2026-09-02; M2 in progress  
+**Status:** IN EXECUTION — M0–M6 implemented (M4 responsive proofs pending); M7 staging next  
 **Canonical manual:** docs/features/CARUP_OPERATIONS_CONTROL_PLANE_AND_SERENA_VEHICLE_OPS_MANUAL.md  
 **Benchmark appendix:** docs/features/CARUP_OPERATIONS_CONTROL_PLANE_BENCHMARK_RESEARCH.md  
 **Claude start prompt:** docs/agent-prompts/CARUP_OPERATIONS_CONTROL_PLANE_SERENA_CLAUDE_START_PROMPT.md  
@@ -161,87 +161,95 @@ New/changed surfaces: `GET /api/vehicles/:vin/seller-authority` (reviewer may qu
 
 # M3 — Publication completeness reconciliation
 
-- [ ] M3.1 Legacy registration_document alone no longer drives ownership/registration gate.
-- [ ] M3.2 Seller authority is a distinct publication requirement.
-- [ ] M3.3 Zimbabwe registration readiness remains distinct.
-- [ ] M3.4 Permanent-import pending stages can be non-blocking when policy allows.
-- [ ] M3.5 locally_registered enforces local registration requirements.
-- [ ] M3.6 TIP remains separate special state.
-- [ ] M3.7 unknown stage fails closed as designed.
-- [ ] M3.8 unresolved material extraction conflict blocks.
-- [ ] M3.9 blocking fraud/governance state blocks.
-- [ ] M3.10 finance disclosure remains non-blocking unless a separate transaction rule says otherwise.
-- [ ] M3.11 insurance state does not fabricate Trust/public clearance.
-- [ ] M3.12 refusal response distinguishes missing vs pending vs external vs conflict.
-- [ ] M3.13 Serena-like publication matrix unit tests green.
-- [ ] M3.14 Existing Seller lifecycle regression tests green.
+**Implemented 2026-09-03.** completenessEvaluator.js rewritten around the manual §19 questions. The legacy-type IN-list is gone: the evaluator reads ALL evidence rows and decides through the canonical M1 predicates. The generic `ownership_document` requirement became the governed `seller_authority` requirement (M2 service): satisfied by a CONFIRMED decision, or — historical-parity path — an existing relationship plus a VERIFIED ownership/registration document under canonical semantics; verified import documents alone keep it at pending_review because the reviewer decision IS the gate. `registration_evidence` is demanded ONLY when the lifecycle stage is `locally_registered` (a permanent import is never asked for a book it cannot have). New blocking `risk_governance` requirement closes the gap where `fraud_cases.blocks_publication` was consulted only by the trust decision while the publish route never asked. Requirements now carry `who_must_act` (+ `refusal_category` where applicable) and the publish-route 400 forwards them.
+
+- [x] M3.1 Legacy registration_document no longer drives the gate — contract test pins: no legacy-type filter, no BLOCKING_DOC_TYPES, canonical predicates + getSellerAuthorityState present (marketplace-publication-gate contract test, re-aimed deliberately).
+- [x] M3.2 Seller authority distinct requirement — key `seller_authority`, category seller_authority; revoked/disputed/insufficient fails closed even for a relationship holder (tested).
+- [x] M3.3 Registration readiness distinct — untouched lifecycle-driven requirement.
+- [x] M3.4 Permanent-import pending non-blocking — Serena-like `customs_cleared_cvr_pending` + confirmed authority → publishable (tested).
+- [x] M3.5 locally_registered enforces local requirements — plate via lifecycle (`local_plate_not_recorded` tested) + new `registration_evidence` requirement; a mislabeled import doc cannot satisfy it; a true registration_book can (both tested).
+- [x] M3.6 TIP separate — `temporary_foreign_tip` blocks ordinary listing (tested).
+- [x] M3.7 Unknown/unrecorded stage fails closed — `registration_stage_not_recorded` blocking (tested).
+- [x] M3.8 Unresolved material extraction conflict blocks with `refusal_category: 'conflict'` (tested; fail-closed read posture preserved).
+- [x] M3.9 Blocking risk blocks — open/investigating fraud case with blocks_publication=true → blocking pending_review `policy_blocked`; resolved/non-blocking cases don't block; fraud read failure throws (fail closed; issue164 P1-READ expectation updated to accept either fail-closed reader). Governance review_tasks deliberately NOT a blocking input in this slice (no existing policy makes an open governance task publication-blocking; deferred, recorded in §31 item handling).
+- [x] M3.10 Finance disclosure stays advisory (tested: not_available cannot block).
+- [x] M3.11 Insurance — no insurance input exists in the gate; advisory `insurance_document` matcher recognizes canonical accident/insurer_assessment; no clearance wording anywhere (existing R22 label assertions still green).
+- [x] M3.12 Refusal distinctions — `who_must_act` ∈ seller/carup_review/external_authority/none + `refusal_category` ∈ conflict/policy_blocked on requirements and the publish 400 (tested: Serena snapshot distinguishes seller-action vs review-pending).
+- [x] M3.13 Serena-like matrix green — operations-publication-completeness.test.js 14/14, including the exact current Serena snapshot (draft, stage unrecorded, contradictory-legacy pending docs → registration_readiness blocking + seller_authority pending).
+- [x] M3.14 Seller lifecycle regressions green — contradiction/reconciliation/golden/phase5/phase7/finance/trust-decision/intelligence/db-compat suites all green after deliberate fixture updates (mocks needed vehicle_seller_authority + owner columns; two fixtures re-staged onto truthful lifecycle stages). Full-suite sweep vs pinned HEAD baseline: no new failures (see Evidence Register).
 
 ---
 
 # M4 — Vehicle Operations Review workspace
 
-- [ ] M4.1 Register governed Vehicle Operations route.
-- [ ] M4.2 Add reviewer read model/aggregator without new canonical truth.
-- [ ] M4.3 Vehicle identity section.
-- [ ] M4.4 Seller/account section.
-- [ ] M4.5 Zimbabwe registration section with provenance.
-- [ ] M4.6 Evidence grouping by canonical class.
-- [ ] M4.7 Extraction/reconciliation section reuses canonical service.
-- [ ] M4.8 Seller Authority section reuses canonical service.
-- [ ] M4.9 Trust/Governance section reuses canonical services.
-- [ ] M4.10 Fraud/Risk section reuses canonical services.
-- [ ] M4.11 Publication readiness requirement matrix.
-- [ ] M4.12 Audit section.
-- [ ] M4.13 Communications links/context safe.
-- [ ] M4.14 Server-derived allowed_actions.
-- [ ] M4.15 No direct arbitrary Trust mutation.
-- [ ] M4.16 No fake ZIMRA/CVR action.
-- [ ] M4.17 No routine Admin auto-publish action.
-- [ ] M4.18 Restricted artifact paths/URLs cannot leak.
-- [ ] M4.19 Proven-session requirement enforced.
-- [ ] M4.20 Wrong-role access denied.
-- [ ] M4.21 Component/web tests green.
-- [ ] M4.22 Desktop responsive test green.
-- [ ] M4.23 Tablet responsive test green.
-- [ ] M4.24 Mobile responsive test green.
+**Implemented 2026-09-03.** Backend: `GET /api/admin/vehicles/:vin/review` (routes/vehicleOperationsRoutes.js) + read model services/operations/vehicleOperationsReadModel.js. Web: /admin/vehicles/:vin/review (VehicleOperationsReview.tsx), registered as `admin.vehicle-operations`, linked per-item from the Evidence Review queue.
+
+- [x] M4.1 Route registered — backend route + App.tsx + feature registry entry.
+- [x] M4.2 Read model without new truth — aggregate composes vehicles/users/vehicle_evidence/vehicle_seller_authority/extractions/trust_fact_requests/review_tasks/disputes/fraud_cases/trust_audit_events + live evaluateCompleteness; zero writes; contract test pins no combined mutation endpoint exists.
+- [x] M4.3 Vehicle identity section — make/model/year, VIN/chassis/engine, import source, price, publication + publishable state.
+- [x] M4.4 Seller/account section — name, seller type, email/account verification states; NO email address/phone (leak test).
+- [x] M4.5 Registration section with provenance — recorded stage, stage_provenance (seller_statement vs not_recorded vs source), plate/TIP recorded flags, lifecycle blocking + reason codes.
+- [x] M4.6 Evidence grouped by canonical class; each row shows semantic label, verification/visibility, uploader role, checksum presence, AI advisory, classification history; a legacy/canonical contradiction is SURFACED with "canonical meaning governs".
+- [x] M4.7 Reconciliation section — reuses completeness reconciliation read model; no duplicate extraction mutation.
+- [x] M4.8 Seller Authority section — canonical M2 service state + governed decision form posting to /seller-authority/review.
+- [x] M4.9 Trust/Governance section — canonical trust fields + pending fact requests + open governance tasks/disputes; action LINKS to /admin/trust-review; page never edits a score (component test pins no trust/publish/zimra button).
+- [x] M4.10 Fraud/Risk section — case list + links to /admin/fraud-queue; mutation stays in the fraud domain.
+- [x] M4.11 Requirement matrix — requirement/source(category)/state/blocking/who-must-act from the live evaluator.
+- [x] M4.12 Audit section — decision facts only (event, actor role, reason, timestamp).
+- [x] M4.13 Communications — no conversation dump; no token-bearing content anywhere in the DTO (leak test); deep Communications context deliberately left to the Command Center (link-out only).
+- [x] M4.14 allowed_actions server-derived from the M5 capability policy; UI renders only granted actions (component test incl. zero-grant case).
+- [x] M4.15 No arbitrary Trust mutation — no such route/action; pinned by tests.
+- [x] M4.16 No fake ZIMRA/CVR action — pinned by tests.
+- [x] M4.17 No admin auto-publish — pinned by tests.
+- [x] M4.18 No restricted artifact leak — read model never selects/emits file_url/file_path/storage_bucket; behavioral leak test serializes the DTO and asserts absence.
+- [x] M4.19 Proven session enforced — authorizeRole(..., {allowUserIdFallback:false}) + capability middleware refuses fallback identities (tested).
+- [x] M4.20 Wrong-role denied — capability middleware 403 for non-operations roles (tested); route also role-gated.
+- [x] M4.21 Component/web tests green — VehicleOperationsReview.test.tsx 4/4; backend operations-vehicle-review 8/8.
+- [ ] M4.22 Desktop responsive test — with the M7 Playwright pass.
+- [ ] M4.23 Tablet responsive test — with the M7 Playwright pass.
+- [ ] M4.24 Mobile responsive test — with the M7 Playwright pass.
 
 ---
 
 # M5 — First bounded Operations capability layer
 
-- [ ] M5.1 Central Operations authorization policy/service created or current equivalent proven.
-- [ ] M5.2 Vehicle evidence review capability defined.
-- [ ] M5.3 Seller authority review capability defined.
-- [ ] M5.4 Vehicle private-read capability defined.
-- [ ] M5.5 Platform Admin compatibility defined.
-- [ ] M5.6 Super Admin compatibility defined.
-- [ ] M5.7 Government capability scope defined.
-- [ ] M5.8 Tenant role cannot escalate to platform operator.
-- [ ] M5.9 New routes use capability policy.
-- [ ] M5.10 Public registration cannot mint privileged operator.
-- [ ] M5.11 Safe staging operator provisioning documented.
-- [ ] M5.12 Authz adversarial tests green.
+**Implemented 2026-09-03.** backend/services/operations/operationsAuthorizationService.js — the single seam where a persistent capability model would later plug in (M8 decides).
+
+- [x] M5.1 Central policy service created — capability vocabulary + role compatibility mapping + middleware factory; capabilities derive ONLY from the server-derived platform/base role (generalizes the marketplaceModeration anti-escalation pattern).
+- [x] M5.2 `operations.vehicle_evidence.review` defined (verify/reject actions derive from it).
+- [x] M5.3 `operations.seller_authority.review` defined; enforced on POST /seller-authority/review.
+- [x] M5.4 `operations.vehicle.read_private` defined; enforced on the M4 aggregate.
+- [x] M5.5 platform_admin compatibility — full capability set on the backend; frontend `normalizeFrontendRole` routes it as admin instead of bouncing platform authority to the owner dashboard (documented presentation-only; server stays authoritative).
+- [x] M5.6 super_admin compatibility — same deliberate mapping.
+- [x] M5.7 government scope — exactly the reviewer capabilities its existing routes already exercised; nothing broader.
+- [x] M5.8 Tenant/effective-role escalation impossible — capability derivation ignores effectiveRole/tenantRole entirely (adversarial test: smuggled effectiveRole=admin with baseRole=dealer gets zero capabilities).
+- [x] M5.9 New/modified routes use the policy — M4 aggregate, M1 classification correction, M2 seller-authority review (all also refuse x-user-id fallback at the role gate). Historic routes deliberately not rewritten (manual §21).
+- [x] M5.10 Public registration cannot mint operators — registration path untouched; capabilities require platform/base role admin/platform_admin/super_admin/government, which /auth/register does not grant; existing provisioning tests remain green.
+- [x] M5.11 Safe staging operator provisioning — documented for M7: reuse the EXISTING governed staging QA provisioning path (backend provision-staging-qa-accounts flow / Gate-D pattern from docs memory) to mint an admin reviewer session on the candidate pair; never the public registration UI; recorded in the M7 runbook section of this tracker when executed.
+- [x] M5.12 Adversarial authz tests green — operations-vehicle-review.test.js (escalation, fallback refusal, wrong role, unauthenticated, allowed-action bounds).
 
 ---
 
 # M6 — Operations navigation / information architecture
 
-- [ ] M6.1 Operations groups defined in navigation.
-- [ ] M6.2 People group.
-- [ ] M6.3 Vehicles & Trust group.
-- [ ] M6.4 Marketplace group.
-- [ ] M6.5 Communications group.
-- [ ] M6.6 Growth/Diaspora group.
-- [ ] M6.7 Platform group.
-- [ ] M6.8 Fraud Queue discoverability corrected where appropriate.
-- [ ] M6.9 Dealer Compliance discoverability corrected where appropriate.
-- [ ] M6.10 Governance Review discoverability corrected where appropriate.
-- [ ] M6.11 government governance route/layout mismatch resolved or explicitly deferred.
-- [ ] M6.12 reviewer/UserRole mismatch resolved or explicitly bounded.
-- [ ] M6.13 platform_admin/super_admin frontend route compatibility resolved.
-- [ ] M6.14 No fabricated Operations metrics introduced.
-- [ ] M6.15 Navigation tests green.
-- [ ] M6.16 Mobile navigation tests green.
+**Implemented 2026-09-03.** Additive `sidebarGroup` field on the feature registry + grouped rendering in DashboardLayout (presentation only, order-preserving, ungrouped items untouched — no replatforming).
+
+- [x] M6.1 Groups defined via registry `sidebarGroup` and rendered as labelled sidebar sections (data-testid nav-group-*).
+- [x] M6.2 People — Users, Verification Cases, Dealer Compliance.
+- [x] M6.3 Vehicles & Trust — Evidence Review, Vehicle Operations (link-reached; parameterized route carries no sidebar placement), Trust Review, Governance Review, Fraud Queue.
+- [x] M6.4 Marketplace — Marketplace Moderation.
+- [x] M6.5 Communications — Command Center.
+- [x] M6.6 Growth & Diaspora — the six referral consoles (diaspora consoles keep their own page-level gating).
+- [x] M6.7 Platform — Feature Governance, AI Monitoring.
+- [x] M6.8 Fraud Queue placements [] → dashboard_sidebar (was a real feature with no navigation path).
+- [x] M6.9 Dealer Compliance placements [] → dashboard_sidebar.
+- [x] M6.10 Governance Review placements [] → dashboard_sidebar.
+- [x] M6.11 government governance route moved from the Admin layout block into the Government Dashboard block, matching the registry's ownership (government.governance-review, roles: government).
+- [x] M6.12 reviewer/UserRole mismatch — EXPLICITLY BOUNDED, not resolved: backend governance/fraud keep accepting `reviewer`; the frontend does not model it; the M5 capability layer is the forward path for specialist operators (M8 decides persistence). No frontend surface advertises actions a `reviewer` login could not reach because no frontend `reviewer` login exists.
+- [x] M6.13 platform_admin/super_admin compatibility — `normalizeFrontendRole` in routeAccess/returnTo/DashboardLayout routes both as admin (documented in M5.5/M5.6); backend authorization unchanged and authoritative.
+- [x] M6.14 No fabricated metrics — no new dashboard numbers introduced anywhere in this slice; the workspace shows only real read-model values with explicit not-evaluated/not-recorded states.
+- [x] M6.15 Navigation tests green — web src/lib+layout+config 458/458 (feature-manifest regenerated via scripts/generate-feature-manifest.mjs; navigation CI gates green); backend feature-governance + navigation suites 87/87.
+- [x] M6.16 Mobile navigation — the grouped sidebar is the same component on mobile (drawer); existing mobile nav tests in the 458 remain green; physical mobile check lands with the M7 UAT pass.
 
 ---
 
