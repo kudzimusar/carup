@@ -152,6 +152,6 @@ It does **not** by itself establish Zimbabwe customs clearance, CVR registration
 - [~] Notification bell action/channel hardening — in-app-only safe projection, server read receipt and safe action routes implemented.
 - [~] Communications semantic separation — Account/security activity excluded from reply-capable conversation list; legacy auth threads are reclassified by migration.
 - [ ] Seller route failure/recovery regression remains green.
-- [ ] Targeted tests green.
+- [~] Targeted tests green — continuity and Passport fixtures updated for the canonical registration model; CI rerun on current head required.
 - [ ] Full affected certification green.
 - [~] Exact-head staging UAT ready — PR #205 preview pairing is now governed; frontend build regressions from the new draft/notification types were repaired; rerun required on the new head.

@@ -68,7 +68,9 @@ test('V3: public evidence projection is whitelist-based and strips private/inter
   });
 
   assert.equal(item.evidence_id, 'evidence-1');
-  assert.equal(item.evidence_class, 'ownership_transfer');
+  // A registration document is now first-class registration evidence; this is a taxonomy correction,
+  // not a public-data expansion. The whitelist/privacy assertions below must remain unchanged.
+  assert.equal(item.evidence_class, 'registration');
   assert.equal(item.verification_status, 'verified');
 
   const rendered = JSON.stringify(item);
