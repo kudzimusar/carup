@@ -225,9 +225,24 @@ jobs:
           const password = `CarUp-UAT-${process.env.EXPECTED_HEAD_SHA.slice(0, 12)}-A9!`
           const api = process.env.STAGING_API_URL.replace(/\/$/, '')
 
+          // Follow the same double-submit CSRF contract as the browser. The registration request is
+          // anonymous, so the token is intentionally bound to the canonical 'guest' context.
+          const csrfResponse = await fetch(`${api}/security/csrf-token`, {
+            headers: { 'user-agent': 'carup-pr205-email-uat', 'x-user-id': 'guest' },
+          })
+          const csrfBody = await csrfResponse.json()
+          if (!csrfResponse.ok || !csrfBody?.csrfToken) {
+            throw new Error(`Physical Email UAT could not establish CSRF context (${csrfResponse.status}).`)
+          }
+
           const registerResponse = await fetch(`${api}/auth/register`, {
             method: 'POST',
-            headers: { 'content-type': 'application/json', 'user-agent': 'carup-pr205-email-uat' },
+            headers: {
+              'content-type': 'application/json',
+              'user-agent': 'carup-pr205-email-uat',
+              'x-user-id': 'guest',
+              'x-csrf-token': csrfBody.csrfToken,
+            },
             body: JSON.stringify({
               name: 'CarUp PR205 Email UAT',
               email,
@@ -247,14 +262,17 @@ jobs:
           if (!userId || !sessionToken) throw new Error('Registration did not return the staging user/session needed for UAT.')
 
           const authHeaders = { authorization: `Bearer ${sessionToken}` }
-          const [notificationsResponse, conversationsResponse] = await Promise.all([
+          const [notificationsResponse, conversationsResponse, accountActivityResponse] = await Promise.all([
             fetch(`${api}/notifications/me`, { headers: authHeaders }),
             fetch(`${api}/communications/threads`, { headers: authHeaders }),
+            fetch(`${api}/communications/account-activity`, { headers: authHeaders }),
           ])
           if (!notificationsResponse.ok) throw new Error(`Notification projection read failed: ${notificationsResponse.status}`)
           if (!conversationsResponse.ok) throw new Error(`Communications projection read failed: ${conversationsResponse.status}`)
+          if (!accountActivityResponse.ok) throw new Error(`Account activity projection read failed: ${accountActivityResponse.status}`)
           const notifications = await notificationsResponse.json()
           const conversations = await conversationsResponse.json()
+          const accountActivity = await accountActivityResponse.json()
 
           if ((notifications || []).some((row) => row.channel && row.channel !== 'in_app')) {
             throw new Error('Notification bell projection leaked a transport delivery row.')
@@ -265,6 +283,12 @@ jobs:
           if ((conversations?.threads || []).some((thread) => thread.thread_type === 'account' || thread.conversation_type === 'account')) {
             throw new Error('Account/security activity leaked into the reply-capable Communications inbox.')
           }
+          const verificationActivity = (accountActivity?.activity || []).find((row) => row.activity_type === 'auth_email_verification_v1')
+          if (!verificationActivity) throw new Error('Account & security activity did not expose the verification Email status.')
+          const activityJson = JSON.stringify(accountActivity)
+          if (activityJson.includes('/auth/verify-email') || activityJson.includes('token=')) {
+            throw new Error('Account & security activity leaked an auth action URL/token.')
+          }
 
           const dbUrl = process.env.DIASPORA_STAGING_DATABASE_URL || ''
           const cleaned = dbUrl.replace(/([?&])sslmode=[^&]*&?/i, '$1').replace(/[?&]$/, '')
@@ -273,19 +297,29 @@ jobs:
           let emailRow
           let accountThread
           try {
-            const emailResult = await client.query(
-              `select id, thread_id, status, channel, provider, template_key, payload
-                 from public.notification_queue
-                where recipient_user_id=$1
-                  and channel='email'
-                  and template_key='auth_email_verification_v1'
-                order by created_at desc
-                limit 1`,
-              [userId],
-            )
-            emailRow = emailResult.rows[0] || null
+            for (let attempt = 0; attempt < 30; attempt += 1) {
+              const emailResult = await client.query(
+                `select id, thread_id, status, channel, provider, template_key, payload, last_error_code, last_error_message
+                   from public.notification_queue
+                  where recipient_user_id=$1
+                    and channel='email'
+                    and template_key='auth_email_verification_v1'
+                  order by created_at desc
+                  limit 1`,
+                [userId],
+              )
+              emailRow = emailResult.rows[0] || null
+              if (emailRow?.status === 'failed' || emailRow?.status === 'dead_letter') {
+                throw new Error(`Verification Email provider delivery failed: ${emailRow.last_error_code || emailRow.status}`)
+              }
+              if (emailRow?.status === 'delivered') break
+              await new Promise((resolve) => setTimeout(resolve, 1000))
+            }
             if (!emailRow) throw new Error('Canonical verification Email delivery row was not persisted.')
             if (emailRow.channel !== 'email') throw new Error('Verification delivery row has the wrong channel.')
+            if (emailRow.status !== 'delivered') {
+              throw new Error(`Verification Email did not reach a provider-delivered receipt within the UAT window (status: ${emailRow.status || 'missing'}).`)
+            }
             const actionUrl = String(emailRow.payload?.action_url || '')
             if (!actionUrl.includes('/auth/verify-email') || !actionUrl.includes('token=')) {
               throw new Error('Verification Email row does not contain the expected private action URL.')
@@ -324,6 +358,8 @@ jobs:
             bell_contains_transport_delivery: false,
             bell_contains_auth_token: false,
             communications_contains_account_activity: false,
+            account_activity_visible: true,
+            account_activity_contains_auth_token: false,
           }
           fs.writeFileSync('test-results/seller-verification-email-physical-uat.json', JSON.stringify(receipt, null, 2))
           console.log(JSON.stringify({
@@ -334,6 +370,8 @@ jobs:
             account_thread_type: receipt.account_thread_type,
             bell_contains_auth_token: false,
             communications_contains_account_activity: false,
+            account_activity_visible: true,
+            provider_delivery_receipt: receipt.canonical_email_row.status,
           }))
           NODE
 

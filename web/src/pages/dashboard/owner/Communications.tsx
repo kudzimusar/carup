@@ -20,6 +20,7 @@ import { CommunicationMultimodalComposer } from '@/components/communications/Com
 type ThreadSummary = Awaited<ReturnType<ReturnType<typeof useCarUpApi>['fetchCommunicationThreads']>>['threads'][number]
 type ThreadDetail = Awaited<ReturnType<ReturnType<typeof useCarUpApi>['fetchCommunicationThread']>>
 type NotificationSummary = Awaited<ReturnType<ReturnType<typeof useCarUpApi>['fetchCommunicationNotifications']>>['notifications'][number]
+type AccountActivitySummary = Awaited<ReturnType<ReturnType<typeof useCarUpApi>['fetchCommunicationAccountActivity']>>['activity'][number]
 type CommunicationPreferences = NonNullable<Awaited<ReturnType<ReturnType<typeof useCarUpApi>['fetchCommunicationPreferences']>>['preferences']>
 
 type ConversationThread = ThreadSummary & {
@@ -73,10 +74,13 @@ export default function Communications() {
     fetchCommunicationThread,
     markCommunicationThreadRead,
     fetchCommunicationNotifications,
+    fetchCommunicationAccountActivity,
+    resendVerificationEmail,
     fetchCommunicationPreferences,
     sendCommunicationMessage,
     updateCommunicationPreferences,
     markCommunicationNotificationRead,
+    user,
   } = useCarUpApi()
   const {
     fetchAnalytics,
@@ -91,6 +95,7 @@ export default function Communications() {
   const [activeId, setActiveId] = useState<string | null>(null)
   const [detail, setDetail] = useState<ConversationDetail | null>(null)
   const [notifications, setNotifications] = useState<NotificationSummary[]>([])
+  const [accountActivity, setAccountActivity] = useState<AccountActivitySummary[]>([])
   const [preferences, setPreferences] = useState<CommunicationPreferences | null>(null)
   const [analytics, setAnalytics] = useState<CommunicationProductAnalytics | null>(null)
   const [aiAvailable, setAiAvailable] = useState(false)
@@ -141,17 +146,19 @@ export default function Communications() {
   }, [fetchCommunicationThreads])
 
   const loadSideData = useCallback(async () => {
-    const [notificationRes, prefRes, analyticsRes] = await Promise.all([
+    const [notificationRes, accountActivityRes, prefRes, analyticsRes] = await Promise.all([
       fetchCommunicationNotifications().catch(() => ({ notifications: [] })),
+      fetchCommunicationAccountActivity().catch(() => ({ activity: [] })),
       fetchCommunicationPreferences().catch(() => ({ preferences: null })),
       fetchAnalytics().catch(() => ({ analytics: null })),
     ])
     setNotifications(notificationRes.notifications || [])
+    setAccountActivity(accountActivityRes.activity || [])
     setPreferences(prefRes.preferences || null)
     setAnalytics(analyticsRes.analytics)
     const health = await fetchAiHealth().catch(() => ({ ai: { available: false } }))
     setAiAvailable(Boolean(health.ai?.available))
-  }, [fetchAnalytics, fetchAiHealth, fetchCommunicationNotifications, fetchCommunicationPreferences])
+  }, [fetchAnalytics, fetchAiHealth, fetchCommunicationAccountActivity, fetchCommunicationNotifications, fetchCommunicationPreferences])
 
   const refreshActiveConversation = useCallback(async () => {
     if (!activeId) return
@@ -165,21 +172,23 @@ export default function Communications() {
     Promise.all([
       fetchCommunicationThreads().catch(() => ({ threads: [] })),
       fetchCommunicationNotifications().catch(() => ({ notifications: [] })),
+      fetchCommunicationAccountActivity().catch(() => ({ activity: [] })),
       fetchCommunicationPreferences().catch(() => ({ preferences: null })),
       fetchAnalytics().catch(() => ({ analytics: null })),
       fetchAiHealth().catch(() => ({ ai: { available: false } })),
-    ]).then(([threadRes, notificationRes, prefRes, analyticsRes, health]) => {
+    ]).then(([threadRes, notificationRes, accountActivityRes, prefRes, analyticsRes, health]) => {
       if (!active) return
       const next = (threadRes.threads || []) as ConversationThread[]
       setThreads(next)
       setActiveId((current) => current || next[0]?.id || null)
       setNotifications(notificationRes.notifications || [])
+      setAccountActivity(accountActivityRes.activity || [])
       setPreferences(prefRes.preferences || null)
       setAnalytics(analyticsRes.analytics)
       setAiAvailable(Boolean(health.ai?.available))
     })
     return () => { active = false }
-  }, [fetchAiHealth, fetchAnalytics, fetchCommunicationNotifications, fetchCommunicationPreferences, fetchCommunicationThreads])
+  }, [fetchAiHealth, fetchAnalytics, fetchCommunicationAccountActivity, fetchCommunicationNotifications, fetchCommunicationPreferences, fetchCommunicationThreads])
 
   useEffect(() => {
     if (!activeId) return
@@ -251,6 +260,23 @@ export default function Communications() {
       setStatus(err instanceof Error ? err.message : 'AI assist could not complete')
     } finally {
       setAiBusy(null)
+    }
+  }
+
+  async function requestAnotherVerificationEmail() {
+    const email = String(user?.email || '').trim()
+    if (!email) {
+      setStatus('Your signed-in account does not expose an Email address.')
+      return
+    }
+    setStatus('Requesting another verification Email…')
+    try {
+      await resendVerificationEmail(email)
+      setStatus('Verification Email requested. Check Inbox and Spam/Junk; the Account & security card will show delivery status.')
+      const refreshed = await fetchCommunicationAccountActivity().catch(() => ({ activity: [] }))
+      setAccountActivity(refreshed.activity || [])
+    } catch (err) {
+      setStatus(err instanceof Error ? err.message : 'Could not request another verification Email')
     }
   }
 
@@ -439,6 +465,40 @@ export default function Communications() {
                   <p className="text-[10px] text-gray-400">Operational analytics are derived from canonical conversation, attribution and delivery events.</p>
                 </>
               )}
+            </CardContent>
+          </Card>
+
+          <Card className="border-0 card-shadow" data-testid="account-security-activity">
+            <CardHeader className="pb-3">
+              <CardTitle className="flex items-center gap-2 text-base"><Bell className="h-5 w-5 text-orange-500" /> Account & security</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              {accountActivity.length === 0 ? (
+                <p className="text-sm text-gray-500">No account Email activity recorded yet.</p>
+              ) : accountActivity.slice(0, 5).map((activity) => (
+                <div key={activity.id} className="rounded-lg border p-3" data-testid={`account-activity-${activity.id}`}>
+                  <div className="flex items-start justify-between gap-2">
+                    <p className="text-sm font-medium">{activity.title}</p>
+                    <Badge variant="outline" className="capitalize">{activity.status.replaceAll('_', ' ')}</Badge>
+                  </div>
+                  <p className="mt-1 text-xs text-gray-500">{activity.summary}</p>
+                  <p className="mt-2 text-[11px] text-gray-400">
+                    Email · {activity.delivered_at || activity.sent_at || activity.created_at || 'time unavailable'}
+                  </p>
+                </div>
+              ))}
+              <Button
+                type="button"
+                variant="outline"
+                className="w-full"
+                onClick={() => void requestAnotherVerificationEmail()}
+                data-testid="resend-verification-email"
+              >
+                Send another verification Email
+              </Button>
+              <p className="text-[11px] text-gray-500">
+                Security Emails are visible here as delivery activity only. Verification/reset links and tokens never appear in reply-capable conversations.
+              </p>
             </CardContent>
           </Card>
 

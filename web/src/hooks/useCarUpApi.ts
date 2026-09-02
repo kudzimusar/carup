@@ -293,6 +293,18 @@ type CommunicationNotificationSummary = {
   updated_at?: string | null
 }
 
+type CommunicationAccountActivitySummary = {
+  id: string
+  activity_type: string
+  title: string
+  channel: 'email'
+  status: string
+  summary: string
+  created_at?: string | null
+  sent_at?: string | null
+  delivered_at?: string | null
+}
+
 type CommunicationPreferences = Record<string, boolean | string | number | null | undefined>
 type CommunicationMutationResponse = {
   success?: boolean
@@ -2236,6 +2248,17 @@ export function useCarUpApi() {
     return request('/communications/notifications', { method: 'GET' })
   }, [request])
 
+  const fetchCommunicationAccountActivity = useCallback(async (): Promise<{ activity: CommunicationAccountActivitySummary[] }> => {
+    return request('/communications/account-activity', { method: 'GET' })
+  }, [request])
+
+  const resendVerificationEmail = useCallback(async (email: string): Promise<{ success?: boolean; message?: string }> => {
+    return request('/auth/resend-verification', {
+      method: 'POST',
+      body: JSON.stringify({ email }),
+    })
+  }, [request])
+
   const markCommunicationNotificationRead = useCallback(async (id: string): Promise<CommunicationMutationResponse> => {
     return request(`/communications/notifications/${encodeURIComponent(id)}/read`, { method: 'POST', body: JSON.stringify({}) })
   }, [request])
@@ -2711,6 +2734,8 @@ export function useCarUpApi() {
     sendCommunicationMessage,
     sendCommunicationFeedback,
     fetchCommunicationNotifications,
+    fetchCommunicationAccountActivity,
+    resendVerificationEmail,
     markCommunicationNotificationRead,
     fetchCommunicationPreferences,
     updateCommunicationPreferences,

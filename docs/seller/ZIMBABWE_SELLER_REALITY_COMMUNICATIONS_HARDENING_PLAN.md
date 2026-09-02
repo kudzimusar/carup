@@ -155,3 +155,12 @@ It does **not** by itself establish Zimbabwe customs clearance, CVR registration
 - [~] Targeted tests green — continuity and Passport fixtures updated for the canonical registration model; CI rerun on current head required.
 - [ ] Full affected certification green.
 - [~] Exact-head staging UAT ready — PR #205 preview pairing is now governed; frontend build regressions from the new draft/notification types were repaired; rerun required on the new head.
+
+
+### 2026-09-02 - Account Email visibility correction
+
+- Provider truth and UI truth are now separated rather than one hiding the other.
+- Reply-capable Communications still excludes `thread_type=account` so verification/reset tokens cannot become chat content.
+- A new read-only **Account & security** rail shows only safe delivery metadata (type/status/timestamps); raw Email bodies, action URLs and tokens are never projected.
+- The owner can request another verification Email from that rail.
+- Exact-head physical UAT now obtains a legitimate guest CSRF token before registration, requires a provider **delivered** receipt, proves Account & security visibility, and separately proves the token is absent from both the bell and Communications.
