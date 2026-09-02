@@ -1,6 +1,6 @@
 # CarUp Operations Control Plane — Implementation Progress & Roll-Call
 
-**Status:** CLOSED — CERTIFIED MERGE CANDIDATE (UNMERGED). M0–M7 executed and hardened. The real Serena was reviewed under governed authority and PUBLISHED BY KINGSTONE, and the frozen candidate `a9339b94` re-earned certification 12/12 on desktop/tablet/mobile. Closure receipt: docs/features/CARUP_OPERATIONS_SERENA_CLOSURE_RECEIPT.md. PR #206 retargeted to its true parent lane (55 files, not 760). One named open item: a stale Trust limitation sentence with its forward fix already in place.
+**Status:** CLOSED — CERTIFIED MERGE CANDIDATE (UNMERGED). M0–M7 executed and hardened. The real Serena was reviewed under governed authority and PUBLISHED BY KINGSTONE, and the frozen candidate `a9339b94` re-earned certification 12/12 on desktop/tablet/mobile. Closure receipt: docs/features/CARUP_OPERATIONS_SERENA_CLOSURE_RECEIPT.md. PR #206 retargeted to its true parent lane (its real slice diff, not 760 files of inherited ancestry). One named open item: a stale Trust limitation sentence with its forward fix already in place.
 **Canonical manual:** docs/features/CARUP_OPERATIONS_CONTROL_PLANE_AND_SERENA_VEHICLE_OPS_MANUAL.md
 **Benchmark appendix:** docs/features/CARUP_OPERATIONS_CONTROL_PLANE_BENCHMARK_RESEARCH.md
 **Claude start prompt:** docs/agent-prompts/CARUP_OPERATIONS_CONTROL_PLANE_SERENA_CLAUDE_START_PROMPT.md
@@ -205,9 +205,9 @@ New/changed surfaces: `GET /api/vehicles/:vin/seller-authority` (reviewer may qu
 - [x] M4.19 Proven session enforced — authorizeRole(..., {allowUserIdFallback:false}) + capability middleware refuses fallback identities (tested).
 - [x] M4.20 Wrong-role denied — capability middleware 403 for non-operations roles (tested); route also role-gated.
 - [x] M4.21 Component/web tests green — VehicleOperationsReview.test.tsx 4/4; backend operations-vehicle-review 8/8.
-- [ ] M4.22 Desktop responsive test — with the M7 Playwright pass.
-- [ ] M4.23 Tablet responsive test — with the M7 Playwright pass.
-- [ ] M4.24 Mobile responsive test — with the M7 Playwright pass.
+- [x] M4.22 Desktop responsive test — PROVEN by the M7 journey: the Vehicle Operations workspace renders and is driven end-to-end on Desktop Chrome (run 33677541343, chromium 4/4), with the axe serious/critical gate scoped to the workspace.
+- [x] M4.23 Tablet responsive test — PROVEN: tablet-chromium 820x1180 with touch, 4/4 in the same run.
+- [x] M4.24 Mobile responsive test — PROVEN: mobile-chromium (Pixel 5), 4/4 in the same run.
 
 ---
 
