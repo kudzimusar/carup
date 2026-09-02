@@ -302,6 +302,52 @@ test.describe('Operations M7 — Serena governed review and Seller publish', () 
     expect(after.publication_readiness.is_publishable, `Serena must now be legitimately publishable: ${JSON.stringify(after.publication_readiness.requirements)}`).toBe(true);
   });
 
+  test('a real authenticated OWNER session cannot reach Operations or self-approve', async ({ page, request }) => {
+    // Unit tests prove the capability policy in isolation; this proves it on the
+    // deployed pair with a REAL owner session — the seller of this very vehicle,
+    // which is the strongest form of the no-self-certification rule (G5).
+    const credentials = kingstoneCredentials();
+    test.skip(!credentials, 'Kingstone staging credentials are not provisioned for this run');
+
+    await signInWithCredentials(page, credentials!.email, credentials!.password);
+    const seller = await authFromPage(page);
+    expect(seller.user.id).toBe(KINGSTONE_USER_ID);
+    expect(seller.user.role).toBe('owner');
+    const sellerHeaders = await mutationHeaders(request, seller);
+
+    // 1. The private Operations workspace is closed to the owner.
+    const aggregate = await request.get(`${API_URL}/admin/vehicles/${SERENA_VIN}/review`, { headers: baseHeaders(seller) });
+    expect([401, 403], `an owner reached the Operations aggregate: ${aggregate.status()}`).toContain(aggregate.status());
+
+    // 2. The seller cannot confirm their OWN authority.
+    const selfApprove = await request.post(`${API_URL}/vehicles/${SERENA_VIN}/seller-authority/review`, {
+      headers: sellerHeaders,
+      data: { seller_user_id: KINGSTONE_USER_ID, decision: 'confirmed', reason: 'self approval attempt' },
+    });
+    expect([401, 403], `a seller self-approved their authority: ${selfApprove.status()}`).toContain(selfApprove.status());
+
+    // 3. The seller cannot re-classify their own evidence.
+    const review = await fetchOperationsReview(request, await reviewerLogin(request));
+    const anyEvidenceId = Object.values(review.evidence.groups as Record<string, any[]>).flat()[0]?.id;
+    if (anyEvidenceId) {
+      const reclassify = await request.patch(`${API_URL}/vehicles/${SERENA_VIN}/evidence/${anyEvidenceId}/classification`, {
+        headers: sellerHeaders,
+        data: { evidence_class: 'registration', evidence_subtype: 'registration_book', reason: 'owner attempt' },
+      });
+      expect([401, 403], `an owner corrected evidence classification: ${reclassify.status()}`).toContain(reclassify.status());
+    }
+
+    // 4. And the owner still sees their OWN authority state (own-scope read is allowed).
+    const ownState = await request.get(`${API_URL}/vehicles/${SERENA_VIN}/seller-authority`, { headers: baseHeaders(seller) });
+    expect(ownState.status()).toBe(200);
+    const ownBody = await ownState.json() as { status?: string; decided_by?: string; reason?: string };
+    expect(ownBody.status).toBe('confirmed');
+    expect(ownBody.decided_by, 'reviewer identity must not be exposed to the seller').toBeUndefined();
+    expect(ownBody.reason, 'reviewer reason must not be exposed to the seller').toBeUndefined();
+
+    await page.evaluate(() => localStorage.clear());
+  });
+
   test('Kingstone publishes; buyers see a truthful projection; restricted documents stay withheld; unpublish/republish works', async ({ page, request }, testInfo) => {
     test.setTimeout(480_000);
     const credentials = kingstoneCredentials();
