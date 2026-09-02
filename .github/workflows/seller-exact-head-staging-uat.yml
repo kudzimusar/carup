@@ -141,6 +141,8 @@ jobs:
             'database/migrations/20260830123000_seller_listing_photo_labels.sql',
             'database/migrations/20260831100000_seller_listing_submission_id.sql',
             'database/migrations/20260831150000_seller_vehicle_history_disclosures.sql',
+            'database/migrations/20260902110000_zimbabwe_registration_lifecycle_and_evidence.sql',
+            'database/migrations/20260902123000_auth_activity_not_conversation.sql',
           ]
           const cleaned = dbUrl.replace(/([?&])sslmode=[^&]*&?/i, '$1').replace(/[?&]$/, '')
           const client = new pg.Client({ connectionString: cleaned, ssl: { rejectUnauthorized: false } })
@@ -178,6 +180,26 @@ jobs:
                  and indexname='vehicles_seller_listing_submission_id_unique'
             `)
             if (indexProof.rows.length !== 1) throw new Error('Seller submission id unique index did not land')
+
+            const registrationConstraint = await client.query(`
+              select conname, convalidated
+                from pg_constraint
+               where conrelid='public.vehicles'::regclass
+                 and conname='vehicles_registration_status_canonical_when_sourced'
+            `)
+            if (registrationConstraint.rows.length !== 1) {
+              throw new Error('Zimbabwe registration lifecycle constraint did not land')
+            }
+
+            const registrationTaxonomy = await client.query(`
+              select count(*)::int as count
+                from public.evidence_class_taxonomy
+               where evidence_class='registration'
+            `)
+            if (Number(registrationTaxonomy.rows[0]?.count || 0) < 6) {
+              throw new Error('Zimbabwe registration evidence taxonomy did not land')
+            }
+
             await client.query('COMMIT')
           } catch (error) {
             await client.query('ROLLBACK')

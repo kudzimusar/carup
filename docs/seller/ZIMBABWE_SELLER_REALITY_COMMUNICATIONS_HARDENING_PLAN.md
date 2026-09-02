@@ -154,4 +154,4 @@ It does **not** by itself establish Zimbabwe customs clearance, CVR registration
 - [ ] Seller route failure/recovery regression remains green.
 - [ ] Targeted tests green.
 - [ ] Full affected certification green.
-- [ ] Exact-head staging UAT ready.
+- [~] Exact-head staging UAT ready — PR #205 preview pairing is now governed; frontend build regressions from the new draft/notification types were repaired; rerun required on the new head.

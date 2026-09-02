@@ -11,7 +11,7 @@ BEGIN
         'unknown','import_in_transit','arrived_customs_pending','customs_cleared_cvr_pending',
         'cvr_plate_pending','locally_registered','temporary_foreign_tip','reregistration_pending'
       )
-    );
+    ) NOT VALID;
   END IF;
 END
 $zr_registration$;
@@ -70,17 +70,13 @@ $zr_evidence$;
 DO $zr_post$
 BEGIN
   IF to_regclass('public.vehicles') IS NOT NULL
-     AND EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema='public' AND table_name='vehicles' AND column_name='registration_status_source')
-     AND EXISTS (
-       SELECT 1 FROM public.vehicles
-        WHERE registration_status_source IS NOT NULL
-          AND registration_status IS NOT NULL
-          AND registration_status NOT IN (
-            'unknown','import_in_transit','arrived_customs_pending','customs_cleared_cvr_pending',
-            'cvr_plate_pending','locally_registered','temporary_foreign_tip','reregistration_pending'
-          )
+     AND NOT EXISTS (
+       SELECT 1
+         FROM pg_constraint
+        WHERE conrelid='public.vehicles'::regclass
+          AND conname='vehicles_registration_status_canonical_when_sourced'
      ) THEN
-    RAISE EXCEPTION '[ZR] sourced registration_status contains a non-canonical value';
+    RAISE EXCEPTION '[ZR] canonical sourced-registration constraint is missing';
   END IF;
 END
 $zr_post$;

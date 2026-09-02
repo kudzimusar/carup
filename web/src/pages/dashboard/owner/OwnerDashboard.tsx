@@ -25,7 +25,7 @@ import {
 import { OwnerListingMedia } from '@/components/listing/OwnerListingMedia'
 import { useCarUpApi } from '@/hooks/useCarUpApi'
 import { useAuth } from '@/context/AuthContext'
-import type { Vehicle, Notification, Escrow } from '@/types'
+import type { Vehicle, Escrow } from '@/types'
 import { readOwnerTrustClaim, statedMileage } from './ownerStatedValues'
 
 // ── The canonical trust claim on the owner's list surfaces (Issue #164, Phases 3 & 4) ───────
@@ -47,12 +47,23 @@ import { readOwnerTrustClaim, statedMileage } from './ownerStatedValues'
  * drifted apart in the first place. All four pages are statically imported by App.tsx into one
  * bundle, so the shared import adds no chunk.
  */
+type OwnerActivityNotification = {
+  id: string
+  read?: boolean
+  title?: string
+  message?: string
+  notification_type?: string
+  priority?: string | null
+  action_path?: string | null
+  created_at?: string | null
+}
+
 export default function OwnerDashboard() {
   const { fetchSafePayEscrows, fetchOwnedVehicles, fetchNotifications } = useCarUpApi()
   const { user } = useAuth()
 
   const [vehicles, setVehicles] = useState<Vehicle[]>([])
-  const [liveNotifications, setLiveNotifications] = useState<Notification[]>([])
+  const [liveNotifications, setLiveNotifications] = useState<OwnerActivityNotification[]>([])
 
   // Loading and failure are distinct from "you own nothing". Both reads previously left `vehicles` at
   // its initial [], and a rejection had no handler at all — so a real owner whose read failed would be
@@ -449,7 +460,7 @@ export default function OwnerDashboard() {
               ) : recentNotifications.map((n) => (
                 <div key={n.id} className={`p-3 rounded-lg ${n.read ? 'bg-gray-50' : 'bg-orange-50 border border-orange-100 text-xs'}`}>
                   <div className="flex items-start gap-2">
-                    <div className={`w-1.5 h-1.5 rounded-full mt-1.5 shrink-0 ${n.type === 'warning' ? 'bg-amber-500' : n.type === 'success' ? 'bg-green-500' : 'bg-blue-500'}`} />
+                    <div className={`w-1.5 h-1.5 rounded-full mt-1.5 shrink-0 ${n.priority === 'high' ? 'bg-amber-500' : 'bg-blue-500'}`} />
                     <div>
                       <p className="font-semibold text-gray-800">{n.title}</p>
                       <p className="text-gray-500 mt-0.5">{n.message}</p>

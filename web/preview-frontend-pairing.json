@@ -9,6 +9,7 @@
   "branches": {
     "integration/vehicle-passport-v16-cert": "https://carup-staging-git-integration-vehicle-passport-v16-cert-11-11.vercel.app",
     "fix/seller-uat-account-handoff-194": "https://carup-staging-git-fix-seller-uat-account-handoff-194-11-11.vercel.app",
-    "fix/seller-uat-convergence-remediation": "https://carup-staging-git-fix-seller-uat-convergence-remediation-11-11.vercel.app"
+    "fix/seller-uat-convergence-remediation": "https://carup-staging-git-fix-seller-uat-convergence-remediation-11-11.vercel.app",
+    "fix/zimbabwe-seller-reality-comms-hardening": "https://carup-staging-git-fix-zimbabwe-seller-reality-comm-25bf18-11-11.vercel.app"
   }
 }

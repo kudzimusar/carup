@@ -19,6 +19,7 @@ import { useCarUpApi } from '@/hooks/useCarUpApi'
 import { VehicleHistoryCoveragePanel, type HistoryEvidencePlanState } from '@/components/sell/VehicleHistoryCoveragePanel'
 import { VehicleHistoryDisclosuresSection } from '@/components/sell/VehicleHistoryDisclosuresSection'
 import type { AccidentDisclosure, FinanceDisclosure, InsuranceDisclosure } from '@/lib/vehicleHistoryDisclosures'
+import { ZIMBABWE_REGISTRATION_OPTIONS, normalizeSellerRegistrationStatus } from '@/lib/zimbabweRegistration'
 import { SellerDocumentAutofillNotice } from '@/components/sell/SellerDocumentAutofillNotice'
 import { SellIntentRouter, type SellerEntryIntent } from '@/components/sell/SellIntentRouter'
 import type { EvidenceSourcesResponse, EvidenceTaxonomyResponse } from '@/types'
@@ -65,7 +66,7 @@ const INITIAL = {
   make: '', model: '', year: '', vin: '', color: '',
   mileage: '', condition: '', category: '', fuelType: '', transmission: '', drivetrain: '',
   location: '', province: '', price: '', currency: '', description: '',
-  engineNumber: '', chassisNumber: '', plateNumber: '', tempPlateId: '', importStatus: '',
+  engineNumber: '', chassisNumber: '', plateNumber: '', tempPlateId: '', registrationStatus: '', importStatus: '',
   features: [] as string[], images: [] as string[], imageLabels: [] as string[],
   coverImageIndex: null as number | null,
   historyPlan: {} as Record<string, HistoryEvidencePlanState>,
@@ -119,7 +120,8 @@ export default function GuestSell() {
     chassisNumber: initialDraft.chassisNumber,
     plateNumber: initialDraft.plateNumber,
     tempPlateId: initialDraft.tempPlateId,
-    importStatus: initialDraft.importStatus,
+    registrationStatus: initialDraft.registrationStatus || normalizeSellerRegistrationStatus(initialDraft.importStatus) || '',
+    importStatus: initialDraft.importStatus || '',
     features: initialDraft.features,
     images: initialDraft.images,
     imageLabels: initialDraft.imageLabels,
@@ -580,8 +582,29 @@ export default function GuestSell() {
                     <div className="mt-5 grid gap-4 sm:grid-cols-2">
                       <Field label="Chassis number · optional for now"><Input value={form.chassisNumber} onChange={e => set('chassisNumber', e.target.value.toUpperCase())} /></Field>
                       <Field label="Engine number · optional for now"><Input value={form.engineNumber} onChange={e => set('engineNumber', e.target.value.toUpperCase())} /></Field>
-                      <Field label="Number plate"><Input value={form.plateNumber} onChange={e => set('plateNumber', e.target.value.toUpperCase())} /></Field>
-                      <Field label="Temporary import permit"><Input value={form.tempPlateId} onChange={e => set('tempPlateId', e.target.value.toUpperCase())} /></Field>
+                      <div className="sm:col-span-2">
+                        <Field label="Zimbabwe registration stage">
+                          <Select value={form.registrationStatus} onValueChange={v => set('registrationStatus', v)}>
+                            <SelectTrigger data-testid="guest-registration-status-select"><SelectValue placeholder="Choose the vehicle's current stage" /></SelectTrigger>
+                            <SelectContent>
+                              {ZIMBABWE_REGISTRATION_OPTIONS.map(option => (
+                                <SelectItem key={option.value} value={option.value}>{option.label}</SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        </Field>
+                        <p className="mt-1 text-[11px] leading-5 text-slate-500">
+                          A permanent import can continue while customs/CVR/plate work is pending. The stage is disclosed separately from Trust.
+                        </p>
+                      </div>
+                      <Field label={form.registrationStatus === 'locally_registered' ? 'Zimbabwe number plate · required for this stage' : 'Zimbabwe number plate · if issued'}>
+                        <Input value={form.plateNumber} onChange={e => set('plateNumber', e.target.value.toUpperCase())} />
+                      </Field>
+                      {form.registrationStatus === 'temporary_foreign_tip' && (
+                        <Field label="Temporary import permit number">
+                          <Input value={form.tempPlateId} onChange={e => set('tempPlateId', e.target.value.toUpperCase())} />
+                        </Field>
+                      )}
                     </div>
                   </div>
                 </div>

@@ -163,6 +163,7 @@ This table is the mandatory roll call against the earlier `SELLER_MARKETPLACE_CO
   - TIP is not treated as a generic substitute for missing Zimbabwe registration and must not make a permanent-import listing look locally registered.
   - Legitimate pending permanent-import states may be publicly listed when the ordinary publication gate is otherwise satisfied; the pending state remains visible and exact.
   - Acceptance: database constraint/model, API, Seller UI, readiness projection, Marketplace/Vehicle Detail and tests converge on the same vocabulary.
+  - **2026-09-02 hardening:** Guest Sell now uses the same registration-stage vocabulary; the staging migration enforces canonical values on future sourced writes with a NOT VALID constraint so legacy rows are preserved rather than rewritten.
 
 - [~] **ZR3. Separate vehicle identity/Trust from registration readiness.**
   - Vehicle identity may be well-supported by chassis/frame, engine and cross-document evidence while Zimbabwe registration is pending.
