@@ -1094,6 +1094,14 @@ export function filterVisibleVehicles(vehicles, { showFixtures, fixtureScope } =
  * unconditionally would take down every marketplace read on any database where
  * `20260818110000_issue164_listing_location_provenance.sql` has not yet been applied.
  *
+ * `registration_status` / `registration_authority` ARE named here (Operations Control Plane
+ * closure). `toRegistrationClaim` has always read them, but the select never fetched them, so the
+ * claims block reported `registration.status: not_recorded` for a stage the row genuinely held —
+ * a buyer was never told local registration was still pending, which is precisely the disclosure
+ * the Zimbabwe registration lifecycle exists to make. Both are BASE columns of the original
+ * `vehicles` schema, not provenance columns added by a later migration, so naming them cannot
+ * break a pre-migration read and does not weaken the narrow/wide split (INV-1).
+ *
  * `selectListingRows` below asks for them anyway and falls back to this set when the database says
  * they are missing — the same degrade the write path already performs in `/api/vehicles/add`. So a
  * migrated database publishes provenance-backed location/currency/seller-type/registration claims,
@@ -1120,6 +1128,8 @@ export const LISTING_SELECT_COLUMNS = `
       created_at,
       plate_status,
       registration_country,
+      registration_status,
+      registration_authority,
       plate_verified_at,
       current_seller_type,
       public_seller_display_enabled,

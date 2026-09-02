@@ -303,3 +303,49 @@ test('the advisory inspection requirement recognizes the canonical roadworthines
   // type; the canonical matcher still finds it.
   assert.equal(req(result, 'inspection_photo').status, 'verified');
 });
+
+// ---------------------------------------------------------------------------
+// Public registration disclosure (closure hardening)
+// ---------------------------------------------------------------------------
+
+test('a seller-stated pending registration stage is DISCLOSED to buyers with its provenance', async () => {
+  // The Serena's whole point: a permanent import may be listed while local
+  // registration is pending, PROVIDED the pending stage is truthfully disclosed.
+  // `toRegistrationClaim` always read registration_status, but the marketplace
+  // select did not fetch it, so buyers were shown `not_recorded` for a stage the
+  // row genuinely held. Both halves are pinned here: the column is selected, and
+  // the claim block publishes the value with its seller provenance.
+  const listing = await import('../services/marketplace/listingSummaryService.js');
+  const projection = await import('../utils/publicVehicleProjection.js');
+
+  const narrow = listing.LISTING_SELECT_COLUMNS.split(/[\s,]+/).map((t) => t.trim()).filter(Boolean);
+  assert.ok(narrow.includes('registration_status'), 'the listing select must fetch registration_status');
+  assert.ok(narrow.includes('registration_authority'), 'the listing select must fetch registration_authority');
+
+  const claim = projection.toRegistrationClaim({
+    registration_status: 'arrived_customs_pending',
+    registration_status_source: 'seller_declared',
+  });
+  assert.equal(claim.status.state, 'recorded');
+  assert.equal(claim.status.value, 'arrived_customs_pending');
+  assert.equal(claim.status.source, 'seller_declared', 'the stage publishes as a SELLER statement');
+
+  // And a stage with no provenance still publishes nothing (no unattributed claim).
+  const unsourced = projection.toRegistrationClaim({ registration_status: 'locally_registered' });
+  assert.equal(unsourced.status.state, 'not_recorded');
+  assert.equal(unsourced.status.value, null);
+});
+
+test('a stated registration stage re-materializes canonical Trust (stale-limitation closure)', async () => {
+  // The canonical Trust engine publishes "Zimbabwe registration stage has not been established
+  // from a recorded claim" to BUYERS as a known limitation. The Serena's real run left that
+  // sentence public and false: trust was refreshed by evidence verification at 19:17:26, the
+  // seller stated the stage at ~19:18, and nothing re-evaluated. The seller save path must
+  // refresh the canonical position when it records a stage, best-effort, never failing the save.
+  const { readFileSync } = await import('node:fs');
+  const server = readFileSync(new URL('../server.js', import.meta.url), 'utf8');
+  const guarded = /if \(submittedRegistrationStatus !== null\) \{\s*try \{\s*await refreshCanonicalTrust\(vin\);/;
+  assert.match(server, guarded, 'a recorded registration stage must refresh canonical Trust');
+  const refreshBlock = server.slice(server.search(guarded), server.search(guarded) + 600);
+  assert.match(refreshBlock, /catch/, 'the refresh must be best-effort and never fail the save');
+});

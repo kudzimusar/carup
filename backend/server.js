@@ -25,6 +25,7 @@ import {
   getCanonicalTrust,
   getCanonicalTrustBatch,
   publicTrustViolations,
+  refreshCanonicalTrust,
   toPublicTrust,
 } from './services/trustDecision/canonicalTrustService.js';
 import { verifyChain, addEvent } from './services/blockchain/blockchainService.js';
@@ -3192,6 +3193,22 @@ app.post('/api/vehicles/add', authorizeRole(['dealer', 'owner', 'admin']), async
       });
     }
     if (insertError) throw insertError;
+
+    // The Zimbabwe registration stage is a GOVERNED FACT the canonical Trust engine reads: it
+    // publishes "Zimbabwe registration stage has not been established from a recorded claim" as a
+    // known limitation when no stage is recorded. That limitation reaches BUYERS, so a stage the
+    // seller has just stated must re-materialize the canonical position — otherwise the public
+    // Trust block keeps telling buyers CarUp holds no registration claim while the listing is
+    // published on the strength of one. Same posture as evidence review (vehiclesRoutes verify):
+    // the seller's statement is the durable fact, the cache is derived, and a refresh failure must
+    // never fail the save.
+    if (submittedRegistrationStatus !== null) {
+      try {
+        await refreshCanonicalTrust(vin);
+      } catch (trustError) {
+        console.warn('[Trust] registration-stage refresh failed:', trustError?.message || trustError);
+      }
+    }
 
     // Unrecognized values remain usable but enter the governed taxonomy-review queue.
     const taxonomyObservations = [
