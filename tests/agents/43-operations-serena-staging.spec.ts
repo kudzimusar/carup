@@ -348,6 +348,77 @@ test.describe('Operations M7 — Serena governed review and Seller publish', () 
     await page.evaluate(() => localStorage.clear());
   });
 
+  test('no source document stays published without a governed publication decision', async ({ request }, testInfo) => {
+    // The Serena's Tanzania T1 is published in staging as 'public_safe'. Its provenance chain holds
+    // exactly one event — the owner's own upload — so no reviewer ever decided to publish it, and
+    // the manual's §13 table lists the T1 as Restricted. The upload route now refuses that widening
+    // at source, but the row predates the fix and there was no governed way to withdraw it: until
+    // the correction primitive learned about visibility, the only writer was a service-role SQL
+    // statement with no actor, no reason and no audit.
+    //
+    // This corrects it the governed way — a reviewer decision, with a reason, audited — and then
+    // holds the line. It is idempotent: once nothing is wrongly published there is nothing to
+    // correct and this becomes a pure assertion.
+    const reviewer = await reviewerLogin(request);
+
+    // Document-ness comes from the canonical taxonomy, not from a guess about mime types.
+    const taxonomyResponse = await request.get(`${API_URL}/evidence/taxonomy`, { headers: baseHeaders(reviewer) });
+    expect(taxonomyResponse.status()).toBe(200);
+    const taxonomyBody = await taxonomyResponse.json() as {
+      classes?: Array<{ evidence_class: string; subtypes: Array<{ subtype_code: string; is_document?: boolean }> }>;
+    };
+    const documentSubtypes = new Set<string>();
+    for (const cls of taxonomyBody.classes ?? []) {
+      for (const subtype of cls.subtypes ?? []) {
+        if (subtype.is_document) documentSubtypes.add(`${cls.evidence_class}/${subtype.subtype_code}`);
+      }
+    }
+    expect(documentSubtypes.size, 'the taxonomy must report which subtypes are documents').toBeGreaterThan(0);
+
+    const rowsOf = (review: Record<string, any>) =>
+      Object.values(review.evidence?.groups ?? {}).flat() as Array<{
+        id: string; evidence_class: string | null; evidence_subtype: string | null;
+        visibility_level: string; semantic_label?: string;
+      }>;
+    const publishedDocuments = (review: Record<string, any>) => rowsOf(review).filter((row) =>
+      row.visibility_level === 'public_safe'
+      && documentSubtypes.has(`${row.evidence_class}/${row.evidence_subtype}`));
+
+    const before = publishedDocuments(await fetchOperationsReview(request, reviewer));
+
+    // Only the desktop pass mutates; the other viewports assert the resulting state.
+    if (testInfo.project.name === 'chromium') {
+      for (const row of before) {
+        const corrected = await request.patch(
+          `${API_URL}/vehicles/${SERENA_VIN}/evidence/${row.id}/classification`,
+          {
+            headers: baseHeaders(reviewer),
+            data: {
+              evidence_class: row.evidence_class,
+              evidence_subtype: row.evidence_subtype,
+              visibility_level: 'restricted',
+              reason: 'Source document published by uploader self-certification; no reviewer publication decision exists in its provenance chain. Manual §13 classifies this artifact as Restricted.',
+            },
+          },
+        );
+        expect(corrected.status(), `governed visibility correction refused: ${await corrected.text()}`).toBe(200);
+      }
+    }
+
+    const after = publishedDocuments(await fetchOperationsReview(request, reviewer));
+    expect(
+      after.map((row) => `${row.semantic_label ?? row.evidence_subtype} (${row.id})`),
+      'a source document is publicly readable with no reviewer publication decision behind it',
+    ).toEqual([]);
+
+    // And the buyer-facing read agrees: no document artifact reaches an unauthenticated reader.
+    const publicEvidence = await request.get(`${API_URL}/vehicles/${SERENA_VIN}/evidence`);
+    expect(publicEvidence.status()).toBe(200);
+    const publicRows = await publicEvidence.json() as Array<{ evidence_class?: string; evidence_subtype?: string }>;
+    const leaked = publicRows.filter((row) => documentSubtypes.has(`${row.evidence_class}/${row.evidence_subtype}`));
+    expect(leaked, 'a restricted-class source document reached the public evidence read').toEqual([]);
+  });
+
   test('Kingstone publishes; buyers see a truthful projection; restricted documents stay withheld; unpublish/republish works', async ({ page, request }, testInfo) => {
     test.setTimeout(480_000);
     const credentials = kingstoneCredentials();
