@@ -268,7 +268,7 @@ export default function VehicleOperationsReview() {
           </div>
           <div className="flex flex-wrap items-center gap-2">
             <Badge variant="outline" className="text-xs">{v.status}</Badge>
-            <Badge className={`text-xs border-0 ${v.publication_status === 'published' ? 'bg-green-600 text-white' : 'bg-gray-900 text-white'}`}>
+            <Badge className={`text-xs border-0 ${v.publication_status === 'published' ? 'bg-green-700 text-white' : 'bg-gray-900 text-white'}`}>
               {v.publication_status}
             </Badge>
             <Badge className={`text-xs border-0 ${review.publication_readiness.is_publishable ? 'bg-green-100 text-green-800' : 'bg-amber-100 text-amber-800'}`} data-testid="ops-publishable-state">
@@ -365,7 +365,7 @@ export default function VehicleOperationsReview() {
                             <div className="flex flex-wrap gap-2">
                               {can.has('evidence.verify') && (
                                 <>
-                                  <Button size="sm" className="bg-green-600 hover:bg-green-700 text-white gap-1" disabled={busyId === item.id} onClick={() => decideEvidence(item, 'approve')}>
+                                  <Button size="sm" className="bg-green-700 hover:bg-green-800 text-white gap-1" disabled={busyId === item.id} onClick={() => decideEvidence(item, 'approve')}>
                                     <CheckCircle className="w-3.5 h-3.5" /> Verify
                                   </Button>
                                   <Button size="sm" variant="outline" className="text-red-600 border-red-200 gap-1" disabled={busyId === item.id} onClick={() => decideEvidence(item, 'reject')}>
@@ -410,7 +410,7 @@ export default function VehicleOperationsReview() {
                                     ))}
                                   </select>
                                 </div>
-                                <Button size="sm" disabled={busyId === item.id} onClick={() => submitCorrection(item)} className="bg-orange-500 hover:bg-orange-600 text-white">
+                                <Button size="sm" disabled={busyId === item.id} onClick={() => submitCorrection(item)} className="bg-orange-700 hover:bg-orange-800 text-white">
                                   Apply correction
                                 </Button>
                                 <Button size="sm" variant="ghost" onClick={() => setCorrectingId(null)}>Cancel</Button>
