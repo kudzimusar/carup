@@ -316,3 +316,5 @@ jobs:
             test-results/staging-uat-results.json
             test-results/staging-uat-html
           retention-days: 14
+
+# Trigger: Serena M7 certification at the frozen candidate head.
