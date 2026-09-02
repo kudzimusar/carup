@@ -9,8 +9,7 @@
  *   1. VIN          — always present if the vehicle row exists
  *   2. chassis_number   — must be non-empty on the vehicles row
  *   3. engine_number    — must be non-empty on the vehicles row
- *   4. plate_number OR temp_plate_id — at least one must be non-empty
- *   5. Ownership document — at least one vehicle_evidence row with evidence_type
+ *   4. Ownership document — at least one vehicle_evidence row with evidence_type
  *      IN (registration_document, ownership_transfer_document) that has been verified
  *   6. Fact reconciliation (Seller Journey S5) — no UNRESOLVED MATERIAL contradiction between
  *      what the seller stated and what their documents were read to say. A disagreement is
@@ -26,6 +25,7 @@
  */
 import { reconcileSellerFacts } from './sellerFactReconciliation.js';
 import { getGovernedEncumbrance } from '../finance/vehicleFinanceObligationService.js';
+import { evaluateZimbabweRegistrationReadiness } from '../registration/zimbabweRegistrationLifecycle.js';
 
 async function getDefaultClient() {
   const { supabase } = await import('../../db/supabase.js');
@@ -79,7 +79,7 @@ export async function evaluateCompleteness(vin, opts = {}) {
     // S5 widens this to the seller-stated identity values, because reconciliation compares what the
     // SELLER said against what the documents read. Without them the evaluator could count
     // contradictions but not say which fact disagreed.
-    .select('vin, chassis_number, engine_number, plate_number, temp_plate_id, trust_score, publication_status, make, model, year, normalized_plate_number')
+    .select('vin, chassis_number, engine_number, plate_number, temp_plate_id, registration_status, registration_status_source, trust_score, publication_status, make, model, year, normalized_plate_number')
     .eq('vin', vin)
     .single();
 
@@ -121,13 +121,25 @@ export async function evaluateCompleteness(vin, opts = {}) {
     status: vehicle.engine_number ? 'present' : 'missing',
   });
 
-  const hasPlate = !!(vehicle.plate_number || vehicle.temp_plate_id);
+  // ── Zimbabwe registration readiness ────────────────────────────────────────
+  // Pending permanent-import states remain visible but do not block publication by themselves.
+  // Unknown stage and temporary foreign admission under TIP require review and therefore block.
+  const registrationReadiness = evaluateZimbabweRegistrationReadiness({
+    status: vehicle.registration_status,
+    statusSource: vehicle.registration_status_source,
+    plateNumber: vehicle.plate_number,
+    tempPlateId: vehicle.temp_plate_id,
+  });
   requirements.push({
-    key: 'plate_or_temp',
-    label: 'Number Plate or Temporary Import Permit Number',
-    category: 'identity',
-    blocking: true,
-    status: hasPlate ? 'present' : 'missing',
+    key: 'registration_readiness',
+    label: registrationReadiness.label,
+    category: 'registration',
+    blocking: registrationReadiness.publication_blocking,
+    status: registrationReadiness.publication_blocking
+      ? (registrationReadiness.status === 'incomplete' ? 'missing' : 'pending_review')
+      : (registrationReadiness.status === 'registered' ? 'present' : 'pending_review'),
+    lifecycle_status: registrationReadiness.lifecycle_status,
+    reason_codes: registrationReadiness.reason_codes,
   });
 
   // ── Ownership document (blocking) ─────────────────────────────────────────

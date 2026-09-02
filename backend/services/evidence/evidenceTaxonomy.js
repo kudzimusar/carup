@@ -1,7 +1,7 @@
 /**
  * Vehicle Life Evidence Taxonomy — Milestone 1 (master plan §4).
  *
- * Canonical, framework-neutral source of truth for the eight life-stage evidence
+ * Canonical, framework-neutral source of truth for the life-stage evidence
  * CLASSES and their SUBTYPES. The database table `evidence_class_taxonomy`
  * (migration 20260621120000) is seeded from the same definitions; this module is
  * what the upload validator and the taxonomy-discovery endpoint use at runtime so
@@ -19,6 +19,7 @@ export const EVIDENCE_CLASSES = Object.freeze([
   'repair',
   'inspection',
   'ownership_transfer',
+  'registration',
   'dealer_listing',
   'current_condition',
 ]);
@@ -37,6 +38,9 @@ export const CLASS_SUBTYPES = Object.freeze({
     { code: 'customs_entry', label: 'Customs entry', d: true, ed: true },
     { code: 'duty_clearance_document', label: 'Duty / clearance document', d: true, ed: true },
     { code: 'import_inspection', label: 'Import inspection', co: true, ed: true },
+    { code: 'commercial_invoice', label: 'Commercial invoice', d: true, ed: true },
+    { code: 'payment_receipt', label: 'Purchase / payment receipt', d: true, ed: true },
+    { code: 'transit_declaration', label: 'Transit declaration', d: true, ed: true },
   ],
   auction: [
     { code: 'auction_image', label: 'Auction image', co: true, ed: true },
@@ -83,6 +87,14 @@ export const CLASS_SUBTYPES = Object.freeze({
     { code: 'mileage_at_transfer', label: 'Mileage at transfer', mi: true, ed: true },
     { code: 'ownership_transition', label: 'Ownership transition', d: true, ed: true },
   ],
+  registration: [
+    { code: 'cvr_first_registration', label: 'CVR first registration', d: true, ed: true },
+    { code: 'registration_book', label: 'Registration book / certificate', d: true, ed: true },
+    { code: 'registration_plate_record', label: 'Registration plate record', d: true, ed: true },
+    { code: 'police_clearance_first_registration', label: 'Police clearance for first registration', d: true, ed: true },
+    { code: 'reregistration_record', label: 'Re-registration record', d: true, ed: true },
+    { code: 'temporary_import_permit', label: 'Temporary import permit', d: true, ed: true },
+  ],
   dealer_listing: [
     { code: 'listing_photograph', label: 'Listing photograph', co: true, ed: true },
     { code: 'seller_description_snapshot', label: 'Seller/dealer description snapshot', ed: true },
@@ -116,9 +128,10 @@ export const LEGACY_TYPE_TO_CLASS = Object.freeze({
   repair_photo: 'repair',
   dealer_listing_photo: 'dealer_listing',
   owner_handover_photo: 'ownership_transfer',
-  registration_document: 'ownership_transfer',
+  // New uploads use their Zimbabwe registration meaning. Historical rows are not rewritten.
+  registration_document: 'registration',
   insurance_document: 'accident',
-  police_clearance_document: 'accident',
+  police_clearance_document: 'registration',
   ownership_transfer_document: 'ownership_transfer',
 });
 

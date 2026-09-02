@@ -143,7 +143,7 @@ It does **not** by itself establish Zimbabwe customs clearance, CVR registration
 
 ## 10. Roll-call
 
-- [~] Plan/tracker amendment committed before product changes.
+- [x] Plan/tracker amendment committed before product changes — `a42b6b9c`.
 - [ ] Registration lifecycle model.
 - [ ] Trust/readiness separation.
 - [ ] Evidence taxonomy expansion.

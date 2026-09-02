@@ -151,25 +151,26 @@ This table is the mandatory roll call against the earlier `SELLER_MARKETPLACE_CO
 
 **Baseline used for this continuation:** `integration/vehicle-passport-v16-cert@f180c47da644d75bea6a7ad67041c21a2a6bcdf4`. No implementation credit is inherited merely because infrastructure exists; every item below needs current evidence.
 
-- [~] **ZR1. Govern the implementation lane and exact baseline.**
+- [x] **ZR1. Govern the implementation lane and exact baseline.**
   - Work only on `fix/zimbabwe-seller-reality-comms-hardening` until reconciliation into #194.
   - Preserve the Serena's documented Japanese chassis/frame identifier; never fabricate a 17-character VIN.
   - Preserve Truth & Trust: pending registration is not fraud, lack of evidence is not a clean claim.
   - Acceptance: plan committed before product changes; branch starts exactly from the #194 head above.
+  - **Evidence:** governance commit `a42b6b9c` created this lane and tracker amendment before product code.
 
-- [ ] **ZR2. Replace the Plate-or-TIP shortcut with an explicit Zimbabwe registration lifecycle.**
+- [~] **ZR2. Replace the Plate-or-TIP shortcut with an explicit Zimbabwe registration lifecycle.**
   - Canonical public-safe states must distinguish: import in transit; arrived/customs pending; customs cleared/CVR pending; CVR/plate pending; locally registered; temporary foreign vehicle under TIP; de-registered/re-registration pending; unknown.
   - TIP is not treated as a generic substitute for missing Zimbabwe registration and must not make a permanent-import listing look locally registered.
   - Legitimate pending permanent-import states may be publicly listed when the ordinary publication gate is otherwise satisfied; the pending state remains visible and exact.
   - Acceptance: database constraint/model, API, Seller UI, readiness projection, Marketplace/Vehicle Detail and tests converge on the same vocabulary.
 
-- [ ] **ZR3. Separate vehicle identity/Trust from registration readiness.**
+- [~] **ZR3. Separate vehicle identity/Trust from registration readiness.**
   - Vehicle identity may be well-supported by chassis/frame, engine and cross-document evidence while Zimbabwe registration is pending.
   - Canonical Trust remains the sole Trust authority. Registration stage contributes through attributable evidence/source coverage and explicit limitations, not a punitive hard-coded deduction that equates paperwork progress with dishonesty.
   - Publication readiness carries the registration limitation separately.
   - Acceptance: canonical Trust tests prove pending registration is neither a positive verification claim nor an automatic fraud/adverse verdict.
 
-- [ ] **ZR4. Expand evidence taxonomy for the real import/registration chain and establish the Seller Drive workspace contract.**
+- [~] **ZR4. Expand evidence taxonomy for the real import/registration chain and establish the Seller Drive workspace contract.**
   - Add explicit support for commercial invoice, payment receipt, foreign transit declaration, Zimbabwe registration/registry evidence and first-registration police clearance without forcing them into accident/ownership-transfer semantics.
   - Existing ambiguous historical rows are not blindly rewritten.
   - Reuse the existing governed Google Drive provider; do not add a second credential/token authority.
