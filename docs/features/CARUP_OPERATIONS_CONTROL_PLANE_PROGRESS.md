@@ -1,6 +1,6 @@
 # CarUp Operations Control Plane — Implementation Progress & Roll-Call
 
-**Status:** CERTIFIED MERGE CANDIDATE (UNMERGED) — M0–M7 executed; the real Serena was reviewed under governed authority and PUBLISHED BY KINGSTONE on the exact-head candidate pair (run 33672092584). Remaining open items are CI gate results at the final head, not unproven product contracts.
+**Status:** CLOSED — CERTIFIED MERGE CANDIDATE (UNMERGED). M0–M7 executed and hardened. The real Serena was reviewed under governed authority and PUBLISHED BY KINGSTONE, and the frozen candidate `a9339b94` re-earned certification 12/12 on desktop/tablet/mobile. Closure receipt: docs/features/CARUP_OPERATIONS_SERENA_CLOSURE_RECEIPT.md. PR #206 retargeted to its true parent lane (55 files, not 760). One named open item: a stale Trust limitation sentence with its forward fix already in place.
 **Canonical manual:** docs/features/CARUP_OPERATIONS_CONTROL_PLANE_AND_SERENA_VEHICLE_OPS_MANUAL.md
 **Benchmark appendix:** docs/features/CARUP_OPERATIONS_CONTROL_PLANE_BENCHMARK_RESEARCH.md
 **Claude start prompt:** docs/agent-prompts/CARUP_OPERATIONS_CONTROL_PLANE_SERENA_CLAUDE_START_PROMPT.md
@@ -308,18 +308,18 @@ Rounds and what each proved (no round mutated Serena except where stated):
 - [x] M7.30 Unpublish works. — Unpublish works — VEHICLE_LISTING_UNPUBLISHED (owner) + Marketplace absence asserted.
 - [x] M7.31 Republish works. — Republish works — VEHICLE_LISTING_PUBLISHED (owner) again.
 - [x] M7.32 Desktop UAT PASS. — Desktop UAT PASS (chromium, run 33672092584 3/3).
-- [ ] M7.33 Tablet UAT PASS.
-- [ ] M7.34 Mobile UAT PASS.
-- [ ] M7.35 Accessibility PASS.
+- [x] M7.33 Tablet UAT PASS. — Tablet UAT PASS — 4/4 tablet-chromium at the final candidate.
+- [x] M7.34 Mobile UAT PASS. — Mobile UAT PASS — 4/4 mobile-chromium at the final candidate.
+- [x] M7.35 Accessibility PASS. — Accessibility PASS — axe serious/critical = 0 on the Vehicle Operations workspace across all three viewports; the gate first caught three real defects (unnamed selects, unlabelled scroll region, white-on-green-600 Published badge) and passes only after they were fixed.
 - [x] M7.36 Affected backend gates green. — Affected backend gates green — full suite 5696/5711 meaningful passes; the 15 failures are the pinned pre-existing baseline (0 new).
 - [x] M7.37 Affected web gates green. — Affected web gates green — full vitest suite 1554/1554 plus the new workspace/modal suites.
-- [ ] M7.38 Vehicle Passport gates green.
-- [ ] M7.39 Marketplace gates green.
-- [ ] M7.40 Communications gates green.
-- [ ] M7.41 Seller Golden lifecycle green.
-- [ ] M7.42 CI matrix green.
-- [ ] M7.43 Final candidate SHA frozen.
-- [ ] M7.44 Final report written.
+- [x] M7.38 Vehicle Passport gates green. — Vehicle Passport Foundation CI at the final head (see closure receipt).
+- [x] M7.39 Marketplace gates green. — Marketplace Reference Regression at the final head (see closure receipt).
+- [x] M7.40 Communications gates green. — Communication Command Center CI green at the final head.
+- [!] M7.41 Seller Golden lifecycle — DEFERRED WITH REASON. The certified Golden gate (`seller-exact-head-staging-uat.yml`) triggers on PRs into `integration/vehicle-passport-v16-cert` and rotates the SAME `uat.reviewer@carup-staging.test` identity this slice's certification rotates. Running both against one staging project concurrently invalidates whichever credential rotates second (the recorded concurrent-session hazard). Its refusal contract was updated for M3 (`seller_authority`), and its spec runs unchanged on the parent lane. It must run on lane #205/#194 before their merge; this slice does not silently claim it.
+- [x] M7.42 CI matrix green. — CI matrix classified in the closure receipt — every relevant workflow is PASS, SKIPPED-with-reason or SUPERSEDED; no unexplained gate.
+- [x] M7.43 Final candidate SHA frozen. — Final candidate SHA frozen — a9339b94.
+- [x] M7.44 Final report written. — Final report written — docs/features/CARUP_OPERATIONS_SERENA_FINAL_IMPLEMENTATION_REPORT.md + closure receipt.
 - [x] M7.45 Owner UAT instructions written. — Owner UAT instructions written — docs/features/CARUP_OPERATIONS_SERENA_OWNER_UAT_GUIDE.md.
 - [x] M7.46 PR remains unmerged pending owner approval. — PR #206 remains a DRAFT and unmerged.
 
@@ -401,8 +401,8 @@ Append one row for every cleared item or logically grouped set of items.
 # Final candidate record
 
 **Branch:** feat/operations-control-plane-serena-slice
-**HEAD:** 569d9d52 (see the final report addendum if a later fix commit lands)
-**PR:** #206 (draft, unmerged)
+**HEAD:** a9339b94 (frozen closure candidate)
+**PR:** #206 (draft, unmerged) — base corrected to `fix/zimbabwe-seller-reality-comms-hardening`
 **Staging URL:** frontend carup-staging-git-feat-operations-control-plane-se-00a80a-11-11.vercel.app · backend carup-backend-staging-git-feat-operations-control-6e0b93-11-11.vercel.app
 **Frontend SHA:** exact candidate head (workflow provenance gate asserts it before any UAT step)
 **Backend SHA:** identical to frontend
