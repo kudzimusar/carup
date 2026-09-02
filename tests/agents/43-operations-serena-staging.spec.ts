@@ -17,6 +17,12 @@
  * State-aware by design: mutations run on the desktop project only and are
  * skipped when already done, so the tablet/mobile projects (and reruns) assert
  * the same final state responsively instead of re-deciding it.
+ *
+ * Consequence worth knowing when reading a run: once the Serena is genuinely
+ * published, a later run's publish/unpublish/republish branch is SKIPPED and
+ * those steps' evidence lives in the run that first performed them
+ * (33672092584, desktop). Every run still re-asserts the resulting public
+ * truth on all three viewports.
  */
 import type { APIRequestContext, Page } from '@playwright/test';
 import AxeBuilder from '@axe-core/playwright';
