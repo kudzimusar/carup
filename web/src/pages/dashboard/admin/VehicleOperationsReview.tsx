@@ -113,8 +113,8 @@ function SectionTitle({ children }: { children: React.ReactNode }) {
 function Fact({ label, value }: { label: string; value: React.ReactNode }) {
   return (
     <div className="min-w-0">
-      <p className="text-[11px] uppercase tracking-wide text-gray-400">{label}</p>
-      <p className="text-sm text-gray-900 truncate">{value ?? <span className="text-gray-400">Not recorded</span>}</p>
+      <p className="text-[11px] uppercase tracking-wide text-gray-500">{label}</p>
+      <p className="text-sm text-gray-900 truncate">{value ?? <span className="text-gray-500">Not recorded</span>}</p>
     </div>
   )
 }
@@ -241,10 +241,10 @@ export default function VehicleOperationsReview() {
   if (loadError || !review) {
     return (
       <div className="max-w-xl mx-auto py-16 text-center space-y-3" data-testid="ops-review-error">
-        <ShieldAlert className="w-8 h-8 mx-auto text-gray-400" />
+        <ShieldAlert className="w-8 h-8 mx-auto text-gray-500" />
         <p className="font-medium text-gray-800">Vehicle operations review unavailable</p>
         <p className="text-sm text-gray-500">{loadError || 'The vehicle could not be loaded.'}</p>
-        <Link to="/admin/evidence" className="text-sm text-orange-600 inline-flex items-center gap-1">
+        <Link to="/admin/evidence" className="text-sm text-orange-700 inline-flex items-center gap-1">
           <ArrowLeft className="w-4 h-4" /> Back to Evidence Review
         </Link>
       </div>
@@ -258,7 +258,7 @@ export default function VehicleOperationsReview() {
     <div className="space-y-8 max-w-[1440px]" data-testid="vehicle-operations-review">
       {/* ── Header: vehicle identity + publication state ─────────────────── */}
       <div className="border-b border-gray-200 pb-5">
-        <Link to="/admin/evidence" className="text-xs text-gray-500 inline-flex items-center gap-1 mb-2 hover:text-orange-600">
+        <Link to="/admin/evidence" className="text-xs text-gray-500 inline-flex items-center gap-1 mb-2 hover:text-orange-700">
           <ArrowLeft className="w-3.5 h-3.5" /> Evidence Review
         </Link>
         <div className="flex flex-col lg:flex-row lg:items-end lg:justify-between gap-4">
@@ -291,7 +291,7 @@ export default function VehicleOperationsReview() {
           {/* ── Publication requirement matrix ─────────────────────────────── */}
           <section data-testid="ops-requirement-matrix">
             <SectionTitle>Marketplace readiness — requirement matrix</SectionTitle>
-            <div className="overflow-x-auto rounded-lg border border-gray-200">
+            <div className="overflow-x-auto rounded-lg border border-gray-200" role="region" aria-label="Publication requirement matrix" tabIndex={0}>
               <table className="w-full text-sm">
                 <thead>
                   <tr className="bg-gray-50 text-left text-[11px] uppercase tracking-wide text-gray-500">
@@ -308,7 +308,7 @@ export default function VehicleOperationsReview() {
                       <td className="px-3 py-2 text-gray-900">{r.label}</td>
                       <td className="px-3 py-2 text-gray-500">{r.category.replace(/_/g, ' ')}</td>
                       <td className="px-3 py-2"><StatusBadge value={r.status} /></td>
-                      <td className="px-3 py-2">{r.blocking ? <span className="text-red-600 font-medium">Yes</span> : <span className="text-gray-400">No</span>}</td>
+                      <td className="px-3 py-2">{r.blocking ? <span className="text-red-600 font-medium">Yes</span> : <span className="text-gray-500">No</span>}</td>
                       <td className="px-3 py-2 text-gray-600">{ACT_LABELS[r.who_must_act ?? 'none'] ?? '—'}</td>
                     </tr>
                   ))}
@@ -349,7 +349,7 @@ export default function VehicleOperationsReview() {
                           {item.ai_advisory_status ? ` · AI advisory: ${item.ai_advisory_status.replace(/^ai_/, '')}` : ''}
                         </p>
                         {item.classification_history.length > 0 && (
-                          <p className="text-[11px] text-gray-400 mt-1">
+                          <p className="text-[11px] text-gray-500 mt-1">
                             Classification corrected {item.classification_history.length}× — history preserved.
                           </p>
                         )}
@@ -384,6 +384,7 @@ export default function VehicleOperationsReview() {
                                 <div>
                                   <Label className="text-xs text-gray-500">Life stage</Label>
                                   <select
+                                    aria-label="Corrected life stage"
                                     className="flex h-9 w-full rounded-md border border-gray-200 bg-white px-2 text-sm"
                                     value={correctionClass}
                                     onChange={(e) => { setCorrectionClass(e.target.value); setCorrectionSubtype('') }}
@@ -397,6 +398,7 @@ export default function VehicleOperationsReview() {
                                 <div>
                                   <Label className="text-xs text-gray-500">Subtype</Label>
                                   <select
+                                    aria-label="Corrected subtype"
                                     className="flex h-9 w-full rounded-md border border-gray-200 bg-white px-2 text-sm"
                                     value={correctionSubtype}
                                     onChange={(e) => setCorrectionSubtype(e.target.value)}
@@ -445,7 +447,7 @@ export default function VehicleOperationsReview() {
               <ul className="space-y-1.5">
                 {review.audit.map((entry) => (
                   <li key={entry.id} className="text-sm text-gray-700 flex flex-wrap items-baseline gap-x-2">
-                    <span className="font-mono text-[11px] text-gray-400">{new Date(entry.created_at).toLocaleString()}</span>
+                    <span className="font-mono text-[11px] text-gray-500">{new Date(entry.created_at).toLocaleString()}</span>
                     <span className="font-medium">{entry.event_type}</span>
                     {entry.actor_role && <span className="text-gray-500">by {entry.actor_role}</span>}
                     {entry.reason && <span className="text-gray-500 italic">— {entry.reason}</span>}
@@ -488,12 +490,13 @@ export default function VehicleOperationsReview() {
                   <p className="text-xs text-gray-500">Basis: {review.seller_authority.basis.replace(/_/g, ' ')} · {review.seller_authority.policy_version}</p>
                 )}
                 {review.seller_authority.decided_at && (
-                  <p className="text-xs text-gray-400">Decided {new Date(review.seller_authority.decided_at).toLocaleString()}</p>
+                  <p className="text-xs text-gray-500">Decided {new Date(review.seller_authority.decided_at).toLocaleString()}</p>
                 )}
                 {can.has('seller_authority.review') && (
                   <div className="pt-2 space-y-2 border-t border-gray-100 mt-2" data-testid="ops-authority-decision">
                     <Label className="text-xs text-gray-500">Governed decision</Label>
                     <select
+                      aria-label="Seller authority decision"
                       className="flex h-9 w-full rounded-md border border-gray-200 bg-white px-2 text-sm"
                       value={authorityDecision}
                       onChange={(e) => setAuthorityDecision(e.target.value)}
@@ -513,7 +516,7 @@ export default function VehicleOperationsReview() {
                     <Button size="sm" className="w-full bg-gray-900 hover:bg-gray-800 text-white" disabled={busyId === 'seller-authority'} onClick={submitAuthorityDecision}>
                       Record decision
                     </Button>
-                    <p className="text-[11px] text-gray-400">
+                    <p className="text-[11px] text-gray-500">
                       Confirms authority under CarUp policy only — never a legal-title or registration claim. The seller keeps the final Publish action.
                     </p>
                   </div>
@@ -539,7 +542,7 @@ export default function VehicleOperationsReview() {
                 )}
               </div>
               {review.registration.lifecycle.reason_codes.length > 0 && (
-                <p className="text-[11px] text-gray-400">Reasons: {review.registration.lifecycle.reason_codes.join(', ')}</p>
+                <p className="text-[11px] text-gray-500">Reasons: {review.registration.lifecycle.reason_codes.join(', ')}</p>
               )}
             </div>
           </section>
@@ -556,10 +559,10 @@ export default function VehicleOperationsReview() {
               <Fact label="Pending trust-fact requests" value={String(review.trust_summary.pending_fact_requests)} />
               <Fact label="Open governance tasks" value={String(review.governance_summary.open_review_tasks)} />
               <Fact label="Open disputes" value={String(review.governance_summary.open_disputes)} />
-              <p className="text-[11px] text-gray-400 pt-1">
+              <p className="text-[11px] text-gray-500 pt-1">
                 Trust changes go through the canonical Trust/Governance services — this workspace never edits a score.
               </p>
-              <Link to="/admin/trust-review" className="text-xs text-orange-600">Open Trust Review →</Link>
+              <Link to="/admin/trust-review" className="text-xs text-orange-700">Open Trust Review →</Link>
             </div>
           </section>
 
@@ -578,7 +581,7 @@ export default function VehicleOperationsReview() {
                 ))}
               </ul>
             )}
-            <Link to="/admin/fraud-queue" className="text-xs text-orange-600 mt-2 inline-block">Open Fraud Queue →</Link>
+            <Link to="/admin/fraud-queue" className="text-xs text-orange-700 mt-2 inline-block">Open Fraud Queue →</Link>
           </section>
         </div>
       </div>

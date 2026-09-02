@@ -172,7 +172,7 @@ export default function DashboardLayout({ role }: { role: string }) {
             <div key={group ?? '__ungrouped'} className="space-y-1">
               {group && (
                 <p
-                  className="px-3 pt-4 pb-1 text-[10px] font-semibold uppercase tracking-wider text-gray-400"
+                  className="px-3 pt-4 pb-1 text-[10px] font-semibold uppercase tracking-wider text-gray-500"
                   data-testid={`nav-group-${group.toLowerCase().replace(/[^a-z0-9]+/g, '-')}`}
                 >
                   {group}

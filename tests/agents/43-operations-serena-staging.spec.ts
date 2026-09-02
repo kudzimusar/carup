@@ -150,12 +150,6 @@ test.describe('Operations M7 — Serena governed review and Seller publish', () 
       fullPage: true,
     });
 
-    // Accessibility gate for the new workspace — same severity bar as the
-    // navigation axe gate: serious/critical violations fail.
-    const axe = await new AxeBuilder({ page }).analyze();
-    const severe = axe.violations.filter((violation) => ['serious', 'critical'].includes(violation.impact || ''));
-    expect(severe, `axe serious/critical violations on the Vehicle Operations workspace: ${JSON.stringify(severe.map(v => ({ id: v.id, impact: v.impact, nodes: v.nodes.length })))}`).toEqual([]);
-
     if (isMutationPass) {
       const before = await fetchOperationsReview(request, reviewer);
       const reviewerHeaders = await mutationHeaders(request, reviewer);
@@ -210,6 +204,16 @@ test.describe('Operations M7 — Serena governed review and Seller publish', () 
       }
     }
 
+    // Accessibility gate for the new workspace — same severity bar as the
+    // navigation axe gate: serious/critical violations fail. Scoped to the
+    // workspace region this slice owns; the shared dashboard shell has its own
+    // navigation-accessibility gate.
+    const axe = await new AxeBuilder({ page })
+      .include('[data-testid="vehicle-operations-review"]')
+      .analyze();
+    const severe = axe.violations.filter((violation) => ['serious', 'critical'].includes(violation.impact || ''));
+    expect(severe, `axe serious/critical violations on the Vehicle Operations workspace: ${JSON.stringify(severe.map(v => ({ id: v.id, impact: v.impact, nodes: v.nodes.length })))}`).toEqual([]);
+
     // Final-state assertions valid on every project pass.
     const review = await fetchOperationsReview(request, reviewer);
     const rows = Object.values(review.evidence.groups as Record<string, any[]>).flat();
@@ -246,15 +250,20 @@ test.describe('Operations M7 — Serena governed review and Seller publish', () 
       await expect(page.getByTestId('seller-server-draft-loaded')).toBeVisible({ timeout: 30_000 });
 
       // Resume lands at the persisted wizard step; the stage control lives on
-      // Stage 1. Walk back through the real navigation first.
+      // Stage 1. Walk back through the real navigation first. The hero renders
+      // its counter CSS-uppercased, so compare textContent case-insensitively —
+      // and a disabled Back button already proves we are on Stage 1.
       const stageHero = page.getByTestId('seller-studio-stage-hero');
       await expect(stageHero).toBeVisible({ timeout: 20_000 });
       for (let guard = 0; guard < 4; guard += 1) {
-        if ((await stageHero.innerText()).includes('Stage 1 of 4')) break;
-        await page.getByRole('button', { name: /^back$/i }).click();
+        const heroText = (await stageHero.textContent()) || '';
+        if (/stage\s*1\s*of\s*4/i.test(heroText)) break;
+        const backButton = page.getByRole('button', { name: /^back$/i });
+        if (!(await backButton.isEnabled())) break;
+        await backButton.click();
         await expect(stageHero).toBeVisible({ timeout: 20_000 });
       }
-      await expect(stageHero).toContainText('Stage 1 of 4', { timeout: 20_000 });
+      await expect(stageHero).toContainText(/stage\s*1\s*of\s*4/i, { timeout: 20_000 });
 
       // The stage control must be SELLER-editable on a restored draft (the stage
       // is a lifecycle claim, not immutable identity).
