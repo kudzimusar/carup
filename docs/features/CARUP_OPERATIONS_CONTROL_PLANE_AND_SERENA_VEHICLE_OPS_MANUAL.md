@@ -2748,3 +2748,52 @@ The architecture should be reached by adding proven specialist slices, not by cr
 The Serena is the first proof.
 
 If CarUp can take one real imported vehicle with real imperfect evidence, keep every source truthful, review the correct things, leave external facts with external authorities, clear legitimate blockers, and let the Seller publish safely, then the Operations Control Plane has earned its foundation.
+---
+
+# 44. Current implementation state — updated 2026-09-03 (Serena slice, PR #206)
+
+This section records what the Serena slice actually built, per the §38 maintenance rule. The execution evidence lives in docs/features/CARUP_OPERATIONS_CONTROL_PLANE_PROGRESS.md.
+
+## Routes
+
+- GET /api/admin/vehicles/:vin/review — the Vehicle Operations reviewer aggregate (read model; role gate + operations.vehicle.read_private capability; proven session mandatory).
+- PATCH /api/vehicles/:vin/evidence/:evidenceId/classification — governed classification correction (operations.vehicle_evidence.classify; reason mandatory; fail-closed audit; history preserved in metadata.classification_history + 'corrected' provenance event).
+- GET /api/vehicles/:vin/seller-authority — current governed authority state (own-state for sellers; any-seller for reviewers).
+- POST /api/vehicles/:vin/seller-authority/review — governed authority decision (operations.seller_authority.review; no self-approval; conflict fails closed 409).
+- POST /api/vehicles/:vin/seller-claim — unchanged contract, now delegating to the canonical service.
+- Web: /admin/vehicles/:vin/review (admin.vehicle-operations), linked from the Evidence Review queue.
+
+## Services and schemas
+
+- backend/services/evidence/evidenceTaxonomy.js — canonical semantic layer: resolveSemanticClassification + predicates (registration / ownership-registration requirement / TIP / seller-authority candidacy / document form) that ignore a contradictory legacy evidence_type whenever a canonical class exists; deriveLegacyCompatibilityType for canonical-first uploads.
+- backend/services/evidence/evidenceClassificationCorrectionService.js.
+- backend/services/seller/sellerAuthorityService.js — policy seller_authority.v1; states evidence_submitted/under_review/confirmed/insufficient/disputed/revoked (+ derived recognized/not_assessed); trust_audit_events remains the decision-history ledger (fail closed).
+- backend/services/operations/operationsAuthorizationService.js — the bounded capability layer (operations.vehicle.read_private, .vehicle_evidence.review, .vehicle_evidence.classify, .seller_authority.review); grants derive from the server-side platform/base role only.
+- backend/services/operations/vehicleOperationsReadModel.js — the aggregate; no storage locators, no seller contact PII, no audit network identity.
+- backend/services/evidence/completenessEvaluator.js — the M3 gate (seller_authority requirement; stage-conditional registration_evidence; blocking risk_governance from fraud_cases; who_must_act/refusal_category).
+- Migrations: 20260902150000_vehicle_life_generic_compat_types.sql (adds vehicle_life_document/vehicle_life_photo compat values, canonical-required CHECK), 20260902160000_vehicle_seller_authority.sql (current-state table, UNIQUE(vin,seller), decider-attribution CHECK, RLS + service_role-only). Both applied to staging (supabase ledger + idempotent CI apply).
+
+## Roles / capabilities
+
+- No persistent capability schema yet (M8 decides). Compatibility mapping: admin/platform_admin/super_admin/government → the four vehicle-operations capabilities; every other role (including tenant-elevated effective roles) → none.
+- Frontend: platform_admin/super_admin now route as admin (normalizeFrontendRole); `reviewer` remains backend-only and explicitly bounded.
+
+## Deferred domains
+
+Service Network (O5 — backend absent on this branch), generic operations_cases (M8 gate), persistent operator provisioning, Communications-embedded operations queues, insurance/finance/transaction operations (O6–O8).
+
+# 45. Decision log — Serena slice
+
+| Date | Decision | Reason | Alternatives rejected |
+|---|---|---|---|
+| 2026-09-02 | Keep legacy evidence_type as the stored compatibility/artifact-form field; add TWO neutral generic values instead of freeing the column | The field is load-bearing (upload role auth, storage bucket, default visibility, AI extraction); dropping or freeing it would be a destructive contract change | Making evidence_type nullable; extending it with new semantic values |
+| 2026-09-02 | Canonical-first uploads DERIVE the compatibility value server-side | No new record can be born with a false legacy meaning; legacy clients unaffected | Rejecting contradictory input (breaks existing callers); trusting the client pick |
+| 2026-09-03 | Additive vehicle_seller_authority table | The audit-event-only claim cannot serve a queryable current state, lifecycle, supersession or race-safe decisions for the publication gate | Replaying trust_audit_events per completeness evaluation; reusing governance review_tasks |
+| 2026-09-03 | Publication seller_authority satisfied by CONFIRMED decision or relationship + verified canonical ownership/registration document | Preserves the old gate's strength (no self-created listing publishes with zero verified documents) while making explicit review the path for permanent imports | Auto-satisfying on verified import chain (review must decide); requiring confirmation for everyone (breaks Golden parity) |
+| 2026-09-03 | registration_evidence demanded only for locally_registered | A permanent import cannot produce a registration book it does not have (§19) | Keeping a universal registration-document blocker |
+| 2026-09-03 | risk_governance requirement reads fraud_cases.blocks_publication in the gate itself | The flag was consumed only by the trust decision; the publish route never asked — two answers to one question | Leaving fraud advisory-only; wiring the trust decision into publish |
+| 2026-09-03 | Capabilities derive from platformRole/baseRole only | Generalizes the marketplaceModeration anti-escalation pattern; header-steered effective roles can never mint operations authority | Reading effectiveRole; introducing a persistent grants table now |
+| 2026-09-03 | Registration stage stays seller-editable on restored drafts; reuse path stamps registration_status_source | The stage is a lifecycle claim, not identity; a stage without provenance evaluates as not_recorded and silently blocked the seller's own truthful statement | Keeping the canonicalLocked freeze; operator-declared stages (false provenance) |
+| 2026-09-03 | Serena rows NOT rewritten; legacy mislabels surfaced in the workspace instead | Canonical values were already correct; M1 makes them authoritative; history preserved (G13) | Backfilling legacy fields; reclassifying rows in bulk |
+| 2026-09-03 | Serena truthful stage = arrived_customs_pending (seller statement) | The pack proves transit + arrival-region inspection but does NOT establish Zimbabwe customs clearance; duty_paid=false is recorded | customs_cleared_cvr_pending (would assert an unestablished clearance); leaving unknown (blocks a legitimately listable vehicle) |
+| 2026-09-03 | import_source='import' left as-is, recorded as a data-quality note | The value fails the pure eligibility helper but that helper is not wired into publish/read paths; only auto-classification skips; a truthful 'Japan' correction is a Seller statement for a later save | Mutating the row operator-side (wrong provenance) |

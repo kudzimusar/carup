@@ -324,7 +324,7 @@ Do not execute M8 as a reason to delay Serena owner UAT. M8 can begin after the 
 
 | Domain | Current state at execution | Target slice | Status | Notes |
 |---|---|---|---|---|
-| Vehicle Operations | | Serena M0–M7 | [ ] | |
+| Vehicle Operations | Implemented (PR #206): workspace + read model + bounded capabilities | Serena M0–M7 | [~] | M7 staging certification in flight |
 | People / Customer Ops | | O2 | [ ] | |
 | Identity | | O2 | [ ] | |
 | Seller Compliance | | O2 | [ ] | |
