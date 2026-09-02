@@ -1,12 +1,12 @@
 
 # CarUp Operations Control Plane — Benchmark Research & Transferable Patterns
 
-**Status:** RESEARCH APPENDIX — source-backed, non-authoritative for CarUp policy  
-**Repository:** kudzimusar/carup  
-**Programme:** CarUp Operations Control Plane  
-**First implementation slice:** Serena Vehicle Operations / VIN GFC27-027051  
-**Research date:** 2026-09-02  
-**Base candidate used for code comparison:** 569e4f14c3fa022d942a41a57751fa3834def756  
+**Status:** RESEARCH APPENDIX — source-backed, non-authoritative for CarUp policy
+**Repository:** kudzimusar/carup
+**Programme:** CarUp Operations Control Plane
+**First implementation slice:** Serena Vehicle Operations / VIN GFC27-027051
+**Research date:** 2026-09-02
+**Base candidate used for code comparison:** 569e4f14c3fa022d942a41a57751fa3834def756
 **Companion implementation manual:** docs/features/CARUP_OPERATIONS_CONTROL_PLANE_AND_SERENA_VEHICLE_OPS_MANUAL.md
 
 ---

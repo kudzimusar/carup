@@ -1,11 +1,11 @@
 # CarUp Operations Control Plane — Implementation Progress & Roll-Call
 
-**Status:** IN EXECUTION — M0–M6 implemented (M4 responsive proofs pending); M7 staging next  
-**Canonical manual:** docs/features/CARUP_OPERATIONS_CONTROL_PLANE_AND_SERENA_VEHICLE_OPS_MANUAL.md  
-**Benchmark appendix:** docs/features/CARUP_OPERATIONS_CONTROL_PLANE_BENCHMARK_RESEARCH.md  
-**Claude start prompt:** docs/agent-prompts/CARUP_OPERATIONS_CONTROL_PLANE_SERENA_CLAUDE_START_PROMPT.md  
-**Seed branch:** feat/operations-control-plane-serena-slice  
-**Seed base:** 569e4f14c3fa022d942a41a57751fa3834def756  
+**Status:** IN EXECUTION — M0–M6 implemented (M4 responsive proofs pending); M7 staging next
+**Canonical manual:** docs/features/CARUP_OPERATIONS_CONTROL_PLANE_AND_SERENA_VEHICLE_OPS_MANUAL.md
+**Benchmark appendix:** docs/features/CARUP_OPERATIONS_CONTROL_PLANE_BENCHMARK_RESEARCH.md
+**Claude start prompt:** docs/agent-prompts/CARUP_OPERATIONS_CONTROL_PLANE_SERENA_CLAUDE_START_PROMPT.md
+**Seed branch:** feat/operations-control-plane-serena-slice
+**Seed base:** 569e4f14c3fa022d942a41a57751fa3834def756
 **Primary UAT vehicle:** GFC27-027051
 
 ---
@@ -373,15 +373,15 @@ Append one row for every cleared item or logically grouped set of items.
 
 # Final candidate record
 
-**Branch:**  
-**HEAD:**  
-**PR:**  
-**Staging URL:**  
-**Frontend SHA:**  
-**Backend SHA:**  
-**Unpaired:**  
-**Serena publishable:**  
-**Serena published:**  
-**Owner UAT ready:**  
-**Merge ready:**  
+**Branch:**
+**HEAD:**
+**PR:**
+**Staging URL:**
+**Frontend SHA:**
+**Backend SHA:**
+**Unpaired:**
+**Serena publishable:**
+**Serena published:**
+**Owner UAT ready:**
+**Merge ready:**
 **Production touched:** NO unless explicitly authorized and recorded otherwise.

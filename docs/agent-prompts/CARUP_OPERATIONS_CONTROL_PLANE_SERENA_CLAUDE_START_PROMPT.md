@@ -1,11 +1,11 @@
 # Claude Code Start Prompt — CarUp Operations Control Plane / Serena Vehicle Operations
 
-**Purpose:** Hand this file to Claude Code as the execution instruction for the first CarUp Operations Control Plane slice.  
-**Canonical plan:** docs/features/CARUP_OPERATIONS_CONTROL_PLANE_AND_SERENA_VEHICLE_OPS_MANUAL.md  
-**Execution tracker:** docs/features/CARUP_OPERATIONS_CONTROL_PLANE_PROGRESS.md  
-**Benchmark research:** docs/features/CARUP_OPERATIONS_CONTROL_PLANE_BENCHMARK_RESEARCH.md  
-**Seed branch:** feat/operations-control-plane-serena-slice  
-**Seed base:** 569e4f14c3fa022d942a41a57751fa3834def756  
+**Purpose:** Hand this file to Claude Code as the execution instruction for the first CarUp Operations Control Plane slice.
+**Canonical plan:** docs/features/CARUP_OPERATIONS_CONTROL_PLANE_AND_SERENA_VEHICLE_OPS_MANUAL.md
+**Execution tracker:** docs/features/CARUP_OPERATIONS_CONTROL_PLANE_PROGRESS.md
+**Benchmark research:** docs/features/CARUP_OPERATIONS_CONTROL_PLANE_BENCHMARK_RESEARCH.md
+**Seed branch:** feat/operations-control-plane-serena-slice
+**Seed base:** 569e4f14c3fa022d942a41a57751fa3834def756
 **Primary real UAT vehicle:** 2016 Nissan Serena Highway Star — GFC27-027051
 
 ---

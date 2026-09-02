@@ -1,19 +1,19 @@
 # CarUp Operations Control Plane + Serena Vehicle Operations
 ## Canonical Implementation Plan, Development Manual and Iteration Contract
 
-**Status:** IMPLEMENTATION-READY SOURCE PLAN — architecture is intentionally incremental and remains evolvable  
-**Repository:** kudzimusar/carup  
-**Plan branch:** feat/operations-control-plane-serena-slice  
-**Plan branch origin:** 569e4f14c3fa022d942a41a57751fa3834def756  
-**Originating Seller lane:** fix/zimbabwe-seller-reality-comms-hardening  
-**Primary UAT vehicle:** 2016 Nissan Serena Highway Star — GFC27-027051  
-**Governing project protocol:** docs/project-governance/MILESTONE_EXECUTION_PROTOCOL.md  
-**Seller master tracker:** docs/seller/SELLER_UAT_REMEDIATION_EXECUTION_MASTER_PLAN.md  
-**Zimbabwe Seller reality plan:** docs/seller/ZIMBABWE_SELLER_REALITY_COMMUNICATIONS_HARDENING_PLAN.md  
-**Vehicle Passport lifecycle plan:** docs/vehicle-passport-lifecycle/CARUP_VEHICLE_PASSPORT_TRUST_LIFECYCLE_1_0_CANONICAL_PLAN.md  
-**Verification/governance foundation:** docs/CARUP_VERIFICATION_GOVERNANCE_AUDIT.md  
-**Authority risk register:** docs/hardening/AUTHORITY_AUDIT_REGISTER.md  
-**Benchmark appendix:** docs/features/CARUP_OPERATIONS_CONTROL_PLANE_BENCHMARK_RESEARCH.md  
+**Status:** IMPLEMENTATION-READY SOURCE PLAN — architecture is intentionally incremental and remains evolvable
+**Repository:** kudzimusar/carup
+**Plan branch:** feat/operations-control-plane-serena-slice
+**Plan branch origin:** 569e4f14c3fa022d942a41a57751fa3834def756
+**Originating Seller lane:** fix/zimbabwe-seller-reality-comms-hardening
+**Primary UAT vehicle:** 2016 Nissan Serena Highway Star — GFC27-027051
+**Governing project protocol:** docs/project-governance/MILESTONE_EXECUTION_PROTOCOL.md
+**Seller master tracker:** docs/seller/SELLER_UAT_REMEDIATION_EXECUTION_MASTER_PLAN.md
+**Zimbabwe Seller reality plan:** docs/seller/ZIMBABWE_SELLER_REALITY_COMMUNICATIONS_HARDENING_PLAN.md
+**Vehicle Passport lifecycle plan:** docs/vehicle-passport-lifecycle/CARUP_VEHICLE_PASSPORT_TRUST_LIFECYCLE_1_0_CANONICAL_PLAN.md
+**Verification/governance foundation:** docs/CARUP_VERIFICATION_GOVERNANCE_AUDIT.md
+**Authority risk register:** docs/hardening/AUTHORITY_AUDIT_REGISTER.md
+**Benchmark appendix:** docs/features/CARUP_OPERATIONS_CONTROL_PLANE_BENCHMARK_RESEARCH.md
 **Claude execution prompt:** docs/agent-prompts/CARUP_OPERATIONS_CONTROL_PLANE_SERENA_CLAUDE_START_PROMPT.md
 
 ---

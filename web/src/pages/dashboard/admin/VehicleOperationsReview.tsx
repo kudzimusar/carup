@@ -142,16 +142,28 @@ export default function VehicleOperationsReview() {
   const [authorityDecision, setAuthorityDecision] = useState('confirmed')
   const [authorityReason, setAuthorityReason] = useState('')
 
-  const load = useCallback(() => {
-    setLoading(true)
-    setLoadError(null)
-    fetchVehicleOperationsReview(vin)
-      .then((data) => setReview(data.review as unknown as OperationsReview))
-      .catch((err) => setLoadError(err instanceof Error ? err.message : 'Failed to load the review'))
-      .finally(() => setLoading(false))
-  }, [fetchVehicleOperationsReview, vin])
+  // Reloads bump a nonce; the effect performs every state transition in async
+  // continuations only (react-hooks/set-state-in-effect).
+  const [reloadNonce, setReloadNonce] = useState(0)
+  const load = useCallback(() => setReloadNonce((nonce) => nonce + 1), [])
 
-  useEffect(() => { load() }, [load])
+  useEffect(() => {
+    let cancelled = false
+    Promise.resolve().then(async () => {
+      if (cancelled) return
+      setLoading(true)
+      setLoadError(null)
+      try {
+        const data = await fetchVehicleOperationsReview(vin)
+        if (!cancelled) setReview(data.review as unknown as OperationsReview)
+      } catch (err) {
+        if (!cancelled) setLoadError(err instanceof Error ? err.message : 'Failed to load the review')
+      } finally {
+        if (!cancelled) setLoading(false)
+      }
+    })
+    return () => { cancelled = true }
+  }, [fetchVehicleOperationsReview, vin, reloadNonce])
 
   useEffect(() => {
     if (!correctingId || taxonomy.length > 0) return
