@@ -630,6 +630,12 @@ export class CommunicationNotificationService {
   }
 
   async listNotificationsForUser(userId) {
-    return this.repository.list('notification_queue', { recipient_user_id: userId }, { order: { column: 'created_at' }, limit: 100 });
+    // Transport delivery rows are not in-app notifications. Filtering at the source also keeps
+    // token-bearing security Email content out of the ordinary user's notification surface.
+    return this.repository.list(
+      'notification_queue',
+      { recipient_user_id: userId, channel: 'in_app' },
+      { order: { column: 'created_at' }, limit: 100 },
+    );
   }
 }

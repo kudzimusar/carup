@@ -27,6 +27,7 @@ export function createAuthEmailService({
     const queued = await notificationService.queueNotification({
       recipientUserId: user.id,
       notificationType: templateKey,
+      threadType: 'account',
       channel: 'email',
       templateKey,
       language: 'en',
