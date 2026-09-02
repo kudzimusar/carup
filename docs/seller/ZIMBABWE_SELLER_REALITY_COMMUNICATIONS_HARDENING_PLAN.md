@@ -1,9 +1,9 @@
 # Zimbabwe Seller Reality & Communications Hardening — Execution Plan
 
-**Status:** ACTIVE  
-**Parent tracker:** `docs/seller/SELLER_UAT_REMEDIATION_EXECUTION_MASTER_PLAN.md §0.8`  
-**Integration target:** `integration/vehicle-passport-v16-cert` / Draft PR #194  
-**Continuation branch:** `fix/zimbabwe-seller-reality-comms-hardening`  
+**Status:** ACTIVE
+**Parent tracker:** `docs/seller/SELLER_UAT_REMEDIATION_EXECUTION_MASTER_PLAN.md §0.8`
+**Integration target:** `integration/vehicle-passport-v16-cert` / Draft PR #194
+**Continuation branch:** `fix/zimbabwe-seller-reality-comms-hardening`
 **Frozen start:** `f180c47da644d75bea6a7ad67041c21a2a6bcdf4`
 
 This plan records the implementation detail for the 2026-09-02 owner-approved remediation. It does not replace the master tracker. A task is complete only when the matching ZR item in the master tracker is checked with evidence.
