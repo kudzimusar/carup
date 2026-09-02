@@ -3,11 +3,18 @@ name: Operations Serena Staging UAT
 # Operations Control Plane M7 — the real Serena (GFC27-027051) governed review →
 # Kingstone publish, on the exact-head governed candidate preview pair.
 #
-# Dispatch-only ON PURPOSE: this journey reviews and publishes the one real UAT
-# vehicle. The spec is state-aware/idempotent, but the decision to run it is an
-# operator action, never an automatic per-push side effect.
+# Deliberately narrow triggering: this journey reviews and publishes the one
+# real UAT vehicle, so it must never be an automatic per-push side effect.
+# workflow_dispatch becomes usable once this file reaches the default branch;
+# until then the pull_request trigger fires ONLY when this workflow or its spec
+# change — an explicit, reviewable act. The spec is state-aware/idempotent:
+# re-runs converge on the same final state instead of re-deciding it.
 on:
   workflow_dispatch: {}
+  pull_request:
+    paths:
+      - '.github/workflows/operations-serena-staging-uat.yml'
+      - 'tests/agents/43-operations-serena-staging.spec.ts'
 
 concurrency:
   group: operations-serena-staging-uat
@@ -21,8 +28,8 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 45
     env:
-      EXPECTED_HEAD_SHA: ${{ github.sha }}
-      CANDIDATE_BRANCH: ${{ github.ref_name }}
+      EXPECTED_HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+      CANDIDATE_BRANCH: ${{ github.event.pull_request.head.ref || github.ref_name }}
       STAGING_RUN_ID: serena-ops-${{ github.run_id }}-${{ github.run_attempt }}
       DIASPORA_STAGING_DATABASE_URL: ${{ secrets.DIASPORA_STAGING_DATABASE_URL }}
       EXPECTED_STAGING_PROJECT_REF: eoyenigwevnxwwhyhaer
