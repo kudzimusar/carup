@@ -2189,8 +2189,26 @@ export function useCarUpApi() {
     return request<any[]>('/service-history/me', { method: 'GET' })
   }, [request])
 
-  const fetchNotifications = useCallback(async (): Promise<any[]> => {
-    return request<any[]>('/notifications/me', { method: 'GET' })
+  const fetchNotifications = useCallback(async (): Promise<Array<{
+    id: string
+    read?: boolean
+    title?: string
+    message?: string
+    notification_type?: string
+    status?: string | null
+    priority?: string | null
+    channel?: 'in_app'
+    action_path?: string | null
+    created_at?: string | null
+  }>> => {
+    return request('/notifications/me', { method: 'GET' })
+  }, [request])
+
+  const markNotificationRead = useCallback(async (notificationId: string) => {
+    return request<{ notification: { id: string; read: boolean } }>(
+      `/notifications/${encodeURIComponent(notificationId)}/read`,
+      { method: 'POST' },
+    )
   }, [request])
 
   // ── Agent 8 Omnichannel Communication Engine ──
@@ -2686,6 +2704,7 @@ export function useCarUpApi() {
     saveVehicle,
     fetchServiceHistory,
     fetchNotifications,
+    markNotificationRead,
     fetchCommunicationThreads,
     fetchCommunicationThread,
     createCommunicationThread,

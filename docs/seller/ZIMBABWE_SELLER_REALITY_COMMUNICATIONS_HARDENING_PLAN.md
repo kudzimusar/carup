@@ -148,9 +148,9 @@ It does **not** by itself establish Zimbabwe customs clearance, CVR registration
 - [ ] Trust/readiness separation.
 - [ ] Evidence taxonomy expansion.
 - [ ] Seller Drive workspace service + current Serena folder organization.
-- [ ] Verification email delivery hardening.
-- [ ] Notification bell action/channel hardening.
-- [ ] Communications semantic separation.
+- [~] Verification email delivery hardening — auth mail now records Account activity semantics; physical provider proof still pending.
+- [~] Notification bell action/channel hardening — in-app-only safe projection, server read receipt and safe action routes implemented.
+- [~] Communications semantic separation — Account/security activity excluded from reply-capable conversation list; legacy auth threads are reclassified by migration.
 - [ ] Seller route failure/recovery regression remains green.
 - [ ] Targeted tests green.
 - [ ] Full affected certification green.

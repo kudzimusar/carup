@@ -177,14 +177,14 @@ This table is the mandatory roll call against the earlier `SELLER_MARKETPLACE_CO
   - Seller workspace hierarchy is keyed to stable CarUp user identity, with a vehicle child keyed to canonical vehicle identity. Originals are immutable; derived/redacted upload copies are separate; Drive never becomes the public evidence authority.
   - Acceptance: taxonomy tests + Drive workspace service tests + no credential/public-link leakage.
 
-- [ ] **ZR5. Restore external verification Email as the primary mailbox-verification journey.**
+- [~] **ZR5. Restore external verification Email as the primary mailbox-verification journey.**
   - Registration -> one-time token -> canonical Communications queue -> branded CarUp Security Email -> governed provider -> `/auth/verify-email`.
   - The registration response must distinguish provider acceptance/queued/failure truthfully.
   - Resend-verification remains anti-enumerating and idempotent enough for repeated user action.
   - Unverified users may preserve/resume Seller work, but consequential actions use the existing governed verification policy rather than treating an in-app message as proof of mailbox ownership.
   - Acceptance: unit/integration tests and an exact-head staging provider-delivery check using an authorized test inbox.
 
-- [ ] **ZR6. Split Notifications, Security actions and Conversations semantically.**
+- [~] **ZR6. Split Notifications, Security actions and Conversations semantically.**
   - Email-channel security notifications must not be rendered as ordinary in-app notification content carrying a token-bearing URL.
   - Notification bell rows have explicit safe actions/deep-links and meaningful truncation; clicking a row must not be inert.
   - `/dashboard/communications` remains the two-way conversation surface (Marketplace, Support, connected services), while account/security actions and one-way activity notifications are presented as such rather than generic chats.

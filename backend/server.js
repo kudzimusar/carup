@@ -3957,20 +3957,70 @@ app.get('/api/service-history/me', authorizeRole(['owner', 'dealer', 'admin']), 
   }
 })
 
-// GET /api/notifications/me - Get user notifications
+function ownerNotificationActionPath(notification = {}) {
+  const type = String(notification.notification_type || notification.type || '').toLowerCase()
+  if (type === 'marketplace_inquiry' || type === 'conversation_message') return '/dashboard/communications'
+  if (type === 'listing_moderation') return '/dashboard/listings'
+  if (type === 'evidence_review' || type === 'vehicle_trust_update' || type === 'ownership_transfer') return '/dashboard/garage'
+  return type === 'verification_decision' || type === 'safetrade_transaction' || type === 'escrow_status'
+    ? '/dashboard'
+    : null
+}
+
+function toOwnerNotification(row = {}) {
+  return {
+    id: row.id,
+    read: row.read === true,
+    title: row.title || 'CarUp notification',
+    message: row.message || '',
+    notification_type: row.notification_type || row.type || 'general',
+    status: row.status || null,
+    priority: row.priority || null,
+    channel: 'in_app',
+    action_path: ownerNotificationActionPath(row),
+    created_at: row.created_at || null,
+    updated_at: row.updated_at || null,
+  }
+}
+
+// In-app activity only. Email/SMS/WhatsApp rows are delivery records and may carry transport-only
+// content such as security action URLs; they must never be echoed into the notification bell.
 app.get('/api/notifications/me', authorizeRole(['owner', 'dealer', 'admin']), async (req, res) => {
   try {
+    const userId = String(req.userContext.id)
     const { data, error } = await supabase
       .from('notification_queue')
-      .select('*')
-      .eq('recipient_id', req.userContext.id)
+      .select('id, recipient_id, recipient_user_id, read, title, message, notification_type, type, status, priority, channel, created_at, updated_at')
+      .or(`recipient_user_id.eq.${userId},recipient_id.eq.${userId}`)
+      .eq('channel', 'in_app')
       .order('created_at', { ascending: false })
 
     if (error) throw error
-    res.json(data || [])
+    res.json((data || []).map(toOwnerNotification))
   } catch (error) {
     console.error('Error fetching notifications:', error)
     res.status(500).json({ error: error.message })
+  }
+})
+
+app.post('/api/notifications/:id/read', authorizeRole(['owner', 'dealer', 'admin']), async (req, res) => {
+  try {
+    const userId = String(req.userContext.id)
+    const { data, error } = await supabase
+      .from('notification_queue')
+      .update({ read: true, updated_at: new Date().toISOString() })
+      .eq('id', req.params.id)
+      .or(`recipient_user_id.eq.${userId},recipient_id.eq.${userId}`)
+      .eq('channel', 'in_app')
+      .select('id, recipient_id, recipient_user_id, read, title, message, notification_type, type, status, priority, channel, created_at, updated_at')
+      .maybeSingle()
+
+    if (error) throw error
+    if (!data) return res.status(404).json({ error: 'Notification not found.' })
+    return res.json({ notification: toOwnerNotification(data) })
+  } catch (error) {
+    console.error('Error marking notification read:', error)
+    return res.status(500).json({ error: error.message })
   }
 })
 
