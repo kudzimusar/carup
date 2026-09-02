@@ -148,7 +148,7 @@ It does **not** by itself establish Zimbabwe customs clearance, CVR registration
 - [ ] Trust/readiness separation.
 - [ ] Evidence taxonomy expansion.
 - [~] Seller Drive workspace service + current Serena folder organization — reusable service implemented; Serena hierarchy upgraded in Drive; source PDF split/upload still pending original-binary handoff.
-- [~] Verification email delivery hardening — auth mail now records Account activity semantics; physical provider proof still pending.
+- [~] Verification email delivery hardening — exact-head PR #205 workflow now performs a real registration send to the controlled CarUp certification mailbox and proves bell/Communications separation; provider + inbox receipt must be checked after the run.
 - [~] Notification bell action/channel hardening — in-app-only safe projection, server read receipt and safe action routes implemented.
 - [~] Communications semantic separation — Account/security activity excluded from reply-capable conversation list; legacy auth threads are reclassified by migration.
 - [ ] Seller route failure/recovery regression remains green.

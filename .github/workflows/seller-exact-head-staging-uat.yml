@@ -210,6 +210,133 @@ jobs:
           NODE
 
 
+      - name: Physical verification Email + notification separation proof
+        if: github.event.pull_request.number == 205
+        run: |
+          mkdir -p test-results
+          node --input-type=module <<'NODE'
+          import fs from 'node:fs'
+          import pg from 'pg'
+
+          const suffix = `${process.env.EXPECTED_HEAD_SHA.slice(0, 8)}-${process.env.GITHUB_RUN_ID || 'run'}`
+          // Controlled certification mailbox already used by CarUp provider certification. A unique
+          // plus-address keeps the run isolated without exposing an owner's personal mailbox in source.
+          const email = `eleven.eleven.testing+carup-pr205-${suffix}@gmail.com`
+          const password = `CarUp-UAT-${process.env.EXPECTED_HEAD_SHA.slice(0, 12)}-A9!`
+          const api = process.env.STAGING_API_URL.replace(/\/$/, '')
+
+          const registerResponse = await fetch(`${api}/auth/register`, {
+            method: 'POST',
+            headers: { 'content-type': 'application/json', 'user-agent': 'carup-pr205-email-uat' },
+            body: JSON.stringify({
+              name: 'CarUp PR205 Email UAT',
+              email,
+              password,
+              role: 'owner',
+            }),
+          })
+          const registerBody = await registerResponse.json()
+          if (!registerResponse.ok) {
+            throw new Error(`Physical Email UAT registration failed (${registerResponse.status}): ${registerBody?.error || 'unknown'}`)
+          }
+          if (registerBody?.email_verification?.status !== 'sent') {
+            throw new Error(`Verification Email was not provider-accepted as sent: ${registerBody?.email_verification?.status || 'missing'}`)
+          }
+          const userId = registerBody?.user?.id
+          const sessionToken = registerBody?.token
+          if (!userId || !sessionToken) throw new Error('Registration did not return the staging user/session needed for UAT.')
+
+          const authHeaders = { authorization: `Bearer ${sessionToken}` }
+          const [notificationsResponse, conversationsResponse] = await Promise.all([
+            fetch(`${api}/notifications/me`, { headers: authHeaders }),
+            fetch(`${api}/communications/threads`, { headers: authHeaders }),
+          ])
+          if (!notificationsResponse.ok) throw new Error(`Notification projection read failed: ${notificationsResponse.status}`)
+          if (!conversationsResponse.ok) throw new Error(`Communications projection read failed: ${conversationsResponse.status}`)
+          const notifications = await notificationsResponse.json()
+          const conversations = await conversationsResponse.json()
+
+          if ((notifications || []).some((row) => row.channel && row.channel !== 'in_app')) {
+            throw new Error('Notification bell projection leaked a transport delivery row.')
+          }
+          if (JSON.stringify(notifications).includes('/auth/verify-email') || JSON.stringify(notifications).includes('token=')) {
+            throw new Error('Notification bell projection leaked an auth action URL/token.')
+          }
+          if ((conversations?.threads || []).some((thread) => thread.thread_type === 'account' || thread.conversation_type === 'account')) {
+            throw new Error('Account/security activity leaked into the reply-capable Communications inbox.')
+          }
+
+          const dbUrl = process.env.DIASPORA_STAGING_DATABASE_URL || ''
+          const cleaned = dbUrl.replace(/([?&])sslmode=[^&]*&?/i, '$1').replace(/[?&]$/, '')
+          const client = new pg.Client({ connectionString: cleaned, ssl: { rejectUnauthorized: false } })
+          await client.connect()
+          let emailRow
+          let accountThread
+          try {
+            const emailResult = await client.query(
+              `select id, thread_id, status, channel, provider, template_key, payload
+                 from public.notification_queue
+                where recipient_user_id=$1
+                  and channel='email'
+                  and template_key='auth_email_verification_v1'
+                order by created_at desc
+                limit 1`,
+              [userId],
+            )
+            emailRow = emailResult.rows[0] || null
+            if (!emailRow) throw new Error('Canonical verification Email delivery row was not persisted.')
+            if (emailRow.channel !== 'email') throw new Error('Verification delivery row has the wrong channel.')
+            const actionUrl = String(emailRow.payload?.action_url || '')
+            if (!actionUrl.includes('/auth/verify-email') || !actionUrl.includes('token=')) {
+              throw new Error('Verification Email row does not contain the expected private action URL.')
+            }
+
+            const threadResult = await client.query(
+              `select id, thread_type
+                 from public.message_threads
+                where id=$1
+                limit 1`,
+              [emailRow.thread_id],
+            )
+            accountThread = threadResult.rows[0] || null
+            if (accountThread?.thread_type !== 'account') {
+              throw new Error(`Verification Email was not recorded as Account activity (got ${accountThread?.thread_type || 'missing'}).`)
+            }
+          } finally {
+            await client.end()
+          }
+
+          const receipt = {
+            exact_head_sha: process.env.EXPECTED_HEAD_SHA,
+            recipient: email,
+            registration_http_status: registerResponse.status,
+            registration_delivery_status: registerBody.email_verification.status,
+            canonical_email_row: {
+              id: emailRow.id,
+              status: emailRow.status,
+              channel: emailRow.channel,
+              provider: emailRow.provider,
+              template_key: emailRow.template_key,
+              action_url_present: true,
+            },
+            account_thread_type: accountThread.thread_type,
+            bell_rows: Array.isArray(notifications) ? notifications.length : null,
+            bell_contains_transport_delivery: false,
+            bell_contains_auth_token: false,
+            communications_contains_account_activity: false,
+          }
+          fs.writeFileSync('test-results/seller-verification-email-physical-uat.json', JSON.stringify(receipt, null, 2))
+          console.log(JSON.stringify({
+            exact_head_sha: receipt.exact_head_sha,
+            recipient: receipt.recipient,
+            registration_delivery_status: receipt.registration_delivery_status,
+            canonical_email_provider: receipt.canonical_email_row.provider,
+            account_thread_type: receipt.account_thread_type,
+            bell_contains_auth_token: false,
+            communications_contains_account_activity: false,
+          }))
+          NODE
+
       - name: Freeze exact candidate bundle
         run: |
           node --input-type=module <<'NODE'
@@ -515,5 +642,6 @@ jobs:
             test-results/seller-automation-inventory.json
             test-results/seller-marketplace-population-semantics.json
             test-results/seller-intelligence-event-chain.json
+            test-results/seller-verification-email-physical-uat.json
           if-no-files-found: warn
           retention-days: 14

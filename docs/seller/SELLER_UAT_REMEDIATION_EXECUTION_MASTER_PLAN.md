@@ -185,6 +185,7 @@ This table is the mandatory roll call against the earlier `SELLER_MARKETPLACE_CO
   - Resend-verification remains anti-enumerating and idempotent enough for repeated user action.
   - Unverified users may preserve/resume Seller work, but consequential actions use the existing governed verification policy rather than treating an in-app message as proof of mailbox ownership.
   - Acceptance: unit/integration tests and an exact-head staging provider-delivery check using an authorized test inbox.
+  - **Physical gate wired:** PR #205 exact-head staging now sends one verification Email to a unique plus-address of the controlled CarUp certification inbox, asserts the API reports provider acceptance, asserts the email row remains canonical/private, and asserts neither the notification bell nor the reply-capable Communications inbox exposes the security action.
 
 - [~] **ZR6. Split Notifications, Security actions and Conversations semantically.**
   - Email-channel security notifications must not be rendered as ordinary in-app notification content carrying a token-bearing URL.
