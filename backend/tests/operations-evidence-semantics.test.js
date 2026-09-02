@@ -14,6 +14,7 @@
  */
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 
 process.env.NODE_ENV = 'test';
 process.env.SUPABASE_URL = process.env.SUPABASE_URL || 'http://localhost:54321';
@@ -230,6 +231,7 @@ function makeMockClient({ failAuditInsert = false } = {}) {
       evidence_type: 'registration_document',
       evidence_class: 'registration', evidence_subtype: 'registration_book',
       uploaded_by: 'u_seller',
+      visibility_level: 'public_safe',
       metadata: { existing: true },
     }],
     trust_audit_events: [],
@@ -377,4 +379,126 @@ test('timeline items label canonically-classified rows by their life-stage meani
     uploaded_at: '2026-01-01T00:00:00Z', verification_status: 'pending',
   });
   assert.equal(legacyItem.label, 'Registration Document');
+});
+
+// ===========================================================================================
+// M7 — PUBLISHING A SOURCE DOCUMENT IS A GOVERNED DECISION
+// ===========================================================================================
+// The upload route defaulted document artifacts to 'restricted', but the default was decorative:
+// `req.body.visibility_level || <default>` let the request body win outright, and the web uploader
+// initialised that field to 'public_safe' for every artifact. The real Serena's Tanzania T1 is
+// published in staging through exactly that path — a provenance chain whose only event is the
+// owner's own upload, with no reviewer decision anywhere in it. §3.11/G7 forbid a seller
+// self-certifying publication, and the manual's §13 table lists the T1 as Restricted.
+test('an uploader cannot publish a source document by asking for it', () => {
+  const asSeller = evidenceService.resolveEvidenceVisibility({
+    requested: 'public_safe',
+    isDocument: true,
+    mayPublish: false,
+  });
+  assert.equal(asSeller.visibility, 'restricted', 'a seller may not widen a document to public');
+  assert.equal(asSeller.refused, true, 'the refusal must be reported so it can be recorded');
+  assert.equal(asSeller.requested, 'public_safe');
+});
+
+test('narrowing is always the uploader\'s to choose', () => {
+  // Withholding more is never a privacy risk, so it needs no capability.
+  for (const level of ['private', 'government_only']) {
+    const result = evidenceService.resolveEvidenceVisibility({ requested: level, isDocument: true, mayPublish: false });
+    assert.equal(result.visibility, level, `an uploader may narrow a document to ${level}`);
+    assert.equal(result.refused, false);
+  }
+});
+
+test('a reviewer holding the evidence review capability may publish a document', () => {
+  const asReviewer = evidenceService.resolveEvidenceVisibility({
+    requested: 'public_safe',
+    isDocument: true,
+    mayPublish: true,
+  });
+  assert.equal(asReviewer.visibility, 'public_safe');
+  assert.equal(asReviewer.refused, false);
+});
+
+test('photos are unaffected — they are public by default and stay that way', () => {
+  const photo = evidenceService.resolveEvidenceVisibility({ requested: 'public_safe', isDocument: false, mayPublish: false });
+  assert.equal(photo.visibility, 'public_safe');
+  assert.equal(photo.refused, false);
+  const narrowed = evidenceService.resolveEvidenceVisibility({ requested: 'restricted', isDocument: false, mayPublish: false });
+  assert.equal(narrowed.visibility, 'restricted', 'a seller may still withhold their own photo');
+});
+
+test('the upload route decides visibility on the server, not from the body', () => {
+  const routes = readFileSync(new URL('../routes/vehiclesRoutes.js', import.meta.url), 'utf8');
+  // The precise defect shape: the body ORed directly against a default.
+  assert.doesNotMatch(
+    routes,
+    /visibility_level\s*\|\|\s*req\.body\.visibilityLevel\s*\|\|\s*\(/,
+    'visibility must not be taken from the request body with a mere fallback default',
+  );
+  assert.match(routes, /resolveEvidenceVisibility\(\{/, 'the route must use the governed resolver');
+  assert.match(routes, /visibility_request_refused/, 'a clamped request must be recorded on the row');
+});
+
+test('a governed correction can withdraw a document the uploader was never entitled to publish', async () => {
+  // Until now there was NO post-upload writer for visibility_level anywhere in the backend, so a
+  // document published by seller self-certification could only be withdrawn by a service-role SQL
+  // write — no actor, no reason, no audit. That is the state the real Serena's Tanzania T1 is in.
+  const client = makeMockClient();
+  const result = await correction.correctEvidenceClassification(client, {
+    vin: 'GFC27-027051', evidenceId: 'ev-1',
+    evidenceClass: 'import', evidenceSubtype: 'transit_declaration',
+    visibilityLevel: 'restricted',
+    reason: 'Tanzania T1 is a transit document; §13 lists it Restricted and no reviewer approved publication',
+    actor: REVIEWER,
+  });
+  assert.equal(result.changed, true);
+
+  const row = client._tables.vehicle_evidence[0];
+  assert.equal(row.visibility_level, 'restricted', 'the document must be withdrawn from public view');
+
+  // The withdrawal is attributable on the same terms as any other governed correction.
+  const history = row.metadata.classification_history.at(-1);
+  assert.equal(history.previous_visibility_level, 'public_safe');
+  assert.equal(history.corrected_visibility_level, 'restricted');
+  assert.equal(history.corrected_by, 'u_reviewer');
+
+  const audit = client._tables.trust_audit_events.at(-1);
+  assert.equal(audit.previous_value.visibility_level, 'public_safe');
+  assert.equal(audit.new_value.visibility_level, 'restricted');
+});
+
+test('a visibility correction is refused without a reason, and an unknown level is rejected', async () => {
+  await assert.rejects(
+    correction.correctEvidenceClassification(makeMockClient(), {
+      vin: 'GFC27-027051', evidenceId: 'ev-1',
+      evidenceClass: 'import', evidenceSubtype: 'transit_declaration',
+      visibilityLevel: 'restricted',
+      reason: '   ',
+      actor: REVIEWER,
+    }),
+    /reason is required/i,
+  );
+  await assert.rejects(
+    correction.correctEvidenceClassification(makeMockClient(), {
+      vin: 'GFC27-027051', evidenceId: 'ev-1',
+      evidenceClass: 'import', evidenceSubtype: 'transit_declaration',
+      visibilityLevel: 'world_readable',
+      reason: 'a real reason',
+      actor: REVIEWER,
+    }),
+    /Unknown visibility_level/,
+  );
+});
+
+test('omitting visibility corrects only the classification and leaves publication untouched', async () => {
+  const client = makeMockClient();
+  await correction.correctEvidenceClassification(client, {
+    vin: 'GFC27-027051', evidenceId: 'ev-1',
+    evidenceClass: 'import', evidenceSubtype: 'commercial_invoice',
+    reason: 'classification only',
+    actor: REVIEWER,
+  });
+  assert.equal(client._tables.vehicle_evidence[0].visibility_level, 'public_safe',
+    'a classification-only correction must not silently change who can see the document');
 });

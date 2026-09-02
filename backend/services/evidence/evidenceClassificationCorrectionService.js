@@ -26,6 +26,14 @@ import { logAuditEvent } from '../auditLogger.js';
 
 export const EVIDENCE_CLASSIFICATION_CORRECTED_EVENT = 'EVIDENCE_CLASSIFICATION_CORRECTED';
 
+/** The visibility vocabulary a governed correction may set, mirroring the upload route's. */
+export const CORRECTABLE_VISIBILITY_LEVELS = Object.freeze([
+  'public_safe',
+  'restricted',
+  'private',
+  'government_only',
+]);
+
 export class ClassificationCorrectionError extends Error {
   constructor(message, code = 'CLASSIFICATION_CORRECTION_INVALID', status = 400) {
     super(message);
@@ -50,6 +58,7 @@ export async function correctEvidenceClassification(client, {
   evidenceId,
   evidenceClass,
   evidenceSubtype,
+  visibilityLevel = null,
   reason,
   actor,
   requestContext = {},
@@ -71,10 +80,19 @@ export async function correctEvidenceClassification(client, {
       `Subtype '${evidenceSubtype}' is not valid for class '${evidenceClass}'`
     );
   }
+  // Visibility is corrected through the SAME governed primitive as classification, because it is
+  // the same kind of mistake: a record whose published form does not match what it actually is.
+  // There was no post-upload writer for it at all, so a document published by an uploader who was
+  // never entitled to publish it could not be withdrawn through the product — only by a
+  // service-role write with no reason, no actor and no audit. Optional: omit it to correct only the
+  // classification.
+  if (visibilityLevel !== null && !CORRECTABLE_VISIBILITY_LEVELS.includes(visibilityLevel)) {
+    throw new ClassificationCorrectionError(`Unknown visibility_level '${visibilityLevel}'`);
+  }
 
   const { data: row, error: rowErr } = await client
     .from('vehicle_evidence')
-    .select('id, vin, evidence_type, evidence_class, evidence_subtype, uploaded_by, metadata')
+    .select('id, vin, evidence_type, evidence_class, evidence_subtype, visibility_level, uploaded_by, metadata')
     .eq('id', evidenceId)
     .eq('vin', vin)
     .maybeSingle();
@@ -94,8 +112,15 @@ export async function correctEvidenceClassification(client, {
     );
   }
 
-  if (row.evidence_class === evidenceClass && row.evidence_subtype === evidenceSubtype) {
-    return { changed: false, evidenceId, evidence_class: evidenceClass, evidence_subtype: evidenceSubtype };
+  const visibilityChanges = visibilityLevel !== null && row.visibility_level !== visibilityLevel;
+  if (row.evidence_class === evidenceClass && row.evidence_subtype === evidenceSubtype && !visibilityChanges) {
+    return {
+      changed: false,
+      evidenceId,
+      evidence_class: evidenceClass,
+      evidence_subtype: evidenceSubtype,
+      visibility_level: row.visibility_level ?? null,
+    };
   }
 
   const correctedAt = new Date().toISOString();
@@ -109,6 +134,12 @@ export async function correctEvidenceClassification(client, {
     corrected_at: correctedAt,
     reason: String(reason).trim(),
     request_id: requestContext.requestId ?? null,
+    ...(visibilityChanges
+      ? {
+        previous_visibility_level: row.visibility_level ?? null,
+        corrected_visibility_level: visibilityLevel,
+      }
+      : {}),
   };
 
   // Audit FIRST, fail closed: a correction that cannot be attributed does not happen.
@@ -123,10 +154,12 @@ export async function correctEvidenceClassification(client, {
     previousValue: {
       evidence_class: row.evidence_class ?? null,
       evidence_subtype: row.evidence_subtype ?? null,
+      ...(visibilityChanges ? { visibility_level: row.visibility_level ?? null } : {}),
     },
     newValue: {
       evidence_class: evidenceClass,
       evidence_subtype: evidenceSubtype,
+      ...(visibilityChanges ? { visibility_level: visibilityLevel } : {}),
     },
     reason: String(reason).trim(),
     sourceRoute: requestContext.sourceRoute ?? '/api/vehicles/:vin/evidence/:evidenceId/classification',
@@ -155,12 +188,13 @@ export async function correctEvidenceClassification(client, {
     .update({
       evidence_class: evidenceClass,
       evidence_subtype: evidenceSubtype,
+      ...(visibilityChanges ? { visibility_level: visibilityLevel } : {}),
       metadata: nextMetadata,
       updated_at: correctedAt,
     })
     .eq('id', evidenceId)
     .eq('vin', vin)
-    .select('id, vin, evidence_type, evidence_class, evidence_subtype, metadata')
+    .select('id, vin, evidence_type, evidence_class, evidence_subtype, visibility_level, metadata')
     .single();
   if (updateErr) {
     throw new ClassificationCorrectionError(`Classification update failed: ${updateErr.message}`, 'CLASSIFICATION_CORRECTION_WRITE_FAILED', 500);

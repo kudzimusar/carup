@@ -140,6 +140,38 @@ export function isDocumentUpload(normalized) {
   });
 }
 
+/**
+ * Exposure ordering for the evidence visibility vocabulary, least to most public. `government_only`
+ * is narrower than `private`: it is readable by one authority rather than by the vehicle's own
+ * people.
+ */
+export const EVIDENCE_VISIBILITY_EXPOSURE = Object.freeze({
+  government_only: 0,
+  private: 1,
+  restricted: 2,
+  public_safe: 3,
+});
+
+/**
+ * Decide an evidence row's visibility. Publishing a source document is a governed decision, so an
+ * uploader may narrow the server's default freely but may only widen it while holding the evidence
+ * review capability.
+ *
+ * Returns the level to apply and, when a widening request was refused, what was asked for — the
+ * caller records that on the row so a clamp is visible to review instead of silent.
+ */
+export function resolveEvidenceVisibility({ requested = null, isDocument = false, mayPublish = false } = {}) {
+  const applied = isDocument ? 'restricted' : 'public_safe';
+  if (!requested || requested === applied) return { visibility: applied, refused: false, requested };
+
+  const requestedExposure = EVIDENCE_VISIBILITY_EXPOSURE[requested];
+  if (requestedExposure === undefined) return { visibility: applied, refused: false, requested };
+
+  const widens = requestedExposure > EVIDENCE_VISIBILITY_EXPOSURE[applied];
+  if (widens && !mayPublish) return { visibility: applied, refused: true, requested };
+  return { visibility: requested, refused: false, requested };
+}
+
 export function parseBase64Payload(base64Str) {
   const matches = String(base64Str || '').match(/^data:([A-Za-z0-9.+/-]+);base64,(.+)$/);
   if (!matches || matches.length !== 3) {

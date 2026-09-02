@@ -137,6 +137,7 @@ export default function VehicleOperationsReview() {
   const [taxonomy, setTaxonomy] = useState<Array<{ evidence_class: string; subtypes: Array<{ subtype_code: string; label: string }> }>>([])
   const [correctionClass, setCorrectionClass] = useState('')
   const [correctionSubtype, setCorrectionSubtype] = useState('')
+  const [correctionVisibility, setCorrectionVisibility] = useState('')
 
   // Seller authority decision state.
   const [authorityDecision, setAuthorityDecision] = useState('confirmed')
@@ -199,8 +200,11 @@ export default function VehicleOperationsReview() {
     try {
       await correctEvidenceClassification(vin, item.id, {
         evidence_class: correctionClass, evidence_subtype: correctionSubtype, reason,
+        ...(correctionVisibility ? { visibility_level: correctionVisibility } : {}),
       })
-      toast.success('Classification corrected — the original interpretation is preserved in history')
+      toast.success(correctionVisibility
+        ? 'Record corrected — the previous interpretation and visibility are preserved in history'
+        : 'Classification corrected — the original interpretation is preserved in history')
       setCorrectingId(null); setCorrectionClass(''); setCorrectionSubtype('')
       load()
     } catch (err) {
@@ -354,7 +358,8 @@ export default function VehicleOperationsReview() {
                           </p>
                         )}
 
-                        {(can.has('evidence.verify') || can.has('evidence.correct_classification')) && item.verification_status === 'pending' && (
+                        {((can.has('evidence.verify') && item.verification_status === 'pending')
+                          || can.has('evidence.correct_classification')) && (
                           <div className="mt-3 space-y-2">
                             <Textarea
                               placeholder="Reviewer note / reason (required for corrections and rejections)"
@@ -363,7 +368,7 @@ export default function VehicleOperationsReview() {
                               className="min-h-[56px] text-sm"
                             />
                             <div className="flex flex-wrap gap-2">
-                              {can.has('evidence.verify') && (
+                              {can.has('evidence.verify') && item.verification_status === 'pending' && (
                                 <>
                                   <Button size="sm" className="bg-green-700 hover:bg-green-800 text-white gap-1" disabled={busyId === item.id} onClick={() => decideEvidence(item, 'approve')}>
                                     <CheckCircle className="w-3.5 h-3.5" /> Verify
@@ -374,13 +379,13 @@ export default function VehicleOperationsReview() {
                                 </>
                               )}
                               {can.has('evidence.correct_classification') && correctingId !== item.id && (
-                                <Button size="sm" variant="outline" onClick={() => { setCorrectingId(item.id); setCorrectionClass(item.evidence_class ?? ''); setCorrectionSubtype('') }}>
-                                  Correct classification
+                                <Button size="sm" variant="outline" onClick={() => { setCorrectingId(item.id); setCorrectionClass(item.evidence_class ?? ''); setCorrectionSubtype(''); setCorrectionVisibility(item.visibility_level ?? '') }}>
+                                  Correct record
                                 </Button>
                               )}
                             </div>
                             {correctingId === item.id && (
-                              <div className="grid sm:grid-cols-[1fr_1fr_auto_auto] gap-2 items-end" data-testid="ops-correction-editor">
+                              <div className="grid sm:grid-cols-[1fr_1fr_1fr_auto_auto] gap-2 items-end" data-testid="ops-correction-editor">
                                 <div>
                                   <Label className="text-xs text-gray-500">Life stage</Label>
                                   <select
@@ -408,6 +413,24 @@ export default function VehicleOperationsReview() {
                                     {subtypesForCorrection.map((s) => (
                                       <option key={s.subtype_code} value={s.subtype_code}>{s.label}</option>
                                     ))}
+                                  </select>
+                                </div>
+                                <div>
+                                  {/* Publishing a source document is a reviewer decision. Leaving this
+                                      unchanged corrects only the classification. */}
+                                  <Label className="text-xs text-gray-500">Visibility</Label>
+                                  <select
+                                    aria-label="Corrected visibility"
+                                    data-testid="ops-correction-visibility"
+                                    className="flex h-9 w-full rounded-md border border-gray-200 bg-white px-2 text-sm"
+                                    value={correctionVisibility}
+                                    onChange={(e) => setCorrectionVisibility(e.target.value)}
+                                  >
+                                    <option value="">Leave unchanged</option>
+                                    <option value="public_safe">Public-safe</option>
+                                    <option value="restricted">Restricted</option>
+                                    <option value="private">Private</option>
+                                    <option value="government_only">Government only</option>
                                   </select>
                                 </div>
                                 <Button size="sm" disabled={busyId === item.id} onClick={() => submitCorrection(item)} className="bg-orange-700 hover:bg-orange-800 text-white">

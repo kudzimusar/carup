@@ -349,3 +349,36 @@ test('a stated registration stage re-materializes canonical Trust (stale-limitat
   const refreshBlock = server.slice(server.search(guarded), server.search(guarded) + 600);
   assert.match(refreshBlock, /catch/, 'the refresh must be best-effort and never fail the save');
 });
+
+test('publication re-materializes the canonical position before the listing goes public', async () => {
+  // Refreshing on the seller save path closes the case where the seller states a stage. It does NOT
+  // close the general one: ANY governed fact recorded after the last stamp leaves the listing
+  // publishing a conclusion older than its own facts. GFC27-027051 published
+  // "Zimbabwe registration stage has not been established from a recorded claim" while the same
+  // payload's claim block reported that stage as recorded — one document contradicting itself.
+  //
+  // Publication is the moment CarUp asserts a public position, so it is the correct barrier: the
+  // stamp a buyer reads is re-derived at the transition that makes it readable.
+  const { readFileSync } = await import('node:fs');
+  const routes = readFileSync(new URL('../routes/vehiclesRoutes.js', import.meta.url), 'utf8');
+
+  const publishStart = routes.indexOf("router.post('/api/vehicles/:vin/publish'");
+  assert.ok(publishStart > -1, 'the publish route must remain statically locatable');
+  const publishRoute = routes.slice(publishStart, routes.indexOf("router.post('/api/vehicles/:vin/unpublish'"));
+
+  assert.match(publishRoute, /await refreshCanonicalTrust\(vin\)/,
+    'publishing must re-materialize the canonical Trust position');
+
+  // Ordering matters: the stamp must be derived from the row AFTER it becomes published, and the
+  // refresh must never be able to refuse a legitimate publication.
+  const updateAt = publishRoute.indexOf("publication_status: 'published' })");
+  const refreshAt = publishRoute.indexOf('await refreshCanonicalTrust(vin)');
+  assert.ok(updateAt > -1 && refreshAt > updateAt,
+    'the refresh must follow the publication state change, not precede it');
+  assert.match(publishRoute.slice(refreshAt - 60, refreshAt + 220), /try \{[\s\S]*catch/,
+    'the refresh must be best-effort so it can never refuse a legitimate publication');
+
+  // It must remain the ONE canonical writer (INV-TRUST-2) — publishing may not stamp a score itself.
+  assert.doesNotMatch(publishRoute, /trust_score:\s*[^,\n}]/,
+    'the publish route must never write a trust score directly');
+});

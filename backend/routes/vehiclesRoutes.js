@@ -28,6 +28,7 @@ import {
   evidenceToTimelineItem,
   evidenceTypeLabel,
   isDocumentUpload,
+  resolveEvidenceVisibility,
   isSupportedMimeType,
   normalizeEvidenceRecord,
   parseBase64Payload,
@@ -58,6 +59,7 @@ import { withUploadIdempotency } from '../services/evidence/uploadIdempotency.js
 import { emitDomainEvent } from '../services/eventBus/eventBusService.js';
 import {
   OPERATIONS_CAPABILITIES,
+  hasOperationsCapability,
   requireOperationsCapability,
 } from '../services/operations/operationsAuthorizationService.js';
 import { getSourceByCode } from '../services/evidence/sourceRegistryService.js';
@@ -271,6 +273,24 @@ router.post('/api/vehicles/:vin/publish', authorizeRole(['owner', 'dealer', 'adm
     .update({ publication_status: 'published' })
     .eq('vin', vin);
   if (error) throw new DatabaseError(error.message);
+
+  // Publication is the moment CarUp asserts a public position, so it is where the derived position
+  // must be made current. Without this, a listing goes public carrying a Trust conclusion computed
+  // BEFORE its present facts: the real UAT vehicle GFC27-027051 published
+  // "Zimbabwe registration stage has not been established from a recorded claim" while its own
+  // claim block simultaneously reported the stage as recorded from a seller declaration. One
+  // payload, two contradictory sentences, because the stamp predated the stage being recorded.
+  //
+  // This invents nothing and reviews nothing. refreshCanonicalTrust is the single canonical writer
+  // (INV-TRUST-2) and recomputes ONLY the derived stamp from facts already recorded by governed
+  // paths. It is deliberately best-effort and placed AFTER the state change, exactly as at evidence
+  // review: the publication decision is the durable fact, the stamp is derived and can always be
+  // re-materialized, so a refresh failure must never refuse a legitimate publication.
+  try {
+    await refreshCanonicalTrust(vin);
+  } catch (trustError) {
+    console.warn('[Trust] publication refresh failed:', trustError?.message || trustError);
+  }
 
   auditPublicationChange(req, vin, 'VEHICLE_LISTING_PUBLISHED', vehicle.publication_status, 'published');
   emitListingPublished({
@@ -580,13 +600,34 @@ async function insertEvidenceFromRequest(req, vin, { requireVehicleId = false } 
     if (!claim) throw scopeError;
   }
 
-  // Canonical-aware default: any document artifact (canonical subtype flag or
-  // legacy document type) defaults to restricted; photos default public_safe.
-  const visibilityLevel = req.body.visibility_level || req.body.visibilityLevel
-    || (isDocumentUpload(normalized) ? 'restricted' : 'public_safe');
-  if (!allowedVisibilities.includes(visibilityLevel)) {
-    throw new ValidationError(`Invalid visibility level: ${visibilityLevel}`);
+  const requestedVisibility = req.body.visibility_level || req.body.visibilityLevel || null;
+  if (requestedVisibility && !allowedVisibilities.includes(requestedVisibility)) {
+    throw new ValidationError(`Invalid visibility level: ${requestedVisibility}`);
   }
+
+  // Canonical-aware default: any document artifact (canonical subtype flag or legacy document type)
+  // defaults to restricted; photos default public_safe.
+  //
+  // Publishing a source document is a GOVERNED decision, not an uploader preference. That default
+  // was never a control: the request body won outright, so an uploader could hand back
+  // 'public_safe' for a document the taxonomy had just defaulted to restricted — and the web
+  // uploader did exactly that, initialising the field to 'public_safe' for every artifact. The real
+  // Serena's Tanzania T1 reached staging published that way, from a provenance chain whose only
+  // event is the owner's own upload. No reviewer ever made that publication decision, which is
+  // precisely the seller self-certification §3.11/G7 forbid. A client-side default is not a control;
+  // the server has to be the one that decides.
+  //
+  // The rule is one-directional. Requesting a MORE restrictive level than the server default is
+  // always honoured — withholding more is never a privacy risk. Requesting a MORE public one is
+  // honoured only for an actor holding the evidence-review capability, which no seller has. Anyone
+  // else is clamped back to the default rather than refused, because the artifact itself is
+  // legitimate and losing the upload would punish the seller for a client's choice; the refusal is
+  // recorded on the row instead, so it is visible to review rather than silent.
+  const { visibility: visibilityLevel, refused: visibilityRefused } = resolveEvidenceVisibility({
+    requested: requestedVisibility,
+    isDocument: isDocumentUpload(normalized),
+    mayPublish: hasOperationsCapability(req.userContext, OPERATIONS_CAPABILITIES.VEHICLE_EVIDENCE_REVIEW),
+  });
 
   let mimeType = req.body.mime_type || req.body.mimeType || null;
   let fileBuffer = null;
@@ -698,6 +739,17 @@ async function insertEvidenceFromRequest(req, vin, { requireVehicleId = false } 
     req.headers['idempotency-key'] || req.headers['x-idempotency-key'] ||
     req.body.idempotency_key || req.body.idempotencyKey || null;
   if (clientIdempotencyKey) metadata.idempotency_key = clientIdempotencyKey;
+
+  // A clamped publication request is recorded, never silently dropped: review needs to see that an
+  // uploader asked for a wider audience than their authority allows, and a stale client that keeps
+  // asking should be visible rather than invisible.
+  if (visibilityRefused) {
+    metadata.visibility_request_refused = {
+      requested: requestedVisibility,
+      applied: visibilityLevel,
+      reason: 'publishing a source document is a governed decision; uploader lacks evidence review capability',
+    };
+  }
 
   // Milestone 1: resolve the source registry entry (best-effort) and compute the
   // taxonomy + provenance columns (perceptual hash, event date, odometer, etc.).
@@ -1268,6 +1320,10 @@ router.patch(
       evidenceId,
       evidenceClass: req.body.evidence_class || req.body.evidenceClass,
       evidenceSubtype: req.body.evidence_subtype || req.body.evidenceSubtype,
+      // Optional. Correcting what a record IS and correcting how widely it is published are the
+      // same governed act over the same row, so they share one reason, one audit event and one
+      // history entry rather than needing a second endpoint.
+      visibilityLevel: req.body.visibility_level || req.body.visibilityLevel || null,
       reason: req.body.reason,
       actor: {
         id: req.userContext.id,

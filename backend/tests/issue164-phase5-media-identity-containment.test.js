@@ -253,8 +253,30 @@ function extractQueryChains(code, table) {
     while (end < code.length) {
       const ch = code[end];
       if (ch === '(') depth += 1;
-      else if (ch === ')') depth -= 1;
-      else if (ch === ';' && depth <= 0) break;
+      else if (ch === ')') {
+        depth -= 1;
+        // A method chain ends where the chaining stops, NOT at the next semicolon. Terminating on
+        // `;` assumes semicolons exist: backend/server.js is written without them, so a chain ran
+        // on for ~185 lines and swallowed a `.eq('id', req.params.id)` belonging to an unrelated
+        // notification_queue handler. The scanner then reported the vehicles query as keyed by a
+        // row identity and this guard failed on a query that does not exist. Look past whitespace
+        // (and line comments, which may sit between chained calls) for the next `.`; anything else
+        // means the chain is over.
+        if (depth <= 0) {
+          let peek = end + 1;
+          for (;;) {
+            while (peek < code.length && /\s/.test(code[peek])) peek += 1;
+            if (code.startsWith('//', peek)) {
+              const lineEnd = code.indexOf('\n', peek);
+              if (lineEnd === -1) { peek = code.length; break; }
+              peek = lineEnd + 1;
+              continue;
+            }
+            break;
+          }
+          if (code[peek] !== '.') { end += 1; break; }
+        }
+      } else if (ch === ';' && depth <= 0) break;
       end += 1;
     }
     chains.push(code.slice(start, end).replace(/\s+/g, ' ').trim());
@@ -270,6 +292,61 @@ function filterColumnsOf(chain) {
   }
   return columns;
 }
+
+// ===========================================================================================
+// SUITE 0 — THE SCANNER ITSELF
+// ===========================================================================================
+// A static guard is only as good as its parser. This suite exists because the chain extractor was
+// silently wrong: it terminated on `;`, and in semicolon-free source a chain absorbed unrelated
+// statements, so the guard reported a filter that no vehicles query performed. Correcting a false
+// positive is worthless if it introduces a false negative, so both directions are pinned here.
+describe('Phase 5 containment — the chain scanner reports what the code actually does', () => {
+
+  it('a chain ends where the chaining ends, in semicolon-free source', () => {
+    // Verbatim shape of the /api/vehicles/owned handler: no semicolons, and a later unrelated
+    // handler that filters a DIFFERENT table by row id.
+    const code = [
+      "const { data, error } = await supabase",
+      "  .from('vehicles')",
+      "  .select('*')",
+      "  .or(`owner_id.eq.${req.userContext.id}`)",
+      "if (error) throw error",
+      "await supabase",
+      "  .from('notification_queue')",
+      "  .update({ read: true })",
+      "  .eq('id', req.params.id);",
+    ].join('\n');
+
+    const chains = extractQueryChains(code, 'vehicles');
+    assert.equal(chains.length, 1);
+    assert.ok(!chains[0].includes('notification_queue'),
+      'the vehicles chain must not absorb a following statement on another table');
+    assert.deepEqual(filterColumnsOf(chains[0]), [],
+      'the vehicles query filters on nothing; reporting `id` here is the false positive');
+  });
+
+  it('it still sees a real filter — on both semicolon styles', () => {
+    for (const terminator of [';', '']) {
+      const code = `const x = await supabase.from('vehicles').select('*').eq('primary_image_id', req.params.imageId)${terminator}\nreturn x`;
+      const [chain] = extractQueryChains(code, 'vehicles');
+      assert.deepEqual(filterColumnsOf(chain), ['primary_image_id'],
+        `a genuine media-identity filter must still be detected (terminator: ${JSON.stringify(terminator)})`);
+    }
+  });
+
+  it('it keeps a multi-predicate chain whole across line comments', () => {
+    const code = [
+      "await supabase",
+      "  .from('vehicles')",
+      "  // scoped to the caller",
+      "  .eq('owner_id', id)",
+      "  .eq('vin', vin)",
+      "return done",
+    ].join('\n');
+    const [chain] = extractQueryChains(code, 'vehicles');
+    assert.deepEqual(filterColumnsOf(chain), ['owner_id', 'vin']);
+  });
+});
 
 // ===========================================================================================
 // SUITE 1 — NOTHING ACCEPTS A MEDIA IDENTITY INBOUND

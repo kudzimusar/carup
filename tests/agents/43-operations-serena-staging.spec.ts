@@ -357,20 +357,30 @@ test.describe('Operations M7 — Serena governed review and Seller publish', () 
     const reviewer = await reviewerLogin(request);
     const current = await fetchOperationsReview(request, reviewer);
 
-    if (isMutationPass && current.vehicle.publication_status !== 'published') {
-      expect(current.publication_readiness.is_publishable, 'cannot publish an unpublishable Serena').toBe(true);
+    if (isMutationPass) {
       await signInWithCredentials(page, credentials!.email, credentials!.password);
       const seller = await authFromPage(page);
       expect(seller.user.id).toBe(KINGSTONE_USER_ID);
-
-      // THE act of this whole slice: the Seller — not Operations — clicks Publish.
       await page.goto('/dashboard/listings');
       await expect(page.getByTestId(`my-listing-card-${SERENA_VIN}`)).toBeVisible({ timeout: 30_000 });
-      await page.getByTestId(`publish-toggle-${SERENA_VIN}`).click();
-      await expect(page.getByTestId(`publication-badge-${SERENA_VIN}`)).toContainText('Published', { timeout: 30_000 });
+
+      // THE act of this whole slice: the Seller — not Operations — clicks Publish. On a first run
+      // the Serena is still draft and this is that click. On a later run it is already published, so
+      // the round-trip below IS the seller's publish act.
+      if (current.vehicle.publication_status !== 'published') {
+        expect(current.publication_readiness.is_publishable, 'cannot publish an unpublishable Serena').toBe(true);
+        await page.getByTestId(`publish-toggle-${SERENA_VIN}`).click();
+        await expect(page.getByTestId(`publication-badge-${SERENA_VIN}`)).toContainText('Published', { timeout: 30_000 });
+      }
       await page.screenshot({ path: `test-results/serena-m7/kingstone-published-${testInfo.project.name}.png`, fullPage: true });
 
-      // Unpublish → republish is a Seller right and must survive round-tripping.
+      // Unpublish → republish is a Seller right and must survive round-tripping. This used to be
+      // skipped once the Serena was published, which quietly cost the run its only re-materialization
+      // of the public position: publication is where CarUp re-derives the Trust stamp a buyer reads,
+      // so a run that never republished could not detect a stamp older than the vehicle's own facts.
+      // That is exactly how GFC27-027051 came to publish "registration stage has not been established
+      // from a recorded claim" beside a claim block reporting that same stage as recorded. The
+      // round-trip now runs on every mutation pass and ends published either way.
       await page.getByTestId(`publish-toggle-${SERENA_VIN}`).click();
       await expect(page.getByTestId(`publication-badge-${SERENA_VIN}`)).not.toContainText('Published', { timeout: 30_000 });
       const gone = await request.get(`${API_URL}/marketplace/listings?q=${encodeURIComponent(SERENA_VIN)}`);
@@ -408,6 +418,35 @@ test.describe('Operations M7 — Serena governed review and Seller publish', () 
     }
     const evidenceSerialized = JSON.stringify(publicRows);
     expect(evidenceSerialized.includes('ocr-documents')).toBe(false);
+
+    // ── One document may not contradict itself ─────────────────────────────
+    // The buyer payload carries BOTH the registration claim and the Trust conclusion drawn from it.
+    // They are produced by different code at different times — the claim live from the row, the
+    // conclusion from a stamp written when Trust was last re-materialized — so they can disagree,
+    // and on the real Serena they did: the claim block reported the stage as recorded from a seller
+    // declaration while Trust simultaneously published "has not been established from a recorded
+    // claim". Whichever sentence a buyer believed, CarUp had published the other one too.
+    //
+    // This asserts the two agree. It is deliberately expressed as a contradiction check rather than
+    // an expected score: the point is not that the Serena scores well, it is that CarUp's public
+    // document says one thing.
+    const publicListing = await request.get(`${API_URL}/marketplace/listings/${SERENA_VIN}`);
+    expect(publicListing.status()).toBe(200);
+    const listingBody = await publicListing.json() as {
+      claims?: { registration?: { status?: { state?: string; value?: string | null; source?: string | null } } };
+      trust?: { known_limitations?: string[] };
+    };
+    const stageState = listingBody.claims?.registration?.status?.state ?? null;
+    const limitations = listingBody.trust?.known_limitations ?? [];
+    const saysNotEstablished = limitations.some((l) => /registration stage has not been established/i.test(l));
+    if (stageState === 'recorded') {
+      expect(
+        saysNotEstablished,
+        `Trust publishes "not established from a recorded claim" while the same payload reports the stage as recorded ` +
+          `(${listingBody.claims?.registration?.status?.value} / ${listingBody.claims?.registration?.status?.source}). ` +
+          `The Trust stamp is older than the vehicle's own facts — publication must re-materialize it.`,
+      ).toBe(false);
+    }
 
     // Buyer inquiry through the real guest modal (desktop pass only to avoid
     // spamming the Seller inbox once per viewport).

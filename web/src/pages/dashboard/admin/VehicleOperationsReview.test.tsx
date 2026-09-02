@@ -145,6 +145,40 @@ describe('VehicleOperationsReview', () => {
     }
   })
 
+  it('offers a governed correction on an ALREADY VERIFIED record, including its visibility', async () => {
+    // A mis-classified or wrongly published document is almost always discovered AFTER review, so
+    // gating the correction editor on verification_status === 'pending' made the capability dead by
+    // construction for exactly the rows that need it. The real Serena's Tanzania T1 is verified AND
+    // published, and could not be reached from this workspace at all.
+    const verified = {
+      ...REVIEW,
+      evidence: {
+        total: 1,
+        groups: {
+          import: [{
+            ...REVIEW.evidence.groups.import[0],
+            id: 'ev-t1', semantic_label: 'Import — Transit declaration',
+            evidence_subtype: 'transit_declaration',
+            verification_status: 'verified', visibility_level: 'public_safe',
+            verified_at: '2026-09-02T19:17:26Z',
+          }],
+        },
+      },
+    }
+    fetchVehicleOperationsReview.mockResolvedValue({ success: true, review: verified })
+    renderPage()
+
+    const correct = await screen.findByRole('button', { name: /correct record/i })
+    // Verify/Reject must NOT be offered on a row that is no longer pending.
+    expect(screen.queryByRole('button', { name: /^verify$/i })).toBeNull()
+
+    correct.click()
+    const visibility = await screen.findByTestId('ops-correction-visibility')
+    expect(visibility).toBeTruthy()
+    // It opens on the record's CURRENT visibility, so a reviewer sees what they are changing.
+    expect((visibility as HTMLSelectElement).value).toBe('public_safe')
+  })
+
   it('renders a truthful unavailable state when the review cannot load', async () => {
     fetchVehicleOperationsReview.mockRejectedValue(new Error('Forbidden. This action requires a capability.'))
     renderPage()

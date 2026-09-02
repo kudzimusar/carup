@@ -920,7 +920,9 @@ export function useCarUpApi() {
   const correctEvidenceClassification = useCallback(async (
     vin: string,
     evidenceId: string,
-    payload: { evidence_class: string; evidence_subtype: string; reason: string },
+    // `visibility_level` is optional: omitting it corrects the classification and leaves the
+    // record's publication untouched.
+    payload: { evidence_class: string; evidence_subtype: string; reason: string; visibility_level?: string },
   ): Promise<{ success: boolean; changed: boolean }> => {
     return request<{ success: boolean; changed: boolean }>(`/vehicles/${vin}/evidence/${evidenceId}/classification`, {
       method: 'PATCH',
