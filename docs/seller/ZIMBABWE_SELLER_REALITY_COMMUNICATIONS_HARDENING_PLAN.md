@@ -147,12 +147,12 @@ It does **not** by itself establish Zimbabwe customs clearance, CVR registration
 - [ ] Registration lifecycle model.
 - [ ] Trust/readiness separation.
 - [ ] Evidence taxonomy expansion.
-- [~] Seller Drive workspace service + current Serena folder organization — reusable service implemented; Serena hierarchy upgraded in Drive; source PDF split/upload still pending original-binary handoff.
-- [~] Verification email delivery hardening — exact-head PR #205 workflow now performs a real registration send to the controlled CarUp certification mailbox and proves bell/Communications separation; provider + inbox receipt must be checked after the run.
+- [x] Seller Drive workspace service + current Serena folder organization — reusable service implemented; the refreshed 10-page source pack was losslessly split into seven source documents, originals were filed in their lifecycle folders, and a private `07 CarUp Evidence Upload Set` now contains restricted upload copies plus `UPLOAD_GUIDE.txt`. The packaged desktop ZIP is `Kingstone_Serena_Documents_Sorted.zip`.
+- [x] Verification email delivery hardening — exact-head PR #205 physical gate passed on `e910a192`: CSRF-protected registration succeeded, the provider returned a `delivered` receipt, Account activity exposed safe status only, and neither the bell nor reply-capable Communications exposed the token-bearing security action.
 - [~] Notification bell action/channel hardening — in-app-only safe projection, server read receipt and safe action routes implemented.
-- [~] Communications semantic separation — Account/security activity excluded from reply-capable conversation list; legacy auth threads are reclassified by migration.
+- [x] Communications semantic separation — Account/security activity is excluded from reply-capable conversation threads and is visible instead in the read-only `Account & security` rail with resend-verification control; legacy auth threads are reclassified by migration.
 - [ ] Seller route failure/recovery regression remains green.
-- [~] Targeted tests green — continuity and Passport fixtures updated for the canonical registration model; CI rerun on current head required.
+- [~] Targeted tests green — all independent affected PR #205 gates are green on `e910a192`; exact-head Golden Seller exposed one stale harness assumption (it cleared only sessionStorage even though durable recovery now also uses localStorage). The harness is corrected on the next head; full exact-head rerun remains required.
 - [ ] Full affected certification green.
 - [~] Exact-head staging UAT ready — PR #205 preview pairing is now governed; frontend build regressions from the new draft/notification types were repaired; rerun required on the new head.
 
@@ -164,3 +164,17 @@ It does **not** by itself establish Zimbabwe customs clearance, CVR registration
 - A new read-only **Account & security** rail shows only safe delivery metadata (type/status/timestamps); raw Email bodies, action URLs and tokens are never projected.
 - The owner can request another verification Email from that rail.
 - Exact-head physical UAT now obtains a legitimate guest CSRF token before registration, requires a provider **delivered** receipt, proves Account & security visibility, and separately proves the token is absent from both the bell and Communications.
+
+### 2026-09-02 - Serena document handoff completed
+
+- Refreshed source pack: 10 pages, retained untouched as `00 ORIGINAL MASTER - DO NOT EDIT/KINGSTONE_M_SERENA_DOCUMENTS_ORIGINAL_MASTER.pdf`.
+- Split source-origin artifacts filed privately in Drive: passport/KYC; BE FORWARD invoice; PayPal receipt; House Bill of Lading; Japan Export Certificate; Tanzania T1 through-transit declaration; Zimbabwe CBCA/Cotecna roadworthiness certificate.
+- `06 Zimbabwe Registration & Licensing` remains intentionally empty because the supplied pack contains no Zimbabwe CVR registration book, local plate record, or Zimbabwe Temporary Import Permit.
+- `07 CarUp Evidence Upload Set` contains restricted copies of the seven source documents plus `UPLOAD_GUIDE.txt`; each copy remains private in Drive. Raw PII/financial documents are never the public Marketplace projection.
+- The Tanzania T1 is classified as transit evidence, **not** a Zimbabwe TIP.
+
+### 2026-09-02 - Exact-head Golden harness correction
+
+- Run `33601377201` proved the physical verification Email gate and migrations, but Golden Seller stopped after intentionally clearing only `sessionStorage`.
+- Durable Seller recovery now also uses `localStorage`; restoring that copy was correct product behavior, not server-draft loss.
+- The Golden test now removes both recovery metadata stores before reload when it specifically wants to prove server-only recovery. IndexedDB media need not be cleared because no draft metadata remains to select the guest path.

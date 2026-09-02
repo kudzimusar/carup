@@ -177,7 +177,7 @@ This table is the mandatory roll call against the earlier `SELLER_MARKETPLACE_CO
   - Reuse the existing governed Google Drive provider; do not add a second credential/token authority.
   - Seller workspace hierarchy is keyed to stable CarUp user identity, with a vehicle child keyed to canonical vehicle identity. Originals are immutable; derived/redacted upload copies are separate; Drive never becomes the public evidence authority.
   - Acceptance: taxonomy tests + Drive workspace service tests + no credential/public-link leakage.
-  - **Implemented:** reusable Seller Drive workspace service now composes the existing governed Google Drive provider/vault; current Serena Drive hierarchy was upgraded to add Zimbabwe Registration & Licensing and Transaction & Handover, with Evidence Upload/Listing Media renumbered. Source PDF splitting/upload remains a separate artifact step because it requires the original binary.
+  - **Implemented:** reusable Seller Drive workspace service composes the governed Google Drive provider/vault. The refreshed Serena source binary was losslessly split into seven origin documents, filed in the 00–09 vehicle hierarchy, and duplicated into a private/restricted `07 CarUp Evidence Upload Set` with an upload guide. `06 Zimbabwe Registration & Licensing` remains empty because no CVR book/local plate/Zimbabwe TIP exists in the supplied pack.
 
 - [~] **ZR5. Restore external verification Email as the primary mailbox-verification journey.**
   - Registration -> one-time token -> canonical Communications queue -> branded CarUp Security Email -> governed provider -> `/auth/verify-email`.
@@ -185,7 +185,7 @@ This table is the mandatory roll call against the earlier `SELLER_MARKETPLACE_CO
   - Resend-verification remains anti-enumerating and idempotent enough for repeated user action.
   - Unverified users may preserve/resume Seller work, but consequential actions use the existing governed verification policy rather than treating an in-app message as proof of mailbox ownership.
   - Acceptance: unit/integration tests and an exact-head staging provider-delivery check using an authorized test inbox.
-  - **Physical gate wired:** PR #205 exact-head staging now sends one verification Email to a unique plus-address of the controlled CarUp certification inbox, asserts the API reports provider acceptance, asserts the email row remains canonical/private, and asserts neither the notification bell nor the reply-capable Communications inbox exposes the security action.
+  - **Physical gate PASS on `e910a192` / run `33601377201`:** CSRF-protected staging registration sent a verification Email to a unique controlled plus-address; the canonical row reached `delivered`, remained `thread_type=account`, Account & security showed only safe delivery metadata, and neither the bell nor reply-capable Communications exposed its action URL/token.
 
 - [~] **ZR6. Split Notifications, Security actions and Conversations semantically.**
   - Email-channel security notifications must not be rendered as ordinary in-app notification content carrying a token-bearing URL.
