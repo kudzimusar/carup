@@ -1,6 +1,6 @@
 # CarUp Operations Control Plane — Implementation Progress & Roll-Call
 
-**Status:** NOT STARTED — this tracker must be updated during execution  
+**Status:** IN EXECUTION — M0 complete 2026-09-02; M1 in progress  
 **Canonical manual:** docs/features/CARUP_OPERATIONS_CONTROL_PLANE_AND_SERENA_VEHICLE_OPS_MANUAL.md  
 **Benchmark appendix:** docs/features/CARUP_OPERATIONS_CONTROL_PLANE_BENCHMARK_RESEARCH.md  
 **Claude start prompt:** docs/agent-prompts/CARUP_OPERATIONS_CONTROL_PLANE_SERENA_CLAUDE_START_PROMPT.md  
@@ -41,39 +41,64 @@ Do not call the Serena slice certified until every M0–M7 mandatory item is [x]
 
 # M0 — Revalidate exact implementation state
 
-- [ ] M0.1 Record current branch.
-- [ ] M0.2 Record current HEAD SHA.
-- [ ] M0.3 Record merge base.
-- [ ] M0.4 Confirm working tree clean or account for all changes.
-- [ ] M0.5 Inspect open PRs touching Seller/Passport/Governance/Marketplace/Communications/Service Network.
-- [ ] M0.6 Compare current HEAD with seed base 569e4f14.
-- [ ] M0.7 Confirm active implementation target/merge lane.
-- [ ] M0.8 Confirm current staging frontend/backend provenance before any staging mutation.
-- [ ] M0.9 Inspect current seller-claim flow end to end.
-- [ ] M0.10 Inspect completeness evaluator.
-- [ ] M0.11 Inspect evidence taxonomy + upload contract.
-- [ ] M0.12 Inspect Evidence Review authorization.
-- [ ] M0.13 Inspect Trust Review/Governance Review.
-- [ ] M0.14 Inspect Fraud/Marketplace moderation.
-- [ ] M0.15 Inspect public evidence projection.
-- [ ] M0.16 Inspect relevant migrations and staging apply state.
-- [ ] M0.17 Read Serena vehicle row without mutation.
-- [ ] M0.18 Read all Serena evidence rows without mutation.
-- [ ] M0.19 Record legacy evidence_type + canonical class/subtype per Serena item.
-- [ ] M0.20 Record Serena evidence visibility + verification state.
-- [ ] M0.21 Record Serena extractions/conflicts.
-- [ ] M0.22 Record Serena Seller authority claim/current relationship.
-- [ ] M0.23 Record Serena registration status + provenance.
-- [ ] M0.24 Record Serena fraud/governance/trust state.
-- [ ] M0.25 Record current completeness result.
-- [ ] M0.26 Add current-state delta notes below.
-- [ ] M0.27 Confirm no Serena write occurred during M0.
+**Executed:** 2026-09-02 (Claude Code). All inspection read-only; no Serena mutation.
+
+- [x] M0.1 Record current branch — `feat/operations-control-plane-serena-slice` (checked out from origin; tracks origin).
+- [x] M0.2 Record current HEAD SHA — `96620f920044b858fe3dbb525de14a813d5899df` (identical to the documented docs head; remote has nothing newer on this branch).
+- [x] M0.3 Record merge base — branch is a strict superset: `f180c47d` (integration/vehicle-passport-v16-cert tip, PR #194), `569e4f14` (fix/zimbabwe-seller-reality-comms-hardening tip, PR #205) and `ba208963` (origin/main) are all ancestors of HEAD. HEAD = 569e4f14 + 4 docs commits.
+- [x] M0.4 Working tree — no tracked changes; untracked files are prior-session artifacts (screenshots, .mcp.json, .claude/settings.json, backend/supabase/, .playwright-mcp/) left in place.
+- [x] M0.5 Open PRs touching these domains — #194 (integration cert lane; our base), #205 (ZR hardening; fully contained in HEAD), **#200 fix/seller-uat-convergence-final-194 (NOT contained: 27 commits redesigning My Garage / My Listings / Sell intent router / Evidence Vault workspace / Owner Dashboard, targeting #194, merge-base 43204bee, ~280 commits behind HEAD)**, #197/#196 (Service Network — separate lane; `backend/services/serviceNetwork` absent at HEAD, confirmed), #188 (Passport foundation), #185 (Intelligence), #183, #182, #186, #181, #137.
+- [x] M0.6 HEAD vs seed base — seed base 569e4f14 **is** HEAD minus the 4 docs commits; no drift between seed assumption and implementation authority.
+- [x] M0.7 Implementation target — this branch; eventual merge lane per handoff is a PR from this branch (unmerged candidate for owner review). PR #200 is a parallel seller-UX lane: this slice avoids redesigning the seller surfaces #200 owns (My Garage/My Listings/Sell router); the ops slice touches EvidenceUploadModal + backend semantics + admin surfaces. Overlap recorded, judged reconcilable, not a stop condition.
+- [x] M0.8 Staging provenance — stable staging frontend `https://carup-staging.vercel.app/carup-provenance.json` → sha `ba208963`, branch main, `unpaired=false`; backend `https://carup-backend-staging.vercel.app/api/health` → same sha `ba208963`, supabase healthy, outbox 0. Staging serves **main**, not this branch; M7 requires an exact-head candidate preview pair (PR #205's governed preview-pair mechanism, commit e910a192, is on this branch).
+- [x] M0.9 Seller-claim flow inspected end to end — `POST /api/vehicles/:vin/seller-claim` (backend/routes/vehiclesRoutes.js:350-411), `authorizeRole(['owner','dealer'])` (admin excluded). Recognition = owner_id/current_seller_id/tenant match OR `hasVerifiedSellerAuthorityEvidence` (verified **legacy** `registration_document`/`ownership_transfer_document` uploaded **by the claimant**). Persistence = single immutable `trust_audit_events` row `SELLER_AUTHORITY_CLAIM_REQUESTED` per (vin,user), no lifecycle, no reviewer decision path, no expiry/denial; its only effect is a never-lapsing scope bypass letting the claimant upload the two legacy doc types (vehiclesRoutes.js:478-487). Duplicate inline copy of the evidence rule in backend/server.js:2998-3018 (`SELLER_AUTHORITY_CLAIM_REQUIRED` refusals :3053/:3113). No sellerAuthorityService, no table.
+- [x] M0.10 Completeness evaluator inspected — backend/services/evidence/completenessEvaluator.js. Requirements: vin/chassis/engine identity; `registration_readiness` (blocking flag = zimbabweRegistrationLifecycle `publication_blocking`); `ownership_document` blocking, satisfied by **legacy types only** (`BLOCKING_DOC_TYPES = ['registration_document','ownership_transfer_document']`, never consults class/subtype); `fact_reconciliation` blocking (extraction conflicts, fails closed); 4 advisory doc types; finance disclosure advisory (never blocking). Fraud is NOT a completeness input (blocks only via trustDecisionService `publication_eligibility` dimension). Manual §5.9 risk CONFIRMED: a verified import doc carried under legacy `registration_document` satisfies the ownership/registration gate.
+- [x] M0.11 Evidence taxonomy + upload contract inspected — evidenceTaxonomy.js has 9 classes incl. `registration` (6 subtypes) and import subtypes incl. `commercial_invoice`/`payment_receipt`/`transit_declaration` (ZR work already on this branch). `resolveClassification` validates subtype↔class but NEVER class↔legacy-type: contradictions are accepted. Legacy `evidence_type` is **load-bearing**: it alone drives upload role authorization, storage bucket (documents → private `ocr-documents`), default visibility and AI extraction targets. EvidenceUploadModal still hard-requires legacy `evidence_type` (class/subtype optional, silently absent if taxonomy fetch fails; class label map omits `registration`). **No reclassification/classification-correction endpoint exists anywhere.**
+- [x] M0.12 Evidence Review authorization inspected — READ queue `GET /api/evidence/review` allows `admin,government,dealer,mechanic` (tenant-scoped for the latter two); PATCH verify/reject allows `admin,government` only; the shared EvidenceReview.tsx renders Approve/Reject to all queue readers (mounted at /dealer/evidence, /government/evidence, /admin/evidence) → manual §5.6 mismatch CONFIRMED. `/link-event` PATCH is any-authenticated (bare authorizeRole()).
+- [x] M0.13 Trust/Governance review inspected — trustFactRoutes admin/government; Phase-2A facts only; fail-closed audits to trust_audit_events; self-review ban (admin exempt). governanceRoutes REVIEWER_ROLES `['admin','government','reviewer']` — **`reviewer` exists on the backend but not in shared UserRole**; frontend locks governance-review to `admin` only. review_decisions immutable; trust_change_log requires a backing review decision.
+- [x] M0.14 Fraud/Marketplace moderation inspected — fraud queue roles `admin,government,reviewer`, resolve `admin,reviewer`; `fraud_cases.blocks_publication` latches on and is consumed ONLY by trustDecisionService (not by the publish route). Marketplace moderation service gates on `platformRole||baseRole` (deliberately not effectiveRole — good anti-escalation pattern to reuse); actions approve/reject/suppress/flag_risk/clear_risk/request_evidence mutate `vehicles.status`; audit best-effort.
+- [x] M0.15 Public evidence projection inspected — publicVehicleProjection.js allow-list + `isPrivateEvidenceArtifact` (bucket-based, label-distrusting) nulls file_url for private-bucket rows; visibility+verified filters applied in SQL on all anonymous paths and re-applied in vehicleMediaProjection. One dormant divergent projector: `backend/services/passport/passportEvidenceProjection.js` trusts `visibility_level` and copies file_url with no bucket check — currently unwired (test-only); must not be wired without hardening.
+- [x] M0.16 Migrations/staging state — repo migrations through `20260902123000`; staging supabase ledger ends at `20260829123000` but the ZR migration `20260902110000_zimbabwe_registration_lifecycle_and_evidence.sql` IS physically applied (constraint `vehicles_registration_status_canonical_when_sourced` present; 6 registration + 3 new import subtypes seeded in evidence_class_taxonomy) — staging migrations are applied by the project process outside the supabase CLI ledger. Staging schema matches this branch's expectations.
+- [x] M0.17 Serena vehicle row (read-only) — exactly ONE Serena: vin `GFC27-027051`, Nissan Serena Highway Star 2016, status `Available`, publication_status `draft`, owner_id = current_seller_id = `u_66cace85fad949e4` (Kingstone; role `owner`, email NOT verified, no identity_documents rows), tenant NULL, current_seller_type `Private Owner`, chassis `GFC27-027051`, engine `MR20961177B`, import_source `import`, duty_paid false, zimra_verified false, passport_verified false, price 12800 USD, listing_city Harare, all three seller disclosures (accident/insurance/finance) recorded, trust never evaluated (trust_score/band NULL), created 2026-09-01.
+- [x] M0.18 Serena evidence rows (read-only) — 5 rows in vehicle_evidence, all uploaded 2026-09-02 11:13–11:34 UTC by the owner account, all `verification_status=pending`, all PDF with checksum+file. Uploads were validated by a ZR-candidate backend (main's taxonomy at ba208963 lacks `transit_declaration` etc.), consistent with the governed PR #205 preview pair. 2 of 7 pack documents are deliberately NOT in the Vehicle Life vault: PayPal payment receipt (not yet uploaded) and Kingstone identity (belongs to identity workflow — also not yet in identity_documents).
+- [x] M0.19 Legacy vs canonical per Serena item:
+
+| Evidence id (short) | Artifact | legacy evidence_type | canonical class/subtype | Contradiction |
+|---|---|---|---|---|
+| 3afcd7e8 | House Bill of Lading | ownership_transfer_document | import / bill_of_lading | YES |
+| 56fd68e9 | Japanese Export Certificate | registration_document | import / export_certificate | YES |
+| 228d0b3a | CBCA/Cotecna roadworthiness | registration_document | inspection / roadworthiness | YES |
+| 21904869 | Tanzania T1 | registration_document | import / transit_declaration | YES |
+| f641b520 | BE FORWARD invoice | registration_document | import / commercial_invoice | YES |
+
+  Canonical classification is correct on every row; the legacy field is wrong on every row. If these rows were verified today, the legacy-driven ownership/registration gate would pass on import documents — the exact defect this slice exists to close.
+- [x] M0.20 Visibility + verification — all pending; visibility `private` except Tanzania T1 = `public_safe`. Leak check: all five are documentEvidenceTypes → stored in the private `ocr-documents` bucket → `toPublicEvidence` withholds file_url regardless of label; nothing currently leaks (also all pending, so no public path applies). The T1 `public_safe` label should still be reviewed in M7 (manual intends restricted).
+- [x] M0.21 Extractions/conflicts — 0 rows in vehicle_document_extractions for the VIN; no reconciliation conflicts.
+- [x] M0.22 Seller authority claim/relationship — 0 `SELLER_AUTHORITY_CLAIM_REQUESTED` events (none needed: Kingstone already holds owner_id AND current_seller_id). trust_audit_events for the VIN = exactly 5 `EVIDENCE_UPLOADED` events by the owner.
+- [x] M0.23 Registration status — `registration_status` NULL, `registration_status_source` NULL, no plate, no temp permit fields. Per zimbabweRegistrationLifecycle this evaluates as `not_recorded` → publication_blocking with reason `registration_stage_not_recorded`. The seller stage-declaration UI (commit 60caed5c) exists on this branch but staging serves main, so Kingstone could not yet declare a stage.
+- [x] M0.24 Fraud/governance/trust — 0 fraud_cases, 0 review_tasks, 0 disputes, 0 trust_fact_requests, 0 disclosure_claims for the VIN. 10 listing_images. Canonical trust never materialized.
+- [x] M0.25 Current completeness (derived from evaluator semantics against the read state; no API mutation): identity (vin/chassis/engine) present; `registration_readiness` **blocking-missing** (stage not recorded); `ownership_document` **pending_review** (pending legacy-typed rows exist); fact_reconciliation clear (no extractions); advisory docs: inspection satisfied at legacy level only via mislabel; finance disclosure present. → NOT publishable; blocking_gaps=[registration_readiness], pending_gaps=[ownership_document]. Exact API result to be re-captured in M7 on the candidate pair.
+- [x] M0.26 Delta table below.
+- [x] M0.27 No Serena write occurred — only SELECTs were issued against staging; the only tool used was read-only SQL; no API mutation, no storage access.
 
 ### M0 current-state delta
 
 | Manual assumption | Current code/state | Same / changed | Required response |
 |---|---|---|---|
-| | | | |
+| §5.8 upload UI requires legacy evidence_type; contradictions possible | Confirmed (EvidenceUploadModal.tsx:93-94, :221-224; resolveClassification never cross-checks) — and legacy type is additionally load-bearing for auth/bucket/visibility/extraction | Same, worse than assumed | M1 must make canonical semantics authoritative while preserving the legacy field's storage/authorization duties or migrating them deliberately |
+| §5.9 completeness gate reads legacy types | Confirmed verbatim (`BLOCKING_DOC_TYPES`); tests pin the arrays verbatim (marketplace-publication-gate.test.js:115-132; seller-existing-passport-authority.test.js pins the strings in vehiclesRoutes) | Same | M3 replaces predicate + deliberately updates the pinning tests |
+| §5.11 seller-claim partially implemented | Confirmed; plus: admin excluded from claim route; claim never lapses; evidence shortcut requires claimant-uploaded doc; duplicated inline in server.js | Same, more precise | M2 hardens/extracts (no parallel system) |
+| §5.6 evidence review role mismatch | Confirmed; also `/link-event` PATCH is any-authenticated | Same + new finding | M4/M5 reconcile; consider tightening link-event within scope |
+| §5.14 `reviewer` role mismatch | Confirmed (governance + fraud accept `reviewer`; shared UserRole lacks it; frontend admin registry locks to `admin`) | Same | M5/M6 bounded handling |
+| §5.2 platform_admin/super_admin frontend gap | Confirmed: backend global bypass (authMiddleware.js:189) but frontend redirect-lockout to /dashboard | Same | M5 compatibility strategy |
+| §7/8 no capability layer exists | Confirmed: `operations.*` strings appear only in docs; nearest prior art = diasporaPermissions capabilities + marketplaceModeration platformRole gate | Same | M5 creates the first bounded layer |
+| Taxonomy has 9 classes incl. registration | Confirmed on branch AND applied on staging DB | Same | Reuse as-is |
+| §5.10 registration lifecycle helper listability | Confirmed: only `unknown` + `temporary_foreign_tip` not ordinarily listable; plate required only for `locally_registered`; provenance (source) required | Same | Reuse as-is |
+| §5.23 Service Network absent on branch | Confirmed (no backend/services/serviceNetwork) | Same | Leave to O5 |
+| Old eligibility doc claims 17-char VIN only | docs/CARUP_REAL_LISTING_ELIGIBILITY_CONTRACT.md §2 still says 17-char; Serena (12-char chassis-as-VIN) exists as a real listing row; manual §3.5 says code recognizes 12–17 import identifiers | Docs stale vs code | Verify code accepts Serena identifier during M3/M7; reconcile doc if in scope |
+| Seven-document pack in Evidence Vault | Only 5 of 7 uploaded (payment receipt + identity pending); canonical classes all correct, legacy types all wrong; T1 labeled public_safe | Partially different | M7 review handles decisions; payment receipt upload is Kingstone's/UAT action; identity goes through identity workflow, never the vehicle vault |
+| Fraud blocks publication | Only via trustDecision publication dimension; publish route itself never consults fraud_cases | More precise than manual | M3 decides deliberately where risk blocking belongs; no silent behavior change without tests |
+| Dormant risk (new finding) | passportEvidenceProjection.js trusts visibility label, copies file_url, unwired | New | Do not wire; harden or note if touched |
 
 ---
 
@@ -311,7 +336,10 @@ Append one row for every cleared item or logically grouped set of items.
 
 | Task(s) | SHA / file / migration | Test or UAT evidence | Result | Notes |
 |---|---|---|---|---|
-| | | | | |
+| M0.1–M0.8 | HEAD 96620f92; origin/main ba208963; PR list via gh 2026-09-02 | git rev-list/merge-base runs; live curl of carup-staging /carup-provenance.json + carup-backend-staging /api/health | PASS | Staging pair = main@ba208963, unpaired=false |
+| M0.9–M0.16 | 96620f92 code inspection | Read-only code survey with file:line citations recorded in M0 section | PASS | No code changed |
+| M0.17–M0.25 | staging DB (supabase carup-staging), read-only SQL | vehicles, vehicle_evidence, trust_audit_events, identity_documents, fraud/governance/extraction tables queried for GFC27-027051 | PASS | 0 writes issued |
+| M0.27 | — | Session tool log: SELECT-only SQL | PASS | |
 
 ---
 
