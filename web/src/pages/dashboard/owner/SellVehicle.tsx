@@ -20,6 +20,7 @@ import { useSellerVehicleIdentification } from '@/hooks/useSellerVehicleIdentifi
 import { isCompleteVin, sellerVehicleIdentifierProblem } from '@/lib/sellerVehicleIdentification'
 import { BODY_STYLES, DRIVETRAINS, FUEL_TYPES, SELLER_CONDITIONS, TRANSMISSIONS, VEHICLE_COLORS, VEHICLE_MAKES, modelsForMake, vehicleYearOptions } from '@/data/vehicleTaxonomy'
 import type { Vehicle } from '@/types'
+import { ZIMBABWE_REGISTRATION_OPTIONS, normalizeSellerRegistrationStatus, registrationLabel } from '@/lib/zimbabweRegistration'
 import { SellerWorkspaceHeader } from '@/components/seller/SellerWorkspaceHeader'
 import { ListingImage } from '@/components/marketplace/ListingImage'
 import { primaryListingImageUrl } from '@/lib/listingMedia'
@@ -179,7 +180,7 @@ const INITIAL = {
   // seller who never reached this step has not consented to anything.
   locationVisibility: 'withheld', publicSellerDisplay: false,
   make: '', model: '', year: '', vin: '', engineNumber: '', chassisNumber: '',
-  plateNumber: '', tempPlateId: '', importStatus: '', color: '',
+  plateNumber: '', tempPlateId: '', registrationStatus: '', color: '',
   mileage: '', condition: '', category: '', fuelType: '', transmission: '', drivetrain: '',
   location: '', province: '', price: '', currency: '', description: '',
   features: [] as string[], featureInput: '',
@@ -224,7 +225,7 @@ export default function SellVehicle() {
     chassisNumber: guestDraft.chassisNumber,
     plateNumber: guestDraft.plateNumber,
     tempPlateId: guestDraft.tempPlateId,
-    importStatus: guestDraft.importStatus,
+    registrationStatus: guestDraft.registrationStatus || normalizeSellerRegistrationStatus(guestDraft.importStatus) || '',
     features: guestDraft.features,
     images: guestDraft.images,
     imageLabels: guestDraft.imageLabels,
@@ -362,7 +363,7 @@ export default function SellVehicle() {
           chassisNumber: String(raw.chassis_number || ''),
           plateNumber: String(raw.plate_number || ''),
           tempPlateId: String(raw.temp_plate_id || raw.temporary_identification_number || ''),
-          importStatus: String(raw.import_status || ''),
+          registrationStatus: normalizeSellerRegistrationStatus(raw.registration_status || raw.import_status) || '',
           features: Array.isArray(raw.seller_features)
             ? raw.seller_features.map(String)
             : Array.isArray(raw.features) ? raw.features.map(String) : [],
@@ -428,7 +429,7 @@ export default function SellVehicle() {
         chassisNumber: form.chassisNumber,
         plateNumber: form.plateNumber,
         tempPlateId: form.tempPlateId,
-        importStatus: form.importStatus,
+        registrationStatus: form.registrationStatus,
         features: form.features,
         images: form.images,
         imageLabels: form.imageLabels,
@@ -674,7 +675,6 @@ export default function SellVehicle() {
   const missingIdentityFields = [
     !form.chassisNumber && 'Chassis Number',
     !form.engineNumber && 'Engine Number',
-    !(form.plateNumber || form.tempPlateId) && 'Number Plate or Temporary Import Permit',
   ].filter(Boolean) as string[]
 
   const handleSubmit = async () => {
@@ -711,7 +711,7 @@ export default function SellVehicle() {
       chassisNumber: form.chassisNumber,
       plateNumber: form.plateNumber,
       tempPlateId: form.tempPlateId,
-      importStatus: form.importStatus,
+      registrationStatus: form.registrationStatus,
       features: form.features,
       images: form.images,
       imageLabels: form.imageLabels,
@@ -811,7 +811,7 @@ export default function SellVehicle() {
         chassis_number: form.chassisNumber || undefined,
         plate_number: form.plateNumber || undefined,
         temp_plate_id: form.tempPlateId || undefined,
-        import_status: form.importStatus || undefined,
+        registration_status: form.registrationStatus || undefined,
         reuse_existing_passport:
           governedScopeEstablished
           || (
@@ -1267,26 +1267,36 @@ export default function SellVehicle() {
                   <p className="text-xs text-gray-400 mt-1">Required to publish your listing</p>
                 </div>
               </div>
-              <div className="grid sm:grid-cols-2 gap-4">
-                <div>
-                  <label className="text-sm font-medium mb-1.5 block">Number Plate</label>
-                  <Input value={form.plateNumber} onChange={e => set('plateNumber', e.target.value.toUpperCase())} placeholder="e.g. ABC 1234" className="font-mono" disabled={canonicalLocked} />
-                </div>
-                <div>
-                  <label className="text-sm font-medium mb-1.5 block">Temporary Import Permit No.</label>
-                  <Input value={form.tempPlateId} onChange={e => set('tempPlateId', e.target.value.toUpperCase())} placeholder="e.g. TIP-2024-00123" className="font-mono" disabled={canonicalLocked} />
-                  <p className="text-xs text-gray-400 mt-1">If no local plate yet — provide plate or TIP</p>
-                </div>
-              </div>
               <div>
-                <label className="text-sm font-medium mb-1.5 block">Import Status</label>
-                <Select value={form.importStatus} onValueChange={v => set('importStatus', v)} disabled={canonicalLocked}>
-                  <SelectTrigger><SelectValue placeholder="Select status" /></SelectTrigger>
+                <label className="text-sm font-medium mb-1.5 block">Zimbabwe registration stage</label>
+                <Select value={form.registrationStatus} onValueChange={v => set('registrationStatus', v)} disabled={canonicalLocked}>
+                  <SelectTrigger data-testid="registration-status-select"><SelectValue placeholder="Choose the vehicle's current stage" /></SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="local">Locally registered in Zimbabwe</SelectItem>
-                    <SelectItem value="imported">Imported / Foreign-registered</SelectItem>
+                    {ZIMBABWE_REGISTRATION_OPTIONS.map(option => (
+                      <SelectItem key={option.value} value={option.value}>{option.label}</SelectItem>
+                    ))}
                   </SelectContent>
                 </Select>
+                <p className="text-xs text-gray-500 mt-1">
+                  A permanent import can be listed while local registration is still progressing. The stage remains visible to buyers and is separate from the vehicle's Trust score.
+                </p>
+              </div>
+              <div className="grid sm:grid-cols-2 gap-4">
+                <div>
+                  <label className="text-sm font-medium mb-1.5 block">
+                    Zimbabwe Number Plate {form.registrationStatus === 'locally_registered' ? '(required for this stage)' : '(if issued)'}
+                  </label>
+                  <Input value={form.plateNumber} onChange={e => set('plateNumber', e.target.value.toUpperCase())} placeholder="e.g. ABC 1234" className="font-mono" disabled={canonicalLocked} />
+                </div>
+                {form.registrationStatus === 'temporary_foreign_tip' && (
+                  <div>
+                    <label className="text-sm font-medium mb-1.5 block">Temporary Import Permit No.</label>
+                    <Input value={form.tempPlateId} onChange={e => set('tempPlateId', e.target.value.toUpperCase())} placeholder="e.g. TIP-2026-00123" className="font-mono" disabled={canonicalLocked} />
+                    <p className="text-xs text-amber-700 mt-1">
+                      TIP is a temporary foreign-vehicle admission, not a substitute for a Zimbabwe plate. Ordinary sale publication requires review.
+                    </p>
+                  </div>
+                )}
               </div>
             </>
           )}
@@ -1639,7 +1649,8 @@ export default function SellVehicle() {
                   ['Color', form.color],
                   ['Engine No.', form.engineNumber || '—'],
                   ['Chassis No.', form.chassisNumber || '—'],
-                  ['Number Plate', form.plateNumber || form.tempPlateId || '—'],
+                  ['Registration Stage', registrationLabel(form.registrationStatus)],
+                  ['Zimbabwe Plate / TIP', form.plateNumber || (form.registrationStatus === 'temporary_foreign_tip' ? form.tempPlateId : '') || 'Not issued / not recorded'],
                   ['Mileage', `${parseInt(form.mileage || '0').toLocaleString()} km`],
                   ['Condition', form.condition],
                   ['Fuel / Trans', `${form.fuelType} / ${form.transmission}`],

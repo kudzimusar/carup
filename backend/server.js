@@ -151,6 +151,7 @@ import {
   lookupColumnsForKind,
 } from './utils/passportLookupPolicy.js';
 import { buildVehicleListingCandidate, getListingEligibility } from './services/marketplace/marketplaceListingEligibility.js';
+import { normalizeZimbabweRegistrationStatus } from './services/registration/zimbabweRegistrationLifecycle.js';
 import { normalizeVehicleTaxonomyInput } from './services/taxonomy/vehicleTaxonomyService.js';
 import { registerCommunicationListeners } from './services/communication/communicationEventListeners.js';
 import { evaluateCompleteness } from './services/evidence/completenessEvaluator.js';
@@ -2622,7 +2623,7 @@ app.post('/api/vehicles/add', authorizeRole(['dealer', 'owner', 'admin']), async
     generation, trim, condition, category, body_style, description, features,
     seller_stated_condition, price, currency, location, province, images,
     // Phase 4 identity fields
-    engine_number, chassis_number, plate_number, temp_plate_id, import_status,
+    engine_number, chassis_number, plate_number, temp_plate_id, import_status, registration_status,
     reuse_existing_passport, client_submission_id,
     // Vehicle History & Obligations — structured Seller disclosures (DESIGN.md §11.7, F18–F20).
     accident_disclosure, insurance_disclosure, finance_disclosure,
@@ -2664,6 +2665,17 @@ app.post('/api/vehicles/add', authorizeRole(['dealer', 'owner', 'admin']), async
   }
   // A number with no currency is not a price. `currency || 'USD'` stated a currency the seller never
   // did, in a market that actively trades in more than one.
+  const rawRegistrationStatus = submittedText(registration_status ?? import_status);
+  const submittedRegistrationStatus = rawRegistrationStatus === null
+    ? null
+    : normalizeZimbabweRegistrationStatus(rawRegistrationStatus);
+  if (rawRegistrationStatus !== null && submittedRegistrationStatus === null) {
+    return res.status(400).json({
+      error: 'Registration stage is not recognized.',
+      code: 'REGISTRATION_STATUS_INVALID',
+    });
+  }
+
   const submittedCurrency = submittedText(currency);
   if (submittedCurrency === null) {
     return res.status(400).json({ error: 'currency is required alongside price' });
@@ -2829,6 +2841,7 @@ app.post('/api/vehicles/add', authorizeRole(['dealer', 'owner', 'admin']), async
     // text rather than on the candidate, because a source names who said it and the candidate is not
     // a speaker. The two halves now agree: no value, no source, nothing published.
     registration_country_source: submittedText(req.body.registration_country) === null ? null : claimSource,
+    registration_status_source: submittedRegistrationStatus === null ? null : claimSource,
     current_seller_type_source: declaredSellerTypeSource(req.userContext, req.body),
     // The attesting half of the currency pair. `submittedCurrency` is REQUIRED above (400 without
     // it) and stored verbatim, so a currency on a row this handler wrote was genuinely stated by
@@ -2847,7 +2860,7 @@ app.post('/api/vehicles/add', authorizeRole(['dealer', 'owner', 'admin']), async
     // so the browser keeps its draft. Legacy unkeyed callers may continue through the old projection.
     let existingRead = await supabase
       .from('vehicles')
-      .select('vin, owner_id, current_seller_id, tenant_id, publication_status, status, listing_location_source, listing_location_visibility, seller_listing_submission_id, engine_number, chassis_number, plate_number, temp_plate_id')
+      .select('vin, owner_id, current_seller_id, tenant_id, publication_status, status, listing_location_source, listing_location_visibility, seller_listing_submission_id, engine_number, chassis_number, plate_number, temp_plate_id, registration_status, registration_status_source')
       .eq('vin', vin)
       .maybeSingle();
     if (existingRead.error && isMissingNamedColumnError(existingRead.error, 'seller_listing_submission_id')) {
@@ -2859,7 +2872,7 @@ app.post('/api/vehicles/add', authorizeRole(['dealer', 'owner', 'admin']), async
       }
       existingRead = await supabase
         .from('vehicles')
-        .select('vin, owner_id, current_seller_id, tenant_id, publication_status, status, listing_location_source, listing_location_visibility, engine_number, chassis_number, plate_number, temp_plate_id')
+        .select('vin, owner_id, current_seller_id, tenant_id, publication_status, status, listing_location_source, listing_location_visibility, engine_number, chassis_number, plate_number, temp_plate_id, registration_status, registration_status_source')
         .eq('vin', vin)
         .maybeSingle();
     }
@@ -2971,6 +2984,8 @@ app.post('/api/vehicles/add', authorizeRole(['dealer', 'owner', 'admin']), async
       // seller actually made. `false` is the honest value for a seller who did not opt in.
       public_seller_display_enabled: publicSellerDisplayEnabled,
       registration_country: candidate.registration_country,
+      // Registration stage is a lifecycle/readiness claim, not immutable vehicle identity.
+      registration_status: submittedRegistrationStatus,
       // Phase 4: identity fields — stored for completeness gate evaluation
       engine_number: submittedText(engine_number),
       chassis_number: submittedText(chassis_number),
@@ -3133,6 +3148,9 @@ app.post('/api/vehicles/add', authorizeRole(['dealer', 'owner', 'admin']), async
         // listing control after the legal owner/private seller starts a new listing.
         tenant_id: candidate.tenant_id,
         public_seller_display_enabled: listingRow.public_seller_display_enabled,
+        // A Seller can advance/restate the registration lifecycle on a later listing. Provenance
+        // remains seller_declared until a governed registry/evidence workflow establishes more.
+        ...(submittedRegistrationStatus !== null ? { registration_status: submittedRegistrationStatus } : {}),
         // Re-listing refreshes the Seller's history disclosures alongside the other commercial
         // statements; unanswered questions stay untouched on the existing row (keys absent).
         ...sellerHistoryDisclosureColumns,
