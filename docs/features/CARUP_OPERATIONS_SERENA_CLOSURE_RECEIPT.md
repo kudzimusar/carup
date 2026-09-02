@@ -6,7 +6,7 @@ report; it records the *closure* certification performed on one frozen candidate
 | # | Item | Result |
 |---|---|---|
 | 1 | Final branch | `feat/operations-control-plane-serena-slice` |
-| 2 | **Final SHA (frozen)** | **`a9339b94c495e6494a6130e56ab9fc49664ccce6`** |
+| 2 | **Final SHA (frozen)** | **`a9339b94c495e6494a6130e56ab9fc49664ccce6`** — every product, test, migration and workflow change is at or before this commit. Commits after it are **documentation only** (`git diff --name-only a9339b94 HEAD` returns only `docs/`), so the certification remains single-SHA. |
 | 3 | PR | **#206**, draft, **UNMERGED** |
 | 4 | **PR target — CORRECTED** | Was `main` (760 files, +120,936, 930 commits of unmerged ancestor history). **Retargeted to `fix/zimbabwe-seller-reality-comms-hardening`**, its true parent. PR now shows **55 files, +9,836/−293, 21 commits** — only this slice. |
 | 5 | Staging frontend SHA | exact candidate head (workflow provenance gate asserts before any UAT step) |
