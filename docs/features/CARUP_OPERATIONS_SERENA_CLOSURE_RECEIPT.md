@@ -45,17 +45,16 @@ report; it records the *closure* certification performed on one frozen candidate
 
 | Workflow | Class |
 |---|---|
-| Operations Serena Staging UAT | **PASS** — 12/12, three viewports |
-| Communication Command Center CI | **PASS** |
-| Vehicle Finance Obligation Authority CI | **PASS** |
-| CI (lint · types · build · tests) | at final head — see PR checks |
-| Vehicle Passport Foundation CI | at final head — see PR checks |
-| Navigation Intelligence CI | at final head — see PR checks |
-| Marketplace Reference Regression | at final head — see PR checks |
-| Referral Engine CI · Diaspora Phases 3-7 | run because shared navigation/registry contracts changed |
+| **Operations Serena Staging UAT** | **PASS** at `a9339b94` — run 33677541343, 12/12 across desktop, tablet and mobile |
+| **Vehicle Passport Foundation CI** | **PASS** at `a9339b94` |
+| **Communication Command Center CI** | **PASS** at `a9339b94` |
+| **Referral Engine CI** | **PASS** at `a9339b94` (runs because shared navigation/registry contracts changed) |
+| **Diaspora Phases 3-7 Validation** | **PASS** at `a9339b94` (same reason) |
+| **Vehicle Finance Obligation Authority CI** | **PASS** (last triggered at `caca002a`; nothing in its paths changed after) |
+| `CI` (Lint · Types · Build · Tests) · `Navigation Intelligence CI` · `Marketplace Reference Regression` | **NOT APPLICABLE TO THIS PR — and this is a consequence of the retarget, stated rather than hidden.** All three declare `pull_request: branches: [main]`, so once #206 was correctly retargeted to its parent lane they stopped triggering here. They will gate these changes when #205/#194 target main. Their gates were reproduced locally at the frozen SHA: web typecheck PASS; full web suite 1554/1554; full backend suite 5699 pass / 14 baseline-only fails; marketplace + public-projection + invariant suites 138/138 re-run immediately after the `listingSummaryService` change; navigation lib/layout/config 458/458 with the nav-map count recomputed; zero net-new lint findings. |
 | Diaspora Deployed Staging UAT · Marketplace Reference Media Staging Apply · Seller Registration Profile / S0 Taxonomy / S3 Location Staging Gates | **SKIPPED — NOT APPLICABLE**: path/base-filtered to lanes this slice does not touch |
-| Earlier Serena runs 33670227213 / 33671072128 / 33672092584 / 33673092837 / 33674960836 / 33675351878 / 33676230598 | **SUPERSEDED** by the final-SHA run (each is recorded in the tracker with what it proved or found) |
-| Seller Exact-Head Staging UAT (Golden) | **DEFERRED** — item 23 |
+| Serena runs 33670227213 · 33671072128 · 33672092584 · 33673092837 · 33674960836 · 33675351878 · 33676230598 | **SUPERSEDED** by the final-SHA run. Each is recorded in the tracker with what it proved or found — two found real defects (the `fraud_cases.severity` mismatch and the published-state contrast violation), one found the masked-credential defect in my own gate |
+| Seller Exact-Head Staging UAT (Golden) | **DEFERRED** — item 23: shares the `uat.reviewer` identity this certification rotates |
 
 ## Closure rule check
 
