@@ -74,6 +74,7 @@ import {
   normalizeInsuranceDisclosure,
   normalizeFinanceDisclosure,
 } from './services/seller/vehicleHistoryDisclosures.js';
+import { hasVerifiedOwnershipAuthorityEvidence } from './services/seller/sellerAuthorityService.js';
 
 // Centralized Routes Imports (Batch 1)
 import leadsRouter from './routes/leadsRoutes.js';
@@ -2995,18 +2996,13 @@ app.post('/api/vehicles/add', authorizeRole(['dealer', 'owner', 'admin']), async
       publication_status: 'draft',
     };
 
+    // Canonical Seller Authority evidence check (Operations M2): a verified
+    // ownership/registration DOCUMENT under canonical semantics — a mislabeled
+    // import artifact never qualifies. Delegates to the one governed service
+    // instead of duplicating the query inline.
     let governedSellerEvidence = false;
     if (existing && reuse_existing_passport === true) {
-      const { data: authorityEvidence, error: authorityEvidenceError } = await supabase
-        .from('vehicle_evidence')
-        .select('id')
-        .eq('vin', vin)
-        .eq('uploaded_by', req.userContext.id)
-        .eq('verification_status', 'verified')
-        .in('evidence_type', ['registration_document', 'ownership_transfer_document'])
-        .limit(1);
-      if (authorityEvidenceError) throw authorityEvidenceError;
-      governedSellerEvidence = Boolean(authorityEvidence?.length);
+      governedSellerEvidence = await hasVerifiedOwnershipAuthorityEvidence(supabase, vin, req.userContext.id);
     }
 
     const existingSellerRelationship = Boolean(existing && (

@@ -38,12 +38,24 @@ import {
   recordEvidenceUploadProvenance,
   runAiAnalysis,
 } from '../services/evidence/evidenceService.js';
-import { semanticClassificationLabel } from '../services/evidence/evidenceTaxonomy.js';
+import {
+  semanticClassificationLabel,
+  isSellerAuthorityCandidateRow,
+} from '../services/evidence/evidenceTaxonomy.js';
+import {
+  submitSellerClaim,
+  reviewSellerAuthority,
+  getSellerAuthorityState,
+  toPublicSellerAuthorityStatement,
+  SellerAuthorityError,
+  SELLER_AUTHORITY_CLAIM_EVENT as SELLER_AUTHORITY_CLAIM_EVENT_NAME,
+} from '../services/seller/sellerAuthorityService.js';
 import {
   correctEvidenceClassification,
   ClassificationCorrectionError,
 } from '../services/evidence/evidenceClassificationCorrectionService.js';
 import { withUploadIdempotency } from '../services/evidence/uploadIdempotency.js';
+import { emitDomainEvent } from '../services/eventBus/eventBusService.js';
 import { getSourceByCode } from '../services/evidence/sourceRegistryService.js';
 import { evaluateCompleteness } from '../services/evidence/completenessEvaluator.js';
 import { notifyEvidenceReviewDecided } from '../services/evidence/evidenceReviewNotifier.js';
@@ -60,22 +72,13 @@ import {
 
 const router = express.Router();
 
-const SELLER_AUTHORITY_CLAIM_EVENT = 'SELLER_AUTHORITY_CLAIM_REQUESTED';
-const SELLER_AUTHORITY_EVIDENCE_TYPES = new Set(['registration_document', 'ownership_transfer_document']);
-
-async function hasVerifiedSellerAuthorityEvidence(vin, userId) {
-  if (!vin || !userId) return false;
-  const { data, error } = await supabase
-    .from('vehicle_evidence')
-    .select('id')
-    .eq('vin', vin)
-    .eq('uploaded_by', userId)
-    .eq('verification_status', 'verified')
-    .in('evidence_type', Array.from(SELLER_AUTHORITY_EVIDENCE_TYPES))
-    .limit(1);
-  if (error) throw new DatabaseError(`Failed to read Seller authority evidence: ${error.message}`);
-  return Boolean(data?.length);
-}
+// Seller Authority is governed by the canonical service (Operations M2):
+// backend/services/seller/sellerAuthorityService.js. The claim event name and
+// the claimant upload bypass below preserve the historical contract; evidence
+// semantics are canonical-aware (M1) — a verified ownership/registration
+// DOCUMENT or the permanent-import purchase-chain set, never an arbitrary row
+// whose legacy field happens to say 'registration_document'.
+const SELLER_AUTHORITY_CLAIM_EVENT = SELLER_AUTHORITY_CLAIM_EVENT_NAME;
 
 async function latestSellerAuthorityClaim(vin, userId) {
   if (!vin || !userId) return null;
@@ -351,67 +354,128 @@ router.patch('/api/vehicles/:vin/price', authorizeRole(['owner', 'dealer', 'admi
 
 // --- SELLER → EXISTING PASSPORT AUTHORITY HANDOFF ---
 // One VIN has one Passport. Encountering an existing VIN never permits a second vehicle row.
+// Governed by the canonical sellerAuthorityService (Operations M2): recognition
+// never rewrites ownership, claims are idempotent and audited fail-closed, and
+// the evidence shortcut is canonical-aware.
 router.post('/api/vehicles/:vin/seller-claim', authorizeRole(['owner', 'dealer']), asyncHandler(async (req, res) => {
   const vin = String(req.params.vin || '').trim().toUpperCase();
   const claimType = String(req.body?.claim_type || '').trim().toLowerCase();
-  if (!['owner', 'authorised_seller'].includes(claimType)) {
-    throw new ValidationError("claim_type must be 'owner' or 'authorised_seller'.");
+
+  let result;
+  try {
+    result = await submitSellerClaim(supabase, {
+      vin,
+      claimType,
+      userContext: req.userContext,
+      requestContext: {
+        requestId: req.requestId || req.headers['x-request-id'] || null,
+        sourceRoute: '/api/vehicles/:vin/seller-claim',
+        ipAddress: req.ip || null,
+        userAgent: req.headers['user-agent'] || null,
+      },
+    });
+  } catch (err) {
+    if (err instanceof SellerAuthorityError) {
+      if (err.code === 'SELLER_AUTHORITY_CLAIM_INVALID') throw new ValidationError(err.message);
+      if (err.code === 'SELLER_AUTHORITY_VEHICLE_NOT_FOUND') throw new NotFoundError(err.message);
+      throw new DatabaseError(err.message);
+    }
+    throw err;
   }
 
-  const { data: vehicle, error } = await supabase
-    .from('vehicles')
-    .select('vin, owner_id, current_seller_id, tenant_id')
-    .eq('vin', vin)
-    .maybeSingle();
-  if (error) throw new DatabaseError(error.message);
-  if (!vehicle) throw new NotFoundError('Vehicle Passport not found.');
+  if (result.status === 'recognized') {
+    return res.json({ success: true, ...result });
+  }
+  return res.status(202).json({ success: true, ...result });
+}));
 
-  const recognized =
-    vehicle.owner_id === req.userContext.id
-    || (vehicle.current_seller_id && vehicle.current_seller_id === req.userContext.id)
-    || (vehicle.tenant_id && req.userContext.tenantId && vehicle.tenant_id === req.userContext.tenantId);
+// --- SELLER AUTHORITY STATE (Operations M2) ---
+// A reviewer (admin/government — capability-bounded from M5) may inspect any
+// seller's authority state; everyone else sees only their own.
+router.get('/api/vehicles/:vin/seller-authority', authorizeRole(), asyncHandler(async (req, res) => {
+  const vin = String(req.params.vin || '').trim().toUpperCase();
+  const isReviewer = ['admin', 'government'].includes(req.userContext.role);
+  const requestedSellerId = String(req.query.seller_user_id || '').trim() || null;
+  const sellerUserId = isReviewer && requestedSellerId ? requestedSellerId : req.userContext.id;
+  if (!isReviewer && requestedSellerId && requestedSellerId !== req.userContext.id) {
+    throw new ForbiddenError('You may only view your own seller authority state.');
+  }
 
-  const reviewedAuthority = recognized
-    ? true
-    : await hasVerifiedSellerAuthorityEvidence(vin, req.userContext.id);
-
-  if (recognized || reviewedAuthority) {
+  try {
+    const state = await getSellerAuthorityState(supabase, {
+      vin,
+      sellerUserId,
+      sellerTenantId: sellerUserId === req.userContext.id ? (req.userContext.tenantId || null) : null,
+    });
     return res.json({
       success: true,
-      status: 'recognized',
       vin,
-      claim_type: claimType,
-      recognition_basis: recognized ? 'existing_relationship' : 'governed_verified_evidence',
+      seller_user_id: sellerUserId,
+      status: state.status,
+      basis: state.basis,
+      claim_type: state.claim_type,
+      evidence_ids: state.evidence_ids,
+      policy_version: state.policy_version,
+      decided_at: state.decided_at,
+      // Reviewer-only attribution; a seller does not need the reviewer's identity.
+      ...(isReviewer ? { decided_by: state.decided_by, reason: state.reason } : {}),
+      public_statement: toPublicSellerAuthorityStatement(state),
     });
-  }
-
-  const existingClaim = await latestSellerAuthorityClaim(vin, req.userContext.id);
-  if (!existingClaim) {
-    const audit = await logAuditEvent(supabase, {
-      req,
-      event_type: SELLER_AUTHORITY_CLAIM_EVENT,
-      vin,
-      targetType: 'vehicle_seller_authority',
-      targetId: `${vin}:${req.userContext.id}`,
-      actor_user_id: req.userContext.id,
-      actor_role: req.userContext.role,
-      actor_tenant_id: req.userContext.tenantId,
-      source_route: '/api/vehicles/:vin/seller-claim',
-      new_value: { state: 'evidence_required', claim_type: claimType },
-      reason: 'Seller confirmed an existing Passport and requested authority to sell it.',
-    });
-    if (!audit?.success) {
-      throw new DatabaseError(audit?.error || 'Seller authority claim could not be recorded.');
+  } catch (err) {
+    if (err instanceof SellerAuthorityError) {
+      return res.status(err.status).json({ success: false, error: err.message, code: err.code });
     }
+    throw err;
   }
+}));
 
-  return res.status(202).json({
-    success: true,
-    status: 'evidence_required',
-    vin,
-    claim_type: claimType,
-    next_action: 'upload_registration_or_ownership_transfer_evidence',
-  });
+// --- GOVERNED SELLER AUTHORITY REVIEW DECISION (Operations M2) ---
+// Reviewer roles mirror evidence verify/reject; the M5 Operations capability
+// policy layers on top. No self-approval; audited fail-closed in the service.
+router.post('/api/vehicles/:vin/seller-authority/review', authorizeRole(['admin', 'government']), asyncHandler(async (req, res) => {
+  const vin = String(req.params.vin || '').trim().toUpperCase();
+  const sellerUserId = String(req.body?.seller_user_id || '').trim();
+  if (!sellerUserId) throw new ValidationError('seller_user_id is required');
+
+  try {
+    const result = await reviewSellerAuthority(supabase, {
+      vin,
+      sellerUserId,
+      sellerTenantId: req.body?.seller_tenant_id || null,
+      decision: String(req.body?.decision || '').trim(),
+      reason: req.body?.reason,
+      actor: {
+        id: req.userContext.id,
+        role: req.userContext.role,
+        tenantId: req.userContext.tenantId || null,
+      },
+      requestContext: {
+        requestId: req.requestId || req.headers['x-request-id'] || null,
+        sourceRoute: '/api/vehicles/:vin/seller-authority/review',
+        ipAddress: req.ip || null,
+        userAgent: req.headers['user-agent'] || null,
+      },
+    });
+
+    // Tell the seller through the canonical notification fabric (best-effort:
+    // the decision is already durable + audited). Safe payload only — the
+    // public decision wording, never reviewer identity or restricted evidence.
+    emitDomainEvent(null, 'seller.authority.decided', {
+      vin,
+      recipientUserId: sellerUserId,
+      decision: result.public_statement,
+      listingId: vin,
+    }, req.userContext.tenantId || null).catch((err) => {
+      console.warn('[seller-authority] outbox emit failed:', err.message);
+    });
+
+    return res.json({ success: true, ...result });
+  } catch (err) {
+    if (err instanceof SellerAuthorityError) {
+      return res.status(err.status).json({ success: false, error: err.message, code: err.code });
+    }
+    throw err;
+  }
 }));
 
 // --- PASSPORT EVIDENCE ARCHITECTURE ROUTING ---
@@ -481,12 +545,19 @@ async function insertEvidenceFromRequest(req, vin, { requireVehicleId = false } 
   try {
     assertEvidenceOwnershipScope(vehicle, req.userContext);
   } catch (scopeError) {
-    const claim = SELLER_AUTHORITY_EVIDENCE_TYPES.has(normalized.evidenceType)
+    // A claimant may contribute ONLY documents that can prove seller authority:
+    // ownership/registration documents or the permanent-import purchase chain
+    // (canonical semantics, Operations M2). This does not change
+    // vehicles.owner_id or grant general owner evidence access.
+    const isAuthorityCandidate = isSellerAuthorityCandidateRow({
+      evidence_type: normalized.evidenceType,
+      evidence_class: normalized.evidenceClass,
+      evidence_subtype: normalized.evidenceSubtype,
+    });
+    const claim = isAuthorityCandidate
       ? await latestSellerAuthorityClaim(vin, activeUserId)
       : null;
     if (!claim) throw scopeError;
-    // A claimant may contribute only the restricted documents needed to prove seller authority.
-    // This does not change vehicles.owner_id or grant general owner evidence access.
   }
 
   // Canonical-aware default: any document artifact (canonical subtype flag or

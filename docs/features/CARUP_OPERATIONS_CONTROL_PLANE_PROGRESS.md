@@ -134,24 +134,28 @@ Do not call the Serena slice certified until every M0–M7 mandatory item is [x]
 
 # M2 — Seller Authority governance
 
-- [ ] M2.1 Reuse/harden existing seller-claim contract rather than duplicate it.
-- [ ] M2.2 Separate Seller authority from Zimbabwe registration.
-- [ ] M2.3 Document chosen Seller authority state model.
-- [ ] M2.4 Existing owner/current-seller/tenant recognition preserved.
-- [ ] M2.5 Permanent-import evidence-set policy implemented.
-- [ ] M2.6 Locally registered evidence-set policy preserved.
-- [ ] M2.7 Dealer/tenant authority remains scoped.
-- [ ] M2.8 No self-approval.
-- [ ] M2.9 Conflict with another seller/owner fails closed.
-- [ ] M2.10 Disputed/revoked authority handled.
-- [ ] M2.11 Evidence basis stored/audited.
-- [ ] M2.12 Decision reason required where policy requires it.
-- [ ] M2.13 Idempotency/concurrency safe.
-- [ ] M2.14 Seller notification path safe.
-- [ ] M2.15 Public wording does not claim legal title/CVR verification.
-- [ ] M2.16 Serena Seller authority can be reviewed without fake CVR/TIP.
-- [ ] M2.17 Seller authority backend tests green.
-- [ ] M2.18 Cross-user/cross-tenant negative tests green.
+**Implemented 2026-09-02/03.** Schema decision (start prompt §10): the audit-event-only claim implementation could not support a queryable current state for the publication gate, a reviewer lifecycle, supersession, dispute/revocation or race-safe decisions — replaying trust_audit_events inside every completeness evaluation is neither cheap nor safe. Additive table `vehicle_seller_authority` (migration `20260902160000`) holds ONLY current state per (vin, seller); trust_audit_events remains the decision-history authority (every decision audited fail-closed). Canonical service: backend/services/seller/sellerAuthorityService.js (policy `seller_authority.v1`).
+
+- [x] M2.1 Existing seller-claim contract extracted/hardened, not duplicated — `POST /api/vehicles/:vin/seller-claim` delegates to `submitSellerClaim` (same recognized/evidence_required handshake, same claim audit event, now also an idempotent claim row); the inline server.js `governedSellerEvidence` duplicate now calls the one service.
+- [x] M2.2 Authority vs registration separated — service answers ONLY the authority question; registration stays in zimbabweRegistrationLifecycle; state machine has no registration input; wording test pins that no authority statement mentions registration/title/CVR/plate.
+- [x] M2.3 State model documented — not_assessed / recognized (derived from relationship) / evidence_submitted / under_review / confirmed / insufficient / disputed / revoked; precedence: explicit decision row > relationship recognition > not_assessed; explicit revoked/disputed/insufficient overrides relationship (fails closed). Recorded in migration + service docstrings + this tracker.
+- [x] M2.4 Relationship recognition preserved — `hasExistingSellerRelationship` unchanged semantics; tested.
+- [x] M2.5 Permanent-import evidence-set policy — `evaluateEvidenceBasis`: ≥2 DISTINCT verified import purchase-chain documents (commercial_invoice/payment_receipt/bill_of_lading/export_certificate) → basis `reviewed_permanent_import_evidence_set`; commercial invoice alone refused (tested).
+- [x] M2.6 Ownership/registration evidence policy preserved, canonical-aware — verified ownership/registration DOCUMENT (M1 semantics) → basis `reviewed_ownership_registration_evidence`; a mislabeled import doc never qualifies (tested).
+- [x] M2.7 Dealer/tenant scoped — tenant recognition only for matching tenant; cross-tenant test green; dealer basis `dealer_tenant_inventory`.
+- [x] M2.8 No self-approval — seller cannot review own claim, admin included (tested).
+- [x] M2.9 Conflict fails closed — confirmation refused 409 when another party holds owner_id/current_seller_id/tenant; relationship never overwritten (tested; service has no code path writing vehicles.*).
+- [x] M2.10 Disputed/revoked handled — decisions exist in state machine; revocation overrides relationship in `isSellerAuthoritySatisfied` (tested); supersession recorded via previous_status in the audit event.
+- [x] M2.11 Evidence basis stored/audited — evidence_ids on the row + audit event.
+- [x] M2.12 Reason required for confirmed/insufficient/disputed/revoked (tested).
+- [x] M2.13 Idempotency/concurrency — claims idempotent (one row, one audit event across repeats; UNIQUE(vin,seller) backstops concurrent claims; benign-duplicate handling); decisions audited-then-written; DB CHECK requires decider attribution on decision states (PGlite harness).
+- [x] M2.14 Seller notification safe — new `seller.authority.decided` domain event → canonical fabric (in_app, transactional, template `seller_authority_v1`); payload carries only VIN + public decision wording — no reviewer identity, no tokens, no documents; best-effort after the durable audited decision.
+- [x] M2.15 Public wording bounded — `toPublicSellerAuthorityStatement`: "Seller authority reviewed by CarUp" etc.; test asserts no title/CVR/ZIMRA/registration/plate claims for any state.
+- [x] M2.16 Serena reviewable without fake CVR/TIP — Kingstone holds owner_id+current_seller_id → reviewer can record `confirmed` on basis `existing_relationship` (strengthened by the import purchase-chain once verified); nothing in the path requires registration/TIP evidence. Staging execution lands in M7.10.
+- [x] M2.17 Backend tests green — operations-seller-authority.test.js 14/14; updated seller-existing-passport-authority source-contract pins; communication coverage suites 148/148.
+- [x] M2.18 Cross-user/cross-tenant negatives green — stranger=not_assessed, cross-tenant dealer denied recognition, GET state route restricts non-reviewers to their own state.
+
+New/changed surfaces: `GET /api/vehicles/:vin/seller-authority` (reviewer may query any seller; others own-state only; reviewer-only attribution fields), `POST /api/vehicles/:vin/seller-authority/review` (admin/government pending M5 capability layer). Claimant upload-scope bypass is now canonical-aware (ownership/registration documents OR import purchase-chain — isSellerAuthorityCandidateRow). PGlite harness `database/test/operations_serena_slice_pglite_check.mjs` + CI step added (migrations after 20260810120000 are executed by no other gate).
 
 ---
 
