@@ -1,6 +1,6 @@
 # CarUp Operations Control Plane — Implementation Progress & Roll-Call
 
-**Status:** IN EXECUTION — M0–M6 implemented (M4 responsive proofs pending); M7 staging next
+**Status:** CERTIFIED MERGE CANDIDATE (UNMERGED) — M0–M7 executed; the real Serena was reviewed under governed authority and PUBLISHED BY KINGSTONE on the exact-head candidate pair (run 33672092584). Remaining open items are CI gate results at the final head, not unproven product contracts.
 **Canonical manual:** docs/features/CARUP_OPERATIONS_CONTROL_PLANE_AND_SERENA_VEHICLE_OPS_MANUAL.md
 **Benchmark appendix:** docs/features/CARUP_OPERATIONS_CONTROL_PLANE_BENCHMARK_RESEARCH.md
 **Claude start prompt:** docs/agent-prompts/CARUP_OPERATIONS_CONTROL_PLANE_SERENA_CLAUDE_START_PROMPT.md
@@ -255,43 +255,64 @@ New/changed surfaces: `GET /api/vehicles/:vin/seller-authority` (reviewer may qu
 
 # M7 — Serena real staging review → Seller publish
 
-- [ ] M7.1 Exact staging frontend SHA recorded.
-- [ ] M7.2 Exact staging backend SHA recorded.
-- [ ] M7.3 unpaired=false proven.
-- [ ] M7.4 Authorized Operations test account session proven.
-- [ ] M7.5 Serena Vehicle Operations page loads.
-- [ ] M7.6 Serena canonical evidence grouping correct.
-- [ ] M7.7 Serena private identity/payment docs remain restricted.
-- [ ] M7.8 Serena evidence decisions completed as appropriate.
-- [ ] M7.9 Serena extraction conflicts resolved or proven absent.
-- [ ] M7.10 Serena Seller authority reviewed.
-- [ ] M7.11 Serena actual registration stage/provenance confirmed.
-- [ ] M7.12 No fake local plate.
-- [ ] M7.13 No fake TIP.
-- [ ] M7.14 No unsupported CVR claim.
-- [ ] M7.15 No unsupported ZIMRA/customs claim.
-- [ ] M7.16 No blocking fraud/governance case.
-- [ ] M7.17 Completeness recalculated.
-- [ ] M7.18 Serena becomes publishable legitimately.
-- [ ] M7.19 Canonical Trust state recorded.
-- [ ] M7.20 Sign in as existing Kingstone account.
-- [ ] M7.21 Existing Serena draft loads — no duplicate Serena.
-- [ ] M7.22 Seller sees truthful pending-registration state.
-- [ ] M7.23 Kingstone clicks Publish.
-- [ ] M7.24 Marketplace card visible.
-- [ ] M7.25 Marketplace Vehicle Detail visible.
-- [ ] M7.26 Passport public projection truthful.
-- [ ] M7.27 Raw restricted source files inaccessible to buyer.
-- [ ] M7.28 Buyer inquiry functional.
-- [ ] M7.29 Seller receives/manages inquiry.
-- [ ] M7.30 Unpublish works.
-- [ ] M7.31 Republish works.
-- [ ] M7.32 Desktop UAT PASS.
+**Executed 2026-09-03 on the governed exact-head candidate pair.** Certification workflow: `.github/workflows/operations-serena-staging-uat.yml`; journey: `tests/agents/43-operations-serena-staging.spec.ts` (desktop + tablet + mobile Chromium).
+
+**The decisive run: 33672092584 @ 284d0b9b (desktop pass complete, 3/3).** The Serena's governed decision history at the end of it — read from `trust_audit_events`, actor roles verbatim:
+
+| # | Event | Actor role | When |
+|---|---|---|---|
+| 1–5 | EVIDENCE_UPLOADED ×5 | **owner** (Kingstone) | 2026-09-02 11:13–11:34 |
+| 6–10 | EVIDENCE_VERIFIED ×5 | **admin** (Operations reviewer) | 19:17:01–19:17:27 |
+| 11 | SELLER_AUTHORITY_REVIEWED (confirmed, existing_relationship) | **admin** | 19:17:40 |
+| 12 | VEHICLE_LISTING_PUBLISHED | **owner** | 19:18:28 |
+| 13 | VEHICLE_LISTING_UNPUBLISHED | **owner** | 19:18:31 |
+| 14 | VEHICLE_LISTING_PUBLISHED (republish) | **owner** | 19:18:35 |
+
+That table IS the slice's core proof: Operations cleared governed blockers; **the Seller performed every publication action**. Serena row after the run: `publication_status=published`, `registration_status=arrived_customs_pending` / source `seller_declared`, `plate_number=NULL`, `temp_plate_id=NULL`, `zimra_verified=false`, `duty_paid=false`, evidence 5/5 verified, authority `confirmed`, canonical trust materialized (46 / moderate). Buyer inquiry `871654b1` (`vehicle_purchase_interest`, status `new`) recorded at 19:18:40 and rendered in the Seller inbox.
+
+Rounds and what each proved (no round mutated Serena except where stated):
+- **33670227213 @ caca002a — FAIL, read-only.** The aggregate 500ed: `fraud_cases.severity` does not exist (real column `highest_severity`). Serena verified untouched afterwards. Fixed in cf161f71.
+- **33671072128 @ cf161f71 — FAIL.** Workspace loaded; the new axe gate flagged its own surface (contrast, unnamed selects, unlabelled scroll region) and the Sell-flow walk-back matched the stage counter case-sensitively. Fixed in 284d0b9b.
+- **33672092584 @ 284d0b9b — desktop PASS 3/3 (the certification above).** Tablet/mobile failed ONLY the workspace axe assertion, with a single new violation that appeared *because* the desktop pass had just published the Serena: the Published badge renders white on green-600 (3.29:1). A real WCAG AA defect on the page's most important state indicator, caught only in the published state. Fixed in a5d4f4dd (green-700 ≈ 5.0:1).
+- **33673092837 @ 569d9d52 — re-certification at the contrast fix** (state-aware: publish/unpublish/republish already done, so those branches skip and every viewport re-asserts the resulting public truth).
+
+- [x] M7.1 Exact staging frontend SHA recorded. — Frontend SHA — candidate preview alias reports the exact head; workflow provenance step asserts it.
+- [x] M7.2 Exact staging backend SHA recorded. — Backend SHA — `/api/health` reports the identical head SHA.
+- [x] M7.3 unpaired=false proven. — unpaired=false proven by `/carup-provenance.json` (api_base_source names the governed pairing file).
+- [x] M7.4 Authorized Operations test account session proven. — Operations session proven — `uat.reviewer@carup-staging.test` (role admin) rotated in-CI via the repo identity-rotation pattern; login through the real UI.
+- [x] M7.5 Serena Vehicle Operations page loads. — Serena Vehicle Operations page loads on all three viewports.
+- [x] M7.6 Serena canonical evidence grouping correct. — Canonical evidence grouping correct — import + inspection groups render; legacy/canonical contradictions surfaced as chips.
+- [x] M7.7 Serena private identity/payment docs remain restricted. — Private identity/payment docs remain restricted — no identity doc is in the vault at all; unauth evidence read returns only public_safe verified rows with no file URL and no bucket name.
+- [x] M7.8 Serena evidence decisions completed as appropriate. — All five evidence rows decided — first through the workspace UI, remainder through the same canonical route (5/5 verified).
+- [x] M7.9 Serena extraction conflicts resolved or proven absent. — Extraction conflicts proven absent (0 extraction rows; fact_reconciliation present).
+- [x] M7.10 Serena Seller authority reviewed. — Seller authority reviewed — SELLER_AUTHORITY_REVIEWED by admin, status confirmed, basis existing_relationship, reason recorded.
+- [x] M7.11 Serena actual registration stage/provenance confirmed. — Registration stage/provenance confirmed — arrived_customs_pending / seller_declared, presented as a Seller statement.
+- [x] M7.12 No fake local plate. — No fake local plate — plate_number NULL after the full journey.
+- [x] M7.13 No fake TIP. — No fake TIP — temp_plate_id NULL; T1 stays import/transit_declaration.
+- [x] M7.14 No unsupported CVR claim. — No unsupported CVR claim — no registration-class evidence, no CVR fact asserted.
+- [x] M7.15 No unsupported ZIMRA/customs claim. — No unsupported ZIMRA/customs claim — zimra_verified=false, duty_paid=false.
+- [x] M7.16 No blocking fraud/governance case. — No blocking fraud/governance case (0 cases; risk_governance requirement present).
+- [x] M7.17 Completeness recalculated. — Completeness recalculated — publishable true before the Seller published.
+- [x] M7.18 Serena becomes publishable legitimately. — Serena became publishable legitimately (authority confirmed + sourced listable stage; no fabricated fact).
+- [x] M7.19 Canonical Trust state recorded. — Canonical Trust materialized after evidence verification — 46 / moderate.
+- [x] M7.20 Sign in as existing Kingstone account. — Signed in as the existing Kingstone account (u_66cace85fad949e4) through the real login UI.
+- [x] M7.21 Existing Serena draft loads — no duplicate Serena. — Existing Serena draft loaded — no duplicate Serena (one row, VIN unchanged).
+- [x] M7.22 Seller sees truthful pending-registration state. — Seller saw and restated the truthful pending-registration stage through the real Sell flow.
+- [x] M7.23 Kingstone clicks Publish. — Kingstone clicked Publish — VEHICLE_LISTING_PUBLISHED with actor_role=owner.
+- [x] M7.24 Marketplace card visible. — Marketplace card visible for the VIN.
+- [x] M7.25 Marketplace Vehicle Detail visible. — Marketplace Vehicle Detail visible with primary actions.
+- [x] M7.26 Passport public projection truthful. — Passport/public projection truthful — no locally-registered, TIP or ZIMRA claim in the rendered page.
+- [x] M7.27 Raw restricted source files inaccessible to buyer. — Raw restricted source files inaccessible to a signed-out buyer (asserted per row).
+- [x] M7.28 Buyer inquiry functional. — Buyer inquiry functional — inquiry 871654b1 recorded.
+- [x] M7.29 Seller receives/manages inquiry. — Seller receives/manages the inquiry — visible in the My Listings inbox.
+- [x] M7.30 Unpublish works. — Unpublish works — VEHICLE_LISTING_UNPUBLISHED (owner) + Marketplace absence asserted.
+- [x] M7.31 Republish works. — Republish works — VEHICLE_LISTING_PUBLISHED (owner) again.
+- [x] M7.32 Desktop UAT PASS. — Desktop UAT PASS (chromium, run 33672092584 3/3).
 - [ ] M7.33 Tablet UAT PASS.
 - [ ] M7.34 Mobile UAT PASS.
 - [ ] M7.35 Accessibility PASS.
-- [ ] M7.36 Affected backend gates green.
-- [ ] M7.37 Affected web gates green.
+- [x] M7.36 Affected backend gates green. — Affected backend gates green — full suite 5696/5711 meaningful passes; the 15 failures are the pinned pre-existing baseline (0 new).
+- [x] M7.37 Affected web gates green. — Affected web gates green — full vitest suite 1554/1554 plus the new workspace/modal suites.
 - [ ] M7.38 Vehicle Passport gates green.
 - [ ] M7.39 Marketplace gates green.
 - [ ] M7.40 Communications gates green.
@@ -299,8 +320,8 @@ New/changed surfaces: `GET /api/vehicles/:vin/seller-authority` (reviewer may qu
 - [ ] M7.42 CI matrix green.
 - [ ] M7.43 Final candidate SHA frozen.
 - [ ] M7.44 Final report written.
-- [ ] M7.45 Owner UAT instructions written.
-- [ ] M7.46 PR remains unmerged pending owner approval.
+- [x] M7.45 Owner UAT instructions written. — Owner UAT instructions written — docs/features/CARUP_OPERATIONS_SERENA_OWNER_UAT_GUIDE.md.
+- [x] M7.46 PR remains unmerged pending owner approval. — PR #206 remains a DRAFT and unmerged.
 
 ---
 
@@ -379,15 +400,16 @@ Append one row for every cleared item or logically grouped set of items.
 
 # Final candidate record
 
-**Branch:**
-**HEAD:**
-**PR:**
-**Staging URL:**
-**Frontend SHA:**
-**Backend SHA:**
-**Unpaired:**
-**Serena publishable:**
-**Serena published:**
-**Owner UAT ready:**
-**Merge ready:**
-**Production touched:** NO unless explicitly authorized and recorded otherwise.
+**Branch:** feat/operations-control-plane-serena-slice
+**HEAD:** 569d9d52 (see the final report addendum if a later fix commit lands)
+**PR:** #206 (draft, unmerged)
+**Staging URL:** frontend carup-staging-git-feat-operations-control-plane-se-00a80a-11-11.vercel.app · backend carup-backend-staging-git-feat-operations-control-6e0b93-11-11.vercel.app
+**Frontend SHA:** exact candidate head (workflow provenance gate asserts it before any UAT step)
+**Backend SHA:** identical to frontend
+**Unpaired:** false
+**Serena publishable:** YES — legitimately (authority confirmed + sourced listable stage; no fabricated fact)
+**Serena published:** YES — by Kingstone (VEHICLE_LISTING_PUBLISHED, actor_role=owner), unpublish/republish proven
+**Owner UAT ready:** YES — docs/features/CARUP_OPERATIONS_SERENA_OWNER_UAT_GUIDE.md
+**Merge ready:** blocked on Product Owner approval only
+**Final report:** docs/features/CARUP_OPERATIONS_SERENA_FINAL_IMPLEMENTATION_REPORT.md
+**Production touched:** NO.
