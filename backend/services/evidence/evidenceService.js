@@ -1,7 +1,14 @@
 import crypto from 'crypto';
 import { supabase } from '../../db/supabase.js';
 import { analyzeEvidenceImage } from '../ai/aiVisionProvider.js';
-import { resolveClassification } from './evidenceTaxonomy.js';
+import {
+  resolveClassification,
+  deriveLegacyCompatibilityType,
+  isDocumentArtifactRow,
+  semanticClassificationLabel,
+  GENERIC_COMPAT_TYPES,
+  GENERIC_COMPAT_DOCUMENT_TYPE,
+} from './evidenceTaxonomy.js';
 import { computePerceptualHash } from './perceptualHash.js';
 import { recordProvenanceEvent } from './provenanceService.js';
 
@@ -18,14 +25,20 @@ export const evidenceTypes = [
   'registration_document',
   'insurance_document',
   'police_clearance_document',
-  'ownership_transfer_document'
+  'ownership_transfer_document',
+  // Generic compatibility artifact-form values (Operations M1): valid ONLY
+  // together with a canonical evidence_class + evidence_subtype. They exist so
+  // canonical-first uploads never have to borrow a false legacy meaning
+  // (an import invoice must never be stored as 'registration_document').
+  ...GENERIC_COMPAT_TYPES
 ];
 
 export const documentEvidenceTypes = [
   'registration_document',
   'insurance_document',
   'police_clearance_document',
-  'ownership_transfer_document'
+  'ownership_transfer_document',
+  GENERIC_COMPAT_DOCUMENT_TYPE
 ];
 
 export const imageEvidenceTypes = evidenceTypes.filter((type) => !documentEvidenceTypes.includes(type));
@@ -50,6 +63,30 @@ export const uploadRoleMatrix = {
 
 export const reviewRoles = ['admin', 'government', 'dealer', 'mechanic'];
 
+/**
+ * Canonical-class upload authorization (Operations M1). When an upload is
+ * canonical-first (class + subtype supplied), authorization is decided by the
+ * life-stage class — not by whichever compatibility evidence_type was derived.
+ * Owners may file their own purchase/import/registration/inspection documents
+ * (Zimbabwe Seller reality plan §5: the seller files the import evidence set).
+ */
+export const classUploadRoleMatrix = {
+  import: ['owner', 'dealer', 'admin', 'government'],
+  auction: ['dealer', 'admin'],
+  accident: ['owner', 'dealer', 'admin', 'mechanic', 'insurance'],
+  repair: ['mechanic', 'owner', 'dealer', 'admin'],
+  inspection: ['owner', 'dealer', 'admin', 'government', 'mechanic'],
+  ownership_transfer: ['owner', 'dealer', 'admin', 'government'],
+  registration: ['owner', 'dealer', 'admin', 'government'],
+  dealer_listing: ['dealer', 'admin'],
+  current_condition: ['owner', 'dealer', 'admin', 'mechanic'],
+};
+
+/** Subtype-level authorization overrides (tighter than their class). */
+export const subtypeUploadRoleOverrides = {
+  'registration:police_clearance_first_registration': ['government', 'admin'],
+};
+
 export const allowedMimeTypes = [
   'image/jpeg',
   'image/jpg',
@@ -73,6 +110,34 @@ export function isSupportedMimeType(mimeType) {
 export function canUploadEvidence(evidenceType, role) {
   const allowedRoles = uploadRoleMatrix[evidenceType] || [];
   return allowedRoles.includes(role) || role === 'admin';
+}
+
+/**
+ * Canonical-aware upload authorization (Operations M1).
+ * Canonical-first uploads (explicit class + subtype) are authorized by the
+ * life-stage class matrix (with subtype overrides). Legacy-typed uploads keep
+ * the historical per-type matrix so existing clients are unaffected.
+ */
+export function canUploadEvidenceRecord({ evidenceType, evidenceClass, evidenceSubtype, explicitCanonical }, role) {
+  if (role === 'admin') return true;
+  if (explicitCanonical && evidenceClass) {
+    const override = evidenceSubtype ? subtypeUploadRoleOverrides[`${evidenceClass}:${evidenceSubtype}`] : null;
+    const allowed = override || classUploadRoleMatrix[evidenceClass] || [];
+    return allowed.includes(role);
+  }
+  return canUploadEvidence(evidenceType, role);
+}
+
+/**
+ * Canonical-aware artifact-form check for a NORMALIZED upload (pre-insert).
+ * Prefers the canonical subtype's document flag; falls back to the legacy type.
+ */
+export function isDocumentUpload(normalized) {
+  return isDocumentArtifactRow({
+    evidence_class: normalized.evidenceClass,
+    evidence_subtype: normalized.evidenceSubtype,
+    evidence_type: normalized.evidenceType,
+  });
 }
 
 export function parseBase64Payload(base64Str) {
@@ -119,28 +184,45 @@ export function validateEvidenceUploadPayload(payload, { requireVehicleId = fals
     throw new Error('vehicle_id is required');
   }
 
-  if (!evidenceType) {
-    throw new Error('evidence_type is required');
+  const requestedClass = payload.evidence_class || payload.evidenceClass || null;
+  const requestedSubtype = payload.evidence_subtype || payload.evidenceSubtype || null;
+  const explicitCanonical = Boolean(requestedClass && requestedSubtype);
+
+  // Operations M1: canonical-first uploads need no legacy evidence_type at all —
+  // the compatibility value is DERIVED from the canonical classification, so a
+  // new record can never be born with a contradictory legacy meaning. Legacy
+  // clients that still send only evidence_type keep working unchanged.
+  if (!evidenceType && !explicitCanonical) {
+    throw new Error('evidence_type is required (or provide evidence_class + evidence_subtype)');
   }
 
-  if (!evidenceTypes.includes(evidenceType)) {
+  if (evidenceType && !evidenceTypes.includes(evidenceType)) {
     throw new Error(`Unsupported evidence type: ${evidenceType}`);
+  }
+
+  // The generic compatibility values carry no semantics of their own and are
+  // invalid without a canonical classification.
+  if (evidenceType && GENERIC_COMPAT_TYPES.includes(evidenceType) && !explicitCanonical) {
+    throw new Error(`evidence_type '${evidenceType}' requires evidence_class and evidence_subtype`);
   }
 
   if (!hasFilePayload && !hasRemoteFile) {
     throw new Error('Evidence upload requires either file or file_url');
   }
 
-  // Milestone 1: layer the eight life-stage classes above the legacy evidence_type.
-  // The legacy type keeps driving role authorization + storage; class/subtype enrich it
-  // and may be explicitly refined by the uploader (master plan §4).
   const classification = resolveClassification({
-    evidence_class: payload.evidence_class || payload.evidenceClass,
-    evidence_subtype: payload.evidence_subtype || payload.evidenceSubtype,
-    evidence_type: evidenceType,
+    evidence_class: requestedClass,
+    evidence_subtype: requestedSubtype,
+    evidence_type: evidenceType || null,
   });
   if (!classification.ok) {
     throw new Error(classification.errors.join('; '));
+  }
+
+  const effectiveEvidenceType = evidenceType
+    || deriveLegacyCompatibilityType(classification.evidence_class, classification.evidence_subtype);
+  if (!effectiveEvidenceType) {
+    throw new Error('Could not derive a compatibility evidence_type for this classification');
   }
 
   const eventDatePrecision = payload.event_date_precision || payload.eventDatePrecision || 'day';
@@ -159,7 +241,8 @@ export function validateEvidenceUploadPayload(payload, { requireVehicleId = fals
   return {
     vehicleId,
     eventType,
-    evidenceType,
+    evidenceType: effectiveEvidenceType,
+    explicitCanonical,
     evidenceClass: classification.evidence_class,
     evidenceSubtype: classification.evidence_subtype,
     eventDate: payload.event_date || payload.eventDate || null,
@@ -302,8 +385,14 @@ export function evidenceToTimelineItem(evidence) {
     event_source: 'evidence',
     event_type: item.event_type || item.evidence_type,
     evidence_type: item.evidence_type,
+    evidence_class: item.evidence_class || null,
+    evidence_subtype: item.evidence_subtype || null,
     timestamp,
-    label: evidenceTypeLabel(item.evidence_type),
+    // Canonical classification is the semantic authority (Operations M1): a row
+    // canonically classed Import/Commercial invoice must never surface as a
+    // "Registration Document" card because of its legacy compatibility field.
+    // Legacy-only historical rows keep their historical label.
+    label: (item.evidence_class && semanticClassificationLabel(item)) || evidenceTypeLabel(item.evidence_type),
     desc: item.verification_notes || `${item.uploader_role || 'user'} uploaded visual evidence`,
     file_url: item.file_url,
     verification_status: item.verification_status,

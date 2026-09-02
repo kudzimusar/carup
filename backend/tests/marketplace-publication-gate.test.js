@@ -145,6 +145,11 @@ test('a verified ownership_transfer_document satisfies the blocking ownership re
       plate_number: 'ABZ1234',
       temp_plate_id: null,
       publication_status: 'draft',
+      // ZR registration readiness (69925e21) made an unrecorded stage blocking;
+      // this fixture's contract is "everything else satisfied", so it records a
+      // truthful sourced stage instead of silently failing that new gate.
+      registration_status: 'locally_registered',
+      registration_status_source: 'seller_stated',
     })],
     vehicle_evidence: [
       { id: 'ev-1', vin: PUBLISHED_VIN, evidence_type: 'ownership_transfer_document', verification_status: 'verified' },

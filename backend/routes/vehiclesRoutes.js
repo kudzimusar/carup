@@ -22,13 +22,12 @@ import { uploadToStorage, generateSecureReadUrl } from '../services/storage/stor
 import { refreshCanonicalTrust } from '../services/trustDecision/canonicalTrustService.js';
 import {
   buildAiReadyMetadata,
-  canUploadEvidence,
+  canUploadEvidenceRecord,
   checksumForBuffer,
-  documentEvidenceTypes,
   evidenceStatusTrustImpact,
   evidenceToTimelineItem,
   evidenceTypeLabel,
-  isDocumentEvidence,
+  isDocumentUpload,
   isSupportedMimeType,
   normalizeEvidenceRecord,
   parseBase64Payload,
@@ -39,6 +38,11 @@ import {
   recordEvidenceUploadProvenance,
   runAiAnalysis,
 } from '../services/evidence/evidenceService.js';
+import { semanticClassificationLabel } from '../services/evidence/evidenceTaxonomy.js';
+import {
+  correctEvidenceClassification,
+  ClassificationCorrectionError,
+} from '../services/evidence/evidenceClassificationCorrectionService.js';
 import { withUploadIdempotency } from '../services/evidence/uploadIdempotency.js';
 import { getSourceByCode } from '../services/evidence/sourceRegistryService.js';
 import { evaluateCompleteness } from '../services/evidence/completenessEvaluator.js';
@@ -414,10 +418,6 @@ router.post('/api/vehicles/:vin/seller-claim', authorizeRole(['owner', 'dealer']
 
 const allowedVisibilities = ['public_safe', 'restricted', 'private', 'government_only'];
 
-function evidenceDefaultVisibility(evidenceType) {
-  return documentEvidenceTypes.includes(evidenceType) ? 'restricted' : 'public_safe';
-}
-
 function sanitizeFileExtension(mimeType) {
   const ext = String(mimeType || '').split('/')[1] || 'bin';
   return ext === 'jpeg' ? 'jpg' : ext.replace(/[^a-z0-9]/gi, '').toLowerCase();
@@ -471,8 +471,11 @@ async function insertEvidenceFromRequest(req, vin, { requireVehicleId = false } 
   const activeUserId = req.userContext.id;
   const activeTenantId = req.userContext.tenantId;
 
-  if (!canUploadEvidence(normalized.evidenceType, activeRole)) {
-    throw new ForbiddenError(`Forbidden. Role '${activeRole}' is not authorized to upload '${normalized.evidenceType}'`);
+  if (!canUploadEvidenceRecord(normalized, activeRole)) {
+    const label = normalized.explicitCanonical
+      ? `${normalized.evidenceClass}/${normalized.evidenceSubtype}`
+      : normalized.evidenceType;
+    throw new ForbiddenError(`Forbidden. Role '${activeRole}' is not authorized to upload '${label}'`);
   }
 
   try {
@@ -486,7 +489,10 @@ async function insertEvidenceFromRequest(req, vin, { requireVehicleId = false } 
     // This does not change vehicles.owner_id or grant general owner evidence access.
   }
 
-  const visibilityLevel = req.body.visibility_level || req.body.visibilityLevel || evidenceDefaultVisibility(normalized.evidenceType);
+  // Canonical-aware default: any document artifact (canonical subtype flag or
+  // legacy document type) defaults to restricted; photos default public_safe.
+  const visibilityLevel = req.body.visibility_level || req.body.visibilityLevel
+    || (isDocumentUpload(normalized) ? 'restricted' : 'public_safe');
   if (!allowedVisibilities.includes(visibilityLevel)) {
     throw new ValidationError(`Invalid visibility level: ${visibilityLevel}`);
   }
@@ -516,7 +522,7 @@ async function insertEvidenceFromRequest(req, vin, { requireVehicleId = false } 
     filePath = `${vin.toUpperCase()}/${normalized.evidenceType}_${randomString}.${fileExt}`;
 
     const isPrivate = ['private', 'restricted', 'government_only'].includes(visibilityLevel);
-    bucketName = (isDocumentEvidence(normalized.evidenceType) || isPrivate) ? 'ocr-documents' : 'vehicle-images';
+    bucketName = (isDocumentUpload(normalized) || isPrivate) ? 'ocr-documents' : 'vehicle-images';
     const uploadResult = await uploadToStorage(bucketName, filePath, fileBuffer, mimeType);
     fileUrl = uploadResult;
   } else if (!isSupportedMimeType(mimeType)) {
@@ -573,7 +579,7 @@ async function insertEvidenceFromRequest(req, vin, { requireVehicleId = false } 
   // The bucket is a server decision, not a caller assertion: letting a caller name `ocr-documents`
   // is what turns a public-image create into a private-document reference the read path will sign.
   if (bucketName) {
-    const expectedBucket = (isDocumentEvidence(normalized.evidenceType)
+    const expectedBucket = (isDocumentUpload(normalized)
       || ['private', 'restricted', 'government_only'].includes(visibilityLevel))
       ? 'ocr-documents'
       : 'vehicle-images';
@@ -633,7 +639,7 @@ async function insertEvidenceFromRequest(req, vin, { requireVehicleId = false } 
     event_type: normalized.eventType || req.body.event_source || req.body.eventSource || normalized.evidenceType,
     evidence_type: normalized.evidenceType,
     file_url: fileUrl,
-    storage_bucket: bucketName || (isDocumentEvidence(normalized.evidenceType) ? 'ocr-documents' : 'vehicle-images'),
+    storage_bucket: bucketName || (isDocumentUpload(normalized) ? 'ocr-documents' : 'vehicle-images'),
     file_path: filePath || fileUrl,
     mime_type: mimeType,
     file_size: fileSize,
@@ -916,7 +922,7 @@ router.get('/api/vehicles/:vin/evidence/timeline', asyncHandler(async (req, res)
 
     // `evidenceToTimelineItem` is shared with authorised callers, so it is sanitised HERE rather
     // than narrowed for everyone.
-    event.desc = `${evidenceTypeLabel(item.evidence_type)} reviewed and verified by CarUp`;
+    event.desc = `${(item.evidence_class && semanticClassificationLabel(item)) || evidenceTypeLabel(item.evidence_type)} reviewed and verified by CarUp`;
     event.details = {
       capturedAt: item.captured_at,
       uploadedAt: item.uploaded_at,
@@ -1151,6 +1157,41 @@ router.patch('/api/vehicles/:vin/evidence/:evidenceId/reject', authorizeRole(['a
   });
 
   res.json({ success: true, evidence: normalizeEvidenceRecord(updated) });
+}));
+
+// PATCH: Governed classification correction (Operations Control Plane M1).
+// Corrects ONLY the canonical evidence_class/evidence_subtype through the
+// bounded, audited service — never an arbitrary field PATCH. Reviewer roles
+// mirror verify/reject; the M5 Operations capability policy layers on top.
+router.patch('/api/vehicles/:vin/evidence/:evidenceId/classification', authorizeRole(['admin', 'government']), asyncHandler(async (req, res) => {
+  const vin = String(req.params.vin || '').trim().toUpperCase();
+  const { evidenceId } = req.params;
+  try {
+    const result = await correctEvidenceClassification(supabase, {
+      vin,
+      evidenceId,
+      evidenceClass: req.body.evidence_class || req.body.evidenceClass,
+      evidenceSubtype: req.body.evidence_subtype || req.body.evidenceSubtype,
+      reason: req.body.reason,
+      actor: {
+        id: req.userContext.id,
+        role: req.userContext.role,
+        tenantId: req.userContext.tenantId || null,
+      },
+      requestContext: {
+        requestId: req.requestId || req.headers['x-request-id'] || null,
+        sourceRoute: '/api/vehicles/:vin/evidence/:evidenceId/classification',
+        ipAddress: req.ip || null,
+        userAgent: req.headers['user-agent'] || null,
+      },
+    });
+    return res.json({ success: true, ...result });
+  } catch (err) {
+    if (err instanceof ClassificationCorrectionError) {
+      return res.status(err.status).json({ success: false, error: err.message, code: err.code });
+    }
+    throw err;
+  }
 }));
 
 // PATCH: Link Evidence to Event

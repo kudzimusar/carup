@@ -1,6 +1,6 @@
 # CarUp Operations Control Plane — Implementation Progress & Roll-Call
 
-**Status:** IN EXECUTION — M0 complete 2026-09-02; M1 in progress  
+**Status:** IN EXECUTION — M0–M1 complete 2026-09-02; M2 in progress  
 **Canonical manual:** docs/features/CARUP_OPERATIONS_CONTROL_PLANE_AND_SERENA_VEHICLE_OPS_MANUAL.md  
 **Benchmark appendix:** docs/features/CARUP_OPERATIONS_CONTROL_PLANE_BENCHMARK_RESEARCH.md  
 **Claude start prompt:** docs/agent-prompts/CARUP_OPERATIONS_CONTROL_PLANE_SERENA_CLAUDE_START_PROMPT.md  
@@ -104,29 +104,31 @@ Do not call the Serena slice certified until every M0–M7 mandatory item is [x]
 
 # M1 — Canonical evidence semantics
 
-- [ ] M1.1 Define one canonical semantic classification helper/policy.
-- [ ] M1.2 Canonical class/subtype wins when present.
-- [ ] M1.3 Legacy evidence_type remains compatibility metadata only.
-- [ ] M1.4 Legacy-only historical rows remain readable.
-- [ ] M1.5 Import/commercial_invoice cannot count as registration.
-- [ ] M1.6 Import/transit_declaration cannot become TIP.
-- [ ] M1.7 Import/export_certificate cannot become Zimbabwe registration.
-- [ ] M1.8 Registration/registration_book is recognized correctly.
-- [ ] M1.9 Evidence upload UX no longer forces semantically wrong legacy category for a PDF.
-- [ ] M1.10 Evidence review displays canonical class/subtype.
-- [ ] M1.11 Passport/timeline displays canonical class/subtype.
-- [ ] M1.12 Private/restricted visibility preserved.
-- [ ] M1.13 Classification correction is governed/audited if required.
-- [ ] M1.14 Historical ambiguous records are not blindly rewritten.
-- [ ] M1.15 Serena BE FORWARD invoice correctly classified.
-- [ ] M1.16 Serena payment receipt correctly classified.
-- [ ] M1.17 Serena Bill of Lading correctly classified.
-- [ ] M1.18 Serena Japanese Export Certificate correctly classified.
-- [ ] M1.19 Serena Tanzania T1 correctly classified.
-- [ ] M1.20 Serena CBCA/Cotecna correctly classified.
-- [ ] M1.21 Kingstone identity remains in identity/restricted authority context, not buyer-public Vehicle Life evidence.
-- [ ] M1.22 Backend canonicalization tests green.
-- [ ] M1.23 Public privacy projection tests green.
+**Implemented 2026-09-02.** Design decision: legacy `evidence_type` was found to be load-bearing (upload role auth, storage bucket, default visibility, AI extraction targets), so M1 (a) added canonical semantic predicates that ignore the legacy field whenever a canonical class exists, (b) made the load-bearing decisions canonical-aware, and (c) made canonical-first uploads DERIVE their compatibility evidence_type (exact counterpart when one exists, else new neutral `vehicle_life_document`/`vehicle_life_photo` values added by additive migration `20260902150000_vehicle_life_generic_compat_types.sql`) so no new record can be born with a false legacy meaning.
+
+- [x] M1.1 Canonical semantic helper — `resolveSemanticClassification` + predicates in backend/services/evidence/evidenceTaxonomy.js (isRegistration/isImport/isInspection/isOwnershipTransfer/isTemporaryImportPermit/satisfiesOwnershipRegistrationRequirement/isSellerAuthorityCandidate/isDocumentArtifact/semanticClassificationLabel + deriveLegacyCompatibilityType). Web mirror: web/src/lib/evidenceClassification.ts.
+- [x] M1.2 Canonical wins when present — predicates ignore legacy for canonical rows; tests `operations-evidence-semantics.test.js`.
+- [x] M1.3 Legacy = compatibility only — canonical-first uploads no longer accept user-chosen legacy semantics (server derives); bucket/visibility/role auth now canonical-aware (`isDocumentUpload`, `canUploadEvidenceRecord`).
+- [x] M1.4 Legacy-only rows readable via LEGACY_TYPE_TO_CLASS fallback — tested.
+- [x] M1.5 import/commercial_invoice ≠ registration — tested (also with contradictory legacy field).
+- [x] M1.6 import/transit_declaration ≠ TIP — only registration/temporary_import_permit is a TIP; tested.
+- [x] M1.7 import/export_certificate ≠ Zimbabwe registration — tested.
+- [x] M1.8 registration/registration_book recognized — tested.
+- [x] M1.9 Upload UX canonical-first — EvidenceUploadModal now requires Life stage + subtype (role-filtered), submits class/subtype WITHOUT evidence_type, auto-defaults documents to Restricted; legacy select survives only as fallback when the taxonomy cannot load. Component tests `EvidenceUploadModal.canonical.test.tsx` (5/5).
+- [x] M1.10 Evidence review shows canonical classification — EvidenceReview.tsx `classificationLabel` (canonical-first, legacy fallback).
+- [x] M1.11 Passport/timeline canonical display — backend `evidenceToTimelineItem` label + evidence_class/subtype fields; PremiumEvidenceGallery groups/labels canonically; VehicleProfile documents list + verified-logbook badge canonical-aware.
+- [x] M1.12 Privacy preserved — toPublicEvidence unchanged (bucket-based withholding); new test proves a canonical private-bucket import doc still withholds file_url; d0-evidence-private-data-exposure + phase gates green.
+- [x] M1.13 Governed classification correction — new evidenceClassificationCorrectionService + `PATCH /api/vehicles/:vin/evidence/:evidenceId/classification` (admin/government): reason mandatory, uploader self-correction refused (G5), audit to trust_audit_events FAIL-CLOSED before mutation (G6), previous classification appended to metadata.classification_history (G13), 'corrected' provenance event; only class/subtype mutate. Behavioral tests incl. audit-failure abort.
+- [x] M1.14 No blind rewrite — no data backfill anywhere; migration is additive CHECK-widening only; Serena rows untouched.
+- [x] M1.15 Serena BE FORWARD invoice — canonical import/commercial_invoice already correct in staging (M0.19); semantics tests pin the exact stored shape (legacy registration_document + canonical import) as import evidence. Staging visual confirmation lands in M7.6.
+- [x] M1.16 Serena payment receipt — not yet uploaded (M0.18); the canonical-first upload path now files it as import/payment_receipt with a truthful generic compat type; pinned in the Serena matrix test.
+- [x] M1.17 Serena Bill of Lading — canonical import/bill_of_lading; pinned (incl. its legacy ownership_transfer_document contradiction never granting ownership semantics).
+- [x] M1.18 Serena Japanese Export Certificate — canonical import/export_certificate; pinned as never-registration.
+- [x] M1.19 Serena Tanzania T1 — canonical import/transit_declaration; pinned as never-TIP.
+- [x] M1.20 Serena CBCA/Cotecna — canonical inspection/roadworthiness; pinned.
+- [x] M1.21 Kingstone identity — NOT in vehicle_evidence (M0.18); identity documents remain in the identity workflow; nothing in M1 creates a vault path for identity artifacts.
+- [x] M1.22 Backend canonicalization tests green — operations-evidence-semantics (21/21) + affected suites 175/175 (incl. two inherited baseline-red fixtures repaired: marketplace-publication-gate + seller-contradiction-blocks-publication lacked the ZR sourced registration stage).
+- [x] M1.23 Public privacy projection tests green — included in the 175 (d0-evidence-private-data-exposure, seller-reconciliation-privacy, issue164-d0-evidence-route-authorization) + new withholding test.
 
 ---
 
@@ -340,6 +342,12 @@ Append one row for every cleared item or logically grouped set of items.
 | M0.9–M0.16 | 96620f92 code inspection | Read-only code survey with file:line citations recorded in M0 section | PASS | No code changed |
 | M0.17–M0.25 | staging DB (supabase carup-staging), read-only SQL | vehicles, vehicle_evidence, trust_audit_events, identity_documents, fraud/governance/extraction tables queried for GFC27-027051 | PASS | 0 writes issued |
 | M0.27 | — | Session tool log: SELECT-only SQL | PASS | |
+| M1.1–M1.8, M1.14–M1.20 | evidenceTaxonomy.js semantic layer; migration 20260902150000 | backend/tests/operations-evidence-semantics.test.js 21/21 | PASS | Serena matrix pinned against exact stored shapes |
+| M1.9 | EvidenceUploadModal.tsx canonical-first | web EvidenceUploadModal.canonical.test.tsx 5/5; tsc clean | PASS | Legacy select = taxonomy-unavailable fallback only |
+| M1.10–M1.11 | EvidenceReview.tsx, PremiumEvidenceGallery.tsx, VehicleProfile.tsx, evidenceService evidenceToTimelineItem | owner-page vitest 140/140; tsc clean | PASS | |
+| M1.12, M1.23 | publicVehicleProjection unchanged | withholding test + privacy suites in 175/175 run | PASS | |
+| M1.13 | evidenceClassificationCorrectionService.js + PATCH classification route | behavioral tests incl. fail-closed audit abort | PASS | |
+| M1.22 | — | node --test: 175/175 across 11 affected suites; migration-integrity 24/24 | PASS | Two inherited stale fixtures repaired (pre-existing red at HEAD, proven via git stash) |
 
 ---
 

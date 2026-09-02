@@ -2518,14 +2518,15 @@ export function useCarUpApi() {
   }, [request])
 
   const uploadEvidence = useCallback(async (vin: string, payload: {
-    evidence_type: string;
+    // Canonical-first (Operations M1): either supply evidence_class +
+    // evidence_subtype (the server derives the legacy compatibility
+    // evidence_type), or supply the legacy evidence_type alone.
+    evidence_type?: string;
     file: string; // base64 string
     captured_at?: string;
     visibility_level?: string;
     linked_registry_event_id?: string;
     verification_notes?: string;
-    // Vehicle Life Evidence Taxonomy + provenance (M1) — all optional; the
-    // backend still requires the legacy evidence_type above.
     evidence_class?: string;
     evidence_subtype?: string;
     event_date?: string;

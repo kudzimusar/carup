@@ -29,6 +29,10 @@ const COMPLETE_VEHICLE = {
   make: 'Toyota',
   model: 'Hilux',
   year: 2020,
+  // ZR registration readiness (69925e21) made an unrecorded stage blocking; a
+  // "complete" fixture therefore records a truthful sourced stage.
+  registration_status: 'locally_registered',
+  registration_status_source: 'seller_stated',
 };
 
 const VERIFIED_OWNERSHIP = [
