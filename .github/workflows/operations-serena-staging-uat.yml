@@ -273,6 +273,36 @@ jobs:
       - name: Run Serena Operations UAT (desktop + tablet + mobile Chromium)
         run: npx playwright test tests/agents/43-operations-serena-staging.spec.ts --config=playwright.staging.config.ts
 
+      # Re-materialize the DERIVED canonical Trust position for the one pinned VIN.
+      #
+      # This CHANGES NO GOVERNED FACT — no evidence, no review decision, no account — exactly as
+      # issue164-canonical-trust-refresh-production.yml states for the production target. It exists
+      # because the engine publishes "Zimbabwe registration stage has not been established from a
+      # recorded claim" to BUYERS as a known limitation, and that sentence went stale the moment the
+      # seller stated a stage after the last refresh. The seller save path now refreshes on every
+      # recorded stage, so this cannot recur; this step re-materializes the one row that predates
+      # that fix and keeps every certification run ending on a current derived position.
+      #
+      # The VIN is a constant in the runner: no input, no list, no batch, no "all vehicles" path.
+      - name: Re-materialize canonical Trust for the Serena (derived position only)
+        run: |
+          node --input-type=module <<'NODE'
+          process.env.NODE_ENV = process.env.NODE_ENV || 'production';
+          const { refreshCanonicalTrust } = await import('./backend/services/trustDecision/canonicalTrustService.js');
+          const vin = process.env.SERENA_VIN;
+          const result = await refreshCanonicalTrust(vin);
+          console.log(JSON.stringify({
+            vin,
+            score: result?.score ?? result?.trust_score ?? null,
+            band: result?.band ?? result?.trust_band ?? null,
+            version: result?.calculation_version ?? result?.trust_calculation_version ?? null,
+          }));
+          NODE
+        env:
+          SUPABASE_URL: ${{ secrets.STAGING_SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.STAGING_SUPABASE_SERVICE_ROLE_KEY }}
+        continue-on-error: true
+
       - name: Restore original Kingstone credential
         if: always()
         run: |
