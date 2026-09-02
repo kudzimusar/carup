@@ -3147,8 +3147,12 @@ app.post('/api/vehicles/add', authorizeRole(['dealer', 'owner', 'admin']), async
         tenant_id: candidate.tenant_id,
         public_seller_display_enabled: listingRow.public_seller_display_enabled,
         // A Seller can advance/restate the registration lifecycle on a later listing. Provenance
-        // remains seller_declared until a governed registry/evidence workflow establishes more.
-        ...(submittedRegistrationStatus !== null ? { registration_status: submittedRegistrationStatus } : {}),
+        // travels WITH the claim (Operations M3/M7): a stage without a recorded source evaluates
+        // as not_recorded and blocks publication, so writing the status while dropping the source
+        // left a restated stage permanently blocking. The source names who said it.
+        ...(submittedRegistrationStatus !== null
+          ? { registration_status: submittedRegistrationStatus, registration_status_source: claimSource }
+          : {}),
         // Re-listing refreshes the Seller's history disclosures alongside the other commercial
         // statements; unanswered questions stay untouched on the existing row (keys absent).
         ...sellerHistoryDisclosureColumns,

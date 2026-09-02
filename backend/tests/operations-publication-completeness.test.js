@@ -281,6 +281,20 @@ test("Serena's CURRENT recorded state evaluates truthfully (draft, stage unrecor
   assert.equal(req(result, 'seller_authority').who_must_act, 'carup_review');
 });
 
+test('a restated registration stage carries its provenance on the Seller reuse path (source contract)', async () => {
+  // A stage WITHOUT a source evaluates as not_recorded and blocks publication,
+  // so the reuse-update must write registration_status_source alongside the
+  // restated registration_status — dropping the source left a Seller's own
+  // truthful restatement permanently blocking.
+  const { readFileSync } = await import('node:fs');
+  const server = readFileSync(new URL('../server.js', import.meta.url), 'utf8');
+  assert.match(
+    server,
+    /registration_status: submittedRegistrationStatus, registration_status_source: claimSource/,
+    'the reuse-update spread must stamp the stage source with the stage'
+  );
+});
+
 test('the advisory inspection requirement recognizes the canonical roadworthiness certificate', async () => {
   const result = await evaluateCompleteness(VIN, {
     client: clientWith({ evidence: serenaImportDocs('verified') }),

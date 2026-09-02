@@ -1,0 +1,311 @@
+name: Operations Serena Staging UAT
+
+# Operations Control Plane M7 — the real Serena (GFC27-027051) governed review →
+# Kingstone publish, on the exact-head governed candidate preview pair.
+#
+# Dispatch-only ON PURPOSE: this journey reviews and publishes the one real UAT
+# vehicle. The spec is state-aware/idempotent, but the decision to run it is an
+# operator action, never an automatic per-push side effect.
+on:
+  workflow_dispatch: {}
+
+concurrency:
+  group: operations-serena-staging-uat
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  serena-operations-uat:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      EXPECTED_HEAD_SHA: ${{ github.sha }}
+      CANDIDATE_BRANCH: ${{ github.ref_name }}
+      STAGING_RUN_ID: serena-ops-${{ github.run_id }}-${{ github.run_attempt }}
+      DIASPORA_STAGING_DATABASE_URL: ${{ secrets.DIASPORA_STAGING_DATABASE_URL }}
+      EXPECTED_STAGING_PROJECT_REF: eoyenigwevnxwwhyhaer
+      SERENA_VIN: GFC27-027051
+      KINGSTONE_USER_ID: u_66cace85fad949e4
+
+    steps:
+      - name: Checkout exact candidate head
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ env.EXPECTED_HEAD_SHA }}
+
+      - name: Assert exact candidate checkout
+        run: test "$(git rev-parse HEAD)" = "$EXPECTED_HEAD_SHA"
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Require staging operator secret
+        run: |
+          if [ -z "$DIASPORA_STAGING_DATABASE_URL" ]; then
+            echo '::error::DIASPORA_STAGING_DATABASE_URL is not configured.'
+            exit 1
+          fi
+          case "$DIASPORA_STAGING_DATABASE_URL" in
+            *"$EXPECTED_STAGING_PROJECT_REF"*) ;;
+            *)
+              echo '::error::Refusing Serena UAT: database URL is not the approved carup-staging project.'
+              exit 1
+              ;;
+          esac
+
+      - name: Resolve governed exact-head preview pair
+        run: |
+          node <<'NODE'
+          const fs = require('fs');
+          const branch = process.env.CANDIDATE_BRANCH;
+          const frontendPairs = JSON.parse(fs.readFileSync('web/preview-frontend-pairing.json', 'utf8')).branches || {};
+          const backendPairs = JSON.parse(fs.readFileSync('web/preview-backend-pairing.json', 'utf8')).branches || {};
+          const frontend = frontendPairs[branch];
+          const backend = backendPairs[branch];
+          if (!frontend || !backend) {
+            console.error(JSON.stringify({
+              error: 'Serena candidate preview pair is not governed',
+              branch,
+              frontend_configured: Boolean(frontend),
+              backend_configured: Boolean(backend),
+            }));
+            process.exit(1);
+          }
+          fs.appendFileSync(process.env.GITHUB_ENV, `STAGING_WEB_URL=${frontend}\n`);
+          fs.appendFileSync(process.env.GITHUB_ENV, `STAGING_API_URL=${backend}/api\n`);
+          console.log(JSON.stringify({ branch, frontend, backend }));
+          NODE
+
+      - name: Wait for exact-head frontend and backend provenance
+        run: |
+          node --input-type=module <<'NODE'
+          const expected = process.env.EXPECTED_HEAD_SHA;
+          const web = process.env.STAGING_WEB_URL;
+          const api = process.env.STAGING_API_URL;
+          const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
+
+          for (let attempt = 1; attempt <= 72; attempt += 1) {
+            try {
+              const [provRes, healthRes] = await Promise.all([
+                fetch(`${web}/carup-provenance.json?attempt=${attempt}`, { cache: 'no-store' }),
+                fetch(`${api}/health?attempt=${attempt}`, { cache: 'no-store' }),
+              ]);
+              const provenance = provRes.ok ? await provRes.json() : null;
+              const health = healthRes.ok ? await healthRes.json() : null;
+              const frontendOk = provenance?.commit_sha === expected && provenance?.unpaired === false;
+              const backendOk = health?.status === 'UP' && health?.build?.commit_sha === expected;
+              if (frontendOk && backendOk) {
+                console.log(JSON.stringify({
+                  frontend_sha: provenance.commit_sha,
+                  backend_sha: health.build.commit_sha,
+                  unpaired: provenance.unpaired,
+                }));
+                process.exit(0);
+              }
+              console.log(JSON.stringify({ attempt, frontend: provenance?.commit_sha, backend: health?.build?.commit_sha }));
+            } catch (error) {
+              console.log(JSON.stringify({ attempt, error: String(error) }));
+            }
+            await sleep(10_000);
+          }
+          console.error('exact-head candidate pair never became ready');
+          process.exit(1);
+          NODE
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Install Chromium
+        run: npx playwright install --with-deps chromium
+
+      - name: Apply additive Operations migrations to approved staging
+        run: |
+          node --input-type=module <<'NODE'
+          import fs from 'node:fs'
+          import pg from 'pg'
+
+          const dbUrl = process.env.DIASPORA_STAGING_DATABASE_URL || ''
+          if (!dbUrl.includes(process.env.EXPECTED_STAGING_PROJECT_REF)) {
+            throw new Error('Refusing Operations migration outside the approved staging project.')
+          }
+          // Idempotent by construction (IF EXISTS/IF NOT EXISTS + DO blocks).
+          const migrationPaths = [
+            'database/migrations/20260902110000_zimbabwe_registration_lifecycle_and_evidence.sql',
+            'database/migrations/20260902150000_vehicle_life_generic_compat_types.sql',
+            'database/migrations/20260902160000_vehicle_seller_authority.sql',
+          ]
+          const cleaned = dbUrl.replace(/([?&])sslmode=[^&]*&?/i, '$1').replace(/[?&]$/, '')
+          const client = new pg.Client({ connectionString: cleaned, ssl: { rejectUnauthorized: false } })
+          await client.connect()
+          try {
+            for (const path of migrationPaths) {
+              const raw = fs.readFileSync(path, 'utf8')
+              const up = raw.split('-- +migrate Down')[0].replace('-- +migrate Up', '')
+              await client.query(up)
+              console.log(`applied ${path}`)
+            }
+          } finally {
+            await client.end()
+          }
+          NODE
+
+      - name: Freeze exact candidate bundle
+        run: |
+          node --input-type=module <<'NODE'
+          import fs from 'node:fs';
+          const response = await fetch(process.env.STAGING_WEB_URL, { cache: 'no-store' });
+          if (!response.ok) throw new Error(`frontend returned ${response.status}`);
+          const html = await response.text();
+          const bundle = (html.match(/\/assets\/(index-[A-Za-z0-9_-]+\.js)/) || [])[1];
+          if (!bundle) throw new Error('candidate preview did not expose a Vite entry bundle');
+          fs.appendFileSync(process.env.GITHUB_ENV, `STAGING_EXPECTED_BUNDLE=${bundle}\n`);
+          console.log(`Frozen exact-head bundle: ${bundle}`);
+          NODE
+
+      - name: Rotate staging-only reviewer identity
+        run: |
+          node --input-type=module <<'NODE'
+          import crypto from 'node:crypto';
+          import fs from 'node:fs';
+          import pg from 'pg';
+
+          const dbUrl = process.env.DIASPORA_STAGING_DATABASE_URL || '';
+          const expectedRef = process.env.EXPECTED_STAGING_PROJECT_REF;
+          if (!dbUrl.includes(expectedRef)) throw new Error('Refusing identity setup outside the approved staging project.');
+
+          const password = crypto.randomBytes(30).toString('base64url');
+          const salt = crypto.randomBytes(16).toString('hex');
+          const derived = await new Promise((resolve, reject) => {
+            crypto.scrypt(password, salt, 64, (error, key) => error ? reject(error) : resolve(key));
+          });
+          const passwordHash = `scrypt:${salt}:${derived.toString('hex')}`;
+
+          const cleanedDbUrl = dbUrl.replace(/([?&])sslmode=[^&]*&?/i, '$1').replace(/[?&]$/, '');
+          const client = new pg.Client({ connectionString: cleanedDbUrl, ssl: { rejectUnauthorized: false } });
+          await client.connect();
+          try {
+            const result = await client.query(
+              "update public.users set password_hash = $1, role = 'admin' where email = 'uat.reviewer@carup-staging.test' returning id",
+              [passwordHash],
+            );
+            if (result.rowCount !== 1) throw new Error('Missing staging UAT reviewer identity');
+          } finally {
+            await client.end();
+          }
+
+          console.log(`::add-mask::${password}`);
+          fs.appendFileSync(process.env.GITHUB_ENV, `STAGING_UAT_REVIEWER_PASSWORD=${password}\n`, { mode: 0o600 });
+          console.log('Staging-only reviewer identity rotated without printing credentials.');
+          NODE
+
+      - name: Provision Kingstone session (capture original credential, set run credential)
+        run: |
+          node --input-type=module <<'NODE'
+          import crypto from 'node:crypto';
+          import fs from 'node:fs';
+          import path from 'node:path';
+          import pg from 'pg';
+
+          // The Serena journey MUST run as the existing Kingstone account (one
+          // vehicle, one Passport, one seller). The original credential hash is
+          // captured to the runner's private temp dir and restored by the
+          // always() step below, so the account's real credential survives the
+          // run untouched (the documented capture → temp → restore pattern).
+          const dbUrl = process.env.DIASPORA_STAGING_DATABASE_URL || '';
+          if (!dbUrl.includes(process.env.EXPECTED_STAGING_PROJECT_REF)) {
+            throw new Error('Refusing Kingstone session provisioning outside the approved staging project.');
+          }
+
+          const password = crypto.randomBytes(30).toString('base64url');
+          const salt = crypto.randomBytes(16).toString('hex');
+          const derived = await new Promise((resolve, reject) => {
+            crypto.scrypt(password, salt, 64, (error, key) => error ? reject(error) : resolve(key));
+          });
+          const passwordHash = `scrypt:${salt}:${derived.toString('hex')}`;
+
+          const cleaned = dbUrl.replace(/([?&])sslmode=[^&]*&?/i, '$1').replace(/[?&]$/, '');
+          const client = new pg.Client({ connectionString: cleaned, ssl: { rejectUnauthorized: false } });
+          await client.connect();
+          try {
+            const current = await client.query(
+              'select email, password_hash from public.users where id = $1',
+              [process.env.KINGSTONE_USER_ID],
+            );
+            if (current.rowCount !== 1) throw new Error('Kingstone staging account not found');
+            const backupPath = path.join(process.env.RUNNER_TEMP, 'kingstone-credential-backup.json');
+            fs.writeFileSync(backupPath, JSON.stringify({
+              id: process.env.KINGSTONE_USER_ID,
+              password_hash: current.rows[0].password_hash,
+            }), { mode: 0o600 });
+
+            await client.query(
+              'update public.users set password_hash = $1 where id = $2',
+              [passwordHash, process.env.KINGSTONE_USER_ID],
+            );
+
+            console.log(`::add-mask::${password}`);
+            fs.appendFileSync(
+              process.env.GITHUB_ENV,
+              [
+                `STAGING_UAT_KINGSTONE_EMAIL=${current.rows[0].email}`,
+                `STAGING_UAT_KINGSTONE_PASSWORD=${password}`,
+                `KINGSTONE_BACKUP_PATH=${backupPath}`,
+              ].join('\n') + '\n',
+              { mode: 0o600 },
+            );
+            console.log('Kingstone run credential set; original captured for restoration.');
+          } finally {
+            await client.end();
+          }
+          NODE
+
+      - name: Run Serena Operations UAT (desktop + tablet + mobile Chromium)
+        run: npx playwright test tests/agents/43-operations-serena-staging.spec.ts --config=playwright.staging.config.ts
+
+      - name: Restore original Kingstone credential
+        if: always()
+        run: |
+          node --input-type=module <<'NODE'
+          import fs from 'node:fs';
+          import pg from 'pg';
+
+          const backupPath = process.env.KINGSTONE_BACKUP_PATH;
+          if (!backupPath || !fs.existsSync(backupPath)) {
+            console.log('No Kingstone credential backup present; nothing to restore.');
+            process.exit(0);
+          }
+          const backup = JSON.parse(fs.readFileSync(backupPath, 'utf8'));
+          const dbUrl = process.env.DIASPORA_STAGING_DATABASE_URL || '';
+          if (!dbUrl.includes(process.env.EXPECTED_STAGING_PROJECT_REF)) {
+            throw new Error('Refusing credential restoration outside the approved staging project.');
+          }
+          const cleaned = dbUrl.replace(/([?&])sslmode=[^&]*&?/i, '$1').replace(/[?&]$/, '');
+          const client = new pg.Client({ connectionString: cleaned, ssl: { rejectUnauthorized: false } });
+          await client.connect();
+          try {
+            const result = await client.query(
+              'update public.users set password_hash = $1 where id = $2 returning id',
+              [backup.password_hash, backup.id],
+            );
+            if (result.rowCount !== 1) throw new Error('Kingstone credential restoration did not match exactly one row');
+            console.log('Original Kingstone credential restored.');
+          } finally {
+            await client.end();
+          }
+          fs.rmSync(backupPath, { force: true });
+          NODE
+
+      - name: Upload UAT evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: serena-operations-uat-${{ github.run_id }}
+          path: |
+            test-results/serena-m7
+            test-results/staging-uat-results.json
+            test-results/staging-uat-html
+          retention-days: 14
