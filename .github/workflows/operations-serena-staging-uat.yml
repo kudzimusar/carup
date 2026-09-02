@@ -284,10 +284,20 @@ jobs:
       # that fix and keeps every certification run ending on a current derived position.
       #
       # The VIN is a constant in the runner: no input, no list, no batch, no "all vehicles" path.
+      # NOT continue-on-error. The first version of this step was masked that way and reported
+      # "success" while it had actually died on missing credentials — a gate that cannot fail is a
+      # gate that cannot tell you anything. It fails loudly instead, and refuses outright unless the
+      # Supabase project is the approved STAGING ref.
       - name: Re-materialize canonical Trust for the Serena (derived position only)
         run: |
           node --input-type=module <<'NODE'
-          process.env.NODE_ENV = process.env.NODE_ENV || 'production';
+          const url = process.env.SUPABASE_URL || '';
+          const key = process.env.SUPABASE_SERVICE_ROLE_KEY || '';
+          const expectedRef = process.env.EXPECTED_STAGING_PROJECT_REF;
+          if (!url || !key) throw new Error('SUPABASE_URL / SUPABASE_SERVICE_ROLE_KEY are not configured for this runner.');
+          if (!url.includes(expectedRef)) {
+            throw new Error('Refusing canonical Trust re-materialization: SUPABASE_URL is not the approved staging project.');
+          }
           const { refreshCanonicalTrust } = await import('./backend/services/trustDecision/canonicalTrustService.js');
           const vin = process.env.SERENA_VIN;
           const result = await refreshCanonicalTrust(vin);
@@ -299,9 +309,8 @@ jobs:
           }));
           NODE
         env:
-          SUPABASE_URL: ${{ secrets.STAGING_SUPABASE_URL }}
-          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.STAGING_SUPABASE_SERVICE_ROLE_KEY }}
-        continue-on-error: true
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
 
       - name: Restore original Kingstone credential
         if: always()
