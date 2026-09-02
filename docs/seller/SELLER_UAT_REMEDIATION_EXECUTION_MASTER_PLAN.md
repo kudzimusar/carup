@@ -176,6 +176,7 @@ This table is the mandatory roll call against the earlier `SELLER_MARKETPLACE_CO
   - Reuse the existing governed Google Drive provider; do not add a second credential/token authority.
   - Seller workspace hierarchy is keyed to stable CarUp user identity, with a vehicle child keyed to canonical vehicle identity. Originals are immutable; derived/redacted upload copies are separate; Drive never becomes the public evidence authority.
   - Acceptance: taxonomy tests + Drive workspace service tests + no credential/public-link leakage.
+  - **Implemented:** reusable Seller Drive workspace service now composes the existing governed Google Drive provider/vault; current Serena Drive hierarchy was upgraded to add Zimbabwe Registration & Licensing and Transaction & Handover, with Evidence Upload/Listing Media renumbered. Source PDF splitting/upload remains a separate artifact step because it requires the original binary.
 
 - [~] **ZR5. Restore external verification Email as the primary mailbox-verification journey.**
   - Registration -> one-time token -> canonical Communications queue -> branded CarUp Security Email -> governed provider -> `/auth/verify-email`.
