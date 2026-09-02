@@ -33,6 +33,11 @@ const COMPLETE_VEHICLE = {
   // "complete" fixture therefore records a truthful sourced stage.
   registration_status: 'locally_registered',
   registration_status_source: 'seller_stated',
+  // Operations M3: the gate now evaluates Seller Authority, so a "complete"
+  // vehicle carries its canonical seller relationship.
+  owner_id: 'u_seller',
+  current_seller_id: 'u_seller',
+  tenant_id: null,
 };
 
 const VERIFIED_OWNERSHIP = [
@@ -71,6 +76,9 @@ function clientWith({ vehicle = COMPLETE_VEHICLE, evidence = VERIFIED_OWNERSHIP,
         single: async () => (table === 'vehicles'
           ? { data: vehicle, error: vehicle ? null : { message: 'not found' } }
           : { data: null, error: null }),
+        // Operations M2/M3: the evaluator reads vehicle_seller_authority (no
+        // governed decision recorded here → relationship recognition applies).
+        maybeSingle: async () => ({ data: null, error: null }),
         then(resolve) {
           if (table === 'vehicle_evidence') return resolve({ data: evidence, error: null });
           if (table === 'vehicle_document_extractions') return resolve({ data: extractions, error: null });

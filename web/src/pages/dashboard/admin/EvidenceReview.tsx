@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
+import { Link } from 'react-router-dom'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
@@ -166,6 +167,14 @@ export default function EvidenceReview() {
                         </div>
                         <p className="text-xs text-gray-500 mt-1">
                           {item.vin} · {labelize(item.uploader_role)} · {new Date(item.uploaded_at).toLocaleString()}
+                          {' · '}
+                          <Link
+                            to={`/admin/vehicles/${item.vin}/review`}
+                            className="text-orange-600 hover:underline"
+                            data-testid="open-vehicle-operations"
+                          >
+                            Open Vehicle Operations
+                          </Link>
                         </p>
                       </div>
                       <Badge className="bg-gray-100 text-gray-700 border-0 shadow-none w-fit">

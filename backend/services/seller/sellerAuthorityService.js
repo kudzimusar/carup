@@ -32,7 +32,15 @@ import {
   isSellerAuthorityCandidateRow,
   resolveSemanticClassification,
 } from '../evidence/evidenceTaxonomy.js';
-import { logAuditEvent } from '../auditLogger.js';
+
+// LAZY on purpose: auditLogger top-level-imports backend/db/supabase.js, and
+// this service sits on the completeness → trustDecision import chain that must
+// stay importable WITHOUT Supabase env (client is always injected here; see
+// issue164 Finding 3 fail-fast contract).
+async function logAuditEvent(client, event) {
+  const { logAuditEvent: realLogAuditEvent } = await import('../auditLogger.js');
+  return realLogAuditEvent(client, event);
+}
 
 export const SELLER_AUTHORITY_POLICY_VERSION = 'seller_authority.v1';
 export const SELLER_AUTHORITY_CLAIM_EVENT = 'SELLER_AUTHORITY_CLAIM_REQUESTED';

@@ -653,10 +653,13 @@ test('P1-READ — getTrustDecision fails closed on dependency read errors; no wr
     },
   };
 
-  // getTrustDecision MUST reject on DB read failure
+  // getTrustDecision MUST reject on DB read failure. Operations M3 added a
+  // second fail-closed reader of fraud_cases (the completeness evaluator's
+  // risk_governance requirement), so the failure may surface from either — the
+  // invariant is that it THROWS, never that a specific reader throws first.
   await assert.rejects(
     () => getTrustDecision(testVin, { client: failingFraudClient }),
-    /Fraud summary read error/,
+    /Fraud summary read error|Risk case query error/,
     'getTrustDecision must fail closed and throw when fraud summary query fails',
   );
 

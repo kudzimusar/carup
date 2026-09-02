@@ -713,6 +713,20 @@ export const FEATURE_REGISTRY: FeatureRegistryItem[] = [
     icon: 'FileText',
   },
   {
+    // Operations Control Plane M4 — VIN-centered reviewer workspace. A
+    // parameterized route cannot be a sidebar link; it is reached from the
+    // Evidence Review queue (per-vehicle "Open Vehicle Operations" link).
+    id: 'admin.vehicle-operations',
+    label: 'Vehicle Operations',
+    route: '/admin/vehicles/:vin/review',
+    domain: 'evidence',
+    roles: ['admin'],
+    placements: [],
+    requiresAuth: true,
+    icon: 'ClipboardCheck',
+    description: 'Composed reviewer workspace: evidence classification, seller authority, registration readiness, trust/governance/risk context and the publication requirement matrix for one vehicle.',
+  },
+  {
     id: 'admin.verification',
     label: 'Verification Cases',
     route: '/admin/verification',

@@ -56,6 +56,10 @@ import {
 } from '../services/evidence/evidenceClassificationCorrectionService.js';
 import { withUploadIdempotency } from '../services/evidence/uploadIdempotency.js';
 import { emitDomainEvent } from '../services/eventBus/eventBusService.js';
+import {
+  OPERATIONS_CAPABILITIES,
+  requireOperationsCapability,
+} from '../services/operations/operationsAuthorizationService.js';
 import { getSourceByCode } from '../services/evidence/sourceRegistryService.js';
 import { evaluateCompleteness } from '../services/evidence/completenessEvaluator.js';
 import { notifyEvidenceReviewDecided } from '../services/evidence/evidenceReviewNotifier.js';
@@ -246,7 +250,18 @@ router.post('/api/vehicles/:vin/publish', authorizeRole(['owner', 'dealer', 'adm
       pending_gaps: completeness.pending_gaps ?? [],
       requirements: (completeness.requirements ?? [])
         .filter((r) => r.blocking)
-        .map((r) => ({ key: r.key, label: r.label, status: r.status, blocking: true })),
+        // Operations M3: `who_must_act` / `refusal_category` let the refusal
+        // distinguish missing-from-seller, awaiting CarUp review, awaiting an
+        // external authority, conflict and policy blocks. Still labels and
+        // statuses only — no reviewer identity, file path or storage locator.
+        .map((r) => ({
+          key: r.key,
+          label: r.label,
+          status: r.status,
+          blocking: true,
+          ...(r.who_must_act ? { who_must_act: r.who_must_act } : {}),
+          ...(r.refusal_category ? { refusal_category: r.refusal_category } : {}),
+        })),
       completeness_percent: completeness.completeness_percent ?? null,
     });
   }
@@ -431,8 +446,13 @@ router.get('/api/vehicles/:vin/seller-authority', authorizeRole(), asyncHandler(
 
 // --- GOVERNED SELLER AUTHORITY REVIEW DECISION (Operations M2) ---
 // Reviewer roles mirror evidence verify/reject; the M5 Operations capability
-// policy layers on top. No self-approval; audited fail-closed in the service.
-router.post('/api/vehicles/:vin/seller-authority/review', authorizeRole(['admin', 'government']), asyncHandler(async (req, res) => {
+// policy enforces the bounded capability and a proven session on top.
+// No self-approval; audited fail-closed in the service.
+router.post(
+  '/api/vehicles/:vin/seller-authority/review',
+  authorizeRole(['admin', 'government'], { allowUserIdFallback: false }),
+  requireOperationsCapability(OPERATIONS_CAPABILITIES.SELLER_AUTHORITY_REVIEW),
+  asyncHandler(async (req, res) => {
   const vin = String(req.params.vin || '').trim().toUpperCase();
   const sellerUserId = String(req.body?.seller_user_id || '').trim();
   if (!sellerUserId) throw new ValidationError('seller_user_id is required');
@@ -1233,8 +1253,13 @@ router.patch('/api/vehicles/:vin/evidence/:evidenceId/reject', authorizeRole(['a
 // PATCH: Governed classification correction (Operations Control Plane M1).
 // Corrects ONLY the canonical evidence_class/evidence_subtype through the
 // bounded, audited service — never an arbitrary field PATCH. Reviewer roles
-// mirror verify/reject; the M5 Operations capability policy layers on top.
-router.patch('/api/vehicles/:vin/evidence/:evidenceId/classification', authorizeRole(['admin', 'government']), asyncHandler(async (req, res) => {
+// mirror verify/reject; the M5 Operations capability policy enforces the
+// bounded capability and a proven session on top.
+router.patch(
+  '/api/vehicles/:vin/evidence/:evidenceId/classification',
+  authorizeRole(['admin', 'government'], { allowUserIdFallback: false }),
+  requireOperationsCapability(OPERATIONS_CAPABILITIES.VEHICLE_EVIDENCE_CLASSIFY),
+  asyncHandler(async (req, res) => {
   const vin = String(req.params.vin || '').trim().toUpperCase();
   const { evidenceId } = req.params;
   try {
