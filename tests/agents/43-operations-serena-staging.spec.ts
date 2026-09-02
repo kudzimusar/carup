@@ -401,7 +401,14 @@ test.describe('Operations M7 — Serena governed review and Seller publish', () 
             },
           },
         );
-        expect(corrected.status(), `governed visibility correction refused: ${await corrected.text()}`).toBe(200);
+        const correctedBody = await corrected.text();
+        expect(corrected.status(), `governed visibility correction refused: ${correctedBody}`).toBe(200);
+        // A 200 that changed nothing is the same silent no-op this slice exists to remove: the
+        // caller believes the record was withdrawn and it was not. Assert the server says it acted.
+        expect(
+          JSON.parse(correctedBody) as { changed?: boolean },
+          `the correction reported success without changing the record: ${correctedBody}`,
+        ).toMatchObject({ changed: true });
       }
     }
 
