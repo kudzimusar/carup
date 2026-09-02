@@ -360,6 +360,12 @@ Append one row for every cleared item or logically grouped set of items.
 | M1.12, M1.23 | publicVehicleProjection unchanged | withholding test + privacy suites in 175/175 run | PASS | |
 | M1.13 | evidenceClassificationCorrectionService.js + PATCH classification route | behavioral tests incl. fail-closed audit abort | PASS | |
 | M1.22 | — | node --test: 175/175 across 11 affected suites; migration-integrity 24/24 | PASS | Two inherited stale fixtures repaired (pre-existing red at HEAD, proven via git stash) |
+| M2.* | 07662781; migration 20260902160000; sellerAuthorityService.js | operations-seller-authority 14/14; PGlite harness 14/14 exit 0; communication coverage 148/148 | PASS | Claim/review/notification wiring; pinning test re-aimed |
+| M3.* | 87e3424b; completenessEvaluator rewrite | operations-publication-completeness 15/15; affected gate suites green; full backend suite = 16 pre-existing baseline fails, 0 new (baseline pinned at HEAD via worktree run) | PASS | risk_governance closes the fraud/publish gap |
+| M4.1–M4.21, M5.* | 87e3424b; vehicleOperationsRoutes + read model + operations authz | operations-vehicle-review 8/8 (incl. leak + escalation adversarials); web workspace tests 4/4 | PASS | Responsive proofs land with M7 Playwright |
+| M6.* | 1eca88fc + 31f9a32f | web lib/layout/config 458/458; nav-map count recomputed 29→32; backend governance/nav 87/87; manifest regenerated | PASS | government route moved to its own layout |
+| Staging migrations | supabase MCP apply: vehicle_life_generic_compat_types + vehicle_seller_authority (2026-09-03) | constraint + RLS + 0-row verification query; Serena rows untouched (5) | PASS | Also applied idempotently by the M7 workflow |
+| M7 harness | 7ec3d8df/31f9a32f; spec 43 + operations-serena-staging-uat.yml; preview pair governed at 22fb2a5c | Playwright --list 9 tests; pair provenance curl (frontend+backend, unpaired=false) | READY | Dispatch-only; Kingstone credential capture→restore in CI |
 
 ---
 
