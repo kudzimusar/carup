@@ -3,7 +3,7 @@
 **Status:** ACTIVE — authoritative execution tracker\
 **Repository:** `kudzimusar/carup`\
 **Integration authority / merge target:** `integration/vehicle-passport-v16-cert` / Draft PR #194\
-**Seller implementation lane:** `fix/seller-uat-convergence-remediation` / Draft PR #202\
+**Seller implementation lane:** `fix/zimbabwe-seller-reality-comms-hardening` (continuation lane from #194; predecessor #202 closed)\
 **Master synchronized into implementation lane:** merge commit `2639ba01cabd75630c64bdf7b019333e7309ddcb` via non-main sync PR #204\
 **Tracker creation ancestor:** `43204beeec40123b0cce0c457aded6d0f733c4bc`\
 **Forensic pre-remediation baseline:** `106f76509ae1d1d10a3c4a26b4f93f7993d55027`\
@@ -115,6 +115,7 @@ This table is the mandatory roll call against the earlier `SELLER_MARKETPLACE_CO
 | Exit criteria / exact-head / owner UAT | U + V + W |
 | Truth & Trust / privacy / no fake data | M + permanent invariants |
 | New gaps exposed by owner UAT: test-data isolation, account continuity, Featured/count semantics, Communications proof, Home resilience, tablet/accessibility | C + D + P + Q + T |
+| 2026-09-02 Zimbabwe registration reality + Seller Drive + verification/notification hardening | ZR1–ZR6 + Q + R + S + T + U + V + W |
 
 **Coverage rule:** if a requirement is added to `DESIGN.md`, the Seller convergence plan, Marketplace visual DNA, or an accepted owner UAT defect, this table and the task list must be updated before implementation can call that requirement in scope.
 
@@ -143,6 +144,58 @@ This table is the mandatory roll call against the earlier `SELLER_MARKETPLACE_CO
 
 **Coverage added by this amendment:** F18–F20, G5.1–G5.4, K17–K20, L24–L27, M14–M18, R22–R28, S53–S60, T21–T24, U26–U31, plus `DESIGN.md §11.7` and the Marketplace/Vehicle Detail ordering rule in `DESIGN.md §14`.
 
+
+### 0.8 Accepted scope amendment — Zimbabwe registration reality, Seller Drive, verification & Communications hardening
+
+**Accepted 2026-09-02 after owner UAT.** This amendment is the implementation authority for the defects reproduced on the Serena/Kingstone journey and is subordinate to the permanent invariants in this tracker. Detailed execution notes live in `docs/seller/ZIMBABWE_SELLER_REALITY_COMMUNICATIONS_HARDENING_PLAN.md`.
+
+**Baseline used for this continuation:** `integration/vehicle-passport-v16-cert@f180c47da644d75bea6a7ad67041c21a2a6bcdf4`. No implementation credit is inherited merely because infrastructure exists; every item below needs current evidence.
+
+- [~] **ZR1. Govern the implementation lane and exact baseline.**
+  - Work only on `fix/zimbabwe-seller-reality-comms-hardening` until reconciliation into #194.
+  - Preserve the Serena's documented Japanese chassis/frame identifier; never fabricate a 17-character VIN.
+  - Preserve Truth & Trust: pending registration is not fraud, lack of evidence is not a clean claim.
+  - Acceptance: plan committed before product changes; branch starts exactly from the #194 head above.
+
+- [ ] **ZR2. Replace the Plate-or-TIP shortcut with an explicit Zimbabwe registration lifecycle.**
+  - Canonical public-safe states must distinguish: import in transit; arrived/customs pending; customs cleared/CVR pending; CVR/plate pending; locally registered; temporary foreign vehicle under TIP; de-registered/re-registration pending; unknown.
+  - TIP is not treated as a generic substitute for missing Zimbabwe registration and must not make a permanent-import listing look locally registered.
+  - Legitimate pending permanent-import states may be publicly listed when the ordinary publication gate is otherwise satisfied; the pending state remains visible and exact.
+  - Acceptance: database constraint/model, API, Seller UI, readiness projection, Marketplace/Vehicle Detail and tests converge on the same vocabulary.
+
+- [ ] **ZR3. Separate vehicle identity/Trust from registration readiness.**
+  - Vehicle identity may be well-supported by chassis/frame, engine and cross-document evidence while Zimbabwe registration is pending.
+  - Canonical Trust remains the sole Trust authority. Registration stage contributes through attributable evidence/source coverage and explicit limitations, not a punitive hard-coded deduction that equates paperwork progress with dishonesty.
+  - Publication readiness carries the registration limitation separately.
+  - Acceptance: canonical Trust tests prove pending registration is neither a positive verification claim nor an automatic fraud/adverse verdict.
+
+- [ ] **ZR4. Expand evidence taxonomy for the real import/registration chain and establish the Seller Drive workspace contract.**
+  - Add explicit support for commercial invoice, payment receipt, foreign transit declaration, Zimbabwe registration/registry evidence and first-registration police clearance without forcing them into accident/ownership-transfer semantics.
+  - Existing ambiguous historical rows are not blindly rewritten.
+  - Reuse the existing governed Google Drive provider; do not add a second credential/token authority.
+  - Seller workspace hierarchy is keyed to stable CarUp user identity, with a vehicle child keyed to canonical vehicle identity. Originals are immutable; derived/redacted upload copies are separate; Drive never becomes the public evidence authority.
+  - Acceptance: taxonomy tests + Drive workspace service tests + no credential/public-link leakage.
+
+- [ ] **ZR5. Restore external verification Email as the primary mailbox-verification journey.**
+  - Registration -> one-time token -> canonical Communications queue -> branded CarUp Security Email -> governed provider -> `/auth/verify-email`.
+  - The registration response must distinguish provider acceptance/queued/failure truthfully.
+  - Resend-verification remains anti-enumerating and idempotent enough for repeated user action.
+  - Unverified users may preserve/resume Seller work, but consequential actions use the existing governed verification policy rather than treating an in-app message as proof of mailbox ownership.
+  - Acceptance: unit/integration tests and an exact-head staging provider-delivery check using an authorized test inbox.
+
+- [ ] **ZR6. Split Notifications, Security actions and Conversations semantically.**
+  - Email-channel security notifications must not be rendered as ordinary in-app notification content carrying a token-bearing URL.
+  - Notification bell rows have explicit safe actions/deep-links and meaningful truncation; clicking a row must not be inert.
+  - `/dashboard/communications` remains the two-way conversation surface (Marketplace, Support, connected services), while account/security actions and one-way activity notifications are presented as such rather than generic chats.
+  - External channel controls appear only where runtime configuration can really deliver them.
+  - Acceptance: component/API/privacy tests, mobile/desktop interaction, and Q-phase marketplace conversation proof.
+
+- [ ] **ZR-RC. Amendment roll call complete.**
+  - ZR1–ZR6 are all `[x]`.
+  - Serena-style permanent import can progress through truthful pending-registration Marketplace states.
+  - External mailbox verification, actionable notifications and two-way Communications are each proven as distinct journeys.
+  - Seller Drive workspace contract is implemented/reused without creating a competing evidence authority.
+  - Full affected U/T/V/W certification remains required; this amendment cannot self-certify merge readiness.
 
 ---
 
