@@ -19,7 +19,7 @@
  * the same final state responsively instead of re-deciding it.
  */
 import type { APIRequestContext, Page } from '@playwright/test';
-import { readFileSync } from 'node:fs';
+import AxeBuilder from '@axe-core/playwright';
 import {
   stagingTest as test,
   expect,
@@ -149,6 +149,12 @@ test.describe('Operations M7 — Serena governed review and Seller publish', () 
       path: `test-results/serena-m7/ops-workspace-${testInfo.project.name}.png`,
       fullPage: true,
     });
+
+    // Accessibility gate for the new workspace — same severity bar as the
+    // navigation axe gate: serious/critical violations fail.
+    const axe = await new AxeBuilder({ page }).analyze();
+    const severe = axe.violations.filter((violation) => ['serious', 'critical'].includes(violation.impact || ''));
+    expect(severe, `axe serious/critical violations on the Vehicle Operations workspace: ${JSON.stringify(severe.map(v => ({ id: v.id, impact: v.impact, nodes: v.nodes.length })))}`).toEqual([]);
 
     if (isMutationPass) {
       const before = await fetchOperationsReview(request, reviewer);

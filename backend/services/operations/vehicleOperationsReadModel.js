@@ -96,10 +96,14 @@ export async function buildVehicleOperationsReview(client, { vin, userContext })
   const registration = {
     recorded_stage: vehicle.registration_status || null,
     stage_source: vehicle.registration_status_source || null,
-    // Truth-level honesty: a seller_stated source is a Seller statement, not a
-    // CarUp review and not an authoritative registry fact.
+    // Truth-level honesty: a seller/dealer-declared source is a Seller
+    // statement, not a CarUp review and not an authoritative registry fact.
+    // The write path stamps 'seller_declared'/'dealer_declared' (server.js
+    // submittedClaimSource); older fixtures may carry 'seller_stated'.
     stage_provenance: vehicle.registration_status_source
-      ? (vehicle.registration_status_source === 'seller_stated' ? 'seller_statement' : vehicle.registration_status_source)
+      ? (['seller_stated', 'seller_declared', 'dealer_declared'].includes(vehicle.registration_status_source)
+        ? 'seller_statement'
+        : vehicle.registration_status_source)
       : 'not_recorded',
     lifecycle: registrationReadiness,
     plate_number_recorded: Boolean(vehicle.plate_number),
@@ -205,14 +209,15 @@ export async function buildVehicleOperationsReview(client, { vin, userContext })
   // ── Risk summary (canonical fraud service data; actions stay in that domain) ──
   const { data: fraudCases, error: fErr } = await client
     .from('fraud_cases')
-    .select('id, status, severity, blocks_publication, created_at')
+    // The fraud engine schema names it highest_severity (20260626140000).
+    .select('id, status, highest_severity, blocks_publication, created_at')
     .eq('vin', normalizedVin);
   if (fErr) throw new Error(`Risk read failed: ${fErr.message}`);
   const riskSummary = {
     open_cases: (fraudCases || []).filter((c) => ['open', 'investigating'].includes(c.status)).length,
     blocking_cases: (fraudCases || []).filter((c) => c.blocks_publication === true && ['open', 'investigating'].includes(c.status)).length,
     cases: (fraudCases || []).map((c) => ({
-      id: c.id, status: c.status, severity: c.severity ?? null,
+      id: c.id, status: c.status, severity: c.highest_severity ?? null,
       blocks_publication: c.blocks_publication === true, created_at: c.created_at,
     })),
   };
