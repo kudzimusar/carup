@@ -264,17 +264,60 @@ export async function recordDecision(dealerId, { decision, requirement_key, reas
   // identity.verification.decided (decisionRecorder seam-E E5). Best-effort: the ledger row and
   // the applied effect are already durable, so an outbox write failure must never fail the
   // decision itself. Communications owns delivery; this service only announces the fact.
+  // O2-X6 §14: the reviewer's free-text reason stays in the governed LEDGER — an event
+  // payload carries only safe structured facts (decision verb, requirement key, actor duty).
+  const recipientUserId = updatedProfile?.user_id || profile?.user_id || null;
   await emitDomainEvent(null, 'dealer.compliance.decided', {
     dealerId,
-    recipientUserId: updatedProfile?.user_id || profile?.user_id || null,
+    recipientUserId,
     decision,
     requirementKey: requirement_key || null,
-    reason: reason || null,
+    whoMustAct: decision === 'request_more_info' ? 'subject_action' : 'none',
+    occurredAt: new Date().toISOString(),
+    schemaVersion: 'o2_event.v1',
   }, updatedProfile?.tenant_id || null).catch((err) => {
     console.warn('dealer.compliance.decided outbox emit failed:', err.message);
   });
 
+  // O2-X6 §15: a request for more information announces the WHOLE outstanding set once,
+  // so Communications can say "we still need A · B · C" instead of drip-feeding.
+  if (decision === 'request_more_info') {
+    try {
+      const summary = await buildDealerActionSummary(dealerId);
+      await emitDomainEvent(null, 'dealer.compliance.evidence_required', {
+        dealerId,
+        recipientUserId,
+        missingRequirements: summary.missing,
+        whoMustAct: summary.who_must_act,
+        occurredAt: new Date().toISOString(),
+        schemaVersion: 'o2_event.v1',
+      }, updatedProfile?.tenant_id || null);
+    } catch (err) {
+      console.warn('dealer.compliance.evidence_required outbox emit failed:', err.message);
+    }
+  }
+
   return { decision: ledger, profile: updatedProfile };
+}
+
+/**
+ * O2-X6 §15 — the batched missing-requirements ACTION SUMMARY (domain-owned facts;
+ * Communications only renders it). Safe codes + human labels, never free text.
+ */
+export async function buildDealerActionSummary(dealerId) {
+  const requirements = await listRequirements(dealerId);
+  const missing = (requirements || [])
+    .filter((row) => isRequirementBlocking(row))
+    .map((row) => ({
+      code: row.requirement_key,
+      label: String(row.requirement_key || '').replace(/_/g, ' '),
+    }));
+  return {
+    dealer_id: dealerId,
+    missing,
+    count: missing.length,
+    who_must_act: missing.length ? 'subject_action' : 'carup_review',
+  };
 }
 
 /** Full, immutable decision history for a dealer (admin/owner surface). */

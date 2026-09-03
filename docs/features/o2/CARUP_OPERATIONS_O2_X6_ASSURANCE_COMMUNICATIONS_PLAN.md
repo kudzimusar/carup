@@ -179,27 +179,27 @@ escalated` — assurance projections and event payloads carry the same canonical
 
 ## Stage B checklist (close only with evidence)
 
-- [ ] B1 `identityAssuranceService.js` — the contract above; lifecycle service gains additive
-      `approved_at` + `document_expiry` (X3 suites green)
-- [ ] B2 Registration journey consumes the projection (shape preserved; X2/X3 pins green)
-- [ ] B3 Dealer onboarding consumes the projection; `buildDealerActionSummary` +
-      `narrateActionSummary` on the overview
-- [ ] B4 Operations people read model: additive `identity_assurance` block (P3 pins green)
-- [ ] B5 Events emitted from authoritative writes: `identity.lifecycle.changed` ·
+- [x] B1 `identityAssuranceService.js` — the contract above; lifecycle service gains additive
+      `approved_at` + `document_expiry` (X3 suites green) — **`identityAssuranceService.js` (10/10: contract, history≠present, honest freshness incl. within_recorded_validity/expired, pending vs subject-side, unusable fail-closed, canonical who_must_act, artifact-free serialization, users-table-never-queried pin, no-grant source pins); lifecycle gains additive `approved_at`+`document_expiry` with X3 suites green**
+- [x] B2 Registration journey consumes the projection (shape preserved; X2/X3 pins green) — **registration journey consumes the projection through ONE identityFacts source (pure-derivation lifecycle path preserved); response shape identical + additive `identity_assurance`; X2/X3 suites 34/34**
+- [x] B3 Dealer onboarding consumes the projection; `buildDealerActionSummary` +
+      `narrateActionSummary` on the overview — **dealer overview sources `responsible_person_identity` from the projection (four X5 keys + assurance_level/historically_verified/policy_version) + `action_summary` (batched, deterministic narration in-request); dealer suites 34/34**
+- [x] B4 Operations people read model: additive `identity_assurance` block (P3 pins green) — **peopleComplianceReadModel additive `identity_assurance` block; P3 review suite 10/10 incl. the SHOULD-NEVER-LEAK quarantine**
+- [x] B5 Events emitted from authoritative writes: `identity.lifecycle.changed` ·
       `dealer.compliance.evidence_required` · `seller.authority.superseded` ·
-      `workbook.import.completed`; `dealer.compliance.decided` payload privacy-corrected
-- [ ] B6 Bounded Communications wiring: allowlist + policy + template for the five types above
-      (coverage CI test green; classifications explicit; thread types from the DB CHECK list)
-- [ ] B7 No-grant pins: assurance grants no Seller Authority, no Dealer Compliance, no Vehicle
-      Trust, no workbook escalation (forged assurance inert)
-- [ ] B8 Privacy pins: assurance payload artifact-free; every event payload prohibited-field-free
-- [ ] B9 32-row roll-call machine-checked (test parses the catalogue X6 section; comms
+      `workbook.import.completed`; `dealer.compliance.decided` payload privacy-corrected — **four emitters after authoritative writes + `dealer.compliance.decided` payload privacy-corrected (reviewer free text stays in the ledger); events suite pins ledger-before-event, batched evidence_required, supersession announcement + idempotent no-op, no-note/no-artifact payloads**
+- [x] B6 Bounded Communications wiring: allowlist + policy + template for the five types above
+      (coverage CI test green; classifications explicit; thread types from the DB CHECK list) — **allowlist + policy + template ×5, all transactional/in_app/policyChannelsOnly on legal thread types; `communication-event-coverage` CI gate 9/9; engine + outbox-dedupe suites green**
+- [x] B7 No-grant pins: assurance grants no Seller Authority, no Dealer Compliance, no Vehicle
+      Trust, no workbook escalation (forged assurance inert) — **no-grant pins (authority services never import assurance; forged actor-carried assurance unlocks nothing) green**
+- [x] B8 Privacy pins: assurance payload artifact-free; every event payload prohibited-field-free — **privacy pins green (projection serialization scan; per-emitter payload scan; emit-only source scan across six O2 lanes)**
+- [x] B9 32-row roll-call machine-checked (test parses the catalogue X6 section; comms
       dispositions reconciled with `communicationStakeholderContracts`; machine actors never
-      human recipients; regulated flags correct; no marketing expansion)
-- [ ] B10 Full certification: new suites green · X1–X5A batches green · full backend · full web
-      · tsc · lint NET_NEW 0/0
-- [ ] B11 Receipt `CARUP_OPERATIONS_O2_X6_ASSURANCE_COMMUNICATIONS_RECEIPT.md`; docs live
-      throughout; STOP before X7
+      human recipients; regulated flags correct; no marketing expansion) — **roll-call machine-checked: 32/32 rows parsed from catalogue §10 with both dispositions; workflow names + regulated flags reconciled with communicationStakeholderContracts; machine rows excluded; marketing only as prohibition; PR #197 deferrals named**
+- [x] B10 Full certification: new suites green · X1–X5A batches green · full backend · full web
+      · tsc · lint NET_NEW 0/0 — **24/24 new · 319/319 targeted · full backend 5930 (5909/0/21) · full web 1585/1585 unchanged · tsc 0 · lint 0/0; the one traced interim failure (eager event-bus import in the trust fail-fast graph) fixed with a lazy emit import and re-certified**
+- [x] B11 Receipt `CARUP_OPERATIONS_O2_X6_ASSURANCE_COMMUNICATIONS_RECEIPT.md`; docs live
+      throughout; STOP before X7 — **authored; roll-call counts exact (3/12/2/8/3/3/1); STOP holds**
 
 ## Certification contract — the 28 proofs (task §20)
 

@@ -20,6 +20,7 @@ import http from 'http';
 import ExcelJS from 'exceljs';
 import { randomUUID } from 'crypto';
 import { supabase } from '../../db/supabase.js';
+import { emitDomainEvent } from '../eventBus/eventBusService.js';
 import { ForbiddenError, NotFoundError, ValidationError } from '../../utils/errors.js';
 import {
   sha256Checksum,
@@ -777,6 +778,21 @@ export async function executeVehicleWorkbookImport({ batchId, confirm } = {}, ac
     .update({ import_status: importStatus, updated_by: userId })
     .eq('id', batch.id);
   if (updateError) throw new Error(updateError.message);
+
+  // O2-X6 — announce the finished import (async-valuable: receipts + drafts to review).
+  await emitDomainEvent(null, 'workbook.import.completed', {
+    batchId: batch.id,
+    templateKey: batch.template_type,
+    recipientUserId: userId,
+    outcome: importStatus,
+    created: accepted,
+    failed: rejected,
+    whoMustAct: 'none',
+    occurredAt: new Date().toISOString(),
+    schemaVersion: 'o2_event.v1',
+  }, null).catch((err) => {
+    console.warn('workbook.import.completed outbox emit failed:', err.message);
+  });
 
   return {
     batchId: batch.id,

@@ -4,7 +4,9 @@ import { logAuditEvent } from '../auditLogger.js';
 import { emitDomainEvent } from '../eventBus/eventBusService.js';
 import { uploadToStorage, downloadFromStorage, generateSecureReadUrl } from '../storage/storageService.js';
 import { DocumentIntelligenceService } from '../document-intelligence/documentIntelligenceService.js';
-import { getCurrentIdentityLifecycle } from '../identity/identityLifecycleService.js';
+import { getIdentityAssurance } from '../identity/identityAssuranceService.js';
+import { buildDealerActionSummary } from './dealerComplianceService.js';
+import { narrateActionSummary } from '../operations/safeNarrationService.js';
 import { FIELD_STATE, isFallbackMarker, sanitizeCandidateValue } from '../registration/registrationJourneyService.js';
 import {
   createOrUpdateProfile,
@@ -138,7 +140,7 @@ export async function getDealerOnboardingOverview(client = supabase, actor = {})
     ])
     : [[], [], [], null];
 
-  const identityLifecycle = await getCurrentIdentityLifecycle(client, userId);
+  const identityAssurance = await getIdentityAssurance(client, userId);
   const blocking = requirements.filter(isRequirementBlocking);
 
   const whoMustAct = owned
@@ -155,11 +157,17 @@ export async function getDealerOnboardingOverview(client = supabase, actor = {})
     documents: documents.map(sanitizeDealerDocument),
     branches,
     compliance,
+    // O2-X6 — sourced from the ONE canonical projection (identity_assurance.v1); the four
+    // X5 keys keep their names, and the assurance facts ride alongside. Dealer Compliance
+    // stays a separate authority — assurance marks nothing approved.
     responsible_person_identity: {
-      effective_state: identityLifecycle.effective_state,
-      capability_bearing: identityLifecycle.capability_bearing,
-      applicant_guidance: identityLifecycle.applicant_guidance,
-      who_must_act: identityLifecycle.who_must_act,
+      effective_state: identityAssurance.identity_state,
+      capability_bearing: identityAssurance.usable_for_identity_gated_actions,
+      applicant_guidance: identityAssurance.applicant_guidance,
+      who_must_act: identityAssurance.who_must_act,
+      assurance_level: identityAssurance.assurance_level,
+      historically_verified: identityAssurance.historically_verified,
+      policy_version: identityAssurance.policy_version,
     },
     who_must_act: whoMustAct,
     blocking_requirement_keys: blocking.map((r) => r.requirement_key),
@@ -171,6 +179,11 @@ export async function getDealerOnboardingOverview(client = supabase, actor = {})
       dependency: 'governed_dealer_role_or_tenant_relationship',
       note: 'Dealer tools unlock after Dealer Compliance approval establishes the governed dealer relationship — a business application alone never does.',
     },
+    // O2-X6 §15 — ONE batched "what we still need" summary (domain facts; narration is
+    // presentation only and deterministic on this read path).
+    action_summary: owned
+      ? await narrateActionSummary(await buildDealerActionSummary(owned.id), { ai: null })
+      : null,
     measurements: {
       application_created_at: owned?.created_at || null,
       first_evidence_at: documents.length

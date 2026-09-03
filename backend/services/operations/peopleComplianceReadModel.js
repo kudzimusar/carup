@@ -25,6 +25,7 @@ import { toResponsibilityProjection as authorityResponsibility } from '../seller
 import { toResponsibilityProjection as dealerResponsibility, deriveExpiryState, isRequirementBlocking } from '../dealer/dealerComplianceService.js';
 import { toResponsibilityProjection as transferResponsibility } from '../passport/passportOwnershipTransferService.js';
 import { allowedPeopleOperationsActions } from './operationsAuthorizationService.js';
+import { getIdentityAssurance } from '../identity/identityAssuranceService.js';
 
 const SESSION_LIMIT = 10;
 const AUTHORITY_LIMIT = 25;
@@ -185,6 +186,8 @@ export async function buildPersonComplianceReview(client, { userId, userContext 
       created_at: event.created_at ?? null,
     }));
 
+  const identityAssurance = await getIdentityAssurance(client, userId);
+
   return {
     person: {
       id: person.id,
@@ -202,6 +205,9 @@ export async function buildPersonComplianceReview(client, { userId, userContext 
       sessions,
       who_must_act: latestSession ? latestSession.who_must_act : 'none',
     },
+    // O2-X6 — ADDITIVE: the canonical consumer-safe projection, so Operations reads the
+    // same assurance answer every downstream domain reads (nothing above is changed).
+    identity_assurance: identityAssurance,
     seller_authority: {
       total: authority.length,
       records: authority,

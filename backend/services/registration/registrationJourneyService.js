@@ -10,10 +10,8 @@ import {
 } from '../identity/caseWorkflow.js';
 import { getReasonConfig } from '../identity/reasonCodes.js';
 import { getLatestVerificationSessionForUser } from '../identity/verificationSessionService.js';
-import {
-  LIFECYCLE_STATES,
-  getCurrentIdentityLifecycle,
-} from '../identity/identityLifecycleService.js';
+import { LIFECYCLE_STATES } from '../identity/identityLifecycleService.js';
+import { getIdentityAssurance } from '../identity/identityAssuranceService.js';
 import { getBiometricConsentStateForUser } from '../identity/biometrics/biometricConsentService.js';
 import { fetchLatestBiometricAssessment, toApplicantBiometricView } from '../identity/biometrics/biometricAssessmentService.js';
 import { ValidationError } from '../../utils/errors.js';
@@ -192,17 +190,35 @@ function applicantGuidance(session) {
  * registration or Trust — those stages are always reported as locked-by-their-own-
  * authority from here, because this surface cannot and must not answer for them.
  */
-export function deriveOnboardingJourney({ user = {}, profile = null, latestSession = null, lifecycle = null } = {}) {
+export function deriveOnboardingJourney({ user = {}, profile = null, latestSession = null, lifecycle = null, assurance = null } = {}) {
   let identityState = deriveIdentityStepState(latestSession);
   const identityActive = Boolean(latestSession) && !TERMINAL_PHASES.has(sessionPhase(latestSession)) && identityState !== 'rejected';
   const contextEstablished = Boolean(profile);
 
-  // O2-X3: the CURRENT identity lifecycle (append-only ledger + expiry overlay) now decides
-  // whether identity-gated capability is available — a historical approval alone no longer
-  // does. When no lifecycle is supplied (pure-derivation callers), the historical view stands.
-  const lifecycleState = lifecycle?.effective_state || null;
-  const capabilityBearing = lifecycle
-    ? Boolean(lifecycle.capability_bearing)
+  // O2-X6: ONE identity interpretation. The canonical assurance projection wins when
+  // supplied; a bare lifecycle keeps the X3 behavior for pure-derivation callers; with
+  // neither, the historical step label stands. The hand-rolled capability set and the
+  // duplicated who_must_act derivations are gone — the projection answers once.
+  const identityFacts = assurance
+    ? {
+      effective_state: assurance.identity_state,
+      capability_bearing: assurance.usable_for_identity_gated_actions === true,
+      who_must_act: assurance.who_must_act,
+      reason_code: assurance.reason_code,
+      applicant_guidance: assurance.applicant_guidance,
+    }
+    : (lifecycle
+      ? {
+        effective_state: lifecycle.effective_state,
+        capability_bearing: Boolean(lifecycle.capability_bearing),
+        who_must_act: lifecycle.who_must_act,
+        reason_code: lifecycle.reason_code,
+        applicant_guidance: lifecycle.applicant_guidance,
+      }
+      : null);
+  const lifecycleState = identityFacts?.effective_state || null;
+  const capabilityBearing = identityFacts
+    ? identityFacts.capability_bearing
     : identityState === 'approved';
   const identityApproved = capabilityBearing;
 
@@ -218,7 +234,7 @@ export function deriveOnboardingJourney({ user = {}, profile = null, latestSessi
 
   const phase = sessionPhase(latestSession);
   const identityWhoMustAct = restrictiveLifecycle
-    ? (lifecycle?.who_must_act || 'carup_review')
+    ? (identityFacts?.who_must_act || 'carup_review')
     : (latestSession ? toResponsibilityProjection(phase) : 'subject_action');
 
   // Journey-level responsibility: the applicant's outstanding step, else the review
@@ -283,7 +299,7 @@ export function deriveOnboardingJourney({ user = {}, profile = null, latestSessi
   const locked = [];
   if (!identityApproved) {
     const identityLockReason = restrictiveLifecycle
-      ? (lifecycle?.applicant_guidance || 'Identity-gated capability is currently unavailable while CarUp reviews this account.')
+      ? (identityFacts?.applicant_guidance || 'Identity-gated capability is currently unavailable while CarUp reviews this account.')
       : 'A governed reviewer decision is required; OCR extraction alone never verifies.';
     locked.push({
       capability: 'present_as_identity_verified',
@@ -334,17 +350,17 @@ export function deriveOnboardingJourney({ user = {}, profile = null, latestSessi
         document_type: latestSession?.document_type || null,
         who_must_act: identityWhoMustAct,
         guidance: restrictiveLifecycle
-          ? (lifecycle?.applicant_guidance || 'CarUp is reviewing this account.')
+          ? (identityFacts?.applicant_guidance || 'CarUp is reviewing this account.')
           : applicantGuidance(latestSession),
-        // O2-X3 — the CURRENT lifecycle, applicant-safe fields only (state, guidance, actor);
-        // internal security detail never travels here.
-        lifecycle: lifecycle
+        // O2-X3/X6 — the CURRENT identity facts, applicant-safe fields only (state, guidance,
+        // actor); sourced from the canonical assurance projection when available.
+        lifecycle: identityFacts
           ? {
-            effective_state: lifecycle.effective_state,
-            reason_code: lifecycle.reason_code,
-            applicant_guidance: lifecycle.applicant_guidance,
-            who_must_act: lifecycle.who_must_act,
-            capability_bearing: Boolean(lifecycle.capability_bearing),
+            effective_state: identityFacts.effective_state,
+            reason_code: identityFacts.reason_code,
+            applicant_guidance: identityFacts.applicant_guidance,
+            who_must_act: identityFacts.who_must_act,
+            capability_bearing: identityFacts.capability_bearing,
           }
           : null,
       },
@@ -400,18 +416,18 @@ async function fetchOwnUserRow(client, userId) {
 
 export async function getRegistrationJourney(client = supabase, actor = {}) {
   const userId = requireUserId(actor);
-  const [user, profile, latestSession, lifecycle, biometricConsent] = await Promise.all([
+  const [user, profile, latestSession, assurance, biometricConsent] = await Promise.all([
     fetchOwnUserRow(client, userId),
     fetchOwnProfile(client, userId),
     getLatestVerificationSessionForUser(client, { id: userId }),
-    getCurrentIdentityLifecycle(client, userId),
+    getIdentityAssurance(client, userId),
     getBiometricConsentStateForUser(client, userId),
   ]);
   const latestBiometric = latestSession
     ? await fetchLatestBiometricAssessment(client, latestSession.id)
     : null;
 
-  const journey = deriveOnboardingJourney({ user: user || {}, profile, latestSession, lifecycle });
+  const journey = deriveOnboardingJourney({ user: user || {}, profile, latestSession, assurance });
   // O2-X4 — applicant-safe biometric leg: consent state + the latest assessment's statuses.
   // Evidence display only; the case decision remains with 7C review.
   journey.steps.identity.biometric = {
@@ -438,6 +454,8 @@ export async function getRegistrationJourney(client = supabase, actor = {}) {
     profile,
     identity_session: latestSession,
     journey,
+    // O2-X6 — the canonical consumer-safe projection, exposed as itself (additive).
+    identity_assurance: assurance,
   };
 }
 

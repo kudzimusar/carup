@@ -1,4 +1,5 @@
 import { supabase } from '../../db/supabase.js';
+import { emitDomainEvent } from '../eventBus/eventBusService.js';
 import { logAuditEvent } from '../auditLogger.js';
 import {
   OPERATIONS_CAPABILITIES,
@@ -241,11 +242,19 @@ export async function getCurrentIdentityLifecycle(client = supabase, userId) {
     ? ledger.next_state
     : (historicallyApproved ? LIFECYCLE_STATES.VERIFIED : LIFECYCLE_STATES.NOT_ESTABLISHED);
 
+  // O2-X6: expiry facts are surfaced once, here — this service stays the ONLY
+  // deriver of document-expiry truth (the assurance projection composes it).
+  const expiryMs = approved ? parseExpiry(approved?.ocr_result?.additional_fields?.expiry) : null;
+  const documentExpiry = {
+    recorded: expiryMs !== null,
+    expires_at: expiryMs !== null ? new Date(expiryMs).toISOString() : null,
+    expired: expiryMs !== null && expiryMs < Date.now(),
+  };
+
   let effectiveState = state;
   let derivedReasonCode = null;
   if (CAPABILITY_BEARING_STATES.includes(state)) {
-    const expiryMs = parseExpiry(approved?.ocr_result?.additional_fields?.expiry);
-    if (expiryMs !== null && expiryMs < Date.now()) {
+    if (documentExpiry.expired) {
       effectiveState = LIFECYCLE_STATES.REVERIFICATION_REQUIRED;
       derivedReasonCode = LIFECYCLE_REASON_CODES.DOCUMENT_EXPIRED.code;
     }
@@ -265,6 +274,8 @@ export async function getCurrentIdentityLifecycle(client = supabase, userId) {
     who_must_act: lifecycleToResponsibilityProjection(effectiveState),
     capability_bearing: CAPABILITY_BEARING_STATES.includes(effectiveState),
     historically_approved: historicallyApproved,
+    approved_at: approved?.reviewed_at || approved?.updated_at || null,
+    document_expiry: documentExpiry,
     latest_approved_session_id: approved?.id || null,
     since: ledger?.created_at || approved?.reviewed_at || approved?.updated_at || null,
     ledger_event_id: ledger?.id || null,
@@ -393,6 +404,23 @@ export async function transitionIdentityLifecycle(client = supabase, actor = {},
       revoked_sessions: revokedSessions,
     },
     reason: reasonCode,
+  });
+
+  // O2-X6 — announce the governed transition (the person deserves to know). Best-effort
+  // after ledger + audit; SAFE payload: state + reason CODE + duty; the reviewer's free-text
+  // note stays in the ledger.
+  await emitDomainEvent(null, 'identity.lifecycle.changed', {
+    userId,
+    recipientUserId: userId,
+    previousState: current.state,
+    newState: nextState,
+    reasonCode: reasonCode || null,
+    whoMustAct: lifecycleToResponsibilityProjection(nextState),
+    sessionsRevoked: revokedSessions > 0 ? revokedSessions : 0,
+    occurredAt: inserted?.created_at || new Date().toISOString(),
+    schemaVersion: 'o2_event.v1',
+  }, null).catch((err) => {
+    console.warn('identity.lifecycle.changed outbox emit failed:', err.message);
   });
 
   return { event: inserted, revoked_sessions: revokedSessions };

@@ -459,7 +459,7 @@ prohibited, AI draft-only) · `AUTH_ONLY` (account_holder authentication mail on
 | 11 | Parts seller | CONSUMER_CONDITIONAL — via supplier trade profile | parts (parts_seller); transactional | contract recorded | parts lane adoption |
 | 12 | Parts supplier | CONSUMER_CONDITIONAL — as #11 | parts (parts_seller) | contract recorded | parts lane adoption |
 | 13 | Insurer | NOT_APPLICABLE for own gate; CONSUMER_CONDITIONAL contract as a reader of the OWNER's assurance in future underwriting — provider decisions stay theirs | insurance (insurer) — REGULATED; marketing prohibited | contract recorded | provider-platform adoption |
-| 14 | Bank / lender | as #13 | finance (lender) — REGULATED; marketing prohibited | contract recorded | provider-platform adoption |
+| 14 | Bank / lender | NOT_APPLICABLE for own gate; CONSUMER_CONDITIONAL contract as a reader of the applicant's assurance in future underwriting — provider decisions stay theirs | finance (lender) — REGULATED; marketing prohibited | contract recorded | provider-platform adoption |
 | 15 | Payments / escrow provider | NOT_APPLICABLE (machine actor — no human projection invented) | NONE (webhooks/API) | closed | — |
 | 16 | Import coordinator | CONSUMER_CONDITIONAL — via verified coordinator profile | diaspora_import (import_coordinator) | contract recorded | diaspora lane adoption |
 | 17 | Logistics / shipping provider | NOT_APPLICABLE today (trade-profile verification governs) | container_logistics (logistics_provider) | contract recorded | — |
