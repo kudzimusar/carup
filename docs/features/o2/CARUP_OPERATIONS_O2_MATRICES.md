@@ -95,6 +95,20 @@ Real journeys, not unit tests alone; desktop + tablet + mobile on the exact-head
 | 16 | Authorization adversarial | unauthenticated / fallback / forged role / forged tenant / self-review all refused WITH valid CSRF |
 | 17 | Regressions | Seller/Passport/Marketplace/Operations-Serena gates green at the same SHA; backend suite 0 fail vs base |
 
+### 10-X. P7 journey extensions for X1–X6 (added 2026-09-04 — P7 must now also protect these; rows 1–17 above are unchanged)
+
+| # | Journey | Proof |
+|---|---|---|
+| X-1 | Document-Intelligence retirement holds on staging | `/api/verification/*` (incl. `/promote-trust`) returns 404; no person trust-tier write path exists; extraction (`/api/ai/ocr`) observation-only |
+| X-2 | Registration + Progressive Trust | context → identity wizard → candidates presented as candidates (markers never data) → user confirm/correct with server-derived provenance → advisory ladder; refresh/relogin resumes from server truth |
+| X-3a | Identity lifecycle governed transitions | reviewer suspend/compromise → applicant-safe banner (no internal detail); compromise cascades session revocation; revoked never resurrects; historical 7C rows byte-identical |
+| X-3b | Step-up authentication | sensitive/critical actions demand password re-proof on a proven session; x-user-id fallback refused on every security surface; strong-authenticator stays honestly DEFERRED |
+| X-4 | Biometric consent architecture (provider NOT ACTIVATED) | consent is an affirmative versioned tick; withdrawal stops new processing; run-check reports honest unavailable + manual-review path; NO fake biometric success anywhere on staging |
+| X-5 | Dealer onboarding | non-dealer-business account → 403 by name; own application only; evidence private (`has_file`, signed self-preview; reviewer preview behind step-up); OCR candidates by explicit click; workbook lane refuses a changed file (checksum) and DealerDashboard stays locked |
+| X-5A | Workbook tools | catalogue is server-derived (forged body/role changes nothing; deferred entries stay deferred with reasons); template downloads with dropdowns/instructions; import chain (inspect → confirm → dry run → explicit confirm → execute) creates DRAFTS visible in My Vehicles with NO re-entry; export is DB-sourced and redacted; recent imports caller-scoped |
+| X-6a | Assurance surfaces | journey + dealer overview show the canonical `identity_assurance.v1` fields; established assurance grants no Seller Authority / Dealer Compliance / publication; reverification_required fails closed |
+| X-6b | Semantic events → notifications | lifecycle change, dealer decision, batched evidence-required, authority superseded, workbook import completed each produce ONE in-app notification via canonical Communications; payloads on the wire carry no reviewer notes, artifacts, scores or paths |
+
 ## 11. Expansion Authority Matrix (X0 — design; governs all expansion phases)
 
 Added 2026-09-03 for the Identity/Onboarding Expansion

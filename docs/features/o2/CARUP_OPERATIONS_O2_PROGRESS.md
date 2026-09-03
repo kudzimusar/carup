@@ -167,6 +167,19 @@ unrelated to this correction.
 > yet accepted would repeat the mixed-base hazard. A skeleton workflow that never ran would be a
 > gate that represents nothing, so none was created.
 
+> **P7 readiness reconciliation — 2026-09-04 (head `bf10431b`): STILL BLOCKED.** Facts:
+> #194 OPEN/BLOCKED and moved `33720d79`→`52ebcd46` (+7; lanes now DIVERGED — GitHub compare;
+> local clone is shallow); O2 absent from both pairing maps (fail-closed, as designed); ALL 7
+> O2 migrations unapplied to staging (ledger ends `20260902183022`) plus ~13 recent #194-lane
+> migrations with no staging match (full DDL parity audit is a P7.1 obligation); synthetic
+> identity/document policy stands with PO approval NOT yet given (no fixtures created);
+> pairing additions are per-branch additive but shared-DB migrations pre-#194 would run under
+> every live candidate (v16-cert, Serena slice, pinned seller gates). §10-X journey
+> extensions added to the certification matrix so P7 now protects X1–X6. Entry conditions NOT
+> satisfied — nothing was deployed, migrated, or fixtured. PO actions needed: (1) accept/land
+> #194 (and O2 reconciles its +7); (2) approve staging DDL parity plan incl. the O2 seven;
+> (3) approve synthetic identity-document creation; (4) then authorize pairing + P7 spec.
+
 - [ ] P7.1 Spec + workflow (dedicated identities; queue-never-cancel; exact-head pair asserted)
 - [ ] P7.2 Journeys 1–14 of the certification matrix green
 - [ ] P7.3 Desktop + tablet + mobile; axe serious/critical = 0

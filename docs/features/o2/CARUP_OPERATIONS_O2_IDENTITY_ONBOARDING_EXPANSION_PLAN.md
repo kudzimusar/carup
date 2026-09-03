@@ -742,6 +742,40 @@ evidence per item; nothing is marked complete by assertion.
 | R7 | `/ai/ocr`, `/ai/fraud-scan` frontend calls | **RESOLVED by X1 step 1** — served at `/api/ai/*` via `aiServiceBus`, observation-only; attribution/default residuals recorded for X2 | X2 consumption rules |
 | R8 | Adjacent open lanes | #196/#197 (Service Network), #200 (seller UAT convergence) are separate lanes; the expansion must not entangle them | respective lanes |
 
+### Risk register addendum — P7 readiness reconciliation, 2026-09-04 (head `bf10431b`)
+
+- **R3 (PR #194) — WORSE than recorded:** #194 is OPEN/BLOCKED and its head has ADVANCED from
+  `33720d79` to `52ebcd46` (+7 commits, 12 files, +1792 — Serena closure receipt + seller
+  staging spec changes). GitHub compare: O2 is 25 ahead of the OLD head (which IS our
+  merge-base — the documented convergence stands) but 7 BEHIND the new head → the lanes have
+  **diverged**. Accepting #194 as-is merges content O2 was never certified against; O2's
+  convergence must reconcile those 7 commits. (Local git cannot verify this — the clone is
+  SHALLOW; the GitHub compare API is the evidence.)
+- **R4 (pairing) — confirmed current:** `feat/operations-o2-people-compliance` is absent from
+  BOTH `web/preview-frontend-pairing.json` and `web/preview-backend-pairing.json`
+  (fail-closed uncertifiable, as designed). Adding the two pairing rows is ADDITIVE
+  (per-branch aliases displace no other candidate's deployment) — but the O2 preview backend
+  would run **7 unapplied O2 migrations' worth of code against the SHARED staging database**,
+  and the DB is where contamination lives: staging's ledger ends at `20260902183022`; ALL
+  SEVEN O2 migrations (`20260903120000` P1-C tenant retirement · `20260903200000` lifecycle
+  ledger · `20260903201000` session assurance · `20260903210000` biometric consents ·
+  `20260903211000` assessment columns · `20260903220000` dealer onboarding ·
+  `20260904090000` workbook loosenings) are unapplied, and at least ~13 recent #194-lane
+  migrations (passport transfer authority, issue158 custody set, seller
+  photo-labels/submission-id/history-disclosures, finance obligation authority, ZW
+  registration lifecycle, auth-activity) ALSO have no staging-ledger match — staging is
+  behind even the #194 base, so P7.1 must include a full DDL parity audit (issue101
+  staging-parity precedent), not just the O2 seven.
+- **R5 (synthetic identities/documents) — unchanged:** policy stands (dedicated staging
+  identities via the Gate-D provisioning pattern; synthetic identity-document images require
+  explicit PO awareness before creation; `goldenSyntheticAssets.js` is the asset precedent).
+  PO approval NOT yet given — no fixtures were created.
+- **Active-candidate context:** the pairing maps carry live rows for
+  `integration/vehicle-passport-v16-cert` (the #194 lane itself), the Serena slice, and three
+  seller-UAT branches; seller staging gates are pinned to immutable CANDIDATE_SHAs. Any
+  shared-DB migration before #194 lands risks reddening those certified gates — the
+  documented cancelled-run/contamination lessons apply.
+
 ## Decisions requiring Product Owner approval
 
 1. **X1 disposition** of `/api/verification/promote-trust` and the trust-tier write path — the
