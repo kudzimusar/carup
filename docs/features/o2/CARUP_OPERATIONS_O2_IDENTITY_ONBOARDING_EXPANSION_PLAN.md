@@ -603,6 +603,50 @@ owns that; historical 7C rows proven untouched by assessments.
 **Fingerprints remain out of scope** (no enrollment, no capture UI, no fields). Passkey/device
 biometrics remain X3 AUTHENTICATION, distinct from this identity-proofing lane.
 
+## O2-X5 — Dealer Onboarding + Governed Workbook Migration: EXECUTED (2026-09-03)
+
+Receipt: `CARUP_OPERATIONS_O2_X5_DEALER_ONBOARDING_WORKBOOK_MIGRATION_RECEIPT.md`.
+
+**Bounded access, not a new role.** `/dealer/onboarding` (web) + `/api/dealer-onboarding/*`
+(backend) are the APPLICANT surface: an authenticated `owner`-role user whose X2 registration
+profile records `account_kind='business'` + `business_type='dealer'` reaches their OWN
+application and nothing else. `assertDealerOnboardingContext` derives that from
+`user_registration_profiles` (server truth) and fails closed
+(`DEALER_ONBOARDING_CONTEXT_REQUIRED`); no dealer role is granted, no `authorizeRole` matrix
+row changed, DealerDashboard stays locked behind the real `dealer` role. The overview names the
+dependency honestly: `workspace_access.available=false`,
+`dependency='governed_dealer_role_or_tenant_relationship'` — **how an approved applicant
+becomes an active Dealer (role grant / tenant membership) is a recorded UNRESOLVED dependency,
+deliberately not invented here.**
+
+**§4 forgery closure.** `tenant_id` is REMOVED from `dealerComplianceService.PROFILE_FIELDS` —
+a client payload cannot assign tenant membership; permanent pins assert the refusal and that
+admin listing tenant-scoping still works from server-seeded facts.
+
+**Evidence is private.** Uploads land under `dealer-compliance/<dealerId>/` in the private
+bucket; API responses never carry storage paths (`sanitizeDealerDocument` → `has_file`);
+applicant previews are short-lived signed URLs for the OWN dealer only; the reviewer raw
+preview sits behind admin role + X3 step-up (`ACTION_CLASSES.SENSITIVE`) and is audited.
+
+**Claim ≠ extraction ≠ decision.** Applicant statements, OCR output and Dealer Compliance
+decisions never collapse: OCR candidates surface via the X2 truth model (candidate states,
+fallback markers refused, `candidates_seen` provenance), are persisted per document as
+candidates only, and `recordDecision` remains the only decision writer — nothing in X5 can
+produce a VERIFIED/APPROVED outcome.
+
+**Workbook migration = mapping front-end to the EXISTING engine.** Arbitrary dealer
+spreadsheets go through: inspect (headers only) → deterministic alias pass → AI semantic
+proposals (HEADERS ONLY to the model, allowlist-validated against the selected sheet's
+canonical columns, failure → unmapped, never guessed) → human-confirmed mapping recorded in
+`dealer_workbook_mapping_confirmations` bound to the workbook's sha256 checksum → canonical
+`{templateType, sheets}` payload → the EXISTING `runAndPersistDiasporaWorkbookDryRun`. The
+diaspora planning/review/confirmation/execution chain is byte-identical; there is no second
+importer; a changed file (new checksum) voids the confirmation; VERIFIED/APPROVED import
+refusals hold.
+
+**No biometric activation; P7 untouched.** X5 added no provider configuration and no staging
+artifacts.
+
 ## Biometrics and consent (X4 design) — truthful scope
 
 Existing reality, recorded so nothing is oversold:

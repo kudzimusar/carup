@@ -180,3 +180,25 @@ The original discovery above (`dd94c56d`) is preserved untouched.
   PO decision (`CARUP_OPERATIONS_O2_X4_BIOMETRIC_PROVIDER_DECISION.md`, status NOT SELECTED).
 - **Data-minimisation law (pinned repo-wide):** no biometric template/embedding store, no
   fingerprint fields/endpoints; CarUp keeps assessment + provenance + consent + decision.
+
+#### X5 addendum — executed 2026-09-03 (see the expansion plan's "X5 executed" section)
+
+- **New dealer-domain pieces:** `dealerOnboardingService` (bounded applicant access:
+  business+dealer registration context derived server-side, own-application only) +
+  `workbookSemanticMappingService` (deterministic aliases → headers-only AI proposals →
+  checksum-bound human confirmation) + routes `/api/dealer-onboarding/*` + web
+  `/dealer/onboarding`; migration `20260903220000_dealer_onboarding_extensions.sql` (additive
+  extraction-candidate columns on `dealer_compliance_documents`; new
+  `dealer_workbook_mapping_confirmations`).
+- **Ownership:** the dealer domain owns application/evidence/candidate truth and the mapping
+  confirmations; the X2 registration profile owns the routing context; the X3 lifecycle owns
+  the responsible person's identity projection; the diaspora workbook services own import
+  truth (their planning/review/confirmation/execution chain is byte-unchanged — X5 added a
+  mapping FRONT-END, not a second importer); `recordDecision` remains the only Dealer
+  Compliance decision writer.
+- **Discovery facts:** `PROFILE_FIELDS` in `dealerComplianceService` accepted client
+  `tenant_id` (forgeable tenant membership) — REMOVED in X5 with permanent refusal pins; no
+  governed path exists today that grants the `dealer` role or a tenant relationship to an
+  approved applicant — recorded as the X5 UNRESOLVED workspace dependency
+  (`workspace_access.dependency='governed_dealer_role_or_tenant_relationship'`), deliberately
+  not fabricated; DealerDashboard and the role matrix are untouched.

@@ -112,6 +112,13 @@ what enters `user_registration_profiles`, confirmed-vs-corrected provenance is d
 server-side and audited, and the Progressive Trust ladder is a derived, advisory, zero-write
 projection — receipt: `CARUP_OPERATIONS_O2_X2_REGISTRATION_PROGRESSIVE_TRUST_RECEIPT.md`.*
 
+*X5 (2026-09-03) implemented the dealer-onboarding and workbook rows below (marked X5 —
+IMPLEMENTED): bounded applicant access derived from the X2 registration profile (no dealer role
+granted), client `tenant_id` assignment removed at the write boundary, evidence private with
+audited step-up reviewer preview, and workbook migration as a checksum-bound human-confirmed
+mapping in front of the byte-unchanged diaspora engine — receipt:
+`CARUP_OPERATIONS_O2_X5_DEALER_ONBOARDING_WORKBOOK_MIGRATION_RECEIPT.md`.*
+
 *X3 (2026-09-03) added two governed facts with the same discipline — receipt:
 `CARUP_OPERATIONS_O2_X3_IDENTITY_LIFECYCLE_ACCOUNT_SECURITY_RECEIPT.md`:*
 
@@ -128,7 +135,8 @@ projection — receipt: `CARUP_OPERATIONS_O2_X2_REGISTRATION_PROGRESSIVE_TRUST_R
 | Biometric assessment (X4 — IMPLEMENTED; provider not activated) | `verification_assessments` (append-only; face/liveness statuses + scores, `provider_reference`/`provider_state`, `biometric_threshold.v1`, `consent_id`) | biometric provider only (as evidence; client scores are inert; consent gates every call) | reviewer via the unchanged 7C decision policy — mismatch/failed-liveness BLOCK approval, nothing biometric grants it; manual fallback always exists | provider input is evidence only | never | identity service (`biometricAssessmentService`) |
 | Biometric consent (X4 — IMPLEMENTED) | `identity_biometric_consents` (append-only ledger; grant/withdraw events, purposes, `biometric_consent.v1` + text version) | the subject, affirmatively (`consent: true`; Terms/uploads are never consent) | the subject grants/withdraws their OWN consent only; withdrawal stops new processing and erases nothing | never | never | identity service (`biometricConsentService`) |
 | Dealer Compliance decision | compliance decision ledger + profile | dealer submits documents; OCR may fill candidate fields | `operations.dealer_compliance.review` (never the dealer's own tenant admin) | candidates only — never `active`/passed/unrestricted/unsuspended/publishable | domain's own public projection only | `dealerComplianceService` (`recordDecision`) |
+| Dealer onboarding evidence + candidates (X5 — IMPLEMENTED) | `dealer_compliance_documents` (private file_ref never exposed; `extraction_candidates` JSONB with X2 field states + provider/confidence) | the applicant uploads; OCR proposes candidates (fallback markers refused) | the applicant confirms/corrects what enters their OWN profile (`candidates_seen` provenance, audited); `tenant_id` is NOT client-assignable (removed from `PROFILE_FIELDS`) | candidates only | never — signed preview self-only; reviewer raw preview = admin role + X3 step-up, audited | `dealerOnboardingService` |
 | Seller Authority | `vehicle_seller_authority` | seller claim + evidence | `operations.seller_authority.review`; self-review refused; completed transfer supersedes | never | public-safe statement only | `sellerAuthorityService` |
 | Vehicle Registration | registration lifecycle records (vehicle domain) | evidence upload | governed vehicle-domain review / external registry authority | extraction candidates only | vehicle-surface presentation only | registration lifecycle (vehicle domain) — O2 reads only |
 | Vehicle Trust | canonical trust records | nobody in O2 | `canonicalTrustService` computation only | never | governed vehicle surface | `canonicalTrustService` ONLY (one-writer invariant) |
-| Workbook mapping / import | confirmed mapping record + the existing planning/review/confirmation pipeline | AI semantic mapping proposes; the uploader supplies data | a human confirms the mapping; imports refuse VERIFIED/APPROVED compliance outcomes | mapping suggestions only — advisory | no | workbook execution/audit services |
+| Workbook mapping / import (X5 — IMPLEMENTED) | `dealer_workbook_mapping_confirmations` (mapping bound to the workbook's sha256 checksum, `dealer_workbook_mapping.v1`) + the UNCHANGED diaspora planning/review/confirmation pipeline | deterministic aliases first, then AI semantic mapping over HEADERS ONLY (allowlist-validated; failure → unmapped, never guessed) | a human confirms the exact mapping per checksum (a changed file voids it); dry run via the EXISTING `runAndPersistDiasporaWorkbookDryRun`; imports refuse VERIFIED/APPROVED compliance outcomes | mapping suggestions only — advisory | no | `workbookSemanticMappingService` (mapping record); the existing diaspora services (import truth) |

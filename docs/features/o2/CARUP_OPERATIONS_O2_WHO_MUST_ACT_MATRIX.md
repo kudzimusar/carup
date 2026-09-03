@@ -105,4 +105,23 @@ projection above: ADR vocabulary verbatim, derived, never persisted (the dormant
 | `disputed` | `escalated` |
 | `suspended` / `compromised` | `carup_review` |
 | `revoked` | `none` (re-entry starts with a governed reviewer step, then a new evidence journey) |
+
+## Dealer onboarding → projection (X5 — IMPLEMENTED, derived at read time)
+
+The dealer-onboarding overview reuses the P2 dealer module (`toResponsibilityProjection` in
+`dealerComplianceService.js`) — no new vocabulary, no new store, derived on every read:
+
+| Onboarding state | Projected `who_must_act` |
+|---|---|
+| No application yet / blocking requirement outstanding / evidence missing | `subject_action` |
+| Application + evidence submitted, Dealer Compliance undecided | `carup_review` (the core dealer mapping, unchanged) |
+| Under investigation | `escalated` |
+| Approved / nothing outstanding | `none` |
+
+The overview additionally carries `responsible_person_identity.who_must_act` verbatim from the
+X3 lifecycle projection above — the responsible person's identity duty is shown alongside, never
+merged into, the dealer application's own duty (identity verified ≠ dealer compliant). The
+X0 design rows above ("Workbook mapping awaiting human confirmation" → `subject_action`) became
+real in X5: the workbook lane blocks the dry run until the human confirms the mapping, so the
+outstanding duty sits with the importing user exactly as designed.
 | `not_established` | `none` at lifecycle grain — the onboarding journey's own projection owns the "start verifying" nudge |
