@@ -173,9 +173,9 @@ escalated` — assurance projections and event payloads carry the same canonical
 - [x] A3 Expansion plan + implementation plan + discovery (X6 addendum: outbox mechanics, gaps,
       emit-only cleanliness, named residuals) + matrices (X6 assurance/event/consumer matrices)
       + progress (X6.1–X6.10 live roll-call) + who-must-act (X6 note) updated
-- [ ] A4 Docs-only gate commit BEFORE code — SHA recorded below
+- [x] A4 Docs-only gate commit BEFORE code — SHA recorded below
 
-**Stage A docs commit:** _(recorded at the gate)_
+**Stage A docs commit:** `07222eb3` — docs-only, before any product code (8 files, +390)
 
 ## Stage B checklist (close only with evidence)
 

@@ -236,7 +236,7 @@ item may be closed by assertion. Core P0–P7 entries above are never edited by 
 - [x] X5A.9 Tests — **DONE**: new backend 35/35 (5 suites) + web 7/7; targeted batch 271/271; **full backend 5906 (5885/0/21)** = X5 baseline + exactly 35; **full web 1585/1585** = baseline + exactly 7; tsc 0; lint NET_NEW 0/0; interim failures traced honestly (duplicate hook symbol crash-loading 10 web files — renamed to executeVehicleWorkbookBatch; one navigation-analytics live-HTTP flake outside X5A, 25/25 isolated, green in the certifying rerun)
 - [x] X5A.10 Receipt `CARUP_OPERATIONS_O2_X5A_STAKEHOLDER_WORKBOOK_AI_INTAKE_RECEIPT.md` authored; docs stayed live throughout (checklist evidenced per unit; parity correction recorded in-place); STOP before X6 — X6/X7 must use the catalogue §2 roll-call
 - [~] X6 Cross-domain assurance + Communications semantics — **IN PROGRESS 2026-09-04** (docs-first); plan `CARUP_OPERATIONS_O2_X6_ASSURANCE_COMMUNICATIONS_PLAN.md`; roll-call = catalogue §10 (all 32 rows dispositioned in Stage A)
-- [ ] X6.1 Stage A documentation gate — plan + catalogue §10 roll-call + 6 doc updates; docs-only commit BEFORE code
+- [x] X6.1 Stage A documentation gate — **COMPLETE 2026-09-04 @ `07222eb3`** (docs-only, before code): plan + catalogue §10 (32/32 rows dispositioned) + 6 doc updates
 - [ ] X6.2 `identityAssuranceService` (identity_assurance.v1) + additive lifecycle `approved_at`/`document_expiry` (X3 suites green)
 - [ ] X6.3 Consumers — registration journey (shape-preserving), dealer onboarding responsible person, ops people review additive block
 - [ ] X6.4 Missing-items batching — `buildDealerActionSummary` + `narrateActionSummary` (AI rephrase optional, structured truth verbatim)
