@@ -55,7 +55,15 @@ export class DocumentIntelligenceService {
   /**
    * Runs OCR extraction and Zimbabwe document parsing
    */
-  static async extractDocumentData(docType, base64Data, userId = 'u1') {
+  static async extractDocumentData(docType, base64Data, userId) {
+    if (!userId) {
+      // Evidence rows are attribution: outside the test suite a caller must say WHO the
+      // extraction belongs to, or the candidate row would be pinned on a phantom user.
+      if (process.env.NODE_ENV !== 'test') {
+        throw new Error('OCR extraction requires the authenticated user id it is being run for.');
+      }
+      userId = 'u1';
+    }
     const startTime = Date.now();
     logger.info('OCR_SERVICE', `OCR extraction started for type: ${docType} by user: ${userId}`);
 

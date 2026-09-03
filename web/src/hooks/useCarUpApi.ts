@@ -2755,7 +2755,39 @@ export function useCarUpApi() {
   const exportReferralAudit = useCallback((filters?: ReferralAuditExportFilters): Promise<ReferralServiceResponse> =>
     request<ReferralServiceResponse>(`/referrals/trust/audit-export${referralQuery(filters)}`), [request])
 
+  // O2-X2 — registration onboarding journey (self-scoped; describes, never grants).
+  // Server-owned payloads travel as structural records; the consuming page narrows them.
+  type RegistrationJourneyPayload = {
+    success: boolean
+    user: Record<string, unknown> | null
+    profile: Record<string, unknown> | null
+    identity_session: Record<string, unknown> | null
+    journey: Record<string, unknown>
+  }
+  type RegistrationCandidatesPayload = { success: boolean; candidates: Record<string, unknown> }
+  type RegistrationProfileSaveResult = { success: boolean; profile: Record<string, unknown>; field_provenance: Record<string, string> }
+  type IdentitySessionEnvelope = { success: boolean; session: Record<string, unknown> }
+
+  const fetchRegistrationJourney = useCallback((): Promise<RegistrationJourneyPayload> =>
+    request<RegistrationJourneyPayload>('/registration/journey'), [request])
+  const fetchRegistrationCandidates = useCallback((): Promise<RegistrationCandidatesPayload> =>
+    request<RegistrationCandidatesPayload>('/registration/profile/candidates'), [request])
+  const saveRegistrationProfile = useCallback((payload: { profile: Record<string, unknown>; candidates_seen?: Record<string, string> }): Promise<RegistrationProfileSaveResult> =>
+    request<RegistrationProfileSaveResult>('/registration/profile', { method: 'PUT', body: JSON.stringify(payload) }), [request])
+  const createIdentitySession = useCallback((documentType: string): Promise<IdentitySessionEnvelope> =>
+    request<IdentitySessionEnvelope>('/identity/verification-sessions', { method: 'POST', body: JSON.stringify({ documentType }) }), [request])
+  const uploadIdentitySide = useCallback((sessionId: string, side: 'front' | 'back' | 'selfie', image: string): Promise<IdentitySessionEnvelope> =>
+    request<IdentitySessionEnvelope>(`/identity/verification-sessions/${encodeURIComponent(sessionId)}/upload/${side}`, { method: 'POST', body: JSON.stringify({ image }) }), [request])
+  const submitIdentitySession = useCallback((sessionId: string): Promise<IdentitySessionEnvelope> =>
+    request<IdentitySessionEnvelope>(`/identity/verification-sessions/${encodeURIComponent(sessionId)}/submit`, { method: 'POST', body: JSON.stringify({}) }), [request])
+
   return {
+    fetchRegistrationJourney,
+    fetchRegistrationCandidates,
+    saveRegistrationProfile,
+    createIdentitySession,
+    uploadIdentitySide,
+    submitIdentitySession,
     fetchSellerIntelligence,
     fetchListingIntelligence,
     fetchDealerIntelligence,

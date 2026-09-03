@@ -121,6 +121,7 @@ import financeRouter from './routes/financeRoutes.js';
 import diasporaRouter from './routes/diasporaRoutes.js';
 import trustFactRouter from './routes/trustFactRoutes.js';
 import identityVerificationRouter from './routes/identityVerificationRoutes.js';
+import registrationOnboardingRouter from './routes/registrationOnboardingRoutes.js';
 import featureGovernanceRouter from './routes/featureGovernanceRoutes.js';
 import navigationAnalyticsRouter from './routes/navigationAnalyticsRoutes.js';
 import intelligenceActivityRouter from './routes/intelligenceActivityRoutes.js';
@@ -391,6 +392,7 @@ app.use(complianceRouter);
 app.use(financeRouter);
 app.use(trustFactRouter);
 app.use(identityVerificationRouter);
+app.use(registrationOnboardingRouter);
 app.use(featureGovernanceRouter);
 app.use(navigationAnalyticsRouter);
 app.use(intelligenceActivityRouter);
@@ -1917,7 +1919,8 @@ app.get('/api/partsentry/:vin', optionalAuth(), async (req, res) => {
 app.post('/api/ai/ocr', authorizeRole(), async (req, res, next) => {
   const { docType, base64Data } = req.body;
   try {
-    const parsedData = await runOcrParsing(docType, base64Data);
+    // Evidence rows must be attributed to the PROVEN caller, never a fallback id.
+    const parsedData = await runOcrParsing(docType, base64Data, req.userContext?.id);
     res.json({ success: true, extractedData: parsedData });
   } catch (error) {
     next(error);
