@@ -258,6 +258,18 @@ test.describe('Seller media continuity across the commerce lifecycle', () => {
     await field(page, 'Price *').getByRole('spinbutton').fill('24500');
     await chooseField(page, 'Location *', 'Harare');
     await chooseFromCombobox(page, page.getByTestId('listing-location-visibility'), 'Show my city and province');
+
+    // Zimbabwe registration stage. A stage is now a BLOCKING publication requirement, and an
+    // unrecorded one evaluates as "not established" and refuses publication — so a fixture that
+    // declares nothing can no longer be published. That requirement arrived with the Zimbabwe
+    // seller-reality lane, which gave the Golden fixtures a stage (64043931) but not this gate;
+    // the two never met until the stack was integrated, because this gate triggers on a different
+    // base. The declaration is the seller's own statement, exactly as a real seller must now make
+    // it. `locally_registered` is the stage consistent with the registration book this test
+    // uploads and has verified below, and that stage requires a plate — so it supplies one rather
+    // than claiming a registration it cannot support.
+    await chooseFromCombobox(page, page.getByTestId('registration-status-select'), 'Locally registered in Zimbabwe');
+    await page.locator('input[placeholder="e.g. ABC 1234"]').fill('ABZ 4471');
     await page.getByTestId('seller-description-input').fill(
       `Media lifecycle candidate ${RUN_ID}. Three distinguishable photographs prove the seller's `
       + 'chosen cover survives publish, unpublish, republish and retirement.',
