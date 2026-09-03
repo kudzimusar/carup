@@ -19,6 +19,9 @@ const saveRegistrationProfile = vi.fn()
 const createIdentitySession = vi.fn()
 const uploadIdentitySide = vi.fn()
 const submitIdentitySession = vi.fn()
+const grantBiometricConsent = vi.fn()
+const withdrawBiometricConsent = vi.fn()
+const runBiometricCheck = vi.fn()
 
 vi.mock('@/hooks/useCarUpApi', () => ({
   useCarUpApi: () => ({
@@ -28,6 +31,9 @@ vi.mock('@/hooks/useCarUpApi', () => ({
     createIdentitySession,
     uploadIdentitySide,
     submitIdentitySession,
+    grantBiometricConsent,
+    withdrawBiometricConsent,
+    runBiometricCheck,
   }),
 }))
 
@@ -332,5 +338,69 @@ describe('RegistrationJourney', () => {
 
     fireEvent.click(screen.getByTestId('submit-identity'))
     await waitFor(() => expect(submitIdentitySession).toHaveBeenCalledWith('vs-3'))
+  })
+})
+
+describe('X4 — biometric consent and checks on the applicant journey', () => {
+  function biometricFixture(biometric: Record<string, unknown>) {
+    return journeyFixture({
+      identity_session: { id: 'vs-1', status: 'uploaded' },
+      journey: {
+        ...journeyFixture().journey,
+        steps: {
+          ...journeyFixture().journey.steps,
+          identity: {
+            ...journeyFixture().journey.steps.identity,
+            state: 'ready_to_submit', session_id: 'vs-1', double_sided: false,
+            uploaded_sides: { front: true, back: false, selfie: true },
+            guidance: 'All images are uploaded — submit them for verification.',
+            biometric,
+          },
+        },
+      },
+    })
+  }
+
+  it('consent is affirmative: unticked box, grant disabled until ticked, and the exact versioned payload is sent', async () => {
+    fetchRegistrationJourney.mockResolvedValue(biometricFixture({
+      consent: { active: false, status: 'none', consent_text_version: null, granted_at: null, withdrawn_at: null },
+      latest: null,
+    }))
+    grantBiometricConsent.mockResolvedValue({ success: true, consent: {} })
+
+    renderPage()
+    await waitFor(() => expect(screen.getByTestId('biometric-block')).toBeTruthy())
+    const checkbox = screen.getByTestId('biometric-consent-checkbox') as HTMLInputElement
+    expect(checkbox.checked).toBe(false)
+    expect(screen.getByTestId('biometric-disclosure').textContent).toMatch(/live person/i)
+    expect(screen.getByTestId('biometric-disclosure').textContent).toMatch(/not biometric consent/i)
+    expect((screen.getByTestId('grant-biometric-consent') as HTMLButtonElement).disabled).toBe(true)
+
+    fireEvent.click(checkbox)
+    fireEvent.click(screen.getByTestId('grant-biometric-consent'))
+    await waitFor(() => expect(grantBiometricConsent).toHaveBeenCalledWith({
+      consent: true,
+      consent_text_version: 'biometric_consent_text.v1',
+      purposes: ['face_document_match', 'liveness'],
+    }))
+  })
+
+  it('with consent active: statuses render, the check drives the route, and the unavailable state falls back to manual review messaging', async () => {
+    fetchRegistrationJourney.mockResolvedValue(biometricFixture({
+      consent: { active: true, status: 'granted', consent_text_version: 'biometric_consent_text.v1', granted_at: 'T', withdrawn_at: null },
+      latest: { face_match_status: 'not_run', liveness_status: 'not_run', provider_state: 'not_configured', assessed_at: null },
+    }))
+    runBiometricCheck.mockResolvedValue({ success: true, biometric: { face_match_status: 'not_run', liveness_status: 'not_run', provider_state: 'not_configured', assessed_at: null } })
+
+    renderPage()
+    await waitFor(() => expect(screen.getByTestId('run-biometric-check')).toBeTruthy())
+    expect(screen.getByTestId('biometric-face-status').textContent).toBe('Not run')
+    expect(screen.getByTestId('biometric-unavailable').textContent).toMatch(/manual review/i)
+
+    fireEvent.click(screen.getByTestId('run-biometric-check'))
+    await waitFor(() => expect(runBiometricCheck).toHaveBeenCalledWith('vs-1'))
+
+    fireEvent.click(screen.getByTestId('withdraw-biometric-consent'))
+    await waitFor(() => expect(withdrawBiometricConsent).toHaveBeenCalledTimes(1))
   })
 })

@@ -14,6 +14,8 @@ import {
   LIFECYCLE_STATES,
   getCurrentIdentityLifecycle,
 } from '../identity/identityLifecycleService.js';
+import { getBiometricConsentStateForUser } from '../identity/biometrics/biometricConsentService.js';
+import { fetchLatestBiometricAssessment, toApplicantBiometricView } from '../identity/biometrics/biometricAssessmentService.js';
 import { ValidationError } from '../../utils/errors.js';
 
 /**
@@ -398,14 +400,30 @@ async function fetchOwnUserRow(client, userId) {
 
 export async function getRegistrationJourney(client = supabase, actor = {}) {
   const userId = requireUserId(actor);
-  const [user, profile, latestSession, lifecycle] = await Promise.all([
+  const [user, profile, latestSession, lifecycle, biometricConsent] = await Promise.all([
     fetchOwnUserRow(client, userId),
     fetchOwnProfile(client, userId),
     getLatestVerificationSessionForUser(client, { id: userId }),
     getCurrentIdentityLifecycle(client, userId),
+    getBiometricConsentStateForUser(client, userId),
   ]);
+  const latestBiometric = latestSession
+    ? await fetchLatestBiometricAssessment(client, latestSession.id)
+    : null;
 
   const journey = deriveOnboardingJourney({ user: user || {}, profile, latestSession, lifecycle });
+  // O2-X4 — applicant-safe biometric leg: consent state + the latest assessment's statuses.
+  // Evidence display only; the case decision remains with 7C review.
+  journey.steps.identity.biometric = {
+    consent: {
+      active: biometricConsent.active,
+      status: biometricConsent.status,
+      consent_text_version: biometricConsent.consent_text_version,
+      granted_at: biometricConsent.granted_at,
+      withdrawn_at: biometricConsent.withdrawn_at,
+    },
+    latest: toApplicantBiometricView(latestBiometric),
+  };
   return {
     user: user
       ? {

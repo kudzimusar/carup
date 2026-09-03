@@ -54,10 +54,11 @@ export class DecisionPolicyEngine {
     const extractionTrust = assessment.extraction_trust_status || assessment.extractionTrustStatus;
     const identityBinding = assessment.identity_binding_status || assessment.identityBindingStatus;
     const reasonCode = assessment.primary_reason_code || assessment.primaryReasonCode;
+    const biometric = assessment.biometric || null;
 
     switch (action) {
       case DECISION_ACTION.APPROVE:
-        return DecisionPolicyEngine._checkApprove(workflowPhase, evidenceClass, extractionTrust, identityBinding, reasonCode);
+        return DecisionPolicyEngine._checkApprove(workflowPhase, evidenceClass, extractionTrust, identityBinding, reasonCode, biometric);
 
       case DECISION_ACTION.REQUEST_RESUBMISSION:
         return DecisionPolicyEngine._checkRequestResubmission(workflowPhase, evidenceClass, reasonCode);
@@ -76,7 +77,7 @@ export class DecisionPolicyEngine {
     }
   }
 
-  static _checkApprove(workflowPhase, evidenceClass, extractionTrust, identityBinding, reasonCode) {
+  static _checkApprove(workflowPhase, evidenceClass, extractionTrust, identityBinding, reasonCode, biometric = null) {
     if (workflowPhase === WORKFLOW_PHASE.RESOLVED_APPROVED || workflowPhase === WORKFLOW_PHASE.RESOLVED_REJECTED) {
       return { allowed: false, reason: 'Case is already resolved.', recommendedAction: null };
     }
@@ -103,6 +104,19 @@ export class DecisionPolicyEngine {
 
     if (identityBinding === IDENTITY_BINDING_STATUS.MISMATCH) {
       return { allowed: false, reason: 'Account and document holder names do not match. Approval is not permitted without resolved identity.', recommendedAction: DECISION_ACTION.REQUEST_RESUBMISSION };
+    }
+
+    // O2-X4 — biometric EVIDENCE gates approval on hard failure and never grants it: a match
+    // strengthens the recommendation, indeterminate/unavailable stays a human judgment, and
+    // only the two failed states block. There is deliberately no "approve because biometric
+    // passed" path — a passing biometric changes nothing about the checks above.
+    if (biometric) {
+      if (biometric.face_match_status === 'mismatch') {
+        return { allowed: false, reason: 'Provider face↔document comparison reports a mismatch. Approval requires escalation or fresh evidence.', recommendedAction: DECISION_ACTION.ESCALATE };
+      }
+      if (biometric.liveness_status === 'failed') {
+        return { allowed: false, reason: 'Provider liveness assessment failed. Approval requires a fresh capture or escalation.', recommendedAction: DECISION_ACTION.REQUEST_RESUBMISSION };
+      }
     }
 
     return { allowed: true, reason: null, recommendedAction: DECISION_ACTION.APPROVE };
@@ -157,7 +171,7 @@ export class DecisionPolicyEngine {
   /**
    * Build a policy-computed assessment summary for a session.
    */
-  static buildAssessmentSummary(session, ocrProvenance, classificationResult, bindingResult) {
+  static buildAssessmentSummary(session, ocrProvenance, classificationResult, bindingResult, biometricAssessment = null) {
     const workflowPhase = session.workflow_phase || session.workflowPhase || legacyStatusToPhase(session.status);
     const evidenceClass = classificationResult?.classification || session.evidence_classification || EVIDENCE_CLASSIFICATION.NOT_RUN;
     const extractionTrust = classificationResult?.extractionTrust || session.extraction_trust_status || EXTRACTION_TRUST_STATUS.NOT_RUN;
@@ -176,6 +190,20 @@ export class DecisionPolicyEngine {
       risk_level: reasonConfig ? reasonConfig.severity : 'info',
       final_disposition: session.final_disposition || FINAL_DISPOSITION.NONE,
       selfie_check_status: session.selfie_check_status || SELFIE_STATUS.NOT_SUBMITTED,
+      // O2-X4 — the biometric evidence dimension, when a provider assessment exists. A
+      // separate axis from the name-binding above; never merged and never decisive.
+      biometric: biometricAssessment
+        ? {
+          face_match_status: biometricAssessment.face_match_status || 'not_run',
+          face_match_score: biometricAssessment.face_match_score ?? null,
+          liveness_status: biometricAssessment.liveness_status || 'not_run',
+          liveness_score: biometricAssessment.liveness_score ?? null,
+          provider: biometricAssessment.provider || null,
+          provider_state: biometricAssessment.provider_state || null,
+          threshold_policy_version: biometricAssessment.threshold_policy_version || null,
+          assessed_at: biometricAssessment.created_at || null,
+        }
+        : null,
     };
 
     assessment.allowed_actions = DecisionPolicyEngine.getAllowedActions(assessment);

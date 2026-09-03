@@ -2781,6 +2781,16 @@ export function useCarUpApi() {
   const submitIdentitySession = useCallback((sessionId: string): Promise<IdentitySessionEnvelope> =>
     request<IdentitySessionEnvelope>(`/identity/verification-sessions/${encodeURIComponent(sessionId)}/submit`, { method: 'POST', body: JSON.stringify({}) }), [request])
 
+  // O2-X4 — explicit biometric consent + provider assessment (self-scoped; evidence only).
+  type BiometricConsentEnvelope = { success: boolean; consent: Record<string, unknown> }
+  type BiometricRunEnvelope = { success: boolean; biometric: { face_match_status: string; liveness_status: string; provider_state: string; assessed_at: string | null } }
+  const grantBiometricConsent = useCallback((payload: { consent: true; consent_text_version: string; purposes: string[] }): Promise<BiometricConsentEnvelope> =>
+    request<BiometricConsentEnvelope>('/identity/biometric-consent', { method: 'POST', body: JSON.stringify(payload) }), [request])
+  const withdrawBiometricConsent = useCallback((): Promise<BiometricConsentEnvelope> =>
+    request<BiometricConsentEnvelope>('/identity/biometric-consent/withdraw', { method: 'POST', body: JSON.stringify({}) }), [request])
+  const runBiometricCheck = useCallback((sessionId: string): Promise<BiometricRunEnvelope> =>
+    request<BiometricRunEnvelope>(`/identity/verification-sessions/${encodeURIComponent(sessionId)}/biometrics`, { method: 'POST', body: JSON.stringify({}) }), [request])
+
   return {
     fetchRegistrationJourney,
     fetchRegistrationCandidates,
@@ -2788,6 +2798,9 @@ export function useCarUpApi() {
     createIdentitySession,
     uploadIdentitySide,
     submitIdentitySession,
+    grantBiometricConsent,
+    withdrawBiometricConsent,
+    runBiometricCheck,
     fetchSellerIntelligence,
     fetchListingIntelligence,
     fetchDealerIntelligence,

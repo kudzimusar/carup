@@ -8,6 +8,8 @@ import { compareAccountToDocument, documentHolderName } from './identityBinding.
 import { DocumentClassifier, EVIDENCE_CLASSIFICATION, EXTRACTION_TRUST_STATUS } from './documentClassifier.js';
 import { DecisionPolicyEngine } from './decisionPolicy.js';
 import { VerificationDecisionRecorder } from './decisionRecorder.js';
+import { fetchLatestBiometricAssessment } from './biometrics/biometricAssessmentService.js';
+import { getBiometricConsentStateForUser } from './biometrics/biometricConsentService.js';
 import {
   DECISION_ACTION,
   WORKFLOW_PHASE,
@@ -829,11 +831,24 @@ export async function getVerificationSessionForReview(client = supabase, actor =
     reason: binding.reason,
   };
 
-  // Build policy assessment summary
-  const assessment = DecisionPolicyEngine.buildAssessmentSummary(session, null, null, binding);
+  // Build policy assessment summary — with the latest biometric evidence (O2-X4), a separate
+  // dimension from the name-binding above.
+  const biometricAssessment = await fetchLatestBiometricAssessment(client, sessionId);
+  const assessment = DecisionPolicyEngine.buildAssessmentSummary(session, null, null, binding, biometricAssessment);
 
   const reviewSession = sanitizeReviewSession(session, identity);
   reviewSession.assessment = assessment;
+  // Reviewer-facing biometric evidence: consent state + full provenance/flags. The disposition
+  // still travels ONLY through the existing decision controls/policy.
+  reviewSession.biometric = biometricAssessment
+    ? {
+      ...assessment.biometric,
+      provider_reference: biometricAssessment.provider_reference || null,
+      risk_flags: biometricAssessment.risk_flags || [],
+      consent_id: biometricAssessment.consent_id || null,
+    }
+    : null;
+  reviewSession.biometric_consent = await getBiometricConsentStateForUser(client, session.user_id);
 
   // Fetch decisions
   const { data: decisions } = await client

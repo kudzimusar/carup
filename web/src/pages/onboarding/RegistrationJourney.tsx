@@ -57,6 +57,10 @@ interface JourneyResponse {
           who_must_act: string
           capability_bearing: boolean
         } | null
+        biometric: {
+          consent: { active: boolean; status: string; consent_text_version: string | null; granted_at: string | null; withdrawn_at: string | null }
+          latest: { face_match_status: string; liveness_status: string; provider_state: string; assessed_at: string | null } | null
+        } | null
       }
     }
     who_must_act: string
@@ -108,6 +112,14 @@ const SIDES: Array<{ side: 'front' | 'back' | 'selfie'; label: string }> = [
 
 const fieldClass = 'w-full rounded-md border border-gray-700 bg-gray-900 px-3 py-2 text-sm text-gray-100'
 
+// Must match the backend's BIOMETRIC_CONSENT_TEXT_VERSION — the grant is refused otherwise.
+const BIOMETRIC_CONSENT_TEXT_VERSION = 'biometric_consent_text.v1'
+const BIOMETRIC_STATUS_LABELS: Record<string, string> = {
+  match: 'Match', mismatch: 'No match', indeterminate: 'Inconclusive',
+  provider_failed: 'Check failed', not_run: 'Not run',
+  passed: 'Passed', failed: 'Not passed',
+}
+
 function readFileAsDataUri(file: File): Promise<string> {
   return new Promise((resolve, reject) => {
     const reader = new FileReader()
@@ -127,6 +139,9 @@ export default function RegistrationJourney() {
     createIdentitySession,
     uploadIdentitySide,
     submitIdentitySession,
+    grantBiometricConsent,
+    withdrawBiometricConsent,
+    runBiometricCheck,
   } = useCarUpApi()
 
   const [journey, setJourney] = useState<JourneyResponse | null>(null)
@@ -138,6 +153,10 @@ export default function RegistrationJourney() {
   const [submitting, setSubmitting] = useState(false)
   const [uploadState, setUploadState] = useState<Record<string, 'idle' | 'uploading' | 'error'>>({})
   const [editContext, setEditContext] = useState(false)
+  // O2-X4 — biometric consent is AFFIRMATIVE: the box starts unticked, always.
+  const [biometricConsentChecked, setBiometricConsentChecked] = useState(false)
+  const [grantingConsent, setGrantingConsent] = useState(false)
+  const [runningBiometric, setRunningBiometric] = useState(false)
   // Which profile fields were prefilled from a shown candidate, and the exact value shown —
   // sent back so the SERVER derives confirmed-vs-corrected by comparison.
   const candidatesSeen = useRef<Record<string, string>>({})
@@ -540,6 +559,109 @@ export default function RegistrationJourney() {
                   </label>
                 )
               })}
+            </div>
+          )}
+
+          {identity?.session_id && !['approved', 'rejected'].includes(identity.state) && (
+            <div className="space-y-2 rounded-md border border-gray-800 p-3" data-testid="biometric-block">
+              <h3 className="text-sm font-medium">Biometric verification</h3>
+              {!identity.biometric?.consent.active ? (
+                <div className="space-y-2">
+                  <p className="text-xs text-gray-400" data-testid="biometric-disclosure">
+                    With your explicit consent, an approved identity-verification provider will
+                    compare your selfie/live face with the photograph on your identity document and
+                    assess that a live person is present (not a photo, video or replay). This
+                    processes sensitive biometric information solely to verify your identity for
+                    CarUp. CarUp stores the outcome and its provenance — not your biometric
+                    templates; provider retention follows the provider agreement. You can withdraw
+                    consent at any time, which stops new biometric processing — your case then
+                    continues through manual review. Accepting CarUp&apos;s general Terms or
+                    uploading a selfie is not biometric consent; only this checkbox is.
+                  </p>
+                  <label className="flex items-start gap-2 text-sm">
+                    <input
+                      type="checkbox"
+                      checked={biometricConsentChecked}
+                      data-testid="biometric-consent-checkbox"
+                      onChange={(e) => setBiometricConsentChecked(e.target.checked)}
+                    />
+                    <span>I explicitly consent to biometric face comparison and liveness assessment ({BIOMETRIC_CONSENT_TEXT_VERSION}).</span>
+                  </label>
+                  <Button
+                    size="sm"
+                    disabled={!biometricConsentChecked || grantingConsent}
+                    data-testid="grant-biometric-consent"
+                    onClick={async () => {
+                      setGrantingConsent(true)
+                      try {
+                        await grantBiometricConsent({ consent: true, consent_text_version: BIOMETRIC_CONSENT_TEXT_VERSION, purposes: ['face_document_match', 'liveness'] })
+                        toast.success('Biometric consent recorded.')
+                        await load()
+                      } catch (error) {
+                        toast.error(error instanceof Error ? error.message : 'Could not record consent.')
+                      } finally {
+                        setGrantingConsent(false)
+                      }
+                    }}
+                  >
+                    {grantingConsent ? 'Recording…' : 'Give biometric consent'}
+                  </Button>
+                  {identity.biometric?.consent.status === 'withdrawn' && (
+                    <p className="text-xs text-amber-500">You withdrew consent — biometric checks stay off unless you consent again. Your case continues through manual review.</p>
+                  )}
+                </div>
+              ) : (
+                <div className="space-y-2">
+                  <div className="grid grid-cols-2 gap-1 text-sm">
+                    <span className="text-gray-500">Face ↔ document</span>
+                    <span data-testid="biometric-face-status">{BIOMETRIC_STATUS_LABELS[identity.biometric.latest?.face_match_status || 'not_run']}</span>
+                    <span className="text-gray-500">Liveness</span>
+                    <span data-testid="biometric-liveness-status">{BIOMETRIC_STATUS_LABELS[identity.biometric.latest?.liveness_status || 'not_run']}</span>
+                  </div>
+                  {(identity.biometric.latest?.provider_state === 'not_configured' || identity.biometric.latest?.provider_state === 'unavailable') && (
+                    <p className="text-xs text-amber-500" data-testid="biometric-unavailable">
+                      Biometric checks are temporarily unavailable — your case continues through manual review.
+                    </p>
+                  )}
+                  <div className="flex flex-wrap gap-2">
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      disabled={runningBiometric || !identity.uploaded_sides.front || !identity.uploaded_sides.selfie}
+                      data-testid="run-biometric-check"
+                      onClick={async () => {
+                        setRunningBiometric(true)
+                        try {
+                          await runBiometricCheck(identity.session_id!)
+                          await load()
+                        } catch (error) {
+                          toast.error(error instanceof Error ? error.message : 'Could not run the biometric check.')
+                        } finally {
+                          setRunningBiometric(false)
+                        }
+                      }}
+                    >
+                      {runningBiometric ? 'Checking…' : 'Run face & liveness check'}
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      data-testid="withdraw-biometric-consent"
+                      onClick={async () => {
+                        try {
+                          await withdrawBiometricConsent()
+                          toast.success('Biometric consent withdrawn.')
+                          await load()
+                        } catch (error) {
+                          toast.error(error instanceof Error ? error.message : 'Could not withdraw consent.')
+                        }
+                      }}
+                    >
+                      Withdraw consent
+                    </Button>
+                  </div>
+                </div>
+              )}
             </div>
           )}
 
