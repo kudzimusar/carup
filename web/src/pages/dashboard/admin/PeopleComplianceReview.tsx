@@ -97,11 +97,21 @@ export default function PeopleComplianceReview() {
 
   useEffect(() => {
     let cancelled = false
-    setLoading(true)
-    fetchPersonComplianceReview(userId)
-      .then((body) => { if (!cancelled) { setReview(body.review as unknown as PersonReview); setLoadError(null) } })
-      .catch((error: Error) => { if (!cancelled) setLoadError(error.message) })
-      .finally(() => { if (!cancelled) setLoading(false) })
+    // Async continuation, never a synchronous setState in the effect body (react-hooks rule; the
+    // same structure the Vehicle Operations workspace certified with).
+    Promise.resolve().then(async () => {
+      if (cancelled) return
+      setLoading(true)
+      setLoadError(null)
+      try {
+        const body = await fetchPersonComplianceReview(userId)
+        if (!cancelled) setReview(body.review as unknown as PersonReview)
+      } catch (error) {
+        if (!cancelled) setLoadError(error instanceof Error ? error.message : 'Failed to load the review')
+      } finally {
+        if (!cancelled) setLoading(false)
+      }
+    })
     return () => { cancelled = true }
   }, [userId, reloadNonce, fetchPersonComplianceReview])
 
