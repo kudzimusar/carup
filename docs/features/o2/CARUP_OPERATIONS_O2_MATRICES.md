@@ -94,3 +94,22 @@ Real journeys, not unit tests alone; desktop + tablet + mobile on the exact-head
 | 15 | Desktop/mobile Operations UI | all three viewports; axe serious/critical = 0 |
 | 16 | Authorization adversarial | unauthenticated / fallback / forged role / forged tenant / self-review all refused WITH valid CSRF |
 | 17 | Regressions | Seller/Passport/Marketplace/Operations-Serena gates green at the same SHA; backend suite 0 fail vs base |
+
+## 11. Expansion Authority Matrix (X0 — design; governs all expansion phases)
+
+Added 2026-09-03 for the Identity/Onboarding Expansion
+(`CARUP_OPERATIONS_O2_IDENTITY_ONBOARDING_EXPANSION_PLAN.md`). Sections 6–10 above are the core-O2
+matrices, preserved unchanged. Binding rule for every row: **machine/user input proposes;
+governed domain decisions decide; no AI output ever becomes an authoritative outcome directly.**
+
+| Fact | Source of truth | Who may propose | Who may decide | AI may influence? | Public? | Which service writes it |
+|---|---|---|---|---|---|---|
+| OCR extracted value | extraction output + provenance (identity lane: `verification_ocr_provenance`) | the extraction system (machine) | nobody — it is candidate evidence, never a decision | yes — it IS machine output, always marked candidate | never | identity service (provenance); the extraction utility produces it |
+| User-confirmed profile value | `user_registration_profiles` | OCR candidate or the user | the user (self-asserted; earns nothing authoritative) | propose only | no | `registrationProfileService` |
+| Identity decision | `verification_decisions` | reviewer via governed actions | capability-holding reviewer (`operations.identity.review`); self-review refused | never decides; may annotate assessments as evidence | never | identity service (`decisionRecorder`) |
+| Biometric assessment (future, X4) | `verification_assessments` with provider provenance | biometric provider (as evidence) | reviewer per policy; manual fallback always exists | provider/AI input is evidence only | never | identity service |
+| Dealer Compliance decision | compliance decision ledger + profile | dealer submits documents; OCR may fill candidate fields | `operations.dealer_compliance.review` (never the dealer's own tenant admin) | candidates only — never `active`/passed/unrestricted/unsuspended/publishable | domain's own public projection only | `dealerComplianceService` (`recordDecision`) |
+| Seller Authority | `vehicle_seller_authority` | seller claim + evidence | `operations.seller_authority.review`; self-review refused; completed transfer supersedes | never | public-safe statement only | `sellerAuthorityService` |
+| Vehicle Registration | registration lifecycle records (vehicle domain) | evidence upload | governed vehicle-domain review / external registry authority | extraction candidates only | vehicle-surface presentation only | registration lifecycle (vehicle domain) — O2 reads only |
+| Vehicle Trust | canonical trust records | nobody in O2 | `canonicalTrustService` computation only | never | governed vehicle surface | `canonicalTrustService` ONLY (one-writer invariant) |
+| Workbook mapping / import | confirmed mapping record + the existing planning/review/confirmation pipeline | AI semantic mapping proposes; the uploader supplies data | a human confirms the mapping; imports refuse VERIFIED/APPROVED compliance outcomes | mapping suggestions only — advisory | no | workbook execution/audit services |

@@ -68,3 +68,44 @@ Communications code changes.
 | Vehicle Trust | `canonicalTrustService` | read | write, ever (one-writer invariant) |
 | Audit | `trust_audit_events` + domain audit paths | read for display; rely on domain writes | write audit rows of its own for domain decisions |
 | Notifications | Communications | emit domain events | send messages directly |
+
+## 5. Exact-head reconciliation — 2026-09-03, head `90c50cc0` (X0)
+
+Re-verified for the Identity/Onboarding Expansion; every anchor existence-checked at this head.
+The original discovery above (`dd94c56d`) is preserved untouched.
+
+- **Convergence authority:** PR #194 `integration/vehicle-passport-v16-cert` @ `33720d79` — OPEN
+  (draft), unmerged, and an ancestor of this head. Core O2 state: P0–P6 + P1-C complete and
+  certified at `e9326f76`; **P7 BLOCKED / NOT EXECUTED**; no PR exists for the O2 branch.
+- **Active person-identity stack (Phase 7C):** `backend/services/identity/*` with routes
+  `/api/identity/…` (`identityVerificationRoutes.js`) and `/api/admin/identity/…`
+  (`identityVerificationAdminRoutes.js`); shared contract `shared/types/verificationStatus.ts`.
+- **Active admin UI:** `web/src/pages/dashboard/admin/IdentityVerificationCaseManagement.tsx`,
+  routed at `/admin/verification` (`web/src/App.tsx`).
+- **Unrouted legacy UI:** `web/src/pages/dashboard/admin/VerificationReview.tsx` — no route
+  imports it. Disposition: **QUARANTINE** — retirement candidate after dependency/test
+  confirmation; no expansion functionality may be added to it.
+- **Second verification lane (overlap, undispositioned):**
+  `backend/services/document-intelligence/documentIntelligenceRouter.js` +
+  `documentIntelligenceService.js`, mounted at `/api/verification` (`backend/server.js:357`,
+  behind `authorizeSessionRole(['admin','government'])`). Endpoints: `/ocr`, `/ocr/:id/approve`,
+  `/fraud-scan`, `/trust-score/:userId`, `/promote-trust`.
+- **`POST /promote-trust` concern:** passes `userId` + `trustLevel` from the request body into
+  `TrustService.assignTrustLevel` (`backend/services/trust-service/trustService.js`), which
+  upserts a six-tier `kyc_profiles.overall_status` and logs a `security_events` row — no reason
+  codes, no governed decision record. X0 read-only survey: that route is the ONLY caller of
+  `assignTrustLevel`; no web code calls any `/api/verification/*` endpoint; nothing in the
+  repository reads `kyc_profiles.overall_status`. The service's `extractDocumentData` DOES have a
+  live consumer (`backend/routes/diasporaRoutes.js`). Resolution is expansion workstream
+  **O2-X1** — `CARUP_OPERATIONS_O2_IDENTITY_ONBOARDING_EXPANSION_PLAN.md`.
+- **Registration-profile ownership:** confirmed account/profile data belongs to
+  `backend/services/auth/registrationProfileService.js` +
+  `database/migrations/20260829123000_user_registration_profiles.sql`; verification stores
+  evidence/assessment provenance only — `verification_sessions` is never a profile store.
+- **Workbook-engine ownership:** bulk import belongs to the diaspora workbook pipeline
+  (`backend/services/diaspora/…` + `workbook/…`, routes `diasporaWorkbookRoutes.js` /
+  `diasporaWorkbookXlsxRoutes.js`); Dealer bulk onboarding reuses it — no second importer.
+- **Communications boundary:** emit-only via `emitDomainEvent` stands; delivery is owned by the
+  Communications lane (`docs/communications/CARUP_COMMUNICATIONS_2_CANONICAL_PLAN.md`).
+- **Service Network:** separate lane (PR #197); `backend/services/serviceNetwork/*` is NOT
+  present on this branch (existence-checked).

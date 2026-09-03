@@ -74,3 +74,20 @@ One pure module per domain read that already returns state — e.g. a
 holding ONLY the six vocabulary strings. No table. No cross-domain store. Unit tests assert every
 domain state maps to exactly one canonical value and that the mapping is total (a new domain state
 without a mapping fails the test by name).
+
+## Expansion design — proposed projections (X0; NOT current runtime state)
+
+Proposed responsibility semantics for the Identity/Onboarding Expansion
+(`CARUP_OPERATIONS_O2_IDENTITY_ONBOARDING_EXPANSION_PLAN.md`), added 2026-09-03. Everything in
+this section is **expansion design for future X-phases**; the mappings above remain the only
+implemented ones and are unchanged. The ADR vocabulary stays verbatim — still no new names.
+
+| Expansion state | Proposed `who_must_act` | Note |
+|---|---|---|
+| OCR/extraction running | `platform_processing` | machine work on the platform's side |
+| Extraction complete, awaiting user confirmation/correction | `subject_action` | the user must confirm or correct candidate values |
+| Missing onboarding evidence | `subject_action` | consistent with the identity/dealer rows above |
+| Biometric provider processing | `platform_processing` | a vendor processing FOR the platform is not an external AUTHORITY; `external_authority` stays reserved for registry-style waits |
+| Dealer document submitted, undecided (expansion flows) | `carup_review` | unchanged from the core dealer mapping |
+| Workbook mapping awaiting human confirmation | `subject_action` | the importing user confirms the advisory AI mapping before any import runs |
+| External authority verification (e.g. government identity registry, future) | `external_authority` | matches the existing note under the identity projection |

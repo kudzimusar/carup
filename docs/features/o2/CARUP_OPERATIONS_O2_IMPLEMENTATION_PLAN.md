@@ -1,8 +1,8 @@
 # O2 — People & Compliance Operations: Implementation Plan
 
 - **Branch:** `feat/operations-o2-people-compliance` (cut from the integrated candidate `dd94c56d` / docs head `33720d79`)
-- **Date:** 2026-09-03
-- **Status:** DESIGN — no product code yet
+- **Date:** 2026-09-03 (status corrected the same day at head `90c50cc0`; the plan body below is the original P0 design, preserved)
+- **Status:** CORE IMPLEMENTED — **P0–P6 + P1-C complete and certified** (P1-C certification at `e9326f76`; evidence in `CARUP_OPERATIONS_O2_PROGRESS.md`); **P7 staging certification BLOCKED / NOT EXECUTED** (the tracker's P7 note governs); Identity/Onboarding Expansion in DESIGN — see "Post-core expansion" below
 - **Governing law:** OPERATIONS ORCHESTRATES. DOMAIN SERVICES OWN TRUTH.
 - **Governing ADR:** `docs/architecture/CARUP_OPERATIONS_CONTROL_PLANE_M8_REUSABLE_OPERATIONS_PATTERN_ADR.md`
 
@@ -64,3 +64,20 @@ If during O2 any of these becomes true, STOP and document the evidence before bu
 ## Merge rule
 
 Do not merge. Stop at a certified O2 candidate for Product Owner review, exactly as the Serena slice did.
+
+## Post-core expansion (added 2026-09-03, head `90c50cc0`)
+
+> **O2 Core Operations P0–P6 + P1-C are implemented/certified. P7 staging certification remains
+> blocked. The Identity/Onboarding Expansion is a new governed extension of that existing O2
+> foundation, not a restart of O2.**
+
+- Canonical expansion plan: `CARUP_OPERATIONS_O2_IDENTITY_ONBOARDING_EXPANSION_PLAN.md` (this
+  directory — deliberately NO second O2 documentation hierarchy is created).
+- Expansion planning does not reopen completed phases. P0–P7 above keep their numbering, meaning
+  and evidence unchanged; this section is additive.
+- Expansion work receives its own phase namespace so core and expansion can never be conflated:
+  **X0** expansion discovery/design · **X1** Document Intelligence authority reconciliation ·
+  **X2** registration + Progressive Trust · **X3** identity lifecycle/account security ·
+  **X4** biometrics/consent · **X5** Dealer onboarding + workbook migration ·
+  **X6** cross-domain assurance/Communications · **X7** intelligence and integrated certification.
+- P7 remains governed by its own note in the tracker; nothing in the expansion may run it early.

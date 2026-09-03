@@ -4,7 +4,7 @@ States: `[ ]` not started · `[~]` in progress · `[x]` done with evidence · `[
 Every `[x]` names its evidence. No item may be closed by assertion.
 
 **Branch:** `feat/operations-o2-people-compliance` · **Base:** integrated candidate `dd94c56d`
-**State:** P0–P6 complete, plus the **P1-C effective-authorization correction** (see the correction notice under P1). **P7 (staging certification) designed, NOT started** — see the P7 note below.
+**State:** P0–P6 complete, plus the **P1-C effective-authorization correction** (see the correction notice under P1). **P7 (staging certification) designed, NOT started** — see the P7 note below. **Expansion:** X0 complete (exact-head reconciliation + expansion plan authored, docs only); **X1+ NOT started** — see the expansion section near the end.
 **Rule:** do not merge; stop at a certified O2 candidate for Product Owner review.
 
 ## P0 — Design pack
@@ -173,6 +173,22 @@ unrelated to this correction.
 - [ ] P7.4 Regression roll call at the same SHA (Seller/Passport/Marketplace/Serena/backend-0-fail)
 - [ ] P7.5 Credential/test-data cleanup audit
 - [ ] P7.6 Certified O2 candidate SHA frozen; STOP for Product Owner review
+
+## O2 Identity/Onboarding Expansion (X-phases)
+
+Governed by `CARUP_OPERATIONS_O2_IDENTITY_ONBOARDING_EXPANSION_PLAN.md`. Same rule as above: no
+item may be closed by assertion. Core P0–P7 entries above are never edited by expansion work, and
+**P7 remains BLOCKED / NOT EXECUTED** regardless of expansion progress.
+
+- [x] X0.1 Exact-head reconciliation — PR #194 head re-verified `33720d79` (OPEN, unmerged, ancestor of this branch); branch head `90c50cc0` == origin; every expansion-cited path existence-checked; dual verification lanes, unrouted `VerificationReview.tsx`, and the `/promote-trust` caller/consumer survey recorded in `CARUP_OPERATIONS_O2_DISCOVERY_AND_OWNERSHIP.md` §5
+- [x] X0.2 Expansion plan authored — `CARUP_OPERATIONS_O2_IDENTITY_ONBOARDING_EXPANSION_PLAN.md`, plus matrices §11 (Expansion Authority Matrix), the who-must-act expansion-design section, and the status corrections in the implementation plan; documentation only, no product code, no migrations, no staging actions
+- [ ] X1 Document Intelligence authority reconciliation — 7-step evidence protocol; disposition executed only after Product Owner approval (X0 proposal: RETIRE the mounted `/api/verification` lane incl. `/promote-trust`; interim QUARANTINE; keep `extractDocumentData` as a governed-lane extraction utility)
+- [ ] X2 Registration + Progressive Trust (upload → OCR candidate → user confirmation → registration profile; `Time to Safe Action` KPI)
+- [ ] X3 Identity lifecycle / account security (lifecycle states, triggers, step-up authentication; proofing ≠ authentication)
+- [ ] X4 Biometrics / consent (governed evidence only; provider provenance; no central raw fingerprint store)
+- [ ] X5 Dealer onboarding + workbook migration (advisory AI mapping ahead of the existing pipeline; VERIFIED/APPROVED import refusals preserved)
+- [ ] X6 Cross-domain assurance projection + Communications event semantics (emit-only stands; delivery code untouched)
+- [ ] X7 Intelligence + integrated expansion certification (runs only after P7 is unblocked and executed)
 
 ## M8 tripwires log (fill only if triggered, with evidence, BEFORE building)
 
