@@ -245,7 +245,7 @@ item may be closed by assertion. Core P0–P7 entries above are never edited by 
 - [x] X6.7 No-grant + privacy + forged-assurance pins (tests 3–10, 13) — **DONE** — no-grant + privacy + forged-assurance pins green (suites 10/10 + 7/7 + 7/7)
 - [x] X6.8 32-row roll-call machine-checked; comms contracts reconciled; machine actors excluded; regulated correct; no marketing expansion — **DONE** — 32/32 roll-call machine-checked vs catalogue §10; contracts reconciled; machine actors excluded; regulated correct; zero marketing expansion
 - [x] X6.9 Certification — **DONE**: 28 proofs covered by the three X6 suites + batches; **full backend 5930 (5909/0/21)** = X5A baseline + exactly 24; **full web 1585/1585 unchanged** (backend-only phase); tsc 0; lint NET_NEW 0/0; one traced interim failure (eager event-bus import in canonical Trust's env-free graph → lazy emit import) named in the receipt
-- [x] X6.10 Receipt authored + docs live throughout; STOP before X7 holds
+- [x] X6.10 Receipt authored + docs live throughout (code+receipt `3b4a5598`; gate `07222eb3`); STOP before X7 holds
 - [ ] X7 Intelligence + integrated expansion certification (runs only after P7 is unblocked and executed; **must use the X5A stakeholder register as its roll-call**)
 
 ## M8 tripwires log (fill only if triggered, with evidence, BEFORE building)

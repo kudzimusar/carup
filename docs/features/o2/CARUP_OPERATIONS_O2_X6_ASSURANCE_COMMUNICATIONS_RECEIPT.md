@@ -3,9 +3,9 @@
 - **Branch:** `feat/operations-o2-people-compliance` · **Date:** 2026-09-04
 - **Starting SHA:** `fdeab872` (X5A accepted) · **Docs-first gate:** `07222eb3` (+ SHA record
   `2c36da53`) — committed BEFORE any product code.
-- **Code + receipt commit:** `d60b03f2` (one lane this phase — 19 files, +1140; the receipt and
+- **Code + receipt commit:** `3b4a5598` (one lane this phase — 19 files, +1140; the receipt and
   closed roll-call travel with the code they certify; the docs-first GATE stayed its own
-  earlier commit).
+  earlier commit `07222eb3`). This SHA-record line lands in the follow-up docs commit.
 - **Scope:** X6 ONLY — X7 not started; **P7 remains BLOCKED / NOT EXECUTED**; **LIVE BIOMETRIC
   PROVIDER remains NOT ACTIVATED**; do-not-merge stands.
 
