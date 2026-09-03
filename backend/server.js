@@ -25,6 +25,7 @@ import {
   getCanonicalTrust,
   getCanonicalTrustBatch,
   publicTrustViolations,
+  refreshCanonicalTrust,
   toPublicTrust,
 } from './services/trustDecision/canonicalTrustService.js';
 import { verifyChain, addEvent } from './services/blockchain/blockchainService.js';
@@ -74,6 +75,7 @@ import {
   normalizeInsuranceDisclosure,
   normalizeFinanceDisclosure,
 } from './services/seller/vehicleHistoryDisclosures.js';
+import { hasVerifiedOwnershipAuthorityEvidence } from './services/seller/sellerAuthorityService.js';
 
 // Centralized Routes Imports (Batch 1)
 import leadsRouter from './routes/leadsRoutes.js';
@@ -89,6 +91,7 @@ import { authRecoveryRouter } from './routes/authRecoveryRoutes.js';
 import { marketingUnsubscribeRouter } from './routes/marketingUnsubscribeRoutes.js';
 import { resolveBuildProvenance } from './config/buildProvenance.js';
 import vehiclesRouter from './routes/vehiclesRoutes.js';
+import vehicleOperationsRouter from './routes/vehicleOperationsRoutes.js';
 import evidenceCatalogRouter from './routes/evidenceCatalogRoutes.js';
 import ingestionRouter from './routes/ingestionRoutes.js';
 import sourceVerificationRouter from './routes/sourceVerificationRoutes.js';
@@ -151,6 +154,7 @@ import {
   lookupColumnsForKind,
 } from './utils/passportLookupPolicy.js';
 import { buildVehicleListingCandidate, getListingEligibility } from './services/marketplace/marketplaceListingEligibility.js';
+import { normalizeZimbabweRegistrationStatus } from './services/registration/zimbabweRegistrationLifecycle.js';
 import { normalizeVehicleTaxonomyInput } from './services/taxonomy/vehicleTaxonomyService.js';
 import { registerCommunicationListeners } from './services/communication/communicationEventListeners.js';
 import { evaluateCompleteness } from './services/evidence/completenessEvaluator.js';
@@ -366,6 +370,7 @@ app.use(communicationRouter());
 app.use(adminCommunicationRouter());
 app.use(marketplaceRouter);
 app.use(marketplaceAdminRouter);
+app.use(vehicleOperationsRouter);
 app.use(vehiclesRouter);
 app.use(evidenceCatalogRouter);
 app.use(ingestionRouter);
@@ -2622,7 +2627,7 @@ app.post('/api/vehicles/add', authorizeRole(['dealer', 'owner', 'admin']), async
     generation, trim, condition, category, body_style, description, features,
     seller_stated_condition, price, currency, location, province, images,
     // Phase 4 identity fields
-    engine_number, chassis_number, plate_number, temp_plate_id, import_status,
+    engine_number, chassis_number, plate_number, temp_plate_id, import_status, registration_status,
     reuse_existing_passport, client_submission_id,
     // Vehicle History & Obligations — structured Seller disclosures (DESIGN.md §11.7, F18–F20).
     accident_disclosure, insurance_disclosure, finance_disclosure,
@@ -2664,6 +2669,17 @@ app.post('/api/vehicles/add', authorizeRole(['dealer', 'owner', 'admin']), async
   }
   // A number with no currency is not a price. `currency || 'USD'` stated a currency the seller never
   // did, in a market that actively trades in more than one.
+  const rawRegistrationStatus = submittedText(registration_status ?? import_status);
+  const submittedRegistrationStatus = rawRegistrationStatus === null
+    ? null
+    : normalizeZimbabweRegistrationStatus(rawRegistrationStatus);
+  if (rawRegistrationStatus !== null && submittedRegistrationStatus === null) {
+    return res.status(400).json({
+      error: 'Registration stage is not recognized.',
+      code: 'REGISTRATION_STATUS_INVALID',
+    });
+  }
+
   const submittedCurrency = submittedText(currency);
   if (submittedCurrency === null) {
     return res.status(400).json({ error: 'currency is required alongside price' });
@@ -2829,6 +2845,7 @@ app.post('/api/vehicles/add', authorizeRole(['dealer', 'owner', 'admin']), async
     // text rather than on the candidate, because a source names who said it and the candidate is not
     // a speaker. The two halves now agree: no value, no source, nothing published.
     registration_country_source: submittedText(req.body.registration_country) === null ? null : claimSource,
+    registration_status_source: submittedRegistrationStatus === null ? null : claimSource,
     current_seller_type_source: declaredSellerTypeSource(req.userContext, req.body),
     // The attesting half of the currency pair. `submittedCurrency` is REQUIRED above (400 without
     // it) and stored verbatim, so a currency on a row this handler wrote was genuinely stated by
@@ -2847,7 +2864,7 @@ app.post('/api/vehicles/add', authorizeRole(['dealer', 'owner', 'admin']), async
     // so the browser keeps its draft. Legacy unkeyed callers may continue through the old projection.
     let existingRead = await supabase
       .from('vehicles')
-      .select('vin, owner_id, current_seller_id, tenant_id, publication_status, status, listing_location_source, listing_location_visibility, seller_listing_submission_id, engine_number, chassis_number, plate_number, temp_plate_id')
+      .select('vin, owner_id, current_seller_id, tenant_id, publication_status, status, listing_location_source, listing_location_visibility, seller_listing_submission_id, engine_number, chassis_number, plate_number, temp_plate_id, registration_status, registration_status_source')
       .eq('vin', vin)
       .maybeSingle();
     if (existingRead.error && isMissingNamedColumnError(existingRead.error, 'seller_listing_submission_id')) {
@@ -2859,7 +2876,7 @@ app.post('/api/vehicles/add', authorizeRole(['dealer', 'owner', 'admin']), async
       }
       existingRead = await supabase
         .from('vehicles')
-        .select('vin, owner_id, current_seller_id, tenant_id, publication_status, status, listing_location_source, listing_location_visibility, engine_number, chassis_number, plate_number, temp_plate_id')
+        .select('vin, owner_id, current_seller_id, tenant_id, publication_status, status, listing_location_source, listing_location_visibility, engine_number, chassis_number, plate_number, temp_plate_id, registration_status, registration_status_source')
         .eq('vin', vin)
         .maybeSingle();
     }
@@ -2971,6 +2988,8 @@ app.post('/api/vehicles/add', authorizeRole(['dealer', 'owner', 'admin']), async
       // seller actually made. `false` is the honest value for a seller who did not opt in.
       public_seller_display_enabled: publicSellerDisplayEnabled,
       registration_country: candidate.registration_country,
+      // Registration stage is a lifecycle/readiness claim, not immutable vehicle identity.
+      registration_status: submittedRegistrationStatus,
       // Phase 4: identity fields — stored for completeness gate evaluation
       engine_number: submittedText(engine_number),
       chassis_number: submittedText(chassis_number),
@@ -2980,18 +2999,13 @@ app.post('/api/vehicles/add', authorizeRole(['dealer', 'owner', 'admin']), async
       publication_status: 'draft',
     };
 
+    // Canonical Seller Authority evidence check (Operations M2): a verified
+    // ownership/registration DOCUMENT under canonical semantics — a mislabeled
+    // import artifact never qualifies. Delegates to the one governed service
+    // instead of duplicating the query inline.
     let governedSellerEvidence = false;
     if (existing && reuse_existing_passport === true) {
-      const { data: authorityEvidence, error: authorityEvidenceError } = await supabase
-        .from('vehicle_evidence')
-        .select('id')
-        .eq('vin', vin)
-        .eq('uploaded_by', req.userContext.id)
-        .eq('verification_status', 'verified')
-        .in('evidence_type', ['registration_document', 'ownership_transfer_document'])
-        .limit(1);
-      if (authorityEvidenceError) throw authorityEvidenceError;
-      governedSellerEvidence = Boolean(authorityEvidence?.length);
+      governedSellerEvidence = await hasVerifiedOwnershipAuthorityEvidence(supabase, vin, req.userContext.id);
     }
 
     const existingSellerRelationship = Boolean(existing && (
@@ -3133,6 +3147,13 @@ app.post('/api/vehicles/add', authorizeRole(['dealer', 'owner', 'admin']), async
         // listing control after the legal owner/private seller starts a new listing.
         tenant_id: candidate.tenant_id,
         public_seller_display_enabled: listingRow.public_seller_display_enabled,
+        // A Seller can advance/restate the registration lifecycle on a later listing. Provenance
+        // travels WITH the claim (Operations M3/M7): a stage without a recorded source evaluates
+        // as not_recorded and blocks publication, so writing the status while dropping the source
+        // left a restated stage permanently blocking. The source names who said it.
+        ...(submittedRegistrationStatus !== null
+          ? { registration_status: submittedRegistrationStatus, registration_status_source: claimSource }
+          : {}),
         // Re-listing refreshes the Seller's history disclosures alongside the other commercial
         // statements; unanswered questions stay untouched on the existing row (keys absent).
         ...sellerHistoryDisclosureColumns,
@@ -3172,6 +3193,22 @@ app.post('/api/vehicles/add', authorizeRole(['dealer', 'owner', 'admin']), async
       });
     }
     if (insertError) throw insertError;
+
+    // The Zimbabwe registration stage is a GOVERNED FACT the canonical Trust engine reads: it
+    // publishes "Zimbabwe registration stage has not been established from a recorded claim" as a
+    // known limitation when no stage is recorded. That limitation reaches BUYERS, so a stage the
+    // seller has just stated must re-materialize the canonical position — otherwise the public
+    // Trust block keeps telling buyers CarUp holds no registration claim while the listing is
+    // published on the strength of one. Same posture as evidence review (vehiclesRoutes verify):
+    // the seller's statement is the durable fact, the cache is derived, and a refresh failure must
+    // never fail the save.
+    if (submittedRegistrationStatus !== null) {
+      try {
+        await refreshCanonicalTrust(vin);
+      } catch (trustError) {
+        console.warn('[Trust] registration-stage refresh failed:', trustError?.message || trustError);
+      }
+    }
 
     // Unrecognized values remain usable but enter the governed taxonomy-review queue.
     const taxonomyObservations = [
@@ -3939,20 +3976,70 @@ app.get('/api/service-history/me', authorizeRole(['owner', 'dealer', 'admin']), 
   }
 })
 
-// GET /api/notifications/me - Get user notifications
+function ownerNotificationActionPath(notification = {}) {
+  const type = String(notification.notification_type || notification.type || '').toLowerCase()
+  if (type === 'marketplace_inquiry' || type === 'conversation_message') return '/dashboard/communications'
+  if (type === 'listing_moderation') return '/dashboard/listings'
+  if (type === 'evidence_review' || type === 'vehicle_trust_update' || type === 'ownership_transfer') return '/dashboard/garage'
+  return type === 'verification_decision' || type === 'safetrade_transaction' || type === 'escrow_status'
+    ? '/dashboard'
+    : null
+}
+
+function toOwnerNotification(row = {}) {
+  return {
+    id: row.id,
+    read: row.read === true,
+    title: row.title || 'CarUp notification',
+    message: row.message || '',
+    notification_type: row.notification_type || row.type || 'general',
+    status: row.status || null,
+    priority: row.priority || null,
+    channel: 'in_app',
+    action_path: ownerNotificationActionPath(row),
+    created_at: row.created_at || null,
+    updated_at: row.updated_at || null,
+  }
+}
+
+// In-app activity only. Email/SMS/WhatsApp rows are delivery records and may carry transport-only
+// content such as security action URLs; they must never be echoed into the notification bell.
 app.get('/api/notifications/me', authorizeRole(['owner', 'dealer', 'admin']), async (req, res) => {
   try {
+    const userId = String(req.userContext.id)
     const { data, error } = await supabase
       .from('notification_queue')
-      .select('*')
-      .eq('recipient_id', req.userContext.id)
+      .select('id, recipient_id, recipient_user_id, read, title, message, notification_type, type, status, priority, channel, created_at, updated_at')
+      .or(`recipient_user_id.eq.${userId},recipient_id.eq.${userId}`)
+      .eq('channel', 'in_app')
       .order('created_at', { ascending: false })
 
     if (error) throw error
-    res.json(data || [])
+    res.json((data || []).map(toOwnerNotification))
   } catch (error) {
     console.error('Error fetching notifications:', error)
     res.status(500).json({ error: error.message })
+  }
+})
+
+app.post('/api/notifications/:id/read', authorizeRole(['owner', 'dealer', 'admin']), async (req, res) => {
+  try {
+    const userId = String(req.userContext.id)
+    const { data, error } = await supabase
+      .from('notification_queue')
+      .update({ read: true, updated_at: new Date().toISOString() })
+      .eq('id', req.params.id)
+      .or(`recipient_user_id.eq.${userId},recipient_id.eq.${userId}`)
+      .eq('channel', 'in_app')
+      .select('id, recipient_id, recipient_user_id, read, title, message, notification_type, type, status, priority, channel, created_at, updated_at')
+      .maybeSingle()
+
+    if (error) throw error
+    if (!data) return res.status(404).json({ error: 'Notification not found.' })
+    return res.json({ notification: toOwnerNotification(data) })
+  } catch (error) {
+    console.error('Error marking notification read:', error)
+    return res.status(500).json({ error: error.message })
   }
 })
 

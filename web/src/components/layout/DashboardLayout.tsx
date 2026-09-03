@@ -19,6 +19,7 @@ import {
   getDashboardRoute,
   getRoleMetadata,
   getAllRoles,
+  normalizeFrontendRole,
   resolveFeatureVisibility,
   type FeatureRegistryItem,
   type NavigationContext,
@@ -65,13 +66,25 @@ export default function DashboardLayout({ role }: { role: string }) {
   // items never render in the primary nav (sidebar visibility ⇄ direct access).
   const sidebarContext: NavigationContext = {
     isAuthenticated: !!user,
-    role: (user?.role as UserRole) ?? null,
+    // Operations M6: platform_admin/super_admin present as admin in the UI.
+    role: normalizeFrontendRole(user?.role) ?? null,
     environment: import.meta.env.MODE,
     effectiveStates,
   }
   const visibleItems = registryItems
     .map((item) => ({ item, vis: resolveFeatureVisibility(item, sidebarContext) }))
     .filter(({ vis }) => vis.visible)
+
+  // Operations M6 — grouped information architecture. Items carrying a
+  // sidebarGroup render under labelled sections (order of first appearance);
+  // ungrouped items keep their position at the top. Presentation only.
+  const groupedNav: Array<{ group: string | null; items: typeof visibleItems }> = []
+  for (const entry of visibleItems) {
+    const group = entry.item.sidebarGroup ?? null
+    const bucket = groupedNav.find((g) => g.group === group)
+    if (bucket) bucket.items.push(entry)
+    else groupedNav.push({ group, items: [entry] })
+  }
 
   // Centralized, lifecycle-aware route boundary — the SAME decision navigation
   // uses (loading gate → auth → role → planned/disabled/deprecated). Backend
@@ -153,9 +166,19 @@ export default function DashboardLayout({ role }: { role: string }) {
           </div>
         </div>
 
-        {/* Navigation */}
+        {/* Navigation — grouped Operations information architecture (M6) */}
         <nav className="flex-1 overflow-y-auto p-3 space-y-1">
-          {visibleItems.map(({ item, vis }) => {
+          {groupedNav.map(({ group, items }) => (
+            <div key={group ?? '__ungrouped'} className="space-y-1">
+              {group && (
+                <p
+                  className="px-3 pt-4 pb-1 text-[10px] font-semibold uppercase tracking-wider text-gray-500"
+                  data-testid={`nav-group-${group.toLowerCase().replace(/[^a-z0-9]+/g, '-')}`}
+                >
+                  {group}
+                </p>
+              )}
+              {items.map(({ item, vis }) => {
             const isActive = location.pathname === item.route
               || (item.route !== '/dashboard' && location.pathname.startsWith(`${item.route}/`))
             const navIdMap: Record<string, string> = {
@@ -197,7 +220,9 @@ export default function DashboardLayout({ role }: { role: string }) {
                 )}
               </Link>
             )
-          })}
+              })}
+            </div>
+          ))}
         </nav>
 
         {/* Sidebar Footer */}

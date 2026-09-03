@@ -1,53 +1,128 @@
 /**
- * Vehicle Completeness Evaluator — Phase 4
+ * Vehicle Completeness Evaluator — Operations Control Plane M3.
  *
- * Deterministically evaluates whether a vehicle's identity fields and evidence
- * satisfy CarUp publication requirements. Returns a requirement matrix plus a
- * publishability verdict.
+ * Deterministically evaluates whether a vehicle satisfies CarUp publication
+ * requirements and returns a requirement matrix plus a publishability verdict.
  *
- * Publication gate (all blocking requirements must be 'present' or 'verified'):
- *   1. VIN          — always present if the vehicle row exists
- *   2. chassis_number   — must be non-empty on the vehicles row
- *   3. engine_number    — must be non-empty on the vehicles row
- *   4. plate_number OR temp_plate_id — at least one must be non-empty
- *   5. Ownership document — at least one vehicle_evidence row with evidence_type
- *      IN (registration_document, ownership_transfer_document) that has been verified
- *   6. Fact reconciliation (Seller Journey S5) — no UNRESOLVED MATERIAL contradiction between
- *      what the seller stated and what their documents were read to say. A disagreement is
- *      cleared by a human review decision, never by the mere presence of evidence.
+ * THE QUESTIONS THIS GATE ASKS (manual §19):
+ *   1. Is the vehicle identity sufficiently recorded?          (vin/chassis/engine)
+ *   2. Is the Seller authorized to list under CarUp policy?    (seller_authority)
+ *   3. Is the Zimbabwe registration stage truthfully recorded, (registration_readiness)
+ *      and is that stage ordinarily listable?
+ *   4. Does the lifecycle stage itself demand registration     (registration_evidence —
+ *      evidence? Only locally_registered does; a permanent      only when required)
+ *      import awaiting registration is NOT asked for a book it cannot have.
+ *   5. Are there unresolved material document contradictions?  (fact_reconciliation)
+ *   6. Is there a blocking risk condition?                     (risk_governance)
+ *   7. Advisory evidence + governed finance disclosure remain non-blocking.
  *
- * Advisory requirements (non-blocking — shown in the UI but do not gate publication):
- *   customs_photo, inspection_photo, insurance_document, police_clearance_document
+ * THE QUESTION IT NO LONGER ASKS: "is there a verified legacy
+ * registration_document / ownership_transfer_document row?" — that predicate let
+ * an import invoice stored under a legacy compatibility value satisfy the
+ * ownership/registration gate. Semantics are canonical (M1): a canonical import
+ * artifact NEVER satisfies ownership/registration, whatever its legacy field.
  *
- * AI confidence is NEVER consulted here: this evaluator is purely deterministic and based on
- * human-verified state. That holds for requirement 6 too — it reads `match_status` (a
- * deterministic string comparison) and `review_status` (a human decision), never the extraction's
- * `confidence` score.
+ * Seller Authority (M2) is its own governed dimension, distinct from Zimbabwe
+ * registration: publication is satisfied by a CONFIRMED governed decision, or —
+ * historical-parity path — an existing relationship together with a VERIFIED
+ * ownership/registration document under canonical semantics. An explicit
+ * revoked/disputed/insufficient decision fails closed even for a relationship
+ * holder.
+ *
+ * AI confidence is NEVER consulted here: this evaluator is purely deterministic
+ * and based on human-verified state (extraction reconciliation reads
+ * match_status + review_status, never confidence).
  */
 import { reconcileSellerFacts } from './sellerFactReconciliation.js';
 import { getGovernedEncumbrance } from '../finance/vehicleFinanceObligationService.js';
+import { evaluateZimbabweRegistrationReadiness } from '../registration/zimbabweRegistrationLifecycle.js';
+import {
+  satisfiesOwnershipRegistrationRequirementRow,
+  isSellerAuthorityCandidateRow,
+  isRegistrationEvidenceRow,
+  isDocumentArtifactRow,
+  resolveSemanticClassification,
+} from './evidenceTaxonomy.js';
+import { getSellerAuthorityState } from '../seller/sellerAuthorityService.js';
 
 async function getDefaultClient() {
   const { supabase } = await import('../../db/supabase.js');
   return supabase;
 }
 
-// Every value below MUST be legal under the DB CHECK constraint
-// vehicle_evidence_evidence_type_check — an illegal value can never match a row,
-// silently turning the requirement into a permanent 'missing'. The previous
-// constants (ownership_transfer, customs_entry, duty_clearance_document,
-// vid_inspection) were not in the CHECK and could never be satisfied.
-const BLOCKING_DOC_TYPES = ['registration_document', 'ownership_transfer_document'];
-const ADVISORY_DOC_TYPES = ['customs_photo', 'inspection_photo', 'insurance_document', 'police_clearance_document'];
 const VERIFIED_STATUSES = new Set(['verified', 'confirmed', 'approved']);
 const PENDING_STATUSES  = new Set(['pending', 'submitted', 'under_review']);
 
-function docStatus(docs, type) {
-  const matching = (docs || []).filter((d) => d.evidence_type === type);
-  if (matching.some((d) => VERIFIED_STATUSES.has(d.verification_status))) return 'verified';
-  if (matching.some((d) => PENDING_STATUSES.has(d.verification_status) || !d.verification_status)) return 'pending_review';
+const isVerifiedRow = (row) => VERIFIED_STATUSES.has(row.verification_status);
+const isPendingRow = (row) => PENDING_STATUSES.has(row.verification_status) || !row.verification_status;
+
+/**
+ * Advisory evidence requirements. Keys keep their historical names (UI
+ * contract), but matching is CANONICAL-FIRST: a canonically-classified row
+ * counts for the requirement its life-stage meaning belongs to, and the legacy
+ * types keep matching for historical rows.
+ */
+const ADVISORY_REQUIREMENTS = [
+  {
+    key: 'customs_photo',
+    label: 'Customs Photo',
+    matches: (row) => {
+      const { evidence_class: cls, evidence_subtype: sub, semantic_source } = resolveSemanticClassification(row);
+      if (semantic_source === 'canonical') {
+        return cls === 'import' && ['customs_entry', 'duty_clearance_document'].includes(sub);
+      }
+      return row.evidence_type === 'customs_photo';
+    },
+  },
+  {
+    key: 'inspection_photo',
+    label: 'Inspection Photo',
+    matches: (row) => {
+      const { evidence_class: cls, semantic_source } = resolveSemanticClassification(row);
+      if (semantic_source === 'canonical') return cls === 'inspection';
+      return row.evidence_type === 'inspection_photo';
+    },
+  },
+  {
+    key: 'insurance_document',
+    label: 'Insurance Document',
+    matches: (row) => {
+      const { evidence_class: cls, evidence_subtype: sub, semantic_source } = resolveSemanticClassification(row);
+      if (semantic_source === 'canonical') return cls === 'accident' && sub === 'insurer_assessment';
+      return row.evidence_type === 'insurance_document';
+    },
+  },
+  {
+    key: 'police_clearance_document',
+    label: 'Police Clearance Document',
+    matches: (row) => {
+      const { evidence_class: cls, evidence_subtype: sub, semantic_source } = resolveSemanticClassification(row);
+      if (semantic_source === 'canonical') {
+        return cls === 'registration' && sub === 'police_clearance_first_registration';
+      }
+      return row.evidence_type === 'police_clearance_document';
+    },
+  },
+];
+
+function advisoryStatus(rows, matches) {
+  const matching = rows.filter(matches);
+  if (matching.some(isVerifiedRow)) return 'verified';
+  if (matching.some(isPendingRow)) return 'pending_review';
   return 'missing';
 }
+
+/**
+ * Refusal taxonomy (manual §19 seller-facing refusal): every requirement carries
+ * who must act next so a refusal can distinguish missing-from-seller, awaiting
+ * CarUp review, awaiting an external authority, conflict, and policy blocks.
+ */
+const ACT = Object.freeze({
+  SELLER: 'seller',
+  CARUP_REVIEW: 'carup_review',
+  EXTERNAL: 'external_authority',
+  NONE: 'none',
+});
 
 /**
  * Evaluate publication completeness for a VIN.
@@ -55,7 +130,7 @@ function docStatus(docs, type) {
  * @param {string} vin
  * @returns {Promise<{
  *   vin: string,
- *   requirements: Array<{key, label, category, blocking, status}>,
+ *   requirements: Array<{key, label, category, blocking, status, who_must_act?, refusal_category?}>,
  *   completeness_percent: number,
  *   is_publishable: boolean,
  *   blocking_gaps: Array<{key, label}>,
@@ -76,22 +151,24 @@ export async function evaluateCompleteness(vin, opts = {}) {
   const client = opts.client ?? (await getDefaultClient());
   const { data: vehicle, error: vErr } = await client
     .from('vehicles')
-    // S5 widens this to the seller-stated identity values, because reconciliation compares what the
-    // SELLER said against what the documents read. Without them the evaluator could count
-    // contradictions but not say which fact disagreed.
-    .select('vin, chassis_number, engine_number, plate_number, temp_plate_id, trust_score, publication_status, make, model, year, normalized_plate_number')
+    // Widened for M2/M3: the gate must know WHO the seller is (owner/current
+    // seller/tenant) to evaluate Seller Authority, plus the seller-stated
+    // identity values reconciliation compares against document readings.
+    .select('vin, chassis_number, engine_number, plate_number, temp_plate_id, registration_status, registration_status_source, trust_score, publication_status, make, model, year, normalized_plate_number, owner_id, current_seller_id, tenant_id')
     .eq('vin', vin)
     .single();
 
   if (vErr || !vehicle) throw new Error(`Vehicle not found: ${vin}`);
 
-  // Fetch all evidence rows for this VIN in one query to avoid N+1
-  const { data: evidenceRows, error: eErr } = await client
+  // ALL evidence rows for the VIN, with canonical classification. The old
+  // legacy-type IN-list filter is gone deliberately: canonical-first rows
+  // carry generic compatibility types the legacy list could never match.
+  const { data: evidenceData, error: eErr } = await client
     .from('vehicle_evidence')
-    .select('id, evidence_type, verification_status')
-    .eq('vin', vin)
-    .in('evidence_type', [...BLOCKING_DOC_TYPES, ...ADVISORY_DOC_TYPES]);
+    .select('id, evidence_type, evidence_class, evidence_subtype, verification_status, uploaded_by')
+    .eq('vin', vin);
   if (eErr) throw new Error(`Evidence query error: ${eErr.message}`);
+  const evidenceRows = evidenceData || [];
 
   const requirements = [];
 
@@ -103,6 +180,7 @@ export async function evaluateCompleteness(vin, opts = {}) {
     category: 'identity',
     blocking: true,
     status: 'present',
+    who_must_act: ACT.NONE,
   });
 
   requirements.push({
@@ -111,6 +189,7 @@ export async function evaluateCompleteness(vin, opts = {}) {
     category: 'identity',
     blocking: true,
     status: vehicle.chassis_number ? 'present' : 'missing',
+    who_must_act: vehicle.chassis_number ? ACT.NONE : ACT.SELLER,
   });
 
   requirements.push({
@@ -119,43 +198,121 @@ export async function evaluateCompleteness(vin, opts = {}) {
     category: 'identity',
     blocking: true,
     status: vehicle.engine_number ? 'present' : 'missing',
+    who_must_act: vehicle.engine_number ? ACT.NONE : ACT.SELLER,
   });
 
-  const hasPlate = !!(vehicle.plate_number || vehicle.temp_plate_id);
+  // ── Seller Authority (blocking, governed — Operations M2/M3) ──────────────
+  //
+  // Distinct from Zimbabwe registration (G16): a permanent import may hold
+  // confirmed Seller Authority while local registration is pending.
+  const sellerUserId = vehicle.current_seller_id || vehicle.owner_id || null;
+  const ownershipDocs = evidenceRows.filter((row) => satisfiesOwnershipRegistrationRequirementRow(row));
+  const ownershipVerified = ownershipDocs.some(isVerifiedRow);
+  const ownershipPending = ownershipDocs.some(isPendingRow);
+  const authorityCandidates = evidenceRows.filter((row) => isSellerAuthorityCandidateRow(row));
+  const anyAuthorityCandidate = authorityCandidates.length > 0;
+
+  let authorityState = null;
+  if (sellerUserId) {
+    authorityState = await getSellerAuthorityState(client, { vin, sellerUserId, vehicle });
+  }
+
+  let sellerAuthorityStatus;
+  let sellerAuthorityAct;
+  let sellerAuthorityRefusal = null;
+  if (authorityState && ['revoked', 'disputed', 'insufficient'].includes(authorityState.status)) {
+    // An explicit governed refusal fails closed, relationship or not.
+    sellerAuthorityStatus = 'missing';
+    sellerAuthorityAct = ACT.CARUP_REVIEW;
+    sellerAuthorityRefusal = 'policy_blocked';
+  } else if (authorityState?.status === 'confirmed') {
+    sellerAuthorityStatus = 'verified';
+    sellerAuthorityAct = ACT.NONE;
+  } else if (authorityState?.status === 'under_review' || authorityState?.status === 'evidence_submitted') {
+    sellerAuthorityStatus = 'pending_review';
+    sellerAuthorityAct = ACT.CARUP_REVIEW;
+  } else if (authorityState?.status === 'recognized' || (!sellerUserId && vehicle.tenant_id)) {
+    // Relationship holder (or tenant inventory with no individual seller):
+    // historical-parity path — a VERIFIED ownership/registration document under
+    // CANONICAL semantics completes the requirement without an explicit
+    // confirmation decision.
+    if (ownershipVerified) {
+      sellerAuthorityStatus = 'verified';
+      sellerAuthorityAct = ACT.NONE;
+    } else if (ownershipPending || anyAuthorityCandidate) {
+      sellerAuthorityStatus = 'pending_review';
+      sellerAuthorityAct = ACT.CARUP_REVIEW;
+    } else {
+      sellerAuthorityStatus = 'missing';
+      sellerAuthorityAct = ACT.SELLER;
+    }
+  } else {
+    sellerAuthorityStatus = 'missing';
+    sellerAuthorityAct = ACT.SELLER;
+  }
+
   requirements.push({
-    key: 'plate_or_temp',
-    label: 'Number Plate or Temporary Import Permit Number',
-    category: 'identity',
+    key: 'seller_authority',
+    label: sellerAuthorityRefusal === 'policy_blocked'
+      ? 'Seller authority requires CarUp resolution before this vehicle can be listed'
+      : 'Seller authority to list this vehicle',
+    category: 'seller_authority',
     blocking: true,
-    status: hasPlate ? 'present' : 'missing',
+    status: sellerAuthorityStatus,
+    who_must_act: sellerAuthorityAct,
+    ...(sellerAuthorityRefusal ? { refusal_category: sellerAuthorityRefusal } : {}),
+    authority_status: authorityState?.status ?? (vehicle.tenant_id && !sellerUserId ? 'recognized' : 'not_assessed'),
   });
 
-  // ── Ownership document (blocking) ─────────────────────────────────────────
-
-  const ownershipEvidence = (evidenceRows || []).filter((d) =>
-    BLOCKING_DOC_TYPES.includes(d.evidence_type)
-  );
-  const ownershipVerified = ownershipEvidence.some((d) => VERIFIED_STATUSES.has(d.verification_status));
-  const ownershipPending  = ownershipEvidence.some((d) => PENDING_STATUSES.has(d.verification_status) || !d.verification_status);
-
+  // ── Zimbabwe registration readiness (blocking flag from the lifecycle) ────
+  // Pending permanent-import states remain visible but do not block publication
+  // by themselves. Unknown stage and TIP require review and therefore block.
+  const registrationReadiness = evaluateZimbabweRegistrationReadiness({
+    status: vehicle.registration_status,
+    statusSource: vehicle.registration_status_source,
+    plateNumber: vehicle.plate_number,
+    tempPlateId: vehicle.temp_plate_id,
+  });
   requirements.push({
-    key: 'ownership_document',
-    label: 'Ownership / Registration Document',
-    category: 'documents',
-    blocking: true,
-    status: ownershipVerified ? 'verified' : ownershipPending ? 'pending_review' : 'missing',
+    key: 'registration_readiness',
+    label: registrationReadiness.label,
+    category: 'registration',
+    blocking: registrationReadiness.publication_blocking,
+    status: registrationReadiness.publication_blocking
+      ? (registrationReadiness.status === 'incomplete' ? 'missing' : 'pending_review')
+      : (registrationReadiness.status === 'registered' ? 'present' : 'pending_review'),
+    who_must_act: registrationReadiness.publication_blocking ? ACT.SELLER : ACT.NONE,
+    lifecycle_status: registrationReadiness.lifecycle_status,
+    reason_codes: registrationReadiness.reason_codes,
   });
+
+  // ── Registration evidence — ONLY when the lifecycle stage requires it ─────
+  //
+  // A vehicle claiming `locally_registered` must evidence that claim with a
+  // registration-class DOCUMENT (canonical semantics; a legacy-only historical
+  // registration_document still counts through its fallback mapping). A
+  // permanent import on a pending stage is NOT asked for a registration book it
+  // cannot yet have (manual §19).
+  const normalizedStage = registrationReadiness.lifecycle_status || null;
+  if (normalizedStage === 'locally_registered') {
+    const registrationDocs = evidenceRows.filter(
+      (row) => isRegistrationEvidenceRow(row) && isDocumentArtifactRow(row)
+    );
+    const regVerified = registrationDocs.some(isVerifiedRow);
+    const regPending = registrationDocs.some(isPendingRow);
+    requirements.push({
+      key: 'registration_evidence',
+      label: 'Zimbabwe registration document (required for a locally registered vehicle)',
+      category: 'registration',
+      blocking: true,
+      status: regVerified ? 'verified' : regPending ? 'pending_review' : 'missing',
+      who_must_act: regVerified ? ACT.NONE : regPending ? ACT.CARUP_REVIEW : ACT.SELLER,
+    });
+  }
 
   // ── Evidence reconciliation (blocking) — Seller Journey S5 ───────────────
   //
-  // A known material contradiction must not silently reach publication. The disagreement is
-  // already detected and stored by `extractionService`; what was missing was any gate that read it,
-  // so a listing whose registration document said 2019 while the seller said 2020 published exactly
-  // like a clean one.
-  //
-  // This is an extra requirement INSIDE this evaluator rather than a second blocker: the publish
-  // route already gates on `is_publishable` and already discloses the gaps, so a parallel gate
-  // would give CarUp two answers to "may this publish?".
+  // A known material contradiction must not silently reach publication.
   const { data: extractionRows, error: xErr } = await client
     .from('vehicle_document_extractions')
     .select('id, evidence_id, document_type, field_name, raw_value, normalized_value, expected_value, compared_vehicle_field, match_status, review_status, created_at')
@@ -180,18 +337,46 @@ export async function evaluateCompleteness(vin, opts = {}) {
     // 'pending_review' rather than 'missing': the seller HAS supplied the document, and a human
     // decision is what clears it. Saying "missing" would tell them to upload something again.
     status: reconciliation.has_unresolved_material_contradiction ? 'pending_review' : 'present',
+    who_must_act: reconciliation.has_unresolved_material_contradiction ? ACT.CARUP_REVIEW : ACT.NONE,
+    ...(reconciliation.has_unresolved_material_contradiction ? { refusal_category: 'conflict' } : {}),
     fields: unresolvedFields,
   });
 
-  // ── Advisory documents (non-blocking) ────────────────────────────────────
+  // ── Risk / governance block (blocking — Operations M3) ────────────────────
+  //
+  // A fraud case that BLOCKS PUBLICATION must block here too: previously the
+  // flag lived only in the trust decision's publication dimension while the
+  // publish route never consulted it, so CarUp had two answers to "may this
+  // publish?". Fails closed on a read error, same posture as reconciliation.
+  const { data: fraudRows, error: fErr } = await client
+    .from('fraud_cases')
+    .select('id, status, blocks_publication')
+    .eq('vin', vin);
+  if (fErr) throw new Error(`Risk case query error: ${fErr.message}`);
+  const blockingFraud = (fraudRows || []).filter(
+    (row) => row.blocks_publication === true && ['open', 'investigating'].includes(row.status)
+  );
+  requirements.push({
+    key: 'risk_governance',
+    label: blockingFraud.length > 0
+      ? 'A risk case blocks publication pending CarUp resolution'
+      : 'No blocking risk case',
+    category: 'risk',
+    blocking: true,
+    status: blockingFraud.length > 0 ? 'pending_review' : 'present',
+    who_must_act: blockingFraud.length > 0 ? ACT.CARUP_REVIEW : ACT.NONE,
+    ...(blockingFraud.length > 0 ? { refusal_category: 'policy_blocked' } : {}),
+  });
 
-  for (const type of ADVISORY_DOC_TYPES) {
+  // ── Advisory documents (non-blocking, canonical-aware) ────────────────────
+
+  for (const advisory of ADVISORY_REQUIREMENTS) {
     requirements.push({
-      key: type,
-      label: type.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase()),
+      key: advisory.key,
+      label: advisory.label,
       category: 'documents',
       blocking: false,
-      status: docStatus(evidenceRows, type),
+      status: advisoryStatus(evidenceRows, advisory.matches),
     });
   }
 

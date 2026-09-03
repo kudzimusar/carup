@@ -293,6 +293,18 @@ type CommunicationNotificationSummary = {
   updated_at?: string | null
 }
 
+type CommunicationAccountActivitySummary = {
+  id: string
+  activity_type: string
+  title: string
+  channel: 'email'
+  status: string
+  summary: string
+  created_at?: string | null
+  sent_at?: string | null
+  delivered_at?: string | null
+}
+
 type CommunicationPreferences = Record<string, boolean | string | number | null | undefined>
 type CommunicationMutationResponse = {
   success?: boolean
@@ -896,6 +908,36 @@ export function useCarUpApi() {
     return request<{ success: boolean; evidence: VehicleEvidence }>(`/vehicles/${vin}/evidence/${evidenceId}/reject`, {
       method: 'PATCH',
       body: JSON.stringify({ notes, trust_score_impact: trustScoreImpact })
+    })
+  }, [request])
+
+  // Operations Control Plane M4 — VIN-centered reviewer aggregate (read model).
+  const fetchVehicleOperationsReview = useCallback(async (vin: string): Promise<{ success: boolean; review: Record<string, unknown> }> => {
+    return request<{ success: boolean; review: Record<string, unknown> }>(`/admin/vehicles/${vin}/review`)
+  }, [request])
+
+  // Operations M1 — governed classification correction (reason mandatory).
+  const correctEvidenceClassification = useCallback(async (
+    vin: string,
+    evidenceId: string,
+    // `visibility_level` is optional: omitting it corrects the classification and leaves the
+    // record's publication untouched.
+    payload: { evidence_class: string; evidence_subtype: string; reason: string; visibility_level?: string },
+  ): Promise<{ success: boolean; changed: boolean }> => {
+    return request<{ success: boolean; changed: boolean }>(`/vehicles/${vin}/evidence/${evidenceId}/classification`, {
+      method: 'PATCH',
+      body: JSON.stringify(payload),
+    })
+  }, [request])
+
+  // Operations M2 — governed Seller Authority reviewer decision.
+  const reviewSellerAuthority = useCallback(async (
+    vin: string,
+    payload: { seller_user_id: string; decision: string; reason: string },
+  ): Promise<{ success: boolean; record?: Record<string, unknown> }> => {
+    return request<{ success: boolean; record?: Record<string, unknown> }>(`/vehicles/${vin}/seller-authority/review`, {
+      method: 'POST',
+      body: JSON.stringify(payload),
     })
   }, [request])
 
@@ -2189,8 +2231,26 @@ export function useCarUpApi() {
     return request<any[]>('/service-history/me', { method: 'GET' })
   }, [request])
 
-  const fetchNotifications = useCallback(async (): Promise<any[]> => {
-    return request<any[]>('/notifications/me', { method: 'GET' })
+  const fetchNotifications = useCallback(async (): Promise<Array<{
+    id: string
+    read?: boolean
+    title?: string
+    message?: string
+    notification_type?: string
+    status?: string | null
+    priority?: string | null
+    channel?: 'in_app'
+    action_path?: string | null
+    created_at?: string | null
+  }>> => {
+    return request('/notifications/me', { method: 'GET' })
+  }, [request])
+
+  const markNotificationRead = useCallback(async (notificationId: string) => {
+    return request<{ notification: { id: string; read: boolean } }>(
+      `/notifications/${encodeURIComponent(notificationId)}/read`,
+      { method: 'POST' },
+    )
   }, [request])
 
   // ── Agent 8 Omnichannel Communication Engine ──
@@ -2216,6 +2276,17 @@ export function useCarUpApi() {
 
   const fetchCommunicationNotifications = useCallback(async (): Promise<{ notifications: CommunicationNotificationSummary[] }> => {
     return request('/communications/notifications', { method: 'GET' })
+  }, [request])
+
+  const fetchCommunicationAccountActivity = useCallback(async (): Promise<{ activity: CommunicationAccountActivitySummary[] }> => {
+    return request('/communications/account-activity', { method: 'GET' })
+  }, [request])
+
+  const resendVerificationEmail = useCallback(async (email: string): Promise<{ success?: boolean; message?: string }> => {
+    return request('/auth/resend-verification', {
+      method: 'POST',
+      body: JSON.stringify({ email }),
+    })
   }, [request])
 
   const markCommunicationNotificationRead = useCallback(async (id: string): Promise<CommunicationMutationResponse> => {
@@ -2477,14 +2548,15 @@ export function useCarUpApi() {
   }, [request])
 
   const uploadEvidence = useCallback(async (vin: string, payload: {
-    evidence_type: string;
+    // Canonical-first (Operations M1): either supply evidence_class +
+    // evidence_subtype (the server derives the legacy compatibility
+    // evidence_type), or supply the legacy evidence_type alone.
+    evidence_type?: string;
     file: string; // base64 string
     captured_at?: string;
     visibility_level?: string;
     linked_registry_event_id?: string;
     verification_notes?: string;
-    // Vehicle Life Evidence Taxonomy + provenance (M1) — all optional; the
-    // backend still requires the legacy evidence_type above.
     evidence_class?: string;
     evidence_subtype?: string;
     event_date?: string;
@@ -2686,12 +2758,15 @@ export function useCarUpApi() {
     saveVehicle,
     fetchServiceHistory,
     fetchNotifications,
+    markNotificationRead,
     fetchCommunicationThreads,
     fetchCommunicationThread,
     createCommunicationThread,
     sendCommunicationMessage,
     sendCommunicationFeedback,
     fetchCommunicationNotifications,
+    fetchCommunicationAccountActivity,
+    resendVerificationEmail,
     markCommunicationNotificationRead,
     fetchCommunicationPreferences,
     updateCommunicationPreferences,
@@ -2796,6 +2871,9 @@ export function useCarUpApi() {
     submitDispute,
     approveEvidence,
     rejectEvidence,
+    fetchVehicleOperationsReview,
+    correctEvidenceClassification,
+    reviewSellerAuthority,
     lookupVehiclePassport,
     fetchVehicle,
     verifyLedger,

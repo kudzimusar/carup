@@ -21,7 +21,10 @@ function bindingTime(binding = {}) {
  */
 export class CommunicationCanonicalConversationService extends CommunicationConversationService {
   async listConversationsForUser(userId) {
-    const conversations = await super.listConversationsForUser(userId);
+    const conversations = (await super.listConversationsForUser(userId))
+      // Account/security notification threads are canonical activity records, not reply-capable
+      // conversations. Keep them auditable but out of the ordinary user inbox.
+      .filter((conversation) => conversation.thread_type !== 'account');
     return Promise.all(conversations.map(async (conversation) => {
       const thread = await this.repository.findOne('message_threads', { id: conversation.id });
       return {

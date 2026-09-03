@@ -222,6 +222,13 @@ export function createCommunicationRouter({ services = createCommunicationServic
     res.json({ notifications: await services.notificationService.listNotificationsForUser(req.userContext.id) });
   }));
 
+  // Read-only delivery history for security/account Email. This deliberately exposes only a
+  // server-built status projection: never the notification message, payload, verification URL,
+  // reset URL, token, provider request body, or a reply-capable account thread.
+  router.get('/api/communications/account-activity', authorizeRole([]), asyncHandler(async (req, res) => {
+    res.json({ activity: await services.notificationService.listAccountSecurityActivityForUser(req.userContext.id) });
+  }));
+
   router.post('/api/communications/notifications/:id/read', authorizeRole([]), asyncHandler(async (req, res) => {
     const notification = await services.repository.findOne('notification_queue', { id: req.params.id });
     if (!notification || (notification.recipient_user_id || notification.recipient_id) !== req.userContext.id) return res.status(404).json({ error: 'Notification not found.' });

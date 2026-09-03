@@ -23,6 +23,8 @@
     "feat/carup-intelligence-1-0": "https://carup-backend-staging-git-feat-carup-intelligence-1-0-11-11.vercel.app",
     "integration/vehicle-passport-v16-cert": "https://carup-backend-staging-git-integration-vehicle-pass-35ac1d-11-11.vercel.app",
     "fix/seller-uat-account-handoff-194": "https://carup-backend-staging-git-fix-seller-uat-account-h-4f31ce-11-11.vercel.app",
-    "fix/seller-uat-convergence-remediation": "https://carup-backend-staging-git-fix-seller-uat-convergen-e5670a-11-11.vercel.app"
+    "fix/seller-uat-convergence-remediation": "https://carup-backend-staging-git-fix-seller-uat-convergen-e5670a-11-11.vercel.app",
+    "fix/zimbabwe-seller-reality-comms-hardening": "https://carup-backend-staging-git-fix-zimbabwe-seller-real-a9b7d7-11-11.vercel.app",
+    "feat/operations-control-plane-serena-slice": "https://carup-backend-staging-git-feat-operations-control-6e0b93-11-11.vercel.app"
   }
 }

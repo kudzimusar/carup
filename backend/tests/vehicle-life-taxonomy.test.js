@@ -2,7 +2,7 @@
  * Milestone 1 unit/integration tests — Vehicle Life Evidence Taxonomy + Provenance.
  *
  * Covers master plan acceptance tests for §4.7 (taxonomy) and §5.6 (provenance):
- *   - all eight life-stage classes; invalid class/subtype combos fail safely
+ *   - all life-stage classes; invalid class/subtype combos fail safely
  *   - legacy evidence_type values still map to a class (backward compatibility)
  *   - perceptual-hash abstraction: real hash for PNG, honest "unsupported" otherwise
  *   - immutable hash-chained provenance: builds, verifies, and detects tampering
@@ -94,11 +94,11 @@ function makePng(seed) {
 }
 
 // ---- Taxonomy -------------------------------------------------------------------------
-test('taxonomy exposes all 8 life-stage classes with subtypes', () => {
+test('taxonomy exposes registration separately from transfer/accident', () => {
   const t = taxonomy.getTaxonomy();
-  assert.equal(t.classes.length, 8);
+  assert.equal(t.classes.length, 9);
   const names = t.classes.map((c) => c.evidence_class).sort();
-  assert.deepEqual(names, ['accident', 'auction', 'current_condition', 'dealer_listing', 'import', 'inspection', 'ownership_transfer', 'repair'].sort());
+  assert.deepEqual(names, ['accident', 'auction', 'current_condition', 'dealer_listing', 'import', 'inspection', 'ownership_transfer', 'registration', 'repair'].sort());
   for (const c of t.classes) assert.ok(c.subtypes.length > 0, `${c.evidence_class} has subtypes`);
 });
 
@@ -125,11 +125,15 @@ test('resolveClassification accepts explicit class+subtype and rejects bad combo
   assert.equal(none.ok, false);
 });
 
-test('resolveClassification normalizes a legacy evidence_type', () => {
+test('resolveClassification normalizes legacy evidence without forcing registration into accident/transfer', () => {
   const r = taxonomy.resolveClassification({ evidence_type: 'odometer_photo' });
   assert.equal(r.ok, true);
   assert.equal(r.evidence_class, 'inspection');
   assert.equal(r.evidence_subtype, 'odometer_photo');
+  assert.equal(taxonomy.resolveClassification({ evidence_type: 'registration_document' }).evidence_class, 'registration');
+  assert.equal(taxonomy.resolveClassification({ evidence_type: 'police_clearance_document' }).evidence_class, 'registration');
+  assert.equal(taxonomy.resolveClassification({ evidence_class: 'import', evidence_subtype: 'transit_declaration' }).ok, true);
+  assert.equal(taxonomy.resolveClassification({ evidence_class: 'registration', evidence_subtype: 'temporary_import_permit' }).ok, true);
 });
 
 // ---- Perceptual hash ------------------------------------------------------------------

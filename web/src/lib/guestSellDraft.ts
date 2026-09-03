@@ -53,7 +53,9 @@ export interface GuestSellDraft {
   chassisNumber: string
   plateNumber: string
   tempPlateId: string
-  importStatus: string
+  /** Canonical Zimbabwe registration lifecycle. importStatus remains compatibility-only. */
+  registrationStatus: string
+  importStatus?: string
   features: string[]
   images: string[]
   imageLabels: string[]
@@ -250,6 +252,7 @@ function parseGuestSellDraft(raw: string): GuestSellDraft | null {
       chassisNumber: parsed.chassisNumber || '',
       plateNumber: parsed.plateNumber || '',
       tempPlateId: parsed.tempPlateId || '',
+      registrationStatus: parsed.registrationStatus || parsed.importStatus || '',
       importStatus: parsed.importStatus || '',
       features: Array.isArray(parsed.features) ? parsed.features : [],
       images,

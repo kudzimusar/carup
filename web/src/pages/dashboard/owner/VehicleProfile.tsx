@@ -24,6 +24,7 @@ import VehicleLifeStageTimeline from '@/components/VehicleLifeStageTimeline'
 import { ListingImage } from '@/components/marketplace/ListingImage'
 import { primaryListingImageUrl } from '@/lib/listingMedia'
 import { statedMileage, statedPrice, statedDate } from './ownerStatedValues'
+import { evidenceClassificationLabel, satisfiesOwnershipRegistration } from '@/lib/evidenceClassification'
 
 // ── The canonical trust projection (Issue #164, ADR-001) ────────────────────
 /**
@@ -199,7 +200,10 @@ export default function VehicleProfile() {
     'registration_document',
     'insurance_document',
     'police_clearance_document',
-    'ownership_transfer_document'
+    'ownership_transfer_document',
+    // Canonical-first uploads with no exact legacy counterpart carry the
+    // generic document compatibility value (Operations M1).
+    'vehicle_life_document'
   ]
 
   // Owner per-VIN view-model. Every field is the value the canonical passport actually published, or
@@ -240,7 +244,7 @@ export default function VehicleProfile() {
       .filter((item) => documentTypes.includes(item.evidence_type))
       .map((item) => ({
         id: item.id,
-        title: item.evidence_type.split('_').map((s) => s.charAt(0).toUpperCase() + s.slice(1)).join(' '),
+        title: evidenceClassificationLabel(item),
         date: statedDate(item.captured_at || item.uploaded_at) ?? 'Date not recorded',
         status: item.verification_status
       })),
@@ -296,11 +300,12 @@ export default function VehicleProfile() {
   const VERIFIED_EVIDENCE_STATUSES = ['verified', 'confirmed', 'approved']
 
   // "Logbook" is the ownership/registration artifact. `pending`, `rejected` and an absent document
-  // are all NOT verified, and none of them renders the badge.
-  const LOGBOOK_EVIDENCE_TYPES = ['registration_document', 'ownership_transfer_document']
+  // are all NOT verified, and none of them renders the badge. Semantics are
+  // canonical-first (Operations M1): a canonical import document stored under a
+  // legacy registration_document compatibility value must never light this badge.
   const hasVerifiedLogbook = (evidenceList || []).some(
     (item) =>
-      LOGBOOK_EVIDENCE_TYPES.includes(item.evidence_type)
+      satisfiesOwnershipRegistration(item)
       && VERIFIED_EVIDENCE_STATUSES.includes(String(item.verification_status ?? '')),
   )
 
@@ -658,7 +663,7 @@ export default function VehicleProfile() {
                                 {item.file_url ? (
                                   <img
                                     src={item.file_url}
-                                    alt={`${item.evidence_type.split('_').join(' ')} evidence preview`}
+                                    alt={`${evidenceClassificationLabel(item)} evidence preview`}
                                     className="w-full h-full object-cover"
                                     loading="lazy"
                                   />
@@ -671,7 +676,7 @@ export default function VehicleProfile() {
                             )}
                             <div className="flex-1 min-w-0">
                               <h4 className="font-medium text-sm text-gray-800 truncate">
-                                {item.evidence_type.split('_').map((s) => s.charAt(0).toUpperCase() + s.slice(1)).join(' ')}
+                                {evidenceClassificationLabel(item)}
                               </h4>
                               {item.verification_notes && (
                                 <p className="text-xs text-gray-600 mt-1 line-clamp-2 italic">"{item.verification_notes}"</p>

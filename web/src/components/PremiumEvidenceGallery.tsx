@@ -11,6 +11,7 @@ import {
   Maximize2
 } from 'lucide-react';
 import type { VehicleEvidence } from '@/types';
+import { evidenceGroupKey, evidenceGroupLabel, evidenceClassificationLabel } from '@/lib/evidenceClassification';
 
 interface PremiumEvidenceGalleryProps {
   evidence: VehicleEvidence[];
@@ -25,11 +26,12 @@ export function PremiumEvidenceGallery({ evidence }: PremiumEvidenceGalleryProps
     (e) => e.verification_status === 'verified' && e.visibility_level === 'public_safe'
   );
 
-  // Group by evidence_type
+  // Group by canonical life-stage class (Operations M1); legacy-only rows keep
+  // grouping by their historical evidence_type.
   const groupedEvidence = publicEvidence.reduce((acc, curr) => {
-    const type = curr.evidence_type || 'other';
-    if (!acc[type]) acc[type] = [];
-    acc[type].push(curr);
+    const key = evidenceGroupKey(curr);
+    if (!acc[key]) acc[key] = [];
+    acc[key].push(curr);
     return acc;
   }, {} as Record<string, VehicleEvidence[]>);
 
@@ -88,7 +90,7 @@ export function PremiumEvidenceGallery({ evidence }: PremiumEvidenceGalleryProps
         {Object.entries(groupedEvidence).map(([type, items]) => (
           <div key={type} className="space-y-4" data-testid={`gallery-group-${type}`}>
           <h3 className="text-lg font-semibold flex items-center gap-2">
-            {formatLabel(type)}
+            {evidenceGroupLabel(type)}
             <Badge variant="secondary" className="bg-gray-100 text-gray-600 font-normal">
               {items.length} item{items.length !== 1 ? 's' : ''}
             </Badge>
@@ -119,7 +121,7 @@ export function PremiumEvidenceGallery({ evidence }: PremiumEvidenceGalleryProps
                     >
                       <FileText className="w-10 h-10 text-gray-300 mb-2" />
                       <p className="text-xs text-center text-gray-500 font-medium line-clamp-2">
-                        {formatLabel(item.evidence_type)}
+                        {evidenceClassificationLabel(item)}
                       </p>
                       <p className="mt-1 text-[10px] text-center text-gray-400 leading-tight">
                         Reviewed · file not published
@@ -129,13 +131,13 @@ export function PremiumEvidenceGallery({ evidence }: PremiumEvidenceGalleryProps
                     <div className="w-full h-full bg-gray-50 flex flex-col items-center justify-center p-4">
                       <FileText className="w-10 h-10 text-orange-400 mb-2" />
                       <p className="text-xs text-center text-gray-500 font-medium line-clamp-2">
-                        {formatLabel(item.evidence_type)}
+                        {evidenceClassificationLabel(item)}
                       </p>
                     </div>
                   ) : (
                     <img
                       src={item.file_url ?? undefined}
-                      alt={formatLabel(item.evidence_type)}
+                      alt={evidenceClassificationLabel(item)}
                       className="w-full h-full object-cover transition-transform duration-300 group-hover:scale-105"
                       loading="lazy"
                     />
@@ -188,7 +190,7 @@ export function PremiumEvidenceGallery({ evidence }: PremiumEvidenceGalleryProps
                   >
                     <FileText className="w-24 h-24 text-gray-600 mb-4" />
                     <p className="text-white text-lg font-medium mb-2">
-                      {formatLabel(selectedItem.evidence_type)}
+                      {evidenceClassificationLabel(selectedItem)}
                     </p>
                     <p className="text-gray-400 text-sm text-center max-w-md">
                       CarUp reviewed this document and verified it. The file itself is not published.
@@ -210,7 +212,7 @@ export function PremiumEvidenceGallery({ evidence }: PremiumEvidenceGalleryProps
                 ) : (
                   <img
                     src={selectedItem.file_url ?? undefined}
-                    alt={formatLabel(selectedItem.evidence_type)}
+                    alt={evidenceClassificationLabel(selectedItem)}
                     className="max-w-full max-h-full object-contain cursor-zoom-in"
                     // Optionally wrap with a pan/zoom library, but for Phase 2 basic is fine
                   />
@@ -261,7 +263,7 @@ export function PremiumEvidenceGallery({ evidence }: PremiumEvidenceGalleryProps
                 </Badge>
                 
                 <h2 className="text-xl font-bold text-white mb-2">
-                  {formatLabel(selectedItem.evidence_type)}
+                  {evidenceClassificationLabel(selectedItem)}
                 </h2>
                 
                 <div className="space-y-4 mt-6">

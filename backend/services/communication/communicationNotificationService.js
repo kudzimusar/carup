@@ -128,6 +128,19 @@ export const NOTIFICATION_POLICIES = Object.freeze({
     transactional: true,
   },
 
+  // Operations M2 — governed Seller Authority review outcome for the seller.
+  'seller.authority.decided': {
+    notificationType: 'seller_authority',
+    threadType: 'trust_safety',
+    priority: 'normal',
+    channels: ['in_app'],
+    fallbackChannels: [],
+    policyChannelsOnly: true,
+    templateKey: 'seller_authority_v1',
+    classification: 'transactional',
+    transactional: true,
+  },
+
   // R4 — SafeTrade / marketplace transaction stages.
   //
   // These are REAL canonical events, emitted by `issue164_transition_session_atomic` into
@@ -292,6 +305,36 @@ export function referencePayloadFor(eventType, payload = {}) {
       vin: session.vin || payload.vin || null,
       status: session.status || payload.status || null,
     },
+  };
+}
+
+const ACCOUNT_SECURITY_TEMPLATES = Object.freeze({
+  auth_email_verification_v1: 'Email verification',
+  auth_password_reset_v1: 'Password reset',
+  auth_password_changed_v1: 'Password changed',
+});
+
+export function projectAccountSecurityActivity(row = {}) {
+  const label = ACCOUNT_SECURITY_TEMPLATES[row.template_key];
+  if (!label || row.channel !== 'email') return null;
+  const status = String(row.status || 'queued');
+  const summary = status === 'delivered'
+    ? `${label} email was reported delivered by the Email provider.`
+    : status === 'sent'
+      ? `${label} email was accepted by the Email provider and is awaiting delivery confirmation.`
+      : status === 'failed' || status === 'dead_letter'
+        ? `${label} email could not be delivered. You can request another Email.`
+        : `${label} email is queued for delivery.`;
+  return {
+    id: String(row.id),
+    activity_type: row.template_key,
+    title: label,
+    channel: 'email',
+    status,
+    summary,
+    created_at: row.created_at || null,
+    sent_at: row.sent_at || null,
+    delivered_at: row.delivered_at || null,
   };
 }
 
@@ -630,6 +673,25 @@ export class CommunicationNotificationService {
   }
 
   async listNotificationsForUser(userId) {
-    return this.repository.list('notification_queue', { recipient_user_id: userId }, { order: { column: 'created_at' }, limit: 100 });
+    // Transport delivery rows are not in-app notifications. Filtering at the source also keeps
+    // token-bearing security Email content out of the ordinary user's notification surface.
+    return this.repository.list(
+      'notification_queue',
+      { recipient_user_id: userId, channel: 'in_app' },
+      { order: { column: 'created_at' }, limit: 100 },
+    );
+  }
+
+  async listAccountSecurityActivityForUser(userId) {
+    if (!userId) return [];
+    const rows = await this.repository.list(
+      'notification_queue',
+      { recipient_user_id: userId },
+      { order: { column: 'created_at' }, limit: 100 },
+    );
+    return (rows || [])
+      .map(projectAccountSecurityActivity)
+      .filter(Boolean)
+      .slice(0, 20);
   }
 }

@@ -49,11 +49,20 @@ test('existing Passport reuse is explicit and never rewrites ownership automatic
   assert.match(server, /reused_existing_passport: reusedExistingPassport/);
   assert.doesNotMatch(server, /governedSellerEvidence[\s\S]{0,1600}\.update\(\{[^}]*owner_id/);
 
-  assert.match(routes, /SELLER_AUTHORITY_CLAIM_REQUESTED/);
-  assert.match(routes, /status: 'evidence_required'/);
-  assert.match(routes, /hasVerifiedSellerAuthorityEvidence/);
-  assert.match(routes, /registration_document/);
-  assert.match(routes, /ownership_transfer_document/);
+  // Operations M2: the seller-claim contract moved into the canonical
+  // sellerAuthorityService. The route delegates; the service preserves the
+  // historical claim event + evidence_required handshake, with evidence
+  // semantics now CANONICAL (a mislabeled import document never grants
+  // ownership authority — see operations-seller-authority.test.js).
+  const authorityService = readFileSync(new URL('../services/seller/sellerAuthorityService.js', import.meta.url), 'utf8');
+  assert.match(routes, /submitSellerClaim/);
+  assert.match(authorityService, /SELLER_AUTHORITY_CLAIM_REQUESTED/);
+  assert.match(authorityService, /status: 'evidence_required'/);
+  assert.match(authorityService, /hasVerifiedOwnershipAuthorityEvidence/);
+  assert.match(authorityService, /satisfiesOwnershipRegistrationRequirementRow/);
+  // The service never mutates the canonical relationship columns.
+  assert.doesNotMatch(authorityService, /update\(\{[^}]*owner_id/);
+  assert.doesNotMatch(authorityService, /update\(\{[^}]*current_seller_id/);
 });
 
 

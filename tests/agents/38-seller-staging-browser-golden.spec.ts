@@ -376,7 +376,16 @@ test.describe('Golden Dynamic Seller — exact-head deployed acceptance', () => 
     await page.getByTestId('seller-description-input').fill(autosaveDescription);
     await expect(page.getByTestId('seller-server-autosave-state'))
       .toContainText('saved to your account', { timeout: 20_000 });
-    await page.evaluate(() => sessionStorage.clear());
+    await page.evaluate(() => {
+      // The Seller recovery contract intentionally uses BOTH sessionStorage and a durable
+      // localStorage checkpoint. Clearing sessionStorage alone no longer means "erase browser
+      // recovery"; it leaves the durable copy authoritative on reload and correctly restores a
+      // guest recovery view. Remove both metadata checkpoints here so this assertion truly proves
+      // the account-scoped server draft survives complete browser recovery deletion.
+      sessionStorage.clear();
+      localStorage.removeItem('carup_guest_sell_draft_durable_v1');
+      localStorage.removeItem('carup_guest_sell_step_durable_v1');
+    });
     await page.reload();
     await expect(page.getByTestId('seller-server-draft-loaded')).toBeVisible({ timeout: 20_000 });
     await page.getByRole('button', { name: /^next$/i }).click();
@@ -439,7 +448,10 @@ test.describe('Golden Dynamic Seller — exact-head deployed acceptance', () => 
       requirements?: Array<{ key?: string; label?: string; status?: string }>;
     };
     const refusalText = JSON.stringify(blocked);
-    expect(refusalText).toMatch(/ownership_document|Ownership \/ Registration Document/i);
+    // Operations M3: the generic ownership_document requirement became the governed
+    // seller_authority requirement (satisfied by relationship + verified canonical
+    // ownership/registration evidence, or an explicit confirmation decision).
+    expect(refusalText).toMatch(/seller_authority|Seller authority/i);
 
     // Upload an ownership document through the governed evidence contract.
     const evidenceResponse = await request.post(`${API_URL}/vehicles/${vin}/evidence/upload`, {

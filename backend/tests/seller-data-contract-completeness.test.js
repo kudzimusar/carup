@@ -93,6 +93,13 @@ const CANONICAL_DESTINATION = {
   registration_country: 'registration_country',
   listing_country: 'listing_country',
   country: 'listing_country',
+  // The Zimbabwe registration lifecycle stage (ZR lane). It was accepted by the handler without
+  // being recorded here, leaving this guard red on exactly the field the Operations slice depends
+  // on. It IS persisted — normalized against the canonical lifecycle vocabulary and written to
+  // `registration_status` together with `registration_status_source`, because a lifecycle claim
+  // without provenance evaluates as not-recorded and would silently block the seller's own
+  // truthful statement.
+  registration_status: 'registration_status',
   // Governed control field: confirmation is consumed by the existing-Passport authority gate and
   // resolves to the explicit reusedExistingPassport outcome; it must not rewrite canonical identity.
   reuse_existing_passport: 'reusedExistingPassport',
