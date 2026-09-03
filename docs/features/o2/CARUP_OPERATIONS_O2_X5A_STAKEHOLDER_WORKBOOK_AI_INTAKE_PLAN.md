@@ -191,9 +191,9 @@ are never silently interpreted.
 - [x] A11 AI Authority Matrix documented (above) — enforcement obligations named
 - [x] A12 Template/Export/Import/Recent Imports model documented (above)
 - [x] A13 Google Sheets compatibility documented (above)
-- [ ] A14 Internal consistency check run; docs-only commit made — SHA recorded below
+- [x] A14 Internal consistency check run (all task-listed stakeholders present; 32 dispositions; X5A referenced in all six canonical docs); docs-only commit made — SHA recorded below
 
-**Stage A docs commit:** _(recorded at the A14 gate)_
+**Stage A docs commit:** `72acf7e0` — `docs(o2): X5A — stakeholder workbook catalogue and AI intake operating plan` (8 files, +878; BEFORE any product code)
 
 ---
 
