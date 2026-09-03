@@ -6,6 +6,8 @@
  * identity binding, workflow phase, and final disposition.
  */
 
+import { RESPONSIBILITY } from '../operations/responsibilityVocabulary.js';
+
 // ============================================================
 // A. CAPTURE STATE
 // ============================================================
@@ -207,3 +209,33 @@ export const LEGACY_REVIEWABLE_STATUSES = new Set([
   'verified',
   'rejected',
 ]);
+
+// ============================================================
+// O2/P2 — normalized responsibility projection (M8 ADR §10.1)
+// ============================================================
+// The cross-domain "who must act next" contract. WORKFLOW_PHASE stays canonical inside this
+// domain; this projection exists so a People-facing surface can show identity, seller authority
+// and dealer compliance in ONE consistent vocabulary. Derived, never stored.
+
+const PHASE_TO_RESPONSIBILITY = Object.freeze({
+  [WORKFLOW_PHASE.SYSTEM_PROCESSING]: RESPONSIBILITY.PLATFORM_PROCESSING,
+  [WORKFLOW_PHASE.REVIEWER_ACTION_REQUIRED]: RESPONSIBILITY.CARUP_REVIEW,
+  [WORKFLOW_PHASE.APPLICANT_ACTION_REQUIRED]: RESPONSIBILITY.SUBJECT_ACTION,
+  [WORKFLOW_PHASE.ESCALATED]: RESPONSIBILITY.ESCALATED,
+  [WORKFLOW_PHASE.RESOLVED_APPROVED]: RESPONSIBILITY.NONE,
+  [WORKFLOW_PHASE.RESOLVED_REJECTED]: RESPONSIBILITY.NONE,
+  [WORKFLOW_PHASE.CANCELLED]: RESPONSIBILITY.NONE,
+});
+
+/**
+ * Map an identity workflow phase to the normalized responsibility. Total over WORKFLOW_PHASE —
+ * the totality test fails BY NAME on any phase added without a mapping, so a new phase cannot
+ * silently project as "nobody needs to act".
+ */
+export function toResponsibilityProjection(workflowPhase) {
+  const mapped = PHASE_TO_RESPONSIBILITY[workflowPhase];
+  if (!mapped) {
+    throw new Error(`Identity workflow phase '${workflowPhase}' has no responsibility mapping`);
+  }
+  return mapped;
+}

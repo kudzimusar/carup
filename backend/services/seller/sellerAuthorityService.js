@@ -45,6 +45,7 @@ async function logAuditEvent(client, event) {
 export const SELLER_AUTHORITY_POLICY_VERSION = 'seller_authority.v1';
 export const SELLER_AUTHORITY_CLAIM_EVENT = 'SELLER_AUTHORITY_CLAIM_REQUESTED';
 export const SELLER_AUTHORITY_REVIEW_EVENT = 'SELLER_AUTHORITY_REVIEWED';
+export const SELLER_AUTHORITY_SUPERSEDED_EVENT = 'SELLER_AUTHORITY_SUPERSEDED';
 
 export const SELLER_AUTHORITY_STATUSES = Object.freeze([
   'evidence_submitted',
@@ -532,10 +533,136 @@ export async function reviewSellerAuthority(client, {
   };
 }
 
+/**
+ * O2/P1 — a completed ownership transfer supersedes the PREVIOUS owner's authority.
+ *
+ * `passport_transition_ownership_transfer_atomic` changes `vehicles.owner_id`, but nothing touched
+ * this table, so the former owner kept a standing `confirmed` authority over a vehicle they no
+ * longer own (the gap M8 recorded against the reference implementation). Seller Authority
+ * supersedes its OWN rows — the transfer service only invokes this; Operations is not involved.
+ *
+ * Deliberate properties:
+ *   · Revocation, never deletion. The previous status/basis live on in the audit event exactly as
+ *     for every other governed authority decision (audit FIRST, fail closed).
+ *   · Idempotent: an already-revoked row, or no row, is a clean no-op — a governed re-run after a
+ *     partial failure converges.
+ *   · A `disputed` row is still superseded: a dispute about a vehicle you no longer own does not
+ *     keep authority alive, and the dispute history remains in the ledger.
+ *   · NOTHING is created for the incoming owner. Their owner relationship is now canonical via
+ *     `vehicles.owner_id`; if they choose to list, the ordinary governed authority lifecycle
+ *     applies. Fabricating a `confirmed` row for them would be fabricating a review.
+ */
+export async function supersedeSellerAuthorityOnOwnershipTransfer(client, {
+  vin,
+  previousOwnerId,
+  transferId,
+  actor,
+  requestContext = {},
+}) {
+  const normalizedVin = normalizeVin(vin);
+  if (!normalizedVin || !previousOwnerId || !transferId) {
+    throw new SellerAuthorityError('vin, previousOwnerId and transferId are required', 'SELLER_AUTHORITY_SUPERSEDE_INVALID', 400);
+  }
+  if (!actor?.id || !actor?.role) {
+    throw new SellerAuthorityError('An attributable actor is required', 'SELLER_AUTHORITY_UNATTRIBUTED', 403);
+  }
+
+  const { data: row, error: rowErr } = await client
+    .from('vehicle_seller_authority')
+    .select('*')
+    .eq('vin', normalizedVin)
+    .eq('seller_user_id', previousOwnerId)
+    .maybeSingle();
+  if (rowErr) {
+    throw new SellerAuthorityError(`Seller authority read failed: ${rowErr.message}`, 'SELLER_AUTHORITY_READ_FAILED', 500);
+  }
+  if (!row || row.status === 'revoked') {
+    return { changed: false, superseded: 0, previous_status: row?.status ?? null };
+  }
+
+  const decidedAt = new Date().toISOString();
+  const reason = `superseded_by_ownership_transfer:${transferId}`;
+
+  // Audit FIRST, fail closed (G6) — the supersession that cannot be attributed does not happen.
+  const audit = await logAuditEvent(client, {
+    eventType: SELLER_AUTHORITY_SUPERSEDED_EVENT,
+    vin: normalizedVin,
+    actorUserId: actor.id,
+    actorRole: actor.role,
+    actorTenantId: actor.tenantId ?? null,
+    actorType: 'user',
+    previousValue: { status: row.status, basis: row.basis ?? null, seller_user_id: previousOwnerId },
+    newValue: { status: 'revoked', basis: row.basis ?? null, seller_user_id: previousOwnerId, policy_version: SELLER_AUTHORITY_POLICY_VERSION },
+    evidenceIds: Array.isArray(row.evidence_ids) ? row.evidence_ids : [],
+    reason,
+    sourceRoute: requestContext.sourceRoute ?? '/api/ownership-transfers/:transferId',
+    requestId: requestContext.requestId ?? null,
+    ipAddress: requestContext.ipAddress ?? null,
+    userAgent: requestContext.userAgent ?? null,
+    targetType: 'vehicle_seller_authority',
+    targetId: `${normalizedVin}:${previousOwnerId}`,
+  });
+  if (!audit?.success) {
+    throw new SellerAuthorityError(audit?.error || 'Seller authority supersession audit could not be recorded', 'SELLER_AUTHORITY_AUDIT_FAILED', 500);
+  }
+
+  const { data: updated, error: updateErr } = await client
+    .from('vehicle_seller_authority')
+    .update({
+      status: 'revoked',
+      reason,
+      policy_version: SELLER_AUTHORITY_POLICY_VERSION,
+      decided_by: actor.id,
+      decided_by_role: actor.role,
+      decided_at: decidedAt,
+      updated_at: decidedAt,
+    })
+    .eq('id', row.id)
+    .select('*')
+    .single();
+  if (updateErr) {
+    throw new SellerAuthorityError(`Seller authority supersession failed: ${updateErr.message}`, 'SELLER_AUTHORITY_WRITE_FAILED', 500);
+  }
+
+  return { changed: true, superseded: 1, previous_status: row.status, record: updated };
+}
+
+/**
+ * O2/P2 — normalized responsibility projection (M8 ADR §10.1). Derived, never stored; the status
+ * vocabulary above stays canonical inside this domain.
+ *
+ * `not_assessed`/`recognized` (the derived no-row states from getSellerAuthorityState) ask nothing
+ * of anyone by themselves; only in a LISTING context does the absence of authority become the
+ * seller's next action. `revoked` asks nothing — a superseded authority is history, and a NEW
+ * claim starts a new lifecycle.
+ */
+const AUTHORITY_STATUS_TO_RESPONSIBILITY = Object.freeze({
+  evidence_submitted: 'carup_review',
+  under_review: 'carup_review',
+  confirmed: 'none',
+  insufficient: 'subject_action',
+  disputed: 'escalated',
+  revoked: 'none',
+  recognized: 'none',
+  not_assessed: 'none',
+});
+
+export function toResponsibilityProjection(status, { listingContext = false } = {}) {
+  if ((status === 'not_assessed' || status === 'recognized') && listingContext) {
+    return 'subject_action';
+  }
+  const mapped = AUTHORITY_STATUS_TO_RESPONSIBILITY[status];
+  if (!mapped) {
+    throw new SellerAuthorityError(`Seller authority status '${status}' has no responsibility mapping`, 'SELLER_AUTHORITY_PROJECTION_UNMAPPED', 500);
+  }
+  return mapped;
+}
+
 export default {
   SELLER_AUTHORITY_POLICY_VERSION,
   SELLER_AUTHORITY_CLAIM_EVENT,
   SELLER_AUTHORITY_REVIEW_EVENT,
+  SELLER_AUTHORITY_SUPERSEDED_EVENT,
   SELLER_AUTHORITY_STATUSES,
   SellerAuthorityError,
   hasExistingSellerRelationship,
@@ -543,6 +670,8 @@ export default {
   evaluateEvidenceBasis,
   hasConflictingSellerRelationship,
   getSellerAuthorityState,
+  supersedeSellerAuthorityOnOwnershipTransfer,
+  toResponsibilityProjection,
   isSellerAuthoritySatisfied,
   toPublicSellerAuthorityStatement,
   submitSellerClaim,

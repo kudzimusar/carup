@@ -396,3 +396,43 @@ export default {
   deriveEvidenceBand,
   getBuyerSafeSummary,
 };
+
+/**
+ * O2/P2 — normalized responsibility projection (M8 ADR §10.1). PURE, derived from the same inputs
+ * as `deriveCanPublish`; the domain's own statuses (active/pending/restricted/suspended,
+ * investigation decisions, expiry) stay canonical and are DISPLAYED VERBATIM beside this
+ * projection — it never replaces them.
+ *
+ * Order of precedence mirrors who actually holds the next move:
+ *   investigation           -> escalated        (a specialist decision is pending)
+ *   suspended / restricted  -> subject_action   (remediation is the dealer's)
+ *   expired document        -> subject_action
+ *   blocking requirement with a SUBMITTED artifact awaiting decision -> carup_review
+ *   blocking requirement with nothing submitted -> subject_action
+ *   identity not verified   -> subject_action
+ *   review not passed (but nothing above applies) -> carup_review
+ *   otherwise               -> none
+ */
+export function toResponsibilityProjection({ profile = {}, blockingRequirements = [], now = new Date() } = {}) {
+  if (profile?.compliance_review_state === 'investigation' || profile?.investigation_state === 'open') {
+    return 'escalated';
+  }
+  if (profile?.suspension_state === 'suspended' || profile?.restriction_state === 'restricted') {
+    return 'subject_action';
+  }
+  if (deriveExpiryState(profile, now) === 'expired') {
+    return 'subject_action';
+  }
+  const stillBlocking = (Array.isArray(blockingRequirements) ? blockingRequirements : []).filter(isRequirementBlocking);
+  if (stillBlocking.length > 0) {
+    const awaitingDecision = stillBlocking.some((req) => ['submitted', 'pending_review', 'in_review'].includes(req.status));
+    return awaitingDecision ? 'carup_review' : 'subject_action';
+  }
+  if (profile?.identity_status && profile.identity_status !== 'verified') {
+    return 'subject_action';
+  }
+  if (profile?.compliance_review_state && profile.compliance_review_state !== 'passed') {
+    return 'carup_review';
+  }
+  return 'none';
+}
