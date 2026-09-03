@@ -340,6 +340,82 @@ trust-writer SET pin in `v16-authority-hardening.test.js` shrank from three writ
 `non-seller-authority-hardening.test.js` section-2 pins now assert the surface is absent rather
 than gated; legacy `run-tests.js` Test 28 asserts the retirement instead of the approval chain.
 
+## O2-X2 — Registration + Progressive Trust: EXECUTED (2026-09-03)
+
+Receipt: `CARUP_OPERATIONS_O2_X2_REGISTRATION_PROGRESSIVE_TRUST_RECEIPT.md`. The design sections
+below ("Progressive Trust", "Identity lifecycle", …) remain the forward map; this section records
+what X2 actually shipped.
+
+**The registration journey, as implemented:**
+
+```
+create account (existing 3-step signup, context collected, role always 'owner')
+  → /onboarding — the journey page (server truth on every load: refresh/relogin resumes)
+  → complete/edit context            PUT  /api/registration/profile
+  → start identity                   POST /api/identity/verification-sessions        (7C, reused)
+  → upload front/back/selfie         POST …/upload/:side                             (7C, reused)
+  → submit                           POST …/submit → classification → OCR → NEVER auto-verify
+  → candidates presented             GET  /api/registration/profile/candidates
+  → user confirms/corrects → profile PUT  /api/registration/profile (+ candidates_seen)
+  → governed human decision          existing 7C review (approve/resubmit/reject/escalate)
+  → capabilities progressively unlock (derived ladder, advisory)
+```
+
+**New surface (all self-scoped to the proven caller):** `GET /api/registration/journey` ·
+`GET /api/registration/profile/candidates` · `PUT /api/registration/profile`
+(`backend/routes/registrationOnboardingRoutes.js` +
+`backend/services/registration/registrationJourneyService.js`), and the web page
+`web/src/pages/onboarding/RegistrationJourney.tsx` at `/onboarding`. **DDL delta: NONE** —
+`user_registration_profiles` remains the one confirmed-context store; names/DOB/ID numbers stay
+identity EVIDENCE (7C) and are deliberately not duplicated into the profile.
+
+**Field truth model (enforced server-side, pinned by tests):** every candidate carries
+`machine_candidate | user_confirmed | user_corrected | user_provided | missing`. Fallback markers
+(`N/A`, `Unknown`, …) present as `missing` with no value at all and are REFUSED as profile
+content; an absent field stays absent. Confirmed-vs-corrected is derived by the SERVER comparing
+the submitted value to the exact candidate the user was shown (`candidates_seen`) — client labels
+are never trusted. Provenance lives in the audit event and the 7C provenance tables, never as
+profile columns. The 7C invariant stands: the account profile is never mutated from OCR — a
+document value reaches the profile only through explicit user confirmation, and account `name`
+is not autofillable at all (it is the identity-binding comparator).
+
+**X2 entry residuals CLOSED:** (A) extraction now REFUSES to run without a user id outside the
+test suite — guarded at both call sites (`extractDocumentData`, `aiServiceBus.runOcrParsing`) and
+`/api/ai/ocr` now passes the proven session identity; the 7C submit path already attributed to
+the session owner (source-pinned). (B) candidate-marker filtering + the profile write-boundary
+refusal mean no fallback/default value can silently populate the Registration Profile; the
+legacy defaults inside the `ocr_*` structured evidence tables remain recorded X-hazards for any
+future consumer of those tables (none of X2 reads them — candidates come from the session's
+sanitized `ocr_result`).
+
+**Progressive Trust, as shipped:** the ladder + locked-capability list are a DERIVED, advisory
+projection (`deriveOnboardingJourney`) — the journey read performs zero writes (pinned) and
+grants nothing; authorization stays with each domain gate. Identity approval reaches the
+identity stage and still reports Seller Authority, Dealer Compliance, vehicle registration and
+Vehicle Trust as locked by their own authorities, with the reasons on screen.
+`who_must_act` / `next_actor` / `required_action` are derived at read time from the 7C phase +
+reason-code applicant guidance (the dormant session columns stay dormant — P2's
+derived-not-stored law).
+
+**Time to Safe Action measurement points (shipped in the journey payload):**
+`account_created_at` = `safe_capabilities_available_at` (safe capability is immediate) ·
+`context_established_at` · `identity_submitted_at` · `identity_extraction_completed_at` ·
+`identity_decided_at`.
+
+**Low-bandwidth behaviour:** per-side uploads are individually retryable in place (a failed side
+never loses the session or the other sides); upload state is visible per side; the journey is
+re-fetched server truth so refresh/relogin resumes; confirmed profile data is preserved and
+re-rendered as a summary (no forced re-entry); an OCR failure routes to human review and NEVER
+blocks manual profile completion. Evidence quality is untouched (15MB limit unchanged).
+
+**R1/R2 explicitly avoided:** X2 touches neither `POST /api/vehicles/:vin/evidence-sets` nor the
+extractions route; both remain open entries in the risk register for their own hardening lane.
+Business signup collects routing context only — full Dealer KYB stays X5.
+
+**Handed to X3/X4/X5:** lifecycle states and step-up auth (X3) now have a journey surface to
+hang off; biometric consent + provider provenance (X4) slot into the same 7C evidence path;
+Dealer onboarding (X5) picks up `account_kind='business'` routing from the profile.
+
 ## Progressive Trust / capability unlocking (X2 design principle)
 
 The expansion's speed principle: a legitimate user performs safe low-risk actions immediately;

@@ -4,7 +4,7 @@ States: `[ ]` not started · `[~]` in progress · `[x]` done with evidence · `[
 Every `[x]` names its evidence. No item may be closed by assertion.
 
 **Branch:** `feat/operations-o2-people-compliance` · **Base:** integrated candidate `dd94c56d`
-**State:** P0–P6 complete, plus the **P1-C effective-authorization correction** (see the correction notice under P1). **P7 (staging certification) designed, NOT started** — see the P7 note below. **Expansion:** X0 + X1 complete (X1 = Document Intelligence authority retirement, certified at `5e996a7c` — see the receipt); **X2+ NOT started** — see the expansion section near the end.
+**State:** P0–P6 complete, plus the **P1-C effective-authorization correction** (see the correction notice under P1). **P7 (staging certification) designed, NOT started** — see the P7 note below. **Expansion:** X0 + X1 + X2 complete (X1 = Document Intelligence authority retirement @ `5e996a7c`; X2 = Registration + Progressive Trust — see the receipts); **X3+ NOT started** — see the expansion section near the end.
 **Rule:** do not merge; stop at a certified O2 candidate for Product Owner review.
 
 ## P0 — Design pack
@@ -189,7 +189,13 @@ item may be closed by assertion. Core P0–P7 entries above are never edited by 
 - [x] X1.8 Fraud-scan review — endpoint + legacy `FraudService` retired (router-only consumer; `'system_user'` provenance); governed `services/fraud/*` lane untouched and green
 - [x] X1.9 Tests — new `o2-x1-document-intelligence-authority.test.js` **6/6** (written RED first: 5/6 failed pre-change); targeted **204/204** (7C ×6, dealer ×2, diaspora-ocr, phase-3, v16, hardening); P1-C/O2/seller/registration/trust batch **118/118** (former-seller 11/11 among them); **full backend suite 5795 / 0 fail / 21 skipped** (P1-C baseline 5789 + exactly the 6 new guards); no existing assertion weakened — the three updated pins assert strictly stronger claims
 - [x] X1.10 Documentation — plan "X1 executed" section, discovery §5 X1 addendum, matrices §11 enforcement note, 4 dated addenda in `AUTHORITY_AUDIT_REGISTER.md` (3 CLOSED entries resolved by retirement; foreign-writers entry reduced in scope), this tracker, and the X1 receipt
-- [ ] X2 Registration + Progressive Trust (upload → OCR candidate → user confirmation → registration profile; `Time to Safe Action` KPI)
+- [x] X2 Registration + Progressive Trust — **COMPLETE 2026-09-03**; receipt `CARUP_OPERATIONS_O2_X2_REGISTRATION_PROGRESSIVE_TRUST_RECEIPT.md`
+- [x] X2.1 Entry residuals closed — extraction refuses to run unattributed outside the test suite (both call sites + `/api/ai/ocr` passes the proven id); fallback markers present as `missing` and are refused as profile content at the write boundary
+- [x] X2.2 Journey + candidates + confirmed-profile write — `registrationJourneyService` + 3 self-scoped routes; provenance (`user_confirmed`/`user_corrected`/`user_provided`) derived server-side from `candidates_seen` and audited fail-closed; ack instants preserved on update; business `onboarding_status` never regresses; DDL delta NONE
+- [x] X2.3 Progressive Trust ladder — derived, advisory, ZERO-write (pinned); identity approval leaves Seller Authority / Dealer Compliance / vehicle registration / Vehicle Trust locked by their own authorities (tested); `who_must_act`/`next_actor`/`required_action` derived at read time (the dormant session columns stay dormant)
+- [x] X2.4 Web `/onboarding` — context completion with candidate suggest/confirm, identity wizard on the 7C applicant routes (per-side retryable uploads, visible state), status panel, refresh/relogin resume from server truth; Register success panel links in
+- [x] X2.5 Tests — new backend **22/22** (+ red-first write-boundary/scoping proofs) and web **7/7**; targeted **231/231** + **67/67**; **full backend 5817/0/21** (X1 baseline + exactly 22); **full web 1568/1568** (baseline + exactly 7); `tsc` clean; lint gate **NET_NEW 0/0**; interim web flakes (contended runs) named, isolated 31/31, and green in the final uncontended run
+- [x] X2.6 Documentation — plan "X2 executed" section, discovery §5 X2 addendum, matrices §11 X2 note, this tracker, the X2 receipt; R1/R2 explicitly avoided and left open for their own lane
 - [ ] X3 Identity lifecycle / account security (lifecycle states, triggers, step-up authentication; proofing ≠ authentication)
 - [ ] X4 Biometrics / consent (governed evidence only; provider provenance; no central raw fingerprint store)
 - [ ] X5 Dealer onboarding + workbook migration (advisory AI mapping ahead of the existing pipeline; VERIFIED/APPROVED import refusals preserved)

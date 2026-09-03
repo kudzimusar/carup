@@ -106,6 +106,12 @@ governed domain decisions decide; no AI output ever becomes an authoritative out
 authority surface is retired and extraction writes only the ocr candidate tables — receipt:
 `CARUP_OPERATIONS_O2_X1_DOCUMENT_INTELLIGENCE_AUTHORITY_RECEIPT.md`.*
 
+*X2 (2026-09-03) implemented the first two rows end-to-end: candidates are presented with
+explicit field states (`machine_candidate`/`missing` — markers are never data), the user decides
+what enters `user_registration_profiles`, confirmed-vs-corrected provenance is derived
+server-side and audited, and the Progressive Trust ladder is a derived, advisory, zero-write
+projection — receipt: `CARUP_OPERATIONS_O2_X2_REGISTRATION_PROGRESSIVE_TRUST_RECEIPT.md`.*
+
 | Fact | Source of truth | Who may propose | Who may decide | AI may influence? | Public? | Which service writes it |
 |---|---|---|---|---|---|---|
 | OCR extracted value | extraction output + provenance (identity lane: `verification_ocr_provenance`) | the extraction system (machine) | nobody — it is candidate evidence, never a decision | yes — it IS machine output, always marked candidate | never | identity service (provenance); the extraction utility produces it |

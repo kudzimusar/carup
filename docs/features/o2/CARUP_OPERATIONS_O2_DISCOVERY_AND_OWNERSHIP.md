@@ -124,3 +124,21 @@ The original discovery above (`dd94c56d`) is preserved untouched.
   `cvr_ownership_records`/`zimra_declarations` now have zero in-product writers.
 - Boundary pinned by `backend/tests/o2-x1-document-intelligence-authority.test.js` (6 guards);
   receipt: `CARUP_OPERATIONS_O2_X1_DOCUMENT_INTELLIGENCE_AUTHORITY_RECEIPT.md`.
+
+#### X2 addendum — executed 2026-09-03 (see the expansion plan's "X2 executed" section)
+
+- **New self-scoped registration surface:** `GET /api/registration/journey` ·
+  `GET /api/registration/profile/candidates` · `PUT /api/registration/profile`
+  (`registrationOnboardingRoutes.js` + `services/registration/registrationJourneyService.js`),
+  web page `/onboarding` (`web/src/pages/onboarding/RegistrationJourney.tsx`). DDL delta NONE.
+- **Ownership unchanged:** `user_registration_profiles` stays the confirmed-context store (the
+  only table the new service writes, users' own rows only); identity evidence and provenance stay
+  with 7C; the journey/ladder is a derived, advisory projection that performs zero writes.
+- **Discovery facts:** `next_actor`/`required_action` are DORMANT session columns (no writer
+  anywhere) — X2 derives both at read time instead; `users.is_verified` is the email-lane flag
+  (no product writer sets it from identity) and identity truth lives only on the session
+  (status `verified` / phase `resolved_approved`); the applicant web flow did not exist before
+  X2 (only the admin surface did).
+- **Attribution guards (X1 residual A closed):** `extractDocumentData` and
+  `aiServiceBus.runOcrParsing` refuse to run without a user id outside the test suite;
+  `/api/ai/ocr` passes `req.userContext.id`.
