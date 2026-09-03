@@ -148,3 +148,10 @@ never persisted as a parallel store:
 
 AI assistance never changes the duty holder: an AI proposal awaiting acceptance is still
 `subject_action` — the human decision IS the outstanding action.
+
+## X6 note — assurance and events carry the SAME vocabulary (2026-09-04)
+
+The `identity_assurance.v1` projection's `who_must_act` is the X3 lifecycle projection
+verbatim, and every X6 event payload carries one of the six canonical values — total, pinned.
+No `dealer_action` / `customer_action` / `AI_action` exists anywhere; an AI narration may
+rephrase a sentence but can never change the `who_must_act` value it narrates (pinned).

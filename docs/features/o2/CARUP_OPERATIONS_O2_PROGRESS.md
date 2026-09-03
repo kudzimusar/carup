@@ -4,7 +4,7 @@ States: `[ ]` not started · `[~]` in progress · `[x]` done with evidence · `[
 Every `[x]` names its evidence. No item may be closed by assertion.
 
 **Branch:** `feat/operations-o2-people-compliance` · **Base:** integrated candidate `dd94c56d`
-**State:** P0–P6 complete, plus the **P1-C effective-authorization correction** (see the correction notice under P1). **P7 (staging certification) designed, NOT started** — see the P7 note below. **Expansion:** X0–X5 complete (X1 = Document Intelligence authority retirement @ `5e996a7c`; X2 = Registration + Progressive Trust; X3 = Identity Lifecycle + Account Security; X4 = Biometrics + Explicit Consent — ARCHITECTURE CERTIFIED, live provider NOT ACTIVATED; X5 = Dealer onboarding + governed workbook migration @ `0d1a3a74` — see the receipts); **X5A COMPLETE 2026-09-04** (stakeholder workbook catalogue + AI intake; docs-first gate `72acf7e0`; 32 stakeholder dispositions; suites 5906:5885/0/21 + 1585/1585); **X6+ NOT started** — see the expansion section near the end. *(Corrected 2026-09-04: this line previously said "X5+ NOT started" after X5 had completed — the X5 history below was always accurate.)*
+**State:** P0–P6 complete, plus the **P1-C effective-authorization correction** (see the correction notice under P1). **P7 (staging certification) designed, NOT started** — see the P7 note below. **Expansion:** X0–X5 complete (X1 = Document Intelligence authority retirement @ `5e996a7c`; X2 = Registration + Progressive Trust; X3 = Identity Lifecycle + Account Security; X4 = Biometrics + Explicit Consent — ARCHITECTURE CERTIFIED, live provider NOT ACTIVATED; X5 = Dealer onboarding + governed workbook migration @ `0d1a3a74` — see the receipts); **X5A COMPLETE 2026-09-04** (stakeholder workbook catalogue + AI intake; docs-first gate `72acf7e0`; 32 stakeholder dispositions; suites 5906:5885/0/21 + 1585/1585); **X6 IN PROGRESS 2026-09-04** (assurance + Communications semantics, docs-first — X6 items below are the live roll-call); **X7 NOT started** — see the expansion section near the end. *(Corrected 2026-09-04: this line previously said "X5+ NOT started" after X5 had completed — the X5 history below was always accurate.)*
 **Rule:** do not merge; stop at a certified O2 candidate for Product Owner review.
 
 ## P0 — Design pack
@@ -235,7 +235,17 @@ item may be closed by assertion. Core P0–P7 entries above are never edited by 
 - [x] X5A.8 Export + Recent Imports — server-sourced scoped redacted export; existing batch/receipt store reused and caller-scoped — **DONE** — DB export by current_seller_id (+ own dealer BUSINESS/BRANCHES), engine/chassis redacted by default, human labels in cells (4/4); recent imports uploader-scoped over the existing batch store
 - [x] X5A.9 Tests — **DONE**: new backend 35/35 (5 suites) + web 7/7; targeted batch 271/271; **full backend 5906 (5885/0/21)** = X5 baseline + exactly 35; **full web 1585/1585** = baseline + exactly 7; tsc 0; lint NET_NEW 0/0; interim failures traced honestly (duplicate hook symbol crash-loading 10 web files — renamed to executeVehicleWorkbookBatch; one navigation-analytics live-HTTP flake outside X5A, 25/25 isolated, green in the certifying rerun)
 - [x] X5A.10 Receipt `CARUP_OPERATIONS_O2_X5A_STAKEHOLDER_WORKBOOK_AI_INTAKE_RECEIPT.md` authored; docs stayed live throughout (checklist evidenced per unit; parity correction recorded in-place); STOP before X6 — X6/X7 must use the catalogue §2 roll-call
-- [ ] X6 Cross-domain assurance projection + Communications event semantics (emit-only stands; delivery code untouched; **must use the X5A stakeholder register as its roll-call**)
+- [~] X6 Cross-domain assurance + Communications semantics — **IN PROGRESS 2026-09-04** (docs-first); plan `CARUP_OPERATIONS_O2_X6_ASSURANCE_COMMUNICATIONS_PLAN.md`; roll-call = catalogue §10 (all 32 rows dispositioned in Stage A)
+- [ ] X6.1 Stage A documentation gate — plan + catalogue §10 roll-call + 6 doc updates; docs-only commit BEFORE code
+- [ ] X6.2 `identityAssuranceService` (identity_assurance.v1) + additive lifecycle `approved_at`/`document_expiry` (X3 suites green)
+- [ ] X6.3 Consumers — registration journey (shape-preserving), dealer onboarding responsible person, ops people review additive block
+- [ ] X6.4 Missing-items batching — `buildDealerActionSummary` + `narrateActionSummary` (AI rephrase optional, structured truth verbatim)
+- [ ] X6.5 Events emitted from authoritative writes — identity.lifecycle.changed · dealer.compliance.evidence_required · seller.authority.superseded · workbook.import.completed; dealer.compliance.decided payload privacy-corrected
+- [ ] X6.6 Bounded Communications wiring — allowlist + policy + template ×5 (coverage CI green; delivery untouched)
+- [ ] X6.7 No-grant + privacy + forged-assurance pins (tests 3–10, 13)
+- [ ] X6.8 32-row roll-call machine-checked; comms contracts reconciled; machine actors excluded; regulated correct; no marketing expansion
+- [ ] X6.9 Certification — 28 proofs; X1–X5A batches; full backend/web; tsc; lint 0/0
+- [ ] X6.10 Receipt + live docs; STOP before X7
 - [ ] X7 Intelligence + integrated expansion certification (runs only after P7 is unblocked and executed; **must use the X5A stakeholder register as its roll-call**)
 
 ## M8 tripwires log (fill only if triggered, with evidence, BEFORE building)

@@ -91,4 +91,15 @@ Do not merge. Stop at a certified O2 candidate for Product Owner review, exactly
   completeness test; successful import removes duplicate web entry; full regression green.
   Plan: `CARUP_OPERATIONS_O2_X5A_STAKEHOLDER_WORKBOOK_AI_INTAKE_PLAN.md`; manual:
   `CARUP_OPERATIONS_O2_STAKEHOLDER_WORKBOOK_CATALOGUE.md`.
+- **X6 deliverable + gate (added 2026-09-04, head `fdeab872`):** one canonical
+  `identity_assurance.v1` projection (derived at read time from the X3 lifecycle + 7C history;
+  no copied flags, no shadow store) consumed by registration, dealer onboarding and the
+  operations people review; the O2 semantic event catalogue (identity lifecycle changes,
+  batched dealer evidence requirements, seller-authority supersession, workbook import
+  results) emitted from authoritative writes into the existing outbox with bounded
+  Communications wiring (allowlist + policy + template only — delivery untouched). Gate:
+  docs-first commit; 32-row assurance + Communications roll-call complete and
+  machine-checked; privacy-safe payloads proven; canonical who_must_act total; assurance
+  grants nothing; full regression green. Plan:
+  `CARUP_OPERATIONS_O2_X6_ASSURANCE_COMMUNICATIONS_PLAN.md`.
 - P7 remains governed by its own note in the tracker; nothing in the expansion may run it early.

@@ -257,3 +257,39 @@ accepted row through the canonical `POST /api/vehicles/add` contract as the impo
 the existing route stays the ONLY listing writer (no extraction of the certified handler, no
 parallel insert path); batches/receipts stay in the existing diaspora store (free-text
 `template_type` namespaces the new keys).
+
+#### X6 addendum — discovery 2026-09-04 (event/assurance inventory)
+
+- **Event mechanism:** one emitter (`emitDomainEvent`, `eventBusService.js`) → `domain_events`
+  outbox (pending/processed/failed/dead_letter, 5 attempts, FOR UPDATE SKIP LOCKED poller;
+  serverless drains via `/api/internal/events/process`); O2 emits are best-effort AFTER the
+  durable write. Communications ingests via the `COMMUNICATION_EVENT_TYPES` allowlist →
+  orchestrator → `NOTIFICATION_POLICIES` (policy/channels/template/preferences) →
+  `notification_queue` (also the in-app inbox). The seam for a new event is exactly three
+  coordinated edits (allowlist + policy row + template), enforced by
+  `communication-event-coverage.test.js`.
+- **Gaps found (closed by X6):** no `identity.lifecycle.*` event existed — suspension/
+  compromise/recovery/revocation and session cascades were invisible to the person;
+  `dealer.compliance.decided` was emitted but never consumed AND carried reviewer free-text
+  `reason` verbatim (§14 violation — payload corrected to safe fields);
+  `SELLER_AUTHORITY_SUPERSEDED` was audit-only — a former seller was never told; workbook
+  imports announced nothing.
+- **Emit-only discipline:** O2 lanes (identity/dealer/seller/registration/workbook/operations)
+  contain ZERO direct provider or notification-queue calls — clean. Named out-of-lane
+  residuals (recorded, not fixed here): the auth email lane writes single-use token URLs into
+  `notification_queue` payloads; `diasporaNotificationService` writes rendered copy into
+  event payloads and inserts into the queue directly; `vehicleOperationsReadModel` maps
+  `users.is_verified` to `account_verified` while other read models honestly call it
+  `email_verified` (naming inconsistency).
+- **Duplicated identity interpretation (replaced by the projection):**
+  `registrationJourneyService` re-derived capability/approval, hand-rolled a second
+  capability-bearing set, re-derived who_must_act twice and hand-copied lifecycle fields;
+  `dealerOnboardingService` hand-picked four lifecycle fields; `peopleComplianceReadModel`
+  read `users.is_verified` + sessions and never the lifecycle ledger. The seller lane
+  interprets person identity in ZERO places (gates are vehicle-evidence/relationship) —
+  contract recorded, no change. `users.is_verified` is the EMAIL flag; the assurance
+  projection never reads it.
+- **Ownership:** the identity domain owns the assurance projection
+  (`identityAssuranceService`) and the lifecycle expiry facts (additive `approved_at` +
+  `document_expiry` on the X3 service keep ONE deriver); domains own their events;
+  Communications owns policy/template/channel/preference/delivery.

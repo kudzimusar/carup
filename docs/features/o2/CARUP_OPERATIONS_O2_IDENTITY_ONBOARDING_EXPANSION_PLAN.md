@@ -667,6 +667,18 @@ decide.
 - Execution order is docs-first: the documentation gate commits before any product code.
 - The expansion sequence is now X0 · X1 · X2 · X3 · X4 · X5 · **X5A** · X6 · X7.
 
+## O2-X6 — Cross-Domain Identity Assurance + Communications Semantics (opened 2026-09-04)
+
+Docs-first, from head `fdeab872`. One derived, consumer-safe `identity_assurance.v1`
+projection (7C history + X3 lifecycle + honest freshness — derive, never copy; no
+`identity_verified` flags on domain profiles; the retired X1 tier model stays retired), plus
+the O2 semantic event catalogue for canonical Communications (domains emit; Communications
+owns delivery — O2 inventory-proven emit-only). Assurance ≠ authentication (X3 step-up
+untouched); assurance grants no Seller Authority, no Dealer Compliance, no Vehicle Trust.
+The catalogue manual's §10 X6 roll-call records assurance + Communications dispositions for
+all 32 stakeholders — the register X7 certifies. Plan:
+`CARUP_OPERATIONS_O2_X6_ASSURANCE_COMMUNICATIONS_PLAN.md`.
+
 ## Biometrics and consent (X4 design) — truthful scope
 
 Existing reality, recorded so nothing is oversold:

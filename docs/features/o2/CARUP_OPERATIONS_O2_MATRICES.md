@@ -198,3 +198,39 @@ profile · domain authority. Request-body/header role-like strings change nothin
 unavailable entries return honest reason codes (`service_network_reconciliation_required`,
 `dealer_activation_required`, `trade_profile_required`, …); tenant scoping fails closed; the
 template/export/import/recent-imports routes re-verify eligibility per call.
+
+## 13. X6 Assurance + Event Matrices (added 2026-09-04 — masters live in the X6 plan and catalogue §10)
+
+### 13.1 Assurance vocabulary (identity_assurance.v1)
+
+| Level | Meaning | Identity-gated actions |
+|---|---|---|
+| `not_established` | no approval history, nothing in flight | closed |
+| `pending` | an undecided verification session is in flight | closed |
+| `established` | effective lifecycle ∈ {verified, recovered} | open (X3 step-up still applies per action) |
+| `reverification_required` | reviewer transition or recorded document expiry | closed (fails closed); `historically_verified`+`verified_at` preserve history |
+| `unusable` | suspended / compromised / disputed / revoked | closed |
+
+Freshness: `not_applicable · no_expiry_recorded · within_recorded_validity · expired` — real
+facts only, unknown stays unknown. Assurance ≠ authentication; grants no Seller Authority /
+Dealer Compliance / Vehicle Trust / workbook escalation (all pinned).
+
+### 13.2 X6 event catalogue (additions; existing events never re-minted)
+
+| Event | Authoritative write | Thread | Notes |
+|---|---|---|---|
+| `identity.lifecycle.changed` | lifecycle ledger + audit | account | safe state/reason codes; `sessions_revoked` flag; NO reviewer note |
+| `dealer.compliance.evidence_required` | request_more_info decision | trust_safety | carries the BATCHED missing-requirements summary |
+| `seller.authority.superseded` | audit-first supersession | trust_safety | former seller finally informed |
+| `workbook.import.completed` | receipts + batch update | import | outcome + counts |
+| `dealer.compliance.decided` (existing) | compliance ledger | trust_safety | consumer wiring added; payload privacy-corrected (reviewer free text removed) |
+
+Declined (synchronous UI moments / covered elsewhere) and deferred (scheduler lane; biometric
+provider NOT ACTIVATED) dispositions: X6 plan, event catalogue section.
+
+### 13.3 Consumers
+
+registration journey (implemented) · dealer onboarding responsible person (implemented) ·
+operations people review additive block (implemented) · workbook eligibility (unchanged by
+policy; forged assurance inert, pinned) · seller lane (zero interpretation sites — contract
+recorded) · Service Network (DEFERRED, PR #197).

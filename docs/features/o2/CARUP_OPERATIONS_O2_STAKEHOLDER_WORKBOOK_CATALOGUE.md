@@ -429,3 +429,59 @@ is a potential future convenience over the same file — an integration, never a
   test fails by name until the registry (and this manual) covers it or records the intentional
   omission.
 - X6/X7 certification MUST enumerate §2 and state per-row what (if anything) changed.
+
+---
+
+## §10 X6 roll-call — identity assurance + Communications dispositions (added 2026-09-04; the register X7 certifies)
+
+Per §2 row, exactly one ASSURANCE disposition and one COMMS disposition. Vocabulary —
+ASSURANCE: `CONSUMER` (consumes the `identity_assurance.v1` projection — implemented or
+contract-recorded as noted) · `CONSUMER_CONDITIONAL` (consumes only for named higher-risk
+actions) · `NONE_TODAY` (human stakeholder, no identity-gated workflow yet) ·
+`NOT_APPLICABLE` (no human identity to project) · `DEFERRED(<dependency>)` ·
+`INTERNAL_READER` (reads others' assurance in governed review surfaces, never their own
+gate). COMMS: workflow names from `communicationStakeholderContracts` (regulated ⇒ marketing
+prohibited, AI draft-only) · `AUTH_ONLY` (account_holder authentication mail only) ·
+`INTERNAL` · `NONE` · `DEFERRED(<dependency>)`. X6 expands NO marketing eligibility.
+
+| # | Stakeholder | Assurance | Communications | Status | Dependency |
+|---|---|---|---|---|---|
+| 1 | Individual buyer (local) | CONSUMER_CONDITIONAL — finance/escrow-grade actions only; never for browsing | marketplace (buyer) + support + AUTH_ONLY; transactional | contract recorded | finance/escrow lanes adopt at their gates |
+| 2 | Private vehicle owner | CONSUMER — registration journey capability ladder | marketplace (seller) · garage (vehicle_owner) · AUTH_ONLY; transactional | IMPLEMENTED (registration consumer) | — |
+| 3 | Private seller | CONSUMER — journey surface; Seller Authority stays separate (pinned: assurance grants none) | marketplace (seller); `seller.authority.decided`/`.superseded` events | IMPLEMENTED (journey) + contract recorded (seller gates) | seller person-gate policy, if ever adopted |
+| 4 | Diaspora customer / sponsor | CONSUMER_CONDITIONAL — escrow/payment actions; trade-profile verification governs trade | diaspora_import (customer); transactional | contract recorded | diaspora lane adoption |
+| 5 | Dealer (applicant → active) | CONSUMER — responsible-person assurance on the application; Dealer Compliance separate (pinned) | dealer (dealer) + `dealer.compliance.decided`/`.evidence_required` events; transactional | IMPLEMENTED (dealer onboarding consumer + events) | activation path = PO dependency (§19) |
+| 6 | Overseas dealer | CONSUMER_CONDITIONAL — via verified diaspora seller profile; person assurance at escrow | diaspora_import; transactional | contract recorded | diaspora lane adoption |
+| 7 | Exporter | CONSUMER_CONDITIONAL — same model as #6 | diaspora_import; transactional | contract recorded | diaspora lane adoption |
+| 8 | Importer | CONSUMER_CONDITIONAL — same model | diaspora_import · container_logistics (customer) | contract recorded | diaspora lane adoption |
+| 9 | Garage | DEFERRED(SERVICE_NETWORK_RECONCILIATION_REQUIRED — PR #197): garage principal identity | garage (garage) — participant today; service events deferred | deferred | PR #197 |
+| 10 | Mechanic | DEFERRED(SERVICE_NETWORK_RECONCILIATION_REQUIRED): mechanic identity contract recorded | NONE today (no mechanic comms workflow) | deferred | PR #197 |
+| 11 | Parts seller | CONSUMER_CONDITIONAL — via supplier trade profile | parts (parts_seller); transactional | contract recorded | parts lane adoption |
+| 12 | Parts supplier | CONSUMER_CONDITIONAL — as #11 | parts (parts_seller) | contract recorded | parts lane adoption |
+| 13 | Insurer | NOT_APPLICABLE for own gate; CONSUMER_CONDITIONAL contract as a reader of the OWNER's assurance in future underwriting — provider decisions stay theirs | insurance (insurer) — REGULATED; marketing prohibited | contract recorded | provider-platform adoption |
+| 14 | Bank / lender | as #13 | finance (lender) — REGULATED; marketing prohibited | contract recorded | provider-platform adoption |
+| 15 | Payments / escrow provider | NOT_APPLICABLE (machine actor — no human projection invented) | NONE (webhooks/API) | closed | — |
+| 16 | Import coordinator | CONSUMER_CONDITIONAL — via verified coordinator profile | diaspora_import (import_coordinator) | contract recorded | diaspora lane adoption |
+| 17 | Logistics / shipping provider | NOT_APPLICABLE today (trade-profile verification governs) | container_logistics (logistics_provider) | contract recorded | — |
+| 18 | Container / cargo operator | folded into #17 | folded into #17 | closed | — |
+| 19 | Fleet / rental / corporate | DEFERRED(no fleet workflow authority) | NONE today | deferred | fleet lane |
+| 20 | Government institution / officer | NOT_APPLICABLE — officer authorization is role/capability, NEVER O2 customer identity verification (recorded law) | government_public_service (government_officer) — REGULATED | closed | — |
+| 21 | Referral / affiliate partner | NONE_TODAY (no identity-gated referral action) | referral (referrer/referred_user); marketing per referral-lane governance only | closed | — |
+| 22 | External API partner | NOT_APPLICABLE (machine) | NONE (partner API) | closed | — |
+| 23 | CarUp admin / internal operator | INTERNAL_READER — operations read models surface assurance of SUBJECTS (implemented: people review gains `identity_assurance`) | INTERNAL (support/admin side) | IMPLEMENTED (ops read model) | — |
+| 24 | `other` business | NONE_TODAY | AUTH_ONLY | closed | — |
+| 25 | Provider systems (webhook/system/ai) | NOT_APPLICABLE (machine — pinned never treated as human recipients) | NONE | closed | — |
+| 26 | Diaspora enterprise partner | CONSUMER_CONDITIONAL — via enterprise profile | diaspora_import · container_logistics | contract recorded | diaspora lane adoption |
+| 27 | Clearing agent | NOT_APPLICABLE today (participates via coordinator workflows) | via diaspora threads (participant) | closed | — |
+| 28 | Diaspora trade agent / company | CONSUMER_CONDITIONAL — via verified trade profile | diaspora_import | contract recorded | diaspora lane adoption |
+| 29 | Customs reviewer | INTERNAL_READER (review side) | INTERNAL | closed | — |
+| 30 | Admin sub-operators + reviewers | INTERNAL_READER | INTERNAL | closed | — |
+| 31 | `member` (null-role) / anonymous | NOT_APPLICABLE until registration establishes an account; then AUTH_ONLY | AUTH_ONLY once registered; anonymous NONE | closed | — |
+| 32 | Golden/staging fixtures | NOT_APPLICABLE (test identities) | NONE | closed | — |
+
+Reconciliation notes: comms workflow names and `regulated` flags are verbatim from
+`backend/services/communication/communicationStakeholderContractService.js` (insurance ·
+finance · government_public_service · trust_safety regulated ⇒ AI draft-only, marketing
+prohibited); the X6 events land on thread types `account` / `trust_safety` / `import` (all in
+the existing DB CHECK list); machine/internal rows (15, 22, 25, 29, 30, 32) must never resolve
+as human notification recipients (pinned).
