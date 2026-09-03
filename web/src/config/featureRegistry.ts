@@ -262,6 +262,13 @@ export interface FeatureRegistryItem {
   immutableRoles?: UserRole[]
   /** Owning team, for governance attribution. */
   owner?: string
+  /**
+   * Operations M6: optional sidebar section for dashboard navigation. Items
+   * sharing a group render under one labelled section (order of first
+   * appearance); ungrouped items render before any group. Presentation only —
+   * never an access control.
+   */
+  sidebarGroup?: string
   /** When deprecated, the route a deprecation redirect should target. */
   deprecatedTo?: string
 }
@@ -669,6 +676,7 @@ export const FEATURE_REGISTRY: FeatureRegistryItem[] = [
     placements: ['dashboard_sidebar'],
     requiresAuth: true,
     icon: 'ShieldAlert',
+    sidebarGroup: 'Platform',
     description: 'Inspect the Feature Registry and manage runtime rollout overrides',
     owner: 'platform',
   },
@@ -681,6 +689,7 @@ export const FEATURE_REGISTRY: FeatureRegistryItem[] = [
     placements: ['dashboard_sidebar'],
     requiresAuth: true,
     icon: 'UserCog',
+    sidebarGroup: 'People',
   },
   {
     id: 'admin.ai',
@@ -691,6 +700,7 @@ export const FEATURE_REGISTRY: FeatureRegistryItem[] = [
     placements: ['dashboard_sidebar'],
     requiresAuth: true,
     icon: 'Brain',
+    sidebarGroup: 'Platform',
   },
   {
     id: 'admin.moderation',
@@ -701,6 +711,7 @@ export const FEATURE_REGISTRY: FeatureRegistryItem[] = [
     placements: ['dashboard_sidebar'],
     requiresAuth: true,
     icon: 'ShieldAlert',
+    sidebarGroup: 'Marketplace',
   },
   {
     id: 'admin.evidence',
@@ -711,6 +722,22 @@ export const FEATURE_REGISTRY: FeatureRegistryItem[] = [
     placements: ['dashboard_sidebar'],
     requiresAuth: true,
     icon: 'FileText',
+    sidebarGroup: 'Vehicles & Trust',
+  },
+  {
+    // Operations Control Plane M4 — VIN-centered reviewer workspace. A
+    // parameterized route cannot be a sidebar link; it is reached from the
+    // Evidence Review queue (per-vehicle "Open Vehicle Operations" link).
+    id: 'admin.vehicle-operations',
+    label: 'Vehicle Operations',
+    route: '/admin/vehicles/:vin/review',
+    domain: 'evidence',
+    roles: ['admin'],
+    placements: [],
+    requiresAuth: true,
+    icon: 'ClipboardList',
+    sidebarGroup: 'Vehicles & Trust',
+    description: 'Composed reviewer workspace: evidence classification, seller authority, registration readiness, trust/governance/risk context and the publication requirement matrix for one vehicle.',
   },
   {
     id: 'admin.verification',
@@ -721,6 +748,7 @@ export const FEATURE_REGISTRY: FeatureRegistryItem[] = [
     placements: ['dashboard_sidebar'],
     requiresAuth: true,
     icon: 'FileSearch',
+    sidebarGroup: 'People',
     description: 'Identity verification case management: review, approve, request resubmission, reject, and escalate.',
   },
   {
@@ -732,6 +760,7 @@ export const FEATURE_REGISTRY: FeatureRegistryItem[] = [
     placements: ['dashboard_sidebar'],
     requiresAuth: true,
     icon: 'CheckCircle',
+    sidebarGroup: 'Vehicles & Trust',
   },
   // The next four routes were declared in App.tsx but never registered, so the
   // access boundary bounced even correctly-authenticated admins to /login.
@@ -744,9 +773,10 @@ export const FEATURE_REGISTRY: FeatureRegistryItem[] = [
     route: '/admin/fraud-queue',
     domain: 'trust',
     roles: ['admin'],
-    placements: [],
+    placements: ['dashboard_sidebar'],
     requiresAuth: true,
     icon: 'ShieldAlert',
+    sidebarGroup: 'Vehicles & Trust',
     description: 'Review and resolve open fraud cases',
   },
   {
@@ -755,9 +785,10 @@ export const FEATURE_REGISTRY: FeatureRegistryItem[] = [
     route: '/admin/dealer-compliance',
     domain: 'admin',
     roles: ['admin'],
-    placements: [],
+    placements: ['dashboard_sidebar'],
     requiresAuth: true,
     icon: 'Building2',
+    sidebarGroup: 'People',
     description: 'Dealer verification and compliance decisions',
   },
   {
@@ -766,9 +797,10 @@ export const FEATURE_REGISTRY: FeatureRegistryItem[] = [
     route: '/admin/governance-review',
     domain: 'trust',
     roles: ['admin'],
-    placements: [],
+    placements: ['dashboard_sidebar'],
     requiresAuth: true,
     icon: 'ClipboardList',
+    sidebarGroup: 'Vehicles & Trust',
     description: 'Governance review queue and decisions',
   },
   {
@@ -791,6 +823,7 @@ export const FEATURE_REGISTRY: FeatureRegistryItem[] = [
     placements: ['dashboard_sidebar'],
     requiresAuth: true,
     icon: 'Tag',
+    sidebarGroup: 'Growth & Diaspora',
     description: 'Create and manage referral campaigns',
   },
   {
@@ -802,6 +835,7 @@ export const FEATURE_REGISTRY: FeatureRegistryItem[] = [
     placements: ['dashboard_sidebar'],
     requiresAuth: true,
     icon: 'Tag',
+    sidebarGroup: 'Growth & Diaspora',
     description: 'Codes, coupons, and share assets',
   },
   {
@@ -813,6 +847,7 @@ export const FEATURE_REGISTRY: FeatureRegistryItem[] = [
     placements: ['dashboard_sidebar'],
     requiresAuth: true,
     icon: 'Users',
+    sidebarGroup: 'Growth & Diaspora',
     description: 'Local marketplace referral leads',
   },
   {
@@ -824,6 +859,7 @@ export const FEATURE_REGISTRY: FeatureRegistryItem[] = [
     placements: ['dashboard_sidebar'],
     requiresAuth: true,
     icon: 'MapPin',
+    sidebarGroup: 'Growth & Diaspora',
     description: 'Import routes, capacity, and container-space',
   },
   {
@@ -835,6 +871,7 @@ export const FEATURE_REGISTRY: FeatureRegistryItem[] = [
     placements: ['dashboard_sidebar'],
     requiresAuth: true,
     icon: 'BookOpen',
+    sidebarGroup: 'Growth & Diaspora',
     description: 'AI marketing assets, review and publish workflow',
   },
   {
@@ -846,6 +883,7 @@ export const FEATURE_REGISTRY: FeatureRegistryItem[] = [
     placements: ['dashboard_sidebar'],
     requiresAuth: true,
     icon: 'ShieldAlert',
+    sidebarGroup: 'Growth & Diaspora',
     description: 'Risk checks, review cases, disputes, and audit',
   },
   {
@@ -857,6 +895,7 @@ export const FEATURE_REGISTRY: FeatureRegistryItem[] = [
     placements: ['dashboard_sidebar'],
     requiresAuth: true,
     icon: 'MessageSquare',
+    sidebarGroup: 'Communications',
     badge: 'SLA',
     description: 'Omnichannel inbox, assignment, human handoff, and delivery recovery',
   },
@@ -1425,6 +1464,22 @@ export function getDashboardItems(role: UserRole): FeatureRegistryItem[] {
   return FEATURE_REGISTRY.filter(
     f => f.roles.includes(role) && f.placements.includes('dashboard_sidebar')
   )
+}
+
+/**
+ * Operations M5/M6 — platform-authority compatibility. The backend recognizes
+ * `platform_admin` and `super_admin` as platform authority ABOVE `admin`
+ * (authMiddleware PLATFORM_ADMIN_ROLES), but the shared UserRole cannot
+ * represent them, so the frontend used to bounce a valid platform authority to
+ * the OWNER dashboard. Until stakeholder identity and operating capability are
+ * separated in the shared model, the frontend deliberately routes those roles
+ * AS `admin`. Presentation/routing compatibility only — every privileged call
+ * is still authorized server-side against the real platform role.
+ */
+export function normalizeFrontendRole(role: string | null | undefined): UserRole | null {
+  if (!role) return null
+  if (role === 'platform_admin' || role === 'super_admin') return 'admin'
+  return role as UserRole
 }
 
 /** Find a registered feature by its stable id. */

@@ -252,6 +252,20 @@
     "betaCapable": true
   },
   {
+    "id": "admin.vehicle-operations",
+    "domain": "evidence",
+    "route": "/admin/vehicles/:vin/review",
+    "defaultLifecycle": "active",
+    "defaultRoles": [
+      "admin"
+    ],
+    "immutableRoles": [
+      "admin"
+    ],
+    "requiresAuth": true,
+    "betaCapable": true
+  },
+  {
     "id": "admin.verification",
     "domain": "trust",
     "route": "/admin/verification",

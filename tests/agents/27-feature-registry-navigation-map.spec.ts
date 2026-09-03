@@ -148,12 +148,19 @@ test.describe('Feature Registry & Navigation Map', () => {
       // registry rather than hand-added: it is the only entry added versus main, and the registry
       // carries no duplicate feature id, so this is one new surface and not a second registration
       // of an existing one.
+      // Recomputed 2026-09-03 (Operations Control Plane M6): Fraud Queue, Dealer
+      // Compliance and Governance Review were REAL admin consoles with
+      // placements: [] — reachable only by typing the URL. M6 restores their
+      // dashboard_sidebar placement (admin 29 -> 32). The new Vehicle Operations
+      // workspace registers with placements: [] on purpose (a parameterized
+      // /admin/vehicles/:vin/review route cannot be a sidebar link) so it does
+      // not move this count. No other role moves.
       expect(result.roleItemCounts['owner']).toBe(21);
       expect(result.roleItemCounts['dealer']).toBe(16);
       expect(result.roleItemCounts['mechanic']).toBe(5);
       expect(result.roleItemCounts['insurance']).toBe(4);
       expect(result.roleItemCounts['government']).toBe(14);
-      expect(result.roleItemCounts['admin']).toBe(29);
+      expect(result.roleItemCounts['admin']).toBe(32);
       expect(result.roleItemCounts['bank']).toBe(4);
 
       // Dashboard routes are valid

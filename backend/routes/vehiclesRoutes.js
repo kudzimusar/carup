@@ -22,13 +22,13 @@ import { uploadToStorage, generateSecureReadUrl } from '../services/storage/stor
 import { refreshCanonicalTrust } from '../services/trustDecision/canonicalTrustService.js';
 import {
   buildAiReadyMetadata,
-  canUploadEvidence,
+  canUploadEvidenceRecord,
   checksumForBuffer,
-  documentEvidenceTypes,
   evidenceStatusTrustImpact,
   evidenceToTimelineItem,
   evidenceTypeLabel,
-  isDocumentEvidence,
+  isDocumentUpload,
+  resolveEvidenceVisibility,
   isSupportedMimeType,
   normalizeEvidenceRecord,
   parseBase64Payload,
@@ -39,7 +39,29 @@ import {
   recordEvidenceUploadProvenance,
   runAiAnalysis,
 } from '../services/evidence/evidenceService.js';
+import {
+  semanticClassificationLabel,
+  isSellerAuthorityCandidateRow,
+} from '../services/evidence/evidenceTaxonomy.js';
+import {
+  submitSellerClaim,
+  reviewSellerAuthority,
+  getSellerAuthorityState,
+  toPublicSellerAuthorityStatement,
+  SellerAuthorityError,
+  SELLER_AUTHORITY_CLAIM_EVENT as SELLER_AUTHORITY_CLAIM_EVENT_NAME,
+} from '../services/seller/sellerAuthorityService.js';
+import {
+  correctEvidenceClassification,
+  ClassificationCorrectionError,
+} from '../services/evidence/evidenceClassificationCorrectionService.js';
 import { withUploadIdempotency } from '../services/evidence/uploadIdempotency.js';
+import { emitDomainEvent } from '../services/eventBus/eventBusService.js';
+import {
+  OPERATIONS_CAPABILITIES,
+  hasOperationsCapability,
+  requireOperationsCapability,
+} from '../services/operations/operationsAuthorizationService.js';
 import { getSourceByCode } from '../services/evidence/sourceRegistryService.js';
 import { evaluateCompleteness } from '../services/evidence/completenessEvaluator.js';
 import { notifyEvidenceReviewDecided } from '../services/evidence/evidenceReviewNotifier.js';
@@ -56,22 +78,13 @@ import {
 
 const router = express.Router();
 
-const SELLER_AUTHORITY_CLAIM_EVENT = 'SELLER_AUTHORITY_CLAIM_REQUESTED';
-const SELLER_AUTHORITY_EVIDENCE_TYPES = new Set(['registration_document', 'ownership_transfer_document']);
-
-async function hasVerifiedSellerAuthorityEvidence(vin, userId) {
-  if (!vin || !userId) return false;
-  const { data, error } = await supabase
-    .from('vehicle_evidence')
-    .select('id')
-    .eq('vin', vin)
-    .eq('uploaded_by', userId)
-    .eq('verification_status', 'verified')
-    .in('evidence_type', Array.from(SELLER_AUTHORITY_EVIDENCE_TYPES))
-    .limit(1);
-  if (error) throw new DatabaseError(`Failed to read Seller authority evidence: ${error.message}`);
-  return Boolean(data?.length);
-}
+// Seller Authority is governed by the canonical service (Operations M2):
+// backend/services/seller/sellerAuthorityService.js. The claim event name and
+// the claimant upload bypass below preserve the historical contract; evidence
+// semantics are canonical-aware (M1) — a verified ownership/registration
+// DOCUMENT or the permanent-import purchase-chain set, never an arbitrary row
+// whose legacy field happens to say 'registration_document'.
+const SELLER_AUTHORITY_CLAIM_EVENT = SELLER_AUTHORITY_CLAIM_EVENT_NAME;
 
 async function latestSellerAuthorityClaim(vin, userId) {
   if (!vin || !userId) return null;
@@ -239,7 +252,18 @@ router.post('/api/vehicles/:vin/publish', authorizeRole(['owner', 'dealer', 'adm
       pending_gaps: completeness.pending_gaps ?? [],
       requirements: (completeness.requirements ?? [])
         .filter((r) => r.blocking)
-        .map((r) => ({ key: r.key, label: r.label, status: r.status, blocking: true })),
+        // Operations M3: `who_must_act` / `refusal_category` let the refusal
+        // distinguish missing-from-seller, awaiting CarUp review, awaiting an
+        // external authority, conflict and policy blocks. Still labels and
+        // statuses only — no reviewer identity, file path or storage locator.
+        .map((r) => ({
+          key: r.key,
+          label: r.label,
+          status: r.status,
+          blocking: true,
+          ...(r.who_must_act ? { who_must_act: r.who_must_act } : {}),
+          ...(r.refusal_category ? { refusal_category: r.refusal_category } : {}),
+        })),
       completeness_percent: completeness.completeness_percent ?? null,
     });
   }
@@ -249,6 +273,24 @@ router.post('/api/vehicles/:vin/publish', authorizeRole(['owner', 'dealer', 'adm
     .update({ publication_status: 'published' })
     .eq('vin', vin);
   if (error) throw new DatabaseError(error.message);
+
+  // Publication is the moment CarUp asserts a public position, so it is where the derived position
+  // must be made current. Without this, a listing goes public carrying a Trust conclusion computed
+  // BEFORE its present facts: the real UAT vehicle GFC27-027051 published
+  // "Zimbabwe registration stage has not been established from a recorded claim" while its own
+  // claim block simultaneously reported the stage as recorded from a seller declaration. One
+  // payload, two contradictory sentences, because the stamp predated the stage being recorded.
+  //
+  // This invents nothing and reviews nothing. refreshCanonicalTrust is the single canonical writer
+  // (INV-TRUST-2) and recomputes ONLY the derived stamp from facts already recorded by governed
+  // paths. It is deliberately best-effort and placed AFTER the state change, exactly as at evidence
+  // review: the publication decision is the durable fact, the stamp is derived and can always be
+  // re-materialized, so a refresh failure must never refuse a legitimate publication.
+  try {
+    await refreshCanonicalTrust(vin);
+  } catch (trustError) {
+    console.warn('[Trust] publication refresh failed:', trustError?.message || trustError);
+  }
 
   auditPublicationChange(req, vin, 'VEHICLE_LISTING_PUBLISHED', vehicle.publication_status, 'published');
   emitListingPublished({
@@ -347,76 +389,138 @@ router.patch('/api/vehicles/:vin/price', authorizeRole(['owner', 'dealer', 'admi
 
 // --- SELLER → EXISTING PASSPORT AUTHORITY HANDOFF ---
 // One VIN has one Passport. Encountering an existing VIN never permits a second vehicle row.
+// Governed by the canonical sellerAuthorityService (Operations M2): recognition
+// never rewrites ownership, claims are idempotent and audited fail-closed, and
+// the evidence shortcut is canonical-aware.
 router.post('/api/vehicles/:vin/seller-claim', authorizeRole(['owner', 'dealer']), asyncHandler(async (req, res) => {
   const vin = String(req.params.vin || '').trim().toUpperCase();
   const claimType = String(req.body?.claim_type || '').trim().toLowerCase();
-  if (!['owner', 'authorised_seller'].includes(claimType)) {
-    throw new ValidationError("claim_type must be 'owner' or 'authorised_seller'.");
+
+  let result;
+  try {
+    result = await submitSellerClaim(supabase, {
+      vin,
+      claimType,
+      userContext: req.userContext,
+      requestContext: {
+        requestId: req.requestId || req.headers['x-request-id'] || null,
+        sourceRoute: '/api/vehicles/:vin/seller-claim',
+        ipAddress: req.ip || null,
+        userAgent: req.headers['user-agent'] || null,
+      },
+    });
+  } catch (err) {
+    if (err instanceof SellerAuthorityError) {
+      if (err.code === 'SELLER_AUTHORITY_CLAIM_INVALID') throw new ValidationError(err.message);
+      if (err.code === 'SELLER_AUTHORITY_VEHICLE_NOT_FOUND') throw new NotFoundError(err.message);
+      throw new DatabaseError(err.message);
+    }
+    throw err;
   }
 
-  const { data: vehicle, error } = await supabase
-    .from('vehicles')
-    .select('vin, owner_id, current_seller_id, tenant_id')
-    .eq('vin', vin)
-    .maybeSingle();
-  if (error) throw new DatabaseError(error.message);
-  if (!vehicle) throw new NotFoundError('Vehicle Passport not found.');
+  if (result.status === 'recognized') {
+    return res.json({ success: true, ...result });
+  }
+  return res.status(202).json({ success: true, ...result });
+}));
 
-  const recognized =
-    vehicle.owner_id === req.userContext.id
-    || (vehicle.current_seller_id && vehicle.current_seller_id === req.userContext.id)
-    || (vehicle.tenant_id && req.userContext.tenantId && vehicle.tenant_id === req.userContext.tenantId);
+// --- SELLER AUTHORITY STATE (Operations M2) ---
+// A reviewer (admin/government — capability-bounded from M5) may inspect any
+// seller's authority state; everyone else sees only their own.
+router.get('/api/vehicles/:vin/seller-authority', authorizeRole(), asyncHandler(async (req, res) => {
+  const vin = String(req.params.vin || '').trim().toUpperCase();
+  const isReviewer = ['admin', 'government'].includes(req.userContext.role);
+  const requestedSellerId = String(req.query.seller_user_id || '').trim() || null;
+  const sellerUserId = isReviewer && requestedSellerId ? requestedSellerId : req.userContext.id;
+  if (!isReviewer && requestedSellerId && requestedSellerId !== req.userContext.id) {
+    throw new ForbiddenError('You may only view your own seller authority state.');
+  }
 
-  const reviewedAuthority = recognized
-    ? true
-    : await hasVerifiedSellerAuthorityEvidence(vin, req.userContext.id);
-
-  if (recognized || reviewedAuthority) {
+  try {
+    const state = await getSellerAuthorityState(supabase, {
+      vin,
+      sellerUserId,
+      sellerTenantId: sellerUserId === req.userContext.id ? (req.userContext.tenantId || null) : null,
+    });
     return res.json({
       success: true,
-      status: 'recognized',
       vin,
-      claim_type: claimType,
-      recognition_basis: recognized ? 'existing_relationship' : 'governed_verified_evidence',
+      seller_user_id: sellerUserId,
+      status: state.status,
+      basis: state.basis,
+      claim_type: state.claim_type,
+      evidence_ids: state.evidence_ids,
+      policy_version: state.policy_version,
+      decided_at: state.decided_at,
+      // Reviewer-only attribution; a seller does not need the reviewer's identity.
+      ...(isReviewer ? { decided_by: state.decided_by, reason: state.reason } : {}),
+      public_statement: toPublicSellerAuthorityStatement(state),
     });
-  }
-
-  const existingClaim = await latestSellerAuthorityClaim(vin, req.userContext.id);
-  if (!existingClaim) {
-    const audit = await logAuditEvent(supabase, {
-      req,
-      event_type: SELLER_AUTHORITY_CLAIM_EVENT,
-      vin,
-      targetType: 'vehicle_seller_authority',
-      targetId: `${vin}:${req.userContext.id}`,
-      actor_user_id: req.userContext.id,
-      actor_role: req.userContext.role,
-      actor_tenant_id: req.userContext.tenantId,
-      source_route: '/api/vehicles/:vin/seller-claim',
-      new_value: { state: 'evidence_required', claim_type: claimType },
-      reason: 'Seller confirmed an existing Passport and requested authority to sell it.',
-    });
-    if (!audit?.success) {
-      throw new DatabaseError(audit?.error || 'Seller authority claim could not be recorded.');
+  } catch (err) {
+    if (err instanceof SellerAuthorityError) {
+      return res.status(err.status).json({ success: false, error: err.message, code: err.code });
     }
+    throw err;
   }
+}));
 
-  return res.status(202).json({
-    success: true,
-    status: 'evidence_required',
-    vin,
-    claim_type: claimType,
-    next_action: 'upload_registration_or_ownership_transfer_evidence',
-  });
+// --- GOVERNED SELLER AUTHORITY REVIEW DECISION (Operations M2) ---
+// Reviewer roles mirror evidence verify/reject; the M5 Operations capability
+// policy enforces the bounded capability and a proven session on top.
+// No self-approval; audited fail-closed in the service.
+router.post(
+  '/api/vehicles/:vin/seller-authority/review',
+  authorizeRole(['admin', 'government'], { allowUserIdFallback: false }),
+  requireOperationsCapability(OPERATIONS_CAPABILITIES.SELLER_AUTHORITY_REVIEW),
+  asyncHandler(async (req, res) => {
+  const vin = String(req.params.vin || '').trim().toUpperCase();
+  const sellerUserId = String(req.body?.seller_user_id || '').trim();
+  if (!sellerUserId) throw new ValidationError('seller_user_id is required');
+
+  try {
+    const result = await reviewSellerAuthority(supabase, {
+      vin,
+      sellerUserId,
+      sellerTenantId: req.body?.seller_tenant_id || null,
+      decision: String(req.body?.decision || '').trim(),
+      reason: req.body?.reason,
+      actor: {
+        id: req.userContext.id,
+        role: req.userContext.role,
+        tenantId: req.userContext.tenantId || null,
+      },
+      requestContext: {
+        requestId: req.requestId || req.headers['x-request-id'] || null,
+        sourceRoute: '/api/vehicles/:vin/seller-authority/review',
+        ipAddress: req.ip || null,
+        userAgent: req.headers['user-agent'] || null,
+      },
+    });
+
+    // Tell the seller through the canonical notification fabric (best-effort:
+    // the decision is already durable + audited). Safe payload only — the
+    // public decision wording, never reviewer identity or restricted evidence.
+    emitDomainEvent(null, 'seller.authority.decided', {
+      vin,
+      recipientUserId: sellerUserId,
+      decision: result.public_statement,
+      listingId: vin,
+    }, req.userContext.tenantId || null).catch((err) => {
+      console.warn('[seller-authority] outbox emit failed:', err.message);
+    });
+
+    return res.json({ success: true, ...result });
+  } catch (err) {
+    if (err instanceof SellerAuthorityError) {
+      return res.status(err.status).json({ success: false, error: err.message, code: err.code });
+    }
+    throw err;
+  }
 }));
 
 // --- PASSPORT EVIDENCE ARCHITECTURE ROUTING ---
 
 const allowedVisibilities = ['public_safe', 'restricted', 'private', 'government_only'];
-
-function evidenceDefaultVisibility(evidenceType) {
-  return documentEvidenceTypes.includes(evidenceType) ? 'restricted' : 'public_safe';
-}
 
 function sanitizeFileExtension(mimeType) {
   const ext = String(mimeType || '').split('/')[1] || 'bin';
@@ -471,25 +575,59 @@ async function insertEvidenceFromRequest(req, vin, { requireVehicleId = false } 
   const activeUserId = req.userContext.id;
   const activeTenantId = req.userContext.tenantId;
 
-  if (!canUploadEvidence(normalized.evidenceType, activeRole)) {
-    throw new ForbiddenError(`Forbidden. Role '${activeRole}' is not authorized to upload '${normalized.evidenceType}'`);
+  if (!canUploadEvidenceRecord(normalized, activeRole)) {
+    const label = normalized.explicitCanonical
+      ? `${normalized.evidenceClass}/${normalized.evidenceSubtype}`
+      : normalized.evidenceType;
+    throw new ForbiddenError(`Forbidden. Role '${activeRole}' is not authorized to upload '${label}'`);
   }
 
   try {
     assertEvidenceOwnershipScope(vehicle, req.userContext);
   } catch (scopeError) {
-    const claim = SELLER_AUTHORITY_EVIDENCE_TYPES.has(normalized.evidenceType)
+    // A claimant may contribute ONLY documents that can prove seller authority:
+    // ownership/registration documents or the permanent-import purchase chain
+    // (canonical semantics, Operations M2). This does not change
+    // vehicles.owner_id or grant general owner evidence access.
+    const isAuthorityCandidate = isSellerAuthorityCandidateRow({
+      evidence_type: normalized.evidenceType,
+      evidence_class: normalized.evidenceClass,
+      evidence_subtype: normalized.evidenceSubtype,
+    });
+    const claim = isAuthorityCandidate
       ? await latestSellerAuthorityClaim(vin, activeUserId)
       : null;
     if (!claim) throw scopeError;
-    // A claimant may contribute only the restricted documents needed to prove seller authority.
-    // This does not change vehicles.owner_id or grant general owner evidence access.
   }
 
-  const visibilityLevel = req.body.visibility_level || req.body.visibilityLevel || evidenceDefaultVisibility(normalized.evidenceType);
-  if (!allowedVisibilities.includes(visibilityLevel)) {
-    throw new ValidationError(`Invalid visibility level: ${visibilityLevel}`);
+  const requestedVisibility = req.body.visibility_level || req.body.visibilityLevel || null;
+  if (requestedVisibility && !allowedVisibilities.includes(requestedVisibility)) {
+    throw new ValidationError(`Invalid visibility level: ${requestedVisibility}`);
   }
+
+  // Canonical-aware default: any document artifact (canonical subtype flag or legacy document type)
+  // defaults to restricted; photos default public_safe.
+  //
+  // Publishing a source document is a GOVERNED decision, not an uploader preference. That default
+  // was never a control: the request body won outright, so an uploader could hand back
+  // 'public_safe' for a document the taxonomy had just defaulted to restricted — and the web
+  // uploader did exactly that, initialising the field to 'public_safe' for every artifact. The real
+  // Serena's Tanzania T1 reached staging published that way, from a provenance chain whose only
+  // event is the owner's own upload. No reviewer ever made that publication decision, which is
+  // precisely the seller self-certification §3.11/G7 forbid. A client-side default is not a control;
+  // the server has to be the one that decides.
+  //
+  // The rule is one-directional. Requesting a MORE restrictive level than the server default is
+  // always honoured — withholding more is never a privacy risk. Requesting a MORE public one is
+  // honoured only for an actor holding the evidence-review capability, which no seller has. Anyone
+  // else is clamped back to the default rather than refused, because the artifact itself is
+  // legitimate and losing the upload would punish the seller for a client's choice; the refusal is
+  // recorded on the row instead, so it is visible to review rather than silent.
+  const { visibility: visibilityLevel, refused: visibilityRefused } = resolveEvidenceVisibility({
+    requested: requestedVisibility,
+    isDocument: isDocumentUpload(normalized),
+    mayPublish: hasOperationsCapability(req.userContext, OPERATIONS_CAPABILITIES.VEHICLE_EVIDENCE_REVIEW),
+  });
 
   let mimeType = req.body.mime_type || req.body.mimeType || null;
   let fileBuffer = null;
@@ -516,7 +654,7 @@ async function insertEvidenceFromRequest(req, vin, { requireVehicleId = false } 
     filePath = `${vin.toUpperCase()}/${normalized.evidenceType}_${randomString}.${fileExt}`;
 
     const isPrivate = ['private', 'restricted', 'government_only'].includes(visibilityLevel);
-    bucketName = (isDocumentEvidence(normalized.evidenceType) || isPrivate) ? 'ocr-documents' : 'vehicle-images';
+    bucketName = (isDocumentUpload(normalized) || isPrivate) ? 'ocr-documents' : 'vehicle-images';
     const uploadResult = await uploadToStorage(bucketName, filePath, fileBuffer, mimeType);
     fileUrl = uploadResult;
   } else if (!isSupportedMimeType(mimeType)) {
@@ -573,7 +711,7 @@ async function insertEvidenceFromRequest(req, vin, { requireVehicleId = false } 
   // The bucket is a server decision, not a caller assertion: letting a caller name `ocr-documents`
   // is what turns a public-image create into a private-document reference the read path will sign.
   if (bucketName) {
-    const expectedBucket = (isDocumentEvidence(normalized.evidenceType)
+    const expectedBucket = (isDocumentUpload(normalized)
       || ['private', 'restricted', 'government_only'].includes(visibilityLevel))
       ? 'ocr-documents'
       : 'vehicle-images';
@@ -601,6 +739,17 @@ async function insertEvidenceFromRequest(req, vin, { requireVehicleId = false } 
     req.headers['idempotency-key'] || req.headers['x-idempotency-key'] ||
     req.body.idempotency_key || req.body.idempotencyKey || null;
   if (clientIdempotencyKey) metadata.idempotency_key = clientIdempotencyKey;
+
+  // A clamped publication request is recorded, never silently dropped: review needs to see that an
+  // uploader asked for a wider audience than their authority allows, and a stale client that keeps
+  // asking should be visible rather than invisible.
+  if (visibilityRefused) {
+    metadata.visibility_request_refused = {
+      requested: requestedVisibility,
+      applied: visibilityLevel,
+      reason: 'publishing a source document is a governed decision; uploader lacks evidence review capability',
+    };
+  }
 
   // Milestone 1: resolve the source registry entry (best-effort) and compute the
   // taxonomy + provenance columns (perceptual hash, event date, odometer, etc.).
@@ -633,7 +782,7 @@ async function insertEvidenceFromRequest(req, vin, { requireVehicleId = false } 
     event_type: normalized.eventType || req.body.event_source || req.body.eventSource || normalized.evidenceType,
     evidence_type: normalized.evidenceType,
     file_url: fileUrl,
-    storage_bucket: bucketName || (isDocumentEvidence(normalized.evidenceType) ? 'ocr-documents' : 'vehicle-images'),
+    storage_bucket: bucketName || (isDocumentUpload(normalized) ? 'ocr-documents' : 'vehicle-images'),
     file_path: filePath || fileUrl,
     mime_type: mimeType,
     file_size: fileSize,
@@ -916,7 +1065,7 @@ router.get('/api/vehicles/:vin/evidence/timeline', asyncHandler(async (req, res)
 
     // `evidenceToTimelineItem` is shared with authorised callers, so it is sanitised HERE rather
     // than narrowed for everyone.
-    event.desc = `${evidenceTypeLabel(item.evidence_type)} reviewed and verified by CarUp`;
+    event.desc = `${(item.evidence_class && semanticClassificationLabel(item)) || evidenceTypeLabel(item.evidence_type)} reviewed and verified by CarUp`;
     event.details = {
       capturedAt: item.captured_at,
       uploadedAt: item.uploaded_at,
@@ -1151,6 +1300,50 @@ router.patch('/api/vehicles/:vin/evidence/:evidenceId/reject', authorizeRole(['a
   });
 
   res.json({ success: true, evidence: normalizeEvidenceRecord(updated) });
+}));
+
+// PATCH: Governed classification correction (Operations Control Plane M1).
+// Corrects ONLY the canonical evidence_class/evidence_subtype through the
+// bounded, audited service — never an arbitrary field PATCH. Reviewer roles
+// mirror verify/reject; the M5 Operations capability policy enforces the
+// bounded capability and a proven session on top.
+router.patch(
+  '/api/vehicles/:vin/evidence/:evidenceId/classification',
+  authorizeRole(['admin', 'government'], { allowUserIdFallback: false }),
+  requireOperationsCapability(OPERATIONS_CAPABILITIES.VEHICLE_EVIDENCE_CLASSIFY),
+  asyncHandler(async (req, res) => {
+  const vin = String(req.params.vin || '').trim().toUpperCase();
+  const { evidenceId } = req.params;
+  try {
+    const result = await correctEvidenceClassification(supabase, {
+      vin,
+      evidenceId,
+      evidenceClass: req.body.evidence_class || req.body.evidenceClass,
+      evidenceSubtype: req.body.evidence_subtype || req.body.evidenceSubtype,
+      // Optional. Correcting what a record IS and correcting how widely it is published are the
+      // same governed act over the same row, so they share one reason, one audit event and one
+      // history entry rather than needing a second endpoint.
+      visibilityLevel: req.body.visibility_level || req.body.visibilityLevel || null,
+      reason: req.body.reason,
+      actor: {
+        id: req.userContext.id,
+        role: req.userContext.role,
+        tenantId: req.userContext.tenantId || null,
+      },
+      requestContext: {
+        requestId: req.requestId || req.headers['x-request-id'] || null,
+        sourceRoute: '/api/vehicles/:vin/evidence/:evidenceId/classification',
+        ipAddress: req.ip || null,
+        userAgent: req.headers['user-agent'] || null,
+      },
+    });
+    return res.json({ success: true, ...result });
+  } catch (err) {
+    if (err instanceof ClassificationCorrectionError) {
+      return res.status(err.status).json({ success: false, error: err.message, code: err.code });
+    }
+    throw err;
+  }
 }));
 
 // PATCH: Link Evidence to Event

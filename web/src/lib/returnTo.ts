@@ -5,7 +5,7 @@
  * `/login?returnTo=<path>` and, after a successful login, send them back. The returnTo value comes
  * from the URL, so it MUST be validated as a safe internal path to avoid open-redirect attacks.
  */
-import { getDashboardRoute as getRegistryDashboardRoute } from '@/config/featureRegistry'
+import { getDashboardRoute as getRegistryDashboardRoute, normalizeFrontendRole } from '@/config/featureRegistry'
 import type { UserRole } from '@shared/types'
 
 
@@ -38,9 +38,10 @@ export function buildLoginRedirect(fullPath: string): string {
   return `/login?returnTo=${encodeURIComponent(fullPath)}`
 }
 
-/** Map a user role to its default dashboard route. */
+/** Map a user role to its default dashboard route. Backend platform_admin /
+ * super_admin route as admin (Operations M6 compatibility). */
 export function getDashboardRoute(role: string): string {
-  return getRegistryDashboardRoute(role as UserRole)
+  return getRegistryDashboardRoute(normalizeFrontendRole(role) ?? (role as UserRole))
 }
 
 /**

@@ -128,6 +128,19 @@ export const NOTIFICATION_POLICIES = Object.freeze({
     transactional: true,
   },
 
+  // Operations M2 — governed Seller Authority review outcome for the seller.
+  'seller.authority.decided': {
+    notificationType: 'seller_authority',
+    threadType: 'trust_safety',
+    priority: 'normal',
+    channels: ['in_app'],
+    fallbackChannels: [],
+    policyChannelsOnly: true,
+    templateKey: 'seller_authority_v1',
+    classification: 'transactional',
+    transactional: true,
+  },
+
   // R4 — SafeTrade / marketplace transaction stages.
   //
   // These are REAL canonical events, emitted by `issue164_transition_session_atomic` into

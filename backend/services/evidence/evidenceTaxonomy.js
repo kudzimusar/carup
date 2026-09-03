@@ -137,6 +137,194 @@ export const LEGACY_TYPE_TO_CLASS = Object.freeze({
 
 export const LEGACY_EVIDENCE_TYPES = Object.freeze(Object.keys(LEGACY_TYPE_TO_CLASS));
 
+/**
+ * Generic compatibility artifact-form values (Operations Control Plane M1).
+ *
+ * The legacy 13-value vocabulary cannot honestly represent every canonical
+ * subtype (there is no legacy value for an import commercial invoice — which is
+ * exactly how import documents ended up stored as `registration_document`).
+ * These two values satisfy the NOT NULL legacy column for canonical-first
+ * uploads WITHOUT smuggling in false semantics: they say only "document" or
+ * "photo"; the meaning lives entirely in evidence_class + evidence_subtype.
+ * They are deliberately NOT in LEGACY_TYPE_TO_CLASS — they carry no class of
+ * their own and are invalid without a canonical classification.
+ */
+export const GENERIC_COMPAT_DOCUMENT_TYPE = 'vehicle_life_document';
+export const GENERIC_COMPAT_PHOTO_TYPE = 'vehicle_life_photo';
+export const GENERIC_COMPAT_TYPES = Object.freeze([
+  GENERIC_COMPAT_DOCUMENT_TYPE,
+  GENERIC_COMPAT_PHOTO_TYPE,
+]);
+
+/**
+ * Exact legacy counterparts for canonical subtypes. Only pairs whose semantic
+ * identity is EXACT are mapped; everything else falls back to the generic
+ * artifact-form value so no new record can ever be born with a false legacy
+ * meaning again.
+ */
+const SUBTYPE_TO_EXACT_LEGACY = Object.freeze({
+  'registration:cvr_first_registration': 'registration_document',
+  'registration:registration_book': 'registration_document',
+  'registration:registration_plate_record': 'registration_document',
+  'registration:reregistration_record': 'registration_document',
+  'registration:temporary_import_permit': 'registration_document',
+  'registration:police_clearance_first_registration': 'police_clearance_document',
+  'ownership_transfer:transfer_record': 'ownership_transfer_document',
+  'ownership_transfer:sale_agreement': 'ownership_transfer_document',
+  'ownership_transfer:ownership_transition': 'ownership_transfer_document',
+  'ownership_transfer:condition_at_handover': 'owner_handover_photo',
+  'accident:insurer_assessment': 'insurance_document',
+});
+
+const CLASS_TO_PHOTO_LEGACY = Object.freeze({
+  import: 'import_photo',
+  auction: 'auction_photo',
+  inspection: 'inspection_photo',
+  accident: 'damage_photo',
+  repair: 'repair_photo',
+  dealer_listing: 'dealer_listing_photo',
+  ownership_transfer: 'owner_handover_photo',
+});
+
+function subtypeDefinition(evidenceClass, subtypeCode) {
+  return subtypesForClass(evidenceClass).find((s) => s.code === subtypeCode) || null;
+}
+
+/**
+ * Derive the compatibility `evidence_type` for a canonical-first record.
+ * Deterministic; exact legacy counterpart when one exists, otherwise the
+ * generic artifact-form value.
+ */
+export function deriveLegacyCompatibilityType(evidenceClass, subtypeCode) {
+  if (!isValidClass(evidenceClass) || !isValidSubtype(evidenceClass, subtypeCode)) return null;
+  const exact = SUBTYPE_TO_EXACT_LEGACY[`${evidenceClass}:${subtypeCode}`];
+  if (exact) return exact;
+  const def = subtypeDefinition(evidenceClass, subtypeCode);
+  if (def?.mi && (evidenceClass === 'inspection' || evidenceClass === 'current_condition')) {
+    return 'odometer_photo';
+  }
+  if (def?.d) return GENERIC_COMPAT_DOCUMENT_TYPE;
+  return CLASS_TO_PHOTO_LEGACY[evidenceClass] || GENERIC_COMPAT_PHOTO_TYPE;
+}
+
+// ---------------------------------------------------------------------------
+// Canonical semantic resolution (Operations Control Plane M1).
+//
+// THE RULE: semantic meaning = evidence_class + evidence_subtype. The legacy
+// evidence_type is compatibility metadata and artifact-form/storage input only.
+// When a row carries a canonical class, every predicate below IGNORES the
+// legacy field — a commercial invoice stored under legacy `registration_document`
+// is import evidence, never registration evidence. Rows with no canonical class
+// (historical legacy-only rows) fall back to LEGACY_TYPE_TO_CLASS so they stay
+// readable without being rewritten.
+// ---------------------------------------------------------------------------
+
+/**
+ * Resolve the semantic classification of a stored evidence row.
+ * @returns {{ evidence_class: string|null, evidence_subtype: string|null,
+ *             semantic_source: 'canonical'|'legacy_fallback'|null }}
+ */
+export function resolveSemanticClassification(row = {}) {
+  const evidenceClass = row.evidence_class || null;
+  if (evidenceClass && isValidClass(evidenceClass)) {
+    return {
+      evidence_class: evidenceClass,
+      evidence_subtype: row.evidence_subtype || null,
+      semantic_source: 'canonical',
+    };
+  }
+  const legacyClass = classForLegacyType(row.evidence_type);
+  if (legacyClass) {
+    return {
+      evidence_class: legacyClass,
+      evidence_subtype: row.evidence_subtype || row.evidence_type || null,
+      semantic_source: 'legacy_fallback',
+    };
+  }
+  return { evidence_class: null, evidence_subtype: null, semantic_source: null };
+}
+
+/** Artifact form: is this row a document (vs photo/media)? Canonical subtype flag wins. */
+export function isDocumentArtifactRow(row = {}) {
+  const { evidence_class: cls, evidence_subtype: sub, semantic_source } = resolveSemanticClassification(row);
+  if (semantic_source === 'canonical' && cls && sub) {
+    const def = subtypeDefinition(cls, sub);
+    if (def) return !!def.d;
+  }
+  const type = row.evidence_type;
+  if (type === GENERIC_COMPAT_DOCUMENT_TYPE) return true;
+  if (type === GENERIC_COMPAT_PHOTO_TYPE) return false;
+  return ['registration_document', 'insurance_document', 'police_clearance_document', 'ownership_transfer_document'].includes(type);
+}
+
+export function isImportEvidenceRow(row = {}) {
+  return resolveSemanticClassification(row).evidence_class === 'import';
+}
+
+export function isInspectionEvidenceRow(row = {}) {
+  return resolveSemanticClassification(row).evidence_class === 'inspection';
+}
+
+/** Zimbabwe registration evidence. Import/transit/export artifacts are NEVER this. */
+export function isRegistrationEvidenceRow(row = {}) {
+  return resolveSemanticClassification(row).evidence_class === 'registration';
+}
+
+export function isOwnershipTransferEvidenceRow(row = {}) {
+  return resolveSemanticClassification(row).evidence_class === 'ownership_transfer';
+}
+
+/**
+ * Is this row a Zimbabwe Temporary Import Permit?
+ * ONLY registration/temporary_import_permit qualifies. A transit declaration
+ * (import/transit_declaration — e.g. a Tanzania T1) is transit evidence and
+ * must never be interpreted as a TIP.
+ */
+export function isTemporaryImportPermitRow(row = {}) {
+  const { evidence_class: cls, evidence_subtype: sub } = resolveSemanticClassification(row);
+  return cls === 'registration' && sub === 'temporary_import_permit';
+}
+
+/**
+ * May this row satisfy the publication "ownership / registration document"
+ * requirement? Semantically: a DOCUMENT artifact whose life-stage class is
+ * registration or ownership_transfer. Canonical classification wins; a
+ * legacy-only historical row qualifies through its legacy mapping. A canonical
+ * import row NEVER qualifies regardless of its legacy compatibility value.
+ */
+export function satisfiesOwnershipRegistrationRequirementRow(row = {}) {
+  const { evidence_class: cls, semantic_source } = resolveSemanticClassification(row);
+  if (cls !== 'registration' && cls !== 'ownership_transfer') return false;
+  if (semantic_source === 'canonical') return isDocumentArtifactRow(row);
+  // Legacy fallback: only the two historical ownership/registration document types.
+  return ['registration_document', 'ownership_transfer_document'].includes(row.evidence_type);
+}
+
+/**
+ * May this row contribute to a Seller Authority evidence basis?
+ * Ownership/registration documents always; import purchase-chain documents
+ * (invoice, payment receipt, bill of lading, export certificate) may CONTRIBUTE
+ * to a permanent-import authority review without ever counting as registration.
+ */
+export function isSellerAuthorityCandidateRow(row = {}) {
+  if (satisfiesOwnershipRegistrationRequirementRow(row)) return true;
+  const { evidence_class: cls, evidence_subtype: sub, semantic_source } = resolveSemanticClassification(row);
+  if (semantic_source !== 'canonical') return false;
+  return cls === 'import'
+    && ['commercial_invoice', 'payment_receipt', 'bill_of_lading', 'export_certificate'].includes(sub);
+}
+
+/** Human-readable canonical label ("Import — Commercial invoice"), null when unresolvable. */
+export function semanticClassificationLabel(row = {}) {
+  const { evidence_class: cls, evidence_subtype: sub } = resolveSemanticClassification(row);
+  if (!cls) return null;
+  const classLabel = cls.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
+  const def = sub ? subtypeDefinition(cls, sub) : null;
+  if (def) return `${classLabel} — ${def.label}`;
+  if (sub) return `${classLabel} — ${sub.replace(/_/g, ' ')}`;
+  return classLabel;
+}
+
 export function isValidClass(evidenceClass) {
   return EVIDENCE_CLASSES.includes(evidenceClass);
 }
@@ -226,10 +414,24 @@ export default {
   CLASS_SUBTYPES,
   LEGACY_TYPE_TO_CLASS,
   LEGACY_EVIDENCE_TYPES,
+  GENERIC_COMPAT_TYPES,
+  GENERIC_COMPAT_DOCUMENT_TYPE,
+  GENERIC_COMPAT_PHOTO_TYPE,
   isValidClass,
   subtypesForClass,
   isValidSubtype,
   classForLegacyType,
+  deriveLegacyCompatibilityType,
+  resolveSemanticClassification,
+  isDocumentArtifactRow,
+  isImportEvidenceRow,
+  isInspectionEvidenceRow,
+  isRegistrationEvidenceRow,
+  isOwnershipTransferEvidenceRow,
+  isTemporaryImportPermitRow,
+  satisfiesOwnershipRegistrationRequirementRow,
+  isSellerAuthorityCandidateRow,
+  semanticClassificationLabel,
   getTaxonomy,
   resolveClassification,
 };

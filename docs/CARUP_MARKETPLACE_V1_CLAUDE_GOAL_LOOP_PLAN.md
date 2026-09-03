@@ -1,9 +1,9 @@
 # CarUp Kimi Marketplace v1 Completion Sprint
 
-**Repository:** `kudzimusar/carup`  
-**Authoritative repo path:** `docs/CARUP_MARKETPLACE_V1_CLAUDE_GOAL_LOOP_PLAN.md`  
-**Working branch target for implementation:** `feature/marketplace-v1-production-integration`  
-**Document purpose:** This is the execution brief for Claude Code to use with `/goal` and `/loop` until the CarUp Kimi Marketplace v1 is implemented, tested, and ready for PR review.  
+**Repository:** `kudzimusar/carup`
+**Authoritative repo path:** `docs/CARUP_MARKETPLACE_V1_CLAUDE_GOAL_LOOP_PLAN.md`
+**Working branch target for implementation:** `feature/marketplace-v1-production-integration`
+**Document purpose:** This is the execution brief for Claude Code to use with `/goal` and `/loop` until the CarUp Kimi Marketplace v1 is implemented, tested, and ready for PR review.
 **Scope boundary:** Work only inside the CarUp Kimi repository. Do not use or modify any unrelated repository, product, or project.
 
 ---

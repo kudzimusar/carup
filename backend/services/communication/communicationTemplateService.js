@@ -51,6 +51,14 @@ const TEMPLATES = Object.freeze({
     subject: 'Evidence review decision',
     body: 'Evidence {{reference}} for listing {{listing_id}} was reviewed: {{decision}}.',
   },
+  // Operations M2 — governed Seller Authority decisions. Wording is bounded:
+  // it reports the CarUp policy decision only, never a legal-title or
+  // registration claim, and carries no security token or restricted document.
+  seller_authority_v1: {
+    transactional: true,
+    subject: 'Seller authority decision',
+    body: 'Your seller authority for vehicle {{listing_id}} was reviewed by CarUp: {{decision}}.',
+  },
   support_resolved_v1: {
     transactional: true,
     subject: 'CarUp support thread resolved',

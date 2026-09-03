@@ -911,6 +911,36 @@ export function useCarUpApi() {
     })
   }, [request])
 
+  // Operations Control Plane M4 — VIN-centered reviewer aggregate (read model).
+  const fetchVehicleOperationsReview = useCallback(async (vin: string): Promise<{ success: boolean; review: Record<string, unknown> }> => {
+    return request<{ success: boolean; review: Record<string, unknown> }>(`/admin/vehicles/${vin}/review`)
+  }, [request])
+
+  // Operations M1 — governed classification correction (reason mandatory).
+  const correctEvidenceClassification = useCallback(async (
+    vin: string,
+    evidenceId: string,
+    // `visibility_level` is optional: omitting it corrects the classification and leaves the
+    // record's publication untouched.
+    payload: { evidence_class: string; evidence_subtype: string; reason: string; visibility_level?: string },
+  ): Promise<{ success: boolean; changed: boolean }> => {
+    return request<{ success: boolean; changed: boolean }>(`/vehicles/${vin}/evidence/${evidenceId}/classification`, {
+      method: 'PATCH',
+      body: JSON.stringify(payload),
+    })
+  }, [request])
+
+  // Operations M2 — governed Seller Authority reviewer decision.
+  const reviewSellerAuthority = useCallback(async (
+    vin: string,
+    payload: { seller_user_id: string; decision: string; reason: string },
+  ): Promise<{ success: boolean; record?: Record<string, unknown> }> => {
+    return request<{ success: boolean; record?: Record<string, unknown> }>(`/vehicles/${vin}/seller-authority/review`, {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    })
+  }, [request])
+
   const lookupVehiclePassport = useCallback(async (identifier: string): Promise<VehiclePassport> => {
     return request<VehiclePassport>(`/vehicles/passport/lookup/${identifier}`)
   }, [request])
@@ -2518,14 +2548,15 @@ export function useCarUpApi() {
   }, [request])
 
   const uploadEvidence = useCallback(async (vin: string, payload: {
-    evidence_type: string;
+    // Canonical-first (Operations M1): either supply evidence_class +
+    // evidence_subtype (the server derives the legacy compatibility
+    // evidence_type), or supply the legacy evidence_type alone.
+    evidence_type?: string;
     file: string; // base64 string
     captured_at?: string;
     visibility_level?: string;
     linked_registry_event_id?: string;
     verification_notes?: string;
-    // Vehicle Life Evidence Taxonomy + provenance (M1) — all optional; the
-    // backend still requires the legacy evidence_type above.
     evidence_class?: string;
     evidence_subtype?: string;
     event_date?: string;
@@ -2840,6 +2871,9 @@ export function useCarUpApi() {
     submitDispute,
     approveEvidence,
     rejectEvidence,
+    fetchVehicleOperationsReview,
+    correctEvidenceClassification,
+    reviewSellerAuthority,
     lookupVehiclePassport,
     fetchVehicle,
     verifyLedger,

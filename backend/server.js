@@ -25,6 +25,7 @@ import {
   getCanonicalTrust,
   getCanonicalTrustBatch,
   publicTrustViolations,
+  refreshCanonicalTrust,
   toPublicTrust,
 } from './services/trustDecision/canonicalTrustService.js';
 import { verifyChain, addEvent } from './services/blockchain/blockchainService.js';
@@ -74,6 +75,7 @@ import {
   normalizeInsuranceDisclosure,
   normalizeFinanceDisclosure,
 } from './services/seller/vehicleHistoryDisclosures.js';
+import { hasVerifiedOwnershipAuthorityEvidence } from './services/seller/sellerAuthorityService.js';
 
 // Centralized Routes Imports (Batch 1)
 import leadsRouter from './routes/leadsRoutes.js';
@@ -89,6 +91,7 @@ import { authRecoveryRouter } from './routes/authRecoveryRoutes.js';
 import { marketingUnsubscribeRouter } from './routes/marketingUnsubscribeRoutes.js';
 import { resolveBuildProvenance } from './config/buildProvenance.js';
 import vehiclesRouter from './routes/vehiclesRoutes.js';
+import vehicleOperationsRouter from './routes/vehicleOperationsRoutes.js';
 import evidenceCatalogRouter from './routes/evidenceCatalogRoutes.js';
 import ingestionRouter from './routes/ingestionRoutes.js';
 import sourceVerificationRouter from './routes/sourceVerificationRoutes.js';
@@ -367,6 +370,7 @@ app.use(communicationRouter());
 app.use(adminCommunicationRouter());
 app.use(marketplaceRouter);
 app.use(marketplaceAdminRouter);
+app.use(vehicleOperationsRouter);
 app.use(vehiclesRouter);
 app.use(evidenceCatalogRouter);
 app.use(ingestionRouter);
@@ -2995,18 +2999,13 @@ app.post('/api/vehicles/add', authorizeRole(['dealer', 'owner', 'admin']), async
       publication_status: 'draft',
     };
 
+    // Canonical Seller Authority evidence check (Operations M2): a verified
+    // ownership/registration DOCUMENT under canonical semantics — a mislabeled
+    // import artifact never qualifies. Delegates to the one governed service
+    // instead of duplicating the query inline.
     let governedSellerEvidence = false;
     if (existing && reuse_existing_passport === true) {
-      const { data: authorityEvidence, error: authorityEvidenceError } = await supabase
-        .from('vehicle_evidence')
-        .select('id')
-        .eq('vin', vin)
-        .eq('uploaded_by', req.userContext.id)
-        .eq('verification_status', 'verified')
-        .in('evidence_type', ['registration_document', 'ownership_transfer_document'])
-        .limit(1);
-      if (authorityEvidenceError) throw authorityEvidenceError;
-      governedSellerEvidence = Boolean(authorityEvidence?.length);
+      governedSellerEvidence = await hasVerifiedOwnershipAuthorityEvidence(supabase, vin, req.userContext.id);
     }
 
     const existingSellerRelationship = Boolean(existing && (
@@ -3149,8 +3148,12 @@ app.post('/api/vehicles/add', authorizeRole(['dealer', 'owner', 'admin']), async
         tenant_id: candidate.tenant_id,
         public_seller_display_enabled: listingRow.public_seller_display_enabled,
         // A Seller can advance/restate the registration lifecycle on a later listing. Provenance
-        // remains seller_declared until a governed registry/evidence workflow establishes more.
-        ...(submittedRegistrationStatus !== null ? { registration_status: submittedRegistrationStatus } : {}),
+        // travels WITH the claim (Operations M3/M7): a stage without a recorded source evaluates
+        // as not_recorded and blocks publication, so writing the status while dropping the source
+        // left a restated stage permanently blocking. The source names who said it.
+        ...(submittedRegistrationStatus !== null
+          ? { registration_status: submittedRegistrationStatus, registration_status_source: claimSource }
+          : {}),
         // Re-listing refreshes the Seller's history disclosures alongside the other commercial
         // statements; unanswered questions stay untouched on the existing row (keys absent).
         ...sellerHistoryDisclosureColumns,
@@ -3190,6 +3193,22 @@ app.post('/api/vehicles/add', authorizeRole(['dealer', 'owner', 'admin']), async
       });
     }
     if (insertError) throw insertError;
+
+    // The Zimbabwe registration stage is a GOVERNED FACT the canonical Trust engine reads: it
+    // publishes "Zimbabwe registration stage has not been established from a recorded claim" as a
+    // known limitation when no stage is recorded. That limitation reaches BUYERS, so a stage the
+    // seller has just stated must re-materialize the canonical position — otherwise the public
+    // Trust block keeps telling buyers CarUp holds no registration claim while the listing is
+    // published on the strength of one. Same posture as evidence review (vehiclesRoutes verify):
+    // the seller's statement is the durable fact, the cache is derived, and a refresh failure must
+    // never fail the save.
+    if (submittedRegistrationStatus !== null) {
+      try {
+        await refreshCanonicalTrust(vin);
+      } catch (trustError) {
+        console.warn('[Trust] registration-stage refresh failed:', trustError?.message || trustError);
+      }
+    }
 
     // Unrecognized values remain usable but enter the governed taxonomy-review queue.
     const taxonomyObservations = [

@@ -6,6 +6,19 @@ The shared, pure definition of what makes a vehicle a **real, public, marketplac
 - Tests: [`backend/tests/marketplace-listing-eligibility.test.js`](../backend/tests/marketplace-listing-eligibility.test.js)
 - Reuses the merged fixture detector `getFixtureExclusion()` (one source of truth for "is this a fixture").
 
+> **Corrected 2026-09-03 (Operations Control Plane closure).** Two rows of the table in §2 had
+> drifted from the helper and were reconciled against the code:
+>
+> - **Vehicle identifier** — the doc said "17 chars, `[A-HJ-NPR-Z0-9]`, no `I/O/Q`". The helper's
+>   rule is `VALID_VEHICLE_IDENTIFIER_RE = /^[A-Z0-9-]{12,17}$/i`: documented import frame/chassis
+>   identifiers are valid alongside ISO VINs. The live counter-example is the real UAT vehicle
+>   `GFC27-027051` (12 characters, hyphenated) — a published Japanese import that the stale rule
+>   would have declared ineligible. CarUp never fabricates a 17-character VIN for an import.
+> - **Registration country** — the doc listed a blocking `missing_registration_country` reason code.
+>   That code was removed from the helper because it could never fire, and absence is now the
+>   non-blocking warning `registration_country_absent`: the column is nullable, so "not known" is
+>   recordable and must not refuse a legitimate sale.
+
 ## 1. Why this exists
 
 The public marketplace now hides seed/demo/integration fixtures by default (PR #39), so production
@@ -20,7 +33,7 @@ A vehicle is **marketplace-eligible** only when **all** hold (`getListingEligibi
 
 | Rule | Requirement | Reason code on failure |
 |---|---|---|
-| VIN | 17 chars, `[A-HJ-NPR-Z0-9]`, no `I/O/Q`, no `_`, no synthetic prefix | `invalid_vin_format` |
+| Vehicle identifier | **12–17 chars**, `[A-Z0-9-]`, no synthetic prefix (`vin`/`test`/`demo`/`seed`/…) | `invalid_vin_format` |
 | Not a fixture | `getFixtureExclusion(v) === null` | `fixture_excluded` |
 | Make / Model | non-empty, not a placeholder (`Test`, `demo`, …) | `placeholder_make` / `placeholder_model` |
 | Year | integer in `[1980, currentYear+1]` | `invalid_year` |
@@ -29,7 +42,7 @@ A vehicle is **marketplace-eligible** only when **all** hold (`getListingEligibi
 | Ownership (private) | real non-seed `owner_id` | `missing_owner_for_private_listing` / `seed_owner_id` |
 | Ownership (dealer) | real non-default `tenant_id` | `missing_tenant_for_dealer_listing` / `seed_tenant_id` |
 | Import source | local-safe/absent OR a real import source; never poisoned junk | `invalid_import_source` |
-| Registration country | present | `missing_registration_country` |
+| Registration country | absence is a WARNING, not ineligibility — the column is nullable, so "not known" is recordable | warning `registration_country_absent` |
 | Seller type | known (`Private Owner` / `Dealer` / `Dealership`) | `unknown_seller_type` |
 
 `getListingEligibility(vehicle, { maxYear? })` returns `{ eligible, reasons[], warnings[], normalized }`.

@@ -244,6 +244,11 @@ export default function SellVehicle() {
   const [serverDraftLoading, setServerDraftLoading] = useState(() => Boolean(!guestDraft && isCompleteVin(resumeVin)))
   const [serverDraftLoaded, setServerDraftLoaded] = useState(false)
   const [serverVehicle, setServerVehicle] = useState<Vehicle | null>(null)
+  // Operations M7: provenance of the stored registration stage. The stage is a
+  // lifecycle/readiness CLAIM, not immutable identity — the seller may (re)state
+  // their own claim on a restored draft; only a governed/operator-recorded stage
+  // locks the control.
+  const [serverStageSource, setServerStageSource] = useState<string | null>(null)
   const [serverDraftError, setServerDraftError] = useState<string | null>(null)
   const [serverAutosaveState, setServerAutosaveState] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle')
   // A late response for revision N must never mark revision N+1 as saved.
@@ -339,6 +344,11 @@ export default function SellVehicle() {
         const primaryIndex = orderedMedia.findIndex(item => item.is_primary === true)
 
         setServerVehicle(vehicle)
+        setServerStageSource(
+          typeof (raw as { registration_status_source?: unknown }).registration_status_source === 'string'
+            ? String((raw as { registration_status_source?: unknown }).registration_status_source)
+            : null,
+        )
         setForm(previous => ({
           ...previous,
           make: String(raw.make || ''),
@@ -902,6 +912,15 @@ export default function SellVehicle() {
 
   const vinValid = form.vin.length >= 2 ? isCompleteVin(form.vin) : null
   const canonicalLocked = serverDraftLoaded
+  // Operations M7: the Zimbabwe registration stage stays SELLER-editable on a
+  // restored draft (it is a lifecycle claim the seller may truthfully advance or
+  // restate; the server stamps seller provenance). It locks only when a
+  // governed/operator source recorded the stage — a seller must not overwrite a
+  // reviewed or authoritative value from this form.
+  const SELLER_STAGE_SOURCES = ['seller_declared', 'dealer_declared']
+  const registrationStageLocked = canonicalLocked
+    && serverStageSource !== null
+    && !SELLER_STAGE_SOURCES.includes(serverStageSource)
   const studioTrust = serverVehicle ? readOwnerTrustClaim(serverVehicle) : null
   const studioMedia = serverVehicle ? primaryListingImageUrl(serverVehicle.listing_media) : (form.images[coverImageIndex ?? 0] || form.images[0] || null)
   const verifiedDocumentCopy = serverVehicle
@@ -1269,7 +1288,7 @@ export default function SellVehicle() {
               </div>
               <div>
                 <label className="text-sm font-medium mb-1.5 block">Zimbabwe registration stage</label>
-                <Select value={form.registrationStatus} onValueChange={v => set('registrationStatus', v)} disabled={canonicalLocked}>
+                <Select value={form.registrationStatus} onValueChange={v => set('registrationStatus', v)} disabled={registrationStageLocked}>
                   <SelectTrigger data-testid="registration-status-select"><SelectValue placeholder="Choose the vehicle's current stage" /></SelectTrigger>
                   <SelectContent>
                     {ZIMBABWE_REGISTRATION_OPTIONS.map(option => (
@@ -1291,7 +1310,7 @@ export default function SellVehicle() {
                 {form.registrationStatus === 'temporary_foreign_tip' && (
                   <div>
                     <label className="text-sm font-medium mb-1.5 block">Temporary Import Permit No.</label>
-                    <Input value={form.tempPlateId} onChange={e => set('tempPlateId', e.target.value.toUpperCase())} placeholder="e.g. TIP-2026-00123" className="font-mono" disabled={canonicalLocked} />
+                    <Input value={form.tempPlateId} onChange={e => set('tempPlateId', e.target.value.toUpperCase())} placeholder="e.g. TIP-2026-00123" className="font-mono" disabled={registrationStageLocked} />
                     <p className="text-xs text-amber-700 mt-1">
                       TIP is a temporary foreign-vehicle admission, not a substitute for a Zimbabwe plate. Ordinary sale publication requires review.
                     </p>

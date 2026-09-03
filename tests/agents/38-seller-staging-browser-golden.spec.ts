@@ -448,7 +448,10 @@ test.describe('Golden Dynamic Seller — exact-head deployed acceptance', () => 
       requirements?: Array<{ key?: string; label?: string; status?: string }>;
     };
     const refusalText = JSON.stringify(blocked);
-    expect(refusalText).toMatch(/ownership_document|Ownership \/ Registration Document/i);
+    // Operations M3: the generic ownership_document requirement became the governed
+    // seller_authority requirement (satisfied by relationship + verified canonical
+    // ownership/registration evidence, or an explicit confirmation decision).
+    expect(refusalText).toMatch(/seller_authority|Seller authority/i);
 
     // Upload an ownership document through the governed evidence contract.
     const evidenceResponse = await request.post(`${API_URL}/vehicles/${vin}/evidence/upload`, {

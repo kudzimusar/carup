@@ -97,11 +97,12 @@ after(async () => { if (server) await new Promise((r) => server.close(r)); });
 
 const j = (res) => res.json();
 
-test('GET /api/evidence/taxonomy returns all 8 classes', async () => {
+test('GET /api/evidence/taxonomy returns all 9 classes (registration added by ZR)', async () => {
   const res = await fetch(`${baseUrl}/api/evidence/taxonomy`);
   assert.equal(res.status, 200);
   const body = await j(res);
-  assert.equal(body.classes.length, 8);
+  assert.equal(body.classes.length, 9);
+  assert.ok(body.classes.some((c) => c.evidence_class === 'registration'));
   assert.ok(body.legacy_type_to_class.odometer_photo === 'inspection');
 });
 
