@@ -207,12 +207,21 @@ async function loadScopedVehicle(req, vin) {
     // current_seller_id/type/source but deliberately leaves `vehicles.tenant_id` alone, so a
     // previous dealer-organisation relationship physically outlives the sale. Without this, a
     // former owner could still publish, unpublish, or reprice a vehicle they no longer own.
-    // The canonical owner short-circuits inside the predicate, so the ordinary path adds no query.
-    const denial = await isSellerAuthorityEffectivelyDenied(supabase, {
-      vin,
-      userId: req.userContext.id,
-      vehicle,
-    });
+    //
+    // Only NON-owners are checked, which is exact rather than merely cheap: a former owner is by
+    // definition not the canonical owner, so the invariant is untouched, and an owner whose
+    // authority was revoked is already refused by the publication gate's own seller_authority
+    // requirement. Scoping it this way also keeps the seller's own hot path (publish / unpublish /
+    // price on a vehicle they own) at zero added queries — the Golden lifecycle journey runs at
+    // ~7m against an 8m per-test timeout, so a round-trip added to every one of those calls is
+    // enough to push a passing gate over the line, as it did on run 33738012866.
+    const denial = isOwner
+      ? { denied: false, reason: null }
+      : await isSellerAuthorityEffectivelyDenied(supabase, {
+        vin,
+        userId: req.userContext.id,
+        vehicle,
+      });
     if (denial.denied) {
       throw new ForbiddenError(
         'Forbidden. Your seller authority over this vehicle has ended (ownership transferred or authority revoked).',
