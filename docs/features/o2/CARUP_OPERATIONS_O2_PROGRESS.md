@@ -89,6 +89,37 @@ scope at all (pre-existing, not transfer-specific); and `listingSummaryService.t
 synthesizes a cosmetic `relationship: true` from a surviving tenant — a display artifact that grants
 no scope, and now moot for transferred vehicles since `tenant_id` is cleared.
 
+### P1-C certification (candidate `e9326f76`)
+
+**Real GitHub workflow runs at `e9326f76`** — dispatched, executed, green:
+
+| Gate | Run | Result |
+|---|---|---|
+| Vehicle Passport Foundation CI | 33725721160 | **PASS** |
+| Navigation Intelligence CI | 33725724035 | **PASS** |
+| Communication Command Center CI | 33725726641 | **PASS** |
+| Referral Engine CI | 33725730557 | **PASS** |
+
+**Local, at the same SHA:** full backend suite **5789 tests / 0 fail / 21 skipped**; full web suite
+**1561/1561**; `tsc --noEmit` clean; lint regression **NET_NEW_ERRORS=0 / NET_NEW_WARNINGS=0** vs
+`origin/integration/vehicle-passport-v16-cert`; production build passes; migration-integrity 24/24;
+all 8 `ci.yml` PGlite gates PASS; all 11 diaspora ledger harnesses PASS (11 ran, 0 failed).
+Targeted: former-seller authorization **11/11**, transfer supersession 6/6, O2 responsibility 10/10,
+O2 People/Compliance 10/10, O2 adversarial 6/6; seller+passport+marketplace suites **759/759**.
+
+**Gates that did NOT execute, and precisely why — no PASS is claimed for any of these:**
+
+| Gate | Why it could not run | What covers it instead |
+|---|---|---|
+| `CI` (Lint · Types · Build · Tests) | No `workflow_dispatch` trigger at all; `pull_request: [main]` only, and O2 has no PR | Every step reproduced locally at this SHA (lint, tsc, build, backend 0-fail, 8 PGlite gates, 11 ledger harnesses) — the approach this repository already uses for this workflow |
+| Vehicle Finance Obligation Authority CI | No `workflow_dispatch` trigger | Its `finance_obligation_pglite_check` PGlite gate run locally: PASS |
+| Seller Exact-Head Staging UAT (Golden) · Seller Media Lifecycle Staging UAT · Operations Serena Staging UAT · Marketplace Reference Regression (its final two unmocked staging steps) | **`feat/operations-o2-people-compliance` has no entry in `web/preview-frontend-pairing.json` / `preview-backend-pairing.json`**, so every exact-head provenance assertion fails before any product behaviour is exercised. Adding a pairing entry would also require applying this correction's RPC migration to **shared** staging while **#194 is still unmerged** — mixing an unaccepted base into the environment the certified integrated candidate depends on, which is the hazard this programme has already documented | These four are **green at the integrated candidate** (`dd94c56d` / `33720d79`), which O2 descends from. They must be re-run for O2 as part of **P7**, after the Product Owner accepts #194 |
+
+The local half of Marketplace Reference Regression (backend marketplace suites, web unit tests,
+mocked Playwright reference suite) is covered by the full backend and web suites above; it was
+deliberately NOT dispatched, because it would have red-flagged on the pairing step for a reason
+unrelated to this correction.
+
 ## P2 — Responsibility projection (ADR vocabulary verbatim)
 
 - [x] P2.1 `backend/services/operations/responsibilityVocabulary.js` — a test forbids imports and persistence in the module itself
