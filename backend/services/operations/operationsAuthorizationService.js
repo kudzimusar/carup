@@ -37,6 +37,10 @@ export const OPERATIONS_CAPABILITIES = Object.freeze({
   PERSON_READ_PRIVATE: 'operations.person.read_private',
   IDENTITY_REVIEW: 'operations.identity.review',
   DEALER_COMPLIANCE_REVIEW: 'operations.dealer_compliance.review',
+  // O2-X3 — current identity lifecycle + account security. Same static-map discipline; both
+  // demand a PROVEN session at the route AND a fresh step-up (the assurance guard) on top.
+  IDENTITY_LIFECYCLE: 'operations.identity.lifecycle',
+  ACCOUNT_SECURITY: 'operations.account.security',
 });
 
 const ALL_VEHICLE_OPERATIONS = Object.freeze([
@@ -50,6 +54,8 @@ const ALL_PEOPLE_OPERATIONS = Object.freeze([
   OPERATIONS_CAPABILITIES.PERSON_READ_PRIVATE,
   OPERATIONS_CAPABILITIES.IDENTITY_REVIEW,
   OPERATIONS_CAPABILITIES.DEALER_COMPLIANCE_REVIEW,
+  OPERATIONS_CAPABILITIES.IDENTITY_LIFECYCLE,
+  OPERATIONS_CAPABILITIES.ACCOUNT_SECURITY,
 ]);
 
 const ALL_OPERATIONS = Object.freeze([...ALL_VEHICLE_OPERATIONS, ...ALL_PEOPLE_OPERATIONS]);

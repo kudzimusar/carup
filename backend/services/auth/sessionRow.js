@@ -18,7 +18,7 @@ import crypto from 'crypto';
  * @param {object} [args.req]      - express request (for ip / user-agent)
  * @param {string|null} [args.tenantId]
  */
-export function buildSessionRow({ userId, activeRole, token, expiresAt, req = null, tenantId = null }) {
+export function buildSessionRow({ userId, activeRole, token, expiresAt, req = null, tenantId = null, authMethod = 'password' }) {
   return {
     id: crypto.randomUUID(),
     user_id: userId,
@@ -30,5 +30,8 @@ export function buildSessionRow({ userId, activeRole, token, expiresAt, req = nu
     created_at: new Date().toISOString(),
     expires_at: expiresAt,
     is_valid: true,
+    // O2-X3 assurance columns: HOW the session was established is a server-side fact — the
+    // step-up columns start empty and are stamped only by the step-up endpoint.
+    auth_method: authMethod,
   };
 }

@@ -57,7 +57,11 @@ function rowsFor(table, filters) {
     let rows = db.sessions;
     if (filters.user_id) rows = rows.filter((s) => s.user_id === filters.user_id);
     if (filters.id) rows = rows.filter((s) => s.id === filters.id);
+    if (filters.status) rows = rows.filter((s) => s.status === filters.status);
     return rows;
+  }
+  if (table === 'identity_lifecycle_events') {
+    return [];
   }
   return [];
 }

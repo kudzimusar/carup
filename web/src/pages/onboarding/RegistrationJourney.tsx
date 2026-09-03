@@ -50,6 +50,13 @@ interface JourneyResponse {
         document_type: string | null
         who_must_act: string
         guidance: string
+        lifecycle: {
+          effective_state: string
+          reason_code: string | null
+          applicant_guidance: string | null
+          who_must_act: string
+          capability_bearing: boolean
+        } | null
       }
     }
     who_must_act: string
@@ -291,6 +298,12 @@ export default function RegistrationJourney() {
       case 'processing': return <Badge className="bg-blue-600 text-white" data-testid="identity-state">Processing</Badge>
       case 'in_review': return <Badge className="bg-blue-800 text-white" data-testid="identity-state">In human review</Badge>
       case 'not_started': return <Badge variant="outline" data-testid="identity-state">Not started</Badge>
+      // O2-X3 — current lifecycle states (labels stay applicant-safe).
+      case 'reverification_required': return <Badge className="bg-amber-600 text-white" data-testid="identity-state">Re-verification required</Badge>
+      case 'suspended': return <Badge className="bg-red-800 text-white" data-testid="identity-state">On hold</Badge>
+      case 'compromised': return <Badge className="bg-red-800 text-white" data-testid="identity-state">Security review</Badge>
+      case 'disputed': return <Badge className="bg-amber-700 text-white" data-testid="identity-state">Under dispute</Badge>
+      case 'revoked': return <Badge className="bg-red-900 text-white" data-testid="identity-state">Revoked</Badge>
       default: return <Badge variant="outline" data-testid="identity-state">{identity?.state || '—'}</Badge>
     }
   }, [identity?.state])
@@ -476,7 +489,7 @@ export default function RegistrationJourney() {
           </div>
           <p className="text-sm text-gray-400" data-testid="identity-guidance">{identity?.guidance}</p>
 
-          {identity?.state === 'not_started' && (
+          {(identity?.state === 'not_started' || identity?.state === 'reverification_required') && (
             <div className="flex flex-wrap items-end gap-3">
               <label className="text-sm space-y-1">
                 <span className="text-gray-400">Document type</span>
@@ -487,8 +500,16 @@ export default function RegistrationJourney() {
                 </select>
               </label>
               <Button onClick={startIdentity} disabled={starting} data-testid="start-identity">
-                <Camera className="mr-1 h-4 w-4" aria-hidden />{starting ? 'Starting…' : 'Start verification'}
+                <Camera className="mr-1 h-4 w-4" aria-hidden />
+                {starting ? 'Starting…' : identity?.state === 'reverification_required' ? 'Verify again' : 'Start verification'}
               </Button>
+            </div>
+          )}
+
+          {(identity?.state === 'suspended' || identity?.state === 'compromised' || identity?.state === 'disputed' || identity?.state === 'revoked') && (
+            <div className="flex items-center gap-2 rounded-md border border-red-900 bg-red-950/40 p-3 text-sm text-red-200" data-testid="lifecycle-hold">
+              <AlertTriangle className="h-4 w-4 shrink-0" aria-hidden />
+              <span>{ACTOR_LABELS[identity.who_must_act] || 'With CarUp review'} — identity-dependent features are paused meanwhile.</span>
             </div>
           )}
 

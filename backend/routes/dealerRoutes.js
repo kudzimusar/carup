@@ -21,6 +21,8 @@
  */
 import express from 'express';
 import { authorizeRole } from '../middleware/authMiddleware.js';
+import { requireAuthenticationAssurance } from '../middleware/stepUpMiddleware.js';
+import { ACTION_CLASSES } from '../services/auth/authenticationAssuranceService.js';
 import {
   createOrUpdateProfile,
   getProfile,
@@ -126,7 +128,7 @@ router.get('/api/admin/dealers/:id', authorizeRole(ADMIN_ROLES), async (req, res
   }
 });
 
-router.patch('/api/admin/dealers/:id/decision', authorizeRole(ADMIN_ROLES), async (req, res, next) => {
+router.patch('/api/admin/dealers/:id/decision', authorizeRole(ADMIN_ROLES), requireAuthenticationAssurance(ACTION_CLASSES.SENSITIVE), async (req, res, next) => {
   try {
     const result = await recordDecision(
       req.params.id,

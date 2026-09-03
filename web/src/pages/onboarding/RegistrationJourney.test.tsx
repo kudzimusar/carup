@@ -242,6 +242,65 @@ describe('RegistrationJourney', () => {
     expect(screen.getByTestId('context-summary').textContent).toMatch(/Zimbabwe/)
   })
 
+  it('X3: reverification_required shows the reason, a re-verify CTA, and the lifecycle-locked capabilities', async () => {
+    fetchRegistrationJourney.mockResolvedValue(journeyFixture({
+      profile: { account_kind: 'individual', market_relationship: 'diaspora', country_of_residence: 'Zimbabwe', city: 'Leeds', intended_use: 'buy_sell' },
+      identity_session: { id: 'vs-old', status: 'verified' },
+      journey: {
+        ...journeyFixture().journey,
+        steps: {
+          account_created: true,
+          context_established: true,
+          identity: {
+            ...journeyFixture().journey.steps.identity,
+            state: 'reverification_required',
+            who_must_act: 'subject_action',
+            guidance: 'The identity document you verified with has expired. Please verify with a current document.',
+            lifecycle: { effective_state: 'reverification_required', reason_code: 'DOCUMENT_EXPIRED', applicant_guidance: 'The identity document you verified with has expired. Please verify with a current document.', who_must_act: 'subject_action', capability_bearing: false },
+          },
+        },
+        who_must_act: 'subject_action',
+        required_action: 'The identity document you verified with has expired. Please verify with a current document.',
+        locked_capabilities: [
+          { capability: 'present_as_identity_verified', locked_by: 'identity_lifecycle', reason: 'The identity document you verified with has expired. Please verify with a current document.' },
+          ...LOCKED,
+        ],
+      },
+    }))
+    renderPage()
+    await waitFor(() => expect(screen.getByTestId('identity-state').textContent).toBe('Re-verification required'))
+    expect(screen.getByTestId('identity-guidance').textContent).toMatch(/expired/i)
+    expect(screen.getByTestId('start-identity').textContent).toMatch(/Verify again/)
+    expect(screen.getByTestId('locked-present_as_identity_verified').textContent).toMatch(/expired/i)
+    expect(screen.getByTestId('locked-sell_vehicle_publicly')).toBeTruthy()
+  })
+
+  it('X3: a security hold renders the applicant-safe banner with CarUp as the actor — no restart CTA, no internal detail', async () => {
+    fetchRegistrationJourney.mockResolvedValue(journeyFixture({
+      identity_session: { id: 'vs-old', status: 'verified' },
+      journey: {
+        ...journeyFixture().journey,
+        steps: {
+          ...journeyFixture().journey.steps,
+          identity: {
+            ...journeyFixture().journey.steps.identity,
+            state: 'compromised',
+            who_must_act: 'carup_review',
+            guidance: 'For your security, CarUp is reviewing this account. Contact support if you need help.',
+            lifecycle: { effective_state: 'compromised', reason_code: 'SUSPECTED_ACCOUNT_TAKEOVER', applicant_guidance: 'For your security, CarUp is reviewing this account. Contact support if you need help.', who_must_act: 'carup_review', capability_bearing: false },
+          },
+        },
+        who_must_act: 'carup_review',
+        required_action: 'For your security, CarUp is reviewing this account. Contact support if you need help.',
+      },
+    }))
+    renderPage()
+    await waitFor(() => expect(screen.getByTestId('identity-state').textContent).toBe('Security review'))
+    expect(screen.getByTestId('lifecycle-hold').textContent).toMatch(/With CarUp review/)
+    expect(screen.queryByTestId('start-identity')).toBeNull()
+    expect(screen.getByTestId('identity-guidance').textContent).not.toMatch(/takeover|SUSPECTED/i)
+  })
+
   it('the identity wizard drives the applicant routes: start, per-side upload with visible state, submit', async () => {
     fetchRegistrationJourney
       .mockResolvedValueOnce(journeyFixture())

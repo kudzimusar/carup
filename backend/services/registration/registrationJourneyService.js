@@ -10,6 +10,10 @@ import {
 } from '../identity/caseWorkflow.js';
 import { getReasonConfig } from '../identity/reasonCodes.js';
 import { getLatestVerificationSessionForUser } from '../identity/verificationSessionService.js';
+import {
+  LIFECYCLE_STATES,
+  getCurrentIdentityLifecycle,
+} from '../identity/identityLifecycleService.js';
 import { ValidationError } from '../../utils/errors.js';
 
 /**
@@ -186,21 +190,41 @@ function applicantGuidance(session) {
  * registration or Trust — those stages are always reported as locked-by-their-own-
  * authority from here, because this surface cannot and must not answer for them.
  */
-export function deriveOnboardingJourney({ user = {}, profile = null, latestSession = null } = {}) {
-  const identityState = deriveIdentityStepState(latestSession);
-  const identityApproved = identityState === 'approved';
+export function deriveOnboardingJourney({ user = {}, profile = null, latestSession = null, lifecycle = null } = {}) {
+  let identityState = deriveIdentityStepState(latestSession);
   const identityActive = Boolean(latestSession) && !TERMINAL_PHASES.has(sessionPhase(latestSession)) && identityState !== 'rejected';
   const contextEstablished = Boolean(profile);
 
+  // O2-X3: the CURRENT identity lifecycle (append-only ledger + expiry overlay) now decides
+  // whether identity-gated capability is available — a historical approval alone no longer
+  // does. When no lifecycle is supplied (pure-derivation callers), the historical view stands.
+  const lifecycleState = lifecycle?.effective_state || null;
+  const capabilityBearing = lifecycle
+    ? Boolean(lifecycle.capability_bearing)
+    : identityState === 'approved';
+  const identityApproved = capabilityBearing;
+
+  // A restrictive current lifecycle overrides the historical step label — unless the person is
+  // mid-way through a NEW evidence journey, which stays visible so they can finish it.
+  const restrictiveLifecycle = lifecycleState
+    && lifecycleState !== LIFECYCLE_STATES.VERIFIED
+    && lifecycleState !== LIFECYCLE_STATES.RECOVERED
+    && lifecycleState !== LIFECYCLE_STATES.NOT_ESTABLISHED;
+  if (restrictiveLifecycle && (identityState === 'approved' || identityState === 'not_started')) {
+    identityState = lifecycleState;
+  }
+
   const phase = sessionPhase(latestSession);
-  const identityWhoMustAct = latestSession
-    ? toResponsibilityProjection(phase)
-    : 'subject_action';
+  const identityWhoMustAct = restrictiveLifecycle
+    ? (lifecycle?.who_must_act || 'carup_review')
+    : (latestSession ? toResponsibilityProjection(phase) : 'subject_action');
 
   // Journey-level responsibility: the applicant's outstanding step, else the review
   // team's, else none. Uses ONLY the ADR vocabulary, derived at read time (P2 law).
   let whoMustAct = 'none';
-  if (!contextEstablished || !latestSession || identityWhoMustAct === 'subject_action') {
+  if (restrictiveLifecycle && identityWhoMustAct !== 'subject_action') {
+    whoMustAct = identityWhoMustAct;
+  } else if (!contextEstablished || !latestSession || identityWhoMustAct === 'subject_action') {
     whoMustAct = identityApproved && contextEstablished ? 'none' : 'subject_action';
   } else {
     whoMustAct = identityWhoMustAct;
@@ -256,15 +280,18 @@ export function deriveOnboardingJourney({ user = {}, profile = null, latestSessi
   // separate decisions (the canonical ≠ chain).
   const locked = [];
   if (!identityApproved) {
+    const identityLockReason = restrictiveLifecycle
+      ? (lifecycle?.applicant_guidance || 'Identity-gated capability is currently unavailable while CarUp reviews this account.')
+      : 'A governed reviewer decision is required; OCR extraction alone never verifies.';
     locked.push({
       capability: 'present_as_identity_verified',
-      locked_by: 'identity_decision',
-      reason: 'A governed reviewer decision is required; OCR extraction alone never verifies.',
+      locked_by: restrictiveLifecycle ? 'identity_lifecycle' : 'identity_decision',
+      reason: identityLockReason,
     });
     locked.push({
       capability: 'sensitive_financial_actions',
-      locked_by: 'identity_decision',
-      reason: 'Requires verified identity, then each service’s own checks.',
+      locked_by: restrictiveLifecycle ? 'identity_lifecycle' : 'identity_decision',
+      reason: identityLockReason,
     });
   }
   locked.push({
@@ -303,8 +330,21 @@ export function deriveOnboardingJourney({ user = {}, profile = null, latestSessi
         uploaded_sides: latestSession?.uploaded_sides || { front: false, back: false, selfie: false },
         double_sided: latestSession?.double_sided ?? null,
         document_type: latestSession?.document_type || null,
-        who_must_act: latestSession ? identityWhoMustAct : 'subject_action',
-        guidance: applicantGuidance(latestSession),
+        who_must_act: identityWhoMustAct,
+        guidance: restrictiveLifecycle
+          ? (lifecycle?.applicant_guidance || 'CarUp is reviewing this account.')
+          : applicantGuidance(latestSession),
+        // O2-X3 — the CURRENT lifecycle, applicant-safe fields only (state, guidance, actor);
+        // internal security detail never travels here.
+        lifecycle: lifecycle
+          ? {
+            effective_state: lifecycle.effective_state,
+            reason_code: lifecycle.reason_code,
+            applicant_guidance: lifecycle.applicant_guidance,
+            who_must_act: lifecycle.who_must_act,
+            capability_bearing: Boolean(lifecycle.capability_bearing),
+          }
+          : null,
       },
     },
     who_must_act: whoMustAct,
@@ -358,13 +398,14 @@ async function fetchOwnUserRow(client, userId) {
 
 export async function getRegistrationJourney(client = supabase, actor = {}) {
   const userId = requireUserId(actor);
-  const [user, profile, latestSession] = await Promise.all([
+  const [user, profile, latestSession, lifecycle] = await Promise.all([
     fetchOwnUserRow(client, userId),
     fetchOwnProfile(client, userId),
     getLatestVerificationSessionForUser(client, { id: userId }),
+    getCurrentIdentityLifecycle(client, userId),
   ]);
 
-  const journey = deriveOnboardingJourney({ user: user || {}, profile, latestSession });
+  const journey = deriveOnboardingJourney({ user: user || {}, profile, latestSession, lifecycle });
   return {
     user: user
       ? {
