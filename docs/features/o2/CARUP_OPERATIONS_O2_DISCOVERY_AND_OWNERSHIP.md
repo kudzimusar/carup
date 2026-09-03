@@ -163,3 +163,20 @@ The original discovery above (`dd94c56d`) is preserved untouched.
   [CRITICAL]; seller-authority review, dealer decision, evidence preview, lifecycle
   transition, session revocations [SENSITIVE]. It composes after role/capability layers and
   substitutes for none of them.
+
+#### X4 addendum — executed 2026-09-03 (architecture certified; live provider NOT activated)
+
+- **New identity-domain pieces:** `identity_biometric_consents` (append-only consent ledger) +
+  biometric columns on the existing `verification_assessments`;
+  `services/identity/biometrics/` (provider contract + consent + assessment services);
+  applicant routes `/api/identity/biometric-consent[...]` and
+  `/api/identity/verification-sessions/:id/biometrics` (session-id only — no client scores).
+- **Ownership:** the identity domain owns consent and biometric evidence; `decisionPolicy`
+  consumes the evidence (mismatch/failed-liveness block approval; nothing biometric grants
+  it); the 7C reviewer decision remains the only approval writer; `identityBinding` stays the
+  independent, non-biometric name dimension.
+- **Provider posture:** registry → honest null provider (`not_configured`); unknown vendor
+  names throw; test doubles refused outside the test suite; provider selection is a governed
+  PO decision (`CARUP_OPERATIONS_O2_X4_BIOMETRIC_PROVIDER_DECISION.md`, status NOT SELECTED).
+- **Data-minimisation law (pinned repo-wide):** no biometric template/embedding store, no
+  fingerprint fields/endpoints; CarUp keeps assessment + provenance + consent + decision.

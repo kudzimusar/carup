@@ -543,6 +543,66 @@ A distinction the design must never blur:
 - **returning-user authentication** — proving the same account-holder is back (sessions,
   passkeys/WebAuthn/device biometrics).
 
+## O2-X4 — Biometrics + Explicit Consent: EXECUTED (2026-09-03) — architecture certified, provider NOT activated
+
+Receipt: `CARUP_OPERATIONS_O2_X4_BIOMETRICS_CONSENT_RECEIPT.md` · provider decision:
+`CARUP_OPERATIONS_O2_X4_BIOMETRIC_PROVIDER_DECISION.md` (**NOT SELECTED** — Product Owner
+decision on evidence). The two claims are kept deliberately separate:
+**BIOMETRIC ARCHITECTURE CERTIFIED** and **LIVE BIOMETRIC PROVIDER: NOT ACTIVATED.**
+
+**The laws, enforced and pinned:** biometrics provide EVIDENCE and never decide identity;
+provider success ≠ biometric match ≠ identity verified. A provider match changes nothing the
+other dimensions did not already permit (a name-binding mismatch still blocks approval); face
+mismatch and failed liveness BLOCK approval through `decisionPolicy` (recommend
+escalate/resubmission — never auto-rejection); indeterminate/failed/unavailable provider states
+keep the human path open.
+
+**Consent first, as a governed ledger.** `identity_biometric_consents` — append-only
+(DB-enforced, seq-ordered): each grant/withdrawal is an immutable event carrying purposes
+(`face_document_match`, `liveness`), `biometric_consent.v1`, the exact consent-text version
+shown (`biometric_consent_text.v1`), source and actor. Affirmative only (`consent: true` +
+matching text version; an unticked box stays unticked); Terms/Privacy acceptance, selfie
+upload, account creation and Submit are explicitly NOT consent. Self-only by construction.
+`requireActiveBiometricConsent` gates EVERY provider call — proven with a provider spy that a
+missing or withdrawn consent means the provider is never invoked. Withdrawal stops new
+processing, erases nothing, and the manual-review path continues.
+
+**Provider-neutral contract.** `biometricProvider.js`: CarUp vocabularies (`face_match_status`
+match/mismatch/indeterminate/provider_failed/not_run; `liveness_status`
+passed/failed/indeterminate/provider_failed/not_run; provider states incl. `not_configured`),
+raw-in → normalize-once, under the server-owned versioned `biometric_threshold.v1` (match ≥
+0.85, mismatch ≤ 0.40, liveness ≥ 0.80 — between-thresholds is indeterminate, never rounded
+up). **No fake implementation anywhere:** the registry resolves the honest null provider
+(`not_configured`, statuses `not_run` — nothing pretends to have run); an unknown configured
+vendor throws by name; injected test doubles are refused outside `NODE_ENV=test` (the X1 OCR
+truth rule). Liveness comes only from a provider — never from selfie existence, timers or UI
+completion (the old simulated concept cannot return).
+
+**Storage / data minimisation.** The assessment lands as one more append-only
+`verification_assessments` row (additive columns: face/liveness status+score,
+`provider_reference`, `provider_state`, `threshold_policy_version`, `consent_id`) — statuses,
+scores, references, hashes. **No biometric template/embedding store and no fingerprint
+fields/endpoints exist anywhere** — pinned repo-wide (expansion-era migrations may not even
+contain the word). Evidence media stays in the governed 7C storage; client-submitted
+scores/verdicts are inert (the route accepts only the session id).
+
+**Integration.** `identityBinding.js` is UNCHANGED — name-vs-name stays an independent
+dimension, and `identity_binding_status` keeps its meaning. Reviewer UI gains a Biometric
+Evidence section (consent state, provider provenance, face/liveness + scores, flags, degraded
+notes) with ZERO buttons of its own — the disposition still travels only through the existing
+7C decision controls. Applicant journey gains the consent block (full §6 disclosure, unticked
+box) and the run-check leg with truthful unavailable/fallback messaging. New reason codes
+(`BIOMETRIC_CONSENT_REQUIRED`, `FACE_MATCH_FAILED`, `FACE_MATCH_INDETERMINATE`,
+`LIVENESS_FAILED`, `LIVENESS_INDETERMINATE`, `BIOMETRIC_PROVIDER_UNAVAILABLE`,
+`BIOMETRIC_CAPTURE_RETRY_REQUIRED`) carry applicant-actionable guidance without anti-fraud
+internals. Events emitted (delivery stays with Communications):
+`identity.biometric.consent.granted`, `identity.biometric.assessed`. X3 lifecycle: biometric
+failure never rewrites history and never auto-marks `compromised` — reviewer/escalation policy
+owns that; historical 7C rows proven untouched by assessments.
+
+**Fingerprints remain out of scope** (no enrollment, no capture UI, no fields). Passkey/device
+biometrics remain X3 AUTHENTICATION, distinct from this identity-proofing lane.
+
 ## Biometrics and consent (X4 design) — truthful scope
 
 Existing reality, recorded so nothing is oversold:
