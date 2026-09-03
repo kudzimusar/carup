@@ -330,3 +330,97 @@ nothing. The measured remedy is the data, not the clock.
 3. Separately worth a look by the owning lane: the unbounded per-vehicle analytics fan-out with an
    all-or-nothing `ready` gate is a real product scaling characteristic, pre-existing and out of
    scope for this closure.
+
+---
+
+# GOLDEN FIXTURE REPAIR + CONTROLLED CERTIFICATION (2026-09-03/04)
+
+**Certification infrastructure only. `git diff f600d002 <head>` excluding `docs/`, `tests/` and
+`.github/` is EMPTY — the application product tree is identical to the frozen candidate.**
+
+## Fixture architecture chosen — isolated per-run Seller
+
+Each certification run now mints and owns `golden.seller.<workflow-run-id>@carup-staging.test`
+(`u_golden_<run-id>`), staging-only, unmistakably synthetic, shared with no other gate. The spec
+reads the address from `STAGING_UAT_BUYER_EMAIL` — an override `staging-helpers.ts` already
+supported — and its fixture-drift guard now pins the SHAPE
+(`/^(uat\.buyer|golden\.seller\.\d+)@carup-staging\.test$/`) so a real user or another gate's
+fixture still fails by name.
+
+**Why it cannot accumulate again:** a run's vehicles attach to that run's own Seller. The next run
+mints a different Seller and therefore starts from an empty garage — inheritance is structurally
+impossible rather than merely cleaned up. The reviewer identity stays shared on purpose: it holds no
+inventory, so it cannot accumulate the state this change exists to prevent.
+
+## One-time cleanup performed: NONE
+
+No rows were deleted, no ownership history altered, no vehicle reassigned. The 132 legacy listings
+(107 carrying the `Golden Dynamic Seller <run>:` automation marker) remain attached to `uat.buyer`
+as the record of what they were. Verified after the controlled run: legacy account still 132, the
+new per-run Seller 3 — its own, one per viewport.
+
+For the record, had cleanup been needed the marker is reliable: 107 rows carry BOTH
+`seller_description LIKE 'Golden Dynamic Seller %'` AND the `JTDKARFP0H3` VIN prefix, and **zero**
+VIN-prefix rows lack the marker.
+
+## Pre-run proofs
+
+Pre-run Golden Seller vehicle count **0** (identity minted fresh). Backend `UP`, commit `49951a43`,
+`provenance_available: true`, health 0.88s. Ownership-transfer migration present
+(`vehicle_ownership_transfers` exists; RPC source contains `tenant_id=NULL`). Zero workflows in
+flight repo-wide. No competing identity rotation.
+
+## Controlled run — `33793846244` @ `49951a43`
+
+**3 passed (6.7m).** Desktop 2.3m · tablet 2.3m · mobile 2.1m — against the **unchanged 8.0m**
+per-test ceiling. Provenance: `frontend_sha == backend_sha == 49951a43`, `unpaired=false`,
+deployment `dpl_5GJEdLSE2zsmx3cTp5xK3GkYR8uY`.
+
+| Measure | Failing run `33746640705` (132 listings) | Controlled run (3 listings) |
+|---|---|---|
+| Seller Intelligence analytics requests | 11+ concurrent | **3** |
+| Worst analytics latency | **96,981ms** | **1,988ms** (49× faster) |
+| `GET /api/vehicles/me` | **26,818ms** | **2,260ms** (12× faster) |
+| `POST /api/auth/login` | **24,843ms** | not slow enough to be logged |
+| `GET /api/health` | 3,262ms | **0.64–0.88s** |
+| Per-test duration | 8.0m (timeout) / 7.5m | **2.1–2.3m** |
+| Headroom vs 8m ceiling | 0.2m (98% consumed) | **5.7m (29% consumed)** |
+
+The 8-minute budget was never the problem: with an isolated fixture the journey uses 29% of it. The
+timeout was deliberately left unchanged.
+
+## Landed correction re-proved after the fixture change
+
+Seventeen invariant proofs pass: former owner denied after transfer; stale `confirmed` authority
+ineffective; stale `current_seller_id` ineffective; stale tenant relationship cannot restore Seller
+scope; incoming owner gets no fabricated authority; history intact.
+
+## Full matrix at `49951a43`
+
+CI `33792558804` · Vehicle Passport Foundation `33792559037` · **Operations Serena Staging UAT
+`33792559322`** · **Marketplace Reference Regression `33792559301`** · Navigation `33792558955` ·
+Communications `33792559095` · Finance Obligation `33792559042` · Referral `33792559161` · Diaspora
+`33792559163` — all **success**. Plus **Golden `33793846244` — success, 3/3**.
+
+---
+
+# ENGINEERING DEBT (post-merge, NOT part of this closure)
+
+## Seller Intelligence large-inventory scalability
+
+`web/src/pages/dashboard/owner/SellerIntelligence.tsx:182` issues **one analytics request per owned
+vehicle** via `await Promise.all(nextVehicles.map(...))` — unbounded concurrency — and sets
+`state='ready'` only after **all** of them resolve, so the KPI band renders nothing until the
+slowest request returns.
+
+Measured on staging at 132 vehicles: 11+ concurrent calls at 29–97 seconds, saturating the
+deployment and dragging unrelated endpoints (`/api/vehicles/me` 26.8s, `login` 24.8s, `/health`
+3.3s) with **zero 5xx** — not failing, saturated.
+
+**This is a genuine product characteristic, not merely a test artefact.** A dealership with 100+
+vehicles would experience the same. Worth investigating: a backend aggregate/batch analytics
+endpoint; bounded concurrency; pagination or server-side aggregation; partial-ready rendering
+instead of all-or-nothing; and large-inventory performance targets.
+
+Deliberately NOT addressed inside #194 — it is outside the former-seller security closure, and the
+certification no longer depends on it.
