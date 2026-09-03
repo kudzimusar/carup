@@ -2791,6 +2791,25 @@ export function useCarUpApi() {
   const runBiometricCheck = useCallback((sessionId: string): Promise<BiometricRunEnvelope> =>
     request<BiometricRunEnvelope>(`/identity/verification-sessions/${encodeURIComponent(sessionId)}/biometrics`, { method: 'POST', body: JSON.stringify({}) }), [request])
 
+  // O2-X5 — Dealer onboarding self-service (context-gated server-side; onboarding, never authority).
+  type DealerOnboardingEnvelope = { success: boolean } & Record<string, unknown>
+  const fetchDealerOnboardingOverview = useCallback((): Promise<DealerOnboardingEnvelope> =>
+    request<DealerOnboardingEnvelope>('/dealer-onboarding/overview'), [request])
+  const saveDealerOnboardingProfile = useCallback((payload: { profile: Record<string, unknown>; candidates_seen?: Record<string, string> }): Promise<DealerOnboardingEnvelope> =>
+    request<DealerOnboardingEnvelope>('/dealer-onboarding/profile', { method: 'PUT', body: JSON.stringify(payload) }), [request])
+  const uploadDealerEvidence = useCallback((payload: { doc_type: string; file: string; expiry_date?: string | null }): Promise<DealerOnboardingEnvelope> =>
+    request<DealerOnboardingEnvelope>('/dealer-onboarding/documents', { method: 'POST', body: JSON.stringify(payload) }), [request])
+  const runDealerDocumentOcr = useCallback((docId: string): Promise<DealerOnboardingEnvelope> =>
+    request<DealerOnboardingEnvelope>(`/dealer-onboarding/documents/${encodeURIComponent(docId)}/ocr`, { method: 'POST', body: JSON.stringify({}) }), [request])
+  const addDealerOnboardingBranch = useCallback((payload: { name: string; address?: string }): Promise<DealerOnboardingEnvelope> =>
+    request<DealerOnboardingEnvelope>('/dealer-onboarding/branches', { method: 'POST', body: JSON.stringify(payload) }), [request])
+  const inspectDealerWorkbook = useCallback((payload: { fileBase64: string; filename: string; templateType?: string; sheetName?: string }): Promise<DealerOnboardingEnvelope> =>
+    request<DealerOnboardingEnvelope>('/dealer-onboarding/workbook/inspect', { method: 'POST', body: JSON.stringify(payload) }), [request])
+  const confirmDealerWorkbookMapping = useCallback((payload: Record<string, unknown>): Promise<DealerOnboardingEnvelope> =>
+    request<DealerOnboardingEnvelope>('/dealer-onboarding/workbook/mapping/confirm', { method: 'POST', body: JSON.stringify(payload) }), [request])
+  const runDealerWorkbookDryRun = useCallback((payload: { fileBase64: string; filename: string; templateType?: string; sheetName?: string }): Promise<DealerOnboardingEnvelope> =>
+    request<DealerOnboardingEnvelope>('/dealer-onboarding/workbook/dry-run', { method: 'POST', body: JSON.stringify(payload) }), [request])
+
   return {
     fetchRegistrationJourney,
     fetchRegistrationCandidates,
@@ -2801,6 +2820,14 @@ export function useCarUpApi() {
     grantBiometricConsent,
     withdrawBiometricConsent,
     runBiometricCheck,
+    fetchDealerOnboardingOverview,
+    saveDealerOnboardingProfile,
+    uploadDealerEvidence,
+    runDealerDocumentOcr,
+    addDealerOnboardingBranch,
+    inspectDealerWorkbook,
+    confirmDealerWorkbookMapping,
+    runDealerWorkbookDryRun,
     fetchSellerIntelligence,
     fetchListingIntelligence,
     fetchDealerIntelligence,

@@ -212,15 +212,18 @@ export default function RegistrationJourney() {
     }
   }, [fetchRegistrationJourney, fetchRegistrationCandidates])
 
+  // Key the load effect on the user's id, not the user object: a context re-render that
+  // rebuilds the user object must not re-run the initial fetch.
+  const userId = user?.id
   useEffect(() => {
-    if (!user) {
+    if (!userId) {
       navigate('/login')
       return
     }
     // The shared request() helper flips its loading flag synchronously, so defer the
     // initial fetch by a microtask — the effect itself must not set state in its pass.
     queueMicrotask(() => { void load() })
-  }, [user, navigate, load])
+  }, [userId, navigate, load])
 
   const identity = journey?.journey.steps.identity
   const countryCandidate = candidates?.available ? candidates.profile_candidates?.country_of_residence : undefined
@@ -367,6 +370,11 @@ export default function RegistrationJourney() {
               </li>
             ))}
           </ol>
+          {journey.journey.capability_ladder.some((s) => s.stage === 'contact_context_established' && s.reached && s.unlocks.includes('prepare_dealer_onboarding')) && (
+            <Button size="sm" variant="outline" onClick={() => navigate('/dealer/onboarding')} data-testid="start-dealer-onboarding">
+              Start Dealer onboarding
+            </Button>
+          )}
           <div className="border-t border-gray-800 pt-3 space-y-1">
             {journey.journey.locked_capabilities.map((lock) => (
               <div key={lock.capability} className="flex items-start gap-2 text-xs text-gray-500" data-testid={`locked-${lock.capability}`}>

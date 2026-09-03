@@ -24,9 +24,12 @@ const DOCUMENTS = 'dealer_compliance_documents';
 const REQUIREMENTS = 'dealer_compliance_requirements';
 const DECISIONS = 'dealer_compliance_decisions';
 
+// O2-X5: tenant_id is DELIBERATELY absent. A dealer applicant must never create or move
+// themselves into an organization by sending {"tenant_id": ...} — tenant binding is derived
+// server-side from a governed organization relationship or stays null until one exists.
 const PROFILE_FIELDS = [
   'legal_name', 'trading_name', 'registration_number', 'tax_id',
-  'physical_address', 'responsible_person', 'operating_country', 'tenant_id',
+  'physical_address', 'responsible_person', 'operating_country',
 ];
 
 const DECISIONS_ALLOWED = [

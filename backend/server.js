@@ -125,6 +125,7 @@ import registrationOnboardingRouter from './routes/registrationOnboardingRoutes.
 import authSecurityRouter from './routes/authSecurityRoutes.js';
 import identityLifecycleAdminRouter from './routes/identityLifecycleAdminRoutes.js';
 import identityBiometricRouter from './routes/identityBiometricRoutes.js';
+import dealerOnboardingRouter from './routes/dealerOnboardingRoutes.js';
 import featureGovernanceRouter from './routes/featureGovernanceRoutes.js';
 import navigationAnalyticsRouter from './routes/navigationAnalyticsRoutes.js';
 import intelligenceActivityRouter from './routes/intelligenceActivityRoutes.js';
@@ -399,6 +400,7 @@ app.use(registrationOnboardingRouter);
 app.use(authSecurityRouter);
 app.use(identityLifecycleAdminRouter);
 app.use(identityBiometricRouter);
+app.use(dealerOnboardingRouter);
 app.use(featureGovernanceRouter);
 app.use(navigationAnalyticsRouter);
 app.use(intelligenceActivityRouter);
