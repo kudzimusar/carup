@@ -144,6 +144,13 @@ jobs:
             'database/migrations/20260902110000_zimbabwe_registration_lifecycle_and_evidence.sql',
             'database/migrations/20260902150000_vehicle_life_generic_compat_types.sql',
             'database/migrations/20260902160000_vehicle_seller_authority.sql',
+            // Ownership transfer authority. This candidate has carried the feature since
+            // 20260828203000, but the migration had NEVER been applied to staging: the first run of
+            // the closure below failed because `public.vehicle_ownership_transfers` does not exist
+            // there, so the RETURNS clause could not resolve. Nothing had noticed, because no
+            // staging gate exercised ownership transfer. It is idempotent (IF NOT EXISTS / CREATE
+            // OR REPLACE throughout) and must precede the closure that replaces its function.
+            'database/migrations/20260828203000_passport_ownership_transfer_authority.sql',
             // Former-seller authorization closure: completion also retires the dealer-organisation
             // relationship. CREATE OR REPLACE + a DO post-check, so it is idempotent like the rest.
             'database/migrations/20260903120000_ownership_transfer_retires_tenant_relationship.sql',
