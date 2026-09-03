@@ -142,3 +142,24 @@ The original discovery above (`dd94c56d`) is preserved untouched.
 - **Attribution guards (X1 residual A closed):** `extractDocumentData` and
   `aiServiceBus.runOcrParsing` refuse to run without a user id outside the test suite;
   `/api/ai/ocr` passes `req.userContext.id`.
+
+#### X3 addendum — executed 2026-09-03 (see the expansion plan's "X3 executed" section)
+
+- **New identity-domain lifecycle ledger:** `identity_lifecycle_events` (append-only,
+  DB-enforced, monotonic `seq`) + `identityLifecycleService` — current state derived from the
+  latest row with fallback to the historical 7C approval; 7C sessions remain immutable.
+- **Ownership decisions:** the identity domain owns lifecycle truth (only its approval hook
+  mints `verified`/`recovered`); auth owns session assurance (`auth_method`/`step_up_at`/
+  `step_up_method` on `user_sessions`, server-derived only); Operations acts through
+  `operations.identity.lifecycle` / `operations.account.security` on proven, stepped-up
+  sessions; routine recovery stays an authentication event (recovery router imports no
+  lifecycle code, source-pinned).
+- **Discovery facts:** no self-service profile/credential-change or logout routes exist —
+  the material-identity-change trigger has no write path to hook today (designed, refused by
+  absence; any future account-edit route must call the lifecycle hook); no WebAuthn/passkey/MFA
+  implementation exists anywhere in the repository — `STRONG_AUTHENTICATOR_AVAILABLE=false` is
+  the build-time fact and the critical class's password-re-proof fallback is explicit policy.
+- **One step-up guard** (`requireAuthenticationAssurance`) wired to: transfer transition
+  [CRITICAL]; seller-authority review, dealer decision, evidence preview, lifecycle
+  transition, session revocations [SENSITIVE]. It composes after role/capability layers and
+  substitutes for none of them.

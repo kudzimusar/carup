@@ -112,6 +112,14 @@ what enters `user_registration_profiles`, confirmed-vs-corrected provenance is d
 server-side and audited, and the Progressive Trust ladder is a derived, advisory, zero-write
 projection — receipt: `CARUP_OPERATIONS_O2_X2_REGISTRATION_PROGRESSIVE_TRUST_RECEIPT.md`.*
 
+*X3 (2026-09-03) added two governed facts with the same discipline — receipt:
+`CARUP_OPERATIONS_O2_X3_IDENTITY_LIFECYCLE_ACCOUNT_SECURITY_RECEIPT.md`:*
+
+| Fact | Source of truth | Who may propose | Who may decide | AI may influence? | Public? | Which service writes it |
+|---|---|---|---|---|---|---|
+| CURRENT identity lifecycle | `identity_lifecycle_events` (append-only; latest row, with historical-approval fallback and the derived expiry overlay) | reviewer transitions; the 7C approval; governed security/recovery policy | `operations.identity.lifecycle` holders on proven stepped-up sessions; `verified`/`recovered` ONLY via the governed 7C approval hook; never the subject | never | never (applicant sees only state/reason/guidance/actor) | `identityLifecycleService` |
+| Session authentication assurance | `user_sessions` (`auth_method`, `step_up_at`, `step_up_method`) | the account holder, by re-proving the credential | the SERVER derives strength/freshness per action class (`authentication_assurance.v1`); nothing client-supplied is read | never | never | `authenticationAssuranceService.recordStepUp` (the only writer) |
+
 | Fact | Source of truth | Who may propose | Who may decide | AI may influence? | Public? | Which service writes it |
 |---|---|---|---|---|---|---|
 | OCR extracted value | extraction output + provenance (identity lane: `verification_ocr_provenance`) | the extraction system (machine) | nobody — it is candidate evidence, never a decision | yes — it IS machine output, always marked candidate | never | identity service (provenance); the extraction utility produces it |

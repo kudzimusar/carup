@@ -416,6 +416,82 @@ Business signup collects routing context only — full Dealer KYB stays X5.
 hang off; biometric consent + provider provenance (X4) slot into the same 7C evidence path;
 Dealer onboarding (X5) picks up `account_kind='business'` routing from the profile.
 
+## O2-X3 — Identity Lifecycle + Account Security: EXECUTED (2026-09-03)
+
+Receipt: `CARUP_OPERATIONS_O2_X3_IDENTITY_LIFECYCLE_ACCOUNT_SECURITY_RECEIPT.md`. The two
+questions are now answered separately and never collapsed: **proofing** ("who did CarUp
+establish this person to be" — 7C, immutable) and **authentication** ("is the person at the
+keyboard proven strongly enough for THIS action" — session assurance).
+
+**Current lifecycle, layered over immutable history.** `identity_lifecycle_events` is an
+append-only identity-domain ledger (DB-enforced: UPDATE/DELETE raise; monotonic `seq`); the
+current state is the latest row, falling back to the historical approval when no row exists
+(`verified`) and to `not_established` otherwise. Historical `resolved_approved` sessions are
+never rewritten — proven byte-identical through transitions. States: `verified ·
+reverification_required · suspended · compromised · disputed · revoked · recovered`, each
+transition carrying subject, both states, reason code, trigger, actor (+kind/role), policy
+version (`identity_lifecycle.v1`) and evidence reference. The transition table is total and
+fail-closed by name; `verified`/`recovered` are minted ONLY by the governed 7C approval hook
+(recorder → `onVerificationApproved`); the subject can never act on their own lifecycle;
+**`revoked` accepts only the governed step back into `reverification_required` — an old
+approval can never resurrect it** (the hook refuses, test-pinned).
+
+**Triggers implemented:** document expiry as a DERIVED overlay (real, parseable expiry in the
+approving evidence → effective `reverification_required`, reason `DOCUMENT_EXPIRED`; nothing
+fabricated when the evidence carries none); suspected takeover / security events as governed
+reviewer transitions (`SUSPECTED_ACCOUNT_TAKEOVER`, `SECURITY_REVIEW`); recovery classified —
+a ROUTINE password reset stays an authentication event (all prior sessions revoked, identity
+proofing untouched; the recovery router imports no lifecycle code, source-pinned), while
+suspected takeover is the governed `compromised` path. **Material identity change:** the
+reason code and policy exist, but no self-service profile/credential-change route exists in
+the repository today — the trigger is designed and REFUSED-BY-ABSENCE rather than pretended;
+any future account-edit route must call the lifecycle hook (recorded obligation).
+
+**Authentication assurance (`authentication_assurance.v1`).** Sessions carry server-side
+`auth_method` / `step_up_at` / `step_up_method` (additive migration; this table's existing
+TEXT-timestamp convention kept). Strengths: `session < recent_reauth < strong_authenticator`.
+Action classes: `ordinary_action` (proven session) · `sensitive_action` (recent re-proof,
+15-min TTL) · `critical_authority_action` (5-min TTL). **Passkey/WebAuthn: NOT implemented and
+not pretended** — `STRONG_AUTHENTICATOR_AVAILABLE=false` is a build-time fact; the method
+allowlist contains only `password_reauth`, so no code path can record a strength that does not
+exist, and the critical class's fall-back to fresh password re-proof is EXPLICIT policy
+(`deferredStrongAuthenticator: true`, test-pinned). Assurance derives ONLY from the session
+row the presented token resolves to — forged headers/bodies are proven inert. Device
+biometrics via a future passkey are AUTHENTICATION, not identity-proofing biometrics (X4).
+
+**One guard, mapped actions.** `requireAuthenticationAssurance(class)` composes after the
+role/capability layers and substitutes for none of them (step-up proves the actor; the domain
+still decides). Wired: ownership-transfer transition `PATCH /api/ownership-transfers/:id`
+[CRITICAL] · seller-authority review · dealer compliance decision · identity evidence preview
+· identity lifecycle transition · governed session revocations (self + operations)
+[SENSITIVE]. Step-up itself: `POST /api/auth/step-up` (server-verified password on the
+presenting session). An x-user-id-asserted identity is refused on every security surface.
+
+**Session security.** Governed revocation over the existing `is_valid` contract — scopes one /
+others / all; self-service `POST /api/auth/sessions/revoke-others` (keeps the presenting
+session) and `GET /api/auth/sessions` (ids + display metadata, never token material);
+operations revocation behind the new `operations.account.security` capability. **`compromised`
+revokes every live session in the same governed action**, audited with session ids only.
+Invalidated sessions are re-proven rejected by the unchanged authMiddleware.
+
+**Dormant `next_actor`/`required_action`: derivation chosen** (the X2/P2 rule stands). The
+lifecycle adds its own derived `who_must_act` projection; the dormant session columns stay
+dormant, and no second source of truth was created.
+
+**Progressive Trust integration.** The journey/ladder now respects the CURRENT lifecycle:
+capability-bearing (`verified`/`recovered`) is required for identity-approved capability;
+`reverification_required` keeps safe low-risk capability while identity-gated capability locks
+with the applicant-safe reason; `suspended`/`compromised`/`disputed`/`revoked` fail closed with
+CarUp as the visible actor. Only applicant-safe lifecycle fields reach the subject (state,
+reason code, guidance, actor — never triggers, ledger ids or internal notes). The lifecycle
+changes no domain authority: ownership history, Seller Authority, Dealer Compliance and
+Vehicle Trust rows are untouched by every transition (their suites re-proven green).
+
+**New capabilities (static map):** `operations.identity.lifecycle`,
+`operations.account.security`. **Migrations (2, additive):**
+`20260903200000_identity_lifecycle_events.sql`,
+`20260903201000_user_sessions_authentication_assurance.sql`.
+
 ## Progressive Trust / capability unlocking (X2 design principle)
 
 The expansion's speed principle: a legitimate user performs safe low-risk actions immediately;

@@ -91,3 +91,18 @@ implemented ones and are unchanged. The ADR vocabulary stays verbatim — still 
 | Dealer document submitted, undecided (expansion flows) | `carup_review` | unchanged from the core dealer mapping |
 | Workbook mapping awaiting human confirmation | `subject_action` | the importing user confirms the advisory AI mapping before any import runs |
 | External authority verification (e.g. government identity registry, future) | `external_authority` | matches the existing note under the identity projection |
+
+## Identity lifecycle → projection (X3 — IMPLEMENTED, derived at read time)
+
+`lifecycleToResponsibilityProjection` in `identityLifecycleService.js` — same law as every
+projection above: ADR vocabulary verbatim, derived, never persisted (the dormant
+`next_actor`/`required_action` session columns remain dormant by decision).
+
+| Current lifecycle state | Projected `who_must_act` |
+|---|---|
+| `verified` / `recovered` | `none` |
+| `reverification_required` (incl. the derived document-expiry overlay) | `subject_action` |
+| `disputed` | `escalated` |
+| `suspended` / `compromised` | `carup_review` |
+| `revoked` | `none` (re-entry starts with a governed reviewer step, then a new evidence journey) |
+| `not_established` | `none` at lifecycle grain — the onboarding journey's own projection owns the "start verifying" nudge |
