@@ -424,3 +424,75 @@ instead of all-or-nothing; and large-inventory performance targets.
 
 Deliberately NOT addressed inside #194 — it is outside the former-seller security closure, and the
 certification no longer depends on it.
+
+---
+
+# EXACT-HEAD ACCEPTANCE CANDIDATE (2026-09-04) — #194 acceptance closure
+
+Prepared under the Product Owner's acceptance-closure directive. **#194 remains UNMERGED.**
+No shared-staging schema was modified by this closure task (read-only verification only); no O2
+branch content was modified; no P7 work was performed.
+
+## The head chain (history preserved, nothing rewritten)
+
+| Stage | SHA | Record |
+|---|---|---|
+| Original V16 exact-head certification (prior certified head) | `9ee59873` | 53-point report; Marketplace exact-head staging run `33192681171`, 11/11; the PR body's former "current head" |
+| Integrated certified SHA (superseded, not erased) | `dd94c56d` / branch `33720d79` | the section above; historical O2 merge-base |
+| Bounded convergence: former-seller authority closure landed | `6bed5c5e` → `f600d002` | product-code candidate FROZEN at `f600d002` (perf-scoped denial); certification matrix at `f600d002` above |
+| Certification-infrastructure repair (per-run Golden Seller) | `fbc059f9`, `49951a43` | full matrix + Golden 3/3 at `49951a43` (`33793846244`) |
+| Docs-only closure records | `68a44b60`, `e1d9ace7`, `52ebcd46` | this receipt's sections; product tree byte-identical to `f600d002` |
+| **Acceptance pack (this section + manifest + PR-body correction)** | the commit carrying this section | docs-only; the receipt-bearing candidate head |
+
+**Single-SHA discipline (this branch's documented rule):** every commit after `f600d002` is
+docs/tests/.github-only — `git diff f600d002 <head> -- . ':!docs' ':!*.test.js' ':!.github'`
+returns empty — so the PRODUCT certification remains anchored to the frozen candidate while the
+receipt-bearing head carries the records. This section does NOT claim any run executed on a SHA
+it did not; each run below names its exact SHA.
+
+## At-head check matrix — `52ebcd46` (the pre-acceptance head; every check ran ON this SHA)
+
+**Success (17 checks + 4 Vercel statuses):** Lint·Types·Build·Tests / Secret scan / Dependency
+audit `33795041143` · backend-and-build + playwright + staging-integration `33795041161` ·
+Passport foundation contracts `33795041017` · Finance obligation authority `33795041055` ·
+Referral CI `33795041079` · **Operations Serena staging UAT `33795041105`** · **Exact-head
+reference + staging certification (Marketplace) `33795041107`** · communication-unit +
+communication-postgres `33795041128` · navigation gates/e2e/accessibility `33795041196` ·
+Vercel Preview Comments · Vercel carup / carup-staging / carup-backend / carup-backend-staging —
+all success.
+
+**Skipped at head — honest classification (SKIPPED is never converted to PASS):**
+
+| Check | Why skipped | Classification |
+|---|---|---|
+| `Supabase Preview` | Supabase branch-preview integration not used by this repo's flow | intentionally out of scope |
+| `apply-and-verify`, `preflight-apply-verify` ×3 | migration-apply legs gated to their dispatch/path triggers | covered elsewhere: the Serena staging UAT's governed idempotent apply-list executed at head (`33795041105`) |
+| `communication-staging`, `communication-staging-deploy` | staging legs gated behind dispatch + provider secrets | covered elsewhere (comms unit+postgres at head; Communications 2.0 staging certified in its own merged lane); required only for future comms staging changes, not #194 acceptance |
+| `deployed-staging-uat` | dispatch-gated generic staging UAT | covered elsewhere: Serena UAT + exact-head Marketplace staging certification ran at THIS head |
+| Golden Seller lifecycle | dispatch-gated; not re-dispatched for docs-only commits | last run `33793846244` = 3/3 PASS at `49951a43`; inherited under the single-SHA rule above (product tree identical); required before acceptance only at candidate grain, which it satisfies |
+
+## PR-body correction
+
+The live PR body claimed "Current exact code head `9ee59873`… frozen while final Codex review
+runs" — stale by five certified stages. Corrected (2026-09-04) to name: prior certified head
+`9ee59873` (evidence preserved verbatim), the superseded integrated SHA `dd94c56d`, the frozen
+product candidate `f600d002`, the subsequent bounded convergence commits, and the current
+receipt-bearing candidate head. No historical run is presented as having executed on a newer SHA.
+
+## Relationship to the O2/P7 gate chain (gates NOT collapsed)
+
+`#194 exact-head acceptance candidate → PO merge/land decision → O2 reconciliation onto the
+landed base (per docs/hardening/PR194_O2_RECONCILIATION_MANIFEST.md — no blind cherry-pick) →
+shared-staging DDL parity plan → synthetic identity fixture approval → O2 preview pairing → P7 →
+X7.` One P7-reconciliation fact is corrected by THIS closure's verification: the P1-C migration
+`20260903120000` (and `20260828203000`) ARE live on staging — applied by this branch's governed
+Serena apply-list, UNLEDGERED in `supabase_migrations` (verified read-only:
+`vehicle_ownership_transfers` exists; `passport_transition_ownership_transfer_atomic` source
+contains the tenant retirement). The remaining SIX O2 expansion migrations (X3 ×2, X4 ×2, X5,
+X5A) are genuinely absent from staging.
+
+## Release gates that remain open AFTER acceptance (unchanged from the PR body)
+
+Production #158 custody/rotation evidence · production/staging Communications provider secrets +
+worker activation where live delivery is required · owner UAT sign-off · post-activation soak ·
+protected production migration approvals. None is claimed here.
