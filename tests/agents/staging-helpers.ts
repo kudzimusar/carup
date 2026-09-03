@@ -19,7 +19,10 @@ export const RUN_ID = process.env.STAGING_RUN_ID || `staging-${Date.now()}`;
 export const IDENTITIES = {
   buyer: { email: process.env.STAGING_UAT_BUYER_EMAIL || 'uat.buyer@carup-staging.test', envPassword: 'STAGING_UAT_BUYER_PASSWORD', state: '.staging-auth/buyer.json' },
   seller: { email: 'uat.seller@carup-staging.test', envPassword: 'STAGING_UAT_SELLER_PASSWORD', state: '.staging-auth/seller.json' },
-  reviewer: { email: 'uat.reviewer@carup-staging.test', envPassword: 'STAGING_UAT_REVIEWER_PASSWORD', state: '.staging-auth/reviewer.json' },
+  // The address is overridable so a workflow can own its reviewer instead of sharing
+  // `uat.reviewer@carup-staging.test` with every other staging gate that rotates it. The
+  // default preserves the historical shared identity for every caller that sets nothing.
+  reviewer: { email: process.env.STAGING_UAT_REVIEWER_EMAIL || 'uat.reviewer@carup-staging.test', envPassword: 'STAGING_UAT_REVIEWER_PASSWORD', state: '.staging-auth/reviewer.json' },
   tenantAdmin: { email: 'uat.tenant-admin@carup-staging.test', envPassword: 'STAGING_UAT_TENANT_ADMIN_PASSWORD', state: '.staging-auth/tenant-admin.json' },
   outsider: { email: 'uat.outsider@carup-staging.test', envPassword: 'STAGING_UAT_OUTSIDER_PASSWORD', state: '.staging-auth/outsider.json' },
 } as const;

@@ -310,9 +310,18 @@ test.describe('Seller media continuity across the commerce lifecycle', () => {
 
     // ── upload the ownership document through the Evidence UI ─────────────────────────────────
     await page.goto(`/dashboard/garage/${VIN}?upload=1`, { waitUntil: 'domcontentloaded' });
-    await expect(page.locator('#evidence-type')).toBeVisible({ timeout: 20_000 });
-    await page.locator('#evidence-type').selectOption({ label: 'Registration Document (PDF/Image)' });
-    await page.locator('#visibility').selectOption({ index: 1 });
+    // The evidence uploader is canonical-first (Operations M1): the legacy `#evidence-type`
+    // category select now renders ONLY as a fallback when the taxonomy cannot load, because a
+    // seller must not be able to file an import invoice as a "Registration Document" merely
+    // because it is a PDF. This gate drives the canonical controls instead. The classification is
+    // unchanged in meaning: registration/registration_book still derives the legacy
+    // `registration_document` compatibility value this test looks for further down.
+    await expect(page.locator('#evidence-class')).toBeVisible({ timeout: 20_000 });
+    await page.locator('#evidence-class').selectOption('registration');
+    await page.locator('#evidence-subtype').selectOption('registration_book');
+    // Documents are Restricted: publishing a source document is a governed reviewer decision, and
+    // the server now refuses an uploader-requested widening regardless of what the form sends.
+    await page.locator('#visibility').selectOption('restricted');
     await page.locator('input[type="file"]').first().setInputFiles(FIXTURES + PHOTOS[0].file);
     await press(page, page.getByRole('button', { name: 'Submit Evidence' }), 'Submit Evidence');
 
