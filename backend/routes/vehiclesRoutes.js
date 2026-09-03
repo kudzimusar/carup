@@ -47,6 +47,7 @@ import {
   submitSellerClaim,
   reviewSellerAuthority,
   getSellerAuthorityState,
+  isSellerAuthorityEffectivelyDenied,
   toPublicSellerAuthorityStatement,
   SellerAuthorityError,
   SELLER_AUTHORITY_CLAIM_EVENT as SELLER_AUTHORITY_CLAIM_EVENT_NAME,
@@ -200,6 +201,22 @@ async function loadScopedVehicle(req, vin) {
     const isDealerTenant = vehicle.tenant_id && vehicle.tenant_id === req.userContext.tenantId;
     if (!isOwner && !isCurrentSeller && !isDealerTenant) {
       throw new ForbiddenError('Forbidden. You do not have owner, current-seller, or organizational scope over this vehicle.');
+    }
+    // A completed ownership transfer away ENDS seller control, whichever clause above would have
+    // granted it. This matters most for the tenant clause: the transfer RPC clears
+    // current_seller_id/type/source but deliberately leaves `vehicles.tenant_id` alone, so a
+    // previous dealer-organisation relationship physically outlives the sale. Without this, a
+    // former owner could still publish, unpublish, or reprice a vehicle they no longer own.
+    // The canonical owner short-circuits inside the predicate, so the ordinary path adds no query.
+    const denial = await isSellerAuthorityEffectivelyDenied(supabase, {
+      vin,
+      userId: req.userContext.id,
+      vehicle,
+    });
+    if (denial.denied) {
+      throw new ForbiddenError(
+        'Forbidden. Your seller authority over this vehicle has ended (ownership transferred or authority revoked).',
+      );
     }
   }
   return vehicle;
@@ -598,6 +615,17 @@ async function insertEvidenceFromRequest(req, vin, { requireVehicleId = false } 
       ? await latestSellerAuthorityClaim(vin, activeUserId)
       : null;
     if (!claim) throw scopeError;
+    // A historical claim event is not a permanent upload grant. `latestSellerAuthorityClaim` reads
+    // the newest SELLER_AUTHORITY_CLAIM_REQUESTED event with no state, no expiry and no ownership
+    // re-check, so any claim a former owner ever filed would otherwise let them keep pushing
+    // authority-candidate documents onto a Passport they no longer hold — documents that then feed
+    // the very evidence checks this correction is closing.
+    const claimantDenial = await isSellerAuthorityEffectivelyDenied(supabase, {
+      vin,
+      userId: activeUserId,
+      vehicle,
+    });
+    if (claimantDenial.denied) throw scopeError;
   }
 
   const requestedVisibility = req.body.visibility_level || req.body.visibilityLevel || null;

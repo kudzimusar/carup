@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { ValidationError, ForbiddenError, ConflictError, DatabaseError } from '../../utils/errors.js';
 import { getGovernedEncumbrance } from '../finance/vehicleFinanceObligationService.js';
+import { supersedeSellerAuthorityOnOwnershipTransfer } from '../seller/sellerAuthorityService.js';
 
 const GOVERNANCE_ROLES = new Set(['admin','government','reviewer','platform_admin','super_admin']);
 
@@ -103,10 +104,33 @@ export async function transitionOwnershipTransfer(client, {
   });
   if (error) throw new DatabaseError('Failed to transition ownership transfer.', { reason: error.message });
 
+  // O2/P1 — once ownership is canonical, the PREVIOUS owner's Seller Authority is superseded.
+  // Ordering is deliberate: the registry-backed owner_id change (atomic in the RPC above) is the
+  // stronger fact and STANDS even if the supersession write fails — but that failure is a real
+  // inconsistency (a standing authority over a vehicle its holder no longer owns), so it is
+  // returned to the caller by name, never swallowed. The supersession is idempotent, so a governed
+  // re-run of this transition converges; ONLY the canonical completion supersedes — every other
+  // state change leaves authority untouched, and nothing is ever created for the incoming owner.
+  let authoritySupersession = null;
+  if (data?.state === 'complete' && data?.vin && data?.previous_owner_id) {
+    try {
+      authoritySupersession = await supersedeSellerAuthorityOnOwnershipTransfer(client, {
+        vin: data.vin,
+        previousOwnerId: data.previous_owner_id,
+        transferId,
+        actor: { id: identity.id, role: identity.role || null, tenantId: actor.tenantId ?? null },
+      });
+    } catch (supersedeError) {
+      console.error('[OwnershipTransfer] Seller Authority supersession failed:', supersedeError?.message || supersedeError);
+      authoritySupersession = { changed: false, failed: true, error: supersedeError?.message || String(supersedeError) };
+    }
+  }
+
   return {
     transfer: data,
     legal_ownership_completed: data?.state === 'complete',
     same_passport_vin: data?.vin || null,
+    ...(authoritySupersession !== null ? { authority_supersession: authoritySupersession } : {}),
   };
 }
 

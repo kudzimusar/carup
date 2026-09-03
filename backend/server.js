@@ -75,7 +75,7 @@ import {
   normalizeInsuranceDisclosure,
   normalizeFinanceDisclosure,
 } from './services/seller/vehicleHistoryDisclosures.js';
-import { hasVerifiedOwnershipAuthorityEvidence } from './services/seller/sellerAuthorityService.js';
+import { hasVerifiedOwnershipAuthorityEvidence, isSellerAuthorityEffectivelyDenied } from './services/seller/sellerAuthorityService.js';
 
 // Centralized Routes Imports (Batch 1)
 import leadsRouter from './routes/leadsRoutes.js';
@@ -3003,12 +3003,30 @@ app.post('/api/vehicles/add', authorizeRole(['dealer', 'owner', 'admin']), async
     // ownership/registration DOCUMENT under canonical semantics — a mislabeled
     // import artifact never qualifies. Delegates to the one governed service
     // instead of duplicating the query inline.
-    let governedSellerEvidence = false;
+    // EFFECTIVE authorization is evaluated BEFORE any historical evidence is consulted. A completed
+    // ownership transfer away — or an explicit revoked decision — denies the former seller outright,
+    // because their still-valid historical registration document proves what was true when it was
+    // issued and must not survive as a permission token. Without this, A could re-establish Seller
+    // scope from that old document after selling the vehicle, and the reuse write below would then
+    // hand `current_seller_id` back to A, restoring publish/price/status control over B's vehicle.
+    let effectiveDenial = { denied: false, reason: null };
     if (existing && reuse_existing_passport === true) {
+      effectiveDenial = await isSellerAuthorityEffectivelyDenied(supabase, {
+        vin,
+        userId: req.userContext.id,
+        vehicle: existing,
+      });
+    }
+
+    let governedSellerEvidence = false;
+    if (existing && reuse_existing_passport === true && !effectiveDenial.denied) {
       governedSellerEvidence = await hasVerifiedOwnershipAuthorityEvidence(supabase, vin, req.userContext.id);
     }
 
-    const existingSellerRelationship = Boolean(existing && (
+    // The denial also strips the derived relationship clauses: a stale `current_seller_id` or a
+    // previous tenant that outlived the transfer must not authorize either (fail closed on stale
+    // secondary state, which is exactly what a failed supersession leaves behind).
+    const existingSellerRelationship = Boolean(existing && !effectiveDenial.denied && (
       existing.owner_id === req.userContext.id
       || (existing.current_seller_id && existing.current_seller_id === req.userContext.id)
       || (existing.tenant_id && req.userContext.tenantId && existing.tenant_id === req.userContext.tenantId)

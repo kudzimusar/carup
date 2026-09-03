@@ -144,6 +144,9 @@ jobs:
             'database/migrations/20260902110000_zimbabwe_registration_lifecycle_and_evidence.sql',
             'database/migrations/20260902150000_vehicle_life_generic_compat_types.sql',
             'database/migrations/20260902160000_vehicle_seller_authority.sql',
+            // Former-seller authorization closure: completion also retires the dealer-organisation
+            // relationship. CREATE OR REPLACE + a DO post-check, so it is idempotent like the rest.
+            'database/migrations/20260903120000_ownership_transfer_retires_tenant_relationship.sql',
           ]
           const cleaned = dbUrl.replace(/([?&])sslmode=[^&]*&?/i, '$1').replace(/[?&]$/, '')
           const client = new pg.Client({ connectionString: cleaned, ssl: { rejectUnauthorized: false } })

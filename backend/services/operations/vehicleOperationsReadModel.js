@@ -83,6 +83,19 @@ export async function buildVehicleOperationsReview(client, { vin, userContext })
       decided_at: state.decided_at,
       existing_relationship: state.existing_relationship,
       public_statement: toPublicSellerAuthorityStatement(state),
+      // Operational exposure of a BROKEN secondary state. Transfer completion supersedes the
+      // previous owner's authority best-effort, because registry-backed ownership must stand even
+      // if that derived write fails. When it does fail, the stored row still says `confirmed` while
+      // effective authorization correctly denies — an inconsistency Operations has to be able to
+      // SEE and repair, not merely one the system silently survives.
+      ...(state.effective_denial_reason
+        ? {
+          effective_denial_reason: state.effective_denial_reason,
+          stale_authority_row_status: state.stale_authority_row_status ?? null,
+          requires_operations_recovery: state.stale_authority_row_status !== null
+            && state.stale_authority_row_status !== 'revoked',
+        }
+        : {}),
     };
   }
 
