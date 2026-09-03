@@ -496,3 +496,18 @@ X5A) are genuinely absent from staging.
 Production #158 custody/rotation evidence · production/staging Communications provider secrets +
 worker activation where live delivery is required · owner UAT sign-off · post-activation soak ·
 protected production migration approvals. None is claimed here.
+
+## Receipt-bearing head re-run — `c65bc6e7` (2026-09-04)
+
+Per this PR's own merge rule ("rerun exact-head matrix on the receipt-bearing head"), the
+push-triggered matrix executed ON `c65bc6e7` itself and completed **all green**: CI
+(Lint·Types·Build·Tests / Secret scan / Dependency audit) `33817880830` · backend-and-build +
+playwright + staging-integration `33817881110` · Passport foundation `33817880852` · Finance
+obligation `33817881101` · Referral `33817880753` · **Operations Serena staging UAT
+`33817880929`** · **Exact-head reference + staging certification `33817880884`** ·
+communication-unit + communication-postgres `33817881053` · navigation
+gates/e2e/accessibility `33817883412` · Vercel statuses success. Skips: the same six classes,
+classified above — unchanged, none converted to PASS. Golden Seller lifecycle remains inherited
+from `33793846244` (3/3 at `49951a43`) under the single-SHA rule; the product tree at
+`c65bc6e7` is byte-identical to `f600d002` outside docs/tests/.github (verified). This
+run-record commit is docs-only and inherits identically.
