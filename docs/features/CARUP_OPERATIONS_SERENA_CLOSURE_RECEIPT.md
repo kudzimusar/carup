@@ -168,3 +168,75 @@ re-certified — none is a defect in the certified product code:
 
 **Remaining Product Owner action:** approve and merge **#194 → main**. Merging main does NOT promote
 CarUp production (Vercel promotion is a separate step) — production remains untouched.
+
+---
+
+# SUPERSEDING CERTIFICATION — former-seller authority closure landed into #194 (2026-09-03)
+
+**The certification above, at `dd94c56d` / `33720d79`, is SUPERSEDED — not erased.** It remains an
+accurate record of what it measured. It is superseded because #194's product code changed after it:
+independent Product Owner review found a lifecycle/authorization defect in the already-integrated
+Seller/Passport/ownership lifecycle, and the bounded closure has now been landed here rather than
+left downstream on the O2 slice.
+
+**New #194 head: `f600d002`** (from `33720d79`).
+
+## What was landed, and what was deliberately not
+
+Landed: the ownership-transfer → Seller Authority supersession, and the effective-authorization
+closure — `hasSupersedingOwnershipTransfer` + `isSellerAuthorityEffectivelyDenied`, applied at
+`getSellerAuthorityState`, the `/api/vehicles/add` reuse path, `loadScopedVehicle`,
+`submitSellerClaim`, the evidence-upload claimant bypass and `reviewSellerAuthority`; the
+root-cause migration `20260903120000` (completion now retires `vehicles.tenant_id`); and the two
+invariant test suites. Eight files.
+
+**NOT landed: O2 People & Compliance P2–P6** — no responsibility vocabulary or projections, no
+People read model/route/workspace, no People capabilities, no dealer decision event, no identity
+self-review guard, no web changes. Proven by the absence of every P2–P6 file and symbol from the
+tree.
+
+## The defect
+
+A completed transfer A→B left A able to control the vehicle three ways: historical verified
+evidence (`hasVerifiedOwnershipAuthorityEvidence` is true forever after a sale, and the reuse write
+then reset `current_seller_id` to A); a stale `confirmed` authority row surviving a best-effort
+supersession; and — the root cause beneath both — `vehicles.tenant_id`, which the transfer RPC never
+cleared, being the last clause of the `isOwner || isCurrentSeller || isDealerTenant` test repeated
+verbatim across eleven authorization sites.
+
+## Certification at `f600d002`
+
+**Green, real workflow runs:** CI `33741299485` · Vehicle Passport Foundation `33741299344` ·
+**Operations Serena Staging UAT `33741299431`** · **Seller Media Lifecycle Staging UAT
+`33741293292`** · **Marketplace Reference Regression (incl. unmocked staging certification)
+`33741299423`** · Navigation `33741299453` · Communications `33741299383` · Finance Obligation
+`33741299405` · Referral `33741299352` · Diaspora `33741299378`.
+
+**Local:** backend 5763 / 0 fail; the 17 former-seller + supersession invariant proofs; migration
+integrity 24/24; three PGlite gates; tsc clean; lint NET_NEW 0/0 vs main; build passes.
+
+**Staging provenance:** frontend and backend both serve `f600d002`, `unpaired=false`; backend
+health `UP`, `provenance_available: true`. The migration is proven applied on the approved staging
+project (`vehicle_ownership_transfers` exists; the RPC's source contains `tenant_id=NULL`).
+
+**Migration finding worth keeping:** `20260828203000` — the whole ownership-transfer authority
+feature — had **never been applied to staging**. The closure's first apply failed because
+`public.vehicle_ownership_transfers` did not exist. No staging gate had ever exercised ownership
+transfer on this candidate. Both migrations are now in the governed apply list.
+
+## Golden Seller lifecycle — NOT GREEN, characterised precisely
+
+| Run | SHA | Result | Cause |
+|---|---|---|---|
+| `33738012866` | `fbc059f9` | 3/3 fail, every test at exactly 8.0m | **A real regression by this closure.** The gate ran at 7.0/6.9/7.3m against an 8m per-test timeout — 42–66s of headroom — and the closure added a DB round-trip to `loadScopedVehicle`, called on publish/unpublish/price/status/cleanup. **Fixed** by scoping the check to non-owners (exact, not merely cheap: a former owner is never the canonical owner). |
+| `33741999824` | `f600d002` | 2/3 pass | mobile only: a single POST exceeded its 20s per-request timeout |
+| `33744146692` | `f600d002` | 2/3 pass | tablet only: `seller-intelligence-kpi-inquiries` not visible — a Seller Intelligence KPI panel, unrelated to ownership, authority or anything this closure touches |
+| `33746640705` | `f600d002` | 0/3 | transient staging degradation: tablet and mobile failed 23s and 27s after chromium, never running the journey. Staging verified healthy afterwards (200, ~1s, serving `f600d002`) |
+
+**Attribution evidence.** Identical code (`f600d002`), two runs: 6.9/7.2/5.5m versus 7.5/7.6/7.8m —
+a 42% swing, with run 2 at or below the 7.0/6.9/7.3m baseline. Per-test duration is dominated by
+staging variance, not by this closure. The deterministic 3/3 regression is fixed; what remains is a
+gate running at ~7m against an 8m budget with ±40% variance, failing on a different viewport with a
+different unrelated cause each run.
+
+**No PASS is claimed for Golden.** It has not achieved a green run on `f600d002`.
