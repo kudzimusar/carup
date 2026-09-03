@@ -49,7 +49,6 @@ import paymentRouter from './services/payment/paymentRouter.js';
 
 // ✅ Phase 7: Object Storage & Media Router Imports
 import mediaRouter from './services/storage/mediaRouter.js';
-import documentIntelligenceRouter from './services/document-intelligence/documentIntelligenceRouter.js';
 import { mergeEventsWithEvidence, normalizeEvidenceRecord } from './services/evidence/evidenceService.js';
 import { logAuditEvent } from './services/auditLogger.js';
 
@@ -239,12 +238,11 @@ app.use(telemetryMiddleware);
 app.use(securityHeadersMiddleware);
 app.use(rateLimiter({ max: 100, windowMs: 60 * 1000, isSensitive: false }));
 
-// Sensitive Route Throttling (auth, uploads, safepay creation, verification)
+// Sensitive Route Throttling (auth, uploads, safepay creation)
 // Must run BEFORE any rate limiter so limits key on the real client, not a Cloudflare edge IP.
 app.use(edgeClientIpMiddleware());
 app.use('/api/auth/switch-role', rateLimiter({ max: 5, windowMs: 60 * 1000, isSensitive: true }));
 app.use('/api/media/upload', rateLimiter({ max: 5, windowMs: 60 * 1000, isSensitive: true }));
-app.use('/api/verification', rateLimiter({ max: 5, windowMs: 60 * 1000, isSensitive: true }));
 app.use('/api/safepay/create', rateLimiter({ max: 5, windowMs: 60 * 1000, isSensitive: true }));
 
 // Capture the exact raw request bytes for webhook paths so in-service HMAC signature
@@ -342,19 +340,14 @@ app.use('/api/payments', paymentRouter);
 // Mount media upload unified routes
 app.use('/api/media', mediaRouter);
 
-// Mount Trust & Identity verification routes.
-//
-// FAIL CLOSED. This router was mounted bare, with no auth middleware on the mount and none
-// on any of its five routes, which made it a SECOND authority over vehicle trust, registry
-// records (cvr_ownership_records / zimra_declarations) and user verification level —
-// reachable by an unauthenticated caller. CSRF was not a barrier: the token endpoint issues
-// a guest-bound token to anyone.
-//
-// It is gated at the mount rather than per-route so a future route added to this router is
-// closed by default instead of inheriting the old omission. `authorizeSessionRole` is used
-// deliberately in preference to `authorizeRole`: it disables the x-user-id fallback, so a
-// registry/trust decision always requires a PROVEN session, never an asserted header.
-app.use('/api/verification', authorizeSessionRole(['admin', 'government']), documentIntelligenceRouter);
+// RETIRED (O2-X1): the legacy document-intelligence router that mounted at /api/verification
+// was a SECOND authority over vehicle trust, registry records and person verification level.
+// The V16 convergence gated it (proving WHO could call it); O2-X1 removed what there was to
+// call: the approval/promotion endpoints are gone, and document intelligence is an internal
+// EXTRACTION service whose candidates reach canonical state only through the governed
+// deciders — Phase 7C identity review, Dealer Compliance, Seller Authority, the vehicle
+// passport/evidence lanes and canonical Trust. Do not re-mount a verification surface here;
+// the boundary is pinned by backend/tests/o2-x1-document-intelligence-authority.test.js.
 
 // Mount centralized routes (Batch 1)
 app.use(leadsRouter);

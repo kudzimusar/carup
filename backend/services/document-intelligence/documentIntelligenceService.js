@@ -6,24 +6,17 @@ import { logger } from '../../utils/logger.js';
 import { metricsHub } from '../metrics.js';
 
 /**
- * The stamp columns on `vehicles` that ONLY canonicalTrustService.refreshCanonicalTrust() may set
- * (INV-TRUST-2). Any other writer that touches `trust_score` must clear all six in the SAME update.
+ * O2-X1 BOUNDARY: Document Intelligence OBSERVES; domain authorities DECIDE.
  *
- * Why nulling them is load-bearing rather than tidy: the stamp is what makes a cached score
- * publishable. A write that changes the number and leaves the stamp alone inherits the version,
- * band, confidence and evidence basis of the score it just replaced, so the canonical read path
- * classifies the row `fresh` and publishes the new number as `evaluated` — attributed to rules
- * that never saw it. Cleared, the row classifies `unversioned` and is refused, which is the honest
- * state for a score no versioned calculation produced.
+ * This module may write ONLY the ocr evidence tables (the master record plus the structured
+ * per-document-type candidate rows). Its output is candidate data + provenance + confidence +
+ * quality flags — never verified truth. Approving, registering, licensing, trusting or
+ * publishing anything on the strength of an extraction is the exclusive business of the owning
+ * domain services — Phase 7C identity review, Dealer Compliance, Seller Authority, the vehicle
+ * passport/evidence lanes and canonical Trust — each through its own governed, audited decision
+ * path. The retired approval/promotion chain must not return; the boundary is pinned by
+ * backend/tests/o2-x1-document-intelligence-authority.test.js.
  */
-const UNSTAMPED_TRUST_CACHE = Object.freeze({
-  trust_calculation_version: null,
-  trust_evaluated_at: null,
-  trust_band: null,
-  trust_confidence: null,
-  trust_known_limitations: null,
-  trust_evidence_basis: null,
-});
 
 export class DocumentIntelligenceService {
   /**
@@ -297,146 +290,6 @@ export class DocumentIntelligenceService {
         ocrDocumentId: id,
         provider: 'gemini'
       };
-    }
-  }
-
-  /**
-   * Admin/Government approval flow triggering a full validation chain
-   */
-  static async approveDocumentVerification(ocrDocumentId, actorId, vin, overrideJustification = 'Admin document review approval') {
-    console.log(`👤 [Verification] Admin ${actorId} approving OCR document ${ocrDocumentId} for VIN ${vin}`);
-    
-    try {
-      // 1. Fetch the master OCR document
-      const { data: ocrDoc, error: ocrErr } = await supabase
-        .from('ocr_documents')
-        .select('*')
-        .eq('id', ocrDocumentId)
-        .single();
-
-      if (ocrErr || !ocrDoc) {
-        throw new Error(`OCR document not found: ${ocrDocumentId}`);
-      }
-
-      const parsedData = JSON.parse(ocrDoc.extracted_json);
-      const confidence = ocrDoc.confidence_score;
-
-      // A. Verify OCR confidence
-      if (confidence < 0.80) {
-        throw new Error('VERIFICATION_FAILED: Document OCR confidence is too low (< 0.80).');
-      }
-
-      // B. Verify document quality (Passed check based on metrics)
-      const quality = this.analyzeImageQuality(ocrDoc.file_path === 'inline_b64' ? 'mock' : ocrDoc.extracted_json);
-      if (!quality.qualityPassed) {
-        throw new Error('VERIFICATION_FAILED: Image quality metrics failed (blur, glare, or tampering detected).');
-      }
-
-      // Import lazily to avoid circular dependencies
-      const { TrustEnforcementEngine } = await import('../trust-service/trustEnforcementEngine.js');
-
-      // C. Verify VIN/chassis/engine/owner match using TrustEnforcementEngine
-      const matchCheck = await TrustEnforcementEngine.verifyDocumentDataMatch(vin, ocrDoc.document_type, {
-        vin: parsedData.additional_fields?.vin || parsedData.vin,
-        owner_name: parsedData.additional_fields?.owner || `${parsedData.first_name || ''} ${parsedData.last_name || ''}`.trim()
-      });
-
-      if (!matchCheck.match) {
-        throw new Error(`VERIFICATION_FAILED: Metadata mismatch detected. Details: ${JSON.stringify(matchCheck.penalties)}`);
-      }
-
-      // D. Fetch vehicle previous state for audit logging
-      const { data: vehicle } = await supabase.from('vehicles').select('*').eq('vin', vin).single();
-      if (!vehicle) {
-        throw new Error(`Vehicle not found for VIN: ${vin}`);
-      }
-
-      // E. Write approved registry records
-      const timestamp = new Date().toISOString();
-      if (ocrDoc.document_type === 'registration_book') {
-        await supabase.from('cvr_ownership_records').insert({
-          vin,
-          registration_number: parsedData.additional_fields?.plate_number || 'REG_' + crypto.randomUUID().substring(0, 8).toUpperCase(),
-          owner_id_type: 'National_ID',
-          owner_id_number: parsedData.national_id_number || '29-198427-G-45',
-          owner_full_name: `${parsedData.first_name} ${parsedData.last_name}`,
-          issue_date: new Date().toISOString().split('T')[0],
-          logbook_serial_number: 'LB_' + crypto.randomUUID().substring(0, 10).toUpperCase(),
-          status: 'Current'
-        });
-      } else if (ocrDoc.document_type === 'customs_declaration') {
-        await supabase.from('zimra_declarations').insert({
-          vin,
-          customs_ref_number: 'CUS_' + crypto.randomUUID().substring(0, 8).toUpperCase(),
-          importer_name: `${parsedData.first_name} ${parsedData.last_name}`,
-          port_of_entry: parsedData.additional_fields?.importSource || 'Beitbridge',
-          duty_calculated_zig: parsedData.additional_fields?.duty_value_zig || 50000,
-          duty_paid_zig: parsedData.additional_fields?.duty_value_zig || 50000,
-          exchange_rate_used: 13.5,
-          customs_stamp_date: new Date().toISOString().split('T')[0],
-          officer_signature_hash: crypto.createHash('sha256').update(ocrDocumentId).digest('hex')
-        });
-      }
-
-      // F. Write immutable administrative audit log
-      const sealData = `${actorId}-${vin}-${ocrDoc.document_type}-${timestamp}`;
-      const seal = crypto.createHash('sha512').update(sealData).digest('hex');
-      await supabase.from('administrative_overrides').insert({
-        actor_id: actorId,
-        target_vin: vin,
-        override_action: 'ADMIN_APPROVE_OCR_DOCUMENT',
-        justification: overrideJustification,
-        previous_state: { trust_score: vehicle.trust_score, status: vehicle.status },
-        new_state: { trust_score: Math.min(100, (vehicle.trust_score || 80) + 20), status: 'Available' },
-        cryptographic_seal: seal,
-        ip_address: '127.0.0.1',
-        user_agent: 'Console'
-      });
-
-      // G. Mark document verified
-      await supabase.from('ocr_documents').update({ status: 'Verified' }).eq('id', ocrDocumentId);
-
-      // H. Recalculate dynamic trust score (+20 for verified documentation)
-      const baseScore = vehicle.trust_score || 80.0;
-      const finalScore = Math.min(100.0, baseScore + 20.0);
-      // Only refreshCanonicalTrust() may STAMP a score. This write owns the number and none of the
-      // provenance behind it, so it clears the stamp in the same update — otherwise a write landing
-      // after a legitimate refresh would keep that refresh's calculation_version and be published as
-      // canonical, with a band and confidence still describing the score it replaced.
-      await supabase.from('vehicles').update({
-        trust_score: finalScore,
-        status: 'Available',
-        ...UNSTAMPED_TRUST_CACHE,
-      }).eq('vin', vin);
-
-      // Emit internal DOCUMENT_VERIFICATION_APPROVED event
-      dispatchAutomationWebhook('DOCUMENT_VERIFICATION_APPROVED', { ocrDocumentId, actorId, vin, newTrustScore: finalScore });
-
-      // Write trust history log
-      try {
-        await supabase.from('trust_score_history').insert({
-          entity_type: 'VEHICLE',
-          entity_id: vin,
-          previous_score: baseScore,
-          new_score: finalScore,
-          trigger_event: `ADMIN_DOCUMENT_APPROVAL|${ocrDoc.document_type}`,
-          timestamp
-        });
-      } catch (e) {
-        console.warn('Skipping score history persistence:', e.message);
-      }
-
-      return {
-        success: true,
-        ocrDocumentId,
-        newTrustScore: finalScore,
-        status: 'Verified'
-      };
-    } catch (err) {
-      console.error('Document approval failed:', err.message);
-      // Emit internal DOCUMENT_VERIFICATION_REJECTED event
-      dispatchAutomationWebhook('DOCUMENT_VERIFICATION_REJECTED', { ocrDocumentId, actorId, vin, reason: err.message });
-      throw err;
     }
   }
 
