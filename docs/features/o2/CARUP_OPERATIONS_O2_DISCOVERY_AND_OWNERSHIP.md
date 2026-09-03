@@ -202,3 +202,58 @@ The original discovery above (`dd94c56d`) is preserved untouched.
   approved applicant — recorded as the X5 UNRESOLVED workspace dependency
   (`workspace_access.dependency='governed_dealer_role_or_tenant_relationship'`), deliberately
   not fabricated; DealerDashboard and the role matrix are untouched.
+
+#### X5A addendum — discovery 2026-09-04 (stakeholder workbook catalogue + AI intake)
+
+**What already exists (reuse, never rebuild):**
+
+- **Diaspora workbook template system** — `backend/constants/diaspora/diasporaWorkbookSchema.js`
+  (11 sheet definitions with required/optional columns + status-list bindings) and
+  `diasporaWorkbookTemplates.js` (config-driven catalog `XLSX_TEMPLATES`, schema version
+  `2026.06.trackW.xlsx-v1`, per-column help/examples, privacy warning, import instructions).
+- **XLSX generation/parse/export engine** — `diasporaWorkbookXlsxService.js` (ExcelJS):
+  header-key row + help row + EXAMPLE rows + dropdown data-validation + hidden/protected
+  `_REFERENCE` sheet + `Instructions` sheet; parse never evaluates formulas; export
+  neutralizes formula injection and stamps `_EXPORT_META`. The engine is template-OBJECT
+  driven internally — the generalization point for X5A.
+- **Five template families** — `buyer`, `seller`, `supplier`, `enterprise`,
+  `container_reservation` (`XLSX_TEMPLATE_TYPES`), composed from the same 11 sheets.
+- **The governed import chain** — validation → persisted dry run
+  (`diaspora_workbook_import_batches`/`_rows`; `template_type` is free text) → checksum-bound
+  confirmation → execution with compensation → receipts (`diaspora_workbook_import_receipts`)
+  + `listReceipts`/`listInterruptedBatches`/`describeImportForUser`.
+- **Server-scoped DB export** — `diasporaWorkbookDbExportService.exportWorkbookFromDatabase`
+  (owner-column scoping per table, ALWAYS-redact headers, 10k-row ceiling).
+- **X5 Dealer semantic mapping** — `workbookSemanticMappingService.js`: deterministic aliases
+  → HEADERS-ONLY AI (`askGemini` jsonMode, injectable) → allowlist validation →
+  checksum-bound human confirmation (`dealer_workbook_mapping_confirmations`).
+- **Seller write contract** — vehicle creation is the inline handler at
+  `backend/server.js:2628` (`POST /api/vehicles/add`): the single canonical listing writer
+  (VIN shape, vocabularies, disclosure normalization, private-finance refusal, provenance
+  stamping, `publication_status='draft'`, idempotent `client_submission_id`); autosave
+  (`PATCH /api/vehicles/:vin/seller-draft`) accepts commercial/privacy fields only; publish
+  is a separate governed gate. Registration vocabulary + human labels already exist on BOTH
+  sides (`backend/services/registration/zimbabweRegistrationLifecycle.js` presentation map;
+  `web/src/lib/zimbabweRegistration.ts`).
+
+**What is missing (the X5A gap):**
+
+- no stakeholder catalogue — no single place that says who exists and which workbook (if any)
+  each stakeholder gets;
+- no complete Dealer/Seller *vehicle* template covering the current sell-flow contract (the
+  X5 dealer lane reuses diaspora sheets, not the vehicle/listing fields);
+- no Template / Export / Import / Recent Imports experience — templates are an API surface,
+  not a product workspace;
+- no universal field registry — column knowledge lives per-template with no
+  authority/privacy/AI metadata;
+- AI mapping exists but is only one invisible step, not a visible assistant with explain /
+  check / summarize capabilities.
+
+**Ownership decided for X5A:** the field registry is a constants module owned by the workbook
+lane (presentation + import-safety metadata ONLY — domain truth stays with domain services);
+stakeholder eligibility derivation belongs to a catalogue service reading registration/dealer/
+tenant/role facts from their owning services; seller-vehicle import EXECUTION replays each
+accepted row through the canonical `POST /api/vehicles/add` contract as the importing user —
+the existing route stays the ONLY listing writer (no extraction of the certified handler, no
+parallel insert path); batches/receipts stay in the existing diaspora store (free-text
+`template_type` namespaces the new keys).

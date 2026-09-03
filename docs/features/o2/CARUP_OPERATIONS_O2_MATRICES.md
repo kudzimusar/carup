@@ -140,3 +140,61 @@ mapping in front of the byte-unchanged diaspora engine — receipt:
 | Vehicle Registration | registration lifecycle records (vehicle domain) | evidence upload | governed vehicle-domain review / external registry authority | extraction candidates only | vehicle-surface presentation only | registration lifecycle (vehicle domain) — O2 reads only |
 | Vehicle Trust | canonical trust records | nobody in O2 | `canonicalTrustService` computation only | never | governed vehicle surface | `canonicalTrustService` ONLY (one-writer invariant) |
 | Workbook mapping / import (X5 — IMPLEMENTED) | `dealer_workbook_mapping_confirmations` (mapping bound to the workbook's sha256 checksum, `dealer_workbook_mapping.v1`) + the UNCHANGED diaspora planning/review/confirmation pipeline | deterministic aliases first, then AI semantic mapping over HEADERS ONLY (allowlist-validated; failure → unmapped, never guessed) | a human confirms the exact mapping per checksum (a changed file voids it); dry run via the EXISTING `runAndPersistDiasporaWorkbookDryRun`; imports refuse VERIFIED/APPROVED compliance outcomes | mapping suggestions only — advisory | no | `workbookSemanticMappingService` (mapping record); the existing diaspora services (import truth) |
+
+## 12. X5A Workbook Matrices (added 2026-09-04 — master detail lives in `CARUP_OPERATIONS_O2_STAKEHOLDER_WORKBOOK_CATALOGUE.md`)
+
+The catalogue manual is the master register (full stakeholder roll-call §2, field registry §4,
+exposure detail §5). These matrices are the compact certification views; a conflict between the
+two is a documentation defect to fix in the same change.
+
+### 12.1 Stakeholder × Workbook (dispositions)
+
+| Stakeholder | Disposition | Workbook(s) |
+|---|---|---|
+| Private vehicle owner / private seller | SUPPORTED | `seller_vehicles` |
+| Diaspora customer/sponsor | SUPPORTED | diaspora `buyer` |
+| Dealer (applicant and active) | SUPPORTED | X5 onboarding lane · `dealer_vehicle_inventory` (drafts only; active adds full export) |
+| Exporter | SUPPORTED | diaspora `seller` + `supplier` |
+| Importer | SUPPORTED | diaspora `buyer` + `container_reservation` (+ `enterprise`) |
+| Diaspora enterprise partner | SUPPORTED | diaspora `enterprise` |
+| Overseas dealer · parts seller/supplier · import coordinator · logistics provider · container operator · clearing agent · trade agent/company | CONDITIONAL | diaspora templates behind a VERIFIED trade profile of the matching role |
+| Individual local buyer · insurer · bank/lender · escrow provider · government · referral partner · API partner · `other` business · `member`/anonymous | NO_WORKBOOK (API/UI correct) | reasons per catalogue §2 |
+| Garage · mechanic · fleet/rental/corporate | DEFERRED (canonical workflow missing) | Service Network / fleet authority lanes |
+| Admin/operators · customs reviewer · provider systems · admin sub-operators · golden fixtures | INTERNAL_ONLY | operator console / machine surfaces |
+
+### 12.2 Worksheet × Authority (what a sheet's rows may become)
+
+| Worksheet(s) | Rows become | May NEVER become |
+|---|---|---|
+| `VEHICLES`, `LISTINGS`, `DISCLOSURES`, `ACCIDENT_HISTORY` | seller CLAIMS on a DRAFT vehicle via the canonical create contract | published listings, verified facts, trust, seller authority, ownership |
+| `MEDIA` | photo REFERENCES (url/label/order/cover) on the draft | evidence, verification, trust |
+| `EVIDENCE_NOTES` | evidence records with server-forced `verification_status='pending'` | verified evidence, trust impact, widened visibility |
+| `BUSINESS`, `BRANCHES` (dealer) | the caller's OWN dealer application claims (X5 service) | Dealer Compliance statuses, `can_publish`, tenant membership, the dealer role |
+| Diaspora 11 sheets | staging records via the EXISTING chain | VERIFIED/APPROVED outcomes (existing classifier refusal, X5-pinned) |
+| `Instructions`, `_REFERENCE` | nothing — never parsed as data | — |
+
+### 12.3 AI action × Authority
+
+| AI action | Allowed |
+|---|---|
+| Header→field mapping proposal · field explanation · error explanation · missing-field identification · duplicate/conflict identification · dry-run summary · attention list | YES (proposals/explanations only; deterministic checks precede AI; headers/errors-level context only) |
+| Terminology normalization | PROPOSAL only, visually distinct from deterministic normalization; user accepts |
+| Generate VIN · invent mileage · invent registration status · mark identity verified · approve Dealer Compliance · create Seller Authority · establish ownership · mark evidence verified · write Vehicle Trust · bypass mapping confirmation | **NO — enforced + tested** |
+
+### 12.4 Workbook field authority classification
+
+| Class | Meaning | Import? | Examples |
+|---|---|---|---|
+| `claim` | subject's own statement | yes | make, price, registration stage, disclosures |
+| `candidate` | machine-proposed, human-confirmed | yes (as candidate) | OCR candidates (X5 dealer docs lane) |
+| `evidence_ref` | pointer to evidence, never its verdict | yes (pending, clamped) | evidence class/subtype/file_url |
+| `governed_result` | server-derived authority outcome | **NEVER** | trust_score, verification_status, publication_status, owner/current_seller/tenant ids, compliance statuses, `*_source` provenance |
+
+### 12.5 Exposure / eligibility
+
+Catalogue availability is SERVER-derived from: authenticated user · X2 registration profile ·
+X5 dealer application/tenant facts · governed role/relationship · verified diaspora trade
+profile · domain authority. Request-body/header role-like strings change nothing (pinned);
+unavailable entries return honest reason codes (`service_network_reconciliation_required`,
+`dealer_activation_required`, `trade_profile_required`, …); tenant scoping fails closed; the
+template/export/import/recent-imports routes re-verify eligibility per call.

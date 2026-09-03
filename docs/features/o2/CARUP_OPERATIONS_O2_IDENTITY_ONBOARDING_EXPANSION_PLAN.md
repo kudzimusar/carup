@@ -647,6 +647,26 @@ refusals hold.
 **No biometric activation; P7 untouched.** X5 added no provider configuration and no staging
 artifacts.
 
+## O2-X5A — Stakeholder Workbook Catalogue + AI Intake Workspace (opened 2026-09-04)
+
+**Why X5A exists:** X5 proved the governed import engine (mapping → checksum-bound human
+confirmation → the existing dry-run truth gate) but did **not yet provide a complete
+stakeholder-specific template/export/import UX** — no stakeholder catalogue, no complete
+Seller/Dealer vehicle workbook covering the current sell-flow fields, no Template / Export /
+Import / Recent Imports workspace, no universal field registry, and AI mapping as invisible
+plumbing rather than a visible product capability. X5A closes that gap under three laws:
+one governed bulk-data architecture with stakeholder-correct exposure; exhaustive catalogue ≠
+expose everything to everyone; AI proposes/explains/checks while authoritative domain services
+decide.
+
+- Plan/checklist/certification contract:
+  `CARUP_OPERATIONS_O2_X5A_STAKEHOLDER_WORKBOOK_AI_INTAKE_PLAN.md`
+- Permanent manual (stakeholder roll-call, dispositions, workbook compositions, field registry,
+  exposure matrix — **the master stakeholder register X6 and X7 must use as their roll-call**):
+  `CARUP_OPERATIONS_O2_STAKEHOLDER_WORKBOOK_CATALOGUE.md`
+- Execution order is docs-first: the documentation gate commits before any product code.
+- The expansion sequence is now X0 · X1 · X2 · X3 · X4 · X5 · **X5A** · X6 · X7.
+
 ## Biometrics and consent (X4 design) — truthful scope
 
 Existing reality, recorded so nothing is oversold:
@@ -693,7 +713,8 @@ evidence per item; nothing is marked complete by assertion.
 | **X3** | Identity lifecycle / account security: lifecycle states, triggers, step-up auth | Yes | governed transitions with audit; proofing vs authentication separation proven |
 | **X4** | Biometrics/consent: consent, face↔document, liveness, provider provenance, manual fallback | Yes | no biometric claim without provider provenance; no raw fingerprint store; assessments are evidence only |
 | **X5** | Dealer onboarding + workbook migration: AI semantic mapping (advisory) ahead of the existing pipeline | Yes | human-confirmed mapping recorded; VERIFIED/APPROVED import refusals preserved; no second importer |
-| **X6** | Cross-domain assurance projection + Communications event semantics | Yes (emit/read-side only) | derived-not-copied proven; Communications delivery code untouched |
+| **X5A** | Stakeholder Workbook Catalogue + AI Intake Workspace: exhaustive stakeholder dispositions, canonical field registry, stakeholder-scoped Template/Export/Import/Recent-Imports, visible CarUp AI Workbook Assistant | Yes | docs-first gate committed before code; every stakeholder dispositioned; exposure server-derived; AI proposes only; existing engine/batch store reused; Seller/Dealer workbook removes web re-entry |
+| **X6** | Cross-domain assurance projection + Communications event semantics | Yes (emit/read-side only) | derived-not-copied proven; Communications delivery code untouched; **uses the X5A stakeholder register as its roll-call** |
 | **X7** | Intelligence + integrated certification of the expansion | CI workflow + spec | exact-head, one SHA; runs only after the P7 blockers are resolved and P7 itself is unblocked |
 
 ## Risk and dependency register

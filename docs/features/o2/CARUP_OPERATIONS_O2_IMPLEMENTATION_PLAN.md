@@ -79,5 +79,16 @@ Do not merge. Stop at a certified O2 candidate for Product Owner review, exactly
   **X0** expansion discovery/design · **X1** Document Intelligence authority reconciliation ·
   **X2** registration + Progressive Trust · **X3** identity lifecycle/account security ·
   **X4** biometrics/consent · **X5** Dealer onboarding + workbook migration ·
+  **X5A** stakeholder workbook catalogue + AI intake workspace ·
   **X6** cross-domain assurance/Communications · **X7** intelligence and integrated certification.
+- **X5A deliverable + gate (added 2026-09-04, head `0d1a3a74`):** an exhaustive, repo-backed
+  stakeholder catalogue with a disposition for EVERY stakeholder; a canonical workbook field
+  registry; stakeholder-scoped Template / Export / Import / Recent Imports on the existing
+  governed engine (no second importer, no second history store); and the visible CarUp AI
+  Workbook Assistant (AI proposes/explains/checks — authoritative services decide). Gate:
+  documentation committed BEFORE code; exposure server-derived and adversarially tested;
+  Seller/Dealer workbook covers the current user-enterable contract with a drift-fails-loudly
+  completeness test; successful import removes duplicate web entry; full regression green.
+  Plan: `CARUP_OPERATIONS_O2_X5A_STAKEHOLDER_WORKBOOK_AI_INTAKE_PLAN.md`; manual:
+  `CARUP_OPERATIONS_O2_STAKEHOLDER_WORKBOOK_CATALOGUE.md`.
 - P7 remains governed by its own note in the tracker; nothing in the expansion may run it early.

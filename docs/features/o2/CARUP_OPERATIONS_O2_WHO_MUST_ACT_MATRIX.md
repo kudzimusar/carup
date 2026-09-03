@@ -105,6 +105,7 @@ projection above: ADR vocabulary verbatim, derived, never persisted (the dormant
 | `disputed` | `escalated` |
 | `suspended` / `compromised` | `carup_review` |
 | `revoked` | `none` (re-entry starts with a governed reviewer step, then a new evidence journey) |
+| `not_established` | `none` at lifecycle grain — the onboarding journey's own projection owns the "start verifying" nudge |
 
 ## Dealer onboarding → projection (X5 — IMPLEMENTED, derived at read time)
 
@@ -124,4 +125,26 @@ merged into, the dealer application's own duty (identity verified ≠ dealer com
 X0 design rows above ("Workbook mapping awaiting human confirmation" → `subject_action`) became
 real in X5: the workbook lane blocks the dry run until the human confirms the mapping, so the
 outstanding duty sits with the importing user exactly as designed.
-| `not_established` | `none` at lifecycle grain — the onboarding journey's own projection owns the "start verifying" nudge |
+
+*(Repair note 2026-09-04: the X5 edit had accidentally detached the `not_established` row from
+the X3 lifecycle table above; it is restored to its table — no semantics changed.)*
+
+## Workbook intake → projection (X5A — design; same vocabulary, no new names)
+
+The X5A Template/Export/Import/Recent-Imports workspace projects each import batch's outstanding
+duty from the EXISTING ADR vocabulary — derived from batch/mapping/dry-run state at read time,
+never persisted as a parallel store:
+
+| Workbook state | Projected `who_must_act` |
+|---|---|
+| File uploaded, needs mapping (no confirmation for this checksum) | `subject_action` |
+| AI/deterministic inspection running | `platform_processing` |
+| Mapping proposed, awaiting human confirmation | `subject_action` |
+| Dry run processing | `platform_processing` |
+| Dry run blocked — rows need the user's correction | `subject_action` |
+| Import blocked pending CarUp review (governed review of the target domain) | `carup_review` |
+| External authoritative confirmation genuinely required (e.g. registry wait on the target record) | `external_authority` |
+| Import executed, receipt issued, nothing outstanding | `none` |
+
+AI assistance never changes the duty holder: an AI proposal awaiting acceptance is still
+`subject_action` — the human decision IS the outstanding action.
