@@ -92,6 +92,7 @@ import { marketingUnsubscribeRouter } from './routes/marketingUnsubscribeRoutes.
 import { resolveBuildProvenance } from './config/buildProvenance.js';
 import vehiclesRouter from './routes/vehiclesRoutes.js';
 import vehicleOperationsRouter from './routes/vehicleOperationsRoutes.js';
+import peopleOperationsRouter from './routes/peopleOperationsRoutes.js';
 import evidenceCatalogRouter from './routes/evidenceCatalogRoutes.js';
 import ingestionRouter from './routes/ingestionRoutes.js';
 import sourceVerificationRouter from './routes/sourceVerificationRoutes.js';
@@ -371,6 +372,7 @@ app.use(adminCommunicationRouter());
 app.use(marketplaceRouter);
 app.use(marketplaceAdminRouter);
 app.use(vehicleOperationsRouter);
+app.use(peopleOperationsRouter);
 app.use(vehiclesRouter);
 app.use(evidenceCatalogRouter);
 app.use(ingestionRouter);

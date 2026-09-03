@@ -887,6 +887,15 @@ export async function reviewVerificationSession(client = supabase, actor = {}, s
   const applicantMessage = payload.applicantMessage || payload.applicant_message || payload.retryReason || payload.retry_reason || '';
 
   const session = await fetchSessionForReview(client, sessionId);
+
+  // O2/P6 — the actor may not decide on their own submission. The governed-decision law every
+  // other reviewer surface already enforces (CLASSIFICATION_CORRECTION_SELF on evidence,
+  // SELLER_AUTHORITY_SELF_REVIEW on authority) was missing here: an admin whose OWN identity
+  // session was under review could approve their own identity. Role alone is not independence.
+  if (session.user_id && String(session.user_id) === String(reviewerId)) {
+    throw new ForbiddenError('A reviewer cannot decide their own identity verification session.');
+  }
+
   const currentWorkflowPhase = session.workflow_phase || legacyStatusToPhase(session.status);
 
   return VerificationDecisionRecorder.recordDecision(client, {

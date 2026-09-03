@@ -145,6 +145,7 @@ import AIMonitoring from './pages/dashboard/admin/AIMonitoring'
 import MarketplaceModeration from './pages/dashboard/admin/MarketplaceModeration'
 import EvidenceReview from './pages/dashboard/admin/EvidenceReview'
 import VehicleOperationsReview from './pages/dashboard/admin/VehicleOperationsReview'
+import PeopleComplianceReview from './pages/dashboard/admin/PeopleComplianceReview'
 import FraudQueue from './pages/dashboard/admin/FraudQueue'
 import DealerCompliance from './pages/dashboard/admin/DealerCompliance'
 import IdentityVerificationCaseManagement from './pages/dashboard/admin/IdentityVerificationCaseManagement'
@@ -413,6 +414,7 @@ export default function App() {
           <Route path="/admin/moderation" element={<MarketplaceModeration />} />
           <Route path="/admin/evidence" element={<EvidenceReview />} />
           <Route path="/admin/vehicles/:vin/review" element={<VehicleOperationsReview />} />
+          <Route path="/admin/people/:userId/review" element={<PeopleComplianceReview />} />
           <Route path="/admin/fraud-queue" element={<FraudQueue />} />
           <Route path="/admin/dealer-compliance" element={<DealerCompliance />} />
           <Route path="/admin/verification" element={<IdentityVerificationCaseManagement />} />

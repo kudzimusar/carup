@@ -916,6 +916,33 @@ export function useCarUpApi() {
     return request<{ success: boolean; review: Record<string, unknown> }>(`/admin/vehicles/${vin}/review`)
   }, [request])
 
+  // O2/P3 — People & Compliance reviewer aggregate (read-only).
+  const fetchPersonComplianceReview = useCallback(async (userId: string): Promise<{ success: boolean; review: Record<string, unknown> }> => {
+    return request<{ success: boolean; review: Record<string, unknown> }>(`/admin/people/${userId}/review`)
+  }, [request])
+
+  // O2/P4 — identity session decision through the OWNING identity service route.
+  const reviewIdentitySession = useCallback(async (
+    sessionId: string,
+    payload: { action: string; reason_code?: string; notes?: string },
+  ): Promise<{ success: boolean }> => {
+    return request<{ success: boolean }>(`/admin/identity/verification-sessions/${sessionId}/review`, {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    })
+  }, [request])
+
+  // O2/P4 — dealer compliance decision through the OWNING dealer service route.
+  const recordDealerComplianceDecision = useCallback(async (
+    dealerId: string,
+    payload: { decision: string; requirement_key?: string; reason?: string },
+  ): Promise<{ success: boolean }> => {
+    return request<{ success: boolean }>(`/admin/dealers/${dealerId}/decision`, {
+      method: 'PATCH',
+      body: JSON.stringify(payload),
+    })
+  }, [request])
+
   // Operations M1 — governed classification correction (reason mandatory).
   const correctEvidenceClassification = useCallback(async (
     vin: string,
@@ -2872,6 +2899,9 @@ export function useCarUpApi() {
     approveEvidence,
     rejectEvidence,
     fetchVehicleOperationsReview,
+    fetchPersonComplianceReview,
+    reviewIdentitySession,
+    recordDealerComplianceDecision,
     correctEvidenceClassification,
     reviewSellerAuthority,
     lookupVehiclePassport,

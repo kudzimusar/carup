@@ -16,6 +16,7 @@
  *     never returns private documents, contacts, internal reasons, or raw decision payloads.
  */
 import { supabase } from '../../db/supabase.js';
+import { emitDomainEvent } from '../eventBus/eventBusService.js';
 
 const PROFILES = 'dealer_profiles';
 const BRANCHES = 'dealer_branches';
@@ -255,6 +256,20 @@ export async function recordDecision(dealerId, { decision, requirement_key, reas
     // re-read so callers always see current statuses (e.g. after a requirement change)
     updatedProfile = await getProfileById(dealerId);
   }
+
+  // O2/P5 — bridge the persisted decision into the communication engine, exactly like
+  // identity.verification.decided (decisionRecorder seam-E E5). Best-effort: the ledger row and
+  // the applied effect are already durable, so an outbox write failure must never fail the
+  // decision itself. Communications owns delivery; this service only announces the fact.
+  await emitDomainEvent(null, 'dealer.compliance.decided', {
+    dealerId,
+    recipientUserId: updatedProfile?.user_id || profile?.user_id || null,
+    decision,
+    requirementKey: requirement_key || null,
+    reason: reason || null,
+  }, updatedProfile?.tenant_id || null).catch((err) => {
+    console.warn('dealer.compliance.decided outbox emit failed:', err.message);
+  });
 
   return { decision: ledger, profile: updatedProfile };
 }
