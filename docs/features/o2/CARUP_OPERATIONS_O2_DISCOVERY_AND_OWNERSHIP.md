@@ -1,0 +1,70 @@
+# O2 — Current-code discovery and domain ownership map
+
+Discovered at integrated candidate `dd94c56d`. Every anchor verified by reading the file, not inferred.
+
+## 3. Current-code discovery
+
+### Identity Verification (REUSE — do not rebuild)
+
+| Piece | Anchor | State |
+|---|---|---|
+| Case phase model | `backend/services/identity/caseWorkflow.js` | 7 workflow phases (`SYSTEM_PROCESSING`, `REVIEWER_ACTION_REQUIRED`, `APPLICANT_ACTION_REQUIRED`, `ESCALATED`, `RESOLVED_APPROVED`, `RESOLVED_REJECTED`, `CANCELLED`); 8 dispositions incl. `RESUBMISSION_REQUESTED`; decision actions incl. `ADD_INTERNAL_NOTE`, `ESCALATE`; reason-code → recommended-action map |
+| Sessions + review | `backend/services/identity/verificationSessionService.js` — `createVerificationSession`, `submitVerificationSession`, `listVerificationSessionsForReview`, `getVerificationSessionForReview`, `reviewVerificationSession`, `getEvidencePreviewUrl` | full lifecycle incl. reviewer surface |
+| Decision policy/recording | `decisionPolicy.js`, `decisionRecorder.js`, `reasonCodes.js` | governed decisions with reasons |
+| Evidence + binding | `evidenceValidation.js`, `identityBinding.js`, `documentClassifier.js` | OCR provenance recorded (`verification_ocr_provenance`) |
+| Admin routes | `backend/routes/identityVerificationAdminRoutes.js` | list/detail/decide/preview |
+| Tables | `verification_sessions`, `verification_decisions`, `verification_assessments`, `identity_documents`, `verification_ocr_provenance` | present |
+
+### Dealer Compliance (REUSE — do not rebuild)
+
+| Piece | Anchor |
+|---|---|
+| Service | `backend/services/dealer/dealerComplianceService.js` — profiles, branches, requirements (`upsertRequirement` with `is_blocking`), documents (with `expiry_date`), decisions (`recordDecision`, `applyDecisionToProfile`), `deriveCanPublish`, `deriveExpiryState` |
+| Statuses | `active` / `pending` / `restricted` / `suspended` (+ investigation concept via decisions) — **kept as-is; never replaced by a generic Operations status** |
+| Routes | `backend/routes/dealerRoutes.js`, `backend/routes/complianceRoutes.js` (registry read/update, government+admin) |
+| Tables | `dealer_compliance_requirements`, `dealer_compliance_documents`, `compliance_reports` |
+
+### Seller Authority (REUSE — the M8 reference implementation)
+
+`backend/services/seller/sellerAuthorityService.js` + `vehicle_seller_authority` — status lifecycle
+(`evidence_submitted` … `confirmed` / `insufficient` / `disputed` / `revoked`), `basis`,
+`policy_version`, `decided_by/role/at`, `evidence_ids`, UNIQUE(vin, seller_user_id). Grain is
+vehicle × seller and stays that way.
+
+### Ownership transfer (REUSE — the P1 integration point)
+
+| Piece | Anchor |
+|---|---|
+| Routes | `backend/routes/passportOwnershipTransferRoutes.js` — begin (idempotency-key required, session-proven), get, transition |
+| Service | `backend/services/passport/passportOwnershipTransferService.js` — `transitionOwnershipTransfer`: completion requires GOVERNANCE role + `registryAuthority` + `completionReference`; finance-encumbrance guard is message-layer, the real authority is `trg_block_encumbered_owner_change` inside the atomic RPC |
+| RPC | `passport_transition_ownership_transfer_atomic` (`20260828203000_passport_ownership_transfer_authority.sql`) — owns the `vehicles.owner_id` change under `FOR UPDATE` |
+| **THE GAP (P1)** | The RPC and service **never touch `vehicle_seller_authority`** (verified by search of the migration and service). A completed transfer leaves the PREVIOUS owner's `confirmed` authority standing. |
+
+### Seller compliance inputs (data already present)
+
+`users.is_verified`, email-verification lane (fix branch commit `c88c6ef2` certifies seller Email),
+identity sessions per user, `vehicle_seller_authority` per vehicle, dealer tenant membership
+(`tenant_users`). These stay separate concepts; O2 displays them side by side, never folds them.
+
+### Communications integration points
+
+`emitDomainEvent` (`backend/services/eventBus/eventBusService.js`) is the emit side;
+`communicationEventListeners.js` / product notification services own delivery. Precedent:
+`seller.authority.decided` already emitted from the vehicles routes. O2 adds emit-only events; no
+Communications code changes.
+
+## 4. Domain ownership map
+
+| Fact | Owning service / record | O2 may… | O2 must never… |
+|---|---|---|---|
+| Who a user is (account) | `users` (auth lane) | read id/name/role/is_verified | write users; expose email publicly |
+| Identity verification state | identity service / `verification_sessions`+`verification_decisions` | read; call `reviewVerificationSession` as the reviewer | store its own copy of the phase; decide without the identity service |
+| Identity artifacts (ID document images, selfie) | identity storage + preview URLs | show to capability-holding reviewer via the identity service's own preview path | proxy/persist/expose them anywhere else — NEVER public |
+| Seller authority | `sellerAuthorityService` / `vehicle_seller_authority` | read state; call `reviewSellerAuthority` | write rows directly; treat authority as identity |
+| Vehicle ownership | passport transfer service / RPC / `vehicles.owner_id` | read transfer state | complete/alter transfers outside the governed route; fabricate ownership |
+| Dealer compliance | `dealerComplianceService` | read profile/requirements/documents/decisions; call `recordDecision` | replace its statuses with a generic one; grant tenant admins platform authority |
+| Email verification | auth/email lane | read the flag | conflate with identity verification |
+| Zimbabwe registration | registration lifecycle (vehicle domain) | read | treat as a People fact |
+| Vehicle Trust | `canonicalTrustService` | read | write, ever (one-writer invariant) |
+| Audit | `trust_audit_events` + domain audit paths | read for display; rely on domain writes | write audit rows of its own for domain decisions |
+| Notifications | Communications | emit domain events | send messages directly |
