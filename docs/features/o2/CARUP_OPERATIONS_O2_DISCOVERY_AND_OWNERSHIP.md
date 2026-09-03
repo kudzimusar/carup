@@ -109,3 +109,18 @@ The original discovery above (`dd94c56d`) is preserved untouched.
   Communications lane (`docs/communications/CARUP_COMMUNICATIONS_2_CANONICAL_PLAN.md`).
 - **Service Network:** separate lane (PR #197); `backend/services/serviceNetwork/*` is NOT
   present on this branch (existence-checked).
+
+#### X1 addendum — executed 2026-09-03 (see the expansion plan's "X1 executed" section)
+
+- The second verification lane is now **RETIRED**: router, mount, path-scoped rate-limit line and
+  all five endpoints deleted; `approveDocumentVerification`, `TrustService` and `FraudService`
+  deleted; `extractDocumentData` kept as the internal candidate-extraction engine.
+- Two X0 statements corrected: `kyc_profiles.overall_status` had one reader
+  (`calculateUserTrustScore` — inside the retired lane itself), and the `/ai/ocr` +
+  `/ai/fraud-scan` frontend calls ARE served — inline `/api/ai/*` routes in `backend/server.js`
+  via `aiServiceBus` (observation-only writes; no product component invokes the web hook methods).
+- The `vehicles.trust_score` foreign-writer set shrank from three to two
+  (`v16-authority-hardening.test.js` B7 pins the set), and the registry tables
+  `cvr_ownership_records`/`zimra_declarations` now have zero in-product writers.
+- Boundary pinned by `backend/tests/o2-x1-document-intelligence-authority.test.js` (6 guards);
+  receipt: `CARUP_OPERATIONS_O2_X1_DOCUMENT_INTELLIGENCE_AUTHORITY_RECEIPT.md`.

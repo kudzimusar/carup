@@ -284,6 +284,62 @@ surface a genuine consumer, the fallback disposition is **MOVE BEHIND GOVERNED D
 capability-gated, reasoned, audited decision path in the owning domain). **No code is deleted in
 this documentation task**; the decision is executed only inside X1 after Product Owner approval.
 
+### X1 executed (2026-09-03) — protocol answers, X0 corrections, final dispositions
+
+The Product Owner approved X1; the seven steps completed and the disposition was EXECUTED on the
+O2 branch. Full evidence: `CARUP_OPERATIONS_O2_X1_DOCUMENT_INTELLIGENCE_AUTHORITY_RECEIPT.md`.
+
+**Protocol answers (steps 1–6).** `/promote-trust` had no caller anywhere; `assignTrustLevel`'s
+only caller was that route. The state it changed — the six-tier `kyc_profiles.overall_status`,
+plus `security_events` (`TRUST_LEVEL_UPGRADE`) and USER-typed `trust_score_history` rows — had
+exactly one reader: `calculateUserTrustScore`, itself reachable only through the same lane
+(`GET /trust-score/:userId`), so the tier loop was closed entirely inside the surface being
+retired. **X0 correction:** X0 said "nothing reads `kyc_profiles.overall_status`"; precisely, its
+one reader lived inside the retired lane itself. No reason-code, reviewer-attribution or governed
+decision machinery existed on any of these paths. Against the governed models the lane violated
+all four: 7C identity decisions (reasoned, recorded, self-review-guarded), canonical Vehicle
+Trust (one stamped writer), Dealer Compliance (domain statuses + decisions), Seller Authority
+(basis + audit).
+
+**Scope beyond `/promote-trust` (as directed).** Re-reading the live source confirmed the more
+serious path: `POST /ocr/:id/approve` → `approveDocumentVerification`, which wrote
+`cvr_ownership_records` / `zimra_declarations` rows carrying SYNTHESIZED fallback identifiers
+(generated `REG_`/`LB_`/`CUS_` references, a hard-coded default National ID, default duty 50000,
+fixed exchange rate 13.5), an `administrative_overrides` row with fabricated ip/user-agent,
+`ocr_documents.status='Verified'`, a +20 `vehicles.trust_score` bump and `status='Available'`.
+Those registry rows are consumed as FACTS by the canonical trust resolver — machine approval was
+manufacturing the very facts canonical Trust then trusted.
+
+**The `/ai` lane, resolved (X0 correction).** The frontend's `/ai/ocr` + `/ai/fraud-scan` calls
+are NOT dead: they are served inline in `backend/server.js` (`/api/ai/ocr`, `/api/ai/fraud-scan`,
+`/api/ai/risk-assessment`, behind `authorizeRole()`) via `aiServiceBus`, whose writes are
+observation-only (`ai_inference_logs`, `ai_fraud_scans`, candidate `ocr_documents`). No product
+component invokes the web hook methods (OwnerDashboard's truthfulness test pins non-use). KEPT
+as-is; residuals recorded for X2: `runOcrParsing` defaults attribution to `'u1'` when no user id
+is passed, and extraction's structured candidate rows carry fallback defaults (sex `'M'`, DOB
+today, year 2020, plate ← national-id field) — X2 consumption rules must treat every `ocr_*` row
+as an UNCONFIRMED candidate and never auto-trust a defaulted field.
+
+**Final dispositions (executed):**
+
+| Component | Disposition |
+|---|---|
+| `extractDocumentData` + `analyzeImageQuality` + test-gated mock | **KEEP** — extraction/observation; the diaspora consumer stays proven live |
+| `approveDocumentVerification` (registry/override/vehicle/trust writes, synthesized identifiers) | **RETIRED** — deleted with its endpoint |
+| `documentIntelligenceRouter` + `/api/verification` mount + all five endpoints + its path-scoped rate-limit line | **RETIRED** — deleted/unmounted; no `/api/verification` surface remains |
+| `TrustService` (six-tier person trust: `assignTrustLevel`, `calculateUserTrustScore`) | **RETIRED** — deleted; the tier vocabulary is NOT migrated into O2 |
+| `FraudService` (device-heuristic scanner, `'system_user'` provenance) | **RETIRED** — deleted; the governed fraud lane (`services/fraud/*`) is untouched |
+| `TrustEnforcementEngine` | **UNCHANGED** — other consumers; its two trust-penalty sites remain the register's reduced-scope OPEN entry |
+| `/api/ai/*` + `aiServiceBus` | **DOCUMENTED / KEEP** — observation-only; X2 residuals recorded above |
+| Historical `kyc_profiles` / `trust_score_history` / `security_events` rows | **PRESERVED** — no data deleted |
+| `cvr_ownership_records` / `zimra_declarations` | now **zero in-product writers**; reads (fact resolver) unchanged — pinned by test |
+
+**Guards added:** `backend/tests/o2-x1-document-intelligence-authority.test.js` (6 permanent
+boundary guards); the §11 retirement test in `issue164-phase3-trust-authority.test.js`; the B7
+trust-writer SET pin in `v16-authority-hardening.test.js` shrank from three writers to two; the
+`non-seller-authority-hardening.test.js` section-2 pins now assert the surface is absent rather
+than gated; legacy `run-tests.js` Test 28 asserts the retirement instead of the approval chain.
+
 ## Progressive Trust / capability unlocking (X2 design principle)
 
 The expansion's speed principle: a legitimate user performs safe low-risk actions immediately;
@@ -393,8 +449,8 @@ evidence per item; nothing is marked complete by assertion.
 | R3 | PR #194 unmerged | The convergence base the O2 branch descends from is not yet accepted; certifying anything against it repeats the documented mixed-base hazard | Product Owner acceptance of #194 |
 | R4 | Staging pairing absent | `feat/operations-o2-people-compliance` has no entry in `web/preview-frontend-pairing.json` / `preview-backend-pairing.json`; adding one now would push the P1-C RPC migration onto **shared** staging pre-#194 | P7 (after R3) |
 | R5 | Synthetic identity documents | P7/X7 staging journeys require submitting identity document images to shared staging; PO awareness required before any are created | P7 (after R3), PO decision |
-| R6 | `/promote-trust` + trust tiers | See O2-X1 — quarantined pending disposition | X1 |
-| R7 | Dangling `/ai/ocr`, `/ai/fraud-scan` frontend calls | No backend mount found; either dead client code or an unmapped lane | X1 step 1 confirms; then X2 or removal |
+| R6 | `/promote-trust` + trust tiers | **CLOSED by X1 (2026-09-03)** — the surface is retired; historical rows preserved (see "X1 executed") | X1 (done) |
+| R7 | `/ai/ocr`, `/ai/fraud-scan` frontend calls | **RESOLVED by X1 step 1** — served at `/api/ai/*` via `aiServiceBus`, observation-only; attribution/default residuals recorded for X2 | X2 consumption rules |
 | R8 | Adjacent open lanes | #196/#197 (Service Network), #200 (seller UAT convergence) are separate lanes; the expansion must not entangle them | respective lanes |
 
 ## Decisions requiring Product Owner approval

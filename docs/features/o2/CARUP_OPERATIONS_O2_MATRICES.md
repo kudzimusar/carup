@@ -102,6 +102,10 @@ Added 2026-09-03 for the Identity/Onboarding Expansion
 matrices, preserved unchanged. Binding rule for every row: **machine/user input proposes;
 governed domain decisions decide; no AI output ever becomes an authoritative outcome directly.**
 
+*X1 (2026-09-03) enforced this boundary for Document Intelligence: the legacy `/api/verification`
+authority surface is retired and extraction writes only the ocr candidate tables — receipt:
+`CARUP_OPERATIONS_O2_X1_DOCUMENT_INTELLIGENCE_AUTHORITY_RECEIPT.md`.*
+
 | Fact | Source of truth | Who may propose | Who may decide | AI may influence? | Public? | Which service writes it |
 |---|---|---|---|---|---|---|
 | OCR extracted value | extraction output + provenance (identity lane: `verification_ocr_provenance`) | the extraction system (machine) | nobody — it is candidate evidence, never a decision | yes — it IS machine output, always marked candidate | never | identity service (provenance); the extraction utility produces it |
