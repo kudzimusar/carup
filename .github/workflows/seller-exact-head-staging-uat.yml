@@ -16,8 +16,22 @@ on:
 
 
 concurrency:
-  group: seller-exact-head-staging-uat-${{ github.event.pull_request.number || github.ref_name }}
-  cancel-in-progress: true
+  # ONE staging project, ONE set of staging identities. Every workflow in this group rotates
+  # `uat.reviewer@carup-staging.test` (and some also rotate the owner/buyer identity) to a fresh
+  # per-run password and then uses it. A per-workflow group protects each workflow from ITSELF but
+  # not from the others, so two of them could — and did — interleave: on 2026-09-03 the Serena UAT
+  # rotated the reviewer at 02:59:48 and started its spec at 02:59:52, the Golden gate re-rotated the
+  # same identity at 03:00:10, and the Serena run's reviewer login then failed 401 "Invalid
+  # credentials" at 03:01:03. Run 33709565414. The product was fine; the gate was not.
+  #
+  # The shared resource is the staging PROJECT, which is global, so this group is deliberately NOT
+  # keyed by PR or ref — keying it per-PR would recreate the same hole between branches.
+  #
+  # cancel-in-progress is false on purpose: these runs MUTATE shared staging state, and cancelling
+  # one mid-flight leaves that state half-changed (a published listing, an unrestored credential),
+  # which is a hazard this repository has already been bitten by. Queue, never cancel.
+  group: carup-shared-staging-uat
+  cancel-in-progress: false
 
 permissions:
   contents: read
