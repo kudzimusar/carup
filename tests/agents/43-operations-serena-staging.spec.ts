@@ -116,11 +116,16 @@ async function fetchOperationsReview(request: APIRequestContext, reviewer: Sessi
 async function reviewerLogin(request: APIRequestContext): Promise<SessionAuth> {
   const password = process.env.STAGING_UAT_REVIEWER_PASSWORD;
   expect(password, 'STAGING_UAT_REVIEWER_PASSWORD is not configured').toBeTruthy();
+  // This gate owns its reviewer identity rather than sharing `uat.reviewer@carup-staging.test`
+  // with the four other staging workflows that rotate it. Sharing it meant that on any branch
+  // where two of them trigger, whichever rotated second invalidated the other's live session
+  // mid-run. The default keeps a local run working against the historical shared identity.
+  const email = process.env.STAGING_UAT_REVIEWER_EMAIL || 'uat.reviewer@carup-staging.test';
   const csrf = await request.get(`${API_URL}/security/csrf-token`);
   const csrfBody = await csrf.json() as { csrfToken?: string };
   const response = await request.post(`${API_URL}/auth/login`, {
     headers: { 'x-csrf-token': csrfBody.csrfToken! },
-    data: { email: 'uat.reviewer@carup-staging.test', password },
+    data: { email, password },
   });
   expect(response.status(), `reviewer login failed: ${await response.text()}`).toBe(200);
   const body = await response.json() as { token?: string; user?: SessionAuth['user'] };
