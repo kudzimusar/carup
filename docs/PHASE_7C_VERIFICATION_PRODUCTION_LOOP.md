@@ -1,8 +1,8 @@
 # Phase 7C — Native Verification Production Loop
 
-**Branch:** `phase-7c-native-verification-production-loop`  
-**Created from:** `main` after PR #14 merge (2026-06-13T01:08:53Z)  
-**Issue:** #70  
+**Branch:** `phase-7c-native-verification-production-loop`
+**Created from:** `main` after PR #14 merge (2026-06-13T01:08:53Z)
+**Issue:** #70
 **Workstream A (this doc):** Baseline audit and failing-test containment
 
 ---
@@ -88,7 +88,7 @@ created_at / updated_at / captured_at / uploaded_at / submitted_at / ocr_started
 ```
 
 **Missing columns for Phase 7C admin review (additive migration required):**
-- `review_decision` — `TEXT CHECK (approved | rejected | request_retry)` 
+- `review_decision` — `TEXT CHECK (approved | rejected | request_retry)`
 - `retry_reason` — `TEXT`
 - `liveness_status` — `TEXT` (once real liveness is implemented)
 

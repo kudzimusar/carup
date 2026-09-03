@@ -723,65 +723,65 @@ export const DIASPORA_EVENT_TYPES = Object.freeze({
   TRADE_PROFILE_UPDATED: 'TRADE_PROFILE_UPDATED',
   TRADE_PROFILE_VERIFIED: 'TRADE_PROFILE_VERIFIED',
   TRADE_PROFILE_FLAGGED: 'TRADE_PROFILE_FLAGGED',
-  
+
   // Buyer Orders (diaspora_import_orders)
   IMPORT_ORDER_CREATED: 'IMPORT_ORDER_CREATED',
   IMPORT_ORDER_STATUS_CHANGED: 'IMPORT_ORDER_STATUS_CHANGED',
   IMPORT_ORDER_PARTICIPANTS_ADDED: 'IMPORT_ORDER_PARTICIPANTS_ADDED',
   IMPORT_ORDER_FLAGGED: 'IMPORT_ORDER_FLAGGED',
-  
+
   // Quotes
   QUOTE_ISSUED: 'QUOTE_ISSUED',
   QUOTE_ACCEPTED: 'QUOTE_ACCEPTED',
   QUOTE_REJECTED: 'QUOTE_REJECTED',
   QUOTE_EXPIRED: 'QUOTE_EXPIRED',
-  
+
   // Stock
   STOCK_ITEM_CREATED: 'STOCK_ITEM_CREATED',
   STOCK_ITEM_UPDATED: 'STOCK_ITEM_UPDATED',
   STOCK_RESERVED: 'STOCK_RESERVED',
   STOCK_RELEASED: 'STOCK_RELEASED',
   STOCK_VERIFICATION_CHANGED: 'STOCK_VERIFICATION_CHANGED',
-  
+
   // Documents
   DOCUMENT_UPLOADED: 'DOCUMENT_UPLOADED',
   DOCUMENT_VERIFIED: 'DOCUMENT_VERIFIED',
   DOCUMENT_REJECTED: 'DOCUMENT_REJECTED',
-  
+
   // Containers & Cargo
   CONTAINER_CREATED: 'CONTAINER_CREATED',
   CONTAINER_STATUS_CHANGED: 'CONTAINER_STATUS_CHANGED',
   CARGO_RESERVATION_REQUESTED: 'CARGO_RESERVATION_REQUESTED',
   CARGO_RESERVATION_APPROVED: 'CARGO_RESERVATION_APPROVED',
   CARGO_RESERVATION_REJECTED: 'CARGO_RESERVATION_REJECTED',
-  
+
   // Shipments
   SHIPMENT_CREATED: 'SHIPMENT_CREATED',
   SHIPMENT_STATUS_CHANGED: 'SHIPMENT_STATUS_CHANGED',
   SHIPMENT_STAGE_EVENT: 'SHIPMENT_STAGE_EVENT',
-  
+
   // Compliance & Reputation
   COMPLIANCE_REVIEW_CREATED: 'COMPLIANCE_REVIEW_CREATED',
   COMPLIANCE_REVIEW_UPDATED: 'COMPLIANCE_REVIEW_UPDATED',
   REPUTATION_RECORD_CREATED: 'REPUTATION_RECORD_CREATED',
   REPUTATION_RECORD_FLAGGED: 'REPUTATION_RECORD_FLAGGED',
-  
+
   // Payment Milestones
   PAYMENT_MILESTONE_CREATED: 'PAYMENT_MILESTONE_CREATED',
   PAYMENT_MILESTONE_STATUS_CHANGED: 'PAYMENT_MILESTONE_STATUS_CHANGED',
-  
+
   // SafeTrade (Phase 9)
   SAFETRADE_TRANSACTION_CREATED: 'SAFETRADE_TRANSACTION_CREATED',
   SAFETRADE_TRANSACTION_STATUS_CHANGED: 'SAFETRADE_TRANSACTION_STATUS_CHANGED',
-  
+
   // Drive
   DRIVE_FILE_SYNCED: 'DRIVE_FILE_SYNCED',
   DRIVE_CONNECTION_CREATED: 'DRIVE_CONNECTION_CREATED',
-  
+
   // AI Commands
   AI_COMMAND_CREATED: 'AI_COMMAND_CREATED',
   AI_COMMAND_EXECUTED: 'AI_COMMAND_EXECUTED',
-  
+
   // Workbook
   WORKBOOK_BATCH_IMPORTED: 'WORKBOOK_BATCH_IMPORTED',
 });
@@ -843,7 +843,7 @@ export const EVENT_PROJECTION_MAP = Object.freeze({
       },
     ],
   },
-  
+
   [DIASPORA_EVENT_TYPES.IMPORT_ORDER_CREATED]: {
     nodeOperations: [
       {
@@ -878,7 +878,7 @@ export const EVENT_PROJECTION_MAP = Object.freeze({
       },
     ],
   },
-  
+
   [DIASPORA_EVENT_TYPES.QUOTE_ISSUED]: {
     nodeOperations: [
       {
@@ -905,7 +905,7 @@ export const EVENT_PROJECTION_MAP = Object.freeze({
       },
     ],
   },
-  
+
   [DIASPORA_EVENT_TYPES.QUOTE_ACCEPTED]: {
     nodeOperations: [
       {
@@ -931,7 +931,7 @@ export const EVENT_PROJECTION_MAP = Object.freeze({
       },
     ],
   },
-  
+
   [DIASPORA_EVENT_TYPES.DOCUMENT_UPLOADED]: {
     nodeOperations: [
       {
@@ -957,7 +957,7 @@ export const EVENT_PROJECTION_MAP = Object.freeze({
       },
     ],
   },
-  
+
   // ... additional mappings for stock, containers, shipments, compliance, reputation, etc.
 });
 ```
@@ -987,7 +987,7 @@ export class DiasporaTradeGraphProjectionService {
   /**
    * Projection Consumer: called by eventWorker for each domain_events record.
    * Idempotent: dedup by event_id; never mutate the graph without consulting EVENT_PROJECTION_MAP.
-   * 
+   *
    * @param {object} eventPayload - payload from domain_events.payload JSONB
    * @param {object} pgClient - raw PG client from eventWorker transaction
    * @param {string} tenantId - from domain_events.tenant_id
@@ -1123,7 +1123,7 @@ export class DiasporaTradeGraphProjectionService {
     const toNodeType = op.toNodeType;
 
     const result = await pgClient.query(
-      `INSERT INTO trade_graph_edges 
+      `INSERT INTO trade_graph_edges
        (tenant_id, from_node_type, from_node_id, edge_type, to_node_type, to_node_id, attributes, created_at)
        VALUES ($1, $2, $3, $4, $5, $6, '{}', NOW())
        ON CONFLICT (tenant_id, from_node_id, edge_type, to_node_id) DO NOTHING
@@ -1131,9 +1131,9 @@ export class DiasporaTradeGraphProjectionService {
       [tenantId, fromNodeType, fromId, edgeType, toNodeType, toId]
     );
 
-    return { 
-      edgeType, 
-      from: `${fromNodeType}:${fromId}`, 
+    return {
+      edgeType,
+      from: `${fromNodeType}:${fromId}`,
       to: `${toNodeType}:${toId}`,
       created: result.rows.length > 0,
       id: result.rows[0]?.id,
@@ -1171,7 +1171,7 @@ export class DiasporaTradeGraphProjectionService {
 
       // Guard: rate limiting (no rebuild within 1 hour of last rebuild for same tenant)
       const lastRebuild = await client.query(
-        `SELECT created_at FROM trade_graph_rebuilds 
+        `SELECT created_at FROM trade_graph_rebuilds
          WHERE tenant_id = $1 AND status = 'COMPLETED'
          ORDER BY created_at DESC LIMIT 1`,
         [tenantId]
@@ -1237,11 +1237,11 @@ export class DiasporaTradeGraphProjectionService {
 
       metricsHub.recordGraphRebuild(tenantId, successCount, failCount, elapsedMs);
 
-      return { 
-        success: true, 
-        tenantId, 
-        eventsProcessed: successCount, 
-        eventsFailed: failCount, 
+      return {
+        success: true,
+        tenantId,
+        eventsProcessed: successCount,
+        eventsFailed: failCount,
         durationMs: elapsedMs,
       };
 
@@ -1533,9 +1533,9 @@ export async function createImportOrder(payload = {}, userContext = {}, options 
 export async function transitionImportOrder(orderId, nextStatus, userContext = {}, options = {}) {
   const context = requireUserContext(userContext);
   const client = await resolveClient(options);
-  
+
   const previous = await getImportOrder(orderId, context, options);
-  
+
   // Validate transition
   if (!IMPORT_ORDER_TRANSITIONS[previous.status]?.includes(nextStatus)) {
     throw new ValidationError(`Illegal transition: ${previous.status} -> ${nextStatus}`);
@@ -1798,9 +1798,9 @@ WITH RECURSIVE neighborhood AS (
     AND n.id = $2
     AND n.is_current = true
     AND n.deleted_at IS NULL
-  
+
   UNION ALL
-  
+
   -- Recursion: fetch edges outbound from current node
   SELECT
     target.id,
@@ -1970,9 +1970,9 @@ WITH RECURSIVE order_path AS (
     AND n.node_type = 'BUYER_ORDER'
     AND n.is_current = true
     AND n.deleted_at IS NULL
-  
+
   UNION ALL
-  
+
   -- Recursion: follow canonical edges (ACCEPTED_QUOTE → SUPPLIES → FULFILLS_ORDER, etc.)
   SELECT
     next_node.id,
@@ -2056,7 +2056,7 @@ async queryTransactionPath(tenantId, buyerOrderId, options = {}) {
       const sourceEvent = step.source_event_ref
         ? await supabase.from('domain_events').select('*').eq('id', step.source_event_ref).single()
         : null;
-      
+
       return {
         ...step,
         sourceEvent: sourceEvent?.data || null,
@@ -2166,9 +2166,9 @@ WITH RECURSIVE seller_paths AS (
     AND bo.is_current = true
     AND bo.deleted_at IS NULL
     AND q.data->>'seller_id' = $3
-  
+
   UNION ALL
-  
+
   -- Extend: quote → stock items → seller profile
   SELECT
     'QUOTE'::text,
@@ -2332,7 +2332,7 @@ SELECT
        AND cr.data->>'status' IN ('PENDING', 'FAILED')
        AND cr.deleted_at IS NULL
      LIMIT 1),
-    
+
     -- Blocker 2: Document verification failed
     (SELECT jsonb_build_object(
       'type', 'DOCUMENT_FAILURE',
@@ -2345,7 +2345,7 @@ SELECT
        AND d.data->>'verification_status' IN ('FAILED', 'REQUIRES_REVIEW')
        AND d.deleted_at IS NULL
      LIMIT 1),
-    
+
     -- Blocker 3: Payment milestone overdue
     (SELECT jsonb_build_object(
       'type', 'PAYMENT_OVERDUE',
@@ -2360,7 +2360,7 @@ SELECT
        AND (pm.data->>'due_date')::timestamptz < NOW()
        AND pm.deleted_at IS NULL
      LIMIT 1),
-    
+
     -- Blocker 4: SafeTrade release blocked
     (SELECT jsonb_build_object(
       'type', 'SAFETRADE_BLOCKED',
@@ -2474,22 +2474,22 @@ WITH entity_evidence AS (
   FROM trade_graph_nodes n
   WHERE n.tenant_id = $1 AND n.node_type = $2 AND n.entity_id = $3
     AND n.is_current = true AND n.deleted_at IS NULL
-  
+
   UNION ALL
-  
+
   -- Linked documents
   SELECT 'DOCUMENT'::text, d.id, d.entity_id, d.node_type, d.data, d.created_at
   FROM trade_graph_nodes n
   JOIN trade_graph_edges e ON e.source_node_id = n.id OR e.target_node_id = n.id
-  JOIN trade_graph_nodes d ON 
+  JOIN trade_graph_nodes d ON
     (e.target_node_id = d.id AND e.source_node_id = n.id AND e.edge_type = 'DOCUMENTS')
     OR (e.source_node_id = d.id AND e.target_node_id = n.id AND e.edge_type = 'DOCUMENTS')
   WHERE n.tenant_id = $1 AND n.node_type = $2 AND n.entity_id = $3
     AND d.node_type = 'DOCUMENT' AND d.is_current = true AND d.deleted_at IS NULL
     AND e.deleted_at IS NULL
-  
+
   UNION ALL
-  
+
   -- Compliance records
   SELECT 'COMPLIANCE'::text, cr.id, cr.entity_id, cr.node_type, cr.data, cr.created_at
   FROM trade_graph_nodes n
@@ -2497,9 +2497,9 @@ WITH entity_evidence AS (
   JOIN trade_graph_nodes cr ON e.target_node_id = cr.id
   WHERE n.tenant_id = $1 AND n.node_type = $2 AND n.entity_id = $3
     AND cr.node_type = 'COMPLIANCE_REVIEW' AND cr.is_current = true AND cr.deleted_at IS NULL
-  
+
   UNION ALL
-  
+
   -- Domain events (source of truth for mutations)
   SELECT 'EVENT'::text, de.id, de.id, de.event_type, de.payload, de.created_at
   FROM domain_events de
@@ -2913,9 +2913,9 @@ WITH RECURSIVE neighborhood AS (
     AND n.id = p_node_id
     AND n.is_current = true
     AND n.deleted_at IS NULL
-  
+
   UNION ALL
-  
+
   SELECT
     target.id,
     target.entity_id,
@@ -2985,9 +2985,9 @@ WITH RECURSIVE order_path AS (
     AND n.node_type = 'BUYER_ORDER'
     AND n.is_current = true
     AND n.deleted_at IS NULL
-  
+
   UNION ALL
-  
+
   SELECT
     next_node.id,
     next_node.entity_id,
@@ -3079,9 +3079,9 @@ WITH RECURSIVE seller_paths AS (
     AND bo.is_current = true
     AND bo.deleted_at IS NULL
     AND q.data->>'seller_id' = p_seller_id::text
-  
+
   UNION ALL
-  
+
   SELECT
     sp.buyer_order_id,
     sp.quote_id,
@@ -3150,9 +3150,9 @@ WITH entity_evidence AS (
     AND n.entity_id = p_entity_id
     AND n.is_current = true
     AND n.deleted_at IS NULL
-  
+
   UNION ALL
-  
+
   SELECT 'DOCUMENT'::text, d.id, d.entity_id, d.node_type, d.data, d.created_at
   FROM trade_graph_nodes n
   JOIN trade_graph_edges e ON e.source_node_id = n.id
@@ -3164,9 +3164,9 @@ WITH entity_evidence AS (
     AND d.is_current = true
     AND d.deleted_at IS NULL
     AND e.deleted_at IS NULL
-  
+
   UNION ALL
-  
+
   SELECT 'COMPLIANCE'::text, cr.id, cr.entity_id, cr.node_type, cr.data, cr.created_at
   FROM trade_graph_nodes n
   JOIN trade_graph_edges e ON e.source_node_id = n.id AND e.edge_type = 'REVIEWS_COMPLIANCE'
@@ -3177,9 +3177,9 @@ WITH entity_evidence AS (
     AND cr.node_type = 'COMPLIANCE_REVIEW'
     AND cr.is_current = true
     AND cr.deleted_at IS NULL
-  
+
   UNION ALL
-  
+
   SELECT 'EVENT'::text, de.id, de.id, de.event_type, de.payload, de.created_at
   FROM domain_events de
   WHERE de.tenant_id = p_tenant_id
@@ -3444,7 +3444,7 @@ All services enforce RLS via `diaspora_trade_os_can_access_row()` and `authorize
 ```javascript
 /**
  * Phase 10 Trade Intelligence Service
- * 
+ *
  * Operational aggregates (demand signals, container opportunities, risk exposure)
  * computed from trade_graph_nodes + trade_graph_edges. Role-aware redaction of PII,
  * payment refs, addresses, private file paths. AI reads authorized summaries only;
@@ -3453,22 +3453,22 @@ All services enforce RLS via `diaspora_trade_os_can_access_row()` and `authorize
 
 import { logger } from '../../utils/logger.js';
 import { supabase } from '../../db/supabase.js';
-import { 
-  requireUserContext, 
-  isPlatformAdmin, 
+import {
+  requireUserContext,
+  isPlatformAdmin,
   isPlatformReviewer,
   isOrderOwner,
-  normalizeId 
+  normalizeId
 } from './diasporaAuthorization.js';
 import { resolveClient } from './diasporaServiceUtils.js';
 import { metricsHub } from '../metrics.js';
 
 export class DiasporaTradeIntelligenceService {
-  
+
   /**
    * DEMAND SIGNALS: aggregated unmatched orders + buyer profiles, grouped by country + product type.
    * Redacted: buyer personal names, email domains, exact addresses (region only).
-   * 
+   *
    * @param {string} tenantId - scoped to tenant
    * @param {object} userContext - user role for authorization
    * @param {object} filters - { country, productType, minUnmatchedCount, confidenceThreshold }
@@ -3489,7 +3489,7 @@ export class DiasporaTradeIntelligenceService {
     // Query: unmatched buyer orders + trade profiles grouped by origin + product type
     const query = `
       WITH buyer_orders AS (
-        SELECT 
+        SELECT
           n.id as node_id,
           n.entity_id as order_id,
           n.data->>'origin_country' as origin_country,
@@ -3507,7 +3507,7 @@ export class DiasporaTradeIntelligenceService {
           ${country ? 'AND n.data->>\\'origin_country\\' = $3' : ''}
       ),
       buyer_profiles AS (
-        SELECT 
+        SELECT
           n.id as node_id,
           n.entity_id as profile_id,
           n.data->>'user_id' as user_id,
@@ -3522,7 +3522,7 @@ export class DiasporaTradeIntelligenceService {
           AND n.confidence >= $2
       ),
       unmatched_orders AS (
-        SELECT 
+        SELECT
           bo.order_id,
           bo.origin_country,
           bo.order_type,
@@ -3530,14 +3530,14 @@ export class DiasporaTradeIntelligenceService {
           bo.confidence,
           COUNT(DISTINCT e.id) as quote_count
         FROM buyer_orders bo
-        LEFT JOIN public.trade_graph_edges e 
-          ON bo.node_id = e.target_node_id 
+        LEFT JOIN public.trade_graph_edges e
+          ON bo.node_id = e.target_node_id
           AND e.edge_type = 'ACCEPTED_QUOTE'
           AND e.deleted_at IS NULL
         GROUP BY bo.order_id, bo.origin_country, bo.order_type, bo.buyer_id, bo.confidence
         HAVING COUNT(CASE WHEN e.id IS NOT NULL THEN 1 END) = 0  -- no accepted quotes
       )
-      SELECT 
+      SELECT
         uo.origin_country,
         uo.order_type,
         COUNT(DISTINCT uo.order_id) as unmatched_count,
@@ -3553,9 +3553,9 @@ export class DiasporaTradeIntelligenceService {
     `;
 
     const params = [
-      tenantId, 
-      confidenceThreshold, 
-      country || null, 
+      tenantId,
+      confidenceThreshold,
+      country || null,
       minUnmatchedCount
     ];
 
@@ -3571,7 +3571,7 @@ export class DiasporaTradeIntelligenceService {
         .eq('node_type', 'BUYER_ORDER')
         .eq('is_current', true)
         .is('deleted_at', null);
-      
+
       // Fallback: simple aggregation in-memory
       return this._aggregateDemandSignalsFallback(rows.data || [], filters);
     }
@@ -3603,7 +3603,7 @@ export class DiasporaTradeIntelligenceService {
   /**
    * CONTAINER OPPORTUNITIES: matches empty containers with orders needing shipment.
    * Redacted: order buyer names, payment amounts, exact origin/destination (region only).
-   * 
+   *
    * @param {string} tenantId
    * @param {object} userContext
    * @param {object} filters - { originCountry, destinationCountry, containerType, capacityMin }
@@ -3623,7 +3623,7 @@ export class DiasporaTradeIntelligenceService {
     // Query: containers + orders needing shipment, joined by geography + capacity
     const query = `
       WITH available_containers AS (
-        SELECT 
+        SELECT
           c.id,
           c.entity_id as container_id,
           c.data->>'coordinator_id' as coordinator_id,
@@ -3643,7 +3643,7 @@ export class DiasporaTradeIntelligenceService {
           ${destinationCountry ? 'AND c.data->>\\'destination_country\\' = $6' : ''}
       ),
       orders_needing_shipment AS (
-        SELECT 
+        SELECT
           o.id,
           o.entity_id as order_id,
           o.data->>'buyer_id' as buyer_id,
@@ -3662,14 +3662,14 @@ export class DiasporaTradeIntelligenceService {
           ${destinationCountry ? 'AND o.data->>\\'destination_country\\' = $6' : ''}
       ),
       matches AS (
-        SELECT 
+        SELECT
           c.*,
           COUNT(DISTINCT o.order_id) as matched_orders,
           ROUND(AVG(o.weight_kg)::numeric, 2) as avg_order_weight,
           MAX(o.confidence) as max_order_confidence
         FROM available_containers c
         CROSS JOIN orders_needing_shipment o
-        WHERE c.origin = o.origin 
+        WHERE c.origin = o.origin
           AND c.destination = o.destination
           AND c.available_capacity >= COALESCE(o.weight_kg, 0)
           AND c.available_capacity >= $4
@@ -3682,7 +3682,7 @@ export class DiasporaTradeIntelligenceService {
     const params = [tenantId, null, null, capacityMin, originCountry, destinationCountry];
 
     const { data, error } = await client.from('trade_graph_nodes').select('*'); // Fallback
-    
+
     const opportunities = (data || [])
       .filter(c => c.node_type === 'CONTAINER')
       .map(container => ({
@@ -3712,7 +3712,7 @@ export class DiasporaTradeIntelligenceService {
   /**
    * RISK EXPOSURE: aggregated reputation + compliance + payment milestone blockers per order.
    * Redacted: participant names, payment amounts, internal risk scores above a threshold.
-   * 
+   *
    * @param {string} tenantId
    * @param {object} userContext
    * @param {object} filters - { minRiskLevel, confidenceThreshold }
@@ -3732,7 +3732,7 @@ export class DiasporaTradeIntelligenceService {
     // Query: orders + compliance reviews + reputation edges + payment milestone status
     const query = `
       WITH order_risk_view AS (
-        SELECT 
+        SELECT
           o.id as order_node_id,
           o.entity_id as order_id,
           o.data->>'status' as order_status,
@@ -3755,8 +3755,8 @@ export class DiasporaTradeIntelligenceService {
               AND m.confidence >= $2
           ), '[]'::jsonb) as payment_milestones
         FROM public.trade_graph_nodes o
-        LEFT JOIN public.trade_graph_edges e 
-          ON o.id = e.target_node_id 
+        LEFT JOIN public.trade_graph_edges e
+          ON o.id = e.target_node_id
           AND e.deleted_at IS NULL
           AND e.is_valid = true
         WHERE o.tenant_id = $1
@@ -3766,7 +3766,7 @@ export class DiasporaTradeIntelligenceService {
           AND o.confidence >= $2
         GROUP BY o.id, o.entity_id, o.data->>'status', o.confidence
       )
-      SELECT 
+      SELECT
         order_id,
         order_status,
         order_confidence,
@@ -3817,7 +3817,7 @@ export class DiasporaTradeIntelligenceService {
   /**
    * STRUCTURED CONTEXT for AI: given an order ID, return authorized graph neighborhood
    * with redacted PII, payment refs, addresses, private file paths.
-   * 
+   *
    * @param {string} tenantId
    * @param {string} orderId
    * @param {object} userContext
@@ -3884,7 +3884,7 @@ export class DiasporaTradeIntelligenceService {
     const redactedNeighbors = (neighbors || []).map(n => ({
       node: this._redactNode(n, context),
       edges: edges1
-        .filter(e => 
+        .filter(e =>
           (e.source_node_id === orderNode.id && e.target_node_id === n.id) ||
           (e.target_node_id === orderNode.id && e.source_node_id === n.id)
         )
@@ -3917,14 +3917,14 @@ export class DiasporaTradeIntelligenceService {
   // ─────── HELPERS ──────────
 
   _canAccessTenant(context, tenantId) {
-    return isPlatformAdmin(context) || 
+    return isPlatformAdmin(context) ||
            isPlatformReviewer(context) ||
            (context.tenantId && normalizeId(context.tenantId) === normalizeId(tenantId));
   }
 
   _redactNode(node, context) {
     const redacted = { ...node };
-    
+
     // Redact PII from data JSONB
     if (redacted.data) {
       const data = { ...redacted.data };
@@ -3937,7 +3937,7 @@ export class DiasporaTradeIntelligenceService {
       if (data.internal_risk_score && !isPlatformAdmin(context)) data.internal_risk_score = null;
       redacted.data = data;
     }
-    
+
     return redacted;
   }
 
@@ -3991,7 +3991,7 @@ export const diasporaTradeIntelligence = new DiasporaTradeIntelligenceService();
 ```javascript
 /**
  * Phase 10 Trade Graph API — Queries, Evidence, Match Explanations, Admin Rebuild
- * 
+ *
  * Endpoints are role-aware, RLS-filtered, and return graph evidence + source events.
  * Admin-only operations are rate-limited and auditable via diaspora_import_audit_log.
  * Directive §60: entities/:type/:id, /neighbors, /path, /blockers, /match-explanation,
@@ -4001,11 +4001,11 @@ export const diasporaTradeIntelligence = new DiasporaTradeIntelligenceService();
 import express from 'express';
 import { authorizeRole } from '../middleware/authMiddleware.js';
 import { supabase } from '../db/supabase.js';
-import { 
-  requireUserContext, 
+import {
+  requireUserContext,
   isPlatformAdmin,
   isOrderOwner,
-  normalizeId 
+  normalizeId
 } from './diaspora/diasporaAuthorization.js';
 import { diasporaTradeGraphProjection } from './diaspora/diasporaTradeGraphProjectionService.js';
 import { diasporaTradeIntelligence } from './diaspora/diasporaTradeIntelligenceService.js';
@@ -4021,7 +4021,7 @@ const router = express.Router();
 /**
  * GET /api/diaspora/graph/entities/:type/:id
  * Retrieve a single graph node with metadata + evidence.
- * 
+ *
  * @query authorizedFields - comma-sep list of data fields to include (default: all; restricted by RLS)
  * @returns { node, confidence, sourceEvent, projectedAt }
  */
@@ -4081,7 +4081,7 @@ router.get('/entities/:type/:id', authorizeRole(['member']), async (req, res, ne
 /**
  * GET /api/diaspora/graph/entities/:type/:id/neighbors
  * Retrieve 1-hop neighbors of a node (incoming + outgoing edges).
- * 
+ *
  * @query edgeTypes - filter by comma-sep edge types
  * @query direction - 'in', 'out', or 'both' (default: both)
  * @returns { node, neighbors: [{ node, edgeType, confidence }] }
@@ -4179,7 +4179,7 @@ router.get('/entities/:type/:id/neighbors', authorizeRole(['member']), async (re
  * GET /api/diaspora/graph/orders/:orderId/path
  * Compute shortest path from order → settled state using recursive CTE.
  * Returns sequence of required nodes/edges + estimated timeline.
- * 
+ *
  * @returns { order, path: [{ node, edge, requiredStatus, estimatedAt }] }
  */
 router.get('/orders/:orderId/path', authorizeRole(['member']), async (req, res, next) => {
@@ -4251,7 +4251,7 @@ router.get('/orders/:orderId/path', authorizeRole(['member']), async (req, res, 
 /**
  * GET /api/diaspora/graph/orders/:orderId/blockers
  * Identify nodes/edges blocking order progress.
- * 
+ *
  * @returns { order, blockers: [{ nodeType, issue, evidence, requiredAction }] }
  */
 router.get('/orders/:orderId/blockers', authorizeRole(['member']), async (req, res, next) => {
@@ -4320,7 +4320,7 @@ router.get('/orders/:orderId/blockers', authorizeRole(['member']), async (req, r
  * GET /api/diaspora/graph/orders/:orderId/match-explanation
  * For orders with accepted quotes, explain why this seller was matched.
  * Returns edge confidence, quote comparison, trust signals.
- * 
+ *
  * @returns { order, matchedQuote, explanation: { edgeConfidence, quoteComparison, trustSignals } }
  */
 router.get('/orders/:orderId/match-explanation', authorizeRole(['member']), async (req, res, next) => {
@@ -4988,62 +4988,62 @@ export const DIASPORA_EVENT_TYPES = Object.freeze({
   TRADE_PROFILE_UPDATED: 'TRADE_PROFILE_UPDATED',
   TRADE_PROFILE_VERIFIED: 'TRADE_PROFILE_VERIFIED',
   TRADE_PROFILE_FLAGGED: 'TRADE_PROFILE_FLAGGED',
-  
+
   // Buyer Orders
   IMPORT_ORDER_CREATED: 'IMPORT_ORDER_CREATED',
   IMPORT_ORDER_STATUS_CHANGED: 'IMPORT_ORDER_STATUS_CHANGED',
   IMPORT_ORDER_PARTICIPANTS_ADDED: 'IMPORT_ORDER_PARTICIPANTS_ADDED',
   IMPORT_ORDER_FLAGGED: 'IMPORT_ORDER_FLAGGED',
-  
+
   // Quotes
   QUOTE_ISSUED: 'QUOTE_ISSUED',
   QUOTE_ACCEPTED: 'QUOTE_ACCEPTED',
   QUOTE_REJECTED: 'QUOTE_REJECTED',
   QUOTE_EXPIRED: 'QUOTE_EXPIRED',
-  
+
   // Stock
   STOCK_ITEM_CREATED: 'STOCK_ITEM_CREATED',
   STOCK_ITEM_UPDATED: 'STOCK_ITEM_UPDATED',
   STOCK_RESERVED: 'STOCK_RESERVED',
   STOCK_RELEASED: 'STOCK_RELEASED',
   STOCK_VERIFICATION_CHANGED: 'STOCK_VERIFICATION_CHANGED',
-  
+
   // Documents
   DOCUMENT_UPLOADED: 'DOCUMENT_UPLOADED',
   DOCUMENT_VERIFIED: 'DOCUMENT_VERIFIED',
   DOCUMENT_REJECTED: 'DOCUMENT_REJECTED',
-  
+
   // Containers & Cargo
   CONTAINER_CREATED: 'CONTAINER_CREATED',
   CONTAINER_STATUS_CHANGED: 'CONTAINER_STATUS_CHANGED',
   CARGO_RESERVATION_REQUESTED: 'CARGO_RESERVATION_REQUESTED',
   CARGO_RESERVATION_APPROVED: 'CARGO_RESERVATION_APPROVED',
-  
+
   // Shipments
   SHIPMENT_CREATED: 'SHIPMENT_CREATED',
   SHIPMENT_STATUS_CHANGED: 'SHIPMENT_STATUS_CHANGED',
-  
+
   // Compliance & Reputation
   COMPLIANCE_REVIEW_CREATED: 'COMPLIANCE_REVIEW_CREATED',
   COMPLIANCE_REVIEW_UPDATED: 'COMPLIANCE_REVIEW_UPDATED',
   REPUTATION_RECORD_CREATED: 'REPUTATION_RECORD_CREATED',
-  
+
   // Payment Milestones
   PAYMENT_MILESTONE_CREATED: 'PAYMENT_MILESTONE_CREATED',
   PAYMENT_MILESTONE_STATUS_CHANGED: 'PAYMENT_MILESTONE_STATUS_CHANGED',
-  
+
   // SafeTrade (Phase 9)
   SAFETRADE_TRANSACTION_CREATED: 'SAFETRADE_TRANSACTION_CREATED',
   SAFETRADE_TRANSACTION_STATUS_CHANGED: 'SAFETRADE_TRANSACTION_STATUS_CHANGED',
   SAFETRADE_MILESTONE_CREATED: 'SAFETRADE_MILESTONE_CREATED',
   SAFETRADE_DISPUTE_CREATED: 'SAFETRADE_DISPUTE_CREATED',
-  
+
   // Drive
   DRIVE_FILE_SYNCED: 'DRIVE_FILE_SYNCED',
-  
+
   // AI Commands
   AI_COMMAND_CREATED: 'AI_COMMAND_CREATED',
-  
+
   // Workbook
   WORKBOOK_BATCH_IMPORTED: 'WORKBOOK_BATCH_IMPORTED',
 });
@@ -5185,7 +5185,7 @@ async generateMatchExplanation(tenantId, buyerOrderId, sellerId) {
 
 ```javascript
 async generateBlockerSummary(tenantId, buyerOrderId) {
-  // Returns: { orderid, blockers: [{ type, detail, severity, resolvedAt, sourceEntityId }], 
+  // Returns: { orderid, blockers: [{ type, detail, severity, resolvedAt, sourceEntityId }],
   //   hasBlockers, criticalCount, highCount, mostSevereBlocker }
   // Severities: CRITICAL, HIGH, MEDIUM; ranked by business impact
 }
@@ -5759,7 +5759,7 @@ When hovering/clicking a graph element:
   - [ ] diasporaWorkbookService (WORKBOOK_BATCH_IMPORTED)
 
 - [ ] Backfill existing data
-  - [ ] For each existing tenant, trigger `POST /api/diaspora/graph/rebuild-tenant` 
+  - [ ] For each existing tenant, trigger `POST /api/diaspora/graph/rebuild-tenant`
   - [ ] Verify event processing rate (<1s per 100 events)
   - [ ] Confirm dead-letter count is near zero
 
