@@ -240,3 +240,93 @@ gate running at ~7m against an 8m budget with ±40% variance, failing on a diffe
 different unrelated cause each run.
 
 **No PASS is claimed for Golden.** It has not achieved a green run on `f600d002`.
+
+---
+
+# GOLDEN SELLER RELIABILITY DIAGNOSIS (2026-09-03) — candidate frozen at `f600d002`
+
+Bounded certification diagnosis. **No product code changed. No O2 reopened. #194 not merged.**
+
+## Root cause — quantified, not inferred
+
+`web/src/pages/dashboard/owner/SellerIntelligence.tsx:182` fans out **one analytics request per owned
+vehicle**, unbounded (`await Promise.all(nextVehicles.map(...))`), and sets `state='ready'` only
+after **all** of them resolve. The KPI band — including `seller-intelligence-kpi-inquiries` — renders
+only when `state === 'ready' && readable`.
+
+The Golden seller (`uat.buyer@carup-staging.test`, `u_e57adbc081314723`) now holds **132 listings,
+107 of them the gate's own `JTDKARFP0H3*` synthetic vehicles**, accumulated 2026-08-30 → 2026-09-03.
+The gate's `retireAutomationVehicle` marks a vehicle sold/publishable; it never leaves the garage,
+so every run adds ~3 more.
+
+Vercel runtime logs for run `33746640705` show the consequence directly — 11+ concurrent
+`GET /api/marketplace/my-listings/{VIN}/analytics`, all HTTP 200, at **29,152 / 29,353 / 41,396 /
+43,298 / 43,438 / 45,375 / 61,106 / 63,675 / 94,104 / 95,847 / 96,981 ms** — saturating the preview
+deployment and dragging unrelated endpoints with them: `/api/vehicles/me` 26,818ms,
+`/api/marketplace/my-analytics` 26,026ms, `POST /api/auth/login` 24,843ms, even `/api/health`
+3,262ms. **Zero 5xx** in the window (637× 200): the backend was not erroring, it was saturated.
+
+Growth across the exact window where Golden turned from passing to failing: **113 listings at the
+passing baseline (04:28) → 131 at run 4's start (10:52)**. The gate degrades itself.
+
+## Failure classification
+
+| Run | Viewport | Elapsed | Failure | Classification |
+|---|---|---|---|---|
+| `33738012866` (`fbc059f9`) | all three | 8.0m / 8.0m / 8.0m — exactly the 480s ceiling | test timeout | **PERFORMANCE REGRESSION — mine, and fixed.** The closure added a DB round-trip to `loadScopedVehicle`. Corrected at `f600d002` by scoping the check to non-owners |
+| `33741999824` (`f600d002`) | mobile | 5.5m | `apiRequestContext.post` 20s timeout, idempotent replay | **STAGING/INFRASTRUCTURE** — saturation |
+| `33744146692` (`f600d002`) | tablet | 7.6m | `seller-intelligence-kpi-inquiries` element(s) not found after 20s | **GOLDEN TEST DEFECT + INFRASTRUCTURE** — the page was still awaiting 132 analytics calls, so `state` was never `ready` and the element never existed |
+| `33746640705` (`f600d002`) | chromium / tablet / mobile | 7.5m / 22.6s / 26.4s | three *different* 20s network timeouts (`post`, `waitForResponse`, `get`) within 50s | **STAGING/INFRASTRUCTURE** — tablet and mobile never materially executed the journey |
+
+**SHARED-STAGING CONTENTION is ruled out by evidence** for all four: no other staging-mutating
+workflow overlapped any Golden run (nearest ended 44s *before* run 2 began). Frontend and backend
+served the expected SHA with `unpaired=false` in every run; all `f600d002` runs used the same
+deployment `dpl_EZ95EUT1hvFeKrcKHzvqbj7PmG78`. No synthetic identity was rotated by a competing run.
+
+## Hot-path regression re-proof at `f600d002`
+
+Direct query-shape probe against the live service:
+
+| Actor | Denied | Transfer ledger queried |
+|---|---|---|
+| canonical owner | false | **no** (short-circuit; zero tables when called directly) |
+| former owner, completed transfer | **true** (`ownership_transferred_away`) | yes |
+| former owner + stale `confirmed` row | **true** (`ownership_transferred_away`) | yes — Hazard B intact |
+| unrelated non-owner, no transfer | false | yes (not over-blocking) |
+
+`loadScopedVehicle` gates the whole call behind `isOwner ? {denied:false} : await(...)`, so the
+seller's own publish / unpublish / price path performs **zero added queries** — the prior shape.
+
+## Golden budget analysis (measured before any change)
+
+Per-test maxima on successful runs, against the **8.0m** ceiling:
+
+| Run | SHA | per-test (m) | max | headroom |
+|---|---|---|---|---|
+| `33603049508` | `569e4f14` | 5.8 / 6.1 / 5.8 | 6.1 | 1.9m |
+| `33698702769` | `f25ea5c6` | 6.4 / 6.3 / 6.7 | 6.7 | 1.3m |
+| `33710442588` | `9517e362` | 7.2 / 7.5 / 7.4 | 7.5 | 0.5m |
+| `33715094180` | `dd94c56d` | 7.0 / 6.9 / 7.3 | 7.3 | 0.7m |
+| `33744146692` | `f600d002` | 7.5 / 7.6 / 7.8 | 7.8 | **0.2m** |
+
+Median max ≈ 7.3m; slowest successful 7.5m. The gate runs at **91–98% of its budget** and the trend
+is monotonic with listing count, not with any code change. **The gate has insufficient operating
+margin.**
+
+## No test budget was changed, and why
+
+Raising the per-test ceiling would not make the result trustworthy: the `f600d002` failures are
+**20-second per-request waits against a backend legitimately taking 26–97 seconds**. A larger budget
+would convert a visible failure into a slow pass over a saturated environment — a gate representing
+nothing. The measured remedy is the data, not the clock.
+
+## Remediation required (belongs to the Golden/Seller lane, not performed here)
+
+1. Clear the 107 accumulated `JTDKARFP0H3*` synthetic vehicles from the Golden seller account.
+   Deliberately **not** done here: deleting 107 rows from shared staging is destructive, cascades
+   into listing media/evidence/event history, and is another lane's fixture debris.
+2. Make `retireAutomationVehicle` actually remove its vehicle, or give the gate a per-run seller
+   identity, so accumulation cannot recur.
+3. Separately worth a look by the owning lane: the unbounded per-vehicle analytics fan-out with an
+   all-or-nothing `ready` gate is a real product scaling characteristic, pre-existing and out of
+   scope for this closure.
