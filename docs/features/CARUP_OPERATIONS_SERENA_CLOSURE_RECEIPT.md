@@ -117,3 +117,54 @@ correct · final SHA frozen and re-certified · **PR remains UNMERGED**.
 
 No item is left open with a hidden cause. The two that remain open are open by instruction (M8,
 O2–O10) or by an external dependency named exactly (the absent staging secrets).
+
+## Stack reconciliation record (Stage 1, 2026-09-03)
+
+The certified slice was integrated leaf-upward: **#206 → merged** (`bb30a3f6`, tree byte-identical
+to the certified head), **#205 → merged** (`2f653977`), and `integration/vehicle-passport-v16-cert`
+now stands at the integrated candidate. **#194 → main remains OPEN, blocked by REVIEW_REQUIRED — the
+Product Owner's gate. Nothing here touched main.**
+
+**Integrated certified SHA: `dd94c56d`** — one exact SHA, frontend == backend, `unpaired=false`
+(run 33714022023 recorded the pairing verbatim; the `dd94c56d` runs assert the same), migrations
+present, and green across: CI (lint/types/build/backend 0-fail/PGlite/ledgers) · Vehicle Passport ·
+Marketplace Reference Regression · Communications · Navigation · Operations Serena regression ·
+Seller Media Lifecycle · **Seller Golden lifecycle (dispatched at the integrated SHA — run
+33715094180)** · Referral · Diaspora 3-7 · Finance obligation. Five staging gates skipped by their
+own path filters, as on every prior head. Kingstone's credential verified restored (`role=owner`,
+well-formed scrypt); the Serena's public truth re-verified intact after all reconciliation runs
+(60/moderate, honest `pending` sentence, claim preserved).
+
+Reconciliation surfaced **three real defects**, each fixed in the lane where it manifests and
+re-certified — none is a defect in the certified product code:
+
+1. **Staging identity collision (CI defect).** Five workflows rotate `uat.reviewer@carup-staging.test`;
+   each had a self-protecting concurrency group and none excluded the others. On the first branch
+   where two triggered together, Golden re-rotated the identity mid-Serena-run → 401 (run
+   33709565414, timestamps 02:59:48/03:00:10/03:01:03). **First attempt — one shared concurrency
+   group — was WRONG and is recorded as such:** GitHub keeps a single pending run per group, so
+   contended gates were silently CANCELLED with zero steps executed (run 33712350690) — a worse
+   failure than the flake. Final fix: the Operations gate owns `uat.reviewer.ops@carup-staging.test`
+   (removing the contention), per-workflow groups restored, and `cancel-in-progress: false` kept on
+   all five staging-mutating workflows so a run is never killed mid-mutation. The other four still
+   share `uat.reviewer` among themselves — pre-existing, reported to those lanes, not restructured
+   from here.
+2. **Media lifecycle gate drove a control M1 removed.** The canonical-first uploader renders the
+   legacy `#evidence-type` select only as a taxonomy-unavailable fallback; the gate (passing at
+   `f180c47d`, before the stack met it) still drove it. Fixed by driving the canonical controls
+   with an equivalent classification (`registration/registration_book` → the same legacy
+   `registration_document` the test asserts on downstream). Swept: `16-vehicle-evidence-flow` had
+   the same usage (ungated anywhere; fixed, verified to parse).
+3. **Media lifecycle fixture predates the registration-stage requirement.** Publish was refused with
+   the stage unrecorded ("not established" blocks). Attribution: the requirement is **#205's own**
+   (blocking at `569e4f14`, before the Operations slice) — that lane fixed its Golden fixtures
+   (64043931) but this gate triggers on a different base and never met it. The fixture now declares
+   `locally_registered` through the real Sell form on step 0, consistent with the plate it already
+   supplies and the registration book it uploads and has verified.
+
+**Superseded interim SHAs during reconciliation:** `bb30a3f6` (collision found) → `9517e362`
+(16/16 on #205's gate set; wrong concurrency approach found on the next branch) → `23d2b5b2` /
+`0c451a06` (defects 2–3 iterated) → **`dd94c56d` (final, all green)**.
+
+**Remaining Product Owner action:** approve and merge **#194 → main**. Merging main does NOT promote
+CarUp production (Vercel promotion is a separate step) — production remains untouched.
