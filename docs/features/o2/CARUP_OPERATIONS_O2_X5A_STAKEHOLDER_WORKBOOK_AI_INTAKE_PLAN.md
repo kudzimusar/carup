@@ -94,8 +94,9 @@ backend returns the allowed catalogue (with honest `unavailable` reasons); the U
 - `diasporaWorkbookXlsxService` is generalized minimally: its three entry points accept a
   template **object** in addition to the known diaspora template-type strings, and the reference
   sheet reads `template.referenceSheets` (which for diaspora strings is the same constant it uses
-  today). Diaspora behavior stays byte-equivalent; `diaspora-workbook-xlsx.test.js` must stay
-  green unmodified.
+  today). Diaspora behavior stays content-identical (raw .xlsx bytes are inherently
+  nondeterministic — zip entry timestamps — so the parity pin compares parsed content);
+  `diaspora-workbook-xlsx.test.js` must stay green unmodified.
 - The diaspora planning/review/confirmation/execution chain is **not modified**. Seller/dealer
   vehicle imports get their own validation/dry-run/execution services that reuse the SAME
   security utilities (`sha256Checksum`, `assertAllowedSpreadsheet`, `neutralizeFormula`,
@@ -199,42 +200,42 @@ are never silently interpreted.
 
 ## Stage B checklist (implementation roll-call — close only with evidence)
 
-- [ ] B1 **Workbook Field Registry (code)** — `backend/constants/workbook/workbookFieldRegistry.js`:
+- [x] B1 **Workbook Field Registry (code)** — `backend/constants/workbook/workbookFieldRegistry.js`:
       versioned, powers template generation/labels/help/validation/vocabularies/stakeholder
       applicability/worksheets/importability/exportability/AI-safe metadata; authority-only
-      fields not importable
-- [ ] B2 **Engine reconciliation** — xlsx service accepts template objects; diaspora string
-      behavior byte-equivalent; `diaspora-workbook-xlsx.test.js` green unmodified
-- [ ] B3 **Template Catalogue API** — server-derived available/unavailable with reasons; no
-      request-body eligibility
-- [ ] B4 **Seller/Dealer vehicle workbook** — covers the documented current user-enterable
-      Seller capability across normalized sheets; intentional exclusions recorded in the registry
-- [ ] B5 **Importer/Exporter templates** — reuse diaspora contracts/labels; canonical keys
-      preserved
-- [ ] B6 **Other stakeholders** — only safe templates; deferred ones honestly unavailable
-- [ ] B7 **CarUp AI Workbook Assistant (UI + endpoints)** — visible component; proposals
-      visually distinct from deterministic/user/canonical values
-- [ ] B8 **Cell/row-level attention** — issues table (row, field, issue, suggestion, action);
-      no fabricated suggestions
-- [ ] B9 **Export** — server-sourced, scoped, redacted
-- [ ] B10 **Recent Imports** — existing store reused, server-scoped
-- [ ] B11 **No re-entry acceptance** — imported values appear in normal pages without
-      re-typing (exceptions only as documented)
-- [ ] B12 **Terminology UX** — human labels/help/dropdowns/instructions; canonical values
-      unchanged
-- [ ] B13 **Security/authority protections** — the authority-import refusal list proven;
-      X5/diaspora refusal gates green
-- [ ] B14 **Stakeholder exposure tests** — every catalogue disposition proven
-- [ ] B15 **Completeness tests** — registry vs current Seller user-enterable contract; drift
-      fails loudly
-- [ ] B16 **Template versioning** — version carried; unsupported versions fail with upgrade
-      message
-- [ ] B17 **Workbook workspace UI** — Template | Export | Import | Recent Imports + visible
-      Assistant; config-driven shell reused across stakeholders
-- [ ] B18 **Docs stay live** — this checklist + tracker updated per unit; catalogue updated on
-      every field/exposure/deferral/AI change
-- [ ] B19 **Certification** — full list in the contract below
-- [ ] B20 **Receipt** — `CARUP_OPERATIONS_O2_X5A_STAKEHOLDER_WORKBOOK_AI_INTAKE_RECEIPT.md`
+      fields not importable — **`backend/constants/workbook/workbookFieldRegistry.js` (`carup_workbook_registry.v1`, vehicle schema `2026.09.x5a.vehicle-v1`); vocabularies imported from owning modules (registration lifecycle, disclosures, CLAIM_VISIBILITY, evidence taxonomy, shared taxonomy catalog); FORBIDDEN_WORKBOOK_COLUMNS (30) refuse governed results + the 11 private-banking keys; suite 8/8 incl. the create-route destructure tripwire**
+- [x] B2 **Engine reconciliation** — xlsx service accepts template objects; diaspora string
+      behavior byte-equivalent; `diaspora-workbook-xlsx.test.js` green unmodified — **engine accepts template objects (`requireTemplate` + `template.referenceSheets`); diaspora `diaspora-workbook-xlsx.test.js` 24/24 UNMODIFIED; content-parity pin green (bytes are zip-timestamp nondeterministic — parity is parsed content); X5 mapping service generalized (registry labels resolve deterministically; dealer scope preserved) with X5 suites 16/16**
+- [x] B3 **Template Catalogue API** — server-derived available/unavailable with reasons; no
+      request-body eligibility — **`workbookCatalogueService.resolveWorkbookCatalogue` + `requireTemplateAction` (fail-closed per call) + GET /api/workbook/catalogue; eligibility from role + X2 registration profile + X5 dealer context + VERIFIED trade profiles; exposure suite 7/7 incl. forged-actor pin**
+- [x] B4 **Seller/Dealer vehicle workbook** — covers the documented current user-enterable
+      Seller capability across normalized sheets; intentional exclusions recorded in the registry — **seller_vehicles + dealer_vehicle_inventory: inspect (version gate) → per-sheet checksum-bound confirmations → validation/dry run (labels/aliases→canonical, markers refused, VIN grouping, existing-Passport rejection) → batch/rows in the EXISTING store → explicit confirm → execution replaying canonical POST /api/vehicles/add per vehicle (stable client_submission_id) + canonical evidence upload; suite 10/10**
+- [x] B5 **Importer/Exporter templates** — reuse diaspora contracts/labels; canonical keys
+      preserved — **importer/exporter/supplier/enterprise/container templates = the EXISTING diaspora catalog exposed by verified trade-profile role (engine `diaspora`); no second schema; labels stay canonical diaspora keys**
+- [x] B6 **Other stakeholders** — only safe templates; deferred ones honestly unavailable — **garage/mechanic/insurer/lender/government/fleet surface as honest `unavailable` entries with reason codes; deferred-stays-deferred pinned**
+- [x] B7 **CarUp AI Workbook Assistant (UI + endpoints)** — visible component; proposals
+      visually distinct from deterministic/user/canonical values — **`workbookAiAssistantService` + 3 assistant routes + the NAMED assistant panel in WorkbookWorkspace; provider badges distinguish deterministic vs AI PROPOSAL vs unmapped; suite 6/6**
+- [x] B8 **Cell/row-level attention** — issues table (row, field, issue, suggestion, action);
+      no fabricated suggestions — **attention report (sheet/row/field/severity/message/explanation) + suggestions table semantics: deterministic normalization vs AI proposal (requires_confirmation) vs needs_user_value with NO suggested value for the unknowable**
+- [x] B9 **Export** — server-sourced, scoped, redacted — **`workbookDbExportService.exportVehicleWorkbookFromDatabase` — vehicles by current_seller_id (+ dealer BUSINESS/BRANCHES from own profile); engine/chassis redacted by default; values export as human labels; no caller-rows path; suite 4/4**
+- [x] B10 **Recent Imports** — existing store reused, server-scoped — **GET /api/workbook/recent-imports over `diaspora_workbook_import_batches` filtered by uploaded_by + vehicle template keys; uploader-scoping pin green; migration `20260904090000` loosens two NOT NULLs only (no second store)**
+- [x] B11 **No re-entry acceptance** — imported values appear in normal pages without
+      re-typing (exceptions only as documented) — **the NO-RE-ENTRY PIN (o2-x5a-vehicle-workbook, test 10) proves every importable VEHICLES/LISTINGS/disclosure/media field lands in the canonical create payload under the exact keys the certified route persists and the site reads back (SellVehicle draft restore, VehicleProfile); execution replays that route, so imported values ARE site values. Exceptions stay the documented §4 list: authority decisions, evidence review, missing fields, media/evidence referenced-not-ingested, intentionally non-importable fields**
+- [x] B12 **Terminology UX** — human labels/help/dropdowns/instructions; canonical values
+      unchanged — **workbook headers/cells are human labels (registration presentation map, disclosure labels, visibility sentences, Yes/No); canonical values travel underneath; label↔canonical round-trip pinned in registry + import suites**
+- [x] B13 **Security/authority protections** — the authority-import refusal list proven;
+      X5/diaspora refusal gates green — **registry contains no forbidden column (pin); mapping confirm + dry-run refuse forbidden targets (pins); execute payload proven to carry NO authority keys; diaspora/X5 refusal gates re-run green in the regression batch**
+- [x] B14 **Stakeholder exposure tests** — every catalogue disposition proven — **o2-x5a-catalogue-exposure 7/7: owner/applicant/active-dealer/diaspora-role/unverified/forged-actor/deferred + regulated-role refusals; uploader scoping in the workbook suite**
+- [x] B15 **Completeness tests** — registry vs current Seller user-enterable contract; drift
+      fails loudly — **registry suite: vocab equality vs owning modules, web source pins, and the create-route destructure tripwire (an unaccounted new key fails by name)**
+- [x] B16 **Template versioning** — version carried; unsupported versions fail with upgrade
+      message — **Instructions sheet carries schemaVersion/templateType/generatedAt; inspect + dry run refuse a mismatched version with `TEMPLATE_VERSION_UNSUPPORTED` + upgrade path (pinned)**
+- [x] B17 **Workbook workspace UI** — Template | Export | Import | Recent Imports + visible
+      Assistant; config-driven shell reused across stakeholders — **`WorkbookWorkspace.tsx` shared shell (Template | Export | Import | Recent Imports + assistant); `/workbook-tools` catalogue-driven page; embedded in Dealer onboarding for dealer_vehicle_inventory; web suites 7/7 new (+ DealerOnboarding 4/4, RegistrationJourney 11/11 unaffected), tsc clean**
+- [x] B18 **Docs stay live** — this checklist + tracker updated per unit; catalogue updated on
+      every field/exposure/deferral/AI change — **checklist evidenced per item as units landed; one architecture correction recorded in-place (byte→content parity, with the zip-timestamp reason); tracker X5A.2-X5A.8 updated below; no catalogue §2/§5 divergence arose (implementation followed the manual)**
+- [x] B19 **Certification** — full list in the contract below — **all green: targeted 271/271 · full backend 5906 (5885/0/21) · full web 1585/1585 · tsc 0 · lint NET_NEW 0/0 · diaspora xlsx suite unmodified · X1–X5/P1-C lanes inside the full run**
+- [x] B20 **Receipt** — `CARUP_OPERATIONS_O2_X5A_STAKEHOLDER_WORKBOOK_AI_INTAKE_RECEIPT.md` — **authored with SHAs, 32 dispositions (7/8/9/3/5), templates, deferrals, counts, confirmations**
 
 ## Certification contract (B19)
 
