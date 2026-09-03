@@ -3,6 +3,14 @@ import { supabase } from '../../db/supabase.js';
 import { logAuditEvent } from '../auditLogger.js';
 import { askGemini } from '../ai/GeminiClient.js';
 import { getXlsxTemplate, isSupportedXlsxTemplateType } from '../../constants/diaspora/diasporaWorkbookTemplates.js';
+// O2-X5A: the mapping engine also serves the registry-built vehicle templates. The
+// registry resolves human LABEL headers (template-generated files) as deterministic
+// matches; diaspora behavior below is unchanged.
+import {
+  isVehicleWorkbookTemplateKey,
+  buildVehicleWorkbookTemplate,
+  resolveFieldForHeader as resolveRegistryFieldForHeader,
+} from '../../constants/workbook/workbookFieldRegistry.js';
 import { ForbiddenError, NotFoundError, ValidationError } from '../../utils/errors.js';
 
 /**
@@ -59,10 +67,12 @@ const DETERMINISTIC_ALIASES = Object.freeze({
 });
 
 export function canonicalColumnsFor(templateType, sheetName) {
-  if (!isSupportedXlsxTemplateType(templateType)) {
+  if (!isSupportedXlsxTemplateType(templateType) && !isVehicleWorkbookTemplateKey(templateType)) {
     throw new ValidationError(`Unsupported workbook template type: ${templateType || '(missing)'}.`);
   }
-  const template = getXlsxTemplate(templateType);
+  const template = isVehicleWorkbookTemplateKey(templateType)
+    ? buildVehicleWorkbookTemplate(templateType)
+    : getXlsxTemplate(templateType);
   const sheet = template.sheets.find((s) => s.name === sheetName || s.sheetName === sheetName);
   if (!sheet) {
     const names = template.sheets.map((s) => s.name || s.sheetName);
@@ -172,6 +182,13 @@ export async function proposeSemanticMapping({ headers, templateType, sheetName 
   const unresolved = [];
 
   for (const header of headers) {
+    if (isVehicleWorkbookTemplateKey(templateType)) {
+      const registryField = resolveRegistryFieldForHeader(sheetName, header);
+      if (registryField && canonicalColumns.includes(registryField.key)) {
+        proposals.push({ source: header, proposed_target: registryField.key, confidence: 1, provider: 'deterministic', reason: 'registry_header_match' });
+        continue;
+      }
+    }
     const deterministic = deterministicTargetFor(header, canonicalColumns);
     if (deterministic) {
       proposals.push({ source: header, proposed_target: deterministic.target, confidence: 1, provider: 'deterministic', reason: deterministic.reason });
@@ -205,7 +222,11 @@ export async function confirmSemanticMapping(client = supabase, actor = {}, {
 } = {}, options = {}) {
   const userId = actor.id || actor.userId;
   if (!userId) throw new ValidationError('Authenticated user context is required.');
-  if (!dealerId) throw new ValidationError('dealerId is required.');
+  // Vehicle-registry templates are USER-scoped (a private seller has no dealer profile);
+  // every other template keeps the X5 dealer binding exactly as certified.
+  if (!dealerId && !isVehicleWorkbookTemplateKey(templateType)) {
+    throw new ValidationError('dealerId is required.');
+  }
   const checksum = String(workbookChecksum || '').trim().toLowerCase();
   if (!/^[0-9a-f]{64}$/.test(checksum)) throw new ValidationError('A sha-256 workbook checksum is required.');
   if (!Array.isArray(mappings) || !mappings.length) throw new ValidationError('mappings must be a non-empty array.');
@@ -231,7 +252,7 @@ export async function confirmSemanticMapping(client = supabase, actor = {}, {
 
   const row = {
     user_id: userId,
-    dealer_id: dealerId,
+    dealer_id: dealerId || null,
     template_type: templateType,
     sheet_name: sheetName,
     workbook_checksum: checksum,

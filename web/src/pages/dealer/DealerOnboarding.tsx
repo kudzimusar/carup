@@ -17,6 +17,7 @@ import { CheckCircle, Lock, Upload, FileSpreadsheet, ScanSearch } from 'lucide-r
 import { useCarUpApi } from '@/hooks/useCarUpApi'
 import { useAuth } from '@/context/AuthContext'
 import { toast } from 'sonner'
+import WorkbookWorkspace from '@/components/workbook/WorkbookWorkspace'
 
 const fieldClass = 'w-full rounded-md border border-gray-700 bg-gray-900 px-3 py-2 text-sm text-gray-100'
 
@@ -399,6 +400,12 @@ export default function DealerOnboarding() {
               </CardContent>
             </Card>
           )}
+
+          {/* H2 — O2-X5A: the shared Workbook tools shell (Template · Export · Import ·
+              Recent Imports + the CarUp AI Workbook Assistant) for the dealer vehicle
+              inventory workbook. Imports create DRAFT vehicles under the applicant's own
+              listing authority — Dealer activation stays a separate governed decision. */}
+          <WorkbookWorkspace templateKey="dealer_vehicle_inventory" title="Vehicle inventory workbook" />
 
           {/* H — workbook migration */}
           <Card className="bg-gray-900 border-gray-800">

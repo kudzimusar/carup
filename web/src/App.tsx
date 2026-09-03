@@ -76,6 +76,7 @@ import ResetPassword from './pages/auth/ResetPassword'
 import VerifyEmail from './pages/auth/VerifyEmail'
 import RegistrationJourney from './pages/onboarding/RegistrationJourney'
 import DealerOnboarding from './pages/dealer/DealerOnboarding'
+import WorkbookTools from './pages/workbook/WorkbookTools'
 import KYCVerification from './pages/auth/KYCVerification'
 
 // Owner Dashboard
@@ -315,6 +316,7 @@ export default function App() {
           <Route path="/register" element={<Register />} />
           <Route path="/onboarding" element={<RegistrationJourney />} />
           <Route path="/dealer/onboarding" element={<DealerOnboarding />} />
+          <Route path="/workbook-tools" element={<WorkbookTools />} />
           {/*
             SA1G: /verify-otp used to render a client-side placebo that accepted ANY six digits
             with no server verification. No backend OTP flow exists and nothing linked to it, so

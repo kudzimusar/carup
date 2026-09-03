@@ -2810,7 +2810,49 @@ export function useCarUpApi() {
   const runDealerWorkbookDryRun = useCallback((payload: { fileBase64: string; filename: string; templateType?: string; sheetName?: string }): Promise<DealerOnboardingEnvelope> =>
     request<DealerOnboardingEnvelope>('/dealer-onboarding/workbook/dry-run', { method: 'POST', body: JSON.stringify(payload) }), [request])
 
+  // O2-X5A — Workbook tools (catalogue SERVER-derived; Template · Export · Import ·
+  // Recent Imports + the CarUp AI Workbook Assistant).
+  type WorkbookEnvelope = { success: boolean } & Record<string, unknown>
+  const fetchWorkbookCatalogue = useCallback((): Promise<WorkbookEnvelope> =>
+    request<WorkbookEnvelope>('/workbook/catalogue'), [request])
+  const inspectWorkbook = useCallback((payload: { fileBase64: string; filename: string; template_key: string }): Promise<WorkbookEnvelope> =>
+    request<WorkbookEnvelope>('/workbook/inspect', { method: 'POST', body: JSON.stringify(payload) }), [request])
+  const confirmWorkbookMappings = useCallback((payload: { template_key: string; workbook_checksum: string; sheets: Array<{ sheet_name: string; mappings: Array<{ source: string; target: string }> }> }): Promise<WorkbookEnvelope> =>
+    request<WorkbookEnvelope>('/workbook/mapping/confirm', { method: 'POST', body: JSON.stringify(payload) }), [request])
+  const runWorkbookDryRun = useCallback((payload: { fileBase64: string; filename: string; template_key: string }): Promise<WorkbookEnvelope> =>
+    request<WorkbookEnvelope>('/workbook/dry-run', { method: 'POST', body: JSON.stringify(payload) }), [request])
+  const executeVehicleWorkbookBatch = useCallback((batchId: string): Promise<WorkbookEnvelope> =>
+    request<WorkbookEnvelope>(`/workbook/import-batches/${encodeURIComponent(batchId)}/execute`, { method: 'POST', body: JSON.stringify({ confirm: true }) }), [request])
+  const fetchRecentWorkbookImports = useCallback((): Promise<WorkbookEnvelope> =>
+    request<WorkbookEnvelope>('/workbook/recent-imports'), [request])
+  const explainWorkbookField = useCallback((payload: { template_key: string; sheet_name?: string; field: string }): Promise<WorkbookEnvelope> =>
+    request<WorkbookEnvelope>('/workbook/assistant/explain-field', { method: 'POST', body: JSON.stringify(payload) }), [request])
+  const suggestWorkbookCorrections = useCallback((payload: { template_key: string; issues: Array<Record<string, unknown>> }): Promise<WorkbookEnvelope> =>
+    request<WorkbookEnvelope>('/workbook/assistant/suggest-corrections', { method: 'POST', body: JSON.stringify(payload) }), [request])
+  // Binary template/export downloads — same auth identity, blob out (GET = CSRF-safe).
+  const downloadWorkbookFile = useCallback(async (kind: 'templates' | 'export', templateKey: string): Promise<Blob> => {
+    const headers: Record<string, string> = {}
+    if (token) headers['x-session-token'] = token
+    if (user?.id) headers['x-user-id'] = user.id
+    if (user?.role) headers['x-stakeholder-role'] = user.role
+    const response = await fetch(`${BASE_URL}/workbook/${kind}/${encodeURIComponent(templateKey)}`, { headers })
+    if (!response.ok) {
+      const detail = await response.json().catch(() => ({}))
+      throw new Error(extractApiErrorMessage(detail) || 'The workbook could not be downloaded.')
+    }
+    return response.blob()
+  }, [user, token])
+
   return {
+    fetchWorkbookCatalogue,
+    inspectWorkbook,
+    confirmWorkbookMappings,
+    runWorkbookDryRun,
+    executeVehicleWorkbookBatch,
+    fetchRecentWorkbookImports,
+    explainWorkbookField,
+    suggestWorkbookCorrections,
+    downloadWorkbookFile,
     fetchRegistrationJourney,
     fetchRegistrationCandidates,
     saveRegistrationProfile,
