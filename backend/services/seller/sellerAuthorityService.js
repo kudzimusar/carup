@@ -111,6 +111,90 @@ export async function hasVerifiedOwnershipAuthorityEvidence(client, vin, userId)
 }
 
 /**
+ * Is this person a FORMER owner whose ownership has been superseded by a completed transfer?
+ *
+ * This is the registry-backed half of effective Seller authorization, and it is deliberately
+ * INDEPENDENT of `vehicle_seller_authority`. The supersession write on transfer completion is
+ * best-effort by design — legal ownership must stand even if that derived update fails — so if the
+ * authority row were the only guard, a failed supersession would leave a stale `confirmed` row that
+ * still authorized the previous owner. Asking the ownership ledger directly closes that window:
+ * even with a stale row physically present, a completed transfer away denies.
+ *
+ * Fails CLOSED. An unreadable transfer ledger denies rather than grants, matching
+ * `hasVerifiedOwnershipAuthorityEvidence`'s posture ("an unreadable ledger grants nothing").
+ */
+export async function hasSupersedingOwnershipTransfer(client, { vin, userId, vehicle = null } = {}) {
+  const normalizedVin = normalizeVin(vin);
+  if (!normalizedVin || !userId) return false;
+
+  let vehicleRow = vehicle;
+  if (!vehicleRow) {
+    const { data, error } = await client
+      .from('vehicles')
+      .select('vin, owner_id')
+      .eq('vin', normalizedVin)
+      .maybeSingle();
+    if (error) {
+      console.error('[SellerAuthority] vehicle read failed during supersession check:', error.message);
+      return true; // fail closed
+    }
+    vehicleRow = data;
+  }
+  // The canonical current owner has not been superseded by anything, whatever history holds.
+  if (vehicleRow && vehicleRow.owner_id && vehicleRow.owner_id === userId) return false;
+
+  const { data, error } = await client
+    .from('vehicle_ownership_transfers')
+    .select('id, state, previous_owner_id, completed_at')
+    .eq('vin', normalizedVin)
+    .eq('previous_owner_id', userId)
+    .eq('state', 'complete');
+  if (error) {
+    console.error('[SellerAuthority] ownership transfer lookup failed:', error.message);
+    return true; // fail closed — an unreadable ownership ledger must not authorize a former owner
+  }
+  return (data || []).length > 0;
+}
+
+/**
+ * The EFFECTIVE authorization question: is this person denied Seller control of this vehicle,
+ * whatever historical evidence or authority rows still exist?
+ *
+ * Encodes the precedence the lifecycle requires — canonical ownership and an explicit governed
+ * refusal OUTRANK historical verified evidence:
+ *
+ *   1. a completed ownership transfer away from this person   -> DENY (registry-backed)
+ *   2. an explicit `revoked` Seller Authority decision        -> DENY (governed refusal)
+ *   3. otherwise                                              -> historical evidence may be considered
+ *
+ * A verified ownership document proves what was true when it was issued. It is not an immortal
+ * permission token, and it must never outlive the ownership it described.
+ */
+export async function isSellerAuthorityEffectivelyDenied(client, { vin, userId, vehicle = null } = {}) {
+  const normalizedVin = normalizeVin(vin);
+  if (!normalizedVin || !userId) return { denied: false, reason: null };
+
+  if (await hasSupersedingOwnershipTransfer(client, { vin: normalizedVin, userId, vehicle })) {
+    return { denied: true, reason: 'ownership_transferred_away' };
+  }
+
+  const { data: row, error } = await client
+    .from('vehicle_seller_authority')
+    .select('status')
+    .eq('vin', normalizedVin)
+    .eq('seller_user_id', userId)
+    .maybeSingle();
+  if (error) {
+    console.error('[SellerAuthority] authority read failed during denial check:', error.message);
+    return { denied: true, reason: 'authority_unreadable' }; // fail closed
+  }
+  if (row?.status === 'revoked') {
+    return { denied: true, reason: 'authority_revoked' };
+  }
+  return { denied: false, reason: null };
+}
+
+/**
  * Load this seller's verified authority-candidate evidence for the VIN,
  * partitioned by what it can support.
  */
@@ -197,6 +281,34 @@ export async function getSellerAuthorityState(client, { vin, sellerUserId, selle
       throw new SellerAuthorityError(`Vehicle read failed: ${vErr.message}`, 'SELLER_AUTHORITY_VEHICLE_READ_FAILED', 500);
     }
     vehicleRow = v;
+  }
+
+  // EFFECTIVE authorization outranks the stored row. A completed ownership transfer away supersedes
+  // whatever this table still says: the supersession write is best-effort (legal ownership must
+  // stand even when it fails), so a stale `confirmed` row can physically survive a transfer. Reading
+  // the ownership ledger here makes that stale row unusable rather than authoritative, and it also
+  // strips the derived relationship — a former owner whose `current_seller_id` was never cleared
+  // must not be "recognized" by leftover listing state.
+  const denial = await isSellerAuthorityEffectivelyDenied(client, {
+    vin: normalizedVin,
+    userId: sellerUserId,
+    vehicle: vehicleRow,
+  });
+  if (denial.denied && denial.reason !== 'authority_revoked') {
+    return {
+      status: 'revoked',
+      basis: row?.basis ?? null,
+      claim_type: row?.claim_type ?? null,
+      evidence_ids: row?.evidence_ids || [],
+      reason: row?.reason ?? null,
+      policy_version: row?.policy_version ?? SELLER_AUTHORITY_POLICY_VERSION,
+      decided_by: row?.decided_by ?? null,
+      decided_at: row?.decided_at ?? null,
+      existing_relationship: false,
+      effective_denial_reason: denial.reason,
+      stale_authority_row_status: row?.status ?? null,
+      record: row || null,
+    };
   }
 
   const relationship = hasExistingSellerRelationship(vehicleRow, { id: sellerUserId, tenantId: sellerTenantId });
@@ -305,6 +417,23 @@ export async function submitSellerClaim(client, { vin, claimType, userContext, r
   }
   if (!vehicle) {
     throw new SellerAuthorityError('Vehicle Passport not found.', 'SELLER_AUTHORITY_VEHICLE_NOT_FOUND', 404);
+  }
+
+  // EFFECTIVE authorization precedes recognition. Without this, the canonical claim API answered a
+  // former owner `recognized` for a vehicle they had already sold — on the strength of the same
+  // historical registration document — and because recognition SHORT-CIRCUITS, no claim row and no
+  // audit event were written, so the wrongful recognition was invisible to Operations too.
+  const claimDenial = await isSellerAuthorityEffectivelyDenied(client, {
+    vin: normalizedVin,
+    userId: userContext.id,
+    vehicle,
+  });
+  if (claimDenial.denied) {
+    throw new SellerAuthorityError(
+      'Seller authority over this vehicle has ended. A completed ownership transfer or a governed revocation supersedes earlier evidence; a new governed relationship is required.',
+      'SELLER_AUTHORITY_SUPERSEDED',
+      403
+    );
   }
 
   if (hasExistingSellerRelationship(vehicle, userContext)) {
@@ -419,6 +548,24 @@ export async function reviewSellerAuthority(client, {
   }
 
   const relationship = hasExistingSellerRelationship(vehicle, { id: sellerUserId, tenantId: sellerTenantId });
+
+  // A reviewer may not CONFIRM authority for someone whose ownership has already been transferred
+  // away. Confirming here would re-fabricate exactly the stale `confirmed` row this correction
+  // exists to make unusable. Revoking or otherwise refusing them stays available.
+  if (decision === 'confirmed') {
+    const reviewDenial = await isSellerAuthorityEffectivelyDenied(client, {
+      vin: normalizedVin,
+      userId: sellerUserId,
+      vehicle,
+    });
+    if (reviewDenial.denied && reviewDenial.reason === 'ownership_transferred_away') {
+      throw new SellerAuthorityError(
+        'This seller no longer holds the vehicle: a completed ownership transfer supersedes their authority. Confirming it would re-create a superseded claim.',
+        'SELLER_AUTHORITY_SUPERSEDED',
+        409
+      );
+    }
+  }
 
   let basis = null;
   let evidenceIds = [];
@@ -667,6 +814,8 @@ export default {
   SellerAuthorityError,
   hasExistingSellerRelationship,
   hasVerifiedOwnershipAuthorityEvidence,
+  hasSupersedingOwnershipTransfer,
+  isSellerAuthorityEffectivelyDenied,
   evaluateEvidenceBasis,
   hasConflictingSellerRelationship,
   getSellerAuthorityState,

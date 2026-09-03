@@ -4,7 +4,7 @@ States: `[ ]` not started · `[~]` in progress · `[x]` done with evidence · `[
 Every `[x]` names its evidence. No item may be closed by assertion.
 
 **Branch:** `feat/operations-o2-people-compliance` · **Base:** integrated candidate `dd94c56d`
-**State:** P0–P6 complete and locally green (backend 5778/0 fail, web 1561/1561, tsc clean, lint NET_NEW 0/0). **P7 (staging certification) designed, NOT started** — see the P7 note below.
+**State:** P0–P6 complete, plus the **P1-C effective-authorization correction** (see the correction notice under P1). **P7 (staging certification) designed, NOT started** — see the P7 note below.
 **Rule:** do not merge; stop at a certified O2 candidate for Product Owner review.
 
 ## P0 — Design pack
@@ -22,11 +22,72 @@ Every `[x]` names its evidence. No item may be closed by assertion.
 
 ## P1 — Ownership transfer supersedes prior Seller Authority
 
+> ### CORRECTION — P1 was reported complete on incomplete grounds (2026-09-03)
+>
+> Independent Product Owner review found that P1 closed the *row* but not the *effective
+> authorization*. The earlier `[x]` marks below are **retained, not erased** — they were true about
+> what they asserted (the row is revoked, audited, idempotent, nothing fabricated for B) and wrong
+> about what they implied (that the former owner could no longer act). Both hazards are now closed
+> and proven; the P1 correction items are tracked separately in **P1-C** below.
+>
+> **Root cause.** Two independent paths let a former owner keep effective Seller control:
+>
+> * **Hazard A — historical evidence.** `hasVerifiedOwnershipAuthorityEvidence` answers only "does a
+>   verified ownership/registration document uploaded by this user exist?", which stays TRUE forever
+>   after a sale. `POST /api/vehicles/add` fed it into `existingSellerRelationship` and the reuse
+>   write then set `current_seller_id: <caller>` — handing publish/price/status scope over B's
+>   vehicle back to A on the strength of a document that only ever proved what was true *before* the
+>   sale. A document is not an immortal permission token.
+> * **Hazard B — best-effort supersession.** Legal ownership must stand even when the derived
+>   supersession write fails, so a stale `confirmed` row can physically survive a completed transfer,
+>   and every read path treated it as sufficient.
+>
+> **Root cause beneath both, found by the repository sweep:** the transfer RPC retires
+> `current_seller_id` / `current_seller_type` / `current_seller_type_source` but **not**
+> `vehicles.tenant_id`. That third column is the final clause of the
+> `isOwner || isCurrentSeller || isDealerTenant` scope test **repeated verbatim across eleven
+> authorization sites**, so a dealer principal who sold their own vehicle retained publish,
+> unpublish, price, status(sold), seller-draft, media upload + private signed URLs, evidence scope,
+> link-event, completeness disclosure, stolen-report and PartSentry odometer writes over a vehicle
+> they no longer owned.
+
 - [x] P1.1 `supersedeSellerAuthorityOnOwnershipTransfer` in sellerAuthorityService — audit-first fail-closed, revocation never deletion, `SELLER_AUTHORITY_SUPERSEDED` event, disputed rows superseded, idempotent no-op on revoked/absent rows
 - [x] P1.2 Invoked from `transitionOwnershipTransfer` on canonical `complete` only; a supersession failure is returned by name in `authority_supersession` while the registry-backed completion stands
 - [x] P1.3 No authority fabricated for the incoming owner — asserted in proof (d)
 - [x] P1.4 PGlite behavioral proof — `backend/tests/o2-transfer-authority-supersession.test.js`, 6/6 through the REAL migrations and REAL service functions
 - [x] P1.5 Full backend suite 5752/0 fail after P1; 5778/0 fail at P6 head
+
+## P1-C — Effective-authorization correction (the defect above)
+
+- [x] P1-C.1 `hasSupersedingOwnershipTransfer` — registry-backed, deliberately INDEPENDENT of the authority row, so it survives a failed supersession; fails CLOSED on an unreadable ledger; short-circuits for the canonical owner (no added query on the ordinary path)
+- [x] P1-C.2 `isSellerAuthorityEffectivelyDenied` — encodes the precedence: completed transfer away → DENY, explicit `revoked` → DENY, **then** historical evidence may be considered
+- [x] P1-C.3 `getSellerAuthorityState` is ownership-aware — forces `revoked`, strips `existing_relationship`, and reports `effective_denial_reason` + `stale_authority_row_status`
+- [x] P1-C.4 `POST /api/vehicles/add` reuse — denial evaluated BEFORE evidence; the relationship clauses (owner, stale current_seller, tenant, evidence) are all conjoined with `!denied`; refusal is the existing 409 `SELLER_AUTHORITY_CLAIM_REQUIRED`, so the reuse write that resets `current_seller_id` is never reached
+- [x] P1-C.5 `loadScopedVehicle` (publish / unpublish / price) denies a superseded former owner on every clause
+- [x] P1-C.6 `submitSellerClaim` refuses a superseded former owner (`SELLER_AUTHORITY_SUPERSEDED`, 403) — previously it answered `recognized` and SHORT-CIRCUITED, so no claim row and no audit event were written and the wrongful recognition was invisible to Operations
+- [x] P1-C.7 Seller evidence upload — the claimant bypass no longer treats any historical claim event as a perpetual upload grant
+- [x] P1-C.8 `reviewSellerAuthority` refuses to CONFIRM a seller whose ownership transferred away (409) — refusing/revoking them stays available
+- [x] P1-C.9 **Root-cause migration** `20260903120000_ownership_transfer_retires_tenant_relationship.sql` — completion also clears `vehicles.tenant_id`. Generated FROM the certified 20260828203000 function rather than retyped; the diff is provably 0 lines removed / 1 line of code added (plus comment), closing all eleven shared-triple sites at once
+- [x] P1-C.10 Operations exposure — the Vehicle Operations aggregate surfaces `effective_denial_reason`, `stale_authority_row_status` and `requires_operations_recovery` so a failed supersession is visible and repairable, not silently survived
+- [x] P1-C.11 Journey A (normal supersession), Journey B (forced supersession failure — the critical fail-closed proof, incl. stale `current_seller_id` and surviving tenant variants), Journey C (history integrity) — `backend/tests/o2-former-seller-authorization.test.js`, **11/11**
+- [x] P1-C.12 Non-regression proven explicitly: the canonical current owner is never denied by their own transfer history, and a non-owner seller with verified evidence and NO completed transfer is still legitimately authorized
+
+### Repository sweep (§6) — every effective Seller authorization path
+
+| Class | Sites | Disposition |
+|---|---|---|
+| **DEFECT → closed by the root-cause migration** | publish/unpublish/price scoping, `PATCH /status`, seller-draft edit, `vehicleObjectAuthority` (stolen-report, lender, insurer, eligibility), `mediaRouter` ×4 (vehicle upload, document upload, signed read/write URLs), evidence link-event, completeness disclosure, PartSentry odometer write | All keyed off the shared `isOwner \|\| isCurrentSeller \|\| isDealerTenant` triple; with `tenant_id` retired on completion the former owner now fails every clause. Publish/unpublish/price additionally carry the explicit denial check (defence in depth). |
+| **DEFECT → closed directly** | `POST /api/vehicles/add` reuse, `submitSellerClaim`, evidence-upload claimant bypass, `reviewSellerAuthority` confirm | Evidence-based, not tenant-based — the migration does not reach them; each carries the denial gate. |
+| **MADE SAFE BY THE FIX** | `getSellerAuthorityState` and everything downstream: `completenessEvaluator` publication gate, Vehicle Operations read model, `GET /seller-authority` | All resolve authority through the now ownership-aware state function. |
+| **ALREADY SAFE** | lender routes (`owner_id` only, updated atomically by the RPC), trust-fact/PartSentry review permissions (owner may submit, never approve), evidence verify/reject, seller-authority review route, marketplace moderation, source verification, Vehicle Operations route, the transfer RPC itself, escrow/reserve (buyer-side) | Admin/government-gated, capability-gated, or keyed on `owner_id` alone. |
+| **LEGITIMATELY INDEPENDENT** | `GET /api/vehicles/me`, dealer inventory read, intelligence/recommendation projections, public vehicle projection, inquiry history, report versions | Reads, or outbound projections; grant no seller control. |
+| **CONTAINMENT (not a fix, worth knowing)** | `resolveMarketplaceSellerId` and `resolveListingSeller` deliberately never fall back to `owner_id` | Even had a former owner republished, buyer intent and escrow could not route to them — the listing has no governed current seller. |
+
+Two items recorded but deliberately NOT changed here, as outside this bounded correction:
+`POST /api/vehicles/:vin/evidence-sets` and the extractions route are role-gated with no object
+scope at all (pre-existing, not transfer-specific); and `listingSummaryService.toClaimRow` still
+synthesizes a cosmetic `relationship: true` from a surviving tenant — a display artifact that grants
+no scope, and now moot for transferred vehicles since `tenant_id` is cleared.
 
 ## P2 — Responsibility projection (ADR vocabulary verbatim)
 
