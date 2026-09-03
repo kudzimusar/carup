@@ -1945,6 +1945,88 @@ The public listing must not claim Zimbabwe registration completed, Zimbabwe plat
 
 ---
 
+# 23A. Post-Serena Proven Architecture (CURRENT — supersedes M8 speculation below)
+
+> **This section is the current architecture.** Section 24 below stated M8's *questions*; this
+> section states the *answers*, decided 2026-09-03 against functional candidate `f25ea5c6`.
+> Full reasoning and evidence: `docs/architecture/CARUP_OPERATIONS_CONTROL_PLANE_M8_REUSABLE_OPERATIONS_PATTERN_ADR.md`.
+> Sections 24–25 are retained as history; where they conflict with this section, this section wins.
+
+## What Vehicle Operations proved
+
+- Canonical semantics must beat legacy labels; a legacy string must never carry authority.
+- A gate must consult every authority that answers its question.
+- A claim without provenance is not a claim.
+- A derived public value goes stale silently, and must be re-materialised at the moment it becomes
+  public.
+- A default that the request body can override is not a control.
+- A capability nobody can reach is not a capability.
+- Operations can be useful while writing nothing: the workspace is a read model, and every mutation
+  it offers calls the owning domain service.
+
+## What became reusable (APPROVED — contracts, not tables)
+
+**1. The `who_must_act` vocabulary.** Independently invented three times — Communications
+(`awaiting_ai`/`awaiting_human`/`awaiting_user`), Identity Verification (`WORKFLOW_PHASE`) and
+Vehicle Operations (`who_must_act`). Canonical superset for new surfaces:
+
+```
+none · platform_processing · carup_review · subject_action · external_authority · escalated
+```
+
+Only Vehicle Operations had `external_authority`, and it is the state every later slice needs,
+because O6/O7/O9 are defined by waiting on someone CarUp does not control.
+
+**2. The governed decision-record contract.** Already duplicated seven times, once by literal
+copy-paste (`partsentry_review_requests` still carries `partsentry_log_ids` inherited from
+`trust_fact_requests`). Any new governed decision carries: `status` (including an explicit
+"not assessed"), `decided_by`, `decided_by_role`, `decided_at`, mandatory human `reason`,
+`evidence_ids`, `policy_version`, `basis`, and explicit supersession — never a silent overwrite.
+Audit is written **before** effect and fails closed; the actor may not decide on their own
+submission. Reference implementation: `vehicle_seller_authority`.
+
+**3. An assignment naming contract** (`assigned_team`, `assigned_user_id`, `assigned_at`,
+`assignment_reason`) — adopted to stop vocabulary drift, since CarUp already has five different
+column names for one concept. No table, and existing columns are not renamed.
+
+## What deliberately remains domain-specific
+
+Teams · the SLA framework · dead-letter and delivery recovery · public customer messaging (Vehicle
+Operations must never message a seller directly — it emits domain events and Communications owns
+delivery) · fraud scoring · trust decisions · publication · payment state · registration truth ·
+Seller Authority.
+
+## What M8 approved
+
+The three contracts above, and the SLA derivation law: **an SLA clock may run only while
+`who_must_act = carup_review`.** A clock that runs while a seller, a lender or ZIMRA holds the work
+publishes false blame against CarUp.
+
+## What M8 rejected
+
+- **A horizontal SLA framework.** Exactly one domain in CarUp has an SLA. Everything else has bare
+  deadlines or nothing, and most Operations work waits on parties CarUp does not control.
+- **A stateful generic `operations_cases` table.** `review_tasks` already occupies that design space
+  with a nearly identical shape and has one writer after months of availability. A second generic
+  table would duplicate both it and canonical domain state, and its central risk — drift from the
+  canonical record — is precisely the failure the Serena's stale Trust stamp demonstrated.
+- **A generic "entity authority"** abstraction over Seller Authority. One domain uses it.
+
+## What M8 deferred (each with an explicit re-open trigger)
+
+| Deferred | Re-open trigger |
+|---|---|
+| Shared assignment model | O4, or a second real multi-operator queue |
+| Extracting `computeSlaState` to shared | a second domain with a genuine clock |
+| Read-only Operations Work Index (projection) | one operator working two domains in one surface |
+| Persistent operations capability grants | the first specialist who must hold ONE capability without full admin |
+
+Until then the static server-side capability map remains sufficient, and it stays derived from
+`platformRole`/`baseRole` only. Tenant-scoped `organization_roles`/`organization_permissions` must
+never become the grant mechanism for `operations.*`.
+
+---
+
 # 24. M8 — Extract reusable Operations patterns after Serena
 
 ## Objective
