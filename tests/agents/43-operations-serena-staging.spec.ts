@@ -388,11 +388,13 @@ test.describe('Operations M7 — Serena governed review and Seller publish', () 
 
     // Only the desktop pass mutates; the other viewports assert the resulting state.
     if (testInfo.project.name === 'chromium') {
+      // Governed mutations carry the CSRF token, exactly like every other write in this journey.
+      const reviewerHeaders = await mutationHeaders(request, reviewer);
       for (const row of before) {
         const corrected = await request.patch(
           `${API_URL}/vehicles/${SERENA_VIN}/evidence/${row.id}/classification`,
           {
-            headers: baseHeaders(reviewer),
+            headers: reviewerHeaders,
             data: {
               evidence_class: row.evidence_class,
               evidence_subtype: row.evidence_subtype,
