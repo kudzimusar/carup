@@ -12,6 +12,10 @@ import { resolveClient, appendAudit, paging } from './diasporaServiceUtils.js';
 import { requireFeature } from './diasporaEntitlementGuard.js';
 // T2 §9.12: best-effort canonical Communications events AFTER the audited mutation.
 import { notifyQuoteSubmitted } from './rfqLifecycleNotifier.js';
+// The existing deterministic scorer — reused, never re-implemented, so supplier-facing match
+// reasons and buyer-facing matches come from ONE authority.
+import { scoreStockAgainstOrder } from './diasporaDemandSupplyMatchingService.js';
+import { deriveBalances } from './diasporaStockLedgerService.js';
 import { FEATURE_KEYS } from '../../constants/diaspora/diasporaEntitlements.js';
 
 const ORDERS = 'diaspora_import_orders';
@@ -64,8 +68,15 @@ export function projectRfqForMarketplace(order = {}, lines = [], extra = {}) {
     buyer_notes: typeof rfq.buyerNotes === 'string' ? rfq.buyerNotes : null,
     published_at: rfq.publishedAt || null,
     quote_deadline: rfq.quoteDeadline || null,
-    // Non-identifying trust signal only: never a name, email, phone or user id.
-    buyer_context: { verified: order.verification_status === 'VERIFIED' },
+    // NO buyer verification signal is published.
+    //
+    // `diaspora_import_orders.verification_status` verifies the ORDER (its documents/review state),
+    // not the PERSON. Rendering it as "Verified CarUp buyer" converted order verification into
+    // identity verification — a Truth & Trust violation. The person/business authority is
+    // `diaspora_trade_profiles.verification_status`, which is dormant: on staging 5 profiles exist
+    // and 0 are VERIFIED, so there is nothing truthful to publish. When that authority is genuinely
+    // populated and governed, a non-identifying signal may be derived FROM IT — never from the order.
+    // Pinned by diaspora-rfq2-marketplace-projection.test.js.
     lines: (lines || []).map(projectRequestLineForMarketplace),
     ...extra,
   };
@@ -129,6 +140,55 @@ function commercialQuoteColumns(payload = {}) {
 }
 
 /**
+ * Why THIS request matches THIS supplier — genuine, supplier-specific evidence (T2 §9.6).
+ *
+ * Scoped to the caller's OWN published stock, so a supplier can never learn what a competitor
+ * holds. Scoring is the existing deterministic `scoreStockAgainstOrder`; only its own stock's
+ * reasons are surfaced. Returns null when nothing actually matches — the UI then says so plainly
+ * rather than dressing up restated request facts as a match.
+ */
+async function buildSupplierMatches(client, orders, context) {
+  const byOrder = new Map();
+  if (!orders.length) return byOrder;
+
+  let query = client.from('diaspora_stock_items').select('*')
+    .eq('publication_status', 'PUBLISHED').is('deleted_at', null);
+  // Own-stock scoping: tenant when the supplier trades as an organisation, else their own rows.
+  if (context.tenantId) query = query.eq('tenant_id', context.tenantId);
+  else query = query.eq('created_by', context.id);
+  const { data: stock, error } = await query;
+  // A failed read is "unknown", not "no match" — the caller renders an honest absence either way,
+  // but we must never claim a confirmed non-match from a broken query.
+  if (error) return byOrder;
+
+  const available = (stock || [])
+    .map((item) => ({ ...item, balances: deriveBalances(item) }))
+    .filter((item) => item.balances.available > 0);
+  if (!available.length) return byOrder;
+
+  for (const order of orders) {
+    let best = null;
+    for (const item of available) {
+      const { score, reasons, available: qty } = scoreStockAgainstOrder(order, item);
+      if (score <= 0) continue;
+      if (!best || score > best.score) {
+        best = {
+          score,
+          // Evidence from the supplier's OWN stock — safe to show them.
+          stock_item_id: item.id,
+          stock_name: item.part_name || item.sku || 'Stock item',
+          available_quantity: qty,
+          export_ready: item.export_readiness_status === 'EXPORT_READY',
+          reasons,
+        };
+      }
+    }
+    if (best) byOrder.set(order.id, best);
+  }
+  return byOrder;
+}
+
+/**
  * Published RFQs a supplier may consider — the cross-tenant sourcing marketplace.
  *
  * Two deliberate changes from the pre-T2 behaviour:
@@ -163,12 +223,15 @@ export async function listRfqs(filters = {}, userContext = {}, options = {}) {
   if (!page.length) return [];
 
   const orderIds = page.map((o) => o.id);
-  const [linesByOrder, quoteCounts] = await Promise.all([
+  const [linesByOrder, quoteCounts, matches] = await Promise.all([
     loadRequestLines(client, orderIds),
     countSubmittedQuotes(client, orderIds),
+    buildSupplierMatches(client, page, context),
   ]);
   return page.map((o) => projectRfqForMarketplace(o, linesByOrder.get(o.id) || [], {
     quote_count: quoteCounts.get(o.id) || 0,
+    // null when this supplier has no matching stock — an honest absence, not a fabricated reason.
+    supplier_match: matches.get(o.id) || null,
   }));
 }
 
@@ -221,12 +284,14 @@ export async function getRfqForSeller(orderId, userContext = {}, options = {}) {
     // The buyer owns this request; they read it through their own (full) buyer-order endpoint.
     throw new ForbiddenError('Use the buyer order endpoint to read your own request');
   }
-  const [linesByOrder, quoteCounts] = await Promise.all([
+  const [linesByOrder, quoteCounts, matches] = await Promise.all([
     loadRequestLines(client, [orderId]),
     countSubmittedQuotes(client, [orderId]),
+    buildSupplierMatches(client, [order], context),
   ]);
   return projectRfqForMarketplace(order, linesByOrder.get(orderId) || [], {
     quote_count: quoteCounts.get(orderId) || 0,
+    supplier_match: matches.get(orderId) || null,
   });
 }
 

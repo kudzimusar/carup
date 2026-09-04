@@ -1574,6 +1574,11 @@ export function useCarUpApi() {
     return response.data
   }, [request])
 
+  const updateDiasporaQuote = useCallback(async (quoteId: string, payload: Partial<DiasporaQuotePayload>): Promise<DiasporaQuote> => {
+    const response = await request<{ data: DiasporaQuote }>(`/diaspora/quotes/${encodeURIComponent(quoteId)}`, { method: 'PATCH', body: JSON.stringify(payload) })
+    return response.data
+  }, [request])
+
   const submitDiasporaQuote = useCallback(async (quoteId: string): Promise<DiasporaQuote> => {
     const response = await request<{ data: DiasporaQuote }>(`/diaspora/quotes/${encodeURIComponent(quoteId)}/submit`, { method: 'POST', body: JSON.stringify({}) })
     return response.data
@@ -2993,6 +2998,7 @@ export function useCarUpApi() {
     fetchDiasporaMyQuotes,
     ensureDiasporaRfqConversation,
     createDiasporaQuote,
+    updateDiasporaQuote,
     submitDiasporaQuote,
     withdrawDiasporaQuote,
     parseDiasporaAiCommand,

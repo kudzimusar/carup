@@ -74,6 +74,17 @@ async function mockApi(page: Page, state: State, user: TestUser) {
       return fulfillJson(route, { data: order })
     }
     const detailMatch = path.match(/\/diaspora\/buyer-orders\/([^/]+)$/)
+    if (method === 'PATCH' && detailMatch) {
+      const payload = JSON.parse(route.request().postData() || '{}')
+      state.createdPayloads.push(payload)
+      const order = state.orders.find((o) => o.id === detailMatch[1])
+      if (order) Object.assign(order, payload)
+      return fulfillJson(route, { data: order || { id: detailMatch[1], ...payload } })
+    }
+    if (method === 'PATCH' && /\/diaspora\/quotes\/[^/]+$/.test(path)) {
+      state.quotePayloads.push(JSON.parse(route.request().postData() || '{}'))
+      return fulfillJson(route, { data: { id: 'q-draft' } })
+    }
     if (method === 'GET' && detailMatch) {
       const order = state.orders.find((o) => o.id === detailMatch[1])
       return order ? fulfillJson(route, { data: order }) : fulfillJson(route, { error: 'not found' }, 404)
@@ -111,8 +122,8 @@ function opportunity(overrides: Record<string, unknown> = {}) {
     buyer_notes: null,
     published_at: '2026-09-04T00:00:00.000Z',
     quote_deadline: null,
-    buyer_context: { verified: true },
     quote_count: 3,
+    supplier_match: null,
     lines: [
       { id: 'l1', line_number: 1, item_description: 'Front shocks', item_kind: 'part', quantity: 20, vehicle_make: 'Honda', vehicle_model: 'Fit', part_number: null, part_number_known: false, condition_preference: 'new', notes: null },
     ],
@@ -346,7 +357,9 @@ test.describe('Trade OS T2 — Request Quotes', () => {
     await expect(card.getByTestId('trade-opportunity-title')).toContainText('Front shocks')
     await expect(card.getByTestId('trade-opportunity-lines')).toContainText('20 ×')
     await expect(card.getByTestId('trade-opportunity-lines')).toContainText(/does not know the part number/i)
-    await expect(card.getByTestId('trade-match-reasons')).toContainText(/Ships to Harare/i)
+    // With no matching stock the supplier is told so plainly rather than shown request facts
+    // dressed up as a reason (owner audit item 3).
+    await expect(card.getByTestId('trade-no-match')).toContainText(/No stock match confirmed yet/i)
     await expect(card.getByTestId('trade-opportunity-quote-count')).toContainText('3 offers sent')
     // Buyer identity must never appear on a supplier surface.
     await expect(page.getByText(/Tendai/i)).toHaveCount(0)
@@ -369,6 +382,9 @@ test.describe('Trade OS T2 — Request Quotes', () => {
     await page.getByTestId('trade-offer-shipping').selectOption('included')
     await page.getByTestId('trade-offer-exclusions').fill('customs duty, delivery')
     await expect(page.getByTestId('trade-offer-subtotal')).toContainText('900')
+    // An offer is reviewed before it becomes irrevocable (owner audit item 7).
+    await page.getByTestId('trade-offer-review').click()
+    await expect(page.getByTestId('trade-offer-review-panel')).toContainText('900')
     await page.getByTestId('trade-offer-submit').click()
     await expect(page.getByTestId('trade-my-offers')).toBeVisible()
 
@@ -390,6 +406,7 @@ test.describe('Trade OS T2 — Request Quotes', () => {
     await page.goto('/diaspora/buyer-requests', { waitUntil: 'domcontentloaded' })
     await page.getByTestId('trade-prepare-offer').click()
     await page.getByTestId('trade-offer-amount').fill('700')
+    await page.getByTestId('trade-offer-review').click()
     await page.getByTestId('trade-offer-submit').click()
     await expect(page.getByTestId('trade-my-offers')).toBeVisible()
     // Absent terms must be absent — never coerced into a commercial claim.
@@ -425,6 +442,103 @@ test.describe('Trade OS T2 — Request Quotes', () => {
     // It reaches the canonical Communications surface, where questions are actually read/answered.
     await expect(page).toHaveURL(/\/dashboard\/communications/)
     expect(conversationCalls).toBe(1)
+  })
+
+  test('supplier match shows REAL own-stock evidence when it exists (owner audit item 3)', async ({ page }) => {
+    const state = initial()
+    state.opportunities.push(opportunity({
+      supplier_match: {
+        score: 75, stock_item_id: 's1', stock_name: 'Front shocks (KYB)',
+        available_quantity: 24, export_ready: true,
+        reasons: ['Make matches Honda', 'Model matches Fit'],
+      },
+    }))
+    await loginAs(page, seller)
+    await mockApi(page, state, seller)
+    await page.goto('/diaspora/buyer-requests', { waitUntil: 'domcontentloaded' })
+    const reasons = page.getByTestId('trade-match-reasons')
+    await expect(reasons).toContainText(/Strong match/i)
+    await expect(reasons).toContainText('You have 24 available')
+    await expect(reasons).toContainText('Make matches Honda')
+    await expect(reasons).toContainText(/export-ready/i)
+    // The raw score is never shown as a bare number.
+    await expect(page.getByText('75', { exact: true })).toHaveCount(0)
+  })
+
+  test('no unfounded "Verified CarUp buyer" claim appears (owner audit item 2)', async ({ page }) => {
+    const state = initial()
+    state.opportunities.push(opportunity())
+    await loginAs(page, seller)
+    await mockApi(page, state, seller)
+    await page.goto('/diaspora/buyer-requests', { waitUntil: 'domcontentloaded' })
+    await expect(page.getByText(/Verified CarUp buyer/i)).toHaveCount(0)
+  })
+
+  test('supplier can EDIT a draft offer instead of retyping it (owner audit item 6)', async ({ page }) => {
+    const state = initial()
+    state.opportunities.push(opportunity())
+    state.myQuotes.push({
+      quote: { id: 'q-draft', import_order_id: 'order-1', quote_amount: 700, quote_currency: 'USD', status: 'DRAFT', offered_quantity: 20, lead_time_days: 3, offered_description: 'Saved draft text' },
+      outcome: 'DRAFT',
+      request: opportunity(),
+    })
+    await loginAs(page, seller)
+    await mockApi(page, state, seller)
+    await page.goto('/diaspora/buyer-requests', { waitUntil: 'domcontentloaded' })
+    await page.getByTestId('trade-tab-mine').click()
+    await page.getByTestId('trade-my-offer-edit').click()
+    // The saved values are reloaded — nothing is retyped.
+    await expect(page.getByTestId('trade-offer-amount')).toHaveValue('700')
+    await expect(page.getByTestId('trade-offer-quantity')).toHaveValue('20')
+    await expect(page.getByTestId('trade-offer-description')).toHaveValue('Saved draft text')
+  })
+
+  test('buyer sees WHO each offer is from before choosing (owner audit item 4)', async ({ page }) => {
+    const state = initial()
+    state.orders.push({
+      id: 'order-1', status: 'QUOTE_ISSUED', metadata: { rfq: { published: true } },
+      rfq_lifecycle: 'QUOTES_RECEIVED', request_lines: [], destination_country: 'Zimbabwe',
+      quotes: [{
+        id: 'q1', import_order_id: 'order-1', quote_amount: 900, quote_currency: 'USD', status: 'ISSUED',
+        supplier: { display_name: 'Tokyo Auto Parts Ltd', business_type: 'parts_seller', account_kind: 'business', country: 'Japan', verified: false },
+      }],
+    })
+    await loginAs(page, buyer)
+    await mockApi(page, state, buyer)
+    await page.goto('/diaspora/requests/order-1', { waitUntil: 'domcontentloaded' })
+    await expect(page.getByTestId('trade-offer-supplier')).toContainText('Tokyo Auto Parts Ltd')
+    await expect(page.getByTestId('trade-offer-supplier-context')).toContainText(/parts seller/i)
+    await expect(page.getByTestId('trade-offer-supplier-context')).toContainText(/not verified by CarUp/i)
+  })
+
+  test('buyer can EDIT a draft request instead of recreating it (owner audit item 5)', async ({ page }) => {
+    const state = initial()
+    state.orders.push({
+      id: 'order-draft', status: 'IMPORT_REQUESTED', order_type: 'parts',
+      origin_country: 'Japan', destination_country: 'Zimbabwe', destination_city: 'Harare',
+      metadata: { rfq: { published: false } }, rfq_lifecycle: 'DRAFT', quotes: [],
+      request_lines: [{ id: 'l1', line_number: 1, item_description: 'Saved shocks', quantity: 6, part_number_known: false }],
+    })
+    await loginAs(page, buyer)
+    await mockApi(page, state, buyer)
+    await page.goto('/diaspora/requests/order-draft', { waitUntil: 'domcontentloaded' })
+    await page.getByTestId('trade-request-edit').click()
+    await expect(page).toHaveURL(/edit=order-draft/)
+    // The wizard opens populated with the saved draft.
+    await expect(page.getByTestId('trade-part-description')).toHaveValue('Saved shocks')
+    await expect(page.getByTestId('trade-part-quantity')).toHaveValue('6')
+  })
+
+  test('multi-part wording matches what is actually written (owner audit item 8)', async ({ page }) => {
+    const state = initial()
+    await loginAs(page, buyer)
+    await mockApi(page, state, buyer)
+    await page.goto('/diaspora/request-quotes', { waitUntil: 'domcontentloaded' })
+    await page.getByTestId('trade-intent-buy').click()
+    // Every non-vehicle line is written as a PART, so the copy says parts, not "items".
+    await expect(page.getByTestId('trade-kind-mixed')).toContainText(/Several parts/i)
+    await page.getByTestId('trade-kind-mixed').click()
+    await expect(page.getByText(/What parts do you need/i)).toBeVisible()
   })
 
   test('supplier empty state explains how opportunities arrive', async ({ page }) => {

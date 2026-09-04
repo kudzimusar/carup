@@ -77,7 +77,14 @@ const ALLOWED_PROJECTION_KEYS = new Set([
   'origin_country', 'destination_country', 'destination_city',
   'budget_amount', 'budget_currency', 'budget_disclosed',
   'needed_by', 'urgency', 'buyer_notes', 'published_at', 'quote_deadline',
-  'buyer_context', 'lines', 'quote_count',
+  'lines', 'quote_count',
+  // Supplier-scoped match evidence from the caller's OWN stock. Safe by construction, and pinned
+  // in diaspora-rfq2-closure-security.test.js so a competitor's stock can never appear here.
+  'supplier_match',
+  // NOTE: `buyer_context` was REMOVED deliberately. It derived a buyer identity-verification claim
+  // from ORDER verification, which is a Truth & Trust violation; the person-level authority
+  // (diaspora_trade_profiles) is dormant with zero VERIFIED rows. Re-adding any verification field
+  // here must fail this allow-list until a real, populated authority exists.
 ]);
 
 // ── The marketplace works ────────────────────────────────────────────────────
@@ -128,6 +135,7 @@ test('SECURITY: buyer identity, private identifiers and internal notes are absen
   assert.equal(row.tenant_id, undefined);
   assert.equal(row.metadata, undefined);
   assert.equal(row.vin, undefined);
+  assert.equal(row.buyer_context, undefined, 'order verification must not be republished as buyer verification');
 });
 
 test('SECURITY: a tenantless supplier gets the SAME sanitized projection (the old leak is closed)', async () => {

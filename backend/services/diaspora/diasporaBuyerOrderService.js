@@ -13,6 +13,10 @@ import { resolveClient, appendAudit, paging } from './diasporaServiceUtils.js';
 import { matchSupplyForOrder } from './diasporaDemandSupplyMatchingService.js';
 import { withEntitlement } from './diasporaEntitlementGuard.js';
 import { notifyQuoteAccepted, notifyQuoteNotSelected } from './rfqLifecycleNotifier.js';
+// The CANONICAL vehicle object authority. A request line may reference a vehicle, and a reference
+// the caller is not entitled to make must be refused HERE — the UI only offering the caller's own
+// vehicles is presentation, not authorization.
+import { resolveVehicleObjectAuthority } from '../../middleware/vehicleObjectAuthority.js';
 import { FEATURE_KEYS } from '../../constants/diaspora/diasporaEntitlements.js';
 
 const ORDERS = 'diaspora_import_orders';
@@ -159,6 +163,21 @@ export async function replaceRequestLines(client, order, rawLines, context) {
   await client.from(REQUEST_LINES).delete().eq('import_order_id', order.id);
   if (!rawLines.length) return [];
 
+  // Authorize every vehicle linkage BEFORE writing anything, so a single unauthorized VIN cannot
+  // leave a partially-written request behind. Refusal reasons map to governed statuses:
+  // an unknown VIN is 404 (there is nothing to link), a real vehicle the caller has no authority
+  // over is 403 (it exists, they may not use it), and a failed lookup is a refusal, never a pass.
+  for (const [index, line] of rawLines.slice(0, 50).entries()) {
+    const vin = String(line.linked_vehicle_vin ?? '').trim();
+    if (!vin) continue;
+    const authority = await resolveVehicleObjectAuthority(vin, context);
+    if (authority.allowed) continue;
+    if (authority.reason === 'not_found') {
+      throw new NotFoundError(`Line ${index + 1}: that vehicle is not on record`);
+    }
+    throw new ForbiddenError(`Line ${index + 1}: you are not authorized to link that vehicle`);
+  }
+
   const rows = rawLines.slice(0, 50).map((line, index) => {
     const description = String(line.item_description ?? line.description ?? '').trim();
     if (!description) throw new ValidationError(`Line ${index + 1} needs a description of what you are looking for`);
@@ -177,7 +196,7 @@ export async function replaceRequestLines(client, order, rawLines, context) {
       vehicle_model: line.vehicle_model || null,
       vehicle_year_min: line.vehicle_year_min ?? null,
       vehicle_year_max: line.vehicle_year_max ?? null,
-      linked_vehicle_vin: line.linked_vehicle_vin || null,
+      linked_vehicle_vin: String(line.linked_vehicle_vin ?? '').trim() || null,
       part_number: partNumber,
       // Never inferred from a blank field: the buyer answers this question explicitly, and a
       // supplier reads "buyer does not know" as real information rather than missing data.
@@ -192,6 +211,49 @@ export async function replaceRequestLines(client, order, rawLines, context) {
   const { data, error } = await client.from(REQUEST_LINES).insert(rows).select();
   if (error) throw new ValidationError(`Failed to save request lines: ${error.message}`);
   return data || [];
+}
+
+/**
+ * Safe supplier identity on the offers a buyer is choosing between (T2 §9.9 / audit item 4).
+ *
+ * "Choose this supplier" is unanswerable without knowing WHO the supplier is. This attaches the
+ * minimum commercial identity — display name, business type and country — from the canonical
+ * user/registration authorities.
+ *
+ * Deliberately NOT attached: email, phone, tenant ids, internal risk fields, or any reputation
+ * score (CarUp has no governed supplier reputation authority yet, and Vehicle Trust is not one).
+ * A DRAFT quote is skipped: it is private to the supplier and is not an offer to the buyer.
+ */
+async function attachSupplierIdentity(client, quotes) {
+  const offers = quotes.filter((q) => q.status !== 'DRAFT');
+  const sellerIds = [...new Set(offers.map((q) => q.seller_id).filter(Boolean))];
+  if (!sellerIds.length) return quotes;
+
+  const [usersRes, profilesRes] = await Promise.all([
+    client.from('users').select('id, name').in('id', sellerIds),
+    client.from('user_registration_profiles')
+      .select('user_id, organization_name, business_type, account_kind, country_of_residence')
+      .in('user_id', sellerIds),
+  ]);
+  const nameById = new Map((usersRes.data || []).map((u) => [normalizeId(u.id), u.name || null]));
+  const profileById = new Map((profilesRes.data || []).map((p) => [normalizeId(p.user_id), p]));
+
+  return quotes.map((q) => {
+    if (q.status === 'DRAFT' || !q.seller_id) return q;
+    const profile = profileById.get(normalizeId(q.seller_id)) || null;
+    return {
+      ...q,
+      supplier: {
+        // A business trades under its organisation name; an individual under their own.
+        display_name: profile?.organization_name || nameById.get(normalizeId(q.seller_id)) || null,
+        business_type: profile?.business_type || null,
+        account_kind: profile?.account_kind || null,
+        country: profile?.country_of_residence || null,
+        // Stated by the supplier at registration; CarUp has not verified it. Said plainly in the UI.
+        verified: false,
+      },
+    };
+  });
 }
 
 export async function listRequestLines(client, orderId) {
@@ -220,7 +282,7 @@ export async function getBuyerOrder(id, userContext = {}, options = {}) {
   const order = await loadOrder(client, id, context);
 
   const { data: quotes } = await client.from(QUOTES).select('*').eq('import_order_id', id).is('deleted_at', null);
-  const visibleQuotes = quotes || [];
+  const visibleQuotes = await attachSupplierIdentity(client, quotes || []);
   return {
     ...order,
     quotes: visibleQuotes,

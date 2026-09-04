@@ -1,13 +1,13 @@
 # CarUp Trade OS — Cross-Border Trade & Shared Logistics Living Master Plan
 
-**Status:** CANONICAL ACTIVE PLAN  
-**Version:** 2.0  
-**Date:** 2026-09-04  
-**Repository:** `kudzimusar/carup`  
-**Implementation branch:** `feat/trade-os-client-demo-convergence`  
-**Draft PR:** `#207`  
-**Current branch baseline at v2 promotion:** `255d903eee27579d28eb3685a0a6bc75061135c7`  
-**Production:** NOT AUTHORIZED / MUST REMAIN UNTOUCHED until a separate production gate  
+**Status:** CANONICAL ACTIVE PLAN
+**Version:** 2.0
+**Date:** 2026-09-04
+**Repository:** `kudzimusar/carup`
+**Implementation branch:** `feat/trade-os-client-demo-convergence`
+**Draft PR:** `#207`
+**Current branch baseline at v2 promotion:** `255d903eee27579d28eb3685a0a6bc75061135c7`
+**Production:** NOT AUTHORIZED / MUST REMAIN UNTOUCHED until a separate production gate
 **Primary objective:** evolve the existing Diaspora Trade OS, Reverse RFQ and Container Co-Loading kernels into CarUp's complete cross-border sourcing, shared-logistics and trade operating system.
 
 ---
@@ -524,10 +524,10 @@ Buyer sees:
 
 ### What do you need help with?
 
-**Buy something**  
+**Buy something**
 “Tell CarUp what you need. Suitable suppliers can send you offers.”
 
-**Ship something**  
+**Ship something**
 “Already have the item? Ask logistics providers to help move it.”
 
 The “Buy” path enters Procurement RFQ. The “Ship” path enters Logistics RFQ (T3). Do not mix their schemas or quote semantics.
@@ -1864,9 +1864,9 @@ Every implementation cycle appends an entry below.
 
 **Benchmark basis:** Alibaba RFQ, uShip, Shiply, Freightos, Maersk LCL, Flexport Buyer’s Consolidation, GoFreight — official product pages reviewed 2026-09-04; see §7.
 
-**Current branch:** `feat/trade-os-client-demo-convergence` at `255d903eee27579d28eb3685a0a6bc75061135c7` before this documentation commit.  
-**PR #207:** remains Draft.  
-**Production touched:** NO.  
+**Current branch:** `feat/trade-os-client-demo-convergence` at `255d903eee27579d28eb3685a0a6bc75061135c7` before this documentation commit.
+**PR #207:** remains Draft.
+**Production touched:** NO.
 **Next unchecked task:** T0 baseline/reconciliation, then T1 prerequisites and T2 Request Quotes / Reverse RFQ 2.0.
 
 ---
@@ -2076,3 +2076,85 @@ rather than hiding them, but they look thin next to a T2-created request.
 
 **Next unchecked task:** T2.20 deployed staging certification (buyer + supplier journeys,
 desktop/narrow/tablet/mobile, adversarial tenant cases), then T2.17 RFQ Intelligence.
+
+
+---
+
+## Execution entry — 2026-09-05 · T2 CLOSURE CYCLE (owner audit response)
+
+The owner independently audited PR #207 head `3dd6138f` and found that T2.17 was not the only gap.
+Twelve items were raised; all twelve are addressed below. **Production untouched. PR #207 Draft.
+main untouched. T3 not started.**
+
+### Reopened and now closed
+
+**1. Linked-vehicle authorization — SECURITY BLOCKER (was: unauthorized write).**
+`replaceRequestLines` wrote a caller-supplied `linked_vehicle_vin` directly; the UI only offering
+the caller's own vehicles is presentation, not authorization. Every linkage is now resolved through
+the CANONICAL `resolveVehicleObjectAuthority` before any write: a foreign VIN is **403**, an unknown
+VIN is **404**, a failed lookup is a refusal (never a pass), and authorization runs for the whole
+batch BEFORE the insert so one bad line cannot leave a partial write. Five adversarial tests,
+including the all-or-nothing case. **T2.4 re-marked complete only now.**
+
+**2. "Verified CarUp buyer" — REMOVED.** The projection derived `buyer_context.verified` from
+`diaspora_import_orders.verification_status`, which verifies the ORDER, and the seller UI rendered
+it as person verification. The person/business authority is `diaspora_trade_profiles`, which is
+dormant — measured on staging: **5 profiles, 0 VERIFIED, and 0 VERIFIED orders**. There is nothing
+truthful to publish, so the claim and the field are gone. A regression asserts an order marked
+VERIFIED produces no verification signal, and the projection allow-list now rejects any
+re-introduction.
+
+**3. Supplier-specific matching.** `matchReasons()` restated the buyer's own request ("20 units
+requested") as if it were evidence about the supplier. Replaced by `buildSupplierMatches()`, which
+reuses the existing deterministic `scoreStockAgainstOrder` against the caller's **OWN published
+stock only** (tenant-scoped, else `created_by`). The supplier now sees "You have 24 available —
+Front shocks", the scorer's own reasons, and export-readiness. The numeric score sorts but is never
+displayed; strength is worded. With no match the UI says **"No stock match confirmed yet"**. A test
+plants a competitor's stock and asserts it never appears.
+
+**4. Supplier identity in comparison.** Buyer-visible offers now carry `supplier` — display name
+(organisation name where the supplier trades as a business), business type and country from the
+canonical user/registration authorities — labelled *supplier-stated, not verified by CarUp*. No
+email, phone, tenant data or invented reputation; a DRAFT quote gets no identity because it is not
+an offer. Test asserts contact details and any score/rating/reputation string are absent.
+
+**5. Buyer draft editing.** "Edit request" opens the wizard at `?edit=<id>`, hydrated from the
+authoritative draft (route, lines, budget, disclosure choice, timing), and saving PATCHes the same
+record instead of creating a duplicate.
+
+**6. Supplier draft editing.** "Edit offer" reopens a DRAFT with its saved values and updates it
+through the existing governed `updateQuote`; submitted and accepted offers stay immutable.
+
+**7. Offer review before submission.** Prepare → **Review offer** → Submit. The review panel shows
+exactly what the buyer will see, with unstated terms as "Not provided".
+
+**8. Multi-item semantics — decided: option A, MULTIPLE PARTS.** Every non-vehicle line is written
+as `item_kind='part'`, so the product now says so: "Several parts", "What parts do you need?",
+"Add another part". True mixed vehicle+part sourcing is a later product decision, not something
+this UI will advertise while writing parts.
+
+**9. T2.17 RFQ Intelligence — measured only.** `sourcingRequestActivity()` extends the EXISTING
+trade intelligence projection (no Trade OS analytics silo) with requests created, drafts,
+open-for-offers, awarded, requests-with-an-offer, offers received, offers per quoted request,
+published→offer and offer→award rates with explicit denominators, and median time-to-first-offer
+computed only from requests that actually received one. Uses the shared `metric`/`rate`/
+`unavailable` primitives, so a thin denominator returns INSUFFICIENT_DATA rather than a percentage
+of three rows. No GMV, revenue, savings, supplier quality or market extrapolation.
+
+**10/11. Both red CI checks were MINE, and both are fixed.**
+- *Vehicle Passport Foundation → Diff hygiene*: trailing whitespace on 13 markdown lines in this
+  plan (mostly the v2 promotion header). Stripped; `git diff --check` clean.
+- *Navigation Intelligence → navigation-e2e*: the pinned dealer sidebar count was 16 and my new
+  `diaspora.buyer-requests` entry made it 17. The pin is updated with a comment recording why.
+  Neither was pre-existing; neither was dismissed.
+
+### Evidence
+
+- **Backend:** 5806 tests, **5782 pass, 0 fail**, 21 skipped (ci.yml env). New: 9 closure-security
+  tests + the updated 18-test projection allow-list.
+- **Web:** `tsc` clean; production build green; **mocked T2 e2e 25/25, no flakes**, including one
+  regression per audit item 2–8.
+- **Staging:** re-certified below.
+
+**Remaining T2 gaps:** none of the twelve audit items. Trade-profile-backed supplier verification
+stays absent until that authority is genuinely populated (recorded above as the condition).

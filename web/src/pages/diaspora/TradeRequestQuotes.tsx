@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState, type ChangeEvent } from 'react'
-import { Link, useNavigate } from 'react-router-dom'
+import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import { ArrowLeft, ArrowRight, Check, Loader2, Package, Plus, Ship, ShoppingCart, Trash2 } from 'lucide-react'
 import { Alert, AlertDescription } from '@/components/ui/alert'
 import { Button } from '@/components/ui/button'
@@ -59,7 +59,11 @@ function describeLine(line: DiasporaRequestLinePayload): string {
 export default function TradeRequestQuotes() {
   const { isAuthenticated, loading: authLoading } = useAuth()
   const navigate = useNavigate()
-  const { createDiasporaBuyerOrder, publishDiasporaRfq, fetchVehicles } = useCarUpApi()
+  const { createDiasporaBuyerOrder, updateDiasporaBuyerOrder, publishDiasporaRfq, fetchDiasporaBuyerOrder, fetchVehicles } = useCarUpApi()
+  const [searchParams] = useSearchParams()
+  // When ?edit=<id> is present we are amending an EXISTING draft, not creating a new request.
+  const editId = searchParams.get('edit')
+  const [hydrating, setHydrating] = useState(Boolean(editId))
 
   const [intent, setIntent] = useState<Intent | null>(null)
   const [kind, setKind] = useState<BuyKind | null>(null)
@@ -89,6 +93,43 @@ export default function TradeRequestQuotes() {
   const [discloseBudget, setDiscloseBudget] = useState(false)
   const [urgency, setUrgency] = useState('NORMAL')
   const [neededBy, setNeededBy] = useState('')
+
+  /**
+   * Load an existing DRAFT into the wizard so the buyer amends it rather than retyping it
+   * (audit item 5). Only a draft is loaded; a published request is not editable here.
+   */
+  useEffect(() => {
+    if (!editId || !isAuthenticated) return
+    let live = true
+    fetchDiasporaBuyerOrder(editId)
+      .then((order) => {
+        if (!live) return
+        const orderLines = (order.request_lines as DiasporaRequestLinePayload[] | undefined) || []
+        setIntent('buy')
+        setKind(order.order_type === 'vehicle' ? 'vehicle' : orderLines.length > 1 ? 'mixed' : 'parts')
+        setOriginCountry(String(order.origin_country || 'Japan'))
+        setDestinationCountry(String(order.destination_country || 'Zimbabwe'))
+        setDestinationCity(String(order.destination_city || ''))
+        if (order.budget_amount) setBudget(String(order.budget_amount))
+        if (order.budget_currency) setCurrency(String(order.budget_currency))
+        setDiscloseBudget(order.metadata?.rfq?.discloseBudget === true)
+        if (order.metadata?.rfq?.neededBy) setNeededBy(String(order.metadata.rfq.neededBy))
+        if (order.metadata?.urgency) setUrgency(String(order.metadata.urgency))
+        if (order.order_type === 'vehicle') {
+          setMake(String(order.requested_make || ''))
+          setModel(String(order.requested_model || ''))
+          if (order.requested_year_min) setYearMin(String(order.requested_year_min))
+          if (order.requested_year_max) setYearMax(String(order.requested_year_max))
+          if (order.metadata?.rfq?.buyerNotes) setRequirements(String(order.metadata.rfq.buyerNotes))
+        } else if (orderLines.length) {
+          setLines(orderLines.map((l) => ({ ...l, part_number: l.part_number || '' })))
+        }
+        setStep(0)
+      })
+      .catch(() => { if (live) setError('That draft could not be loaded. It has not been changed.') })
+      .finally(() => { if (live) setHydrating(false) })
+    return () => { live = false }
+  }, [editId, isAuthenticated, fetchDiasporaBuyerOrder])
 
   // The buyer's own vehicles let a parts request reuse canonical identity instead of retyping.
   useEffect(() => {
@@ -125,7 +166,7 @@ export default function TradeRequestQuotes() {
       }
     }
     return {
-      title: activeLines.length === 1 ? describeLine(activeLines[0]) : `${activeLines.length} items`,
+      title: activeLines.length === 1 ? describeLine(activeLines[0]) : `${activeLines.length} parts`,
       rows: [
         ['Items', activeLines.length ? activeLines.map(describeLine).join(' · ') : 'None added yet'],
         ['Destination', [destinationCity, destinationCountry].filter(Boolean).join(', ')],
@@ -190,9 +231,11 @@ export default function TradeRequestQuotes() {
     if (!canPublish) { setError('Add at least one item and a destination before publishing.'); return }
     setSaving(true)
     try {
-      const created = await createDiasporaBuyerOrder(buildPayload())
-      await publishDiasporaRfq(created.id)
-      navigate(`/diaspora/requests/${created.id}`)
+      const created = editId
+        ? await updateDiasporaBuyerOrder(editId, buildPayload())
+        : await createDiasporaBuyerOrder(buildPayload())
+      await publishDiasporaRfq(created.id || editId!)
+      navigate(`/diaspora/requests/${created.id || editId}`)
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Could not publish your request')
     } finally {
@@ -205,8 +248,10 @@ export default function TradeRequestQuotes() {
     setError('')
     setSaving(true)
     try {
-      const created = await createDiasporaBuyerOrder(buildPayload())
-      navigate(`/diaspora/requests/${created.id}`)
+      const created = editId
+        ? await updateDiasporaBuyerOrder(editId, buildPayload())
+        : await createDiasporaBuyerOrder(buildPayload())
+      navigate(`/diaspora/requests/${created.id || editId}`)
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Could not save your draft')
     } finally {
@@ -214,7 +259,7 @@ export default function TradeRequestQuotes() {
     }
   }
 
-  if (authLoading) {
+  if (authLoading || hydrating) {
     return <div className="flex min-h-[50vh] items-center justify-center text-orange-600"><Loader2 className="h-5 w-5 animate-spin" /></div>
   }
 
@@ -305,7 +350,9 @@ export default function TradeRequestQuotes() {
     const options: Array<[BuyKind, string, string, typeof Package]> = [
       ['vehicle', 'A vehicle', 'A car, van, truck or bike you want to import.', ShoppingCart],
       ['parts', 'A vehicle part', 'One part — you do not need the part number.', Package],
-      ['mixed', 'Several items', 'Multiple parts or items in one request, quoted together.', Package],
+      // T2 writes every non-vehicle line as item_kind='part', so this advertises parts only.
+      // True mixed vehicle+part sourcing is a later decision (recorded in the master plan).
+      ['mixed', 'Several parts', 'Multiple parts in one request, quoted together.', Package],
     ]
     return (
       <div className="mx-auto w-full max-w-[1100px] min-w-0 px-4 py-10 sm:px-6 lg:px-10" data-testid="trade-request-kind">
@@ -401,7 +448,7 @@ export default function TradeRequestQuotes() {
 
         {step === 0 && kind !== 'vehicle' && (
           <section className="min-w-0" data-testid="trade-step-parts">
-            <h1 className="text-xl font-bold text-gray-950">{isMulti ? 'What items do you need?' : 'What part do you need?'}</h1>
+            <h1 className="text-xl font-bold text-gray-950">{isMulti ? 'What parts do you need?' : 'What part do you need?'}</h1>
             <p className="mt-1 text-sm text-gray-600">
               Describe it in ordinary language — “front shocks” is enough. You do not need a part number.
             </p>
@@ -409,9 +456,9 @@ export default function TradeRequestQuotes() {
               <div key={index} className="mt-5 min-w-0 border border-gray-200 bg-gray-50 p-4" data-testid="trade-part-line">
                 {isMulti && (
                   <div className="mb-3 flex items-center justify-between">
-                    <span className="text-xs font-semibold uppercase tracking-wide text-gray-600">Item {index + 1}</span>
+                    <span className="text-xs font-semibold uppercase tracking-wide text-gray-600">Part {index + 1}</span>
                     {lines.length > 1 && (
-                      <button type="button" className="p-1 text-gray-400 hover:text-red-600" aria-label={`Remove item ${index + 1}`} onClick={() => setLines((prev) => prev.filter((_, i) => i !== index))}>
+                      <button type="button" className="p-1 text-gray-400 hover:text-red-600" aria-label={`Remove part ${index + 1}`} onClick={() => setLines((prev) => prev.filter((_, i) => i !== index))}>
                         <Trash2 className="h-4 w-4" />
                       </button>
                     )}
@@ -496,7 +543,7 @@ export default function TradeRequestQuotes() {
             ))}
             {isMulti && (
               <Button variant="outline" size="sm" className="mt-3 rounded-none" onClick={() => setLines((prev) => [...prev, emptyLine()])} data-testid="trade-add-item">
-                <Plus className="mr-1 h-3.5 w-3.5" /> Add another item
+                <Plus className="mr-1 h-3.5 w-3.5" /> Add another part
               </Button>
             )}
           </section>

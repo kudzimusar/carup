@@ -156,7 +156,11 @@ test.describe('Feature Registry & Navigation Map', () => {
       // /admin/vehicles/:vin/review route cannot be a sidebar link) so it does
       // not move this count. No other role moves.
       expect(result.roleItemCounts['owner']).toBe(21);
-      expect(result.roleItemCounts['dealer']).toBe(16);
+      // Recomputed 2026-09-05 (Trade OS T2): `diaspora.buyer-requests` — the supplier's opportunity
+      // marketplace — is a NEW sidebar destination for dealers (dealer 16 -> 17). The relabelled
+      // `diaspora.reverse-rfq` ("Request Quotes") kept its id, roles and placement, so it moves no
+      // count. No other role changes.
+      expect(result.roleItemCounts['dealer']).toBe(17);
       expect(result.roleItemCounts['mechanic']).toBe(5);
       expect(result.roleItemCounts['insurance']).toBe(4);
       expect(result.roleItemCounts['government']).toBe(14);

@@ -841,6 +841,8 @@ export interface DiasporaQuote {
   offered_condition?: string | null;
   offered_description?: string | null;
   stock_item_id?: string | null;
+  /** Attached to non-draft quotes on the buyer's read. Absent on the supplier's own draft. */
+  supplier?: DiasporaSupplierIdentity;
   [key: string]: unknown;
 }
 
@@ -934,9 +936,30 @@ export interface DiasporaRfqOpportunity {
   buyer_notes: string | null;
   published_at: string | null;
   quote_deadline: string | null;
-  buyer_context: { verified: boolean };
+  /** No buyer verification signal is published — see projectRfqForMarketplace(). */
   lines: DiasporaRequestLine[];
   quote_count?: number;
+  /**
+   * Genuine, supplier-specific match evidence from the caller's OWN published stock, or null when
+   * nothing matches. Never another supplier's stock, never an opaque score.
+   */
+  supplier_match?: {
+    score: number;
+    stock_item_id: string;
+    stock_name: string;
+    available_quantity: number;
+    export_ready: boolean;
+    reasons: string[];
+  } | null;
+}
+
+/** Safe commercial identity of the supplier behind an offer. Never contact details or reputation. */
+export interface DiasporaSupplierIdentity {
+  display_name: string | null;
+  business_type: string | null;
+  account_kind: string | null;
+  country: string | null;
+  verified: boolean;
 }
 
 /** A supplier's own quote paired with the safe projection of the request it answers. */

@@ -209,6 +209,10 @@ export default function TradeRequestDetail() {
               <Button className="bg-orange-500 text-white hover:bg-orange-600" onClick={() => act(() => publishDiasporaRfq(order.id))} disabled={busy} data-testid="trade-request-publish-now">
                 <Send className="mr-1.5 h-4 w-4" aria-hidden="true" /> Publish request
               </Button>
+              {/* A draft must be editable without recreating it from scratch (audit item 5). */}
+              <Button asChild variant="outline" className="ml-2 rounded-none">
+                <Link to={`/diaspora/request-quotes?edit=${order.id}`} data-testid="trade-request-edit">Edit request</Link>
+              </Button>
               <p className="mt-2 text-xs text-gray-500">Suppliers will be able to see what you need and send offers.</p>
             </div>
           )}
@@ -260,7 +264,18 @@ export default function TradeRequestDetail() {
                     >
                       <div className="flex flex-wrap items-start justify-between gap-3">
                         <div className="min-w-0">
-                          <p className="text-lg font-bold text-gray-950" data-testid="trade-offer-total">
+                          {/* WHO am I choosing — answered before WHAT and on what terms. */}
+                          <p className="truncate font-semibold text-gray-950" data-testid="trade-offer-supplier">
+                            {q.supplier?.display_name || 'Supplier name not recorded'}
+                          </p>
+                          <p className="truncate text-xs text-gray-600" data-testid="trade-offer-supplier-context">
+                            {[
+                              q.supplier?.business_type ? String(q.supplier.business_type).replace(/_/g, ' ') : null,
+                              q.supplier?.country,
+                            ].filter(Boolean).join(' · ') || 'Business details not provided'}
+                            <span className="ml-1 italic text-gray-500">· supplier-stated, not verified by CarUp</span>
+                          </p>
+                          <p className="mt-2 text-lg font-bold text-gray-950" data-testid="trade-offer-total">
                             {money(q.quote_amount, q.quote_currency)}
                           </p>
                           {Number(q.offered_quantity) > 0 && (

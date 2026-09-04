@@ -38,17 +38,13 @@ function genKey() {
 }
 
 /**
- * Why this request may suit this supplier — stated as reasons, never as an opaque score.
- * Only facts present in the safe projection are used.
+ * Match strength from the deterministic score. The number sorts; the words explain. A supplier is
+ * never shown a bare figure like "87".
  */
-function matchReasons(rfq: DiasporaRfqOpportunity): string[] {
-  const reasons: string[] = []
-  if (rfq.requested_make) reasons.push(`Vehicle make requested: ${rfq.requested_make}`)
-  const totalQty = rfq.lines.reduce((sum, l) => sum + (Number(l.quantity) || 0), 0)
-  if (totalQty > 0) reasons.push(`${totalQty} unit${totalQty === 1 ? '' : 's'} required`)
-  if (rfq.destination_country) reasons.push(`Ships to ${[rfq.destination_city, rfq.destination_country].filter(Boolean).join(', ')}`)
-  if (rfq.lines.some((l) => !l.part_number_known)) reasons.push('Buyer does not know the part number — your identification helps')
-  return reasons
+function matchStrength(score: number): string {
+  if (score >= 60) return 'Strong match'
+  if (score >= 30) return 'Possible match'
+  return 'Partial match'
 }
 
 function daysUntil(iso?: string | null): number | null {
@@ -61,7 +57,7 @@ function daysUntil(iso?: string | null): number | null {
 export default function TradeBuyerRequests() {
   const { loading: authLoading } = useAuth()
   const {
-    fetchDiasporaRfqs, fetchDiasporaMyQuotes, createDiasporaQuote,
+    fetchDiasporaRfqs, fetchDiasporaMyQuotes, createDiasporaQuote, updateDiasporaQuote,
     submitDiasporaQuote, withdrawDiasporaQuote, ensureDiasporaRfqConversation,
   } = useCarUpApi()
   const navigate = useNavigate()
@@ -74,6 +70,10 @@ export default function TradeBuyerRequests() {
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
   const [composerFor, setComposerFor] = useState<string | null>(null)
+  // A commercial offer must not jump from typing to irrevocable submission (audit item 7).
+  const [composerStage, setComposerStage] = useState<'edit' | 'review'>('edit')
+  // Set when editing an EXISTING draft rather than creating a new offer (audit item 6).
+  const [editingQuoteId, setEditingQuoteId] = useState<string | null>(null)
   const [makeFilter, setMakeFilter] = useState('')
 
   // Offer builder state
@@ -131,8 +131,31 @@ export default function TradeBuyerRequests() {
     resetComposer()
     const totalQty = rfq.lines.reduce((sum, l) => sum + (Number(l.quantity) || 0), 0)
     if (totalQty > 0) setQuantity(String(totalQty))
+    setEditingQuoteId(null)
+    setComposerStage('edit')
     setComposerFor(rfq.id)
     setError('')
+  }
+
+  /** Reopen an existing DRAFT offer with its saved values, so nothing is retyped (audit item 6). */
+  const editDraft = (row: DiasporaMyQuote) => {
+    const q = row.quote
+    setAmount(String(q.quote_amount ?? ''))
+    setCurrency(q.quote_currency || 'USD')
+    setQuantity(q.offered_quantity ? String(q.offered_quantity) : '')
+    setUnitPrice(q.unit_price ? String(q.unit_price) : '')
+    setDescription(String(q.offered_description || ''))
+    setConditionOffered(String(q.offered_condition || ''))
+    setLeadTime(q.lead_time_days ? String(q.lead_time_days) : '')
+    setShipping(q.shipping_included === true ? 'included' : q.shipping_included === false ? 'excluded' : 'unstated')
+    setValidUntil(q.valid_until ? String(q.valid_until).slice(0, 10) : '')
+    setInclusions(Array.isArray(q.inclusions) ? (q.inclusions as string[]).join(', ') : '')
+    setExclusions(Array.isArray(q.exclusions) ? (q.exclusions as string[]).join(', ') : '')
+    setEditingQuoteId(q.id)
+    setComposerStage('edit')
+    setComposerFor(q.import_order_id)
+    setError('')
+    setTab('open')
   }
 
   const buildQuotePayload = (submit: boolean): DiasporaQuotePayload => {
@@ -162,8 +185,16 @@ export default function TradeBuyerRequests() {
     if (!(Number(amount) > 0)) { setError('Enter the total price you are offering.'); return }
     setBusy(true)
     try {
-      await createDiasporaQuote(rfqId, buildQuotePayload(submit))
+      if (editingQuoteId) {
+        // Governed: only a DRAFT is editable, and the backend re-checks that.
+        await updateDiasporaQuote(editingQuoteId, buildQuotePayload(false))
+        if (submit) await submitDiasporaQuote(editingQuoteId)
+      } else {
+        await createDiasporaQuote(rfqId, buildQuotePayload(submit))
+      }
       setComposerFor(null)
+      setEditingQuoteId(null)
+      setComposerStage('edit')
       resetComposer()
       await load()
       setTab('mine')
@@ -275,11 +306,6 @@ export default function TradeBuyerRequests() {
                       <p className="font-mono text-xs text-gray-500">{rfq.reference}</p>
                     </div>
                     <div className="shrink-0 text-right">
-                      {rfq.buyer_context.verified && (
-                        <span className="inline-flex items-center gap-1 rounded-full border border-emerald-300 bg-emerald-50 px-2 py-0.5 text-[11px] font-medium text-emerald-900">
-                          <Check className="h-3 w-3" aria-hidden="true" /> Verified CarUp buyer
-                        </span>
-                      )}
                       {typeof rfq.quote_count === 'number' && rfq.quote_count > 0 && (
                         <p className="mt-1 text-xs text-gray-600" data-testid="trade-opportunity-quote-count">
                           {rfq.quote_count} offer{rfq.quote_count === 1 ? '' : 's'} sent
@@ -318,16 +344,35 @@ export default function TradeBuyerRequests() {
                     ))}
                   </dl>
 
-                  <div className="mt-3 border-l-2 border-emerald-500 pl-3" data-testid="trade-match-reasons">
-                    <p className="text-[11px] font-semibold uppercase tracking-wide text-gray-600">Why this may suit you</p>
-                    <ul className="mt-1 space-y-0.5">
-                      {matchReasons(rfq).map((reason) => (
-                        <li key={reason} className="flex gap-1.5 text-xs text-gray-700">
-                          <Check className="mt-0.5 h-3 w-3 shrink-0 text-emerald-600" aria-hidden="true" /> {reason}
+                  {rfq.supplier_match ? (
+                    <div className="mt-3 border-l-2 border-emerald-500 pl-3" data-testid="trade-match-reasons">
+                      <p className="text-[11px] font-semibold uppercase tracking-wide text-emerald-800">
+                        {matchStrength(rfq.supplier_match.score)} · your stock
+                      </p>
+                      <ul className="mt-1 space-y-0.5">
+                        <li className="flex gap-1.5 text-xs text-gray-700">
+                          <Check className="mt-0.5 h-3 w-3 shrink-0 text-emerald-600" aria-hidden="true" />
+                          You have {rfq.supplier_match.available_quantity} available — {rfq.supplier_match.stock_name}
                         </li>
-                      ))}
-                    </ul>
-                  </div>
+                        {rfq.supplier_match.reasons.map((reason) => (
+                          <li key={reason} className="flex gap-1.5 text-xs text-gray-700">
+                            <Check className="mt-0.5 h-3 w-3 shrink-0 text-emerald-600" aria-hidden="true" /> {reason}
+                          </li>
+                        ))}
+                        {rfq.supplier_match.export_ready && (
+                          <li className="flex gap-1.5 text-xs text-gray-700">
+                            <Check className="mt-0.5 h-3 w-3 shrink-0 text-emerald-600" aria-hidden="true" /> Stock is recorded as export-ready
+                          </li>
+                        )}
+                      </ul>
+                    </div>
+                  ) : (
+                    // Honest absence: restating the buyer's own request as a "reason" would be
+                    // dressing up request facts as evidence about this supplier.
+                    <p className="mt-3 border-l-2 border-gray-300 pl-3 text-xs italic text-gray-500" data-testid="trade-no-match">
+                      No stock match confirmed yet — you can still quote.
+                    </p>
+                  )}
 
                   {closes !== null && closes >= 0 && (
                     <p className="mt-3 text-xs text-gray-600">Buyer needs this in {closes} day{closes === 1 ? '' : 's'}.</p>
@@ -356,11 +401,52 @@ export default function TradeBuyerRequests() {
                   {/* ── Offer builder ──────────────────────────────────────── */}
                   {composerFor === rfq.id && (
                     <div className="mt-5 min-w-0 border-t border-gray-200 pt-5" data-testid="trade-quote-composer">
-                      <h3 className="text-base font-bold text-gray-950">Your offer</h3>
+                      <h3 className="text-base font-bold text-gray-950">
+                        {editingQuoteId ? 'Edit your draft offer' : 'Your offer'}
+                      </h3>
                       <p className="mt-1 text-xs text-gray-600">
                         Anything you leave blank shows to the buyer as “Not provided” — it is never
                         assumed in your favour or against you.
                       </p>
+
+                      {composerStage === 'review' ? (
+                        <div className="mt-4 min-w-0" data-testid="trade-offer-review-panel">
+                          <p className="text-[11px] font-semibold uppercase tracking-wide text-gray-500">Exactly what the buyer will see</p>
+                          <div className="mt-2 border border-gray-300 bg-white p-4">
+                            <p className="text-lg font-bold text-gray-950">
+                              {Number(amount).toLocaleString()} {currency}
+                            </p>
+                            {description.trim() && <p className="mt-1 text-sm text-gray-700">{description.trim()}</p>}
+                            <dl className="mt-3 grid grid-cols-2 gap-x-5 gap-y-2 sm:grid-cols-3">
+                              {([
+                                ['Quantity', quantity ? String(quantity) : NOT_PROVIDED],
+                                ['Unit price', unitPrice ? `${unitPrice} ${currency}` : NOT_PROVIDED],
+                                ['Condition', conditionOffered.trim() || NOT_PROVIDED],
+                                ['Shipping', shipping === 'included' ? 'Included' : shipping === 'excluded' ? 'Not included' : NOT_PROVIDED],
+                                ['Dispatch', leadTime ? `${leadTime} days` : NOT_PROVIDED],
+                                ['Valid until', validUntil || NOT_PROVIDED],
+                                ['Includes', inclusions.trim() || NOT_PROVIDED],
+                                ['Excludes', exclusions.trim() || NOT_PROVIDED],
+                              ] as Array<[string, string]>).map(([label, value]) => (
+                                <div key={label} className="min-w-0">
+                                  <dt className="text-[10px] font-semibold uppercase tracking-wide text-gray-500">{label}</dt>
+                                  <dd className={`truncate text-sm ${value === NOT_PROVIDED ? 'italic text-gray-400' : 'text-gray-900'}`}>{value}</dd>
+                                </div>
+                              ))}
+                            </dl>
+                          </div>
+                          <div className="mt-5 flex flex-wrap items-center gap-3">
+                            <Button className="bg-orange-500 text-white hover:bg-orange-600" onClick={() => sendOffer(rfq.id, true)} disabled={busy} data-testid="trade-offer-submit">
+                              {busy ? <Loader2 className="mr-1.5 h-4 w-4 animate-spin" /> : null} Submit offer
+                            </Button>
+                            <Button variant="outline" className="rounded-none" onClick={() => setComposerStage('edit')} disabled={busy} data-testid="trade-offer-back-to-edit">
+                              Back to edit
+                            </Button>
+                            <span className="text-xs text-gray-500">A submitted offer is visible to the buyer and cannot be edited.</span>
+                          </div>
+                        </div>
+                      ) : (
+                      <>
 
                       <p className="mt-4 text-[11px] font-semibold uppercase tracking-wide text-gray-500">What you are supplying</p>
                       <div className="mt-2 grid min-w-0 gap-4 sm:grid-cols-2">
@@ -423,14 +509,16 @@ export default function TradeBuyerRequests() {
                       </div>
 
                       <div className="mt-5 flex flex-wrap items-center gap-3">
-                        <Button className="bg-orange-500 text-white hover:bg-orange-600" onClick={() => sendOffer(rfq.id, true)} disabled={busy} data-testid="trade-offer-submit">
-                          {busy ? <Loader2 className="mr-1.5 h-4 w-4 animate-spin" /> : null} Submit offer
+                        <Button className="bg-orange-500 text-white hover:bg-orange-600" onClick={() => { setError(''); setComposerStage('review') }} disabled={busy} data-testid="trade-offer-review">
+                          Review offer
                         </Button>
                         <Button variant="outline" className="rounded-none" onClick={() => sendOffer(rfq.id, false)} disabled={busy} data-testid="trade-offer-save-draft">
                           Save as draft
                         </Button>
-                        <span className="text-xs text-gray-500">A submitted offer is visible to the buyer and cannot be edited.</span>
+                        <span className="text-xs text-gray-500">You will see exactly what the buyer sees before anything is sent.</span>
                       </div>
+                      </>
+                      )}
                     </div>
                   )}
                 </article>
@@ -485,7 +573,10 @@ export default function TradeBuyerRequests() {
                 </dl>
                 {quote.status === 'DRAFT' && (
                   <div className="mt-4 flex flex-wrap gap-2">
-                    <Button size="sm" className="rounded-none bg-orange-500 text-white hover:bg-orange-600" onClick={() => act(() => submitDiasporaQuote(quote.id))} disabled={busy} data-testid="trade-my-offer-submit">
+                    <Button size="sm" className="rounded-none bg-orange-500 text-white hover:bg-orange-600" onClick={() => editDraft({ quote, outcome, request })} disabled={busy} data-testid="trade-my-offer-edit">
+                      Edit offer
+                    </Button>
+                    <Button size="sm" variant="outline" className="rounded-none" onClick={() => act(() => submitDiasporaQuote(quote.id))} disabled={busy} data-testid="trade-my-offer-submit">
                       Submit this offer
                     </Button>
                     <Button size="sm" variant="ghost" className="rounded-none text-gray-600" onClick={() => act(() => withdrawDiasporaQuote(quote.id))} disabled={busy} data-testid="trade-my-offer-withdraw">
