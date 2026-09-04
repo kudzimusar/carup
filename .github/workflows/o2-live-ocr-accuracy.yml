@@ -112,6 +112,41 @@ jobs:
             })().catch((error) => { console.log("probe failed:", error.message); process.exit(1); });
           '
 
+      # One real generateContent call, so "the provider is available" is proven by a request
+      # rather than inferred from a variable. On refusal the FULL quota block is printed (quota id,
+      # limit, model, project) so a plan/limit problem can be fixed first time. Contains no
+      # credential: the key travels in a header and Google's quota errors never echo it.
+      - name: Prove one real vision request (and report the exact quota on refusal)
+        id: proof
+        continue-on-error: true
+        env:
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+        run: |
+          node -e '
+            (async () => {
+              const fs = require("fs");
+              const png = fs.readFileSync("docs/features/o2/uat-assets/ocr-corpus/national-id-clean.png").toString("base64");
+              const res = await fetch("https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent", {
+                method: "POST",
+                headers: { "Content-Type": "application/json", "x-goog-api-key": process.env.GEMINI_API_KEY },
+                body: JSON.stringify({
+                  contents: [{ role: "user", parts: [{ text: "Reply with the single word OK." }, { inline_data: { mime_type: "image/png", data: png } }] }],
+                  generationConfig: { maxOutputTokens: 32, thinkingConfig: { thinkingBudget: 0 } },
+                }),
+              });
+              const body = await res.json().catch(() => null);
+              console.log("HTTP", res.status);
+              if (res.ok) {
+                console.log("PROOF: a real vision request SUCCEEDED with no quota refusal.");
+                console.log("text:", JSON.stringify(body?.candidates?.[0]?.content?.parts?.[0]?.text));
+                return;
+              }
+              console.log("PROOF FAILED — the provider refused a single real request.");
+              console.log(JSON.stringify(body?.error ?? body, null, 1).slice(0, 3000));
+              process.exitCode = 1;
+            })().catch((e) => { console.log("proof error:", e.message); process.exitCode = 1; });
+          '
+
       - name: Run the live accuracy gate
         id: gate
         env:
