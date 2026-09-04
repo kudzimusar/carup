@@ -12,7 +12,7 @@ written; NO blind cherry-pick of the seven post-`33720d79` commits.
 | Pre-reconciliation O2 head | `1312977e` |
 | Reconciliation base merged in | `bb9d9900` (true merge-base with O2 proven `33720d79` after `git fetch --unshallow` — full history, no graft artifacts) |
 | Reconciliation merge commit | `7b9e8907` on `reconcile/o2-after-pr194` |
-| Reconciled O2 candidate | RECON_FINAL_SHA |
+| Reconciled O2 candidate | `13b8a07bb5ae2835e053de2ce0fa5acbb26dbdc7` + this SHA-record commit (docs-only) |
 
 ## Method
 
