@@ -7,40 +7,26 @@ import type { UserRole } from '@shared/types'
 import { useCarUpApi } from '@/hooks/useCarUpApi'
 import { RegistryRouteBoundary } from '@/components/routing/RegistryRouteBoundary'
 import type { DiasporaTradeContext } from '@/types'
+import TradeShippingWorkspace from '@/pages/diaspora/TradeShippingWorkspace'
 
 /**
- * Trade OS operational workspace shell (owner UAT #1/#3/#7).
+ * Trade OS operational workspace shell.
  *
- * The Diaspora trade-operations routes previously rendered inside the PUBLIC MainLayout — marketing
- * mega-navigation, marketing footer and the mobile bottom bar — which both broke narrow-desktop
- * composition and mis-labelled the experience. This shell is the authenticated operating chrome:
- * compact CarUp-branded top bar, local Trade OS navigation (only surfaces that genuinely work), and
- * the user's REAL commercial identity from the trade-context projection — organisation, business
- * type, corridor, membership — never the platform security role. No public footer, no mega-menu.
- */
-
-/**
- * Local Trade OS navigation (T2 §8). Only surfaces that genuinely work are listed — no placeholder
- * destinations. "Request quotes" is the buyer's sourcing entry; "Buyer requests" is the supplier's
- * opportunity marketplace; both are named for what the user is doing, not for the domain object.
- *
- * The list is filtered per role against the SAME registry rule the route boundary enforces, so a
- * link is shown only if pressing it actually arrives. Rendering the full list unconditionally gave
- * a buyer a "Buyer requests" tab that the boundary then denied — a dead link of exactly the kind
- * this shell claims not to have.
+ * Operational routes do not render inside the public marketing shell. The local navigation uses
+ * human intentions (Request quotes, Shipping, Messages) while the server remains authoritative on
+ * the domain records and permissions underneath.
  */
 const NAV_ITEMS: Array<[string, string]> = [
   ['/diaspora/request-quotes', 'Request quotes'],
   ['/diaspora/requests', 'My requests'],
   ['/diaspora/buyer-requests', 'Buyer requests'],
-  ['/diaspora/containers', 'Containers'],
+  ['/diaspora/containers', 'Shipping'],
   ['/diaspora/imports', 'Orders'],
   ['/diaspora/messages', 'Messages'],
 ]
 
 function corridorOf(context: DiasporaTradeContext | null): string | null {
   const from = context?.country_of_residence
-  // CarUp's market is Zimbabwe; the corridor's destination side is the platform's market itself.
   if (!from) return null
   return from.toLowerCase() === 'zimbabwe' ? 'Zimbabwe trade operations' : `${from} → Zimbabwe trade operations`
 }
@@ -145,7 +131,9 @@ export default function TradeOSWorkspaceLayout() {
       </header>
       <main className="min-w-0 flex-1">
         <RegistryRouteBoundary enforceAuth={false}>
-          <Outlet />
+          {location.pathname === '/diaspora/containers'
+            ? <TradeShippingWorkspace context={context}><Outlet /></TradeShippingWorkspace>
+            : <Outlet />}
         </RegistryRouteBoundary>
       </main>
     </div>
