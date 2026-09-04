@@ -1,7 +1,9 @@
 /**
- * Phase 6 — Container co-loading marketplace routes. Mounted under /api/diaspora.
- * Uses the /container-marketplace prefix to avoid shadowing the legacy /containers and /reservations
- * routes that existing consumers and tests depend on.
+ * Trade OS logistics + container marketplace routes. Mounted under /api/diaspora.
+ *
+ * The historical /container-marketplace prefix remains for the hardened co-loading kernel. T3 adds
+ * /logistics-* routes alongside it because a shipping request exists BEFORE a container reservation
+ * and may be answered by a provider without a CarUp sailing.
  */
 import express from 'express';
 import { authorizeRole } from '../middleware/authMiddleware.js';
@@ -16,21 +18,91 @@ import {
   cancelReservation,
   closeBooking,
 } from '../services/diaspora/diasporaContainerMarketplaceService.js';
+import {
+  createLogisticsRequest,
+  updateLogisticsRequest,
+  publishLogisticsRequest,
+  listMyLogisticsRequests,
+  getMyLogisticsRequest,
+  listLogisticsOpportunities,
+  getLogisticsOpportunity,
+  createLogisticsQuote,
+  updateLogisticsQuote,
+  submitLogisticsQuote,
+  withdrawLogisticsQuote,
+  listMyLogisticsQuotes,
+  acceptLogisticsQuote,
+  findCompatibleSailings,
+  requestSpaceForAward,
+} from '../services/diaspora/diasporaLogisticsRfqService.js';
+import { ensureLogisticsConversation } from '../services/diaspora/diasporaLogisticsConversationService.js';
 import { getTradeContext } from '../services/diaspora/tradeContextService.js';
 
 const router = express.Router();
 const asyncHandler = (fn) => (req, res, next) => Promise.resolve(fn(req, res, next)).catch(next);
 const base = '/container-marketplace';
-// H4: participants may browse/request/cancel; create/close/approve/reject are OPERATOR actions.
-// D2 (client-demo convergence): a legitimate logistics business is a TENANT operator, not a platform
-// reviewer/admin — `users.role` cannot even store 'platform_admin'/'reviewer'. The route gate
-// therefore only establishes an authenticated known role; the AUTHORITATIVE operator decision stays
-// in the service/RPC (`canReview`: server-derived platform admin/reviewer OR tenant admin of the
-// record's own tenant via verified tenant_users membership). A plain buyer who reaches the service
-// without tenant authority still gets 403, and cross-tenant admins are rejected on tenant equality.
+
+// Route middleware is deliberately coarse. The services are the authority boundary: participant
+// ownership, provider business eligibility, tenant operator authority and object scope are all
+// resolved server-side from authenticated context rather than from stakeholder headers.
 const participantAuth = authorizeRole(['owner', 'dealer', 'admin', 'platform_admin', 'super_admin', 'government', 'government_reviewer', 'reviewer']);
 const operatorAuth = participantAuth;
 
+// ── T3: Logistics RFQ / "Ship something" ──────────────────────────────────
+// Specific collection routes are registered before any /:id route to avoid Express shadowing.
+router.get('/logistics-requests/mine', participantAuth, asyncHandler(async (req, res) => {
+  res.json({ data: await listMyLogisticsRequests(req.query, req.userContext, { req }) });
+}));
+router.post('/logistics-requests', participantAuth, asyncHandler(async (req, res) => {
+  res.status(201).json({ data: await createLogisticsRequest(req.body, req.userContext, { req }) });
+}));
+router.get('/logistics-opportunities', participantAuth, asyncHandler(async (req, res) => {
+  res.json({ data: await listLogisticsOpportunities(req.query, req.userContext, { req }) });
+}));
+router.get('/logistics-opportunities/:id', participantAuth, asyncHandler(async (req, res) => {
+  res.json({ data: await getLogisticsOpportunity(req.params.id, req.userContext, { req }) });
+}));
+router.post('/logistics-opportunities/:id/quotes', participantAuth, asyncHandler(async (req, res) => {
+  res.status(201).json({ data: await createLogisticsQuote(req.params.id, req.body, req.userContext, { req }) });
+}));
+router.get('/logistics-quotes/mine', participantAuth, asyncHandler(async (req, res) => {
+  res.json({ data: await listMyLogisticsQuotes(req.query, req.userContext, { req }) });
+}));
+router.patch('/logistics-quotes/:id', participantAuth, asyncHandler(async (req, res) => {
+  res.json({ data: await updateLogisticsQuote(req.params.id, req.body, req.userContext, { req }) });
+}));
+router.post('/logistics-quotes/:id/submit', participantAuth, asyncHandler(async (req, res) => {
+  res.json({ data: await submitLogisticsQuote(req.params.id, req.userContext, { req }) });
+}));
+router.post('/logistics-quotes/:id/withdraw', participantAuth, asyncHandler(async (req, res) => {
+  res.json({ data: await withdrawLogisticsQuote(req.params.id, req.userContext, { req }) });
+}));
+router.get('/logistics-requests/:id', participantAuth, asyncHandler(async (req, res) => {
+  res.json({ data: await getMyLogisticsRequest(req.params.id, req.userContext, { req }) });
+}));
+router.patch('/logistics-requests/:id', participantAuth, asyncHandler(async (req, res) => {
+  res.json({ data: await updateLogisticsRequest(req.params.id, req.body, req.userContext, { req }) });
+}));
+router.post('/logistics-requests/:id/publish', participantAuth, asyncHandler(async (req, res) => {
+  res.json({ data: await publishLogisticsRequest(req.params.id, req.userContext, { req }) });
+}));
+router.post('/logistics-requests/:id/accept-quote', participantAuth, asyncHandler(async (req, res) => {
+  res.json({ data: await acceptLogisticsQuote(req.params.id, req.body?.quoteId, req.userContext, { req }) });
+}));
+router.get('/logistics-requests/:id/sailing-matches', participantAuth, asyncHandler(async (req, res) => {
+  res.json({ data: await findCompatibleSailings(req.params.id, req.userContext, { req }) });
+}));
+router.post('/logistics-requests/:id/request-space', participantAuth, asyncHandler(async (req, res) => {
+  res.json({ data: await requestSpaceForAward(req.params.id, req.userContext, { req }) });
+}));
+router.post('/logistics-requests/:id/conversation', participantAuth, asyncHandler(async (req, res) => {
+  res.json({ data: await ensureLogisticsConversation(req.params.id, req.userContext, {
+    req,
+    providerId: req.body?.providerId || null,
+  }) });
+}));
+
+// ── Existing hardened Container Co-Loading kernel ──────────────────────────
 // Trade OS workspace identity/context projection (read-only; commercial context, never a role).
 router.get(`${base}/trade-context`, participantAuth, asyncHandler(async (req, res) => {
   res.json({ data: await getTradeContext(req.userContext, { req }) });
