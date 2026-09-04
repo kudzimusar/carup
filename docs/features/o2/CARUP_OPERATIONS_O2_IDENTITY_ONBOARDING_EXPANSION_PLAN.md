@@ -776,6 +776,18 @@ evidence per item; nothing is marked complete by assertion.
   shared-DB migration before #194 lands risks reddening those certified gates — the
   documented cancelled-run/contamination lessons apply.
 
+### Risk register addendum — post-#194 reconciliation, 2026-09-04
+
+- **R3 CLOSED:** #194 merged at `bb9d9900` (PO-landed); O2 reconciled onto the accepted base
+  (`7b9e8907`, manifest-driven; the +7 divergence resolved semantically — f600d002 adopted, X1
+  retirement preserved, supersets kept, zero duplication).
+- **R4 UPDATED:** the P1-C migration `20260903120000` (and `20260828203000`) are LIVE on
+  staging but UNLEDGERED (the #194 governed workflow apply-list); the genuinely unapplied O2
+  set is SIX (X3 ×2, X4 ×2, X5, X5A) — exact parity plan in the reconciliation receipt;
+  pairing remains absent by design until the P7 gate authorizes it.
+- **R5 unchanged:** fixture policy stands; PO approval still required before any synthetic
+  identity documents are created.
+
 ## Decisions requiring Product Owner approval
 
 1. **X1 disposition** of `/api/verification/promote-trust` and the trust-tier write path — the

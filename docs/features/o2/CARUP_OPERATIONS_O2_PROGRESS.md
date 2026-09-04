@@ -5,7 +5,14 @@ Every `[x]` names its evidence. No item may be closed by assertion.
 
 **Branch:** `feat/operations-o2-people-compliance` · **Base:** integrated candidate `dd94c56d`
 **State:** P0–P6 complete, plus the **P1-C effective-authorization correction** (see the correction notice under P1). **P7 (staging certification) designed, NOT started** — see the P7 note below. **Expansion:** X0–X5 complete (X1 = Document Intelligence authority retirement @ `5e996a7c`; X2 = Registration + Progressive Trust; X3 = Identity Lifecycle + Account Security; X4 = Biometrics + Explicit Consent — ARCHITECTURE CERTIFIED, live provider NOT ACTIVATED; X5 = Dealer onboarding + governed workbook migration @ `0d1a3a74` — see the receipts); **X5A COMPLETE 2026-09-04** (stakeholder workbook catalogue + AI intake; docs-first gate `72acf7e0`; 32 stakeholder dispositions; suites 5906:5885/0/21 + 1585/1585); **X6 COMPLETE 2026-09-04** (identity_assurance.v1 + semantic events; docs-first gate `07222eb3`; suites 5930:5909/0/21 + 1585/1585); **X7 NOT started** — see the expansion section near the end. *(Corrected 2026-09-04: this line previously said "X5+ NOT started" after X5 had completed — the X5 history below was always accurate.)*
-**Rule:** do not merge; stop at a certified O2 candidate for Product Owner review.
+**Rule:** do not merge O2; stop at a certified candidate for Product Owner review.
+**#194 LANDED (2026-09-04):** merge commit `bb9d9900` (= main); O2 RECONCILED onto the accepted
+base via manifest-driven merge `7b9e8907` (no blind cherry-pick; vehiclesRoutes manual —
+f600d002 hunk adopted, X3 step-up kept; X1 retirement intact; zero P1-C duplication; six O2
+migrations remain the staging-parity set) — receipt
+`CARUP_OPERATIONS_O2_POST_PR194_RECONCILIATION_RECEIPT.md`. The P7 note's blocker list is
+updated by that receipt: the #194/divergence blocker is CLOSED; DDL parity + fixtures + pairing
+remain the open, authorization-gated steps.
 
 ## P0 — Design pack
 

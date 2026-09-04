@@ -102,4 +102,9 @@ Do not merge. Stop at a certified O2 candidate for Product Owner review, exactly
   machine-checked; privacy-safe payloads proven; canonical who_must_act total; assurance
   grants nothing; full regression green. Plan:
   `CARUP_OPERATIONS_O2_X6_ASSURANCE_COMMUNICATIONS_PLAN.md`.
+- **Post-#194 reconciliation (2026-09-04):** #194 landed at `bb9d9900`; O2 reconciled onto the
+  accepted base by manifest-driven merge (`7b9e8907` → certified candidate). The convergence/
+  mixed-base hazard that blocked P7's base question is CLOSED; P7's remaining entry conditions
+  are the authorization-gated ones (DDL parity for the six O2 migrations, fixture approval,
+  pairing). Receipt: `CARUP_OPERATIONS_O2_POST_PR194_RECONCILIATION_RECEIPT.md`.
 - P7 remains governed by its own note in the tracker; nothing in the expansion may run it early.
