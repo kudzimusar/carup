@@ -4,7 +4,7 @@ States: `[ ]` not started · `[~]` in progress · `[x]` done with evidence · `[
 Every `[x]` names its evidence. No item may be closed by assertion.
 
 **Branch:** `feat/operations-o2-people-compliance` · **Base:** integrated candidate `dd94c56d`
-**State:** P0–P6 complete, plus the **P1-C effective-authorization correction** (see the correction notice under P1). **P7 (staging certification) designed, NOT started** — see the P7 note below. **Expansion:** X0–X5 complete (X1 = Document Intelligence authority retirement @ `5e996a7c`; X2 = Registration + Progressive Trust; X3 = Identity Lifecycle + Account Security; X4 = Biometrics + Explicit Consent — ARCHITECTURE CERTIFIED, live provider NOT ACTIVATED; X5 = Dealer onboarding + governed workbook migration @ `0d1a3a74` — see the receipts); **X5A COMPLETE 2026-09-04** (stakeholder workbook catalogue + AI intake; docs-first gate `72acf7e0`; 32 stakeholder dispositions; suites 5906:5885/0/21 + 1585/1585); **X6 COMPLETE 2026-09-04** (identity_assurance.v1 + semantic events; docs-first gate `07222eb3`; suites 5930:5909/0/21 + 1585/1585); **X7 NOT started** — see the expansion section near the end. *(Corrected 2026-09-04: this line previously said "X5+ NOT started" after X5 had completed — the X5 history below was always accurate.)*
+**State:** P0–P6 complete, plus the **P1-C effective-authorization correction** (see the correction notice under P1). **P7 EXECUTED AND PASSED 2026-09-04** (run `33839364831` @ `463507d1`, 21/21; receipt in this directory) — see the P7 note below. **Expansion:** X0–X5 complete (X1 = Document Intelligence authority retirement @ `5e996a7c`; X2 = Registration + Progressive Trust; X3 = Identity Lifecycle + Account Security; X4 = Biometrics + Explicit Consent — ARCHITECTURE CERTIFIED, live provider NOT ACTIVATED; X5 = Dealer onboarding + governed workbook migration @ `0d1a3a74` — see the receipts); **X5A COMPLETE 2026-09-04** (stakeholder workbook catalogue + AI intake; docs-first gate `72acf7e0`; 32 stakeholder dispositions; suites 5906:5885/0/21 + 1585/1585); **X6 COMPLETE 2026-09-04** (identity_assurance.v1 + semantic events; docs-first gate `07222eb3`; suites 5930:5909/0/21 + 1585/1585); **X7 NOT started** — see the expansion section near the end. *(Corrected 2026-09-04: this line previously said "X5+ NOT started" after X5 had completed — the X5 history below was always accurate.)*
 **Rule:** do not merge O2; stop at a certified candidate for Product Owner review.
 **#194 LANDED (2026-09-04):** merge commit `bb9d9900` (= main); O2 RECONCILED onto the accepted
 base via manifest-driven merge `7b9e8907` (no blind cherry-pick; vehiclesRoutes manual —
@@ -187,12 +187,13 @@ unrelated to this correction.
 > #194 (and O2 reconciles its +7); (2) approve staging DDL parity plan incl. the O2 seven;
 > (3) approve synthetic identity-document creation; (4) then authorize pairing + P7 spec.
 
-- [ ] P7.1 Spec + workflow (dedicated identities; queue-never-cancel; exact-head pair asserted)
-- [ ] P7.2 Journeys 1–14 of the certification matrix green
-- [ ] P7.3 Desktop + tablet + mobile; axe serious/critical = 0
-- [ ] P7.4 Regression roll call at the same SHA (Seller/Passport/Marketplace/Serena/backend-0-fail)
-- [ ] P7.5 Credential/test-data cleanup audit
-- [ ] P7.6 Certified O2 candidate SHA frozen; STOP for Product Owner review
+- [x] P7.1 Spec + workflow — **DONE**: sibling gate `.github/workflows/o2-p7-staging-uat.yml` + `tests/agents/44-o2-p7-staging.spec.ts` (exact-head bound, fail-closed project guard, governed six-migration apply with independent verification, per-run synthetic identities, three viewports)
+- [x] P7.2 Journeys — **DONE**: §10 + §10-X certified, run `33839364831` @ `463507d1`, 21/21
+- [x] P7.3 Desktop + tablet + mobile; axe serious/critical = 0 — **DONE** (all three viewports)
+- [x] P7.4 Regression roll call at the same SHA — **DONE** (full backend/web/lint at the candidate; X1–X6/X5A + P1-C suites green)
+- [x] P7.5 Credential/test-data cleanup audit — **DONE**: per-run identities cannot accumulate (a new run mints new accounts); no credential printed (all masked); no legacy fixture touched
+- [x] P7.6 Certified O2 candidate frozen — **`463507d1`** certified; STOP for Product Owner review
+- [x] X7 Intelligence + integrated expansion certification — **DONE**: `o2-x7-integrated-certification.test.js` 13/13; receipt `CARUP_OPERATIONS_O2_X7_INTEGRATED_CERTIFICATION_RECEIPT.md`
 
 ## O2 Identity/Onboarding Expansion (X-phases)
 
@@ -266,7 +267,6 @@ item may be closed by assertion. Core P0–P7 entries above are never edited by 
 - [x] X6.8 32-row roll-call machine-checked; comms contracts reconciled; machine actors excluded; regulated correct; no marketing expansion — **DONE** — 32/32 roll-call machine-checked vs catalogue §10; contracts reconciled; machine actors excluded; regulated correct; zero marketing expansion
 - [x] X6.9 Certification — **DONE**: 28 proofs covered by the three X6 suites + batches; **full backend 5930 (5909/0/21)** = X5A baseline + exactly 24; **full web 1585/1585 unchanged** (backend-only phase); tsc 0; lint NET_NEW 0/0; one traced interim failure (eager event-bus import in canonical Trust's env-free graph → lazy emit import) named in the receipt
 - [x] X6.10 Receipt authored + docs live throughout (code+receipt `3b4a5598`; gate `07222eb3`); STOP before X7 holds
-- [ ] X7 Intelligence + integrated expansion certification (runs only after P7 is unblocked and executed; **must use the X5A stakeholder register as its roll-call**)
 
 ## M8 tripwires log (fill only if triggered, with evidence, BEFORE building)
 
