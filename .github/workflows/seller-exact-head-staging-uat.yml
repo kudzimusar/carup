@@ -406,21 +406,48 @@ jobs:
           });
           const passwordHash = `scrypt:${salt}:${derived.toString('hex')}`;
 
+          // ISOLATED PER-RUN SELLER. The gate used to run as the shared `uat.buyer` identity, whose
+          // garage accumulated every vehicle every previous Golden run ever created — 132 listings,
+          // 107 of them this gate's own synthetics. `SellerIntelligence` fans out ONE analytics
+          // request per owned vehicle and waits for all of them before it reaches its ready state,
+          // so that inherited history became a self-amplifying load test: more runs -> more
+          // listings -> more concurrent analytics -> 29-97s backend responses -> unrelated 20s
+          // client timeouts -> a certification nobody could trust. Measured: 113 listings when the
+          // gate last passed cleanly, 131 by the time it was failing on every run.
+          //
+          // A run now owns its Seller outright, so it starts from an empty garage and CANNOT
+          // inherit another run's inventory. Nothing is deleted to achieve this: the historical
+          // automation vehicles stay attached to `uat.buyer` as the record of what they were.
+          const runId = process.env.GITHUB_RUN_ID;
+          if (!runId) throw new Error('GITHUB_RUN_ID is required to mint the per-run Golden Seller.');
+          const runSellerEmail = `golden.seller.${runId}@carup-staging.test`;
+          const runSellerId = `u_golden_${runId}`;
+
           const cleanedDbUrl = dbUrl.replace(/([?&])sslmode=[^&]*&?/i, '$1').replace(/[?&]$/, '');
           const client = new pg.Client({ connectionString: cleanedDbUrl, ssl: { rejectUnauthorized: false } });
           await client.connect();
           try {
             await client.query('BEGIN');
-            for (const [email, role] of [
-              ['uat.buyer@carup-staging.test', 'owner'],
-              ['uat.reviewer@carup-staging.test', 'admin'],
-            ]) {
-              const result = await client.query(
-                'update public.users set password_hash = $1, role = $2 where email = $3 returning id',
-                [passwordHash, role, email],
-              );
-              if (result.rowCount !== 1) throw new Error(`Missing staging UAT identity: ${email}`);
-            }
+
+            // The run's own Seller. Unmistakably synthetic, staging-only, and never shared with
+            // Serena, Media Lifecycle, Marketplace, human UAT or O2.
+            const seller = await client.query(
+              `insert into public.users (id, name, email, role, join_date, is_verified, password_hash)
+               values ($1, $2, $3, 'owner', to_char(now(), 'YYYY-MM-DD'), false, $4)
+               on conflict (email) do update set password_hash = excluded.password_hash, role = 'owner'
+               returning id`,
+              [runSellerId, `Golden Dynamic Seller ${runId} (staging automation)`, runSellerEmail, passwordHash],
+            );
+            if (seller.rowCount !== 1) throw new Error('Could not provision the per-run Golden Seller identity.');
+
+            // The reviewer stays shared: it holds no inventory, so it cannot accumulate the state
+            // this change exists to prevent.
+            const reviewer = await client.query(
+              'update public.users set password_hash = $1, role = $2 where email = $3 returning id',
+              [passwordHash, 'admin', 'uat.reviewer@carup-staging.test'],
+            );
+            if (reviewer.rowCount !== 1) throw new Error('Missing staging UAT identity: uat.reviewer@carup-staging.test');
+
             await client.query('COMMIT');
           } catch (error) {
             await client.query('ROLLBACK');
@@ -435,12 +462,13 @@ jobs:
           fs.appendFileSync(
             process.env.GITHUB_ENV,
             [
+              `STAGING_UAT_BUYER_EMAIL=${runSellerEmail}`,
               `STAGING_UAT_BUYER_PASSWORD=${password}`,
               `STAGING_UAT_REVIEWER_PASSWORD=${password}`,
             ].join('\n') + '\n',
             { mode: 0o600 },
           );
-          console.log('Staging-only Seller owner and reviewer identities rotated without printing credentials.');
+          console.log(`Per-run Golden Seller provisioned (${runSellerEmail}); reviewer rotated. No credentials printed.`);
           NODE
 
       - name: Run Golden Dynamic Seller desktop + mobile Chromium

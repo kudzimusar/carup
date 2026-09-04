@@ -39,7 +39,9 @@ interface EnvTruth {
   health?: unknown;
 }
 
-const SELLER_EMAIL = 'uat.buyer@carup-staging.test';
+// The certification runs as its OWN Seller (see the workflow's per-run provisioning). The default
+// keeps a local run working against the historical shared identity.
+const SELLER_EMAIL = process.env.STAGING_UAT_BUYER_EMAIL || 'uat.buyer@carup-staging.test';
 const REVIEWER_EMAIL = 'uat.reviewer@carup-staging.test';
 
 // Browser visual acceptance uses seven 320x180 vehicle-like PNG entries with multiple distinct views. They are deliberately
@@ -674,8 +676,11 @@ test.describe('Golden Dynamic Seller — exact-head deployed acceptance', () => 
     await expect(page.getByTestId('marketplace-results-count')).toContainText('0', { timeout: 20_000 });
     await expect(page.locator(`a[href^="/marketplace/${vin}"]`)).toHaveCount(0);
 
-    // Keep these literal identities referenced so accidental fixture drift is caught by review.
-    expect(SELLER_EMAIL).toBe('uat.buyer@carup-staging.test');
+    // Fixture-drift guard. It pins the SHAPE rather than one literal, because the Seller is now
+    // minted per run: it must still be an unmistakably synthetic staging identity, and it must be
+    // either the historical shared account or this run's own `golden.seller.<run-id>`. Any other
+    // address — a real user, another gate's fixture — fails here by name.
+    expect(SELLER_EMAIL).toMatch(/^(uat\.buyer|golden\.seller\.\d+)@carup-staging\.test$/);
     } finally {
       if (vehicleCreated && cleanupAuth) {
         // Reuse the last real Seller session captured during the journey. Cleanup mints fresh CSRF

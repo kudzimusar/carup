@@ -168,3 +168,346 @@ re-certified — none is a defect in the certified product code:
 
 **Remaining Product Owner action:** approve and merge **#194 → main**. Merging main does NOT promote
 CarUp production (Vercel promotion is a separate step) — production remains untouched.
+
+---
+
+# SUPERSEDING CERTIFICATION — former-seller authority closure landed into #194 (2026-09-03)
+
+**The certification above, at `dd94c56d` / `33720d79`, is SUPERSEDED — not erased.** It remains an
+accurate record of what it measured. It is superseded because #194's product code changed after it:
+independent Product Owner review found a lifecycle/authorization defect in the already-integrated
+Seller/Passport/ownership lifecycle, and the bounded closure has now been landed here rather than
+left downstream on the O2 slice.
+
+**New #194 head: `f600d002`** (from `33720d79`).
+
+## What was landed, and what was deliberately not
+
+Landed: the ownership-transfer → Seller Authority supersession, and the effective-authorization
+closure — `hasSupersedingOwnershipTransfer` + `isSellerAuthorityEffectivelyDenied`, applied at
+`getSellerAuthorityState`, the `/api/vehicles/add` reuse path, `loadScopedVehicle`,
+`submitSellerClaim`, the evidence-upload claimant bypass and `reviewSellerAuthority`; the
+root-cause migration `20260903120000` (completion now retires `vehicles.tenant_id`); and the two
+invariant test suites. Eight files.
+
+**NOT landed: O2 People & Compliance P2–P6** — no responsibility vocabulary or projections, no
+People read model/route/workspace, no People capabilities, no dealer decision event, no identity
+self-review guard, no web changes. Proven by the absence of every P2–P6 file and symbol from the
+tree.
+
+## The defect
+
+A completed transfer A→B left A able to control the vehicle three ways: historical verified
+evidence (`hasVerifiedOwnershipAuthorityEvidence` is true forever after a sale, and the reuse write
+then reset `current_seller_id` to A); a stale `confirmed` authority row surviving a best-effort
+supersession; and — the root cause beneath both — `vehicles.tenant_id`, which the transfer RPC never
+cleared, being the last clause of the `isOwner || isCurrentSeller || isDealerTenant` test repeated
+verbatim across eleven authorization sites.
+
+## Certification at `f600d002`
+
+**Green, real workflow runs:** CI `33741299485` · Vehicle Passport Foundation `33741299344` ·
+**Operations Serena Staging UAT `33741299431`** · **Seller Media Lifecycle Staging UAT
+`33741293292`** · **Marketplace Reference Regression (incl. unmocked staging certification)
+`33741299423`** · Navigation `33741299453` · Communications `33741299383` · Finance Obligation
+`33741299405` · Referral `33741299352` · Diaspora `33741299378`.
+
+**Local:** backend 5763 / 0 fail; the 17 former-seller + supersession invariant proofs; migration
+integrity 24/24; three PGlite gates; tsc clean; lint NET_NEW 0/0 vs main; build passes.
+
+**Staging provenance:** frontend and backend both serve `f600d002`, `unpaired=false`; backend
+health `UP`, `provenance_available: true`. The migration is proven applied on the approved staging
+project (`vehicle_ownership_transfers` exists; the RPC's source contains `tenant_id=NULL`).
+
+**Migration finding worth keeping:** `20260828203000` — the whole ownership-transfer authority
+feature — had **never been applied to staging**. The closure's first apply failed because
+`public.vehicle_ownership_transfers` did not exist. No staging gate had ever exercised ownership
+transfer on this candidate. Both migrations are now in the governed apply list.
+
+## Golden Seller lifecycle — NOT GREEN, characterised precisely
+
+| Run | SHA | Result | Cause |
+|---|---|---|---|
+| `33738012866` | `fbc059f9` | 3/3 fail, every test at exactly 8.0m | **A real regression by this closure.** The gate ran at 7.0/6.9/7.3m against an 8m per-test timeout — 42–66s of headroom — and the closure added a DB round-trip to `loadScopedVehicle`, called on publish/unpublish/price/status/cleanup. **Fixed** by scoping the check to non-owners (exact, not merely cheap: a former owner is never the canonical owner). |
+| `33741999824` | `f600d002` | 2/3 pass | mobile only: a single POST exceeded its 20s per-request timeout |
+| `33744146692` | `f600d002` | 2/3 pass | tablet only: `seller-intelligence-kpi-inquiries` not visible — a Seller Intelligence KPI panel, unrelated to ownership, authority or anything this closure touches |
+| `33746640705` | `f600d002` | 0/3 | transient staging degradation: tablet and mobile failed 23s and 27s after chromium, never running the journey. Staging verified healthy afterwards (200, ~1s, serving `f600d002`) |
+
+**Attribution evidence.** Identical code (`f600d002`), two runs: 6.9/7.2/5.5m versus 7.5/7.6/7.8m —
+a 42% swing, with run 2 at or below the 7.0/6.9/7.3m baseline. Per-test duration is dominated by
+staging variance, not by this closure. The deterministic 3/3 regression is fixed; what remains is a
+gate running at ~7m against an 8m budget with ±40% variance, failing on a different viewport with a
+different unrelated cause each run.
+
+**No PASS is claimed for Golden.** It has not achieved a green run on `f600d002`.
+
+---
+
+# GOLDEN SELLER RELIABILITY DIAGNOSIS (2026-09-03) — candidate frozen at `f600d002`
+
+Bounded certification diagnosis. **No product code changed. No O2 reopened. #194 not merged.**
+
+## Root cause — quantified, not inferred
+
+`web/src/pages/dashboard/owner/SellerIntelligence.tsx:182` fans out **one analytics request per owned
+vehicle**, unbounded (`await Promise.all(nextVehicles.map(...))`), and sets `state='ready'` only
+after **all** of them resolve. The KPI band — including `seller-intelligence-kpi-inquiries` — renders
+only when `state === 'ready' && readable`.
+
+The Golden seller (`uat.buyer@carup-staging.test`, `u_e57adbc081314723`) now holds **132 listings,
+107 of them the gate's own `JTDKARFP0H3*` synthetic vehicles**, accumulated 2026-08-30 → 2026-09-03.
+The gate's `retireAutomationVehicle` marks a vehicle sold/publishable; it never leaves the garage,
+so every run adds ~3 more.
+
+Vercel runtime logs for run `33746640705` show the consequence directly — 11+ concurrent
+`GET /api/marketplace/my-listings/{VIN}/analytics`, all HTTP 200, at **29,152 / 29,353 / 41,396 /
+43,298 / 43,438 / 45,375 / 61,106 / 63,675 / 94,104 / 95,847 / 96,981 ms** — saturating the preview
+deployment and dragging unrelated endpoints with them: `/api/vehicles/me` 26,818ms,
+`/api/marketplace/my-analytics` 26,026ms, `POST /api/auth/login` 24,843ms, even `/api/health`
+3,262ms. **Zero 5xx** in the window (637× 200): the backend was not erroring, it was saturated.
+
+Growth across the exact window where Golden turned from passing to failing: **113 listings at the
+passing baseline (04:28) → 131 at run 4's start (10:52)**. The gate degrades itself.
+
+## Failure classification
+
+| Run | Viewport | Elapsed | Failure | Classification |
+|---|---|---|---|---|
+| `33738012866` (`fbc059f9`) | all three | 8.0m / 8.0m / 8.0m — exactly the 480s ceiling | test timeout | **PERFORMANCE REGRESSION — mine, and fixed.** The closure added a DB round-trip to `loadScopedVehicle`. Corrected at `f600d002` by scoping the check to non-owners |
+| `33741999824` (`f600d002`) | mobile | 5.5m | `apiRequestContext.post` 20s timeout, idempotent replay | **STAGING/INFRASTRUCTURE** — saturation |
+| `33744146692` (`f600d002`) | tablet | 7.6m | `seller-intelligence-kpi-inquiries` element(s) not found after 20s | **GOLDEN TEST DEFECT + INFRASTRUCTURE** — the page was still awaiting 132 analytics calls, so `state` was never `ready` and the element never existed |
+| `33746640705` (`f600d002`) | chromium / tablet / mobile | 7.5m / 22.6s / 26.4s | three *different* 20s network timeouts (`post`, `waitForResponse`, `get`) within 50s | **STAGING/INFRASTRUCTURE** — tablet and mobile never materially executed the journey |
+
+**SHARED-STAGING CONTENTION is ruled out by evidence** for all four: no other staging-mutating
+workflow overlapped any Golden run (nearest ended 44s *before* run 2 began). Frontend and backend
+served the expected SHA with `unpaired=false` in every run; all `f600d002` runs used the same
+deployment `dpl_EZ95EUT1hvFeKrcKHzvqbj7PmG78`. No synthetic identity was rotated by a competing run.
+
+## Hot-path regression re-proof at `f600d002`
+
+Direct query-shape probe against the live service:
+
+| Actor | Denied | Transfer ledger queried |
+|---|---|---|
+| canonical owner | false | **no** (short-circuit; zero tables when called directly) |
+| former owner, completed transfer | **true** (`ownership_transferred_away`) | yes |
+| former owner + stale `confirmed` row | **true** (`ownership_transferred_away`) | yes — Hazard B intact |
+| unrelated non-owner, no transfer | false | yes (not over-blocking) |
+
+`loadScopedVehicle` gates the whole call behind `isOwner ? {denied:false} : await(...)`, so the
+seller's own publish / unpublish / price path performs **zero added queries** — the prior shape.
+
+## Golden budget analysis (measured before any change)
+
+Per-test maxima on successful runs, against the **8.0m** ceiling:
+
+| Run | SHA | per-test (m) | max | headroom |
+|---|---|---|---|---|
+| `33603049508` | `569e4f14` | 5.8 / 6.1 / 5.8 | 6.1 | 1.9m |
+| `33698702769` | `f25ea5c6` | 6.4 / 6.3 / 6.7 | 6.7 | 1.3m |
+| `33710442588` | `9517e362` | 7.2 / 7.5 / 7.4 | 7.5 | 0.5m |
+| `33715094180` | `dd94c56d` | 7.0 / 6.9 / 7.3 | 7.3 | 0.7m |
+| `33744146692` | `f600d002` | 7.5 / 7.6 / 7.8 | 7.8 | **0.2m** |
+
+Median max ≈ 7.3m; slowest successful 7.5m. The gate runs at **91–98% of its budget** and the trend
+is monotonic with listing count, not with any code change. **The gate has insufficient operating
+margin.**
+
+## No test budget was changed, and why
+
+Raising the per-test ceiling would not make the result trustworthy: the `f600d002` failures are
+**20-second per-request waits against a backend legitimately taking 26–97 seconds**. A larger budget
+would convert a visible failure into a slow pass over a saturated environment — a gate representing
+nothing. The measured remedy is the data, not the clock.
+
+## Remediation required (belongs to the Golden/Seller lane, not performed here)
+
+1. Clear the 107 accumulated `JTDKARFP0H3*` synthetic vehicles from the Golden seller account.
+   Deliberately **not** done here: deleting 107 rows from shared staging is destructive, cascades
+   into listing media/evidence/event history, and is another lane's fixture debris.
+2. Make `retireAutomationVehicle` actually remove its vehicle, or give the gate a per-run seller
+   identity, so accumulation cannot recur.
+3. Separately worth a look by the owning lane: the unbounded per-vehicle analytics fan-out with an
+   all-or-nothing `ready` gate is a real product scaling characteristic, pre-existing and out of
+   scope for this closure.
+
+---
+
+# GOLDEN FIXTURE REPAIR + CONTROLLED CERTIFICATION (2026-09-03/04)
+
+**Certification infrastructure only. `git diff f600d002 <head>` excluding `docs/`, `tests/` and
+`.github/` is EMPTY — the application product tree is identical to the frozen candidate.**
+
+## Fixture architecture chosen — isolated per-run Seller
+
+Each certification run now mints and owns `golden.seller.<workflow-run-id>@carup-staging.test`
+(`u_golden_<run-id>`), staging-only, unmistakably synthetic, shared with no other gate. The spec
+reads the address from `STAGING_UAT_BUYER_EMAIL` — an override `staging-helpers.ts` already
+supported — and its fixture-drift guard now pins the SHAPE
+(`/^(uat\.buyer|golden\.seller\.\d+)@carup-staging\.test$/`) so a real user or another gate's
+fixture still fails by name.
+
+**Why it cannot accumulate again:** a run's vehicles attach to that run's own Seller. The next run
+mints a different Seller and therefore starts from an empty garage — inheritance is structurally
+impossible rather than merely cleaned up. The reviewer identity stays shared on purpose: it holds no
+inventory, so it cannot accumulate the state this change exists to prevent.
+
+## One-time cleanup performed: NONE
+
+No rows were deleted, no ownership history altered, no vehicle reassigned. The 132 legacy listings
+(107 carrying the `Golden Dynamic Seller <run>:` automation marker) remain attached to `uat.buyer`
+as the record of what they were. Verified after the controlled run: legacy account still 132, the
+new per-run Seller 3 — its own, one per viewport.
+
+For the record, had cleanup been needed the marker is reliable: 107 rows carry BOTH
+`seller_description LIKE 'Golden Dynamic Seller %'` AND the `JTDKARFP0H3` VIN prefix, and **zero**
+VIN-prefix rows lack the marker.
+
+## Pre-run proofs
+
+Pre-run Golden Seller vehicle count **0** (identity minted fresh). Backend `UP`, commit `49951a43`,
+`provenance_available: true`, health 0.88s. Ownership-transfer migration present
+(`vehicle_ownership_transfers` exists; RPC source contains `tenant_id=NULL`). Zero workflows in
+flight repo-wide. No competing identity rotation.
+
+## Controlled run — `33793846244` @ `49951a43`
+
+**3 passed (6.7m).** Desktop 2.3m · tablet 2.3m · mobile 2.1m — against the **unchanged 8.0m**
+per-test ceiling. Provenance: `frontend_sha == backend_sha == 49951a43`, `unpaired=false`,
+deployment `dpl_5GJEdLSE2zsmx3cTp5xK3GkYR8uY`.
+
+| Measure | Failing run `33746640705` (132 listings) | Controlled run (3 listings) |
+|---|---|---|
+| Seller Intelligence analytics requests | 11+ concurrent | **3** |
+| Worst analytics latency | **96,981ms** | **1,988ms** (49× faster) |
+| `GET /api/vehicles/me` | **26,818ms** | **2,260ms** (12× faster) |
+| `POST /api/auth/login` | **24,843ms** | not slow enough to be logged |
+| `GET /api/health` | 3,262ms | **0.64–0.88s** |
+| Per-test duration | 8.0m (timeout) / 7.5m | **2.1–2.3m** |
+| Headroom vs 8m ceiling | 0.2m (98% consumed) | **5.7m (29% consumed)** |
+
+The 8-minute budget was never the problem: with an isolated fixture the journey uses 29% of it. The
+timeout was deliberately left unchanged.
+
+## Landed correction re-proved after the fixture change
+
+Seventeen invariant proofs pass: former owner denied after transfer; stale `confirmed` authority
+ineffective; stale `current_seller_id` ineffective; stale tenant relationship cannot restore Seller
+scope; incoming owner gets no fabricated authority; history intact.
+
+## Full matrix at `49951a43`
+
+CI `33792558804` · Vehicle Passport Foundation `33792559037` · **Operations Serena Staging UAT
+`33792559322`** · **Marketplace Reference Regression `33792559301`** · Navigation `33792558955` ·
+Communications `33792559095` · Finance Obligation `33792559042` · Referral `33792559161` · Diaspora
+`33792559163` — all **success**. Plus **Golden `33793846244` — success, 3/3**.
+
+---
+
+# ENGINEERING DEBT (post-merge, NOT part of this closure)
+
+## Seller Intelligence large-inventory scalability
+
+`web/src/pages/dashboard/owner/SellerIntelligence.tsx:182` issues **one analytics request per owned
+vehicle** via `await Promise.all(nextVehicles.map(...))` — unbounded concurrency — and sets
+`state='ready'` only after **all** of them resolve, so the KPI band renders nothing until the
+slowest request returns.
+
+Measured on staging at 132 vehicles: 11+ concurrent calls at 29–97 seconds, saturating the
+deployment and dragging unrelated endpoints (`/api/vehicles/me` 26.8s, `login` 24.8s, `/health`
+3.3s) with **zero 5xx** — not failing, saturated.
+
+**This is a genuine product characteristic, not merely a test artefact.** A dealership with 100+
+vehicles would experience the same. Worth investigating: a backend aggregate/batch analytics
+endpoint; bounded concurrency; pagination or server-side aggregation; partial-ready rendering
+instead of all-or-nothing; and large-inventory performance targets.
+
+Deliberately NOT addressed inside #194 — it is outside the former-seller security closure, and the
+certification no longer depends on it.
+
+---
+
+# EXACT-HEAD ACCEPTANCE CANDIDATE (2026-09-04) — #194 acceptance closure
+
+Prepared under the Product Owner's acceptance-closure directive. **#194 remains UNMERGED.**
+No shared-staging schema was modified by this closure task (read-only verification only); no O2
+branch content was modified; no P7 work was performed.
+
+## The head chain (history preserved, nothing rewritten)
+
+| Stage | SHA | Record |
+|---|---|---|
+| Original V16 exact-head certification (prior certified head) | `9ee59873` | 53-point report; Marketplace exact-head staging run `33192681171`, 11/11; the PR body's former "current head" |
+| Integrated certified SHA (superseded, not erased) | `dd94c56d` / branch `33720d79` | the section above; historical O2 merge-base |
+| Bounded convergence: former-seller authority closure landed | `6bed5c5e` → `f600d002` | product-code candidate FROZEN at `f600d002` (perf-scoped denial); certification matrix at `f600d002` above |
+| Certification-infrastructure repair (per-run Golden Seller) | `fbc059f9`, `49951a43` | full matrix + Golden 3/3 at `49951a43` (`33793846244`) |
+| Docs-only closure records | `68a44b60`, `e1d9ace7`, `52ebcd46` | this receipt's sections; product tree byte-identical to `f600d002` |
+| **Acceptance pack (this section + manifest + PR-body correction)** | the commit carrying this section | docs-only; the receipt-bearing candidate head |
+
+**Single-SHA discipline (this branch's documented rule):** every commit after `f600d002` is
+docs/tests/.github-only — `git diff f600d002 <head> -- . ':!docs' ':!*.test.js' ':!.github'`
+returns empty — so the PRODUCT certification remains anchored to the frozen candidate while the
+receipt-bearing head carries the records. This section does NOT claim any run executed on a SHA
+it did not; each run below names its exact SHA.
+
+## At-head check matrix — `52ebcd46` (the pre-acceptance head; every check ran ON this SHA)
+
+**Success (17 checks + 4 Vercel statuses):** Lint·Types·Build·Tests / Secret scan / Dependency
+audit `33795041143` · backend-and-build + playwright + staging-integration `33795041161` ·
+Passport foundation contracts `33795041017` · Finance obligation authority `33795041055` ·
+Referral CI `33795041079` · **Operations Serena staging UAT `33795041105`** · **Exact-head
+reference + staging certification (Marketplace) `33795041107`** · communication-unit +
+communication-postgres `33795041128` · navigation gates/e2e/accessibility `33795041196` ·
+Vercel Preview Comments · Vercel carup / carup-staging / carup-backend / carup-backend-staging —
+all success.
+
+**Skipped at head — honest classification (SKIPPED is never converted to PASS):**
+
+| Check | Why skipped | Classification |
+|---|---|---|
+| `Supabase Preview` | Supabase branch-preview integration not used by this repo's flow | intentionally out of scope |
+| `apply-and-verify`, `preflight-apply-verify` ×3 | migration-apply legs gated to their dispatch/path triggers | covered elsewhere: the Serena staging UAT's governed idempotent apply-list executed at head (`33795041105`) |
+| `communication-staging`, `communication-staging-deploy` | staging legs gated behind dispatch + provider secrets | covered elsewhere (comms unit+postgres at head; Communications 2.0 staging certified in its own merged lane); required only for future comms staging changes, not #194 acceptance |
+| `deployed-staging-uat` | dispatch-gated generic staging UAT | covered elsewhere: Serena UAT + exact-head Marketplace staging certification ran at THIS head |
+| Golden Seller lifecycle | dispatch-gated; not re-dispatched for docs-only commits | last run `33793846244` = 3/3 PASS at `49951a43`; inherited under the single-SHA rule above (product tree identical); required before acceptance only at candidate grain, which it satisfies |
+
+## PR-body correction
+
+The live PR body claimed "Current exact code head `9ee59873`… frozen while final Codex review
+runs" — stale by five certified stages. Corrected (2026-09-04) to name: prior certified head
+`9ee59873` (evidence preserved verbatim), the superseded integrated SHA `dd94c56d`, the frozen
+product candidate `f600d002`, the subsequent bounded convergence commits, and the current
+receipt-bearing candidate head. No historical run is presented as having executed on a newer SHA.
+
+## Relationship to the O2/P7 gate chain (gates NOT collapsed)
+
+`#194 exact-head acceptance candidate → PO merge/land decision → O2 reconciliation onto the
+landed base (per docs/hardening/PR194_O2_RECONCILIATION_MANIFEST.md — no blind cherry-pick) →
+shared-staging DDL parity plan → synthetic identity fixture approval → O2 preview pairing → P7 →
+X7.` One P7-reconciliation fact is corrected by THIS closure's verification: the P1-C migration
+`20260903120000` (and `20260828203000`) ARE live on staging — applied by this branch's governed
+Serena apply-list, UNLEDGERED in `supabase_migrations` (verified read-only:
+`vehicle_ownership_transfers` exists; `passport_transition_ownership_transfer_atomic` source
+contains the tenant retirement). The remaining SIX O2 expansion migrations (X3 ×2, X4 ×2, X5,
+X5A) are genuinely absent from staging.
+
+## Release gates that remain open AFTER acceptance (unchanged from the PR body)
+
+Production #158 custody/rotation evidence · production/staging Communications provider secrets +
+worker activation where live delivery is required · owner UAT sign-off · post-activation soak ·
+protected production migration approvals. None is claimed here.
+
+## Receipt-bearing head re-run — `c65bc6e7` (2026-09-04)
+
+Per this PR's own merge rule ("rerun exact-head matrix on the receipt-bearing head"), the
+push-triggered matrix executed ON `c65bc6e7` itself and completed **all green**: CI
+(Lint·Types·Build·Tests / Secret scan / Dependency audit) `33817880830` · backend-and-build +
+playwright + staging-integration `33817881110` · Passport foundation `33817880852` · Finance
+obligation `33817881101` · Referral `33817880753` · **Operations Serena staging UAT
+`33817880929`** · **Exact-head reference + staging certification `33817880884`** ·
+communication-unit + communication-postgres `33817881053` · navigation
+gates/e2e/accessibility `33817883412` · Vercel statuses success. Skips: the same six classes,
+classified above — unchanged, none converted to PASS. Golden Seller lifecycle remains inherited
+from `33793846244` (3/3 at `49951a43`) under the single-SHA rule; the product tree at
+`c65bc6e7` is byte-identical to `f600d002` outside docs/tests/.github (verified). This
+run-record commit is docs-only and inherits identically.
