@@ -7,7 +7,7 @@
  */
 import { NotFoundError, ValidationError, ForbiddenError } from '../../utils/errors.js';
 import { normalizeVehicleTaxonomyInput } from '../taxonomy/vehicleTaxonomyService.js';
-import { RFQ_URGENCY } from '../../constants/diaspora/diasporaRfqConstants.js';
+import { RFQ_URGENCY, deriveRfqLifecycle } from '../../constants/diaspora/diasporaRfqConstants.js';
 import { requireUserContext, isPlatformAdmin, isPlatformReviewer, isOrderOwner, normalizeId } from './diasporaAuthorization.js';
 import { resolveClient, appendAudit, paging } from './diasporaServiceUtils.js';
 import { matchSupplyForOrder } from './diasporaDemandSupplyMatchingService.js';
@@ -16,6 +16,7 @@ import { FEATURE_KEYS } from '../../constants/diaspora/diasporaEntitlements.js';
 
 const ORDERS = 'diaspora_import_orders';
 const QUOTES = 'diaspora_import_quotes';
+const REQUEST_LINES = 'diaspora_import_order_request_lines';
 const VALID_ORDER_TYPES = ['vehicle', 'parts', 'mixed'];
 const ACCEPT_QUOTE_RPC = 'diaspora_accept_quote_atomic';
 
@@ -99,7 +100,9 @@ export async function createBuyerOrder(payload = {}, userContext = {}, options =
       ...(payload.metadata || {}),
       urgency,
       requested_part_number: payload.requested_part_number || null,
-      rfq: { published: false },
+      // T2: a request starts as a DRAFT. Publication is a separate, deliberate buyer action
+      // (publishRfq) so nothing reaches the supplier marketplace on first save.
+      rfq: { published: false, ...normalizeRfqIntent(payload) },
     },
     created_by: context.id,
     updated_by: context.id,
@@ -108,11 +111,91 @@ export async function createBuyerOrder(payload = {}, userContext = {}, options =
   const { data, error } = await client.from(ORDERS).insert(row).select().single();
   if (error) throw new ValidationError(`Failed to create buyer order: ${error.message}`);
 
+  const lines = await replaceRequestLines(client, data, payload.lines, context);
+
   await appendAudit(client, {
     importOrderId: data.id, actorId: context.id, tenantId: data.tenant_id,
     action: 'BUYER_ORDER_CREATED', resourceType: 'diaspora_import_order', resourceId: data.id, newState: data, req,
   });
-  return data;
+  return { ...data, request_lines: lines };
+}
+
+/**
+ * Buyer sourcing intent that has no dedicated column and is genuinely request-scoped. Kept in
+ * `metadata.rfq` alongside the existing published/publishedAt flags rather than widening the
+ * orders table for presentational preferences.
+ *
+ * `discloseBudget` is the buyer's explicit consent to show their budget to suppliers — the safe
+ * marketplace projection reads exactly this flag, so silence stays private.
+ */
+function normalizeRfqIntent(payload = {}) {
+  const intent = {};
+  if (payload.needed_by || payload.neededBy) intent.neededBy = payload.needed_by || payload.neededBy;
+  if (payload.quote_deadline || payload.quoteDeadline) intent.quoteDeadline = payload.quote_deadline || payload.quoteDeadline;
+  if (typeof payload.buyer_notes === 'string' && payload.buyer_notes.trim()) intent.buyerNotes = payload.buyer_notes.trim();
+  if (typeof payload.buyerNotes === 'string' && payload.buyerNotes.trim()) intent.buyerNotes = payload.buyerNotes.trim();
+  const disclose = payload.disclose_budget ?? payload.discloseBudget;
+  if (typeof disclose === 'boolean') intent.discloseBudget = disclose;
+  if (payload.urgency) intent.urgency = String(payload.urgency).toUpperCase();
+  return intent;
+}
+
+const LINE_KINDS = ['vehicle', 'part', 'other'];
+const LINE_CONDITIONS = ['new', 'used', 'oem', 'aftermarket', 'any'];
+
+/**
+ * Replace a request's line items (T2 multi-item sourcing).
+ *
+ * Lines are only accepted on a DRAFT request: once suppliers can see a request and may have quoted
+ * against it, silently changing what was asked for would invalidate their offers. Returns [] when
+ * the caller supplied no `lines` key at all, so single-item callers are entirely unaffected.
+ */
+export async function replaceRequestLines(client, order, rawLines, context) {
+  if (!Array.isArray(rawLines)) return [];
+  if (order.metadata?.rfq?.published) {
+    throw new ValidationError('Request lines cannot be changed after the request is published');
+  }
+  await client.from(REQUEST_LINES).delete().eq('import_order_id', order.id);
+  if (!rawLines.length) return [];
+
+  const rows = rawLines.slice(0, 50).map((line, index) => {
+    const description = String(line.item_description ?? line.description ?? '').trim();
+    if (!description) throw new ValidationError(`Line ${index + 1} needs a description of what you are looking for`);
+    const kind = LINE_KINDS.includes(line.item_kind) ? line.item_kind : 'part';
+    const quantity = Number(line.quantity);
+    const condition = LINE_CONDITIONS.includes(line.condition_preference) ? line.condition_preference : null;
+    const partNumber = String(line.part_number ?? '').trim() || null;
+    return {
+      import_order_id: order.id,
+      tenant_id: order.tenant_id || null,
+      line_number: index + 1,
+      item_description: description.slice(0, 500),
+      item_kind: kind,
+      quantity: Number.isFinite(quantity) && quantity > 0 ? Math.round(quantity) : 1,
+      vehicle_make: line.vehicle_make || null,
+      vehicle_model: line.vehicle_model || null,
+      vehicle_year_min: line.vehicle_year_min ?? null,
+      vehicle_year_max: line.vehicle_year_max ?? null,
+      linked_vehicle_vin: line.linked_vehicle_vin || null,
+      part_number: partNumber,
+      // Never inferred from a blank field: the buyer answers this question explicitly, and a
+      // supplier reads "buyer does not know" as real information rather than missing data.
+      part_number_known: line.part_number_known === true && Boolean(partNumber),
+      condition_preference: condition,
+      notes: line.notes ? String(line.notes).slice(0, 1000) : null,
+      created_by: context.id,
+      updated_by: context.id,
+    };
+  });
+
+  const { data, error } = await client.from(REQUEST_LINES).insert(rows).select();
+  if (error) throw new ValidationError(`Failed to save request lines: ${error.message}`);
+  return data || [];
+}
+
+export async function listRequestLines(client, orderId) {
+  const { data } = await client.from(REQUEST_LINES).select('*').eq('import_order_id', orderId).is('deleted_at', null);
+  return (data || []).sort((a, b) => (a.line_number || 0) - (b.line_number || 0));
 }
 
 export async function listBuyerOrders(filters = {}, userContext = {}, options = {}) {
@@ -136,7 +219,14 @@ export async function getBuyerOrder(id, userContext = {}, options = {}) {
   const order = await loadOrder(client, id, context);
 
   const { data: quotes } = await client.from(QUOTES).select('*').eq('import_order_id', id).is('deleted_at', null);
-  return { ...order, quotes: quotes || [] };
+  const visibleQuotes = quotes || [];
+  return {
+    ...order,
+    quotes: visibleQuotes,
+    request_lines: await listRequestLines(client, id),
+    // The buyer-facing lifecycle step, derived from authoritative state (no new status column).
+    rfq_lifecycle: deriveRfqLifecycle(order, visibleQuotes.filter((q) => q.status === 'ISSUED').length),
+  };
 }
 
 export async function updateBuyerOrder(id, payload = {}, userContext = {}, options = {}) {
@@ -166,20 +256,25 @@ export async function updateBuyerOrder(id, payload = {}, userContext = {}, optio
     update.taxonomy_source_values = { make: nextMake || null, model: nextModel || null, year_min: nextYearMin ?? null, year_max: nextYearMax ?? null };
     update.taxonomized_at = new Date().toISOString();
   }
-  if (payload.metadata || payload.urgency || payload.requested_part_number) {
+  const rfqIntent = normalizeRfqIntent(payload);
+  if (payload.metadata || payload.urgency || payload.requested_part_number || Object.keys(rfqIntent).length) {
     update.metadata = {
       ...(previous.metadata || {}),
       ...(payload.metadata || {}),
       ...(payload.urgency ? { urgency: String(payload.urgency).toUpperCase() } : {}),
       ...(payload.requested_part_number ? { requested_part_number: payload.requested_part_number } : {}),
-      rfq: previous.metadata?.rfq || { published: false },
+      // Preserve the authoritative publication/award flags; only sourcing intent is editable here.
+      rfq: { ...(previous.metadata?.rfq || { published: false }), ...rfqIntent },
     };
   }
 
   const { data, error } = await client.from(ORDERS).update(update).eq('id', id).select().single();
   if (error) throw new ValidationError(`Failed to update buyer order: ${error.message}`);
+  const lines = Array.isArray(payload.lines)
+    ? await replaceRequestLines(client, data, payload.lines, context)
+    : await listRequestLines(client, id);
   await appendAudit(client, { importOrderId: id, actorId: context.id, tenantId: data.tenant_id, action: 'BUYER_ORDER_UPDATED', resourceType: 'diaspora_import_order', resourceId: id, previousState: previous, newState: data, req });
-  return data;
+  return { ...data, request_lines: lines };
 }
 
 export async function publishRfq(id, userContext = {}, options = {}) {

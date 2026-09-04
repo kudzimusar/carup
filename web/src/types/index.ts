@@ -812,6 +812,13 @@ export interface DiasporaRfqMeta {
   publishedAt?: string;
   acceptedQuoteId?: string;
   acceptedAt?: string;
+  /** T2 sourcing intent captured by the Request Quotes wizard. */
+  neededBy?: string;
+  quoteDeadline?: string;
+  buyerNotes?: string;
+  urgency?: string;
+  /** Explicit buyer consent to show budget to suppliers. Absent/false keeps it private. */
+  discloseBudget?: boolean;
 }
 
 export interface DiasporaQuote {
@@ -826,6 +833,14 @@ export interface DiasporaQuote {
   status: string;
   metadata?: Record<string, unknown>;
   created_at?: string;
+  /** T2 commercial terms. NULL means the supplier did not state it — never a default. */
+  offered_quantity?: number | null;
+  unit_price?: number | string | null;
+  lead_time_days?: number | null;
+  shipping_included?: boolean | null;
+  offered_condition?: string | null;
+  offered_description?: string | null;
+  stock_item_id?: string | null;
   [key: string]: unknown;
 }
 
@@ -866,6 +881,69 @@ export interface DiasporaBuyerOrderPayload {
   budget_currency?: string;
   urgency?: string;
   metadata?: Record<string, unknown>;
+  /** T2 sourcing intent. `disclose_budget` is explicit buyer consent to show budget to suppliers. */
+  needed_by?: string;
+  buyer_notes?: string;
+  disclose_budget?: boolean;
+  lines?: DiasporaRequestLinePayload[];
+}
+
+/** One item on a sourcing request. A multi-item request is one request with several lines. */
+export interface DiasporaRequestLinePayload {
+  item_description: string;
+  item_kind?: 'vehicle' | 'part' | 'other';
+  quantity?: number;
+  vehicle_make?: string;
+  vehicle_model?: string;
+  vehicle_year_min?: number;
+  vehicle_year_max?: number;
+  linked_vehicle_vin?: string;
+  part_number?: string;
+  /** Explicitly false when the buyer does not know it — a real answer, never inferred from blank. */
+  part_number_known?: boolean;
+  condition_preference?: 'new' | 'used' | 'oem' | 'aftermarket' | 'any';
+  notes?: string;
+}
+
+export interface DiasporaRequestLine extends DiasporaRequestLinePayload {
+  id: string;
+  line_number: number;
+}
+
+/**
+ * What a SUPPLIER sees of another party's buyer request — the sanitized marketplace projection.
+ * Deliberately has no buyer identity, tenant, VIN/chassis or metadata: see
+ * backend/services/diaspora/diasporaRfqService.js projectRfqForMarketplace().
+ */
+export interface DiasporaRfqOpportunity {
+  id: string;
+  reference: string;
+  order_type: string | null;
+  requested_make: string | null;
+  requested_model: string | null;
+  requested_year_min: number | null;
+  requested_year_max: number | null;
+  origin_country: string | null;
+  destination_country: string | null;
+  destination_city: string | null;
+  budget_amount: number | string | null;
+  budget_currency: string | null;
+  budget_disclosed: boolean;
+  needed_by: string | null;
+  urgency: string | null;
+  buyer_notes: string | null;
+  published_at: string | null;
+  quote_deadline: string | null;
+  buyer_context: { verified: boolean };
+  lines: DiasporaRequestLine[];
+  quote_count?: number;
+}
+
+/** A supplier's own quote paired with the safe projection of the request it answers. */
+export interface DiasporaMyQuote {
+  quote: DiasporaQuote;
+  outcome: string;
+  request: DiasporaRfqOpportunity | null;
 }
 
 export interface DiasporaMatchCandidate {
@@ -894,6 +972,15 @@ export interface DiasporaQuotePayload {
   leadTimeDays?: number;
   shippingTerms?: string;
   metadata?: Record<string, unknown>;
+  /** T2 commercial terms — real columns, so buyer comparison compares data not prose. */
+  offered_quantity?: number;
+  unit_price?: number;
+  lead_time_days?: number;
+  /** true = included, false = excluded, undefined = supplier did not say (renders "Not provided"). */
+  shipping_included?: boolean;
+  offered_condition?: string;
+  offered_description?: string;
+  stock_item_id?: string;
 }
 
 export interface DiasporaAcceptQuoteResult {

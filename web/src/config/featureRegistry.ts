@@ -963,13 +963,29 @@ export const FEATURE_REGISTRY: FeatureRegistryItem[] = [
   },
   {
     id: 'diaspora.reverse-rfq',
-    label: 'Reverse RFQ',
-    route: '/diaspora/rfq',
+    // Buyer-facing language (T2 §10): ordinary users do not know the term "Reverse RFQ".
+    // The internal id stays stable; only what a human reads changes.
+    label: 'Request Quotes',
+    route: '/diaspora/request-quotes',
     domain: 'diaspora',
     roles: ['owner', 'dealer', 'admin'],
     placements: ['dashboard_sidebar'],
     requiresAuth: true,
     icon: 'MessageSquare',
+    sidebarGroup: 'Growth & Diaspora',
+    description: 'Tell suppliers what you need and compare their offers',
+  },
+  {
+    id: 'diaspora.buyer-requests',
+    label: 'Buyer Requests',
+    route: '/diaspora/buyer-requests',
+    domain: 'diaspora',
+    roles: ['dealer', 'admin'],
+    placements: ['dashboard_sidebar'],
+    requiresAuth: true,
+    icon: 'Store',
+    sidebarGroup: 'Growth & Diaspora',
+    description: 'Customers looking for products you can supply',
   },
   {
     id: 'diaspora.ai-command-center',

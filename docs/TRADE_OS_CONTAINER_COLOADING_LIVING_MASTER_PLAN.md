@@ -1490,16 +1490,18 @@ The old D0–D10 demo checklist is retired as an active roadmap. Git history ret
 
 This replaces the old C1–C18 backlog as the active roadmap.
 
-## T0 — Foundation inventory and invariants
+## T0 — Foundation inventory and invariants  ✅ COMPLETE
 
 **Goal:** freeze what is authoritative before expansion.
 
-- [ ] Reconcile branch against current `main` without losing #207 work.
-- [ ] Inventory all Trade OS routes/services/tables/RLS/events/tests.
-- [ ] Mark authoritative vs legacy/duplicate surfaces.
-- [ ] Freeze security, audit, Trust and unavailable-vs-empty invariants.
-- [ ] Record migration state staging vs production.
-- [ ] Confirm current PR/build provenance.
+- [x] Reconcile branch against current `main` without losing #207 work.
+- [x] Inventory all Trade OS routes/services/tables/RLS/events/tests.
+- [x] Mark authoritative vs legacy/duplicate surfaces.
+- [x] Freeze security, audit, Trust and unavailable-vs-empty invariants.
+- [x] Record migration state staging vs production.
+- [x] Confirm current PR/build provenance.
+
+**Evidence:** execution entry "T0 complete, T1 prerequisites complete, T2 implementation cycle 1" in §30.
 
 ## T1 — Trade OS workspace, actor and identity convergence
 
@@ -1866,3 +1868,152 @@ Every implementation cycle appends an entry below.
 **PR #207:** remains Draft.  
 **Production touched:** NO.  
 **Next unchecked task:** T0 baseline/reconciliation, then T1 prerequisites and T2 Request Quotes / Reverse RFQ 2.0.
+
+---
+
+## Execution entry — 2026-09-04 · T0 complete, T1 prerequisites complete, T2 implementation cycle 1
+
+**Branch:** `feat/trade-os-client-demo-convergence` · Draft PR #207 · **Production touched: NO**
+
+### T0 — Foundation inventory and invariants ✅
+
+- [x] **Reconcile branch against current `main` without losing #207 work.** Local HEAD was
+  `255d903e`; the remote branch had ADVANCED to `ed690b4a` (the owner's two retasking commits:
+  the v2 master plan and the updated directive). Local was a strict ancestor with no local-only
+  commits, so this fast-forwarded cleanly — no rebase, no force, nothing overwritten.
+  `origin/main` is unchanged at `bb9d9900`; merge-base is still `bb9d9900`, so PR #207's base
+  has NOT moved and no reconciliation against newer Seller/Marketplace/Passport/Communications/
+  Intelligence work was required. Container Co-Loading correction work verified intact
+  (`TradeOSWorkspaceLayout.tsx`, `tradeContextService.js`, `containerBookingNotifier.js`,
+  migration `20260904100000`).
+- [x] **Inventory Trade OS routes/services/tables/RLS/events/tests** — see the reuse map below.
+- [x] **Mark authoritative vs legacy surfaces.** The legacy `/diaspora/rfq` page is the one
+  surface found to be genuinely superseded (see T2.1); everything else is reused, not replaced.
+- [x] **Freeze invariants.** Atomic accept-quote RPC, capacity kernel, audit, tenant isolation and
+  unavailable-vs-empty semantics are untouched by this cycle.
+- [x] **Record migration state.** Staging carries `20260904100000` (container convergence) and now
+  `20260904180000` (T2). Production carries neither.
+- [x] **Confirm PR/build provenance.** PR #207 Draft, base `main`.
+
+**T0 baseline tests (before any T2 change):** `node --test backend/tests/diaspora-*.test.js` →
+**1364 tests, 1357 pass, 0 fail, 7 skipped.**
+
+### Authoritative reuse map (what T2 builds ON, never rebuilds)
+
+| Concern | Authority reused | Evidence |
+|---|---|---|
+| Buyer request record | `diaspora_import_orders` (`order_type` already allows `vehicle`/`parts`/`mixed`) | `013_diaspora_trade_schema.sql` |
+| Request lifecycle | EXISTING statuses + `metadata.rfq` — **no new status CHECK, no migration** | `deriveRfqLifecycle()` in `diasporaRfqConstants.js` |
+| Quote record | `diaspora_import_quotes` (amount/currency/valid_until/inclusions/exclusions already present) | `013_diaspora_trade_schema.sql` |
+| Award | `diaspora_accept_quote_atomic` RPC — untouched | `diasporaBuyerOrderService.js:acceptQuote` |
+| Matching | `diasporaDemandSupplyMatchingService.js` — already deterministic and already returns human `reasons` | `scoreStockAgainstOrder()` |
+| Vehicle taxonomy | `normalizeVehicleTaxonomyInput()` already called by `createBuyerOrder` | `diasporaBuyerOrderService.js:67` |
+| Workspace shell | `TradeOSWorkspaceLayout` from the container cycle | reused, nav extended |
+
+**Status-vocabulary decision (§9.3):** no migration needed. `IMPORT_REQUESTED` + `metadata.rfq.published=false` = DRAFT; `QUOTE_ISSUED` + published = OPEN_FOR_QUOTES; ≥1 submitted quote = QUOTES_RECEIVED; `SELLER_ASSIGNED` + `acceptedQuoteId` = AWARDED. The database keeps its own words; `deriveRfqLifecycle()` translates them for humans.
+
+### T1 — prerequisites for T2 (only what T2 needs) ✅
+
+- [x] Trade OS workspace navigation extended to the intention-led model (§8): Request quotes ·
+  My requests · Buyer requests · Containers · Orders · Messages. Only working surfaces listed.
+- [x] Sourcing routes live in the AUTHENTICATED workspace shell, not the public marketing shell.
+- [x] Business/trade identity already canonical via `tradeContextService` (container cycle).
+- [x] No new global buyer/supplier/logistics security role introduced.
+- [x] Responsive geometry gate applied to the new surfaces.
+- [ ] `user_registration_profiles` ↔ legacy `diaspora_trade_profiles` convergence — **deferred**,
+  not required by T2 (T1 backlog).
+
+### T2 — Request Quotes / Reverse RFQ 2.0 (cycle 1)
+
+- [x] **T2.1 Information architecture.** `Reverse RFQ` retired from customer UI. Registry entry
+  relabelled **Request Quotes** → `/diaspora/request-quotes`; new **Buyer Requests** entry for
+  suppliers. `/diaspora/rfq` redirects (old links still land correctly) and the legacy page +
+  its 4-test spec were REMOVED rather than left as a competing surface — two RFQ experiences
+  would be exactly the comprehension failure the owner flagged. Manifest regenerated; drift gate green.
+- [x] **T2.2 Request Quotes entry.** Buy something / Ship something, in ordinary language.
+- [x] **T2.3 Vehicle request wizard.** Vehicle → destination → budget/timing → review, with
+  "leave blank if flexible" and no jargon.
+- [x] **T2.4 Parts request wizard.** Ordinary-language part name, quantity, condition, vehicle
+  context, and an explicit **"I don't know it"** part-number path that is preselected and
+  reassuring. A buyer's own CarUp vehicles can be selected so canonical identity is reused
+  instead of retyped.
+- [x] **T2.5 Multi-item request.** New additive table `diaspora_import_order_request_lines`
+  (migration `20260904180000`) — a real relational model, because lines are matched, quoted and
+  compared, so they are business data and not presentation metadata. One request, many lines.
+- [x] **T2.6 Draft → review → publish.** Nothing publishes on first save. The review step carries
+  a **privacy preview** naming exactly what suppliers will and will not see.
+- [x] **T2.7 Safe marketplace projection — the critical security work.** See below.
+- [x] **T2.8 Seller opportunity marketplace.** `Buyer Requests` with open/mine tabs, per-line
+  requirement detail, quote counts, deterministic make filter, and teaching empty states.
+- [x] **T2.9 Explainable matching.** Reasons in human language ("20 units required", "Buyer does
+  not know the part number — your identification helps"). No opaque score is shown.
+- [ ] **T2.10 Buyer↔seller clarification — NOT DONE (honest partial).** Canonical Communications
+  can carry it (`marketplace` workflow → `marketplace_inquiry` thread type, roles buyer/seller,
+  free-text `subject_type`), but the web client cannot reach `ensureReferenceFlow` today: the
+  ensure endpoint is worker-secret guarded server-to-server, so a diaspora-domain route must be
+  added first. **No "Ask a question" button was shipped**, because a button that does not create
+  a real conversation is worse than its absence. Carried to T2 cycle 2.
+- [x] **T2.11 Quote composer.** A real commercial proposal: description, quantity, unit price,
+  total, currency, condition, dispatch lead time, shipping included/excluded/**not stated**,
+  validity, inclusions and exclusions. Backed by additive REAL COLUMNS (`offered_quantity`,
+  `unit_price`, `lead_time_days`, `shipping_included`, `offered_condition`,
+  `offered_description`, `stock_item_id`) so comparison compares data, not prose.
+- [x] **T2.12 Quote lifecycle.** Draft / submit / withdraw exposed in "My offers", with won and
+  not-selected outcomes derived from authoritative order state.
+- [x] **T2.13 Quote comparison.** Real dimensions side by side; a term the supplier did not state
+  renders **"Not provided"**, never a favourable default. Deterministic highlights only
+  ("Lowest recorded total", "Fastest stated dispatch", "Shipping included") and each is suppressed
+  when the data cannot support it — with only one stated lead time there is nothing to be fastest
+  against, so no claim is made. Mixed currencies are flagged and never silently compared.
+- [x] **T2.14 Atomic supplier selection.** The hardened RPC is untouched and now driven from the
+  comparison surface, with the consequences stated before the click.
+- [x] **T2.15 Order Passport continuation.** After award the mental model changes: a truthful
+  stage list (Request ✓ · Supplier ✓ · Order in progress · Shipping/Documents/Zimbabwe **not
+  started**) and a direct route into the order. No re-entry of any fact.
+- [ ] **T2.16 Notifications/Communications events** — deferred with T2.10 (same seam).
+- [ ] **T2.17 RFQ Intelligence** — not started; deliberately not faked.
+- [x] **T2.18 Responsive.** Geometry gate (document/body scrollWidth ≤ viewport + 1) at 393 /
+  1024 / 1280 / 1440 across the supplier surface incl. the open composer.
+- [x] **T2.19 Adversarial security certification.** 18 new tests, all passing.
+- [ ] **T2.20 Real staging journey** — NOT YET RUN. This is the gate that decides T2-USABLE.
+
+### T2.7 — the safe cross-tenant marketplace (security decision, recorded)
+
+**What was wrong.** `listRfqs()` did `select('*')` and filtered in JS by
+`o.tenant_id === context.tenantId`. That had two consequences: a supplier could only ever see
+their OWN organisation's requests (so a marketplace was impossible), **and** a supplier with no
+tenant context received the FULL private order row — buyer id, VIN, chassis, auction lot,
+internal metadata — for every published request in the system.
+
+**What was done.** One change, two halves, because widening discovery without sanitizing would
+have deepened the leak:
+
+1. `projectRfqForMarketplace()` — an **allow-list** projection. A column added to
+   `diaspora_import_orders` in future cannot leak by default, because nothing spreads the row.
+2. The same-tenant filter is replaced by the real marketplace rule: **published + open +
+   not-your-own**, returning only the projection.
+
+Budget is exposed **only** when the buyer explicitly opted in (`metadata.rfq.discloseBudget`) —
+a budget is a negotiating position, so silence stays silence. Competitor detail is reduced to a
+count of submitted offers; amounts and identities never cross. RLS is untouched; the new table
+denies `anon`/`authenticated` outright so a direct PostgREST read cannot bypass the projection.
+
+**Proof:** `backend/tests/diaspora-rfq2-marketplace-projection.test.js` — 18 tests including an
+allow-list assertion over returned keys (a future leak fails the test), a serialized-secret scan,
+the tenantless-supplier case that closes the old leak, budget privacy both ways, competitor
+privacy, buyer-cannot-use-supplier-endpoint, and line-level privacy.
+
+### Evidence
+
+- **Backend:** T2 projection suite **18/18**; RFQ suite 14/14; migration integrity green;
+  full diaspora suite **1382 tests, 1375 pass, 0 fail, 7 skipped** (baseline 1357 pass → +18, no regressions).
+- **Web:** `tsc --noEmit` clean; nav/drift/footer unit tests 17/17; **T2 mocked e2e 18/18, no flakes**,
+  including the geometry gate and the comprehension regressions.
+- **Migration:** `20260904180000` applied to staging `eoyenigwevnxwwhyhaer`. Production untouched.
+
+**Known limitations (honest):** T2.10/T2.16 clarification + events not shipped (route seam
+required); T2.17 Intelligence not started; T2.20 staging journey not yet run, so **T2 is
+PARTIAL, not usable-certified**.
+
+**Next unchecked task:** T2.10 clarification seam → T2.16 events → T2.17 Intelligence → T2.20
+deployed staging certification (buyer + supplier, desktop/narrow/tablet/mobile, adversarial).

@@ -518,6 +518,22 @@
     "betaCapable": true
   },
   {
+    "id": "diaspora.buyer-requests",
+    "domain": "diaspora",
+    "route": "/diaspora/buyer-requests",
+    "defaultLifecycle": "active",
+    "defaultRoles": [
+      "admin",
+      "dealer"
+    ],
+    "immutableRoles": [
+      "admin",
+      "dealer"
+    ],
+    "requiresAuth": true,
+    "betaCapable": true
+  },
+  {
     "id": "diaspora.compliance",
     "domain": "diaspora",
     "route": "/admin/diaspora/compliance",
@@ -574,7 +590,7 @@
   {
     "id": "diaspora.reverse-rfq",
     "domain": "diaspora",
-    "route": "/diaspora/rfq",
+    "route": "/diaspora/request-quotes",
     "defaultLifecycle": "active",
     "defaultRoles": [
       "admin",

@@ -14,6 +14,7 @@ import { FEATURE_KEYS } from '../../constants/diaspora/diasporaEntitlements.js';
 
 const ORDERS = 'diaspora_import_orders';
 const QUOTES = 'diaspora_import_quotes';
+const REQUEST_LINES = 'diaspora_import_order_request_lines';
 
 function isPublished(order) {
   return Boolean(order.metadata?.rfq?.published);
@@ -23,7 +24,126 @@ function ownsQuote(quote, context) {
   return [quote.seller_id, quote.created_by].some((c) => normalizeId(c) === context.id);
 }
 
-/** Published RFQs visible to a seller. Reviewers/admins see all published; sellers exclude own. */
+/**
+ * T2 §9.4 — the SAFE marketplace projection.
+ *
+ * A supplier deciding whether to quote needs the requirement, not the requester. This is the ONLY
+ * shape a non-owner ever receives for another party's buyer order, and it is built by allow-list:
+ * a column added to `diaspora_import_orders` later cannot leak by default because nothing here
+ * spreads the row.
+ *
+ * Deliberately EXCLUDED (private, and asserted by adversarial tests):
+ *   buyer_id, tenant_id, created_by/updated_by, vin, chassis_number, linked_vehicle_vin,
+ *   auction_lot_number, verification_status, raw metadata, and any buyer contact detail.
+ *
+ * Budget is exposed ONLY when the buyer explicitly chose to disclose it. A budget is negotiating
+ * position, so silence must stay silence rather than defaulting to disclosure.
+ */
+export function projectRfqForMarketplace(order = {}, lines = [], extra = {}) {
+  const rfq = order.metadata?.rfq || {};
+  const disclosesBudget = rfq.discloseBudget === true && order.budget_amount != null;
+  return {
+    id: order.id,
+    reference: rfqReference(order.id),
+    order_type: order.order_type || null,
+    requested_make: order.requested_make || null,
+    requested_model: order.requested_model || null,
+    requested_year_min: order.requested_year_min ?? null,
+    requested_year_max: order.requested_year_max ?? null,
+    origin_country: order.origin_country || null,
+    destination_country: order.destination_country || null,
+    destination_city: order.destination_city || null,
+    // Buyer-stated commercial context, only where the buyer chose to publish it.
+    budget_amount: disclosesBudget ? order.budget_amount : null,
+    budget_currency: disclosesBudget ? order.budget_currency || null : null,
+    budget_disclosed: disclosesBudget,
+    needed_by: rfq.neededBy || null,
+    urgency: rfq.urgency || null,
+    buyer_notes: typeof rfq.buyerNotes === 'string' ? rfq.buyerNotes : null,
+    published_at: rfq.publishedAt || null,
+    quote_deadline: rfq.quoteDeadline || null,
+    // Non-identifying trust signal only: never a name, email, phone or user id.
+    buyer_context: { verified: order.verification_status === 'VERIFIED' },
+    lines: (lines || []).map(projectRequestLineForMarketplace),
+    ...extra,
+  };
+}
+
+/** Safe per-line projection. `part_number_known:false` is surfaced deliberately — see the migration. */
+export function projectRequestLineForMarketplace(line = {}) {
+  return {
+    id: line.id,
+    line_number: line.line_number,
+    item_description: line.item_description || null,
+    item_kind: line.item_kind || null,
+    quantity: line.quantity ?? null,
+    vehicle_make: line.vehicle_make || null,
+    vehicle_model: line.vehicle_model || null,
+    vehicle_year_min: line.vehicle_year_min ?? null,
+    vehicle_year_max: line.vehicle_year_max ?? null,
+    part_number: line.part_number || null,
+    part_number_known: Boolean(line.part_number_known),
+    condition_preference: line.condition_preference || null,
+    notes: line.notes || null,
+  };
+}
+
+/** Short, stable, non-guessable-order-id display reference. */
+export function rfqReference(id) {
+  return `RFQ-${String(id || '').replace(/-/g, '').slice(0, 8).toUpperCase()}`;
+}
+
+function isAwarded(order) {
+  return Boolean(order.metadata?.rfq?.acceptedQuoteId);
+}
+
+const POSITIVE_INT = (v) => {
+  const n = Number(v);
+  return Number.isFinite(n) && n > 0 ? Math.round(n) : null;
+};
+const POSITIVE_NUM = (v) => {
+  const n = Number(v);
+  return Number.isFinite(n) && n > 0 ? n : null;
+};
+
+/**
+ * Map a quote payload onto the additive commercial columns.
+ *
+ * `shipping_included` is tri-state on purpose: true / false / NULL("not stated"). Coercing an absent
+ * answer to false would publish a commercial claim the supplier never made.
+ */
+function commercialQuoteColumns(payload = {}) {
+  return {
+    offered_quantity: POSITIVE_INT(payload.offered_quantity ?? payload.offeredQuantity),
+    unit_price: POSITIVE_NUM(payload.unit_price ?? payload.unitPrice),
+    lead_time_days: POSITIVE_INT(payload.lead_time_days ?? payload.leadTimeDays),
+    shipping_included: typeof (payload.shipping_included ?? payload.shippingIncluded) === 'boolean'
+      ? (payload.shipping_included ?? payload.shippingIncluded)
+      : null,
+    offered_condition: payload.offered_condition || payload.offeredCondition || null,
+    offered_description: payload.offered_description || payload.offeredDescription || null,
+    stock_item_id: payload.stock_item_id || payload.stockItemId || null,
+  };
+}
+
+/**
+ * Published RFQs a supplier may consider — the cross-tenant sourcing marketplace.
+ *
+ * Two deliberate changes from the pre-T2 behaviour:
+ *
+ *  1. The same-tenant restriction is GONE for published requests. It made a marketplace impossible
+ *     (a supplier could only ever see their own organisation's requests). Visibility is now
+ *     published + open + not-your-own, which is the actual marketplace rule.
+ *
+ *  2. Every row is returned as the sanitized projection above. The previous implementation did
+ *     `select('*')` and handed the FULL private order row to the caller — which also meant a
+ *     supplier with NO tenant context received every published buyer's private columns across all
+ *     tenants. Widening discovery without this projection would have deepened that leak; the two
+ *     changes are one change.
+ *
+ * Tenant isolation for PRIVATE records is untouched: nothing here grants access to a draft order,
+ * to `getBuyerOrder`, or to any other tenant's records.
+ */
 export async function listRfqs(filters = {}, userContext = {}, options = {}) {
   const context = requireUserContext(userContext);
   const client = await resolveClient(options);
@@ -32,12 +152,80 @@ export async function listRfqs(filters = {}, userContext = {}, options = {}) {
   const { data, error } = await client.from(ORDERS).select('*').is('deleted_at', null).order('created_at', { ascending: false });
   if (error) throw new ValidationError(`Failed to list RFQs: ${error.message}`);
 
-  let published = (data || []).filter(isPublished).filter((o) => !o.metadata?.rfq?.acceptedQuoteId);
-  if (context.tenantId) published = published.filter((o) => normalizeId(o.tenant_id) === context.tenantId);
+  let published = (data || []).filter(isPublished).filter((o) => !isAwarded(o));
   if (!isPlatformAdmin(context) && !isPlatformReviewer(context)) {
     published = published.filter((o) => normalizeId(o.buyer_id) !== context.id);
   }
-  return published.slice(offset, offset + limit);
+  published = applyMarketplaceFilters(published, filters);
+  const page = published.slice(offset, offset + limit);
+  if (!page.length) return [];
+
+  const orderIds = page.map((o) => o.id);
+  const [linesByOrder, quoteCounts] = await Promise.all([
+    loadRequestLines(client, orderIds),
+    countSubmittedQuotes(client, orderIds),
+  ]);
+  return page.map((o) => projectRfqForMarketplace(o, linesByOrder.get(o.id) || [], {
+    quote_count: quoteCounts.get(o.id) || 0,
+  }));
+}
+
+/** Deterministic supplier-side filters. Only fields present in the safe projection are filterable. */
+function applyMarketplaceFilters(orders, filters = {}) {
+  const eq = (a, b) => String(a || '').trim().toLowerCase() === String(b || '').trim().toLowerCase();
+  let out = orders;
+  if (filters.order_type) out = out.filter((o) => eq(o.order_type, filters.order_type));
+  if (filters.make) out = out.filter((o) => eq(o.requested_make, filters.make));
+  if (filters.destination_country) out = out.filter((o) => eq(o.destination_country, filters.destination_country));
+  return out;
+}
+
+async function loadRequestLines(client, orderIds) {
+  const byOrder = new Map();
+  if (!orderIds.length) return byOrder;
+  const { data } = await client.from(REQUEST_LINES).select('*').in('import_order_id', orderIds).is('deleted_at', null);
+  for (const line of data || []) {
+    if (!byOrder.has(line.import_order_id)) byOrder.set(line.import_order_id, []);
+    byOrder.get(line.import_order_id).push(line);
+  }
+  for (const list of byOrder.values()) list.sort((a, b) => (a.line_number || 0) - (b.line_number || 0));
+  return byOrder;
+}
+
+/**
+ * Submitted-quote counts per request — competitive context ("3 suppliers have quoted"), never the
+ * competitors' identities or amounts.
+ */
+async function countSubmittedQuotes(client, orderIds) {
+  const counts = new Map();
+  if (!orderIds.length) return counts;
+  const { data } = await client.from(QUOTES).select('import_order_id, status').in('import_order_id', orderIds).is('deleted_at', null);
+  for (const q of data || []) {
+    if (q.status !== QUOTE_DB_STATUSES.SUBMITTED) continue;
+    counts.set(q.import_order_id, (counts.get(q.import_order_id) || 0) + 1);
+  }
+  return counts;
+}
+
+/**
+ * One published request, as a supplier sees it. Same allow-list projection as the feed — a supplier
+ * opening a request detail must never receive more than the feed would have shown them.
+ */
+export async function getRfqForSeller(orderId, userContext = {}, options = {}) {
+  const context = requireUserContext(userContext);
+  const client = await resolveClient(options);
+  const order = await loadPublishedOrder(client, orderId);
+  if (!isPlatformAdmin(context) && !isPlatformReviewer(context) && normalizeId(order.buyer_id) === context.id) {
+    // The buyer owns this request; they read it through their own (full) buyer-order endpoint.
+    throw new ForbiddenError('Use the buyer order endpoint to read your own request');
+  }
+  const [linesByOrder, quoteCounts] = await Promise.all([
+    loadRequestLines(client, [orderId]),
+    countSubmittedQuotes(client, [orderId]),
+  ]);
+  return projectRfqForMarketplace(order, linesByOrder.get(orderId) || [], {
+    quote_count: quoteCounts.get(orderId) || 0,
+  });
 }
 
 async function loadPublishedOrder(client, orderId) {
@@ -46,6 +234,40 @@ async function loadPublishedOrder(client, orderId) {
   if (!isPublished(data)) throw new ValidationError('This order is not an open RFQ');
   if (data.metadata?.rfq?.acceptedQuoteId) throw new ValidationError('This RFQ has already accepted a quote');
   return data;
+}
+
+/**
+ * A supplier's own quote pipeline across every request they have engaged with.
+ *
+ * Scoped to quotes the caller owns — never a competitor's. Each quote is paired with the SAFE
+ * projection of the request it answers, so a supplier can see "what I offered, on what request,
+ * and whether I won" without any private buyer data entering the response.
+ */
+export async function listMyQuotes(filters = {}, userContext = {}, options = {}) {
+  const context = requireUserContext(userContext);
+  const client = await resolveClient(options);
+  const { data, error } = await client.from(QUOTES).select('*').eq('seller_id', context.id).is('deleted_at', null).order('created_at', { ascending: false });
+  if (error) throw new ValidationError(`Failed to list quotes: ${error.message}`);
+
+  const quotes = data || [];
+  if (!quotes.length) return [];
+  const orderIds = [...new Set(quotes.map((q) => q.import_order_id).filter(Boolean))];
+  const { data: orders } = await client.from(ORDERS).select('*').in('id', orderIds).is('deleted_at', null);
+  const linesByOrder = await loadRequestLines(client, orderIds);
+  const orderById = new Map((orders || []).map((o) => [o.id, o]));
+
+  return quotes.map((q) => {
+    const order = orderById.get(q.import_order_id);
+    return {
+      quote: q,
+      // Won/lost is derived from authoritative order state, not from the quote row alone.
+      outcome: !order ? 'unknown'
+        : order.metadata?.rfq?.acceptedQuoteId === q.id ? 'won'
+          : order.metadata?.rfq?.acceptedQuoteId ? 'not_selected'
+            : q.status,
+      request: order ? projectRfqForMarketplace(order, linesByOrder.get(order.id) || []) : null,
+    };
+  });
 }
 
 export async function createQuote(orderId, payload = {}, userContext = {}, options = {}) {
@@ -84,9 +306,14 @@ export async function createQuote(orderId, payload = {}, userContext = {}, optio
     inclusions: payload.inclusions || [],
     exclusions: payload.exclusions || [],
     status: submit ? QUOTE_DB_STATUSES.SUBMITTED : QUOTE_DB_STATUSES.DRAFT,
+    // T2: real commercial terms as columns, so buyer comparison compares data rather than prose.
+    // Every one is optional — a supplier who says nothing produces NULL, which the comparison
+    // renders as "Not provided", never as a default (see the migration comments).
+    ...commercialQuoteColumns(payload),
     metadata: {
       ...(payload.metadata || {}),
       idempotencyKey,
+      // Retained for backwards compatibility with quotes written before the columns existed.
       stockItemId: payload.stockItemId || null,
       leadTimeDays: payload.leadTimeDays ?? null,
       shippingTerms: payload.shippingTerms || null,

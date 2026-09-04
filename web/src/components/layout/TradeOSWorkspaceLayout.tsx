@@ -17,10 +17,18 @@ import type { DiasporaTradeContext } from '@/types'
  * type, corridor, membership — never the platform security role. No public footer, no mega-menu.
  */
 
+/**
+ * Local Trade OS navigation (T2 §8). Only surfaces that genuinely work are listed — no placeholder
+ * destinations. "Request quotes" is the buyer's sourcing entry; "Buyer requests" is the supplier's
+ * opportunity marketplace; both are named for what the user is doing, not for the domain object.
+ */
 const NAV_ITEMS: Array<[string, string]> = [
+  ['/diaspora/request-quotes', 'Request quotes'],
+  ['/diaspora/requests', 'My requests'],
+  ['/diaspora/buyer-requests', 'Buyer requests'],
   ['/diaspora/containers', 'Containers'],
-  ['/diaspora/imports', 'Import orders'],
-  ['/dashboard/communications', 'Communications'],
+  ['/diaspora/imports', 'Orders'],
+  ['/dashboard/communications', 'Messages'],
 ]
 
 function corridorOf(context: DiasporaTradeContext | null): string | null {

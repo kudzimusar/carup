@@ -103,6 +103,8 @@ import type {
   DiasporaAiExecuteResult,
   DiasporaMarketplaceContainer,
   DiasporaMarketplaceContainerPayload,
+  DiasporaRfqOpportunity,
+  DiasporaMyQuote,
   DiasporaTradeContext,
   DiasporaContainerCapacityResult,
   DiasporaMarketplaceReservation,
@@ -1541,8 +1543,20 @@ export function useCarUpApi() {
     return response.data
   }, [request])
 
-  const fetchDiasporaRfqs = useCallback(async (): Promise<DiasporaBuyerOrder[]> => {
-    const response = await request<{ data: DiasporaBuyerOrder[] }>('/diaspora/rfqs')
+  // Supplier-facing: the SANITIZED cross-tenant marketplace projection, never the buyer's row.
+  const fetchDiasporaRfqs = useCallback(async (filters: Record<string, string> = {}): Promise<DiasporaRfqOpportunity[]> => {
+    const qs = new URLSearchParams(Object.entries(filters).filter(([, v]) => v)).toString()
+    const response = await request<{ data: DiasporaRfqOpportunity[] }>(`/diaspora/rfqs${qs ? `?${qs}` : ''}`)
+    return response.data || []
+  }, [request])
+
+  const fetchDiasporaRfqOpportunity = useCallback(async (id: string): Promise<DiasporaRfqOpportunity> => {
+    const response = await request<{ data: DiasporaRfqOpportunity }>(`/diaspora/rfqs/${encodeURIComponent(id)}`)
+    return response.data
+  }, [request])
+
+  const fetchDiasporaMyQuotes = useCallback(async (): Promise<DiasporaMyQuote[]> => {
+    const response = await request<{ data: DiasporaMyQuote[] }>('/diaspora/my-quotes')
     return response.data || []
   }, [request])
 
@@ -2966,6 +2980,8 @@ export function useCarUpApi() {
     fetchDiasporaOrderMatches,
     acceptDiasporaQuote,
     fetchDiasporaRfqs,
+    fetchDiasporaRfqOpportunity,
+    fetchDiasporaMyQuotes,
     createDiasporaQuote,
     submitDiasporaQuote,
     withdrawDiasporaQuote,

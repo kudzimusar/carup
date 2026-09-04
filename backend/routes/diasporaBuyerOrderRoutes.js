@@ -15,6 +15,8 @@ import {
 } from '../services/diaspora/diasporaBuyerOrderService.js';
 import {
   listRfqs,
+  getRfqForSeller,
+  listMyQuotes,
   createQuote,
   updateQuote,
   submitQuoteById,
@@ -56,6 +58,14 @@ router.post('/buyer-orders/:id/quotes', sellerAuth, asyncHandler(async (req, res
 }));
 router.get('/rfqs', sellerAuth, asyncHandler(async (req, res) => {
   res.json({ data: await listRfqs(req.query, req.userContext, { req }) });
+}));
+// A supplier's view of ONE published request — the same sanitized projection as the feed.
+router.get('/rfqs/:id', sellerAuth, asyncHandler(async (req, res) => {
+  res.json({ data: await getRfqForSeller(req.params.id, req.userContext, { req }) });
+}));
+// The supplier's own quotes across every request (their pipeline: drafts, submitted, won, lost).
+router.get('/my-quotes', sellerAuth, asyncHandler(async (req, res) => {
+  res.json({ data: await listMyQuotes(req.query, req.userContext, { req }) });
 }));
 router.patch('/quotes/:id', sellerAuth, asyncHandler(async (req, res) => {
   res.json({ data: await updateQuote(req.params.id, req.body, req.userContext, { req }) });

@@ -8,6 +8,10 @@ import type { AuthUser, Notification } from '@shared/types'
 // Layout
 import MainLayout from './components/layout/MainLayout'
 import TradeOSWorkspaceLayout from './components/layout/TradeOSWorkspaceLayout'
+import TradeRequestQuotes from './pages/diaspora/TradeRequestQuotes'
+import TradeMyRequests from './pages/diaspora/TradeMyRequests'
+import TradeRequestDetail from './pages/diaspora/TradeRequestDetail'
+import TradeBuyerRequests from './pages/diaspora/TradeBuyerRequests'
 import DashboardLayout from './components/layout/DashboardLayout'
 import { FeatureGovernanceLoader } from './context/FeatureGovernanceContext'
 import { NotFoundPage } from './components/routing/FeatureStatePages'
@@ -58,7 +62,6 @@ import DiasporaWorkbookDryRun from './pages/diaspora/DiasporaWorkbookDryRun'
 import DiasporaWorkbookOperatorConsole from './pages/diaspora/DiasporaWorkbookOperatorConsole'
 import DiasporaStockManager from './pages/diaspora/DiasporaStockManager'
 import DiasporaTradeProfile from './pages/diaspora/DiasporaTradeProfile'
-import DiasporaReverseRfq from './pages/diaspora/DiasporaReverseRfq'
 import DiasporaAiCommandCenter from './pages/diaspora/DiasporaAiCommandCenter'
 import DiasporaContainerMarketplace from './pages/diaspora/DiasporaContainerMarketplace'
 import DiasporaDriveConnections from './pages/diaspora/DiasporaDriveConnections'
@@ -279,7 +282,6 @@ export default function App() {
           <Route path="/diaspora/stock" element={<DiasporaStockManager />} />
           <Route path="/diaspora/trade-profile" element={<DiasporaTradeProfile />} />
           <Route path="/diaspora/stock/:id/passport" element={<DiasporaStockPassport />} />
-          <Route path="/diaspora/rfq" element={<DiasporaReverseRfq />} />
           <Route path="/diaspora/ai-commands" element={<DiasporaAiCommandCenter />} />
           <Route path="/diaspora/drive" element={<DiasporaDriveConnections />} />
           <Route path="/diaspora/subscription" element={<DiasporaSubscription />} />
@@ -305,6 +307,15 @@ export default function App() {
             operating shell (compact top bar + local Trade OS nav), not the public marketing
             MainLayout. Other Diaspora routes stay in MainLayout until deliberately migrated. */}
         <Route element={<TradeOSWorkspaceLayout />}>
+          {/* T2 — Request Quotes: buyer sourcing + supplier opportunity marketplace. */}
+          {/* The legacy /diaspora/rfq surface is retired: its buyer-facing term is now
+              "Request Quotes" and its mechanics live in the T2 surfaces below. The path is kept
+              as a redirect so existing links and bookmarks still land somewhere correct. */}
+          <Route path="/diaspora/rfq" element={<Navigate to="/diaspora/request-quotes" replace />} />
+          <Route path="/diaspora/request-quotes" element={<TradeRequestQuotes />} />
+          <Route path="/diaspora/requests" element={<TradeMyRequests />} />
+          <Route path="/diaspora/requests/:id" element={<TradeRequestDetail />} />
+          <Route path="/diaspora/buyer-requests" element={<TradeBuyerRequests />} />
           <Route path="/diaspora/containers" element={<DiasporaContainerMarketplace />} />
           <Route path="/diaspora/imports" element={<DiasporaImportList />} />
           <Route path="/diaspora/imports/new" element={<NewDiasporaImportOrder />} />
