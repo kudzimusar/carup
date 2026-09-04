@@ -10,7 +10,7 @@
  * corrections happen IN THE FILE (the assistant suggests, the user edits and
  * re-uploads — the page never silently rewrites their data).
  */
-import React, { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent } from '@/components/ui/card'

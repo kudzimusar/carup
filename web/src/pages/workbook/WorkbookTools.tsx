@@ -5,7 +5,7 @@
  * templates appear with their honest reasons instead of vanishing (client-side
  * hiding is presentation — the backend list is the gate, re-verified per call).
  */
-import React, { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
