@@ -270,6 +270,40 @@ stagingTest.describe('Trade OS T2 — Request Quotes (deployed staging, cross-te
     await expect(page.getByTestId('trade-my-offer-status').first()).toContainText(/Won/i);
   });
 
+  stagingTest('the supplier can actually OPEN Messages — "Ask a question" is not a dead button', async ({ page }, testInfo) => {
+    stagingTest.skip(stagingTest.info().project.name !== 'chromium', 'journey runs once on desktop');
+    await signIn(page, 'supplier');
+    await gotoSettled(page, '/diaspora/buyer-requests');
+
+    // The shell must not advertise a destination this role is then denied. "Orders" is the buyer's
+    // import list (registered owner-only), so a supplier should not be offered it at all.
+    const nav = page.getByTestId('tradeos-nav');
+    await expect(nav.getByRole('link', { name: 'Messages' })).toBeVisible();
+    await expect(nav.getByRole('link', { name: 'Buyer requests' })).toBeVisible();
+    await expect(nav.getByRole('link', { name: 'Orders', exact: true })).toHaveCount(0);
+
+    // The defect this replaces: Messages pointed at the OWNER-ONLY dashboard inbox, so a supplier
+    // was redirected to /dealer and could never read the thread they had just created.
+    await nav.getByRole('link', { name: 'Messages' }).click();
+    await page.waitForURL(/\/diaspora\/messages/, { timeout: 20_000 });
+    expect(new URL(page.url()).pathname).toBe('/diaspora/messages');
+    await page.waitForLoadState('networkidle', { timeout: 15_000 }).catch(() => undefined);
+    // Landing is not enough — the canonical Communications surface must actually render here.
+    await expect(page.getByTestId('communication-search')).toBeVisible({ timeout: 20_000 });
+    await testInfo.attach('supplier-messages-reachable.png', { body: await page.screenshot({ fullPage: true }), contentType: 'image/png' });
+  });
+
+  stagingTest('the buyer is not offered the supplier-only marketplace', async ({ page }) => {
+    stagingTest.skip(stagingTest.info().project.name !== 'chromium', 'journey runs once on desktop');
+    await signIn(page, 'buyer');
+    await gotoSettled(page, '/diaspora/request-quotes');
+    const nav = page.getByTestId('tradeos-nav');
+    await expect(nav.getByRole('link', { name: 'Messages' })).toBeVisible();
+    await expect(nav.getByRole('link', { name: 'My requests' })).toBeVisible();
+    // Registered dealer/admin: showing it to a buyer produced a link the boundary then refused.
+    await expect(nav.getByRole('link', { name: 'Buyer requests' })).toHaveCount(0);
+  });
+
   stagingTest('HARD GEOMETRY GATE: no horizontal overflow across desktop classes (T2.18)', async ({ page }, testInfo) => {
     stagingTest.skip(stagingTest.info().project.name !== 'chromium', 'geometry sweep runs once');
     await signIn(page, 'supplier');

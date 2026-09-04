@@ -126,7 +126,7 @@ export default function TradeOSWorkspaceLayout() {
             </div>
             <TradeIdentity context={context} unreadable={contextUnreadable} />
           </div>
-          <nav className="-mx-1 flex gap-1 overflow-x-auto pb-2" aria-label="Trade OS">
+          <nav className="-mx-1 flex gap-1 overflow-x-auto pb-2" aria-label="Trade OS" data-testid="tradeos-nav">
             {NAV_ITEMS.filter(([to]) => canRoleAccessRoute((user?.role as UserRole) ?? 'owner', to)).map(([to, label]) => (
               <NavLink
                 key={to}
