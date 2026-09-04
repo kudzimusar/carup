@@ -57,6 +57,7 @@ async function signIn(page: Page, role: TradeRole): Promise<void> {
     const response = await responsePromise;
     if (response.ok()) {
       await page.waitForURL((url) => !url.pathname.startsWith('/login'), { timeout: 20_000 });
+        await page.waitForLoadState('networkidle', { timeout: 15_000 }).catch(() => undefined);
       return;
     }
     if (response.status() !== 429) throw new Error(`UI login failed for ${role} with HTTP ${response.status()}`);
@@ -65,6 +66,13 @@ async function signIn(page: Page, role: TradeRole): Promise<void> {
     await page.getByTestId('password-input').fill(password(role));
   }
   throw new Error(`UI login remained rate-limited for ${role}`);
+}
+
+/** Navigate and let the surface finish its background reads — journeys must not outrun the page
+ *  and turn in-flight dashboard fetches into aborted-fetch console noise. */
+async function gotoSettled(page: Page, path: string): Promise<void> {
+  await page.goto(path);
+  await page.waitForLoadState('networkidle', { timeout: 15_000 }).catch(() => undefined);
 }
 
 /** Drain the domain-event outbox through THIS candidate's backend (best-effort, bounded). */
@@ -105,7 +113,7 @@ stagingTest.describe('Trade OS container co-loading — client demo (deployed st
     await signIn(page, 'operator');
 
     // Discoverability (D1): the dashboard sidebar carries Container Co-Loading — no hidden URL.
-    await page.goto('/dashboard/owner');
+    await gotoSettled(page, '/dashboard');
     const navLink = page.getByRole('link', { name: /Container Co-Loading/i }).first();
     await expect(navLink).toBeVisible();
     await navLink.click();
@@ -138,7 +146,7 @@ stagingTest.describe('Trade OS container co-loading — client demo (deployed st
   stagingTest('participant A: discover container, request VEHICLE space with import-order link', async ({ page, request }) => {
     stagingTest.skip(stagingTest.info().project.name !== 'chromium', 'full journey runs once on desktop');
     await signIn(page, 'participantA');
-    await page.goto('/diaspora/containers');
+    await gotoSettled(page, '/diaspora/containers');
     await openContainerByDeparture(page, OCT_DEPARTURE);
 
     await page.getByTestId('diaspora-container-reserve-category').selectOption('vehicle');
@@ -167,7 +175,7 @@ stagingTest.describe('Trade OS container co-loading — client demo (deployed st
   stagingTest('participant B: request HOUSEHOLD space (non-vehicle eligible cargo)', async ({ page, request }) => {
     stagingTest.skip(stagingTest.info().project.name !== 'chromium', 'full journey runs once on desktop');
     await signIn(page, 'participantB');
-    await page.goto('/diaspora/containers');
+    await gotoSettled(page, '/diaspora/containers');
     await openContainerByDeparture(page, OCT_DEPARTURE);
 
     await page.getByTestId('diaspora-container-reserve-category').selectOption('household');
@@ -184,7 +192,7 @@ stagingTest.describe('Trade OS container co-loading — client demo (deployed st
   stagingTest('operator: sees both requests with cargo context, approves the vehicle — capacity updates', async ({ page, request }) => {
     stagingTest.skip(stagingTest.info().project.name !== 'chromium', 'full journey runs once on desktop');
     await signIn(page, 'operator');
-    await page.goto('/diaspora/containers');
+    await gotoSettled(page, '/diaspora/containers');
     await openContainerByDeparture(page, OCT_DEPARTURE);
 
     const rows = page.getByTestId('diaspora-container-reservation-row');
@@ -204,7 +212,7 @@ stagingTest.describe('Trade OS container co-loading — client demo (deployed st
     stagingTest.skip(stagingTest.info().project.name !== 'chromium', 'full journey runs once on desktop');
     // B requests 50 CBM (individually valid: ≤ 60 total) …
     await signIn(page, 'participantB');
-    await page.goto('/diaspora/containers');
+    await gotoSettled(page, '/diaspora/containers');
     await openContainerByDeparture(page, OCT_DEPARTURE);
     await page.getByTestId('diaspora-container-reserve-category').selectOption('general');
     await page.getByTestId('diaspora-container-reserve-description').fill('Overfill probe — general cargo pallets');
@@ -215,7 +223,7 @@ stagingTest.describe('Trade OS container co-loading — client demo (deployed st
     // … but approving it must fail atomically: 22 approved + 50 = 72 > 60.
     await page.context().clearCookies();
     await signIn(page, 'operator');
-    await page.goto('/diaspora/containers');
+    await gotoSettled(page, '/diaspora/containers');
     await openContainerByDeparture(page, OCT_DEPARTURE);
     const probeRow = page.getByTestId('diaspora-container-reservation-row').filter({ hasText: 'Overfill probe' });
     await probeRow.getByTestId('diaspora-container-approve').click();
@@ -232,7 +240,7 @@ stagingTest.describe('Trade OS container co-loading — client demo (deployed st
   stagingTest('participant A: sees APPROVED state, can cancel a second request, and has activity/communication state', async ({ page, request }) => {
     stagingTest.skip(stagingTest.info().project.name !== 'chromium', 'full journey runs once on desktop');
     await signIn(page, 'participantA');
-    await page.goto('/diaspora/containers');
+    await gotoSettled(page, '/diaspora/containers');
     await openContainerByDeparture(page, OCT_DEPARTURE);
     const mine = page.getByTestId('diaspora-container-reservation-row');
     await expect(mine.filter({ hasText: 'APPROVED' })).toHaveCount(1);
@@ -265,19 +273,28 @@ stagingTest.describe('Trade OS container co-loading — client demo (deployed st
     }
   });
 
-  stagingTest('cross-tenant denial: a rival tenant admin cannot approve or close this container', async ({ page }) => {
+  stagingTest('cross-tenant denial: a rival tenant admin cannot see, approve or close this container', async ({ page, request }) => {
     stagingTest.skip(stagingTest.info().project.name !== 'chromium', 'full journey runs once on desktop');
     await signIn(page, 'outsider');
-    await page.goto('/diaspora/containers');
+    await gotoSettled(page, '/diaspora/containers');
     await openContainerByDeparture(page, OCT_DEPARTURE);
-    // The outsider is a tenant admin (of ANOTHER tenant): the client UI cannot know record
-    // ownership, but every action must be server-denied and the state must not change.
-    const pendingRow = page.getByTestId('diaspora-container-reservation-row').filter({ hasText: 'REQUESTED' }).first();
-    await expect(pendingRow).toBeVisible();
-    await pendingRow.getByTestId('diaspora-container-approve').click();
-    await expect(page.getByTestId('diaspora-container-reserve-error')).toBeVisible();
-    await expect(pendingRow.getByText('REQUESTED')).toBeVisible();
 
+    // Participant visibility boundary: the rival admin holds tenant authority over ANOTHER tenant,
+    // so the reservation list is participant-scoped for them — none of the real reservations leak.
+    await expect(page.getByTestId('diaspora-container-reservation-row')).toHaveCount(0);
+
+    // Direct API approval attempt with the outsider's real session + their own verified tenant:
+    // the atomic RPC denies on tenant mismatch (403), and the reservation stays APPROVED-by-A's
+    // operator — never re-writable by a rival tenant.
+    const token = await sessionToken(page);
+    expect(runState.vehicleReservationId, 'vehicle reservation id from earlier step').toBeTruthy();
+    const approveRes = await request.post(
+      `${API_URL}/diaspora/container-marketplace/reservations/${runState.vehicleReservationId}/approve`,
+      { headers: { 'x-session-token': token, 'x-tenant-id': 'c0106a0e-1a11-4a6a-9e01-000000000b02' } },
+    );
+    expect(approveRes.status()).toBe(403);
+
+    // Cross-tenant close attempt through the UI: server-denied, container stays open.
     await page.getByTestId('diaspora-container-close-booking').click();
     await expect(page.getByTestId('diaspora-container-reserve-error')).toBeVisible();
     await expect(page.getByTestId('diaspora-container-status').first()).toContainText(/BOOKING[ _]OPEN/);
@@ -286,7 +303,7 @@ stagingTest.describe('Trade OS container co-loading — client demo (deployed st
   stagingTest('operator: December container + booking-close semantics on a proof container', async ({ page, request }) => {
     stagingTest.skip(stagingTest.info().project.name !== 'chromium', 'full journey runs once on desktop');
     await signIn(page, 'operator');
-    await page.goto('/diaspora/containers');
+    await gotoSettled(page, '/diaspora/containers');
 
     // December sailing (left OPEN for the client demo).
     await page.getByTestId('diaspora-container-create-toggle').click();
@@ -318,7 +335,7 @@ stagingTest.describe('Trade OS container co-loading — client demo (deployed st
   stagingTest('order passport carries the linked cargo reservation (D9)', async ({ page }) => {
     stagingTest.skip(stagingTest.info().project.name !== 'chromium', 'full journey runs once on desktop');
     await signIn(page, 'participantA');
-    await page.goto('/diaspora/imports/d0106a0e-1a11-4a6a-9e01-00000000c001/passport');
+    await gotoSettled(page, '/diaspora/imports/d0106a0e-1a11-4a6a-9e01-00000000c001/passport');
     await expect(page.getByText(/Cargo reservation/i).first()).toBeVisible();
     await expect(page.getByText('APPROVED').first()).toBeVisible();
   });
@@ -326,7 +343,7 @@ stagingTest.describe('Trade OS container co-loading — client demo (deployed st
   stagingTest('responsive: participant journey state on this viewport', async ({ page }) => {
     stagingTest.skip(stagingTest.info().project.name === 'chromium', 'chromium already ran the full journey');
     await signIn(page, 'participantA');
-    await page.goto('/diaspora/containers');
+    await gotoSettled(page, '/diaspora/containers');
     await openContainerByDeparture(page, OCT_DEPARTURE);
     await expect(page.getByTestId('diaspora-container-capacity-line')).toContainText('Used 22/60');
     await expect(page.getByTestId('diaspora-container-reservation-row').filter({ hasText: 'APPROVED' })).toHaveCount(1);
@@ -337,7 +354,7 @@ stagingTest.describe('Trade OS container co-loading — client demo (deployed st
   stagingTest('responsive: operator view on this viewport', async ({ page }) => {
     stagingTest.skip(stagingTest.info().project.name === 'chromium', 'chromium already ran the full journey');
     await signIn(page, 'operator');
-    await page.goto('/diaspora/containers');
+    await gotoSettled(page, '/diaspora/containers');
     await expect(page.getByTestId('diaspora-container-create-section')).toBeVisible();
     await openContainerByDeparture(page, OCT_DEPARTURE);
     await expect(page.getByTestId('diaspora-container-counts')).toContainText('1 approved · 1 pending');

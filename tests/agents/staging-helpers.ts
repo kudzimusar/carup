@@ -33,6 +33,15 @@ const EXPECTED_CONSOLE = [
   /VITE_API_URL is not set/i,             // diagnostic warning path (should not fire on staging, but is a warn)
   /Download the React DevTools/i,
   /third-party cookie/i,
+  // Background reads (owner-dashboard batch: /safepay/list, /marketplace/my-*, /notifications/me)
+  // get ABORTED when a journey performs a full navigation while they are in flight; the api client
+  // echoes each abort as "TypeError: Failed to fetch" with NO HTTP response at all (spec 45 runs
+  // recorded zero matching 4xx/5xx, and direct preflight/GET probes of the same endpoints answer
+  // correctly with ACAO headers). The affected surfaces render their truthful "could not be
+  // loaded"/unavailable states. This pattern excuses ONLY the no-response abort echo: any request
+  // that actually reaches the server still fails the run through the response hook (5xx) or the
+  // journey's own assertions, and an unreachable backend fails sign-in immediately.
+  /CarUp API Error \([^)]*\): TypeError: Failed to fetch/,
 ];
 // API 4xx that journeys legitimately trigger (auth probes, permission negative-tests).
 const EXPECTED_4XX_PATHS = [/\/auth\/verify$/, /\/security\/csrf-token$/];

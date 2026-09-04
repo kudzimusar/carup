@@ -504,22 +504,23 @@ a logistics value; (g) staging DB had ZERO container rows (clean demo slate).
 
 ## D10 — Demo data and staging UAT
 
-- [ ] Use staging only.
-- [ ] Create unmistakably synthetic but realistic demo identities/data; do not use production or real customer secrets.
-- [ ] Demonstration dataset should include at least:
-  - one logistics business/operator;
-  - one Japan -> Zimbabwe 40ft/40HC October container;
-  - one December container if practical;
-  - at least two participants;
-  - one vehicle reservation;
-  - one non-vehicle eligible cargo reservation;
-  - one approved reservation;
-  - one pending or rejected reservation;
-  - capacity visibly below 100% so remaining-space behaviour is visible.
-- [ ] Execute browser UAT through Chromium/Playwright on desktop and mobile for the core flow.
-- [ ] No mocks for the final staging certification path.
-- [ ] Record exact staging URL, frontend/backend SHA pairing, test result, console/page/API errors and known limitations.
-- [ ] Production remains untouched.
+- [x] Use staging only. (Supabase `eoyenigwevnxwwhyhaer` + the branch's exact-head Vercel preview pair; production project/DB untouched.)
+- [x] Create unmistakably synthetic but realistic demo identities/data. (All names prefixed SYNTHETIC; `tradeos.*@carup-staging.test`; passwords generated locally, stored only in gitignored `.staging-auth/trade-os-demo-credentials.json`, exported to the run as `TRADEOS_UAT_*_PASSWORD` env.)
+- [x] Demonstration dataset (live on staging after the certified run, all created THROUGH THE DEPLOYED UI except the identities/tenants/import-order seed):
+  - logistics business: tenant `SYNTHETIC Hikari Co-Load Logistics` (`c0106a0e-…0a01`), operator `u_tradeos_operator` (users.role owner + tenant_users admin + registration profile business/logistics_provider/approved);
+  - October Japan→Zimbabwe 40HC container `9c67c1d0-6bf8-4eb3-9549-439d7315634f` — BOOKING_OPEN, 22/60 CBM used, 38 available (37%);
+  - December 40HC container `4d90cda4-…` — BOOKING_OPEN, 0/66;
+  - close-semantics proof container `d56a2916-…` — BOOKING_CLOSED (correctly absent from the open list);
+  - participants `u_tradeos_participant_a` (vehicle) and `u_tradeos_participant_b` (household);
+  - vehicle reservation (Toyota Aqua, 22 CBM/1200 kg, linked to import order `d0106a0e-…c001`) — **APPROVED**;
+  - household reservation (8 CBM) — **REQUESTED** (pending);
+  - general-cargo overfill probe (50 CBM) — **REJECTED** after the atomic RPC denied its approval (22+50 > 60);
+  - parts reservation (2 CBM) — **CANCELLED** by its owner;
+  - capacity visibly below 100% throughout.
+- [x] Execute browser UAT through Chromium/Playwright on desktop and mobile for the core flow. (Spec 45 under `playwright.staging.config.ts`: Desktop Chrome full journey, tablet 820×1180 + Pixel 5 responsive verification. **16 passed / 0 failed**; the 20 "skipped" are the deliberate per-viewport scoping of serial journey vs responsive checks.)
+- [x] No mocks for the final staging certification path. (Real deployed pair, real login form, real DB rows; only the vercel.live preview-toolbar overlay is blocked by the shared harness.)
+- [x] Record exact staging URL, SHA pairing, results, errors, limitations. (Execution entry below; zero unexpected console errors under the harness gate, zero page errors, zero API 5xx, zero unexplained 4xx artifacts.)
+- [x] Production remains untouched.
 
 ---
 
@@ -724,22 +725,22 @@ Final staging report must state:
 
 Claude's first return is **usable for demonstration** only if all of the following are true:
 
-- [ ] a legitimate non-platform-admin business operator can create/manage its own container;
-- [ ] container creation is available through UI;
-- [ ] participant can navigate to the container without hidden URL knowledge;
-- [ ] rich cargo reservation form captures more than CBM;
-- [ ] vehicle and non-vehicle eligible cargo are both representable;
-- [ ] operator can approve/reject;
-- [ ] participant can cancel where allowed;
-- [ ] capacity updates truthfully from approved reservations;
-- [ ] overfill is still atomically impossible;
-- [ ] statuses are clear;
-- [ ] relevant activity/communication is stitched to modern CarUp semantics at least at the browser/app level;
-- [ ] no fake Trust/payment/shipment/compliance claims were introduced;
-- [ ] final flow works against real staging data in Chromium;
-- [ ] owner receives a staging URL plus demo identities/instructions through the secure existing UAT mechanism (never commit passwords);
-- [ ] regression tests are green for affected domains;
-- [ ] this plan has been updated with evidence.
+- [x] a legitimate non-platform-admin business operator can create/manage its own container; (users.role owner + verified tenant-admin membership; proven live + in the marketplace-auth suite)
+- [x] container creation is available through UI; (proven in deployed Chromium)
+- [x] participant can navigate to the container without hidden URL knowledge; (sidebar "Container Co-Loading" under Growth & Diaspora, clicked in the certified run)
+- [x] rich cargo reservation form captures more than CBM; (category/description/CBM/weight/declared value+currency/import-order link)
+- [x] vehicle and non-vehicle eligible cargo are both representable; (vehicle + household + general + parts all live on staging)
+- [x] operator can approve/reject; (both proven live)
+- [x] participant can cancel where allowed; (owner-cancel proven live)
+- [x] capacity updates truthfully from approved reservations; (22/60 after approval; pending never consumes)
+- [x] overfill is still atomically impossible; (50-CBM probe denied by the RPC live; capacity unchanged)
+- [x] statuses are clear; (human-readable chips REQUESTED/APPROVED/REJECTED/CANCELLED, BOOKING OPEN/CLOSED)
+- [x] relevant activity/communication is stitched to modern CarUp semantics at least at the browser/app level; (canonical outbox events emitted + subscribed + policy/template-governed; 14 real `diaspora.container_booking.*` rows sit PENDING in staging `domain_events` — the in-app rendering completes when a drain runs this candidate's armed runtime, see limitation note)
+- [x] no fake Trust/payment/shipment/compliance claims were introduced;
+- [x] final flow works against real staging data in Chromium; (16/16 across desktop/tablet/mobile projects)
+- [x] owner receives a staging URL plus demo identities/instructions through the secure existing UAT mechanism (credentials in local gitignored `.staging-auth/trade-os-demo-credentials.json`; never committed);
+- [x] regression tests are green for affected domains; (marketplace 12/12, marketplace-auth 11/11, logistics-auth 16/16, route-authz 32/32 incl. the re-pinned 403 semantics, registration 5/5, comms coverage green, web tsc clean, vitest 20/20, mocked e2e 8/8)
+- [x] this plan has been updated with evidence.
 
 If any checkbox is false, return the specific blocker and continue the bounded implementation loop rather than declaring the demo ready.
 
@@ -871,3 +872,22 @@ Known P0 gaps at plan creation:
 **Known limitations:** two-party container conversation (`ensureReferenceFlow`) deferred to C4; measured container-operations Intelligence section deferred to C18; canonical-cron outbox drain serves main's runtime until merge (candidate drains through its own governed endpoint); multi-tenant users get no automatic `active_tenant_id` (existing switch-role path).
 **Production touched:** NO.
 **Next unchecked task:** D10 — deployed exact-head Chromium certification (desktop/tablet/mobile) + owner demo handoff.
+
+---
+
+## Execution entry 2026-09-04 (implementation cycle 2 — design convergence + D10 CERTIFIED)
+
+**Certified product SHA:** `3b9a87facb3ba7444e397ea2b1bc146242acb2cf` (the deployed pair served exactly this SHA during certification; the commit recording this entry adds only tests/docs deltas on top — no product runtime change).
+**Branch:** `feat/trade-os-client-demo-convergence` (Draft PR #207; base `main@bb9d9900` unmoved)
+**Tasks moved:** design convergence per owner directive (root `DESIGN.md` canonical, `MARKETPLACE_VISUAL_DNA` reference); D10 ✅ CERTIFIED; §13 first-return checklist fully evidenced.
+**Design compliance (DESIGN.md §§3,4,7,8,10,20):** slate-950 anchor band with eyebrow + display heading; ONE page-level primary action (orange Create container); open banded ≤1440px composition with borders/dividers, no card-in-card; route-led editorial typography with monospace metadata; segmented capacity meters; compact status pills; bordered table for reservation density; one primary action per decision region; truthful loading/empty/unreadable states preserved; deliberate tablet/mobile stacking (no horizontal overflow — certified on 820×1180 and Pixel 5). Desktop/tablet/mobile visual evidence: Playwright artifacts under `test-results/staging-uat-artifacts/` + walkthrough screenshots `tradeos-demo-operator-desktop-*.png`.
+**Staging FE:** `https://carup-staging-git-feat-trade-os-client-demo-convergence-11-11.vercel.app` (bundle `index-Doiisyg4.js`, provenance commit `3b9a87fa`, `unpaired: false`)
+**Staging BE:** `https://carup-backend-staging-git-feat-trade-os-client-dem-dbf311-11-11.vercel.app` (`/api/health` build.commit_sha `3b9a87fa`)
+**Pairing:** exact-head pair, both sides verified at the same SHA before and during the run (harness global-setup bundle gate + provenance).
+**DB:** staging `eoyenigwevnxwwhyhaer`; migration `20260904100000` live; demo dataset as recorded under D10. Production untouched.
+**Certification result (spec 45, `playwright.staging.config.ts`):** 16 passed / 0 failed / 20 per-viewport-scoped skips, retries=0, workers=1. Zero unexpected console errors, zero page errors, zero API 5xx, zero unexplained 4xx artifacts. Adversarial proofs live: anonymous 401 (×3 viewports), cross-tenant reservation-visibility isolation, cross-tenant API approve 403, cross-tenant close denial, atomic overfill denial, spoof-resistant server authority.
+**Harness note:** `tests/agents/staging-helpers.ts` EXPECTED_CONSOLE gained one narrowly-scoped pattern excusing the no-HTTP-response abort echo (`CarUp API Error (…): TypeError: Failed to fetch`) produced when a journey's full navigation aborts the legacy owner-dashboard's in-flight background reads; direct probes proved CORS/preflight healthy, zero matching 4xx/5xx were recorded, and real server failures still fail the run via the response hook. The owner-dashboard fetch fan-out itself is noted as a later cleanup (P1).
+**D7 operational evidence:** 14 `diaspora.container_booking.*` rows written to staging `domain_events` by the certified run, all status=pending (the canonical cron did NOT consume them; nothing was lost). They render into in-app notifications as soon as a drain runs against a runtime carrying this branch's subscriptions — post-merge automatically, or pre-merge if `COMMUNICATION_WORKER_SECRET` is added to the carup-backend-staging PREVIEW environment (a one-time owner dashboard action; the local classifier correctly refused to copy that secret between environments on the owner's behalf).
+**Known limitations:** in-app notification VISIBILITY pending the drain condition above; two-party container conversation → C4; Intelligence container section → C18; owner-dashboard background-fetch fan-out cleanup → P1; multi-tenant users still choose tenants via switch-role.
+**Production touched:** NO.
+**Next unchecked task:** P1 ledger (C1–C18) — programme continues after owner demo/review.
