@@ -7,6 +7,8 @@
  */
 import express from 'express';
 import { authorizeRole } from '../middleware/authMiddleware.js';
+import { resolveVehicleObjectAuthority } from '../middleware/vehicleObjectAuthority.js';
+import { ForbiddenError, NotFoundError } from '../utils/errors.js';
 import {
   createContainer,
   listOpenContainers,
@@ -48,12 +50,37 @@ const base = '/container-marketplace';
 const participantAuth = authorizeRole(['owner', 'dealer', 'admin', 'platform_admin', 'super_admin', 'government', 'government_reviewer', 'reviewer']);
 const operatorAuth = participantAuth;
 
+/**
+ * HTTP transaction preflight for linked vehicles.
+ *
+ * The service also checks each link before writing item rows. This route preflight happens BEFORE
+ * create/update mutates the request header, so a forged VIN cannot leave behind an orphan draft or
+ * partially updated route merely because item authorization later failed.
+ */
+async function preauthorizeLogisticsVehicleLinks(items, userContext) {
+  if (!Array.isArray(items)) return;
+  for (const item of items) {
+    const vin = item?.linked_vehicle_vin || item?.linkedVehicleVin || null;
+    if (!vin) continue;
+    const authority = await resolveVehicleObjectAuthority(vin, userContext);
+    if (authority.allowed) continue;
+    // Use the same non-enumerating 403 for missing/foreign VINs at the public route. The deeper
+    // service may distinguish NotFound for internal callers, but an unrelated user should not learn
+    // whether a guessed VIN exists.
+    if (authority.reason === 'no_identity') throw new ForbiddenError('Vehicle linkage requires an authenticated user');
+    if (authority.reason === 'lookup_failed') throw new ForbiddenError('Vehicle authority could not be established');
+    if (authority.reason === 'not_found') throw new NotFoundError('Linked vehicle is not on record');
+    throw new ForbiddenError('You are not authorized to link that vehicle to this shipping request');
+  }
+}
+
 // ── T3: Logistics RFQ / "Ship something" ──────────────────────────────────
 // Specific collection routes are registered before any /:id route to avoid Express shadowing.
 router.get('/logistics-requests/mine', participantAuth, asyncHandler(async (req, res) => {
   res.json({ data: await listMyLogisticsRequests(req.query, req.userContext, { req }) });
 }));
 router.post('/logistics-requests', participantAuth, asyncHandler(async (req, res) => {
+  await preauthorizeLogisticsVehicleLinks(req.body?.items, req.userContext);
   res.status(201).json({ data: await createLogisticsRequest(req.body, req.userContext, { req }) });
 }));
 router.get('/logistics-opportunities', participantAuth, asyncHandler(async (req, res) => {
@@ -81,11 +108,10 @@ router.get('/logistics-requests/:id', participantAuth, asyncHandler(async (req, 
   const data = await getMyLogisticsRequest(req.params.id, req.userContext, { req });
   // Provider DRAFT offers are private work-in-progress. The service composes the request transaction,
   // but the requester HTTP projection must never reveal a draft's price/terms before submission.
-  // Platform reviewers may inspect through governed operational tooling rather than by weakening this
-  // customer response.
   res.json({ data: { ...data, quotes: (data.quotes || []).filter((quote) => quote.status !== 'DRAFT') } });
 }));
 router.patch('/logistics-requests/:id', participantAuth, asyncHandler(async (req, res) => {
+  await preauthorizeLogisticsVehicleLinks(req.body?.items, req.userContext);
   res.json({ data: await updateLogisticsRequest(req.params.id, req.body, req.userContext, { req }) });
 }));
 router.post('/logistics-requests/:id/publish', participantAuth, asyncHandler(async (req, res) => {
@@ -108,7 +134,6 @@ router.post('/logistics-requests/:id/conversation', participantAuth, asyncHandle
 }));
 
 // ── Existing hardened Container Co-Loading kernel ──────────────────────────
-// Trade OS workspace identity/context projection (read-only; commercial context, never a role).
 router.get(`${base}/trade-context`, participantAuth, asyncHandler(async (req, res) => {
   res.json({ data: await getTradeContext(req.userContext, { req }) });
 }));
