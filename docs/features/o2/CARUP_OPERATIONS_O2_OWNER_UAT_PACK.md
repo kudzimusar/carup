@@ -61,8 +61,89 @@ Mark each PASS / FAIL. "Path" is appended to the frontend URL.
 | 3.1 | `/onboarding` | new account | In Identity verification pick "Zimbabwe National ID", click Start verification | An upload area appears for front / back / selfie | ☐ |
 | 3.2 | `/onboarding` | new account | Upload the three **synthetic** images | Each side shows an uploaded state; you can replace one | ☐ |
 | 3.3 | `/onboarding` | new account | Submit them | Status becomes "in review"/processing — **never "Verified"**. Nothing claims you are verified because a file was uploaded | ☐ |
-| 3.4 | `/onboarding` | new account | If suggested values appear from the document | They are labelled as suggestions you must accept or correct — the page never fills your profile silently, and never shows "N/A"/"Unknown" as if it were data | ☐ |
+| 3.4 | `/onboarding` | new account | Inspect the extracted-values area (the mandatory check in §3A measures this properly) | Any value present is labelled as a suggestion you must accept or correct — the page never fills your profile silently, and never shows "N/A"/"Unknown" as if it were data | ☐ |
 | 3.5 | `/onboarding` | new account | Look at the locked-capabilities list | Selling publicly, Dealer tools, vehicle registration and Vehicle Trust are each listed as locked by their OWN authority — identity verification is never said to grant them | ☐ |
+
+### 3A · MANDATORY — Live OCR Operational Check
+
+**Purpose:** prove whether the deployed candidate can read known values out of the ACTUAL PIXELS
+of a synthetic identity document. This is not a "does a suggestion appear" question. Either the
+extraction reads the fixture's known values, or it does not, and the result is recorded as such.
+
+**Fixture:** `docs/features/o2/uat-assets/synthetic-id-front.png`, expected values recorded in
+`docs/features/o2/uat-assets/FIXTURE_EXPECTED_VALUES.md` — surname `SPECIMEN`, given names
+`UAT SYNTHETIC`, document number `SPECIMEN-0000-UAT`, DOB `01 JAN 1990`, expiry `01 JAN 2035`.
+1012 × 638 px, high-contrast, 24–54 px type: legible to any working OCR/vision model.
+
+| # | Path | Account | Do this | Record | PASS/FAIL |
+|---|---|---|---|---|---|
+| 3A.1 | `/onboarding` | new account | Start verification, upload the three synthetic files, Submit | The status the product shows after submission | ☐ |
+| 3A.2 | `/onboarding` | same | Look for extracted values | **Extracted FIRST NAME** — value shown, or "none extracted" | ☐ |
+| 3A.3 | `/onboarding` | same | " | **Extracted LAST NAME** — value shown, or "none extracted" | ☐ |
+| 3A.4 | `/onboarding` | same | " | **Extracted DOCUMENT/ID NUMBER** — value shown, or "none extracted" | ☐ |
+| 3A.5 | `/onboarding` | same | " | **Extracted DATE OF BIRTH** (where the document carries one) — value, or "none extracted" | ☐ |
+| 3A.6 | `/onboarding` | same | " | **Provider / model provenance** — which extractor ran, or "no provider recorded" | ☐ |
+| 3A.7 | `/onboarding` | same | " | **Extraction success or failure**, with the reason the product gives | ☐ |
+| 3A.8 | `/onboarding` | same | " | **Candidate status** — candidates available/unavailable and why | ☐ |
+
+**Comparison rule.** For 3A.2–3A.5, compare what the product shows against the fixture values
+above. A value that does not match the fixture is a FAIL and must be reported verbatim — a
+plausible-looking name that is not `UAT SYNTHETIC SPECIMEN` would be fabrication, which is worse
+than extracting nothing.
+
+**Verdict to record:**
+
+- **LIVE OCR OPERATIONALIZED** — the extraction read the fixture's values from the image and
+  presented them as candidates with provider provenance; or
+- **LIVE OCR OPERATIONALIZATION — NOT READY** — the extraction did not read the actual image.
+
+The verdict is recorded as observed. Routing to manual review is a correct SAFETY behaviour and
+is NOT a substitute for extraction: if nothing was read from the pixels, the check is NOT READY
+even though the journey continued safely.
+
+#### Separately: extraction ≠ verification
+
+| # | Do this | Expect | PASS/FAIL |
+|---|---|---|---|
+| 3A.9 | Whatever 3A.2–3A.5 showed, look at your identity status | The account is **not** verified. Reading a document is not a decision about a person | ☐ |
+| 3A.10 | Look at the assurance/status wording | Assurance is `pending`/`not established` — never "established" because a file was processed | ☐ |
+| 3A.11 | If values WERE extracted | They are labelled as candidates you accept or correct; none is written to your profile silently | ☐ |
+
+#### Result observed on this candidate before handoff (2026-09-04)
+
+**LIVE OCR OPERATIONALIZATION — NOT READY.** Measured on the deployed pair at `7786e95a` by
+running the real journey with the real synthetic pixels (session
+`e5b2d39e-0f81-403f-9511-b63afbf47ac8`, account `po.uat.owner@carup-staging.test`):
+
+| Evidence | Observed |
+|---|---|
+| Uploads (3 × ~80 KB PNG) | HTTP 200 — the real images were accepted |
+| Submit | HTTP 200 |
+| `ocr_execution_status` | `null` |
+| `ocr_document_id` | `null` |
+| `ocr_result` | `null` |
+| `extraction_trust_status` | `null` |
+| `confidence_score` | `null` |
+| Extracted first name / last name / document number / DOB | **none extracted** (no field of any kind) |
+| Provider / model provenance | **none recorded**; `/api/health` reports `ocrProviders: {gemini:false, groq:false, openrouter:false, moonshot:false}` |
+| `failure_reason` | `Classification provider unavailable.` |
+| `primary_reason_code` | `DOCUMENT_NOT_VISIBLE` |
+| Candidate status | `available: false` — "Extraction has not completed for your current verification session." |
+| Session status / phase | `pending_manual_review` / `reviewer_action_required` |
+| Identity state · assurance | `in_review` · `pending` (`not_established`) — **not verified** |
+
+**Reading of this result.** No OCR/vision provider is configured on this preview environment, so
+no extraction ran and **zero** fields were read from the image. The pipeline did not fabricate a
+name, a number or a confidence score, and did not claim verification — it recorded an honest
+failure reason and routed to human review. The truth model therefore holds (nothing invented,
+extraction ≠ verification), while **live OCR operationalization is NOT READY** on this
+deployment. This is an environment/provider-activation gap, recorded rather than hidden behind
+the manual-review fallback; closing it requires an OCR provider credential decision, which is a
+Product Owner call and is outside the frozen O2 product scope.
+
+Please still perform 3A.1–3A.11 yourself: if you observe anything different from the table
+above — in particular any extracted value — report it, because a value appearing without a
+configured provider would be a serious finding.
 
 ### 4 · Biometrics (provider deliberately not activated)
 | # | Path | Account | Do this | Expect | PASS/FAIL |
@@ -138,5 +219,6 @@ and the receipts updated — no scope beyond the proven blocker.
 Dealer activation (approved applicant → active Dealer) has **no governed path yet** — an
 open Product Owner decision; the product says so honestly rather than guessing. Garage/mechanic
 workbooks are deferred behind Service Network PR #197. The live biometric provider is **not
-activated**, so biometric checks truthfully report unavailable. Communications delivery on this
+activated**, so biometric checks truthfully report unavailable. **No OCR/vision provider is
+configured on this preview either — see §3A: LIVE OCR OPERATIONALIZATION — NOT READY.** Communications delivery on this
 preview is provider-blocked (in-app notifications work; email/WhatsApp are not configured here).
