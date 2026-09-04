@@ -78,7 +78,12 @@ router.post('/logistics-quotes/:id/withdraw', participantAuth, asyncHandler(asyn
   res.json({ data: await withdrawLogisticsQuote(req.params.id, req.userContext, { req }) });
 }));
 router.get('/logistics-requests/:id', participantAuth, asyncHandler(async (req, res) => {
-  res.json({ data: await getMyLogisticsRequest(req.params.id, req.userContext, { req }) });
+  const data = await getMyLogisticsRequest(req.params.id, req.userContext, { req });
+  // Provider DRAFT offers are private work-in-progress. The service composes the request transaction,
+  // but the requester HTTP projection must never reveal a draft's price/terms before submission.
+  // Platform reviewers may inspect through governed operational tooling rather than by weakening this
+  // customer response.
+  res.json({ data: { ...data, quotes: (data.quotes || []).filter((quote) => quote.status !== 'DRAFT') } });
 }));
 router.patch('/logistics-requests/:id', participantAuth, asyncHandler(async (req, res) => {
   res.json({ data: await updateLogisticsRequest(req.params.id, req.body, req.userContext, { req }) });
