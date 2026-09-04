@@ -1,0 +1,1131 @@
+{
+  "manifest": "2026.09.ocr-corpus-v1",
+  "summary": {
+    "counts": {
+      "exact": 36,
+      "normalized": 0,
+      "missing": 15,
+      "incorrect": 0
+    },
+    "fabrications": 0,
+    "shortfalls": 13,
+    "fixturesPassed": 9,
+    "fixturesTotal": 11,
+    "verdict": "FAIL"
+  },
+  "runs": [
+    {
+      "id": "national-id-clean",
+      "file": "national-id-clean.png",
+      "docType": "national_id",
+      "mode": "strict",
+      "provider": "gemini",
+      "model": "gemini-2.5-flash",
+      "executionStatus": "provider_succeeded",
+      "extractionStatus": "Pending_Verification",
+      "confidence": 1,
+      "confidenceReported": true,
+      "latencyMs": 18699,
+      "wallMs": 18701,
+      "providerCalls": 1,
+      "structuredCandidate": {
+        "table": "ocr_national_ids",
+        "written": true,
+        "skippedReason": null
+      },
+      "verdict": "PASS",
+      "attempts": [
+        {
+          "attempt": 1,
+          "executionStatus": "provider_succeeded",
+          "extractionStatus": "Pending_Verification",
+          "error": null,
+          "latencyMs": 18699
+        }
+      ],
+      "error": null,
+      "diagnostics": {
+        "documentClassObserved": "Zimbabwe National Registration (identity) card",
+        "observedFields": [
+          "first_name",
+          "last_name",
+          "national_id_number",
+          "date_of_birth",
+          "country",
+          "place_of_birth",
+          "sex",
+          "date_of_issue"
+        ],
+        "missingFields": [],
+        "unnormalizedValues": {},
+        "carriedIdentifiers": [],
+        "unreadableFields": [],
+        "observations": [],
+        "allExtracted": {
+          "first_name": "TESTCASE",
+          "last_name": "SPECIMEN",
+          "national_id_number": "63-1234567-A-42",
+          "date_of_birth": "1990-01-01",
+          "country": "ZIMBABWE",
+          "carriedIdentifiers": [],
+          "place_of_birth": "GWERU",
+          "sex": "M",
+          "date_of_issue": "2015-03-15"
+        }
+      }
+    },
+    {
+      "id": "national-id-rotated",
+      "file": "national-id-rotated.png",
+      "docType": "national_id",
+      "mode": "strict",
+      "provider": "gemini",
+      "model": "gemini-2.5-flash",
+      "executionStatus": "provider_succeeded",
+      "extractionStatus": "Pending_Verification",
+      "confidence": 1,
+      "confidenceReported": true,
+      "latencyMs": 9325,
+      "wallMs": 9325,
+      "providerCalls": 1,
+      "structuredCandidate": {
+        "table": "ocr_national_ids",
+        "written": true,
+        "skippedReason": null
+      },
+      "verdict": "PASS",
+      "attempts": [
+        {
+          "attempt": 1,
+          "executionStatus": "provider_succeeded",
+          "extractionStatus": "Pending_Verification",
+          "error": null,
+          "latencyMs": 9325
+        }
+      ],
+      "error": null,
+      "diagnostics": {
+        "documentClassObserved": "Zimbabwe National Registration (identity) card",
+        "observedFields": [
+          "first_name",
+          "last_name",
+          "national_id_number",
+          "date_of_birth",
+          "country",
+          "place_of_birth",
+          "sex",
+          "date_of_issue"
+        ],
+        "missingFields": [],
+        "unnormalizedValues": {},
+        "carriedIdentifiers": [],
+        "unreadableFields": [],
+        "observations": [
+          "This is a synthetic test asset, not a real document."
+        ],
+        "allExtracted": {
+          "first_name": "TESTCASE",
+          "last_name": "SPECIMEN",
+          "national_id_number": "63-1234567-A-42",
+          "date_of_birth": "1990-01-01",
+          "country": "ZIMBABWE",
+          "carriedIdentifiers": [],
+          "place_of_birth": "GWERU",
+          "sex": "M",
+          "date_of_issue": "2015-03-15"
+        }
+      }
+    },
+    {
+      "id": "national-id-blurred",
+      "file": "national-id-blurred.png",
+      "docType": "national_id",
+      "mode": "no_fabrication",
+      "provider": "gemini",
+      "model": "gemini-2.5-flash",
+      "executionStatus": "provider_succeeded",
+      "extractionStatus": "Pending_Verification",
+      "confidence": 1,
+      "confidenceReported": true,
+      "latencyMs": 2244,
+      "wallMs": 2244,
+      "providerCalls": 1,
+      "structuredCandidate": {
+        "table": "ocr_national_ids",
+        "written": true,
+        "skippedReason": null
+      },
+      "verdict": "PASS",
+      "attempts": [
+        {
+          "attempt": 1,
+          "executionStatus": "provider_succeeded",
+          "extractionStatus": "Pending_Verification",
+          "error": null,
+          "latencyMs": 2244
+        }
+      ],
+      "error": null,
+      "diagnostics": {
+        "documentClassObserved": "Zimbabwe National Registration (identity) card",
+        "observedFields": [
+          "first_name",
+          "last_name",
+          "national_id_number",
+          "date_of_birth",
+          "country",
+          "place_of_birth",
+          "sex",
+          "date_of_issue"
+        ],
+        "missingFields": [],
+        "unnormalizedValues": {},
+        "carriedIdentifiers": [],
+        "unreadableFields": [],
+        "observations": [],
+        "allExtracted": {
+          "first_name": "TESTCASE",
+          "last_name": "SPECIMEN",
+          "national_id_number": "63-1234567-A-42",
+          "date_of_birth": "1990-01-01",
+          "country": "ZIMBABWE",
+          "carriedIdentifiers": [],
+          "place_of_birth": "GWERU",
+          "sex": "M",
+          "date_of_issue": "2013-03-15"
+        }
+      }
+    },
+    {
+      "id": "national-id-glare",
+      "file": "national-id-glare.png",
+      "docType": "national_id",
+      "mode": "no_fabrication",
+      "provider": "gemini",
+      "model": "gemini-2.5-flash",
+      "executionStatus": "provider_succeeded",
+      "extractionStatus": "Pending_Verification",
+      "confidence": 1,
+      "confidenceReported": true,
+      "latencyMs": 1816,
+      "wallMs": 1817,
+      "providerCalls": 1,
+      "structuredCandidate": {
+        "table": "ocr_national_ids",
+        "written": true,
+        "skippedReason": null
+      },
+      "verdict": "PASS",
+      "attempts": [
+        {
+          "attempt": 1,
+          "executionStatus": "provider_succeeded",
+          "extractionStatus": "Pending_Verification",
+          "error": null,
+          "latencyMs": 1816
+        }
+      ],
+      "error": null,
+      "diagnostics": {
+        "documentClassObserved": "Zimbabwe National Registration (identity) card",
+        "observedFields": [
+          "first_name",
+          "last_name",
+          "national_id_number",
+          "date_of_birth",
+          "country",
+          "place_of_birth",
+          "sex",
+          "date_of_issue"
+        ],
+        "missingFields": [],
+        "unnormalizedValues": {},
+        "carriedIdentifiers": [],
+        "unreadableFields": [],
+        "observations": [],
+        "allExtracted": {
+          "first_name": "TESTCASE",
+          "last_name": "SPECIMEN",
+          "national_id_number": "63-1234567-A-42",
+          "date_of_birth": "1990-01-01",
+          "country": "ZIMBABWE",
+          "carriedIdentifiers": [],
+          "place_of_birth": "GWERU",
+          "sex": "M",
+          "date_of_issue": "2015-03-15"
+        }
+      }
+    },
+    {
+      "id": "national-id-cropped",
+      "file": "national-id-cropped.png",
+      "docType": "national_id",
+      "mode": "no_fabrication",
+      "provider": "gemini",
+      "model": "gemini-2.5-flash",
+      "executionStatus": "provider_succeeded",
+      "extractionStatus": "Pending_Verification",
+      "confidence": 1,
+      "confidenceReported": true,
+      "latencyMs": 2880,
+      "wallMs": 2880,
+      "providerCalls": 1,
+      "structuredCandidate": {
+        "table": "ocr_national_ids",
+        "written": true,
+        "skippedReason": null
+      },
+      "verdict": "PASS",
+      "attempts": [
+        {
+          "attempt": 1,
+          "executionStatus": "provider_succeeded",
+          "extractionStatus": "Pending_Verification",
+          "error": null,
+          "latencyMs": 2880
+        }
+      ],
+      "error": null,
+      "diagnostics": {
+        "documentClassObserved": "Zimbabwe National Registration (identity) card",
+        "observedFields": [
+          "first_name",
+          "last_name",
+          "national_id_number",
+          "date_of_birth",
+          "country",
+          "sex"
+        ],
+        "missingFields": [
+          "place_of_birth",
+          "date_of_issue"
+        ],
+        "unnormalizedValues": {},
+        "carriedIdentifiers": [],
+        "unreadableFields": [],
+        "observations": [],
+        "allExtracted": {
+          "first_name": "TESTCASE",
+          "last_name": "SPECIMEN",
+          "national_id_number": "63-1234567-A-42",
+          "date_of_birth": "1990-01-01",
+          "country": "ZIMBABWE",
+          "carriedIdentifiers": [],
+          "sex": "M"
+        }
+      }
+    },
+    {
+      "id": "passport-clean",
+      "file": "passport-clean.png",
+      "docType": "passport",
+      "mode": "strict",
+      "provider": "gemini",
+      "model": "gemini-2.5-flash",
+      "executionStatus": "provider_succeeded",
+      "extractionStatus": "Pending_Verification",
+      "confidence": 1,
+      "confidenceReported": true,
+      "latencyMs": 9169,
+      "wallMs": 29382,
+      "providerCalls": 2,
+      "structuredCandidate": {
+        "table": null,
+        "written": false,
+        "skippedReason": "no_structured_table_for_document_class"
+      },
+      "verdict": "PASS",
+      "attempts": [
+        {
+          "attempt": 1,
+          "executionStatus": "provider_failed",
+          "extractionStatus": "OCR_Provider_Unavailable",
+          "error": "Gemini vision returned no text: RESOURCE_EXHAUSTED",
+          "latencyMs": 196
+        },
+        {
+          "attempt": 2,
+          "executionStatus": "provider_succeeded",
+          "extractionStatus": "Pending_Verification",
+          "error": null,
+          "latencyMs": 9169
+        }
+      ],
+      "error": null,
+      "diagnostics": {
+        "documentClassObserved": "Passport biographical data page",
+        "observedFields": [
+          "first_name",
+          "last_name",
+          "national_id_number",
+          "date_of_birth",
+          "country",
+          "passport_number",
+          "sex",
+          "nationality",
+          "date_of_issue",
+          "expiry",
+          "issuing_authority"
+        ],
+        "missingFields": [
+          "place_of_birth"
+        ],
+        "unnormalizedValues": {},
+        "carriedIdentifiers": [],
+        "unreadableFields": [],
+        "observations": [],
+        "allExtracted": {
+          "first_name": "VERIFY",
+          "last_name": "EXEMPLAR",
+          "national_id_number": "ZN1234567",
+          "date_of_birth": "1988-02-12",
+          "country": "ZIMBABWE",
+          "carriedIdentifiers": [],
+          "passport_number": "ZN1234567",
+          "sex": "F",
+          "nationality": "ZIMBABWEAN",
+          "date_of_issue": "2020-03-03",
+          "expiry": "2030-03-02",
+          "issuing_authority": "REGISTRAR GENERAL HARARE"
+        }
+      }
+    },
+    {
+      "id": "drivers-licence-clean",
+      "file": "drivers-licence-clean.png",
+      "docType": "drivers_license",
+      "mode": "strict",
+      "provider": "gemini",
+      "model": "gemini-2.5-flash",
+      "executionStatus": "provider_succeeded",
+      "extractionStatus": "Pending_Verification",
+      "confidence": 1,
+      "confidenceReported": true,
+      "latencyMs": 2163,
+      "wallMs": 2163,
+      "providerCalls": 1,
+      "structuredCandidate": {
+        "table": null,
+        "written": false,
+        "skippedReason": "no_structured_table_for_document_class"
+      },
+      "verdict": "PASS",
+      "attempts": [
+        {
+          "attempt": 1,
+          "executionStatus": "provider_succeeded",
+          "extractionStatus": "Pending_Verification",
+          "error": null,
+          "latencyMs": 2163
+        }
+      ],
+      "error": null,
+      "diagnostics": {
+        "documentClassObserved": "drivers_license",
+        "observedFields": [
+          "first_name",
+          "last_name",
+          "national_id_number",
+          "date_of_birth",
+          "country",
+          "licence_number",
+          "licence_classes",
+          "date_of_issue",
+          "expiry",
+          "issuing_authority"
+        ],
+        "missingFields": [],
+        "unnormalizedValues": {},
+        "carriedIdentifiers": [],
+        "unreadableFields": [],
+        "observations": [],
+        "allExtracted": {
+          "first_name": "SAMPLE",
+          "last_name": "PROTOTYPE",
+          "national_id_number": "ZWDL4471902",
+          "date_of_birth": "1990-02-08",
+          "country": "ZIMBABWE",
+          "carriedIdentifiers": [],
+          "licence_number": "ZWDL4471902",
+          "licence_classes": "4, 2",
+          "date_of_issue": "2019-02-09",
+          "expiry": "2029-02-07",
+          "issuing_authority": "Vehicle Inspection Department"
+        }
+      }
+    },
+    {
+      "id": "registration-book-clean",
+      "file": "registration-book-clean.png",
+      "docType": "registration_book",
+      "mode": "strict",
+      "provider": "gemini",
+      "model": null,
+      "executionStatus": "provider_failed",
+      "extractionStatus": "OCR_Provider_Unavailable",
+      "confidence": null,
+      "confidenceReported": false,
+      "latencyMs": 194,
+      "wallMs": 65607,
+      "providerCalls": 3,
+      "structuredCandidate": null,
+      "verdict": "FAIL",
+      "attempts": [
+        {
+          "attempt": 1,
+          "executionStatus": "provider_failed",
+          "extractionStatus": "OCR_Provider_Unavailable",
+          "error": "Gemini vision returned no text: RESOURCE_EXHAUSTED",
+          "latencyMs": 192
+        },
+        {
+          "attempt": 2,
+          "executionStatus": "provider_failed",
+          "extractionStatus": "OCR_Provider_Unavailable",
+          "error": "Gemini vision returned no text: RESOURCE_EXHAUSTED",
+          "latencyMs": 186
+        },
+        {
+          "attempt": 3,
+          "executionStatus": "provider_failed",
+          "extractionStatus": "OCR_Provider_Unavailable",
+          "error": "Gemini vision returned no text: RESOURCE_EXHAUSTED",
+          "latencyMs": 194
+        }
+      ],
+      "error": "Gemini vision returned no text: RESOURCE_EXHAUSTED",
+      "diagnostics": {
+        "documentClassObserved": null,
+        "observedFields": [],
+        "missingFields": [],
+        "unnormalizedValues": {},
+        "carriedIdentifiers": [],
+        "unreadableFields": [],
+        "observations": [],
+        "allExtracted": {}
+      }
+    },
+    {
+      "id": "customs-declaration-clean",
+      "file": "customs-declaration-clean.png",
+      "docType": "customs_declaration",
+      "mode": "strict",
+      "provider": "gemini",
+      "model": null,
+      "executionStatus": "provider_failed",
+      "extractionStatus": "OCR_Provider_Unavailable",
+      "confidence": null,
+      "confidenceReported": false,
+      "latencyMs": 170,
+      "wallMs": 65556,
+      "providerCalls": 3,
+      "structuredCandidate": null,
+      "verdict": "FAIL",
+      "attempts": [
+        {
+          "attempt": 1,
+          "executionStatus": "provider_failed",
+          "extractionStatus": "OCR_Provider_Unavailable",
+          "error": "Gemini vision returned no text: RESOURCE_EXHAUSTED",
+          "latencyMs": 180
+        },
+        {
+          "attempt": 2,
+          "executionStatus": "provider_failed",
+          "extractionStatus": "OCR_Provider_Unavailable",
+          "error": "Gemini vision returned no text: RESOURCE_EXHAUSTED",
+          "latencyMs": 178
+        },
+        {
+          "attempt": 3,
+          "executionStatus": "provider_failed",
+          "extractionStatus": "OCR_Provider_Unavailable",
+          "error": "Gemini vision returned no text: RESOURCE_EXHAUSTED",
+          "latencyMs": 170
+        }
+      ],
+      "error": "Gemini vision returned no text: RESOURCE_EXHAUSTED",
+      "diagnostics": {
+        "documentClassObserved": null,
+        "observedFields": [],
+        "missingFields": [],
+        "unnormalizedValues": {},
+        "carriedIdentifiers": [],
+        "unreadableFields": [],
+        "observations": [],
+        "allExtracted": {}
+      }
+    },
+    {
+      "id": "non-document",
+      "file": "non-document.png",
+      "docType": "national_id",
+      "mode": "no_document",
+      "provider": "gemini",
+      "model": null,
+      "executionStatus": "provider_failed",
+      "extractionStatus": "OCR_Provider_Unavailable",
+      "confidence": null,
+      "confidenceReported": false,
+      "latencyMs": 187,
+      "wallMs": 65565,
+      "providerCalls": 3,
+      "structuredCandidate": null,
+      "verdict": "PASS",
+      "attempts": [
+        {
+          "attempt": 1,
+          "executionStatus": "provider_failed",
+          "extractionStatus": "OCR_Provider_Unavailable",
+          "error": "Gemini vision returned no text: RESOURCE_EXHAUSTED",
+          "latencyMs": 192
+        },
+        {
+          "attempt": 2,
+          "executionStatus": "provider_failed",
+          "extractionStatus": "OCR_Provider_Unavailable",
+          "error": "Gemini vision returned no text: RESOURCE_EXHAUSTED",
+          "latencyMs": 158
+        },
+        {
+          "attempt": 3,
+          "executionStatus": "provider_failed",
+          "extractionStatus": "OCR_Provider_Unavailable",
+          "error": "Gemini vision returned no text: RESOURCE_EXHAUSTED",
+          "latencyMs": 187
+        }
+      ],
+      "error": "Gemini vision returned no text: RESOURCE_EXHAUSTED",
+      "diagnostics": {
+        "documentClassObserved": null,
+        "observedFields": [],
+        "missingFields": [],
+        "unnormalizedValues": {},
+        "carriedIdentifiers": [],
+        "unreadableFields": [],
+        "observations": [],
+        "allExtracted": {}
+      }
+    },
+    {
+      "id": "unsupported-file",
+      "file": "unsupported-file.txt",
+      "docType": "national_id",
+      "mode": "unsupported",
+      "provider": "gemini",
+      "model": null,
+      "executionStatus": "not_attempted",
+      "extractionStatus": "Pending_Manual_Review",
+      "confidence": null,
+      "confidenceReported": false,
+      "latencyMs": 1,
+      "wallMs": 1,
+      "providerCalls": 0,
+      "structuredCandidate": null,
+      "verdict": "PASS",
+      "attempts": [
+        {
+          "attempt": 1,
+          "executionStatus": "not_attempted",
+          "extractionStatus": "Pending_Manual_Review",
+          "error": "The uploaded file is not a document format the extraction provider can read.",
+          "latencyMs": 1
+        }
+      ],
+      "error": "The uploaded file is not a document format the extraction provider can read.",
+      "diagnostics": {
+        "documentClassObserved": null,
+        "observedFields": [],
+        "missingFields": [],
+        "unnormalizedValues": {},
+        "carriedIdentifiers": [],
+        "unreadableFields": [],
+        "observations": [],
+        "allExtracted": {}
+      }
+    }
+  ],
+  "graded": [
+    {
+      "id": "national-id-clean",
+      "mode": "strict",
+      "fields": [
+        {
+          "field": "first_name",
+          "expected": "TESTCASE",
+          "extracted": "TESTCASE",
+          "match": "exact"
+        },
+        {
+          "field": "last_name",
+          "expected": "SPECIMEN",
+          "extracted": "SPECIMEN",
+          "match": "exact"
+        },
+        {
+          "field": "national_id_number",
+          "expected": "63-1234567-A-42",
+          "extracted": "63-1234567-A-42",
+          "match": "exact"
+        },
+        {
+          "field": "date_of_birth",
+          "expected": "1990-01-01",
+          "extracted": "1990-01-01",
+          "match": "exact"
+        },
+        {
+          "field": "country",
+          "expected": "ZIMBABWE",
+          "extracted": "ZIMBABWE",
+          "match": "exact"
+        },
+        {
+          "field": "sex",
+          "expected": "M",
+          "extracted": "M",
+          "match": "exact"
+        },
+        {
+          "field": "place_of_birth",
+          "expected": "GWERU",
+          "extracted": "GWERU",
+          "match": "exact"
+        },
+        {
+          "field": "date_of_issue",
+          "expected": "2015-03-15",
+          "extracted": "2015-03-15",
+          "match": "exact"
+        }
+      ],
+      "failures": [],
+      "verdict": "PASS",
+      "fabricationCount": 0,
+      "shortfallCount": 0
+    },
+    {
+      "id": "national-id-rotated",
+      "mode": "strict",
+      "fields": [
+        {
+          "field": "first_name",
+          "expected": "TESTCASE",
+          "extracted": "TESTCASE",
+          "match": "exact"
+        },
+        {
+          "field": "last_name",
+          "expected": "SPECIMEN",
+          "extracted": "SPECIMEN",
+          "match": "exact"
+        },
+        {
+          "field": "national_id_number",
+          "expected": "63-1234567-A-42",
+          "extracted": "63-1234567-A-42",
+          "match": "exact"
+        },
+        {
+          "field": "date_of_birth",
+          "expected": "1990-01-01",
+          "extracted": "1990-01-01",
+          "match": "exact"
+        }
+      ],
+      "failures": [],
+      "verdict": "PASS",
+      "fabricationCount": 0,
+      "shortfallCount": 0
+    },
+    {
+      "id": "national-id-blurred",
+      "mode": "no_fabrication",
+      "fields": [
+        {
+          "field": "first_name",
+          "expected": "TESTCASE",
+          "extracted": "TESTCASE",
+          "match": "exact"
+        },
+        {
+          "field": "last_name",
+          "expected": "SPECIMEN",
+          "extracted": "SPECIMEN",
+          "match": "exact"
+        },
+        {
+          "field": "national_id_number",
+          "expected": "63-1234567-A-42",
+          "extracted": "63-1234567-A-42",
+          "match": "exact"
+        },
+        {
+          "field": "date_of_birth",
+          "expected": "1990-01-01",
+          "extracted": "1990-01-01",
+          "match": "exact"
+        }
+      ],
+      "failures": [],
+      "verdict": "PASS",
+      "fabricationCount": 0,
+      "shortfallCount": 0
+    },
+    {
+      "id": "national-id-glare",
+      "mode": "no_fabrication",
+      "fields": [
+        {
+          "field": "first_name",
+          "expected": "TESTCASE",
+          "extracted": "TESTCASE",
+          "match": "exact"
+        },
+        {
+          "field": "last_name",
+          "expected": "SPECIMEN",
+          "extracted": "SPECIMEN",
+          "match": "exact"
+        },
+        {
+          "field": "national_id_number",
+          "expected": "63-1234567-A-42",
+          "extracted": "63-1234567-A-42",
+          "match": "exact"
+        },
+        {
+          "field": "date_of_birth",
+          "expected": "1990-01-01",
+          "extracted": "1990-01-01",
+          "match": "exact"
+        }
+      ],
+      "failures": [],
+      "verdict": "PASS",
+      "fabricationCount": 0,
+      "shortfallCount": 0
+    },
+    {
+      "id": "national-id-cropped",
+      "mode": "no_fabrication",
+      "fields": [
+        {
+          "field": "first_name",
+          "expected": "TESTCASE",
+          "extracted": "TESTCASE",
+          "match": "exact"
+        },
+        {
+          "field": "last_name",
+          "expected": "SPECIMEN",
+          "extracted": "SPECIMEN",
+          "match": "exact"
+        },
+        {
+          "field": "national_id_number",
+          "expected": "63-1234567-A-42",
+          "extracted": "63-1234567-A-42",
+          "match": "exact"
+        },
+        {
+          "field": "date_of_birth",
+          "expected": "1990-01-01",
+          "extracted": "1990-01-01",
+          "match": "exact"
+        },
+        {
+          "field": "place_of_birth",
+          "expected": "(not on the image)",
+          "extracted": null,
+          "match": "missing"
+        },
+        {
+          "field": "date_of_issue",
+          "expected": "(not on the image)",
+          "extracted": null,
+          "match": "missing"
+        }
+      ],
+      "failures": [],
+      "verdict": "PASS",
+      "fabricationCount": 0,
+      "shortfallCount": 0
+    },
+    {
+      "id": "passport-clean",
+      "mode": "strict",
+      "fields": [
+        {
+          "field": "first_name",
+          "expected": "VERIFY",
+          "extracted": "VERIFY",
+          "match": "exact"
+        },
+        {
+          "field": "last_name",
+          "expected": "EXEMPLAR",
+          "extracted": "EXEMPLAR",
+          "match": "exact"
+        },
+        {
+          "field": "national_id_number",
+          "expected": "ZN1234567",
+          "extracted": "ZN1234567",
+          "match": "exact"
+        },
+        {
+          "field": "date_of_birth",
+          "expected": "1988-02-12",
+          "extracted": "1988-02-12",
+          "match": "exact"
+        },
+        {
+          "field": "sex",
+          "expected": "F",
+          "extracted": "F",
+          "match": "exact"
+        },
+        {
+          "field": "nationality",
+          "expected": "ZIMBABWEAN",
+          "extracted": "ZIMBABWEAN",
+          "match": "exact"
+        },
+        {
+          "field": "expiry",
+          "expected": "2030-03-02",
+          "extracted": "2030-03-02",
+          "match": "exact"
+        }
+      ],
+      "failures": [],
+      "verdict": "PASS",
+      "fabricationCount": 0,
+      "shortfallCount": 0
+    },
+    {
+      "id": "drivers-licence-clean",
+      "mode": "strict",
+      "fields": [
+        {
+          "field": "first_name",
+          "expected": "SAMPLE",
+          "extracted": "SAMPLE",
+          "match": "exact"
+        },
+        {
+          "field": "last_name",
+          "expected": "PROTOTYPE",
+          "extracted": "PROTOTYPE",
+          "match": "exact"
+        },
+        {
+          "field": "national_id_number",
+          "expected": "ZWDL4471902",
+          "extracted": "ZWDL4471902",
+          "match": "exact"
+        },
+        {
+          "field": "date_of_birth",
+          "expected": "1990-02-08",
+          "extracted": "1990-02-08",
+          "match": "exact"
+        },
+        {
+          "field": "expiry",
+          "expected": "2029-02-07",
+          "extracted": "2029-02-07",
+          "match": "exact"
+        }
+      ],
+      "failures": [],
+      "verdict": "PASS",
+      "fabricationCount": 0,
+      "shortfallCount": 0
+    },
+    {
+      "id": "registration-book-clean",
+      "mode": "strict",
+      "fields": [
+        {
+          "field": "vin",
+          "expected": "JTDBR32E870123456",
+          "extracted": null,
+          "match": "missing"
+        },
+        {
+          "field": "make",
+          "expected": "TOYOTA",
+          "extracted": null,
+          "match": "missing"
+        },
+        {
+          "field": "model",
+          "expected": "COROLLA",
+          "extracted": null,
+          "match": "missing"
+        },
+        {
+          "field": "year",
+          "expected": 2018,
+          "extracted": null,
+          "match": "missing"
+        },
+        {
+          "field": "plate_number",
+          "expected": "AEB 4729",
+          "extracted": null,
+          "match": "missing"
+        },
+        {
+          "field": "owner_name",
+          "expected": "SPECIMEN MOTORS (PRIVATE) LIMITED",
+          "extracted": null,
+          "match": "missing"
+        },
+        {
+          "field": "engine_number",
+          "expected": "1NZFE4829384",
+          "extracted": null,
+          "match": "missing"
+        }
+      ],
+      "failures": [
+        {
+          "kind": "shortfall",
+          "field": "vin",
+          "expected": "JTDBR32E870123456"
+        },
+        {
+          "kind": "shortfall",
+          "field": "make",
+          "expected": "TOYOTA"
+        },
+        {
+          "kind": "shortfall",
+          "field": "model",
+          "expected": "COROLLA"
+        },
+        {
+          "kind": "shortfall",
+          "field": "year",
+          "expected": 2018
+        },
+        {
+          "kind": "shortfall",
+          "field": "plate_number",
+          "expected": "AEB 4729"
+        },
+        {
+          "kind": "shortfall",
+          "field": "owner_name",
+          "expected": "SPECIMEN MOTORS (PRIVATE) LIMITED"
+        },
+        {
+          "kind": "shortfall",
+          "field": "engine_number",
+          "expected": "1NZFE4829384"
+        }
+      ],
+      "verdict": "FAIL",
+      "fabricationCount": 0,
+      "shortfallCount": 7
+    },
+    {
+      "id": "customs-declaration-clean",
+      "mode": "strict",
+      "fields": [
+        {
+          "field": "vin",
+          "expected": "JTDBR32E870123456",
+          "extracted": null,
+          "match": "missing"
+        },
+        {
+          "field": "bill_entry_number",
+          "expected": "BOE-2026-884213",
+          "extracted": null,
+          "match": "missing"
+        },
+        {
+          "field": "duty_value_zig",
+          "expected": 48250.5,
+          "extracted": null,
+          "match": "missing"
+        },
+        {
+          "field": "importer_name",
+          "expected": "SPECIMEN MOTORS (PRIVATE) LIMITED",
+          "extracted": null,
+          "match": "missing"
+        },
+        {
+          "field": "stamp_date",
+          "expected": "2026-03-14",
+          "extracted": null,
+          "match": "missing"
+        },
+        {
+          "field": "entry_point",
+          "expected": "BEITBRIDGE",
+          "extracted": null,
+          "match": "missing"
+        }
+      ],
+      "failures": [
+        {
+          "kind": "shortfall",
+          "field": "vin",
+          "expected": "JTDBR32E870123456"
+        },
+        {
+          "kind": "shortfall",
+          "field": "bill_entry_number",
+          "expected": "BOE-2026-884213"
+        },
+        {
+          "kind": "shortfall",
+          "field": "duty_value_zig",
+          "expected": 48250.5
+        },
+        {
+          "kind": "shortfall",
+          "field": "importer_name",
+          "expected": "SPECIMEN MOTORS (PRIVATE) LIMITED"
+        },
+        {
+          "kind": "shortfall",
+          "field": "stamp_date",
+          "expected": "2026-03-14"
+        },
+        {
+          "kind": "shortfall",
+          "field": "entry_point",
+          "expected": "BEITBRIDGE"
+        }
+      ],
+      "verdict": "FAIL",
+      "fabricationCount": 0,
+      "shortfallCount": 6
+    },
+    {
+      "id": "non-document",
+      "mode": "no_document",
+      "fields": [],
+      "failures": [],
+      "verdict": "PASS",
+      "fabricationCount": 0,
+      "shortfallCount": 0
+    },
+    {
+      "id": "unsupported-file",
+      "mode": "unsupported",
+      "fields": [],
+      "failures": [],
+      "verdict": "PASS",
+      "fabricationCount": 0,
+      "shortfallCount": 0
+    }
+  ]
+}

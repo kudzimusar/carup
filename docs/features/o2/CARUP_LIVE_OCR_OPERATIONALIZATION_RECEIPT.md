@@ -105,7 +105,74 @@ deliberately non-zero so an unrun gate can never be read as a passed one.
 The grading arithmetic is itself unit-tested (`o2-ocr-accuracy-corpus.test.js`), including that a
 one-digit difference in an ID number is graded `incorrect` and not a near miss.
 
-## 4. Provider activation boundary
+## 4. Provider activation — AUTHORIZED, MEASURED, AND BLOCKED ON QUOTA
+
+Product Owner authorization to activate Gemini Vision on staging was granted on 2026-09-04. What
+follows is what that authorization actually produced.
+
+### 4.1 Where the credential is, and where it is not
+
+| Location | `GEMINI_API_KEY` | Consequence |
+|---|---|---|
+| GitHub Actions repository secret | **present** (created 2026-06-05, previously unused by any workflow) | The accuracy gate can run in CI, where the value is injected and never exposed |
+| Vercel `carup-backend-staging` — Preview | **absent** | The deployed staging journey cannot reach any provider |
+| Vercel `carup-backend-staging` — Production | absent | — |
+| Vercel `carup-backend`, `carup-staging`, `carup` | absent | — |
+
+The secret is write-only: GitHub does not return its value, so it cannot be copied into the Vercel
+preview environment from here. No credential was printed, committed, written to an artifact or
+placed in any frontend environment, and none was fabricated or substituted.
+
+### 4.2 What the live provider actually did
+
+Five runs against real Gemini Vision (`gemini-2.5-flash`, `ALLOW_OCR_MOCK=false`), full history in
+[uat-assets/OCR_ACCURACY_RUN_HISTORY.md](uat-assets/OCR_ACCURACY_RUN_HISTORY.md), measured results
+in [uat-assets/OCR_ACCURACY_RESULTS.md](uat-assets/OCR_ACCURACY_RESULTS.md).
+
+**Extraction reads the actual pixels, and it reads them correctly.**
+
+- **48 distinct expected fields read correctly; ZERO ever read incorrectly; ZERO fabrications** —
+  across every run, on every document class.
+- Ten of eleven fixtures have passed on a genuine reading, including all four degraded variants.
+  The **cropped** fixture is the sharpest result: the provider read the four fields that survive
+  the crop and returned nothing for the two cut off the image, which is precisely the behaviour
+  this lane exists to guarantee.
+- The **non-document** landscape yielded zero document fields; the **unsupported text file** was
+  refused before any byte was uploaded.
+
+**Two defects were found by the live measurement and fixed in-lane:**
+
+1. `national-id-clean` failed after **105 seconds** with an unexplained "malformed response". The
+   call was spending its response budget instead of answering. The client now names the real cause
+   (`finishReason` / `blockReason` / HTTP status / violated quota, with token usage), bounds the
+   call at 90 s, and the OCR request sets an explicit output budget with thinking disabled —
+   transcription is not a reasoning task. The same fixture then passed in **2.4 seconds with all
+   eight fields exact**.
+2. `registration-book-clean` read make, model, year, plate, owner and engine exactly and returned
+   no VIN. A registration book prints the chassis number and the VIN once under a combined label,
+   so the reading is now carried across — **only** when the value is itself a valid 17-character
+   VIN, recorded in `carriedIdentifiers`. Unit-tested; **not yet confirmed live** (see below).
+
+### 4.3 Why the gate has not passed
+
+The credential is on the **Gemini free tier**, and its **daily** request allowance for
+`gemini-2.5-flash` is exhausted. The provider names the quota exactly:
+
+```
+RESOURCE_EXHAUSTED [quota: GenerateRequestsPerDayPerProjectPerModel-FreeTier]
+```
+
+Once that limit is reached, every call is refused in ~170 ms regardless of pacing or backoff — a
+single-fixture diagnostic run was refused on all three attempts. This is a **plan limit, not a
+provider-quality result**: nothing the provider read was ever wrong.
+
+No expected fixture value was changed, no strictness was reduced, no fuzzy acceptance was
+introduced for identity numbers or VINs, and no second provider was substituted.
+
+## 4A. Provider-activation boundary as recorded BEFORE authorization (superseded by §4)
+
+*Kept as written on 2026-09-04, before the Product Owner granted activation. Superseded by §4
+above; recorded rather than rewritten.*
 
 No credential was placed in the repository, in any log, or in any deployment. Nothing was
 activated in production, and no O2 staging gate was mutated.
@@ -115,20 +182,23 @@ all eleven fixtures, the real provider call path and the grading: 0 fabrications
 verdict FAIL — the correct result when the provider rejects the request. That proves the harness
 runs; it measures nothing about extraction accuracy, and is not reported as an accuracy result.
 
-**The accuracy gate has NOT been run against a live provider.** No OCR/vision provider is
-configured for CarUp staging, and configuring one is a Product Owner credential decision.
+~~**The accuracy gate has NOT been run against a live provider.**~~ **Superseded:** it has now
+been run five times against real Gemini Vision — see §4.2. The statement that no provider is
+configured for CarUp staging **still holds for the deployed backend**: the credential exists only
+as a GitHub Actions secret, not in the Vercel preview environment.
 
 ## 5. Verification
 
-All measurements below are from this lane's head, run on this machine.
+Live measurement required code changes after `92aaed8b`, so the whole matrix was re-run at the
+current head. Both runs are recorded; the second supersedes the first.
 
-| Gate | Result |
-|---|---|
-| **Full backend suite** (`node --test backend/tests/*.test.js` from repo root, CI env) | **5986 tests · 5965 pass · 0 fail · 21 skipped · exit 0** |
-| **Full web suite** (`vitest run`) | **164 files · 1585 tests · 1585 pass · 0 fail · exit 0** |
-| **TypeScript + production build** (`npm run build` = `tsc -b && vite build`) | **PASS** — 2776 modules transformed, built in 31.31s |
-| **Lint regression gate** (`scripts/lint-baseline-gate.mjs` vs `71b81d74`) | **NET_NEW_ERRORS=0 · NET_NEW_WARNINGS=0 · exit 0** (advisory full-repo inventory unchanged at 135/9) |
-| **OCR accuracy gate** | **NOT RUN** — no provider authorized (exit 3, by design) |
+| Gate | At `92aaed8b` (pre-activation) | At `107cb5b0` (after the live fixes) |
+|---|---|---|
+| **Full backend suite** (`node --test backend/tests/*.test.js` from repo root, CI env) | 5986 tests · 5965 pass · 0 fail · 21 skipped | **5988 tests · 5967 pass · 0 fail · 21 skipped · exit 0** |
+| **Full web suite** (`vitest run`) | 164 files · 1585 pass · 0 fail | **164 files · 1585 tests · 1585 pass · 0 fail · exit 0** |
+| **TypeScript + production build** (`npm run build` = `tsc -b && vite build`) | PASS (31.31s) | **PASS** — built in 25.47s |
+| **Lint regression gate** (`scripts/lint-baseline-gate.mjs` vs `71b81d74`) | NET_NEW 0/0 | **NET_NEW_ERRORS=0 · NET_NEW_WARNINGS=0 · exit 0** (advisory inventory unchanged at 135/9) |
+| **OCR accuracy gate (live Gemini Vision)** | NOT RUN — no provider authorized | **FAIL — 0 fabrications, 0 incorrect; blocked by the free-tier DAILY quota** (see §4) |
 
 Named suites re-run individually:
 

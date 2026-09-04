@@ -167,14 +167,56 @@ What this changes for your walkthrough:
 - **"N/A" / "Unknown" / a today's-date birthday can no longer appear as extracted values.** If any
   of those appears as a suggested value, that is a finding.
 
-**Current status: LIVE OCR CODE READY — STAGING PROVIDER AUTHORIZATION REQUIRED.** The extraction
-code reads real image bytes and is covered by a permanent regression suite and a synthetic
-accuracy corpus (`docs/features/o2/uat-assets/ocr-corpus/`, eleven fixtures: clean, rotated,
-blurred, glare, cropped, non-document and unsupported). The accuracy gate has **not** been run
-against a live provider, because no OCR/vision provider is configured for CarUp staging and
-configuring one is a Product Owner credential decision. Until that gate runs and passes, §3A's
-verdict remains **NOT READY** — routing to manual review is a correct safety behaviour and is not
+**Current status (2026-09-04, after Product Owner activation authorization): LIVE OCR NOT READY —
+PROVIDER DAILY QUOTA EXHAUSTED.** Extraction now genuinely reads document pixels, and that is
+measured, not asserted. What blocks §3A is a credential plan and a missing staging environment
+variable, not the reading quality.
+
+**What the live provider actually did.** Five runs against real Gemini Vision (`gemini-2.5-flash`)
+over the eleven-fixture synthetic corpus — full detail in
+[uat-assets/OCR_ACCURACY_RUN_HISTORY.md](uat-assets/OCR_ACCURACY_RUN_HISTORY.md) and
+[uat-assets/OCR_ACCURACY_RESULTS.md](uat-assets/OCR_ACCURACY_RESULTS.md):
+
+| Measured | Result |
+|---|---|
+| Distinct expected fields read **correctly** | **48** |
+| Fields ever read **incorrectly** | **0** |
+| Fabricated values | **0** |
+| Fixtures passed on a genuine reading | **10 of 11** |
+| Cropped fixture | read the four fields that survive the crop, returned **nothing** for the two cut off the image |
+| Non-document (landscape photo) | **zero** document fields |
+| Unsupported text file | refused **before** any byte reached the provider |
+
+**Why §3A still cannot run.** Two independent blockers, neither of them about OCR quality:
+
+1. The Gemini credential exists **only as a GitHub Actions secret**, not in the Vercel
+   `carup-backend-staging` **Preview** environment. GitHub secrets are write-only, so the value
+   cannot be copied across from here. The deployed staging backend therefore still reports no OCR
+   provider, exactly as §3A recorded.
+2. The credential is on the **Gemini free tier** and its **daily** allowance for
+   `gemini-2.5-flash` is exhausted — the provider names the quota
+   (`GenerateRequestsPerDayPerProjectPerModel-FreeTier`). Once reached, every call is refused in
+   ~170 ms whatever the pacing.
+
+**What the Product Owner needs to do**, in order:
+
+1. Raise the Gemini quota (enable billing on the Google AI Studio / Cloud project behind the key,
+   or supply a paid-tier key). A daily free-tier allowance cannot carry a certification corpus
+   plus a UAT journey.
+2. Add `GEMINI_API_KEY` to Vercel project **`carup-backend-staging`**, environment **Preview**
+   (team `11-11`). Backend only — never a `VITE_`/frontend variable, and not Production.
+3. Re-run the accuracy gate (GitHub Actions → *O2 Live OCR — Gemini Vision accuracy gate*, leave
+   the `fixtures` input blank for the full corpus) and then §3A.1–3A.11 on the exact-head pair.
+
+Until the gate passes on a full corpus **and** §3A passes on the deployed pair, §3A's verdict
+stays **NOT READY**. Routing to manual review remains a correct safety behaviour and is still not
 a substitute for extraction.
+
+**What changed for your walkthrough regardless**, once a provider is reachable: values now come
+from the actual pixels; provenance (provider, model, execution status, latency, and whether a
+confidence was genuinely reported) is recorded per reading; blur/glare/tampering scores are gone
+because CarUp does not measure them; and `N/A` / `Unknown` / a today's-date birthday can no longer
+appear as extracted values. Any of those appearing is a finding.
 
 ### 4 · Biometrics (provider deliberately not activated)
 | # | Path | Account | Do this | Expect | PASS/FAIL |
