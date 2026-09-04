@@ -46,6 +46,22 @@ and mobile.
 
 Run trajectory: 11 → 14 → 18 → **21 passed**, each failure a real defect, none waived.
 
+## Final matrix — measured at the certification candidate `7eba353f`
+
+| Gate | Result |
+|---|---|
+| Full backend | **5945 tests — 5924 pass / 0 fail / 21 skipped** (the prior clean candidate's 5932 plus exactly the 13 new X7 certification tests) |
+| Full web | **1585 / 1585** (164 files) |
+| `tsc --noEmit` | clean (exit 0) |
+| Production build (`npm run build`, i.e. `tsc -b && vite build`) | success — the gate that caught the X5A build break, now green |
+| Lint NET_NEW gate vs `origin/main` | **NET_NEW_ERRORS=0 · NET_NEW_WARNINGS=0** |
+
+One interim web failure was recorded and classified honestly rather than waived: a 5s timeout
+in `SellFlow.identification.test.tsx` — a file this programme never touched — while the
+production build held ~147% CPU on the same machine. Re-run in isolation: 8/8; full web suite
+re-run uncontended: 1585/1585. Contention, not a regression (the documented hazard: never
+measure certification numbers from a contended run).
+
 ## Not done, deliberately
 
 No production deploy. No live biometric provider. No PR #197 change. No Dealer activation
