@@ -260,7 +260,7 @@ export default function DealerOnboarding() {
           <Badge variant="outline" data-testid="dealer-who-must-act">{ACTOR_LABELS[overview.who_must_act] || overview.who_must_act}</Badge>
           <Badge className="bg-gray-700" data-testid="workspace-dependency"><Lock className="mr-1 h-3 w-3" aria-hidden />Applicant — not an active Dealer</Badge>
         </div>
-        <p className="text-xs text-gray-500">{overview.workspace_access.note}</p>
+        <p className="text-xs text-gray-400">{overview.workspace_access.note}</p>
       </header>
 
       {/* A + B — business identity + responsible person */}
@@ -285,7 +285,7 @@ export default function DealerOnboarding() {
               {overview.responsible_person_identity.effective_state.replace(/_/g, ' ')}
             </span>
             {!overview.responsible_person_identity.capability_bearing && (
-              <span className="text-gray-500"> — {overview.responsible_person_identity.applicant_guidance || 'complete identity verification in registration'}</span>
+              <span className="text-gray-400"> — {overview.responsible_person_identity.applicant_guidance || 'complete identity verification in registration'}</span>
             )}
           </div>
         </CardContent>
@@ -297,7 +297,7 @@ export default function DealerOnboarding() {
           <Card className="bg-gray-900 border-gray-800">
             <CardContent className="p-4 space-y-2">
               <h2 className="font-medium">Compliance requirements</h2>
-              {overview.requirements.length === 0 && <p className="text-sm text-gray-500" data-testid="no-requirements">No requirements recorded yet — CarUp review will populate your checklist.</p>}
+              {overview.requirements.length === 0 && <p className="text-sm text-gray-400" data-testid="no-requirements">No requirements recorded yet — CarUp review will populate your checklist.</p>}
               <ul className="space-y-1 text-sm" data-testid="requirements-list">
                 {overview.requirements.map((req) => (
                   <li key={req.id} className="flex items-center justify-between">
@@ -340,7 +340,7 @@ export default function DealerOnboarding() {
                     </div>
                     {doc.extraction_candidates && (
                       <div className="text-xs text-gray-400 space-y-0.5" data-testid={`candidates-${doc.id}`}>
-                        <p className="text-gray-500">Extracted as candidates — use only what is correct:</p>
+                        <p className="text-gray-400">Extracted as candidates — use only what is correct:</p>
                         {Object.entries(doc.extraction_candidates).map(([field, candidate]) => (
                           <div key={field} className="flex items-center justify-between">
                             <span>{field.replace(/_/g, ' ')}: {candidate.state === 'machine_candidate' ? candidate.value : 'not read'}</span>
@@ -389,12 +389,12 @@ export default function DealerOnboarding() {
                 <dl className="grid grid-cols-2 gap-1 text-sm" data-testid="compliance-dimensions">
                   {(['identity_status', 'business_evidence_status', 'compliance_review_state', 'active_state', 'restriction_state', 'suspension_state', 'investigation_state', 'expiry_state'] as const).map((dim) => (
                     <React.Fragment key={dim}>
-                      <dt className="text-gray-500">{dim.replace(/_/g, ' ')}</dt>
+                      <dt className="text-gray-400">{dim.replace(/_/g, ' ')}</dt>
                       <dd>{String(compliance[dim] ?? '—')}</dd>
                     </React.Fragment>
                   ))}
                 </dl>
-                <p className="text-xs text-gray-500">
+                <p className="text-xs text-gray-400">
                   can publish: <span data-testid="can-publish">{String(compliance.can_publish)}</span> — decided only by Dealer Compliance review, never by this application form.
                 </p>
               </CardContent>
@@ -421,12 +421,12 @@ export default function DealerOnboarding() {
 
               {mappingRows.length > 0 && workbookMeta && (
                 <div className="space-y-2" data-testid="mapping-table">
-                  <p className="text-xs text-gray-500">
+                  <p className="text-xs text-gray-400">
                     {workbookMeta.rowCount} rows · review every column: AI proposals are suggestions — you decide. Changing the file requires confirming again.
                   </p>
                   <div className="overflow-x-auto">
                     <table className="w-full text-xs">
-                      <thead><tr className="text-left text-gray-500"><th className="p-1">Workbook column</th><th className="p-1">CarUp field</th><th className="p-1">Source</th></tr></thead>
+                      <thead><tr className="text-left text-gray-400"><th className="p-1">Workbook column</th><th className="p-1">CarUp field</th><th className="p-1">Source</th></tr></thead>
                       <tbody>
                         {mappingRows.map((row) => (
                           <tr key={row.source} className="border-t border-gray-800">
@@ -439,7 +439,7 @@ export default function DealerOnboarding() {
                                 {canonicalColumns.map((c) => <option key={c} value={c}>{c}</option>)}
                               </select>
                             </td>
-                            <td className="p-1 text-gray-500">{row.provider}{row.confidence !== null ? ` (${Math.round((row.confidence || 0) * 100)}%)` : ''}</td>
+                            <td className="p-1 text-gray-400">{row.provider}{row.confidence !== null ? ` (${Math.round((row.confidence || 0) * 100)}%)` : ''}</td>
                           </tr>
                         ))}
                       </tbody>
@@ -459,7 +459,7 @@ export default function DealerOnboarding() {
               {dryRun !== null && (
                 <div className="rounded-md border border-gray-800 p-2 text-xs" data-testid="dry-run-result">
                   <p className="text-gray-400">Dry run recorded by the import engine — review, then confirmation and execution follow the engine's own governed steps. Nothing has been imported yet.</p>
-                  <pre className="mt-1 max-h-56 overflow-auto whitespace-pre-wrap text-gray-500">{JSON.stringify(dryRun, null, 2).slice(0, 4000)}</pre>
+                  <pre className="mt-1 max-h-56 overflow-auto whitespace-pre-wrap text-gray-400">{JSON.stringify(dryRun, null, 2).slice(0, 4000)}</pre>
                 </div>
               )}
             </CardContent>

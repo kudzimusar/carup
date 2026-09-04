@@ -79,7 +79,7 @@ export default function WorkbookTools() {
                 <span className="text-sm font-medium">{entry.label}</span>
                 <Badge className="bg-gray-800 text-gray-300">{entry.engine === 'registry' ? 'vehicle workbook' : 'diaspora pipeline'}</Badge>
               </div>
-              {entry.note && <p className="mt-1 text-xs text-gray-500">{entry.note}</p>}
+              {entry.note && <p className="mt-1 text-xs text-gray-400">{entry.note}</p>}
               {entry.engine !== 'registry' && (
                 <Button size="sm" variant="outline" className="mt-2" data-testid={`open-diaspora-${entry.template_key}`}
                   onClick={() => navigate('/diaspora/trade-profile')}>
@@ -89,7 +89,7 @@ export default function WorkbookTools() {
             </CardContent>
           </Card>
         ))}
-        {available.length === 0 && <p className="text-sm text-gray-500">No workbooks are available to this account yet.</p>}
+        {available.length === 0 && <p className="text-sm text-gray-400">No workbooks are available to this account yet.</p>}
       </div>
 
       {selected && <WorkbookWorkspace templateKey={selected} title={available.find((entry) => entry.template_key === selected)?.label} />}
@@ -97,7 +97,7 @@ export default function WorkbookTools() {
       {unavailable.length > 0 && (
         <div className="rounded-md border border-gray-800 bg-gray-950 p-3" data-testid="catalogue-unavailable">
           <div className="text-xs font-medium text-gray-400">Not available to this account (and why)</div>
-          <ul className="mt-1 space-y-0.5 text-xs text-gray-500">
+          <ul className="mt-1 space-y-0.5 text-xs text-gray-400">
             {unavailable.map((entry) => (
               <li key={entry.template_key} data-testid={`unavailable-${entry.template_key}`}>
                 {entry.template_key.replace(/_/g, ' ')} — {REASON_LABELS[entry.reason] || entry.reason}

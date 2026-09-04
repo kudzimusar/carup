@@ -121,7 +121,7 @@ test.describe('O2 P7 — People & Compliance staging certification', () => {
     // 2. Registration profile persists and resumes from server truth.
     const write = await request.put(`${API_URL}/registration/profile`, {
       headers: await mutationHeaders(request, applicant),
-      data: { account_kind: 'individual', market_relationship: 'zimbabwe_local', country_of_residence: 'Zimbabwe', city: 'Harare', intended_use: 'buy_sell', terms_acknowledged: true, privacy_acknowledged: true },
+      data: { profile: { account_kind: 'individual', market_relationship: 'zimbabwe_local', country_of_residence: 'Zimbabwe', city: 'Harare', intended_use: 'buy_sell', terms_acknowledged: true, privacy_acknowledged: true } },
     });
     expect(write.status(), `profile write failed: ${await write.text()}`).toBeLessThan(300);
 
@@ -349,7 +349,9 @@ test.describe('O2 P7 — People & Compliance staging certification', () => {
 
     const axe = await new AxeBuilder({ page }).include('main').analyze();
     const serious = axe.violations.filter((v) => v.impact === 'serious' || v.impact === 'critical');
-    expect(serious.map((v) => v.id), 'axe serious/critical').toEqual([]);
+    // Attach BEFORE asserting: a failing scan must always ship its nodes as evidence.
     await testInfo.attach('axe-onboarding.json', { body: JSON.stringify(axe.violations, null, 2), contentType: 'application/json' });
+    const detail = serious.flatMap((v) => v.nodes.map((n) => `${v.id} @ ${n.target.join(' ')}`)).join('\n');
+    expect(serious.map((v) => v.id), `axe serious/critical:\n${detail}`).toEqual([]);
   });
 });

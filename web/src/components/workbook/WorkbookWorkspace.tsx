@@ -246,7 +246,7 @@ export default function WorkbookWorkspace({ templateKey, title }: { templateKey:
                 <div className="text-xs font-medium text-gray-300">{sheet.sheet_name} — {sheet.row_count} row{sheet.row_count === 1 ? '' : 's'}</div>
                 <div className="overflow-x-auto">
                   <table className="w-full text-xs">
-                    <thead><tr className="text-gray-500"><th className="text-left">Your column</th><th className="text-left">Maps to</th><th className="text-left">Source</th><th /></tr></thead>
+                    <thead><tr className="text-gray-400"><th className="text-left">Your column</th><th className="text-left">Maps to</th><th className="text-left">Source</th><th /></tr></thead>
                     <tbody>
                       {sheet.proposals.map((proposal) => (
                         <tr key={proposal.source}>
@@ -290,7 +290,7 @@ export default function WorkbookWorkspace({ templateKey, title }: { templateKey:
                 {dryRun.attention && dryRun.attention.count > 0 && (
                   <div className="overflow-x-auto" data-testid="wb-attention">
                     <table className="w-full text-xs">
-                      <thead><tr className="text-gray-500"><th className="text-left">Sheet</th><th className="text-left">Row</th><th className="text-left">Field</th><th className="text-left">Issue</th><th className="text-left">What to do</th></tr></thead>
+                      <thead><tr className="text-gray-400"><th className="text-left">Sheet</th><th className="text-left">Row</th><th className="text-left">Field</th><th className="text-left">Issue</th><th className="text-left">What to do</th></tr></thead>
                       <tbody>
                         {dryRun.attention.needs_attention.map((row, index) => (
                           <tr key={index} className={row.severity === 'error' ? 'text-red-300' : 'text-amber-300'}>
@@ -301,7 +301,7 @@ export default function WorkbookWorkspace({ templateKey, title }: { templateKey:
                         ))}
                       </tbody>
                     </table>
-                    <p className="mt-1 text-xs text-gray-500">Fix these in your file and upload it again — CarUp never edits your workbook for you.</p>
+                    <p className="mt-1 text-xs text-gray-400">Fix these in your file and upload it again — CarUp never edits your workbook for you.</p>
                   </div>
                 )}
                 <Button size="sm" disabled={!dryRun.canImport || executing || Boolean(executed)} onClick={() => void execute()} data-testid="wb-execute">
@@ -319,10 +319,10 @@ export default function WorkbookWorkspace({ templateKey, title }: { templateKey:
 
         {tab === 'recent' && (
           <div className="overflow-x-auto" data-testid="wb-recent">
-            {recent.length === 0 && <p className="text-sm text-gray-500">No imports yet for this workbook.</p>}
+            {recent.length === 0 && <p className="text-sm text-gray-400">No imports yet for this workbook.</p>}
             {recent.length > 0 && (
               <table className="w-full text-xs">
-                <thead><tr className="text-gray-500"><th className="text-left">File</th><th className="text-left">Uploaded</th><th className="text-left">Rows</th><th className="text-left">Status</th></tr></thead>
+                <thead><tr className="text-gray-400"><th className="text-left">File</th><th className="text-left">Uploaded</th><th className="text-left">Rows</th><th className="text-left">Status</th></tr></thead>
                 <tbody>
                   {recent.map((entry) => (
                     <tr key={entry.batch_id} className="text-gray-300">

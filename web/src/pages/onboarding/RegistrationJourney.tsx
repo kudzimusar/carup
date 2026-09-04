@@ -365,7 +365,7 @@ export default function RegistrationJourney() {
                   <div className={stage.reached ? 'text-gray-100' : 'text-gray-400'}>
                     {STAGE_LABELS[stage.stage] || stage.stage}
                   </div>
-                  <div className="text-xs text-gray-500">{stage.unlocks.map((u) => u.replace(/_/g, ' ')).join(' · ')}</div>
+                  <div className="text-xs text-gray-400">{stage.unlocks.map((u) => u.replace(/_/g, ' ')).join(' · ')}</div>
                 </div>
               </li>
             ))}
@@ -377,7 +377,7 @@ export default function RegistrationJourney() {
           )}
           <div className="border-t border-gray-800 pt-3 space-y-1">
             {journey.journey.locked_capabilities.map((lock) => (
-              <div key={lock.capability} className="flex items-start gap-2 text-xs text-gray-500" data-testid={`locked-${lock.capability}`}>
+              <div key={lock.capability} className="flex items-start gap-2 text-xs text-gray-400" data-testid={`locked-${lock.capability}`}>
                 <Lock className="mt-0.5 h-3 w-3 shrink-0" aria-hidden />
                 <span>
                   <span className="text-gray-400">{lock.capability.replace(/_/g, ' ')}</span>
@@ -401,14 +401,14 @@ export default function RegistrationJourney() {
 
           {journey.journey.steps.context_established && !editContext ? (
             <dl className="grid grid-cols-2 gap-2 text-sm" data-testid="context-summary">
-              <dt className="text-gray-500">Account</dt><dd>{journey.profile?.account_kind}</dd>
-              <dt className="text-gray-500">Market</dt><dd>{journey.profile?.market_relationship?.replace(/_/g, ' ')}</dd>
-              <dt className="text-gray-500">Country</dt><dd>{journey.profile?.country_of_residence}</dd>
-              <dt className="text-gray-500">City</dt><dd>{journey.profile?.city}</dd>
+              <dt className="text-gray-400">Account</dt><dd>{journey.profile?.account_kind}</dd>
+              <dt className="text-gray-400">Market</dt><dd>{journey.profile?.market_relationship?.replace(/_/g, ' ')}</dd>
+              <dt className="text-gray-400">Country</dt><dd>{journey.profile?.country_of_residence}</dd>
+              <dt className="text-gray-400">City</dt><dd>{journey.profile?.city}</dd>
             </dl>
           ) : (
             <div className="space-y-3" data-testid="context-form">
-              <p className="text-xs text-gray-500">
+              <p className="text-xs text-gray-400">
                 You can complete this at any time — an OCR problem never blocks it.
               </p>
               <div className="grid gap-3 sm:grid-cols-2">
@@ -481,7 +481,7 @@ export default function RegistrationJourney() {
                 )}
               </div>
               {form.account_kind === 'business' && (
-                <p className="text-xs text-gray-500">
+                <p className="text-xs text-gray-400">
                   Business details route you into Dealer onboarding later — they never grant dealer access by themselves.
                 </p>
               )}
@@ -555,9 +555,9 @@ export default function RegistrationJourney() {
                         ? <CheckCircle className="h-5 w-5 text-green-500" aria-hidden />
                         : state === 'error'
                           ? <AlertTriangle className="h-5 w-5 text-amber-500" aria-hidden />
-                          : <Camera className="h-5 w-5 text-gray-500" aria-hidden />}
+                          : <Camera className="h-5 w-5 text-gray-400" aria-hidden />}
                       <span>{label}</span>
-                      <span className="text-xs text-gray-500">
+                      <span className="text-xs text-gray-400">
                         {state === 'uploading' ? 'Uploading…'
                           : uploaded ? 'Uploaded — tap to replace'
                             : state === 'error' ? 'Failed — tap to retry'
@@ -621,9 +621,9 @@ export default function RegistrationJourney() {
               ) : (
                 <div className="space-y-2">
                   <div className="grid grid-cols-2 gap-1 text-sm">
-                    <span className="text-gray-500">Face ↔ document</span>
+                    <span className="text-gray-400">Face ↔ document</span>
                     <span data-testid="biometric-face-status">{BIOMETRIC_STATUS_LABELS[identity.biometric.latest?.face_match_status || 'not_run']}</span>
-                    <span className="text-gray-500">Liveness</span>
+                    <span className="text-gray-400">Liveness</span>
                     <span data-testid="biometric-liveness-status">{BIOMETRIC_STATUS_LABELS[identity.biometric.latest?.liveness_status || 'not_run']}</span>
                   </div>
                   {(identity.biometric.latest?.provider_state === 'not_configured' || identity.biometric.latest?.provider_state === 'unavailable') && (
@@ -699,14 +699,14 @@ export default function RegistrationJourney() {
           {candidates?.available && (
             <div className="space-y-2 border-t border-gray-800 pt-3" data-testid="candidates">
               <h3 className="text-sm font-medium">What we read from your document</h3>
-              <p className="text-xs text-gray-500">
+              <p className="text-xs text-gray-400">
                 Extracted by OCR as candidates only — a human reviewer decides verification. Nothing
                 here is saved to your profile unless you use and save it yourself.
               </p>
               <dl className="grid grid-cols-2 gap-1 text-sm">
                 {Object.entries(candidates.document_fields).map(([field, candidate]) => (
                   <React.Fragment key={field}>
-                    <dt className="text-gray-500">{DOCUMENT_FIELD_LABELS[field] || field}</dt>
+                    <dt className="text-gray-400">{DOCUMENT_FIELD_LABELS[field] || field}</dt>
                     <dd data-testid={`candidate-${field}`}>
                       {candidate.state === 'machine_candidate'
                         ? candidate.value
