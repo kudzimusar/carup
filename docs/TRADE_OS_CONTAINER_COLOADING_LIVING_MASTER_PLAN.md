@@ -2158,3 +2158,49 @@ of three rows. No GMV, revenue, savings, supplier quality or market extrapolatio
 
 **Remaining T2 gaps:** none of the twelve audit items. Trade-profile-backed supplier verification
 stays absent until that authority is genuinely populated (recorded above as the condition).
+
+### Cycle 1f — closing the CI triage properly, and one real defect it uncovered
+
+The first attempt at items 10/11 was incomplete rather than wrong, and re-running the checks is
+what exposed that. Recorded here because the failure mode is worth remembering: I fixed the half
+of each problem I had looked at and assumed the other half did not exist.
+
+- *Diff hygiene* rejected a second file. I had stripped this plan but not
+  `docs/CLAUDE_CODE_TRADE_OS_CLIENT_DEMO_CONVERGENCE_DIRECTIVE.md`, which the same PR touches.
+  Every `.md` in the PR diff is now stripped and `git diff --check` is clean.
+- *navigation-e2e* rejected a second count. `diaspora.buyer-requests` registers with
+  `roles: ['dealer', 'admin']`, so it moved **both** pins; I had re-pinned only dealer. All seven
+  role counts were recomputed from the registry locally before pushing (owner 21, dealer 17,
+  mechanic 5, insurance 4, government 14, admin 33, bank 4).
+
+**The defect retries were hiding.** One mocked spec — "Ask a question creates a real canonical
+conversation, not a dead button" — was passing only on retry. Run with `--retries=0` it failed 3
+of 5 times, and the failure was the truth: the supplier landed on `/dealer`, not Communications.
+
+`/dashboard/communications` is mounted inside the **owner-only** `DashboardLayout`, and no dealer
+messages route exists anywhere in the app. So a supplier who clicked "Ask a question" *did* create
+the canonical thread server-side and was then bounced to their dealer dashboard with no way to
+open or answer it. The Trade OS shell's own "Messages" nav item and the container marketplace's
+Communications link had the identical defect. This is precisely the dead button the test was
+written to prevent, and the retry policy had been reporting it as green.
+
+**Fix.** The canonical Communications page is already participant-neutral — it renders whatever
+threads the server returns for the authenticated user. So the same component is now mounted at
+`/diaspora/messages` inside the participant-neutral Trade OS shell, and the three Trade OS entry
+points point there. No role was widened, no guard weakened, no second inbox built: thread
+visibility is still decided server-side per participant. The registry entry carries
+`placements: []`, so no sidebar count moves and the owner dashboard keeps its single Messages item.
+
+**Hygiene failure in the same cycle, recorded rather than quietly repaired.** A `git add -A` swept
+233 machine-local files into a commit — `.playwright-mcp` dumps, `.claude` and `.mcp.json` settings,
+nine root screenshots — and the CR-1 credential gate correctly rejected it, because `.mcp.json`
+names the production Supabase project ref in a command path. No credential was exposed: the
+committed files contain no tokens, JWTs, service-role keys or env blocks, so no rotation is
+required. Cleaning up, I then deleted a tracked `SKILL.md` that belongs to main (restored) and left
+the screenshots tracked because `git rm` aborted on one nonexistent path with stderr suppressed.
+Both corrected; `.gitignore` now covers the local state so `add -A` cannot repeat it.
+
+**Evidence at this head:** previously-flaky spec 5/5 with `--retries=0`; mocked T2 e2e **40/40**
+with retries disabled; registry + manifest drift **86/86** after regenerating
+`shared/navigation/feature-manifest.json`; navigation map spec **16/16**; `tsc` clean; CR-1 secret
+scan clean over 2585 tracked files; net PR diff 49 files with no machine-local paths.
