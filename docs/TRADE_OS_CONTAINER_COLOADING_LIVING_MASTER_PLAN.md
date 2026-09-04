@@ -388,6 +388,12 @@ The CarUp owner can show:
 
 Claude/agents must take roll-call against this list on every return.
 
+> **⚠ OWNER UAT CORRECTION (2026-09-04):** the `[x]` evidence below reflects the first automated
+> certification cycle, which the owner's visual/product UAT has OVERRIDDEN. The authoritative
+> current state is the "OWNER UAT CORRECTION" execution entry at the end of this file:
+> D1/D2/D3/D4/D5/D7/D9 are **[~]** and D10 is **[ ] OWNER UAT FAILED** until the correction cycle
+> re-certifies with geometry gates, full-page visual evidence and owner acceptance.
+
 ## D0 — Baseline and regression boundary
 
 - [x] Verify working branch derives from `main@bb9d9900c700873ca57df0ac18a1a5c01f77711a` or document the newer reconciled SHA.
@@ -891,3 +897,61 @@ Known P0 gaps at plan creation:
 **Known limitations:** in-app notification VISIBILITY pending the drain condition above; two-party container conversation → C4; Intelligence container section → C18; owner-dashboard background-fetch fan-out cleanup → P1; multi-tenant users still choose tenants via switch-role.
 **Production touched:** NO.
 **Next unchecked task:** P1 ledger (C1–C18) — programme continues after owner demo/review.
+
+---
+
+## Execution entry 2026-09-04 — OWNER UAT CORRECTION (supersedes the cycle-2 DEMO-USABLE verdict)
+
+**Status: the 2026-09-04 automated staging certification (16/16 at 3b9a87fa) is OVERRIDDEN by owner
+visual/product UAT. The candidate is NOT owner-accepted as demo-usable.**
+
+**Standing rule recorded:** automated staging certification does not override owner visual/product
+UAT. Element-existence/visibility assertions can pass while the document itself overflows the
+viewport, while the wrong shell wraps the workspace, and while the experience is not humanly
+usable. Future Trade OS certifications must include hard geometry gates (document/scroll width),
+full-page screenshot review, and owner acceptance before any DEMO-USABLE claim.
+
+**Owner findings (2026-09-04):**
+1. Page visually broken at desktop/narrow-desktop: content extends outside the viewport, right-side
+   fields/actions clipped, public mega-navigation and footer composition breaking on narrower
+   desktop. Root cause of shell class: the Diaspora operational routes are nested under the PUBLIC
+   `MainLayout` (marketing Navbar + Footer + CompactBottomNav) — a marketing shell, not an
+   authenticated Trade OS workspace; Navbar's `lg` mega-nav collides with the page's `lg`
+   two-column grid.
+2. Responsive certification was insufficient — visibility assertions, not geometry gates.
+3. Trade OS surfaces "Car Owner"/Marketplace shell semantics instead of the real commercial context
+   (organisation, logistics_provider business type, corridor, membership role).
+4. The service's breadth (non-vehicle eligible cargo) is not communicated before the form.
+5. CBM/kg form expects freight literacy; no guided measurement.
+6. No real organiser workspace: the operator cannot see who each participant is, what exactly each
+   booking ships, or open a booking detail; customer form and reviewer table are one primitive page.
+7. Actor vocabulary conflates participant / logistics organiser (tenant authority) / CarUp platform
+   admin.
+8. The container lacks an international-trade identity (ports, cut-off, loading window, carrier,
+   references, documentation notes — truthfully "Not recorded yet" where absent).
+9. Lifecycle orientation missing (truthful stage model only; no fake progress).
+10. Code/security: (A) `requestReservation` writes client-supplied `import_order_id` without
+    server-side authorization — frontend filtering is not authorization; (B) the D7 notification
+    assertion was conditional on TRADEOS_WORKER_SECRET, so certification could pass without a
+    visible notification, and recipient direction ignores the organiser; (C) migration
+    `20260904100000` Down restores pre-widening CHECK vocabularies that staging data now violates —
+    not recovery-safe.
+
+**P0 ledger reopened accordingly:**
+- D1 Navigation / workspace coherence: **[~]** (public shell around operational routes = failed IA)
+- D2 Logistics identity presentation: **[~]** (authority model stands; presentation wrong)
+- D3 Operator container experience: **[~]**
+- D4 Cargo request usability + linkage security: **[~]** (import-order link auth gap)
+- D5 Operator reservation management: **[~]** (manifest/booking detail required)
+- D7 Communications visibility: **[~]** (explicitly PARTIAL until a booking notification is visible
+  in the deployed UI; organiser direction missing)
+- D9 Import-order linkage: **[~]** (same authorization gap)
+- D10 Demo certification: **[ ] OWNER UAT FAILED**
+
+**Correction-cycle scope (this iteration, nothing from C1–C18):** Trade OS workspace shell +
+responsiveness with hard geometry gates; real trade/business identity projection; guided cargo
+measurement; non-automotive scope communication; organiser/participant/admin role clarity; operator
+manifest + booking detail; import-order link authorization + adversarial test; honest Communications
+proof; migration rollback safety; full staging re-UAT with full-page visual evidence at
+393/820/1024/1280/1366/1440/1536 widths. Kernel, staging demo data (where safe) and production
+boundaries unchanged. PR #207 stays Draft.
