@@ -1,0 +1,296 @@
+- generic [ref=f16e2]:
+  - region "Notifications alt+T"
+  - generic [ref=f16e3]:
+    - banner [ref=f16e4]:
+      - generic [ref=f16e6]:
+        - link "CarUp" [ref=f16e7] [cursor=pointer]:
+          - /url: /
+        - generic [ref=f16e14]:
+          - button "Notifications" [ref=f16e15] [cursor=pointer]
+          - button "Open menu" [ref=f16e16] [cursor=pointer]
+    - main [ref=f16e17]:
+      - generic [ref=f16e18]:
+        - generic [ref=f16e21]:
+          - generic [ref=f16e22]:
+            - generic [ref=f16e23]: CarUp Corporate Newsroom
+            - heading "CarUp Media Hub" [level=1] [ref=f16e24]
+            - paragraph [ref=f16e25]: Brand assets and corporate background for Zimbabwe's automotive intelligence platform.
+          - generic [ref=f16e26]:
+            - button "Brand Assets" [ref=f16e27] [cursor=pointer]
+            - button "Fast Facts" [ref=f16e28] [cursor=pointer]
+            - button "Press Releases" [ref=f16e29] [cursor=pointer]
+            - button "Contact PR" [ref=f16e30] [cursor=pointer]
+        - main [ref=f16e31]:
+          - generic [ref=f16e33]:
+            - generic [ref=f16e34]:
+              - generic [ref=f16e35]: The CarUp Vision
+              - heading "Establishing the Ledger of Trust for Southern African Vehicles" [level=2] [ref=f16e39]
+              - paragraph [ref=f16e40]: "Founded in Harare in 2024, CarUp emerged to address a persistent and high-friction issue in Zimbabwe\\'s automotive landscape: the absolute deficit of vehicle transaction transparency and verified historical integrity."
+              - paragraph [ref=f16e41]: CarUp builds one governed record per vehicle. Documents an owner supplies are reviewed before anything derived from them is published; a trust decision carries the version of the rules that produced it, the confidence behind it and its known limitations; and a fact CarUp does not hold is shown as not recorded rather than filled in. CarUp is not connected to any government registry, publishes no vehicle valuation, and claims no integration it has not built.
+              - generic [ref=f16e42]:
+                - generic [ref=f16e48]:
+                  - heading "Trust First" [level=4] [ref=f16e49]
+                  - paragraph [ref=f16e50]: Every published claim traces to a reviewed record.
+                - generic [ref=f16e56]:
+                  - heading "Regional Architecture" [level=4] [ref=f16e57]
+                  - paragraph [ref=f16e58]: Powering transparency across SADC corridors.
+            - generic [ref=f16e62]:
+              - heading "Brand Essence" [level=3] [ref=f16e63]
+              - generic [ref=f16e66]:
+                - generic [ref=f16e67]:
+                  - generic [ref=f16e68]: Company Name
+                  - paragraph [ref=f16e69]: CarUp (Pvt) Ltd
+                - generic [ref=f16e70]:
+                  - generic [ref=f16e71]: Tagline
+                  - paragraph [ref=f16e72]: "\"One vehicle. One truth. One public contract.\""
+                - generic [ref=f16e73]:
+                  - generic [ref=f16e74]: Core Pillars
+                  - generic [ref=f16e75]:
+                    - generic [ref=f16e76]: Registry Trust
+                    - generic [ref=f16e77]: Gutu AI Intelligence
+                    - generic [ref=f16e78]: PartSentry Lifecycle
+                    - generic [ref=f16e79]: Marketplace Security
+                    - generic [ref=f16e80]: Cross-Border Traceability
+              - generic [ref=f16e81]:
+                - generic [ref=f16e82]: Press Package Version 2.4
+                - button "Download Pitch Kit" [ref=f16e83] [cursor=pointer]
+          - generic [ref=f16e87]:
+            - generic [ref=f16e88]:
+              - generic [ref=f16e89]: Key Metrics
+              - heading "CarUp Fast Facts" [level=2] [ref=f16e90]
+              - paragraph [ref=f16e91]: A quick numerical guide to our market traction, localized presence, and ecosystem density.
+            - generic [ref=f16e92]:
+              - generic [ref=f16e94]:
+                - heading "2024" [level=3] [ref=f16e99]
+                - paragraph [ref=f16e100]: Founded
+                - paragraph [ref=f16e101]: Launched in Harare, Zimbabwe to solve vehicle registry friction.
+              - generic [ref=f16e103]:
+                - heading "Harare, ZW" [level=3] [ref=f16e108]
+                - paragraph [ref=f16e109]: Corporate Headquarters
+                - paragraph [ref=f16e110]: PR, Engineering, and Operations based on Samora Machel Avenue.
+          - generic [ref=f16e111]:
+            - generic [ref=f16e112]:
+              - generic [ref=f16e113]:
+                - generic [ref=f16e114]: Brand Resources
+                - heading "Interactive Assets Vault" [level=2] [ref=f16e115]
+                - paragraph [ref=f16e116]: Use official, high-resolution logos, precise brand color definitions, and mobile/desktop dashboard mockups.
+              - generic [ref=f16e117]:
+                - button "Logos" [ref=f16e118] [cursor=pointer]
+                - button "Colors" [ref=f16e125] [cursor=pointer]
+                - button "Mockups" [ref=f16e132] [cursor=pointer]
+            - generic [ref=f16e137]:
+              - generic [ref=f16e138]:
+                - generic [ref=f16e139]:
+                  - generic [ref=f16e140]:
+                    - generic [ref=f16e141]: Brand asset
+                    - generic [ref=f16e143]:
+                      - generic [ref=f16e144]:
+                        - generic [ref=f16e145]: CU
+                        - generic [ref=f16e146]:
+                          - text: Car
+                          - generic [ref=f16e147]: Up
+                      - generic [ref=f16e148]: Amber & Navy Duo-tone
+                  - generic [ref=f16e149]:
+                    - heading "CarUp Premium Primary Logo" [level=4] [ref=f16e150]
+                    - paragraph [ref=f16e151]: Our standard brand signature. Features the amber mark combined with the custom dark-navy type.
+                - generic [ref=f16e152]:
+                  - generic [ref=f16e153]: "Files Included: Primary wordmark"
+                  - button "Download Package" [ref=f16e154] [cursor=pointer]
+              - generic [ref=f16e155]:
+                - generic [ref=f16e156]:
+                  - generic [ref=f16e157]:
+                    - generic [ref=f16e158]: Brand asset
+                    - generic [ref=f16e160]:
+                      - generic [ref=f16e161]:
+                        - generic [ref=f16e162]: CU
+                        - generic [ref=f16e163]: CarUp
+                      - generic [ref=f16e164]: Stark Monochrome White
+                  - generic [ref=f16e165]:
+                    - heading "CarUp Light Monochrome Logo" [level=4] [ref=f16e166]
+                    - paragraph [ref=f16e167]: Reversed white-ink variation designed exclusively for high-contrast dark backgrounds.
+                - generic [ref=f16e168]:
+                  - generic [ref=f16e169]: "Files Included: Monochrome wordmark"
+                  - button "Download Package" [ref=f16e170] [cursor=pointer]
+              - generic [ref=f16e171]:
+                - generic [ref=f16e172]:
+                  - generic [ref=f16e173]:
+                    - generic [ref=f16e174]: Brand asset
+                    - generic [ref=f16e176]:
+                      - generic [ref=f16e177]: CU
+                      - generic [ref=f16e178]: Amber Trust Icon
+                  - generic [ref=f16e179]:
+                    - heading "CarUp Icon & Trust Mark Only" [level=4] [ref=f16e180]
+                    - paragraph [ref=f16e181]: The standalone shield-car-sparkle signature. Ideal for app icon simulations, avatars, and tight layouts.
+                - generic [ref=f16e182]:
+                  - generic [ref=f16e183]: "Files Included: App icon"
+                  - button "Download Package" [ref=f16e184] [cursor=pointer]
+          - generic [ref=f16e185]:
+            - generic [ref=f16e186]:
+              - generic [ref=f16e187]: CarUp Pressroom
+              - heading "Recent Press Announcements" [level=2] [ref=f16e188]
+              - paragraph [ref=f16e189]: Official CarUp announcements.
+            - generic [ref=f16e192]:
+              - paragraph [ref=f16e193]: No press releases published yet.
+              - paragraph [ref=f16e194]: Announcements appear here once they are issued.
+          - generic [ref=f16e196]:
+            - generic [ref=f16e197]:
+              - generic [ref=f16e198]:
+                - generic [ref=f16e199]: Media Contact
+                - heading "PR & Communications Team" [level=2] [ref=f16e200]
+                - paragraph [ref=f16e201]: Are you a journalist, research analyst, or corporate partner looking for custom briefings, interviews with our founders, or detailed market data? Reach out directly.
+              - generic [ref=f16e204]:
+                - generic [ref=f16e205]:
+                  - heading "CarUp Press Office" [level=4] [ref=f16e206]
+                  - generic [ref=f16e207]: Media enquiries
+                - link "press@carup.co.zw" [ref=f16e213] [cursor=pointer]:
+                  - /url: mailto:press@carup.co.zw
+                - paragraph [ref=f16e214]: Enquiries are read by CarUp\u2019s communications team. We do not publish a response time we cannot commit to.
+              - generic [ref=f16e221]:
+                - heading "CarUp PR Head Office" [level=4] [ref=f16e222]
+                - paragraph [ref=f16e223]: Office 402, Batanai Gardens, Jason Moyo Ave, Harare, Zimbabwe
+                - generic [ref=f16e224]: "Business Hours: 08:00 - 17:00 (CAT), Monday to Friday"
+              - button "Copy PR Team Contacts" [ref=f16e225] [cursor=pointer]
+            - generic [ref=f16e230]:
+              - generic [ref=f16e231]:
+                - heading "Direct PR Inquiry Form" [level=3] [ref=f16e232]
+                - paragraph [ref=f16e233]: Submit your press query or interview request directly into our triage queue.
+              - generic [ref=f16e234]:
+                - generic [ref=f16e235]:
+                  - generic [ref=f16e236]: Full Name *
+                  - textbox "Tendai Moyo" [ref=f16e237]
+                - generic [ref=f16e238]:
+                  - generic [ref=f16e239]: Media Publication / Outlet
+                  - textbox "The Herald / TechCabal" [ref=f16e240]
+              - generic [ref=f16e241]:
+                - generic [ref=f16e242]:
+                  - generic [ref=f16e243]: Corporate Email *
+                  - textbox "reporter@herald.co.zw" [ref=f16e244]
+                - generic [ref=f16e245]:
+                  - generic [ref=f16e246]: Phone Number
+                  - textbox "+263 772 123 456" [ref=f16e247]
+              - generic [ref=f16e248]:
+                - generic [ref=f16e249]: Inquiry Subject
+                - textbox "Interview Request with CEO / Data Query" [ref=f16e250]
+              - generic [ref=f16e251]:
+                - generic [ref=f16e252]: Your Inquiry / Message *
+                - textbox "Please type your editorial questions or interview logistics details..." [ref=f16e253]
+              - button "Submit Press Inquiry" [ref=f16e254] [cursor=pointer]
+        - generic [ref=f16e256]:
+          - paragraph [ref=f16e257]: © 2026 CarUp (Pvt) Ltd. All brand marks, patents, and system screenshots displayed are official protected assets.
+          - generic [ref=f16e258]:
+            - link "Platform Home" [ref=f16e259] [cursor=pointer]:
+              - /url: /
+            - link "Our Story" [ref=f16e260] [cursor=pointer]:
+              - /url: /about
+            - link "Contact Sales" [ref=f16e261] [cursor=pointer]:
+              - /url: /contact
+            - link "Developer Portal" [ref=f16e262] [cursor=pointer]:
+              - /url: /api-docs
+    - contentinfo [ref=f16e263]:
+      - generic [ref=f16e264]:
+        - generic [ref=f16e265]:
+          - generic [ref=f16e266]:
+            - link "CarUp home" [ref=f16e267] [cursor=pointer]:
+              - /url: /
+              - generic [ref=f16e273]: CarUp
+            - paragraph [ref=f16e274]: Zimbabwe's verified automotive marketplace for buying, verifying, and selling cars with clearer trust signals.
+            - generic [ref=f16e275]:
+              - generic [ref=f16e276]: +263 242 700 000
+              - generic [ref=f16e280]: info@carup.co.zw
+              - generic [ref=f16e285]: Harare, Zimbabwe
+          - navigation "Footer Product" [ref=f16e290]:
+            - heading "Product" [level=3] [ref=f16e291]
+            - list [ref=f16e292]:
+              - listitem [ref=f16e293]:
+                - link "Buy Cars" [ref=f16e294] [cursor=pointer]:
+                  - /url: /marketplace
+              - listitem [ref=f16e299]:
+                - link "Parts Marketplace" [ref=f16e300] [cursor=pointer]:
+                  - /url: /marketplace/parts
+              - listitem [ref=f16e304]:
+                - link "Garages & Services" [ref=f16e305] [cursor=pointer]:
+                  - /url: /marketplace/services
+              - listitem [ref=f16e308]:
+                - link "Verify Vehicle" [ref=f16e309] [cursor=pointer]:
+                  - /url: /search
+              - listitem [ref=f16e312]:
+                - link "Dealers" [ref=f16e313] [cursor=pointer]:
+                  - /url: /dealers
+              - listitem [ref=f16e318]:
+                - link "Garages" [ref=f16e319] [cursor=pointer]:
+                  - /url: /garages
+              - listitem [ref=f16e322]:
+                - link "Insurance" [ref=f16e323] [cursor=pointer]:
+                  - /url: /insurance
+              - listitem [ref=f16e326]:
+                - link "Pricing" [ref=f16e327] [cursor=pointer]:
+                  - /url: /pricing
+              - listitem [ref=f16e331]:
+                - link "Diaspora Trade" [ref=f16e332] [cursor=pointer]:
+                  - /url: /diaspora
+          - navigation "Footer Company" [ref=f16e336]:
+            - heading "Company" [level=3] [ref=f16e337]
+            - list [ref=f16e338]:
+              - listitem [ref=f16e339]:
+                - link "About CarUp" [ref=f16e340] [cursor=pointer]:
+                  - /url: /about
+              - listitem [ref=f16e344]:
+                - link "Contact Us" [ref=f16e345] [cursor=pointer]:
+                  - /url: /contact
+              - listitem [ref=f16e348]:
+                - link "Careers" [ref=f16e349] [cursor=pointer]:
+                  - /url: /careers
+              - listitem [ref=f16e355]:
+                - link "Press Kit" [ref=f16e356] [cursor=pointer]:
+                  - /url: /press
+              - listitem [ref=f16e360]:
+                - link "Blog" [ref=f16e361] [cursor=pointer]:
+                  - /url: /blog
+          - navigation "Footer Resources" [ref=f16e364]:
+            - heading "Resources" [level=3] [ref=f16e365]
+            - list [ref=f16e366]:
+              - listitem [ref=f16e367]:
+                - link "Help Center" [ref=f16e368] [cursor=pointer]:
+                  - /url: /help
+              - listitem [ref=f16e371]:
+                - link "Trust & Safety" [ref=f16e372] [cursor=pointer]:
+                  - /url: /trust
+              - listitem [ref=f16e375]:
+                - link "API Documentation" [ref=f16e376] [cursor=pointer]:
+                  - /url: /api-docs
+          - navigation "Footer Stakeholders" [ref=f16e379]:
+            - heading "Stakeholders" [level=3] [ref=f16e380]
+            - list [ref=f16e381]:
+              - listitem [ref=f16e382]:
+                - link "Car Owners" [ref=f16e383] [cursor=pointer]:
+                  - /url: /dashboard
+              - listitem [ref=f16e384]:
+                - link "Dealers" [ref=f16e385] [cursor=pointer]:
+                  - /url: /dealer
+              - listitem [ref=f16e386]:
+                - link "Mechanics" [ref=f16e387] [cursor=pointer]:
+                  - /url: /mechanic
+              - listitem [ref=f16e388]:
+                - link "Insurance" [ref=f16e389] [cursor=pointer]:
+                  - /url: /insurance-dash
+              - listitem [ref=f16e390]:
+                - link "Government" [ref=f16e391] [cursor=pointer]:
+                  - /url: /government
+              - listitem [ref=f16e392]:
+                - link "Bankers" [ref=f16e393] [cursor=pointer]:
+                  - /url: /bank
+        - generic [ref=f16e394]:
+          - generic [ref=f16e395]:
+            - paragraph [ref=f16e396]: © 2026 CarUp Zimbabwe. All rights reserved.
+            - list "Footer Legal" [ref=f16e397]:
+              - listitem [ref=f16e398]:
+                - link "Privacy Policy" [ref=f16e399] [cursor=pointer]:
+                  - /url: /privacy
+              - listitem [ref=f16e400]:
+                - link "Terms of Service" [ref=f16e401] [cursor=pointer]:
+                  - /url: /terms
+          - generic "CarUp social media" [ref=f16e402]:
+            - link "CarUp on Facebook — coming soon" [disabled] [ref=f16e403]
+            - link "CarUp on X (Twitter) — coming soon" [disabled] [ref=f16e406]
+            - link "CarUp on Instagram — coming soon" [disabled] [ref=f16e409]
+            - link "CarUp on LinkedIn — coming soon" [disabled] [ref=f16e413]

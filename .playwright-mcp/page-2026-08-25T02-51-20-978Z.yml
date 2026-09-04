@@ -1,0 +1,38 @@
+- generic [ref=f32e2]:
+  - region "Notifications alt+T"
+  - main [ref=f32e4]:
+    - generic [ref=f32e6]:
+      - generic [ref=f32e7]:
+        - link "CarUp" [ref=f32e8] [cursor=pointer]:
+          - /url: /
+        - heading "Welcome Back" [level=1] [ref=f32e15]
+        - paragraph [ref=f32e16]: Sign in to your CarUp account
+      - generic [ref=f32e18]:
+        - generic [ref=f32e19]:
+          - generic [ref=f32e20]:
+            - generic [ref=f32e21]: Email or Phone
+            - textbox "Email or Phone" [ref=f32e22]:
+              - /placeholder: tendai@email.co.zw or +263...
+          - generic [ref=f32e23]:
+            - generic [ref=f32e24]: Password
+            - generic [ref=f32e25]:
+              - textbox "Password" [ref=f32e26]:
+                - /placeholder: Enter your password
+              - button "Show password" [ref=f32e27] [cursor=pointer]
+          - generic [ref=f32e31]:
+            - generic [ref=f32e32]:
+              - checkbox "Remember me" [ref=f32e33]
+              - text: Remember me
+            - link "Forgot password?" [ref=f32e34] [cursor=pointer]:
+              - /url: /auth/forgot-password
+          - button "Sign In" [ref=f32e35] [cursor=pointer]
+        - paragraph [ref=f32e36]: Quick Demo Access
+        - generic [ref=f32e37]:
+          - button "Browse as Buyer (Tendai Moyo)" [ref=f32e38] [cursor=pointer]
+          - generic [ref=f32e39]:
+            - 'button "Demo: Dealer" [ref=f32e40] [cursor=pointer]'
+            - 'button "Demo: Mechanic" [ref=f32e41] [cursor=pointer]'
+        - paragraph [ref=f32e42]:
+          - text: Don't have an account?
+          - link "Get Started" [ref=f32e43] [cursor=pointer]:
+            - /url: /register

@@ -1,0 +1,279 @@
+- generic [ref=f26e2]:
+  - region "Notifications alt+T"
+  - generic [ref=f26e7]:
+    - banner [ref=f26e8]:
+      - generic [ref=f26e10]:
+        - link "CarUp" [ref=f26e11] [cursor=pointer]:
+          - /url: /
+        - generic [ref=f26e18]:
+          - button "Notifications, 1 unread" [ref=f26e19] [cursor=pointer]:
+            - generic [ref=f26e20]: "1"
+          - button "Account menu for Golden A Owner [phase7]" [ref=f26e21] [cursor=pointer]
+          - button "Open menu" [ref=f26e22] [cursor=pointer]
+    - main [ref=f26e23]:
+      - generic [ref=f26e24]:
+        - generic [ref=f26e26]:
+          - heading "Verify Vehicle or Part History" [level=1] [ref=f26e27]
+          - paragraph [ref=f26e28]: Search by VIN, or browse by make and model
+          - paragraph [ref=f26e29]: Exact VIN lookup is open to everyone. Looking a vehicle up by plate, chassis number or temporary ID requires a signed-in CarUp account — signed out, those searches return the same result whether or not the vehicle exists, so an empty result is not evidence that it does not.
+          - paragraph [ref=f26e30]: PartSentry helps identify swapped, stolen, or undocumented parts by connecting repair logs, work orders, mechanics, and parts history to the vehicle Passport where records exist.
+          - generic [ref=f26e31]:
+            - textbox "Enter a VIN, or a make and model..." [ref=f26e36]
+            - combobox [ref=f26e37] [cursor=pointer]:
+              - generic: All
+            - combobox [ref=f26e38] [cursor=pointer]:
+              - generic: All Categories
+        - generic [ref=f26e39]:
+          - paragraph [ref=f26e40]: 9 vehicles found
+          - generic [ref=f26e41]:
+            - link "Toyota Hilux 2019 Toyota Hilux $21,500 78,450 km Manual Diesel Seller identity not published Bulawayo, Bulawayo Metropolitan, Zimbabwe View Passport" [ref=f26e42] [cursor=pointer]:
+              - /url: /marketplace/listing/CARUPGLDNA0000001
+              - generic [ref=f26e43]:
+                - img "Toyota Hilux" [ref=f26e46]
+                - generic [ref=f26e47]:
+                  - heading "2019 Toyota Hilux" [level=3] [ref=f26e48]
+                  - paragraph [ref=f26e49]: $21,500
+                  - generic [ref=f26e50]:
+                    - generic [ref=f26e51]: 78,450 km
+                    - generic [ref=f26e55]: Manual
+                    - generic [ref=f26e59]: Diesel
+                  - generic [ref=f26e63]:
+                    - generic [ref=f26e64]: Seller identity not published
+                    - generic [ref=f26e65]: Bulawayo, Bulawayo Metropolitan, Zimbabwe
+                  - generic [ref=f26e70]: View Passport
+            - link "Subaru Impreza — image unavailable 2018 Subaru Impreza $12,750 55,700 km Automatic Petrol Seller identity not published Location not recorded View Passport" [ref=f26e71] [cursor=pointer]:
+              - /url: /marketplace/listing/JF1GPAL60J9UAT303
+              - generic [ref=f26e72]:
+                - img "Subaru Impreza — image unavailable" [ref=f26e74]:
+                  - generic [ref=f26e87]: Image unavailable
+                - generic [ref=f26e88]:
+                  - heading "2018 Subaru Impreza" [level=3] [ref=f26e89]
+                  - paragraph [ref=f26e90]: $12,750
+                  - generic [ref=f26e91]:
+                    - generic [ref=f26e92]: 55,700 km
+                    - generic [ref=f26e96]: Automatic
+                    - generic [ref=f26e100]: Petrol
+                  - generic [ref=f26e104]:
+                    - generic [ref=f26e105]: Seller identity not published
+                    - generic [ref=f26e106]: Location not recorded
+                  - generic [ref=f26e111]: View Passport
+            - link "Toyota Corolla — image unavailable 2019 Toyota Corolla $9,800 68,240 km Automatic Petrol Seller identity not published Location not recorded View Passport" [ref=f26e112] [cursor=pointer]:
+              - /url: /marketplace/listing/JTNBU4EE0J9UAT101
+              - generic [ref=f26e113]:
+                - img "Toyota Corolla — image unavailable" [ref=f26e115]:
+                  - generic [ref=f26e128]: Image unavailable
+                - generic [ref=f26e129]:
+                  - heading "2019 Toyota Corolla" [level=3] [ref=f26e130]
+                  - paragraph [ref=f26e131]: $9,800
+                  - generic [ref=f26e132]:
+                    - generic [ref=f26e133]: 68,240 km
+                    - generic [ref=f26e137]: Automatic
+                    - generic [ref=f26e141]: Petrol
+                  - generic [ref=f26e145]:
+                    - generic [ref=f26e146]: Seller identity not published
+                    - generic [ref=f26e147]: Location not recorded
+                  - generic [ref=f26e152]: View Passport
+            - link "Toyota Corolla — image unavailable 2018 Toyota Corolla $9,500 68,000 km Manual Petrol Seller identity not published Location not recorded View Passport" [ref=f26e153] [cursor=pointer]:
+              - /url: /marketplace/listing/JTDKARFP0H3000731
+              - generic [ref=f26e154]:
+                - img "Toyota Corolla — image unavailable" [ref=f26e156]:
+                  - generic [ref=f26e169]: Image unavailable
+                - generic [ref=f26e170]:
+                  - heading "2018 Toyota Corolla" [level=3] [ref=f26e171]
+                  - paragraph [ref=f26e172]: $9,500
+                  - generic [ref=f26e173]:
+                    - generic [ref=f26e174]: 68,000 km
+                    - generic [ref=f26e178]: Manual
+                    - generic [ref=f26e182]: Petrol
+                  - generic [ref=f26e186]:
+                    - generic [ref=f26e187]: Seller identity not published
+                    - generic [ref=f26e188]: Location not recorded
+                  - generic [ref=f26e193]: View Passport
+            - link "Ford Ranger — image unavailable 2019 Ford Ranger $21,000 88,000 km Manual Diesel Seller identity not published Location not recorded View Passport" [ref=f26e194] [cursor=pointer]:
+              - /url: /marketplace/listing/MAJFP1CD0HC000733
+              - generic [ref=f26e195]:
+                - img "Ford Ranger — image unavailable" [ref=f26e197]:
+                  - generic [ref=f26e210]: Image unavailable
+                - generic [ref=f26e211]:
+                  - heading "2019 Ford Ranger" [level=3] [ref=f26e212]
+                  - paragraph [ref=f26e213]: $21,000
+                  - generic [ref=f26e214]:
+                    - generic [ref=f26e215]: 88,000 km
+                    - generic [ref=f26e219]: Manual
+                    - generic [ref=f26e223]: Diesel
+                  - generic [ref=f26e227]:
+                    - generic [ref=f26e228]: Seller identity not published
+                    - generic [ref=f26e229]: Location not recorded
+                  - generic [ref=f26e234]: View Passport
+            - link "BMW 320i — image unavailable 2020 BMW 320i $24,000 41,000 km Automatic Petrol Seller identity not published Location not recorded View Passport" [ref=f26e235] [cursor=pointer]:
+              - /url: /marketplace/listing/WBA8E9C50HK000732
+              - generic [ref=f26e236]:
+                - img "BMW 320i — image unavailable" [ref=f26e238]:
+                  - generic [ref=f26e251]: Image unavailable
+                - generic [ref=f26e252]:
+                  - heading "2020 BMW 320i" [level=3] [ref=f26e253]
+                  - paragraph [ref=f26e254]: $24,000
+                  - generic [ref=f26e255]:
+                    - generic [ref=f26e256]: 41,000 km
+                    - generic [ref=f26e260]: Automatic
+                    - generic [ref=f26e264]: Petrol
+                  - generic [ref=f26e268]:
+                    - generic [ref=f26e269]: Seller identity not published
+                    - generic [ref=f26e270]: Location not recorded
+                  - generic [ref=f26e275]: View Passport
+            - link "Mazda Axela — image unavailable 2019 Mazda Axela $11,000 54,000 km Automatic Petrol Seller identity not published Location not recorded View Passport" [ref=f26e276] [cursor=pointer]:
+              - /url: /marketplace/listing/3N1AB7AP5KY123456
+              - generic [ref=f26e277]:
+                - img "Mazda Axela — image unavailable" [ref=f26e279]:
+                  - generic [ref=f26e292]: Image unavailable
+                - generic [ref=f26e293]:
+                  - heading "2019 Mazda Axela" [level=3] [ref=f26e294]
+                  - paragraph [ref=f26e295]: $11,000
+                  - generic [ref=f26e296]:
+                    - generic [ref=f26e297]: 54,000 km
+                    - generic [ref=f26e301]: Automatic
+                    - generic [ref=f26e305]: Petrol
+                  - generic [ref=f26e309]:
+                    - generic [ref=f26e310]: Seller identity not published
+                    - generic [ref=f26e311]: Location not recorded
+                  - generic [ref=f26e316]: View Passport
+            - link "Honda Fit — image unavailable 2017 Honda Fit $4,500 72,000 km Automatic Petrol Seller identity not published Location not recorded View Passport" [ref=f26e317] [cursor=pointer]:
+              - /url: /marketplace/listing/2T1BURHE8JC123456
+              - generic [ref=f26e318]:
+                - img "Honda Fit — image unavailable" [ref=f26e320]:
+                  - generic [ref=f26e333]: Image unavailable
+                - generic [ref=f26e334]:
+                  - heading "2017 Honda Fit" [level=3] [ref=f26e335]
+                  - paragraph [ref=f26e336]: $4,500
+                  - generic [ref=f26e337]:
+                    - generic [ref=f26e338]: 72,000 km
+                    - generic [ref=f26e342]: Automatic
+                    - generic [ref=f26e346]: Petrol
+                  - generic [ref=f26e350]:
+                    - generic [ref=f26e351]: Seller identity not published
+                    - generic [ref=f26e352]: Location not recorded
+                  - generic [ref=f26e357]: View Passport
+            - link "Toyota Corolla — image unavailable 2018 Toyota Corolla $9,500 65,000 km Manual Petrol Seller identity not published Location not recorded View Passport" [ref=f26e358] [cursor=pointer]:
+              - /url: /marketplace/listing/1HGBH41JXMN109186
+              - generic [ref=f26e359]:
+                - img "Toyota Corolla — image unavailable" [ref=f26e361]:
+                  - generic [ref=f26e374]: Image unavailable
+                - generic [ref=f26e375]:
+                  - heading "2018 Toyota Corolla" [level=3] [ref=f26e376]
+                  - paragraph [ref=f26e377]: $9,500
+                  - generic [ref=f26e378]:
+                    - generic [ref=f26e379]: 65,000 km
+                    - generic [ref=f26e383]: Manual
+                    - generic [ref=f26e387]: Petrol
+                  - generic [ref=f26e391]:
+                    - generic [ref=f26e392]: Seller identity not published
+                    - generic [ref=f26e393]: Location not recorded
+                  - generic [ref=f26e398]: View Passport
+    - contentinfo [ref=f26e399]:
+      - generic [ref=f26e400]:
+        - generic [ref=f26e401]:
+          - generic [ref=f26e402]:
+            - link "CarUp home" [ref=f26e403] [cursor=pointer]:
+              - /url: /
+              - generic [ref=f26e409]: CarUp
+            - paragraph [ref=f26e410]: Zimbabwe's verified automotive marketplace for buying, verifying, and selling cars with clearer trust signals.
+            - generic [ref=f26e411]:
+              - generic [ref=f26e412]: +263 242 700 000
+              - generic [ref=f26e416]: info@carup.co.zw
+              - generic [ref=f26e421]: Harare, Zimbabwe
+          - navigation "Footer Product" [ref=f26e426]:
+            - heading "Product" [level=3] [ref=f26e427]
+            - list [ref=f26e428]:
+              - listitem [ref=f26e429]:
+                - link "Buy Cars" [ref=f26e430] [cursor=pointer]:
+                  - /url: /marketplace
+              - listitem [ref=f26e435]:
+                - link "Parts Marketplace" [ref=f26e436] [cursor=pointer]:
+                  - /url: /marketplace/parts
+              - listitem [ref=f26e440]:
+                - link "Garages & Services" [ref=f26e441] [cursor=pointer]:
+                  - /url: /marketplace/services
+              - listitem [ref=f26e444]:
+                - link "Verify Vehicle" [ref=f26e445] [cursor=pointer]:
+                  - /url: /search
+              - listitem [ref=f26e448]:
+                - link "Dealers" [ref=f26e449] [cursor=pointer]:
+                  - /url: /dealers
+              - listitem [ref=f26e454]:
+                - link "Garages" [ref=f26e455] [cursor=pointer]:
+                  - /url: /garages
+              - listitem [ref=f26e458]:
+                - link "Insurance" [ref=f26e459] [cursor=pointer]:
+                  - /url: /insurance
+              - listitem [ref=f26e462]:
+                - link "Pricing" [ref=f26e463] [cursor=pointer]:
+                  - /url: /pricing
+              - listitem [ref=f26e467]:
+                - link "Diaspora Trade" [ref=f26e468] [cursor=pointer]:
+                  - /url: /diaspora
+          - navigation "Footer Company" [ref=f26e472]:
+            - heading "Company" [level=3] [ref=f26e473]
+            - list [ref=f26e474]:
+              - listitem [ref=f26e475]:
+                - link "About CarUp" [ref=f26e476] [cursor=pointer]:
+                  - /url: /about
+              - listitem [ref=f26e480]:
+                - link "Contact Us" [ref=f26e481] [cursor=pointer]:
+                  - /url: /contact
+              - listitem [ref=f26e484]:
+                - link "Careers" [ref=f26e485] [cursor=pointer]:
+                  - /url: /careers
+              - listitem [ref=f26e491]:
+                - link "Press Kit" [ref=f26e492] [cursor=pointer]:
+                  - /url: /press
+              - listitem [ref=f26e496]:
+                - link "Blog" [ref=f26e497] [cursor=pointer]:
+                  - /url: /blog
+          - navigation "Footer Resources" [ref=f26e500]:
+            - heading "Resources" [level=3] [ref=f26e501]
+            - list [ref=f26e502]:
+              - listitem [ref=f26e503]:
+                - link "Help Center" [ref=f26e504] [cursor=pointer]:
+                  - /url: /help
+              - listitem [ref=f26e507]:
+                - link "Trust & Safety" [ref=f26e508] [cursor=pointer]:
+                  - /url: /trust
+              - listitem [ref=f26e511]:
+                - link "API Documentation" [ref=f26e512] [cursor=pointer]:
+                  - /url: /api-docs
+          - navigation "Footer Stakeholders" [ref=f26e515]:
+            - heading "Stakeholders" [level=3] [ref=f26e516]
+            - list [ref=f26e517]:
+              - listitem [ref=f26e518]:
+                - link "Car Owners" [ref=f26e519] [cursor=pointer]:
+                  - /url: /dashboard
+              - listitem [ref=f26e520]:
+                - link "Dealers" [ref=f26e521] [cursor=pointer]:
+                  - /url: /dealer
+              - listitem [ref=f26e522]:
+                - link "Mechanics" [ref=f26e523] [cursor=pointer]:
+                  - /url: /mechanic
+              - listitem [ref=f26e524]:
+                - link "Insurance" [ref=f26e525] [cursor=pointer]:
+                  - /url: /insurance-dash
+              - listitem [ref=f26e526]:
+                - link "Government" [ref=f26e527] [cursor=pointer]:
+                  - /url: /government
+              - listitem [ref=f26e528]:
+                - link "Bankers" [ref=f26e529] [cursor=pointer]:
+                  - /url: /bank
+        - generic [ref=f26e530]:
+          - generic [ref=f26e531]:
+            - paragraph [ref=f26e532]: © 2026 CarUp Zimbabwe. All rights reserved.
+            - list "Footer Legal" [ref=f26e533]:
+              - listitem [ref=f26e534]:
+                - link "Privacy Policy" [ref=f26e535] [cursor=pointer]:
+                  - /url: /privacy
+              - listitem [ref=f26e536]:
+                - link "Terms of Service" [ref=f26e537] [cursor=pointer]:
+                  - /url: /terms
+          - generic "CarUp social media" [ref=f26e538]:
+            - link "CarUp on Facebook — coming soon" [disabled] [ref=f26e539]
+            - link "CarUp on X (Twitter) — coming soon" [disabled] [ref=f26e542]
+            - link "CarUp on Instagram — coming soon" [disabled] [ref=f26e545]
+            - link "CarUp on LinkedIn — coming soon" [disabled] [ref=f26e549]

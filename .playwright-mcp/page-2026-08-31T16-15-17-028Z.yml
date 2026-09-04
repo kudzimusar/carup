@@ -1,0 +1,221 @@
+- generic:
+  - generic:
+    - region "Notifications alt+T"
+    - generic:
+      - complementary:
+        - generic:
+          - link:
+            - /url: /
+            - generic: CarUp
+          - button
+        - generic:
+          - generic:
+            - generic:
+              - paragraph: Nyasha Chikore
+              - paragraph: Active portal
+              - generic:
+                - combobox
+        - navigation:
+          - link:
+            - /url: /dashboard
+            - generic: Overview
+          - link:
+            - /url: /dashboard/garage
+            - generic: My Garage
+          - link:
+            - /url: /dashboard/evidence
+            - generic: Evidence Vault
+            - generic: Upload
+          - link:
+            - /url: /dashboard/service-history
+            - generic: Service History
+          - link:
+            - /url: /dashboard/insurance
+            - generic: Insurance
+          - link:
+            - /url: /dashboard/partsentry
+            - generic: PartSentry
+          - link:
+            - /url: /diaspora/imports
+            - generic: Import Orders
+          - link:
+            - /url: /diaspora/imports/new
+            - generic: Start Import Order
+          - link:
+            - /url: /dashboard/listings
+            - generic: My Listings
+          - link:
+            - /url: /dashboard/saved
+            - generic: Saved Cars
+          - link:
+            - /url: /dashboard/intelligence
+            - generic: Seller Intelligence
+          - link:
+            - /url: /dashboard/ai
+            - generic: Gutu AI
+            - generic: AI
+          - link:
+            - /url: /dashboard/referrals
+            - generic: Refer & Earn
+          - link:
+            - /url: /dashboard/communications
+            - generic: Communications
+            - generic: Inbox
+          - link:
+            - /url: /diaspora/trade-profile
+            - generic: Trade Profile
+          - link:
+            - /url: /diaspora/rfq
+            - generic: Reverse RFQ
+          - link:
+            - /url: /diaspora/containers
+            - generic: Container Co-Loading
+          - link:
+            - /url: /diaspora/drive
+            - generic: Drive Connections
+        - generic:
+          - link:
+            - /url: /settings
+            - text: Settings
+          - link:
+            - /url: /
+            - text: Sign Out
+      - generic:
+        - banner:
+          - button
+          - button
+          - generic:
+            - button:
+              - generic: "1"
+            - link:
+              - /url: /
+        - main:
+          - generic:
+            - generic:
+              - link:
+                - /url: /dashboard/garage
+                - text: Back to My Garage
+              - generic:
+                - generic:
+                  - paragraph: Seller Studio
+                  - heading [level=1]: Build your listing
+                  - paragraph: Save commercial details and listing media as a private draft. Ownership evidence and publication readiness remain governed separately.
+                  - generic:
+                    - generic: JTNS16V16CERT0011
+                    - generic: Draft workspace · not public
+            - region:
+              - generic:
+                - generic:
+                  - generic:
+                    - generic: Seller Studio
+                    - generic: /
+                    - generic: Stage 3 of 4
+                    - generic: /
+                    - generic: Private draft
+                  - heading [level=2]: 2019 Toyota Hilux
+                  - paragraph: Vehicle identity becomes canonical when the draft is claimed to an account. Seller statements remain separate from reviewed evidence and canonical Trust.
+                  - generic:
+                    - generic:
+                      - paragraph: Media readiness
+                      - paragraph: 3 listing photos · cover chosen
+                    - generic:
+                      - paragraph: Seller copy
+                      - paragraph: 209/500 description characters
+                    - generic:
+                      - paragraph: Evidence
+                      - paragraph: Evidence state available after account draft loads
+                    - generic:
+                      - paragraph: Canonical Trust
+                      - paragraph: Not loaded for this draft yet
+                  - generic:
+                    - generic: "Location: public"
+                    - generic: "Seller identity: withheld"
+                    - generic: Listing media ≠ verified evidence
+                  - link:
+                    - /url: /marketplace/JTNS16V16CERT0011?mode=seller_preview
+                    - text: Buyer Preview — not public
+                - generic:
+                  - generic:
+                    - paragraph: JTNS16V16CERT0011
+                    - paragraph: Images & Features
+            - generic:
+              - generic: "3"
+              - generic: "4"
+            - generic:
+              - generic: Images & Features
+              - generic:
+                - generic:
+                  - generic: Vehicle Images (3/15)
+                  - generic:
+                    - paragraph: Photos buyers look for
+                    - paragraph: All optional. A listing that shows the odometer and any known damage gets fewer “can you send more photos?” replies.
+                    - list:
+                      - listitem: Front three-quarter
+                      - listitem: Front
+                      - listitem: Driver side
+                      - listitem: Passenger side
+                      - listitem: Rear three-quarter
+                      - listitem: Rear
+                      - listitem: Interior
+                      - listitem: Dashboard
+                      - listitem: Odometer
+                      - listitem: Engine
+                      - listitem: Tyres
+                      - listitem: Any known damage
+                      - listitem: Other
+                  - generic:
+                    - paragraph: Click to upload photos
+                    - paragraph: JPG, PNG up to 15 images
+                  - generic:
+                    - paragraph: Photo 1 is your cover photo.
+                    - generic:
+                      - generic:
+                        - generic:
+                          - generic: Front three-quarter
+                          - generic: Cover
+                          - generic:
+                            - button: →
+                          - button
+                        - combobox:
+                          - generic: Front three-quarter
+                      - generic:
+                        - generic:
+                          - button: Make cover
+                          - generic:
+                            - button: ←
+                            - button: →
+                          - button
+                        - combobox [expanded]:
+                          - generic: Label angle / view
+                      - generic:
+                        - generic:
+                          - button: Make cover
+                          - generic:
+                            - button: ←
+                          - button
+                        - combobox:
+                          - generic: Label angle / view
+                - generic:
+                  - generic: Features & Extras
+                  - generic:
+                    - textbox:
+                      - /placeholder: e.g. Sunroof, Leather Seats...
+                    - button: Add
+                  - paragraph: Press Enter or comma to add. Click a tag to remove.
+                - generic:
+                  - button: Back
+                  - button: Next
+  - listbox [ref=f2e1137]:
+    - option "Front three-quarter" [active] [ref=f2e1138]
+    - option "Front" [ref=f2e1141]
+    - option "Driver side" [ref=f2e1144]
+    - option "Passenger side" [ref=f2e1147]
+    - option "Rear three-quarter" [ref=f2e1150]
+    - option "Rear" [ref=f2e1153]
+    - option "Interior" [ref=f2e1156]
+    - option "Dashboard" [ref=f2e1159]
+    - option "Odometer" [ref=f2e1162]
+    - option "Engine" [ref=f2e1165]
+    - option "Tyres" [ref=f2e1168]
+    - option "Any known damage" [ref=f2e1171]
+    - option "Other" [ref=f2e1174]

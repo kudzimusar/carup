@@ -354,11 +354,16 @@ export default function TradeBuyerRequests() {
                           <Check className="mt-0.5 h-3 w-3 shrink-0 text-emerald-600" aria-hidden="true" />
                           You have {rfq.supplier_match.available_quantity} available — {rfq.supplier_match.stock_name}
                         </li>
-                        {rfq.supplier_match.reasons.map((reason) => (
-                          <li key={reason} className="flex gap-1.5 text-xs text-gray-700">
-                            <Check className="mt-0.5 h-3 w-3 shrink-0 text-emerald-600" aria-hidden="true" /> {reason}
-                          </li>
-                        ))}
+                        {/* The scorer emits its own availability/export lines; the two headline
+                            rows above already say those, so drop the duplicates rather than
+                            listing the same fact twice in different words. */}
+                        {rfq.supplier_match.reasons
+                          .filter((r) => !/^available quantity/i.test(r) && !/^export ready$/i.test(r))
+                          .map((reason) => (
+                            <li key={reason} className="flex gap-1.5 text-xs text-gray-700">
+                              <Check className="mt-0.5 h-3 w-3 shrink-0 text-emerald-600" aria-hidden="true" /> {reason}
+                            </li>
+                          ))}
                         {rfq.supplier_match.export_ready && (
                           <li className="flex gap-1.5 text-xs text-gray-700">
                             <Check className="mt-0.5 h-3 w-3 shrink-0 text-emerald-600" aria-hidden="true" /> Stock is recorded as export-ready

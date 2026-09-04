@@ -1,0 +1,63 @@
+- generic [ref=e2]:
+  - region "Notifications alt+T"
+  - generic [ref=e3]:
+    - main [ref=e4]:
+      - generic [ref=e6]:
+        - generic [ref=e7]:
+          - link "CarUp" [ref=e8] [cursor=pointer]:
+            - /url: /
+          - heading "Create your CarUp profile" [level=1] [ref=e15]
+          - paragraph [ref=e16]: Tell us who you are in the automotive journey. Verification happens only where it is actually needed.
+        - generic "Registration progress" [ref=e17]: "3"
+        - generic [ref=e27]:
+          - generic [ref=e28]:
+            - generic [ref=e119]:
+              - paragraph [ref=e120]: 3 · Security & privacy
+              - heading "Secure the account and choose your permissions" [level=2] [ref=e121]
+            - generic [ref=e122]:
+              - generic [ref=e123]: Password
+              - generic [ref=e124]:
+                - textbox "At least 8 characters" [ref=e125]: CarUpV16Ns!2026
+                - button "Show password" [ref=e126] [cursor=pointer]
+            - generic [ref=e130]:
+              - generic [ref=e131]: Confirm Password
+              - textbox "Repeat password" [ref=e132]: CarUpV16Ns!2026
+            - generic [ref=e133]:
+              - generic [ref=e134]:
+                - checkbox "I agree to the Terms of Service." [checked] [ref=e135]
+                - generic [ref=e136]:
+                  - text: I agree to the
+                  - link "Terms of Service" [ref=e137] [cursor=pointer]:
+                    - /url: /terms
+                  - text: .
+              - generic [ref=e138]:
+                - checkbox "I have read the Privacy Policy and understand how CarUp handles account and vehicle data." [checked] [active] [ref=e139]
+                - generic [ref=e140]:
+                  - text: I have read the
+                  - link "Privacy Policy" [ref=e141] [cursor=pointer]:
+                    - /url: /privacy
+                  - text: and understand how CarUp handles account and vehicle data.
+              - generic [ref=e142]:
+                - checkbox "Send me optional CarUp product news and offers. I can change this later." [ref=e143]
+                - generic [ref=e144]: Send me optional CarUp product news and offers. I can change this later.
+            - generic [ref=e149]:
+              - paragraph [ref=e150]: Verification is separate from signup
+              - paragraph [ref=e151]: We will send a one-time email confirmation. Vehicle ownership, identity/KYC, Dealer or Exporter approval remain governed workflows and are never implied by this form.
+            - button "Create Account" [ref=e152] [cursor=pointer]
+            - button "Back" [ref=e112] [cursor=pointer]
+          - paragraph [ref=e47]:
+            - text: Already have an account?
+            - link "Sign In" [ref=e48] [cursor=pointer]:
+              - /url: /login
+    - navigation "Compact app navigation" [ref=e49]:
+      - generic [ref=e50]:
+        - link "Home" [ref=e51] [cursor=pointer]:
+          - /url: /
+        - link "Market" [ref=e56] [cursor=pointer]:
+          - /url: /marketplace
+        - link "Verify" [ref=e61] [cursor=pointer]:
+          - /url: /search
+        - link "Sell" [ref=e66] [cursor=pointer]:
+          - /url: /sell
+        - link "Account" [ref=e71] [cursor=pointer]:
+          - /url: /login

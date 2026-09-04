@@ -1,0 +1,355 @@
+- generic [ref=f20e2]:
+  - region "Notifications alt+T"
+  - generic [ref=f20e3]:
+    - banner [ref=f20e4]:
+      - generic [ref=f20e6]:
+        - link "CarUp" [ref=f20e7] [cursor=pointer]:
+          - /url: /
+        - generic [ref=f20e14]:
+          - button "Notifications" [ref=f20e15] [cursor=pointer]
+          - button "Open menu" [ref=f20e16] [cursor=pointer]
+    - main [ref=f20e17]:
+      - generic [ref=f20e18]:
+        - generic [ref=f20e20]:
+          - generic [ref=f20e21]:
+            - generic [ref=f20e22]:
+              - generic [ref=f20e23]:
+                - generic [ref=f20e24]: Decentralized Integrity Protocol
+                - generic [ref=f20e25]: v2.4 (Active)
+              - heading "Privacy Policy & Data Rights Protocol" [level=1] [ref=f20e26]
+              - paragraph [ref=f20e27]: How CarUp manages ownership trust, ledger hashing, and vehicle data under the Cyber Security and Data Protection Act [Chapter 12:07] of Zimbabwe.
+            - generic [ref=f20e28]:
+              - button "Official PDF" [ref=f20e29] [cursor=pointer]
+              - button "Print" [ref=f20e30] [cursor=pointer]
+          - generic [ref=f20e31]:
+            - generic [ref=f20e32]: "Last Updated: May 26, 2026"
+            - generic [ref=f20e33]: "Jurisdiction: Republic of Zimbabwe"
+            - generic [ref=f20e34]: "Regulator: POTRAZ (Postal & Telecommunications Authority)"
+        - generic [ref=f20e37]:
+          - generic [ref=f20e38]:
+            - generic [ref=f20e43]:
+              - heading "1. Preamble & Legal Framework" [level=2] [ref=f20e44]
+              - paragraph [ref=f20e45]: "SECTION_ID: INTRO_ZIM_LEG_12_07"
+            - generic [ref=f20e46]:
+              - paragraph [ref=f20e47]: Welcome to CarUp (referred to as "we", "us", or "our"), operated by CarUp Automotive Technologies Ltd. We are committed to establishing a high-trust, fraud-resistant secondary automotive market in the Republic of Zimbabwe by building an intelligent digital repository of vehicle details, history logs, and cryptographic scorecards.
+              - paragraph [ref=f20e48]: This Privacy Policy details how we collect, store, cryptographically hash, process, and disclose data when you register as a user, register your vehicle chassis details, utilize our specialized PartSentry system, or consult our Gutu AI assistant.
+              - generic [ref=f20e53]:
+                - heading "Cyber Security and Data Protection Compliance" [level=5] [ref=f20e54]
+                - paragraph [ref=f20e55]: This protocol operates strictly under the regulatory mandates of the Cyber Security and Data Protection Act [Chapter 12:07] of the Republic of Zimbabwe, overseen by the Postal and Telecommunications Regulatory Authority of Zimbabwe (POTRAZ) in its capacity as the Data Protection Authority.
+              - paragraph [ref=f20e56]: By creating an account, registering a vehicle, or utilising our platforms in Harare, Bulawayo, Mutare, Gweru, or any territory within Zimbabwe, you explicitly authorize the processing of your personal information and public registry records in accordance with this Policy.
+            - button "Why does CarUp link vehicle details to national registries?" [ref=f20e58] [cursor=pointer]
+          - generic [ref=f20e65]:
+            - generic [ref=f20e72]:
+              - heading "2. Information We Collect" [level=2] [ref=f20e73]
+              - paragraph [ref=f20e74]: "SECTION_ID: COLLECT_DATA_SCHEMA"
+            - generic [ref=f20e75]:
+              - paragraph [ref=f20e76]: We collect several categories of information to verify vehicle safety, maintain ledger integrity, and secure transactional marketplace portals. The scope of information depends on your account type (e.g., Car Owner, Licensed Dealer, Registered Garage Mechanic, Financial Bank Officer, or Insurer).
+              - generic [ref=f20e77]:
+                - generic [ref=f20e79]:
+                  - generic [ref=f20e80]: A. User Identity & KYC Records
+                  - list [ref=f20e86]:
+                    - listitem [ref=f20e87]: Legal name, email, and verified phone number (Econet, NetOne, or Telecel).
+                    - listitem [ref=f20e88]: National Registration Number (National ID) and facial verification selfie.
+                    - listitem [ref=f20e89]: Physical residential address or dealership operational coordinates.
+                    - listitem [ref=f20e90]: Authorized signature logs for transactional approvals.
+                - generic [ref=f20e92]:
+                  - generic [ref=f20e93]: B. Deep Vehicle & Mechanical Data
+                  - list [ref=f20e97]:
+                    - listitem [ref=f20e98]: VIN (Vehicle Identification Number), Chassis, and Engine numbers.
+                    - listitem [ref=f20e99]: License plate logs and historical ZINARA licensing discs.
+                    - listitem [ref=f20e100]: Logbook scans, customs clearance documents, and police verification reports.
+                    - listitem [ref=f20e101]: Mechanic service logs, parts installation timestamps via PartSentry.
+                - generic [ref=f20e103]:
+                  - generic [ref=f20e104]: C. Financial & Subscription Logs
+                  - list [ref=f20e109]:
+                    - listitem [ref=f20e110]: Billing currencies used (USD, ZiG, or South African Rand ZAR).
+                    - listitem [ref=f20e111]: Payments routed via EcoCash, local banking cards, or SWIFT wire logs.
+                    - listitem [ref=f20e112]: Collateral value estimations and bank financing application history.
+                    - listitem [ref=f20e113]: Premium tier billing schedules and active invoices.
+                - generic [ref=f20e115]:
+                  - generic [ref=f20e116]: D. Technical & Assistant Logs
+                  - list [ref=f20e121]:
+                    - listitem [ref=f20e122]: Interactive transcripts with Gutu AI assistant.
+                    - listitem [ref=f20e123]: Device IP address, operating system, and geolocation data.
+                    - listitem [ref=f20e124]: Logbook OCR scanner quality metrics and file upload sizes.
+                    - listitem [ref=f20e125]: Browser user agent patterns and marketplace tracking clicks.
+            - button "What exactly is extracted from my ZINARA and CVR logbook scans?" [ref=f20e127] [cursor=pointer]
+          - generic [ref=f20e134]:
+            - generic [ref=f20e139]:
+              - heading "3. How We Use Your Data" [level=2] [ref=f20e140]
+              - paragraph [ref=f20e141]: "SECTION_ID: USE_DATA_INTELLIGENCE"
+            - generic [ref=f20e142]:
+              - paragraph [ref=f20e143]: CarUp processes your personal information and vehicle records based on strict contractual, legitimate interest, and consent parameters. We never engage in bulk data broking or market personal profiles to third-party ad networks.
+              - heading "Key Processing Operational Purposes:" [level=4] [ref=f20e144]
+              - list [ref=f20e145]:
+                - listitem [ref=f20e146]:
+                  - strong [ref=f20e147]: "Decentralized Trust Scores:"
+                  - text: Calculating and updating our public CarUp Trust Score (ranging from 0-100) based on vehicle consistency, verification flags, and complete mileage tracking.
+                - listitem [ref=f20e148]:
+                  - strong [ref=f20e149]: "PartSentry Life-Cycle Ledgers:"
+                  - text: Creating permanent historical logs of every verified spare part installed in your vehicle, protecting your secondary market resale value and warranty parameters.
+                - listitem [ref=f20e150]:
+                  - strong [ref=f20e151]: "AI-Powered Fraud Mitigation:"
+                  - text: Comparing uploaded VIN stamps and chassis sheets against cross-continental shipping records to detect clone vehicles before they are listed on the marketplace.
+                - listitem [ref=f20e152]:
+                  - strong [ref=f20e153]: "Automatic Document Autofill:"
+                  - text: Processing logbook and customs documents through Gutu AI, allowing owners to initialize new vehicle profiles in under 30 seconds.
+                - listitem [ref=f20e154]:
+                  - strong [ref=f20e155]: "Premium Valuation & Financing:"
+                  - text: Providing risk profiles and automated pricing valuations in USD and ZiG for asset financing, ensuring accurate collateral tracking for partner banks in Harare and Bulawayo.
+            - button "How does Gutu AI prevent vehicle identification fraud?" [ref=f20e157] [cursor=pointer]
+          - generic [ref=f20e164]:
+            - generic [ref=f20e170]:
+              - heading "4. Audit Ledger & Public Registry Disclosure" [level=2] [ref=f20e171]
+              - paragraph [ref=f20e172]: "SECTION_ID: BLOCKCHAIN_TRUST_LEDGER"
+            - generic [ref=f20e173]:
+              - paragraph [ref=f20e174]: To restore total confidence in the secondary Zimbabwean automotive market, CarUp utilizes an immutable ledger protocol. It is critical to understand what is permanently committed to this public record, and how your personal data remains isolated.
+              - generic [ref=f20e175]:
+                - generic [ref=f20e176]:
+                  - generic [ref=f20e177]: Cryptographic Ledger Partitioning
+                  - generic [ref=f20e187]: SHA-256 SECURED
+                - generic [ref=f20e188]:
+                  - generic [ref=f20e189]:
+                    - heading "Public Ledger (Immutably Hashed)" [level=5] [ref=f20e190]
+                    - list [ref=f20e193]:
+                      - listitem [ref=f20e194]:
+                        - generic [ref=f20e196]: Vehicle VIN, Chassis, and Engine ID structure.
+                      - listitem [ref=f20e197]:
+                        - generic [ref=f20e199]: Verified Odometer readings and timestamps.
+                      - listitem [ref=f20e200]:
+                        - generic [ref=f20e202]: PartSentry mechanical installations and structural upgrades.
+                      - listitem [ref=f20e203]:
+                        - generic [ref=f20e205]: Overall CarUp Trust Score history card.
+                  - generic [ref=f20e206]:
+                    - heading "Private Database (Encrypted Offline)" [level=5] [ref=f20e207]
+                    - list [ref=f20e210]:
+                      - listitem [ref=f20e211]:
+                        - generic [ref=f20e213]: Names, National IDs, and physical addresses.
+                      - listitem [ref=f20e214]:
+                        - generic [ref=f20e216]: Customer phone numbers and email channels.
+                      - listitem [ref=f20e217]:
+                        - generic [ref=f20e219]: EcoCash numbers, bank accounts, and specific pricing tokens.
+                      - listitem [ref=f20e220]:
+                        - generic [ref=f20e222]: Individual communication logs with Gutu AI.
+              - paragraph [ref=f20e223]: This cryptographic design guarantees that while anyone in the marketplace can audit the full, unbroken history of a Mercedes-Benz C200 or Toyota Hilux before completing a transaction, they can never discover the owner's personal identity or identity history unless you explicitly choose to authorize that share request.
+            - button "Can I delete my vehicle's past service history from the CarUp audit ledger?" [ref=f20e225] [cursor=pointer]
+          - generic [ref=f20e232]:
+            - generic [ref=f20e241]:
+              - heading "5. Sharing Data with Partners" [level=2] [ref=f20e242]
+              - paragraph [ref=f20e243]: "SECTION_ID: PARTNER_DATA_ROUTING"
+            - generic [ref=f20e244]:
+              - paragraph [ref=f20e245]: We facilitate integrated exchanges between key stakeholders in the Zimbabwean automotive ecosystem. We only initiate exchanges with partner networks under strict user-controlled authorization, except in legal verification cases.
+              - generic [ref=f20e246]:
+                - generic [ref=f20e251]:
+                  - generic [ref=f20e252]:
+                    - generic [ref=f20e253]: Verified Auto Dealers & Showrooms
+                    - generic [ref=f20e254]: Marketplace Integration
+                  - paragraph [ref=f20e255]: When you list your car for sale, we share verified vehicle history dossiers, Trust Scores, and odometer audits to speed up listings. Your phone number is only shared when buyers make verified bids.
+                - generic [ref=f20e260]:
+                  - generic [ref=f20e261]:
+                    - generic [ref=f20e262]: Registered Garages & Mechanics
+                    - generic [ref=f20e263]: Service Lifecycle
+                  - paragraph [ref=f20e264]: Mechanics can check your active PartSentry engine details and structural profiles. Upon servicing, they commit part changes and service stamps back to your digital profile.
+                - generic [ref=f20e269]:
+                  - generic [ref=f20e270]:
+                    - generic [ref=f20e271]: Verified Insurance Underwriters (e.g., Old Mutual, Zimnat, NicozDiamond)
+                    - generic [ref=f20e272]: Underwriting & Risk
+                  - paragraph [ref=f20e273]: If you apply for auto coverage, we share verified trust and mechanical ratings to help you unlock premium discount rates. We never share driving metrics or route tracking data without explicit opt-in.
+                - generic [ref=f20e278]:
+                  - generic [ref=f20e279]:
+                    - generic [ref=f20e280]: Asset Financing Banks (e.g., CBZ, CABS, Stanbic Bank)
+                    - generic [ref=f20e281]: Financing Valuations
+                  - paragraph [ref=f20e282]: When you apply for a collateralized vehicle loan, we share verified valuation certificates in USD/ZiG directly to the bank's processing system to secure quick processing.
+          - generic [ref=f20e283]:
+            - generic [ref=f20e289]:
+              - heading "6. Your Rights & Data Controls" [level=2] [ref=f20e290]
+              - paragraph [ref=f20e291]: "SECTION_ID: USER_RIGHTS_REGULATORY"
+            - generic [ref=f20e292]:
+              - paragraph [ref=f20e293]: Under Part IV of the Cyber Security and Data Protection Act [Chapter 12:07] of Zimbabwe, you hold explicit rights as a data subject. CarUp provides comprehensive controls to exercise these rights through your profile settings panel.
+              - generic [ref=f20e294]:
+                - generic [ref=f20e295]:
+                  - generic [ref=f20e296]: Right of Access & Portability
+                  - paragraph [ref=f20e299]: You can request a complete, structured export of all personal data, logbook uploads, and historical activities associated with your profile at any time.
+                - generic [ref=f20e300]:
+                  - generic [ref=f20e301]: Right to Rectification
+                  - paragraph [ref=f20e304]: If you detect an inaccuracy in your legal name, contact channel, or vehicle registration chassis details, you can submit an update request along with verified registry documents.
+                - generic [ref=f20e305]:
+                  - generic [ref=f20e306]: Right to Restriction of Processing
+                  - paragraph [ref=f20e309]: You have the power to suspend data sharing with partner insurers, banking dashboards, or public marketplaces, keeping your asset profile strictly private.
+                - generic [ref=f20e310]:
+                  - generic [ref=f20e311]: Right to Object & Revoke Consent
+                  - paragraph [ref=f20e314]: You can modify your consent settings instantly via our integrated Gutu AI Consent Console to opt out of non-essential AI scans or automated notifications.
+            - button "How do I request a complete dump of my vehicle dossier data?" [ref=f20e316] [cursor=pointer]
+          - generic [ref=f20e323]:
+            - generic [ref=f20e328]:
+              - heading "7. Data Retention & Deletion" [level=2] [ref=f20e329]
+              - paragraph [ref=f20e330]: "SECTION_ID: RETENTION_LEDGER_ARCHIVAL"
+            - generic [ref=f20e331]:
+              - paragraph [ref=f20e332]: We store your personal details for as long as your CarUp profile is active. If you initiate a profile deletion request, we immediately run automated secure-erase cycles on all personal identifiers (PII) like names, email channels, and phone numbers.
+              - paragraph [ref=f20e333]: However, please be informed that vehicle-specific hardware ledgers (including VIN, chassis numbers, historical odometer metrics, and mechanic work orders committed via PartSentry) are retained indefinitely. These parameters represent public safety information that must remain accessible to prevent commercial fraud, vehicle cloning, and secondary market manipulation in Zimbabwe.
+              - paragraph [ref=f20e334]: In the event of profile deletion, the historical records of your vehicles are permanently disconnected from your name or contact details, leaving an anonymous, unlinked technical logbook that subsequent buyers can audit safely.
+          - generic [ref=f20e335]:
+            - generic [ref=f20e347]:
+              - heading "8. Gutu AI Privacy Consent Console" [level=2] [ref=f20e348]
+              - paragraph [ref=f20e349]: "SECTION_ID: GUTU_AI_CONSENT_DASHBOARD"
+            - paragraph [ref=f20e350]: Take control of your data flow in real-time. Use the control dials below to specify what data parameters you permit Gutu AI and our integrated APIs to process. Toggling these settings immediately updates your system credentials.
+            - generic [ref=f20e351]:
+              - generic [ref=f20e353]:
+                - generic [ref=f20e354]:
+                  - generic [ref=f20e355]: Interactive Protocol Configurations
+                  - generic [ref=f20e358]: Configure customized permissions and watch changes synchronize on the secure platform client.
+                - generic [ref=f20e359]: Live Sandbox
+              - generic [ref=f20e360]:
+                - generic [ref=f20e361]:
+                  - generic [ref=f20e362]:
+                    - generic [ref=f20e363]: Gutu AI Automated OCR Extraction
+                    - generic [ref=f20e364]: Allows Gutu AI to automatically scan and parse details from uploaded ZINARA disc images, import bills, and police clearances to build profile registries in seconds.
+                  - switch [checked] [ref=f20e365] [cursor=pointer]
+                - generic [ref=f20e366]:
+                  - generic [ref=f20e367]:
+                    - generic [ref=f20e368]: PartSentry Blockchain Hashing
+                    - generic [ref=f20e369]: Allows historical part updates and odometer metrics to be cryptographically hashed onto the public registry ledger. Disabling this removes real-time marketplace trust verification flags.
+                  - switch [checked] [ref=f20e370] [cursor=pointer]
+                - generic [ref=f20e371]:
+                  - generic [ref=f20e372]:
+                    - generic [ref=f20e373]: Verified Insurer Instant Claim Sync
+                    - generic [ref=f20e374]: Allows partnered insurance brokers (e.g., Zimnat, NicozDiamond) to instantly query mechanical audit dossiers to accelerate your accident claims processing.
+                  - switch [ref=f20e375] [cursor=pointer]
+                - generic [ref=f20e376]:
+                  - generic [ref=f20e377]:
+                    - generic [ref=f20e378]: Auto-Bank Collateral Valuations
+                    - generic [ref=f20e379]: Allows authorized financing institutions (e.g., CBZ, CABS) to execute background pricing algorithm queries against your vehicle profile for swift credit scoring.
+                  - switch [ref=f20e380] [cursor=pointer]
+                - generic [ref=f20e381]:
+                  - generic [ref=f20e382]:
+                    - generic [ref=f20e383]: Gutu AI Contextual Model Tuning
+                    - generic [ref=f20e384]: Allows Gutu AI to parse anonymous vehicle logs to improve predictive maintenance algorithms and market price estimates for Zimbabwean car buyers.
+                  - switch [checked] [ref=f20e385] [cursor=pointer]
+                - generic [ref=f20e386]:
+                  - generic [ref=f20e387]: Changes are securely committed and encrypted locally on client browser cache.
+                  - button "Apply Custom Protocol" [ref=f20e391] [cursor=pointer]
+          - generic [ref=f20e392]:
+            - generic [ref=f20e398]:
+              - heading "9. Contact & Data Protection Officer Office" [level=2] [ref=f20e399]
+              - paragraph [ref=f20e400]: "SECTION_ID: DPO_CONTACT_CHANNELS"
+            - generic [ref=f20e401]:
+              - paragraph [ref=f20e402]: "If you have queries regarding this Privacy Policy, your rights under the Cyber Security and Data Protection Act [Chapter 12:07], or wish to submit verified corrections to vehicle registers, contact our designated Data Protection Officer (DPO) at our regional Harare headquarters:"
+              - generic [ref=f20e403]:
+                - generic [ref=f20e405]:
+                  - heading "Physical Headquarters" [level=6] [ref=f20e409]
+                  - paragraph [ref=f20e410]: CarUp Technologies Ltd123 Samora Machel AveHarare, Zimbabwe
+                - generic [ref=f20e412]:
+                  - heading "Direct DPO Dispatch" [level=6] [ref=f20e416]
+                  - paragraph [ref=f20e417]: dpo@carup.co.zwlegal@carup.co.zwResponse within 48 hrs
+                - generic [ref=f20e419]:
+                  - heading "Telephone Support" [level=6] [ref=f20e422]
+                  - paragraph [ref=f20e423]: "+263 242 700 000+263 773 345 678Mon-Fri: 8AM - 5PM"
+              - paragraph [ref=f20e424]: "You also maintain the legal right to file direct complaints regarding data handling violations to the Postal and Telecommunications Regulatory Authority of Zimbabwe (POTRAZ) at their national offices: 1008 Performance Plaza, Samora Machel Ave, Harare, Zimbabwe."
+    - contentinfo [ref=f20e425]:
+      - generic [ref=f20e426]:
+        - generic [ref=f20e427]:
+          - generic [ref=f20e428]:
+            - link "CarUp home" [ref=f20e429] [cursor=pointer]:
+              - /url: /
+              - generic [ref=f20e435]: CarUp
+            - paragraph [ref=f20e436]: Zimbabwe's verified automotive marketplace for buying, verifying, and selling cars with clearer trust signals.
+            - generic [ref=f20e437]:
+              - generic [ref=f20e438]: +263 242 700 000
+              - generic [ref=f20e442]: info@carup.co.zw
+              - generic [ref=f20e447]: Harare, Zimbabwe
+          - navigation "Footer Product" [ref=f20e452]:
+            - heading "Product" [level=3] [ref=f20e453]
+            - list [ref=f20e454]:
+              - listitem [ref=f20e455]:
+                - link "Buy Cars" [ref=f20e456] [cursor=pointer]:
+                  - /url: /marketplace
+              - listitem [ref=f20e461]:
+                - link "Parts Marketplace" [ref=f20e462] [cursor=pointer]:
+                  - /url: /marketplace/parts
+              - listitem [ref=f20e466]:
+                - link "Garages & Services" [ref=f20e467] [cursor=pointer]:
+                  - /url: /marketplace/services
+              - listitem [ref=f20e470]:
+                - link "Verify Vehicle" [ref=f20e471] [cursor=pointer]:
+                  - /url: /search
+              - listitem [ref=f20e474]:
+                - link "Dealers" [ref=f20e475] [cursor=pointer]:
+                  - /url: /dealers
+              - listitem [ref=f20e480]:
+                - link "Garages" [ref=f20e481] [cursor=pointer]:
+                  - /url: /garages
+              - listitem [ref=f20e484]:
+                - link "Insurance" [ref=f20e485] [cursor=pointer]:
+                  - /url: /insurance
+              - listitem [ref=f20e488]:
+                - link "Pricing" [ref=f20e489] [cursor=pointer]:
+                  - /url: /pricing
+              - listitem [ref=f20e493]:
+                - link "Diaspora Trade" [ref=f20e494] [cursor=pointer]:
+                  - /url: /diaspora
+          - navigation "Footer Company" [ref=f20e498]:
+            - heading "Company" [level=3] [ref=f20e499]
+            - list [ref=f20e500]:
+              - listitem [ref=f20e501]:
+                - link "About CarUp" [ref=f20e502] [cursor=pointer]:
+                  - /url: /about
+              - listitem [ref=f20e506]:
+                - link "Contact Us" [ref=f20e507] [cursor=pointer]:
+                  - /url: /contact
+              - listitem [ref=f20e510]:
+                - link "Careers" [ref=f20e511] [cursor=pointer]:
+                  - /url: /careers
+              - listitem [ref=f20e517]:
+                - link "Press Kit" [ref=f20e518] [cursor=pointer]:
+                  - /url: /press
+              - listitem [ref=f20e522]:
+                - link "Blog" [ref=f20e523] [cursor=pointer]:
+                  - /url: /blog
+          - navigation "Footer Resources" [ref=f20e526]:
+            - heading "Resources" [level=3] [ref=f20e527]
+            - list [ref=f20e528]:
+              - listitem [ref=f20e529]:
+                - link "Help Center" [ref=f20e530] [cursor=pointer]:
+                  - /url: /help
+              - listitem [ref=f20e533]:
+                - link "Trust & Safety" [ref=f20e534] [cursor=pointer]:
+                  - /url: /trust
+              - listitem [ref=f20e537]:
+                - link "API Documentation" [ref=f20e538] [cursor=pointer]:
+                  - /url: /api-docs
+          - navigation "Footer Stakeholders" [ref=f20e541]:
+            - heading "Stakeholders" [level=3] [ref=f20e542]
+            - list [ref=f20e543]:
+              - listitem [ref=f20e544]:
+                - link "Car Owners" [ref=f20e545] [cursor=pointer]:
+                  - /url: /dashboard
+              - listitem [ref=f20e546]:
+                - link "Dealers" [ref=f20e547] [cursor=pointer]:
+                  - /url: /dealer
+              - listitem [ref=f20e548]:
+                - link "Mechanics" [ref=f20e549] [cursor=pointer]:
+                  - /url: /mechanic
+              - listitem [ref=f20e550]:
+                - link "Insurance" [ref=f20e551] [cursor=pointer]:
+                  - /url: /insurance-dash
+              - listitem [ref=f20e552]:
+                - link "Government" [ref=f20e553] [cursor=pointer]:
+                  - /url: /government
+              - listitem [ref=f20e554]:
+                - link "Bankers" [ref=f20e555] [cursor=pointer]:
+                  - /url: /bank
+        - generic [ref=f20e556]:
+          - generic [ref=f20e557]:
+            - paragraph [ref=f20e558]: © 2026 CarUp Zimbabwe. All rights reserved.
+            - list "Footer Legal" [ref=f20e559]:
+              - listitem [ref=f20e560]:
+                - link "Privacy Policy" [ref=f20e561] [cursor=pointer]:
+                  - /url: /privacy
+              - listitem [ref=f20e562]:
+                - link "Terms of Service" [ref=f20e563] [cursor=pointer]:
+                  - /url: /terms
+          - generic "CarUp social media" [ref=f20e564]:
+            - link "CarUp on Facebook — coming soon" [disabled] [ref=f20e565]
+            - link "CarUp on X (Twitter) — coming soon" [disabled] [ref=f20e568]
+            - link "CarUp on Instagram — coming soon" [disabled] [ref=f20e571]
+            - link "CarUp on LinkedIn — coming soon" [disabled] [ref=f20e575]

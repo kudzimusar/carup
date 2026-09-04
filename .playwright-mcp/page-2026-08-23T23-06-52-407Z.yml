@@ -1,0 +1,8 @@
+- banner [ref=e4]:
+  - button "Open sidebar menu" [ref=e5] [cursor=pointer]
+  - search [ref=e6]:
+    - searchbox "Search vehicles" [ref=e9]
+  - generic [ref=e10]:
+    - button "Notifications" [ref=e11] [cursor=pointer]
+    - link "Back to Site" [ref=e13] [cursor=pointer]:
+      - /url: "#"

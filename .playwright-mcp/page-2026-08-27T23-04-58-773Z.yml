@@ -1,0 +1,14 @@
+- generic [ref=e2]:
+  - alert [ref=e3]:
+    - generic [ref=e7]:
+      - paragraph [ref=e8]: This preview has no paired backend
+      - paragraph [ref=e9]: It was built without a backend for its branch, so it cannot load data and must not be used for UAT. Add the branch to web/preview-backend-pairing.json and redeploy.
+  - region "Notifications alt+T"
+  - region "Page not found" [ref=e10]:
+    - heading "Page not found" [level=1] [ref=e15]
+    - paragraph [ref=e16]: The page you're looking for doesn't exist or may have moved. Let's get you back on track.
+    - generic [ref=e17]:
+      - link "Back to home" [ref=e18] [cursor=pointer]:
+        - /url: /
+      - link "Browse marketplace" [ref=e19] [cursor=pointer]:
+        - /url: /marketplace

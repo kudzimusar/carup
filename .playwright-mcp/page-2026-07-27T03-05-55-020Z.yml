@@ -1,0 +1,138 @@
+- generic [ref=e2]:
+  - region "Notifications alt+T":
+    - list:
+      - listitem [ref=e59]:
+        - generic [ref=e64]: Account created! Welcome to CarUp.
+  - generic [ref=e66]:
+    - complementary [ref=e67]:
+      - generic [ref=e68]:
+        - link "CarUp" [ref=e69] [cursor=pointer]:
+          - /url: /
+        - button "Close sidebar menu" [ref=e76] [cursor=pointer]
+      - generic [ref=e79]:
+        - paragraph [ref=e80]: Issue128 StagingUAT
+        - paragraph [ref=e81]: Active portal
+        - combobox "Switch active portal role" [ref=e84] [cursor=pointer]:
+          - option "Car Owner" [selected]
+          - option "Dealer"
+          - option "Mechanic"
+          - option "Insurance"
+          - option "Government"
+          - option "Administrator"
+          - option "Banker"
+      - navigation [ref=e85]:
+        - link "Overview" [ref=e86] [cursor=pointer]:
+          - /url: /dashboard
+        - link "My Garage" [ref=e93] [cursor=pointer]:
+          - /url: /dashboard/garage
+        - link "Evidence Vault Upload" [ref=e99] [cursor=pointer]:
+          - /url: /dashboard/garage
+          - generic [ref=e103]: Evidence Vault
+          - generic [ref=e104]: Upload
+        - link "Service History" [ref=e105] [cursor=pointer]:
+          - /url: /dashboard/service-history
+        - link "Insurance" [ref=e109] [cursor=pointer]:
+          - /url: /dashboard/insurance
+        - link "PartSentry" [ref=e113] [cursor=pointer]:
+          - /url: /dashboard/partsentry
+        - link "Import Orders" [ref=e118] [cursor=pointer]:
+          - /url: /diaspora/imports
+        - link "Start Import Order" [ref=e123] [cursor=pointer]:
+          - /url: /diaspora/imports/new
+        - link "My Listings" [ref=e128] [cursor=pointer]:
+          - /url: /dashboard/listings
+        - link "Saved Cars" [ref=e133] [cursor=pointer]:
+          - /url: /dashboard/saved
+        - link "Gutu AI AI" [ref=e137] [cursor=pointer]:
+          - /url: /dashboard/ai
+          - generic [ref=e140]: Gutu AI
+          - generic [ref=e141]: AI
+        - link "Refer & Earn" [ref=e142] [cursor=pointer]:
+          - /url: /dashboard/referrals
+        - link "Communications Inbox" [ref=e147] [cursor=pointer]:
+          - /url: /dashboard/communications
+          - generic [ref=e150]: Communications
+          - generic [ref=e151]: Inbox
+        - link "Trade Profile" [ref=e152] [cursor=pointer]:
+          - /url: /diaspora/trade-profile
+        - link "Reverse RFQ" [ref=e166] [cursor=pointer]:
+          - /url: /diaspora/rfq
+        - link "Container Co-Loading" [ref=e170] [cursor=pointer]:
+          - /url: /diaspora/containers
+        - link "Drive Connections" [ref=e175] [cursor=pointer]:
+          - /url: /diaspora/drive
+      - generic [ref=e181]:
+        - link "Settings" [ref=e182] [cursor=pointer]:
+          - /url: /settings
+        - link "Sign Out" [ref=e186] [cursor=pointer]:
+          - /url: /
+    - generic [ref=e190]:
+      - banner [ref=e191]:
+        - button "Open sidebar menu" [ref=e192] [cursor=pointer]
+        - generic [ref=e193]:
+          - link [ref=e194] [cursor=pointer]:
+            - /url: /dashboard
+          - link "Back to Site" [ref=e195] [cursor=pointer]:
+            - /url: /
+      - main [ref=e197]:
+        - generic [ref=e198]:
+          - generic [ref=e199]:
+            - generic [ref=e200]:
+              - heading "Owner Dashboard" [level=1] [ref=e201]
+              - paragraph [ref=e202]: Welcome back, Issue128 StagingUAT! Monitor your vehicles, escrows, and insurance logs.
+            - generic [ref=e203]:
+              - generic [ref=e204]:
+                - generic [ref=e212]: Low-Bandwidth Mode
+                - checkbox [ref=e213] [cursor=pointer]
+              - link "My Garage" [ref=e214] [cursor=pointer]:
+                - /url: /dashboard/garage
+              - link "Ask Gutu AI" [ref=e215] [cursor=pointer]:
+                - /url: /dashboard/ai
+          - generic [ref=e216]:
+            - generic [ref=e220]:
+              - paragraph [ref=e221]: Automotive Wallet (USD)
+              - paragraph [ref=e222]: Not available
+              - paragraph [ref=e223]: No wallet established for this account
+            - generic [ref=e231]:
+              - paragraph [ref=e232]: Automotive Wallet (ZiG)
+              - paragraph [ref=e233]: Not available
+              - paragraph [ref=e234]: No wallet established for this account
+            - generic [ref=e242]:
+              - paragraph [ref=e243]: Locked SafePay Escrows
+              - paragraph [ref=e244]: Loading…
+              - paragraph [ref=e245]: Checking your escrows
+            - generic [ref=e252]:
+              - paragraph [ref=e253]: Auto-calculated Trust Index
+              - paragraph [ref=e254]: Not calculated
+              - paragraph [ref=e255]: Verification pending
+          - generic [ref=e260]:
+            - generic [ref=e261]:
+              - generic [ref=e263]:
+                - generic [ref=e264]: My Vehicles
+                - link "View All" [ref=e265] [cursor=pointer]:
+                  - /url: /dashboard/garage
+              - generic [ref=e266]:
+                - generic [ref=e267]:
+                  - generic [ref=e268]: Digital Document Vault
+                  - button "Upload & Parse Logbook" [ref=e269] [cursor=pointer]
+                - paragraph [ref=e271]: No documents uploaded yet.
+            - generic [ref=e272]:
+              - generic [ref=e273]:
+                - generic [ref=e274]: Vehicle Value Trend
+                - paragraph [ref=e277]: Valuation history is not available for your account yet.
+              - generic [ref=e278]:
+                - generic [ref=e279]: Quick Actions
+                - generic [ref=e281]:
+                  - link "Add Vehicle" [ref=e282] [cursor=pointer]:
+                    - /url: /dashboard/garage
+                  - link "Service History" [ref=e287] [cursor=pointer]:
+                    - /url: /dashboard/service-history
+                  - link "Insurance Records" [ref=e293] [cursor=pointer]:
+                    - /url: /dashboard/insurance
+                  - link "PartSentry" [ref=e299] [cursor=pointer]:
+                    - /url: /dashboard/partsentry
+                  - link "Gutu AI Assistant" [ref=e306] [cursor=pointer]:
+                    - /url: /dashboard/ai
+              - generic [ref=e314]:
+                - generic [ref=e315]: Notifications
+                - generic [ref=e316]: 0 new

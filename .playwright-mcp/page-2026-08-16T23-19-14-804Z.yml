@@ -1,0 +1,378 @@
+- generic [ref=f1e2]:
+  - region "Notifications alt+T"
+  - generic [ref=f1e3]:
+    - banner [ref=f1e4]:
+      - generic [ref=f1e6]:
+        - link "CarUp" [ref=f1e7] [cursor=pointer]:
+          - /url: /
+        - generic [ref=f1e14]:
+          - button "Notifications, 3 unread" [ref=f1e15] [cursor=pointer]:
+            - generic [ref=f1e16]: "3"
+          - button "Account menu for UAT AI Assist" [ref=f1e17] [cursor=pointer]
+          - button "Open menu" [ref=f1e18] [cursor=pointer]
+    - main [ref=f1e19]:
+      - generic [ref=f1e20]:
+        - generic [ref=f1e25]:
+          - generic [ref=f1e26]:
+            - generic [ref=f1e27]: Verified automotive marketplace for Zimbabwe
+            - heading "Find Verified Cars. Sell With Confidence." [level=1] [ref=f1e28]
+            - paragraph [ref=f1e29]: CarUp helps buyers and sellers build trust with vehicle Passports, plate checks, owner privacy, trust scores, and evidence-backed timelines.
+            - generic [ref=f1e30]:
+              - generic [ref=f1e31]: Buy Cars
+              - generic [ref=f1e32]: Sell Cars
+              - generic [ref=f1e33]: Verify Cars
+              - generic [ref=f1e34]: Trade Parts
+            - generic [ref=f1e36]:
+              - generic [ref=f1e37]:
+                - tablist [ref=f1e38]:
+                  - tab "Buy a Car" [selected] [ref=f1e39] [cursor=pointer]
+                  - tab "Sell My Car" [ref=f1e40] [cursor=pointer]
+                  - tab "Verify a Car" [ref=f1e41] [cursor=pointer]
+                - tabpanel "Buy a Car" [ref=f1e42]:
+                  - generic [ref=f1e43]:
+                    - textbox "Search make, model, dealer, location, plate, VIN, or chassis" [ref=f1e48]
+                    - button "Search Verified Cars" [ref=f1e49] [cursor=pointer]
+              - generic [ref=f1e50]:
+                - generic [ref=f1e51]:
+                  - paragraph [ref=f1e52]: Selling your car?
+                  - paragraph [ref=f1e53]: Start with your plate or VIN and create a trusted Passport listing.
+                - button "Start Selling" [ref=f1e54] [cursor=pointer]
+          - generic [ref=f1e55]:
+            - generic [ref=f1e56]:
+              - img "2019 Toyota Land Cruiser Prado" [ref=f1e57]
+              - generic [ref=f1e58]:
+                - generic [ref=f1e59]: Verified
+                - generic [ref=f1e60]: Plate on file
+            - generic [ref=f1e61]:
+              - generic [ref=f1e62]:
+                - generic [ref=f1e63]:
+                  - paragraph [ref=f1e64]: Harare
+                  - heading "2019 Toyota Land Cruiser Prado" [level=2] [ref=f1e65]
+                - generic [ref=f1e66]: Trust 94
+              - paragraph [ref=f1e67]: $48,500
+              - link "View Passport" [ref=f1e68] [cursor=pointer]:
+                - /url: /marketplace/JTELU9FJ9K5987234
+        - generic [ref=f1e70]:
+          - generic [ref=f1e71]: Plate Check
+          - generic [ref=f1e78]: Evidence Timeline
+          - generic [ref=f1e84]: Owner Privacy
+          - generic [ref=f1e90]: Trust Score
+          - generic [ref=f1e95]: SafePay Ready
+          - generic [ref=f1e100]: PartSentry
+        - generic [ref=f1e107]:
+          - generic [ref=f1e108]:
+            - generic [ref=f1e109]:
+              - generic [ref=f1e110]: Featured Verified Cars
+              - heading "Shop cars with visible trust signals" [level=2] [ref=f1e111]
+              - paragraph [ref=f1e112]: Phase 1 uses existing local vehicle data and shows only supported listing labels.
+            - link "Browse all cars" [ref=f1e113] [cursor=pointer]:
+              - /url: /marketplace
+          - generic [ref=f1e114]:
+            - generic [ref=f1e115]:
+              - generic [ref=f1e116]:
+                - img "2019 Toyota Land Cruiser Prado" [ref=f1e117]
+                - generic [ref=f1e118]:
+                  - generic [ref=f1e119]: Verified
+                  - generic [ref=f1e120]: Plate on file
+                  - generic [ref=f1e121]: Dealer
+              - generic [ref=f1e122]:
+                - generic [ref=f1e123]:
+                  - generic [ref=f1e124]:
+                    - heading "2019 Toyota Land Cruiser Prado" [level=3] [ref=f1e125]
+                    - paragraph [ref=f1e126]: Harare
+                  - generic [ref=f1e130]: Trust 94
+                - paragraph [ref=f1e131]: $48,500
+                - generic [ref=f1e132]:
+                  - generic [ref=f1e133]: 45,000 km
+                  - generic [ref=f1e134]: Automatic
+                  - generic [ref=f1e135]: Diesel
+                - link "View Passport" [ref=f1e136] [cursor=pointer]:
+                  - /url: /marketplace/JTELU9FJ9K5987234
+            - generic [ref=f1e137]:
+              - generic [ref=f1e138]:
+                - img "2021 Toyota Hilux Double Cab" [ref=f1e139]
+                - generic [ref=f1e140]:
+                  - generic [ref=f1e141]: Verified
+                  - generic [ref=f1e142]: Dealer
+              - generic [ref=f1e143]:
+                - generic [ref=f1e144]:
+                  - generic [ref=f1e145]:
+                    - heading "2021 Toyota Hilux Double Cab" [level=3] [ref=f1e146]
+                    - paragraph [ref=f1e147]: Bulawayo
+                  - generic [ref=f1e151]: Trust 96
+                - paragraph [ref=f1e152]: $42,000
+                - generic [ref=f1e153]:
+                  - generic [ref=f1e154]: 28,000 km
+                  - generic [ref=f1e155]: Automatic
+                  - generic [ref=f1e156]: Diesel
+                - link "View Passport" [ref=f1e157] [cursor=pointer]:
+                  - /url: /marketplace/MR0HA8CDX0M123456
+            - generic [ref=f1e158]:
+              - generic [ref=f1e159]:
+                - img "2022 BMW 320i" [ref=f1e160]
+                - generic [ref=f1e161]:
+                  - generic [ref=f1e162]: Verified
+                  - generic [ref=f1e163]: Dealer
+              - generic [ref=f1e164]:
+                - generic [ref=f1e165]:
+                  - generic [ref=f1e166]:
+                    - heading "2022 BMW 320i" [level=3] [ref=f1e167]
+                    - paragraph [ref=f1e168]: Harare
+                  - generic [ref=f1e172]: Trust 92
+                - paragraph [ref=f1e173]: $52,000
+                - generic [ref=f1e174]:
+                  - generic [ref=f1e175]: 18,000 km
+                  - generic [ref=f1e176]: Automatic
+                  - generic [ref=f1e177]: Petrol
+                - link "View Passport" [ref=f1e178] [cursor=pointer]:
+                  - /url: /marketplace/WBA8E9G54LNU87654
+            - generic [ref=f1e179]:
+              - generic [ref=f1e180]:
+                - img "2023 Mercedes-Benz C200" [ref=f1e181]
+                - generic [ref=f1e182]:
+                  - generic [ref=f1e183]: Verified
+                  - generic [ref=f1e184]: Dealer
+              - generic [ref=f1e185]:
+                - generic [ref=f1e186]:
+                  - generic [ref=f1e187]:
+                    - heading "2023 Mercedes-Benz C200" [level=3] [ref=f1e188]
+                    - paragraph [ref=f1e189]: Harare
+                  - generic [ref=f1e193]: Trust 97
+                - paragraph [ref=f1e194]: $58,000
+                - generic [ref=f1e195]:
+                  - generic [ref=f1e196]: 12,000 km
+                  - generic [ref=f1e197]: Automatic
+                  - generic [ref=f1e198]: Petrol
+                - link "View Passport" [ref=f1e199] [cursor=pointer]:
+                  - /url: /marketplace/W1KWF8EB9PR123456
+            - generic [ref=f1e200]:
+              - generic [ref=f1e201]:
+                - img "2023 Ford Ranger Wildtrak" [ref=f1e202]
+                - generic [ref=f1e203]:
+                  - generic [ref=f1e204]: Verified
+                  - generic [ref=f1e205]: Dealer
+              - generic [ref=f1e206]:
+                - generic [ref=f1e207]:
+                  - generic [ref=f1e208]:
+                    - heading "2023 Ford Ranger Wildtrak" [level=3] [ref=f1e209]
+                    - paragraph [ref=f1e210]: Harare
+                  - generic [ref=f1e214]: Trust 95
+                - paragraph [ref=f1e215]: $51,000
+                - generic [ref=f1e216]:
+                  - generic [ref=f1e217]: 15,000 km
+                  - generic [ref=f1e218]: Automatic
+                  - generic [ref=f1e219]: Diesel
+                - link "View Passport" [ref=f1e220] [cursor=pointer]:
+                  - /url: /marketplace/MNBFXXMT4PF123456
+            - generic [ref=f1e221]:
+              - generic [ref=f1e222]:
+                - img "2021 Audi Q5" [ref=f1e223]
+                - generic [ref=f1e224]:
+                  - generic [ref=f1e225]: Verified
+                  - generic [ref=f1e226]: Dealer
+              - generic [ref=f1e227]:
+                - generic [ref=f1e228]:
+                  - generic [ref=f1e229]:
+                    - heading "2021 Audi Q5" [level=3] [ref=f1e230]
+                    - paragraph [ref=f1e231]: Harare
+                  - generic [ref=f1e235]: Trust 94
+                - paragraph [ref=f1e236]: $48,000
+                - generic [ref=f1e237]:
+                  - generic [ref=f1e238]: 30,000 km
+                  - generic [ref=f1e239]: Automatic
+                  - generic [ref=f1e240]: Diesel
+                - link "View Passport" [ref=f1e241] [cursor=pointer]:
+                  - /url: /marketplace/WA1ZZZFY5M1234567
+        - generic [ref=f1e243]:
+          - generic [ref=f1e245]:
+            - generic [ref=f1e246]: Sell with a Passport
+            - heading "Sell your car with a trusted Passport" [level=2] [ref=f1e247]
+            - paragraph [ref=f1e248]: Start with the current seller verification handoff and create a listing through CarUp.
+            - generic [ref=f1e249]:
+              - textbox "Plate or VIN" [ref=f1e250]
+              - button "Start Seller Verification" [ref=f1e251] [cursor=pointer]
+          - generic [ref=f1e253]:
+            - generic [ref=f1e254]: Verify before you buy
+            - heading "Already found a car elsewhere?" [level=2] [ref=f1e255]
+            - paragraph [ref=f1e256]: Check its CarUp Passport before you pay.
+            - generic [ref=f1e257]:
+              - textbox "Plate, VIN, or chassis" [ref=f1e258]
+              - button "Verify Vehicle" [ref=f1e259] [cursor=pointer]
+        - generic [ref=f1e261]:
+          - generic [ref=f1e262]:
+            - generic [ref=f1e263]:
+              - generic [ref=f1e264]: Popular Zimbabwe Categories
+              - heading "Start with what buyers ask for most" [level=2] [ref=f1e265]
+            - paragraph [ref=f1e266]: These are Phase 1 quick-entry labels. Backend category filters come later.
+          - generic [ref=f1e267]:
+            - button "Brand New" [ref=f1e268] [cursor=pointer]
+            - button "Recently Imported" [ref=f1e269] [cursor=pointer]
+            - button "Fresh Imports" [ref=f1e270] [cursor=pointer]
+            - button "Locally Used" [ref=f1e271] [cursor=pointer]
+            - button "Second Hand" [ref=f1e272] [cursor=pointer]
+            - button "Duty Cleared" [ref=f1e273] [cursor=pointer]
+            - button "ZIMRA Verified" [ref=f1e274] [cursor=pointer]
+            - button "CID Clear" [ref=f1e275] [cursor=pointer]
+            - button "Low Mileage" [ref=f1e276] [cursor=pointer]
+            - button "Toyota Hilux" [ref=f1e277] [cursor=pointer]
+            - button "Honda Fit" [ref=f1e278] [cursor=pointer]
+            - button "Mazda Demio" [ref=f1e279] [cursor=pointer]
+            - button "SUVs" [ref=f1e280] [cursor=pointer]
+            - button "Under $5,000" [ref=f1e281] [cursor=pointer]
+            - button "Under $10,000" [ref=f1e282] [cursor=pointer]
+            - button "Dealer Verified" [ref=f1e283] [cursor=pointer]
+            - button "Parts & Accessories" [ref=f1e284] [cursor=pointer]
+            - button "Harare" [ref=f1e285] [cursor=pointer]
+            - button "Bulawayo" [ref=f1e286] [cursor=pointer]
+        - generic [ref=f1e288]:
+          - generic [ref=f1e289]:
+            - generic [ref=f1e290]: How CarUp Works
+            - heading "From search to transfer, keep the trust record visible" [level=2] [ref=f1e291]
+          - generic [ref=f1e292]:
+            - generic [ref=f1e294]:
+              - paragraph [ref=f1e299]: "01"
+              - heading "Search cars" [level=3] [ref=f1e300]
+              - paragraph [ref=f1e301]: Browse verified listings by make, location, budget, or category.
+            - generic [ref=f1e303]:
+              - paragraph [ref=f1e308]: "02"
+              - heading "Verify Passport" [level=3] [ref=f1e309]
+              - paragraph [ref=f1e310]: Open the vehicle Passport with plate, VIN, chassis, and trust data.
+            - generic [ref=f1e312]:
+              - paragraph [ref=f1e317]: "03"
+              - heading "Reserve / SafePay" [level=3] [ref=f1e318]
+              - paragraph [ref=f1e319]: Use CarUp reservation and SafePay flows where the listing supports it.
+            - generic [ref=f1e321]:
+              - paragraph [ref=f1e326]: "04"
+              - heading "Complete ownership transfer" [level=3] [ref=f1e327]
+              - paragraph [ref=f1e328]: Move forward with clearer identity, seller, and history context.
+        - generic [ref=f1e330]:
+          - generic [ref=f1e331]:
+            - generic [ref=f1e332]:
+              - generic [ref=f1e333]: Why CarUp is safer
+              - heading "Buy, verify, and sell with Passport-backed confidence" [level=2] [ref=f1e334]
+            - generic [ref=f1e335]:
+              - link "Buy Cars" [ref=f1e336] [cursor=pointer]:
+                - /url: /marketplace
+              - link "Verify a Vehicle" [ref=f1e337] [cursor=pointer]:
+                - /url: /search
+          - generic [ref=f1e338]:
+            - generic [ref=f1e339]:
+              - heading "Private seller details stay protected" [level=3] [ref=f1e340]
+              - paragraph [ref=f1e341]: Homepage cards avoid exposing private owner names or phone numbers.
+            - generic [ref=f1e342]:
+              - heading "Passport context before payment" [level=3] [ref=f1e343]
+              - paragraph [ref=f1e344]: Buyers can open the current vehicle Passport route from VIN-based listing links.
+            - generic [ref=f1e345]:
+              - heading "Seller trust starts early" [level=3] [ref=f1e346]
+              - paragraph [ref=f1e347]: Sellers are guided into the existing account and listing flow before publishing.
+            - generic [ref=f1e348]:
+              - heading "PartSentry connects repairs and parts" [level=3] [ref=f1e349]
+              - paragraph [ref=f1e350]: PartSentry helps identify swapped, stolen, or undocumented parts by connecting repair logs, work orders, mechanics, and parts history to the vehicle Passport.
+    - contentinfo [ref=f1e351]:
+      - generic [ref=f1e352]:
+        - generic [ref=f1e353]:
+          - generic [ref=f1e354]:
+            - link "CarUp home" [ref=f1e355] [cursor=pointer]:
+              - /url: /
+              - generic [ref=f1e361]: CarUp
+            - paragraph [ref=f1e362]: Zimbabwe's verified automotive marketplace for buying, verifying, and selling cars with clearer trust signals.
+            - generic [ref=f1e363]:
+              - generic [ref=f1e364]: +263 242 700 000
+              - generic [ref=f1e368]: info@carup.co.zw
+              - generic [ref=f1e373]: Harare, Zimbabwe
+          - navigation "Footer Product" [ref=f1e378]:
+            - heading "Product" [level=3] [ref=f1e379]
+            - list [ref=f1e380]:
+              - listitem [ref=f1e381]:
+                - link "Buy Cars" [ref=f1e382] [cursor=pointer]:
+                  - /url: /marketplace
+              - listitem [ref=f1e387]:
+                - link "Parts Marketplace" [ref=f1e388] [cursor=pointer]:
+                  - /url: /marketplace/parts
+              - listitem [ref=f1e392]:
+                - link "Garages & Services" [ref=f1e393] [cursor=pointer]:
+                  - /url: /marketplace/services
+              - listitem [ref=f1e396]:
+                - link "Verify Vehicle" [ref=f1e397] [cursor=pointer]:
+                  - /url: /search
+              - listitem [ref=f1e400]:
+                - link "Dealers" [ref=f1e401] [cursor=pointer]:
+                  - /url: /dealers
+              - listitem [ref=f1e406]:
+                - link "Garages" [ref=f1e407] [cursor=pointer]:
+                  - /url: /garages
+              - listitem [ref=f1e410]:
+                - link "Insurance" [ref=f1e411] [cursor=pointer]:
+                  - /url: /insurance
+              - listitem [ref=f1e414]:
+                - link "Pricing" [ref=f1e415] [cursor=pointer]:
+                  - /url: /pricing
+              - listitem [ref=f1e419]:
+                - link "Diaspora Trade" [ref=f1e420] [cursor=pointer]:
+                  - /url: /diaspora
+          - navigation "Footer Company" [ref=f1e424]:
+            - heading "Company" [level=3] [ref=f1e425]
+            - list [ref=f1e426]:
+              - listitem [ref=f1e427]:
+                - link "About CarUp" [ref=f1e428] [cursor=pointer]:
+                  - /url: /about
+              - listitem [ref=f1e432]:
+                - link "Contact Us" [ref=f1e433] [cursor=pointer]:
+                  - /url: /contact
+              - listitem [ref=f1e436]:
+                - link "Careers" [ref=f1e437] [cursor=pointer]:
+                  - /url: /careers
+              - listitem [ref=f1e443]:
+                - link "Press Kit" [ref=f1e444] [cursor=pointer]:
+                  - /url: /press
+              - listitem [ref=f1e448]:
+                - link "Blog" [ref=f1e449] [cursor=pointer]:
+                  - /url: /blog
+          - navigation "Footer Resources" [ref=f1e452]:
+            - heading "Resources" [level=3] [ref=f1e453]
+            - list [ref=f1e454]:
+              - listitem [ref=f1e455]:
+                - link "Help Center" [ref=f1e456] [cursor=pointer]:
+                  - /url: /help
+              - listitem [ref=f1e459]:
+                - link "Trust & Safety" [ref=f1e460] [cursor=pointer]:
+                  - /url: /trust
+              - listitem [ref=f1e463]:
+                - link "API Documentation" [ref=f1e464] [cursor=pointer]:
+                  - /url: /api-docs
+          - navigation "Footer Stakeholders" [ref=f1e467]:
+            - heading "Stakeholders" [level=3] [ref=f1e468]
+            - list [ref=f1e469]:
+              - listitem [ref=f1e470]:
+                - link "Car Owners" [ref=f1e471] [cursor=pointer]:
+                  - /url: /dashboard
+              - listitem [ref=f1e472]:
+                - link "Dealers" [ref=f1e473] [cursor=pointer]:
+                  - /url: /dealer
+              - listitem [ref=f1e474]:
+                - link "Mechanics" [ref=f1e475] [cursor=pointer]:
+                  - /url: /mechanic
+              - listitem [ref=f1e476]:
+                - link "Insurance" [ref=f1e477] [cursor=pointer]:
+                  - /url: /insurance-dash
+              - listitem [ref=f1e478]:
+                - link "Government" [ref=f1e479] [cursor=pointer]:
+                  - /url: /government
+              - listitem [ref=f1e480]:
+                - link "Bankers" [ref=f1e481] [cursor=pointer]:
+                  - /url: /bank
+        - generic [ref=f1e482]:
+          - generic [ref=f1e483]:
+            - paragraph [ref=f1e484]: © 2026 CarUp Zimbabwe. All rights reserved.
+            - list "Footer Legal" [ref=f1e485]:
+              - listitem [ref=f1e486]:
+                - link "Privacy Policy" [ref=f1e487] [cursor=pointer]:
+                  - /url: /privacy
+              - listitem [ref=f1e488]:
+                - link "Terms of Service" [ref=f1e489] [cursor=pointer]:
+                  - /url: /terms
+          - generic "CarUp social media" [ref=f1e490]:
+            - link "CarUp on Facebook — coming soon" [disabled] [ref=f1e491]
+            - link "CarUp on X (Twitter) — coming soon" [disabled] [ref=f1e494]
+            - link "CarUp on Instagram — coming soon" [disabled] [ref=f1e497]
+            - link "CarUp on LinkedIn — coming soon" [disabled] [ref=f1e501]

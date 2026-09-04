@@ -1,0 +1,119 @@
+- generic [ref=f3e2]:
+  - region "Notifications alt+T"
+  - generic [ref=f3e3]:
+    - banner [ref=f3e4]:
+      - generic [ref=f3e6]:
+        - link "CarUp" [ref=f3e7] [cursor=pointer]:
+          - /url: /
+        - generic [ref=f3e14]:
+          - button "Notifications" [ref=f3e15] [cursor=pointer]
+          - button "Open menu" [ref=f3e16] [cursor=pointer]
+    - main [ref=f3e17]
+    - contentinfo [ref=f3e21]:
+      - generic [ref=f3e22]:
+        - generic [ref=f3e23]:
+          - generic [ref=f3e24]:
+            - link "CarUp home" [ref=f3e25] [cursor=pointer]:
+              - /url: /
+              - generic [ref=f3e31]: CarUp
+            - paragraph [ref=f3e32]: Zimbabwe's verified automotive marketplace for buying, verifying, and selling cars with clearer trust signals.
+            - generic [ref=f3e33]:
+              - generic [ref=f3e34]: +263 242 700 000
+              - generic [ref=f3e38]: info@carup.co.zw
+              - generic [ref=f3e43]: Harare, Zimbabwe
+          - navigation "Footer Product" [ref=f3e48]:
+            - heading "Product" [level=3] [ref=f3e49]
+            - list [ref=f3e50]:
+              - listitem [ref=f3e51]:
+                - link "Buy Cars" [ref=f3e52] [cursor=pointer]:
+                  - /url: /marketplace
+              - listitem [ref=f3e57]:
+                - link "Parts Marketplace" [ref=f3e58] [cursor=pointer]:
+                  - /url: /marketplace/parts
+              - listitem [ref=f3e62]:
+                - link "Garages & Services" [ref=f3e63] [cursor=pointer]:
+                  - /url: /marketplace/services
+              - listitem [ref=f3e66]:
+                - link "Verify Vehicle" [ref=f3e67] [cursor=pointer]:
+                  - /url: /search
+              - listitem [ref=f3e70]:
+                - link "Dealers" [ref=f3e71] [cursor=pointer]:
+                  - /url: /dealers
+              - listitem [ref=f3e76]:
+                - link "Garages" [ref=f3e77] [cursor=pointer]:
+                  - /url: /garages
+              - listitem [ref=f3e80]:
+                - link "Insurance" [ref=f3e81] [cursor=pointer]:
+                  - /url: /insurance
+              - listitem [ref=f3e84]:
+                - link "Pricing" [ref=f3e85] [cursor=pointer]:
+                  - /url: /pricing
+              - listitem [ref=f3e89]:
+                - link "Diaspora Trade" [ref=f3e90] [cursor=pointer]:
+                  - /url: /diaspora
+          - navigation "Footer Company" [ref=f3e94]:
+            - heading "Company" [level=3] [ref=f3e95]
+            - list [ref=f3e96]:
+              - listitem [ref=f3e97]:
+                - link "About CarUp" [ref=f3e98] [cursor=pointer]:
+                  - /url: /about
+              - listitem [ref=f3e102]:
+                - link "Contact Us" [ref=f3e103] [cursor=pointer]:
+                  - /url: /contact
+              - listitem [ref=f3e106]:
+                - link "Careers" [ref=f3e107] [cursor=pointer]:
+                  - /url: /careers
+              - listitem [ref=f3e113]:
+                - link "Press Kit" [ref=f3e114] [cursor=pointer]:
+                  - /url: /press
+              - listitem [ref=f3e118]:
+                - link "Blog" [ref=f3e119] [cursor=pointer]:
+                  - /url: /blog
+          - navigation "Footer Resources" [ref=f3e122]:
+            - heading "Resources" [level=3] [ref=f3e123]
+            - list [ref=f3e124]:
+              - listitem [ref=f3e125]:
+                - link "Help Center" [ref=f3e126] [cursor=pointer]:
+                  - /url: /help
+              - listitem [ref=f3e129]:
+                - link "Trust & Safety" [ref=f3e130] [cursor=pointer]:
+                  - /url: /trust
+              - listitem [ref=f3e133]:
+                - link "API Documentation" [ref=f3e134] [cursor=pointer]:
+                  - /url: /api-docs
+          - navigation "Footer Stakeholders" [ref=f3e137]:
+            - heading "Stakeholders" [level=3] [ref=f3e138]
+            - list [ref=f3e139]:
+              - listitem [ref=f3e140]:
+                - link "Car Owners" [ref=f3e141] [cursor=pointer]:
+                  - /url: /dashboard
+              - listitem [ref=f3e142]:
+                - link "Dealers" [ref=f3e143] [cursor=pointer]:
+                  - /url: /dealer
+              - listitem [ref=f3e144]:
+                - link "Mechanics" [ref=f3e145] [cursor=pointer]:
+                  - /url: /mechanic
+              - listitem [ref=f3e146]:
+                - link "Insurance" [ref=f3e147] [cursor=pointer]:
+                  - /url: /insurance-dash
+              - listitem [ref=f3e148]:
+                - link "Government" [ref=f3e149] [cursor=pointer]:
+                  - /url: /government
+              - listitem [ref=f3e150]:
+                - link "Bankers" [ref=f3e151] [cursor=pointer]:
+                  - /url: /bank
+        - generic [ref=f3e152]:
+          - generic [ref=f3e153]:
+            - paragraph [ref=f3e154]: © 2026 CarUp Zimbabwe. All rights reserved.
+            - list "Footer Legal" [ref=f3e155]:
+              - listitem [ref=f3e156]:
+                - link "Privacy Policy" [ref=f3e157] [cursor=pointer]:
+                  - /url: /privacy
+              - listitem [ref=f3e158]:
+                - link "Terms of Service" [ref=f3e159] [cursor=pointer]:
+                  - /url: /terms
+          - generic "CarUp social media" [ref=f3e160]:
+            - link "CarUp on Facebook — coming soon" [disabled] [ref=f3e161]
+            - link "CarUp on X (Twitter) — coming soon" [disabled] [ref=f3e164]
+            - link "CarUp on Instagram — coming soon" [disabled] [ref=f3e167]
+            - link "CarUp on LinkedIn — coming soon" [disabled] [ref=f3e171]

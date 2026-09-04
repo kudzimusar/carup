@@ -1,0 +1,204 @@
+- generic [ref=e2]:
+  - region "Notifications alt+T"
+  - generic [ref=e174]:
+    - complementary [ref=e175]:
+      - generic [ref=e176]:
+        - link "CarUp" [ref=e177] [cursor=pointer]:
+          - /url: /
+        - button "Close sidebar menu" [ref=e184] [cursor=pointer]
+      - generic [ref=e187]:
+        - paragraph [ref=e188]: Nyasha Chikore
+        - paragraph [ref=e189]: Active portal
+        - combobox "Switch active portal role" [ref=e192] [cursor=pointer]:
+          - option "Car Owner" [selected]
+          - option "Dealer"
+          - option "Mechanic"
+          - option "Insurance"
+          - option "Government"
+          - option "Administrator"
+          - option "Banker"
+      - navigation [ref=e193]:
+        - link "Overview" [ref=e194] [cursor=pointer]:
+          - /url: /dashboard
+        - link "My Garage" [ref=e201] [cursor=pointer]:
+          - /url: /dashboard/garage
+        - link "Evidence Vault Upload" [ref=e207] [cursor=pointer]:
+          - /url: /dashboard/evidence
+          - generic [ref=e211]: Evidence Vault
+          - generic [ref=e212]: Upload
+        - link "Service History" [ref=e213] [cursor=pointer]:
+          - /url: /dashboard/service-history
+        - link "Insurance" [ref=e217] [cursor=pointer]:
+          - /url: /dashboard/insurance
+        - link "PartSentry" [ref=e221] [cursor=pointer]:
+          - /url: /dashboard/partsentry
+        - link "Import Orders" [ref=e226] [cursor=pointer]:
+          - /url: /diaspora/imports
+        - link "Start Import Order" [ref=e231] [cursor=pointer]:
+          - /url: /diaspora/imports/new
+        - link "My Listings" [ref=e236] [cursor=pointer]:
+          - /url: /dashboard/listings
+        - link "Saved Cars" [ref=e241] [cursor=pointer]:
+          - /url: /dashboard/saved
+        - link "Seller Intelligence" [ref=e245] [cursor=pointer]:
+          - /url: /dashboard/intelligence
+        - link "Gutu AI AI" [ref=e249] [cursor=pointer]:
+          - /url: /dashboard/ai
+          - generic [ref=e252]: Gutu AI
+          - generic [ref=e253]: AI
+        - link "Refer & Earn" [ref=e254] [cursor=pointer]:
+          - /url: /dashboard/referrals
+        - link "Communications Inbox" [ref=e259] [cursor=pointer]:
+          - /url: /dashboard/communications
+          - generic [ref=e262]: Communications
+          - generic [ref=e263]: Inbox
+        - link "Trade Profile" [ref=e264] [cursor=pointer]:
+          - /url: /diaspora/trade-profile
+        - link "Reverse RFQ" [ref=e278] [cursor=pointer]:
+          - /url: /diaspora/rfq
+        - link "Container Co-Loading" [ref=e282] [cursor=pointer]:
+          - /url: /diaspora/containers
+        - link "Drive Connections" [ref=e287] [cursor=pointer]:
+          - /url: /diaspora/drive
+      - generic [ref=e293]:
+        - link "Settings" [ref=e294] [cursor=pointer]:
+          - /url: /settings
+        - link "Sign Out" [ref=e298] [cursor=pointer]:
+          - /url: /
+    - generic [ref=e302]:
+      - banner [ref=e303]:
+        - button "Open sidebar menu" [ref=e304] [cursor=pointer]
+        - button "Search vehicles" [ref=e305] [cursor=pointer]
+        - generic [ref=e306]:
+          - button "Notifications, 1 unread" [ref=e307] [cursor=pointer]:
+            - generic [ref=e308]: "1"
+          - link [ref=e309] [cursor=pointer]:
+            - /url: /
+      - main [ref=e310]:
+        - generic [ref=e311]:
+          - generic [ref=e312]:
+            - generic [ref=e313]:
+              - heading "Owner Dashboard" [level=1] [ref=e314]
+              - paragraph [ref=e315]: Welcome back, Nyasha Chikore! Monitor your vehicles, escrows, and insurance logs.
+            - generic [ref=e316]:
+              - generic [ref=e317]:
+                - generic [ref=e325]: Low-Bandwidth Mode
+                - checkbox [ref=e326] [cursor=pointer]
+              - link "My Garage" [ref=e327] [cursor=pointer]:
+                - /url: /dashboard/garage
+              - link "Ask Gutu AI" [ref=e328] [cursor=pointer]:
+                - /url: /dashboard/ai
+          - generic [ref=e329]:
+            - heading "Marketplace Pulse" [level=3] [ref=e330]
+            - paragraph [ref=e331]:
+              - generic [ref=e334]: Publish a vehicle to start receiving Marketplace insights.
+          - generic [ref=e336]:
+            - heading "Suggested next steps" [level=3] [ref=e337]
+            - paragraph [ref=e340]:
+              - generic [ref=e344]: Nothing needs your attention right now.
+          - generic [ref=e345]:
+            - generic [ref=e346]:
+              - generic [ref=e347]:
+                - heading "Your monthly summary" [level=3] [ref=e348]
+                - paragraph [ref=e349]: Covering the last 30 days.
+              - link "Download CSV" [ref=e350] [cursor=pointer]:
+                - /url: /api/marketplace/my-report?period=monthly&format=csv
+            - paragraph [ref=e351]:
+              - generic [ref=e354]: 5 of 5 figures could not be measured for this period and are reported as unavailable, not as zero.
+            - table [ref=e356]:
+              - rowgroup [ref=e357]:
+                - row [ref=e358]:
+                  - columnheader "Metric" [ref=e359]
+                  - columnheader "Value" [ref=e360]
+                  - columnheader "What it is not" [ref=e361]
+              - rowgroup [ref=e362]:
+                - row [ref=e363]:
+                  - cell "Listing views" [ref=e364]
+                  - cell "Not measured" [ref=e365]
+                  - cell "Not the number of PEOPLE who looked. One person returning three times is three views and one visitor." [ref=e366]
+                - row [ref=e367]:
+                  - cell "Unique visitors" [ref=e368]
+                  - cell "Not measured" [ref=e369]
+                  - cell "Not a count of accounts. Somebody browsing signed out is counted, and CarUp does not know who they are." [ref=e370]
+                - row [ref=e371]:
+                  - cell "Enquiries" [ref=e372]
+                  - cell "Not measured" [ref=e373]
+                  - cell "Not a sale, and not a viewing. It is the first contact." [ref=e374]
+                - row [ref=e375]:
+                  - cell "Listing completeness" [ref=e376]
+                  - cell "Not measured" [ref=e377]
+                  - cell "Not a quality or desirability score, and not related to Trust. A complete listing can still be a poor one." [ref=e378]
+                - row [ref=e379]:
+                  - cell "Lost opportunity" [ref=e380]
+                  - cell "Not measured" [ref=e381]
+                  - cell "Not lost sales, and not lost money. It is lost visibility." [ref=e382]
+            - paragraph [ref=e383]: report@1 · a metric shown as "Not measured" has no value in CarUp. It is not zero.
+          - generic [ref=e384]:
+            - generic [ref=e385]: Needs your attention
+            - generic [ref=e387]:
+              - generic [ref=e388]:
+                - generic [ref=e389]:
+                  - paragraph [ref=e390]: Add your first vehicle
+                  - paragraph [ref=e391]: Your garage is empty. Add a vehicle to start building its Passport.
+                - link "Add vehicle" [ref=e392] [cursor=pointer]:
+                  - /url: /dashboard/sell-vehicle
+              - generic [ref=e393]:
+                - generic [ref=e394]:
+                  - paragraph [ref=e395]: 1 unread notification
+                  - paragraph [ref=e396]: Recent activity on your vehicles and conversations.
+                - link "Open communications" [ref=e397] [cursor=pointer]:
+                  - /url: /dashboard/communications
+          - generic [ref=e398]:
+            - generic [ref=e402]:
+              - paragraph [ref=e403]: Automotive Wallet (USD)
+              - paragraph [ref=e404]: Not available
+              - paragraph [ref=e405]: No wallet established for this account
+            - generic [ref=e413]:
+              - paragraph [ref=e414]: Automotive Wallet (ZiG)
+              - paragraph [ref=e415]: Not available
+              - paragraph [ref=e416]: No wallet established for this account
+            - generic [ref=e424]:
+              - paragraph [ref=e425]: Locked SafePay Escrows
+              - paragraph [ref=e426]: $0
+              - paragraph [ref=e427]: 0 active purchase escrows
+            - generic [ref=e434]:
+              - paragraph [ref=e435]: Auto-calculated Trust Index
+              - paragraph [ref=e436]: Not calculated
+              - paragraph [ref=e437]: Verification pending
+          - generic [ref=e442]:
+            - generic [ref=e443]:
+              - generic [ref=e445]:
+                - generic [ref=e446]: My Vehicles
+                - link "View All" [ref=e447] [cursor=pointer]:
+                  - /url: /dashboard/garage
+              - generic [ref=e448]:
+                - generic [ref=e449]:
+                  - generic [ref=e450]: Digital Document Vault
+                  - button "Upload unavailable" [disabled]
+                - generic [ref=e451]:
+                  - paragraph [ref=e452]: No documents uploaded yet.
+                  - paragraph [ref=e453]: Document upload is not available from this dashboard yet.
+            - generic [ref=e454]:
+              - generic [ref=e455]:
+                - generic [ref=e456]: Vehicle Value Trend
+                - paragraph [ref=e459]: Valuation history is not available for your account yet.
+              - generic [ref=e460]:
+                - generic [ref=e461]: Quick Actions
+                - generic [ref=e463]:
+                  - link "Add Vehicle" [ref=e464] [cursor=pointer]:
+                    - /url: /dashboard/garage
+                  - link "Service History" [ref=e469] [cursor=pointer]:
+                    - /url: /dashboard/service-history
+                  - link "Insurance Records" [ref=e475] [cursor=pointer]:
+                    - /url: /dashboard/insurance
+                  - link "PartSentry" [ref=e481] [cursor=pointer]:
+                    - /url: /dashboard/partsentry
+                  - link "Gutu AI Assistant" [ref=e488] [cursor=pointer]:
+                    - /url: /dashboard/ai
+              - generic [ref=e494]:
+                - generic [ref=e496]:
+                  - generic [ref=e497]: Notifications
+                  - generic [ref=e498]: 1 new
+                - generic [ref=e503]:
+                  - paragraph [ref=e504]: Confirm your CarUp account
+                  - paragraph [ref=e505]: "Welcome to CarUp. Confirm this email address to activate your account: https://staging.carup.dev/auth/verify-email?token=-uNQN6LSOROXdN-bdxbNhcmuQc8wgoemWuAlaaWofRk. This link can be used once and expires shortly. If you did not create a CarUp account, you can safely ignore this email."

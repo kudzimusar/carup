@@ -1,0 +1,292 @@
+- generic [ref=f18e2]:
+  - region "Notifications alt+T"
+  - generic [ref=f18e3]:
+    - banner [ref=f18e4]:
+      - generic [ref=f18e6]:
+        - link "CarUp" [ref=f18e7] [cursor=pointer]:
+          - /url: /
+        - generic [ref=f18e14]:
+          - button "Notifications" [ref=f18e15] [cursor=pointer]
+          - button "Open menu" [ref=f18e16] [cursor=pointer]
+    - main [ref=f18e17]:
+      - generic [ref=f18e19]:
+        - generic [ref=f18e20]:
+          - link "Home" [ref=f18e21] [cursor=pointer]:
+            - /url: /
+          - generic [ref=f18e24]: The CarUp Drive
+        - generic [ref=f18e25]:
+          - generic [ref=f18e26]: Insights & Updates
+          - heading "The CarUp Drive" [level=1] [ref=f18e27]
+          - paragraph [ref=f18e28]: Automotive intelligence, regulatory updates, AI developments, and maintenance guides specifically curated for Zimbabwean vehicle owners, dealers, and technicians.
+        - generic [ref=f18e29]:
+          - heading "Featured Editorial" [level=2] [ref=f18e30]
+          - generic [ref=f18e33]:
+            - generic [ref=f18e34]:
+              - generic [ref=f18e36]:
+                - generic [ref=f18e37]: Trust
+                - generic [ref=f18e38]: 4 min read
+              - generic [ref=f18e48]:
+                - paragraph [ref=f18e49]: Zimbabwean Context
+                - generic [ref=f18e50]:
+                  - generic [ref=f18e51]:
+                    - generic [ref=f18e52]: "Calculation version:"
+                    - text: trust-decision-1.0.0
+                  - generic [ref=f18e53]:
+                    - generic [ref=f18e54]: "Valuation published:"
+                    - text: None
+            - generic [ref=f18e55]:
+              - generic [ref=f18e56]:
+                - generic [ref=f18e57]: August 2026
+                - heading "How a CarUp Trust score is produced — and what it deliberately will not tell you" [level=3] [ref=f18e61]
+                - paragraph [ref=f18e62]: Every trust score CarUp publishes carries a calculation version, an evaluation state, a confidence level and its known limitations. Here is what the number is derived from, and the questions it is not designed to answer.
+              - generic [ref=f18e63]:
+                - generic [ref=f18e64]:
+                  - generic [ref=f18e65]: CU
+                  - generic [ref=f18e66]:
+                    - heading "CarUp Editorial" [level=4] [ref=f18e67]
+                    - paragraph [ref=f18e68]: CarUp
+                - button "Read Article" [ref=f18e69] [cursor=pointer]
+        - generic [ref=f18e70]:
+          - generic [ref=f18e72]:
+            - button "All" [ref=f18e73] [cursor=pointer]
+            - button "Trust" [ref=f18e74] [cursor=pointer]
+            - button "Marketplace" [ref=f18e75] [cursor=pointer]
+            - button "Regulations" [ref=f18e76] [cursor=pointer]
+          - textbox "Search insights..." [ref=f18e81]
+        - generic [ref=f18e82]:
+          - heading "Latest Publications" [level=2] [ref=f18e83]
+          - generic [ref=f18e86]: 5 publications found
+        - generic [ref=f18e87]:
+          - generic [ref=f18e88]:
+            - generic [ref=f18e89]:
+              - generic [ref=f18e90]:
+                - generic [ref=f18e92]:
+                  - generic [ref=f18e93]: Trust
+                  - generic [ref=f18e94]: 4 min read
+                - generic [ref=f18e103]: August 2026
+              - generic [ref=f18e107]: How a CarUp Trust score is produced — and what it deliberately will not tell you
+              - paragraph [ref=f18e110]: Every trust score CarUp publishes carries a calculation version, an evaluation state, a confidence level and its known limitations. Here is what the number is derived from, and the questions it is not designed to answer.
+            - generic [ref=f18e111]:
+              - generic [ref=f18e112]:
+                - generic [ref=f18e113]: CU
+                - generic [ref=f18e114]:
+                  - heading "CarUp Editorial" [level=4] [ref=f18e115]
+                  - paragraph [ref=f18e116]: CarUp
+              - button "Read More" [ref=f18e117] [cursor=pointer]
+          - generic [ref=f18e120]:
+            - generic [ref=f18e121]:
+              - generic [ref=f18e122]:
+                - generic [ref=f18e124]:
+                  - generic [ref=f18e125]: Trust
+                  - generic [ref=f18e126]: 3 min read
+                - generic [ref=f18e135]: August 2026
+              - generic [ref=f18e139]: Why your listing photos are not evidence — and why CarUp keeps them apart
+              - paragraph [ref=f18e142]: A photograph a seller uploads to advertise a car and a document CarUp has reviewed are different kinds of thing. Collapsing them is how a gallery starts to look like a verification.
+            - generic [ref=f18e143]:
+              - generic [ref=f18e144]:
+                - generic [ref=f18e145]: CU
+                - generic [ref=f18e146]:
+                  - heading "CarUp Editorial" [level=4] [ref=f18e147]
+                  - paragraph [ref=f18e148]: CarUp
+              - button "Read More" [ref=f18e149] [cursor=pointer]
+          - generic [ref=f18e152]:
+            - generic [ref=f18e153]:
+              - generic [ref=f18e154]:
+                - generic [ref=f18e156]:
+                  - generic [ref=f18e157]: Marketplace
+                  - generic [ref=f18e158]: 3 min read
+                - generic [ref=f18e168]: August 2026
+              - generic [ref=f18e172]: Why a listing can refuse to publish, and how to read the reason
+              - paragraph [ref=f18e175]: CarUp will not publish a listing whose blocking requirements are unresolved. The refusal now names which requirement, and distinguishes something you still owe from something we are still reviewing.
+            - generic [ref=f18e176]:
+              - generic [ref=f18e177]:
+                - generic [ref=f18e178]: CU
+                - generic [ref=f18e179]:
+                  - heading "CarUp Editorial" [level=4] [ref=f18e180]
+                  - paragraph [ref=f18e181]: CarUp
+              - button "Read More" [ref=f18e182] [cursor=pointer]
+          - generic [ref=f18e185]:
+            - generic [ref=f18e186]:
+              - generic [ref=f18e187]:
+                - generic [ref=f18e189]:
+                  - generic [ref=f18e190]: Trust
+                  - generic [ref=f18e191]: 3 min read
+                - generic [ref=f18e200]: August 2026
+              - generic [ref=f18e204]: "Unknown stays unknown: the rule behind every blank field on CarUp"
+              - paragraph [ref=f18e207]: A missing fact is never filled with a plausible one. No default city, no default fuel type, no default date, no fabricated phone number.
+            - generic [ref=f18e208]:
+              - generic [ref=f18e209]:
+                - generic [ref=f18e210]: CU
+                - generic [ref=f18e211]:
+                  - heading "CarUp Editorial" [level=4] [ref=f18e212]
+                  - paragraph [ref=f18e213]: CarUp
+              - button "Read More" [ref=f18e214] [cursor=pointer]
+          - generic [ref=f18e217]:
+            - generic [ref=f18e218]:
+              - generic [ref=f18e219]:
+                - generic [ref=f18e221]:
+                  - generic [ref=f18e222]: Regulations
+                  - generic [ref=f18e223]: —
+                - generic [ref=f18e232]: August 2026
+              - generic [ref=f18e236]: Zimbabwean licensing, duty and insurance guidance
+              - paragraph [ref=f18e239]: We are not publishing regulatory guidance until we can source every figure from the issuing authority and keep it current.
+            - generic [ref=f18e240]:
+              - generic [ref=f18e241]:
+                - generic [ref=f18e242]: CU
+                - generic [ref=f18e243]:
+                  - heading "CarUp Editorial" [level=4] [ref=f18e244]
+                  - paragraph [ref=f18e245]: CarUp
+              - button "Read More" [ref=f18e246] [cursor=pointer]
+        - generic [ref=f18e249]:
+          - generic [ref=f18e250]:
+            - generic [ref=f18e252]:
+              - generic [ref=f18e253]: Automotive Directory
+              - heading "Zimbabwean Auto Reference Index" [level=3] [ref=f18e254]
+            - generic [ref=f18e257]:
+              - generic [ref=f18e258]:
+                - generic [ref=f18e259]:
+                  - heading "ZIMRA Duties Clearing" [level=4] [ref=f18e260]
+                  - generic [ref=f18e261]: Required before entry
+                - paragraph [ref=f18e262]: Pre-clearance processing takes 24-48h at Beitbridge. Original logbook and translation invoice are strictly required.
+              - generic [ref=f18e263]:
+                - generic [ref=f18e264]:
+                  - heading "ZINARA Road Licensing" [level=4] [ref=f18e265]
+                  - generic [ref=f18e266]: Quarterly Deadlines
+                - paragraph [ref=f18e267]: Discs are renewable quarterly. Ensure third-party insurance is registered in national electronic databases beforehand.
+              - generic [ref=f18e268]:
+                - generic [ref=f18e269]:
+                  - heading "Mbudzi Interchange Tolls" [level=4] [ref=f18e270]
+                  - generic [ref=f18e271]: Real-time billing
+                - paragraph [ref=f18e272]: Integrated with ANPR digital transponders. Cash, USD cards, and ZiG-funded mobile wallets are fully supported.
+              - generic [ref=f18e273]:
+                - generic [ref=f18e274]:
+                  - heading "Emission Audits (2026)" [level=4] [ref=f18e275]
+                  - generic [ref=f18e276]: Annual check-up
+                - paragraph [ref=f18e277]: Vehicles older than 10 years are subject to computerized tailpipe emission checks during municipal compliance checks.
+          - generic [ref=f18e278]:
+            - generic [ref=f18e279]:
+              - generic [ref=f18e280]: Market Metrics
+              - heading "Harare Automotive Indices" [level=3] [ref=f18e283]
+              - paragraph [ref=f18e284]: CarUp does not publish market indices yet. We measure trust, evidence and listing facts per vehicle — not aggregate market movements — and we will not estimate a figure we do not hold.
+            - generic [ref=f18e285]:
+              - paragraph [ref=f18e286]: Need premium market insights or regulatory evaluations for your fleet?
+              - link "Request Audit" [ref=f18e287] [cursor=pointer]:
+                - /url: /contact
+        - generic [ref=f18e289]:
+          - generic [ref=f18e290]:
+            - generic [ref=f18e291]: Weekly Publication
+            - heading "Stay Ahead of the Automotive Curve" [level=3] [ref=f18e292]
+            - paragraph [ref=f18e293]: CarUp\u2019s editorial desk publishes on vehicle trust, evidence and marketplace integrity. Sign-up is not open yet \u2014 when it is, this is where it will be.
+          - generic [ref=f18e294]:
+            - generic [ref=f18e295]:
+              - textbox "Sign-up not open yet" [disabled]
+              - button "Coming soon" [disabled]
+            - paragraph [ref=f18e296]: No spam, ever. We will not add you to a list until this form actually delivers to one.
+    - contentinfo [ref=f18e297]:
+      - generic [ref=f18e298]:
+        - generic [ref=f18e299]:
+          - generic [ref=f18e300]:
+            - link "CarUp home" [ref=f18e301] [cursor=pointer]:
+              - /url: /
+              - generic [ref=f18e307]: CarUp
+            - paragraph [ref=f18e308]: Zimbabwe's verified automotive marketplace for buying, verifying, and selling cars with clearer trust signals.
+            - generic [ref=f18e309]:
+              - generic [ref=f18e310]: +263 242 700 000
+              - generic [ref=f18e314]: info@carup.co.zw
+              - generic [ref=f18e319]: Harare, Zimbabwe
+          - navigation "Footer Product" [ref=f18e324]:
+            - heading "Product" [level=3] [ref=f18e325]
+            - list [ref=f18e326]:
+              - listitem [ref=f18e327]:
+                - link "Buy Cars" [ref=f18e328] [cursor=pointer]:
+                  - /url: /marketplace
+              - listitem [ref=f18e333]:
+                - link "Parts Marketplace" [ref=f18e334] [cursor=pointer]:
+                  - /url: /marketplace/parts
+              - listitem [ref=f18e338]:
+                - link "Garages & Services" [ref=f18e339] [cursor=pointer]:
+                  - /url: /marketplace/services
+              - listitem [ref=f18e342]:
+                - link "Verify Vehicle" [ref=f18e343] [cursor=pointer]:
+                  - /url: /search
+              - listitem [ref=f18e346]:
+                - link "Dealers" [ref=f18e347] [cursor=pointer]:
+                  - /url: /dealers
+              - listitem [ref=f18e352]:
+                - link "Garages" [ref=f18e353] [cursor=pointer]:
+                  - /url: /garages
+              - listitem [ref=f18e356]:
+                - link "Insurance" [ref=f18e357] [cursor=pointer]:
+                  - /url: /insurance
+              - listitem [ref=f18e360]:
+                - link "Pricing" [ref=f18e361] [cursor=pointer]:
+                  - /url: /pricing
+              - listitem [ref=f18e365]:
+                - link "Diaspora Trade" [ref=f18e366] [cursor=pointer]:
+                  - /url: /diaspora
+          - navigation "Footer Company" [ref=f18e370]:
+            - heading "Company" [level=3] [ref=f18e371]
+            - list [ref=f18e372]:
+              - listitem [ref=f18e373]:
+                - link "About CarUp" [ref=f18e374] [cursor=pointer]:
+                  - /url: /about
+              - listitem [ref=f18e378]:
+                - link "Contact Us" [ref=f18e379] [cursor=pointer]:
+                  - /url: /contact
+              - listitem [ref=f18e382]:
+                - link "Careers" [ref=f18e383] [cursor=pointer]:
+                  - /url: /careers
+              - listitem [ref=f18e389]:
+                - link "Press Kit" [ref=f18e390] [cursor=pointer]:
+                  - /url: /press
+              - listitem [ref=f18e394]:
+                - link "Blog" [ref=f18e395] [cursor=pointer]:
+                  - /url: /blog
+          - navigation "Footer Resources" [ref=f18e398]:
+            - heading "Resources" [level=3] [ref=f18e399]
+            - list [ref=f18e400]:
+              - listitem [ref=f18e401]:
+                - link "Help Center" [ref=f18e402] [cursor=pointer]:
+                  - /url: /help
+              - listitem [ref=f18e405]:
+                - link "Trust & Safety" [ref=f18e406] [cursor=pointer]:
+                  - /url: /trust
+              - listitem [ref=f18e409]:
+                - link "API Documentation" [ref=f18e410] [cursor=pointer]:
+                  - /url: /api-docs
+          - navigation "Footer Stakeholders" [ref=f18e413]:
+            - heading "Stakeholders" [level=3] [ref=f18e414]
+            - list [ref=f18e415]:
+              - listitem [ref=f18e416]:
+                - link "Car Owners" [ref=f18e417] [cursor=pointer]:
+                  - /url: /dashboard
+              - listitem [ref=f18e418]:
+                - link "Dealers" [ref=f18e419] [cursor=pointer]:
+                  - /url: /dealer
+              - listitem [ref=f18e420]:
+                - link "Mechanics" [ref=f18e421] [cursor=pointer]:
+                  - /url: /mechanic
+              - listitem [ref=f18e422]:
+                - link "Insurance" [ref=f18e423] [cursor=pointer]:
+                  - /url: /insurance-dash
+              - listitem [ref=f18e424]:
+                - link "Government" [ref=f18e425] [cursor=pointer]:
+                  - /url: /government
+              - listitem [ref=f18e426]:
+                - link "Bankers" [ref=f18e427] [cursor=pointer]:
+                  - /url: /bank
+        - generic [ref=f18e428]:
+          - generic [ref=f18e429]:
+            - paragraph [ref=f18e430]: © 2026 CarUp Zimbabwe. All rights reserved.
+            - list "Footer Legal" [ref=f18e431]:
+              - listitem [ref=f18e432]:
+                - link "Privacy Policy" [ref=f18e433] [cursor=pointer]:
+                  - /url: /privacy
+              - listitem [ref=f18e434]:
+                - link "Terms of Service" [ref=f18e435] [cursor=pointer]:
+                  - /url: /terms
+          - generic "CarUp social media" [ref=f18e436]:
+            - link "CarUp on Facebook — coming soon" [disabled] [ref=f18e437]
+            - link "CarUp on X (Twitter) — coming soon" [disabled] [ref=f18e440]
+            - link "CarUp on Instagram — coming soon" [disabled] [ref=f18e443]
+            - link "CarUp on LinkedIn — coming soon" [disabled] [ref=f18e447]

@@ -1,0 +1,265 @@
+- generic [ref=e2]:
+  - region "Notifications alt+T"
+  - generic [ref=e3]:
+    - banner [ref=e4]:
+      - generic [ref=e6]:
+        - link "CarUp" [ref=e7] [cursor=pointer]:
+          - /url: /
+        - navigation [ref=e50]:
+          - button "Buy" [ref=e51] [cursor=pointer]
+          - button "Sell" [ref=e52] [cursor=pointer]
+          - button "Verify" [ref=e53] [cursor=pointer]
+          - button "Parts" [ref=e54] [cursor=pointer]
+          - link "Dealers" [ref=e55] [cursor=pointer]:
+            - /url: /dealers
+          - link "Garages" [ref=e56] [cursor=pointer]:
+            - /url: /garages
+          - button "More" [ref=e57] [cursor=pointer]
+        - generic [ref=e14]:
+          - 'button "Currency: USD. Change currency" [ref=e58] [cursor=pointer]': USD
+          - button "Notifications" [ref=e15] [cursor=pointer]
+          - button "Account menu for SYNTHETIC Hikari Co-Load Operator" [ref=e16] [cursor=pointer]:
+            - generic [ref=e59]: SYNTHETIC
+    - main [ref=e18]:
+      - generic [ref=e19]:
+        - generic [ref=e61]:
+          - paragraph [ref=e62]: Diaspora Trade OS
+          - generic [ref=e63]:
+            - generic [ref=e64]:
+              - heading "Container Co-Loading" [level=1] [ref=e65]
+              - paragraph [ref=e70]: Shared container capacity between organiser and participants. Only approved reservations consume space — overfill is rejected by the server, never negotiated by the screen.
+            - button "Create container" [ref=e72] [cursor=pointer]
+          - navigation [ref=e73]:
+            - link "Import orders" [ref=e74] [cursor=pointer]:
+              - /url: /diaspora/imports
+            - link "Communications" [ref=e75] [cursor=pointer]:
+              - /url: /dashboard/communications
+            - link "Reverse RFQ" [ref=e76] [cursor=pointer]:
+              - /url: /diaspora/rfq
+        - generic [ref=e78]:
+          - region "Open containers" [ref=e79]:
+            - generic [ref=e80]:
+              - heading "Open sailings" [level=2] [ref=e81]
+              - generic [ref=e82]: 2 open
+            - generic [ref=e83]:
+              - article [ref=e84]:
+                - generic [ref=e85]:
+                  - generic [ref=e86]:
+                    - paragraph [ref=e87]: Yokohama, Japan Harare, Zimbabwe
+                    - paragraph [ref=e90]: 40HC · departs 2026-12-10 · book by 2026-12-01
+                  - generic [ref=e91]: BOOKING OPEN
+                - paragraph [ref=e93]:
+                  - text: Used 0 / 66 CBM · available 66 ·
+                  - generic [ref=e94]: 0%
+                - button "Open" [ref=e95] [cursor=pointer]
+              - article [ref=e96]:
+                - generic [ref=e97]:
+                  - generic [ref=e98]:
+                    - paragraph [ref=e99]: Yokohama, Japan Harare, Zimbabwe
+                    - paragraph [ref=e102]: 40HC · departs 2026-10-15 · book by 2026-10-08
+                  - generic [ref=e103]: BOOKING OPEN
+                - paragraph [ref=e106]:
+                  - text: Used 22 / 60 CBM · available 38 ·
+                  - generic [ref=e107]: 37%
+                - button "Selected" [active] [ref=e268] [cursor=pointer]
+          - region "Selected container" [ref=e109]:
+            - generic [ref=e110]:
+              - generic [ref=e269]:
+                - paragraph [ref=e270]:
+                  - text: Selected sailing ·
+                  - generic [ref=e271]: BOOKING OPEN
+                - heading "Yokohama, Japan Harare, Zimbabwe" [level=2] [ref=e272]
+                - paragraph [ref=e275]: 40HC · departs 2026-10-15 · booking deadline 2026-10-08
+              - generic [ref=e278]:
+                - paragraph [ref=e279]: Used 22/60 CBM · available 38 · 37% · max weight 26000 kg
+                - paragraph [ref=e280]: 1 approved · 1 pending
+              - generic [ref=e281]: "Organiser notes: SYNTHETIC demo sailing. Vehicles, parts, household and general eligible cargo accepted. No hazardous goods."
+              - generic [ref=e282]:
+                - heading "Request cargo space" [level=3] [ref=e283]
+                - generic [ref=e284]:
+                  - generic [ref=e285]:
+                    - text: Cargo category
+                    - combobox "Cargo category" [ref=e286]:
+                      - option "Vehicle"
+                      - option "Vehicle parts"
+                      - option "Household / personal effects"
+                      - option "General eligible cargo" [selected]
+                      - option "Other eligible cargo"
+                  - generic [ref=e287]:
+                    - text: Volume (CBM) — required
+                    - spinbutton "Volume (CBM) — required" [ref=e288]
+                  - generic [ref=e289]:
+                    - text: Cargo description
+                    - textbox "Cargo description" [ref=e290]:
+                      - /placeholder: e.g. Toyota Aqua 2018, or 10 boxed household items
+                  - generic [ref=e291]:
+                    - text: Est. weight (kg, optional)
+                    - spinbutton "Est. weight (kg, optional)" [ref=e292]
+                  - generic [ref=e293]:
+                    - generic [ref=e294]:
+                      - text: Declared value (optional)
+                      - spinbutton "Declared value (optional)" [ref=e295]
+                    - generic [ref=e296]:
+                      - text: Currency
+                      - combobox "Currency" [ref=e297]:
+                        - option "USD" [selected]
+                        - option "JPY"
+                        - option "ZWG"
+                        - option "ZAR"
+                        - option "GBP"
+                        - option "EUR"
+                - button "Request space" [ref=e299] [cursor=pointer]
+                - paragraph [ref=e300]: Declared value is recorded as declared, not verified. Selecting a category does not constitute customs classification, dangerous-goods approval or shipping-line acceptance — the organiser and carrier rules decide final eligibility.
+              - generic [ref=e301]:
+                - heading "Reservations" [level=3] [ref=e303]
+                - table [ref=e306]:
+                  - rowgroup [ref=e307]:
+                    - row [ref=e308]:
+                      - columnheader "Cargo" [ref=e309]
+                      - columnheader "Volume" [ref=e310]
+                      - columnheader "Status" [ref=e311]
+                      - columnheader "Action" [ref=e312]
+                  - rowgroup [ref=e313]:
+                    - row [ref=e314]:
+                      - 'cell "household Household effects: 14 boxed cartons, bedding, kitchenware" [ref=e315]':
+                        - text: household
+                        - 'generic "Household effects: 14 boxed cartons, bedding, kitchenware" [ref=e316]'
+                      - cell "8 CBM" [ref=e317]
+                      - cell "REQUESTED" [ref=e318]
+                      - cell [ref=e320]:
+                        - button "Approve" [ref=e321] [cursor=pointer]
+                        - button "Reject" [ref=e322] [cursor=pointer]
+                    - row [ref=e323]:
+                      - cell "vehicle Toyota Aqua 2018 hybrid, running, keys in hand" [ref=e324]:
+                        - text: vehicle
+                        - generic "Toyota Aqua 2018 hybrid, running, keys in hand" [ref=e325]
+                      - cell "22 CBM 1200 kg" [ref=e326]:
+                        - text: 22 CBM
+                        - generic [ref=e327]: 1200 kg
+                      - cell "APPROVED" [ref=e328]
+                      - cell [ref=e330]
+                    - row [ref=e331]:
+                      - cell "general Overfill probe — general cargo pallets" [ref=e332]:
+                        - text: general
+                        - generic "Overfill probe — general cargo pallets" [ref=e333]
+                      - cell "50 CBM" [ref=e334]
+                      - cell "REJECTED" [ref=e335]
+                      - cell [ref=e337]
+                    - row [ref=e338]:
+                      - cell "parts Spare bumper + filters (cancel-path proof)" [ref=e339]:
+                        - text: parts
+                        - generic "Spare bumper + filters (cancel-path proof)" [ref=e340]
+                      - cell "2 CBM" [ref=e341]
+                      - cell "CANCELLED" [ref=e342]
+                      - cell [ref=e344]
+              - generic [ref=e345]:
+                - button "Close booking" [ref=e346] [cursor=pointer]
+                - paragraph [ref=e347]: Closing stops new requests. It does not mean the container has departed, cleared customs, been paid for or been delivered.
+    - contentinfo [ref=e113]:
+      - generic [ref=e114]:
+        - generic [ref=e115]:
+          - generic [ref=e116]:
+            - link "CarUp home" [ref=e117] [cursor=pointer]:
+              - /url: /
+              - generic [ref=e123]: CarUp
+            - paragraph [ref=e124]: Zimbabwe's verified automotive marketplace for buying, verifying, and selling cars with clearer trust signals.
+            - generic [ref=e125]:
+              - generic [ref=e126]: +263 242 700 000
+              - generic [ref=e130]: info@carup.co.zw
+              - generic [ref=e135]: Harare, Zimbabwe
+          - navigation "Footer Product" [ref=e140]:
+            - heading "Product" [level=3] [ref=e141]
+            - list [ref=e142]:
+              - listitem [ref=e143]:
+                - link "Buy Cars" [ref=e144] [cursor=pointer]:
+                  - /url: /marketplace
+              - listitem [ref=e149]:
+                - link "Parts Marketplace" [ref=e150] [cursor=pointer]:
+                  - /url: /marketplace/parts
+              - listitem [ref=e154]:
+                - link "Garages & Services" [ref=e155] [cursor=pointer]:
+                  - /url: /marketplace/services
+              - listitem [ref=e158]:
+                - link "Verify Vehicle" [ref=e159] [cursor=pointer]:
+                  - /url: /search
+              - listitem [ref=e162]:
+                - link "Dealers" [ref=e163] [cursor=pointer]:
+                  - /url: /dealers
+              - listitem [ref=e168]:
+                - link "Garages" [ref=e169] [cursor=pointer]:
+                  - /url: /garages
+              - listitem [ref=e172]:
+                - link "Insurance" [ref=e173] [cursor=pointer]:
+                  - /url: /insurance
+              - listitem [ref=e176]:
+                - link "Pricing" [ref=e177] [cursor=pointer]:
+                  - /url: /pricing
+              - listitem [ref=e181]:
+                - link "Diaspora Trade" [ref=e182] [cursor=pointer]:
+                  - /url: /diaspora
+          - navigation "Footer Company" [ref=e186]:
+            - heading "Company" [level=3] [ref=e187]
+            - list [ref=e188]:
+              - listitem [ref=e189]:
+                - link "About CarUp" [ref=e190] [cursor=pointer]:
+                  - /url: /about
+              - listitem [ref=e194]:
+                - link "Contact Us" [ref=e195] [cursor=pointer]:
+                  - /url: /contact
+              - listitem [ref=e198]:
+                - link "Careers" [ref=e199] [cursor=pointer]:
+                  - /url: /careers
+              - listitem [ref=e205]:
+                - link "Press Kit" [ref=e206] [cursor=pointer]:
+                  - /url: /press
+              - listitem [ref=e210]:
+                - link "Blog" [ref=e211] [cursor=pointer]:
+                  - /url: /blog
+          - navigation "Footer Resources" [ref=e214]:
+            - heading "Resources" [level=3] [ref=e215]
+            - list [ref=e216]:
+              - listitem [ref=e217]:
+                - link "Help Center" [ref=e218] [cursor=pointer]:
+                  - /url: /help
+              - listitem [ref=e221]:
+                - link "Trust & Safety" [ref=e222] [cursor=pointer]:
+                  - /url: /trust
+              - listitem [ref=e225]:
+                - link "API Documentation" [ref=e226] [cursor=pointer]:
+                  - /url: /api-docs
+          - navigation "Footer Stakeholders" [ref=e229]:
+            - heading "Stakeholders" [level=3] [ref=e230]
+            - list [ref=e231]:
+              - listitem [ref=e232]:
+                - link "Car Owners" [ref=e233] [cursor=pointer]:
+                  - /url: /dashboard
+              - listitem [ref=e234]:
+                - link "Dealers" [ref=e235] [cursor=pointer]:
+                  - /url: /dealer
+              - listitem [ref=e236]:
+                - link "Mechanics" [ref=e237] [cursor=pointer]:
+                  - /url: /mechanic
+              - listitem [ref=e238]:
+                - link "Insurance" [ref=e239] [cursor=pointer]:
+                  - /url: /insurance-dash
+              - listitem [ref=e240]:
+                - link "Government" [ref=e241] [cursor=pointer]:
+                  - /url: /government
+              - listitem [ref=e242]:
+                - link "Bankers" [ref=e243] [cursor=pointer]:
+                  - /url: /bank
+        - generic [ref=e244]:
+          - generic [ref=e245]:
+            - paragraph [ref=e246]: © 2026 CarUp Zimbabwe. All rights reserved.
+            - list "Footer Legal" [ref=e247]:
+              - listitem [ref=e248]:
+                - link "Privacy Policy" [ref=e249] [cursor=pointer]:
+                  - /url: /privacy
+              - listitem [ref=e250]:
+                - link "Terms of Service" [ref=e251] [cursor=pointer]:
+                  - /url: /terms
+          - generic "CarUp social media" [ref=e252]:
+            - link "CarUp on Facebook — coming soon" [disabled] [ref=e253]
+            - link "CarUp on X (Twitter) — coming soon" [disabled] [ref=e256]
+            - link "CarUp on Instagram — coming soon" [disabled] [ref=e259]
+            - link "CarUp on LinkedIn — coming soon" [disabled] [ref=e263]

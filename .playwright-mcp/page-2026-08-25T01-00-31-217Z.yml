@@ -1,0 +1,150 @@
+- generic [ref=f14e2]:
+  - region "Notifications alt+T"
+  - generic [ref=f14e7]:
+    - banner [ref=f14e8]:
+      - generic [ref=f14e10]:
+        - link "CarUp" [ref=f14e11] [cursor=pointer]:
+          - /url: /
+        - generic [ref=f14e18]:
+          - button "Notifications, 1 unread" [ref=f14e19] [cursor=pointer]:
+            - generic [ref=f14e20]: "1"
+          - button "Account menu for Golden A Owner [phase7]" [ref=f14e21] [cursor=pointer]
+          - button "Open menu" [ref=f14e22] [cursor=pointer]
+    - main [ref=f14e23]:
+      - generic [ref=f14e24]:
+        - generic [ref=f14e26]:
+          - heading "Verify Vehicle or Part History" [level=1] [ref=f14e27]
+          - paragraph [ref=f14e28]: Search by VIN, or browse by make and model
+          - paragraph [ref=f14e29]: Exact VIN lookup is open to everyone. Looking a vehicle up by plate, chassis number or temporary ID requires a signed-in CarUp account — signed out, those searches return the same result whether or not the vehicle exists, so an empty result is not evidence that it does not.
+          - paragraph [ref=f14e30]: PartSentry helps identify swapped, stolen, or undocumented parts by connecting repair logs, work orders, mechanics, and parts history to the vehicle Passport where records exist.
+          - generic [ref=f14e31]:
+            - textbox "Enter a VIN, or a make and model..." [active] [ref=f14e36]: Hilux
+            - combobox [ref=f14e37] [cursor=pointer]:
+              - generic: All
+            - combobox [ref=f14e38] [cursor=pointer]:
+              - generic: All Categories
+        - generic [ref=f14e39]:
+          - paragraph [ref=f14e554]: 1 vehicles found
+          - link "Toyota Hilux 2019 Toyota Hilux $21,500 78,450 km Manual Diesel Seller identity not published Bulawayo, Bulawayo Metropolitan, Zimbabwe View Passport" [ref=f14e556] [cursor=pointer]:
+            - /url: /marketplace/listing/CARUPGLDNA0000001
+            - generic [ref=f14e557]:
+              - img "Toyota Hilux" [ref=f14e560]
+              - generic [ref=f14e561]:
+                - heading "2019 Toyota Hilux" [level=3] [ref=f14e562]
+                - paragraph [ref=f14e563]: $21,500
+                - generic [ref=f14e564]:
+                  - generic [ref=f14e565]: 78,450 km
+                  - generic [ref=f14e569]: Manual
+                  - generic [ref=f14e573]: Diesel
+                - generic [ref=f14e577]:
+                  - generic [ref=f14e578]: Seller identity not published
+                  - generic [ref=f14e579]: Bulawayo, Bulawayo Metropolitan, Zimbabwe
+                - generic [ref=f14e584]: View Passport
+    - contentinfo [ref=f14e399]:
+      - generic [ref=f14e400]:
+        - generic [ref=f14e401]:
+          - generic [ref=f14e402]:
+            - link "CarUp home" [ref=f14e403] [cursor=pointer]:
+              - /url: /
+              - generic [ref=f14e409]: CarUp
+            - paragraph [ref=f14e410]: Zimbabwe's verified automotive marketplace for buying, verifying, and selling cars with clearer trust signals.
+            - generic [ref=f14e411]:
+              - generic [ref=f14e412]: +263 242 700 000
+              - generic [ref=f14e416]: info@carup.co.zw
+              - generic [ref=f14e421]: Harare, Zimbabwe
+          - navigation "Footer Product" [ref=f14e426]:
+            - heading "Product" [level=3] [ref=f14e427]
+            - list [ref=f14e428]:
+              - listitem [ref=f14e429]:
+                - link "Buy Cars" [ref=f14e430] [cursor=pointer]:
+                  - /url: /marketplace
+              - listitem [ref=f14e435]:
+                - link "Parts Marketplace" [ref=f14e436] [cursor=pointer]:
+                  - /url: /marketplace/parts
+              - listitem [ref=f14e440]:
+                - link "Garages & Services" [ref=f14e441] [cursor=pointer]:
+                  - /url: /marketplace/services
+              - listitem [ref=f14e444]:
+                - link "Verify Vehicle" [ref=f14e445] [cursor=pointer]:
+                  - /url: /search
+              - listitem [ref=f14e448]:
+                - link "Dealers" [ref=f14e449] [cursor=pointer]:
+                  - /url: /dealers
+              - listitem [ref=f14e454]:
+                - link "Garages" [ref=f14e455] [cursor=pointer]:
+                  - /url: /garages
+              - listitem [ref=f14e458]:
+                - link "Insurance" [ref=f14e459] [cursor=pointer]:
+                  - /url: /insurance
+              - listitem [ref=f14e462]:
+                - link "Pricing" [ref=f14e463] [cursor=pointer]:
+                  - /url: /pricing
+              - listitem [ref=f14e467]:
+                - link "Diaspora Trade" [ref=f14e468] [cursor=pointer]:
+                  - /url: /diaspora
+          - navigation "Footer Company" [ref=f14e472]:
+            - heading "Company" [level=3] [ref=f14e473]
+            - list [ref=f14e474]:
+              - listitem [ref=f14e475]:
+                - link "About CarUp" [ref=f14e476] [cursor=pointer]:
+                  - /url: /about
+              - listitem [ref=f14e480]:
+                - link "Contact Us" [ref=f14e481] [cursor=pointer]:
+                  - /url: /contact
+              - listitem [ref=f14e484]:
+                - link "Careers" [ref=f14e485] [cursor=pointer]:
+                  - /url: /careers
+              - listitem [ref=f14e491]:
+                - link "Press Kit" [ref=f14e492] [cursor=pointer]:
+                  - /url: /press
+              - listitem [ref=f14e496]:
+                - link "Blog" [ref=f14e497] [cursor=pointer]:
+                  - /url: /blog
+          - navigation "Footer Resources" [ref=f14e500]:
+            - heading "Resources" [level=3] [ref=f14e501]
+            - list [ref=f14e502]:
+              - listitem [ref=f14e503]:
+                - link "Help Center" [ref=f14e504] [cursor=pointer]:
+                  - /url: /help
+              - listitem [ref=f14e507]:
+                - link "Trust & Safety" [ref=f14e508] [cursor=pointer]:
+                  - /url: /trust
+              - listitem [ref=f14e511]:
+                - link "API Documentation" [ref=f14e512] [cursor=pointer]:
+                  - /url: /api-docs
+          - navigation "Footer Stakeholders" [ref=f14e515]:
+            - heading "Stakeholders" [level=3] [ref=f14e516]
+            - list [ref=f14e517]:
+              - listitem [ref=f14e518]:
+                - link "Car Owners" [ref=f14e519] [cursor=pointer]:
+                  - /url: /dashboard
+              - listitem [ref=f14e520]:
+                - link "Dealers" [ref=f14e521] [cursor=pointer]:
+                  - /url: /dealer
+              - listitem [ref=f14e522]:
+                - link "Mechanics" [ref=f14e523] [cursor=pointer]:
+                  - /url: /mechanic
+              - listitem [ref=f14e524]:
+                - link "Insurance" [ref=f14e525] [cursor=pointer]:
+                  - /url: /insurance-dash
+              - listitem [ref=f14e526]:
+                - link "Government" [ref=f14e527] [cursor=pointer]:
+                  - /url: /government
+              - listitem [ref=f14e528]:
+                - link "Bankers" [ref=f14e529] [cursor=pointer]:
+                  - /url: /bank
+        - generic [ref=f14e530]:
+          - generic [ref=f14e531]:
+            - paragraph [ref=f14e532]: © 2026 CarUp Zimbabwe. All rights reserved.
+            - list "Footer Legal" [ref=f14e533]:
+              - listitem [ref=f14e534]:
+                - link "Privacy Policy" [ref=f14e535] [cursor=pointer]:
+                  - /url: /privacy
+              - listitem [ref=f14e536]:
+                - link "Terms of Service" [ref=f14e537] [cursor=pointer]:
+                  - /url: /terms
+          - generic "CarUp social media" [ref=f14e538]:
+            - link "CarUp on Facebook — coming soon" [disabled] [ref=f14e539]
+            - link "CarUp on X (Twitter) — coming soon" [disabled] [ref=f14e542]
+            - link "CarUp on Instagram — coming soon" [disabled] [ref=f14e545]
+            - link "CarUp on LinkedIn — coming soon" [disabled] [ref=f14e549]

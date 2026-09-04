@@ -126,7 +126,6 @@ stagingTest.describe('Trade OS T2 — Request Quotes (deployed staging, cross-te
     await expect(card, 'cross-tenant discovery must work').toHaveCount(1);
     await expect(card.getByTestId('trade-opportunity-lines')).toContainText('20 ×');
     await expect(card.getByTestId('trade-opportunity-lines')).toContainText(/does not know the part number/i);
-    await expect(card.getByTestId('trade-match-reasons')).toContainText(/Harare/i);
 
     // The API response itself must carry no private buyer data — asserted on the wire, not the DOM.
     const token = await sessionToken(page);
@@ -148,6 +147,33 @@ stagingTest.describe('Trade OS T2 — Request Quotes (deployed staging, cross-te
     // Budget was NOT disclosed by the buyer, so it must not cross tenants.
     expect(mine.budget_disclosed).toBe(false);
     expect(mine.budget_amount).toBeNull();
+
+    // Owner audit item 2: order verification must NOT be republished as buyer identity verification.
+    expect(mine.buyer_context, 'buyer_context must not exist').toBeUndefined();
+    expect(JSON.stringify(mine)).not.toMatch(/verified/i);
+    await expect(page.getByText(/Verified CarUp buyer/i)).toHaveCount(0);
+
+    // Owner audit item 3: match evidence is this supplier's OWN stock, stated as evidence.
+    expect(mine.supplier_match, 'supplier has matching Honda Fit stock seeded').toBeTruthy();
+    expect(mine.supplier_match.stock_name).toContain('Front shocks');
+    expect(mine.supplier_match.available_quantity).toBe(24);
+    await expect(card.getByTestId('trade-match-reasons')).toContainText('You have 24 available');
+    await expect(card.getByTestId('trade-match-reasons')).toContainText(/export-ready/i);
+  });
+
+  stagingTest('SECURITY: a buyer cannot link a vehicle they do not own (owner audit item 1)', async ({ page, request }) => {
+    stagingTest.skip(stagingTest.info().project.name !== 'chromium', 'journey runs once on desktop');
+    await signIn(page, 'buyer');
+    const token = await sessionToken(page);
+    // A syntactically valid VIN the buyer has no authority over must never be written.
+    const res = await request.post(`${API_URL}/diaspora/buyer-orders`, {
+      headers: { 'x-session-token': token, 'x-tenant-id': BUYER_TENANT, 'content-type': 'application/json' },
+      data: {
+        order_type: 'parts', origin_country: 'Japan', destination_country: 'Zimbabwe',
+        lines: [{ item_description: 'Probe line', linked_vehicle_vin: 'JHMGD18608S209999' }],
+      },
+    });
+    expect([403, 404]).toContain(res.status());
   });
 
   stagingTest('SECURITY: the supplier cannot read the buyer\'s private order record', async ({ page, request }) => {
@@ -177,6 +203,9 @@ stagingTest.describe('Trade OS T2 — Request Quotes (deployed staging, cross-te
     await page.getByTestId('trade-offer-shipping').selectOption('included');
     await page.getByTestId('trade-offer-exclusions').fill('customs duty');
 
+    // Owner audit item 7: an offer is reviewed before it becomes irrevocable.
+    await page.getByTestId('trade-offer-review').click();
+    await expect(page.getByTestId('trade-offer-review-panel')).toContainText('900');
     const sent = page.waitForResponse((r) =>
       r.request().method() === 'POST' && /\/quotes$/.test(new URL(r.url()).pathname));
     await page.getByTestId('trade-offer-submit').click();
@@ -202,6 +231,9 @@ stagingTest.describe('Trade OS T2 — Request Quotes (deployed staging, cross-te
     await expect(offer.getByTestId('trade-offer-total')).toContainText('900');
     await expect(offer).toContainText('Included');   // shipping, as the supplier stated it
     await expect(offer).toContainText('5 days');     // dispatch
+    // Owner audit item 4: the buyer must know WHO they are choosing, and on what basis.
+    await expect(offer.getByTestId('trade-offer-supplier')).not.toBeEmpty();
+    await expect(offer.getByTestId('trade-offer-supplier-context')).toContainText(/not verified by CarUp/i);
 
     const accepted = page.waitForResponse((r) =>
       r.request().method() === 'POST' && /\/accept-quote$/.test(new URL(r.url()).pathname));

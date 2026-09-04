@@ -1,0 +1,170 @@
+- generic [ref=f1e2]:
+  - region "Notifications alt+T"
+  - generic [ref=f1e3]:
+    - banner [ref=f1e4]:
+      - generic [ref=f1e6]:
+        - link "CarUp" [ref=f1e7] [cursor=pointer]:
+          - /url: /
+        - navigation [ref=f1e14]:
+          - button "Buy" [ref=f1e15] [cursor=pointer]
+          - button "Sell" [ref=f1e16] [cursor=pointer]
+          - button "Verify" [ref=f1e17] [cursor=pointer]
+          - button "Parts" [ref=f1e18] [cursor=pointer]
+          - link "Dealers" [ref=f1e19] [cursor=pointer]:
+            - /url: /dealers
+          - link "Garages" [ref=f1e20] [cursor=pointer]:
+            - /url: /garages
+          - button "More" [ref=f1e21] [cursor=pointer]
+        - generic [ref=f1e22]:
+          - 'button "Currency: USD. Change currency" [ref=f1e23] [cursor=pointer]': USD
+          - button "Notifications, 3 unread" [ref=f1e24] [cursor=pointer]:
+            - generic [ref=f1e25]: "3"
+          - button "Account menu for Issue128 StagingUAT" [ref=f1e26] [cursor=pointer]:
+            - generic [ref=f1e27]: Issue128
+    - main [ref=f1e28]:
+      - generic [ref=f1e29]:
+        - heading "Trade profile" [level=1] [ref=f1e43]
+        - paragraph [ref=f1e44]: Manage your buyer, seller, or supplier trade profile. New and edited profiles are reviewed before they are marked verified — you cannot self-verify.
+        - generic [ref=f1e45]:
+          - heading "Your profile" [level=2] [ref=f1e46]
+          - list [ref=f1e218]:
+            - listitem [ref=f1e219]:
+              - generic [ref=f1e220]: buyer · Manchester, United Kingdom
+              - generic [ref=f1e221]:
+                - generic [ref=f1e222]: PENDING_REVIEW
+                - button "Edit" [active] [ref=f1e223] [cursor=pointer]
+        - generic [ref=f1e50]:
+          - heading "Edit profile" [level=2] [ref=f1e224]
+          - generic [ref=f1e52]:
+            - generic [ref=f1e53]:
+              - text: Role
+              - combobox "Role" [disabled] [ref=f1e54]:
+                - option "Buyer" [selected]
+                - option "Seller"
+                - option "Supplier"
+                - option "Exporter"
+                - option "Agent"
+                - option "Dealer"
+                - option "Company"
+                - option "Coordinator"
+            - generic [ref=f1e55]:
+              - text: Organization (optional)
+              - textbox "Organization (optional)" [ref=f1e56]
+            - generic [ref=f1e57]:
+              - text: Country
+              - textbox "Country" [ref=f1e58]: United Kingdom
+            - generic [ref=f1e59]:
+              - text: City
+              - textbox "City" [ref=f1e60]: Manchester
+          - generic [ref=f1e61]:
+            - button "Save changes" [ref=f1e225] [cursor=pointer]
+            - button "Cancel" [ref=f1e226] [cursor=pointer]
+          - paragraph
+    - contentinfo [ref=f1e63]:
+      - generic [ref=f1e64]:
+        - generic [ref=f1e65]:
+          - generic [ref=f1e66]:
+            - link "CarUp home" [ref=f1e67] [cursor=pointer]:
+              - /url: /
+              - generic [ref=f1e73]: CarUp
+            - paragraph [ref=f1e74]: Zimbabwe's verified automotive marketplace for buying, verifying, and selling cars with clearer trust signals.
+            - generic [ref=f1e75]:
+              - generic [ref=f1e76]: +263 242 700 000
+              - generic [ref=f1e80]: info@carup.co.zw
+              - generic [ref=f1e85]: Harare, Zimbabwe
+          - navigation "Footer Product" [ref=f1e90]:
+            - heading "Product" [level=3] [ref=f1e91]
+            - list [ref=f1e92]:
+              - listitem [ref=f1e93]:
+                - link "Buy Cars" [ref=f1e94] [cursor=pointer]:
+                  - /url: /marketplace
+              - listitem [ref=f1e99]:
+                - link "Parts Marketplace" [ref=f1e100] [cursor=pointer]:
+                  - /url: /marketplace/parts
+              - listitem [ref=f1e104]:
+                - link "Garages & Services" [ref=f1e105] [cursor=pointer]:
+                  - /url: /marketplace/services
+              - listitem [ref=f1e108]:
+                - link "Verify Vehicle" [ref=f1e109] [cursor=pointer]:
+                  - /url: /search
+              - listitem [ref=f1e112]:
+                - link "Dealers" [ref=f1e113] [cursor=pointer]:
+                  - /url: /dealers
+              - listitem [ref=f1e118]:
+                - link "Garages" [ref=f1e119] [cursor=pointer]:
+                  - /url: /garages
+              - listitem [ref=f1e122]:
+                - link "Insurance" [ref=f1e123] [cursor=pointer]:
+                  - /url: /insurance
+              - listitem [ref=f1e126]:
+                - link "Pricing" [ref=f1e127] [cursor=pointer]:
+                  - /url: /pricing
+              - listitem [ref=f1e131]:
+                - link "Diaspora Trade" [ref=f1e132] [cursor=pointer]:
+                  - /url: /diaspora
+          - navigation "Footer Company" [ref=f1e136]:
+            - heading "Company" [level=3] [ref=f1e137]
+            - list [ref=f1e138]:
+              - listitem [ref=f1e139]:
+                - link "About CarUp" [ref=f1e140] [cursor=pointer]:
+                  - /url: /about
+              - listitem [ref=f1e144]:
+                - link "Contact Us" [ref=f1e145] [cursor=pointer]:
+                  - /url: /contact
+              - listitem [ref=f1e148]:
+                - link "Careers" [ref=f1e149] [cursor=pointer]:
+                  - /url: /careers
+              - listitem [ref=f1e155]:
+                - link "Press Kit" [ref=f1e156] [cursor=pointer]:
+                  - /url: /press
+              - listitem [ref=f1e160]:
+                - link "Blog" [ref=f1e161] [cursor=pointer]:
+                  - /url: /blog
+          - navigation "Footer Resources" [ref=f1e164]:
+            - heading "Resources" [level=3] [ref=f1e165]
+            - list [ref=f1e166]:
+              - listitem [ref=f1e167]:
+                - link "Help Center" [ref=f1e168] [cursor=pointer]:
+                  - /url: /help
+              - listitem [ref=f1e171]:
+                - link "Trust & Safety" [ref=f1e172] [cursor=pointer]:
+                  - /url: /trust
+              - listitem [ref=f1e175]:
+                - link "API Documentation" [ref=f1e176] [cursor=pointer]:
+                  - /url: /api-docs
+          - navigation "Footer Stakeholders" [ref=f1e179]:
+            - heading "Stakeholders" [level=3] [ref=f1e180]
+            - list [ref=f1e181]:
+              - listitem [ref=f1e182]:
+                - link "Car Owners" [ref=f1e183] [cursor=pointer]:
+                  - /url: /dashboard
+              - listitem [ref=f1e184]:
+                - link "Dealers" [ref=f1e185] [cursor=pointer]:
+                  - /url: /dealer
+              - listitem [ref=f1e186]:
+                - link "Mechanics" [ref=f1e187] [cursor=pointer]:
+                  - /url: /mechanic
+              - listitem [ref=f1e188]:
+                - link "Insurance" [ref=f1e189] [cursor=pointer]:
+                  - /url: /insurance-dash
+              - listitem [ref=f1e190]:
+                - link "Government" [ref=f1e191] [cursor=pointer]:
+                  - /url: /government
+              - listitem [ref=f1e192]:
+                - link "Bankers" [ref=f1e193] [cursor=pointer]:
+                  - /url: /bank
+        - generic [ref=f1e194]:
+          - generic [ref=f1e195]:
+            - paragraph [ref=f1e196]: © 2026 CarUp Zimbabwe. All rights reserved.
+            - list "Footer Legal" [ref=f1e197]:
+              - listitem [ref=f1e198]:
+                - link "Privacy Policy" [ref=f1e199] [cursor=pointer]:
+                  - /url: /privacy
+              - listitem [ref=f1e200]:
+                - link "Terms of Service" [ref=f1e201] [cursor=pointer]:
+                  - /url: /terms
+          - generic "CarUp social media" [ref=f1e202]:
+            - link "CarUp on Facebook — coming soon" [disabled] [ref=f1e203]
+            - link "CarUp on X (Twitter) — coming soon" [disabled] [ref=f1e206]
+            - link "CarUp on Instagram — coming soon" [disabled] [ref=f1e209]
+            - link "CarUp on LinkedIn — coming soon" [disabled] [ref=f1e213]

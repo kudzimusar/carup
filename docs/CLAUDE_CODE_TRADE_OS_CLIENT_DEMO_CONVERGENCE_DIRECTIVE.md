@@ -1,11 +1,11 @@
 # Claude Code Directive — CarUp Trade OS Full Product Expansion
 
-**Date:** 2026-09-04  
-**Repository:** `kudzimusar/carup`  
-**Branch:** `feat/trade-os-client-demo-convergence`  
-**Draft PR:** `#207`  
-**Canonical implementation plan:** `docs/TRADE_OS_CONTAINER_COLOADING_LIVING_MASTER_PLAN.md` **v2.0**  
-**Plan promotion commit:** `9da04411f353aeba59cf073e31bf5374781d229e`  
+**Date:** 2026-09-04
+**Repository:** `kudzimusar/carup`
+**Branch:** `feat/trade-os-client-demo-convergence`
+**Draft PR:** `#207`
+**Canonical implementation plan:** `docs/TRADE_OS_CONTAINER_COLOADING_LIVING_MASTER_PLAN.md` **v2.0**
+**Plan promotion commit:** `9da04411f353aeba59cf073e31bf5374781d229e`
 **Production:** MUST REMAIN UNTOUCHED
 
 > The filename of this directive is historical. Its content now supersedes the old same-day demo mission. Do not use the old demo objective as your scope.

@@ -1,0 +1,50 @@
+- generic [ref=e2]:
+  - region "Notifications alt+T"
+  - generic [ref=e3]:
+    - main [ref=e4]:
+      - generic [ref=e6]:
+        - generic [ref=e7]:
+          - link "CarUp" [ref=e8] [cursor=pointer]:
+            - /url: /
+          - heading "Create your CarUp profile" [level=1] [ref=e15]
+          - paragraph [ref=e16]: Tell us who you are in the automotive journey. Verification happens only where it is actually needed.
+        - generic "Registration progress" [ref=e17]:
+          - generic [ref=e18]: "1"
+          - generic [ref=e21]: "2"
+          - generic [ref=e24]: "3"
+        - generic [ref=e27]:
+          - generic [ref=e28]:
+            - generic [ref=e29]:
+              - paragraph [ref=e30]: 1 · Identity & contact
+              - heading "Start with the person we can contact" [level=2] [ref=e31]
+            - generic [ref=e32]:
+              - generic [ref=e33]:
+                - generic [ref=e34]: First Name
+                - textbox "Tendai" [ref=e35]
+              - generic [ref=e36]:
+                - generic [ref=e37]: Last Name
+                - textbox "Moyo" [ref=e38]
+            - generic [ref=e39]:
+              - generic [ref=e40]: Email
+              - textbox "tendai@example.com" [ref=e41]
+            - generic [ref=e42]:
+              - generic [ref=e43]: Phone Number
+              - textbox "+263 7XX XXX XXX" [ref=e44]
+            - generic [ref=e45]: We do not ask for passport, ID or ownership documents at signup. CarUp requests sensitive evidence later, inside the governed verification or Vehicle Passport journey.
+            - button "Continue" [ref=e46] [cursor=pointer]
+          - paragraph [ref=e47]:
+            - text: Already have an account?
+            - link "Sign In" [ref=e48] [cursor=pointer]:
+              - /url: /login
+    - navigation "Compact app navigation" [ref=e49]:
+      - generic [ref=e50]:
+        - link "Home" [ref=e51] [cursor=pointer]:
+          - /url: /
+        - link "Market" [ref=e56] [cursor=pointer]:
+          - /url: /marketplace
+        - link "Verify" [ref=e61] [cursor=pointer]:
+          - /url: /search
+        - link "Sell" [ref=e66] [cursor=pointer]:
+          - /url: /sell
+        - link "Account" [ref=e71] [cursor=pointer]:
+          - /url: /login

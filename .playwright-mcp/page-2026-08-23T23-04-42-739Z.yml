@@ -1,0 +1,245 @@
+- generic [ref=f4e2]:
+  - region "Notifications alt+T"
+  - generic [ref=f4e3]:
+    - banner [ref=f4e4]:
+      - generic [ref=f4e6]:
+        - link "CarUp" [ref=f4e7] [cursor=pointer]:
+          - /url: /
+        - generic [ref=f4e14]:
+          - button "Notifications" [ref=f4e15] [cursor=pointer]
+          - button "Open menu" [ref=f4e16] [cursor=pointer]
+    - main [ref=f4e17]:
+      - generic [ref=f4e18]:
+        - generic [ref=f4e24]:
+          - generic [ref=f4e25]: Verified automotive marketplace for Zimbabwe
+          - heading "Find Verified Cars. Sell With Confidence." [level=1] [ref=f4e26]
+          - paragraph [ref=f4e27]: CarUp helps buyers and sellers build trust with vehicle Passports, plate checks, owner privacy, trust scores, and evidence-backed timelines.
+          - generic [ref=f4e28]:
+            - generic [ref=f4e29]: Buy Cars
+            - generic [ref=f4e30]: Sell Cars
+            - generic [ref=f4e31]: Verify Cars
+            - generic [ref=f4e32]: Trade Parts
+          - generic [ref=f4e34]:
+            - generic [ref=f4e35]:
+              - tablist [ref=f4e36]:
+                - tab "Buy a Car" [selected] [ref=f4e37] [cursor=pointer]
+                - tab "Sell My Car" [ref=f4e38] [cursor=pointer]
+                - tab "Verify a Car" [ref=f4e39] [cursor=pointer]
+              - tabpanel "Buy a Car" [ref=f4e40]:
+                - generic [ref=f4e41]:
+                  - textbox "Search make, model, dealer, location, plate, VIN, or chassis" [ref=f4e46]
+                  - button "Search Verified Cars" [ref=f4e47] [cursor=pointer]
+            - generic [ref=f4e48]:
+              - generic [ref=f4e49]:
+                - paragraph [ref=f4e50]: Selling your car?
+                - paragraph [ref=f4e51]: Start with your plate or VIN and create a trusted Passport listing.
+              - button "Start Selling" [ref=f4e52] [cursor=pointer]
+        - generic [ref=f4e54]:
+          - generic [ref=f4e55]: Plate Check
+          - generic [ref=f4e62]: Evidence Timeline
+          - generic [ref=f4e68]: Owner Privacy
+          - generic [ref=f4e74]: Trust Score
+          - generic [ref=f4e79]: SafePay Ready
+          - generic [ref=f4e84]: PartSentry
+        - generic [ref=f4e91]:
+          - generic [ref=f4e92]:
+            - generic [ref=f4e93]:
+              - generic [ref=f4e94]: Featured Listings
+              - heading "Shop cars with governed trust signals" [level=2] [ref=f4e95]
+              - paragraph [ref=f4e96]: Live published listings. Each vehicle shows only the governed signals it has earned — open its Passport for the full, versioned trust assessment.
+            - link "Browse all cars" [ref=f4e97] [cursor=pointer]:
+              - /url: /marketplace
+          - paragraph [ref=f4e98]: Loading featured listings…
+        - generic [ref=f4e100]:
+          - generic [ref=f4e102]:
+            - generic [ref=f4e103]: Sell with a Passport
+            - heading "Sell your car with a trusted Passport" [level=2] [ref=f4e104]
+            - paragraph [ref=f4e105]: Start with the current seller verification handoff and create a listing through CarUp.
+            - generic [ref=f4e106]:
+              - textbox "Plate or VIN" [ref=f4e107]
+              - button "Start Seller Verification" [ref=f4e108] [cursor=pointer]
+          - generic [ref=f4e110]:
+            - generic [ref=f4e111]: Verify before you buy
+            - heading "Already found a car elsewhere?" [level=2] [ref=f4e112]
+            - paragraph [ref=f4e113]: Check its CarUp Passport before you pay.
+            - generic [ref=f4e114]:
+              - textbox "Plate, VIN, or chassis" [ref=f4e115]
+              - button "Verify Vehicle" [ref=f4e116] [cursor=pointer]
+        - generic [ref=f4e118]:
+          - generic [ref=f4e119]:
+            - generic [ref=f4e120]:
+              - generic [ref=f4e121]: Popular Zimbabwe Categories
+              - heading "Start with what buyers ask for most" [level=2] [ref=f4e122]
+            - paragraph [ref=f4e123]: Quick-search shortcuts — each opens the Marketplace with that term applied.
+          - generic [ref=f4e124]:
+            - button "Brand New" [ref=f4e125] [cursor=pointer]
+            - button "Recently Imported" [ref=f4e126] [cursor=pointer]
+            - button "Fresh Imports" [ref=f4e127] [cursor=pointer]
+            - button "Locally Used" [ref=f4e128] [cursor=pointer]
+            - button "Second Hand" [ref=f4e129] [cursor=pointer]
+            - button "Duty Cleared" [ref=f4e130] [cursor=pointer]
+            - button "ZIMRA Verified" [ref=f4e131] [cursor=pointer]
+            - button "CID Clear" [ref=f4e132] [cursor=pointer]
+            - button "Low Mileage" [ref=f4e133] [cursor=pointer]
+            - button "Toyota Hilux" [ref=f4e134] [cursor=pointer]
+            - button "Honda Fit" [ref=f4e135] [cursor=pointer]
+            - button "Mazda Demio" [ref=f4e136] [cursor=pointer]
+            - button "SUVs" [ref=f4e137] [cursor=pointer]
+            - button "Under $5,000" [ref=f4e138] [cursor=pointer]
+            - button "Under $10,000" [ref=f4e139] [cursor=pointer]
+            - button "Dealer Verified" [ref=f4e140] [cursor=pointer]
+            - button "Parts & Accessories" [ref=f4e141] [cursor=pointer]
+            - button "Harare" [ref=f4e142] [cursor=pointer]
+            - button "Bulawayo" [ref=f4e143] [cursor=pointer]
+        - generic [ref=f4e145]:
+          - generic [ref=f4e146]:
+            - generic [ref=f4e147]: How CarUp Works
+            - heading "From search to transfer, keep the trust record visible" [level=2] [ref=f4e148]
+          - generic [ref=f4e149]:
+            - generic [ref=f4e151]:
+              - paragraph [ref=f4e156]: "01"
+              - heading "Search cars" [level=3] [ref=f4e157]
+              - paragraph [ref=f4e158]: Browse verified listings by make, location, budget, or category.
+            - generic [ref=f4e160]:
+              - paragraph [ref=f4e165]: "02"
+              - heading "Verify Passport" [level=3] [ref=f4e166]
+              - paragraph [ref=f4e167]: Open the vehicle Passport with plate, VIN, chassis, and trust data.
+            - generic [ref=f4e169]:
+              - paragraph [ref=f4e174]: "03"
+              - heading "Reserve / SafePay" [level=3] [ref=f4e175]
+              - paragraph [ref=f4e176]: Use CarUp reservation and SafePay flows where the listing supports it.
+            - generic [ref=f4e178]:
+              - paragraph [ref=f4e183]: "04"
+              - heading "Complete ownership transfer" [level=3] [ref=f4e184]
+              - paragraph [ref=f4e185]: Move forward with clearer identity, seller, and history context.
+        - generic [ref=f4e187]:
+          - generic [ref=f4e188]:
+            - generic [ref=f4e189]:
+              - generic [ref=f4e190]: Why CarUp is safer
+              - heading "Buy, verify, and sell with Passport-backed confidence" [level=2] [ref=f4e191]
+            - generic [ref=f4e192]:
+              - link "Buy Cars" [ref=f4e193] [cursor=pointer]:
+                - /url: /marketplace
+              - link "Verify a Vehicle" [ref=f4e194] [cursor=pointer]:
+                - /url: /search
+          - generic [ref=f4e195]:
+            - generic [ref=f4e196]:
+              - heading "Private seller details stay protected" [level=3] [ref=f4e197]
+              - paragraph [ref=f4e198]: Homepage cards avoid exposing private owner names or phone numbers.
+            - generic [ref=f4e199]:
+              - heading "Passport context before payment" [level=3] [ref=f4e200]
+              - paragraph [ref=f4e201]: Buyers can open the current vehicle Passport route from VIN-based listing links.
+            - generic [ref=f4e202]:
+              - heading "Seller trust starts early" [level=3] [ref=f4e203]
+              - paragraph [ref=f4e204]: Sellers are guided into the existing account and listing flow before publishing.
+            - generic [ref=f4e205]:
+              - heading "PartSentry connects repairs and parts" [level=3] [ref=f4e206]
+              - paragraph [ref=f4e207]: PartSentry helps identify swapped, stolen, or undocumented parts by connecting repair logs, work orders, mechanics, and parts history to the vehicle Passport.
+    - contentinfo [ref=f4e208]:
+      - generic [ref=f4e209]:
+        - generic [ref=f4e210]:
+          - generic [ref=f4e211]:
+            - link "CarUp home" [ref=f4e212] [cursor=pointer]:
+              - /url: /
+              - generic [ref=f4e218]: CarUp
+            - paragraph [ref=f4e219]: Zimbabwe's verified automotive marketplace for buying, verifying, and selling cars with clearer trust signals.
+            - generic [ref=f4e220]:
+              - generic [ref=f4e221]: +263 242 700 000
+              - generic [ref=f4e225]: info@carup.co.zw
+              - generic [ref=f4e230]: Harare, Zimbabwe
+          - navigation "Footer Product" [ref=f4e235]:
+            - heading "Product" [level=3] [ref=f4e236]
+            - list [ref=f4e237]:
+              - listitem [ref=f4e238]:
+                - link "Buy Cars" [ref=f4e239] [cursor=pointer]:
+                  - /url: /marketplace
+              - listitem [ref=f4e244]:
+                - link "Parts Marketplace" [ref=f4e245] [cursor=pointer]:
+                  - /url: /marketplace/parts
+              - listitem [ref=f4e249]:
+                - link "Garages & Services" [ref=f4e250] [cursor=pointer]:
+                  - /url: /marketplace/services
+              - listitem [ref=f4e253]:
+                - link "Verify Vehicle" [ref=f4e254] [cursor=pointer]:
+                  - /url: /search
+              - listitem [ref=f4e257]:
+                - link "Dealers" [ref=f4e258] [cursor=pointer]:
+                  - /url: /dealers
+              - listitem [ref=f4e263]:
+                - link "Garages" [ref=f4e264] [cursor=pointer]:
+                  - /url: /garages
+              - listitem [ref=f4e267]:
+                - link "Insurance" [ref=f4e268] [cursor=pointer]:
+                  - /url: /insurance
+              - listitem [ref=f4e271]:
+                - link "Pricing" [ref=f4e272] [cursor=pointer]:
+                  - /url: /pricing
+              - listitem [ref=f4e276]:
+                - link "Diaspora Trade" [ref=f4e277] [cursor=pointer]:
+                  - /url: /diaspora
+          - navigation "Footer Company" [ref=f4e281]:
+            - heading "Company" [level=3] [ref=f4e282]
+            - list [ref=f4e283]:
+              - listitem [ref=f4e284]:
+                - link "About CarUp" [ref=f4e285] [cursor=pointer]:
+                  - /url: /about
+              - listitem [ref=f4e289]:
+                - link "Contact Us" [ref=f4e290] [cursor=pointer]:
+                  - /url: /contact
+              - listitem [ref=f4e293]:
+                - link "Careers" [ref=f4e294] [cursor=pointer]:
+                  - /url: /careers
+              - listitem [ref=f4e300]:
+                - link "Press Kit" [ref=f4e301] [cursor=pointer]:
+                  - /url: /press
+              - listitem [ref=f4e305]:
+                - link "Blog" [ref=f4e306] [cursor=pointer]:
+                  - /url: /blog
+          - navigation "Footer Resources" [ref=f4e309]:
+            - heading "Resources" [level=3] [ref=f4e310]
+            - list [ref=f4e311]:
+              - listitem [ref=f4e312]:
+                - link "Help Center" [ref=f4e313] [cursor=pointer]:
+                  - /url: /help
+              - listitem [ref=f4e316]:
+                - link "Trust & Safety" [ref=f4e317] [cursor=pointer]:
+                  - /url: /trust
+              - listitem [ref=f4e320]:
+                - link "API Documentation" [ref=f4e321] [cursor=pointer]:
+                  - /url: /api-docs
+          - navigation "Footer Stakeholders" [ref=f4e324]:
+            - heading "Stakeholders" [level=3] [ref=f4e325]
+            - list [ref=f4e326]:
+              - listitem [ref=f4e327]:
+                - link "Car Owners" [ref=f4e328] [cursor=pointer]:
+                  - /url: /dashboard
+              - listitem [ref=f4e329]:
+                - link "Dealers" [ref=f4e330] [cursor=pointer]:
+                  - /url: /dealer
+              - listitem [ref=f4e331]:
+                - link "Mechanics" [ref=f4e332] [cursor=pointer]:
+                  - /url: /mechanic
+              - listitem [ref=f4e333]:
+                - link "Insurance" [ref=f4e334] [cursor=pointer]:
+                  - /url: /insurance-dash
+              - listitem [ref=f4e335]:
+                - link "Government" [ref=f4e336] [cursor=pointer]:
+                  - /url: /government
+              - listitem [ref=f4e337]:
+                - link "Bankers" [ref=f4e338] [cursor=pointer]:
+                  - /url: /bank
+        - generic [ref=f4e339]:
+          - generic [ref=f4e340]:
+            - paragraph [ref=f4e341]: © 2026 CarUp Zimbabwe. All rights reserved.
+            - list "Footer Legal" [ref=f4e342]:
+              - listitem [ref=f4e343]:
+                - link "Privacy Policy" [ref=f4e344] [cursor=pointer]:
+                  - /url: /privacy
+              - listitem [ref=f4e345]:
+                - link "Terms of Service" [ref=f4e346] [cursor=pointer]:
+                  - /url: /terms
+          - generic "CarUp social media" [ref=f4e347]:
+            - link "CarUp on Facebook — coming soon" [disabled] [ref=f4e348]
+            - link "CarUp on X (Twitter) — coming soon" [disabled] [ref=f4e351]
+            - link "CarUp on Instagram — coming soon" [disabled] [ref=f4e354]
+            - link "CarUp on LinkedIn — coming soon" [disabled] [ref=f4e358]

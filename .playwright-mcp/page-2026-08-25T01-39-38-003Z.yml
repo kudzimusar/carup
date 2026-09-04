@@ -1,0 +1,110 @@
+- generic [ref=f28e2]:
+  - region "Notifications alt+T":
+    - list:
+      - listitem [ref=f28e7]:
+        - generic [ref=f28e13]: "Not publishable yet. Awaiting CarUp verification: Ownership / Registration Document. Nothing more is needed from you until that review completes."
+  - generic [ref=f28e15]:
+    - complementary [ref=f28e16]:
+      - link "CarUp" [ref=f28e18] [cursor=pointer]:
+        - /url: /
+      - generic [ref=f28e27]:
+        - paragraph [ref=f28e28]: Golden B Owner [phase7]
+        - paragraph [ref=f28e29]: Active portal
+        - combobox "Switch active portal role" [ref=f28e32] [cursor=pointer]:
+          - option "Car Owner" [selected]
+          - option "Dealer"
+          - option "Mechanic"
+          - option "Insurance"
+          - option "Government"
+          - option "Administrator"
+          - option "Banker"
+      - navigation [ref=f28e33]:
+        - link "Overview" [ref=f28e34] [cursor=pointer]:
+          - /url: /dashboard
+        - link "My Garage" [ref=f28e41] [cursor=pointer]:
+          - /url: /dashboard/garage
+        - link "Evidence Vault Upload" [ref=f28e47] [cursor=pointer]:
+          - /url: /dashboard/garage
+          - generic [ref=f28e51]: Evidence Vault
+          - generic [ref=f28e52]: Upload
+        - link "Service History" [ref=f28e53] [cursor=pointer]:
+          - /url: /dashboard/service-history
+        - link "Insurance" [ref=f28e57] [cursor=pointer]:
+          - /url: /dashboard/insurance
+        - link "PartSentry" [ref=f28e61] [cursor=pointer]:
+          - /url: /dashboard/partsentry
+        - link "Import Orders" [ref=f28e66] [cursor=pointer]:
+          - /url: /diaspora/imports
+        - link "Start Import Order" [ref=f28e71] [cursor=pointer]:
+          - /url: /diaspora/imports/new
+        - link "My Listings" [ref=f28e76] [cursor=pointer]:
+          - /url: /dashboard/listings
+        - link "Saved Cars" [ref=f28e81] [cursor=pointer]:
+          - /url: /dashboard/saved
+        - link "Gutu AI AI" [ref=f28e85] [cursor=pointer]:
+          - /url: /dashboard/ai
+          - generic [ref=f28e88]: Gutu AI
+          - generic [ref=f28e89]: AI
+        - link "Refer & Earn" [ref=f28e90] [cursor=pointer]:
+          - /url: /dashboard/referrals
+        - link "Communications Inbox" [ref=f28e95] [cursor=pointer]:
+          - /url: /dashboard/communications
+          - generic [ref=f28e98]: Communications
+          - generic [ref=f28e99]: Inbox
+        - link "Trade Profile" [ref=f28e100] [cursor=pointer]:
+          - /url: /diaspora/trade-profile
+        - link "Reverse RFQ" [ref=f28e114] [cursor=pointer]:
+          - /url: /diaspora/rfq
+        - link "Container Co-Loading" [ref=f28e118] [cursor=pointer]:
+          - /url: /diaspora/containers
+        - link "Drive Connections" [ref=f28e123] [cursor=pointer]:
+          - /url: /diaspora/drive
+      - generic [ref=f28e129]:
+        - link "Settings" [ref=f28e130] [cursor=pointer]:
+          - /url: /settings
+        - link "Sign Out" [ref=f28e134] [cursor=pointer]:
+          - /url: /
+    - generic [ref=f28e138]:
+      - banner [ref=f28e139]:
+        - search [ref=f28e140]:
+          - searchbox "Search vehicles" [ref=f28e145]
+        - generic [ref=f28e146]:
+          - button "Notifications" [ref=f28e147] [cursor=pointer]
+          - link "Back to Site" [ref=f28e148] [cursor=pointer]:
+            - /url: /
+      - main [ref=f28e150]:
+        - generic [ref=f28e151]:
+          - generic [ref=f28e152]:
+            - generic [ref=f28e153]:
+              - heading "My Listings" [level=1] [ref=f28e154]
+              - paragraph [ref=f28e155]: 1 listings · 0 conversations · 0 unread
+            - link "New Listing" [ref=f28e156] [cursor=pointer]:
+              - /url: /dashboard/sell-vehicle
+          - generic [ref=f28e158]:
+            - generic [ref=f28e159]:
+              - heading "Marketplace inquiries" [level=3] [ref=f28e162]
+              - generic [ref=f28e163]: "0"
+            - paragraph [ref=f28e164]: No inquiries yet. They will appear here when buyers contact you about your listings.
+          - generic [ref=f28e168]:
+            - img "2017 Nissan NP200 — image unavailable" [ref=f28e169]:
+              - generic [ref=f28e182]: Image unavailable
+            - generic [ref=f28e183]:
+              - generic [ref=f28e184]:
+                - generic [ref=f28e185]:
+                  - heading "2017 Nissan NP200" [level=3] [ref=f28e186]
+                  - paragraph [ref=f28e187]: $9,800
+                - generic [ref=f28e188]:
+                  - generic [ref=f28e189]: Available
+                  - generic [ref=f28e190]: Draft — not publicly visible
+              - generic [ref=f28e191]:
+                - generic [ref=f28e192]: Views not tracked
+                - generic [ref=f28e196]: "Trust: 50 / 100 · Moderate trust"
+                - generic [ref=f28e201]: 0 conversations · 0 unread
+                - generic [ref=f28e204]: Listing date not recorded
+              - generic [ref=f28e205]:
+                - link "Conversations" [ref=f28e206] [cursor=pointer]:
+                  - /url: /dashboard/communications
+                - link "View listing" [ref=f28e207] [cursor=pointer]:
+                  - /url: /marketplace/CARUPGLDNB0000002
+                - button "Mark sold" [ref=f28e208] [cursor=pointer]
+                - button "Publish to Marketplace" [ref=f28e209] [cursor=pointer]
