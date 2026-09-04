@@ -1,7 +1,0 @@
-- banner [ref=f1e4]:
-  - search [ref=f1e5]:
-    - searchbox "Search vehicles" [ref=f1e8]
-  - generic [ref=f1e9]:
-    - button "Notifications" [ref=f1e10] [cursor=pointer]
-    - link "Back to Site" [ref=f1e12] [cursor=pointer]:
-      - /url: "#"

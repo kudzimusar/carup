@@ -52,3 +52,15 @@ issue164-golden-vehicles-receipt.json
 
 # Issue #158 mutation-testing artifacts (written and removed by the test run)
 backend/services/blockchain/__mutant__*.js
+
+# Local agent/tooling state — machine-specific, never part of a PR. These were swept
+# into a commit once by `git add -A`; the MCP config in particular names a production
+# project ref, which the CR-1 credential gate blocks on.
+.mcp.json
+.mcp.json.backup-*
+.claude/settings.json
+.claude/settings.json.backup-*
+.playwright-mcp/
+.scratch-probe-*.mjs
+# Ad-hoc UAT screenshots dropped at the repo root by browser automation.
+/*.png

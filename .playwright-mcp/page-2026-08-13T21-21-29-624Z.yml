@@ -1,5 +1,0 @@
-- generic [ref=f6e2]:
-  - region "Notifications alt+T"
-  - status [ref=f6e3]:
-    - status "Loading" [ref=f6e4]
-    - generic [ref=f6e6]: Loading…
