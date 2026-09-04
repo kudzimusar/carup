@@ -38,6 +38,7 @@ const BUSINESS_TYPES = [
   ['parts_seller', 'Parts seller'],
   ['insurer', 'Insurance provider'],
   ['lender', 'Finance / lender'],
+  ['logistics_provider', 'Logistics / freight forwarder'],
   ['other', 'Other automotive business'],
 ] as const
 

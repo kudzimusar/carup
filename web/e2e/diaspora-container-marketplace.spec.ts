@@ -1,10 +1,13 @@
 import { expect, test, type Page, type Route } from '@playwright/test'
 
-type TestUser = { id: string; name: string; email: string; role: string }
+type TestUser = { id: string; name: string; email: string; role: string; active_tenant_id?: string; tenant_role?: string }
 
 const buyer: TestUser = { id: 'b-1', name: 'Buyer', email: 'b@carup.test', role: 'owner' }
 const reviewer: TestUser = { id: 'r-1', name: 'Rev', email: 'r@carup.test', role: 'reviewer' }
 const mechanic: TestUser = { id: 'm-1', name: 'Mech', email: 'm@carup.test', role: 'mechanic' }
+// D2: a legitimate logistics operator is a plain 'owner' with a verified tenant-admin membership —
+// NOT a platform reviewer/admin. The operator UI keys off active_tenant_id + tenant_role.
+const operator: TestUser = { id: 'op-1', name: 'Op', email: 'op@carup.test', role: 'owner', active_tenant_id: 'tenant-a', tenant_role: 'admin' }
 
 async function fulfillJson(route: Route, body: unknown, status = 200) {
   const origin = route.request().headers().origin || '*'
@@ -38,14 +41,16 @@ interface Reservation {
   estimated_volume: number
   reservation_status: string
 }
-interface ReservePayload { estimated_volume: number }
-interface CState { containers: Container[]; reservations: Reservation[]; seq: number; reservePayloads: ReservePayload[] }
+interface ReservePayload { estimated_volume: number; cargo_type?: string; cargo_description?: string; estimated_weight?: number; declared_value?: number; currency?: string }
+interface CreatePayload { origin_country?: string; origin_city?: string; destination_country?: string; destination_city?: string; departure_date?: string; booking_deadline?: string; container_type?: string; total_capacity_volume?: number; total_capacity_weight?: number; metadata?: Record<string, unknown> }
+interface CState { containers: Container[]; reservations: Reservation[]; seq: number; reservePayloads: ReservePayload[]; createPayloads: CreatePayload[] }
 function initial(): CState {
   return {
     containers: [{ id: 'cont-1', origin_country: 'Japan', destination_country: 'Zimbabwe', container_type: '40HC', total_capacity_volume: 50, used_capacity_volume: 0, available_capacity_volume: 50, status: 'BOOKING_OPEN' }],
     reservations: [],
     seq: 0,
     reservePayloads: [],
+    createPayloads: [],
   }
 }
 
@@ -66,6 +71,19 @@ async function mockApi(page: Page, state: CState, user: TestUser) {
     const c = state.containers[0]
 
     if (method === 'GET' && path.endsWith('/container-marketplace/containers')) { await fulfillJson(route, { data: state.containers }); return }
+    if (method === 'POST' && path.endsWith('/container-marketplace/containers')) {
+      const p = JSON.parse(route.request().postData() || '{}') as CreatePayload
+      state.createPayloads.push(p)
+      const created: Container = {
+        id: `cont-${++state.seq + 100}`,
+        origin_country: p.origin_country || '', destination_country: p.destination_country || '',
+        container_type: p.container_type || '40HC',
+        total_capacity_volume: p.total_capacity_volume || 0, used_capacity_volume: 0,
+        available_capacity_volume: p.total_capacity_volume || 0, status: 'BOOKING_OPEN',
+      }
+      state.containers.unshift(created)
+      await fulfillJson(route, { data: created }, 201); return
+    }
     const capMatch = path.match(/\/container-marketplace\/containers\/([^/]+)\/capacity$/)
     if (method === 'GET' && capMatch) { await fulfillJson(route, { data: { container: c, capacity: capOf(c) } }); return }
     const listResMatch = path.match(/\/container-marketplace\/containers\/([^/]+)\/reservations$/)
@@ -141,5 +159,65 @@ test.describe('Diaspora container marketplace (Phase 6)', () => {
     await expect(page.getByTestId('diaspora-container-reservation-row').getByText('APPROVED')).toBeVisible()
     // 45/50 = 90% → ready to close badge appears on the card
     await expect(page.getByTestId('diaspora-container-ready-to-close')).toBeVisible()
+  })
+
+  test('rich cargo request sends category, description and weight (D4)', async ({ page }) => {
+    const state = initial()
+    await loginAs(page, buyer, 'b-token')
+    await mockApi(page, state, buyer)
+    await page.goto('/diaspora/containers', { waitUntil: 'domcontentloaded' })
+    await page.getByTestId('diaspora-container-open').click()
+    await page.getByTestId('diaspora-container-reserve-category').selectOption('household')
+    await page.getByTestId('diaspora-container-reserve-description').fill('Boxed kitchenware, 12 cartons')
+    await page.getByTestId('diaspora-container-reserve-volume').fill('8')
+    await page.getByTestId('diaspora-container-reserve-weight').fill('300')
+    await page.getByTestId('diaspora-container-reserve-submit').click()
+    await expect(page.getByTestId('diaspora-container-reservation-row')).toHaveCount(1)
+    const p = state.reservePayloads[0]
+    expect(p.estimated_volume).toBe(8)
+    expect(p.cargo_type).toBe('household')
+    expect(p.cargo_description).toContain('kitchenware')
+    expect(p.estimated_weight).toBe(300)
+  })
+
+  test('tenant operator (no platform role) sees Create Container and creates one (D2/D3)', async ({ page }) => {
+    const state = initial()
+    await loginAs(page, operator, 'op-token')
+    await mockApi(page, state, operator)
+    await page.goto('/diaspora/containers', { waitUntil: 'domcontentloaded' })
+    await page.getByTestId('diaspora-container-create-toggle').click()
+    await page.getByTestId('create-origin-city').fill('Yokohama')
+    await page.getByTestId('create-destination-city').fill('Harare')
+    await page.getByTestId('create-departure-date').fill('2026-10-15')
+    await page.getByTestId('create-booking-deadline').fill('2026-10-01')
+    await page.getByTestId('create-total-cbm').fill('66')
+    await page.getByTestId('diaspora-container-create-submit').click()
+    await expect(page.getByTestId('diaspora-container-card')).toHaveCount(2)
+    const p = state.createPayloads[0]
+    expect(p.origin_country).toBe('Japan')
+    expect(p.destination_city).toBe('Harare')
+    expect(p.total_capacity_volume).toBe(66)
+    // the operator (tenant admin, not reviewer) also holds approve controls on their container
+    await expect(page.getByTestId('diaspora-container-close-booking')).toBeVisible()
+  })
+
+  test('create form refuses missing required fields with a clear message (D3)', async ({ page }) => {
+    const state = initial()
+    await loginAs(page, operator, 'op-token')
+    await mockApi(page, state, operator)
+    await page.goto('/diaspora/containers', { waitUntil: 'domcontentloaded' })
+    await page.getByTestId('diaspora-container-create-toggle').click()
+    await page.getByTestId('diaspora-container-create-submit').click()
+    await expect(page.getByTestId('diaspora-container-create-error')).toContainText(/Required:/)
+    expect(state.createPayloads).toHaveLength(0)
+  })
+
+  test('buyer does not see the Create Container section', async ({ page }) => {
+    const state = initial()
+    await loginAs(page, buyer, 'b-token')
+    await mockApi(page, state, buyer)
+    await page.goto('/diaspora/containers', { waitUntil: 'domcontentloaded' })
+    await expect(page.getByTestId('diaspora-container-card')).toHaveCount(1)
+    await expect(page.getByTestId('diaspora-container-create-section')).toHaveCount(0)
   })
 })

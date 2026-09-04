@@ -44,6 +44,15 @@ export const COMMUNICATION_EVENT_TYPES = [
   'vehicle.ownership.transfer_action_required',
   'vehicle.ownership.transfer_state_changed',
   'vehicle.ownership.transfer_completed',
+  // Trade OS D7 — container co-loading booking lifecycle. Emitted best-effort by
+  // services/diaspora/containerBookingNotifier.js AFTER the audited authoritative mutation.
+  // Payloads carry `buyerId` (addressable) plus reference/status/route for the governed
+  // `container_booking_update` template. Booking state itself stays in diaspora tables.
+  'diaspora.container_booking.reservation_requested',
+  'diaspora.container_booking.reservation_approved',
+  'diaspora.container_booking.reservation_rejected',
+  'diaspora.container_booking.reservation_cancelled',
+  'diaspora.container_booking.booking_closed',
   // R1 — the durable post-verification work item. The Leadership Welcome used to be produced
   // inline in the verification route and its failure swallowed, which permanently lost the welcome
   // for that account because the verification token is single-use and already consumed.

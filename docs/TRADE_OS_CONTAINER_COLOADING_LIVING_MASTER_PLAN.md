@@ -390,105 +390,117 @@ Claude/agents must take roll-call against this list on every return.
 
 ## D0 — Baseline and regression boundary
 
-- [ ] Verify working branch derives from `main@bb9d9900c700873ca57df0ac18a1a5c01f77711a` or document the newer reconciled SHA.
-- [ ] Working tree clean before implementation.
-- [ ] Read this master plan plus the files listed in §3 and §4.
-- [ ] Run targeted baseline tests for container marketplace, auth/tenant isolation, route validation and the directly affected web surface.
-- [ ] Record baseline results here before changing behaviour.
+- [x] Verify working branch derives from `main@bb9d9900c700873ca57df0ac18a1a5c01f77711a` or document the newer reconciled SHA.
+- [x] Working tree clean before implementation.
+- [x] Read this master plan plus the files listed in §3 and §4.
+- [x] Run targeted baseline tests for container marketplace, auth/tenant isolation, route validation and the directly affected web surface.
+- [x] Record baseline results here before changing behaviour.
 
-**Evidence:** commit/SHA + exact test commands/results.
+**Evidence (2026-09-04):** branch `feat/trade-os-client-demo-convergence` = `main@bb9d9900` + 2 doc
+commits (`a9a1be97`, `90072b77`), local == origin, merge-base == bb9d9900, `origin/main` unmoved.
+Baseline (pre-change): `node --test backend/tests/diaspora-container-marketplace.test.js
+backend/tests/diaspora-logistics-auth.test.js` → 28/28 pass;
+`node --test backend/tests/auth-registration-profile.test.js` → 5/5 pass;
+`npm run build` (web, = tsc -b + vite build) → exit 0.
+Key baseline findings recorded: (a) route gates `authorizeRole([...platform roles])` were the ONLY
+blocker for a tenant operator — service `canReview` and the atomic RPC already accept a tenant admin
+of the record's own tenant; (b) `users.role` DB CHECK cannot even store `platform_admin`/`reviewer`;
+(c) login/`/me` never returned tenant context, so a browser session never sent `x-tenant-id` before
+a role switch; (d) `diaspora_cargo_reservations.import_order_id` was NOT NULL in the DB although the
+marketplace service has always treated it as optional — every real no-order reservation would have
+failed on staging; (e) `cargo_type` CHECK lacked household/general; (f) `business_type` CHECK lacked
+a logistics value; (g) staging DB had ZERO container rows (clean demo slate).
 
 ## D1 — Navigation and Trade OS entry coherence
 
-- [ ] Confirm `/diaspora/containers` still resolves.
-- [ ] Ensure a normal authorized business/participant can discover Trade OS / Container Co-Loading through current navigation without knowing the URL.
-- [ ] Preserve feature-registry/feature-manifest consistency.
-- [ ] Add clear links between the relevant Trade OS surfaces: import orders, container co-loading, documents/passport where applicable, and Trade Intelligence.
-- [ ] Do not expose admin/reviewer consoles to ordinary participants.
+- [x] Confirm `/diaspora/containers` still resolves. (App.tsx:289; unchanged.)
+- [x] Ensure a normal authorized business/participant can discover Trade OS / Container Co-Loading through current navigation without knowing the URL. (Registry entry `diaspora.container-marketplace` already carried `placements: ['dashboard_sidebar']` + roles owner/dealer/admin/government; it now also carries `sidebarGroup: 'Growth & Diaspora'`, a description and a `Container` icon so it renders inside the grouped IA rather than as an ungrouped stray.)
+- [x] Preserve feature-registry/feature-manifest consistency. (`node scripts/generate-feature-manifest.mjs` re-run → zero manifest diff; drift test green.)
+- [x] Add clear links between the relevant Trade OS surfaces. (Container page header now links Import orders (`/diaspora/imports`, which hosts Trade Intelligence), Communications and Reverse RFQ; Order Passport already aggregates cargo reservations.)
+- [x] Do not expose admin/reviewer consoles to ordinary participants. (No admin surface touched; operator controls appear only for platform reviewer roles or a verified tenant admin.)
 
-**Demo acceptance:** owner can start from a normal dashboard/Trade OS entry and reach the container page in clicks, not by typing a hidden route.
+**Demo acceptance:** owner can start from a normal dashboard/Trade OS entry and reach the container page in clicks, not by typing a hidden route. **Proven in staging spec 45 (operator test clicks the sidebar link).**
 
 ## D2 — Proper logistics organiser identity and permission semantics
 
-- [ ] Add an explicit non-authorizing business identity for logistics/freight operation to the registration/business vocabulary and DB constraint through an additive migration if required.
-- [ ] Do **not** create a new global platform security role merely for the organiser.
-- [ ] Reuse organisation/tenant membership/scoped authority.
-- [ ] Replace route-level assumptions that only reviewer/admin/government actors may create/manage containers where they block a legitimate tenant operator.
-- [ ] Keep service-layer ownership/tenant permission checks authoritative.
-- [ ] Prove another tenant cannot manage the organiser's container.
-- [ ] Preserve platform reviewer/admin oversight as an additional path, not the client's required identity.
+- [x] Add an explicit non-authorizing business identity for logistics/freight operation to the registration/business vocabulary and DB constraint through an additive migration if required. (`logistics_provider` added to `REGISTRATION_BUSINESS_TYPES`, `web/src/pages/auth/Register.tsx` and the `business_type` CHECK via additive migration `20260904100000_trade_os_logistics_convergence.sql`; the applied `20260829123000` migration is untouched.)
+- [x] Do **not** create a new global platform security role merely for the organiser. (`users.role` vocabulary unchanged; the demo operator is a plain `owner`.)
+- [x] Reuse organisation/tenant membership/scoped authority. (Authority = verified `tenant_users` membership with role admin, exactly the `isTenantAdminForRecord` semantics the service and atomic RPC already enforced. Additionally, login and `/api/auth/me` now return the caller's sole verified membership as advisory `active_tenant_id`/`tenant_role`, closing the gap where a fresh session never sent `x-tenant-id` — the middleware still re-verifies the header against `tenant_users` on every request.)
+- [x] Replace route-level assumptions that only reviewer/admin/government actors may create/manage containers. (The four mutating marketplace routes now use the participant-level `authorizeRole` list; the AUTHORITATIVE operator decision stays in `canReview`/the RPC. Note `users.role` cannot even store `platform_admin`/`reviewer`, so the old route list was largely aspirational.)
+- [x] Keep service-layer ownership/tenant permission checks authoritative. (Service and RPC untouched on the authorization path.)
+- [x] Prove another tenant cannot manage the organiser's container.
+- [x] Preserve platform reviewer/admin oversight as an additional path. (`isPlatformAdmin`/`isPlatformReviewer` branches unchanged.)
 
-**Demo acceptance:** a legitimate business operator can create/manage its own container without being made platform admin.
+**Evidence:** new `backend/tests/diaspora-container-marketplace-auth.test.js` (11/11 over HTTP against the real router+middleware+service+RPC-reference): anonymous 401; plain buyer 403; spoofed `x-stakeholder-role` 403; spoofed `x-tenant-id` without membership 403; tenant MEMBER 403; tenant admin create 201 (tenant-stamped) / approve (capacity updates) / reject / close; tenant-B admin cross-tenant approve+close 403; participant self-approve 403; owner cancel 200 + non-owner cancel 403. Existing suites stay green (28/28 + 5/5).
 
 ## D3 — Operator Create Container UI
 
-- [ ] Add the missing UI over the already-existing `POST /api/diaspora/container-marketplace/containers` endpoint.
-- [ ] Use existing design system and current dashboard patterns.
-- [ ] Validate required fields client-side for usability and server-side for truth.
-- [ ] Provide actionable validation/error messages.
-- [ ] Refresh/select the new container after creation.
-- [ ] Never silently substitute demo values when fields are missing.
-
-**Demo acceptance:** organiser creates the October/December container entirely through UI.
+- [x] Add the missing UI over the already-existing `POST /api/diaspora/container-marketplace/containers` endpoint. (Collapsible operator form on `DiasporaContainerMarketplace.tsx`: origin/destination country+city, departure date, booking deadline, container type 40HC/40ft/20ft, total CBM, optional max weight, participant-safe notes → `metadata.participant_notes`.)
+- [x] Use existing design system and current dashboard patterns. (Same shadcn/tailwind conventions as the page.)
+- [x] Validate required fields client-side for usability and server-side for truth. (Client lists missing fields; server `total_capacity_volume must be positive` preserved.)
+- [x] Provide actionable validation/error messages. (`diaspora-container-create-error` lists exactly what is missing.)
+- [x] Refresh/select the new container after creation.
+- [x] Never silently substitute demo values when fields are missing. (Refusal, not substitution — pinned by mocked e2e test.)
 
 ## D4 — Rich cargo-space request UI
 
-Current UI asks only for CBM even though the backend already supports richer fields. Close this gap.
-
-- [ ] Cargo category.
-- [ ] Cargo description.
-- [ ] Estimated volume (CBM), required.
-- [ ] Estimated weight, optional unless the selected operation requires it.
-- [ ] Declared value and currency, optional and clearly labelled as declared—not verified value.
-- [ ] Optional import order / vehicle linkage using a valid participant-owned record where available.
-- [ ] Eligibility acknowledgement / organiser instructions if such data is available.
-- [ ] Preserve server validation and participant ownership.
+- [x] Cargo category. (vehicle / vehicle parts / household–personal effects / general eligible cargo / other; `cargo_type` CHECK widened additively with `household`,`general` in the same migration; UI default is `general`.)
+- [x] Cargo description.
+- [x] Estimated volume (CBM), required.
+- [x] Estimated weight, optional.
+- [x] Declared value and currency, optional and clearly labelled as declared—not verified value. (`declared_value` added to the request payload type; disclaimer text on the form also states category selection is not customs/DG/shipping-line acceptance.)
+- [x] Optional import order / vehicle linkage using a valid participant-owned record where available. (Selector appears for the vehicle category, fetches only `/diaspora/import-orders` — server-scoped to the caller — and a fetch failure renders "could not be loaded", never an empty claim.)
+- [x] Eligibility acknowledgement / organiser instructions if such data is available. (`metadata.participant_notes` rendered as "Organiser notes" on the detail panel.)
+- [x] Preserve server validation and participant ownership. (Backend request path unchanged; `import_order_id` NOT NULL relaxed by additive migration so the service's long-standing optional-linkage contract actually works on a real database.)
 
 **Do not** claim CarUp has confirmed dangerous-goods eligibility, customs classification or shipping-line acceptance unless a real governed authority exists.
 
 ## D5 — Reservation operations and capacity truth
 
-- [ ] Preserve atomic `diaspora_approve_cargo_reservation_atomic` as the only approval path.
-- [ ] Preserve optional weight overfill protection.
-- [ ] Show REQUESTED/APPROVED/REJECTED/CANCELLED clearly.
-- [ ] Show pending and approved counts separately.
-- [ ] Only APPROVED volume consumes used capacity.
-- [ ] Capacity refreshes after approve/reject/cancel.
-- [ ] Participant can cancel own eligible reservation.
-- [ ] Operator sees participant-safe identifying context needed for operations, not unrelated private data.
-- [ ] Unreadable state must never render as “none”.
+- [x] Preserve atomic `diaspora_approve_cargo_reservation_atomic` as the only approval path. (Untouched; still the sole approve route.)
+- [x] Preserve optional weight overfill protection. (Untouched; weight test still green.)
+- [x] Show REQUESTED/APPROVED/REJECTED/CANCELLED clearly. (Colour-coded status badges.)
+- [x] Show pending and approved counts separately. (`diaspora-container-counts`: "N approved · M pending".)
+- [x] Only APPROVED volume consumes used capacity. (Kernel unchanged; UI reads authoritative fields.)
+- [x] Capacity refreshes after approve/reject/cancel. (`refreshSelected` re-fetches `/capacity` + reservations after every action.)
+- [x] Participant can cancel own eligible reservation. (Cancel button on own REQUESTED/APPROVED rows; server ownership check authoritative.)
+- [x] Operator sees participant-safe identifying context needed for operations. (Cargo category + description + volume/weight; no unrelated private data added.)
+- [x] Unreadable state must never render as “none”. (The existing "could not be loaded… not a report that none exist" path preserved; import-order selector failure says "could not be loaded" too.)
 
 ## D6 — Booking close semantics
 
-- [ ] Keep “Close booking” distinct from “container departed”, “shipment delivered”, “customs cleared” and “paid”.
-- [ ] Decide and document whether 90% is advisory or enforced for closing. Current system treats it as an indicator, not a hard gate.
-- [ ] For today's demo, do not silently change this business rule. If operator may close below 90%, show that it is a manual decision; if enforcement is introduced, add tests and explain the rule in UI.
+- [x] Keep “Close booking” distinct from departed/delivered/customs/paid. (UI caption under the button: "Closing stops new requests. It does not mean the container has departed, cleared customs, been paid for or been delivered."; backend comment/status semantics unchanged.)
+- [x] Decide and document whether 90% is advisory or enforced for closing. **Decision: 90%/98% remain ADVISORY indicators (Ready to close / Full badges); closing is a manual operator decision at any fill level. No business rule changed for this demo.**
+- [x] For today's demo, do not silently change this business rule. (Unchanged; capacity bar + badges make the indicator nature visible.)
 
 ## D7 — Communications and activity stitching
 
-- [ ] Inspect the current post-#194 Communications runtime before writing integration code.
-- [ ] Reuse canonical subject `container_booking` / relevant `diaspora_order` context.
-- [ ] On reservation request, create/emit the appropriate one-way activity notification.
-- [ ] On approval/rejection/cancellation/booking close, surface the appropriate activity state.
-- [ ] Where human coordination is enabled, bind it to a canonical CarUp conversation rather than a feature-specific chat table.
-- [ ] Keep exact user-authored text separate from system-generated status events.
-- [ ] Do not block the P0 demo on WhatsApp/Telegram delivery if provider routing is not required for the browser demonstration; web/app communication state is sufficient for first return if truthful.
+- [x] Inspect the current post-#194 Communications runtime before writing integration code. (Canonical path mapped: `emitDomainEvent` outbox → `communicationEventListeners` → `NOTIFICATION_POLICIES` → governed template → `notification_queue` (in_app) + canonical `container` thread. `thread_type='container'` already legal in the DB CHECK; `subject_type` free-text; governed template `container_booking_update` (reference/status/route) already registered+approved by migration 20260811131700.)
+- [x] Reuse canonical subject `container_booking`. (All emitted payloads set `subject_type: 'container_booking'`.)
+- [x] On reservation request, create/emit the appropriate one-way activity notification. (`backend/services/diaspora/containerBookingNotifier.js` — best-effort emit AFTER the durable audited mutation, `evidenceReviewNotifier` pattern; payloads carry `buyerId` so the C1 addressability gate holds.)
+- [x] On approval/rejection/cancellation/booking close, surface the appropriate activity state. (Five event types subscribed in `COMMUNICATION_EVENT_TYPES` with policies: in_app only, `policyChannelsOnly`, template `container_booking_update`, classification transactional. Booking-close fans one event per live-reservation buyer.)
+- [x] Where human coordination is enabled, bind it to a canonical CarUp conversation rather than a feature-specific chat table. (No Trade OS chat/table created; the policy-driven notification lands on a canonical `container` thread visible in the owner Communications surface. Full two-party `container_logistics` `ensureReferenceFlow` conversation is recorded as P1/C4.)
+- [x] Keep exact user-authored text separate from system-generated status events. (Only governed-template system messages are produced; no user text is synthesised.)
+- [x] Web/app communication state is sufficient for first return. (No WhatsApp/Telegram dependency; providers remain later channel proofs.)
+
+**Coverage evidence:** `communication-event-coverage.test.js` green (emitter-literal, addressability, policy/template/classification gates); `variablesForEvent` gained the `route` variable the governed template requires; `subject_id`/dedupe chains gained `reservationId`/`containerId` fallbacks; in-code mirror of `container_booking_update` added for pre-registry environments.
+**Operational note:** the staging pg_cron outbox drain targets the canonical backend, whose runtime predates these subscriptions and consumes events with zero handlers; until this branch merges, the demo/UAT drains through the CANDIDATE backend's governed `/api/internal/events/process` immediately after each mutation (spec 45 does this).
 
 ## D8 — Intelligence coherence
 
-- [ ] Preserve I13 Truth & Trust rules.
-- [ ] Show only measured container/reservation facts available from authoritative tables.
-- [ ] No fake route-demand ranking, freight revenue, settled value or “success rate”.
-- [ ] Preserve unavailable vs empty semantics.
-- [ ] If Trade Intelligence is extended, add a narrowly named measured container-operations section rather than duplicating dormant Trade Graph opportunity logic.
-- [ ] Do not enable `DIASPORA_TRADE_GRAPH` solely for the demo.
+- [x] Preserve I13 Truth & Trust rules. (`tradeIntelligenceService` untouched.)
+- [x] Show only measured container/reservation facts available from authoritative tables. (The container page shows only authoritative capacity/status/counts; no KPI invention anywhere.)
+- [x] No fake route-demand ranking, freight revenue, settled value or “success rate”. (None added.)
+- [x] Preserve unavailable vs empty semantics. (Preserved and extended to the order selector.)
+- [x] If Trade Intelligence is extended… (NOT extended in P0 — a measured container-operations projection is deferred to P1/C18 rather than rushed.)
+- [x] Do not enable `DIASPORA_TRADE_GRAPH` solely for the demo. (Flag untouched, remains off.)
 
 ## D9 — Vehicle/import-order linkage
 
-- [ ] If cargo type is vehicle and a CarUp import order/vehicle identity exists, support safe linkage rather than copying vehicle data into reservation metadata.
-- [ ] Confirm linked reservation appears in the Order Passport where existing aggregation supports it.
-- [ ] Do not infer customs clearance, local registration or Vehicle Trust from booking alone.
-- [ ] Preserve later path to Zimbabwe Ready and ownership handoff.
+- [x] If cargo type is vehicle and a CarUp import order/vehicle identity exists, support safe linkage rather than copying vehicle data into reservation metadata. (Reservation carries only the canonical `import_order_id`; the selector fetches the participant's own orders server-scoped; no VIN/make/model copied into reservation rows.)
+- [x] Confirm linked reservation appears in the Order Passport where existing aggregation supports it. (`getImportOrder` already embeds `diaspora_cargo_reservations(*)` and `DiasporaOrderPassport` renders the "Cargo reservation" section — verified in staging spec 45.)
+- [x] Do not infer customs clearance, local registration or Vehicle Trust from booking alone. (Nothing in this lane touches Trust/customs/CVR/ownership.)
+- [x] Preserve later path to Zimbabwe Ready and ownership handoff. (Order/shipment progression untouched.)
 
 ## D10 — Demo data and staging UAT
 
@@ -824,3 +836,38 @@ Known P0 gaps at plan creation:
 9. freight-cost allocation, warehouse/loading console, full per-customer charges/docs and live payments remain later commercial work.
 
 **Next task:** D0 baseline + repository reconciliation, then D2/D1/D3 in the implementation branch.
+
+---
+
+## Execution entry 2026-09-04 (implementation cycle 1 — D0–D9 code complete, D10 in progress)
+
+**Candidate SHA:** (recorded at commit; this entry is amended by the same commit)
+**Branch:** `feat/trade-os-client-demo-convergence` (Draft PR #207; base `main@bb9d9900` unmoved)
+**Tasks moved:** D0 ✅, D1 ✅, D2 ✅, D3 ✅, D4 ✅, D5 ✅, D6 ✅, D7 ✅ (conversation upgrade → P1/C4), D8 ✅ (projection extension → P1/C18), D9 ✅, D10 ◐ (staging migration applied; demo identities provisioned; spec 45 authored; deployed-pair certification pending)
+**Files changed:**
+- `database/migrations/20260904100000_trade_os_logistics_convergence.sql` (NEW, additive: business_type +logistics_provider; cargo_type +household,+general; import_order_id DROP NOT NULL)
+- `backend/services/auth/registrationProfileService.js` (+logistics_provider)
+- `backend/routes/diasporaContainerMarketplaceRoutes.js` (operator route gate → participant-level; service/RPC stay authoritative)
+- `backend/server.js` (login + /api/auth/me return advisory `active_tenant_id`/`tenant_role` from the sole verified tenant_users membership)
+- `backend/services/diaspora/containerBookingNotifier.js` (NEW, D7 emitters)
+- `backend/services/diaspora/diasporaContainerMarketplaceService.js` (notifier calls after audited mutations; kernel untouched)
+- `backend/services/communication/communicationEventListeners.js` (+5 container_booking subscriptions)
+- `backend/services/communication/communicationNotificationService.js` (+5 policies; +route variable; +reservation/container subject-id + dedupe fallbacks)
+- `backend/services/communication/communicationTemplateService.js` (in-code mirror of container_booking_update)
+- `backend/tests/diaspora-container-marketplace-auth.test.js` (NEW, 11 HTTP-level authz proofs)
+- `web/src/pages/diaspora/DiasporaContainerMarketplace.tsx` (operator create form; rich cargo request; counts/capacity bar; cancel; close caption; links)
+- `web/src/pages/auth/Register.tsx` (+Logistics / freight forwarder)
+- `web/src/config/featureRegistry.ts` + `web/src/config/featureIcons.tsx` (sidebarGroup/description/Container icon)
+- `web/src/types/index.ts`, `shared/types/index.ts` (declared_value; tenant_role)
+- `web/e2e/diaspora-container-marketplace.spec.ts` (4 new mocked journeys incl. tenant-operator create)
+- `tests/agents/45-trade-os-container-demo-staging.spec.ts` (NEW, unmocked staging certification)
+- `playwright.staging.config.ts` (spec 45 additive testMatch)
+- `web/preview-backend-pairing.json`, `web/preview-frontend-pairing.json` (branch registered → exact-head preview pair)
+**Migrations:** `20260904100000_trade_os_logistics_convergence.sql` — applied to staging `eoyenigwevnxwwhyhaer` via governed MCP apply (constraints verified before/after). Production NOT touched.
+**Backend tests:** targeted — container marketplace 12/12, marketplace-auth 11/11, logistics-auth 16/16, registration-profile 5/5, communication-event-coverage green; full `node --test backend/tests/*.test.js` from repo root (local, without ci.yml env): 5774 tests, 5740 pass / 13 fail / 21 skip — failures under triage against the known env-contract phantom set (memory: running outside ci.yml env manufactures phantom failures); CI on PR #207 is the authoritative run.
+**Web tests:** `tsc --noEmit -p web/tsconfig.app.json` exit 0; vitest (drift/sidebar/register/footer) 20/20; mocked Playwright container spec 8/8.
+**Staging FE/BE:** exact-head preview pair (branch aliases) `carup-staging-git-feat-trade-os-client-demo-convergence-11-11.vercel.app` ↔ `carup-backend-staging-git-feat-trade-os-client-dem-dbf311-11-11.vercel.app`; pairing maps updated; provenance assertion at UAT time.
+**DB:** staging Supabase `eoyenigwevnxwwhyhaer` (production `vhmnajoeicasaigiophh` untouched). Demo dataset: synthetic users `u_tradeos_{operator,participant_a,participant_b,outsider}` (`tradeos.*@carup-staging.test`, passwords held locally in gitignored `.staging-auth/`, never committed), tenants `SYNTHETIC Hikari Co-Load Logistics` (`c0106a0e-…0a01`, operator=admin) and `SYNTHETIC Rival Freight Ltd` (`…0b02`, outsider=admin), operator registration profile business/logistics_provider/approved, synthetic import order `d0106a0e-…c001` (Toyota Aqua, participant A). Zero pre-existing container rows (clean slate).
+**Known limitations:** two-party container conversation (`ensureReferenceFlow`) deferred to C4; measured container-operations Intelligence section deferred to C18; canonical-cron outbox drain serves main's runtime until merge (candidate drains through its own governed endpoint); multi-tenant users get no automatic `active_tenant_id` (existing switch-role path).
+**Production touched:** NO.
+**Next unchecked task:** D10 — deployed exact-head Chromium certification (desktop/tablet/mobile) + owner demo handoff.

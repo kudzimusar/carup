@@ -1014,6 +1014,8 @@ export interface DiasporaReservationRequestPayload {
   estimated_weight?: number;
   import_order_id?: string;
   cargo_type?: string;
+  /** Participant-declared value — recorded as declared, never verified by CarUp. */
+  declared_value?: number;
   currency?: string;
   cargo_description?: string;
   source?: string;

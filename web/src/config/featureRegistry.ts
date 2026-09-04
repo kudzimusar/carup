@@ -224,6 +224,7 @@ export type LucideIconName =
   | 'ScrollText'
   | 'Lock'
   | 'Share2'
+  | 'Container'
 
 // ── Core registry item ─────────────────────────────────────────────────────
 export interface FeatureRegistryItem {
@@ -988,7 +989,9 @@ export const FEATURE_REGISTRY: FeatureRegistryItem[] = [
     roles: ['owner', 'dealer', 'admin', 'government'],
     placements: ['dashboard_sidebar'],
     requiresAuth: true,
-    icon: 'Gauge',
+    icon: 'Container',
+    sidebarGroup: 'Growth & Diaspora',
+    description: 'Shared container space: create containers, request cargo space, approve bookings',
   },
   {
     id: 'diaspora.drive-connections',

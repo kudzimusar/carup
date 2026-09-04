@@ -17,6 +17,13 @@ import { resolveClient, appendAudit, appendCriticalAudit, paging } from './diasp
 // Enforcement via the GUARD (no-op while DIASPORA_SUBSCRIPTION_ENFORCEMENT is off, which is default).
 import { requireFeature } from './diasporaEntitlementGuard.js';
 import { FEATURE_KEYS } from '../../constants/diaspora/diasporaEntitlements.js';
+// D7: best-effort canonical Communications events AFTER the durable, audited mutation.
+import {
+  notifyReservationRequested,
+  notifyReservationApproved,
+  notifyReservationReleased,
+  notifyBookingClosed,
+} from './containerBookingNotifier.js';
 
 const CONTAINERS = 'diaspora_container_shipments';
 const RESERVATIONS = 'diaspora_cargo_reservations';
@@ -198,6 +205,7 @@ export async function requestReservation(containerId, payload = {}, userContext 
   const { data, error } = await client.from(RESERVATIONS).insert(row).select().single();
   if (error) throw new ValidationError(`Failed to request reservation: ${error.message}`);
   await appendAudit(client, { importOrderId: data.import_order_id, actorId: context.id, tenantId: data.tenant_id, action: 'CARGO_RESERVATION_REQUESTED', resourceType: 'diaspora_cargo_reservation', resourceId: data.id, newState: data, req });
+  await notifyReservationRequested({ reservation: data, container, tenantId: data.tenant_id });
   return data;
 }
 
@@ -237,6 +245,10 @@ export async function approveReservation(reservationId, userContext = {}, option
   });
   if (error) throw translateApprovalError(error);
   if (!data) throw new ValidationError('Reservation approval returned no result');
+  if (data.reservation?.container_id) {
+    const container = await loadContainer(client, data.reservation.container_id).catch(() => null);
+    if (container) await notifyReservationApproved({ reservation: data.reservation, container, tenantId: data.reservation.tenant_id });
+  }
   return { reservation: data.reservation, capacity: data.capacity };
 }
 
@@ -269,6 +281,7 @@ async function transitionToReleased(client, reservationId, nextStatus, userConte
 
   // Reject/cancel are security-relevant capacity mutations: fail loud if audit cannot be written.
   await appendCriticalAudit(client, { importOrderId: data.import_order_id, actorId: context.id, tenantId: data.tenant_id, action: `CARGO_RESERVATION_${nextStatus}`, resourceType: 'diaspora_cargo_reservation', resourceId: reservationId, previousState: reservation, newState: data, metadata: { capacity: newCap }, req });
+  await notifyReservationReleased({ reservation: data, container, status: nextStatus, tenantId: data.tenant_id });
   return { reservation: data, capacity: newCap };
 }
 
@@ -295,5 +308,7 @@ export async function closeBooking(containerId, userContext = {}, options = {}) 
   }).eq('id', containerId).select().single();
   if (error) throw new ValidationError(`Failed to close booking: ${error.message}`);
   await appendAudit(client, { actorId: context.id, tenantId: data.tenant_id, action: 'CONTAINER_BOOKING_CLOSED', resourceType: 'diaspora_container_shipment', resourceId: containerId, previousState: container, newState: data, req });
+  const closedReservations = await loadReservations(client, containerId);
+  await notifyBookingClosed({ container: data, reservations: closedReservations, tenantId: data.tenant_id });
   return data;
 }
