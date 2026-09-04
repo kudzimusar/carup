@@ -174,5 +174,17 @@ export async function askGeminiVision(systemPrompt, textPrompt, images = [], jso
   const usage = data?.usageMetadata
     ? ` (tokens: prompt ${data.usageMetadata.promptTokenCount ?? '?'}, candidates ${data.usageMetadata.candidatesTokenCount ?? '?'}, thoughts ${data.usageMetadata.thoughtsTokenCount ?? '?'})`
     : '';
-  throw new Error(`Gemini vision returned no text: ${reason}${usage}`);
+
+  // A quota refusal must say WHICH quota. "Rate limited" and "you have used your allowance for
+  // the day" call for completely different responses, and only the provider knows which it is.
+  const quota = (data?.error?.details || [])
+    .flatMap((detail) => detail?.violations || [])
+    .map((violation) => violation.quotaId || violation.quotaMetric)
+    .filter(Boolean);
+  const retryAfter = (data?.error?.details || []).find((detail) => detail?.retryDelay)?.retryDelay;
+  const quotaDetail = quota.length
+    ? ` [quota: ${quota.join(', ')}${retryAfter ? `; provider suggests retrying after ${retryAfter}` : ''}]`
+    : '';
+
+  throw new Error(`Gemini vision returned no text: ${reason}${quotaDetail}${usage}`);
 }

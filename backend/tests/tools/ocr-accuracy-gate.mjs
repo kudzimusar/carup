@@ -63,8 +63,8 @@ const sleep = (ms) => new Promise((resolve) => { setTimeout(resolve, ms); });
 // The corpus is paced so a per-minute provider quota is not itself measured as an OCR failure.
 // Raise PACE_MS on a tighter quota; it changes how fast the gate asks, never what it accepts.
 const MAX_ATTEMPTS = 3;
-const RATE_LIMIT_BACKOFF_MS = [20_000, 45_000];
-const PACE_MS = Number(process.env.OCR_GATE_PACE_MS ?? 6_000);
+const RATE_LIMIT_BACKOFF_MS = [35_000, 65_000];
+const PACE_MS = Number(process.env.OCR_GATE_PACE_MS ?? 13_000);
 
 const graded = [];
 const runs = [];
