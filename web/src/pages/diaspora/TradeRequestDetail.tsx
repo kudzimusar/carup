@@ -143,7 +143,13 @@ export default function TradeRequestDetail() {
       <div className="mt-4 border-b-2 border-gray-950 pb-4">
         <p className="font-mono text-xs text-gray-500">RFQ-{String(order.id).replace(/-/g, '').slice(0, 8).toUpperCase()}</p>
         <h1 className="mt-1 text-2xl font-bold tracking-tight text-gray-950 sm:text-3xl">
-          {[order.requested_make, order.requested_model].filter(Boolean).join(' ') || (lines[0]?.item_description ?? 'Sourcing request')}
+          {/* A parts request is titled by WHAT was asked for; only a vehicle request is titled by
+              make/model. Titling a shocks request "Honda" tells the buyer nothing they asked. */}
+          {(order.order_type === 'vehicle'
+            ? [order.requested_make, order.requested_model].filter(Boolean).join(' ')
+            : lines[0]?.item_description)
+            || [order.requested_make, order.requested_model].filter(Boolean).join(' ')
+            || 'Sourcing request'}
         </h1>
         <div className="mt-3 flex flex-wrap items-center gap-3">
           <span className={`inline-flex items-center rounded-full border px-2.5 py-0.5 text-[11px] font-semibold ${meta.tone}`} data-testid="trade-request-status">

@@ -88,7 +88,11 @@ export default function TradeMyRequests() {
             >
               <div className="min-w-0">
                 <p className="truncate font-semibold text-gray-950">
-                  {[o.requested_make, o.requested_model].filter(Boolean).join(' ') || `${o.order_type} request`}
+                  {(o.order_type === 'vehicle'
+                    ? [o.requested_make, o.requested_model].filter(Boolean).join(' ')
+                    : (o.request_lines as Array<{ item_description?: string }> | undefined)?.[0]?.item_description)
+                    || [o.requested_make, o.requested_model].filter(Boolean).join(' ')
+                    || `${o.order_type} request`}
                 </p>
                 <p className="font-mono text-xs text-gray-500">
                   RFQ-{String(o.id).replace(/-/g, '').slice(0, 8).toUpperCase()} · to {[o.destination_city, o.destination_country].filter(Boolean).join(', ')}

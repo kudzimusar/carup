@@ -1988,7 +1988,10 @@ Every implementation cycle appends an entry below.
 - [x] **T2.18 Responsive.** Geometry gate (document/body scrollWidth ≤ viewport + 1) at 393 /
   1024 / 1280 / 1440 across the supplier surface incl. the open composer.
 - [x] **T2.19 Adversarial security certification.** 18 new tests, all passing.
-- [ ] **T2.20 Real staging journey** — NOT YET RUN. This is the gate that decides T2-USABLE.
+- [x] **T2.20 Real staging journey — CERTIFIED (cycle 1d).** Spec 46 on the deployed exact-head
+  pair: **16 passed / 0 failed**, retries 0, across chromium + tablet (820×1180) + Pixel 5. The
+  buyer and supplier are in two DIFFERENT tenants, so the cross-tenant claim is proven against the
+  real database rather than a mock.
 
 ### T2.7 — the safe cross-tenant marketplace (security decision, recorded)
 
@@ -2041,8 +2044,35 @@ also surfaced two things worth acting on, both now fixed:
   a fresh unmemoized literal each render) and had an unbounded refetch loop. All four new Trade
   surfaces destructure individual functions — verified.
 
-**Known limitations (honest):** T2.17 RFQ Intelligence not started and deliberately not faked;
-**T2.20 deployed staging journey has NOT been run**, so T2 is **PARTIAL, not usable-certified**.
+### Cycle 1d — T2.20 deployed staging certification
+
+**Candidate:** `50c4a784` · FE `carup-staging-git-feat-trade-os-client-demo-convergence-11-11.vercel.app`
+(bundle `index-DG_GYu40.js`) ↔ BE `carup-backend-staging-git-feat-trade-os-client-dem-dbf311-11-11.vercel.app`,
+both verified at the same SHA, `unpaired: false`. DB staging `eoyenigwevnxwwhyhaer`. Production untouched.
+
+**Identities (separate tenants, which is the whole point):**
+`tradeos.rfq-buyer@carup-staging.test` (tenant `…c03`) and `tradeos.rfq-supplier@carup-staging.test`
+(tenant `…d04`). Passwords local-only in gitignored `.staging-auth/`.
+
+**Proven on the deployed pair (16/16):** anonymous denial · buyer publishes a parts request with NO
+part number · a supplier in ANOTHER tenant discovers it · **the API response carries no buyer id,
+tenant, email or name, and an undisclosed budget does not cross** (asserted on the wire, not the
+DOM) · marketplace visibility does NOT grant private-record access (direct probe refused) ·
+supplier sends a real commercial offer (quantity/unit price/lead time/shipping persisted as
+columns) · buyer compares on stated terms and selects · **atomic award holds — a second, different
+acceptance is refused** · awarded request leaves the marketplace while the supplier still sees they
+won · hard geometry gate at 393/820/1024/1280/1366/1440/1536 · full-page visual evidence on
+desktop, narrow desktop, tablet and mobile.
+
+**Defect found by reviewing that evidence (not by an assertion):** a parts request was titled by
+`requested_make` ("Honda") instead of what the buyer actually asked for ("Front shocks"). Titles
+now prefer the line description for parts/mixed requests and reserve make/model for vehicle
+requests, on both the detail and list surfaces.
+
+**Known limitations (honest):** T2.17 RFQ Intelligence is not started and deliberately not faked.
+Legacy staging requests created before T2 carry no request lines and some carry junk
+`requested_make` values; the projection renders them truthfully ("Not provided" / "Not disclosed")
+rather than hiding them, but they look thin next to a T2-created request.
 
 **Next unchecked task:** T2.20 deployed staging certification (buyer + supplier journeys,
 desktop/narrow/tablet/mobile, adversarial tenant cases), then T2.17 RFQ Intelligence.
