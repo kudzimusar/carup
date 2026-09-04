@@ -36,10 +36,17 @@ const TENANT_B = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
 function seededMock() {
   return createMockSupabase({
     users: [
-      { id: 'buyer-1', role: 'owner', is_verified: true },
-      { id: 'op-1', role: 'owner', is_verified: true },
-      { id: 'opB-1', role: 'owner', is_verified: true },
-      { id: 'member-1', role: 'owner', is_verified: true },
+      { id: 'buyer-1', name: 'SYNTHETIC buyer one', role: 'owner', is_verified: true },
+      { id: 'op-1', name: 'SYNTHETIC operator', role: 'owner', is_verified: true },
+      { id: 'opB-1', name: 'SYNTHETIC rival admin', role: 'owner', is_verified: true },
+      { id: 'member-1', name: 'SYNTHETIC member', role: 'owner', is_verified: true },
+    ],
+    tenants: [
+      { id: TENANT_A, name: 'SYNTHETIC Hikari Co-Load Logistics', type: 'import', status: 'active' },
+      { id: TENANT_B, name: 'SYNTHETIC Rival Freight Ltd', type: 'import', status: 'active' },
+    ],
+    user_registration_profiles: [
+      { user_id: 'op-1', account_kind: 'business', market_relationship: 'international', business_type: 'logistics_provider', organization_name: 'SYNTHETIC Hikari Co-Load Logistics', country_of_residence: 'Japan', city: 'Yokohama' },
     ],
     tenant_users: [
       { tenant_id: TENANT_A, user_id: 'op-1', role: 'admin' },
@@ -51,6 +58,11 @@ function seededMock() {
     ],
     diaspora_cargo_reservations: [],
     diaspora_import_audit_log: [],
+    diaspora_import_orders: [
+      { id: 'order-own', buyer_id: 'buyer-1', created_by: 'buyer-1', order_type: 'vehicle', origin_country: 'Japan', requested_make: 'Toyota', requested_model: 'Aqua', status: 'IMPORT_REQUESTED' },
+      { id: 'order-foreign', buyer_id: 'opB-1', created_by: 'opB-1', order_type: 'vehicle', origin_country: 'Japan', status: 'IMPORT_REQUESTED' },
+    ],
+    diaspora_import_order_participants: [],
   }, { rpc: DIASPORA_RPCS });
 }
 
@@ -164,6 +176,63 @@ test('a tenant-B admin cannot approve or close a tenant-A container (403)', asyn
   const r = await requestReservationAs('buyer-1');
   assert.equal((await call('POST', `${BASE}/reservations/${r.body.data.id}/approve`, { userId: 'opB-1', tenantId: TENANT_B })).status, 403);
   assert.equal((await call('POST', `${BASE}/containers/cont-A/close-booking`, { userId: 'opB-1', tenantId: TENANT_B })).status, 403);
+});
+
+// --- import-order linkage authorization (owner UAT #10A) ----------------------
+
+test('a participant may link THEIR OWN import order (201, canonical id recorded)', async () => {
+  const { status, body } = await call('POST', `${BASE}/containers/cont-A/reservations`, {
+    userId: 'buyer-1',
+    body: { estimated_volume: 5, cargo_type: 'vehicle', import_order_id: 'order-own' },
+  });
+  assert.equal(status, 201);
+  assert.equal(body.data.import_order_id, 'order-own');
+});
+
+test('a FOREIGN import order id is refused server-side (403) — frontend filtering is not authorization', async () => {
+  const { status } = await call('POST', `${BASE}/containers/cont-A/reservations`, {
+    userId: 'buyer-1',
+    body: { estimated_volume: 5, cargo_type: 'vehicle', import_order_id: 'order-foreign' },
+  });
+  assert.equal(status, 403);
+});
+
+test('a nonexistent import order id is refused (404), never silently written', async () => {
+  const { status } = await call('POST', `${BASE}/containers/cont-A/reservations`, {
+    userId: 'buyer-1',
+    body: { estimated_volume: 5, cargo_type: 'vehicle', import_order_id: 'order-zzz' },
+  });
+  assert.equal(status, 404);
+});
+
+// --- operator manifest enrichment ---------------------------------------------
+
+test('privileged listing carries participant display name + linked order summary; participant view does not', async () => {
+  const r = await call('POST', `${BASE}/containers/cont-A/reservations`, {
+    userId: 'buyer-1',
+    body: { estimated_volume: 5, cargo_type: 'vehicle', import_order_id: 'order-own' },
+  });
+  assert.equal(r.status, 201);
+  const opView = await call('GET', `${BASE}/containers/cont-A/reservations`, { userId: 'op-1', tenantId: TENANT_A });
+  assert.equal(opView.status, 200);
+  assert.equal(opView.body.data.length, 1);
+  assert.equal(opView.body.data[0].participant_display_name, 'SYNTHETIC buyer one');
+  assert.equal(opView.body.data[0].linked_order_summary.label, 'Toyota Aqua');
+  const buyerView = await call('GET', `${BASE}/containers/cont-A/reservations`, { userId: 'buyer-1' });
+  assert.equal(buyerView.body.data[0].participant_display_name, undefined);
+});
+
+// --- trade context projection --------------------------------------------------
+
+test('trade-context returns organisation + membership for the operator, nulls for a plain participant', async () => {
+  const op = await call('GET', `${BASE}/trade-context`, { userId: 'op-1', tenantId: TENANT_A });
+  assert.equal(op.status, 200);
+  assert.equal(op.body.data.organisation.name, 'SYNTHETIC Hikari Co-Load Logistics');
+  assert.equal(op.body.data.is_organisation_admin, true);
+  const buyer = await call('GET', `${BASE}/trade-context`, { userId: 'buyer-1' });
+  assert.equal(buyer.status, 200);
+  assert.equal(buyer.body.data.organisation, null);
+  assert.equal(buyer.body.data.is_organisation_admin, false);
 });
 
 // --- participant self-service -------------------------------------------------

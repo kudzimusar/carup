@@ -16,6 +16,7 @@ import {
   cancelReservation,
   closeBooking,
 } from '../services/diaspora/diasporaContainerMarketplaceService.js';
+import { getTradeContext } from '../services/diaspora/tradeContextService.js';
 
 const router = express.Router();
 const asyncHandler = (fn) => (req, res, next) => Promise.resolve(fn(req, res, next)).catch(next);
@@ -30,6 +31,10 @@ const base = '/container-marketplace';
 const participantAuth = authorizeRole(['owner', 'dealer', 'admin', 'platform_admin', 'super_admin', 'government', 'government_reviewer', 'reviewer']);
 const operatorAuth = participantAuth;
 
+// Trade OS workspace identity/context projection (read-only; commercial context, never a role).
+router.get(`${base}/trade-context`, participantAuth, asyncHandler(async (req, res) => {
+  res.json({ data: await getTradeContext(req.userContext, { req }) });
+}));
 router.get(`${base}/containers`, participantAuth, asyncHandler(async (req, res) => {
   res.json({ data: await listOpenContainers(req.query, req.userContext, { req }) });
 }));

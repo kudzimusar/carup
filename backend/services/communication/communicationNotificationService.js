@@ -141,6 +141,17 @@ export const NOTIFICATION_POLICIES = Object.freeze({
     classification: 'transactional',
     transactional: true,
   },
+  'diaspora.container_booking.reservation_received': {
+    notificationType: 'container_booking',
+    threadType: 'container',
+    priority: 'normal',
+    channels: ['in_app'],
+    fallbackChannels: [],
+    policyChannelsOnly: true,
+    templateKey: 'container_booking_update',
+    classification: 'transactional',
+    transactional: true,
+  },
   'diaspora.container_booking.reservation_approved': {
     notificationType: 'container_booking',
     threadType: 'container',

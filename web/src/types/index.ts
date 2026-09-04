@@ -993,6 +993,9 @@ export interface DiasporaMarketplaceReservation {
   currency?: string;
   reservation_status: string;
   created_at?: string;
+  /** Privileged (operator) manifest enrichment — absent on participant-scoped reads. */
+  participant_display_name?: string | null;
+  linked_order_summary?: { id: string; label: string; status: string | null } | null;
   [key: string]: unknown;
 }
 
@@ -1003,10 +1006,26 @@ export interface DiasporaMarketplaceContainerPayload {
   destination_city: string;
   departure_date: string;
   booking_deadline: string;
+  /** Optional expected arrival (authoritative column on the container row). */
+  estimated_arrival_date?: string;
   container_type?: string;
   total_capacity_volume: number;
   total_capacity_weight?: number;
   metadata?: Record<string, unknown>;
+}
+
+/** Trade OS workspace identity/context projection — commercial context, never a security role. */
+export interface DiasporaTradeContext {
+  user: { id: string; name: string | null };
+  organisation: { id: string; name: string | null } | null;
+  tenant_role: string | null;
+  is_organisation_admin: boolean;
+  account_kind: string | null;
+  business_type: string | null;
+  organization_name: string | null;
+  market_relationship: string | null;
+  country_of_residence: string | null;
+  city: string | null;
 }
 
 export interface DiasporaReservationRequestPayload {
@@ -1019,6 +1038,8 @@ export interface DiasporaReservationRequestPayload {
   currency?: string;
   cargo_description?: string;
   source?: string;
+  /** Free-form request context (e.g. guided-measurement items) — estimates, never verified facts. */
+  metadata?: Record<string, unknown>;
 }
 
 export interface DiasporaReservationActionResult {

@@ -49,6 +49,8 @@ export const COMMUNICATION_EVENT_TYPES = [
   // Payloads carry `buyerId` (addressable) plus reference/status/route for the governed
   // `container_booking_update` template. Booking state itself stays in diaspora tables.
   'diaspora.container_booking.reservation_requested',
+  'diaspora.container_booking.reservation_received', // organiser-directed: recipient is the coordinator
+
   'diaspora.container_booking.reservation_approved',
   'diaspora.container_booking.reservation_rejected',
   'diaspora.container_booking.reservation_cancelled',

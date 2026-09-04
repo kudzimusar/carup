@@ -64,12 +64,16 @@ function capOf(c: Container) {
 async function mockApi(page: Page, state: CState, user: TestUser) {
   await page.context().route('**/api/auth/me', (r) => fulfillJson(r, { user }))
   await page.context().route('**/api/security/csrf-token', (r) => fulfillJson(r, { csrfToken: 'mock-csrf' }))
+  const tradeContext = user.active_tenant_id
+    ? { user: { id: user.id, name: user.name }, organisation: { id: user.active_tenant_id, name: 'SYNTHETIC Hikari Co-Load Logistics' }, tenant_role: user.tenant_role || null, is_organisation_admin: (user.tenant_role || '') === 'admin', account_kind: 'business', business_type: 'logistics_provider', organization_name: 'SYNTHETIC Hikari Co-Load Logistics', market_relationship: 'international', country_of_residence: 'Japan', city: 'Yokohama' }
+    : { user: { id: user.id, name: user.name }, organisation: null, tenant_role: null, is_organisation_admin: false, account_kind: 'individual', business_type: null, organization_name: null, market_relationship: 'diaspora', country_of_residence: 'United Kingdom', city: 'London' }
   await page.context().route('**/api/diaspora/**', async (route) => {
     const url = new URL(route.request().url())
     const path = url.pathname
     const method = route.request().method()
     const c = state.containers[0]
 
+    if (method === 'GET' && path.endsWith('/container-marketplace/trade-context')) { await fulfillJson(route, { data: tradeContext }); return }
     if (method === 'GET' && path.endsWith('/container-marketplace/containers')) { await fulfillJson(route, { data: state.containers }); return }
     if (method === 'POST' && path.endsWith('/container-marketplace/containers')) {
       const p = JSON.parse(route.request().postData() || '{}') as CreatePayload
@@ -88,7 +92,8 @@ async function mockApi(page: Page, state: CState, user: TestUser) {
     if (method === 'GET' && capMatch) { await fulfillJson(route, { data: { container: c, capacity: capOf(c) } }); return }
     const listResMatch = path.match(/\/container-marketplace\/containers\/([^/]+)\/reservations$/)
     if (method === 'GET' && listResMatch) {
-      const visible = ['reviewer', 'admin'].includes(user.role) ? state.reservations : state.reservations.filter((r) => r.buyer_id === user.id)
+      const privileged = ['reviewer', 'admin'].includes(user.role) || user.tenant_role === 'admin'
+      const visible = privileged ? state.reservations : state.reservations.filter((r) => r.buyer_id === user.id)
       await fulfillJson(route, { data: visible }); return
     }
     if (method === 'POST' && listResMatch) {
@@ -219,5 +224,97 @@ test.describe('Diaspora container marketplace (Phase 6)', () => {
     await page.goto('/diaspora/containers', { waitUntil: 'domcontentloaded' })
     await expect(page.getByTestId('diaspora-container-card')).toHaveCount(1)
     await expect(page.getByTestId('diaspora-container-create-section')).toHaveCount(0)
+  })
+
+  // ── Owner-UAT correction regressions ─────────────────────────────────────
+
+  test('workspace shell: no marketing footer, no "Car Owner" label, real trade identity (owner UAT #1/#3)', async ({ page }) => {
+    const state = initial()
+    await loginAs(page, operator, 'op-token')
+    await mockApi(page, state, operator)
+    await page.goto('/diaspora/containers', { waitUntil: 'domcontentloaded' })
+    await expect(page.getByTestId('tradeos-workspace')).toBeVisible()
+    // The public marketing chrome must NOT wrap the operational workspace.
+    await expect(page.locator('footer')).toHaveCount(0)
+    await expect(page.getByText(/© 2026 CarUp Zimbabwe/)).toHaveCount(0)
+    // Commercial identity, never the security role label.
+    await expect(page.getByTestId('tradeos-identity-org')).toContainText('Hikari Co-Load')
+    await expect(page.getByTestId('tradeos-identity')).toContainText(/Logistics provider/i)
+    await expect(page.getByTestId('tradeos-identity')).toContainText(/Organisation administrator/i)
+    await expect(page.getByText('Car Owner', { exact: true })).toHaveCount(0)
+  })
+
+  test('participant identity renders as trade participant, not Car Owner (owner UAT #3)', async ({ page }) => {
+    const state = initial()
+    await loginAs(page, buyer, 'b-token')
+    await mockApi(page, state, buyer)
+    await page.goto('/diaspora/containers', { waitUntil: 'domcontentloaded' })
+    await expect(page.getByTestId('tradeos-identity')).toContainText(/Trade participant/i)
+    await expect(page.getByText('Car Owner', { exact: true })).toHaveCount(0)
+  })
+
+  test('no horizontal document overflow at narrow-desktop and phone widths (owner UAT #2)', async ({ page }) => {
+    const state = initial()
+    state.reservations.push({ id: 'res-w', container_id: 'cont-1', buyer_id: 'b-1', estimated_volume: 20, reservation_status: 'REQUESTED' })
+    await loginAs(page, operator, 'op-token')
+    await mockApi(page, state, operator)
+    for (const [width, height] of [[1024, 768], [1280, 800], [1366, 768], [393, 852]] as Array<[number, number]>) {
+      await page.setViewportSize({ width, height })
+      await page.goto('/diaspora/containers', { waitUntil: 'domcontentloaded' })
+      await page.getByTestId('diaspora-container-open').first().click()
+      await expect(page.getByTestId('diaspora-container-detail')).toBeVisible()
+      const overflow = await page.evaluate(() => ({
+        doc: document.documentElement.scrollWidth - window.innerWidth,
+        body: document.body.scrollWidth - window.innerWidth,
+      }))
+      expect(overflow.doc, `document overflows by ${overflow.doc}px at ${width}`).toBeLessThanOrEqual(1)
+      expect(overflow.body, `body overflows by ${overflow.body}px at ${width}`).toBeLessThanOrEqual(1)
+    }
+  })
+
+  test('guided measurement calculates CBM from dimensions (owner UAT #5)', async ({ page }) => {
+    const state = initial()
+    await loginAs(page, buyer, 'b-token')
+    await mockApi(page, state, buyer)
+    await page.goto('/diaspora/containers', { waitUntil: 'domcontentloaded' })
+    await page.getByTestId('diaspora-container-open').click()
+    await page.getByTestId('diaspora-container-measure-calc').check()
+    await page.getByTestId('measure-item-description').fill('Boxed kitchenware')
+    await page.getByTestId('measure-item-quantity').fill('4')
+    await page.getByTestId('measure-item-length').fill('60')
+    await page.getByTestId('measure-item-width').fill('45')
+    await page.getByTestId('measure-item-height').fill('40')
+    // 0.6 × 0.45 × 0.4 × 4 = 0.432 CBM
+    await expect(page.getByTestId('diaspora-container-computed-cbm')).toContainText('0.432 CBM')
+    await page.getByTestId('diaspora-container-reserve-submit').click()
+    await expect(page.getByTestId('diaspora-container-reservation-row')).toHaveCount(1)
+    const payload = state.reservePayloads[0]
+    expect(payload.estimated_volume).toBe(0.432)
+  })
+
+  test('non-vehicle scope is communicated before the form (owner UAT #4)', async ({ page }) => {
+    const state = initial()
+    await loginAs(page, buyer, 'b-token')
+    await mockApi(page, state, buyer)
+    await page.goto('/diaspora/containers', { waitUntil: 'domcontentloaded' })
+    await expect(page.getByTestId('diaspora-container-purpose')).toContainText(/vehicles and other eligible goods/i)
+    await expect(page.getByTestId('diaspora-container-eligible-examples')).toContainText('Household & personal effects')
+    await expect(page.getByText(/subject to organiser\/carrier, safety, customs/i)).toBeVisible()
+  })
+
+  test('operator manifest shows participant identity and booking detail opens (owner UAT #6)', async ({ page }) => {
+    const state = initial()
+    state.reservations.push({ id: 'res-m', container_id: 'cont-1', buyer_id: 'b-1', estimated_volume: 12, reservation_status: 'REQUESTED', participant_display_name: 'SYNTHETIC Tapiwa Vehicle Importer', cargo_type: 'vehicle', cargo_description: 'Toyota Aqua 2018' } as Reservation & Record<string, unknown>)
+    await loginAs(page, operator, 'op-token')
+    await mockApi(page, state, operator)
+    await page.goto('/diaspora/containers', { waitUntil: 'domcontentloaded' })
+    await page.getByTestId('diaspora-container-open').click()
+    await expect(page.getByTestId('diaspora-container-participant-name')).toContainText('Tapiwa')
+    await page.getByTestId('diaspora-container-open-booking').click()
+    const detail = page.getByTestId('diaspora-container-booking-detail')
+    await expect(detail).toBeVisible()
+    await expect(detail).toContainText('Participant')
+    await expect(detail).toContainText('Tapiwa')
+    await expect(detail).toContainText(/Communications/i)
   })
 })

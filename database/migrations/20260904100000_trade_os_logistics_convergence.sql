@@ -38,21 +38,28 @@ ALTER TABLE IF EXISTS public.diaspora_cargo_reservations
   ALTER COLUMN import_order_id DROP NOT NULL;
 
 -- +migrate Down
--- Restore the original constraint vocabularies. import_order_id is NOT re-tightened to NOT NULL:
--- rows created legitimately without an order linkage would make SET NOT NULL fail, and deleting
--- reservations in a rollback would destroy booking records. The Down direction therefore restores
--- the CHECKs only.
+-- RECOVERY-SAFE ROLLBACK (owner UAT #10C): this migration is a VOCABULARY WIDENING, and rows using
+-- the widened values ('logistics_provider' registration profiles; 'household'/'general'
+-- reservations; NULL import_order_id reservations) legitimately exist once Up has run anywhere.
+-- Re-adding the ORIGINAL narrow CHECKs — or SET NOT NULL — would make the rollback itself FAIL
+-- against that data, or force destroying real booking records to satisfy a constraint. Neither is
+-- acceptable recovery behaviour.
+--
+-- The Down direction therefore re-asserts the SAME widened, data-compatible constraints (a
+-- deliberate no-op re-anchor, kept so the constraint names/definitions remain deterministic after
+-- an Up→Down→Up cycle). A true vocabulary narrowing, if ever wanted, is a separate forward
+-- migration that must first migrate/retire the affected rows explicitly.
 ALTER TABLE IF EXISTS public.user_registration_profiles
   DROP CONSTRAINT IF EXISTS user_registration_profiles_business_type_check;
 ALTER TABLE IF EXISTS public.user_registration_profiles
   ADD CONSTRAINT user_registration_profiles_business_type_check
   CHECK (business_type IN (
     'dealer', 'exporter', 'importer', 'garage', 'mechanic',
-    'parts_seller', 'insurer', 'lender', 'other'
+    'parts_seller', 'insurer', 'lender', 'logistics_provider', 'other'
   ));
 
 ALTER TABLE IF EXISTS public.diaspora_cargo_reservations
   DROP CONSTRAINT IF EXISTS diaspora_cargo_reservations_cargo_type_check;
 ALTER TABLE IF EXISTS public.diaspora_cargo_reservations
   ADD CONSTRAINT diaspora_cargo_reservations_cargo_type_check
-  CHECK (cargo_type IN ('vehicle', 'parts', 'mixed', 'other'));
+  CHECK (cargo_type IN ('vehicle', 'parts', 'household', 'general', 'mixed', 'other'));

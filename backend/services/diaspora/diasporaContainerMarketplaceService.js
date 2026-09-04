@@ -12,7 +12,7 @@
  */
 import { NotFoundError, ValidationError, ForbiddenError } from '../../utils/errors.js';
 import { CONTAINER_STATUSES, RESERVATION_STATUSES } from '../../constants/diaspora/diasporaStatuses.js';
-import { requireUserContext, isPlatformAdmin, isPlatformReviewer, isTenantAdminForRecord, normalizeId, TENANT_ADMIN_ROLES } from './diasporaAuthorization.js';
+import { requireUserContext, isPlatformAdmin, isPlatformReviewer, isTenantAdminForRecord, normalizeId, TENANT_ADMIN_ROLES, assertCanReadImportOrder } from './diasporaAuthorization.js';
 import { resolveClient, appendAudit, appendCriticalAudit, paging } from './diasporaServiceUtils.js';
 // Enforcement via the GUARD (no-op while DIASPORA_SUBSCRIPTION_ENFORCEMENT is off, which is default).
 import { requireFeature } from './diasporaEntitlementGuard.js';
@@ -20,6 +20,7 @@ import { FEATURE_KEYS } from '../../constants/diaspora/diasporaEntitlements.js';
 // D7: best-effort canonical Communications events AFTER the durable, audited mutation.
 import {
   notifyReservationRequested,
+  notifyReservationReceived,
   notifyReservationApproved,
   notifyReservationReleased,
   notifyBookingClosed,
@@ -130,6 +131,7 @@ export async function createContainer(payload = {}, userContext = {}, options = 
     destination_city: payload.destination_city,
     departure_date: payload.departure_date,
     booking_deadline: payload.booking_deadline,
+    estimated_arrival_date: payload.estimated_arrival_date || null,
     container_type: payload.container_type || '40HC',
     total_capacity_volume: round3(totalVolume),
     used_capacity_volume: 0,
@@ -154,7 +156,20 @@ export async function listOpenContainers(filters = {}, userContext = {}, options
   query = query.eq('status', filters.status || CONTAINER_STATUSES.BOOKING_OPEN);
   const { data, error } = await query;
   if (error) throw new ValidationError(`Failed to list containers: ${error.message}`);
-  return data || [];
+  return attachOrganiserNames(client, data || []);
+}
+
+/**
+ * Participant-safe organiser identity (owner UAT #6/#8): the organising BUSINESS's name is part of
+ * the booking relationship a participant is entering — it is deliberately visible. Only the tenant
+ * name is attached; membership, contacts and private organisation data are not.
+ */
+async function attachOrganiserNames(client, containers) {
+  const tenantIds = [...new Set(containers.map((c) => c.tenant_id).filter(Boolean))];
+  if (!tenantIds.length) return containers;
+  const { data } = await client.from('tenants').select('id, name').in('id', tenantIds);
+  const nameById = new Map((data || []).map((t) => [normalizeId(t.id), t.name || null]));
+  return containers.map((c) => ({ ...c, organiser_name: nameById.get(normalizeId(c.tenant_id)) || null }));
 }
 
 export async function getContainerCapacity(id, userContext = {}, options = {}) {
@@ -162,7 +177,8 @@ export async function getContainerCapacity(id, userContext = {}, options = {}) {
   const client = await resolveClient(options);
   const container = await loadContainer(client, id);
   const reservations = await loadReservations(client, id);
-  return { container, capacity: computeCapacity(container, reservations) };
+  const [enriched] = await attachOrganiserNames(client, [container]);
+  return { container: enriched, capacity: computeCapacity(container, reservations) };
 }
 
 export async function requestReservation(containerId, payload = {}, userContext = {}, options = {}) {
@@ -178,6 +194,19 @@ export async function requestReservation(containerId, payload = {}, userContext 
     throw new ValidationError('Requested volume exceeds total container capacity', { total: container.total_capacity_volume, requested: volume });
   }
 
+  // D4/D9 security: an import-order linkage is only accepted when the CALLER is authorized on the
+  // canonical order. The frontend lists only the caller's own orders, but frontend filtering is
+  // presentation, not authorization — a forged foreign order id must be refused here.
+  const importOrderId = payload.import_order_id || null;
+  if (importOrderId) {
+    const { data: order, error: orderError } = await client
+      .from('diaspora_import_orders').select('*').eq('id', importOrderId).is('deleted_at', null).single();
+    if (orderError || !order) throw new NotFoundError('Linked import order not found');
+    const { data: participants } = await client
+      .from('diaspora_import_order_participants').select('*').eq('import_order_id', importOrderId);
+    assertCanReadImportOrder(order, participants || [], context);
+  }
+
   // Gate on diaspora.container.reserve.
   await requireFeature(client, {
     tenantId: container.tenant_id || context.tenantId || null,
@@ -188,7 +217,7 @@ export async function requestReservation(containerId, payload = {}, userContext 
   const row = {
     tenant_id: container.tenant_id || context.tenantId || null,
     container_id: containerId,
-    import_order_id: payload.import_order_id || null,
+    import_order_id: importOrderId,
     buyer_id: context.id,
     seller_id: payload.seller_id || null,
     cargo_type: payload.cargo_type || 'parts',
@@ -206,6 +235,7 @@ export async function requestReservation(containerId, payload = {}, userContext 
   if (error) throw new ValidationError(`Failed to request reservation: ${error.message}`);
   await appendAudit(client, { importOrderId: data.import_order_id, actorId: context.id, tenantId: data.tenant_id, action: 'CARGO_RESERVATION_REQUESTED', resourceType: 'diaspora_cargo_reservation', resourceId: data.id, newState: data, req });
   await notifyReservationRequested({ reservation: data, container, tenantId: data.tenant_id });
+  await notifyReservationReceived({ reservation: data, container, tenantId: data.tenant_id });
   return data;
 }
 
@@ -218,7 +248,31 @@ export async function listContainerReservations(containerId, userContext = {}, o
   // Participant-safe: reviewers/coordinator see all; others see only their own reservations.
   const privileged = canReview(container, context) || normalizeId(container.coordinator_id) === context.id;
   const visible = privileged ? reservations : reservations.filter((r) => ownsReservation(r, context));
-  return visible;
+  if (!privileged || visible.length === 0) return visible;
+
+  // Operator manifest context (owner UAT #6): a booking decision needs to know WHO is asking and
+  // which canonical order is attached. Enrichment is deliberately participant-safe — display name
+  // and canonical order summary only; never phone/email (contact goes through Communications).
+  const buyerIds = [...new Set(visible.map((r) => r.buyer_id || r.created_by).filter(Boolean))];
+  const orderIds = [...new Set(visible.map((r) => r.import_order_id).filter(Boolean))];
+  const [buyersRes, ordersRes] = await Promise.all([
+    buyerIds.length ? client.from('users').select('id, name').in('id', buyerIds) : Promise.resolve({ data: [] }),
+    orderIds.length ? client.from('diaspora_import_orders').select('id, requested_make, requested_model, order_type, status').in('id', orderIds) : Promise.resolve({ data: [] }),
+  ]);
+  const buyerName = new Map((buyersRes.data || []).map((u) => [normalizeId(u.id), u.name || null]));
+  const orderById = new Map((ordersRes.data || []).map((o) => [normalizeId(o.id), o]));
+  return visible.map((r) => {
+    const order = r.import_order_id ? orderById.get(normalizeId(r.import_order_id)) : null;
+    return {
+      ...r,
+      participant_display_name: buyerName.get(normalizeId(r.buyer_id || r.created_by)) || null,
+      linked_order_summary: order ? {
+        id: order.id,
+        label: [order.requested_make, order.requested_model].filter(Boolean).join(' ') || order.order_type || 'Import order',
+        status: order.status || null,
+      } : null,
+    };
+  });
 }
 
 async function fetchReservation(client, id) {

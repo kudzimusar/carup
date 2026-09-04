@@ -53,6 +53,24 @@ export async function notifyReservationRequested({ reservation, container, tenan
   return emitContainerBookingEvent('diaspora.container_booking.reservation_requested', payload, tenantId);
 }
 
+/**
+ * Owner UAT #10B: a new space request matters to the ORGANISER first. This event addresses the
+ * container's coordinator (recipientUserId), separately from the participant's own confirmation.
+ */
+export async function notifyReservationReceived({ reservation, container, tenantId = null }) {
+  const coordinatorId = container.coordinator_id || null;
+  if (!coordinatorId) return null;
+  return emitContainerBookingEvent('diaspora.container_booking.reservation_received', {
+    reservationId: reservation.id,
+    containerId: container.id,
+    recipientUserId: coordinatorId,
+    status: 'REQUESTED',
+    reference: shortRef('RES', reservation.id),
+    route: routeOf(container),
+    subject_type: 'container_booking',
+  }, tenantId);
+}
+
 export async function notifyReservationApproved({ reservation, container, tenantId = null }) {
   const payload = basePayload(reservation, container, 'APPROVED');
   if (!payload.buyerId) return null;

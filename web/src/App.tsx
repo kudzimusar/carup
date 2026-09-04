@@ -7,6 +7,7 @@ import type { AuthUser, Notification } from '@shared/types'
 
 // Layout
 import MainLayout from './components/layout/MainLayout'
+import TradeOSWorkspaceLayout from './components/layout/TradeOSWorkspaceLayout'
 import DashboardLayout from './components/layout/DashboardLayout'
 import { FeatureGovernanceLoader } from './context/FeatureGovernanceContext'
 import { NotFoundPage } from './components/routing/FeatureStatePages'
@@ -275,18 +276,11 @@ export default function App() {
           <Route path="/security" element={<Security />} />
           <Route path="/api-docs" element={<APIDocs />} />
           <Route path="/diaspora" element={<DiasporaLanding />} />
-          <Route path="/diaspora/imports" element={<DiasporaImportList />} />
-          <Route path="/diaspora/imports/new" element={<NewDiasporaImportOrder />} />
-          <Route path="/diaspora/imports/:id" element={<DiasporaImportDetail />} />
-          <Route path="/diaspora/imports/:id/documents" element={<DiasporaImportDocuments />} />
-          <Route path="/diaspora/imports/:id/shipment" element={<DiasporaImportShipment />} />
-          <Route path="/diaspora/imports/:id/passport" element={<DiasporaOrderPassport />} />
           <Route path="/diaspora/stock" element={<DiasporaStockManager />} />
           <Route path="/diaspora/trade-profile" element={<DiasporaTradeProfile />} />
           <Route path="/diaspora/stock/:id/passport" element={<DiasporaStockPassport />} />
           <Route path="/diaspora/rfq" element={<DiasporaReverseRfq />} />
           <Route path="/diaspora/ai-commands" element={<DiasporaAiCommandCenter />} />
-          <Route path="/diaspora/containers" element={<DiasporaContainerMarketplace />} />
           <Route path="/diaspora/drive" element={<DiasporaDriveConnections />} />
           <Route path="/diaspora/subscription" element={<DiasporaSubscription />} />
           <Route path="/diaspora/safetrade" element={<DiasporaSafeTrade />} />
@@ -304,6 +298,20 @@ export default function App() {
           <Route path="/admin/diaspora/compliance" element={<DiasporaComplianceAdmin />} />
           <Route path="/admin/diaspora/workbooks" element={<DiasporaWorkbookOperatorConsole />} />
           <Route path="/admin/diaspora/workbooks/new" element={<DiasporaWorkbookDryRun />} />
+        </Route>
+
+        {/* Trade OS operational workspace (owner UAT #1): the client-demo journey — Container
+            Co-Loading + the linked Import Order/Passport surfaces — runs in an AUTHENTICATED
+            operating shell (compact top bar + local Trade OS nav), not the public marketing
+            MainLayout. Other Diaspora routes stay in MainLayout until deliberately migrated. */}
+        <Route element={<TradeOSWorkspaceLayout />}>
+          <Route path="/diaspora/containers" element={<DiasporaContainerMarketplace />} />
+          <Route path="/diaspora/imports" element={<DiasporaImportList />} />
+          <Route path="/diaspora/imports/new" element={<NewDiasporaImportOrder />} />
+          <Route path="/diaspora/imports/:id" element={<DiasporaImportDetail />} />
+          <Route path="/diaspora/imports/:id/documents" element={<DiasporaImportDocuments />} />
+          <Route path="/diaspora/imports/:id/shipment" element={<DiasporaImportShipment />} />
+          <Route path="/diaspora/imports/:id/passport" element={<DiasporaOrderPassport />} />
         </Route>
 
         {/* Auth Routes */}

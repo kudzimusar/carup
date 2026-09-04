@@ -103,6 +103,7 @@ import type {
   DiasporaAiExecuteResult,
   DiasporaMarketplaceContainer,
   DiasporaMarketplaceContainerPayload,
+  DiasporaTradeContext,
   DiasporaContainerCapacityResult,
   DiasporaMarketplaceReservation,
   DiasporaReservationRequestPayload,
@@ -1597,6 +1598,11 @@ export function useCarUpApi() {
   }, [request])
 
   // ── Phase 6: Container Co-Loading Marketplace ──
+  const fetchDiasporaTradeContext = useCallback(async (): Promise<DiasporaTradeContext> => {
+    const response = await request<{ data: DiasporaTradeContext }>('/diaspora/container-marketplace/trade-context')
+    return response.data
+  }, [request])
+
   const fetchDiasporaMarketplaceContainers = useCallback(async (): Promise<DiasporaMarketplaceContainer[]> => {
     const response = await request<{ data: DiasporaMarketplaceContainer[] }>('/diaspora/container-marketplace/containers')
     return response.data || []
@@ -2970,6 +2976,7 @@ export function useCarUpApi() {
     approveDiasporaAiCommand,
     rejectDiasporaAiCommand,
     executeDiasporaAiCommand,
+    fetchDiasporaTradeContext,
     fetchDiasporaMarketplaceContainers,
     createDiasporaMarketplaceContainer,
     fetchDiasporaContainerCapacity,
