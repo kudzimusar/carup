@@ -22,12 +22,16 @@ import {
   submitQuoteById,
   withdrawQuote,
 } from '../services/diaspora/diasporaRfqService.js';
+import { ensureRfqConversation } from '../services/diaspora/diasporaRfqConversationService.js';
 
 const router = express.Router();
 const asyncHandler = (fn) => (req, res, next) => Promise.resolve(fn(req, res, next)).catch(next);
 // H4 authorization matrix: buyer-side vs seller-side allowlists; services re-check ownership.
 const buyerAuth = authorizeRole(['owner', 'admin', 'platform_admin', 'super_admin', 'government', 'government_reviewer', 'reviewer']);
 const sellerAuth = authorizeRole(['dealer', 'admin', 'platform_admin', 'super_admin', 'government', 'government_reviewer', 'reviewer']);
+// A clarification thread has two legitimate sides, so the ROUTE admits both allowlists and the
+// service decides which side the caller actually is (and refuses anyone who is neither).
+const conversationAuth = authorizeRole(['owner', 'dealer', 'admin', 'platform_admin', 'super_admin', 'government', 'government_reviewer', 'reviewer']);
 
 // --- Buyer orders (buyer-owned) ---
 router.get('/buyer-orders', buyerAuth, asyncHandler(async (req, res) => {
@@ -75,6 +79,13 @@ router.post('/quotes/:id/submit', sellerAuth, asyncHandler(async (req, res) => {
 }));
 router.post('/quotes/:id/withdraw', sellerAuth, asyncHandler(async (req, res) => {
   res.json({ data: await withdrawQuote(req.params.id, req.userContext, { req }) });
+}));
+
+// T2 §9.7 — open (or reuse) the canonical clarification conversation for a request.
+// Buyer or eligible supplier only; the service decides which side the caller is and refuses
+// anyone who is neither. Deliberately NOT a new message store: it returns a canonical thread id.
+router.post('/buyer-orders/:id/conversation', conversationAuth, asyncHandler(async (req, res) => {
+  res.json({ data: await ensureRfqConversation(req.params.id, req.userContext, { req, sellerId: req.body?.sellerId }) });
 }));
 
 export default router;

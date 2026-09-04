@@ -148,8 +148,7 @@ test.describe('Trade OS T2 — Request Quotes', () => {
     await expect(page.getByTestId('trade-part-number-reassurance')).toContainText(/most buyers don't/i)
     await page.getByTestId('trade-part-description').fill('Front shocks')
     await page.getByTestId('trade-part-quantity').fill('20')
-    await page.getByTestId('trade-part-vehicle-make').fill('Honda')
-    await page.getByTestId('trade-part-vehicle-model').fill('Fit')
+    await page.getByTestId('trade-part-vehicle-make').selectOption('Honda')
     await page.getByTestId('trade-request-next').click()
 
     await page.getByTestId('trade-destination-city').fill('Harare')
@@ -180,8 +179,7 @@ test.describe('Trade OS T2 — Request Quotes', () => {
     await page.goto('/diaspora/request-quotes', { waitUntil: 'domcontentloaded' })
     await page.getByTestId('trade-intent-buy').click()
     await page.getByTestId('trade-kind-vehicle').click()
-    await page.getByTestId('trade-vehicle-make').fill('Toyota')
-    await page.getByTestId('trade-vehicle-model').fill('Aqua')
+    await page.getByTestId('trade-vehicle-make').selectOption('Toyota')
     await page.getByTestId('trade-request-next').click()
     await page.getByTestId('trade-request-next').click()
     await page.getByTestId('trade-budget-amount').fill('7000')
@@ -202,7 +200,7 @@ test.describe('Trade OS T2 — Request Quotes', () => {
     await page.goto('/diaspora/request-quotes', { waitUntil: 'domcontentloaded' })
     await page.getByTestId('trade-intent-buy').click()
     await page.getByTestId('trade-kind-vehicle').click()
-    await page.getByTestId('trade-vehicle-make').fill('Toyota')
+    await page.getByTestId('trade-vehicle-make').selectOption('Toyota')
     await page.getByTestId('trade-request-next').click()
     await page.getByTestId('trade-request-next').click()
     await page.getByTestId('trade-budget-amount').fill('7000')
@@ -410,6 +408,23 @@ test.describe('Trade OS T2 — Request Quotes', () => {
     await page.getByTestId('trade-offer-save-draft').click()
     await expect(page.getByTestId('trade-my-offers')).toBeVisible()
     expect(state.quotePayloads[0].submit).toBe(false)
+  })
+
+  test('"Ask a question" creates a real canonical conversation, not a dead button', async ({ page }) => {
+    const state = initial()
+    state.opportunities.push(opportunity())
+    let conversationCalls = 0
+    await loginAs(page, seller)
+    await mockApi(page, state, seller)
+    await page.context().route('**/buyer-orders/*/conversation', async (route) => {
+      conversationCalls += 1
+      await fulfillJson(route, { data: { threadId: 'thread-1', role: 'seller', rfqId: 'order-1' } })
+    })
+    await page.goto('/diaspora/buyer-requests', { waitUntil: 'domcontentloaded' })
+    await page.getByTestId('trade-ask-question').click()
+    // It reaches the canonical Communications surface, where questions are actually read/answered.
+    await expect(page).toHaveURL(/\/dashboard\/communications/)
+    expect(conversationCalls).toBe(1)
   })
 
   test('supplier empty state explains how opportunities arrive', async ({ page }) => {

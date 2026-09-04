@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { AlertTriangle, Check, Loader2, Package } from 'lucide-react'
 import { Alert, AlertDescription } from '@/components/ui/alert'
 import { Button } from '@/components/ui/button'
@@ -61,8 +62,9 @@ export default function TradeBuyerRequests() {
   const { loading: authLoading } = useAuth()
   const {
     fetchDiasporaRfqs, fetchDiasporaMyQuotes, createDiasporaQuote,
-    submitDiasporaQuote, withdrawDiasporaQuote,
+    submitDiasporaQuote, withdrawDiasporaQuote, ensureDiasporaRfqConversation,
   } = useCarUpApi()
+  const navigate = useNavigate()
 
   const [tab, setTab] = useState<Tab>('open')
   const [rfqs, setRfqs] = useState<DiasporaRfqOpportunity[]>([])
@@ -168,6 +170,23 @@ export default function TradeBuyerRequests() {
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Your offer could not be sent')
     } finally {
+      setBusy(false)
+    }
+  }
+
+  /**
+   * Open the canonical clarification thread and hand the supplier to the inbox. Deliberately NOT
+   * routed through act(): act() refetches this page afterwards, which races the navigation away.
+   */
+  const askQuestion = async (rfqId: string) => {
+    if (busy) return
+    setBusy(true)
+    setError('')
+    try {
+      await ensureDiasporaRfqConversation(rfqId)
+      navigate('/dashboard/communications')
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'The conversation could not be opened')
       setBusy(false)
     }
   }
@@ -322,6 +341,15 @@ export default function TradeBuyerRequests() {
                         {alreadyQuoted ? 'Send another offer' : 'Prepare offer'}
                       </Button>
                     )}
+                    <Button
+                      variant="outline"
+                      className="rounded-none"
+                      disabled={busy}
+                      onClick={() => askQuestion(rfq.id)}
+                      data-testid="trade-ask-question"
+                    >
+                      Ask a question
+                    </Button>
                     {alreadyQuoted && <span className="text-xs text-gray-600">You have already offered on this request.</span>}
                   </div>
 

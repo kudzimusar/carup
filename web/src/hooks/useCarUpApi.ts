@@ -1555,6 +1555,15 @@ export function useCarUpApi() {
     return response.data
   }, [request])
 
+  /** Open (or reuse) the canonical clarification thread for a request. Returns a thread id. */
+  const ensureDiasporaRfqConversation = useCallback(async (orderId: string, sellerId?: string): Promise<{ threadId: string | null; role: string }> => {
+    const response = await request<{ data: { threadId: string | null; role: string } }>(
+      `/diaspora/buyer-orders/${encodeURIComponent(orderId)}/conversation`,
+      { method: 'POST', body: JSON.stringify(sellerId ? { sellerId } : {}) },
+    )
+    return response.data
+  }, [request])
+
   const fetchDiasporaMyQuotes = useCallback(async (): Promise<DiasporaMyQuote[]> => {
     const response = await request<{ data: DiasporaMyQuote[] }>('/diaspora/my-quotes')
     return response.data || []
@@ -2982,6 +2991,7 @@ export function useCarUpApi() {
     fetchDiasporaRfqs,
     fetchDiasporaRfqOpportunity,
     fetchDiasporaMyQuotes,
+    ensureDiasporaRfqConversation,
     createDiasporaQuote,
     submitDiasporaQuote,
     withdrawDiasporaQuote,

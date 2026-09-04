@@ -1947,12 +1947,17 @@ Every implementation cycle appends an entry below.
   requirement detail, quote counts, deterministic make filter, and teaching empty states.
 - [x] **T2.9 Explainable matching.** Reasons in human language ("20 units required", "Buyer does
   not know the part number — your identification helps"). No opaque score is shown.
-- [ ] **T2.10 Buyer↔seller clarification — NOT DONE (honest partial).** Canonical Communications
-  can carry it (`marketplace` workflow → `marketplace_inquiry` thread type, roles buyer/seller,
-  free-text `subject_type`), but the web client cannot reach `ensureReferenceFlow` today: the
-  ensure endpoint is worker-secret guarded server-to-server, so a diaspora-domain route must be
-  added first. **No "Ask a question" button was shipped**, because a button that does not create
-  a real conversation is worse than its absence. Carried to T2 cycle 2.
+- [x] **T2.10 Buyer↔seller clarification — DONE in cycle 1b.** The blocker (the ensure endpoint is
+  worker-secret guarded server-to-server, unreachable from the web client) was closed by adding the
+  missing seam: `backend/services/diaspora/diasporaRfqConversationService.js` +
+  `POST /diaspora/buyer-orders/:id/conversation`. It creates/reuses a CANONICAL Communications
+  thread — `marketplace` workflow, `marketplace_inquiry` thread type, buyer/seller stakeholder
+  contract, `subject_type: 'diaspora_rfq'` — with **no rfq_messages table and no feature chat**.
+  One thread per (request, supplier) pair so competitors never read each other's clarifications.
+  Participation is EARNED: the buyer must own the request and a supplier must be able to see it in
+  the marketplace (published + open + not awarded); anyone else is refused. The supplier's
+  "Ask a question" now creates the real thread and hands them to the canonical inbox where
+  questions are actually read and answered.
 - [x] **T2.11 Quote composer.** A real commercial proposal: description, quantity, unit price,
   total, currency, condition, dispatch lead time, shipping included/excluded/**not stated**,
   validity, inclusions and exclusions. Backed by additive REAL COLUMNS (`offered_quantity`,
@@ -2011,9 +2016,27 @@ privacy, buyer-cannot-use-supplier-endpoint, and line-level privacy.
   including the geometry gate and the comprehension regressions.
 - **Migration:** `20260904180000` applied to staging `eoyenigwevnxwwhyhaer`. Production untouched.
 
-**Known limitations (honest):** T2.10/T2.16 clarification + events not shipped (route seam
-required); T2.17 Intelligence not started; T2.20 staging journey not yet run, so **T2 is
-PARTIAL, not usable-certified**.
+### Cycle 1b additions (after the discovery workflow's independent review)
 
-**Next unchecked task:** T2.10 clarification seam → T2.16 events → T2.17 Intelligence → T2.20
-deployed staging certification (buyer + supplier, desktop/narrow/tablet/mobile, adversarial).
+A parallel 8-dimension discovery workflow re-read the September code and independently confirmed
+the two load-bearing decisions — the service-role sanitized allow-list projection ("already
+implemented and is correct; adopt it") and leaving RLS untouched ("weakening RLS would buy nothing"
+since diaspora services read through the service role, so the JS projection IS the boundary). It
+also surfaced two things worth acting on, both now fixed:
+
+- **Canonical taxonomy reuse.** The vehicle/parts wizards captured make and model as FREE TEXT,
+  which the deterministic matcher could never match against stock (`scoreStockAgainstOrder`
+  compares normalized make/model) and which the plan forbids as a second taxonomy. Both now use
+  the canonical `VEHICLE_MAKES` / `modelsForMake` selects from `@/data/vehicleTaxonomy`, with
+  model gated on make and an explicit "I'm flexible / not sure" option.
+- **`useCarUpApi` aggregate hazard.** The retired page destructured the whole hook object (which is
+  a fresh unmemoized literal each render) and had an unbounded refetch loop. All four new Trade
+  surfaces destructure individual functions — verified.
+
+**Known limitations (honest):** T2.16 lifecycle notification EVENTS are not wired (the thread seam
+exists; the domain-event → notification policies for RFQ published / quote submitted / quote
+accepted are not); T2.17 RFQ Intelligence not started and deliberately not faked; **T2.20 deployed
+staging journey has NOT been run**, so T2 is **PARTIAL, not usable-certified**.
+
+**Next unchecked task:** T2.16 lifecycle events → T2.17 RFQ Intelligence → T2.20 deployed staging
+certification (buyer + supplier journeys, desktop/narrow/tablet/mobile, adversarial tenant cases).

@@ -6,6 +6,7 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { useAuth } from '@/context/AuthContext'
 import { useCarUpApi } from '@/hooks/useCarUpApi'
+import { VEHICLE_MAKES, modelsForMake } from '@/data/vehicleTaxonomy'
 import type { DiasporaBuyerOrderPayload, DiasporaRequestLinePayload, Vehicle } from '@/types'
 
 /**
@@ -369,10 +370,16 @@ export default function TradeRequestQuotes() {
             <p className="mt-1 text-sm text-gray-600">If you are flexible, leave a field blank — suppliers can still offer suitable vehicles.</p>
             <div className="mt-5 grid min-w-0 gap-4 sm:grid-cols-2">
               <label className={fieldLabel}>Make
-                <Input className="mt-1 rounded-none" placeholder="e.g. Toyota" value={make} onChange={(e) => setMake(e.target.value)} data-testid="trade-vehicle-make" />
+                <select className={control} value={make} onChange={(e) => { setMake(e.target.value); setModel('') }} data-testid="trade-vehicle-make">
+                  <option value="">I&apos;m flexible / not sure</option>
+                  {VEHICLE_MAKES.map((m) => <option key={m} value={m}>{m}</option>)}
+                </select>
               </label>
               <label className={fieldLabel}>Model
-                <Input className="mt-1 rounded-none" placeholder="e.g. Aqua" value={model} onChange={(e) => setModel(e.target.value)} data-testid="trade-vehicle-model" />
+                <select className={control} value={model} onChange={(e) => setModel(e.target.value)} disabled={!make} data-testid="trade-vehicle-model">
+                  <option value="">{make ? 'Any model' : 'Choose a make first'}</option>
+                  {modelsForMake(make).map((m) => <option key={m.id} value={m.name}>{m.name}</option>)}
+                </select>
               </label>
               <label className={fieldLabel}>Earliest year
                 <Input className="mt-1 rounded-none" type="number" placeholder="Any" value={yearMin} onChange={(e) => setYearMin(e.target.value)} data-testid="trade-vehicle-year-min" />
@@ -446,10 +453,16 @@ export default function TradeRequestQuotes() {
                   </fieldset>
 
                   <label className={fieldLabel}>Vehicle make
-                    <Input className="mt-1 rounded-none bg-white" placeholder="e.g. Honda" value={line.vehicle_make || ''} onChange={(e) => setLine(index, { vehicle_make: e.target.value })} data-testid="trade-part-vehicle-make" />
+                    <select className={control} value={line.vehicle_make || ''} onChange={(e) => setLine(index, { vehicle_make: e.target.value, vehicle_model: '' })} data-testid="trade-part-vehicle-make">
+                      <option value="">Not sure</option>
+                      {VEHICLE_MAKES.map((m) => <option key={m} value={m}>{m}</option>)}
+                    </select>
                   </label>
                   <label className={fieldLabel}>Vehicle model
-                    <Input className="mt-1 rounded-none bg-white" placeholder="e.g. Fit" value={line.vehicle_model || ''} onChange={(e) => setLine(index, { vehicle_model: e.target.value })} data-testid="trade-part-vehicle-model" />
+                    <select className={control} value={line.vehicle_model || ''} onChange={(e) => setLine(index, { vehicle_model: e.target.value })} disabled={!line.vehicle_make} data-testid="trade-part-vehicle-model">
+                      <option value="">{line.vehicle_make ? 'Any model' : 'Choose a make first'}</option>
+                      {modelsForMake(line.vehicle_make).map((m) => <option key={m.id} value={m.name}>{m.name}</option>)}
+                    </select>
                   </label>
 
                   {(myVehicles?.length ?? 0) > 0 && (
