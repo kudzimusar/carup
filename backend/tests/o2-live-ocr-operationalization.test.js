@@ -364,8 +364,24 @@ test('live-ocr: a provider error is a provider failure, distinct from a reading 
   assert.ok(empty.result.qualityMetrics.qualityIssues.includes('provider_reported_illegible'));
 });
 
+test('live-ocr: a JSON object wrapped in provider prose is recovered — and NOTHING is inferred from the prose', async (t) => {
+  const { result } = await extractWith(t, {
+    reading: 'Here is the reading you asked for:\n\n```json\n{"document_class_observed":"zimbabwe_national_id","confidence":0.9,"fields":{"first_name":"TESTCASE","last_name":"SPECIMEN","national_id_number":"63-1234567-A-42"}}\n```\nHope that helps!',
+  });
+  assert.equal(result.success, true);
+  assert.equal(result.extractedData.first_name, 'TESTCASE');
+  assert.equal(result.extractedData.last_name, 'SPECIMEN');
+  // Only the JSON object is read. Values mentioned in the prose are not evidence.
+  const prose = await extractWith(t, {
+    reading: 'The surname on this card is MOYO and the given name is TENDAI. {"document_class_observed":"zimbabwe_national_id","fields":{}}',
+  });
+  assert.equal(prose.result.extractedData.first_name, undefined, 'a name stated in prose is not a reading');
+  assert.equal(prose.result.extractedData.last_name, undefined);
+  assert.deepEqual(prose.result.extractedData.observedFields, []);
+});
+
 test('live-ocr: malformed provider output fails CLOSED', async (t) => {
-  for (const malformed of ['this is not json', '[1,2,3]', '']) {
+  for (const malformed of ['this is not json', '[1,2,3]', '', 'I could not read the document, sorry.']) {
     const { result } = await extractWith(t, { reading: malformed });
     assert.equal(result.success, false, `output ${JSON.stringify(malformed)} must not produce a reading`);
     assert.equal(result.extractedData, undefined);

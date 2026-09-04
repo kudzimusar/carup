@@ -381,14 +381,31 @@ export class DocumentIntelligenceService {
     }
   }
 
-  /** Provider output must be a JSON object; anything else is a provider fault, not a reading. */
+  /**
+   * Provider output must be a JSON object; anything else is a provider fault, not a reading.
+   *
+   * `@cf/meta/llama-3.2-11b-vision-instruct` returns a parsed object most of the time but wraps
+   * its JSON in prose on a substantial minority of calls, even with an absolute output-format
+   * instruction and a response_format schema. So a single balanced JSON object is recovered from
+   * the string — and ONLY that. This is not prose parsing: nothing is inferred from the prose, the
+   * recovered text must itself be valid JSON and a plain object, and anything else fails closed.
+   */
   static parseProviderResponse(rawResponse) {
     let parsed = rawResponse;
     if (typeof rawResponse === 'string') {
       try {
         parsed = JSON.parse(rawResponse);
       } catch {
-        throw new OcrProviderOutputError('The extraction provider returned output that is not valid JSON.');
+        const opened = rawResponse.indexOf('{');
+        const closed = rawResponse.lastIndexOf('}');
+        let recovered;
+        if (opened > -1 && closed > opened) {
+          try { recovered = JSON.parse(rawResponse.slice(opened, closed + 1)); } catch { recovered = undefined; }
+        }
+        if (recovered === undefined) {
+          throw new OcrProviderOutputError('The extraction provider returned output that is not valid JSON.');
+        }
+        parsed = recovered;
       }
     }
     if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
