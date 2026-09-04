@@ -58,10 +58,21 @@ supabase.from = (table) => ({
 
 const mimeFor = (file) => (file.endsWith('.png') ? 'image/png' : file.endsWith('.txt') ? 'text/plain' : 'application/octet-stream');
 
+const sleep = (ms) => new Promise((resolve) => { setTimeout(resolve, ms); });
+
+// The corpus is paced so a per-minute provider quota is not itself measured as an OCR failure.
+// Raise PACE_MS on a tighter quota; it changes how fast the gate asks, never what it accepts.
+const MAX_ATTEMPTS = 3;
+const RATE_LIMIT_BACKOFF_MS = [20_000, 45_000];
+const PACE_MS = Number(process.env.OCR_GATE_PACE_MS ?? 6_000);
+
 const graded = [];
 const runs = [];
+let fixtureIndex = 0;
 
 for (const fixture of manifest.fixtures) {
+  if (fixtureIndex > 0 && PACE_MS > 0) await sleep(PACE_MS);
+  fixtureIndex += 1;
   const filePath = path.join(corpusDir, fixture.file);
   const bytes = readFileSync(filePath);
   const dataUri = `data:${mimeFor(fixture.file)};base64,${bytes.toString('base64')}`;
@@ -76,10 +87,11 @@ for (const fixture of manifest.fixtures) {
   const startedAt = Date.now();
   const attempts = [];
   let result;
-  // A transport failure is not a reading. One bounded retry separates a flaky call from a
-  // provider that genuinely cannot read the document; BOTH attempts are recorded, so a retry can
-  // never hide a systematic failure — and a retry is never taken on a reading the provider gave.
-  for (let attempt = 1; attempt <= 2; attempt += 1) {
+  // A transport failure is not a reading. Bounded retries separate a flaky or rate-limited call
+  // from a provider that genuinely cannot read the document; EVERY attempt is recorded, so a retry
+  // can never hide a systematic failure — and a retry is never taken on a reading the provider
+  // actually gave. RESOURCE_EXHAUSTED is the provider asking to be slowed down, so it backs off.
+  for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt += 1) {
     result = await DocumentIntelligenceService.extractDocumentData(
       fixture.docType, dataUri, 'ocr-accuracy-gate', { visionClient: countingClient },
     );
@@ -90,8 +102,11 @@ for (const fixture of manifest.fixtures) {
       error: result.error || null,
       latencyMs: result.latencyMs,
     });
-    if (result.executionStatus !== 'provider_failed') break;
-    if (attempt === 1) console.log(`    transport retry for ${fixture.id}: ${result.error}`);
+    if (result.executionStatus !== 'provider_failed' || attempt === MAX_ATTEMPTS) break;
+    const rateLimited = /RESOURCE_EXHAUSTED|HTTP 429/.test(result.error || '');
+    const backoffMs = rateLimited ? RATE_LIMIT_BACKOFF_MS[attempt - 1] : 2_000;
+    console.log(`    transport retry ${attempt + 1}/${MAX_ATTEMPTS} for ${fixture.id} in ${backoffMs}ms: ${result.error}`);
+    await sleep(backoffMs);
   }
   const wallMs = Date.now() - startedAt;
 
