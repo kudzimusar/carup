@@ -102,3 +102,13 @@ tsc · lint NET_NEW 0/0 — then the O2 tracker/receipts updated with the reconc
 `PO merge/land decision → O2 reconciliation (this manifest) → shared-staging DDL parity plan
 (six O2 migrations + ledger reconciliation) → synthetic identity fixture approval (reuse the
 per-run-identity pattern) → O2 preview pairing (two rows, additive) → P7 → X7.`
+
+---
+
+## EXECUTED — 2026-09-04
+
+This manifest was executed as written: #194 landed at `bb9d9900`; reconciliation merge
+`7b9e8907`; two conflicts exactly as predicted (sellerAuthorityService → O2 superset kept;
+vehiclesRoutes → manual, f600d002 hunk adopted + X3 step-up kept); server.js auto-merged with
+the X1 retirement intact; zero migration/P1-C duplication; the six-unapplied count confirmed
+from files. Results + certification: `docs/features/o2/CARUP_OPERATIONS_O2_POST_PR194_RECONCILIATION_RECEIPT.md`.

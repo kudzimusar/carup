@@ -916,6 +916,33 @@ export function useCarUpApi() {
     return request<{ success: boolean; review: Record<string, unknown> }>(`/admin/vehicles/${vin}/review`)
   }, [request])
 
+  // O2/P3 — People & Compliance reviewer aggregate (read-only).
+  const fetchPersonComplianceReview = useCallback(async (userId: string): Promise<{ success: boolean; review: Record<string, unknown> }> => {
+    return request<{ success: boolean; review: Record<string, unknown> }>(`/admin/people/${userId}/review`)
+  }, [request])
+
+  // O2/P4 — identity session decision through the OWNING identity service route.
+  const reviewIdentitySession = useCallback(async (
+    sessionId: string,
+    payload: { action: string; reason_code?: string; notes?: string },
+  ): Promise<{ success: boolean }> => {
+    return request<{ success: boolean }>(`/admin/identity/verification-sessions/${sessionId}/review`, {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    })
+  }, [request])
+
+  // O2/P4 — dealer compliance decision through the OWNING dealer service route.
+  const recordDealerComplianceDecision = useCallback(async (
+    dealerId: string,
+    payload: { decision: string; requirement_key?: string; reason?: string },
+  ): Promise<{ success: boolean }> => {
+    return request<{ success: boolean }>(`/admin/dealers/${dealerId}/decision`, {
+      method: 'PATCH',
+      body: JSON.stringify(payload),
+    })
+  }, [request])
+
   // Operations M1 — governed classification correction (reason mandatory).
   const correctEvidenceClassification = useCallback(async (
     vin: string,
@@ -2728,7 +2755,121 @@ export function useCarUpApi() {
   const exportReferralAudit = useCallback((filters?: ReferralAuditExportFilters): Promise<ReferralServiceResponse> =>
     request<ReferralServiceResponse>(`/referrals/trust/audit-export${referralQuery(filters)}`), [request])
 
+  // O2-X2 — registration onboarding journey (self-scoped; describes, never grants).
+  // Server-owned payloads travel as structural records; the consuming page narrows them.
+  type RegistrationJourneyPayload = {
+    success: boolean
+    user: Record<string, unknown> | null
+    profile: Record<string, unknown> | null
+    identity_session: Record<string, unknown> | null
+    journey: Record<string, unknown>
+  }
+  type RegistrationCandidatesPayload = { success: boolean; candidates: Record<string, unknown> }
+  type RegistrationProfileSaveResult = { success: boolean; profile: Record<string, unknown>; field_provenance: Record<string, string> }
+  type IdentitySessionEnvelope = { success: boolean; session: Record<string, unknown> }
+
+  const fetchRegistrationJourney = useCallback((): Promise<RegistrationJourneyPayload> =>
+    request<RegistrationJourneyPayload>('/registration/journey'), [request])
+  const fetchRegistrationCandidates = useCallback((): Promise<RegistrationCandidatesPayload> =>
+    request<RegistrationCandidatesPayload>('/registration/profile/candidates'), [request])
+  const saveRegistrationProfile = useCallback((payload: { profile: Record<string, unknown>; candidates_seen?: Record<string, string> }): Promise<RegistrationProfileSaveResult> =>
+    request<RegistrationProfileSaveResult>('/registration/profile', { method: 'PUT', body: JSON.stringify(payload) }), [request])
+  const createIdentitySession = useCallback((documentType: string): Promise<IdentitySessionEnvelope> =>
+    request<IdentitySessionEnvelope>('/identity/verification-sessions', { method: 'POST', body: JSON.stringify({ documentType }) }), [request])
+  const uploadIdentitySide = useCallback((sessionId: string, side: 'front' | 'back' | 'selfie', image: string): Promise<IdentitySessionEnvelope> =>
+    request<IdentitySessionEnvelope>(`/identity/verification-sessions/${encodeURIComponent(sessionId)}/upload/${side}`, { method: 'POST', body: JSON.stringify({ image }) }), [request])
+  const submitIdentitySession = useCallback((sessionId: string): Promise<IdentitySessionEnvelope> =>
+    request<IdentitySessionEnvelope>(`/identity/verification-sessions/${encodeURIComponent(sessionId)}/submit`, { method: 'POST', body: JSON.stringify({}) }), [request])
+
+  // O2-X4 — explicit biometric consent + provider assessment (self-scoped; evidence only).
+  type BiometricConsentEnvelope = { success: boolean; consent: Record<string, unknown> }
+  type BiometricRunEnvelope = { success: boolean; biometric: { face_match_status: string; liveness_status: string; provider_state: string; assessed_at: string | null } }
+  const grantBiometricConsent = useCallback((payload: { consent: true; consent_text_version: string; purposes: string[] }): Promise<BiometricConsentEnvelope> =>
+    request<BiometricConsentEnvelope>('/identity/biometric-consent', { method: 'POST', body: JSON.stringify(payload) }), [request])
+  const withdrawBiometricConsent = useCallback((): Promise<BiometricConsentEnvelope> =>
+    request<BiometricConsentEnvelope>('/identity/biometric-consent/withdraw', { method: 'POST', body: JSON.stringify({}) }), [request])
+  const runBiometricCheck = useCallback((sessionId: string): Promise<BiometricRunEnvelope> =>
+    request<BiometricRunEnvelope>(`/identity/verification-sessions/${encodeURIComponent(sessionId)}/biometrics`, { method: 'POST', body: JSON.stringify({}) }), [request])
+
+  // O2-X5 — Dealer onboarding self-service (context-gated server-side; onboarding, never authority).
+  type DealerOnboardingEnvelope = { success: boolean } & Record<string, unknown>
+  const fetchDealerOnboardingOverview = useCallback((): Promise<DealerOnboardingEnvelope> =>
+    request<DealerOnboardingEnvelope>('/dealer-onboarding/overview'), [request])
+  const saveDealerOnboardingProfile = useCallback((payload: { profile: Record<string, unknown>; candidates_seen?: Record<string, string> }): Promise<DealerOnboardingEnvelope> =>
+    request<DealerOnboardingEnvelope>('/dealer-onboarding/profile', { method: 'PUT', body: JSON.stringify(payload) }), [request])
+  const uploadDealerEvidence = useCallback((payload: { doc_type: string; file: string; expiry_date?: string | null }): Promise<DealerOnboardingEnvelope> =>
+    request<DealerOnboardingEnvelope>('/dealer-onboarding/documents', { method: 'POST', body: JSON.stringify(payload) }), [request])
+  const runDealerDocumentOcr = useCallback((docId: string): Promise<DealerOnboardingEnvelope> =>
+    request<DealerOnboardingEnvelope>(`/dealer-onboarding/documents/${encodeURIComponent(docId)}/ocr`, { method: 'POST', body: JSON.stringify({}) }), [request])
+  const addDealerOnboardingBranch = useCallback((payload: { name: string; address?: string }): Promise<DealerOnboardingEnvelope> =>
+    request<DealerOnboardingEnvelope>('/dealer-onboarding/branches', { method: 'POST', body: JSON.stringify(payload) }), [request])
+  const inspectDealerWorkbook = useCallback((payload: { fileBase64: string; filename: string; templateType?: string; sheetName?: string }): Promise<DealerOnboardingEnvelope> =>
+    request<DealerOnboardingEnvelope>('/dealer-onboarding/workbook/inspect', { method: 'POST', body: JSON.stringify(payload) }), [request])
+  const confirmDealerWorkbookMapping = useCallback((payload: Record<string, unknown>): Promise<DealerOnboardingEnvelope> =>
+    request<DealerOnboardingEnvelope>('/dealer-onboarding/workbook/mapping/confirm', { method: 'POST', body: JSON.stringify(payload) }), [request])
+  const runDealerWorkbookDryRun = useCallback((payload: { fileBase64: string; filename: string; templateType?: string; sheetName?: string }): Promise<DealerOnboardingEnvelope> =>
+    request<DealerOnboardingEnvelope>('/dealer-onboarding/workbook/dry-run', { method: 'POST', body: JSON.stringify(payload) }), [request])
+
+  // O2-X5A — Workbook tools (catalogue SERVER-derived; Template · Export · Import ·
+  // Recent Imports + the CarUp AI Workbook Assistant).
+  type WorkbookEnvelope = { success: boolean } & Record<string, unknown>
+  const fetchWorkbookCatalogue = useCallback((): Promise<WorkbookEnvelope> =>
+    request<WorkbookEnvelope>('/workbook/catalogue'), [request])
+  const inspectWorkbook = useCallback((payload: { fileBase64: string; filename: string; template_key: string }): Promise<WorkbookEnvelope> =>
+    request<WorkbookEnvelope>('/workbook/inspect', { method: 'POST', body: JSON.stringify(payload) }), [request])
+  const confirmWorkbookMappings = useCallback((payload: { template_key: string; workbook_checksum: string; sheets: Array<{ sheet_name: string; mappings: Array<{ source: string; target: string }> }> }): Promise<WorkbookEnvelope> =>
+    request<WorkbookEnvelope>('/workbook/mapping/confirm', { method: 'POST', body: JSON.stringify(payload) }), [request])
+  const runWorkbookDryRun = useCallback((payload: { fileBase64: string; filename: string; template_key: string }): Promise<WorkbookEnvelope> =>
+    request<WorkbookEnvelope>('/workbook/dry-run', { method: 'POST', body: JSON.stringify(payload) }), [request])
+  const executeVehicleWorkbookBatch = useCallback((batchId: string): Promise<WorkbookEnvelope> =>
+    request<WorkbookEnvelope>(`/workbook/import-batches/${encodeURIComponent(batchId)}/execute`, { method: 'POST', body: JSON.stringify({ confirm: true }) }), [request])
+  const fetchRecentWorkbookImports = useCallback((): Promise<WorkbookEnvelope> =>
+    request<WorkbookEnvelope>('/workbook/recent-imports'), [request])
+  const explainWorkbookField = useCallback((payload: { template_key: string; sheet_name?: string; field: string }): Promise<WorkbookEnvelope> =>
+    request<WorkbookEnvelope>('/workbook/assistant/explain-field', { method: 'POST', body: JSON.stringify(payload) }), [request])
+  const suggestWorkbookCorrections = useCallback((payload: { template_key: string; issues: Array<Record<string, unknown>> }): Promise<WorkbookEnvelope> =>
+    request<WorkbookEnvelope>('/workbook/assistant/suggest-corrections', { method: 'POST', body: JSON.stringify(payload) }), [request])
+  // Binary template/export downloads — same auth identity, blob out (GET = CSRF-safe).
+  const downloadWorkbookFile = useCallback(async (kind: 'templates' | 'export', templateKey: string): Promise<Blob> => {
+    const headers: Record<string, string> = {}
+    if (token) headers['x-session-token'] = token
+    if (user?.id) headers['x-user-id'] = user.id
+    if (user?.role) headers['x-stakeholder-role'] = user.role
+    const response = await fetch(`${BASE_URL}/workbook/${kind}/${encodeURIComponent(templateKey)}`, { headers })
+    if (!response.ok) {
+      const detail = await response.json().catch(() => ({}))
+      throw new Error(extractApiErrorMessage(detail) || 'The workbook could not be downloaded.')
+    }
+    return response.blob()
+  }, [user, token])
+
   return {
+    fetchWorkbookCatalogue,
+    inspectWorkbook,
+    confirmWorkbookMappings,
+    runWorkbookDryRun,
+    executeVehicleWorkbookBatch,
+    fetchRecentWorkbookImports,
+    explainWorkbookField,
+    suggestWorkbookCorrections,
+    downloadWorkbookFile,
+    fetchRegistrationJourney,
+    fetchRegistrationCandidates,
+    saveRegistrationProfile,
+    createIdentitySession,
+    uploadIdentitySide,
+    submitIdentitySession,
+    grantBiometricConsent,
+    withdrawBiometricConsent,
+    runBiometricCheck,
+    fetchDealerOnboardingOverview,
+    saveDealerOnboardingProfile,
+    uploadDealerEvidence,
+    runDealerDocumentOcr,
+    addDealerOnboardingBranch,
+    inspectDealerWorkbook,
+    confirmDealerWorkbookMapping,
+    runDealerWorkbookDryRun,
     fetchSellerIntelligence,
     fetchListingIntelligence,
     fetchDealerIntelligence,
@@ -2872,6 +3013,9 @@ export function useCarUpApi() {
     approveEvidence,
     rejectEvidence,
     fetchVehicleOperationsReview,
+    fetchPersonComplianceReview,
+    reviewIdentitySession,
+    recordDealerComplianceDecision,
     correctEvidenceClassification,
     reviewSellerAuthority,
     lookupVehiclePassport,

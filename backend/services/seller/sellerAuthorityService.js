@@ -771,7 +771,55 @@ export async function supersedeSellerAuthorityOnOwnershipTransfer(client, {
     throw new SellerAuthorityError(`Seller authority supersession failed: ${updateErr.message}`, 'SELLER_AUTHORITY_WRITE_FAILED', 500);
   }
 
+  // O2-X6 — the former seller is finally TOLD. Best-effort after the audited durable
+  // revocation; safe facts only (no transfer detail, no counterparty, no free text).
+  // LAZY import: this module must stay importable with no environment (the canonical
+  // Trust fail-fast pin covers its graph via vehicleFactResolver) — the event bus pulls
+  // the eager supabase client, so it loads only at emit time.
+  const { emitDomainEvent } = await import('../eventBus/eventBusService.js');
+  await emitDomainEvent(null, 'seller.authority.superseded', {
+    vin: normalizedVin,
+    recipientUserId: previousOwnerId,
+    status: 'revoked',
+    whoMustAct: 'none',
+    occurredAt: decidedAt,
+    schemaVersion: 'o2_event.v1',
+  }, null).catch((err) => {
+    console.warn('seller.authority.superseded outbox emit failed:', err.message);
+  });
+
   return { changed: true, superseded: 1, previous_status: row.status, record: updated };
+}
+
+/**
+ * O2/P2 — normalized responsibility projection (M8 ADR §10.1). Derived, never stored; the status
+ * vocabulary above stays canonical inside this domain.
+ *
+ * `not_assessed`/`recognized` (the derived no-row states from getSellerAuthorityState) ask nothing
+ * of anyone by themselves; only in a LISTING context does the absence of authority become the
+ * seller's next action. `revoked` asks nothing — a superseded authority is history, and a NEW
+ * claim starts a new lifecycle.
+ */
+const AUTHORITY_STATUS_TO_RESPONSIBILITY = Object.freeze({
+  evidence_submitted: 'carup_review',
+  under_review: 'carup_review',
+  confirmed: 'none',
+  insufficient: 'subject_action',
+  disputed: 'escalated',
+  revoked: 'none',
+  recognized: 'none',
+  not_assessed: 'none',
+});
+
+export function toResponsibilityProjection(status, { listingContext = false } = {}) {
+  if ((status === 'not_assessed' || status === 'recognized') && listingContext) {
+    return 'subject_action';
+  }
+  const mapped = AUTHORITY_STATUS_TO_RESPONSIBILITY[status];
+  if (!mapped) {
+    throw new SellerAuthorityError(`Seller authority status '${status}' has no responsibility mapping`, 'SELLER_AUTHORITY_PROJECTION_UNMAPPED', 500);
+  }
+  return mapped;
 }
 
 export default {
@@ -789,6 +837,7 @@ export default {
   hasConflictingSellerRelationship,
   getSellerAuthorityState,
   supersedeSellerAuthorityOnOwnershipTransfer,
+  toResponsibilityProjection,
   isSellerAuthoritySatisfied,
   toPublicSellerAuthorityStatement,
   submitSellerClaim,
