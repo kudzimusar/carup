@@ -1,809 +1,1818 @@
-# CarUp Trade OS — Container Co-Loading Living Master Plan
+# CarUp Trade OS — Cross-Border Trade & Shared Logistics Living Master Plan
 
 **Status:** CANONICAL ACTIVE PLAN  
-**Version:** 1.0  
+**Version:** 2.0  
 **Date:** 2026-09-04  
 **Repository:** `kudzimusar/carup`  
 **Implementation branch:** `feat/trade-os-client-demo-convergence`  
-**Baseline:** `main@bb9d9900c700873ca57df0ac18a1a5c01f77711a`  
-**Primary immediate objective:** make the existing Trade OS container co-loading capability demonstrably usable with real staging data today, then continue iterating without creating a parallel system.
+**Draft PR:** `#207`  
+**Current branch baseline at v2 promotion:** `255d903eee27579d28eb3685a0a6bc75061135c7`  
+**Production:** NOT AUTHORIZED / MUST REMAIN UNTOUCHED until a separate production gate  
+**Primary objective:** evolve the existing Diaspora Trade OS, Reverse RFQ and Container Co-Loading kernels into CarUp's complete cross-border sourcing, shared-logistics and trade operating system.
 
 ---
 
-# 0. Governance — this document is the active contract
+# 0. Governance — this document is the durable authority
 
-This is the governing implementation, product, UAT and operating manual for the CarUp Trade OS container-sharing/co-loading capability from 2026-09-04 onward.
+This file is the governing product, architecture, implementation, UAT and operating manual for CarUp Trade OS from 2026-09-04 onward.
 
-It does **not** erase the historical Trade OS documents. It reconciles them with the Seller, Communications, Intelligence, Vehicle Passport, Trust, onboarding and security work merged after the Trade OS programme paused.
+Version 1.0 of this file concentrated on recovering and converging the historical Container Co-Loading MVP for a same-day client demonstration. That work remains valid historical evidence in Git history and is summarized in §24. It is no longer the programme north star.
+
+The business decision changed on 2026-09-04: a prospective Japan→Zimbabwe shared-container client accepted the CarUp proposition. The programme therefore moves from **demo convergence** to **production-intent Trade OS product development**.
 
 Every human or AI implementation agent must:
 
-1. Read this file before changing Trade OS/container code.
-2. Use the task ledger in this file as the roll-call. Do not work from chat memory alone.
-3. Mark a task `[x]` only when implementation **and** the stated evidence exist.
-4. Use `[~]` for started/partially proven and `[ ]` for not started.
-5. Record commit SHA, tests, staging evidence and any deviation next to the task before moving on.
-6. Preserve the authoritative data model and security boundaries below.
-7. Reuse the existing Trade OS services, routes, migrations and tables rather than rebuilding a second container system.
-8. Reuse canonical CarUp Communications, identity, Evidence/Drive, Intelligence and Vehicle Passport surfaces where integration is required.
-9. Never turn a business identity such as logistics provider into a platform-security role merely to make a demo work.
-10. Never fabricate shipment, payment, Trust, reputation, compliance, capacity or delivery state.
-11. Keep production untouched until a separately authorized production cutover.
-12. If implementation reality contradicts this plan, document the contradiction and amend this plan deliberately; do not silently diverge.
-
-**Owner requirement:** the first implementation return must prioritize a working, coherent staging demonstration over speculative breadth. Most of the engine already exists; this programme is a convergence and usability programme, not a rewrite.
-
----
-
-# 1. Product purpose
-
-CarUp is the mediation and operating layer for shared container trade between participants, the shipment/container organiser and the downstream Zimbabwe vehicle/trade ecosystem.
-
-The immediate client use case is:
-
-> A Japan-based organiser wants to run 40-foot shared containers to Zimbabwe, initially targeting October and December shipments. Participants may ship cars or other eligible cargo that legally and safely fits the container. The organiser needs one system to coordinate participants, cargo, space, documents, loading and shipment progress instead of scattered DMs and spreadsheets.
-
-CarUp's role is **not** to pretend to be the shipping line, customs authority, bank or insurer. CarUp provides the digital system of record and governed workflow connecting the parties.
-
-### Value proposition
-
-CarUp should let the organiser:
-
-- publish/open a shipment/container opportunity;
-- show route, dates, booking deadline and available capacity;
-- receive structured cargo-space requests;
-- understand who is shipping what;
-- approve, reject or cancel reservations safely;
-- prevent approved reservations from overfilling the container;
-- coordinate loading and shipment information;
-- keep operational messages attached to the correct container/order;
-- keep participant documents and evidence governed and separated;
-- maintain a traceable audit trail;
-- connect vehicle imports to the later Vehicle Passport / Zimbabwe ownership journey;
-- expose real operational intelligence from actual records rather than invented dashboards.
-
-CarUp should let a participant:
-
-- discover an available shared container;
-- understand the route, departure target, deadline and remaining capacity;
-- request space for a vehicle, parts, household goods or another eligible cargo category;
-- provide cargo dimensions/volume/weight/value/description as appropriate;
-- see reservation status;
-- receive relevant updates and communication;
-- follow the later shipment/order journey when linked;
-- preserve evidence relating to their own cargo/order.
-
----
-
-# 2. Product north star and canonical data flow
-
-The platform must preserve one connected trade journey:
-
-```text
-CarUp user
-  -> registration profile
-  -> organisation / tenant membership where applicable
-  -> trade role/profile extension
-  -> import order or cargo intent
-  -> cargo reservation
-  -> container
-  -> shipment
-  -> documents / payment milestones / compliance
-  -> Zimbabwe readiness
-  -> Vehicle Passport / ownership handoff where cargo is a vehicle
-  -> trade/logistics reputation outcome
-  -> Intelligence projections
-```
-
-Communications, Notifications, Security, Audit and AI surround this journey; they do not create shadow copies of it.
+1. Read this file completely before changing Trade OS code.
+2. Use the phase ledger in this file as roll-call. Do not work from chat memory.
+3. Do not create another master plan or competing Trade OS architecture document.
+4. Mark `[x]` only when implementation and the required evidence exist.
+5. Use `[~]` for partial/started and `[ ]` for not started.
+6. Append a dated execution entry after each bounded implementation cycle.
+7. Preserve existing hardened kernels unless evidence proves replacement is necessary.
+8. Reuse canonical CarUp identity, tenant membership, Communications, Evidence/Drive, Intelligence, Vehicle Passport, Trust and navigation authorities.
+9. Keep business identity separate from authorization roles.
+10. Never fabricate payment, customs, carrier, Trust, reputation, shipment, compliance, capacity, ETA, cost or delivery state.
+11. Treat UI usability and responsive geometry as product correctness, not cosmetic polish.
+12. Keep production untouched until owner-authorized production readiness and cutover.
+13. If implementation reality contradicts this plan, amend this file deliberately before diverging.
+14. Preserve old evidence through Git history; do not keep obsolete checklists active merely because they once passed.
 
 **Architectural rule:**
 
-> One identity -> one authoritative transaction -> one evidence trail -> one event stream -> many projections.
+> One identity → one authoritative transaction → one evidence trail → one event stream → many projections.
+
+**Product rule:**
+
+> CarUp must translate ordinary human intent into trade objects. Users should not need to understand freight jargon, RFQ terminology, CBM mathematics, tenant roles, or internal table names to use the product.
 
 ---
 
-# 3. Existing implementation that MUST be reused
+# 1. Product north star
 
-## 3.1 Existing container kernel
+CarUp Trade OS is a **cross-border trade, sourcing, logistics and transaction operating system** connecting buyers, suppliers, shippers, logistics organisers and downstream operational partners from first demand through sourcing, booking, consolidation, shipment and destination handoff.
 
-Current authoritative files:
+CarUp remains especially differentiated in automotive because it already has Seller, Marketplace, Vehicle Passport, Evidence, Trust, Parts and Zimbabwe vehicle-lifecycle foundations. However, **Trade OS logistics is not limited to automotive cargo**.
 
-- `backend/services/diaspora/diasporaContainerMarketplaceService.js`
-- `backend/routes/diasporaContainerMarketplaceRoutes.js`
-- `database/migrations/20260621092000_diaspora_h3_container_approval_rpc.sql`
-- `backend/tests/diaspora-container-marketplace.test.js`
-- `web/src/pages/diaspora/DiasporaContainerMarketplace.tsx`
-- `web/e2e/diaspora-container-marketplace.spec.ts`
-- `web/src/hooks/useCarUpApi.ts`
-- `web/src/types/index.ts`
-- `web/src/App.tsx`
-- `web/src/config/featureRegistry.ts`
-- `shared/navigation/feature-manifest.json`
+The winning positioning is:
 
-Existing authoritative tables:
+> **Tell CarUp what you need to buy or move. CarUp connects the appropriate participants, preserves the transaction, coordinates the trade journey and carries the same data through sourcing, logistics and Zimbabwe handoff.**
 
-- `diaspora_container_shipments`
-- `diaspora_cargo_reservations`
-- `diaspora_shipments`
-- `diaspora_shipment_stage_events`
-- `diaspora_import_orders`
-- `diaspora_import_quotes`
-- `diaspora_trade_documents`
-- `diaspora_payment_milestones`
-- `diaspora_import_audit_log`
+CarUp is not the shipping line, customs authority, bank, insurer or freight forwarder unless CarUp later becomes a legally authorized provider of one of those services. The platform is the governed mediation, coordination, evidence, workflow and intelligence layer.
 
-## 3.2 Existing truths that are already strong
+---
 
-The implementation already supports:
+# 2. Two primary customer intents — procurement and logistics must not be conflated
 
-- create/list containers at API level;
-- request/list cargo reservations;
-- approve/reject/cancel reservation;
-- close booking;
-- authoritative approved-volume capacity calculation;
-- optional weight guard;
-- concurrency-safe atomic approval RPC;
-- participant-safe reservation visibility;
-- tenant-aware service-layer permission checks;
-- sealed/critical audit trails;
-- explicit separation between closing booking and shipment/delivery/customs/payment;
-- UI route `/diaspora/containers`;
-- backend and browser tests;
-- previous canonical staging UAT certification.
+The user must begin from an understandable intention, not from internal feature names.
 
-Capacity contract:
+## 2.1 Procurement: “I need to buy/find something”
 
 ```text
-USED_VOLUME = sum(APPROVED reservation estimated_volume)
-AVAILABLE_VOLUME = total_capacity_volume - USED_VOLUME
-FILL_PERCENT = USED_VOLUME / total_capacity_volume
-READY_TO_CLOSE = FILL_PERCENT >= 0.90
-FULL = FILL_PERCENT >= 0.98
+I need something
+  → Request Quotes
+  → qualified suppliers see the opportunity
+  → questions / clarification
+  → suppliers submit commercial offers
+  → buyer compares offers
+  → buyer accepts one offer
+  → accepted quote becomes the operating order
+  → payment / documents / logistics follow
 ```
 
-Pending reservations do not consume approved capacity. Approval must never bypass the atomic RPC.
+Initial procurement scope remains CarUp's strongest verticals:
 
-## 3.3 Historical documents that remain evidence/reference
+- vehicles;
+- vehicle parts;
+- mixed automotive orders.
 
-Read these when implementation questions arise:
+Do **not** silently turn CarUp into a general Alibaba-style goods marketplace. General non-automotive sourcing requires a separate owner product decision. The logistics layer, however, may move broader eligible cargo that the user already owns or has sourced elsewhere.
 
-- `docs/CARUP_DIASPORA_TRADE_OS_SYSTEM_PLAN.md`
-- `docs/DIASPORA_PHASES_3_TO_7_DISCOVERY.md`
-- `docs/DIASPORA_PHASES_3_TO_7_PROGRESS.md`
-- `docs/DIASPORA_PHASES_3_TO_7_HANDOFF.md`
-- `docs/CLAUDE_CODE_DIASPORA_PHASES_3_TO_7_HARDENING_DIRECTIVE.md`
-- `docs/DIASPORA_PHASES_3_TO_7_HARDENING_PROGRESS.md`
-- `docs/DIASPORA_PHASES_3_TO_7_HARDENING_REPORT.md`
-- `docs/DIASPORA_TRADE_OS_MVP_ACCEPTANCE_MATRIX.md`
-- `docs/DIASPORA_TRADE_OS_DEPLOYED_BROWSER_UAT_REPORT.md`
-- `docs/DIASPORA_PHASE10_TRADE_GRAPH_DESIGN.md`
-
-The historically referenced `docs/CLAUDE_CODE_DIASPORA_PHASES_3_TO_7_MASTER_DIRECTIVE.md` is not present on current `main`; do not rely on it as an available runtime artifact.
-
----
-
-# 4. Reconciliation with newer CarUp architecture
-
-Trade OS was not actively evolved while major CarUp foundations changed. The container programme must now converge with these newer authorities.
-
-## 4.1 Identity and onboarding
-
-Canonical new signup context:
-
-- `backend/services/auth/registrationProfileService.js`
-- `database/migrations/20260829123000_user_registration_profiles.sql`
-
-Rules:
-
-- account identity and commercial identity are not authorization roles;
-- public signup remains unprivileged;
-- business onboarding may record a logistics/freight business type, but that type must not grant platform authority;
-- operational authority comes from governed organisation/tenant membership and scoped permissions.
-
-Current gap: the business-type vocabulary does not explicitly contain logistics/freight-forwarder. This must be reconciled without creating a global `logistics` platform role.
-
-Target model:
+## 2.2 Logistics: “I already have something and need to move it”
 
 ```text
-user
- -> user_registration_profile(account_kind=business)
- -> organisation/tenant
- -> business_type=logistics_provider (or approved equivalent)
- -> tenant owner/admin/staff membership
- -> scoped container permissions
+I already own / bought cargo
+  → Request Shipping or choose an available sailing
+  → describe cargo in ordinary language
+  → calculate/estimate dimensions if needed
+  → qualified logistics providers / organiser respond or booking is requested
+  → quote / booking decision
+  → warehouse intake / measurement
+  → consolidation / loading
+  → shipment
+  → destination clearance / handoff / delivery
 ```
 
-The organiser must **not** need `platform_admin`, `government`, or a reviewer role to run their own container business.
+Eligible logistics cargo may include, subject to organiser/carrier, safety, customs and law:
 
-## 4.2 Communications 2.0
+- vehicles;
+- vehicle parts;
+- household/personal effects;
+- furniture/appliances;
+- boxed goods;
+- machinery/equipment;
+- commercial/general cargo;
+- other eligible cargo.
 
-Canonical plan:
-
-- `docs/communications/CARUP_COMMUNICATIONS_2_CANONICAL_PLAN.md`
-
-Trade/container subjects already belong in the canonical communications architecture, including `diaspora_order` and `container_booking`.
-
-Rules:
-
-- human coordination must use the CarUp canonical conversation model;
-- WhatsApp/email/Telegram/web are channels, not separate business records;
-- exact human messages must be preserved;
-- reservation and shipment state transitions remain domain records, not chat messages;
-- activity notification and human conversation are separate semantics.
-
-For the demo slice, reservation-created/approved/rejected/cancelled and booking-closed states should create the correct activity notification and, where a human coordination thread is needed, bind to/reuse a canonical `container_booking` conversation rather than inventing a Trade OS chat silo.
-
-## 4.3 Intelligence 1.0
-
-Relevant authority:
-
-- `docs/intelligence/receipts/I13_DIASPORA_TRADE_INTELLIGENCE.md`
-- `backend/services/intelligence/tradeIntelligenceService.js`
-- `backend/services/diaspora/tradegraph/diasporaTradeIntelligenceService.js`
-
-Rules:
-
-- authoritative tables win;
-- no fake zero when data is unreadable;
-- no settlement claims without confirmed settlement;
-- no shipment demand claims when there are no shipment records;
-- no cross-currency total without FX authority;
-- do not activate Trade Graph merely to make the demo richer.
-
-The first demo may show operational container metrics sourced directly from authoritative container/reservation records: capacity, approved/pending reservation counts and actual statuses. Do not fabricate market opportunity, route demand, revenue or reputation.
-
-## 4.4 Trade Graph
-
-Relevant authority:
-
-- `docs/DIASPORA_PHASE10_TRADE_GRAPH_DESIGN.md`
-- `backend/constants/diaspora/diasporaTradeGraphConstants.js`
-
-The vocabulary already includes container/reservation events. The graph has historically been feature-gated/off and previously empty.
-
-For today:
-
-- preserve event-compatible semantics;
-- do not make the demo depend on the graph;
-- if existing canonical event emission can be wired safely with minimal scope, do so;
-- otherwise record the missing projection wiring as P1 and keep authoritative table behaviour primary.
-
-## 4.5 Seller / Vehicle Passport / Zimbabwe registration lifecycle
-
-Relevant plans:
-
-- `docs/seller/SELLER_UAT_REMEDIATION_EXECUTION_MASTER_PLAN.md`
-- `docs/seller/ZIMBABWE_SELLER_REALITY_COMMUNICATIONS_HARDENING_PLAN.md`
-
-Container/shipment records can provide provenance for vehicle import states such as:
-
-- import in transit;
-- arrived/customs pending;
-- customs cleared/CVR pending;
-- CVR/plate pending;
-- locally registered.
-
-Rules:
-
-- do not duplicate Seller/listing data inside a container reservation;
-- if cargo is a CarUp vehicle/import order, link it by canonical identifier;
-- shipment/container evidence may strengthen Vehicle Passport provenance;
-- it must not directly invent or manually alter canonical Vehicle Trust.
-
-## 4.6 Trust and reputation
-
-Separate concepts:
-
-- **Vehicle Trust:** governed vehicle/evidence authority.
-- **Trade/Logistics Reputation:** performance outcome of importer/seller/logistics provider.
-- **Listing completeness/readiness:** not Trust.
-
-The historical `diaspora_trade_profiles.trust_score` must not become a second universal CarUp Trust authority. Any future use must be explicitly reconciled as a derived trade reputation concept.
-
-## 4.7 Drive / Evidence
-
-Reuse the governed provider already used by Trade OS and later Seller work:
-
-- `backend/services/diaspora/drive/googleDriveProvider.js`
-- existing credential vault/provider abstraction.
-
-Drive is storage, not public authority. CarUp metadata/evidence remains authoritative.
-
-Container documents should ultimately bind to the relevant order/container/shipment and participant, for example packing list, invoice, bill of lading, customs documentation and delivery evidence.
-
-Live Drive is not a P0 blocker for today's first usable demo unless the staging environment already has it legitimately activated.
+A user shipping household goods must not be forced through an automotive purchase workflow.
 
 ---
 
-# 5. Immediate demo scope — definition of “works today”
+# 3. Actor model — relationships, not global role explosion
 
-The first usable staging return is accepted only if a real browser user can complete the core journey without developer tools or direct DB edits during the demonstration.
+A cross-border transaction can involve several actors. One person/business may hold multiple relationships across different transactions.
 
-## Demo Actor A — Container organiser / logistics operator
+## 3.1 Core actors
 
-The organiser can:
+### Buyer / Importer
+Requests or purchases goods and may become consignee/importer of record where legally applicable.
 
-1. sign in through the normal CarUp account path;
-2. reach Trade OS through visible navigation;
-3. open Container Co-Loading;
-4. create an October or December Japan -> Zimbabwe container from the UI;
-5. enter at minimum:
-   - origin country/city;
-   - destination country/city;
-   - departure target/date;
-   - booking deadline;
-   - container type;
-   - total CBM;
-   - optional max weight;
-   - public/participant-safe notes or cargo eligibility guidance;
-6. see the created container in the open-container list;
-7. open it and see capacity state;
-8. see incoming reservation requests;
-9. approve/reject valid requests;
-10. see capacity update after approval;
-11. see a truthful full/ready state based on approved reservations;
-12. close booking only through the governed action;
-13. see audit/activity state rather than silent mutations.
+### Supplier / Seller / Exporter
+Offers stock or responds to procurement requests and supplies goods.
 
-## Demo Actor B — Participant/customer
+### Shipper / Consignor
+Person/business tendering cargo for transport. May be the buyer, supplier or another party.
 
-The participant can:
+### Consignee
+Destination recipient for cargo. May be the buyer or another authorized recipient.
 
-1. sign in through normal CarUp identity;
-2. navigate to the available shared containers;
-3. open a specific Japan -> Zimbabwe container;
-4. request space using a structured form;
-5. choose cargo category such as:
-   - vehicle;
-   - vehicle parts;
-   - household/personal effects;
-   - general eligible cargo;
-   - other eligible cargo;
-6. provide cargo description;
-7. provide estimated volume (CBM);
-8. optionally provide estimated weight, declared value/currency and an import-order/vehicle reference if one exists;
-9. submit the request;
-10. see `REQUESTED`, then the later approved/rejected state;
-11. see only records they are allowed to see;
-12. receive/see the relevant activity update and a clear route to communication where implemented.
+### Logistics Organiser / Freight Forwarder
+Runs its own container or shipping operation, reviews bookings, coordinates cargo, capacity, documents, loading and shipment operations.
 
-## Demo Actor C — Owner/observer
+### Warehouse / CFS / Loading Team
+Receives cargo, records condition/measurements, stores it, prepares consolidation and confirms loading events.
 
-The CarUp owner can show:
+### Carrier
+Physical ocean/road/air transport provider. Carrier facts must be recorded only when supplied/verified; CarUp must not imply carrier authority.
 
-- Trade OS navigation and purpose;
-- open container(s);
-- capacity truth;
-- structured reservations;
-- operator decision;
-- participant status;
-- real audit/notification evidence;
-- linked order/passport evidence where a vehicle/import order exists;
-- operational Intelligence only where the data actually exists.
+### Clearing Agent / Customs Broker
+Handles destination/origin clearance where legitimately appointed.
+
+### Delivery / Collection Partner
+Handles destination collection or last-mile delivery.
+
+### CarUp Platform Oversight
+Support, reviewer, risk, dispute and governance authority. This is separate from the client's logistics operator role.
+
+## 3.2 Identity and authorization model
+
+Do not create `users.role = logistics_provider`, `shipper`, `consignee`, etc. merely to render labels.
+
+Use:
+
+```text
+authenticated user
+  + registration/commercial profile
+  + organisation / tenant
+  + tenant membership
+  + transaction participant relationship
+  + scoped permission/capability
+```
+
+Commercial identity and security role remain different authorities.
+
+A Trade OS surface should show the context that matters to the transaction, for example:
+
+```text
+Hikari Co-Load Logistics
+Logistics Provider
+Japan → Zimbabwe Trade Operations
+Signed in as Kudzie · Organisation Administrator
+```
+
+rather than presenting the operator primarily as “Car Owner.”
 
 ---
 
-# 6. P0 implementation ledger — complete before the first client demonstration
+# 4. Canonical data ownership
 
-Claude/agents must take roll-call against this list on every return.
+Do not create shadow copies of authoritative facts.
 
-> **⚠ OWNER UAT CORRECTION (2026-09-04):** the `[x]` evidence below reflects the first automated
-> certification cycle, which the owner's visual/product UAT has OVERRIDDEN. The authoritative
-> current state is the "OWNER UAT CORRECTION" execution entry at the end of this file:
-> D1/D2/D3/D4/D5/D7/D9 are **[~]** and D10 is **[ ] OWNER UAT FAILED** until the correction cycle
-> re-certifies with geometry gates, full-page visual evidence and owner acceptance.
-
-## D0 — Baseline and regression boundary
-
-- [x] Verify working branch derives from `main@bb9d9900c700873ca57df0ac18a1a5c01f77711a` or document the newer reconciled SHA.
-- [x] Working tree clean before implementation.
-- [x] Read this master plan plus the files listed in §3 and §4.
-- [x] Run targeted baseline tests for container marketplace, auth/tenant isolation, route validation and the directly affected web surface.
-- [x] Record baseline results here before changing behaviour.
-
-**Evidence (2026-09-04):** branch `feat/trade-os-client-demo-convergence` = `main@bb9d9900` + 2 doc
-commits (`a9a1be97`, `90072b77`), local == origin, merge-base == bb9d9900, `origin/main` unmoved.
-Baseline (pre-change): `node --test backend/tests/diaspora-container-marketplace.test.js
-backend/tests/diaspora-logistics-auth.test.js` → 28/28 pass;
-`node --test backend/tests/auth-registration-profile.test.js` → 5/5 pass;
-`npm run build` (web, = tsc -b + vite build) → exit 0.
-Key baseline findings recorded: (a) route gates `authorizeRole([...platform roles])` were the ONLY
-blocker for a tenant operator — service `canReview` and the atomic RPC already accept a tenant admin
-of the record's own tenant; (b) `users.role` DB CHECK cannot even store `platform_admin`/`reviewer`;
-(c) login/`/me` never returned tenant context, so a browser session never sent `x-tenant-id` before
-a role switch; (d) `diaspora_cargo_reservations.import_order_id` was NOT NULL in the DB although the
-marketplace service has always treated it as optional — every real no-order reservation would have
-failed on staging; (e) `cargo_type` CHECK lacked household/general; (f) `business_type` CHECK lacked
-a logistics value; (g) staging DB had ZERO container rows (clean demo slate).
-
-## D1 — Navigation and Trade OS entry coherence
-
-- [x] Confirm `/diaspora/containers` still resolves. (App.tsx:289; unchanged.)
-- [x] Ensure a normal authorized business/participant can discover Trade OS / Container Co-Loading through current navigation without knowing the URL. (Registry entry `diaspora.container-marketplace` already carried `placements: ['dashboard_sidebar']` + roles owner/dealer/admin/government; it now also carries `sidebarGroup: 'Growth & Diaspora'`, a description and a `Container` icon so it renders inside the grouped IA rather than as an ungrouped stray.)
-- [x] Preserve feature-registry/feature-manifest consistency. (`node scripts/generate-feature-manifest.mjs` re-run → zero manifest diff; drift test green.)
-- [x] Add clear links between the relevant Trade OS surfaces. (Container page header now links Import orders (`/diaspora/imports`, which hosts Trade Intelligence), Communications and Reverse RFQ; Order Passport already aggregates cargo reservations.)
-- [x] Do not expose admin/reviewer consoles to ordinary participants. (No admin surface touched; operator controls appear only for platform reviewer roles or a verified tenant admin.)
-
-**Demo acceptance:** owner can start from a normal dashboard/Trade OS entry and reach the container page in clicks, not by typing a hidden route. **Proven in staging spec 45 (operator test clicks the sidebar link).**
-
-## D2 — Proper logistics organiser identity and permission semantics
-
-- [x] Add an explicit non-authorizing business identity for logistics/freight operation to the registration/business vocabulary and DB constraint through an additive migration if required. (`logistics_provider` added to `REGISTRATION_BUSINESS_TYPES`, `web/src/pages/auth/Register.tsx` and the `business_type` CHECK via additive migration `20260904100000_trade_os_logistics_convergence.sql`; the applied `20260829123000` migration is untouched.)
-- [x] Do **not** create a new global platform security role merely for the organiser. (`users.role` vocabulary unchanged; the demo operator is a plain `owner`.)
-- [x] Reuse organisation/tenant membership/scoped authority. (Authority = verified `tenant_users` membership with role admin, exactly the `isTenantAdminForRecord` semantics the service and atomic RPC already enforced. Additionally, login and `/api/auth/me` now return the caller's sole verified membership as advisory `active_tenant_id`/`tenant_role`, closing the gap where a fresh session never sent `x-tenant-id` — the middleware still re-verifies the header against `tenant_users` on every request.)
-- [x] Replace route-level assumptions that only reviewer/admin/government actors may create/manage containers. (The four mutating marketplace routes now use the participant-level `authorizeRole` list; the AUTHORITATIVE operator decision stays in `canReview`/the RPC. Note `users.role` cannot even store `platform_admin`/`reviewer`, so the old route list was largely aspirational.)
-- [x] Keep service-layer ownership/tenant permission checks authoritative. (Service and RPC untouched on the authorization path.)
-- [x] Prove another tenant cannot manage the organiser's container.
-- [x] Preserve platform reviewer/admin oversight as an additional path. (`isPlatformAdmin`/`isPlatformReviewer` branches unchanged.)
-
-**Evidence:** new `backend/tests/diaspora-container-marketplace-auth.test.js` (11/11 over HTTP against the real router+middleware+service+RPC-reference): anonymous 401; plain buyer 403; spoofed `x-stakeholder-role` 403; spoofed `x-tenant-id` without membership 403; tenant MEMBER 403; tenant admin create 201 (tenant-stamped) / approve (capacity updates) / reject / close; tenant-B admin cross-tenant approve+close 403; participant self-approve 403; owner cancel 200 + non-owner cancel 403. Existing suites stay green (28/28 + 5/5).
-
-## D3 — Operator Create Container UI
-
-- [x] Add the missing UI over the already-existing `POST /api/diaspora/container-marketplace/containers` endpoint. (Collapsible operator form on `DiasporaContainerMarketplace.tsx`: origin/destination country+city, departure date, booking deadline, container type 40HC/40ft/20ft, total CBM, optional max weight, participant-safe notes → `metadata.participant_notes`.)
-- [x] Use existing design system and current dashboard patterns. (Same shadcn/tailwind conventions as the page.)
-- [x] Validate required fields client-side for usability and server-side for truth. (Client lists missing fields; server `total_capacity_volume must be positive` preserved.)
-- [x] Provide actionable validation/error messages. (`diaspora-container-create-error` lists exactly what is missing.)
-- [x] Refresh/select the new container after creation.
-- [x] Never silently substitute demo values when fields are missing. (Refusal, not substitution — pinned by mocked e2e test.)
-
-## D4 — Rich cargo-space request UI
-
-- [x] Cargo category. (vehicle / vehicle parts / household–personal effects / general eligible cargo / other; `cargo_type` CHECK widened additively with `household`,`general` in the same migration; UI default is `general`.)
-- [x] Cargo description.
-- [x] Estimated volume (CBM), required.
-- [x] Estimated weight, optional.
-- [x] Declared value and currency, optional and clearly labelled as declared—not verified value. (`declared_value` added to the request payload type; disclaimer text on the form also states category selection is not customs/DG/shipping-line acceptance.)
-- [x] Optional import order / vehicle linkage using a valid participant-owned record where available. (Selector appears for the vehicle category, fetches only `/diaspora/import-orders` — server-scoped to the caller — and a fetch failure renders "could not be loaded", never an empty claim.)
-- [x] Eligibility acknowledgement / organiser instructions if such data is available. (`metadata.participant_notes` rendered as "Organiser notes" on the detail panel.)
-- [x] Preserve server validation and participant ownership. (Backend request path unchanged; `import_order_id` NOT NULL relaxed by additive migration so the service's long-standing optional-linkage contract actually works on a real database.)
-
-**Do not** claim CarUp has confirmed dangerous-goods eligibility, customs classification or shipping-line acceptance unless a real governed authority exists.
-
-## D5 — Reservation operations and capacity truth
-
-- [x] Preserve atomic `diaspora_approve_cargo_reservation_atomic` as the only approval path. (Untouched; still the sole approve route.)
-- [x] Preserve optional weight overfill protection. (Untouched; weight test still green.)
-- [x] Show REQUESTED/APPROVED/REJECTED/CANCELLED clearly. (Colour-coded status badges.)
-- [x] Show pending and approved counts separately. (`diaspora-container-counts`: "N approved · M pending".)
-- [x] Only APPROVED volume consumes used capacity. (Kernel unchanged; UI reads authoritative fields.)
-- [x] Capacity refreshes after approve/reject/cancel. (`refreshSelected` re-fetches `/capacity` + reservations after every action.)
-- [x] Participant can cancel own eligible reservation. (Cancel button on own REQUESTED/APPROVED rows; server ownership check authoritative.)
-- [x] Operator sees participant-safe identifying context needed for operations. (Cargo category + description + volume/weight; no unrelated private data added.)
-- [x] Unreadable state must never render as “none”. (The existing "could not be loaded… not a report that none exist" path preserved; import-order selector failure says "could not be loaded" too.)
-
-## D6 — Booking close semantics
-
-- [x] Keep “Close booking” distinct from departed/delivered/customs/paid. (UI caption under the button: "Closing stops new requests. It does not mean the container has departed, cleared customs, been paid for or been delivered."; backend comment/status semantics unchanged.)
-- [x] Decide and document whether 90% is advisory or enforced for closing. **Decision: 90%/98% remain ADVISORY indicators (Ready to close / Full badges); closing is a manual operator decision at any fill level. No business rule changed for this demo.**
-- [x] For today's demo, do not silently change this business rule. (Unchanged; capacity bar + badges make the indicator nature visible.)
-
-## D7 — Communications and activity stitching
-
-- [x] Inspect the current post-#194 Communications runtime before writing integration code. (Canonical path mapped: `emitDomainEvent` outbox → `communicationEventListeners` → `NOTIFICATION_POLICIES` → governed template → `notification_queue` (in_app) + canonical `container` thread. `thread_type='container'` already legal in the DB CHECK; `subject_type` free-text; governed template `container_booking_update` (reference/status/route) already registered+approved by migration 20260811131700.)
-- [x] Reuse canonical subject `container_booking`. (All emitted payloads set `subject_type: 'container_booking'`.)
-- [x] On reservation request, create/emit the appropriate one-way activity notification. (`backend/services/diaspora/containerBookingNotifier.js` — best-effort emit AFTER the durable audited mutation, `evidenceReviewNotifier` pattern; payloads carry `buyerId` so the C1 addressability gate holds.)
-- [x] On approval/rejection/cancellation/booking close, surface the appropriate activity state. (Five event types subscribed in `COMMUNICATION_EVENT_TYPES` with policies: in_app only, `policyChannelsOnly`, template `container_booking_update`, classification transactional. Booking-close fans one event per live-reservation buyer.)
-- [x] Where human coordination is enabled, bind it to a canonical CarUp conversation rather than a feature-specific chat table. (No Trade OS chat/table created; the policy-driven notification lands on a canonical `container` thread visible in the owner Communications surface. Full two-party `container_logistics` `ensureReferenceFlow` conversation is recorded as P1/C4.)
-- [x] Keep exact user-authored text separate from system-generated status events. (Only governed-template system messages are produced; no user text is synthesised.)
-- [x] Web/app communication state is sufficient for first return. (No WhatsApp/Telegram dependency; providers remain later channel proofs.)
-
-**Coverage evidence:** `communication-event-coverage.test.js` green (emitter-literal, addressability, policy/template/classification gates); `variablesForEvent` gained the `route` variable the governed template requires; `subject_id`/dedupe chains gained `reservationId`/`containerId` fallbacks; in-code mirror of `container_booking_update` added for pre-registry environments.
-**Operational note:** the staging pg_cron outbox drain targets the canonical backend, whose runtime predates these subscriptions and consumes events with zero handlers; until this branch merges, the demo/UAT drains through the CANDIDATE backend's governed `/api/internal/events/process` immediately after each mutation (spec 45 does this).
-
-## D8 — Intelligence coherence
-
-- [x] Preserve I13 Truth & Trust rules. (`tradeIntelligenceService` untouched.)
-- [x] Show only measured container/reservation facts available from authoritative tables. (The container page shows only authoritative capacity/status/counts; no KPI invention anywhere.)
-- [x] No fake route-demand ranking, freight revenue, settled value or “success rate”. (None added.)
-- [x] Preserve unavailable vs empty semantics. (Preserved and extended to the order selector.)
-- [x] If Trade Intelligence is extended… (NOT extended in P0 — a measured container-operations projection is deferred to P1/C18 rather than rushed.)
-- [x] Do not enable `DIASPORA_TRADE_GRAPH` solely for the demo. (Flag untouched, remains off.)
-
-## D9 — Vehicle/import-order linkage
-
-- [x] If cargo type is vehicle and a CarUp import order/vehicle identity exists, support safe linkage rather than copying vehicle data into reservation metadata. (Reservation carries only the canonical `import_order_id`; the selector fetches the participant's own orders server-scoped; no VIN/make/model copied into reservation rows.)
-- [x] Confirm linked reservation appears in the Order Passport where existing aggregation supports it. (`getImportOrder` already embeds `diaspora_cargo_reservations(*)` and `DiasporaOrderPassport` renders the "Cargo reservation" section — verified in staging spec 45.)
-- [x] Do not infer customs clearance, local registration or Vehicle Trust from booking alone. (Nothing in this lane touches Trust/customs/CVR/ownership.)
-- [x] Preserve later path to Zimbabwe Ready and ownership handoff. (Order/shipment progression untouched.)
-
-## D10 — Demo data and staging UAT
-
-- [x] Use staging only. (Supabase `eoyenigwevnxwwhyhaer` + the branch's exact-head Vercel preview pair; production project/DB untouched.)
-- [x] Create unmistakably synthetic but realistic demo identities/data. (All names prefixed SYNTHETIC; `tradeos.*@carup-staging.test`; passwords generated locally, stored only in gitignored `.staging-auth/trade-os-demo-credentials.json`, exported to the run as `TRADEOS_UAT_*_PASSWORD` env.)
-- [x] Demonstration dataset (live on staging after the certified run, all created THROUGH THE DEPLOYED UI except the identities/tenants/import-order seed):
-  - logistics business: tenant `SYNTHETIC Hikari Co-Load Logistics` (`c0106a0e-…0a01`), operator `u_tradeos_operator` (users.role owner + tenant_users admin + registration profile business/logistics_provider/approved);
-  - October Japan→Zimbabwe 40HC container `9c67c1d0-6bf8-4eb3-9549-439d7315634f` — BOOKING_OPEN, 22/60 CBM used, 38 available (37%);
-  - December 40HC container `4d90cda4-…` — BOOKING_OPEN, 0/66;
-  - close-semantics proof container `d56a2916-…` — BOOKING_CLOSED (correctly absent from the open list);
-  - participants `u_tradeos_participant_a` (vehicle) and `u_tradeos_participant_b` (household);
-  - vehicle reservation (Toyota Aqua, 22 CBM/1200 kg, linked to import order `d0106a0e-…c001`) — **APPROVED**;
-  - household reservation (8 CBM) — **REQUESTED** (pending);
-  - general-cargo overfill probe (50 CBM) — **REJECTED** after the atomic RPC denied its approval (22+50 > 60);
-  - parts reservation (2 CBM) — **CANCELLED** by its owner;
-  - capacity visibly below 100% throughout.
-- [x] Execute browser UAT through Chromium/Playwright on desktop and mobile for the core flow. (Spec 45 under `playwright.staging.config.ts`: Desktop Chrome full journey, tablet 820×1180 + Pixel 5 responsive verification. **16 passed / 0 failed**; the 20 "skipped" are the deliberate per-viewport scoping of serial journey vs responsive checks.)
-- [x] No mocks for the final staging certification path. (Real deployed pair, real login form, real DB rows; only the vercel.live preview-toolbar overlay is blocked by the shared harness.)
-- [x] Record exact staging URL, SHA pairing, results, errors, limitations. (Execution entry below; zero unexpected console errors under the harness gate, zero page errors, zero API 5xx, zero unexplained 4xx artifacts.)
-- [x] Production remains untouched.
-
----
-
-# 7. P1 convergence after the first usable return
-
-These are important, but must not prevent the first demonstrable P0 slice unless they are required by a dependency uncovered during implementation.
-
-- [ ] C1. Canonical user-registration-profile -> diaspora trade-profile convergence; eliminate duplicate identity authority.
-- [ ] C2. Full logistics organisation/staff permission model: owner/admin/operations staff with least privilege.
-- [ ] C3. Canonical domain-event emission for container lifecycle and replayable Trade Graph projection.
-- [ ] C4. Full Communications 2.0 container conversation lifecycle and provider-channel routing.
-- [ ] C5. Container/shipment document workspace using governed Evidence/Drive authority.
-- [ ] C6. Warehouse intake / cargo measurement / loading readiness workflow.
-- [ ] C7. Loading plan and per-reservation loading status.
-- [ ] C8. Container -> shipment transition and unified timeline.
-- [ ] C9. Per-customer charges, freight allocation and transparent pricing engine.
-- [ ] C10. Payment request/milestone integration without pretending CarUp settles money before a real provider is activated.
-- [ ] C11. Customs/compliance document checkpoints.
-- [ ] C12. Delivery/collection handoff.
-- [ ] C13. Trade/logistics reputation model distinct from Vehicle Trust.
-- [ ] C14. Public/qualified container discovery policy and anti-bypass contact policy.
-- [ ] C15. Subscription/entitlement commercial activation.
-- [ ] C16. Operational dashboard for organiser: capacity, deadlines, pending reviews, missing docs and exceptions.
-- [ ] C17. Customer-facing shipment tracking view.
-- [ ] C18. Trade Intelligence projections from real container/shipment outcomes.
-
----
-
-# 8. Data ownership contract
-
-Do not duplicate authoritative data merely for convenience.
-
-| Concept | Authority |
+| Concept | Canonical authority |
 |---|---|
-| Core authenticated person | `users` |
+| Authenticated person | `users` |
 | Signup/commercial context | `user_registration_profiles` |
-| Business/operator boundary | canonical organisation/tenant + membership |
-| Legacy Trade OS profile extension | `diaspora_trade_profiles` until convergence task C1 closes |
+| Organisation/operator boundary | canonical tenant/organisation + membership |
+| Legacy trade profile extension | `diaspora_trade_profiles` until T1 convergence closes |
 | Vehicle identity | canonical `vehicles` / VIN/chassis + Vehicle Passport |
-| Seller/listing commercial presentation | Seller/Marketplace listing domain |
-| Cross-border buyer/order | `diaspora_import_orders` |
-| Container | `diaspora_container_shipments` |
-| Cargo booking | `diaspora_cargo_reservations` |
+| Seller/listing | Seller/Marketplace domain |
+| Procurement/import demand/order | `diaspora_import_orders` |
+| Supplier quote | `diaspora_import_quotes` |
+| Seller stock | `diaspora_stock_items` + stock ledger |
+| Container/sailing | `diaspora_container_shipments` |
+| Cargo booking/reservation | `diaspora_cargo_reservations` |
 | Shipment | `diaspora_shipments` |
 | Shipment timeline | `diaspora_shipment_stage_events` |
-| Trade documents | governed trade/evidence records; Drive only stores file objects |
-| Human conversation | canonical Communications conversation |
-| One-way activity state | Notifications/event outbox |
-| Audit | governed audit trail |
-| Vehicle Trust | canonical Trust/evidence authority |
+| Documents | governed Trade/Evidence records; Drive stores files only |
+| Human messages | canonical Communications conversation/message authority |
+| One-way activity | event/outbox + Notifications |
+| Audit | governed audit authority |
+| Vehicle Trust | canonical Trust/Evidence authority |
 | Trade/logistics reputation | separate derived business-performance authority |
 | Intelligence | read-only projections over authoritative facts/events |
 | Trade Graph | rebuildable derived graph, never source of truth |
 
 ---
 
-# 9. User operating manual — first demonstrable version
+# 5. Existing implementation that MUST be reused
 
-## 9.1 Organiser
+Trade OS is not a greenfield build.
 
-1. Register/sign in to CarUp as a business user.
-2. Complete/receive governed business activation for the logistics organisation.
-3. Open **Trade OS -> Container Co-Loading**.
-4. Select **Create container**.
-5. Enter Japan origin, Zimbabwe destination, planned departure, booking deadline, type and capacity.
-6. Publish/open the booking.
-7. Share the CarUp booking entry with qualified participants.
-8. Open the container to review requested cargo.
-9. Check cargo details and estimated volume/weight.
-10. Approve or reject requests.
-11. Use capacity display to understand used and remaining space.
-12. Coordinate participant questions through the CarUp communication context.
-13. Close booking when the organiser is ready to stop taking new requests.
-14. Continue the operational journey into shipment/document milestones as those P1 surfaces are activated.
+## 5.1 Procurement / Reverse RFQ kernel
 
-## 9.2 Participant
+Authoritative/current files include:
 
-1. Register/sign in to CarUp.
-2. Open **Trade OS -> Container Co-Loading**.
-3. Select an available Japan -> Zimbabwe container.
-4. Review route/date/deadline/capacity and organiser instructions.
-5. Select **Request cargo space**.
-6. Describe the vehicle/goods accurately.
-7. Enter estimated CBM and other available cargo facts.
-8. Submit.
-9. Track status as REQUESTED/APPROVED/REJECTED/CANCELLED.
-10. Use the linked CarUp communication/order context for follow-up rather than relying on untracked DMs.
+- `web/src/pages/diaspora/DiasporaReverseRfq.tsx`
+- `backend/services/diaspora/diasporaBuyerOrderService.js`
+- `backend/services/diaspora/diasporaRfqService.js`
+- `backend/services/diaspora/diasporaDemandSupplyMatchingService.js`
+- `backend/routes/diasporaBuyerOrderRoutes.js`
+- `backend/constants/diaspora/diasporaRfqConstants.js`
+- `web/e2e/diaspora-reverse-rfq.spec.ts`
 
-## 9.3 CarUp owner/admin
+Current backend strengths already include:
 
-The owner/admin supervises platform integrity and can provide support/review authority, but the client must not require owner/admin impersonation for normal logistics operations.
+- buyer orders for `vehicle`, `parts`, `mixed`;
+- origin/destination;
+- make/model/year taxonomy normalization;
+- budget/currency;
+- urgency;
+- requested part number;
+- publish RFQ lifecycle;
+- deterministic supply matching;
+- seller quote drafts/submission;
+- idempotent quote creation;
+- quote amount/currency;
+- valid-until;
+- inclusions/exclusions;
+- stock linkage;
+- lead time;
+- shipping terms;
+- edit/withdraw rules;
+- atomic acceptance of exactly one quote;
+- rejection of sibling quotes;
+- audit and entitlement gates.
 
----
+Current UI exposes only a small fraction of that capability and must be treated as legacy product presentation, not the target design.
 
-# 10. Security invariants
+## 5.2 Container / shared logistics kernel
 
-The demo is not permission to weaken the system.
+Authoritative/current files include:
 
-Must remain true:
+- `backend/services/diaspora/diasporaContainerMarketplaceService.js`
+- `backend/routes/diasporaContainerMarketplaceRoutes.js`
+- `database/migrations/20260621092000_diaspora_h3_container_approval_rpc.sql`
+- `web/src/pages/diaspora/DiasporaContainerMarketplace.tsx`
+- `backend/tests/diaspora-container-marketplace.test.js`
+- `backend/tests/diaspora-container-marketplace-auth.test.js`
+- `tests/agents/45-trade-os-container-demo-staging.spec.ts`
 
-- user ID and tenant identity are server-derived;
-- public/business labels cannot self-grant platform privileges;
-- tenant A cannot create/update/approve/close tenant B container records;
-- participant sees only reservations they are allowed to see;
-- operator authority is scoped to the operator's own tenant/business;
-- reviewer/admin oversight remains separately privileged;
-- reservation approval stays atomic;
-- no approved capacity may exceed volume/weight capacity;
-- sensitive documents remain private;
-- audit-critical transitions fail safely;
-- no payment, compliance, customs, shipment or delivery status is implied by a booking state;
-- no data fetch failure renders a false “none exist” state.
+Current hardened strengths include:
 
-Mandatory adversarial tests for every permission change:
+- create/list container sailings;
+- rich cargo reservations;
+- server-side import-order linkage authorization;
+- participant-safe visibility;
+- tenant-scoped logistics operator authority;
+- atomic approval;
+- volume and optional weight overfill protection;
+- reject/cancel capacity release;
+- audit;
+- canonical notification/event integration;
+- guided CBM calculation;
+- operator manifest/booking detail;
+- Trade OS workspace shell;
+- responsive geometry gates;
+- truthful booking-close semantics.
 
-1. anonymous request denied;
-2. ordinary participant cannot create/manage another organisation's container;
-3. cross-tenant operator denied;
-4. participant cannot approve their own reservation unless separately and legitimately authorized as operator for that tenant;
-5. spoofed role/tenant headers do not grant access;
-6. overfill race still fails safely.
-
----
-
-# 11. UI/UX expectations for the client demo
-
-The client should see an operational product, not a developer test harness.
-
-Required qualities:
-
-- clear Trade OS/container naming;
-- normal CarUp navigation;
-- obvious organiser vs participant actions;
-- date/route/capacity visible at a glance;
-- readable mobile layout;
-- structured forms rather than JSON/raw IDs where avoidable;
-- human-readable statuses;
-- real empty/error/loading states;
-- no buttons that only simulate success;
-- no fabricated KPIs;
-- no developer-only labels in primary UI;
-- no need to know hidden URLs;
-- no reliance on direct Supabase edits during client demonstration.
-
----
-
-# 12. Testing and certification gate
-
-## Required automated checks for first return
-
-At minimum:
-
-- targeted backend container marketplace suite;
-- atomic approval/concurrency test;
-- logistics auth/tenant isolation tests affected by permission changes;
-- registration-profile tests if business vocabulary changes;
-- affected Communications tests if integration changes;
-- affected Intelligence tests if projection changes;
-- web unit/typecheck for changed surfaces;
-- Playwright container marketplace journey;
-- route/navigation validation;
-- build.
-
-## Required staging browser proof
-
-Demonstrate:
+Capacity invariant:
 
 ```text
-operator login
- -> Trade OS navigation
- -> create container
- -> participant login
- -> discover container
- -> request vehicle/non-vehicle space
- -> operator sees request
- -> approve
- -> capacity changes
- -> participant sees approved state
- -> activity/communication state visible
+USED_VOLUME = sum(APPROVED reservation estimated_volume)
+AVAILABLE_VOLUME = total_capacity_volume - USED_VOLUME
+FILL_PERCENT = USED_VOLUME / total_capacity_volume
+READY_TO_CLOSE = FILL_PERCENT >= 90%   # advisory indicator
+FULL = FILL_PERCENT >= 98%             # advisory indicator
 ```
 
-Also test reject/cancel and cross-tenant denial.
+Only approved reservations consume capacity.
 
-Final staging report must state:
+## 5.3 Other reusable Trade OS foundations
 
-- exact candidate SHA;
-- exact frontend/backend deployment URLs;
-- paired/unpaired state;
-- database environment;
-- migrations applied;
-- desktop/mobile browser result;
-- number passed/failed/skipped/flaky;
-- unexpected console errors;
-- page errors;
-- 5xx/unexplained 4xx;
-- known demo limitations;
-- production untouched.
-
----
-
-# 13. Definition of first-return success
-
-Claude's first return is **usable for demonstration** only if all of the following are true:
-
-- [x] a legitimate non-platform-admin business operator can create/manage its own container; (users.role owner + verified tenant-admin membership; proven live + in the marketplace-auth suite)
-- [x] container creation is available through UI; (proven in deployed Chromium)
-- [x] participant can navigate to the container without hidden URL knowledge; (sidebar "Container Co-Loading" under Growth & Diaspora, clicked in the certified run)
-- [x] rich cargo reservation form captures more than CBM; (category/description/CBM/weight/declared value+currency/import-order link)
-- [x] vehicle and non-vehicle eligible cargo are both representable; (vehicle + household + general + parts all live on staging)
-- [x] operator can approve/reject; (both proven live)
-- [x] participant can cancel where allowed; (owner-cancel proven live)
-- [x] capacity updates truthfully from approved reservations; (22/60 after approval; pending never consumes)
-- [x] overfill is still atomically impossible; (50-CBM probe denied by the RPC live; capacity unchanged)
-- [x] statuses are clear; (human-readable chips REQUESTED/APPROVED/REJECTED/CANCELLED, BOOKING OPEN/CLOSED)
-- [x] relevant activity/communication is stitched to modern CarUp semantics at least at the browser/app level; (canonical outbox events emitted + subscribed + policy/template-governed; 14 real `diaspora.container_booking.*` rows sit PENDING in staging `domain_events` — the in-app rendering completes when a drain runs this candidate's armed runtime, see limitation note)
-- [x] no fake Trust/payment/shipment/compliance claims were introduced;
-- [x] final flow works against real staging data in Chromium; (16/16 across desktop/tablet/mobile projects)
-- [x] owner receives a staging URL plus demo identities/instructions through the secure existing UAT mechanism (credentials in local gitignored `.staging-auth/trade-os-demo-credentials.json`; never committed);
-- [x] regression tests are green for affected domains; (marketplace 12/12, marketplace-auth 11/11, logistics-auth 16/16, route-authz 32/32 incl. the re-pinned 403 semantics, registration 5/5, comms coverage green, web tsc clean, vitest 20/20, mocked e2e 8/8)
-- [x] this plan has been updated with evidence.
-
-If any checkbox is false, return the specific blocker and continue the bounded implementation loop rather than declaring the demo ready.
+- seller stock + stock ledger;
+- Stock Passport;
+- Order Passport;
+- trade documents/OCR;
+- Google Drive provider + credential vault;
+- payment milestone schema;
+- shipment + stage events;
+- SafeTrade foundations;
+- Communications 2.0;
+- Intelligence I13 diaspora trade projections;
+- Trade Graph vocabulary and derived services;
+- workbook import/export/dry-run foundations;
+- entitlement/subscription guard;
+- AI command draft/approval architecture.
 
 ---
 
-# 14. Explicit non-goals for the first return
+# 6. Current gap register after v2 review
 
-Do not lose today attempting to complete these unless they are required to unblock P0:
+The product is materially stronger in backend capability than in product coherence.
 
-- real-money settlement;
-- live SafeTrade provider activation;
-- full freight pricing optimization;
-- public shipping marketplace SEO;
-- end-to-end customs integration;
-- shipping-line API integration;
-- full warehouse WMS;
-- full Trade Graph activation/backfill;
-- universal logistics reputation scoring;
-- production deployment;
-- rewriting the existing container engine;
-- rebuilding Communications inside Trade OS;
-- replacing Vehicle Passport/Trust with Trade OS-specific equivalents.
-
----
-
-# 15. First implementation sequence
-
-Execute in this order unless repository evidence proves a dependency requires a small reordering:
-
-1. **Baseline + tests** — understand current post-#194 reality.
-2. **Identity/permission seam** — make legitimate logistics tenant operator possible without platform-admin abuse.
-3. **Navigation** — make Trade OS discoverable.
-4. **Create Container UI** — close the largest operator gap.
-5. **Rich reservation UI** — expose fields already supported by backend.
-6. **Capacity/actions** — preserve hardened kernel and improve operational presentation.
-7. **Communications/activity seam** — stitch to current canonical system.
-8. **Order/vehicle linkage** — reuse existing import-order/passport path where practical.
-9. **Measured intelligence presentation** — real facts only.
-10. **Real staging data + browser UAT**.
-11. **Update this ledger with evidence**.
-12. **Return demo URL/instructions and only the remaining P1 gaps**.
+| Gap | Current state | Required target |
+|---|---|---|
+| Programme scope | container/demo centric | full procurement + logistics OS |
+| Actor model | buyer/seller/admin language | buyer, supplier, shipper, consignee, operator, warehouse, carrier, clearing, CarUp oversight |
+| Trade identity | security role often visible | contextual commercial/transaction identity |
+| Request Quotes | technical Reverse RFQ page | layman sourcing marketplace |
+| Logistics RFQ | absent as first-class flow | “Ship something” request marketplace |
+| Cross-tenant RFQ discovery | tenant filter blocks marketplace semantics | safe marketplace projection + governed quote capability |
+| Buyer request capture | origin/make/model only in UI | guided requirement wizard |
+| Seller RFQ feed | raw table + amount box | opportunity marketplace + relevance + detail |
+| Quote composition | amount-only UI | full commercial proposal |
+| Quote comparison | amount/status | apples-to-apples commercial comparison |
+| Clarification | weak/absent | transaction-bound buyer↔supplier questions |
+| Award conversion | quote acceptance exists | accepted quote → operating order/booking without re-entry |
+| Cargo model | improved but still booking-centric | reusable cargo/item groups + measurement lifecycle |
+| Pricing | mostly absent | rate/fee/markup/charge model |
+| Warehouse | absent | intake, measure, discrepancy, storage/readiness |
+| Loading | absent | load plan, actual loaded state, evidence, seal/reference |
+| Shipment | data model exists | coherent operator + participant tracking |
+| Customs | data fragments | checkpoints/doc requirements without false authority |
+| Documents | tables/storage foundations | checklist/workspace + parties + status |
+| Communications | event stitching exists | full transaction conversation lifecycle |
+| Admin/operator | technically separated | dedicated control planes and oversight |
+| Reputation | legacy/shadow concepts | governed trade/logistics performance authority |
+| Intelligence | truth foundations | procurement + logistics operational projections |
+| Commercial model | entitlements foundations | configurable plans/fees without hardcoding undecided business economics |
 
 ---
 
-# 16. Change-control rule
+# 7. Global benchmark register — research snapshot 2026-09-04
 
-This file is living durable memory.
+Benchmarks are pattern references, not products to copy. CarUp must preserve its own Truth & Trust, Zimbabwe and automotive advantages.
 
-Every implementation cycle must append a dated execution entry below.
+## 7.1 Alibaba.com RFQ — procurement demand marketplace
 
-Template:
+Official references:
+
+- https://buyer.alibaba.com/page/HowItWorks/Page.html
+- https://seller.alibaba.com/rfq
+
+Observed patterns:
+
+- buyer posts a sourcing requirement to the marketplace instead of contacting one seller;
+- sellers proactively browse relevant RFQs;
+- seller profiles/verification signals help buyer assessment;
+- detailed communication stays attached to sourcing;
+- sellers submit detailed quotes, not merely prices.
+
+**CarUp lesson:** Request Quotes must be a true buyer-demand marketplace with qualified seller opportunities, detailed requirements, business identity/evidence and on-platform communication.
+
+## 7.2 uShip — ordinary-person shipping marketplace
+
+Official references:
+
+- https://www.uship.com/
+- https://www.uship.com/learn/carriers/
+
+Observed patterns:
+
+- customer describes what needs moving;
+- providers compete with quotes/offers;
+- marketplace supports vehicles, furniture, equipment, freight and more;
+- carriers can ask questions and submit quotes;
+- customer compares and chooses provider.
+
+**CarUp lesson:** logistics should start from “What do you need moved?” rather than requiring users to understand LCL/RFQ terminology.
+
+## 7.3 Shiply — layman simplicity
+
+Official reference:
+
+- https://www.shiply.com/how-it-works
+
+Observed patterns:
+
+- “tell us what you need moved → compare quotes → choose”;
+- wide cargo scope including furniture and cars;
+- provider feedback/ratings help decision-making;
+- the process is framed for ordinary users rather than freight specialists.
+
+**CarUp lesson:** freight mathematics and terminology must be assisted. Estimated measurements and photos should be acceptable pending operator confirmation.
+
+## 7.4 Freightos — international freight quote comparison
+
+Official references:
+
+- https://www.freightos.com/instant-freight-quote/
+- https://www.freightos.com/forwarders/rate-quote/
+
+Observed patterns:
+
+- compare multiple freight-forwarder offers;
+- compare price and transit time;
+- all-in fee transparency is emphasized;
+- quote, booking, tracking, support and documentation live in one journey;
+- forwarder-side rate management/quoting uses a single source of truth.
+
+**CarUp lesson:** a logistics quote is a service proposal with route, mode, timing, fees, inclusions and provider—not an amount field.
+
+## 7.5 Maersk LCL — shared-container customer language
+
+Official reference:
+
+- https://www.maersk.com/transportation-services/ocean-transport/lcl
+
+Observed patterns:
+
+- explains LCL as smaller cargo sharing a container;
+- customer pays for the space used;
+- journey is described as Book → Load & consolidate → Ship → Deconsolidate & deliver;
+- supports boxes, pallets/crates and shared capacity;
+- emphasizes visibility and milestone tracking.
+
+**CarUp lesson:** explain co-loading in ordinary language and show a real logistics lifecycle, not just CBM capacity.
+
+## 7.6 Flexport Buyer’s Consolidation — operator control plane
+
+Official reference:
+
+- https://www.flexport.com/products/buyers-consolidation/
+
+Observed patterns:
+
+- groups multiple suppliers into consolidated containers;
+- combines order/booking visibility with consolidation planning;
+- exposes order/SKU-level visibility;
+- operator workflows include CFS/value-added services and exception management.
+
+**CarUp lesson:** logistics organisers need a control plane covering bookings, cargo readiness, consolidation, exceptions and loading—not merely a list of “container fillers.”
+
+## 7.7 GoFreight — forwarder quotation operations
+
+Official reference:
+
+- https://gofreight.com/product/rate-management-quoting/
+
+Observed patterns:
+
+- centralized carrier rates;
+- rate comparison;
+- quote building with charges/markup;
+- quote acceptance updates status;
+- accepted quote converts to shipment without manual re-entry;
+- downstream invoicing uses the same commercial data.
+
+**CarUp lesson:** accepted proposals must become operational transactions without duplicating facts.
+
+## 7.8 Benchmark synthesis
+
+CarUp is not copying one competitor. The target combination is:
 
 ```text
-## Execution entry YYYY-MM-DD HH:MM JST
+Alibaba       → buyer-driven sourcing
+uShip/Shiply  → ordinary-person transport marketplace
+Freightos     → international quote comparison and fee transparency
+Maersk LCL    → shared-container journey language
+Flexport      → consolidation/operator control plane
+GoFreight     → rate/quote-to-shipment operations
+CarUp         → Vehicle Passport + Zimbabwe lifecycle + Trust + Evidence + Communications + Intelligence
+```
+
+---
+
+# 8. Trade OS information architecture
+
+Primary Trade OS entry must be intention-led.
+
+Recommended authenticated Trade OS navigation:
+
+```text
+Trade OS
+├── Overview
+├── Request Quotes
+├── Buyer Requests        # seller/supplier opportunity view
+├── Shipping Requests     # logistics RFQs
+├── Containers
+├── Orders / Bookings
+├── Shipments
+├── Documents
+├── Communications
+└── Intelligence          # only measured facts
+```
+
+Do not expose routes that are not operational merely to fill navigation.
+
+Public `/diaspora` may explain the service and provide qualified discovery. Authenticated operating routes belong in the Trade OS workspace shell, not the marketing footer/mega-nav shell.
+
+Internal term **Reverse RFQ** may remain in code/domain docs. Primary buyer-facing UI should use **Request Quotes**. Seller-facing UI should use **Buyer Requests** or **Opportunities**.
+
+Help copy may explain:
+
+> “This process is commonly called a Request for Quotation (RFQ).”
+
+---
+
+# 9. Request Quotes / Reverse RFQ 2.0 — first-class product phase
+
+This section is a complete product contract. `/diaspora/rfq` must not be merely restyled; its mechanics, data exposure and lifecycle must converge to this model.
+
+## 9.1 Entry question
+
+Buyer sees:
+
+### What do you need help with?
+
+**Buy something**  
+“Tell CarUp what you need. Suitable suppliers can send you offers.”
+
+**Ship something**  
+“Already have the item? Ask logistics providers to help move it.”
+
+The “Buy” path enters Procurement RFQ. The “Ship” path enters Logistics RFQ (T3). Do not mix their schemas or quote semantics.
+
+## 9.2 Procurement request types
+
+Initial supported request types:
+
+- Vehicle
+- Vehicle part(s)
+- Multiple automotive items / mixed order
+
+### Vehicle request wizard
+
+Capture progressively:
+
+1. **What vehicle are you looking for?**
+   - make;
+   - model;
+   - acceptable year range;
+   - condition preference;
+   - variant/trim/fuel/transmission only if the buyer knows;
+   - allow “I’m flexible / not sure.”
+2. **Where should it go?**
+   - source/origin preference if any;
+   - destination country/city;
+   - delivery/pickup preference if known.
+3. **Budget and timing**
+   - optional budget + currency;
+   - urgency / needed-by date;
+   - budget must not become a claim of purchasing power.
+4. **Requirements**
+   - free-text needs;
+   - reference image where governed upload exists;
+   - avoid duplicate fields already represented by canonical taxonomy.
+5. **Review before publishing**
+   - human-readable summary;
+   - explain what sellers will see;
+   - privacy preview;
+   - publish action.
+
+### Parts request wizard
+
+Capture:
+
+- part name in ordinary language;
+- quantity;
+- vehicle make/model/year/chassis/VIN where buyer knows it;
+- OEM/part number if known;
+- explicit **“I don’t know the part number”** path;
+- new/used/OEM/aftermarket preference where relevant;
+- photos/reference evidence where available;
+- destination;
+- required date/urgency;
+- optional budget.
+
+Where a CarUp Vehicle Passport exists, allow buyer to select their vehicle so compatibility facts can be linked rather than retyped.
+
+PartSentry/compatibility assistance may help identify a part, but AI/compatibility inference must never be silently presented as verified fitment.
+
+### Mixed/multi-item request
+
+Allow an order to contain multiple requested lines without creating separate disconnected RFQs when the buyer wants one commercial offer.
+
+Each line should support quantity and relevant vehicle/part references.
+
+## 9.3 Draft vs publish
+
+Buyer request lifecycle:
+
+```text
+DRAFT
+→ READY_TO_PUBLISH
+→ OPEN_FOR_QUOTES
+→ CLARIFICATION
+→ QUOTES_RECEIVED
+→ AWARDED / ACCEPTED
+→ CONVERTED_TO_ORDER
+or CLOSED / CANCELLED / EXPIRED
+```
+
+Use existing authoritative statuses where possible; add new status vocabulary only when lifecycle semantics cannot be represented safely.
+
+Publishing must create a safe marketplace representation. Draft/private data remains tenant/user scoped.
+
+## 9.4 Safe marketplace projection — critical cross-tenant architecture
+
+Current seller RFQ listing filters published orders to the seller's `tenant_id`, which is safe but prevents a genuine cross-tenant marketplace.
+
+Do **not** solve this by removing tenant/RLS boundaries.
+
+Target pattern:
+
+```text
+PRIVATE BUYER ORDER (authoritative)
+      ↓ publish
+SAFE RFQ MARKETPLACE PROJECTION
+      ↓ qualified visibility
+ELIGIBLE SELLER
+      ↓ governed quote capability
+SELLER QUOTE linked to authoritative order
+```
+
+The marketplace projection must expose only fields necessary to decide whether to quote, for example:
+
+- RFQ reference;
+- request category;
+- product/vehicle requirements;
+- quantity;
+- destination;
+- timing/deadline;
+- buyer verification/business-class signal where policy permits;
+- question/quote deadline;
+- non-identifying buyer context needed to trade.
+
+Do not expose private contact details, raw buyer IDs, unrelated tenant metadata, evidence files or hidden risk data.
+
+Before implementation, inspect current RLS and tenant policies. Introduce the smallest governed cross-tenant publication bridge (server-side sanitized projection/view/capability) required to support marketplace visibility without granting sellers private order access.
+
+## 9.5 Seller opportunity marketplace
+
+Seller-facing title: **Buyer Requests** or **Opportunities**.
+
+Do not show a raw table with `Demand | Origin | Amount`.
+
+Each opportunity should communicate, for example:
+
+```text
+Honda Fit GD1 front shocks
+Quantity: 20
+Destination: Harare, Zimbabwe
+Condition: New or quality aftermarket
+Needed by: 30 Oct
+Part number: Buyer does not know
+Quotes received: 3
+Request closes: 2 days
+Buyer: Verified CarUp participant
+```
+
+Seller actions:
+
+- **Prepare quote**
+- **Ask a question**
+- **Not relevant / hide**
+- save/watch where useful
+
+Opportunity feed should support deterministic filters where data exists:
+
+- category;
+- vehicle make/model;
+- part number;
+- destination;
+- deadline;
+- origin preference;
+- compatible stock;
+- seller's own relevance/match reason.
+
+Do not fabricate demand counts or urgency.
+
+## 9.6 Explainable matching
+
+Existing matching is deterministic and must be preserved as a strength.
+
+Current signals:
+
+- make match;
+- model match;
+- year overlap;
+- part-number match;
+- available quantity;
+- export readiness.
+
+Planned measured additions where authoritative data exists:
+
+- sufficient quantity;
+- buyer destination/corridor;
+- supplier location;
+- condition requirement;
+- deadline/lead-time compatibility;
+- budget fit;
+- verified stock/evidence state;
+- compatible sailing/container option;
+- supplier fulfillment history.
+
+Internal numerical scores may rank results. Buyer/seller UI should explain them in human language:
+
+```text
+Strong match
+✓ Correct vehicle model
+✓ Required quantity appears available
+✓ Stock recorded as export ready
+✓ Supplier is near the requested origin
+```
+
+Do not present opaque AI percentages as truth.
+
+## 9.7 Clarification / questions
+
+RFQ is not a one-shot form.
+
+Buyer and eligible seller must be able to ask questions before a quote is finalized.
+
+Use canonical Communications, scoped to the RFQ/order reference. Do not create an RFQ-specific message table.
+
+Examples:
+
+- buyer: “Would aftermarket KYB be acceptable?”
+- seller: “Do you need delivery to Harare or Beitbridge collection?”
+- buyer: “I can accept 2019–2021 if mileage is under X.”
+
+User-authored text must remain exact messages; system status events are separate notifications.
+
+Privacy/anti-bypass policy must be explicit. Contact data should not be leaked simply because an RFQ was published.
+
+## 9.8 Seller quote composer — commercial proposal, not amount box
+
+Existing backend supports more than the current UI. Expose it coherently.
+
+### Offer identity
+
+- quote reference;
+- supplier/business identity;
+- linked Stock Passport/item where available;
+- quote status: draft/submitted/withdrawn/accepted/rejected/expired.
+
+### Product terms
+
+- offered product/item description;
+- quantity;
+- condition/specification;
+- substitutions/alternatives if allowed;
+- stock evidence/passport linkage.
+
+### Price
+
+- unit price where relevant;
+- quantity;
+- subtotal;
+- currency;
+- taxes/fees only where the seller legitimately supplies them;
+- total quoted amount.
+
+### Logistics terms
+
+- source/pickup location;
+- shipping included/not included;
+- delivery point/service level;
+- expected dispatch/lead time;
+- estimated delivery only when seller/provider can support it;
+- shipping terms/Incoterm where applicable;
+- potential compatible container/sailing if based on real capacity.
+
+### Commercial terms
+
+- valid until;
+- deposit/payment expectation;
+- inclusions;
+- exclusions;
+- warranty/returns where supplied;
+- special conditions.
+
+### Evidence
+
+- stock photos/evidence;
+- supplier identity/verification;
+- export-readiness evidence where governed.
+
+Draft must be editable. Submitted quote becomes immutable except through governed revision/versioning or withdrawal rules. Accepted quote cannot be silently edited.
+
+## 9.9 Quote comparison — apples-to-apples and truth governed
+
+Buyer comparison must not be “cheapest wins.”
+
+Display real comparable dimensions such as:
+
+| Dimension | Supplier A | Supplier B |
+|---|---|---|
+| Product price | recorded | recorded |
+| Quantity | recorded | recorded |
+| Shipping | included / excluded / unknown | ... |
+| Quote total | recorded | recorded |
+| Estimated landed cost | only if calculable from authoritative components | unknown otherwise |
+| Dispatch / lead time | recorded | recorded |
+| Quote valid until | recorded | recorded |
+| Stock evidence | verified / seller-stated / unavailable | ... |
+| Supplier reputation | governed trade reputation only | ... |
+| Container option | real compatible sailing or not selected | ... |
+| Inclusions | explicit | explicit |
+| Exclusions | explicit | explicit |
+
+Rules:
+
+- unknown is shown as **Not provided / Not enough data**;
+- no cross-currency comparison without an approved FX authority;
+- no fake “best deal 92%” score;
+- no vehicle Trust score used as supplier reputation;
+- do not claim landed cost without duties/freight/fees data.
+
+CarUp may provide deterministic highlights such as:
+
+- lowest recorded quote total;
+- fastest recorded lead time;
+- most complete evidence;
+- shipping included;
+
+only when the underlying facts support them.
+
+## 9.10 Award / acceptance
+
+Existing atomic one-quote acceptance is a hardened kernel and must remain authoritative.
+
+Acceptance should visibly explain what happens:
+
+```text
+Accept this offer
+→ this supplier becomes the awarded supplier for the request
+→ competing submitted quotes close/reject according to the governed lifecycle
+→ an operating order/booking is created or activated from the same facts
+→ payment/documents/logistics continue without re-entering product information
+```
+
+Accepted quote → operating transaction must preserve canonical IDs and references. Do not copy fields into unrelated shadow orders.
+
+## 9.11 Seller quote management
+
+Seller needs:
+
+- Draft quotes;
+- Submitted quotes;
+- Won/accepted;
+- Not selected;
+- Withdrawn;
+- Expired.
+
+Existing backend edit/submit/withdraw rules should be exposed rather than ignored.
+
+## 9.12 Notifications and Communications events
+
+Required lifecycle events include at minimum:
+
+- RFQ published;
+- relevant seller opportunity surfaced where governed;
+- seller asks question;
+- buyer replies;
+- quote drafted (usually no external notification);
+- quote submitted;
+- quote withdrawn;
+- quote revised/versioned if introduced;
+- quote accepted;
+- competing quote not selected;
+- RFQ closed/expired/cancelled;
+- accepted quote converted to order/booking.
+
+Use canonical domain-event → Communications/Notification architecture.
+
+## 9.13 RFQ Intelligence
+
+Measured projections may include:
+
+- number of open requests;
+- request categories;
+- real quote counts;
+- time to first quote;
+- time to award;
+- quote-to-award conversion;
+- supplier response rate;
+- destination/corridor demand;
+- unmet demand where no qualified quote is received;
+- price ranges only when currency/terms are comparable.
+
+Never fabricate market demand from an empty or unreadable data source.
+
+## 9.14 RFQ security invariants
+
+Mandatory:
+
+- private draft orders never appear in marketplace;
+- safe marketplace projection excludes private buyer fields;
+- seller cannot mutate buyer order;
+- seller can access only their own quote details plus safe RFQ projection;
+- buyer cannot edit seller quote;
+- only buyer/order authority accepts quote;
+- seller cannot accept own quote;
+- cross-tenant marketplace visibility does not equal cross-tenant private record access;
+- contact data remains governed;
+- quote acceptance stays atomic/idempotent;
+- accepted quote cannot be withdrawn/edited outside governed rules;
+- all critical transitions audited.
+
+## 9.15 RFQ 2.0 acceptance journey
+
+Buyer:
+
+```text
+Trade OS
+→ Request Quotes
+→ Buy something
+→ choose Vehicle / Parts / Mixed
+→ guided request
+→ review privacy + summary
+→ publish
+→ see request OPEN
+→ receive seller question/quote
+→ answer question
+→ compare ≥2 quotes where fixtures permit
+→ accept one
+→ see accepted supplier and next operating step
+```
+
+Seller:
+
+```text
+Trade OS
+→ Buyer Requests
+→ discover qualified cross-tenant marketplace opportunity
+→ open safe request detail
+→ ask question
+→ prepare detailed quote
+→ save draft
+→ submit
+→ buyer sees it
+→ seller sees accepted/not-selected result
+```
+
+Final staging proof must include adversarial tenant/privacy cases, not only happy-path UI.
+
+---
+
+# 10. Logistics RFQ — “Ship something”
+
+Procurement and logistics RFQ share request/quote concepts but have different fields and participants.
+
+## 10.1 Customer journey
+
+```text
+Ship something
+→ What are you moving?
+→ Where is it now?
+→ Where should it go?
+→ When?
+→ Do you know dimensions?
+→ calculate/estimate if not
+→ service preferences
+→ publish shipping request or choose compatible sailing
+→ logistics providers/organiser respond
+→ compare logistics offers
+→ book
+```
+
+## 10.2 Cargo capture
+
+Support:
+
+- vehicle;
+- parts;
+- household/personal effects;
+- furniture/appliances;
+- boxes/cartons;
+- machinery/equipment;
+- pallets/crates;
+- general eligible cargo;
+- other eligible cargo.
+
+Guided dimensions:
+
+- quantity;
+- length;
+- width;
+- height;
+- unit cm/m;
+- calculated estimated CBM;
+- estimated total weight;
+- multiple item groups;
+- photos where governed.
+
+Users may say “I don’t know.” Estimates remain estimates until operator/warehouse confirms actual measurements.
+
+## 10.3 Logistics quote
+
+A logistics offer may include:
+
+- provider;
+- service mode;
+- route;
+- origin service/pickup;
+- destination service/delivery;
+- container/LCL/shared-space option;
+- cargo basis (vehicle, CBM, weight, package count);
+- freight charge;
+- handling;
+- origin/destination charges;
+- document fees;
+- optional services;
+- currency;
+- transit time/estimated dates where supported;
+- validity;
+- inclusions/exclusions;
+- conditions.
+
+Unknown fees must not be hidden inside an apparently “all-in” total.
+
+## 10.4 Connection to container marketplace
+
+A logistics request may be matched to an existing real sailing when:
+
+- route is compatible;
+- booking deadline is compatible;
+- capacity exists;
+- cargo eligibility is compatible;
+- operator actually accepts that cargo class.
+
+Do not auto-approve based on matching alone.
+
+---
+
+# 11. Shared Container / Co-Loading product
+
+Container Co-Loading becomes one logistics fulfillment mechanism inside Trade OS.
+
+## 11.1 Sailing identity
+
+A sailing/container may record:
+
+- organiser;
+- origin country/city;
+- origin port/loading location;
+- destination country/city;
+- destination port/terminal;
+- container type;
+- total CBM;
+- max weight;
+- booking deadline/cut-off;
+- loading window;
+- planned departure;
+- expected arrival when supplied;
+- carrier/forwarder when supplied;
+- booking/container reference;
+- cargo eligibility notes;
+- documentation requirements.
+
+Unknown values display `Not recorded yet`.
+
+## 11.2 Booking lifecycle
+
+```text
+REQUESTED
+→ NEEDS_CLARIFICATION (if required)
+→ APPROVED
+→ INTAKE_PENDING
+→ RECEIVED_AT_WAREHOUSE
+→ MEASURED / DISCREPANCY
+→ READY_FOR_LOADING
+→ LOADED
+→ SHIPPED
+→ DESTINATION_PROCESSING
+→ RELEASED / READY_FOR_COLLECTION
+→ DELIVERED / COLLECTED
+```
+
+Do not force all states into `diaspora_cargo_reservations` if shipment/warehouse authorities belong elsewhere. Use linked canonical operational records.
+
+## 11.3 Operator manifest
+
+Operator needs a true control plane showing:
+
+- booking/reference;
+- participant identity;
+- cargo description/category;
+- estimated vs actual CBM/weight;
+- linked order/vehicle;
+- approval state;
+- document readiness;
+- payment/charge state only where real;
+- warehouse/intake state;
+- loading readiness;
+- exceptions;
+- last activity;
+- Communications entry.
+
+---
+
+# 12. Order / Booking Passport
+
+The current Order Passport must evolve into the transaction-facing record that prevents fragmented workflows.
+
+It should aggregate, subject to authorization:
+
+- request/specification;
+- buyer/participant identity;
+- supplier/provider;
+- quotes and accepted offer;
+- cargo booking;
+- container/sailing;
+- shipment;
+- documents;
+- payment milestones;
+- compliance checkpoints;
+- Communications reference;
+- exceptions/disputes;
+- Zimbabwe handoff;
+- Vehicle Passport linkage where applicable;
+- audit/evidence timeline.
+
+Accepted quote and container reservation must appear as linked facts, not manually re-created copies.
+
+---
+
+# 13. Commercial quoting, rates and charges
+
+The full product needs a governed commercial model.
+
+## 13.1 Rate sources
+
+Potential sources:
+
+- operator-maintained route rates;
+- carrier/forwarder rate cards;
+- manually prepared quote components;
+- future provider/API rates.
+
+Every rate needs provenance and validity.
+
+## 13.2 Charge components
+
+Examples:
+
+- base freight;
+- CBM charge;
+- vehicle fixed charge;
+- origin handling;
+- warehouse/CFS handling;
+- loading;
+- documentation;
+- inland pickup;
+- destination handling;
+- customs brokerage service fee;
+- last-mile delivery;
+- storage;
+- optional insurance service.
+
+Do not hardcode a commercial model before owner/client rules are approved.
+
+## 13.3 Quote → booking conversion
+
+Borrow the proven GoFreight pattern conceptually:
+
+```text
+rate/offer
+→ quote
+→ customer accepts
+→ operational booking/shipment uses same terms
+→ invoice/payment milestones reference same charge objects
+```
+
+No re-entry.
+
+---
+
+# 14. Documents and Evidence
+
+Use CarUp's governed Evidence/Drive provider architecture.
+
+Potential document checklist by transaction may include:
+
+- purchase invoice;
+- commercial invoice;
+- packing list;
+- export certificate;
+- vehicle title/export certificate;
+- inspection evidence;
+- bill of lading;
+- customs declaration;
+- duty/tax proof;
+- warehouse receipt;
+- loading evidence;
+- delivery/collection evidence.
+
+Rules:
+
+- document type/status belongs to CarUp metadata authority;
+- Google Drive/other provider stores file objects;
+- private documents remain private;
+- checksum/provenance where available;
+- verification state is separate from uploaded/present state;
+- missing document ≠ failed document;
+- upload does not imply customs approval.
+
+---
+
+# 15. Warehouse, intake and measurement
+
+A shared-container operator needs a real origin operations workflow.
+
+Planned capability:
+
+- intake appointment/reference;
+- receiving location;
+- cargo arrival time;
+- receiver/staff identity;
+- photos/evidence;
+- package/item count;
+- estimated vs actual dimensions;
+- estimated vs actual weight;
+- discrepancy reason;
+- condition on receipt;
+- rejected/conditional cargo;
+- storage location;
+- readiness checklist;
+- special-handling notes.
+
+Actual measurement must be a separate governed fact from customer estimate.
+
+If actual CBM changes materially, the system must surface an exception and any commercial implication rather than silently overwrite the customer's estimate.
+
+---
+
+# 16. Loading and consolidation
+
+Planned capability:
+
+- approved/ready cargo pool;
+- container load plan;
+- cargo placement/reference;
+- loaded/not-loaded state;
+- actual loaded CBM/weight;
+- load photos/evidence;
+- container/seal reference;
+- rejected/left-behind cargo;
+- exception notes;
+- booking close;
+- transition to shipment.
+
+The existing atomic capacity kernel remains the booking-capacity guard; warehouse/load facts may refine actual capacity through a governed reconciliation path.
+
+---
+
+# 17. Shipment and tracking
+
+Use existing shipment/stage tables rather than inventing a new tracker.
+
+Operator view:
+
+- whole-container/shipment timeline;
+- participant/cargo manifest;
+- outstanding documents/actions;
+- exceptions;
+- carrier/reference facts;
+- current authoritative stage.
+
+Participant view:
+
+- only their cargo/order;
+- meaningful shipment milestones;
+- requested actions;
+- documents/status where authorized;
+- communication;
+- expected dates only when real.
+
+Never infer physical location from a status label.
+
+---
+
+# 18. Customs, destination and Zimbabwe handoff
+
+CarUp coordinates evidence/checkpoints; it does not self-declare customs clearance.
+
+Potential checkpoints:
+
+- arrival notice;
+- customs documents received;
+- broker assigned;
+- declaration submitted;
+- assessment/duty state when authoritative data exists;
+- inspection hold;
+- clearance/release evidence;
+- collection/delivery readiness;
+- final handoff.
+
+Vehicle cargo additionally connects into:
+
+```text
+import in transit
+→ arrived/customs pending
+→ customs cleared/CVR pending
+→ CVR/plate pending
+→ locally registered
+→ Vehicle Passport / ownership lifecycle
+```
+
+Container/shipment facts provide provenance; they do not directly alter Vehicle Trust.
+
+---
+
+# 19. Communications
+
+Trade OS uses canonical CarUp Communications.
+
+Required conversation contexts:
+
+- procurement RFQ buyer↔supplier;
+- accepted order buyer↔supplier;
+- logistics RFQ shipper↔provider;
+- container booking participant↔organiser;
+- warehouse/action clarification;
+- shipment/destination exception;
+- dispute/support escalation.
+
+Status events remain system-generated notifications. Human messages remain exact user-authored messages.
+
+Channels (web/email/WhatsApp/Telegram etc.) are delivery mechanisms, not separate business records.
+
+---
+
+# 20. SafeTrade, payments and disputes
+
+SafeTrade must remain provider- and evidence-backed.
+
+Potential lifecycle:
+
+- quote accepted;
+- deposit requested;
+- deposit paid/confirmed only from real authority;
+- balance milestone;
+- shipment/document condition;
+- release rule;
+- dispute/hold;
+- completion.
+
+Do not activate fake settlement to make Trade OS look complete.
+
+Dispute/exception types should eventually include:
+
+- supplier non-performance;
+- quote disagreement;
+- damaged cargo;
+- measurement discrepancy;
+- prohibited/rejected cargo;
+- missing documents;
+- missed cut-off;
+- storage/late fees;
+- shipment delay;
+- delivery/collection dispute.
+
+---
+
+# 21. Trust and reputation
+
+Keep three concepts separate:
+
+1. **Vehicle Trust** — vehicle/evidence authority.
+2. **Trade/Supplier Reputation** — sourcing/fulfillment performance.
+3. **Logistics Reputation** — provider/organiser operational performance.
+
+Potential measured reputation inputs after sufficient real data:
+
+- accepted orders fulfilled;
+- on-time dispatch;
+- quote accuracy;
+- document completion;
+- cancellations;
+- disputes;
+- warehouse discrepancies;
+- shipment milestone performance;
+- participant feedback.
+
+Historical `diaspora_trade_profiles.trust_score` must not become a shadow universal Trust authority. Reconcile/deprecate it during T14.
+
+---
+
+# 22. Intelligence
+
+Trade OS Intelligence must follow I13 Truth & Trust discipline.
+
+Potential procurement intelligence:
+
+- open RFQs;
+- quote response rate;
+- time to first quote;
+- award rate;
+- unmet demand;
+- category/corridor demand;
+- supplier fulfillment.
+
+Potential logistics intelligence:
+
+- sailing capacity utilization;
+- requested vs approved capacity;
+- booking conversion;
+- measurement discrepancies;
+- loading readiness;
+- document blockers;
+- shipment milestone delays;
+- route/corridor demand;
+- actual revenue/cost only from governed financial records.
+
+No fake zeros on read failure. No cross-currency aggregation without FX authority. No graph-derived metric presented as transaction truth.
+
+---
+
+# 23. AI assistance
+
+AI is an assistant, not the authority.
+
+Useful low/medium-risk assistance:
+
+- turn plain-language buyer request into a draft RFQ;
+- suggest missing requirement questions;
+- help identify likely part terminology;
+- summarize quotes;
+- explain trade terms in plain language;
+- calculate cargo CBM from dimensions;
+- prepare quote draft from approved rate/stock data;
+- flag missing documents;
+- summarize operator exceptions;
+- suggest compatible real sailings.
+
+AI may not:
+
+- accept a quote;
+- approve cargo;
+- verify customs clearance;
+- fabricate carrier rates;
+- mark payment received;
+- change Vehicle Trust;
+- mark delivery complete;
+- silently modify authoritative records.
+
+All writes go through governed service workflows and confirmations/approvals.
+
+---
+
+# 24. Historical foundation — what the September container convergence already achieved
+
+The v1 programme and owner-UAT correction cycle remain valuable foundations.
+
+By branch head `255d903eee27579d28eb3685a0a6bc75061135c7`, the lane had materially established:
+
+- dedicated authenticated Trade OS workspace shell for the client-demo routes;
+- removal of public marketing footer/mega-nav from the operational container flow;
+- geometry gates at 393, 820, 1024, 1280, 1366, 1440 and 1536 widths;
+- logistics-provider business identity separate from `users.role`;
+- tenant-scoped operator authority;
+- broader cargo categories;
+- guided CBM calculation;
+- richer sailing identity;
+- operator manifest/booking detail;
+- safe server-side import-order linkage checks;
+- canonical container booking events/notifications;
+- recovery-safe migration behavior;
+- atomic volume/weight overfill protection;
+- real staging fixtures for Japan→Zimbabwe October/December sailings;
+- unmocked staging test coverage;
+- owner instruction that automated certification never overrides manual product UAT.
+
+The old D0–D10 demo checklist is retired as an active roadmap. Git history retains the exact receipts.
+
+---
+
+# 25. Full product programme — T0 to T18
+
+This replaces the old C1–C18 backlog as the active roadmap.
+
+## T0 — Foundation inventory and invariants
+
+**Goal:** freeze what is authoritative before expansion.
+
+- [ ] Reconcile branch against current `main` without losing #207 work.
+- [ ] Inventory all Trade OS routes/services/tables/RLS/events/tests.
+- [ ] Mark authoritative vs legacy/duplicate surfaces.
+- [ ] Freeze security, audit, Trust and unavailable-vs-empty invariants.
+- [ ] Record migration state staging vs production.
+- [ ] Confirm current PR/build provenance.
+
+## T1 — Trade OS workspace, actor and identity convergence
+
+**Goal:** a coherent operating environment for procurement and logistics.
+
+- [ ] Expand Trade OS workspace navigation per §8.
+- [ ] Make contextual trade/business identity canonical across Trade OS surfaces.
+- [ ] Reconcile `user_registration_profiles` and legacy `diaspora_trade_profiles` so identity facts are not duplicated authorities.
+- [ ] Model transaction participant relationships for buyer/supplier/shipper/consignee/operator where existing participants table permits.
+- [ ] Preserve tenant membership as business authorization boundary.
+- [ ] Establish qualified seller/logistics-provider marketplace eligibility without global role escalation.
+- [ ] Add responsive/geometry gates to all migrated Trade OS routes.
+
+## T2 — Request Quotes / Reverse RFQ 2.0
+
+**Goal:** make buyer-driven sourcing understandable and commercially complete.
+
+- [ ] Replace primary UI term `Reverse RFQ` with `Request Quotes`; seller side `Buyer Requests`/`Opportunities`.
+- [ ] Add intent entry: Buy something vs Ship something.
+- [ ] Build guided Vehicle request wizard.
+- [ ] Build guided Parts request wizard with “I don’t know the part number.”
+- [ ] Build mixed/multi-line automotive request.
+- [ ] Add draft/review/privacy-preview/publish lifecycle.
+- [ ] Build safe cross-tenant published RFQ marketplace projection; do not broaden private tenant access.
+- [ ] Build seller opportunity feed with filters and relevance explanations.
+- [ ] Build safe RFQ detail page.
+- [ ] Connect canonical RFQ conversation/questions.
+- [ ] Build detailed seller quote composer using existing amount/currency/validity/inclusions/exclusions/lead-time/shipping terms/stock linkage.
+- [ ] Add quote draft/edit/submit/withdraw UI.
+- [ ] Add governed quote versioning/revision only if current immutable submission model requires it.
+- [ ] Build apples-to-apples quote comparison with unknown semantics.
+- [ ] Preserve atomic accepted-quote RPC.
+- [ ] Convert accepted quote to operating order/passport without re-entry.
+- [ ] Add lifecycle notifications/events.
+- [ ] Add deterministic RFQ Intelligence projections.
+- [ ] Add adversarial marketplace/privacy/RLS tests.
+- [ ] Certify buyer + seller journeys on deployed staging desktop/tablet/mobile.
+
+## T3 — Logistics RFQ / Shipping Requests
+
+**Goal:** allow people who already own cargo to request transport.
+
+- [ ] Build Ship Something wizard.
+- [ ] Reuse guided measurement/cargo item groups.
+- [ ] Support vehicle and non-vehicle eligible cargo.
+- [ ] Build logistics-provider opportunity marketplace.
+- [ ] Build logistics quote schema/composer/comparison.
+- [ ] Match requests to compatible real container sailings where evidence permits.
+- [ ] Preserve operator approval as authority.
+- [ ] Connect canonical Communications.
+
+## T4 — Order & Booking Passport convergence
+
+- [ ] One operating record from awarded procurement/logistics quote.
+- [ ] Aggregate participants, quote, cargo, container, documents, milestones, communications and audit.
+- [ ] Prevent shadow duplication.
+
+## T5 — Container Marketplace full product
+
+- [ ] Sailing discovery/eligibility policy.
+- [ ] Operator sailing management.
+- [ ] Participant booking workspace.
+- [ ] Capacity + manifest + exceptions.
+- [ ] Qualified/public discovery boundaries and anti-bypass policy.
+
+## T6 — Rates, pricing and charge allocation
+
+- [ ] Rate source/provenance model.
+- [ ] Charge components.
+- [ ] Markup/discount governance.
+- [ ] Per-participant freight allocation.
+- [ ] Quote validity.
+- [ ] Accepted quote → charges without re-entry.
+- [ ] Do not hardcode undecided commercial economics.
+
+## T7 — Full Communications lifecycle
+
+- [ ] Procurement conversations.
+- [ ] Logistics request conversations.
+- [ ] Container booking conversations.
+- [ ] Warehouse/action requests.
+- [ ] Shipment exceptions.
+- [ ] Provider-channel routing only after canonical web record works.
+
+## T8 — Documents & Evidence workspace
+
+- [ ] Transaction-specific checklists.
+- [ ] Governed upload/classification/status.
+- [ ] Google Drive provider reuse.
+- [ ] Verification vs presence semantics.
+- [ ] Participant/privacy boundaries.
+
+## T9 — Warehouse intake and measurement
+
+- [ ] Intake appointment/reference.
+- [ ] Receive cargo.
+- [ ] Photos/condition.
+- [ ] Actual measurement.
+- [ ] Discrepancy workflow.
+- [ ] Storage/readiness state.
+
+## T10 — Consolidation and loading
+
+- [ ] Load readiness.
+- [ ] Load plan.
+- [ ] Loaded evidence.
+- [ ] Actual loaded CBM/weight.
+- [ ] Seal/container reference.
+- [ ] Left-behind/exception handling.
+
+## T11 — Shipment and tracking
+
+- [ ] Container → shipment transition.
+- [ ] Operator timeline.
+- [ ] Participant-specific tracking.
+- [ ] Carrier/reference facts.
+- [ ] Exception/action handling.
+
+## T12 — Customs and Zimbabwe destination operations
+
+- [ ] Document checkpoints.
+- [ ] Broker/agent relationship.
+- [ ] Clearance/release evidence.
+- [ ] Collection/delivery.
+- [ ] Vehicle Zimbabwe-readiness handoff.
+
+## T13 — SafeTrade / payment milestones / disputes
+
+- [ ] Provider-backed payments only.
+- [ ] Deposit/balance milestones.
+- [ ] Holds/release conditions.
+- [ ] Dispute workflow.
+- [ ] No fabricated settlement.
+
+## T14 — Supplier and logistics reputation
+
+- [ ] Separate from Vehicle Trust.
+- [ ] Derive only from governed outcomes.
+- [ ] Reconcile/deprecate legacy `diaspora_trade_profiles.trust_score` semantics.
+
+## T15 — Trade Intelligence
+
+- [ ] Procurement metrics.
+- [ ] Logistics metrics.
+- [ ] Container utilization.
+- [ ] Document/exception bottlenecks.
+- [ ] Real financial projections where authority exists.
+- [ ] Preserve I13 truth rules.
+
+## T16 — AI Trade Assistant
+
+- [ ] Plain-language request drafting.
+- [ ] Quote assistance.
+- [ ] Cargo/measurement assistance.
+- [ ] Exception summaries.
+- [ ] Risk gates and confirmation.
+- [ ] No autonomous authority.
+
+## T17 — Commercialization and enterprise operations
+
+- [ ] Subscription/entitlement activation.
+- [ ] Organisation staff roles/permissions.
+- [ ] Branch/location support.
+- [ ] Configurable fees/plans.
+- [ ] Enterprise APIs only after data contracts stabilize.
+
+## T18 — End-to-end certification and production readiness
+
+- [ ] Full buyer sourcing journey.
+- [ ] Full supplier response journey.
+- [ ] Full shipping-request journey.
+- [ ] Full shared-container journey.
+- [ ] Warehouse/loading/shipment/destination journey.
+- [ ] Desktop/tablet/mobile owner UAT.
+- [ ] Security/RLS/adversarial certification.
+- [ ] Communications/evidence/intelligence regression.
+- [ ] Staging provenance exact-head.
+- [ ] Production migration/cutover plan.
+- [ ] Separate explicit owner production authorization.
+
+---
+
+# 26. Immediate execution order after v2 promotion
+
+The programme is broad, but implementation remains bounded and evidence-driven.
+
+**Immediate next implementation cycle:** T0 → T1 foundations required for T2, then **T2 Request Quotes / Reverse RFQ 2.0**.
+
+Do not begin T3–T18 merely because they are documented. T2 must be implemented as a complete vertical sourcing slice before moving deeper into logistics expansion.
+
+Within T2, execute in this order unless repository evidence requires a narrow dependency adjustment:
+
+1. current branch/main reconciliation and baseline tests;
+2. RFQ/current RLS/security discovery;
+3. Trade OS IA/navigation and contextual identity changes required by Request Quotes;
+4. buyer-facing naming/intent architecture;
+5. request wizard + draft/review/publish;
+6. safe marketplace projection / cross-tenant seller visibility;
+7. seller opportunity feed/detail;
+8. canonical buyer↔seller clarification conversation;
+9. detailed quote composer + draft/submit/withdraw;
+10. buyer quote comparison;
+11. atomic acceptance + accepted quote → operating order/passport;
+12. events/notifications;
+13. measured RFQ Intelligence;
+14. adversarial and regression tests;
+15. deployed exact-head staging UAT across desktop/narrow desktop/tablet/mobile;
+16. update this plan with evidence and remaining T2 gaps.
+
+---
+
+# 27. UI/UX contract
+
+Root `DESIGN.md` is the global authority. `docs/marketplace/MARKETPLACE_VISUAL_DNA.md` is a reference implementation, not a template to copy blindly.
+
+Trade OS should feel unmistakably CarUp while using an operations/sourcing composition:
+
+- deep navy/charcoal structural anchors;
+- restrained CarUp orange for primary action/meaningful emphasis;
+- editorial hierarchy rather than generic SaaS card walls;
+- open compositions/dividers/bands;
+- purposeful density for tables/manifests;
+- clear status language;
+- one primary action per decision region;
+- no fake illustrations pretending to be evidence;
+- conceptual process visuals are permitted where clearly illustrative;
+- loading / empty / unavailable / pending are distinct;
+- desktop, narrow desktop, tablet and mobile are deliberate layouts.
+
+Hard geometry gate for operating routes:
+
+```text
+document.documentElement.scrollWidth <= window.innerWidth + 1
+body.scrollWidth <= window.innerWidth + 1
+```
+
+plus bounded workspace/table/form regions at representative widths:
+
+- 393×852;
+- 820×1180;
+- 1024×768;
+- 1280×800;
+- 1366×768;
+- 1440×900;
+- 1536×864.
+
+Full-page screenshots must be reviewed by eye; locator visibility alone is insufficient.
+
+---
+
+# 28. Security and privacy invariants
+
+Every phase must preserve:
+
+- authenticated identity server-derived;
+- tenant identity server-verified;
+- business labels do not self-grant authority;
+- private tenant data stays private;
+- marketplace publication exposes a safe projection, not underlying private rows;
+- transaction participants receive only scoped access;
+- cross-tenant supplier/provider discovery is capability-based, not broad table access;
+- spoofed role/tenant headers fail;
+- user cannot accept/approve their own counterparty offer without legitimate separate authority;
+- atomic quote acceptance and container approval stay atomic;
+- private documents use governed access/signed URLs;
+- unreadable state never becomes false empty;
+- audit-critical transitions fail safely;
+- no status implies payment/customs/shipment/delivery outside its authority.
+
+Mandatory adversarial test classes:
+
+1. anonymous;
+2. wrong user;
+3. wrong tenant;
+4. spoofed tenant/role;
+5. marketplace projection vs private order read;
+6. seller A attempting seller B quote access;
+7. buyer attempting seller quote mutation;
+8. seller attempting quote acceptance;
+9. accepted-quote mutation/withdraw attempt;
+10. replay/idempotency;
+11. container overfill/concurrency;
+12. document leakage;
+13. unreadable vs empty.
+
+---
+
+# 29. Testing and certification contract
+
+Green tests are evidence, not a substitute for product judgment.
+
+Each completed phase must include:
+
+- targeted backend unit/integration tests;
+- migration/RLS tests where schema/policies change;
+- affected Communications tests;
+- affected Intelligence tests;
+- TypeScript/typecheck;
+- relevant web unit tests;
+- mocked Playwright for deterministic edge states;
+- unmocked deployed staging browser journey;
+- desktop/narrow desktop/tablet/mobile geometry;
+- full-page visual evidence;
+- console/page/API error gates;
+- security/adversarial path;
+- owner UAT before client/production claims.
+
+Final report per bounded cycle:
+
+```text
 Candidate SHA:
-Branch:
-Tasks moved:
+Branch / PR:
+Plan tasks moved:
 Files changed:
 Migrations:
 Backend tests:
@@ -812,242 +1821,48 @@ Playwright:
 Staging FE:
 Staging BE:
 DB:
+Pairing/provenance:
+Security evidence:
+Visual evidence:
 Known limitations:
-Production touched: NO/YES (must be explicitly authorized)
+Production touched: NO
 Next unchecked task:
 ```
 
-No agent should rely on a chat transcript to determine current status when this file can be updated instead.
+No agent may call a phase client-ready solely because automated tests pass.
 
 ---
 
-# 17. Current execution entry — 2026-09-04
+# 30. Change-control / execution ledger
 
-**Candidate baseline:** `main@bb9d9900c700873ca57df0ac18a1a5c01f77711a`  
-**Branch:** `feat/trade-os-client-demo-convergence`  
-**State:** planning/reconciliation initiated; implementation not yet certified.  
-**Current known container status:** engineering MVP exists and was historically staging-certified; client-ready commercial workflow is incomplete.  
-**Immediate owner goal:** same-day real staging demonstration for a Japan -> Zimbabwe shared-container client.  
-**Production touched:** NO.
+Every implementation cycle appends an entry below.
 
-Known P0 gaps at plan creation:
+## Programme decision entry — 2026-09-04 19:38 JST
 
-1. operator Create Container API exists but polished UI is missing;
-2. reservation UI captures only CBM despite richer backend schema;
-3. current route-level operator authorization is reviewer/admin/government oriented and is not appropriate for a private logistics client;
-4. new registration profile lacks explicit logistics/freight business type;
-5. Communications architecture supports `container_booking`, but direct lifecycle wiring must be verified/stitched against the current post-#194 runtime;
-6. Trade Graph vocabulary is designed for container events but graph activation must not be required for the demo;
-7. Trade Intelligence must remain truth-based and currently has historical evidence of zero real container/shipment rows;
-8. Vehicle/import linkage exists through Trade OS/Order Passport/ownership handoff but must not be confused with Vehicle Trust;
-9. freight-cost allocation, warehouse/loading console, full per-customer charges/docs and live payments remain later commercial work.
+**Decision:** prospective client accepted the shared-container CarUp proposition. Owner directed the programme to stop optimizing for a bounded demo and build the complete Trade OS feature.
 
-**Next task:** D0 baseline + repository reconciliation, then D2/D1/D3 in the implementation branch.
+**Plan change:** v1 demo-oriented plan promoted to v2 cross-border Trade OS product plan. The old D0–D10 checklist is historical. The active roadmap is T0–T18.
 
----
+**Major expansion:** Request Quotes / Reverse RFQ 2.0 promoted to a first-class phase with:
 
-## Execution entry 2026-09-04 (implementation cycle 1 — D0–D9 code complete, D10 in progress)
+- layman buyer language;
+- Buy vs Ship intent separation;
+- guided vehicle/parts/mixed procurement;
+- safe cross-tenant RFQ marketplace projection;
+- seller opportunity feed;
+- explainable matching;
+- canonical clarification conversations;
+- detailed commercial quote composer;
+- quote comparison;
+- atomic award;
+- quote→operating-order conversion;
+- notifications/events;
+- RFQ Intelligence;
+- adversarial privacy/RLS gates.
 
-**Candidate SHA:** (recorded at commit; this entry is amended by the same commit)
-**Branch:** `feat/trade-os-client-demo-convergence` (Draft PR #207; base `main@bb9d9900` unmoved)
-**Tasks moved:** D0 ✅, D1 ✅, D2 ✅, D3 ✅, D4 ✅, D5 ✅, D6 ✅, D7 ✅ (conversation upgrade → P1/C4), D8 ✅ (projection extension → P1/C18), D9 ✅, D10 ◐ (staging migration applied; demo identities provisioned; spec 45 authored; deployed-pair certification pending)
-**Files changed:**
-- `database/migrations/20260904100000_trade_os_logistics_convergence.sql` (NEW, additive: business_type +logistics_provider; cargo_type +household,+general; import_order_id DROP NOT NULL)
-- `backend/services/auth/registrationProfileService.js` (+logistics_provider)
-- `backend/routes/diasporaContainerMarketplaceRoutes.js` (operator route gate → participant-level; service/RPC stay authoritative)
-- `backend/server.js` (login + /api/auth/me return advisory `active_tenant_id`/`tenant_role` from the sole verified tenant_users membership)
-- `backend/services/diaspora/containerBookingNotifier.js` (NEW, D7 emitters)
-- `backend/services/diaspora/diasporaContainerMarketplaceService.js` (notifier calls after audited mutations; kernel untouched)
-- `backend/services/communication/communicationEventListeners.js` (+5 container_booking subscriptions)
-- `backend/services/communication/communicationNotificationService.js` (+5 policies; +route variable; +reservation/container subject-id + dedupe fallbacks)
-- `backend/services/communication/communicationTemplateService.js` (in-code mirror of container_booking_update)
-- `backend/tests/diaspora-container-marketplace-auth.test.js` (NEW, 11 HTTP-level authz proofs)
-- `web/src/pages/diaspora/DiasporaContainerMarketplace.tsx` (operator create form; rich cargo request; counts/capacity bar; cancel; close caption; links)
-- `web/src/pages/auth/Register.tsx` (+Logistics / freight forwarder)
-- `web/src/config/featureRegistry.ts` + `web/src/config/featureIcons.tsx` (sidebarGroup/description/Container icon)
-- `web/src/types/index.ts`, `shared/types/index.ts` (declared_value; tenant_role)
-- `web/e2e/diaspora-container-marketplace.spec.ts` (4 new mocked journeys incl. tenant-operator create)
-- `tests/agents/45-trade-os-container-demo-staging.spec.ts` (NEW, unmocked staging certification)
-- `playwright.staging.config.ts` (spec 45 additive testMatch)
-- `web/preview-backend-pairing.json`, `web/preview-frontend-pairing.json` (branch registered → exact-head preview pair)
-**Migrations:** `20260904100000_trade_os_logistics_convergence.sql` — applied to staging `eoyenigwevnxwwhyhaer` via governed MCP apply (constraints verified before/after). Production NOT touched.
-**Backend tests:** targeted — container marketplace 12/12, marketplace-auth 11/11, logistics-auth 16/16, registration-profile 5/5, communication-event-coverage green; full `node --test backend/tests/*.test.js` from repo root (local, without ci.yml env): 5774 tests, 5740 pass / 13 fail / 21 skip — failures under triage against the known env-contract phantom set (memory: running outside ci.yml env manufactures phantom failures); CI on PR #207 is the authoritative run.
-**Web tests:** `tsc --noEmit -p web/tsconfig.app.json` exit 0; vitest (drift/sidebar/register/footer) 20/20; mocked Playwright container spec 8/8.
-**Staging FE/BE:** exact-head preview pair (branch aliases) `carup-staging-git-feat-trade-os-client-demo-convergence-11-11.vercel.app` ↔ `carup-backend-staging-git-feat-trade-os-client-dem-dbf311-11-11.vercel.app`; pairing maps updated; provenance assertion at UAT time.
-**DB:** staging Supabase `eoyenigwevnxwwhyhaer` (production `vhmnajoeicasaigiophh` untouched). Demo dataset: synthetic users `u_tradeos_{operator,participant_a,participant_b,outsider}` (`tradeos.*@carup-staging.test`, passwords held locally in gitignored `.staging-auth/`, never committed), tenants `SYNTHETIC Hikari Co-Load Logistics` (`c0106a0e-…0a01`, operator=admin) and `SYNTHETIC Rival Freight Ltd` (`…0b02`, outsider=admin), operator registration profile business/logistics_provider/approved, synthetic import order `d0106a0e-…c001` (Toyota Aqua, participant A). Zero pre-existing container rows (clean slate).
-**Known limitations:** two-party container conversation (`ensureReferenceFlow`) deferred to C4; measured container-operations Intelligence section deferred to C18; canonical-cron outbox drain serves main's runtime until merge (candidate drains through its own governed endpoint); multi-tenant users get no automatic `active_tenant_id` (existing switch-role path).
-**Production touched:** NO.
-**Next unchecked task:** D10 — deployed exact-head Chromium certification (desktop/tablet/mobile) + owner demo handoff.
+**Benchmark basis:** Alibaba RFQ, uShip, Shiply, Freightos, Maersk LCL, Flexport Buyer’s Consolidation, GoFreight — official product pages reviewed 2026-09-04; see §7.
 
----
-
-## Execution entry 2026-09-04 (implementation cycle 2 — design convergence + D10 CERTIFIED)
-
-**Certified product SHA:** `3b9a87facb3ba7444e397ea2b1bc146242acb2cf` (the deployed pair served exactly this SHA during certification; the commit recording this entry adds only tests/docs deltas on top — no product runtime change).
-**Branch:** `feat/trade-os-client-demo-convergence` (Draft PR #207; base `main@bb9d9900` unmoved)
-**Tasks moved:** design convergence per owner directive (root `DESIGN.md` canonical, `MARKETPLACE_VISUAL_DNA` reference); D10 ✅ CERTIFIED; §13 first-return checklist fully evidenced.
-**Design compliance (DESIGN.md §§3,4,7,8,10,20):** slate-950 anchor band with eyebrow + display heading; ONE page-level primary action (orange Create container); open banded ≤1440px composition with borders/dividers, no card-in-card; route-led editorial typography with monospace metadata; segmented capacity meters; compact status pills; bordered table for reservation density; one primary action per decision region; truthful loading/empty/unreadable states preserved; deliberate tablet/mobile stacking (no horizontal overflow — certified on 820×1180 and Pixel 5). Desktop/tablet/mobile visual evidence: Playwright artifacts under `test-results/staging-uat-artifacts/` + walkthrough screenshots `tradeos-demo-operator-desktop-*.png`.
-**Staging FE:** `https://carup-staging-git-feat-trade-os-client-demo-convergence-11-11.vercel.app` (bundle `index-Doiisyg4.js`, provenance commit `3b9a87fa`, `unpaired: false`)
-**Staging BE:** `https://carup-backend-staging-git-feat-trade-os-client-dem-dbf311-11-11.vercel.app` (`/api/health` build.commit_sha `3b9a87fa`)
-**Pairing:** exact-head pair, both sides verified at the same SHA before and during the run (harness global-setup bundle gate + provenance).
-**DB:** staging `eoyenigwevnxwwhyhaer`; migration `20260904100000` live; demo dataset as recorded under D10. Production untouched.
-**Certification result (spec 45, `playwright.staging.config.ts`):** 16 passed / 0 failed / 20 per-viewport-scoped skips, retries=0, workers=1. Zero unexpected console errors, zero page errors, zero API 5xx, zero unexplained 4xx artifacts. Adversarial proofs live: anonymous 401 (×3 viewports), cross-tenant reservation-visibility isolation, cross-tenant API approve 403, cross-tenant close denial, atomic overfill denial, spoof-resistant server authority.
-**Harness note:** `tests/agents/staging-helpers.ts` EXPECTED_CONSOLE gained one narrowly-scoped pattern excusing the no-HTTP-response abort echo (`CarUp API Error (…): TypeError: Failed to fetch`) produced when a journey's full navigation aborts the legacy owner-dashboard's in-flight background reads; direct probes proved CORS/preflight healthy, zero matching 4xx/5xx were recorded, and real server failures still fail the run via the response hook. The owner-dashboard fetch fan-out itself is noted as a later cleanup (P1).
-**D7 operational evidence:** 14 `diaspora.container_booking.*` rows written to staging `domain_events` by the certified run, all status=pending (the canonical cron did NOT consume them; nothing was lost). They render into in-app notifications as soon as a drain runs against a runtime carrying this branch's subscriptions — post-merge automatically, or pre-merge if `COMMUNICATION_WORKER_SECRET` is added to the carup-backend-staging PREVIEW environment (a one-time owner dashboard action; the local classifier correctly refused to copy that secret between environments on the owner's behalf).
-**Known limitations:** in-app notification VISIBILITY pending the drain condition above; two-party container conversation → C4; Intelligence container section → C18; owner-dashboard background-fetch fan-out cleanup → P1; multi-tenant users still choose tenants via switch-role.
-**Production touched:** NO.
-**Next unchecked task:** P1 ledger (C1–C18) — programme continues after owner demo/review.
-
----
-
-## Execution entry 2026-09-04 — OWNER UAT CORRECTION (supersedes the cycle-2 DEMO-USABLE verdict)
-
-**Status: the 2026-09-04 automated staging certification (16/16 at 3b9a87fa) is OVERRIDDEN by owner
-visual/product UAT. The candidate is NOT owner-accepted as demo-usable.**
-
-**Standing rule recorded:** automated staging certification does not override owner visual/product
-UAT. Element-existence/visibility assertions can pass while the document itself overflows the
-viewport, while the wrong shell wraps the workspace, and while the experience is not humanly
-usable. Future Trade OS certifications must include hard geometry gates (document/scroll width),
-full-page screenshot review, and owner acceptance before any DEMO-USABLE claim.
-
-**Owner findings (2026-09-04):**
-1. Page visually broken at desktop/narrow-desktop: content extends outside the viewport, right-side
-   fields/actions clipped, public mega-navigation and footer composition breaking on narrower
-   desktop. Root cause of shell class: the Diaspora operational routes are nested under the PUBLIC
-   `MainLayout` (marketing Navbar + Footer + CompactBottomNav) — a marketing shell, not an
-   authenticated Trade OS workspace; Navbar's `lg` mega-nav collides with the page's `lg`
-   two-column grid.
-2. Responsive certification was insufficient — visibility assertions, not geometry gates.
-3. Trade OS surfaces "Car Owner"/Marketplace shell semantics instead of the real commercial context
-   (organisation, logistics_provider business type, corridor, membership role).
-4. The service's breadth (non-vehicle eligible cargo) is not communicated before the form.
-5. CBM/kg form expects freight literacy; no guided measurement.
-6. No real organiser workspace: the operator cannot see who each participant is, what exactly each
-   booking ships, or open a booking detail; customer form and reviewer table are one primitive page.
-7. Actor vocabulary conflates participant / logistics organiser (tenant authority) / CarUp platform
-   admin.
-8. The container lacks an international-trade identity (ports, cut-off, loading window, carrier,
-   references, documentation notes — truthfully "Not recorded yet" where absent).
-9. Lifecycle orientation missing (truthful stage model only; no fake progress).
-10. Code/security: (A) `requestReservation` writes client-supplied `import_order_id` without
-    server-side authorization — frontend filtering is not authorization; (B) the D7 notification
-    assertion was conditional on TRADEOS_WORKER_SECRET, so certification could pass without a
-    visible notification, and recipient direction ignores the organiser; (C) migration
-    `20260904100000` Down restores pre-widening CHECK vocabularies that staging data now violates —
-    not recovery-safe.
-
-**P0 ledger reopened accordingly:**
-- D1 Navigation / workspace coherence: **[~]** (public shell around operational routes = failed IA)
-- D2 Logistics identity presentation: **[~]** (authority model stands; presentation wrong)
-- D3 Operator container experience: **[~]**
-- D4 Cargo request usability + linkage security: **[~]** (import-order link auth gap)
-- D5 Operator reservation management: **[~]** (manifest/booking detail required)
-- D7 Communications visibility: **[~]** (explicitly PARTIAL until a booking notification is visible
-  in the deployed UI; organiser direction missing)
-- D9 Import-order linkage: **[~]** (same authorization gap)
-- D10 Demo certification: **[ ] OWNER UAT FAILED**
-
-**Correction-cycle scope (this iteration, nothing from C1–C18):** Trade OS workspace shell +
-responsiveness with hard geometry gates; real trade/business identity projection; guided cargo
-measurement; non-automotive scope communication; organiser/participant/admin role clarity; operator
-manifest + booking detail; import-order link authorization + adversarial test; honest Communications
-proof; migration rollback safety; full staging re-UAT with full-page visual evidence at
-393/820/1024/1280/1366/1440/1536 widths. Kernel, staging demo data (where safe) and production
-boundaries unchanged. PR #207 stays Draft.
-
----
-
-## Execution entry 2026-09-04 — OWNER-UAT CORRECTION CYCLE COMPLETE (awaiting owner inspection)
-
-**Candidate SHA:** `6168d644d005175509992ee616bce4dac471e4d9` (+ one manifest-action label fix)
-**Branch:** `feat/trade-os-client-demo-convergence` · Draft PR #207 · base `main@bb9d9900` unmoved
-**Staging FE:** `https://carup-staging-git-feat-trade-os-client-demo-convergence-11-11.vercel.app`
-**Staging BE:** `https://carup-backend-staging-git-feat-trade-os-client-dem-dbf311-11-11.vercel.app`
-**Pairing:** exact-head, both sides verified at the candidate SHA, `unpaired: false`
-**DB:** staging `eoyenigwevnxwwhyhaer` · **production untouched**
-
-### What changed, per owner finding
-
-1. **Workspace shell** — new `web/src/components/layout/TradeOSWorkspaceLayout.tsx`. The client-demo
-   routes (`/diaspora/containers`, `/diaspora/imports*`, incl. Order Passport) left the public
-   `MainLayout` for an authenticated operating shell: compact CarUp bar, local Trade OS nav
-   (Containers · Import orders · Communications — only surfaces that work), **no marketing footer,
-   no public mega-menu, no CompactBottomNav**. Other Diaspora routes stay in `MainLayout`
-   deliberately (regression risk bounded).
-2. **Narrow-desktop overflow** — the two-column grid now activates at `xl` (it was `lg`, colliding
-   with the public nav's `lg` breakpoint); every grid child carries `min-w-0`; the manifest table
-   lives in a bounded `overflow-x-auto` region; forms reflow. Certified by a HARD GEOMETRY GATE
-   asserting `document/body/workspace scrollWidth ≤ innerWidth + 1` at **393, 820, 1024, 1280,
-   1366, 1440, 1536**, each with a full-page screenshot attached.
-3. **Trade identity** — new read-only `backend/services/diaspora/tradeContextService.js` +
-   `GET /diaspora/container-marketplace/trade-context`. The operator now reads as
-   *SYNTHETIC Hikari Co-Load Logistics · LOGISTICS PROVIDER · Japan → Zimbabwe trade operations ·
-   Signed in as … · Organisation administrator*; a customer reads as *Trade participant*.
-   `users.role` untouched — security role and commercial identity stay separate, asserted by a
-   regression that fails if "Car Owner" appears in the Trade OS context.
-4. **Cargo breadth** — a purpose band explains, before the form, that shared containers coordinate
-   *vehicles and other eligible goods*, with eight example chips and the caveat
-   "subject to organiser/carrier, safety, customs and applicable legal requirements", plus explicit
-   role framing (CarUp = coordination/record; organiser; participant; carrier/customs).
-5. **Guided measurement** — "I already know my total volume" / "Help me calculate it"; per-item
-   description + quantity + L×W×H in cm/m, multiple item groups, live *Estimated cargo volume: N
-   CBM*, plain-language CBM definition, "Estimated total weight" with helper copy, and an explicit
-   estimates-may-need-organiser-confirmation statement. Vehicle cargo shows the linked import
-   order's identity instead of asking for retyped facts.
-6. **Operator manifest** — privileged reads are enriched with participant display name and a
-   canonical linked-order summary (never private contact data); each row opens a booking detail
-   naming ORGANISER / PARTICIPANT / CONTAINER / CARGO / SPACE / declared value / linkage /
-   requested + decided timestamps, with contact routed through CarUp Communications and a Passport
-   link.
-7. **Actor clarity** — participant vs tenant-scoped logistics organiser vs CarUp platform
-   reviewer/admin remain distinct; the client is never presented as a platform administrator;
-   cross-tenant isolation re-proven (rival admin sees **no** foreign reservations, API approve 403,
-   close denied).
-8. **Container trade identity** — create captures origin/destination ports, loading window,
-   expected arrival, carrier/forwarder, booking reference and documentation notes; the sailing
-   header renders them as facts, with **"Not recorded yet"** wherever the organiser supplied
-   nothing.
-9. **Lifecycle** — a truthful stage strip (Booking open → Space requested → Space approved →
-   Loading preparation → Booking closed → Shipment) marks stages only from authoritative state and
-   labels unconnected domains *Not started* / *Not connected*. No progress percentages.
-10. **Code/security fixes** — (A) `requestReservation` now loads the canonical import order
-    server-side and refuses a foreign linkage **403** / missing **404**; three adversarial tests
-    pin it. (B) D7 is no longer conditional: the staging spec fails unless the participant's
-    canonical notification exists AND the deployed Communications surface renders it, and a new
-    organiser-directed `reservation_received` event addresses the coordinator (proven separately).
-    (C) the migration Down is recovery-safe — it re-asserts the widened, data-compatible CHECKs
-    instead of restoring narrow ones that live rows would violate.
-
-### Extra defect found by reviewing the visual evidence (not by assertions)
-
-The booking manifest rendered **"No reservations." / "0 approved · 0 pending"** while the read was
-still in flight — a false empty on a container with four bookings. Loading, empty and unreadable are
-now three distinct states ("Loading bookings…" / "Counting bookings…"), pinned by a mocked
-regression with a delayed response, and the staging helper waits for the manifest to settle so no
-screenshot can capture a mid-flight state as final. A second pass tightened the manifest action
-column so row decisions are never clipped.
-
-### Evidence
-
-- **Deployed staging certification (spec 45, unmocked): 19 passed / 0 failed**, retries 0,
-  workers 1, across `chromium` + `tablet-chromium` (820×1180) + `mobile-chromium` (Pixel 5).
-  Zero unexpected console errors, zero page errors, zero API 5xx, zero unexplained 4xx.
-- **Backend targeted: 90/90** (container marketplace, marketplace-auth incl. the new linkage
-  authorization + manifest enrichment + trade-context pins, logistics-auth, route-authorization,
-  communications coverage, registration profile, migration integrity).
-- **Web unit: 1555/1555.** **Mocked container e2e: 15/15** (incl. overflow gate, no-footer/no-"Car
-  Owner" shell, guided-CBM maths, scope communication, manifest + booking detail, loading-state).
-  Other diaspora mocked specs: 38 passed. `tsc --noEmit` clean; production build green.
-- **Visual evidence:** full-page screenshots at all seven widths plus operator/participant desktop,
-  narrow-desktop, tablet and mobile, attached to the run and reviewed by eye — not just asserted.
-- **D7 operational proof:** the 14 `diaspora.container_booking.*` events are now **processed** and
-  produced **14 canonical in-app notifications**; `COMMUNICATION_WORKER_SECRET` was provisioned for
-  this branch's Preview environment only (freshly generated, never copied from production).
-
-**Ledger state after this cycle:** D1/D2/D3/D4/D5/D6/D7/D8/D9 evidenced again under the corrected
-design and security model; **D10 remains OPEN pending OWNER INSPECTION** of the new staging surface —
-automated certification does not close it.
-**Production touched:** NO. **PR #207:** Draft, not merged.
-**Next unchecked task:** owner visual/product inspection of the corrected workspace. C1–C18 remain
-unstarted.
+**Current branch:** `feat/trade-os-client-demo-convergence` at `255d903eee27579d28eb3685a0a6bc75061135c7` before this documentation commit.  
+**PR #207:** remains Draft.  
+**Production touched:** NO.  
+**Next unchecked task:** T0 baseline/reconciliation, then T1 prerequisites and T2 Request Quotes / Reverse RFQ 2.0.
