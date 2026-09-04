@@ -24,7 +24,7 @@ export default defineConfig({
   // line, so widening this pattern cannot change what that gate runs.
   // 45 is ADDITIVE (Trade OS container co-loading client-demo certification); every certified gate
   // names its own spec on its command line, so widening this pattern changes none of them.
-  testMatch: /(?:3[2-7]-diaspora-staging-browser-.*|38-seller-staging-browser-golden|41-seller-phase-e-staging|42-seller-media-lifecycle-staging|43-operations-serena-staging|45-trade-os-container-demo-staging)\.spec\.ts/,
+  testMatch: /(?:3[2-7]-diaspora-staging-browser-.*|38-seller-staging-browser-golden|41-seller-phase-e-staging|42-seller-media-lifecycle-staging|43-operations-serena-staging|45-trade-os-container-demo-staging|46-trade-os-rfq2-staging)\.spec\.ts/,
   timeout: 90_000,
   expect: { timeout: 15_000 },
   fullyParallel: false, // journeys mutate shared staging state; keep deterministic order
