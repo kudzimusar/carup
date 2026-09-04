@@ -93,3 +93,42 @@ issuing these keys.
 
 `/api/health` reporting `ocrProviders.gemini: true` proves only that the environment variable is
 non-empty. It is not evidence that the provider will serve a request.
+
+
+## Runs 8 and 9 — the quota, measured exactly (2026-09-04)
+
+A single real `generateContent` call now runs before the gate, so provider availability is proven
+by a request rather than inferred. It was refused, and printed Google's full quota block:
+
+```
+HTTP 429  RESOURCE_EXHAUSTED
+"Quota exceeded for metric:
+   generativelanguage.googleapis.com/generate_content_free_tier_requests,
+ limit: 20, model: gemini-2.5-flash"
+
+quotaId:     GenerateRequestsPerDayPerProjectPerModel-FreeTier
+quotaValue:  20
+dimensions:  { location: global, model: gemini-2.5-flash }
+```
+
+**Twenty requests per day**, metered against the metric literally named
+`generate_content_free_tier_requests`. A project with active billing is metered against the paid
+metric, so this is direct evidence that the project issuing this key has **no active billing**.
+The eleven-fixture corpus alone needs eleven calls, so two runs exhaust a whole day.
+
+### Neither credential was replaced
+
+| Credential | Last changed | Evidence |
+|---|---|---|
+| GitHub Actions secret `GEMINI_API_KEY` | **2026-06-05T05:06:54Z** | `gh secret list` — three months old, untouched |
+| Vercel `carup-backend-staging` Preview `GEMINI_API_KEY` | **2026-09-04T13:25:21Z** | Vercel API `createdAt == updatedAt` — the key configured in the previous session, unchanged since |
+
+Enabling billing on a Google Cloud project does not change an API key's value, so an unchanged
+timestamp would not by itself disprove activation. The provider's own free-tier metering does: both
+credentials are still metered as free tier.
+
+### What run 9 nevertheless showed
+
+`national-id-rotated` was read completely — all four expected fields **exact**, confidence 1 — in
+the one window where a request was allowed. Across runs 8 and 9: **4 exact, 0 incorrect, 0
+fabrications.** Every refusal was recorded as a provider failure with no fields, never as a reading.

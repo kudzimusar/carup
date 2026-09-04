@@ -169,6 +169,69 @@ provider-quality result**: nothing the provider read was ever wrong.
 No expected fixture value was changed, no strictness was reduced, no fuzzy acceptance was
 introduced for identity numbers or VINs, and no second provider was substituted.
 
+## 4C. Second activation attempt — the quota measured exactly (2026-09-04, 16:00–16:25 UTC)
+
+Reported as: paid Gemini project/key configured in both GitHub Actions and the branch-scoped Vercel
+Preview. Measured result: **neither credential is on a billed project.**
+
+### Availability is now proven by a request, not by a variable
+
+The gate makes one real `generateContent` call before measuring anything. It was refused:
+
+```
+HTTP 429  RESOURCE_EXHAUSTED
+"Quota exceeded for metric:
+   generativelanguage.googleapis.com/generate_content_free_tier_requests,
+ limit: 20, model: gemini-2.5-flash"
+
+quotaId: GenerateRequestsPerDayPerProjectPerModel-FreeTier   quotaValue: 20
+```
+
+**Twenty requests per day**, metered against a metric literally named
+`generate_content_free_tier_requests`. A billed project is metered against the paid metric, so this
+is direct evidence of no active billing on the project issuing this key. The corpus needs eleven
+calls, so a single day's allowance cannot even cover two gate runs.
+
+### Neither credential was replaced
+
+| Credential | Last changed | How that was established |
+|---|---|---|
+| GitHub Actions secret | **2026-06-05T05:06:54Z** | `gh secret list --json updatedAt` — untouched for three months |
+| Vercel `carup-backend-staging` Preview (branch-scoped) | **2026-09-04T13:25:21Z** | Vercel API: `createdAt == updatedAt`, i.e. the key set in the previous session |
+
+Enabling billing does not change a key's value, so timestamps alone would not disprove activation —
+but the provider's free-tier metering of *both* credentials does.
+
+### What did change for the better
+
+The §3A journey got further than before: **evidence classification SUCCEEDED**
+(`likely_identity_document`), which is the first live proof that the deployed classification path
+reaches Gemini and returns a real verdict. The OCR call immediately after it was refused by the same
+free-tier daily quota — recorded verbatim in `ocr_documents.ocr_err_5007e3ed88`:
+
+```
+Gemini vision returned no text: RESOURCE_EXHAUSTED
+  [quota: GenerateRequestsPerDayPerProjectPerModel-FreeTier]
+```
+
+Session outcome: `ocr_execution_status: provider_failed`, `extraction_trust_status: no_fields`,
+`primary_reason_code: OCR_PROVIDER_FAILED`, `confidence_score: null`, eight expected fields
+**8 MISSING / 0 INCORRECT / 0 fabricated**, identity **not** verified. Honest in failure, again.
+
+And in gate run 9 the one fixture that got a request through — `national-id-rotated` — was read
+completely: all four expected fields **exact**, confidence 1.
+
+### To close
+
+Put a key from the **billing-enabled** project into both places — Vercel `carup-backend-staging`
+→ Preview (branch `fix/o2-live-ocr-operationalization`) **and** the GitHub Actions repository
+secret — then confirm with the gate's own proof step, which now prints the exact quota on refusal.
+The correct signal to look for is the proof step printing
+`PROOF: a real vision request SUCCEEDED with no quota refusal.`
+
+Nothing else is outstanding: the exact-head pair is live and proven, the journey works end to end,
+and the extraction code is measured correct wherever quota has allowed a reading.
+
 ## 4B. Staging activation attempt — exact-head pair proven, provider quota not
 
 *2026-09-04, after the Product Owner enabled billing and configured `GEMINI_API_KEY` on Vercel
@@ -324,7 +387,7 @@ authorized, so it can never be read as a pass.
 
 ## 7. Verdict
 
-**LIVE OCR NOT READY — the Gemini credential CarUp uses is free-tier with its daily quota spent.**
+**LIVE OCR NOT READY — both Gemini credentials CarUp uses are metered as FREE TIER at 20 requests/day; the billed key reached neither location.**
 
 *(Superseded the earlier `LIVE OCR CODE READY — STAGING PROVIDER AUTHORIZATION REQUIRED`:
 authorization was granted, the staging pair was built and proven, and the remaining blocker moved

@@ -206,7 +206,36 @@ does **not** pass.
 | — | Routed to `pending_manual_review` with `reviewer_id: null`, `review_decision: null` — the governed reviewer remains the only identity decision writer | ☑ |
 | — | No blur, glare or tampering score appears anywhere in the response | ☑ |
 
-#### The exact blocker
+#### The exact blocker — measured 2026-09-04 16:00–16:25 UTC
+
+A single real Gemini request now runs before anything else, so availability is proven rather than
+inferred. It was refused:
+
+```
+HTTP 429  RESOURCE_EXHAUSTED
+"Quota exceeded for metric:
+   generativelanguage.googleapis.com/generate_content_free_tier_requests,
+ limit: 20, model: gemini-2.5-flash"
+```
+
+**Twenty requests per day**, on a metric named `generate_content_free_tier_requests`. A project with
+active billing is metered against the paid metric, so the project issuing this key has no active
+billing. The corpus needs eleven calls, so one day's allowance cannot cover two gate runs.
+
+Neither credential was replaced: the GitHub Actions secret was last changed **2026-06-05**, and the
+Vercel Preview variable **2026-09-04 13:25** (the key set in the previous session). Enabling billing
+does not change a key's value — but the provider metering *both* as free tier settles it.
+
+Two things did improve and are worth knowing: the deployed **classification** call now succeeds
+against Gemini (`likely_identity_document`), the first live proof that path reaches the provider;
+and in the one window a request was allowed, `national-id-rotated` was read completely — every
+expected field exact, confidence 1.
+
+**To close:** put a key from the billing-enabled project into **both** Vercel
+`carup-backend-staging` → Preview and the GitHub Actions repository secret. Success looks like the
+gate's proof step printing `PROOF: a real vision request SUCCEEDED with no quota refusal.`
+
+#### The earlier blocker statement (unchanged, superseded by the measurement above)
 
 The credential is present and the endpoint is reachable, but **every vision call is refused**:
 
