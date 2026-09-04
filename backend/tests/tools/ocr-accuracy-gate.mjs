@@ -66,11 +66,25 @@ const MAX_ATTEMPTS = 3;
 const RATE_LIMIT_BACKOFF_MS = [35_000, 65_000];
 const PACE_MS = Number(process.env.OCR_GATE_PACE_MS ?? 13_000);
 
+// A subset run is a DIAGNOSTIC, for re-measuring one fixture without spending the whole corpus
+// against a constrained provider quota. It can never report a gate PASS: the verdict becomes
+// PARTIAL and the exit code stays non-zero, because a gate that skipped fixtures did not pass.
+const only = (process.env.OCR_GATE_ONLY || '').split(',').map((id) => id.trim()).filter(Boolean);
+const selected = only.length ? manifest.fixtures.filter((f) => only.includes(f.id)) : manifest.fixtures;
+if (only.length) {
+  const unknown = only.filter((id) => !manifest.fixtures.some((f) => f.id === id));
+  if (unknown.length) {
+    console.log(`OCR_ACCURACY_GATE: NOT_RUN — unknown fixture id(s): ${unknown.join(', ')}`);
+    process.exit(3);
+  }
+  console.log(`PARTIAL DIAGNOSTIC RUN — ${selected.length} of ${manifest.fixtures.length} fixtures. This can never report PASS.\n`);
+}
+
 const graded = [];
 const runs = [];
 let fixtureIndex = 0;
 
-for (const fixture of manifest.fixtures) {
+for (const fixture of selected) {
   if (fixtureIndex > 0 && PACE_MS > 0) await sleep(PACE_MS);
   fixtureIndex += 1;
   const filePath = path.join(corpusDir, fixture.file);
@@ -151,7 +165,9 @@ for (const fixture of manifest.fixtures) {
   }
 }
 
-const summary = summarize(graded);
+const measured = summarize(graded);
+// A partial run is never a pass, however well the fixtures it did run performed.
+const summary = only.length ? { ...measured, verdict: 'PARTIAL', partial: true, fixturesSkipped: manifest.fixtures.length - selected.length } : measured;
 
 const rows = graded.flatMap((fixture) => fixture.fields.map((row) => {
   const run = runs.find((r) => r.id === fixture.id);
@@ -164,6 +180,7 @@ const report = [
   `- Run: ${new Date().toISOString()}`,
   `- Corpus: ${manifest.version} (${manifest.fixtures.length} fixtures)`,
   `- Verdict: **${summary.verdict}**`,
+  ...(summary.partial ? [`- **PARTIAL DIAGNOSTIC RUN — ${summary.fixturesSkipped} fixture(s) were not measured. A partial run is never a gate pass.**`] : []),
   `- Fixtures passed: ${summary.fixturesPassed}/${summary.fixturesTotal}`,
   `- Fabricated values: ${summary.fabrications} · shortfalls (legible field not read): ${summary.shortfalls}`,
   `- Field results: ${summary.counts.exact} exact · ${summary.counts.normalized} normalized · ${summary.counts.missing} missing · ${summary.counts.incorrect} incorrect`,
@@ -183,3 +200,4 @@ console.log(`  field results: ${summary.counts.exact} exact, ${summary.counts.no
 console.log(`  written to ${path.relative(root, outDir)}/OCR_ACCURACY_RESULTS.md`);
 
 process.exit(summary.verdict === 'PASS' ? 0 : 1);
+

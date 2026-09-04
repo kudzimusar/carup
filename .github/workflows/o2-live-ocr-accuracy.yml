@@ -13,7 +13,15 @@ name: O2 Live OCR — Gemini Vision accuracy gate
 # it runs, on the OCR candidate branch, plus workflow_dispatch once this file reaches the
 # default branch.
 on:
-  workflow_dispatch: {}
+  workflow_dispatch:
+    inputs:
+      fixtures:
+        description: >-
+          Optional comma-separated fixture ids for a PARTIAL diagnostic run (e.g.
+          registration-book-clean). A partial run can never report PASS. Leave blank for the
+          full corpus, which is the only form that can pass the gate.
+        required: false
+        default: ''
   push:
     branches:
       - fix/o2-live-ocr-operationalization
@@ -108,6 +116,7 @@ jobs:
         id: gate
         env:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          OCR_GATE_ONLY: ${{ github.event.inputs.fixtures }}
         run: |
           set -o pipefail
           node backend/tests/tools/ocr-accuracy-gate.mjs --out "$GITHUB_WORKSPACE/ocr-accuracy" 2>&1 | tee ocr-gate-console.txt
