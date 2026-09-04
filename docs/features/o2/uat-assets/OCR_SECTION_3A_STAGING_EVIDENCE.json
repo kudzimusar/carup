@@ -1,0 +1,99 @@
+{
+  "run": "O2 \u00a73A Live OCR Operational Check",
+  "executed_at": "2026-09-04T14:03:42.53+00:00",
+  "candidate_sha": "f67589c3cec77e8efd7b345313843f11799c3015",
+  "frontend": "https://carup-staging-git-fix-o2-live-ocr-operationalization-11-11.vercel.app",
+  "backend": "https://carup-backend-staging-git-fix-o2-live-ocr-operatio-5cedc4-11-11.vercel.app",
+  "synthetic_account": "o2.liveocr.c9af006a@carup-staging.test",
+  "session_id": "120e718b-22a4-4e2a-b924-30bf13ffccf3",
+  "session": {
+    "status": "pending_manual_review",
+    "workflow_phase": "reviewer_action_required",
+    "primary_reason_code": "DOCUMENT_NOT_VISIBLE",
+    "evidence_classification": null,
+    "ocr_execution_status": null,
+    "extraction_trust_status": null,
+    "ocr_document_id": null,
+    "ocr_result": null,
+    "confidence_score": null,
+    "failure_reason": "Classification provider error: Gemini vision returned no text: RESOURCE_EXHAUSTED [quota: GenerateRequestsPerDayPerProjectPerModel-FreeTier; provider suggests retrying after 11s]",
+    "reviewer_identity": null,
+    "review_decision": null,
+    "uploaded_sides": {
+      "front": true,
+      "back": true,
+      "selfie": true
+    }
+  },
+  "field_comparison": {
+    "step": "3A.2\u20133A.5 extracted vs the values rendered into the fixture",
+    "first_name": {
+      "expected": "TESTCASE",
+      "extracted": null,
+      "result": "MISSING"
+    },
+    "last_name": {
+      "expected": "SPECIMEN",
+      "extracted": null,
+      "result": "MISSING"
+    },
+    "national_id_number": {
+      "expected": "63-1234567-A-42",
+      "extracted": null,
+      "result": "MISSING"
+    },
+    "date_of_birth": {
+      "expected": "1990-01-01",
+      "extracted": null,
+      "result": "MISSING"
+    },
+    "country": {
+      "expected": "ZIMBABWE",
+      "extracted": null,
+      "result": "MISSING"
+    },
+    "sex": {
+      "expected": "M",
+      "extracted": null,
+      "result": "MISSING"
+    },
+    "place_of_birth": {
+      "expected": "GWERU",
+      "extracted": null,
+      "result": "MISSING"
+    },
+    "date_of_issue": {
+      "expected": "2015-03-15",
+      "extracted": null,
+      "result": "MISSING"
+    }
+  },
+  "candidates": {
+    "available": false,
+    "reason": "Extraction has not completed for your current verification session.",
+    "document_fields": {},
+    "profile_candidates": {}
+  },
+  "identity_assurance": {
+    "subject_user_id": "u_e8af21540ff74d7a",
+    "policy_version": "identity_assurance.v1",
+    "evaluated_at": "2026-09-04T14:03:54.068Z",
+    "assurance_level": "pending",
+    "identity_state": "not_established",
+    "current_lifecycle_state": "not_established",
+    "historically_verified": false,
+    "verified_at": null,
+    "freshness_state": "not_applicable",
+    "document_expiry": {
+      "recorded": false,
+      "expires_at": null
+    },
+    "reverification_required": false,
+    "usable_for_identity_gated_actions": false,
+    "who_must_act": "none",
+    "reason_code": null,
+    "applicant_guidance": null,
+    "pending_review": true
+  },
+  "verdict": "SECTION_3A_NOT_PASSED \u2014 extraction never ran; provider refused every call with RESOURCE_EXHAUSTED [GenerateRequestsPerDayPerProjectPerModel-FreeTier]. Zero fields extracted, zero fabricated, identity not verified."
+}

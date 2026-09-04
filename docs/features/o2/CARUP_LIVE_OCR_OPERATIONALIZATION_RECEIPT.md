@@ -169,6 +169,78 @@ provider-quality result**: nothing the provider read was ever wrong.
 No expected fixture value was changed, no strictness was reduced, no fuzzy acceptance was
 introduced for identity numbers or VINs, and no second provider was substituted.
 
+## 4B. Staging activation attempt — exact-head pair proven, provider quota not
+
+*2026-09-04, after the Product Owner enabled billing and configured `GEMINI_API_KEY` on Vercel
+`carup-backend-staging` Preview for this branch.*
+
+### What was completed
+
+**The exact-head staging pair is live and proven.** Both pairing maps gained an additive entry for
+this lane, using the Vercel API's reported `meta.branchAlias` rather than a guessed hostname, and
+no existing O2 / #194 / Seller candidate was displaced.
+
+| Proof | Value |
+|---|---|
+| Frontend | `carup-staging-git-fix-o2-live-ocr-operationalization-11-11.vercel.app` |
+| Backend | `carup-backend-staging-git-fix-o2-live-ocr-operatio-5cedc4-11-11.vercel.app` |
+| `frontend_sha` | `f67589c3cec77e8efd7b345313843f11799c3015` |
+| `backend_sha` | `f67589c3cec77e8efd7b345313843f11799c3015` |
+| `unpaired` | `false` |
+| `api_base_source` | `paired from preview-backend-pairing.json for "fix/o2-live-ocr-operationalization"` |
+
+The backend at the pre-activation SHA reported `ocrProviders.gemini: false` because it had been
+built before the variable existed; redeploying the **same commit** picked the variable up without
+moving the candidate.
+
+### What blocked it
+
+`ocrProviders.gemini: true` proves only that the environment variable is non-empty. Proving the
+provider is *available* requires a real call, and every real call was refused:
+
+```
+RESOURCE_EXHAUSTED [quota: GenerateRequestsPerDayPerProjectPerModel-FreeTier]
+```
+
+- **The GitHub Actions repository secret** (used by the accuracy gate) — refused in runs 6 and 7.
+- **The Vercel staging Preview key** (used by the deployed journey) — refused during §3A, with the
+  identical quota id.
+
+Both credentials CarUp uses are on free-tier projects whose daily allowance is spent. Billing
+appears to have been enabled on a Google Cloud project other than the one issuing these keys, or
+the keys were not replaced with billed ones.
+
+### §3A on the deployed pair — measured, and honest in failure
+
+Synthetic account `o2.liveocr.c9af006a@carup-staging.test`, session
+`120e718b-22a4-4e2a-b924-30bf13ffccf3`, real synthetic pixels uploaded through the real journey.
+
+Eight expected fields: **8 MISSING, 0 INCORRECT, 0 fabricated.** Extraction never ran, so §3A does
+not pass. Everything the product *did* do was correct:
+
+- the failure reason names the real provider cause verbatim, including the violated quota id —
+  the diagnostics this lane added, working in production;
+- `ocr_execution_status`, `ocr_document_id`, `ocr_result`, `confidence_score` are all `null`
+  rather than defaulted;
+- `identity.state: in_review`, `lifecycle.effective_state: not_established`,
+  `capability_bearing: false`; assurance `pending`, `usable_for_identity_gated_actions: false`;
+- candidates `available: false` with an honest reason;
+- routed to `pending_manual_review` with `reviewer_id: null` — the governed reviewer remains the
+  only identity decision writer;
+- no blur, glare or tampering score anywhere.
+
+A correct product guard also fired en route: uploading the same image as front and back was
+refused with `FRONT_BACK_DUPLICATE`. That was a flaw in the first attempt's fixtures, not in the
+product; the run was repeated with the distinct synthetic back and selfie.
+
+**Manual-review fallback is not an OCR pass, and is not recorded as one.**
+
+### To close
+
+Point `GEMINI_API_KEY` at a key belonging to the billing-enabled project in **both** places —
+Vercel `carup-backend-staging` → Preview, **and** the GitHub Actions repository secret — then
+re-run the full accuracy gate and §3A. Nothing else is outstanding.
+
 ## 4A. Provider-activation boundary as recorded BEFORE authorization (superseded by §4)
 
 *Kept as written on 2026-09-04, before the Product Owner granted activation. Superseded by §4
@@ -252,7 +324,11 @@ authorized, so it can never be read as a pass.
 
 ## 7. Verdict
 
-**LIVE OCR CODE READY — STAGING PROVIDER AUTHORIZATION REQUIRED.**
+**LIVE OCR NOT READY — the Gemini credential CarUp uses is free-tier with its daily quota spent.**
+
+*(Superseded the earlier `LIVE OCR CODE READY — STAGING PROVIDER AUTHORIZATION REQUIRED`:
+authorization was granted, the staging pair was built and proven, and the remaining blocker moved
+from "no credential" to "the credential cannot serve requests". See §4B.)*
 
 The extraction path is genuinely image-based and production-honest, the four fabrications are gone
 and pinned against return, and the certified candidate → confirmation → governed-decision boundary
@@ -267,3 +343,9 @@ is intact. What remains is not code:
 
 Until (1)–(3) are done, §3A of the Owner UAT pack stays **NOT READY**, and this lane is not
 merged.
+
+**Updated after the activation attempt (§4B):** steps (1) and (3) were performed. The staging pair
+is live and proven at `f67589c3`, and §3A was executed through the deployed journey. Step (2), the
+accuracy gate, and §3A all remain blocked on the same thing — a Gemini key that is actually on the
+billed project. The extraction code itself is measured correct: 48 fields read correctly across
+every run that had quota, and **not one field ever read incorrectly**.

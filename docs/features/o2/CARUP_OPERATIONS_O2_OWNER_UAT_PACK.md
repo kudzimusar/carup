@@ -167,56 +167,68 @@ What this changes for your walkthrough:
 - **"N/A" / "Unknown" / a today's-date birthday can no longer appear as extracted values.** If any
   of those appears as a suggested value, that is a finding.
 
-**Current status (2026-09-04, after Product Owner activation authorization): LIVE OCR NOT READY —
-PROVIDER DAILY QUOTA EXHAUSTED.** Extraction now genuinely reads document pixels, and that is
-measured, not asserted. What blocks §3A is a credential plan and a missing staging environment
-variable, not the reading quality.
+**Current status (2026-09-04, after Gemini activation on staging): LIVE OCR NOT READY — the
+Gemini credential CarUp uses is on a free-tier project whose DAILY quota is exhausted.**
 
-**What the live provider actually did.** Five runs against real Gemini Vision (`gemini-2.5-flash`)
-over the eleven-fixture synthetic corpus — full detail in
-[uat-assets/OCR_ACCURACY_RUN_HISTORY.md](uat-assets/OCR_ACCURACY_RUN_HISTORY.md) and
-[uat-assets/OCR_ACCURACY_RESULTS.md](uat-assets/OCR_ACCURACY_RESULTS.md):
+#### §3A executed on the deployed exact-head pair
 
-| Measured | Result |
+| Item | Observed |
 |---|---|
-| Distinct expected fields read **correctly** | **48** |
-| Fields ever read **incorrectly** | **0** |
-| Fabricated values | **0** |
-| Fixtures passed on a genuine reading | **10 of 11** |
-| Cropped fixture | read the four fields that survive the crop, returned **nothing** for the two cut off the image |
-| Non-document (landscape photo) | **zero** document fields |
-| Unsupported text file | refused **before** any byte reached the provider |
+| Frontend | `https://carup-staging-git-fix-o2-live-ocr-operationalization-11-11.vercel.app` |
+| Backend | `https://carup-backend-staging-git-fix-o2-live-ocr-operatio-5cedc4-11-11.vercel.app` |
+| Pairing | `frontend_sha == backend_sha == f67589c3` · `unpaired: false` · api_base paired from `preview-backend-pairing.json` |
+| Account | `o2.liveocr.c9af006a@carup-staging.test` (synthetic, created for this run) |
+| Session | `120e718b-22a4-4e2a-b924-30bf13ffccf3` |
+| `/api/health` → `ocrProviders.gemini` | `true` — **but this only proves the variable is set** |
 
-**Why §3A still cannot run.** Two independent blockers, neither of them about OCR quality:
+| # | Item | Observed | PASS/FAIL |
+|---|---|---|---|
+| 3A.1 | Start session, upload three synthetic files, submit | All HTTP 200; session `pending_manual_review` / `reviewer_action_required` | ☑ journey works |
+| 3A.2 | Extracted FIRST NAME (expected `TESTCASE`) | **none extracted** | ✗ |
+| 3A.3 | Extracted LAST NAME (expected `SPECIMEN`) | **none extracted** | ✗ |
+| 3A.4 | Extracted ID NUMBER (expected `63-1234567-A-42`) | **none extracted** | ✗ |
+| 3A.5 | Extracted DATE OF BIRTH (expected `1990-01-01`) | **none extracted** | ✗ |
+| 3A.6 | Provider / model provenance | none recorded — extraction never ran | ✗ |
+| 3A.7 | Extraction success/failure + reason | failed, reason given verbatim: `Classification provider error: Gemini vision returned no text: RESOURCE_EXHAUSTED [quota: GenerateRequestsPerDayPerProjectPerModel-FreeTier]` | ☑ honest |
+| 3A.8 | Candidate status | `available: false` — "Extraction has not completed for your current verification session." | ☑ honest |
 
-1. The Gemini credential exists **only as a GitHub Actions secret**, not in the Vercel
-   `carup-backend-staging` **Preview** environment. GitHub secrets are write-only, so the value
-   cannot be copied across from here. The deployed staging backend therefore still reports no OCR
-   provider, exactly as §3A recorded.
-2. The credential is on the **Gemini free tier** and its **daily** allowance for
-   `gemini-2.5-flash` is exhausted — the provider names the quota
-   (`GenerateRequestsPerDayPerProjectPerModel-FreeTier`). Once reached, every call is refused in
-   ~170 ms whatever the pacing.
+**Comparison rule applied:** eight expected fields, **eight MISSING, zero INCORRECT**. Nothing was
+fabricated. Missing is preferable to fabrication — but missing is still not extraction, so §3A
+does **not** pass.
 
-**What the Product Owner needs to do**, in order:
+#### Separately: extraction ≠ verification — this part PASSES
 
-1. Raise the Gemini quota (enable billing on the Google AI Studio / Cloud project behind the key,
-   or supply a paid-tier key). A daily free-tier allowance cannot carry a certification corpus
-   plus a UAT journey.
-2. Add `GEMINI_API_KEY` to Vercel project **`carup-backend-staging`**, environment **Preview**
-   (team `11-11`). Backend only — never a `VITE_`/frontend variable, and not Production.
-3. Re-run the accuracy gate (GitHub Actions → *O2 Live OCR — Gemini Vision accuracy gate*, leave
-   the `fixtures` input blank for the full corpus) and then §3A.1–3A.11 on the exact-head pair.
+| # | Observed | PASS/FAIL |
+|---|---|---|
+| 3A.9 | `identity.state: in_review`, `lifecycle.effective_state: not_established`, `capability_bearing: false` — the account is **not** verified | ☑ |
+| 3A.10 | `identity_assurance.v1`: `assurance_level: pending`, `freshness_state: not_applicable`, `usable_for_identity_gated_actions: false`. Never "established" because a file was processed | ☑ |
+| 3A.11 | No values were extracted, so none could be written anywhere; candidates are explicitly unavailable with a reason | ☑ |
+| — | Routed to `pending_manual_review` with `reviewer_id: null`, `review_decision: null` — the governed reviewer remains the only identity decision writer | ☑ |
+| — | No blur, glare or tampering score appears anywhere in the response | ☑ |
 
-Until the gate passes on a full corpus **and** §3A passes on the deployed pair, §3A's verdict
-stays **NOT READY**. Routing to manual review remains a correct safety behaviour and is still not
-a substitute for extraction.
+#### The exact blocker
 
-**What changed for your walkthrough regardless**, once a provider is reachable: values now come
-from the actual pixels; provenance (provider, model, execution status, latency, and whether a
-confidence was genuinely reported) is recorded per reading; blur/glare/tampering scores are gone
-because CarUp does not measure them; and `N/A` / `Unknown` / a today's-date birthday can no longer
-appear as extracted values. Any of those appearing is a finding.
+The credential is present and the endpoint is reachable, but **every vision call is refused**:
+
+```
+RESOURCE_EXHAUSTED [quota: GenerateRequestsPerDayPerProjectPerModel-FreeTier]
+```
+
+This is the same free-tier daily quota on **both** credentials CarUp uses — the one now on Vercel
+`carup-backend-staging` Preview, and the one in the GitHub Actions repository secret that the
+accuracy gate runs with. Billing appears to have been enabled on a Google Cloud project other than
+the one issuing these API keys, or the keys were not replaced with billed ones.
+
+`ocrProviders.gemini: true` reports only that the environment variable is non-empty. It is not
+evidence that the provider will serve a request — which is exactly why §3A is measured through a
+real call rather than inferred from configuration.
+
+**To close this:** point `GEMINI_API_KEY` at a key belonging to the billing-enabled project, in
+**both** places — Vercel `carup-backend-staging` → Preview, **and** the GitHub Actions repository
+secret — then re-run the accuracy gate (full corpus) and §3A. Everything else is in place: the
+exact-head pair is live and proven, and the extraction code is measured correct (see
+[uat-assets/OCR_ACCURACY_RUN_HISTORY.md](uat-assets/OCR_ACCURACY_RUN_HISTORY.md): 48 fields read
+correctly, **zero ever read incorrectly**, across every run that had quota).
 
 ### 4 · Biometrics (provider deliberately not activated)
 | # | Path | Account | Do this | Expect | PASS/FAIL |

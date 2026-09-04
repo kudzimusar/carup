@@ -11,6 +11,8 @@ secret, injected as an env var, and appears nowhere in this repository, these ar
 | 3 | [33872499074](https://github.com/kudzimusar/carup/actions/runs/33872499074) | `aac77d11` | FAIL | 9/11 | 36 | **0** | 0 |
 | 4 | [33873117569](https://github.com/kudzimusar/carup/actions/runs/33873117569) | `fc63f630` | FAIL | 6/11 | 8 | **0** | 0 |
 | 5 | [33874950788](https://github.com/kudzimusar/carup/actions/runs/33874950788) | `107cb5b0` | PARTIAL (1 fixture) | 0/1 | 0 | **0** | 0 |
+| 6 | [33878492890](https://github.com/kudzimusar/carup/actions/runs/33878492890) | `8659f67a` | FAIL | — | 0 | **0** | 0 |
+| 7 | [33880682676](https://github.com/kudzimusar/carup/actions/runs/33880682676) | `8659f67a` | PARTIAL (1 fixture) | 0/1 | 0 | **0** | 0 |
 
 **Across every run, not one field was ever read incorrectly, and nothing was ever fabricated.**
 48 distinct expected fields were read correctly at least once. The variation in the `Exact` column
@@ -70,3 +72,24 @@ prints the chassis number and the VIN once under a combined label, so the candid
 that reading across — but **only** when the value is itself a valid 17-character VIN, and the
 carry is recorded in `carriedIdentifiers`. That fix is covered by unit regression tests and is
 waiting on quota to be confirmed live.
+
+
+## Runs 6 and 7 — after Product Owner billing activation (2026-09-04)
+
+Billing was enabled and `GEMINI_API_KEY` was configured on Vercel `carup-backend-staging` Preview.
+Runs 6 and 7 re-tested the **GitHub Actions** credential the gate uses, and both were refused with
+the identical quota:
+
+```
+RESOURCE_EXHAUSTED [quota: GenerateRequestsPerDayPerProjectPerModel-FreeTier]
+```
+
+The repository secret is therefore still a free-tier key with its daily allowance spent.
+
+The staging credential was tested separately and independently, through the deployed §3A journey
+on the exact-head pair. It was refused with the **same** quota id. Both credentials CarUp uses are
+free-tier and exhausted; billing appears to be enabled on a Google Cloud project other than the one
+issuing these keys.
+
+`/api/health` reporting `ocrProviders.gemini: true` proves only that the environment variable is
+non-empty. It is not evidence that the provider will serve a request.
