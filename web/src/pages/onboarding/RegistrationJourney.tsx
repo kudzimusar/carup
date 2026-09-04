@@ -319,14 +319,14 @@ export default function RegistrationJourney() {
       case 'action_required': return <Badge className="bg-amber-600 text-white" data-testid="identity-state">Your action needed</Badge>
       case 'processing': return <Badge className="bg-blue-600 text-white" data-testid="identity-state">Processing</Badge>
       case 'in_review': return <Badge className="bg-blue-800 text-white" data-testid="identity-state">In human review</Badge>
-      case 'not_started': return <Badge variant="outline" data-testid="identity-state">Not started</Badge>
+      case 'not_started': return <Badge variant="outline" className="border-gray-700 text-gray-100" data-testid="identity-state">Not started</Badge>
       // O2-X3 — current lifecycle states (labels stay applicant-safe).
       case 'reverification_required': return <Badge className="bg-amber-600 text-white" data-testid="identity-state">Re-verification required</Badge>
       case 'suspended': return <Badge className="bg-red-800 text-white" data-testid="identity-state">On hold</Badge>
       case 'compromised': return <Badge className="bg-red-800 text-white" data-testid="identity-state">Security review</Badge>
       case 'disputed': return <Badge className="bg-amber-700 text-white" data-testid="identity-state">Under dispute</Badge>
       case 'revoked': return <Badge className="bg-red-900 text-white" data-testid="identity-state">Revoked</Badge>
-      default: return <Badge variant="outline" data-testid="identity-state">{identity?.state || '—'}</Badge>
+      default: return <Badge variant="outline" className="border-gray-700 text-gray-100" data-testid="identity-state">{identity?.state || '—'}</Badge>
     }
   }, [identity?.state])
 
@@ -345,7 +345,7 @@ export default function RegistrationJourney() {
       <header className="space-y-2">
         <h1 className="text-2xl font-semibold">Finish setting up your CarUp account</h1>
         <div className="flex flex-wrap items-center gap-2">
-          <Badge variant="outline" data-testid="who-must-act">{ACTOR_LABELS[journey.journey.who_must_act] || journey.journey.who_must_act}</Badge>
+          <Badge variant="outline" className="border-gray-700 text-gray-100" data-testid="who-must-act">{ACTOR_LABELS[journey.journey.who_must_act] || journey.journey.who_must_act}</Badge>
           {journey.user?.email_verified === false && <Badge className="bg-gray-700">Email not yet verified</Badge>}
         </div>
         <p className="text-sm text-gray-400" data-testid="required-action">{journey.journey.required_action}</p>

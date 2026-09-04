@@ -257,7 +257,7 @@ export default function DealerOnboarding() {
       <header className="space-y-2">
         <h1 className="text-2xl font-semibold">Dealer onboarding — {overview.registration.organization_name || 'your business'}</h1>
         <div className="flex flex-wrap items-center gap-2">
-          <Badge variant="outline" data-testid="dealer-who-must-act">{ACTOR_LABELS[overview.who_must_act] || overview.who_must_act}</Badge>
+          <Badge variant="outline" className="border-gray-700 text-gray-100" data-testid="dealer-who-must-act">{ACTOR_LABELS[overview.who_must_act] || overview.who_must_act}</Badge>
           <Badge className="bg-gray-700" data-testid="workspace-dependency"><Lock className="mr-1 h-3 w-3" aria-hidden />Applicant — not an active Dealer</Badge>
         </div>
         <p className="text-xs text-gray-400">{overview.workspace_access.note}</p>
@@ -302,7 +302,7 @@ export default function DealerOnboarding() {
                 {overview.requirements.map((req) => (
                   <li key={req.id} className="flex items-center justify-between">
                     <span>{req.requirement_key.replace(/_/g, ' ')}{req.is_blocking ? ' (blocking)' : ''}</span>
-                    <Badge variant="outline">{req.status}</Badge>
+                    <Badge variant="outline" className="border-gray-700 text-gray-100">{req.status}</Badge>
                   </li>
                 ))}
               </ul>
@@ -332,7 +332,7 @@ export default function DealerOnboarding() {
                     <div className="flex items-center justify-between">
                       <span>{doc.doc_type.replace(/_/g, ' ')}</span>
                       <span className="flex items-center gap-2">
-                        <Badge variant="outline">{doc.status}</Badge>
+                        <Badge variant="outline" className="border-gray-700 text-gray-100">{doc.status}</Badge>
                         <Button size="sm" variant="ghost" disabled={ocrRunning === doc.id} onClick={() => runOcr(doc.id)} data-testid={`ocr-${doc.id}`}>
                           <ScanSearch className="mr-1 h-3 w-3" aria-hidden />{ocrRunning === doc.id ? 'Extracting…' : 'Extract details'}
                         </Button>
