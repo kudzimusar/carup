@@ -1975,7 +1975,15 @@ Every implementation cycle appends an entry below.
 - [x] **T2.15 Order Passport continuation.** After award the mental model changes: a truthful
   stage list (Request ✓ · Supplier ✓ · Order in progress · Shipping/Documents/Zimbabwe **not
   started**) and a direct route into the order. No re-entry of any fact.
-- [ ] **T2.16 Notifications/Communications events** — deferred with T2.10 (same seam).
+- [x] **T2.16 Notifications/Communications events — DONE in cycle 1c.** `rfqLifecycleNotifier.js`
+  emits three canonical outbox events after the audited mutation — `quote_submitted` (the BUYER is
+  told an offer arrived; a DRAFT is private to the supplier and emits nothing), `quote_accepted`
+  (the winner), and `quote_not_selected` (every other supplier — silence would leave them chasing
+  a closed request). Subscribed with in-app-only policies on the `marketplace_inquiry` thread type
+  using a governed `rfq_update_v1` template with the same required variables as the container
+  template, so a missing value can never render a blank claim. Not emitted on an idempotent
+  acceptance replay, so a retry never re-notifies. Coverage gates (emitter literal, C1
+  addressability, policy/template/classification) green.
 - [ ] **T2.17 RFQ Intelligence** — not started; deliberately not faked.
 - [x] **T2.18 Responsive.** Geometry gate (document/body scrollWidth ≤ viewport + 1) at 393 /
   1024 / 1280 / 1440 across the supplier surface incl. the open composer.
@@ -2033,10 +2041,8 @@ also surfaced two things worth acting on, both now fixed:
   a fresh unmemoized literal each render) and had an unbounded refetch loop. All four new Trade
   surfaces destructure individual functions — verified.
 
-**Known limitations (honest):** T2.16 lifecycle notification EVENTS are not wired (the thread seam
-exists; the domain-event → notification policies for RFQ published / quote submitted / quote
-accepted are not); T2.17 RFQ Intelligence not started and deliberately not faked; **T2.20 deployed
-staging journey has NOT been run**, so T2 is **PARTIAL, not usable-certified**.
+**Known limitations (honest):** T2.17 RFQ Intelligence not started and deliberately not faked;
+**T2.20 deployed staging journey has NOT been run**, so T2 is **PARTIAL, not usable-certified**.
 
-**Next unchecked task:** T2.16 lifecycle events → T2.17 RFQ Intelligence → T2.20 deployed staging
-certification (buyer + supplier journeys, desktop/narrow/tablet/mobile, adversarial tenant cases).
+**Next unchecked task:** T2.20 deployed staging certification (buyer + supplier journeys,
+desktop/narrow/tablet/mobile, adversarial tenant cases), then T2.17 RFQ Intelligence.

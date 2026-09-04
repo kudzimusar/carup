@@ -67,6 +67,13 @@ const TEMPLATES = Object.freeze({
     subject: 'Container booking {{reference}}',
     body: 'Container booking {{reference}} status: {{status}}. Route: {{route}}.',
   },
+  // Trade OS T2 — sourcing lifecycle. Same required variables as the container template so a
+  // missing value can never render as a blank commercial claim.
+  rfq_update_v1: {
+    transactional: true,
+    subject: 'Sourcing request {{reference}}',
+    body: 'Sourcing request {{reference}} update: {{status}}. Route: {{route}}.',
+  },
   support_resolved_v1: {
     transactional: true,
     subject: 'CarUp support thread resolved',

@@ -12,6 +12,7 @@ import { requireUserContext, isPlatformAdmin, isPlatformReviewer, isOrderOwner, 
 import { resolveClient, appendAudit, paging } from './diasporaServiceUtils.js';
 import { matchSupplyForOrder } from './diasporaDemandSupplyMatchingService.js';
 import { withEntitlement } from './diasporaEntitlementGuard.js';
+import { notifyQuoteAccepted, notifyQuoteNotSelected } from './rfqLifecycleNotifier.js';
 import { FEATURE_KEYS } from '../../constants/diaspora/diasporaEntitlements.js';
 
 const ORDERS = 'diaspora_import_orders';
@@ -333,5 +334,13 @@ export async function acceptQuote(orderId, quoteId, userContext = {}, options = 
   });
   if (error) throw translateAcceptQuoteError(error);
   if (!data) throw new ValidationError('Quote acceptance returned no result');
+  // Tell the winner AND the suppliers who were not selected — silence leaves them chasing a closed
+  // request. Skipped on an idempotent replay so a retry never re-notifies.
+  if (!data.idempotentReplay && data.acceptedQuote) {
+    const order = data.order || {};
+    await notifyQuoteAccepted({ order, quote: data.acceptedQuote, tenantId: order.tenant_id });
+    const { data: siblings } = await client.from(QUOTES).select('*').eq('import_order_id', orderId).is('deleted_at', null);
+    await notifyQuoteNotSelected({ order, quotes: siblings || [], acceptedQuoteId: data.acceptedQuote.id, tenantId: order.tenant_id });
+  }
   return { order: data.order, acceptedQuote: data.acceptedQuote, idempotentReplay: Boolean(data.idempotentReplay) };
 }

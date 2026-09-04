@@ -128,6 +128,41 @@ export const NOTIFICATION_POLICIES = Object.freeze({
     transactional: true,
   },
 
+  // Trade OS T2 — sourcing lifecycle (Request Quotes). One-way, in-app only.
+  'diaspora.rfq.quote_submitted': {
+    notificationType: 'rfq_update',
+    threadType: 'marketplace_inquiry',
+    priority: 'normal',
+    channels: ['in_app'],
+    fallbackChannels: [],
+    policyChannelsOnly: true,
+    templateKey: 'rfq_update_v1',
+    classification: 'transactional',
+    transactional: true,
+  },
+  'diaspora.rfq.quote_accepted': {
+    notificationType: 'rfq_update',
+    threadType: 'marketplace_inquiry',
+    priority: 'normal',
+    channels: ['in_app'],
+    fallbackChannels: [],
+    policyChannelsOnly: true,
+    templateKey: 'rfq_update_v1',
+    classification: 'transactional',
+    transactional: true,
+  },
+  'diaspora.rfq.quote_not_selected': {
+    notificationType: 'rfq_update',
+    threadType: 'marketplace_inquiry',
+    priority: 'normal',
+    channels: ['in_app'],
+    fallbackChannels: [],
+    policyChannelsOnly: true,
+    templateKey: 'rfq_update_v1',
+    classification: 'transactional',
+    transactional: true,
+  },
+
   // Trade OS D7 — container co-loading booking lifecycle (one-way, in-app only; the governed
   // template says only what CarUp records prove: booking status, never shipment/customs/payment).
   'diaspora.container_booking.reservation_requested': {
@@ -466,7 +501,7 @@ export class CommunicationNotificationService {
       tenant_id: event.tenant_id || payload.tenant_id || null,
       thread_type: policy.threadType,
       subject_type: payload.subject_type || policy.threadType,
-      subject_id: payload.inquiryId || payload.inquiry_id || payload.escrowId || payload.applicationId || payload.vin || payload.sessionId || payload.evidenceId || payload.reservationId || payload.containerId || null,
+      subject_id: payload.inquiryId || payload.inquiry_id || payload.escrowId || payload.applicationId || payload.vin || payload.sessionId || payload.evidenceId || payload.reservationId || payload.containerId || payload.rfqId || null,
       primary_user_id: recipientUserId,
       primary_channel: 'in_app',
       priority: policy.priority,
@@ -504,7 +539,7 @@ export class CommunicationNotificationService {
         // fallbacks cover every emitter's subject id (incl. sessionId/evidenceId/vin for
         // verification, evidence-review, and listing-moderation events) so distinct events
         // for the same user never collapse into one dedupe key.
-        dedupeParts: [eventType, event.id || event.dedupe_key || event.event_id || payload.id || payload.inquiryId || payload.escrowId || payload.applicationId || payload.sessionId || payload.evidenceId || payload.vin || payload.reservationId || payload.containerId, recipientUserId, policy.templateKey, channel],
+        dedupeParts: [eventType, event.id || event.dedupe_key || event.event_id || payload.id || payload.inquiryId || payload.escrowId || payload.applicationId || payload.sessionId || payload.evidenceId || payload.vin || payload.reservationId || payload.containerId || payload.quoteId || payload.rfqId, recipientUserId, policy.templateKey, channel],
         payload: {
           event_type: eventType,
           safe_payload: payload,

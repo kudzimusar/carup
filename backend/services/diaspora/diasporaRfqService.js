@@ -10,6 +10,8 @@ import { requireUserContext, isPlatformAdmin, isPlatformReviewer, normalizeId } 
 import { resolveClient, appendAudit, paging } from './diasporaServiceUtils.js';
 // Enforcement via the GUARD (no-op while DIASPORA_SUBSCRIPTION_ENFORCEMENT is off, which is default).
 import { requireFeature } from './diasporaEntitlementGuard.js';
+// T2 §9.12: best-effort canonical Communications events AFTER the audited mutation.
+import { notifyQuoteSubmitted } from './rfqLifecycleNotifier.js';
 import { FEATURE_KEYS } from '../../constants/diaspora/diasporaEntitlements.js';
 
 const ORDERS = 'diaspora_import_orders';
@@ -325,6 +327,8 @@ export async function createQuote(orderId, payload = {}, userContext = {}, optio
   const { data, error } = await client.from(QUOTES).insert(row).select().single();
   if (error) throw new ValidationError(`Failed to create quote: ${error.message}`);
   await appendAudit(client, { importOrderId: orderId, actorId: context.id, tenantId: data.tenant_id, action: submit ? 'RFQ_QUOTE_SUBMITTED' : 'RFQ_QUOTE_DRAFTED', resourceType: 'diaspora_import_quote', resourceId: data.id, newState: data, req });
+  // A DRAFT is private to the supplier — only a real submission is news for the buyer.
+  if (submit) await notifyQuoteSubmitted({ order, quote: data, tenantId: data.tenant_id });
   return { quote: data, idempotentReplay: false };
 }
 
@@ -372,6 +376,8 @@ export async function submitQuoteById(quoteId, userContext = {}, options = {}) {
   const { data, error } = await client.from(QUOTES).update({ status: QUOTE_DB_STATUSES.SUBMITTED, updated_by: context.id, updated_at: new Date().toISOString() }).eq('id', quoteId).select().single();
   if (error) throw new ValidationError(`Failed to submit quote: ${error.message}`);
   await appendAudit(client, { importOrderId: data.import_order_id, actorId: context.id, tenantId: data.tenant_id, action: 'RFQ_QUOTE_SUBMITTED', resourceType: 'diaspora_import_quote', resourceId: quoteId, previousState: previous, newState: data, req });
+  const { data: submittedOrder } = await client.from(ORDERS).select('*').eq('id', data.import_order_id).single();
+  if (submittedOrder) await notifyQuoteSubmitted({ order: submittedOrder, quote: data, tenantId: data.tenant_id });
   return data;
 }
 

@@ -44,6 +44,11 @@ export const COMMUNICATION_EVENT_TYPES = [
   'vehicle.ownership.transfer_action_required',
   'vehicle.ownership.transfer_state_changed',
   'vehicle.ownership.transfer_completed',
+  // Trade OS T2 — sourcing (Request Quotes) lifecycle. Emitted best-effort by
+  // services/diaspora/rfqLifecycleNotifier.js AFTER the audited authoritative mutation.
+  'diaspora.rfq.quote_submitted',
+  'diaspora.rfq.quote_accepted',
+  'diaspora.rfq.quote_not_selected',
   // Trade OS D7 — container co-loading booking lifecycle. Emitted best-effort by
   // services/diaspora/containerBookingNotifier.js AFTER the audited authoritative mutation.
   // Payloads carry `buyerId` (addressable) plus reference/status/route for the governed
