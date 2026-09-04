@@ -18,6 +18,13 @@
  *
  * Mutating journeys run on the desktop project only and are state-aware; the
  * tablet/mobile projects re-assert the resulting truth responsively.
+ *
+ * Run note: the first dispatch (33835296066) applied the six O2 migrations and
+ * verified them independently, then failed at the provenance wait — the O2
+ * frontend preview had been failing to build since X5A (two unused React
+ * imports; `tsc -b` enforces noUnusedLocals where `tsc --noEmit` does not), so
+ * its alias was stuck on an older commit. Fixed in 915f45c6; the exact-head
+ * pair then reported frontend == backend with unpaired=false.
  */
 import type { APIRequestContext, Page } from '@playwright/test';
 import AxeBuilder from '@axe-core/playwright';
