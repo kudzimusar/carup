@@ -2204,3 +2204,42 @@ Both corrected; `.gitignore` now covers the local state so `add -A` cannot repea
 with retries disabled; registry + manifest drift **86/86** after regenerating
 `shared/navigation/feature-manifest.json`; navigation map spec **16/16**; `tsc` clean; CR-1 secret
 scan clean over 2585 tracked files; net PR diff 49 files with no machine-local paths.
+
+### T2 closure evidence — head `a8805770`
+
+**Exact-head pair, proven not assumed.** Frontend `carup-staging-mno4vnwzh-11-11.vercel.app`
+(bundle `index-FUHWJvon.js`) against backend `carup-backend-staging-lk0l30j4f-11-11.vercel.app`,
+whose `/api/health` reports `commit_sha: a8805770341866771ec8871f03221ff345930338` — both sides at
+the certified head, with the bundle pinned through `STAGING_EXPECTED_BUNDLE`.
+
+| Gate | Result |
+| --- | --- |
+| Spec 46 — T2 RFQ 2.0, deployed staging, cross-tenant | **19 passed, 0 failed** (26 skipped: tablet/mobile skip the serial journey) |
+| Spec 45 — container co-loading, deployed staging | **17 passed, 0 failed**, excluding the two outbox-drain tests (see below) |
+| CI at head | **15 checks green, 0 failures** (Passport, navigation-e2e, Secret scan all recovered) |
+| Backend suite (CI env) | green in `Lint · Types · Build · Tests` |
+| Mocked T2 e2e | **40/40 with `--retries=0`** |
+| Registry + manifest drift + nav regression | **92/92** |
+
+**What spec 46 now proves that it did not before:** a supplier opens Messages from the Trade OS
+shell, lands on `/diaspora/messages` and the canonical Communications surface actually renders —
+asserted on a real element, not just the URL; a supplier is not offered the owner-only "Orders";
+and a buyer is not offered the dealer-only "Buyer requests".
+
+**Honest gap.** Two spec 45 tests — the D7 organiser-directed notification and the participant
+activity/communication state — require `TRADEOS_WORKER_SECRET` to drain the domain-event outbox
+through the candidate runtime. That secret is configured in Vercel for this branch but is not
+readable from this shell: `vercel env pull` returns empty placeholders for every encrypted
+variable here (`JWT_SECRET`, `DATABASE_URL` and `SUPABASE_URL` all pull empty too), so this is a
+local read limitation and NOT evidence that the deployment is misconfigured. The drain guard fails
+closed by construction — `matchesPrimary` requires a non-empty configured secret AND a supplied
+one — so an unreadable secret cannot leave the endpoint open. Those two tests were certified in
+cycle 1d; they are not re-proven at this head, and the rest of spec 45, including the D9 passport
+link, the geometry gate and the full-page visual evidence, runs and passes here.
+
+**Local backend suite caveat, recorded so the number is not misread.** Run on this machine the
+suite reports 5806 tests / 5771 pass / 14 fail / 21 skipped. All 14 sit in six files that need
+services this machine does not have — a real Postgres (`password authentication failed for user
+"postgres"`) and a live OCR provider (`fetch failed`) — and none is a Trade OS test. The same
+suite is green in CI, which supplies those services; CI is the authority for this gate, and the
+local run is reported here only so the discrepancy is explained rather than hidden.
