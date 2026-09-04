@@ -360,3 +360,64 @@ export function resolveSchema(docType) {
   if (raw.startsWith('dealer_')) return BUSINESS_SCHEMA;
   return BUSINESS_SCHEMA;
 }
+
+/**
+ * Accepted synonyms for a schema field.
+ *
+ * A document reader names a field after the words PRINTED ON THE DOCUMENT — a Zimbabwean ID card
+ * prints "Given names", not "first_name". Accepting that synonym is not a new naming convention
+ * and does not change CarUp's schema: `first_name` remains the one field name, and every entry
+ * below is a synonym for the SAME printed field, never a substitution of one field for another.
+ * Fields the schemas deliberately keep apart — plate number vs registration number, VIN vs
+ * registration book number, tax number vs company number — have no aliases between them.
+ */
+export const FIELD_ALIASES = {
+  first_name: ['given_names', 'given_name', 'givenNames', 'forenames', 'forename', 'first_names', 'firstname'],
+  last_name: ['surname', 'family_name', 'familyName', 'lastname'],
+  national_id_number: ['id_number', 'identity_number', 'national_registration_number', 'document_number', 'registration_number_id'],
+  date_of_birth: ['dob', 'birth_date', 'birthdate', 'date_of_birth_dob'],
+  date_of_issue: ['issue_date', 'issued_on', 'date_issued'],
+  expiry: ['expiry_date', 'date_of_expiry', 'expiration_date', 'valid_until'],
+  place_of_birth: ['birth_place', 'birthplace'],
+  sex: ['gender'],
+  nationality: ['citizenship'],
+  issuing_authority: ['authority', 'issued_by'],
+  licence_number: ['license_number'],
+  licence_classes: ['license_classes', 'classes', 'vehicle_classes'],
+  passport_number: ['passport_no'],
+  owner_name: ['registered_owner', 'owner', 'owners_name'],
+  engine_number: ['engine_no'],
+  chassis_number: ['chassis_no'],
+  bill_entry_number: ['bill_of_entry_number', 'entry_number', 'boe_number'],
+  duty_value_zig: ['assessed_duty', 'duty_value', 'duty', 'duty_amount'],
+  importer_name: ['importer'],
+  stamp_date: ['date_stamped', 'stamp'],
+  entry_point: ['port_of_entry', 'border_post'],
+  legal_name: ['registered_name', 'company_legal_name'],
+  trading_name: ['trade_name'],
+  physical_address: ['registered_address', 'business_address'],
+};
+
+/**
+ * How a field is usually LABELLED on the document, so the prompt can name both CarUp's field and
+ * the wording a reader will actually see. This is prompt guidance only; it never becomes a value.
+ */
+const PRINTED_LABELS = {
+  first_name: 'Given names / First name / Forenames',
+  last_name: 'Surname / Family name',
+  national_id_number: 'the identity number printed on this document',
+  date_of_birth: 'Date of birth / DOB',
+  date_of_issue: 'Date of issue',
+  expiry: 'Date of expiry / Valid until',
+  place_of_birth: 'Place of birth',
+  sex: 'Sex',
+  owner_name: 'Registered owner',
+  plate_number: 'Registration (plate) number',
+  bill_entry_number: 'Bill of entry number',
+  duty_value_zig: 'Assessed duty (amount only, without the currency)',
+  licence_classes: 'Classes',
+};
+
+export function printedLabelsFor(field) {
+  return PRINTED_LABELS[field] || null;
+}

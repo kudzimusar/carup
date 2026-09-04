@@ -157,6 +157,8 @@ test('grading: the corpus verdict is PASS only when every fixture passed', () =>
 test('gate: without provider authorization the gate reports NOT_RUN and cannot be read as a pass', () => {
   const env = { ...process.env };
   delete env.GEMINI_API_KEY;
+  delete env.CLOUDFLARE_ACCOUNT_ID;
+  delete env.CLOUDFLARE_API_TOKEN;
   let status = 0;
   let stdout = '';
   try {
@@ -174,6 +176,9 @@ test('gate: the measurement run cannot take the simulated path', () => {
   const gate = readFileSync(path.join(toolDir, 'ocr-accuracy-gate.mjs'), 'utf8');
   assert.match(gate, /process\.env\.ALLOW_OCR_MOCK = 'false'/,
     'a measurement of the simulation would measure nothing about OCR');
-  assert.match(gate, /if \(!process\.env\.GEMINI_API_KEY\)/);
-  assert.doesNotMatch(gate, /GEMINI_API_KEY\s*=\s*['"][^'"]+['"]/, 'no credential may be written into the gate');
+  assert.match(gate, /if \(!activeProvider\.isConfigured\(\)\)/,
+    'an unconfigured provider must stop the gate rather than be measured');
+  for (const secret of [/GEMINI_API_KEY\s*=\s*['"][^'"]+['"]/, /CLOUDFLARE_API_TOKEN\s*=\s*['"][^'"]+['"]/]) {
+    assert.doesNotMatch(gate, secret, 'no credential may be written into the gate');
+  }
 });

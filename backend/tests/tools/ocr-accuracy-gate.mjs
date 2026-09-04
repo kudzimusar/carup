@@ -27,16 +27,19 @@ const manifest = JSON.parse(readFileSync(path.join(toolDir, 'ocr-corpus-manifest
 const outIndex = process.argv.indexOf('--out');
 const outDir = outIndex > -1 ? path.resolve(process.argv[outIndex + 1]) : path.join(root, 'docs/features/o2/uat-assets');
 
-if (!process.env.GEMINI_API_KEY) {
+// The service must never take the test-mode simulation path during a measurement run.
+process.env.ALLOW_OCR_MOCK = 'false';
+
+const { resolveVisionProvider } = await import('../../services/ai/ocrVisionProvider.js');
+const activeProvider = resolveVisionProvider();
+if (!activeProvider.isConfigured()) {
   console.log('OCR_ACCURACY_GATE: NOT_RUN');
-  console.log('  No vision provider is configured for this environment.');
+  console.log(`  Provider "${activeProvider.id}" is selected but ${activeProvider.requiredEnv.join(' and ')} are not configured.`);
   console.log('  The gate measures a live provider against the synthetic corpus; it cannot be');
   console.log('  simulated, and a simulated run would measure the simulation, not the OCR.');
   process.exit(3);
 }
-
-// The service must never take the test-mode simulation path during a measurement run.
-process.env.ALLOW_OCR_MOCK = 'false';
+console.log(`Provider under measurement: ${activeProvider.id} / ${activeProvider.model}\n`);
 process.env.NODE_ENV ||= 'production';
 process.env.SUPABASE_URL ||= 'http://localhost:54321';
 process.env.SUPABASE_SERVICE_ROLE_KEY ||= 'gate-local-service-role';
@@ -92,10 +95,12 @@ for (const fixture of selected) {
   const dataUri = `data:${mimeFor(fixture.file)};base64,${bytes.toString('base64')}`;
 
   let providerCalls = 0;
-  const countingClient = async (...args) => {
-    providerCalls += 1;
-    const { askGeminiVision } = await import('../../services/ai/GeminiClient.js');
-    return askGeminiVision(...args);
+  const countingProvider = {
+    id: activeProvider.id,
+    model: activeProvider.model,
+    isConfigured: () => activeProvider.isConfigured(),
+    requiredEnv: activeProvider.requiredEnv,
+    extract: (args) => { providerCalls += 1; return activeProvider.extract(args); },
   };
 
   const startedAt = Date.now();
@@ -107,7 +112,7 @@ for (const fixture of selected) {
   // actually gave. RESOURCE_EXHAUSTED is the provider asking to be slowed down, so it backs off.
   for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt += 1) {
     result = await DocumentIntelligenceService.extractDocumentData(
-      fixture.docType, dataUri, 'ocr-accuracy-gate', { visionClient: countingClient },
+      fixture.docType, dataUri, 'ocr-accuracy-gate', { visionProvider: countingProvider },
     );
     attempts.push({
       attempt,
@@ -141,6 +146,7 @@ for (const fixture of selected) {
     wallMs,
     providerCalls,
     structuredCandidate: result.structuredCandidate || null,
+    providerUsage: result.providerUsage || null,
     verdict: grade.verdict,
     attempts,
     error: result.error || null,
@@ -159,7 +165,8 @@ for (const fixture of selected) {
   });
 
   const label = `${grade.verdict === 'PASS' ? '✓' : '✗'} ${fixture.id}`;
-  console.log(`${label} — ${result.provider}/${result.model || 'n/a'} · ${result.extractionStatus} · ${wallMs}ms · confidence ${result.confidenceReported ? result.confidence : 'not reported'}`);
+  const neurons = result.providerUsage?.neurons;
+  console.log(`${label} — ${result.provider}/${result.model || 'n/a'} · ${result.extractionStatus} · ${wallMs}ms · confidence ${result.confidenceReported ? result.confidence : 'not reported'}${neurons ? ` · ${neurons.toFixed(2)} neurons` : ''}`);
   for (const failure of grade.failures) {
     console.log(`    ${failure.kind.toUpperCase()}: ${failure.field} — expected ${JSON.stringify(failure.expected)}, got ${JSON.stringify(failure.extracted)}`);
   }
@@ -179,6 +186,8 @@ const report = [
   '',
   `- Run: ${new Date().toISOString()}`,
   `- Corpus: ${manifest.version} (${manifest.fixtures.length} fixtures)`,
+  `- Provider: ${activeProvider.id} / ${activeProvider.model}`,
+  `- Provider-reported usage: ${runs.reduce((t, r) => t + (r.providerUsage?.neurons ?? 0), 0).toFixed(2)} neurons across ${runs.reduce((t, r) => t + r.providerCalls, 0)} call(s)`,
   `- Verdict: **${summary.verdict}**`,
   ...(summary.partial ? [`- **PARTIAL DIAGNOSTIC RUN — ${summary.fixturesSkipped} fixture(s) were not measured. A partial run is never a gate pass.**`] : []),
   `- Fixtures passed: ${summary.fixturesPassed}/${summary.fixturesTotal}`,

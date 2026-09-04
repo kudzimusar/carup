@@ -32,6 +32,9 @@ const { resolveSchema } = await import('../services/document-intelligence/docume
 const here = new URL('.', import.meta.url).pathname;
 const read = (relative) => readFileSync(new URL(relative, import.meta.url), 'utf8');
 const SERVICE = read('../services/document-intelligence/documentIntelligenceService.js');
+const PROVIDER_BOUNDARY = read('../services/ai/ocrVisionProvider.js');
+const CLOUDFLARE = read('../services/ai/CloudflareVisionClient.js');
+const CLOUDFLARE_MODEL = '@cf/meta/llama-3.2-11b-vision-instruct';
 const MEDIA = read('../services/document-intelligence/documentMedia.js');
 const SCHEMAS = read('../services/document-intelligence/documentSchemas.js');
 
@@ -57,22 +60,22 @@ async function extractWith(t, { reading, docType = 'national_id', payload = PNG_
   const calls = [];
   t.mock.method(supabase, 'from', captureWrites(writes)());
 
-  const savedKey = process.env.GEMINI_API_KEY;
   const savedMock = process.env.ALLOW_OCR_MOCK;
-  process.env.GEMINI_API_KEY = 'test-provider-key-not-a-real-credential';
   process.env.ALLOW_OCR_MOCK = 'false';
   try {
-    const visionClient = async (systemPrompt, textPrompt, images, jsonMode) => {
-      calls.push({ systemPrompt, textPrompt, images, jsonMode });
+    // A test double standing in for the CONFIGURED provider. It declares the identity it is
+    // standing in for, so a reading can never be attributed to a provider never contacted.
+    const visionClient = async (systemPrompt, textPrompt, images, jsonSchema) => {
+      calls.push({ systemPrompt, textPrompt, images, jsonSchema });
       if (typeof reading === 'function') return reading();
       return typeof reading === 'string' ? reading : JSON.stringify(reading);
     };
     const result = await DocumentIntelligenceService.extractDocumentData(
-      docType, payload, 'user-ocr-lane', { visionClient },
+      docType, payload, 'user-ocr-lane',
+      { visionClient, visionClientIdentity: { id: 'cloudflare', model: CLOUDFLARE_MODEL } },
     );
     return { result, writes, calls };
   } finally {
-    if (savedKey === undefined) delete process.env.GEMINI_API_KEY; else process.env.GEMINI_API_KEY = savedKey;
     if (savedMock === undefined) delete process.env.ALLOW_OCR_MOCK; else process.env.ALLOW_OCR_MOCK = savedMock;
   }
 }
@@ -95,7 +98,13 @@ test('live-ocr: the document BYTES are sent to the provider as an inline media p
     PNG_BYTES,
     'the provider receives the COMPLETE original bytes, not a truncated prefix',
   );
-  assert.equal(call.jsonMode, true, 'structured output is requested');
+  assert.ok(call.jsonSchema && call.jsonSchema.schema, 'a structured response schema is requested');
+  assert.equal(
+    call.jsonSchema.schema.properties.fields.properties.first_name !== undefined, true,
+    'the requested schema is derived from CarUp\'s own document schema',
+  );
+  assert.deepEqual(call.jsonSchema.schema.required, ['document_class_observed', 'fields'],
+    'no document field is ever required of the reader — a required field invites invention');
   assert.ok(
     !`${call.systemPrompt}${call.textPrompt}`.includes(PNG_BYTES.toString('base64').slice(0, 24)),
     'no base64 payload is smuggled into the text prompt',
@@ -107,8 +116,10 @@ test('live-ocr: the truncated-base64 text path is gone from the source', () => {
   assert.doesNotMatch(SERVICE, /base64Data\s*\.\s*slice/, 'no truncated base64 may be built');
   assert.doesNotMatch(SERVICE, /Image payload base64/, 'the text-prompt payload line must not return');
   assert.doesNotMatch(SERVICE, /slice\(0,\s*150\)/);
-  assert.match(SERVICE, /askGeminiVision/, 'extraction goes through the vision client');
+  assert.match(SERVICE, /configuredProvider\.extract\(/, 'extraction goes through the provider boundary');
   assert.match(SERVICE, /mimeType: media\.mimeType, base64: media\.base64/, 'the real bytes are the image part');
+  assert.match(CLOUDFLARE, /image: usable\[0\]\.base64/, 'Cloudflare receives the real image bytes');
+  assert.doesNotMatch(CLOUDFLARE, /\.slice\(0,\s*\d+\)/, 'no truncated payload may be sent');
 });
 
 // ---------------------------------------------------------------------------------------
@@ -395,8 +406,8 @@ test('live-ocr: every reading carries provider provenance', async (t) => {
   });
 
   const { provenance } = result.extractedData;
-  assert.equal(provenance.provider, 'gemini');
-  assert.equal(provenance.model, 'gemini-2.5-flash');
+  assert.equal(provenance.provider, 'cloudflare');
+  assert.equal(provenance.model, CLOUDFLARE_MODEL);
   assert.equal(provenance.executionStatus, 'provider_succeeded');
   assert.equal(provenance.documentClassRequested, 'zimbabwe_national_id');
   assert.equal(provenance.documentClassObserved, 'zimbabwe_national_id');
@@ -406,8 +417,10 @@ test('live-ocr: every reading carries provider provenance', async (t) => {
   assert.ok(Number.isFinite(provenance.latencyMs));
   assert.ok(!Number.isNaN(Date.parse(provenance.extractedAt)));
   assert.match(provenance.schemaVersion, /^\d{4}\.\d{2}\.ocr-v\d+$/);
-  assert.equal(result.model, 'gemini-2.5-flash');
-  assert.equal(result.provider, 'gemini');
+  assert.equal(result.model, CLOUDFLARE_MODEL);
+  assert.equal(result.provider, 'cloudflare');
+  assert.equal(provenance.mediaWidthPx, 1, 'media facts travel with the reading');
+  assert.equal('providerUsage' in provenance, true, 'provider-reported usage has a recorded slot');
 });
 
 test('live-ocr: each document class is extracted against its own schema', () => {
@@ -480,7 +493,9 @@ test('live-ocr: the provider is told WHY it returned no text, and a hung call is
   assert.match(client, /finishReason/, 'the finish reason is surfaced');
   assert.match(client, /blockReason/, 'a safety block is surfaced');
   assert.match(client, /AbortSignal\.timeout/, 'a hung provider call is bounded');
-  assert.match(SERVICE, /thinkingBudget: 0/, 'transcription does not spend its output budget on thinking');
+  assert.match(PROVIDER_BOUNDARY, /thinkingBudget: 0/, 'transcription does not spend its output budget on thinking');
+  assert.match(CLOUDFLARE, /AbortSignal\.timeout/, 'a hung Cloudflare call is bounded too');
+  assert.match(CLOUDFLARE, /refused the request/, 'Cloudflare refusals name the provider error');
 });
 
 test('live-ocr: absence spellings from the provider are read as absence, not as values', async (t) => {
@@ -575,7 +590,7 @@ test('live-ocr: the persisted evidence row records provenance, not the document 
   assert.ok(!master.row.extracted_json.includes(PNG_BYTES.toString('base64')), 'no payload is persisted');
   assert.ok(!/^data:/.test(master.row.file_path), 'no data URI is persisted as a file path');
   assert.equal(master.row.user_id, 'user-ocr-lane');
-  assert.equal(JSON.parse(master.row.extracted_json).provenance.provider, 'gemini');
+  assert.equal(JSON.parse(master.row.extracted_json).provenance.provider, 'cloudflare');
 });
 
 // ---------------------------------------------------------------------------------------
@@ -609,6 +624,6 @@ test('live-ocr: simulation is unreachable once a real provider key is configured
   });
   assert.equal(calls.length, 1, 'the provider is called, not the sample document');
   assert.equal(result.mock, undefined);
-  assert.equal(result.provider, 'gemini');
-  assert.match(SERVICE, /!process\.env\.GEMINI_API_KEY && DocumentIntelligenceService\.isOcrMockAllowed\(\)/);
+  assert.equal(result.provider, 'cloudflare');
+  assert.match(SERVICE, /!configuredProvider\.isConfigured\(\) && DocumentIntelligenceService\.isOcrMockAllowed\(\)/);
 });

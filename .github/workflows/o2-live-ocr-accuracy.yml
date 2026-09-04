@@ -1,9 +1,9 @@
-name: O2 Live OCR — Gemini Vision accuracy gate
+name: O2 Live OCR — Cloudflare Workers AI accuracy gate
 
-# Measures the SHIPPED extraction against the synthetic accuracy corpus using the REAL Gemini
-# Vision provider, inside CI — the only approved environment where the credential exists.
-# The key is a repository secret: it is injected as an env var, never printed, never written to
-# an artifact, never committed, and never placed in a frontend environment.
+# Measures the SHIPPED extraction against the synthetic accuracy corpus using the REAL configured
+# vision provider — Cloudflare Workers AI — inside CI, where the credentials live. They are
+# repository secrets: injected as env vars, never printed, never written to an artifact, never
+# committed, and never placed in a frontend environment.
 #
 # A SIBLING gate. It does not touch, mutate or re-run any certified O2/P7/Seller workflow, it
 # writes nothing to staging, and it touches no database. Its only side effect is up to 12
@@ -48,6 +48,9 @@ jobs:
       EXPECTED_HEAD_SHA: ${{ github.sha }}
       # MANDATORY: a measurement taken against the simulation would measure the simulation.
       ALLOW_OCR_MOCK: 'false'
+      # Explicit provider selection. There is no fallback: if Cloudflare is unavailable the gate
+      # fails, it does not quietly measure a different model.
+      CARUP_OCR_PROVIDER: cloudflare
       NODE_ENV: production
       # Placeholders so modules that read env do not crash. The gate captures every database
       # write instead of persisting it; these are NEVER real credentials.
@@ -75,82 +78,62 @@ jobs:
       - name: Install dependencies
         run: npm ci || npm install
 
-      - name: Require the Gemini credential (fail closed, never echo it)
+      - name: Require the Cloudflare credentials (fail closed, never echo them)
         env:
-          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
         run: |
-          if [ -z "$GEMINI_API_KEY" ]; then
-            echo '::error::GEMINI_API_KEY is not configured for this repository.'
+          missing=
+          [ -z "$CLOUDFLARE_ACCOUNT_ID" ] && missing="$missing CLOUDFLARE_ACCOUNT_ID"
+          [ -z "$CLOUDFLARE_API_TOKEN" ] && missing="$missing CLOUDFLARE_API_TOKEN"
+          if [ -n "$missing" ]; then
+            echo "::error::not configured for this repository:$missing"
             exit 1
           fi
-          echo "Gemini credential present (length ${#GEMINI_API_KEY} characters, value never printed)."
+          echo "Cloudflare credentials present (account ${#CLOUDFLARE_ACCOUNT_ID} chars, token ${#CLOUDFLARE_API_TOKEN} chars; values never printed)."
 
-      # Provider reachability BEFORE the measurement, so a credential or model problem is
-      # root-caused rather than misread as an extraction failure. Prints status and model
-      # names only; the key travels in a header and is never rendered into a command line.
-      - name: Probe provider reachability and model availability
+      # One real Workers AI call on the real fixture, so "the provider is available" is proven by
+      # a request rather than inferred from a variable. Prints the provider's own error detail on
+      # refusal. Carries no credential into the output.
+      - name: Prove one real vision request
         env:
-          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
-        run: |
-          node -e '
-            (async () => {
-              const res = await fetch("https://generativelanguage.googleapis.com/v1beta/models", {
-                headers: { "x-goog-api-key": process.env.GEMINI_API_KEY },
-              });
-              console.log("models endpoint HTTP", res.status);
-              const body = await res.json();
-              if (!res.ok) {
-                const detail = body && body.error ? (body.error.status || body.error.message) : "unrecognised response";
-                console.log("provider refused the request:", String(detail).slice(0, 400));
-                process.exit(1);
-              }
-              const names = (body.models || []).map((m) => m.name.replace("models/", ""));
-              console.log("models visible to this credential:", names.length);
-              const wanted = "gemini-2.5-flash";
-              console.log(wanted + " available:", names.includes(wanted));
-              console.log("gemini 2.x/3.x models:", names.filter((n) => /^gemini-(2|3)/.test(n)).join(", "));
-            })().catch((error) => { console.log("probe failed:", error.message); process.exit(1); });
-          '
-
-      # One real generateContent call, so "the provider is available" is proven by a request
-      # rather than inferred from a variable. On refusal the FULL quota block is printed (quota id,
-      # limit, model, project) so a plan/limit problem can be fixed first time. Contains no
-      # credential: the key travels in a header and Google's quota errors never echo it.
-      - name: Prove one real vision request (and report the exact quota on refusal)
-        id: proof
-        continue-on-error: true
-        env:
-          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
         run: |
           node -e '
             (async () => {
               const fs = require("fs");
-              const png = fs.readFileSync("docs/features/o2/uat-assets/ocr-corpus/national-id-clean.png").toString("base64");
-              const res = await fetch("https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent", {
+              const image = fs.readFileSync("docs/features/o2/uat-assets/ocr-corpus/national-id-clean.png").toString("base64");
+              const res = await fetch(`https://api.cloudflare.com/client/v4/accounts/${process.env.CLOUDFLARE_ACCOUNT_ID}/ai/run/@cf/meta/llama-3.2-11b-vision-instruct`, {
                 method: "POST",
-                headers: { "Content-Type": "application/json", "x-goog-api-key": process.env.GEMINI_API_KEY },
+                headers: { "Content-Type": "application/json", Authorization: `Bearer ${process.env.CLOUDFLARE_API_TOKEN}` },
                 body: JSON.stringify({
-                  contents: [{ role: "user", parts: [{ text: "Reply with the single word OK." }, { inline_data: { mime_type: "image/png", data: png } }] }],
-                  generationConfig: { maxOutputTokens: 32, thinkingConfig: { thinkingBudget: 0 } },
+                  messages: [
+                    { role: "system", content: "You output only JSON." },
+                    { role: "user", content: "Reply with {\"ok\":true}." },
+                  ],
+                  image, max_tokens: 32, temperature: 0,
                 }),
               });
               const body = await res.json().catch(() => null);
-              console.log("HTTP", res.status);
-              if (res.ok) {
-                console.log("PROOF: a real vision request SUCCEEDED with no quota refusal.");
-                console.log("text:", JSON.stringify(body?.candidates?.[0]?.content?.parts?.[0]?.text));
+              console.log("HTTP", res.status, "success:", body && body.success);
+              if (!res.ok || !body || body.success === false) {
+                console.log("PROOF FAILED — the provider refused a single real request.");
+                console.log(JSON.stringify(body && body.errors ? body.errors : body, null, 1).slice(0, 2000));
+                process.exitCode = 1;
                 return;
               }
-              console.log("PROOF FAILED — the provider refused a single real request.");
-              console.log(JSON.stringify(body?.error ?? body, null, 1).slice(0, 3000));
-              process.exitCode = 1;
+              console.log("PROOF: a real Workers AI vision request SUCCEEDED.");
+              console.log("response:", JSON.stringify(body.result && body.result.response).slice(0, 300));
+              console.log("usage:", JSON.stringify(body.result && body.result.usage));
             })().catch((e) => { console.log("proof error:", e.message); process.exitCode = 1; });
           '
 
       - name: Run the live accuracy gate
         id: gate
         env:
-          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           OCR_GATE_ONLY: ${{ github.event.inputs.fixtures }}
         run: |
           set -o pipefail

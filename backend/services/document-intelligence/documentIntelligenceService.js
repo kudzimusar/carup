@@ -1,10 +1,10 @@
-import { askGeminiVision, GEMINI_VISION_MODEL } from '../ai/GeminiClient.js';
+import { resolveVisionProvider, providerFromClient } from '../ai/ocrVisionProvider.js';
 import { supabase } from '../../db/supabase.js';
 import crypto from 'crypto';
 import { dispatchAutomationWebhook } from '../eventBus/automationWebhookService.js';
 import { logger } from '../../utils/logger.js';
 import { metricsHub } from '../metrics.js';
-import { resolveSchema, OCR_SCHEMA_VERSION, normalizeVin } from './documentSchemas.js';
+import { resolveSchema, OCR_SCHEMA_VERSION, normalizeVin, FIELD_ALIASES, printedLabelsFor } from './documentSchemas.js';
 import { decodeDocumentPayload, describeMediaQuality } from './documentMedia.js';
 
 /**
@@ -47,8 +47,41 @@ class OcrProviderOutputError extends Error {
   }
 }
 
+/**
+ * The response schema CarUp asks the provider to fill, derived from the document schema so the
+ * two can never drift. Every field is OPTIONAL by construction: a required field would push a
+ * reader towards inventing one, and missing must stay missing.
+ */
+function buildResponseSchema(schema) {
+  const properties = {};
+  for (const field of Object.keys(schema.fields)) {
+    properties[field] = { type: ['string', 'number', 'null'], description: printedLabelsFor(field) || field };
+  }
+  return {
+    name: `carup_${schema.documentClass}_reading`,
+    schema: {
+      type: 'object',
+      properties: {
+        document_class_observed: { type: 'string' },
+        legible: { type: 'boolean' },
+        confidence: { type: ['number', 'null'] },
+        unreadable_fields: { type: 'array', items: { type: 'string' } },
+        observations: { type: 'array', items: { type: 'string' } },
+        fields: { type: 'object', properties },
+      },
+      required: ['document_class_observed', 'fields'],
+    },
+  };
+}
+
 function buildSystemPrompt(schema) {
-  const fieldLines = Object.keys(schema.fields).map((field) => `  - ${field}`).join('\n');
+  const fieldLines = Object.keys(schema.fields).map((field) => {
+    const label = printedLabelsFor(field);
+    // Name BOTH CarUp's field and the wording actually printed on the document. A reader that is
+    // shown only `first_name` while the card says "Given names" reads the value correctly and
+    // then reports it under a key nobody asked for, which lands as a false absence.
+    return label ? `  - ${field} — printed on the document as ${label}` : `  - ${field}`;
+  }).join('\n');
   return `You are the CarUp document transcription agent. You are shown the actual image or PDF of a ${schema.label}.
 
 Transcribe ONLY what is legibly printed on the attached document.
@@ -124,13 +157,17 @@ export class DocumentIntelligenceService {
     dispatchAutomationWebhook('DOCUMENT_OCR_STARTED', { docType, userId });
 
     const schema = resolveSchema(docType);
-    const simulate = !process.env.GEMINI_API_KEY && DocumentIntelligenceService.isOcrMockAllowed();
+    // The configured provider, chosen by CARUP_OCR_PROVIDER alone — there is no fallback to a
+    // different provider, so a reading is never attributed to a model that was never asked.
+    const configuredProvider = options.visionProvider
+      || (options.visionClient ? providerFromClient(options.visionClient, options.visionClientIdentity) : resolveVisionProvider());
+    const simulate = !configuredProvider.isConfigured() && DocumentIntelligenceService.isOcrMockAllowed();
     let media = null;
 
     try {
-      if (!process.env.GEMINI_API_KEY && !simulate) {
+      if (!configuredProvider.isConfigured() && !simulate) {
         throw new OcrProviderUnavailableError(
-          'OCR provider unavailable: no vision provider is configured for this environment.',
+          `OCR provider unavailable: ${configuredProvider.id} is selected but ${configuredProvider.requiredEnv.join(' and ')} are not configured for this environment.`,
         );
       }
 
@@ -140,6 +177,7 @@ export class DocumentIntelligenceService {
       let provider;
       let model;
       let executionStatus;
+      let providerUsage = null;
 
       if (simulate) {
         // TEST MODE ONLY (NODE_ENV=test + ALLOW_OCR_MOCK=true). The simulated reading is labelled
@@ -149,22 +187,20 @@ export class DocumentIntelligenceService {
         executionStatus = 'simulated';
         rawResponse = JSON.stringify(DocumentIntelligenceService.getMockZimbabweDocument(docType));
       } else {
-        provider = 'gemini';
-        model = GEMINI_VISION_MODEL;
+        provider = configuredProvider.id;
+        model = configuredProvider.model;
         executionStatus = 'provider_succeeded';
-        const vision = options.visionClient || askGeminiVision;
-        // The document bytes go to the provider as an inline media part. Nothing of the payload
-        // is logged, echoed into an event, or persisted beyond the candidate fields below.
-        rawResponse = await vision(
-          buildSystemPrompt(schema),
-          `Declared document type: ${docType}. Transcribe the attached ${schema.label}.`,
-          [{ mimeType: media.mimeType, base64: media.base64 }],
-          true,
-          // Transcription is not a reasoning task. Leaving the thinking budget unbounded let a
-          // single call run 105 seconds and return a candidate with no text at all, which is
-          // indistinguishable at the caller from an unreadable document.
-          { generationConfig: { maxOutputTokens: 4096, thinkingConfig: { thinkingBudget: 0 } }, timeoutMs: 90_000 },
-        );
+        // The document bytes go to the provider as image data. Nothing of the payload is logged,
+        // echoed into an event, or persisted beyond the candidate fields below.
+        const outcome = await configuredProvider.extract({
+          systemPrompt: buildSystemPrompt(schema),
+          textPrompt: `Declared document type: ${docType}. Transcribe the attached ${schema.label}.`,
+          images: [{ mimeType: media.mimeType, base64: media.base64 }],
+          jsonSchema: buildResponseSchema(schema),
+          timeoutMs: 90_000,
+        });
+        rawResponse = outcome.content;
+        providerUsage = outcome.usage ?? null;
       }
 
       const parsed = DocumentIntelligenceService.parseProviderResponse(rawResponse);
@@ -187,6 +223,11 @@ export class DocumentIntelligenceService {
         confidenceReported,
         imageBytesSent: media.byteSize,
         mimeTypeSent: media.mimeType,
+        mediaWidthPx: media.dimensions?.widthPx ?? null,
+        mediaHeightPx: media.dimensions?.heightPx ?? null,
+        // The provider's OWN accounting where it reports one (Workers AI reports neurons and
+        // tokens). Null means the provider reported none — it is never estimated.
+        providerUsage,
       };
 
       const qualityIssues = [];
@@ -279,6 +320,7 @@ export class DocumentIntelligenceService {
         confidence,
         confidenceReported,
         latencyMs: elapsedMs,
+        providerUsage,
         structuredCandidate: structured,
         ...(simulate ? { mock: true } : {}),
       };
@@ -294,7 +336,7 @@ export class DocumentIntelligenceService {
         docType, userId, status, executionStatus, qualityIssues, durationMs: elapsedMs,
       });
 
-      metricsHub.recordOcrRequest('gemini', false, elapsedMs, Number.NaN, false, false);
+      metricsHub.recordOcrRequest(configuredProvider.id, false, elapsedMs, Number.NaN, false, false);
 
       dispatchAutomationWebhook('DOCUMENT_FLAGGED_FOR_REVIEW', {
         docType, userId, qualityIssues, error: error.message,
@@ -308,7 +350,7 @@ export class DocumentIntelligenceService {
         extracted_json: JSON.stringify({
           error: error.message,
           executionStatus,
-          provider: 'gemini',
+          provider: configuredProvider.id,
           attemptedAt: startedAt,
         }),
         confidence_score: 0.0,
@@ -325,7 +367,7 @@ export class DocumentIntelligenceService {
         ocrFailureReason: 'AI_OCR_EXTRACTION_FAILED',
         qualityMetrics: describeMediaQuality(media, qualityIssues),
         ocrDocumentId: id,
-        provider: 'gemini',
+        provider: configuredProvider.id,
         model: null,
         executionStatus,
         extractionStatus: status,
@@ -380,7 +422,15 @@ export class DocumentIntelligenceService {
     const carriedIdentifiers = [];
 
     for (const [field, spec] of Object.entries(schema.fields)) {
-      const supplied = fields[field] ?? parsed[field] ?? fields[`extracted_${field}`];
+      // A reader names a field after the words printed on the document. Accepting a synonym for
+      // the SAME printed field is not a substitution: FIELD_ALIASES never maps one schema field
+      // onto another's value, and unresolvable spellings still land as missing.
+      const aliases = FIELD_ALIASES[field] || [];
+      let supplied = fields[field] ?? parsed[field] ?? fields[`extracted_${field}`];
+      for (const alias of aliases) {
+        if (supplied !== undefined && supplied !== null && supplied !== '') break;
+        supplied = fields[alias] ?? parsed[alias];
+      }
       const outcome = spec.normalize(supplied);
       if (outcome.value === undefined) {
         missingFields.push(field);
