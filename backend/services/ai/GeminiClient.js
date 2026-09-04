@@ -109,7 +109,7 @@ export async function askGemini(systemPrompt, userPrompt, jsonMode = false) {
  */
 export const GEMINI_VISION_MODEL = 'gemini-2.5-flash';
 
-export async function askGeminiVision(systemPrompt, textPrompt, images = [], jsonMode = false) {
+export async function askGeminiVision(systemPrompt, textPrompt, images = [], jsonMode = false, options = {}) {
   const apiKey = process.env.GEMINI_API_KEY;
 
   if (!apiKey) {
@@ -134,19 +134,45 @@ export async function askGeminiVision(systemPrompt, textPrompt, images = [], jso
     parts.push({ inline_data: { mime_type: image.mimeType || 'image/jpeg', data: image.base64 } });
   }
 
-  const response = await fetch(url, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      contents: [{ role: 'user', parts }],
-      generationConfig: jsonMode ? { responseMimeType: 'application/json' } : undefined
-    })
-  });
+  const generationConfig = { ...(jsonMode ? { responseMimeType: 'application/json' } : {}), ...(options.generationConfig || {}) };
 
-  const data = await response.json();
-  const text = data?.candidates?.[0]?.content?.parts?.[0]?.text;
-  if (!text) {
-    throw new Error('Malformed Gemini vision API response');
+  // A hung provider must not hold a user's upload open indefinitely; without this a stalled
+  // call ran for 105 seconds before surfacing as an unexplained "malformed response".
+  const timeoutMs = Number(options.timeoutMs) > 0 ? Number(options.timeoutMs) : 90_000;
+  const abort = AbortSignal.timeout(timeoutMs);
+
+  let response;
+  try {
+    response = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        contents: [{ role: 'user', parts }],
+        ...(Object.keys(generationConfig).length ? { generationConfig } : {})
+      }),
+      signal: abort,
+    });
+  } catch (error) {
+    if (error.name === 'TimeoutError' || error.name === 'AbortError') {
+      throw new Error(`Gemini vision request timed out after ${timeoutMs}ms`);
+    }
+    throw new Error(`Gemini vision request failed: ${error.message}`);
   }
-  return text;
+
+  const data = await response.json().catch(() => null);
+  const text = data?.candidates?.[0]?.content?.parts?.[0]?.text;
+  if (text) return text;
+
+  // Say WHY there is no text. "Malformed response" hid a MAX_TOKENS finish, a safety block and
+  // an HTTP error behind one message, which is unusable for diagnosis and, worse, indistinguishable
+  // from a genuinely unreadable document.
+  const candidate = data?.candidates?.[0];
+  const reason = data?.error?.status || data?.error?.message
+    || data?.promptFeedback?.blockReason
+    || candidate?.finishReason
+    || (response.ok ? 'no text part in the response' : `HTTP ${response.status}`);
+  const usage = data?.usageMetadata
+    ? ` (tokens: prompt ${data.usageMetadata.promptTokenCount ?? '?'}, candidates ${data.usageMetadata.candidatesTokenCount ?? '?'}, thoughts ${data.usageMetadata.thoughtsTokenCount ?? '?'})`
+    : '';
+  throw new Error(`Gemini vision returned no text: ${reason}${usage}`);
 }

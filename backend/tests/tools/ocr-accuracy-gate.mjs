@@ -17,7 +17,7 @@
 import { readFileSync, writeFileSync, mkdirSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { gradeFixture, summarize } from './ocrAccuracyGrading.mjs';
+import { gradeFixture, summarize, flattenExtraction } from './ocrAccuracyGrading.mjs';
 
 const toolDir = path.dirname(fileURLToPath(import.meta.url));
 const root = path.resolve(toolDir, '../../..');
@@ -74,9 +74,25 @@ for (const fixture of manifest.fixtures) {
   };
 
   const startedAt = Date.now();
-  const result = await DocumentIntelligenceService.extractDocumentData(
-    fixture.docType, dataUri, 'ocr-accuracy-gate', { visionClient: countingClient },
-  );
+  const attempts = [];
+  let result;
+  // A transport failure is not a reading. One bounded retry separates a flaky call from a
+  // provider that genuinely cannot read the document; BOTH attempts are recorded, so a retry can
+  // never hide a systematic failure — and a retry is never taken on a reading the provider gave.
+  for (let attempt = 1; attempt <= 2; attempt += 1) {
+    result = await DocumentIntelligenceService.extractDocumentData(
+      fixture.docType, dataUri, 'ocr-accuracy-gate', { visionClient: countingClient },
+    );
+    attempts.push({
+      attempt,
+      executionStatus: result.executionStatus,
+      extractionStatus: result.extractionStatus,
+      error: result.error || null,
+      latencyMs: result.latencyMs,
+    });
+    if (result.executionStatus !== 'provider_failed') break;
+    if (attempt === 1) console.log(`    transport retry for ${fixture.id}: ${result.error}`);
+  }
   const wallMs = Date.now() - startedAt;
 
   const grade = gradeFixture(fixture, { ...result, providerCalls });
@@ -97,6 +113,20 @@ for (const fixture of manifest.fixtures) {
     providerCalls,
     structuredCandidate: result.structuredCandidate || null,
     verdict: grade.verdict,
+    attempts,
+    error: result.error || null,
+    // Root-cause detail: what the provider actually returned, so a shortfall can be traced to the
+    // prompt, the schema or the normalizer rather than guessed at. Field VALUES only — no payload.
+    diagnostics: {
+      documentClassObserved: result.extractedData?.provenance?.documentClassObserved ?? null,
+      observedFields: result.extractedData?.observedFields ?? [],
+      missingFields: result.extractedData?.missingFields ?? [],
+      unnormalizedValues: result.extractedData?.unnormalizedValues ?? {},
+      carriedIdentifiers: result.extractedData?.carriedIdentifiers ?? [],
+      unreadableFields: result.extractedData?.unreadableFields ?? [],
+      observations: result.extractedData?.observations ?? [],
+      allExtracted: result.success ? flattenExtraction(result.extractedData) : {},
+    },
   });
 
   const label = `${grade.verdict === 'PASS' ? '✓' : '✗'} ${fixture.id}`;

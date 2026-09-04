@@ -300,6 +300,7 @@ export const DOCUMENT_SCHEMAS = {
     label: 'Vehicle registration book',
     guidance: [
       'A VIN / chassis number is 17 characters and never contains the letters I, O or Q.',
+      'On this document the chassis number and the VIN are the SAME identifier — it is usually printed once under a combined label. Report that 17-character value in BOTH the vin and chassis_number fields.',
       'The registration (plate) number and the registration book number are different fields; do not substitute one for the other.',
       'Report the registered owner exactly as printed, whether a person or a company.',
     ],

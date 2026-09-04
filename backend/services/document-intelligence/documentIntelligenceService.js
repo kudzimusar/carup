@@ -4,7 +4,7 @@ import crypto from 'crypto';
 import { dispatchAutomationWebhook } from '../eventBus/automationWebhookService.js';
 import { logger } from '../../utils/logger.js';
 import { metricsHub } from '../metrics.js';
-import { resolveSchema, OCR_SCHEMA_VERSION } from './documentSchemas.js';
+import { resolveSchema, OCR_SCHEMA_VERSION, normalizeVin } from './documentSchemas.js';
 import { decodeDocumentPayload, describeMediaQuality } from './documentMedia.js';
 
 /**
@@ -160,6 +160,10 @@ export class DocumentIntelligenceService {
           `Declared document type: ${docType}. Transcribe the attached ${schema.label}.`,
           [{ mimeType: media.mimeType, base64: media.base64 }],
           true,
+          // Transcription is not a reasoning task. Leaving the thinking budget unbounded let a
+          // single call run 105 seconds and return a candidate with no text at all, which is
+          // indistinguishable at the caller from an unreadable document.
+          { generationConfig: { maxOutputTokens: 4096, thinkingConfig: { thinkingBudget: 0 } }, timeoutMs: 90_000 },
         );
       }
 
@@ -212,6 +216,7 @@ export class DocumentIntelligenceService {
         missingFields: reading.missingFields,
         unreadableFields: reading.unreadableFields,
         unnormalizedValues: reading.unnormalized,
+        carriedIdentifiers: reading.carriedIdentifiers,
         observations: reading.observations,
         provenance,
       };
@@ -372,6 +377,7 @@ export class DocumentIntelligenceService {
     const observedFields = [];
     const missingFields = [];
     const unnormalized = {};
+    const carriedIdentifiers = [];
 
     for (const [field, spec] of Object.entries(schema.fields)) {
       const supplied = fields[field] ?? parsed[field] ?? fields[`extracted_${field}`];
@@ -387,6 +393,25 @@ export class DocumentIntelligenceService {
       if (spec.target === 'top') top[field] = outcome.value; else additional[field] = outcome.value;
     }
 
+    // A registration book prints the chassis number and the VIN once, under a combined label, and
+    // a reader that fills only one of the two fields has still READ the identifier. Accepting it
+    // for both is not invention: the value is only carried across when it is itself a valid
+    // 17-character VIN, so a chassis number that is anything else leaves the VIN missing.
+    if (schema.fields.vin && schema.fields.chassis_number) {
+      const pairs = [['vin', 'chassis_number'], ['chassis_number', 'vin']];
+      for (const [target, source] of pairs) {
+        if (additional[target] !== undefined || additional[source] === undefined) continue;
+        const carried = normalizeVin(additional[source]);
+        if (carried.value === undefined) continue;
+        additional[target] = carried.value;
+        observedFields.push(target);
+        const index = missingFields.indexOf(target);
+        if (index > -1) missingFields.splice(index, 1);
+        delete unnormalized[target];
+        carriedIdentifiers.push({ field: target, from: source });
+      }
+    }
+
     const missingCoreFields = (schema.coreFields || []).filter((field) => !observedFields.includes(field));
     const asStringArray = (value) => (Array.isArray(value)
       ? value.filter((entry) => typeof entry === 'string' && entry.trim()).map((entry) => entry.trim())
@@ -399,6 +424,7 @@ export class DocumentIntelligenceService {
       missingFields,
       missingCoreFields,
       unnormalized,
+      carriedIdentifiers,
       unreadableFields: asStringArray(parsed.unreadable_fields),
       observations: asStringArray(parsed.observations),
       documentClassObserved: typeof parsed.document_class_observed === 'string'

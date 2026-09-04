@@ -443,6 +443,46 @@ test('live-ocr: a reading is discarded when it cannot be normalized, and the raw
     'an ICAO X marker is preserved as an observation rather than dropped or forced');
 });
 
+test('live-ocr: a registration book carries the chassis/VIN identifier across ONLY when it is a real VIN', async (t) => {
+  // The document prints one 17-character identifier under a combined "Chassis / VIN" label, and a
+  // reader that fills only one of the two fields has still read it. Carrying it across is not
+  // invention — but only a value that IS a VIN may be carried.
+  const carried = await extractWith(t, {
+    docType: 'registration_book',
+    reading: {
+      document_class_observed: 'vehicle_registration_book', confidence: 0.95,
+      fields: { chassis_number: 'JTDBR32E870123456', make: 'Toyota', model: 'Corolla', year: 2018, plate_number: 'AEB 4729', owner_name: 'Specimen Motors' },
+    },
+  });
+  assert.equal(carried.result.extractedData.additional_fields.vin, 'JTDBR32E870123456');
+  assert.deepEqual(carried.result.extractedData.carriedIdentifiers, [{ field: 'vin', from: 'chassis_number' }],
+    'the carry is recorded, so the reading never looks like two independent observations');
+  assert.equal(carried.result.extractedData.missingFields.includes('vin'), false);
+
+  const notAVin = await extractWith(t, {
+    docType: 'registration_book',
+    reading: {
+      document_class_observed: 'vehicle_registration_book', confidence: 0.95,
+      fields: { chassis_number: 'CHS-2019-0042', make: 'Toyota', model: 'Corolla', year: 2018, plate_number: 'AEB 4729', owner_name: 'Specimen Motors' },
+    },
+  });
+  assert.equal(notAVin.result.extractedData.additional_fields.vin, undefined,
+    'a chassis number that is not a VIN leaves the VIN missing');
+  assert.deepEqual(notAVin.result.extractedData.carriedIdentifiers, []);
+  assert.equal(notAVin.writes.some((w) => w.table === 'ocr_registration_books'), false,
+    'and with no VIN there is no structured candidate row');
+});
+
+test('live-ocr: the provider is told WHY it returned no text, and a hung call is bounded', () => {
+  const client = read('../services/ai/GeminiClient.js');
+  assert.doesNotMatch(client, /throw new Error\('Malformed Gemini vision API response'\)/,
+    'one generic message hid a MAX_TOKENS finish, a safety block and an HTTP error alike');
+  assert.match(client, /finishReason/, 'the finish reason is surfaced');
+  assert.match(client, /blockReason/, 'a safety block is surfaced');
+  assert.match(client, /AbortSignal\.timeout/, 'a hung provider call is bounded');
+  assert.match(SERVICE, /thinkingBudget: 0/, 'transcription does not spend its output budget on thinking');
+});
+
 test('live-ocr: absence spellings from the provider are read as absence, not as values', async (t) => {
   const { result } = await extractWith(t, {
     reading: {
