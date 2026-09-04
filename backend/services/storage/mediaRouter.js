@@ -8,7 +8,7 @@ import { logAuditEvent } from '../auditLogger.js';
 
 const router = express.Router();
 
-const MAX_UPLOAD_SIZE = 10 * 1024 * 1024; // 10MB
+const MAX_UPLOAD_SIZE = 12 * 1024 * 1024; // 12MB — same contract as Seller listing intake
 
 /**
  * Utility: Parse Base64 Image string into MimeType and Binary Buffer
@@ -105,7 +105,7 @@ router.post('/upload/vehicle', authorizeRole(['owner', 'dealer', 'admin']), asyn
   if (req.userContext?.role !== 'admin') {
     const { data: vehicleRow, error: vehicleErr } = await supabase
       .from('vehicles')
-      .select('owner_id, tenant_id')
+      .select('owner_id, current_seller_id, tenant_id')
       .eq('vin', String(vin).toUpperCase())
       .maybeSingle();
     if (vehicleErr) {
@@ -113,13 +113,14 @@ router.post('/upload/vehicle', authorizeRole(['owner', 'dealer', 'admin']), asyn
     }
     if (vehicleRow) {
       const ownsVehicle = vehicleRow.owner_id && vehicleRow.owner_id === req.userContext?.id;
+      const isCurrentSeller = vehicleRow.current_seller_id && vehicleRow.current_seller_id === req.userContext?.id;
       const sameTenant = vehicleRow.tenant_id && vehicleRow.tenant_id === req.userContext?.tenantId;
-      if (!ownsVehicle && !sameTenant) {
+      if (!ownsVehicle && !isCurrentSeller && !sameTenant) {
         await logAuditEvent(supabase, {
           req,
           event_type: 'SECURITY_MEDIA_UPLOAD_DENIED',
           vin,
-          reason: 'Authenticated caller attempted image upload for a vehicle they neither own nor share a tenant with.'
+          reason: 'Authenticated caller attempted image upload for a vehicle they neither own, currently sell, nor share a tenant with.'
         }).catch(() => {});
         return res.status(403).json({ error: 'You are not authorized to upload media for this vehicle.' });
       }
@@ -203,7 +204,7 @@ router.post('/upload/document', authorizeRole(), async (req, res) => {
   if (req.userContext?.role !== 'admin') {
     const { data: vehicleRow, error: vehicleErr } = await supabase
       .from('vehicles')
-      .select('owner_id, tenant_id')
+      .select('owner_id, current_seller_id, tenant_id')
       .eq('vin', String(vin).toUpperCase())
       .maybeSingle();
     if (vehicleErr) {
@@ -211,13 +212,14 @@ router.post('/upload/document', authorizeRole(), async (req, res) => {
     }
     if (vehicleRow) {
       const ownsVehicle = vehicleRow.owner_id && vehicleRow.owner_id === req.userContext?.id;
+      const isCurrentSeller = vehicleRow.current_seller_id && vehicleRow.current_seller_id === req.userContext?.id;
       const sameTenant = vehicleRow.tenant_id && vehicleRow.tenant_id === req.userContext?.tenantId;
-      if (!ownsVehicle && !sameTenant) {
+      if (!ownsVehicle && !isCurrentSeller && !sameTenant) {
         await logAuditEvent(supabase, {
           req,
           event_type: 'SECURITY_MEDIA_UPLOAD_DENIED',
           vin,
-          reason: 'Authenticated caller attempted document upload for a vehicle they neither own nor share a tenant with.'
+          reason: 'Authenticated caller attempted document upload for a vehicle they neither own, currently sell, nor share a tenant with.'
         }).catch(() => {});
         return res.status(403).json({ error: 'You are not authorized to upload documents for this vehicle.' });
       }
@@ -308,7 +310,7 @@ router.get('/upload/signed-url', authorizeRole(['owner', 'dealer', 'admin']), as
   const destinationPath = `${cleanVin}/${cleanFileName}`;
 
   // 3. Strict file type and size policy validation
-  const sizeLimit = bucket === 'ocr-documents' ? 5 * 1024 * 1024 : 10 * 1024 * 1024; // 5MB for docs, 10MB for images
+  const sizeLimit = bucket === 'ocr-documents' ? 5 * 1024 * 1024 : 12 * 1024 * 1024; // 5MB for docs, 12MB for listing images
   const sizeNum = Number(fileSize);
   if (isNaN(sizeNum) || sizeNum <= 0 || sizeNum > sizeLimit) {
     return res.status(400).json({ error: `File size exceeds allowed policy limit of ${sizeLimit / (1024 * 1024)}MB.` });
@@ -327,7 +329,7 @@ router.get('/upload/signed-url', authorizeRole(['owner', 'dealer', 'admin']), as
   if (req.userContext?.role !== 'admin') {
     const { data: vehicleRow, error: vehicleErr } = await supabase
       .from('vehicles')
-      .select('owner_id, tenant_id')
+      .select('owner_id, current_seller_id, tenant_id')
       .eq('vin', cleanVin)
       .maybeSingle();
     if (vehicleErr) {
@@ -335,13 +337,14 @@ router.get('/upload/signed-url', authorizeRole(['owner', 'dealer', 'admin']), as
     }
     if (vehicleRow) {
       const ownsVehicle = vehicleRow.owner_id && vehicleRow.owner_id === req.userContext?.id;
+      const isCurrentSeller = vehicleRow.current_seller_id && vehicleRow.current_seller_id === req.userContext?.id;
       const sameTenant = vehicleRow.tenant_id && vehicleRow.tenant_id === req.userContext?.tenantId;
-      if (!ownsVehicle && !sameTenant) {
+      if (!ownsVehicle && !isCurrentSeller && !sameTenant) {
         await logAuditEvent(supabase, {
           req,
           event_type: 'SECURITY_MEDIA_UPLOAD_DENIED',
           vin: cleanVin,
-          reason: 'Authenticated caller requested a signed upload URL for a vehicle they neither own nor share a tenant with.'
+          reason: 'Authenticated caller requested a signed upload URL for a vehicle they neither own, currently sell, nor share a tenant with.'
         }).catch(() => {});
         return res.status(403).json({ error: 'You are not authorized to upload media for this vehicle.' });
       }
@@ -402,20 +405,21 @@ router.get('/document/signed-url', authorizeRole(['admin', 'government', 'owner'
   if (req.userContext?.role === 'owner' || req.userContext?.role === 'dealer') {
     const { data: vehicleRow, error: vehicleErr } = await supabase
       .from('vehicles')
-      .select('owner_id, tenant_id')
+      .select('owner_id, current_seller_id, tenant_id')
       .eq('vin', pathVin)
       .maybeSingle();
     if (vehicleErr) {
       return res.status(500).json({ error: 'Vehicle ownership lookup failed.' });
     }
     const ownsVehicle = vehicleRow?.owner_id && vehicleRow.owner_id === req.userContext?.id;
+    const isCurrentSeller = vehicleRow?.current_seller_id && vehicleRow.current_seller_id === req.userContext?.id;
     const sameTenant = vehicleRow?.tenant_id && vehicleRow.tenant_id === req.userContext?.tenantId;
-    if (!ownsVehicle && !sameTenant) {
+    if (!ownsVehicle && !isCurrentSeller && !sameTenant) {
       await logAuditEvent(supabase, {
         req,
         event_type: 'SECURITY_DOCUMENT_READ_DENIED',
         vin: pathVin,
-        reason: 'Authenticated caller requested a signed read URL for a document under a VIN they neither own nor share a tenant with.'
+        reason: 'Authenticated caller requested a signed read URL for a document under a VIN they neither own, currently sell, nor share a tenant with.'
       }).catch(() => {});
       return res.status(403).json({ error: 'You are not authorized to read documents for this vehicle.' });
     }

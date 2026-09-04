@@ -1,0 +1,43 @@
+name: Seller Phase K Shared Detail Gate
+
+on:
+  pull_request:
+    branches:
+      - integration/vehicle-passport-v16-cert
+    paths:
+      - 'web/src/pages/VehicleDetail.tsx'
+      - 'web/src/pages/VehicleDetail.*.test.*'
+      - 'web/src/pages/dashboard/owner/SellVehicle.tsx'
+      - 'web/src/pages/dashboard/owner/MyListings.tsx'
+      - 'web/src/hooks/useCarUpApi.ts'
+      - 'backend/routes/marketplaceRoutes.js'
+      - 'backend/services/marketplace/**'
+      - 'shared/types/marketplace.ts'
+      - '.github/workflows/seller-phase-k-shared-detail.yml'
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+jobs:
+  shared-detail:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      - name: Shared preview/public presentation contracts
+        run: |
+          npm run test:unit --workspace=web -- \
+            src/pages/VehicleDetail.presentationMode.test.ts \
+            src/pages/VehicleDetail.media.test.tsx \
+            src/pages/VehicleDetail.sellerStatement.test.tsx \
+            src/pages/VehicleDetail.trust.test.tsx
+      - name: Web production build
+        run: npm run build --workspace=web

@@ -139,11 +139,41 @@ export class CommunicationRepository {
       if (Array.isArray(value)) query = query.in(key, value);
       else query = value === null ? query.is(key, null) : query.eq(key, value);
     }
+    // Strictly-greater-than, for bounded reconciliation scans that must exclude everything at or
+    // before a durable activation watermark. Expressed here rather than filtered in JS so the query
+    // stays an index range instead of pulling history across the wire to discard it.
+    if (options.gt) query = query.gt(options.gt.column, options.gt.value);
     if (options.order) query = query.order(options.order.column, { ascending: options.order.ascending ?? false });
     if (options.limit) query = query.limit(options.limit);
     const { data, error } = await query;
     if (error) throw new Error(`${table} list failed: ${error.message}`);
     return data || [];
+  }
+
+  /**
+   * Conditional delete returning the AFFECTED ROW COUNT.
+   *
+   * The count is the point: the reconciliation queue retires work with an atomic compare-and-delete
+   * on (id, generation, fingerprint), and "0 rows affected" is the signal that a newer generation
+   * arrived mid-flight and must survive. A delete that cannot report that is unusable here.
+   */
+  async deleteWhere(table, filters) {
+    let query = this.client.from(table).delete();
+    for (const [key, value] of Object.entries(filters)) {
+      query = value === null ? query.is(key, null) : query.eq(key, value);
+    }
+    const { data, error } = await query.select('id');
+    if (error) throw new Error(`${table} delete failed: ${error.message}`);
+    return (data || []).length;
+  }
+
+  /** Update by an arbitrary single-column key. */
+  async updateWhere(table, filters, patch) {
+    let query = this.client.from(table).update(patch);
+    for (const [key, value] of Object.entries(filters)) query = query.eq(key, value);
+    const { error } = await query;
+    if (error) throw new Error(`${table} update failed: ${error.message}`);
+    return true;
   }
 
   async updateById(table, id, patch) {
@@ -450,12 +480,33 @@ export class MemoryCommunicationRepository {
 
   async list(table, filters = {}, options = {}) {
     let rows = this.rows(table).filter((row) => this.matches(row, filters));
+    // Mirrors the PostgREST `gt` above; a memory repository that silently ignored it would let a
+    // reconciliation test pass while the real scan returned all of history.
+    if (options.gt) {
+      const { column, value } = options.gt;
+      rows = rows.filter((row) => row[column] != null && new Date(row[column]) > new Date(value));
+    }
     if (options.order) {
       const { column, ascending = false } = options.order;
       rows = rows.sort((a, b) => String(a[column] || '').localeCompare(String(b[column] || '')) * (ascending ? 1 : -1));
     }
     if (options.limit) rows = rows.slice(0, Number(options.limit));
     return rows;
+  }
+
+  async deleteWhere(table, filters) {
+    const rows = this.rows(table);
+    const matches = rows.filter((row) => Object.entries(filters)
+      .every(([k, v]) => (v === null ? row[k] == null : String(row[k] ?? '') === String(v ?? ''))));
+    for (const row of matches) rows.splice(rows.indexOf(row), 1);
+    return matches.length;
+  }
+
+  async updateWhere(table, filters, patch) {
+    this.rows(table)
+      .filter((row) => Object.entries(filters).every(([k, v]) => String(row[k] ?? '') === String(v ?? '')))
+      .forEach((row) => Object.assign(row, patch));
+    return true;
   }
 
   async updateById(table, id, patch) {

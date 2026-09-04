@@ -1,0 +1,457 @@
+/**
+ * CarUp Intelligence 1.0 — I5 authorized projection API.
+ *
+ * The read side of Intelligence. Every route resolves its own scope from the
+ * verified session: there is deliberately no seller, tenant or organization
+ * parameter anywhere in this file, because a scope a caller can name is a scope a
+ * caller can change.
+ *
+ * Responses carry an `availability` envelope per metric, so a client cannot
+ * render an unavailable number as zero without noticing.
+ */
+import express from 'express';
+import { authorizeRole } from '../middleware/authMiddleware.js';
+import { supabase } from '../db/supabase.js';
+import { getInsuranceDemandIntelligence } from '../services/intelligence/insuranceIntelligenceService.js';
+import { getFinanceDemandIntelligence } from '../services/intelligence/financeIntelligenceService.js';
+import {
+  getMechanicPartsIntelligence,
+  getPlatformPartsIntelligence,
+} from '../services/intelligence/partsIntelligenceService.js';
+import { getTradeIntelligence } from '../services/intelligence/tradeIntelligenceService.js';
+import { getReferralIntelligence } from '../services/intelligence/referralIntelligenceService.js';
+import { getGovernmentProvenanceIntelligence } from '../services/intelligence/governmentIntelligenceService.js';
+import { getCommandCentre } from '../services/intelligence/commandCentreService.js';
+import {
+  getSellerRecommendations,
+  getPlatformRecommendations,
+} from '../services/intelligence/recommendationService.js';
+import { buildAuthorizedContext } from '../services/intelligence/aiIntelligenceContextService.js';
+import { buildSellerReport, toCsv, resolvePeriod } from '../services/intelligence/reportService.js';
+import { kpiCatalogue } from '../services/intelligence/kpiCatalogue.js';
+import {
+  getMechanicIntelligence,
+  getGarageIntelligence,
+} from '../services/intelligence/serviceIntelligenceService.js';
+import {
+  getListingInsights,
+  getSellerPulse,
+  getDealerIntelligence,
+  getAdminIntelligence,
+  getGovernmentIntelligence,
+  resolveWindowDays,
+  AuthorizationError,
+  NotFoundError,
+} from '../services/intelligence/intelligenceProjectionService.js';
+
+const router = express.Router();
+
+const asyncHandler = (fn) => (req, res, next) => {
+  Promise.resolve(fn(req, res, next)).catch(next);
+};
+
+/**
+ * Turn an authorization outcome into a response.
+ *
+ * An unexpected failure becomes an explicit `unavailable` payload rather than a
+ * 500 with no body: the surface must be able to say "we could not read this",
+ * which is a different statement from "there is nothing here".
+ */
+function handleProjectionError(res, error) {
+  if (error instanceof AuthorizationError) {
+    return res.status(403).json({ ok: false, error: 'forbidden', message: error.message });
+  }
+  if (error instanceof NotFoundError) {
+    return res.status(404).json({ ok: false, error: 'not_found', message: error.message });
+  }
+  return res.status(200).json({
+    ok: true,
+    availability: 'unavailable',
+    reason: 'intelligence_read_failed',
+    message: 'Intelligence could not be read. These figures are NOT zero.',
+  });
+}
+
+/** Seller: one of my listings. Ownership is proven inside the service. */
+router.get(
+  '/api/marketplace/my-listings/:vin/analytics',
+  authorizeRole([]),
+  asyncHandler(async (req, res) => {
+    try {
+      const windowDays = resolveWindowDays(req.query.window);
+      const data = await getListingInsights(supabase, req.userContext, req.params.vin, { windowDays });
+      return res.json({ ok: true, ...data });
+    } catch (error) {
+      return handleProjectionError(res, error);
+    }
+  }),
+);
+
+/** Seller: my whole portfolio. */
+router.get(
+  '/api/marketplace/my-analytics',
+  authorizeRole([]),
+  asyncHandler(async (req, res) => {
+    try {
+      const windowDays = resolveWindowDays(req.query.window);
+      const data = await getSellerPulse(supabase, req.userContext, { windowDays });
+      return res.json({ ok: true, ...data });
+    } catch (error) {
+      return handleProjectionError(res, error);
+    }
+  }),
+);
+
+/** Dealer: my tenant. The tenant comes from verified membership, not a parameter. */
+router.get(
+  '/api/dealer/analytics',
+  authorizeRole(['dealer', 'admin']),
+  asyncHandler(async (req, res) => {
+    try {
+      const windowDays = resolveWindowDays(req.query.window);
+      const data = await getDealerIntelligence(supabase, req.userContext, { windowDays });
+      return res.json({ ok: true, ...data });
+    } catch (error) {
+      return handleProjectionError(res, error);
+    }
+  }),
+);
+
+/**
+ * CarUp admin: platform grain.
+ *
+ * Note the gate is `['admin']` alone. The existing marketplace admin analytics
+ * endpoint is gated `['admin','government']`, which hands an institutional role
+ * platform-wide commercial data — recorded as gap G5 in the I0 audit and
+ * deliberately not repeated here.
+ */
+router.get(
+  '/api/admin/marketplace/intelligence',
+  authorizeRole(['admin']),
+  asyncHandler(async (req, res) => {
+    try {
+      const windowDays = resolveWindowDays(req.query.window);
+      const data = await getAdminIntelligence(supabase, req.userContext, { windowDays });
+      return res.json({ ok: true, ...data });
+    } catch (error) {
+      return handleProjectionError(res, error);
+    }
+  }),
+);
+
+/**
+ * Institutional projection: purpose-limited, and explicitly not commercial
+ * behaviour. It answers honestly that no governed institutional contract exists
+ * yet rather than returning an empty commercial dashboard.
+ */
+router.get(
+  '/api/government/intelligence',
+  authorizeRole(['government', 'admin']),
+  asyncHandler(async (req, res) => {
+    try {
+      const data = await getGovernmentIntelligence(supabase, req.userContext);
+      return res.json({ ok: true, ...data });
+    } catch (error) {
+      return handleProjectionError(res, error);
+    }
+  }),
+);
+
+/**
+ * Mechanic intelligence — PERSON scope.
+ *
+ * Scoped to the practitioner's own id. It never widens to their organization: an
+ * unattributed work order is not this mechanic's work.
+ */
+router.get(
+  '/api/mechanic/analytics',
+  authorizeRole(['mechanic', 'admin']),
+  asyncHandler(async (req, res) => {
+    try {
+      const windowDays = resolveWindowDays(req.query.window);
+      const data = await getMechanicIntelligence(supabase, req.userContext, { windowDays });
+      return res.json({ ok: true, ...data });
+    } catch (error) {
+      return handleProjectionError(res, error);
+    }
+  }),
+);
+
+/**
+ * Garage intelligence — TENANT / ORGANIZATION scope.
+ *
+ * Gated on the roles that can belong to a garage organization, and scoped to the
+ * VERIFIED tenant on the session. There is deliberately no organization parameter,
+ * and a caller with no verified tenant is refused rather than shown their own work
+ * relabelled as the organization's.
+ */
+router.get(
+  '/api/garage/analytics',
+  authorizeRole(['mechanic', 'dealer', 'admin']),
+  asyncHandler(async (req, res) => {
+    try {
+      const windowDays = resolveWindowDays(req.query.window);
+      const data = await getGarageIntelligence(supabase, req.userContext, { windowDays });
+      return res.json({ ok: true, ...data });
+    } catch (error) {
+      return handleProjectionError(res, error);
+    }
+  }),
+);
+
+/**
+ * Insurance COMMERCIAL demand — deliberately not the risk domain.
+ *
+ * Scope comes from verified insurer membership; a platform admin sees the platform
+ * view. Risk, underwriting, claims and fraud are not served here, and the payload
+ * states that boundary so a demand figure cannot be quietly reused as a risk one.
+ */
+router.get(
+  '/api/insurance/demand-intelligence',
+  authorizeRole(['insurance', 'admin']),
+  asyncHandler(async (req, res) => {
+    try {
+      const windowDays = resolveWindowDays(req.query.window);
+      const data = await getInsuranceDemandIntelligence(supabase, req.userContext, { windowDays });
+      return res.json({ ok: true, ...data });
+    } catch (error) {
+      return handleProjectionError(res, error);
+    }
+  }),
+);
+
+/**
+ * Finance COMMERCIAL demand — deliberately not the credit-risk domain.
+ *
+ * Scope from verified lender membership; a platform admin sees the platform view.
+ */
+router.get(
+  '/api/finance/demand-intelligence',
+  // Same role set the finance application routes already accept, so a lender who
+  // can read the queue can also read its demand view.
+  authorizeRole(['admin', 'finance', 'bank']),
+  asyncHandler(async (req, res) => {
+    try {
+      const windowDays = resolveWindowDays(req.query.window);
+      const data = await getFinanceDemandIntelligence(supabase, req.userContext, { windowDays });
+      return res.json({ ok: true, ...data });
+    } catch (error) {
+      return handleProjectionError(res, error);
+    }
+  }),
+);
+
+/**
+ * Parts intelligence, PERSON scope — the practitioner's own PartSentry records
+ * and their organization's stock. The I9 mechanic/garage distinction holds: one
+ * scope never answers for the other.
+ */
+router.get(
+  '/api/parts/intelligence',
+  authorizeRole(['mechanic', 'admin']),
+  asyncHandler(async (req, res) => {
+    try {
+      const windowDays = resolveWindowDays(req.query.window);
+      const data = await getMechanicPartsIntelligence(supabase, req.userContext, { windowDays });
+      return res.json({ ok: true, ...data });
+    } catch (error) {
+      return handleProjectionError(res, error);
+    }
+  }),
+);
+
+/**
+ * Parts intelligence, PLATFORM scope. RFQ demand lives only here: no part quote
+ * request names a supplier, so there is no supplier scope to serve it to.
+ */
+router.get(
+  '/api/admin/parts/intelligence',
+  authorizeRole(['admin']),
+  asyncHandler(async (req, res) => {
+    try {
+      const windowDays = resolveWindowDays(req.query.window);
+      const data = await getPlatformPartsIntelligence(supabase, req.userContext, { windowDays });
+      return res.json({ ok: true, ...data });
+    } catch (error) {
+      return handleProjectionError(res, error);
+    }
+  }),
+);
+
+/**
+ * Diaspora / trade intelligence.
+ *
+ * Scope is derived server-side and mirrors the authoritative import-order list.
+ * The gate deliberately omits `government`: the existing order list admits that
+ * role to the whole table, and handing an institutional role platform-wide
+ * commercial trade intelligence is gap G5, which is not repeated here.
+ */
+router.get(
+  '/api/trade/intelligence',
+  authorizeRole(['owner', 'dealer', 'admin']),
+  asyncHandler(async (req, res) => {
+    try {
+      const windowDays = resolveWindowDays(req.query.window);
+      const data = await getTradeIntelligence(supabase, req.userContext, { windowDays });
+      return res.json({ ok: true, ...data });
+    } catch (error) {
+      return handleProjectionError(res, error);
+    }
+  }),
+);
+
+/**
+ * Referral and marketing intelligence — platform scope only.
+ *
+ * There is no referral-partner login, so no partner scope exists to serve this
+ * to, and the figures are platform-wide.
+ */
+router.get(
+  '/api/admin/referrals/intelligence',
+  authorizeRole(['admin']),
+  asyncHandler(async (req, res) => {
+    try {
+      const windowDays = resolveWindowDays(req.query.window);
+      const data = await getReferralIntelligence(supabase, req.userContext, { windowDays });
+      return res.json({ ok: true, ...data });
+    } catch (error) {
+      return handleProjectionError(res, error);
+    }
+  }),
+);
+
+/**
+ * Institutional provenance.
+ *
+ * Purpose-limited: CarUp's own evidence review and its audit posture, with no
+ * commercial marketplace behaviour, which the payload also restates.
+ */
+router.get(
+  '/api/government/provenance-intelligence',
+  authorizeRole(['government', 'admin']),
+  asyncHandler(async (req, res) => {
+    try {
+      const windowDays = resolveWindowDays(req.query.window);
+      const data = await getGovernmentProvenanceIntelligence(supabase, req.userContext, { windowDays });
+      return res.json({ ok: true, ...data });
+    } catch (error) {
+      return handleProjectionError(res, error);
+    }
+  }),
+);
+
+/**
+ * The command centre. Platform administrators only — an institutional role is not
+ * a platform administrator, which is the G5 boundary.
+ */
+router.get(
+  '/api/admin/intelligence/command-centre',
+  authorizeRole(['admin']),
+  asyncHandler(async (req, res) => {
+    try {
+      const windowDays = resolveWindowDays(req.query.window);
+      const data = await getCommandCentre(supabase, req.userContext, { windowDays });
+      return res.json({ ok: true, ...data });
+    } catch (error) {
+      return handleProjectionError(res, error);
+    }
+  }),
+);
+
+/**
+ * Next-best-action for the signed-in seller.
+ *
+ * The subject IS the session: there is no caller-supplied scope, so a seller
+ * cannot request advice about somebody else's listings or leads.
+ */
+router.get(
+  '/api/marketplace/my-recommendations',
+  authorizeRole([]),
+  asyncHandler(async (req, res) => {
+    try {
+      const data = await getSellerRecommendations(supabase, req.userContext);
+      return res.json({ ok: true, ...data });
+    } catch (error) {
+      return handleProjectionError(res, error);
+    }
+  }),
+);
+
+/** Platform next-best-action. Administrators only. */
+router.get(
+  '/api/admin/intelligence/recommendations',
+  authorizeRole(['admin']),
+  asyncHandler(async (req, res) => {
+    try {
+      const data = await getPlatformRecommendations(supabase, req.userContext);
+      return res.json({ ok: true, ...data });
+    } catch (error) {
+      return handleProjectionError(res, error);
+    }
+  }),
+);
+
+/**
+ * The assistant's governed context.
+ *
+ * A closed set of facts about the SIGNED-IN person, each carrying its own
+ * availability. There is no subject parameter, so an assistant cannot be pointed
+ * at another user's records.
+ */
+router.get(
+  '/api/intelligence/assistant-context',
+  authorizeRole([]),
+  asyncHandler(async (req, res) => {
+    try {
+      const data = await buildAuthorizedContext(supabase, req.userContext);
+      return res.json({ ok: true, ...data });
+    } catch (error) {
+      return handleProjectionError(res, error);
+    }
+  }),
+);
+
+/**
+ * KPI explanations. Definitions only — no figures, so no scope is needed.
+ */
+router.get(
+  '/api/intelligence/kpi-catalogue',
+  asyncHandler(async (req, res) => {
+    const phase = typeof req.query.phase === 'string' ? req.query.phase : null;
+    return res.json({ ok: true, ...kpiCatalogue({ phase }) });
+  }),
+);
+
+/**
+ * A seller's periodic summary, and its export.
+ *
+ * Built on the seller projection, which already resolves ownership from the
+ * session, so there is no subject parameter here either. `?format=csv` returns the
+ * export; an unmeasured figure travels as the words NOT MEASURED rather than an
+ * empty cell a spreadsheet would sum as zero.
+ */
+router.get(
+  '/api/marketplace/my-report',
+  authorizeRole([]),
+  asyncHandler(async (req, res) => {
+    try {
+      const windowDays = resolvePeriod(req.query.period) === 'weekly' ? 7 : 30;
+      const pulse = await getSellerPulse(supabase, req.userContext, { windowDays });
+      const report = await buildSellerReport(pulse, {
+        period: req.query.period,
+        actor: req.userContext,
+      });
+
+      if (String(req.query.format || '').toLowerCase() === 'csv') {
+        res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+        res.setHeader('Content-Disposition', `attachment; filename="carup-report-${report.period}.csv"`);
+        return res.send(toCsv(report));
+      }
+      return res.json({ ok: true, ...report });
+    } catch (error) {
+      return handleProjectionError(res, error);
+    }
+  }),
+);
+
+export default router;

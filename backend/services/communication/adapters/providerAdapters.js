@@ -1,6 +1,16 @@
 import crypto from 'crypto';
 import { FakeCommunicationAdapter } from './fakeCommunicationAdapter.js';
 import { renderAuthEmail } from '../authEmailTemplates.js';
+import {
+  EMAIL_CLASSIFICATION_ERRORS,
+  normalizeEmailClassification,
+} from '../emailExperience/emailClassification.js';
+import { senderPersonaFor } from '../emailExperience/emailSenderPersona.js';
+import {
+  assertNoMarketingUnsubscribePresentation,
+  unsubscribeHrefFor,
+  validateMarketingUnsubscribePresentation,
+} from '../emailExperience/marketingUnsubscribePresentation.js';
 
 const DEFAULT_TIMEOUT_MS = 10_000;
 
@@ -61,37 +71,13 @@ function emailHtml(input) {
   return input?.content?.html || input?.content?.data?.html || null;
 }
 
-function escapeHtmlText(value) {
-  return String(value == null ? '' : value)
-    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
-}
-
-/** Visible, actionable unsubscribe footer for the plain-text part of a marketing Email. */
-function appendUnsubscribeText(text, unsubscribeUrl) {
-  const body = String(text || '').trim();
-  return `${body}\n\n—\nDon't want CarUp marketing email? Unsubscribe here:\n${unsubscribeUrl}\n\nYou will still receive essential account, security and transaction email.`;
-}
-
-/**
- * Visible, actionable unsubscribe footer for the HTML part.
- *
- * When a template supplies no HTML, one is built from the plain text rather than omitting the HTML
- * part — a text-only marketing message has nowhere to put a clickable control.
+/*
+ * G3 — the visual unsubscribe footer used to be authored HERE, by three functions that mutated
+ * outgoing marketing content on its way to the provider. That is gone. Customer-facing copy is not
+ * a transport concern, and a component that adds an unsubscribe block cannot also be trusted to
+ * detect a duplicate one. The Brevo adapter now VALIDATES finished content and passes it through
+ * unchanged; `emailExperience/marketingUnsubscribePresentation.js` owns what the reader sees.
  */
-function appendUnsubscribeHtml(html, fallbackText, unsubscribeUrl) {
-  const href = escapeHtmlText(unsubscribeUrl);
-  const footer = `<div style="margin-top:28px;padding-top:16px;border-top:1px solid #e2e8f0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;font-size:13px;line-height:1.6;color:#475569;">`
-    + `<p style="margin:0 0 8px;">You are receiving this because you opted in to CarUp marketing email.</p>`
-    + `<p style="margin:0;"><a href="${href}" style="color:#C2410C;font-weight:600;text-decoration:underline;">Unsubscribe from CarUp marketing email</a></p>`
-    + `<p style="margin:8px 0 0;color:#64748b;">You will still receive essential account, security and transaction email.</p>`
-    + `</div>`;
-  if (html) return `${html}${footer}`;
-  const paragraphs = String(fallbackText || '').trim().split(/\n{2,}/)
-    .map((p) => `<p style="margin:0 0 14px;">${escapeHtmlText(p).replace(/\n/g, '<br>')}</p>`)
-    .join('');
-  return `<div style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;font-size:15px;line-height:1.6;color:#0f172a;">${paragraphs}${footer}</div>`;
-}
 
 /**
  * Render branded auth/security HTML for a notification that names an auth template.
@@ -324,13 +310,79 @@ export class ResendEmailAdapter extends HttpCommunicationAdapter {
 
   fromAddress(input) {
     // Auth/security Email is sent from the security sender; everything else from the default.
-    const authKey = input?.content?.data?.auth_template_key;
-    if (authKey) {
+    //
+    // G4 added `classification === 'security'` alongside the auth template key. They agree on every
+    // message that exists today — the only producer of `security` also sets an auth template key —
+    // but they were keyed on different things, so a future security Email without an auth template
+    // would have gone out from the notifications sender while the renderer's persona said Security.
+    // Aligning them makes the consistency check below structural rather than hopeful.
+    const data = input?.content?.data || {};
+    if (data.auth_template_key || normalizeEmailClassification(data.classification) === 'security') {
       return envValue(this.env, 'RESEND_AUTH_FROM_EMAIL') || 'CarUp Security <auth@mail.carup.dev>';
     }
     const from = envValue(this.env, 'RESEND_FROM_EMAIL');
     const name = envValue(this.env, 'RESEND_FROM_NAME') || 'CarUp';
     return from && !from.includes('<') ? `${name} <${from}>` : from;
+  }
+
+  /**
+   * Send-side provenance, derived from the object actually handed to Resend.
+   *
+   * Every `*_sent` field reads `body`, never the renderer's intent and never what this code was
+   * supposed to have produced. That distinction is the whole point: Brevo's provenance exists
+   * because a delivered marketing message once carried no unsubscribe control while every check
+   * said it did, and the checks were reading the code rather than the payload.
+   *
+   * Nothing secret is recorded. Not the recipient, not the Reply-To value, not the subject text, not
+   * a token-bearing URL, not the body. Booleans and non-secret identifiers only — this object is
+   * persisted onto `message_delivery_attempts` and outlives every credential in it.
+   */
+  sendProvenance(body, { input, htmlSource, personaConsistent, idempotencyKeySent, outcome }) {
+    const renderer = rendererProvenance(input);
+    const attempted = outcome !== 'provider_accepted';
+    const present = (value) => typeof value === 'string' && value.length > 0;
+    return {
+      // What the RENDERER produced. Carried through untouched.
+      renderer_version: renderer.renderer_version ?? null,
+      classification: renderer.classification ?? normalizeEmailClassification(input?.content?.data?.classification),
+      classification_source: renderer.classification_source ?? null,
+      template_key: renderer.template_key ?? null,
+      template_version: renderer.template_version ?? null,
+      footer_family: renderer.footer_family ?? null,
+      sender_persona: renderer.sender_persona ?? null,
+      leadership_identity_rendered: renderer.leadership_identity_rendered ?? false,
+      render_fallback_used: renderer.render_fallback_used ?? null,
+      // G6: true only when a migrated auth template's canonical render passed the equivalence
+      // contract. This is the field that shows the R2 migration actually happened, rather than
+      // being assumed from the presence of the code that performs it.
+      auth_equivalence_verified: renderer.auth_equivalence_verified ?? false,
+      html_part_rendered: renderer.html_part_rendered ?? null,
+      cta_href_canonical: renderer.cta_href_canonical ?? null,
+      cta_route: renderer.cta_route ?? null,
+
+      // What went ON THE WIRE. Read from `body`, after every mutation of it.
+      send_outcome: outcome,
+      ...(attempted
+        // A rejected request was attempted, not sent. Named so it can never be read as acceptance.
+        ? {
+          html_part_in_request: present(body.html),
+          text_part_in_request: present(body.text),
+          reply_to_in_request: Boolean(body.reply_to),
+        }
+        : {
+          html_part_sent: present(body.html),
+          text_part_sent: present(body.text),
+          reply_to_set: Boolean(body.reply_to),
+        }),
+      subject_present: present(body.subject),
+      html_source: htmlSource,
+      // TRUE only when the renderer deliberately produced no HTML and the certified auth path
+      // supplied what was sent. Not merely because an auth template key exists — if that render
+      // failed, no HTML was sent and claiming otherwise would hide the degradation.
+      auth_compatibility_html_used: htmlSource === 'auth_compatibility',
+      sender_persona_consistent: personaConsistent,
+      idempotency_key_sent: idempotencyKeySent,
+    };
   }
 
   async send(input = {}) {
@@ -354,14 +406,76 @@ export class ResendEmailAdapter extends HttpCommunicationAdapter {
       },
     };
 
-    const html = resolveAuthHtml(input) || emailHtml(input);
+    // Which layer produced the HTML matters, so both are resolved and the winner is recorded.
+    // `auth_compatibility_html_used` is the only evidence that the certified auth renderer ran, and
+    // it cannot be inferred from an auth template key alone: if that render failed, no HTML was
+    // sent and the message degraded to text, which is a different fact worth seeing.
+    const authHtml = resolveAuthHtml(input);
+    const renderedHtml = emailHtml(input);
+    // G6 inverted this precedence. The certified auth renderer used to win unconditionally, which
+    // would have made the R2 migration invisible: the canonical artefact would be produced, verified
+    // equivalent, and then silently discarded at the transport boundary. The RENDERER now wins when
+    // it produced HTML — for a migrated auth template it has already proven equivalence — and
+    // `resolveAuthHtml` remains the fallback for everything not yet migrated, and for a canonical
+    // render that was refused.
+    const html = renderedHtml || authHtml;
+    const htmlSource = renderedHtml ? 'renderer' : (authHtml ? 'auth_compatibility' : null);
     if (html) body.html = html;
+
+    // The exactly-one contract, read in the other direction. Resend carries every NON-marketing
+    // family, and none of them may present a marketing unsubscribe control: it would offer a reader
+    // an opt-out from security mail that does not exist, and a client honouring one-click could act
+    // on it. Refused rather than stripped — silently rewriting content is the behaviour G3 removed.
+    const notPermitted = assertNoMarketingUnsubscribePresentation({ html: body.html, text: body.text });
+    if (!notPermitted.ok) {
+      // A pre-send refusal carries NO send provenance. Nothing was attempted, so there is nothing
+      // truthful to say about a request body.
+      return {
+        accepted: false,
+        retryable: false,
+        errorCode: notPermitted.errorCode,
+        errorMessage: notPermitted.errorMessage,
+      };
+    }
 
     const replyTo = input?.content?.data?.reply_to || envValue(this.env, 'RESEND_REPLY_TO');
     if (replyTo) body.reply_to = replyTo;
 
+    // The renderer names a sender persona; this adapter independently computes a `From`. If those
+    // disagree the message would go out under an identity nobody chose — a security notice from the
+    // marketing sender, or the reverse. Refuse rather than send under the wrong name.
+    //
+    // Only checked when a canonical classification exists to check against; the router refuses a
+    // missing one before this point, so this is not a hole.
+    const classification = normalizeEmailClassification(input?.content?.data?.classification);
+    const persona = classification ? senderPersonaFor(classification, this.env) : null;
+    const declaredPersona = rendererProvenance(input).sender_persona || null;
+    let personaConsistent = null;
+    if (persona) {
+      personaConsistent = bareEmailAddress(body.from) === bareEmailAddress(persona.address)
+        && (!declaredPersona || declaredPersona === persona.key);
+      if (!personaConsistent) {
+        return {
+          accepted: false,
+          retryable: false,
+          errorCode: 'sender_persona_mismatch',
+          errorMessage: `The transport sender does not match the canonical persona for '${classification}'; refusing to send under an identity nobody selected.`,
+        };
+      }
+    }
+
+    const idempotencyKeySent = Boolean(headers['Idempotency-Key']);
+
     const response = await this.requestJson('https://api.resend.com/emails', { headers, body });
-    if (!response.ok) return this.providerFailure(response);
+    if (!response.ok) {
+      return {
+        ...this.providerFailure(response),
+        providerMetadata: this.sendProvenance(body, {
+          input, htmlSource, personaConsistent, idempotencyKeySent,
+          outcome: 'request_attempted_provider_rejected',
+        }),
+      };
+    }
 
     const providerRequestId = response.body?.id || stableRequestId('resend', input);
     // Resend exposes the RFC Message-ID on the send response; fall back to its own id so reply
@@ -373,6 +487,12 @@ export class ResendEmailAdapter extends HttpCommunicationAdapter {
       providerRequestId,
       providerMessageId: rfcMessageId || providerRequestId,
       providerStatus: 'accepted',
+      // Derived from `body` AFTER every field on it was settled, so the evidence describes the same
+      // object that was transmitted rather than an earlier version of it.
+      providerMetadata: this.sendProvenance(body, {
+        input, htmlSource, personaConsistent, idempotencyKeySent,
+        outcome: 'provider_accepted',
+      }),
     };
   }
 }
@@ -447,29 +567,63 @@ export class BrevoMarketingAdapter extends HttpCommunicationAdapter {
     }
     const unsubscribeMailto = data.unsubscribe_mailto || null;
 
+    // TRANSPORT COMPLIANCE. RFC 8058: the https URI is the one-click target; the mailto is the
+    // fallback for clients that only understand the original RFC 2369 form. These headers are a
+    // MIME/provider concern and stay adapter-owned — unlike the visible control, which does not.
+    const listUnsubscribeHeader = unsubscribeMailto
+      ? `<${unsubscribeUrl}>, <mailto:${unsubscribeMailto}>`
+      : `<${unsubscribeUrl}>`;
+    // Read the https target back OUT of the header that was actually built, rather than reusing the
+    // variable that went in. The visible href, the plain-text URL and the transport target are one
+    // identity; checking the header against itself would prove nothing about that.
+    const headerHttpsTarget = (listUnsubscribeHeader.match(/<(https?:\/\/[^>]+)>/) || [])[1] || null;
+
+    // Content arrives FINISHED. The adapter validates the exactly-one contract and refuses, but adds
+    // nothing visible. Deliberately independent of the composer: it counts what is in this payload,
+    // so a hand-built send, a future renderer, or a caller that skipped composition entirely is
+    // refused on the same terms. This is the defence-in-depth choke point E7 established.
+    const textContent = textBody(input);
+    const htmlContent = emailHtml(input);
+    const presentation = validateMarketingUnsubscribePresentation({
+      html: htmlContent,
+      text: textContent,
+      unsubscribeUrl,
+      headerUrl: headerHttpsTarget,
+      provenance: data.unsubscribe_presentation || null,
+    });
+    if (!presentation.ok) {
+      return {
+        accepted: false,
+        retryable: false,
+        errorCode: presentation.errorCode,
+        errorMessage: presentation.errorMessage,
+      };
+    }
+
     const headers = jsonHeaders({ 'api-key': envValue(this.env, 'BREVO_API_KEY'), accept: 'application/json' });
     const body = {
       sender: this.senderFrom(),
       to: [{ email: to }],
       subject: subjectText(input, 'CarUp'),
-      textContent: appendUnsubscribeText(textBody(input), unsubscribeUrl),
+      // Pass-through. No footer, no wrapper, no rewriting.
+      textContent,
+      htmlContent,
       // Every provider object maps back to canonical CarUp identifiers.
       tags: [`campaign:${campaignId}`, `delivery:${campaignDeliveryId}`],
       headers: {
         'X-CarUp-Campaign-Id': String(campaignId),
         'X-CarUp-Campaign-Delivery-Id': String(campaignDeliveryId),
         'X-CarUp-Notification-Id': String(input.notificationId || ''),
-        // RFC 8058. The https URI is the one-click target; the mailto is the fallback for clients
-        // that only understand the original RFC 2369 form.
-        'List-Unsubscribe': unsubscribeMailto
-          ? `<${unsubscribeUrl}>, <mailto:${unsubscribeMailto}>`
-          : `<${unsubscribeUrl}>`,
+        'List-Unsubscribe': listUnsubscribeHeader,
         'List-Unsubscribe-Post': 'List-Unsubscribe=One-Click',
       },
     };
-    // Always send an HTML part for marketing: a text-only body cannot render an actionable control,
-    // which is precisely how the defect above reached a real inbox.
-    body.htmlContent = appendUnsubscribeHtml(emailHtml(input), textBody(input), unsubscribeUrl);
+    // The receipt below must look for the href AS THE HTML CARRIES IT. The URL is escaped once on
+    // the way into the anchor, so searching for the raw URL only happens to match while the token
+    // is the sole query parameter. Add a second one and `&` becomes `&amp;`, and the receipt would
+    // report a missing unsubscribe control that is in fact present — a compliance receipt lying in
+    // the direction that looks like a violation.
+    const unsubscribeHref = unsubscribeHrefFor(unsubscribeUrl);
 
     const response = await this.requestJson('https://api.brevo.com/v3/smtp/email', { headers, body });
     if (!response.ok) return this.providerFailure(response);
@@ -484,18 +638,53 @@ export class BrevoMarketingAdapter extends HttpCommunicationAdapter {
       // Without this, "did the delivered message actually carry a visible unsubscribe action?" can
       // only be inferred from the code that was *believed* to be running — and that inference was
       // physically wrong once, when an older deployment executed the send.
+      //
+      // Every field below is computed from `body` — the object handed to the provider — never from
+      // what this code was supposed to have done.
       providerMetadata: {
         marketing_unsubscribe_url_present: true,
         marketing_html_part_sent: typeof body.htmlContent === 'string' && body.htmlContent.length > 0,
         marketing_html_anchor_present: typeof body.htmlContent === 'string'
-          && body.htmlContent.includes(`href="${unsubscribeUrl}"`),
+          && body.htmlContent.includes(`href="${unsubscribeHref}"`),
         marketing_text_link_present: typeof body.textContent === 'string'
           && body.textContent.includes(unsubscribeUrl),
         list_unsubscribe_header_sent: Boolean(body.headers?.['List-Unsubscribe']),
         list_unsubscribe_post_header_sent: body.headers?.['List-Unsubscribe-Post'] === 'List-Unsubscribe=One-Click',
+        // G3: the exactly-one contract, and the fact that transport added nothing visible.
+        marketing_unsubscribe_blocks: presentation.counts?.markers ?? null,
+        marketing_unsubscribe_presentation_validated: true,
+        marketing_content_unmodified_by_transport:
+          body.textContent === textBody(input) && body.htmlContent === emailHtml(input),
+        list_unsubscribe_target_matches_visible_url: body.headers?.['List-Unsubscribe']?.includes(`<${unsubscribeUrl}>`) === true,
       },
     };
   }
+}
+
+
+/**
+ * G4 — send-side provenance helpers.
+ *
+ * `bareEmailAddress` exists because `From` is a display string (`CarUp Security <auth@…>`) while a
+ * persona is an address. Comparing the two forms directly reports a mismatch that is not one.
+ */
+function bareEmailAddress(value) {
+  const raw = String(value || '').trim();
+  const match = raw.match(/<([^>]+)>/);
+  return (match ? match[1] : raw).trim().toLowerCase() || null;
+}
+
+/**
+ * Renderer provenance as the worker attached it, or an empty record.
+ *
+ * Carried through UNCHANGED. It describes what the canonical renderer PRODUCED, which during the
+ * auth compatibility period is a different fact from what was SENT — `html_part_rendered: false`
+ * and `html_part_sent: true` are both true of the same message, and collapsing them would erase the
+ * only evidence that the certified auth path executed.
+ */
+function rendererProvenance(input) {
+  const provenance = input?.content?.data?.email_render_provenance;
+  return provenance && typeof provenance === 'object' ? provenance : {};
 }
 
 /**
@@ -531,11 +720,30 @@ export class EmailTransportRouter {
     return null;
   }
 
-  /** Governed classification -> adapter. Marketing never rides the transactional transport. */
+  /**
+   * Governed classification -> adapter. Marketing never rides the transactional transport.
+   *
+   * G2: this used to default a missing classification to `'transactional'`, which meant absence
+   * silently CHOSE A PROVIDER. That is how a real marketing campaign rode the transactional
+   * transport with no unsubscribe control: nobody decided it should: nothing was set, and the
+   * default decided for them. A provider is now never chosen by a default.
+   */
   selectAdapter(input = {}) {
-    const classification = String(
-      input?.content?.data?.classification || input?.classification || 'transactional',
-    ).toLowerCase();
+    const raw = input?.content?.data?.classification ?? input?.classification;
+    const present = String(raw ?? '').trim() !== '';
+    const classification = normalizeEmailClassification(raw);
+
+    if (!classification) {
+      return {
+        adapter: null,
+        classification: present ? String(raw) : null,
+        reason: present ? 'classification_invalid' : 'classification_missing',
+        errorCode: present ? EMAIL_CLASSIFICATION_ERRORS.INVALID : EMAIL_CLASSIFICATION_ERRORS.MISSING,
+        errorMessage: present
+          ? `'${raw}' is not a canonical CarUp Email classification; refusing to choose a transport.`
+          : 'This Email carries no canonical classification; refusing to choose a transport by default.',
+      };
+    }
     if (MARKETING_EMAIL_CLASSIFICATIONS.has(classification)) {
       return { adapter: this.brevo, classification, reason: 'marketing_to_brevo' };
     }
@@ -550,13 +758,13 @@ export class EmailTransportRouter {
   }
 
   async send(input = {}) {
-    const { adapter, classification, reason } = this.selectAdapter(input);
+    const { adapter, classification, reason, errorCode, errorMessage } = this.selectAdapter(input);
     if (!adapter) {
       return {
         accepted: false,
         retryable: false,
-        errorCode: 'provider_not_configured',
-        errorMessage: `No Email transport is configured for classification '${classification}'.`,
+        errorCode: errorCode || 'provider_not_configured',
+        errorMessage: errorMessage || `No Email transport is configured for classification '${classification}'.`,
       };
     }
     const result = await adapter.send(input);

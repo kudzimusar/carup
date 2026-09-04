@@ -103,16 +103,40 @@ export default function PartSentry() {
       toast.error('Part name and action type are required')
       return
     }
+    /**
+     * Three values used to be invented here when a field was left blank, and this
+     * writes to the repair ledger — the record a future buyer relies on.
+     *
+     *   - a blank description was stored as the literal "Service performed",
+     *     manufacturing the content of an evidence record from an empty field;
+     *   - a blank OEM was stored as the string "UNKNOWN", which reads in the
+     *     ledger as a recorded value rather than an absent one;
+     *   - a blank mileage became `0` via `parseInt(...) || 0` — a fabricated
+     *     odometer reading, and the submitted mileage OVERWRITES the vehicle's
+     *     odometer on the server.
+     *
+     * A description is what makes the entry mean anything, so it is required.
+     * Mileage must be a real reading. An absent OEM is sent as absent.
+     */
+    if (!repairForm.description.trim()) {
+      toast.error('Describe the work done — this is the record a future buyer will rely on.')
+      return
+    }
+    const mileage = Number(repairForm.mileage)
+    if (!repairForm.mileage.trim() || !Number.isFinite(mileage) || mileage < 0) {
+      toast.error('Enter the odometer reading. It is recorded against the vehicle and cannot be guessed.')
+      return
+    }
     setSubmitting(true)
     try {
       // Mechanic identity is derived server-side from the authenticated user.
       const result = await addRepairLog(
         repairForm.vin,
         repairForm.partName,
-        repairForm.partOem || 'UNKNOWN',
+        repairForm.partOem.trim() || null,
         repairForm.actionType,
-        repairForm.description || 'Service performed',
-        parseInt(repairForm.mileage) || 0,
+        repairForm.description.trim(),
+        mileage,
       )
       if (!result?.id) {
         toast.error('The server did not confirm the repair was recorded')

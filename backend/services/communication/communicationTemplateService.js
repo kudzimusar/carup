@@ -1,8 +1,15 @@
+import { substituteVariables } from './templateVariableSubstitution.js';
+
 const TEMPLATES = Object.freeze({
   message_acknowledgement_v1: {
     transactional: true,
     subject: 'CarUp received your message',
     body: 'CarUp received your message about {{topic}}. We will keep this thread updated.',
+  },
+  ownership_transfer_v1: {
+    transactional: true,
+    subject: 'Vehicle ownership transfer update',
+    body: 'Ownership transfer for {{listing_id}} is {{status}}. Reference: {{reference}}. CarUp changes legal ownership only after governed completion.',
   },
   human_handoff_v1: {
     transactional: true,
@@ -44,6 +51,14 @@ const TEMPLATES = Object.freeze({
     subject: 'Evidence review decision',
     body: 'Evidence {{reference}} for listing {{listing_id}} was reviewed: {{decision}}.',
   },
+  // Operations M2 — governed Seller Authority decisions. Wording is bounded:
+  // it reports the CarUp policy decision only, never a legal-title or
+  // registration claim, and carries no security token or restricted document.
+  seller_authority_v1: {
+    transactional: true,
+    subject: 'Seller authority decision',
+    body: 'Your seller authority for vehicle {{listing_id}} was reviewed by CarUp: {{decision}}.',
+  },
   support_resolved_v1: {
     transactional: true,
     subject: 'CarUp support thread resolved',
@@ -56,15 +71,6 @@ const TEMPLATES = Object.freeze({
   },
 });
 
-function escapeValue(value) {
-  return String(value ?? '')
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&#39;');
-}
-
 export class CommunicationTemplateService {
   getTemplate(key) {
     return TEMPLATES[key] || TEMPLATES.message_acknowledgement_v1;
@@ -72,7 +78,8 @@ export class CommunicationTemplateService {
 
   render(templateKey, variables = {}) {
     const template = this.getTemplate(templateKey);
-    const replace = (text) => String(text || '').replace(/\{\{([a-zA-Z0-9_]+)\}\}/g, (_match, key) => escapeValue(variables[key] ?? ''));
+    // Escaping is owned by the representation, not by substitution — see templateVariableSubstitution.js.
+    const replace = (text) => substituteVariables(text, variables);
     return {
       templateKey,
       transactional: template.transactional !== false,

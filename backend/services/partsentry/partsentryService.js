@@ -8,15 +8,34 @@ import { addEvent } from '../blockchain/blockchainService.js';
 // owners pass null). Stamped onto the log row — the column exists with an FK to
 // tenants — so garage-level history stays attributable.
 export async function addRepairLog(vin, mechanicId, partName, partOem, actionType, description, mileage, tenantId = null) {
+  /**
+   * The submitted mileage is written to the log AND overwrites the vehicle's
+   * odometer below, so it has to be a real reading before anything else happens.
+   *
+   * The comparison further down is `mileage < vehicle.mileage`, and any
+   * comparison against NaN is false — so an absent or unparseable mileage sailed
+   * past the odometer guard and was persisted, then stamped onto the vehicle.
+   * A client that sent nothing could therefore reset an odometer.
+   */
+  const odometer = Number(mileage);
+  if (!Number.isFinite(odometer) || odometer < 0) {
+    throw new Error('A valid odometer reading is required to record a repair.');
+  }
+
+  // An absent description or OEM is stored as absent. Substituting a placeholder
+  // would put a value into an evidence record that nobody actually supplied.
+  const cleanDescription = typeof description === 'string' && description.trim() ? description.trim() : null;
+  const cleanPartOem = typeof partOem === 'string' && partOem.trim() ? partOem.trim() : null;
+
   // Odometer check
   const { data: vehicle } = await supabase.from('vehicles').select('mileage').eq('vin', vin).single();
-  if (vehicle && mileage < vehicle.mileage) {
-    throw new Error(`Mileage verification failure. Recorded mileage ${mileage} km cannot be lower than vehicle current odometer ${vehicle.mileage} km.`);
+  if (vehicle && odometer < vehicle.mileage) {
+    throw new Error(`Mileage verification failure. Recorded mileage ${odometer} km cannot be lower than vehicle current odometer ${vehicle.mileage} km.`);
   }
 
   const timestamp = new Date().toISOString();
   
-  const signData = vin + mechanicId + partName + mileage + timestamp;
+  const signData = vin + mechanicId + partName + odometer + timestamp;
   const signature = crypto.createHash('sha256').update(signData).digest('hex').substring(0, 16).toUpperCase();
 
   // Idempotency check
@@ -27,7 +46,7 @@ export async function addRepairLog(vin, mechanicId, partName, partOem, actionTyp
     .eq('vin', vin)
     .eq('mechanic_id', mechanicId)
     .eq('part_name', partName)
-    .eq('mileage', mileage)
+    .eq('mileage', odometer)
     .gt('timestamp', fiveMinutesAgo)
     .single();
   
@@ -36,8 +55,8 @@ export async function addRepairLog(vin, mechanicId, partName, partOem, actionTyp
   }
 
   const { data: inserted, error } = await supabase.from('partsentry_logs').insert({
-    vin, mechanic_id: mechanicId, part_name: partName, part_oem: partOem,
-    action_type: actionType, description, mileage, signature, timestamp,
+    vin, mechanic_id: mechanicId, part_name: partName, part_oem: cleanPartOem,
+    action_type: actionType, description: cleanDescription, mileage: odometer, signature, timestamp,
     tenant_id: tenantId ?? null
   }).select('id');
 
@@ -48,11 +67,23 @@ export async function addRepairLog(vin, mechanicId, partName, partOem, actionTyp
   const newId = inserted?.[0]?.id;
 
   // Update vehicle odometer
-  await supabase.from('vehicles').update({ mileage }).eq('vin', vin);
+  await supabase.from('vehicles').update({ mileage: odometer }).eq('vin', vin);
 
-  await addEvent(vin, 'Mechanic Inspection', { logId: newId, partName, partOem, actionType, odometer: mileage, mechanicId, signature });
+  // The committed partsentry_logs row id IS the durable operation identity: it exists
+  // before the ledger write, survives a lost response and a process restart, and a fresh
+  // retry of this same service call recomputes it, while a genuinely new inspection cannot.
+  if (newId === undefined || newId === null) {
+    throw new Error('parts log persisted without an id; refusing to write an unidentifiable ledger event');
+  }
+  await addEvent(
+    vin,
+    'Mechanic Inspection',
+    { logId: newId, partName, partOem: cleanPartOem, actionType, odometer, mechanicId, signature },
+    'SYSTEM_SIGNATURE',
+    { operationId: `partsentry_log:${encodeURIComponent(String(newId))}` },
+  );
 
-  return { id: newId, vin, mechanicId, partName, partOem, actionType, description, mileage, signature, timestamp };
+  return { id: newId, vin, mechanicId, partName, partOem: cleanPartOem, actionType, description: cleanDescription, mileage: odometer, signature, timestamp };
 }
 
 /**

@@ -15,6 +15,10 @@ import {
   listingImageRowsForVin,
 } from './listingSummaryService.js';
 import { ValidationError, ForbiddenError, DatabaseError } from '../../utils/errors.js';
+import {
+  emitListingSaved,
+  emitListingUnsaved,
+} from '../intelligence/marketplaceActivityEmitters.js';
 
 const TABLE = 'saved_vehicles';
 
@@ -24,16 +28,24 @@ function requireUser(actor) {
   return userId;
 }
 
-export async function saveListing(client, vin, actor) {
+export async function saveListing(client, vin, actor, options = {}) {
   const userId = requireUser(actor);
   if (!vin) throw new ValidationError('vin is required.');
   try {
-    const { data: existing } = await client.from(TABLE).select('id, user_id, vin').eq('user_id', userId).eq('vin', vin);
+    const { data: existing } = await client.from(TABLE).select('id, user_id, vin, created_at').eq('user_id', userId).eq('vin', vin);
+    // A re-save of an already-saved listing changes nothing, so it must also OBSERVE
+    // nothing: the watchlist did not move, and a save metric that counted this would
+    // report interest that never happened.
     if (Array.isArray(existing) && existing.length) return { saved: true, vin };
-    const { error } = await client.from(TABLE).insert({ user_id: userId, vin, created_at: new Date().toISOString() });
+    const createdAt = new Date().toISOString();
+    const { error } = await client.from(TABLE).insert({ user_id: userId, vin, created_at: createdAt });
     // saved_vehicles has UNIQUE(user_id, vin) (migration 010). A concurrent double-save races past the
     // existence check above; treat the unique violation (23505) as an idempotent success, not an error.
     if (error && error.code !== '23505') throw error;
+    if (error && error.code === '23505') return { saved: true, vin };
+    // Governed observation (Intelligence I3), keyed on the authority row's own
+    // created_at so a retry cannot become a second save. Never blocks the save.
+    emitListingSaved({ userId, vin, savedAt: createdAt, req: options.req || null, client }).catch(() => {});
     return { saved: true, vin };
   } catch (error) {
     if (error && error.code === '23505') return { saved: true, vin };
@@ -41,12 +53,22 @@ export async function saveListing(client, vin, actor) {
   }
 }
 
-export async function unsaveListing(client, vin, actor) {
+export async function unsaveListing(client, vin, actor, options = {}) {
   const userId = requireUser(actor);
   if (!vin) throw new ValidationError('vin is required.');
   try {
-    const { error } = await client.from(TABLE).delete().eq('user_id', userId).eq('vin', vin);
+    // Delete-RETURNING rather than blind: once the row is gone there is nothing left
+    // to reconcile against, so the deleted row's created_at is the only material that
+    // can key the observation. A delete that matched nothing returns nothing, which
+    // correctly produces no event.
+    const { data, error } = await client.from(TABLE).delete().eq('user_id', userId).eq('vin', vin).select('vin, created_at');
     if (error) throw error;
+    const removed = Array.isArray(data) ? data[0] : (data || null);
+    if (removed) {
+      emitListingUnsaved({
+        userId, vin, savedAt: removed.created_at, req: options.req || null, client,
+      }).catch(() => {});
+    }
     return { saved: false, vin };
   } catch (error) {
     throw new DatabaseError('Failed to remove saved listing.', { reason: error.message });

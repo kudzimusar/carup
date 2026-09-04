@@ -4,6 +4,7 @@ import {
   buildVehicleListingCandidate,
   getListingEligibility,
 } from '../services/marketplace/marketplaceListingEligibility.js';
+import { vehicleYearBounds } from '../services/taxonomy/vehicleTaxonomyService.js';
 
 // Exercises the core logic of POST /api/vehicles/add: building the candidate row from auth context +
 // body, then evaluating eligibility. (DB insert, 409 duplicate, and authorizeRole are unchanged in the
@@ -37,11 +38,14 @@ test('valid real dealer listing is eligible; tenant from context, dealer seller 
   assert.equal(getListingEligibility(c).eligible, true);
 });
 
-// 4 / 5 / 6 / 7 — VIN rejections
+// 4 / 5 / 6 / 7 — vehicle identifier contract
 test('VIN_REF_* is rejected', () => assert.ok(reasonsFor(ownerCtx, { vin: 'VIN_REF_776997' }).includes('invalid_vin_format')));
 test('VIN_INT_* is rejected', () => assert.ok(reasonsFor(ownerCtx, { vin: 'VIN_INT_081059' }).includes('invalid_vin_format')));
-test('16-char VIN is rejected', () => assert.ok(reasonsFor(ownerCtx, { vin: '1HGBH41JXMN10918' }).includes('invalid_vin_format')));
-test('VIN with I/O/Q is rejected', () => assert.ok(reasonsFor(ownerCtx, { vin: '1HGBH41JIMN109186' }).includes('invalid_vin_format')));
+test('11-char identifier is rejected', () => assert.ok(reasonsFor(ownerCtx, { vin: 'GFC27-02705' }).includes('invalid_vin_format')));
+test('documented Japanese frame/chassis identifier is eligible', () => {
+  const c = candidate(ownerCtx, { vin: 'GFC27-027051', import_source: 'Japan' });
+  assert.equal(getListingEligibility(c).reasons.includes('invalid_vin_format'), false);
+});
 
 // 8 / 9 — placeholder make/model
 test("make='Test' is rejected", () => assert.ok(reasonsFor(ownerCtx, { make: 'Test' }).includes('placeholder_make')));
@@ -52,10 +56,12 @@ test('price <= 0 is rejected (negative reaches eligibility; 0 is caught by the r
   assert.ok(reasonsFor(ownerCtx, { price: -5 }).includes('invalid_price'));
 });
 
-// 11 — year
-test('future/old year is rejected', () => {
-  assert.ok(reasonsFor(ownerCtx, { year: 3000 }).includes('invalid_year'));
-  assert.ok(reasonsFor(ownerCtx, { year: 1900 }).includes('invalid_year'));
+// 11 — year: use the platform-wide taxonomy boundary, never a second hard-coded cutoff.
+test('year eligibility follows the canonical global taxonomy bounds', () => {
+  const { min, max } = vehicleYearBounds();
+  assert.ok(reasonsFor(ownerCtx, { year: max + 1 }).includes('invalid_year'));
+  assert.ok(reasonsFor(ownerCtx, { year: min - 1 }).includes('invalid_year'));
+  assert.equal(reasonsFor(ownerCtx, { year: min }).includes('invalid_year'), false);
 });
 
 // 12 — import_source
@@ -172,4 +178,13 @@ test('admin listing with an explicit real owner_id is eligible', () => {
 test('dealer with the default/seed tenant is rejected (real tenant required)', () => {
   const c = buildVehicleListingCandidate({ body: baseBody, userContext: { role: 'dealer', id: 'u9', tenantId: '00000000-0000-0000-0000-000000000001' } });
   assert.ok(getListingEligibility(c).reasons.includes('seed_tenant_id'));
+});
+
+
+test('Japanese chassis identifier clears both syntax and fixture eligibility gates', () => {
+  const c = candidate(ownerCtx, { vin: 'GFC27-027051', import_source: 'Japan' });
+  const r = getListingEligibility(c);
+  assert.equal(r.eligible, true, JSON.stringify(r.reasons));
+  assert.equal(r.reasons.includes('invalid_vin_format'), false);
+  assert.equal(r.reasons.includes('fixture_excluded'), false);
 });

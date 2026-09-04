@@ -1,0 +1,33 @@
+You have a new message
+
+Hi Fixture,
+
+Fixture Buyer sent you a message about 2018 Toyota Aqua on CarUp.
+
+> Hi — is this still available? I am in Harare and could come and see it this weekend if so. Does it have a full service history?
+> — Fixture Buyer
+
+2018 Toyota Aqua
+VIN FIXTUREVIN0000001
+Mileage: 88,000 km
+Asking price: USD 9,500
+Seller: Fixture Motors
+
+View vehicle record: https://carup.dev/marketplace/listing/FIXTUREVIN0000001
+
+Open your CarUp conversations:
+https://carup.dev/dashboard/communications
+
+Keep the conversation on CarUp. Anything agreed here stays attached to the vehicle it was about. CarUp will never ask you to move a deal to another platform or to pay someone directly outside a CarUp flow you started yourself.
+
+—
+
+You are receiving this because you are part of this conversation on CarUp.
+
+Need help? support@carup.dev
+
+Privacy: https://carup.dev/privacy
+Terms: https://carup.dev/terms
+Support: https://carup.dev/support
+
+CarUp Technologies · Automotive Intelligence & Trust Network

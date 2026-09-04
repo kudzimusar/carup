@@ -7,7 +7,8 @@ import crypto from 'crypto';
 import { supabase } from './db/supabase.js';
 
 // Import Middleware
-import { authorizeRole, optionalAuth, isPrivateEvidenceFallbackAllowed } from './middleware/authMiddleware.js';
+import { authorizeRole, authorizeSessionRole, optionalAuth, isPrivateEvidenceFallbackAllowed } from './middleware/authMiddleware.js';
+import { requireVehicleObjectAuthority, hasPlatformWideVehicleAuthority } from './middleware/vehicleObjectAuthority.js';
 import { evaluateLoginCredentials, hashPassword } from './utils/passwordAuth.js';
 
 // Import Services
@@ -24,6 +25,7 @@ import {
   getCanonicalTrust,
   getCanonicalTrustBatch,
   publicTrustViolations,
+  refreshCanonicalTrust,
   toPublicTrust,
 } from './services/trustDecision/canonicalTrustService.js';
 import { verifyChain, addEvent } from './services/blockchain/blockchainService.js';
@@ -35,8 +37,8 @@ import { runFraudAnalysis, runOcrParsing, runRiskScoring } from './services/ai/a
 import { submitFinancingApplication } from './services/finance/financeService.js';
 import { calculateInsuranceQuote, createInsurancePolicy } from './services/insurance/insuranceService.js';
 import { calculateZimraDuty } from './services/import/importService.js';
-import { reportVehicleStolen, checkStolenStatus } from './services/security/securityService.js';
-import { calculateDealerReputation } from './services/reputation/reputationService.js';
+import { reportVehicleStolen, checkStolenStatus, clearStolenStatus } from './services/security/securityService.js';
+import { readDealerReputation, recalculateDealerReputation } from './services/reputation/reputationService.js';
 import { getSmartRecommendations } from './services/recommendation/recommendationService.js';
 import { reserveVehicle } from './services/reservation/reservationService.js';
 
@@ -66,6 +68,14 @@ import {
 } from './middleware/securityMiddleware.js';
 import { corsOptions } from './config/corsOptions.js';
 import { buildSessionRow } from './services/auth/sessionRow.js';
+import { createAuthEmailService } from './services/auth/authEmailService.js';
+import { normalizeRegistrationProfile } from './services/auth/registrationProfileService.js';
+import {
+  normalizeAccidentDisclosure,
+  normalizeInsuranceDisclosure,
+  normalizeFinanceDisclosure,
+} from './services/seller/vehicleHistoryDisclosures.js';
+import { hasVerifiedOwnershipAuthorityEvidence, isSellerAuthorityEffectivelyDenied } from './services/seller/sellerAuthorityService.js';
 
 // Centralized Routes Imports (Batch 1)
 import leadsRouter from './routes/leadsRoutes.js';
@@ -81,6 +91,7 @@ import { authRecoveryRouter } from './routes/authRecoveryRoutes.js';
 import { marketingUnsubscribeRouter } from './routes/marketingUnsubscribeRoutes.js';
 import { resolveBuildProvenance } from './config/buildProvenance.js';
 import vehiclesRouter from './routes/vehiclesRoutes.js';
+import vehicleOperationsRouter from './routes/vehicleOperationsRoutes.js';
 import evidenceCatalogRouter from './routes/evidenceCatalogRoutes.js';
 import ingestionRouter from './routes/ingestionRoutes.js';
 import sourceVerificationRouter from './routes/sourceVerificationRoutes.js';
@@ -112,10 +123,17 @@ import trustFactRouter from './routes/trustFactRoutes.js';
 import identityVerificationRouter from './routes/identityVerificationRoutes.js';
 import featureGovernanceRouter from './routes/featureGovernanceRoutes.js';
 import navigationAnalyticsRouter from './routes/navigationAnalyticsRoutes.js';
+import intelligenceActivityRouter from './routes/intelligenceActivityRoutes.js';
+import intelligenceProjectionRouter from './routes/intelligenceProjectionRoutes.js';
+import intelligenceRollupRouter from './routes/intelligenceRollupRoutes.js';
 import identityVerificationAdminRouter from './routes/identityVerificationAdminRoutes.js';
 import partsentryReviewRouter from './routes/partsentryReviewRoutes.js';
+import passportOwnershipTransferRouter from './routes/passportOwnershipTransferRoutes.js';
+import vehicleFinanceObligationRouter from './routes/vehicleFinanceObligationRoutes.js';
+import { sellerVehicleIdentifierProblem } from './utils/sellerVehicleIdentifier.js';
 import { normalizeVehicleStatus, publicVehicleStatusFilterValues, publiclyVisiblePublicationStatuses, isPublicVehicleStatus, isPubliclyVisiblePublication, PUBLIC_VEHICLE_COLUMNS } from './utils/vehicleStatus.js';
-import { attestedValue, CLAIM_VISIBILITY, LISTING_CLAIM_COLUMNS, PUBLIC_VEHICLE_SELECT, projectVehicle, toListingClaims, toPublicEvidence, toPublicPlateHistory, toPublicTimelineEvent } from './utils/publicVehicleProjection.js';
+import { attestedValue, CLAIM_VISIBILITY, LISTING_CLAIM_COLUMNS, PUBLIC_VEHICLE_SELECT, projectVehicle, toListingClaims, toPublicEvidence, toPublicPlateHistory, toPublicTimelineEvent, toVehicleHistoryDisclosures } from './utils/publicVehicleProjection.js';
+import { projectFinanceObligationForVehicle } from './services/finance/vehicleFinanceObligationService.js';
 // The canonical vehicle media contract (Issue #164 §10). Imported at MODULE scope and handed to
 // buildVehiclePassport as a PARAMETER — never referenced as a free name inside that function, for
 // the reason the function's own header gives: two harnesses execute its source against a fixed
@@ -136,9 +154,12 @@ import {
   lookupColumnsForKind,
 } from './utils/passportLookupPolicy.js';
 import { buildVehicleListingCandidate, getListingEligibility } from './services/marketplace/marketplaceListingEligibility.js';
+import { normalizeZimbabweRegistrationStatus } from './services/registration/zimbabweRegistrationLifecycle.js';
+import { normalizeVehicleTaxonomyInput } from './services/taxonomy/vehicleTaxonomyService.js';
 import { registerCommunicationListeners } from './services/communication/communicationEventListeners.js';
 import { evaluateCompleteness } from './services/evidence/completenessEvaluator.js';
 import { validateCommunicationConfiguration } from './services/communication/communicationConfigurationValidator.js';
+import { buildCanonicalVehicleLifecycle } from './services/report/canonicalVehicleLifecycleService.js';
 
 dotenv.config();
 
@@ -157,6 +178,38 @@ if (
   throw new Error(
     'FATAL: STRICT OCR MODE REQUIRES AT LEAST ONE REAL OCR PROVIDER (GEMINI_API_KEY or GROQ_API_KEY)'
   );
+}
+
+// Secrets whose absence is INVISIBLE until a user hits the affected path.
+//
+// Boot-time validation previously covered only the two Supabase variables. A deployment
+// missing JWT_SECRET or the ledger signing secrets therefore booted, reported
+// `status: 'UP'` on /api/health, and failed at the first CSRF check or the first ledger
+// write — the failure surfacing as a user-facing 500 in production rather than as a refused
+// deploy. Each of these is resolved lazily, so nothing earlier can catch it:
+//   JWT_SECRET                              -> resolveCsrfSecret (securityMiddleware)
+//   CARUP_BLOCKCHAIN_SIGNING_MASTER_SECRET  -> masterSecret (blockchainKeyCustodyService)
+//   CARUP_BLOCKCHAIN_SYSTEM_HMAC_SECRET     -> currentSystemSecret (blockchainKeyCustodyService)
+//
+// Gated on the DEPLOYMENT environment, not NODE_ENV: local runs and CI must be unaffected,
+// and NODE_ENV has already proven an unreliable proxy for "is this production" in this
+// codebase. Communication configuration deliberately stays non-fatal — a degraded channel
+// should not take down the marketplace — but a missing signing or CSRF secret must not boot.
+const IS_PRODUCTION_DEPLOYMENT = process.env.CARUP_ENV === 'production'
+  || process.env.VERCEL_ENV === 'production';
+if (IS_PRODUCTION_DEPLOYMENT) {
+  const requiredInProduction = [
+    'JWT_SECRET',
+    'CARUP_BLOCKCHAIN_SIGNING_MASTER_SECRET',
+    'CARUP_BLOCKCHAIN_SYSTEM_HMAC_SECRET',
+  ];
+  const missing = requiredInProduction.filter((name) => !String(process.env[name] || '').trim());
+  if (missing.length) {
+    throw new Error(
+      `FATAL: required production secrets are missing in environment variables: ${missing.join(', ')}. `
+      + 'Refusing to boot rather than serving a healthy status and failing at first use.',
+    );
+  }
 }
 
 const startupCommunicationConfiguration = validateCommunicationConfiguration();
@@ -288,8 +341,19 @@ app.use('/api/payments', paymentRouter);
 // Mount media upload unified routes
 app.use('/api/media', mediaRouter);
 
-// Mount Trust & Identity verification routes
-app.use('/api/verification', documentIntelligenceRouter);
+// Mount Trust & Identity verification routes.
+//
+// FAIL CLOSED. This router was mounted bare, with no auth middleware on the mount and none
+// on any of its five routes, which made it a SECOND authority over vehicle trust, registry
+// records (cvr_ownership_records / zimra_declarations) and user verification level —
+// reachable by an unauthenticated caller. CSRF was not a barrier: the token endpoint issues
+// a guest-bound token to anyone.
+//
+// It is gated at the mount rather than per-route so a future route added to this router is
+// closed by default instead of inheriting the old omission. `authorizeSessionRole` is used
+// deliberately in preference to `authorizeRole`: it disables the x-user-id fallback, so a
+// registry/trust decision always requires a PROVEN session, never an asserted header.
+app.use('/api/verification', authorizeSessionRole(['admin', 'government']), documentIntelligenceRouter);
 
 // Mount centralized routes (Batch 1)
 app.use(leadsRouter);
@@ -306,6 +370,7 @@ app.use(communicationRouter());
 app.use(adminCommunicationRouter());
 app.use(marketplaceRouter);
 app.use(marketplaceAdminRouter);
+app.use(vehicleOperationsRouter);
 app.use(vehiclesRouter);
 app.use(evidenceCatalogRouter);
 app.use(ingestionRouter);
@@ -333,8 +398,13 @@ app.use(trustFactRouter);
 app.use(identityVerificationRouter);
 app.use(featureGovernanceRouter);
 app.use(navigationAnalyticsRouter);
+app.use(intelligenceActivityRouter);
+app.use(intelligenceProjectionRouter);
+app.use(intelligenceRollupRouter);
 app.use(identityVerificationAdminRouter);
 app.use(partsentryReviewRouter);
+app.use(passportOwnershipTransferRouter);
+app.use(vehicleFinanceObligationRouter);
 
 // Mount isolated Diaspora Trade bounded context
 app.use('/api/diaspora', diasporaRouter);
@@ -620,18 +690,31 @@ async function ownerGarageCounts(vins) {
  * `ownerGarageCounts` draws for counts, and the reason a broken query can never again be published
  * to an owner as an absence of their own photographs.
  */
+async function readListingImagesCompat({ vin = null, vins = [] } = {}) {
+  const applyScope = (query) => vin
+    ? query.eq('vin', vin)
+    : query.in('vin', [...new Set((vins || []).filter(Boolean))]);
+
+  const wide = await applyScope(
+    supabase.from('listing_images').select('id, vin, image_url, is_primary, display_order, photo_label'),
+  ).order('display_order', { ascending: true });
+  if (!wide.error) return wide.data || [];
+  if (!isMissingNamedColumnError(wide.error, 'photo_label')) return null;
+
+  const legacy = await applyScope(
+    supabase.from('listing_images').select('id, vin, image_url, is_primary, display_order'),
+  ).order('display_order', { ascending: true });
+  if (legacy.error) return null;
+  return (legacy.data || []).map(row => ({ ...row, photo_label: null }));
+}
+
 async function ownerListingMedia(vins) {
   const wanted = [...new Set((vins || []).filter(Boolean))];
   if (wanted.length === 0) return new Map();
 
   let rows = null;
   try {
-    const { data, error } = await supabase
-      .from('listing_images')
-      .select('id, vin, image_url, is_primary, display_order')
-      .in('vin', wanted);
-    // `error` leaves `rows` null on purpose: see the note above.
-    if (!error) rows = data || [];
+    rows = await readListingImagesCompat({ vins: wanted });
   } catch {
     rows = null;
   }
@@ -865,6 +948,27 @@ async function canonicalPassportTrust(vin) {
 // that, it fell out of the wiring. The remedy has to live where the definition of "published" is
 // already imported, because deciding it here would mean inlining a second copy of that definition
 // into the one function whose whole subject is that there is only one.
+//
+// `historyDisclosureContract` (8th) is the Vehicle History & Obligations projection (K17–K19),
+// injected for exactly the reason `mediaContract` is: four harnesses execute this function's SOURCE
+// against a fixed 11-name dependency list, so a free module-scope name here is a ReferenceError
+// there rather than a failure that says what changed. Its presence at every shipped call site is
+// asserted separately (issue164-phase5-passport-media-wiring), so an injected collaborator cannot
+// quietly become dead in production — and an unwired render publishes NO key rather than a block
+// whose `null` topics would read as the factual claim "not recorded".
+//
+// `financeObligationContract` (9th) is the GOVERNED Vehicle Finance Obligation / Encumbrance
+// projection (Track 1: M16–M18, R22–R26, R28) — the counterpart to `historyDisclosureContract`
+// that is attributed `authority: 'governed'` rather than `'seller_stated'`, because it lives in a
+// separate table (`vehicle_finance_obligations`) the vehicle `select('*')` below cannot see.
+// Injected for the identical closed-collaborator reason: a free module-scope name here is a
+// ReferenceError in the four harnesses that execute this function's SOURCE against a fixed
+// dependency list. An unwired render must publish `source_state: 'unavailable'`, never a governed
+// zero — see `toVehicleFinanceObligationBlock`'s handling of an `undefined` read.
+//
+// NOTE: keep this parameter list free of inline comments — `passportParameterNames()` in that
+// harness splits the shipped list on top-level commas, and a comment inside it becomes part of a
+// parameter name.
 async function buildVehiclePassport(
   vin,
   req,
@@ -872,6 +976,9 @@ async function buildVehiclePassport(
   listingClaimContract = null,
   attestClaim = null,
   mediaContract = null,
+  lifecycleBuilder = null,
+  historyDisclosureContract = null,
+  financeObligationContract = null,
 ) {
   const { data: vehicle, error: vehicleError } = await supabase
     .from('vehicles')
@@ -966,18 +1073,54 @@ async function buildVehiclePassport(
     // reads as when the photo was taken. `vehicle_evidence` has `captured_at` for that, behind a
     // review; `listing_images` has no such column and no reviewer, no uploader, no checksum and no
     // status, which is precisely why nothing in this block may make a trust claim.
-    const { data: listingImages, error: listingImagesError } = await supabase
+    const wideListingImages = await supabase
       .from('listing_images')
-      .select('id, image_url, is_primary, display_order')
+      .select('id, image_url, is_primary, display_order, photo_label')
       .eq('vin', vin)
       .order('display_order', { ascending: true });
+
+    if (!wideListingImages.error) {
+      listingImageRows = wideListingImages.data || [];
+    } else {
+      // Keep the passport builder self-contained: its certification harness executes this function
+      // body in isolation with a deliberately closed collaborator list. Only the additive
+      // photo_label column may trigger this compatibility fallback.
+      const galleryErrorCode = String(wideListingImages.error?.code ?? '').toUpperCase();
+      const galleryErrorText = [
+        wideListingImages.error?.message,
+        wideListingImages.error?.details,
+        wideListingImages.error?.hint,
+      ].filter(Boolean).join(' ').toLowerCase();
+      const photoLabelMissing = (
+        (galleryErrorCode === 'PGRST204' || galleryErrorCode === '42703')
+        && galleryErrorText.includes('photo_label')
+      ) || (
+        galleryErrorText.includes('photo_label')
+        && (
+          galleryErrorText.includes('could not find')
+          || galleryErrorText.includes('does not exist')
+          || galleryErrorText.includes('schema cache')
+        )
+      );
+
+      if (photoLabelMissing) {
+        // Additive Seller metadata may briefly lag the exact-head preview deployment. Preserve the
+        // established gallery while representing only the NEW label as unavailable.
+        const legacyListingImages = await supabase
+          .from('listing_images')
+          .select('id, image_url, is_primary, display_order')
+          .eq('vin', vin)
+          .order('display_order', { ascending: true });
+        if (!legacyListingImages.error) {
+          listingImageRows = (legacyListingImages.data || []).map(row => ({ ...row, photo_label: null }));
+        }
+      }
+    }
 
     // A failed gallery read must NOT 500 the passport (unlike evidence above, whose absence would
     // silently understate governance), and it must not be laundered into `[]` either. Leaving the
     // value undefined yields `state: 'not_loaded'` with a NULL statement, so the surface renders
-    // nothing rather than an empty-gallery sentence about a table we could not reach. Saying "none"
-    // on the strength of a read that never succeeded is the original defect.
-    if (!listingImagesError) listingImageRows = listingImages || [];
+    // nothing rather than an empty-gallery sentence about a table we could not reach.
   }
 
   // ── WHY THE GALLERY IS STILL READ FOR A LISTING WE MAY NOT PUBLISH ────────────────────────────
@@ -1029,6 +1172,34 @@ async function buildVehiclePassport(
     })
     : null;
 
+  // ONE PUBLIC VEHICLE-LIFECYCLE READ MODEL. The legacy audit timeline remains on the response for
+  // compatibility, but buyer-facing history/report surfaces can now consume the same normalized
+  // ownership + maintenance + inspection + insurance + evidence + mileage projection. The builder
+  // is injected for the same closed-collaborator reason as mediaContract: source harnesses execute
+  // this function body in isolation, so no new free dependency is introduced here.
+  //
+  // Deliberately public even for an owner render. Private evidence remains in evidenceVault below;
+  // lifecycle is the shared buyer-safe story, which is exactly what must not fork by surface.
+  const lifecycle = typeof lifecycleBuilder === 'function'
+    ? await lifecycleBuilder(supabase, vin, { audience: 'public', vehicle })
+    : null;
+
+  // The Seller's history/obligations statements, projected by the injected contract. Same
+  // closed-collaborator discipline as `lifecycleBuilder` above; the projection re-validates the
+  // stored vocabulary and strips private finance terms, so this call site adds no policy of its own.
+  const historyDisclosures = typeof historyDisclosureContract === 'function'
+    ? historyDisclosureContract(vehicle)
+    : null;
+
+  // The GOVERNED counterpart to `historyDisclosures` above — same audience for everyone, and never
+  // merged with it: `authority: 'governed'` here, `authority: 'seller_stated'` there. An unwired
+  // render (contract not injected, or the read failed) publishes NO key at all, exactly like
+  // `historyDisclosures` — see the parameter-header comment for why a governed zero must never be
+  // manufactured from a read that never happened.
+  const financeObligation = typeof financeObligationContract === 'function'
+    ? await financeObligationContract(supabase, vin)
+    : null;
+
   // THE PASSPORT'S TRUST NUMBER, FROM THE CANONICAL AUTHORITY AND NOWHERE ELSE.
   //
   // This used to be `computeVehicleTrustScore(vin)`, the deprecated 70-baseline trustGraph engine,
@@ -1066,19 +1237,23 @@ async function buildVehiclePassport(
 
   const chainVerification = await verifyChain(vin);
 
-  // Fetch plate history
-  const { data: plateHistory } = await supabase
+  // Collection reads carry explicit availability. A database/read failure must never collapse
+  // into []/0: that would turn "CarUp could not read this source" into a factual clean-history claim.
+  const { data: plateHistoryData, error: plateHistoryError } = await supabase
     .from('vehicle_plate_history')
     .select('*')
     .eq('vin', vin)
     .order('created_at', { ascending: false });
+  const plateHistory = plateHistoryError ? [] : (plateHistoryData || []);
+  const plateHistoryState = plateHistoryError ? 'unavailable' : 'available';
 
-  // Get previous owners count
-  const { data: ownershipHistory } = await supabase
+  const { data: ownershipHistoryData, error: ownershipHistoryError } = await supabase
     .from('vehicle_ownership_history')
     .select('*')
     .eq('vin', vin);
-  const previousOwnerCount = ownershipHistory ? ownershipHistory.length : 0;
+  const ownershipHistory = ownershipHistoryError ? [] : (ownershipHistoryData || []);
+  const previousOwnerCount = ownershipHistoryError ? null : ownershipHistory.length;
+  const previousOwnerCountState = ownershipHistoryError ? 'unavailable' : 'available';
 
   // Resolve current seller details. Principle 4: a seller that is not recorded, or
   // whose name we cannot resolve, stays null — never a stand-in like 'Private Seller',
@@ -1140,6 +1315,7 @@ async function buildVehiclePassport(
     currentSellerType: claims?.seller?.seller_type?.value ?? null,
     currentSellerRecorded,
     previousOwnerCount,
+    previousOwnerCountState,
     previousOwnersPublicLabel: 'Redacted for privacy',
     ownerNamesRedacted: !isAuthorized,
     currentOwnerVisible
@@ -1385,6 +1561,20 @@ async function buildVehiclePassport(
     }),
     timeline: sanitizedTimeline,
     evidenceTimeline: sanitizedTimeline.filter(event => event.event_source === 'evidence'),
+    ...(lifecycle ? { lifecycle } : {}),
+    // Vehicle History & Obligations (K17–K19): the Seller's structured accident/insurance/finance
+    // statements, block-attributed `authority: 'seller_stated'`. Null per topic = "not recorded".
+    // Same audience for everyone — these are the seller's public statements about their own listing,
+    // and they never merge with the governed evidence/insurer/lender authorities on this payload.
+    //
+    // An UNWIRED passport publishes NO key at all, exactly as the media contract does: a block
+    // saying `accident: null` is the factual claim "not recorded", and a harness that forgot to
+    // inject the projection must not be able to make that claim on the vehicle's behalf.
+    ...(historyDisclosures ? { history_disclosures: historyDisclosures } : {}),
+    // Governed finance obligation / encumbrance (Track 1). Same "unwired publishes no key" rule as
+    // history_disclosures immediately above, and the same never-merge rule: this is `authority:
+    // 'governed'`, the Seller's own statement above is `authority: 'seller_stated'`.
+    ...(financeObligation ? { finance_obligation: financeObligation } : {}),
     // THE THIRD ANONYMOUS DOOR.
     //
     // `verifiedEvidence` above is `select('*')`, and this array was returned unchanged to every
@@ -1426,12 +1616,13 @@ async function buildVehiclePassport(
       // the client must not render it as an absent fact.
       identifiersRedacted: !isAuthorized
     },
-    plateHistory: isAuthorized ? (plateHistory || []) : toPublicPlateHistory(plateHistory),
-    // An empty public list means one of two different things. Without this the client renders
-    // "No previous plates logged in history" over a vehicle whose history was merely withheld —
-    // the collection-level form of the withheld/unrecorded conflation identity already avoids.
-    plateHistoryRedacted: !isAuthorized
-      && (plateHistory || []).length > toPublicPlateHistory(plateHistory).length,
+    plateHistory: isAuthorized ? plateHistory : toPublicPlateHistory(plateHistory),
+    plateHistoryState,
+    // An empty public list can mean loaded-empty, privacy filtering, or a failed source read.
+    // plateHistoryState disambiguates the outage; this flag disambiguates privacy.
+    plateHistoryRedacted: plateHistoryState === 'available'
+      && !isAuthorized
+      && plateHistory.length > toPublicPlateHistory(plateHistory).length,
     ownershipSummary
   };
 }
@@ -1442,7 +1633,7 @@ async function buildVehiclePassport(
 app.get('/api/vehicles/:vin/passport', passportLimiter, optionalAuth(), async (req, res) => {
   const { vin } = req.params;
   try {
-    const passport = await buildVehiclePassport(vin, req, await canonicalPassportTrust(vin), toListingClaims, attestedValue, toVehicleMedia);
+    const passport = await buildVehiclePassport(vin, req, await canonicalPassportTrust(vin), toListingClaims, attestedValue, toVehicleMedia, buildCanonicalVehicleLifecycle, toVehicleHistoryDisclosures, projectFinanceObligationForVehicle);
     if (!passport) {
       return res.status(404).json({ error: 'VIN not found' });
     }
@@ -1487,7 +1678,7 @@ app.get('/api/vehicles/passport/lookup/:identifier', passportLookupLimiter, opti
     }
 
     const resolvedVin = Array.from(matchingVins)[0];
-    const passport = await buildVehiclePassport(resolvedVin, req, await canonicalPassportTrust(resolvedVin), toListingClaims, attestedValue, toVehicleMedia);
+    const passport = await buildVehiclePassport(resolvedVin, req, await canonicalPassportTrust(resolvedVin), toListingClaims, attestedValue, toVehicleMedia, buildCanonicalVehicleLifecycle, toVehicleHistoryDisclosures, projectFinanceObligationForVehicle);
     if (!passport) {
       return res.status(404).json({ error: 'Vehicle not found' });
     }
@@ -1627,22 +1818,65 @@ app.post('/api/safepay/webhook', async (req, res) => {
 // Mechanics log freely; an owner/dealer/admin may only log against a vehicle
 // they own or that belongs to their tenant (the owner PartSentry page was
 // 403-dead against the mechanic-only guard while faking success client-side).
+/**
+ * A mechanic's relationship to ONE vehicle.
+ *
+ * The role was previously exempted from the ownership check wholesale, and `req.userContext.role`
+ * is the EFFECTIVE role: membership as 'mechanic' in any single tenant, asserted through
+ * x-stakeholder-role plus that tenant's x-tenant-id, therefore conferred write authority over
+ * EVERY vin on the platform. That write lands on `vehicles.mileage` through addRepairLog, is
+ * guarded only monotonically, and has no correction path — so a single inflated reading is
+ * permanent and blocks every later genuine log for that vehicle.
+ *
+ * Two relationships count, and both are server-verified:
+ *   · the vehicle belongs to the mechanic's organisation (authorizeRole has already proven the
+ *     caller's membership of the tenant it names, unlike optionalAuth's unverified header), or
+ *   · the mechanic is assigned to a work order for this exact vin.
+ *
+ * Fails closed: a lookup error is refused, never treated as an absent restriction.
+ */
+async function mechanicIsAssignedToVehicle(vin, userContext, vehicleRow) {
+  if (vehicleRow?.tenant_id && vehicleRow.tenant_id === userContext.tenantId) return true;
+  const { data, error } = await supabase
+    .from('mechanic_work_orders')
+    .select('id')
+    .eq('vin', vin)
+    .eq('mechanic_id', userContext.id)
+    .limit(1);
+  if (error) return false;
+  return Array.isArray(data) && data.length > 0;
+}
+
 app.post('/api/partsentry/add', authorizeRole(['mechanic', 'owner', 'dealer', 'admin']), async (req, res) => {
   const { vin, partName, partOem, actionType, description, mileage } = req.body;
   const actorId = req.userContext.id;
   try {
-    if (req.userContext.role !== 'mechanic' && req.userContext.role !== 'admin') {
+    // Platform admins keep platform-wide authority. EVERY other role -- mechanic included -- must
+    // hold a relationship to this specific vehicle before it may write to its repair ledger and
+    // its canonical odometer.
+    if (!hasPlatformWideVehicleAuthority(req.userContext)) {
       const { data: vehicleRow, error: vehicleErr } = await supabase
         .from('vehicles')
-        .select('owner_id, tenant_id')
+        .select('owner_id, current_seller_id, tenant_id')
         .eq('vin', vin)
         .maybeSingle();
       if (vehicleErr) throw new Error('Vehicle ownership lookup failed.');
       if (!vehicleRow) return res.status(404).json({ error: 'Vehicle not found.' });
+
       const ownsVehicle = vehicleRow.owner_id && vehicleRow.owner_id === req.userContext.id;
+      const isCurrentSeller = vehicleRow.current_seller_id && vehicleRow.current_seller_id === req.userContext.id;
       const sameTenant = vehicleRow.tenant_id && vehicleRow.tenant_id === req.userContext.tenantId;
-      if (!ownsVehicle && !sameTenant) {
-        return res.status(403).json({ error: 'You may only log parts against your own vehicle.' });
+
+      const permitted = req.userContext.role === 'mechanic'
+        ? await mechanicIsAssignedToVehicle(vin, req.userContext, vehicleRow)
+        : (ownsVehicle || isCurrentSeller || sameTenant);
+
+      if (!permitted) {
+        return res.status(403).json({
+          error: req.userContext.role === 'mechanic'
+            ? 'You may only log parts against a vehicle in your organisation or one you are assigned to by a work order.'
+            : 'You may only log parts against your own vehicle.',
+        });
       }
     }
     const log = await addRepairLog(vin, actorId, partName, partOem, actionType, description, mileage, req.userContext.tenantId ?? null);
@@ -1752,15 +1986,60 @@ app.post('/api/import/duty-estimate', (req, res) => {
 });
 
 // --- PILLAR 13: STOLEN ALERT SECURITY NETWORK ---
-app.post('/api/security/report-stolen', authorizeRole(['owner', 'government']), async (req, res) => {
-  const { vin, policeReportNumber, ownerId } = req.body;
-  try {
-    const result = await reportVehicleStolen(vin, policeReportNumber, ownerId);
-    res.json(result);
-  } catch (error) {
-    res.status(500).json({ error: error.message });
-  }
-});
+//
+// FAIL CLOSED, OBJECT-SCOPED, AND REVERSIBLE.
+//
+// `authorizeRole(['owner','government'])` was not a restriction: public registration creates every
+// account with role 'owner' ("Public registration cannot assign a role; accounts are created as
+// 'owner'"), so the route admitted EVERY registered user. It then took the reporter's identity
+// straight from `req.body.ownerId` and, for ANY vin on the platform, wrote an ACTIVE_POLICE_ALERT
+// row, set `vehicles.status = 'Flagged'`, and appended a PERMANENT hash-chained ledger event. With
+// no route mounting `clearStolenStatus`, that was a one-way takedown of any listing by any account,
+// attributable to somebody else.
+//
+// Three changes, each closing a distinct half of it:
+//
+//   1. `authorizeSessionRole` — a takedown requires a PROVEN session. The x-user-id fallback must
+//      never be able to flag a vehicle, and that fallback has already been live in a deployed
+//      staging environment once.
+//   2. OBJECT SCOPE — a non-government caller must hold a verified relationship to the vin
+//      (owner / current seller / tenant). Government and platform admins keep platform-wide
+//      authority, which is the entire point of those roles: a police report is theirs to file.
+//   3. The reporter is `req.userContext.id`. `req.body.ownerId` is ignored, so a report can no
+//      longer be attributed to an account that did not make it.
+app.post('/api/security/report-stolen',
+  authorizeSessionRole(['owner', 'government']),
+  requireVehicleObjectAuthority(),
+  async (req, res) => {
+    const { vin, policeReportNumber } = req.body;
+    try {
+      // The reporter is the authenticated caller, never the body. `reportVehicleStolen` persists
+      // this verbatim as `stolen_vehicles.reporting_owner_id` and into the ledger payload.
+      const result = await reportVehicleStolen(vin, policeReportNumber, req.userContext.id);
+      res.json(result);
+    } catch (error) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+// The missing other half. `clearStolenStatus` was exported and fully implemented — including the
+// durable `stolen_clear:` operation identity Issue #158 requires — but NO route mounted it, so a
+// flag could be raised and never lowered through any product path.
+//
+// Deliberately NARROWER than reporting: clearing an alert is a police/registry decision, not a
+// seller's, so object scope does not admit the owner here. Platform-wide roles only.
+app.post('/api/security/clear-stolen',
+  authorizeSessionRole(['government']),
+  async (req, res) => {
+    const { vin } = req.body;
+    if (!vin) return res.status(400).json({ error: 'vin is required.' });
+    try {
+      const result = await clearStolenStatus(vin, req.userContext.id);
+      res.json(result);
+    } catch (error) {
+      res.status(500).json({ error: error.message });
+    }
+  });
 
 app.get('/api/security/check-stolen/:vin', async (req, res) => {
   const { vin } = req.params;
@@ -1773,15 +2052,37 @@ app.get('/api/security/check-stolen/:vin', async (req, res) => {
 });
 
 // --- PILLAR 14: DEALER REPUTATION ---
+//
+// A GET NO LONGER WRITES. This route called `calculateDealerReputation`, which recomputed a
+// 75.0-baseline score and PERSISTED it to `stakeholder_profiles.trust_score` on every request —
+// unauthenticated. Any crawler re-scored every dealer it touched, and a dealer with no escrows was
+// published as 75 / 'Standard Verified' with no evidence behind it. That column is read as
+// authority by trustEnforcementEngine (which propagates stakeholder risk onto every one of that
+// seller's vehicles) and by insuranceService (which prices premiums off it), so a GET was moving
+// trust across the platform.
+//
+// The read now publishes only what was actually stored, and distinguishes 'unmeasured' from a
+// score — an unscored dealer is not a 75 and not a zero.
 app.get('/api/reputation/:dealerId', async (req, res) => {
   const { dealerId } = req.params;
   try {
-    const result = await calculateDealerReputation(dealerId);
-    res.json(result);
+    res.json(await readDealerReputation(dealerId));
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
 });
+
+// The recompute — the single writer — behind a proven session and a platform role.
+app.post('/api/reputation/:dealerId/recalculate',
+  authorizeSessionRole(['admin', 'government']),
+  async (req, res) => {
+    const { dealerId } = req.params;
+    try {
+      res.json(await recalculateDealerReputation(dealerId));
+    } catch (error) {
+      res.status(500).json({ error: error.message });
+    }
+  });
 
 // --- PILLAR 19: AI RECOMMENDATIONS ---
 app.get('/api/vehicles/:vin/recommendations', async (req, res) => {
@@ -1872,37 +2173,71 @@ app.get('/api/organizations/my-org', authorizeRole(), async (req, res) => {
   }
 });
 
-// Fetch organization branches
-app.get('/api/organizations/:id/branches', async (req, res) => {
+/**
+ * Prove the caller may see an organization's internal records.
+ * Platform admins may; other callers must be verified members of the mapped tenant.
+ */
+async function assertOrganizationMembership(req, organizationId) {
+  const isPlatformAdmin = ['admin', 'platform_admin', 'super_admin']
+    .includes(String(req.userContext?.platformRole || req.userContext?.role || ''));
+  if (isPlatformAdmin) return;
+
+  const { data: org } = await supabase
+    .from('organizations')
+    .select('tenant_id')
+    .eq('id', organizationId)
+    .single();
+  if (!org || !org.tenant_id) {
+    throw new ForbiddenError('Forbidden. Organization not found or not mapped.');
+  }
+  const { data: tenantUser } = await supabase
+    .from('tenant_users')
+    .select('tenant_id')
+    .eq('user_id', req.userContext.id)
+    .eq('tenant_id', org.tenant_id)
+    .single();
+  if (!tenantUser) {
+    throw new ForbiddenError('Forbidden. You do not belong to this organization.');
+  }
+}
+
+// Fetch organization branches — authenticated and membership-scoped.
+app.get('/api/organizations/:id/branches', authorizeRole(), async (req, res, next) => {
   const { id } = req.params;
   try {
+    await assertOrganizationMembership(req, id);
     const { data: branches, error } = await supabase
       .from('organization_branches')
-      .select('*')
+      .select('id, organization_id, name, city, country, status')
       .eq('organization_id', id);
     if (error) throw error;
     res.json(branches);
   } catch (error) {
-    res.status(500).json({ error: error.message });
+    next(error);
   }
 });
 
-// Fetch staff / users inside organization
-app.get('/api/organizations/:id/users', async (req, res) => {
+// Fetch staff — authenticated, membership-scoped and minimized.
+app.get('/api/organizations/:id/users', authorizeRole(), async (req, res, next) => {
   const { id } = req.params;
   try {
+    await assertOrganizationMembership(req, id);
     const { data: users, error } = await supabase
       .from('organization_users')
       .select(`
-        *,
-        users!inner(name, email, avatar),
+        id,
+        organization_id,
+        user_id,
+        status,
+        joined_at,
+        users!inner(name, avatar),
         organization_roles!inner(name, level)
       `)
       .eq('organization_id', id);
     if (error) throw error;
     res.json(users);
   } catch (error) {
-    res.status(500).json({ error: error.message });
+    next(error);
   }
 });
 
@@ -2078,8 +2413,11 @@ const PUBLIC_REGISTRATION_ROLE = 'owner';
 // unknown — is rejected BEFORE any user or session row is created. Allowlist, not denylist, so a
 // future privileged role can never slip through. This closes the self-register-as-admin escalation.
 app.post('/api/auth/register', async (req, res) => {
-  const { name, email, phone, password, role } = req.body;
+  const { name, email, phone, password, role, location, registration_profile: registrationProfile } = req.body;
   if (!name || !email) return res.status(400).json({ error: 'Name and email are required' });
+  if (typeof password !== 'string' || password.length < 8) {
+    return res.status(400).json({ error: 'Password must be at least 8 characters.' });
+  }
 
   // Fail closed: only an omitted/empty role or an explicit 'owner' is accepted; everything else is
   // rejected here, before the existence read or any write — so a rejected request creates nothing.
@@ -2089,25 +2427,53 @@ app.post('/api/auth/register', async (req, res) => {
   }
   const assignedRole = PUBLIC_REGISTRATION_ROLE; // server-controlled — never derived from the request
 
+  // Local/Diaspora/international and Dealer/Exporter/etc are PROFILE DIMENSIONS, not authorization
+  // roles. A business can ask to be onboarded, but public signup can never self-grant dealer access.
+  const profileResult = normalizeRegistrationProfile(registrationProfile, { fallbackLocation: location });
+  if (!profileResult.ok) return res.status(400).json({ error: profileResult.error });
+
   try {
+    const normalizedEmail = String(email).trim();
     const { data: existing } = await supabase
       .from('users')
       .select('id')
-      .eq('email', email)
+      .eq('email', normalizedEmail)
       .single();
 
     if (existing) return res.status(409).json({ error: 'An account with this email already exists' });
 
-    const password_hash = password ? await hashPassword(password) : null;
+    const password_hash = await hashPassword(password);
 
     const id = 'u_' + crypto.randomUUID().replace(/-/g, '').substring(0, 16);
     const { error } = await supabase.from('users').insert({
-      id, name, email, phone: phone || '', role: assignedRole, password_hash, join_date: new Date().toISOString()
+      id,
+      name: String(name).trim(),
+      email: normalizedEmail,
+      phone: phone || '',
+      location: profileResult.userLocation,
+      role: assignedRole,
+      password_hash,
+      join_date: new Date().toISOString(),
     });
 
     if (error) throw error;
 
-    // Automatically issue a session
+    if (profileResult.profile) {
+      const { error: profileError } = await supabase.from('user_registration_profiles').insert({
+        user_id: id,
+        ...profileResult.profile,
+      });
+      if (profileError) {
+        // Never tell the person signup succeeded while silently discarding the identity/onboarding
+        // answers we just asked them for. Compensate the user row and fail the registration.
+        await supabase.from('users').delete().eq('id', id);
+        console.error('Failed to persist registration profile:', profileError.message);
+        return res.status(503).json({ error: 'Could not save your registration profile. Please try again.' });
+      }
+    }
+
+    // Automatically issue a session. Email verification is independent from identity/KYC and does
+    // not block this Seller draft handoff; it secures the mailbox and is surfaced explicitly.
     const token = 'sk_live_' + crypto.randomUUID().replace(/-/g, '');
     const expiresAt = new Date();
     expiresAt.setHours(expiresAt.getHours() + 24);
@@ -2115,14 +2481,58 @@ app.post('/api/auth/register', async (req, res) => {
     const { error: sessionError } = await supabase.from('user_sessions').insert(
       buildSessionRow({ userId: id, activeRole: assignedRole, token, expiresAt: expiresAt.toISOString(), req })
     );
-    // Fail loudly: never hand back a token we could not persist (it would 401 on the next request).
     if (sessionError) {
       console.error('Failed to persist user session on register:', sessionError.message);
       return res.status(500).json({ error: 'Account created, but a session could not be established. Please log in.' });
     }
 
-    const newUser = { id, name, email, phone: phone || '', role: assignedRole };
-    res.json({ user: newUser, token });
+    const newUser = {
+      id,
+      name: String(name).trim(),
+      email: normalizedEmail,
+      phone: phone || '',
+      location: profileResult.userLocation,
+      role: assignedRole,
+    };
+
+    let emailVerification = { status: 'queue_failed' };
+    try {
+      const authEmails = createAuthEmailService({ db: supabase, env: process.env });
+      const verification = await authEmails.issueEmailVerification({
+        user: newUser,
+        requestedIp: req.carupClientIp || req.ip || null,
+        userAgent: req.headers?.['user-agent'] || null,
+        source: 'registration',
+      });
+      const deliveryStatus = verification.delivery?.status || null;
+      emailVerification = {
+        status: deliveryStatus === 'sent'
+          ? 'sent'
+          : deliveryStatus === 'retry_scheduled'
+            ? 'queued'
+            : deliveryStatus
+              ? 'delivery_failed'
+              : 'queued',
+        expires_at: verification.record?.expires_at || null,
+      };
+    } catch (verificationError) {
+      // Account + session remain valid. The UI exposes re-send rather than pretending delivery
+      // happened. Provider/worker readiness is a separate operational gate.
+      console.error('[auth] registration verification Email could not be dispatched:', verificationError?.message);
+    }
+
+    res.json({
+      user: newUser,
+      token,
+      email_verification: emailVerification,
+      onboarding: profileResult.profile
+        ? {
+            status: profileResult.profile.onboarding_status,
+            business_type: profileResult.profile.business_type,
+            market_relationship: profileResult.profile.market_relationship,
+          }
+        : null,
+    });
   } catch (error) {
     res.status(error.statusCode || 500).json({ error: error.message });
   }
@@ -2141,6 +2551,9 @@ function submittedText(value) {
   const text = String(value).trim();
   return text === '' ? null : text;
 }
+
+// See utils/sellerVehicleIdentifier.js for the rule and why a 17-character identifier is held to
+// the ISO 3779 alphabet while a shorter documented frame identifier is not.
 
 /**
  * WHO asserted the values on this submission, drawn from CLAIM_SOURCES.
@@ -2197,21 +2610,54 @@ function isMissingListingClaimColumnError(error) {
   return saysMissing && LISTING_CLAIM_COLUMNS.some((column) => text.includes(column));
 }
 
+function isMissingNamedColumnError(error, column) {
+  const code = String(error?.code ?? '').toUpperCase();
+  const text = [error?.message, error?.details, error?.hint].filter(Boolean).join(' ').toLowerCase();
+  if ((code === 'PGRST204' || code === '42703') && text.includes(String(column).toLowerCase())) return true;
+  const saysMissing = text.includes('could not find') || text.includes('does not exist') || text.includes('schema cache');
+  return saysMissing && text.includes(String(column).toLowerCase());
+}
+
 // --- VEHICLE LISTING: Create new listing (saves as draft) ---
 app.post('/api/vehicles/add', authorizeRole(['dealer', 'owner', 'admin']), async (req, res) => {
-  // STILL ACCEPTED AND STILL NOT STORED — named here rather than left as an unused destructure that
-  // reads like an oversight: `condition`, `category` and `description` reach no column from this
-  // handler. `vehicle_condition_category` is owned by the classification contract
-  // (marketplaceClassificationRules and its admin-approved backfill), so letting a seller
-  // self-declare it through this endpoint would route around that approval. Open finding, not
-  // closed by inventing a write here.
+  // Seller commercial assertions are persisted separately from governed Marketplace
+  // classification. Body style and seller condition must never write vehicle_condition_category.
   const {
-    vin, make, model, color, mileage, fuel_type, transmission,
-    price, currency, location, province, images,
+    vin, make, model, color, mileage, fuel_type, transmission, drivetrain,
+    generation, trim, condition, category, body_style, description, features,
+    seller_stated_condition, price, currency, location, province, images,
     // Phase 4 identity fields
-    engine_number, chassis_number, plate_number, temp_plate_id, import_status,
+    engine_number, chassis_number, plate_number, temp_plate_id, import_status, registration_status,
+    reuse_existing_passport, client_submission_id,
+    // Vehicle History & Obligations — structured Seller disclosures (DESIGN.md §11.7, F18–F20).
+    accident_disclosure, insurance_disclosure, finance_disclosure,
   } = req.body;
-  if (!vin || !make || !model || !price) return res.status(400).json({ error: 'VIN, make, model, and price are required' });
+  if (!vin || !make || !model || !price) return res.status(400).json({ error: 'Vehicle identifier, make, model, and price are required' });
+  const identifierProblem = sellerVehicleIdentifierProblem(vin);
+  if (identifierProblem !== null) {
+    return res.status(400).json(identifierProblem === 'vin_alphabet'
+      ? {
+        // Naming the offending letters is the whole point: a 17-character VIN is refused here
+        // BECAUSE it matches the shape rule, so repeating that rule would tell the seller nothing.
+        error: 'A 17-character VIN never contains the letters I, O or Q — they are excluded so they cannot be confused with 1 and 0. Check those characters and re-enter the identifier.',
+        code: 'SELLER_VEHICLE_IDENTIFIER_NOT_ISO_VIN',
+      }
+      : {
+        error: 'Vehicle identifier must be 12 to 17 letters, numbers, or hyphens',
+        code: 'SELLER_VEHICLE_IDENTIFIER_INVALID',
+      });
+  }
+
+  // F17 — one logical Seller create attempt gets one durable UUID. The UUID is private mutation
+  // metadata, never vehicle identity, ownership, Trust or a public listing field. Legacy callers may
+  // omit it, but a malformed key is refused rather than becoming a weak dedupe token.
+  const submittedSellerSubmissionId = submittedText(client_submission_id);
+  if (
+    submittedSellerSubmissionId !== null
+    && !/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(submittedSellerSubmissionId)
+  ) {
+    return res.status(400).json({ error: 'client_submission_id must be a UUID v4', code: 'SELLER_SUBMISSION_ID_INVALID' });
+  }
 
   // `mileage` is NOT NULL on public.vehicles with no default, so the column cannot hold "not known"
   // and `mileage || 0` resolved that by writing 0 km as a fact — a reading a shopper cannot tell
@@ -2223,6 +2669,17 @@ app.post('/api/vehicles/add', authorizeRole(['dealer', 'owner', 'admin']), async
   }
   // A number with no currency is not a price. `currency || 'USD'` stated a currency the seller never
   // did, in a market that actively trades in more than one.
+  const rawRegistrationStatus = submittedText(registration_status ?? import_status);
+  const submittedRegistrationStatus = rawRegistrationStatus === null
+    ? null
+    : normalizeZimbabweRegistrationStatus(rawRegistrationStatus);
+  if (rawRegistrationStatus !== null && submittedRegistrationStatus === null) {
+    return res.status(400).json({
+      error: 'Registration stage is not recognized.',
+      code: 'REGISTRATION_STATUS_INVALID',
+    });
+  }
+
   const submittedCurrency = submittedText(currency);
   if (submittedCurrency === null) {
     return res.status(400).json({ error: 'currency is required alongside price' });
@@ -2241,9 +2698,12 @@ app.post('/api/vehicles/add', authorizeRole(['dealer', 'owner', 'admin']), async
   // key is an absence, so primacy can never be acquired by accident.
   const submittedMedia = (Array.isArray(images) ? images : []).map((entry) => {
     const isObject = entry !== null && typeof entry === 'object' && !Array.isArray(entry);
+    const rawLabel = isObject ? submittedText(entry.label ?? entry.photo_label) : null;
     return {
       url: isObject ? entry.url : entry,
       claimsPrimary: isObject ? entry.is_primary === true : false,
+      // Commercial presentation metadata only. This label never becomes Evidence/Trust.
+      label: rawLabel === null ? null : rawLabel.slice(0, 80),
     };
   });
   // TWO PRIMARIES IS NOT A CHOICE, IT IS A CONTRADICTION, and it is refused BEFORE the vehicle row
@@ -2258,9 +2718,28 @@ app.post('/api/vehicles/add', authorizeRole(['dealer', 'owner', 'admin']), async
     });
   }
 
-  // Real-listing eligibility: build the exact candidate row from auth context + body, then validate so
-  // fixture/demo/incomplete data cannot enter the public Marketplace (see marketplaceListingEligibility).
-  const candidate = buildVehicleListingCandidate({ body: req.body, userContext: req.userContext });
+  // S0 global taxonomy resolves vocabulary but does NOT verify a vehicle fact. Known aliases are
+  // normalized to stable canonical labels/ids; unknown values stay raw and unresolved.
+  const taxonomy = normalizeVehicleTaxonomyInput({
+    ...req.body,
+    body_style: body_style ?? category,
+    seller_stated_condition: seller_stated_condition ?? condition,
+    drivetrain,
+  });
+  const canonicalBody = {
+    ...req.body,
+    make: taxonomy.make.canonical_label ?? make,
+    model: taxonomy.model.canonical_label ?? model,
+    year: taxonomy.year.canonical_year ?? req.body.year,
+    fuel_type: taxonomy.fuel.canonical_label ?? fuel_type,
+    transmission: taxonomy.transmission.canonical_label ?? transmission,
+    drivetrain: taxonomy.drivetrain.canonical_label ?? drivetrain,
+    body_style: taxonomy.body_style.canonical_label ?? body_style ?? category,
+    seller_stated_condition: taxonomy.seller_condition.canonical_label ?? seller_stated_condition ?? condition,
+  };
+
+  // Real-listing eligibility is evaluated against the canonicalized candidate actually stored.
+  const candidate = buildVehicleListingCandidate({ body: canonicalBody, userContext: req.userContext });
   const eligibility = getListingEligibility(candidate);
   if (!eligibility.eligible) {
     return res.status(400).json({ error: 'Listing is not marketplace-eligible', reasons: eligibility.reasons });
@@ -2283,12 +2762,71 @@ app.post('/api/vehicles/add', authorizeRole(['dealer', 'owner', 'admin']), async
   // The location was typed into the public listing form for the express purpose of appearing on the
   // listing, so a submission that says nothing about visibility records it as published. Anything
   // other than an explicit 'public' withholds — an out-of-vocabulary value is not a consent decision
-  // that can be read, and absence of consent is not consent. Adding a control to the form is what
-  // would make this a seller's choice rather than a default.
+  // that can be read, and absence of consent is not consent.
+  //
+  // S3: BOTH Sell surfaces now carry the control, so this is a seller's choice rather than a
+  // default for anything they submit. The null branch remains for API callers that predate it.
+  //
+  // S3 also added `province_only`, the middle answer. It is accepted only as an EXACT match against
+  // the declared vocabulary: anything else still falls through to WITHHELD, so a typo or a stale
+  // client can only ever produce MORE privacy than the seller asked for, never less.
   const submittedVisibility = submittedText(req.body.location_visibility);
   const listingVisibility = submittedVisibility === null || submittedVisibility === CLAIM_VISIBILITY.PUBLIC
     ? CLAIM_VISIBILITY.PUBLIC
-    : CLAIM_VISIBILITY.WITHHELD;
+    : submittedVisibility === CLAIM_VISIBILITY.PROVINCE_ONLY
+      ? CLAIM_VISIBILITY.PROVINCE_ONLY
+      : CLAIM_VISIBILITY.WITHHELD;
+
+  // S3 — PUBLIC SELLER IDENTITY IS THE SELLER'S DECISION TO MAKE.
+  // The read side has always been governed and fail-closed (`=== true` in toSellerClaim, published
+  // as `seller_public_profile_enabled`), but this handler never accepted the flag, so there was no
+  // path by which any seller could switch their public identity on. Compared with `=== true` for
+  // the same reason the read side does: coercion would let a stray 'false' string, or a 1 from a
+  // form serializer, publish a person who never agreed to be published.
+  const publicSellerDisplayEnabled = req.body.public_seller_display_enabled === true;
+
+  // Vehicle History & Obligations (F18–F20). Each disclosure is a Seller statement from a CLOSED
+  // vocabulary; an unanswered disclosure stays NULL and is never defaulted to a "no". Out-of-
+  // vocabulary values — and any finance payload carrying private banking terms (M17) — are refused
+  // rather than coerced, so a malformed client cannot manufacture a disclosure the Seller never made.
+  const accidentDisclosureResult = normalizeAccidentDisclosure(accident_disclosure);
+  if (!accidentDisclosureResult.ok) {
+    return res.status(400).json({ error: accidentDisclosureResult.error, code: 'SELLER_DISCLOSURE_INVALID' });
+  }
+  const insuranceDisclosureResult = normalizeInsuranceDisclosure(insurance_disclosure);
+  if (!insuranceDisclosureResult.ok) {
+    return res.status(400).json({ error: insuranceDisclosureResult.error, code: 'SELLER_DISCLOSURE_INVALID' });
+  }
+  const financeDisclosureResult = normalizeFinanceDisclosure(finance_disclosure);
+  if (!financeDisclosureResult.ok) {
+    return res.status(400).json({ error: financeDisclosureResult.error, code: 'SELLER_DISCLOSURE_INVALID' });
+  }
+  // Keys appear only when the Seller actually answered: an absent key leaves the nullable column
+  // NULL, and a request with no disclosures cannot fail against a database that predates them.
+  const sellerHistoryDisclosureColumns = {};
+  if (accidentDisclosureResult.value !== null) {
+    sellerHistoryDisclosureColumns.seller_accident_disclosure = accidentDisclosureResult.value;
+  }
+  if (insuranceDisclosureResult.value !== null) {
+    sellerHistoryDisclosureColumns.seller_insurance_disclosure = insuranceDisclosureResult.value;
+  }
+  if (financeDisclosureResult.value !== null) {
+    sellerHistoryDisclosureColumns.seller_finance_disclosure = financeDisclosureResult.value;
+  }
+  const hasSellerHistoryDisclosure = Object.keys(sellerHistoryDisclosureColumns).length > 0;
+
+  const sellerDescription = submittedText(description);
+  const sellerFeatures = Array.isArray(features)
+    ? Array.from(new Set(features.map(value => submittedText(value)).filter(Boolean))).slice(0, 50)
+    : null;
+  const sellerBodyStyle = submittedText(canonicalBody.body_style);
+  const sellerCondition = submittedText(canonicalBody.seller_stated_condition);
+  const hasSellerCommercialClaim = sellerDescription !== null
+    || (sellerFeatures && sellerFeatures.length > 0)
+    || sellerBodyStyle !== null
+    || sellerCondition !== null
+    // History disclosures are Seller claims too: answering one stamps the same claim provenance.
+    || hasSellerHistoryDisclosure;
 
   const listingClaimColumns = {
     // No location fact without provenance — the read path refuses to publish one, and after the
@@ -2307,6 +2845,7 @@ app.post('/api/vehicles/add', authorizeRole(['dealer', 'owner', 'admin']), async
     // text rather than on the candidate, because a source names who said it and the candidate is not
     // a speaker. The two halves now agree: no value, no source, nothing published.
     registration_country_source: submittedText(req.body.registration_country) === null ? null : claimSource,
+    registration_status_source: submittedRegistrationStatus === null ? null : claimSource,
     current_seller_type_source: declaredSellerTypeSource(req.userContext, req.body),
     // The attesting half of the currency pair. `submittedCurrency` is REQUIRED above (400 without
     // it) and stored verbatim, so a currency on a row this handler wrote was genuinely stated by
@@ -2320,14 +2859,51 @@ app.post('/api/vehicles/add', authorizeRole(['dealer', 'owner', 'admin']), async
   };
 
   try {
-    const { data: existing } = await supabase.from('vehicles').select('vin').eq('vin', vin).single();
-    if (existing) return res.status(409).json({ error: 'A vehicle with this VIN is already listed' });
+    // The new idempotency column is rollout-critical for new Seller clients. If the exact-head code
+    // reaches an older database before the additive migration lands, fail CLOSED for keyed requests
+    // so the browser keeps its draft. Legacy unkeyed callers may continue through the old projection.
+    let existingRead = await supabase
+      .from('vehicles')
+      .select('vin, owner_id, current_seller_id, tenant_id, publication_status, status, listing_location_source, listing_location_visibility, seller_listing_submission_id, engine_number, chassis_number, plate_number, temp_plate_id, registration_status, registration_status_source')
+      .eq('vin', vin)
+      .maybeSingle();
+    if (existingRead.error && isMissingNamedColumnError(existingRead.error, 'seller_listing_submission_id')) {
+      if (submittedSellerSubmissionId !== null) {
+        return res.status(503).json({
+          error: 'Seller submission safety is still being activated. Your browser draft is unchanged; retry shortly.',
+          code: 'SELLER_IDEMPOTENCY_SCHEMA_REQUIRED',
+        });
+      }
+      existingRead = await supabase
+        .from('vehicles')
+        .select('vin, owner_id, current_seller_id, tenant_id, publication_status, status, listing_location_source, listing_location_visibility, engine_number, chassis_number, plate_number, temp_plate_id, registration_status, registration_status_source')
+        .eq('vin', vin)
+        .maybeSingle();
+    }
+    if (existingRead.error) throw existingRead.error;
+    const existing = existingRead.data;
+
+    // A resumed Seller draft may complete identity facts that were genuinely missing at creation
+    // time (for example a vehicle awaiting its Zimbabwe plate / temporary import permit). Reuse is
+    // fill-only: once a Passport already carries a value, this listing route never overwrites it.
+    // A disagreement is routed to review instead of choosing which source is "true".
+    const submittedIdentity = {
+      engine_number: submittedText(engine_number),
+      chassis_number: submittedText(chassis_number),
+      plate_number: submittedText(plate_number),
+      temp_plate_id: submittedText(temp_plate_id),
+    };
+    const identityFillPatch = {};
+    const identityConflicts = [];
+    const sameIdentityValue = (left, right) =>
+      String(left ?? '').trim().toUpperCase() === String(right ?? '').trim().toUpperCase();
 
     const listingRow = {
-      vin: candidate.vin, make: candidate.make, model: candidate.model,
-      // `''` is a recorded blank, not an unrecorded field. Neither generation nor trim is collected
-      // by this endpoint, so both are unknown and are stored as unknown.
-      generation: null, trim: null,
+      vin: candidate.vin,
+      make: candidate.make,
+      model: candidate.model,
+      generation: submittedText(generation),
+      trim: submittedText(trim),
       year: candidate.year,
       // NO SUBSTITUTES FOR A SPECIFICATION THE SELLER DID NOT GIVE. 'White', 'Petrol', 'Automatic'
       // and a hardcoded 'RWD' were written for every client that omitted them, which is how a
@@ -2336,9 +2912,55 @@ app.post('/api/vehicles/add', authorizeRole(['dealer', 'owner', 'admin']), async
       // It is closed by removing the substitution, not by weakening a state on the way out.
       color: submittedText(color),
       mileage: submittedMileage,
-      fuel_type: submittedText(fuel_type),
-      drivetrain: submittedText(req.body.drivetrain),
-      transmission: submittedText(transmission),
+      fuel_type: submittedText(canonicalBody.fuel_type),
+      drivetrain: submittedText(canonicalBody.drivetrain),
+      transmission: submittedText(canonicalBody.transmission),
+      // Canonical seller-listing fields. These are assertions, not governed classification.
+      seller_description: sellerDescription,
+      seller_features: sellerFeatures && sellerFeatures.length > 0 ? sellerFeatures : null,
+      body_style: sellerBodyStyle,
+      seller_stated_condition: sellerCondition,
+      seller_listing_claim_source: hasSellerCommercialClaim ? claimSource : null,
+      seller_listing_recorded_at: hasSellerCommercialClaim ? new Date().toISOString() : null,
+      // Vehicle History & Obligations — Seller statements only; keys present only when answered so
+      // seller_accident_disclosure / seller_insurance_disclosure / seller_finance_disclosure stay
+      // NULL (rendered "not recorded") for every question the Seller did not answer.
+      ...sellerHistoryDisclosureColumns,
+      make_taxon_id: taxonomy.make.canonical_id,
+      model_taxon_id: taxonomy.model.canonical_id,
+      generation_taxon_id: null,
+      trim_taxon_id: null,
+      color_taxon_id: taxonomy.color.canonical_id,
+      fuel_taxon_id: taxonomy.fuel.canonical_id,
+      transmission_taxon_id: taxonomy.transmission.canonical_id,
+      drivetrain_taxon_id: taxonomy.drivetrain.canonical_id,
+      body_style_taxon_id: taxonomy.body_style.canonical_id,
+      taxonomy_version: taxonomy.taxonomy_version,
+      taxonomy_resolution: {
+        make: taxonomy.make.state,
+        model: taxonomy.model.state,
+        year: taxonomy.year.state,
+        color: taxonomy.color.state,
+        fuel_type: taxonomy.fuel.state,
+        transmission: taxonomy.transmission.state,
+        drivetrain: taxonomy.drivetrain.state,
+        body_style: taxonomy.body_style.state,
+        seller_condition: taxonomy.seller_condition.state,
+      },
+      taxonomy_source_values: {
+        make: submittedText(make),
+        model: submittedText(model),
+        generation: submittedText(generation),
+        trim: submittedText(trim),
+        year: submittedText(req.body.year),
+        color: submittedText(color),
+        fuel_type: submittedText(fuel_type),
+        transmission: submittedText(transmission),
+        drivetrain: submittedText(drivetrain),
+        body_style: submittedText(body_style ?? category),
+        seller_condition: submittedText(seller_stated_condition ?? condition),
+      },
+      taxonomized_at: new Date().toISOString(),
       // `|| 'local'` was the last substitution on this row: a seller who said nothing about import
       // had 'local' written for them, and the marketplace then read it back as a stated fact. The
       // column is NULLABLE with no DB default, so an unstated import source is simply NULL — and
@@ -2354,9 +2976,20 @@ app.post('/api/vehicles/add', authorizeRole(['dealer', 'owner', 'admin']), async
       status: normalizeVehicleStatus(candidate.status), trust_score: null, price: candidate.price,
       currency: submittedCurrency,
       owner_id: candidate.owner_id,
+      // Creating a listing establishes LISTING authority for the authenticated submitter. Legal
+      // ownership remains the separate owner_id/Passport history fact; current_seller_id is the
+      // governed relationship Marketplace inquiries and Seller lifecycle commands route through.
+      // Re-listing already writes this relationship below. Brand-new listings must do the same.
+      current_seller_id: req.userContext.id,
       tenant_id: candidate.tenant_id,
       current_seller_type: candidate.current_seller_type,
+      seller_listing_submission_id: submittedSellerSubmissionId,
+      // Written explicitly rather than left to a column default, so the row records a decision this
+      // seller actually made. `false` is the honest value for a seller who did not opt in.
+      public_seller_display_enabled: publicSellerDisplayEnabled,
       registration_country: candidate.registration_country,
+      // Registration stage is a lifecycle/readiness claim, not immutable vehicle identity.
+      registration_status: submittedRegistrationStatus,
       // Phase 4: identity fields — stored for completeness gate evaluation
       engine_number: submittedText(engine_number),
       chassis_number: submittedText(chassis_number),
@@ -2366,19 +2999,263 @@ app.post('/api/vehicles/add', authorizeRole(['dealer', 'owner', 'admin']), async
       publication_status: 'draft',
     };
 
+    // Canonical Seller Authority evidence check (Operations M2): a verified
+    // ownership/registration DOCUMENT under canonical semantics — a mislabeled
+    // import artifact never qualifies. Delegates to the one governed service
+    // instead of duplicating the query inline.
+    // EFFECTIVE authorization is evaluated BEFORE any historical evidence is consulted. A completed
+    // ownership transfer away — or an explicit revoked decision — denies the former seller outright,
+    // because their still-valid historical registration document proves what was true when it was
+    // issued and must not survive as a permission token. Without this, A could re-establish Seller
+    // scope from that old document after selling the vehicle, and the reuse write below would then
+    // hand `current_seller_id` back to A, restoring publish/price/status control over B's vehicle.
+    let effectiveDenial = { denied: false, reason: null };
+    if (existing && reuse_existing_passport === true) {
+      effectiveDenial = await isSellerAuthorityEffectivelyDenied(supabase, {
+        vin,
+        userId: req.userContext.id,
+        vehicle: existing,
+      });
+    }
+
+    let governedSellerEvidence = false;
+    if (existing && reuse_existing_passport === true && !effectiveDenial.denied) {
+      governedSellerEvidence = await hasVerifiedOwnershipAuthorityEvidence(supabase, vin, req.userContext.id);
+    }
+
+    // The denial also strips the derived relationship clauses: a stale `current_seller_id` or a
+    // previous tenant that outlived the transfer must not authorize either (fail closed on stale
+    // secondary state, which is exactly what a failed supersession leaves behind).
+    const existingSellerRelationship = Boolean(existing && !effectiveDenial.denied && (
+      existing.owner_id === req.userContext.id
+      || (existing.current_seller_id && existing.current_seller_id === req.userContext.id)
+      || (existing.tenant_id && req.userContext.tenantId && existing.tenant_id === req.userContext.tenantId)
+      || governedSellerEvidence
+    ));
+
+    // Identity completion is evaluated only AFTER governed Seller scope is established. This
+    // prevents an unrelated authenticated account from probing which canonical identity fields
+    // differ on a Passport it does not control.
+    if (existing && reuse_existing_passport === true && existingSellerRelationship) {
+      for (const [field, submittedValue] of Object.entries(submittedIdentity)) {
+        if (submittedValue === null) continue;
+        const recordedValue = submittedText(existing[field]);
+        if (recordedValue === null) {
+          identityFillPatch[field] = submittedValue;
+        } else if (!sameIdentityValue(recordedValue, submittedValue)) {
+          identityConflicts.push(field);
+        }
+      }
+      if (identityConflicts.length > 0) {
+        return res.status(409).json({
+          error: 'One or more vehicle identity values differ from the existing Passport. CarUp did not overwrite the recorded identity; review is required.',
+          code: 'SELLER_IDENTITY_CONFLICT_REVIEW_REQUIRED',
+          vin,
+          conflicting_fields: identityConflicts,
+        });
+      }
+    }
+
+    // F17 — a retry after a lost success response is the SAME mutation only when the durable key
+    // matches the row written by that Seller attempt. It must never bypass scope: knowing a UUID is
+    // not authority over somebody else's Passport.
+    if (
+      existing
+      && submittedSellerSubmissionId !== null
+      && existing.seller_listing_submission_id === submittedSellerSubmissionId
+    ) {
+      if (!existingSellerRelationship) {
+        return res.status(409).json({
+          error: 'This Seller submission belongs to an existing Passport outside your governed Seller scope.',
+          code: 'SELLER_AUTHORITY_CLAIM_REQUIRED',
+          vin,
+          existing_passport: true,
+        });
+      }
+
+      const requestedPublishableMedia = submittedMedia.filter((entry) => isPublishableMediaUrl(entry.url));
+      const { data: storedMedia, error: storedMediaError } = await supabase
+        .from('listing_images')
+        .select('image_url, is_primary, photo_label, display_order')
+        .eq('vin', vin)
+        .order('display_order', { ascending: true });
+      if (storedMediaError) throw storedMediaError;
+      const stored = Array.isArray(storedMedia) ? storedMedia : [];
+      const mediaMatches = stored.length === requestedPublishableMedia.length
+        && requestedPublishableMedia.every((entry, index) => {
+          const row = stored[index];
+          return Boolean(row)
+            && String(row.image_url || '').trim() === String(entry.url || '').trim()
+            && Boolean(row.is_primary) === entry.claimsPrimary
+            && String(row.photo_label || '') === String(entry.label || '');
+        });
+
+      if (!mediaMatches) {
+        return res.status(409).json({
+          error: 'This submission id already completed with different listing media. Start a new Seller submission instead of mutating a replay.',
+          code: 'SELLER_SUBMISSION_REPLAY_MISMATCH',
+          vin,
+        });
+      }
+
+      return res.status(200).json({
+        success: true,
+        vin,
+        publication_status: existing.publication_status || 'draft',
+        status: existing.status || null,
+        location_recorded: Boolean(existing.listing_location_source),
+        location_visibility: existing.listing_location_visibility || null,
+        images_recorded: stored.length > 0,
+        images_recorded_count: stored.length,
+        images_unpublishable_count: submittedMedia.length - requestedPublishableMedia.length,
+        images_primary_recorded: stored.some((row) => row.is_primary === true),
+        images_labels_recorded: requestedPublishableMedia.every((entry, index) =>
+          !entry.label || String(stored[index]?.photo_label || '') === String(entry.label)
+        ),
+        images_replacement_complete: true,
+        submission_id_recorded: true,
+        idempotent_replay: true,
+        reused_existing_passport: true,
+        message: 'Existing successful Seller submission returned. No duplicate Vehicle Passport or listing was created.',
+      });
+    }
+
+    if (existing && (reuse_existing_passport !== true || !existingSellerRelationship)) {
+      return res.status(409).json({
+        error: existingSellerRelationship
+          ? 'This VIN already has a CarUp Passport. Confirm reuse of the existing Passport.'
+          : 'This VIN already has a CarUp Passport and seller authority must be reviewed.',
+        code: existingSellerRelationship
+          ? 'EXISTING_PASSPORT_CONFIRM_REQUIRED'
+          : 'SELLER_AUTHORITY_CLAIM_REQUIRED',
+        vin,
+        existing_passport: true,
+      });
+    }
+
+    const reusedExistingPassport = Boolean(existing);
     let listingClaimsRecorded = true;
-    let { error: insertError } = await supabase.from('vehicles').insert({ ...listingRow, ...listingClaimColumns });
-    if (insertError && isMissingListingClaimColumnError(insertError)) {
-      // The migration has not been applied yet. A single-row PostgREST insert is atomic, so the
-      // rejected attempt wrote nothing; create the listing without the claim columns and report on
-      // the response that the location was not recorded.
-      console.warn(`Listing claim columns unavailable (migration 20260818110000 not applied); location not recorded for ${candidate.vin}.`);
-      listingClaimsRecorded = false;
-      ({ error: insertError } = await supabase.from('vehicles').insert(listingRow));
+    let insertError = null;
+
+    if (reusedExistingPassport) {
+      // Re-listing must never rewrite the Passport's canonical identity. Only seller-commercial
+      // assertions and listing lifecycle fields are refreshed on the existing vehicle row.
+      const governedNonOwnerSeller = governedSellerEvidence
+        && existing.owner_id !== req.userContext.id;
+      const reusableListingRow = {
+        seller_description: listingRow.seller_description,
+        seller_features: listingRow.seller_features,
+        body_style: listingRow.body_style,
+        seller_stated_condition: listingRow.seller_stated_condition,
+        seller_listing_claim_source: listingRow.seller_listing_claim_source,
+        seller_listing_recorded_at: listingRow.seller_listing_recorded_at,
+        price: listingRow.price,
+        currency: listingRow.currency,
+        // Starting a new listing names the authenticated submitter as the CURRENT seller and replaces
+        // any stale seller relationship from an older listing. This is listing authority, not legal
+        // ownership: owner_id and ownership history remain untouched. A non-owner using an owner-role
+        // account is labelled "Private" rather than falsely becoming "Private Owner".
+        current_seller_id: req.userContext.id,
+        current_seller_type: governedNonOwnerSeller && req.userContext.role === 'owner'
+          ? 'Private'
+          : listingRow.current_seller_type,
+        seller_listing_submission_id: submittedSellerSubmissionId,
+        // tenant_id is seller-organisation context in this write path. Re-align it with the current
+        // submitter just as a brand-new listing does, so a previous dealer tenant cannot retain
+        // listing control after the legal owner/private seller starts a new listing.
+        tenant_id: candidate.tenant_id,
+        public_seller_display_enabled: listingRow.public_seller_display_enabled,
+        // A Seller can advance/restate the registration lifecycle on a later listing. Provenance
+        // travels WITH the claim (Operations M3/M7): a stage without a recorded source evaluates
+        // as not_recorded and blocks publication, so writing the status while dropping the source
+        // left a restated stage permanently blocking. The source names who said it.
+        ...(submittedRegistrationStatus !== null
+          ? { registration_status: submittedRegistrationStatus, registration_status_source: claimSource }
+          : {}),
+        // Re-listing refreshes the Seller's history disclosures alongside the other commercial
+        // statements; unanswered questions stay untouched on the existing row (keys absent).
+        ...sellerHistoryDisclosureColumns,
+        // Identity completion is WRITE-ONCE through this Seller path. Existing values were checked
+        // above and cannot enter this patch; only previously-null fields are present here.
+        ...identityFillPatch,
+        publication_status: 'draft',
+      };
+      ({ error: insertError } = await supabase
+        .from('vehicles')
+        .update({ ...reusableListingRow, ...listingClaimColumns })
+        .eq('vin', vin));
+      if (insertError && isMissingListingClaimColumnError(insertError)) {
+        listingClaimsRecorded = false;
+        ({ error: insertError } = await supabase.from('vehicles').update(reusableListingRow).eq('vin', vin));
+      }
+    } else {
+      ({ error: insertError } = await supabase.from('vehicles').insert({ ...listingRow, ...listingClaimColumns }));
+      if (insertError && isMissingListingClaimColumnError(insertError)) {
+        console.warn(`Listing claim columns unavailable (migration 20260818110000 not applied); location not recorded for ${candidate.vin}.`);
+        listingClaimsRecorded = false;
+        ({ error: insertError } = await supabase.from('vehicles').insert(listingRow));
+      }
+    }
+    // A Seller who ANSWERED a history question must never have that answer silently dropped by an
+    // older database. Fail closed (same contract as SELLER_IDEMPOTENCY_SCHEMA_REQUIRED): the browser
+    // keeps its draft and retries once the additive migration lands. Requests with no disclosures
+    // never carry these keys and cannot reach this branch.
+    if (
+      insertError && hasSellerHistoryDisclosure
+      && ['seller_accident_disclosure', 'seller_insurance_disclosure', 'seller_finance_disclosure']
+        .some((column) => isMissingNamedColumnError(insertError, column))
+    ) {
+      return res.status(503).json({
+        error: 'Vehicle history disclosures are still being activated. Your browser draft is unchanged; retry shortly.',
+        code: 'SELLER_DISCLOSURE_SCHEMA_REQUIRED',
+      });
     }
     if (insertError) throw insertError;
 
-    if (req.userContext.id) {
+    // The Zimbabwe registration stage is a GOVERNED FACT the canonical Trust engine reads: it
+    // publishes "Zimbabwe registration stage has not been established from a recorded claim" as a
+    // known limitation when no stage is recorded. That limitation reaches BUYERS, so a stage the
+    // seller has just stated must re-materialize the canonical position — otherwise the public
+    // Trust block keeps telling buyers CarUp holds no registration claim while the listing is
+    // published on the strength of one. Same posture as evidence review (vehiclesRoutes verify):
+    // the seller's statement is the durable fact, the cache is derived, and a refresh failure must
+    // never fail the save.
+    if (submittedRegistrationStatus !== null) {
+      try {
+        await refreshCanonicalTrust(vin);
+      } catch (trustError) {
+        console.warn('[Trust] registration-stage refresh failed:', trustError?.message || trustError);
+      }
+    }
+
+    // Unrecognized values remain usable but enter the governed taxonomy-review queue.
+    const taxonomyObservations = [
+      ['make', taxonomy.make],
+      ['model', taxonomy.model],
+      ['year', taxonomy.year],
+      ['body_style', taxonomy.body_style],
+      ['fuel_type', taxonomy.fuel],
+      ['transmission', taxonomy.transmission],
+      ['drivetrain', taxonomy.drivetrain],
+    ]
+      .filter(([, resolution]) => resolution?.state === 'unrecognized' && resolution?.raw)
+      .map(([dimension, resolution]) => ({
+        dimension,
+        raw_value: resolution.raw,
+        canonical_taxon_id: resolution.canonical_id ?? null,
+        source_type: 'seller',
+        source_reference: candidate.vin,
+        taxonomy_version: taxonomy.taxonomy_version,
+        review_status: 'unresolved',
+      }));
+    let taxonomyObservationsRecorded = taxonomyObservations.length === 0;
+    if (taxonomyObservations.length > 0) {
+      const { error: taxonomyObservationError } = await supabase.from('vehicle_taxonomy_observations').insert(taxonomyObservations);
+      taxonomyObservationsRecorded = !taxonomyObservationError;
+      if (taxonomyObservationError) console.error('⚠️ Failed to record taxonomy observations:', taxonomyObservationError.message);
+    }
+
+    if (req.userContext.id && !reusedExistingPassport) {
       await supabase.from('vehicle_ownership_history').insert({
         vin, new_owner_id: req.userContext.id, transfer_date: new Date().toISOString(), transfer_hash: 'INITIAL'
       });
@@ -2402,9 +3279,13 @@ app.post('/api/vehicles/add', authorizeRole(['dealer', 'owner', 'admin']), async
     // exists to close; 400-ing the whole listing would discard the vehicle too.
     const publishableMedia = submittedMedia.filter((entry) => isPublishableMediaUrl(entry.url));
     const imagesUnpublishableCount = submittedMedia.length - publishableMedia.length;
+    const mediaReplacementRecordedAt = new Date().toISOString();
     const imageRecords = publishableMedia.map((entry, idx) => ({
       vin,
       image_url: String(entry.url).trim(),
+      // Internal replacement watermark: public listing_images.id is an outbound identity, never
+      // accepted back as a database locator.
+      created_at: mediaReplacementRecordedAt,
       // RULE 6, AT THE LAYER THAT WAS BREAKING IT. `is_primary: idx === 0` fabricated the seller's
       // main-photo choice out of ARRAY ORDER and persisted it in a column no reader can distinguish
       // from a real choice — so `primary_image_state: 'seller_primary'`, which Phase 5 publishes
@@ -2415,6 +3296,7 @@ app.post('/api/vehicles/add', authorizeRole(['dealer', 'owner', 'admin']), async
       // primary-claimants first and then by `display_order`, and image 0 still carries
       // `display_order: 0`; only the LABEL on it stops lying.
       is_primary: entry.claimsPrimary,
+      photo_label: entry.label,
       // Dense over the PUBLISHABLE set, so a refused URL leaves no gap in the running order.
       display_order: idx,
     }));
@@ -2423,14 +3305,42 @@ app.post('/api/vehicles/add', authorizeRole(['dealer', 'owner', 'admin']), async
     // follows; it is not a new idiom invented here.
     let imagesRecorded = false;
     let imagesRecordedCount = 0;
+    let imagesReplacementComplete = true;
+    let imageLabelsRecorded = true;
     if (imageRecords.length > 0) {
-      const { error: imageError } = await supabase.from('listing_images').insert(imageRecords);
+      let imageInsert = await supabase.from('listing_images').insert(imageRecords);
+      // Controlled migration fallback: keep the image save available on an older schema, but say
+      // explicitly that labels were NOT persisted. Phase G cannot certify until the migration is
+      // applied and this flag is true for a labelled seven-image gallery.
+      if (imageInsert.error && isMissingNamedColumnError(imageInsert.error, 'photo_label')) {
+        imageLabelsRecorded = false;
+        const legacyImageRecords = imageRecords.map(({ photo_label, ...record }) => record);
+        imageInsert = await supabase.from('listing_images').insert(legacyImageRecords);
+      }
+      const imageError = imageInsert.error;
       if (imageError) {
-        // Still logged for operators — but the log is no longer the ONLY place the failure exists.
+        // The vehicle row already exists at this point. Returning 500 would falsely imply the
+        // whole write failed and would hide the established media outcome fields below. Keep the
+        // draft response truthful (images_recorded: false) and let Seller Studio retain its local
+        // media until a complete gallery is confirmed.
         console.error('⚠️ Failed to save listing images:', imageError.message);
       } else {
         imagesRecorded = true;
         imagesRecordedCount = imageRecords.length;
+        if (imageLabelsRecorded !== false) imageLabelsRecorded = true;
+        // Delete prior listing media only after the replacement rows exist. The cleanup is scoped
+        // by the vehicle the caller already named plus this request's internal batch watermark.
+        if (reusedExistingPassport) {
+          const { error: previousImageDeleteError } = await supabase
+            .from('listing_images')
+            .delete()
+            .eq('vin', vin)
+            .lt('created_at', mediaReplacementRecordedAt);
+          if (previousImageDeleteError) {
+            imagesReplacementComplete = false;
+            console.error('⚠️ Replacement gallery stored but prior VIN-scoped media cleanup failed:', previousImageDeleteError.message);
+          }
+        }
       }
     }
 
@@ -2439,6 +3349,8 @@ app.post('/api/vehicles/add', authorizeRole(['dealer', 'owner', 'admin']), async
       success: true,
       vin,
       publication_status: 'draft',
+      taxonomy_version: taxonomy.taxonomy_version,
+      taxonomy_observations_recorded: taxonomyObservationsRecorded,
       // WHAT WAS ACTUALLY RECORDED, STATED. A submitted location that could not be stored reports
       // `location_recorded: false` here, so the caller learns it at the moment it happened instead
       // of discovering it later as a blank card — the silent discard is what this phase closes.
@@ -2468,7 +3380,232 @@ app.post('/api/vehicles/add', authorizeRole(['dealer', 'owner', 'admin']), async
       images_recorded_count: imagesRecordedCount,
       images_unpublishable_count: imagesUnpublishableCount,
       images_primary_recorded: imagesRecorded && imageRecords.some((record) => record.is_primary === true),
-      message: 'Vehicle saved as draft. Upload ownership documents to advance toward publication.',
+      images_labels_recorded: imagesRecorded && imageLabelsRecorded,
+      // A replacement is not complete if the new rows landed but the previous VIN-scoped gallery
+      // could not be retired. Seller Studio treats false as a partial save and keeps its local draft.
+      images_replacement_complete: imagesReplacementComplete,
+      submission_id_recorded: submittedSellerSubmissionId !== null,
+      // True only when the Seller answered at least one history/obligations question; the write
+      // above fails closed (503) rather than ever dropping an answered disclosure.
+      history_disclosures_recorded: hasSellerHistoryDisclosure,
+      idempotent_replay: false,
+      reused_existing_passport: reusedExistingPassport,
+      identity_fields_filled: Object.keys(identityFillPatch),
+      message: reusedExistingPassport
+        ? 'Listing draft attached to the existing Vehicle Passport. No duplicate Passport was created.'
+        : 'Vehicle saved as draft. Upload ownership documents to advance toward publication.',
+    });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// --- SELLER DRAFT AUTOSAVE: commercial/privacy fields only; Passport identity is immutable here ---
+app.patch('/api/vehicles/:vin/seller-draft', authorizeRole(['owner', 'dealer', 'admin']), async (req, res) => {
+  const vin = String(req.params.vin || '').trim().toUpperCase();
+  if (!vin) return res.status(400).json({ error: 'VIN is required' });
+
+  try {
+    const { data: existing, error: readError } = await supabase
+      .from('vehicles')
+      .select('vin, owner_id, current_seller_id, tenant_id, publication_status, status')
+      .eq('vin', vin)
+      .maybeSingle();
+    if (readError) throw readError;
+    if (!existing) return res.status(404).json({ error: 'Vehicle not found' });
+
+    const isAdmin = req.userContext.role === 'admin';
+    const isActorSeller = existing.owner_id === req.userContext.id
+      || existing.current_seller_id === req.userContext.id;
+    const isActorTenant = Boolean(
+      existing.tenant_id
+      && req.userContext.tenantId
+      && existing.tenant_id === req.userContext.tenantId
+    );
+    if (!isAdmin && !isActorSeller && !isActorTenant) {
+      return res.status(403).json({ error: 'Seller draft is outside your vehicle scope' });
+    }
+
+    const publication = String(existing.publication_status || '').toLowerCase();
+    const lifecycle = String(existing.status || '').toLowerCase();
+    if (!['draft', 'identity_complete', 'documents_submitted', 'review_pending', 'publishable'].includes(publication) || lifecycle === 'sold') {
+      return res.status(409).json({
+        error: 'Only an unpublished active Seller draft can be autosaved',
+        publication_status: existing.publication_status ?? null,
+        status: existing.status ?? null,
+      });
+    }
+
+    const body = req.body || {};
+    const has = (key) => Object.prototype.hasOwnProperty.call(body, key);
+    const patch = {};
+    const source = submittedClaimSource(req.userContext);
+    const now = new Date().toISOString();
+
+    // Seller-commercial assertions only. These are intentionally the same fields the existing-
+    // Passport branch of /vehicles/add is allowed to refresh; VIN identity/spec authority is not
+    // duplicated by autosave.
+    let sellerCommercialTouched = false;
+    if (has('description')) {
+      patch.seller_description = submittedText(body.description);
+      sellerCommercialTouched = true;
+    }
+    if (has('features')) {
+      patch.seller_features = Array.isArray(body.features)
+        ? Array.from(new Set(body.features.map(value => submittedText(value)).filter(Boolean))).slice(0, 50)
+        : null;
+      sellerCommercialTouched = true;
+    }
+    if (has('body_style')) {
+      patch.body_style = submittedText(body.body_style);
+      sellerCommercialTouched = true;
+    }
+    if (has('seller_stated_condition')) {
+      patch.seller_stated_condition = submittedText(body.seller_stated_condition);
+      sellerCommercialTouched = true;
+    }
+
+    // Vehicle History & Obligations (F18–F20): same closed-vocabulary refusal as /vehicles/add.
+    // An explicit null retracts the answer (column back to NULL = "not recorded"); an absent key
+    // leaves the stored answer untouched; an out-of-vocabulary value is a 400, never a coercion.
+    let disclosureTouched = false;
+    if (has('accident_disclosure')) {
+      const result = normalizeAccidentDisclosure(body.accident_disclosure);
+      if (!result.ok) return res.status(400).json({ error: result.error, code: 'SELLER_DISCLOSURE_INVALID' });
+      patch.seller_accident_disclosure = result.value;
+      disclosureTouched = true;
+      sellerCommercialTouched = true;
+    }
+    if (has('insurance_disclosure')) {
+      const result = normalizeInsuranceDisclosure(body.insurance_disclosure);
+      if (!result.ok) return res.status(400).json({ error: result.error, code: 'SELLER_DISCLOSURE_INVALID' });
+      patch.seller_insurance_disclosure = result.value;
+      disclosureTouched = true;
+      sellerCommercialTouched = true;
+    }
+    if (has('finance_disclosure')) {
+      const result = normalizeFinanceDisclosure(body.finance_disclosure);
+      if (!result.ok) return res.status(400).json({ error: result.error, code: 'SELLER_DISCLOSURE_INVALID' });
+      patch.seller_finance_disclosure = result.value;
+      disclosureTouched = true;
+      sellerCommercialTouched = true;
+    }
+
+    if (sellerCommercialTouched) {
+      patch.seller_listing_claim_source = source;
+      patch.seller_listing_recorded_at = now;
+    }
+
+    if (has('price')) {
+      const price = Number(body.price);
+      if (!Number.isFinite(price) || price <= 0) {
+        return res.status(400).json({ error: 'price must be a positive number when autosaved' });
+      }
+      patch.price = price;
+    }
+    if (has('currency')) {
+      const currency = submittedText(body.currency);
+      if (currency === null) return res.status(400).json({ error: 'currency cannot be blank when autosaved' });
+      patch.currency = currency;
+      patch.currency_source = source;
+    }
+
+    if (has('public_seller_display_enabled')) {
+      // Exact boolean only; string coercion could publish an identity the Seller did not consent to.
+      patch.public_seller_display_enabled = body.public_seller_display_enabled === true;
+    }
+
+    const locationTouched = has('location') || has('province') || has('listing_country') || has('location_visibility');
+    if (locationTouched) {
+      const submittedVisibility = submittedText(body.location_visibility);
+      const visibility = submittedVisibility === CLAIM_VISIBILITY.PUBLIC
+        ? CLAIM_VISIBILITY.PUBLIC
+        : submittedVisibility === CLAIM_VISIBILITY.PROVINCE_ONLY
+          ? CLAIM_VISIBILITY.PROVINCE_ONLY
+          : CLAIM_VISIBILITY.WITHHELD;
+      if (has('location')) patch.listing_city = submittedText(body.location);
+      if (has('province')) patch.listing_province = submittedText(body.province);
+      if (has('listing_country')) patch.listing_country = submittedText(body.listing_country);
+      patch.listing_location_visibility = visibility;
+      patch.listing_location_source = source;
+      patch.listing_location_recorded_at = now;
+    }
+
+    if (Object.keys(patch).length === 0) {
+      return res.status(200).json({ success: true, vin, unchanged: true, publication_status: existing.publication_status });
+    }
+
+    // The disclosure columns join the receipt select ONLY when this request touched them, so an
+    // autosave that says nothing about disclosures still succeeds against a database that predates
+    // the 20260831150000 migration.
+    const receiptColumns = 'vin, publication_status, price, currency, seller_description, seller_features, body_style, seller_stated_condition, public_seller_display_enabled, listing_city, listing_province, listing_country, listing_location_visibility'
+      + (disclosureTouched ? ', seller_accident_disclosure, seller_insurance_disclosure, seller_finance_disclosure' : '');
+
+    let { data: updated, error: updateError } = await supabase
+      .from('vehicles')
+      .update(patch)
+      .eq('vin', vin)
+      .select(receiptColumns)
+      .single();
+
+    // An ANSWERED disclosure must never be silently dropped by an older schema: fail closed so the
+    // browser keeps its local copy (same contract as SELLER_DISCLOSURE_SCHEMA_REQUIRED on create).
+    if (
+      updateError && disclosureTouched
+      && ['seller_accident_disclosure', 'seller_insurance_disclosure', 'seller_finance_disclosure']
+        .some((column) => isMissingNamedColumnError(updateError, column))
+    ) {
+      return res.status(503).json({
+        error: 'Vehicle history disclosures are still being activated. Your edit was not saved; retry shortly.',
+        code: 'SELLER_DISCLOSURE_SCHEMA_REQUIRED',
+      });
+    }
+
+    // Controlled mixed-schema fallback: never turn an unapplied provenance migration into a Seller
+    // outage. Drop only claim columns that the older schema cannot name; the response explicitly
+    // reports that claim provenance was not recorded.
+    let claim_provenance_recorded = true;
+    if (updateError && isMissingListingClaimColumnError(updateError)) {
+      claim_provenance_recorded = false;
+      const legacyPatch = { ...patch };
+      for (const key of LISTING_CLAIM_COLUMNS) delete legacyPatch[key];
+      delete legacyPatch.currency_source;
+      ({ data: updated, error: updateError } = await supabase
+        .from('vehicles')
+        .update(legacyPatch)
+        .eq('vin', vin)
+        .select(receiptColumns)
+        .single());
+    }
+    if (updateError) throw updateError;
+
+    res.json({
+      success: true,
+      vin,
+      publication_status: updated?.publication_status ?? existing.publication_status,
+      claim_provenance_recorded,
+      // Semantic persistence receipt: the browser may call an edit "saved" only after these
+      // returned values match the revision it submitted. DB column names stay private to this route.
+      draft: updated ? {
+        description: updated.seller_description ?? '',
+        features: Array.isArray(updated.seller_features) ? updated.seller_features : [],
+        body_style: updated.body_style ?? '',
+        seller_stated_condition: updated.seller_stated_condition ?? '',
+        price: updated.price ?? null,
+        currency: updated.currency ?? '',
+        location: updated.listing_city ?? '',
+        province: updated.listing_province ?? '',
+        listing_country: updated.listing_country ?? '',
+        location_visibility: updated.listing_location_visibility ?? 'withheld',
+        public_seller_display_enabled: updated.public_seller_display_enabled === true,
+        // Present only when this request touched a disclosure — the receipt echoes exactly what the
+        // database now stores (null = retracted/unanswered), never a coerced default.
+        ...(disclosureTouched ? {
+          accident_disclosure: updated.seller_accident_disclosure ?? null,
+          insurance_disclosure: updated.seller_insurance_disclosure ?? null,
+          finance_disclosure: updated.seller_finance_disclosure ?? null,
+        } : {}),
+      } : null,
     });
   } catch (error) {
     res.status(500).json({ error: error.message });
@@ -2485,15 +3622,16 @@ app.get('/api/vehicles/:vin/completeness', authorizeRole(['owner', 'dealer', 'ad
     if (req.userContext.role !== 'admin' && req.userContext.role !== 'reviewer') {
       const { data: vehicleRow, error: vehicleErr } = await supabase
         .from('vehicles')
-        .select('owner_id, tenant_id')
+        .select('owner_id, current_seller_id, tenant_id')
         .eq('vin', vin)
         .maybeSingle();
-      if (vehicleErr) return res.status(500).json({ error: 'Vehicle ownership lookup failed.' });
+      if (vehicleErr) return res.status(500).json({ error: 'Vehicle seller-scope lookup failed.' });
       if (!vehicleRow) return res.status(404).json({ error: `Vehicle not found: ${vin}` });
       const ownsVehicle = vehicleRow.owner_id && vehicleRow.owner_id === req.userContext.id;
+      const isCurrentSeller = vehicleRow.current_seller_id && vehicleRow.current_seller_id === req.userContext.id;
       const sameTenant = vehicleRow.tenant_id && vehicleRow.tenant_id === req.userContext.tenantId;
-      if (!ownsVehicle && !sameTenant) {
-        return res.status(403).json({ error: 'Forbidden. You do not have ownership or organizational scope over this vehicle.' });
+      if (!ownsVehicle && !isCurrentSeller && !sameTenant) {
+        return res.status(403).json({ error: 'Forbidden. You do not have owner, current-seller, or organizational scope over this vehicle.' });
       }
     }
     const result = await evaluateCompleteness(vin);
@@ -2745,7 +3883,7 @@ app.get('/api/vehicles/me', authorizeRole(['owner', 'dealer', 'admin']), async (
     const { data, error } = await supabase
       .from('vehicles')
       .select('*')
-      .eq('owner_id', req.userContext.id)
+      .or(`owner_id.eq.${req.userContext.id},current_seller_id.eq.${req.userContext.id}`)
 
     if (error) throw error
     // An owner is shown their vehicle's trust position through the same authority as everyone else.
@@ -2856,20 +3994,70 @@ app.get('/api/service-history/me', authorizeRole(['owner', 'dealer', 'admin']), 
   }
 })
 
-// GET /api/notifications/me - Get user notifications
+function ownerNotificationActionPath(notification = {}) {
+  const type = String(notification.notification_type || notification.type || '').toLowerCase()
+  if (type === 'marketplace_inquiry' || type === 'conversation_message') return '/dashboard/communications'
+  if (type === 'listing_moderation') return '/dashboard/listings'
+  if (type === 'evidence_review' || type === 'vehicle_trust_update' || type === 'ownership_transfer') return '/dashboard/garage'
+  return type === 'verification_decision' || type === 'safetrade_transaction' || type === 'escrow_status'
+    ? '/dashboard'
+    : null
+}
+
+function toOwnerNotification(row = {}) {
+  return {
+    id: row.id,
+    read: row.read === true,
+    title: row.title || 'CarUp notification',
+    message: row.message || '',
+    notification_type: row.notification_type || row.type || 'general',
+    status: row.status || null,
+    priority: row.priority || null,
+    channel: 'in_app',
+    action_path: ownerNotificationActionPath(row),
+    created_at: row.created_at || null,
+    updated_at: row.updated_at || null,
+  }
+}
+
+// In-app activity only. Email/SMS/WhatsApp rows are delivery records and may carry transport-only
+// content such as security action URLs; they must never be echoed into the notification bell.
 app.get('/api/notifications/me', authorizeRole(['owner', 'dealer', 'admin']), async (req, res) => {
   try {
+    const userId = String(req.userContext.id)
     const { data, error } = await supabase
       .from('notification_queue')
-      .select('*')
-      .eq('recipient_id', req.userContext.id)
+      .select('id, recipient_id, recipient_user_id, read, title, message, notification_type, type, status, priority, channel, created_at, updated_at')
+      .or(`recipient_user_id.eq.${userId},recipient_id.eq.${userId}`)
+      .eq('channel', 'in_app')
       .order('created_at', { ascending: false })
 
     if (error) throw error
-    res.json(data || [])
+    res.json((data || []).map(toOwnerNotification))
   } catch (error) {
     console.error('Error fetching notifications:', error)
     res.status(500).json({ error: error.message })
+  }
+})
+
+app.post('/api/notifications/:id/read', authorizeRole(['owner', 'dealer', 'admin']), async (req, res) => {
+  try {
+    const userId = String(req.userContext.id)
+    const { data, error } = await supabase
+      .from('notification_queue')
+      .update({ read: true, updated_at: new Date().toISOString() })
+      .eq('id', req.params.id)
+      .or(`recipient_user_id.eq.${userId},recipient_id.eq.${userId}`)
+      .eq('channel', 'in_app')
+      .select('id, recipient_id, recipient_user_id, read, title, message, notification_type, type, status, priority, channel, created_at, updated_at')
+      .maybeSingle()
+
+    if (error) throw error
+    if (!data) return res.status(404).json({ error: 'Notification not found.' })
+    return res.json({ notification: toOwnerNotification(data) })
+  } catch (error) {
+    console.error('Error marking notification read:', error)
+    return res.status(500).json({ error: error.message })
   }
 })
 

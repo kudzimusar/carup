@@ -1,0 +1,304 @@
+name: Seller Media Lifecycle Staging UAT
+
+# SIBLING gate. The certified "Seller Exact-Head Staging UAT" is not modified: it keeps naming spec
+# 38 on its own command line, and this workflow runs spec 42 instead.
+#
+# What it proves that spec 38 does not: the seller's CHOSEN COVER, the gallery order and the photo
+# labels survive publish -> Marketplace card/detail -> unpublish -> republish -> sold, asserted on
+# DECODED PIXELS rather than on a URL string appearing in a payload, on desktop AND mobile Chromium.
+#
+# Every seller action runs through the product UI. The single exception is reviewer verification of
+# the ownership document, which has no seller-facing UI and is performed through the real
+# login + CSRF + verify endpoints as the reviewer identity provisioned below.
+#
+# TRIGGERED ON PUSH TO THE CANDIDATE BRANCH, not on pull_request.
+#
+# PR #194's base is `main`, so a `pull_request` trigger scoped to the integration branch never fires
+# for the very PR being certified; and widening it to `main` would run a workflow that needs the
+# staging operator secret and MUTATES shared staging state on every unrelated PR. `workflow_dispatch`
+# alone is not enough either — GitHub only accepts a dispatch for a workflow that already exists on
+# the DEFAULT branch, which this one will not until #194 merges. Push on the candidate branch is the
+# one trigger that fires exactly where certification happens and nowhere else.
+on:
+  push:
+    branches:
+      - integration/vehicle-passport-v16-cert
+    paths:
+      - 'backend/**'
+      - 'web/**'
+      - 'tests/agents/42-seller-media-lifecycle-staging.spec.ts'
+      - 'playwright.staging.config.ts'
+      - '.github/workflows/seller-media-lifecycle-staging-uat.yml'
+  workflow_dispatch: {}
+
+concurrency:
+  # Shares the Seller staging identities and mutates shared staging state, so it must never overlap
+  # with itself.
+  group: seller-media-lifecycle-staging-uat-${{ github.event.pull_request.number || github.ref_name }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  seller-media-lifecycle:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    env:
+      EXPECTED_HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+      CANDIDATE_BRANCH: ${{ github.event.pull_request.head.ref || github.ref_name }}
+      STAGING_RUN_ID: media-${{ github.run_id }}-${{ github.run_attempt }}
+      DIASPORA_STAGING_DATABASE_URL: ${{ secrets.DIASPORA_STAGING_DATABASE_URL }}
+      EXPECTED_STAGING_PROJECT_REF: eoyenigwevnxwwhyhaer
+
+    steps:
+      - name: Checkout exact candidate head
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ env.EXPECTED_HEAD_SHA }}
+
+      - name: Assert exact candidate checkout
+        run: test "$(git rev-parse HEAD)" = "$EXPECTED_HEAD_SHA"
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Require staging operator secret
+        run: |
+          if [ -z "$DIASPORA_STAGING_DATABASE_URL" ]; then
+            echo '::error::DIASPORA_STAGING_DATABASE_URL is not configured; the media lifecycle cannot provision its isolated staging identities.'
+            exit 1
+          fi
+          case "$DIASPORA_STAGING_DATABASE_URL" in
+            *"$EXPECTED_STAGING_PROJECT_REF"*) ;;
+            *)
+              echo '::error::Refusing identity rotation: database URL is not the approved carup-staging project.'
+              exit 1
+              ;;
+          esac
+
+      - name: Resolve governed exact-head preview pair
+        run: |
+          node <<'NODE'
+          const fs = require('fs');
+          const branch = process.env.CANDIDATE_BRANCH;
+          const frontendPairs = JSON.parse(fs.readFileSync('web/preview-frontend-pairing.json', 'utf8')).branches || {};
+          const backendPairs = JSON.parse(fs.readFileSync('web/preview-backend-pairing.json', 'utf8')).branches || {};
+          const frontend = frontendPairs[branch];
+          const backend = backendPairs[branch];
+          if (!frontend || !backend) {
+            console.error(JSON.stringify({ error: 'candidate preview pair is not governed', branch }));
+            process.exit(1);
+          }
+          fs.appendFileSync(process.env.GITHUB_ENV,
+            `STAGING_WEB_URL=${frontend}\nSTAGING_API_URL=${backend.replace(/\/$/, '')}/api\n`);
+          console.log(JSON.stringify({ branch, frontend, backend }));
+          NODE
+
+      - name: Wait for exact-head frontend and backend provenance
+        run: |
+          node --input-type=module <<'NODE'
+          const expected = process.env.EXPECTED_HEAD_SHA;
+          const web = process.env.STAGING_WEB_URL;
+          const api = process.env.STAGING_API_URL;
+          const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
+          for (let attempt = 1; attempt <= 72; attempt += 1) {
+            try {
+              const [provRes, healthRes] = await Promise.all([
+                fetch(`${web}/carup-provenance.json?attempt=${attempt}`, { cache: 'no-store' }),
+                fetch(`${api}/health?attempt=${attempt}`, { cache: 'no-store' }),
+              ]);
+              const provenance = provRes.ok ? await provRes.json() : null;
+              const health = healthRes.ok ? await healthRes.json() : null;
+              // `unpaired === false` matters as much as the SHA: a frontend serving the candidate
+              // while calling somebody else's backend would produce confident, meaningless evidence.
+              const frontendOk = provenance?.commit_sha === expected && provenance?.unpaired === false;
+              const backendOk = health?.status === 'UP' && health?.build?.commit_sha === expected;
+              if (frontendOk && backendOk) {
+                console.log(JSON.stringify({
+                  frontend_sha: provenance.commit_sha,
+                  backend_sha: health.build.commit_sha,
+                  deployment_id: health.build.deployment_id,
+                  api_base_url: provenance.api_base_url,
+                }));
+                process.exit(0);
+              }
+              console.log(`provenance attempt ${attempt}: frontend=${provenance?.commit_sha || 'not-ready'} backend=${health?.build?.commit_sha || 'not-ready'}`);
+            } catch (error) {
+              console.log(`provenance attempt ${attempt}: ${error.message}`);
+            }
+            await sleep(5000);
+          }
+          console.error('Exact-head preview pair never reported the candidate SHA.');
+          process.exit(1);
+          NODE
+
+      - name: Install dependencies
+        run: npm ci || npm install
+
+      - name: Install Chromium
+        run: npx playwright install --with-deps chromium
+
+      - name: Rotate staging-only owner and reviewer identities
+        run: |
+          node --input-type=module <<'NODE'
+          import crypto from 'node:crypto';
+          import fs from 'node:fs';
+          import pg from 'pg';
+
+          const dbUrl = process.env.DIASPORA_STAGING_DATABASE_URL || '';
+          const expectedRef = process.env.EXPECTED_STAGING_PROJECT_REF;
+          if (!dbUrl.includes(expectedRef)) throw new Error('Refusing identity setup outside the approved staging project.');
+
+          const password = crypto.randomBytes(30).toString('base64url');
+          const salt = crypto.randomBytes(16).toString('hex');
+          const derived = await new Promise((resolve, reject) => {
+            crypto.scrypt(password, salt, 64, (error, key) => error ? reject(error) : resolve(key));
+          });
+          const passwordHash = `scrypt:${salt}:${derived.toString('hex')}`;
+
+          const cleanedDbUrl = dbUrl.replace(/([?&])sslmode=[^&]*&?/i, '$1').replace(/[?&]$/, '');
+          const client = new pg.Client({ connectionString: cleanedDbUrl, ssl: { rejectUnauthorized: false } });
+          await client.connect();
+          try {
+            await client.query('BEGIN');
+            for (const [email, role] of [
+              ['uat.buyer@carup-staging.test', 'owner'],
+              ['uat.reviewer@carup-staging.test', 'admin'],
+            ]) {
+              const result = await client.query(
+                'update public.users set password_hash = $1, role = $2 where email = $3 returning id',
+                [passwordHash, role, email],
+              );
+              if (result.rowCount !== 1) throw new Error(`Missing staging UAT identity: ${email}`);
+            }
+            await client.query('COMMIT');
+          } catch (error) {
+            await client.query('ROLLBACK');
+            throw error;
+          } finally {
+            await client.end();
+          }
+
+          // Mask BEFORE exporting, so a later failing command cannot echo the credential.
+          console.log(`::add-mask::${password}`);
+          fs.appendFileSync(
+            process.env.GITHUB_ENV,
+            [
+              `STAGING_UAT_BUYER_PASSWORD=${password}`,
+              `STAGING_UAT_REVIEWER_PASSWORD=${password}`,
+            ].join('\n') + '\n',
+            { mode: 0o600 },
+          );
+          console.log('Staging-only owner and reviewer identities rotated without printing credentials.');
+          NODE
+
+      - name: Seller media lifecycle — desktop Chromium
+        run: npx playwright test tests/agents/42-seller-media-lifecycle-staging.spec.ts --config=playwright.staging.config.ts --project=chromium
+
+      - name: Seller media lifecycle — mobile Chromium
+        run: npx playwright test tests/agents/42-seller-media-lifecycle-staging.spec.ts --config=playwright.staging.config.ts --project=mobile-chromium
+
+      - name: Retire every automation listing left publicly discoverable
+        if: always()
+        run: |
+          node --input-type=module <<'NODE'
+          // The spec retires its own listing. This step is the independent check that it did —
+          // and, when it did not, the REMEDIATION. Detection alone was not enough:
+          //
+          //   `concurrency: cancel-in-progress: true` means every push to the candidate branch
+          //   SIGKILLs the run in flight. That is routine during certification, not a freak event,
+          //   and a run killed between "Publish to Marketplace" and mark-sold leaves a published
+          //   automation listing on the shared staging marketplace with nothing to retire it.
+          //   Run 33505710788 failed here on JTMLCMXB053051151 — a listing left behind by run
+          //   33505305115, CANCELLED eight minutes earlier. The gate was therefore reporting a
+          //   defect this candidate did not have, while the actual contamination stayed public and
+          //   would have reddened every later run for ever.
+          //
+          // "Publicly discoverable" is asked with the PRODUCT's own rule (filterVisibleVehicles):
+          // publication_status === 'published' AND an available/reserved status. A listing this run
+          // correctly retired via mark-sold is status 'Sold' — off the public surface with its
+          // publication history intact — and must NOT be touched here. Unpublishing it would
+          // rewrite the durable history that R27 exists to protect and that the spec asserts.
+          const api = process.env.STAGING_API_URL;
+          const RUN_TOKEN = String(process.env.STAGING_RUN_ID || '').replace(/\D/g, '').slice(-9).padStart(9, '0');
+          const PUBLIC_STATUS = new Set(['Available', 'Reserved', 'available', 'reserved', 'ACTIVE', 'RESERVED']);
+          const isAutomationVin = (vin) => typeof vin === 'string' && vin.startsWith('JTMLC');
+          // vinFor(): 'JTMLC' + 3-char project token + 9-digit run token.
+          const attribute = (vin) => (vin.slice(8) === RUN_TOKEN ? 'this run' : 'an earlier run');
+
+          const publiclyLeakedVins = async () => {
+            const response = await fetch(`${api}/marketplace/listings?limit=100`, { cache: 'no-store' });
+            if (!response.ok) throw new Error(`Marketplace read failed during contamination audit: ${response.status}`);
+            const body = await response.json();
+            const rows = Array.isArray(body) ? body : (body.listings || body.data || []);
+            return rows.filter((row) => isAutomationVin(row?.vin)).map((row) => row.vin);
+          };
+
+          const before = await publiclyLeakedVins();
+          if (!before.length) {
+            console.log('No media-lifecycle automation listing is publicly discoverable.');
+            process.exit(0);
+          }
+          console.error(JSON.stringify({
+            contamination: 'automation listings are publicly discoverable',
+            vins: before.map((vin) => ({ vin, from: attribute(vin) })),
+          }));
+
+          // Retire them through the SAME governed endpoint the seller UI calls — real login, real
+          // CSRF, real owner scope. A sweeper that reached past the product's authority rules could
+          // hide a scope defect instead of proving the listing was genuinely the seller's to retire.
+          const csrf = await fetch(`${api}/security/csrf-token`);
+          const { csrfToken } = await csrf.json();
+          const login = await fetch(`${api}/auth/login`, {
+            method: 'POST',
+            headers: { 'content-type': 'application/json', 'x-csrf-token': csrfToken },
+            body: JSON.stringify({ email: 'uat.buyer@carup-staging.test', password: process.env.STAGING_UAT_BUYER_PASSWORD }),
+          });
+          if (!login.ok) throw new Error(`Cleanup login failed: ${login.status}`);
+          const session = await login.json();
+          const auth = {
+            'content-type': 'application/json',
+            'x-session-token': session.token,
+            'x-user-id': session.user.id,
+            'x-stakeholder-role': session.user.role,
+          };
+          const freshCsrf = await (await fetch(`${api}/security/csrf-token`, { headers: auth })).json();
+          const mutate = { ...auth, 'x-csrf-token': freshCsrf.csrfToken };
+
+          const owned = await fetch(`${api}/vehicles/me`, { headers: auth });
+          if (!owned.ok) throw new Error(`Owner scope read failed during cleanup: ${owned.status}`);
+          const mine = await owned.json();
+          const retirable = (Array.isArray(mine) ? mine : []).filter((v) => isAutomationVin(v?.vin)
+            && v.publication_status === 'published' && PUBLIC_STATUS.has(v.status));
+
+          for (const vehicle of retirable) {
+            const response = await fetch(`${api}/vehicles/${vehicle.vin}/unpublish`, { method: 'POST', headers: mutate });
+            console.log(`unpublish ${vehicle.vin} (${attribute(vehicle.vin)}) -> ${response.status}`);
+          }
+
+          const after = await publiclyLeakedVins();
+          if (after.length) {
+            console.error(JSON.stringify({ error: 'automation listings remain publicly discoverable after remediation', vins: after }));
+            process.exit(1);
+          }
+          // Remediation worked. Fail anyway if THIS run leaked: the spec must retire its own
+          // listing, and a green gate here would hide that it stopped doing so.
+          const ownLeak = before.filter((vin) => attribute(vin) === 'this run');
+          if (ownLeak.length) {
+            console.error(JSON.stringify({ error: 'this run left its own listing public; it was retired, but the spec must do this itself', vins: ownLeak }));
+            process.exit(1);
+          }
+          console.log(`Retired ${retirable.length} automation listing(s) left behind by earlier aborted runs. Public surface is clean.`);
+          NODE
+
+      - name: Upload media lifecycle evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: seller-media-lifecycle-${{ github.run_id }}
+          path: |
+            test-results/
+          retention-days: 14

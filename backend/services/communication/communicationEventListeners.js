@@ -19,6 +19,35 @@ export const COMMUNICATION_EVENT_TYPES = [
   'finance.application.declined',
   'identity.verification.decided',
   'evidence.review.decided',
+  // Operations M2 — governed Seller Authority decisions reach the seller.
+  'seller.authority.decided',
+  // R4 — the marketplace transaction stages. Emitted by `issue164_transition_session_atomic` into
+  // `domain_events` since Issue #164 Phase 6, and never subscribed until now: the transitions
+  // happened and the customer was never told. These are the CURRENT canonical authority's events,
+  // not the retired SafePay ones above.
+  'MARKETPLACE_PAYMENT_INITIATED',
+  'MARKETPLACE_INSPECTION_PENDING',
+  'MARKETPLACE_RELEASE_APPROVED',
+  'MARKETPLACE_TRANSACTION_DISPUTED',
+  'MARKETPLACE_TRANSACTION_CANCELLED',
+  // The provider-confirmed outcomes, from `issue164_record_payment_state_atomic`.
+  'MARKETPLACE_FUNDS_HELD',
+  'MARKETPLACE_TRANSACTION_SETTLED',
+  'MARKETPLACE_TRANSACTION_REFUNDED',
+  'MARKETPLACE_TRANSACTION_FAILED',
+  'MARKETPLACE_PAYMENT_FAILED',
+  // R5 — the canonical Trust presentation change.
+  'vehicle.trust.presentation_changed',
+  // Passport ownership lifecycle. These are emitted inside the same database
+  // transactions that mutate the transfer state; Communications is only a consumer.
+  'vehicle.ownership.transfer_started',
+  'vehicle.ownership.transfer_action_required',
+  'vehicle.ownership.transfer_state_changed',
+  'vehicle.ownership.transfer_completed',
+  // R1 — the durable post-verification work item. The Leadership Welcome used to be produced
+  // inline in the verification route and its failure swallowed, which permanently lost the welcome
+  // for that account because the verification token is single-use and already consumed.
+  'user.email.verified',
 ];
 
 let registered = false;

@@ -32,7 +32,13 @@ export type MarketplacePublicStatus =
   | 'rejected'
   | 'archived';
 
-export type MarketplaceRiskStatus = 'clear' | 'watch' | 'flagged' | 'blocked';
+/**
+ * `'unavailable'` means the trust INPUTS could not be read — not that they were read and found
+ * clean. Without it, a failed `vehicle_evidence` / `partsentry_logs` query published `'clear'`,
+ * suppressed the risk banner and set `operator_review_required: false` for a vehicle whose rows
+ * might carry `flagged`. "Not checked" and "checked and clean" are different facts.
+ */
+export type MarketplaceRiskStatus = 'clear' | 'watch' | 'flagged' | 'blocked' | 'unavailable';
 
 export type MarketplacePartSentryPublicStatus =
   | 'not_applicable'
@@ -41,7 +47,18 @@ export type MarketplacePartSentryPublicStatus =
   | 'review_required'
   | 'suppressed';
 
-export type MarketplaceEvidenceStatus = 'none' | 'partial' | 'verified' | 'review_required';
+export interface MarketplacePartFitment {
+  taxonomy_version: string;
+  make: string;
+  model: string;
+  year_from: number | null;
+  year_to: number | null;
+  body_style?: string | null;
+  engine_code?: string | null;
+  variant?: string | null;
+}
+
+export type MarketplaceEvidenceStatus = 'none' | 'partial' | 'verified' | 'review_required' | 'unavailable';
 
 export type MarketplaceIdentityStatus = 'unverified' | 'pending_review' | 'verified' | 'rejected';
 
@@ -54,7 +71,7 @@ export interface MarketplaceTrustSummary {
   identity_verified: boolean;
   dealer_verified: boolean;
   partsentry_public_status: MarketplacePartSentryPublicStatus;
-  suspicion_status: 'clear' | 'watch' | 'flagged';
+  suspicion_status: 'clear' | 'watch' | 'flagged' | 'unavailable';
   risk_status: MarketplaceRiskStatus;
   risk_reasons: string[];
   safe_public_copy: string;
@@ -78,9 +95,31 @@ export interface MarketplaceVerificationSummary {
   verification_notes_public: string[];
 }
 
+/**
+ * The four states `attestedValue` can publish (backend/utils/publicVehicleProjection.js
+ * FIELD_STATES). A value is present ONLY in the 'recorded' state; every other state carries null,
+ * and a consumer that substitutes a default for one of them re-creates the fabrication the
+ * provenance gate exists to remove.
+ */
+export type MarketplaceFieldState = 'recorded' | 'not_recorded' | 'withheld' | 'not_applicable';
+
 export interface MarketplacePricingSummary {
   asking_price?: number;
-  currency?: string;
+  asking_price_state?: MarketplaceFieldState;
+  /**
+   * PROVENANCE-GATED. `marketplacePricingService` publishes this as null unless `currency_source`
+   * names who asserted it — `currency_state` says which case you are in. It is NOT optional
+   * information: `currency || 'USD'` on a consumer is exactly the fabrication the service removed,
+   * and it made the panel print "USD 25,000" beside its own warning that the currency is unknown.
+   */
+  currency?: string | null;
+  currency_state?: MarketplaceFieldState;
+  currency_source?: string | null;
+  /**
+   * The currency the fixed ESTIMATE components are denominated in — a fact about the estimate, not
+   * about the listing. Present only when there is a denominated figure to attach it to.
+   */
+  estimate_denomination?: string;
   estimated_fair_min?: number;
   estimated_fair_max?: number;
   price_confidence: 'low' | 'medium' | 'high';
@@ -188,6 +227,8 @@ export interface MarketplaceListingMediaItem {
   url_form: MarketplaceMediaUrlForm;
   /** The projection's dense 0-based ordinal AFTER sorting — NOT the raw `display_order` column. */
   position: number;
+  /** Seller-authored stored gallery order, distinct from cover-first projected position. */
+  seller_order: number | null;
   /**
    * RULE 6: PRIMACY IS THE SELLER'S CHOICE OR IT DOES NOT EXIST. `true` only where a row claims it;
    * no primary is elected when nobody claimed one. Where several rows claim it — nothing in the
@@ -195,6 +236,13 @@ export interface MarketplaceListingMediaItem {
    * consumer never has to arbitrate between two "main photos".
    */
   is_primary: boolean;
+  /**
+   * True only for generated staging/reference listing media. This is an advertising/demo
+   * provenance marker, never a verification/evidence claim and never a Trust input.
+   */
+  synthetic_demo: boolean;
+  /** Seller-authored listing presentation label; never a verification/evidence claim. */
+  photo_label: string | null;
 }
 
 /**
@@ -237,7 +285,7 @@ export interface MarketplaceMedia extends MarketplaceListingMediaItem {
 }
 
 export interface MarketplaceSellerSummary {
-  display_label: string;
+  display_label: string | null;
   seller_type: 'dealer' | 'private' | string;
   public_profile_enabled: boolean;
   location?: string;

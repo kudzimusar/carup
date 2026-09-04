@@ -22,6 +22,7 @@ import {
 } from './marketplaceEventTypes.js';
 import { marketplaceReferralBridge } from './marketplaceReferralBridgeService.js';
 import { emitDomainEvent } from '../eventBus/eventBusService.js';
+import { emitInquiryCreated } from '../intelligence/marketplaceActivityEmitters.js';
 
 const TABLE = 'marketplace_inquiries';
 const MAX_MESSAGE_LEN = 2000;
@@ -43,7 +44,13 @@ function clampStr(value, max) {
   return s.slice(0, max);
 }
 
-const ALLOWED_METADATA_KEYS = ['utm_source', 'utm_medium', 'utm_campaign', 'source_page', 'referrer', 'preferred_contact'];
+const ALLOWED_METADATA_KEYS = [
+  'utm_source', 'utm_medium', 'utm_campaign', 'source_page', 'referrer', 'preferred_contact',
+  // Explicit product intent — safe operational routing, never payment authorization.
+  'buyer_intent', 'safepay_requested',
+  // Parts fitment selection. Model-range vocabulary only; no VIN/plate/chassis/PII.
+  'fitment_taxonomy_version', 'fitment_make', 'fitment_model', 'fitment_year',
+];
 function sanitizeInquiryMetadata(metadata) {
   if (!metadata || typeof metadata !== 'object' || Array.isArray(metadata)) return {};
   const out = {};
@@ -261,6 +268,9 @@ export async function createInquiry(client, payload = {}, actor = null, deps = {
     }
   }
 
+  // Intelligence observes the durable inquiry; it never owns inquiry truth.
+  emitInquiryCreated(inserted, { req: deps.req || null, client }).catch(() => {});
+
   const eventType = INQUIRY_TYPE_TO_REFERRAL_EVENT[inquiryType] || 'marketplace_inquiry_created';
   await referralBridge.emitMarketplaceReferralEvent({
     eventType,
@@ -309,7 +319,9 @@ export async function listInquiriesForAdmin(client, filters = {}, actor = filter
 
 async function fetchInquiries(client, refine) {
   try {
-    let query = client.from(TABLE).select('*');
+    // Newest first: callers that cap the list (the seller inbox card slices to the first 8) must
+    // see their most RECENT inquiries, not whatever order the database happens to return unsorted.
+    let query = client.from(TABLE).select('*').order('created_at', { ascending: false });
     if (refine) query = refine(query);
     const { data, error } = await query;
     if (error) throw error;

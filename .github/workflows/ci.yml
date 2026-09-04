@@ -82,6 +82,25 @@ jobs:
       - name: Migration verification (isolated PGlite Postgres)
         run: node database/test/migration_pglite_check.mjs
 
+      # BLOCKING behavioural proof for the finance-obligation / encumbrance authority.
+      #
+      # It is a SEPARATE step because migration_pglite_check.mjs carries an explicit
+      # NEW_MIGRATIONS list that ends at 20260810120000 — so a migration added after that date is
+      # otherwise executed by NO gate in this repo (migration-integrity.test.js only parses the
+      # file and checks its markers). This step applies the DDL Up, exercises R24/R25/R26, the
+      # closed-shape settlement_context and the provenance rules against real PostgreSQL, then
+      # applies Down and re-applies Up.
+      - name: Finance obligation authority verification (isolated PGlite Postgres)
+        run: node database/test/finance_obligation_pglite_check.mjs
+
+      # Operations Control Plane Serena slice (M1/M2) — behavioural proof for
+      # 20260902150000 (generic compat evidence types require canonical
+      # classification) and 20260902160000 (vehicle_seller_authority lifecycle,
+      # attribution CHECK, RLS + service_role-only grants). Same rationale as the
+      # finance step: migrations after 20260810120000 are executed by no other gate.
+      - name: Operations Serena slice migrations verification (isolated PGlite Postgres)
+        run: node database/test/operations_serena_slice_pglite_check.mjs
+
       # Issue #101 P0 hardening — BLOCKING behavioural proof, not a shape check.
       #
       # This is load-bearing security evidence: it runs the migration against real

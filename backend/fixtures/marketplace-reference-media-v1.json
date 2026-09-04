@@ -1,0 +1,413 @@
+{
+  "programme": "CARUP_MARKETPLACE_REFERENCE_MEDIA_V1",
+  "environment": "staging-only",
+  "generated_at": "2026-08-27",
+  "provenance": {
+    "synthetic_demo": true,
+    "evidence_eligible": false,
+    "trust_input": false,
+    "statement": "Generated reference listing media for staging demonstration. These assets are advertising/demo media only; they are not verified evidence and must not influence canonical Trust."
+  },
+  "storage": {
+    "bucket": "vehicle-images",
+    "prefix": "marketplace-reference-synthetic/v1"
+  },
+  "vehicles": [
+    {
+      "vin": "CARUPGLDNA0000001",
+      "make": "Toyota",
+      "model": "Hilux",
+      "year": 2019,
+      "synthetic_demo": true,
+      "media": [
+        {
+          "facet": "exterior-front",
+          "generation_id": "7fbf42a3-5fa2-4a8a-8bc7-e2e4c7a2f7c1",
+          "source_url": "https://d8j0ntlcm91z4.cloudfront.net/user_3INtVVsrCBipnAp2zgCDZq6LsaM/hf_20260827_012402_7fbf42a3-5fa2-4a8a-8bc7-e2e4c7a2f7c1.png",
+          "display_order": 0,
+          "is_primary": false
+        },
+        {
+          "facet": "exterior-rear",
+          "generation_id": "56b400df-955f-4e18-8553-36c85a709151",
+          "source_url": "https://d8j0ntlcm91z4.cloudfront.net/user_3INtVVsrCBipnAp2zgCDZq6LsaM/hf_20260827_014642_56b400df-955f-4e18-8553-36c85a709151.png",
+          "display_order": 1,
+          "is_primary": false
+        },
+        {
+          "facet": "exterior-side",
+          "generation_id": "bcd94ba0-96e9-4954-923e-8133b32154ff",
+          "source_url": "https://d8j0ntlcm91z4.cloudfront.net/user_3INtVVsrCBipnAp2zgCDZq6LsaM/hf_20260827_014642_bcd94ba0-96e9-4954-923e-8133b32154ff.png",
+          "display_order": 2,
+          "is_primary": false
+        },
+        {
+          "facet": "interior",
+          "generation_id": "10a1090b-1f27-46c9-9b35-bdda6a35dca9",
+          "source_url": "https://d8j0ntlcm91z4.cloudfront.net/user_3INtVVsrCBipnAp2zgCDZq6LsaM/hf_20260827_014642_10a1090b-1f27-46c9-9b35-bdda6a35dca9.png",
+          "display_order": 3,
+          "is_primary": false
+        },
+        {
+          "facet": "engine-bay",
+          "generation_id": "020b8f22-89ab-4fd1-9f09-1923ad42a485",
+          "source_url": "https://d8j0ntlcm91z4.cloudfront.net/user_3INtVVsrCBipnAp2zgCDZq6LsaM/hf_20260827_020809_020b8f22-89ab-4fd1-9f09-1923ad42a485.png",
+          "display_order": 4,
+          "is_primary": false
+        }
+      ]
+    },
+    {
+      "vin": "JF1GPAL60J9UAT303",
+      "make": "Subaru",
+      "model": "Impreza",
+      "year": 2018,
+      "synthetic_demo": true,
+      "media": [
+        {
+          "facet": "exterior-front",
+          "generation_id": "7f76b2ed-9ab0-4b30-9826-6c08212e3716",
+          "source_url": "https://d8j0ntlcm91z4.cloudfront.net/user_3INtVVsrCBipnAp2zgCDZq6LsaM/hf_20260827_014724_7f76b2ed-9ab0-4b30-9826-6c08212e3716.png",
+          "display_order": 0,
+          "is_primary": false
+        },
+        {
+          "facet": "exterior-rear",
+          "generation_id": "c46e0932-0552-4a87-b072-c55f4bf17cae",
+          "source_url": "https://d8j0ntlcm91z4.cloudfront.net/user_3INtVVsrCBipnAp2zgCDZq6LsaM/hf_20260827_014724_c46e0932-0552-4a87-b072-c55f4bf17cae.png",
+          "display_order": 1,
+          "is_primary": false
+        },
+        {
+          "facet": "exterior-side",
+          "generation_id": "1438adb6-21b9-453b-b655-fc26376596f6",
+          "source_url": "https://d8j0ntlcm91z4.cloudfront.net/user_3INtVVsrCBipnAp2zgCDZq6LsaM/hf_20260827_014724_1438adb6-21b9-453b-b655-fc26376596f6.png",
+          "display_order": 2,
+          "is_primary": false
+        },
+        {
+          "facet": "interior",
+          "generation_id": "14a1fdda-1441-4929-8c75-c023d282b785",
+          "source_url": "https://d8j0ntlcm91z4.cloudfront.net/user_3INtVVsrCBipnAp2zgCDZq6LsaM/hf_20260827_014724_14a1fdda-1441-4929-8c75-c023d282b785.png",
+          "display_order": 3,
+          "is_primary": false
+        },
+        {
+          "facet": "engine-bay",
+          "generation_id": "d0e5c16b-48dc-4d7c-8ebd-99475ebdb51b",
+          "source_url": "https://d8j0ntlcm91z4.cloudfront.net/user_3INtVVsrCBipnAp2zgCDZq6LsaM/hf_20260827_014724_d0e5c16b-48dc-4d7c-8ebd-99475ebdb51b.png",
+          "display_order": 4,
+          "is_primary": false
+        }
+      ]
+    },
+    {
+      "vin": "JTNBU4EE0J9UAT101",
+      "make": "Toyota",
+      "model": "Corolla",
+      "year": 2019,
+      "synthetic_demo": true,
+      "media": [
+        {
+          "facet": "exterior-front",
+          "generation_id": "64fd5d32-b6dc-4788-ad90-3515c5394df4",
+          "source_url": "https://d8j0ntlcm91z4.cloudfront.net/user_3INtVVsrCBipnAp2zgCDZq6LsaM/hf_20260827_014734_64fd5d32-b6dc-4788-ad90-3515c5394df4.png",
+          "display_order": 0,
+          "is_primary": false
+        },
+        {
+          "facet": "exterior-rear",
+          "generation_id": "6b2ccea8-3ab0-4a5e-aeda-304d395c210e",
+          "source_url": "https://d8j0ntlcm91z4.cloudfront.net/user_3INtVVsrCBipnAp2zgCDZq6LsaM/hf_20260827_020814_6b2ccea8-3ab0-4a5e-aeda-304d395c210e.png",
+          "display_order": 1,
+          "is_primary": false
+        },
+        {
+          "facet": "exterior-side",
+          "generation_id": "6ca3a680-2801-4476-98b9-5fa04a9c5035",
+          "source_url": "https://d8j0ntlcm91z4.cloudfront.net/user_3INtVVsrCBipnAp2zgCDZq6LsaM/hf_20260827_020814_6ca3a680-2801-4476-98b9-5fa04a9c5035.png",
+          "display_order": 2,
+          "is_primary": false
+        },
+        {
+          "facet": "interior",
+          "generation_id": "62391bb4-5fbc-46d2-8107-fa3f6f7a5756",
+          "source_url": "https://d8j0ntlcm91z4.cloudfront.net/user_3INtVVsrCBipnAp2zgCDZq6LsaM/hf_20260827_020814_62391bb4-5fbc-46d2-8107-fa3f6f7a5756.png",
+          "display_order": 3,
+          "is_primary": false
+        },
+        {
+          "facet": "engine-bay",
+          "generation_id": "f4882700-bb11-4ff5-8bc0-3396697f868e",
+          "source_url": "https://d8j0ntlcm91z4.cloudfront.net/user_3INtVVsrCBipnAp2zgCDZq6LsaM/hf_20260827_020814_f4882700-bb11-4ff5-8bc0-3396697f868e.png",
+          "display_order": 4,
+          "is_primary": false
+        }
+      ]
+    },
+    {
+      "vin": "JTDKARFP0H3000731",
+      "make": "Toyota",
+      "model": "Corolla",
+      "year": 2018,
+      "synthetic_demo": true,
+      "media": [
+        {
+          "facet": "exterior-front",
+          "generation_id": "9f6249bd-1b19-4e50-9406-b818e6998bd1",
+          "source_url": "https://d8j0ntlcm91z4.cloudfront.net/user_3INtVVsrCBipnAp2zgCDZq6LsaM/hf_20260827_024423_9f6249bd-1b19-4e50-9406-b818e6998bd1.png",
+          "display_order": 0,
+          "is_primary": false
+        },
+        {
+          "facet": "exterior-rear",
+          "generation_id": "b742084d-867d-4689-8ac5-4e8f3208fb1f",
+          "source_url": "https://d8j0ntlcm91z4.cloudfront.net/user_3INtVVsrCBipnAp2zgCDZq6LsaM/hf_20260827_014738_b742084d-867d-4689-8ac5-4e8f3208fb1f.png",
+          "display_order": 1,
+          "is_primary": false
+        },
+        {
+          "facet": "exterior-side",
+          "generation_id": "9b84c747-705f-44f0-a256-ab9da79d0633",
+          "source_url": "https://d8j0ntlcm91z4.cloudfront.net/user_3INtVVsrCBipnAp2zgCDZq6LsaM/hf_20260827_014738_9b84c747-705f-44f0-a256-ab9da79d0633.png",
+          "display_order": 2,
+          "is_primary": false
+        },
+        {
+          "facet": "interior",
+          "generation_id": "6d372bb9-1102-4e1c-8913-35d0f9bdd0dd",
+          "source_url": "https://d8j0ntlcm91z4.cloudfront.net/user_3INtVVsrCBipnAp2zgCDZq6LsaM/hf_20260827_014738_6d372bb9-1102-4e1c-8913-35d0f9bdd0dd.png",
+          "display_order": 3,
+          "is_primary": false
+        },
+        {
+          "facet": "engine-bay",
+          "generation_id": "1c1bc66c-02dc-4760-8fd0-76f0083b331c",
+          "source_url": "https://d8j0ntlcm91z4.cloudfront.net/user_3INtVVsrCBipnAp2zgCDZq6LsaM/hf_20260827_014738_1c1bc66c-02dc-4760-8fd0-76f0083b331c.png",
+          "display_order": 4,
+          "is_primary": false
+        }
+      ]
+    },
+    {
+      "vin": "MAJFP1CD0HC000733",
+      "make": "Ford",
+      "model": "Ranger",
+      "year": 2019,
+      "synthetic_demo": true,
+      "media": [
+        {
+          "facet": "exterior-front",
+          "generation_id": "dc522ebb-6ee8-4f8e-8eb2-2baa6bee0f7e",
+          "source_url": "https://d8j0ntlcm91z4.cloudfront.net/user_3INtVVsrCBipnAp2zgCDZq6LsaM/hf_20260827_024427_dc522ebb-6ee8-4f8e-8eb2-2baa6bee0f7e.png",
+          "display_order": 0,
+          "is_primary": false
+        },
+        {
+          "facet": "exterior-rear",
+          "generation_id": "6b6bbca4-0116-40f8-9008-1a77526edb69",
+          "source_url": "https://d8j0ntlcm91z4.cloudfront.net/user_3INtVVsrCBipnAp2zgCDZq6LsaM/hf_20260827_014823_6b6bbca4-0116-40f8-9008-1a77526edb69.png",
+          "display_order": 1,
+          "is_primary": false
+        },
+        {
+          "facet": "exterior-side",
+          "generation_id": "51c26185-88fc-4a88-8092-6b107e4b9763",
+          "source_url": "https://d8j0ntlcm91z4.cloudfront.net/user_3INtVVsrCBipnAp2zgCDZq6LsaM/hf_20260827_014823_51c26185-88fc-4a88-8092-6b107e4b9763.png",
+          "display_order": 2,
+          "is_primary": false
+        },
+        {
+          "facet": "interior",
+          "generation_id": "0dab941e-590c-4215-a4fb-d09cf333e2b1",
+          "source_url": "https://d8j0ntlcm91z4.cloudfront.net/user_3INtVVsrCBipnAp2zgCDZq6LsaM/hf_20260827_014823_0dab941e-590c-4215-a4fb-d09cf333e2b1.png",
+          "display_order": 3,
+          "is_primary": false
+        },
+        {
+          "facet": "engine-bay",
+          "generation_id": "b9bbf679-d125-4faf-843e-fc807286edb4",
+          "source_url": "https://d8j0ntlcm91z4.cloudfront.net/user_3INtVVsrCBipnAp2zgCDZq6LsaM/hf_20260827_014823_b9bbf679-d125-4faf-843e-fc807286edb4.png",
+          "display_order": 4,
+          "is_primary": false
+        }
+      ]
+    },
+    {
+      "vin": "WBA8E9C50HK000732",
+      "make": "BMW",
+      "model": "320i",
+      "year": 2020,
+      "synthetic_demo": true,
+      "media": [
+        {
+          "facet": "exterior-front",
+          "generation_id": "8470f393-f744-46fc-81bc-2d88370836b5",
+          "source_url": "https://d8j0ntlcm91z4.cloudfront.net/user_3INtVVsrCBipnAp2zgCDZq6LsaM/hf_20260827_014835_8470f393-f744-46fc-81bc-2d88370836b5.png",
+          "display_order": 0,
+          "is_primary": false
+        },
+        {
+          "facet": "exterior-rear",
+          "generation_id": "3e7423fe-5b7e-44d2-9bf9-dfb287b276e6",
+          "source_url": "https://d8j0ntlcm91z4.cloudfront.net/user_3INtVVsrCBipnAp2zgCDZq6LsaM/hf_20260827_014835_3e7423fe-5b7e-44d2-9bf9-dfb287b276e6.png",
+          "display_order": 1,
+          "is_primary": false
+        },
+        {
+          "facet": "exterior-side",
+          "generation_id": "1817b537-c143-4d8b-9f4c-23b94c136963",
+          "source_url": "https://d8j0ntlcm91z4.cloudfront.net/user_3INtVVsrCBipnAp2zgCDZq6LsaM/hf_20260827_014835_1817b537-c143-4d8b-9f4c-23b94c136963.png",
+          "display_order": 2,
+          "is_primary": false
+        },
+        {
+          "facet": "interior",
+          "generation_id": "57bb71ac-3296-4564-bf6a-3990f90d20ad",
+          "source_url": "https://d8j0ntlcm91z4.cloudfront.net/user_3INtVVsrCBipnAp2zgCDZq6LsaM/hf_20260827_014835_57bb71ac-3296-4564-bf6a-3990f90d20ad.png",
+          "display_order": 3,
+          "is_primary": false
+        },
+        {
+          "facet": "engine-bay",
+          "generation_id": "02da474f-a3cf-4d74-8ca0-74bbd6cc22d0",
+          "source_url": "https://d8j0ntlcm91z4.cloudfront.net/user_3INtVVsrCBipnAp2zgCDZq6LsaM/hf_20260827_014835_02da474f-a3cf-4d74-8ca0-74bbd6cc22d0.png",
+          "display_order": 4,
+          "is_primary": false
+        }
+      ]
+    },
+    {
+      "vin": "3N1AB7AP5KY123456",
+      "make": "Mazda",
+      "model": "Axela",
+      "year": 2019,
+      "synthetic_demo": true,
+      "media": [
+        {
+          "facet": "exterior-front",
+          "generation_id": "74aa9573-e7aa-4e64-ba6e-dc1c23dcfb21",
+          "source_url": "https://d8j0ntlcm91z4.cloudfront.net/user_3INtVVsrCBipnAp2zgCDZq6LsaM/hf_20260827_014904_74aa9573-e7aa-4e64-ba6e-dc1c23dcfb21.png",
+          "display_order": 0,
+          "is_primary": false
+        },
+        {
+          "facet": "exterior-rear",
+          "generation_id": "d6d0e007-9881-4dfc-b0a1-5c8b9399de86",
+          "source_url": "https://d8j0ntlcm91z4.cloudfront.net/user_3INtVVsrCBipnAp2zgCDZq6LsaM/hf_20260827_014905_d6d0e007-9881-4dfc-b0a1-5c8b9399de86.png",
+          "display_order": 1,
+          "is_primary": false
+        },
+        {
+          "facet": "exterior-side",
+          "generation_id": "06d4ff47-f07e-4572-b15a-f725ec3ad5ee",
+          "source_url": "https://d8j0ntlcm91z4.cloudfront.net/user_3INtVVsrCBipnAp2zgCDZq6LsaM/hf_20260827_014905_06d4ff47-f07e-4572-b15a-f725ec3ad5ee.png",
+          "display_order": 2,
+          "is_primary": false
+        },
+        {
+          "facet": "interior",
+          "generation_id": "dc25cd86-9dae-47a9-8fb0-88a3a20afd9e",
+          "source_url": "https://d8j0ntlcm91z4.cloudfront.net/user_3INtVVsrCBipnAp2zgCDZq6LsaM/hf_20260827_014905_dc25cd86-9dae-47a9-8fb0-88a3a20afd9e.png",
+          "display_order": 3,
+          "is_primary": false
+        },
+        {
+          "facet": "engine-bay",
+          "generation_id": "1b02a16d-ab14-44a6-a71b-9273a3efd600",
+          "source_url": "https://d8j0ntlcm91z4.cloudfront.net/user_3INtVVsrCBipnAp2zgCDZq6LsaM/hf_20260827_014904_1b02a16d-ab14-44a6-a71b-9273a3efd600.png",
+          "display_order": 4,
+          "is_primary": false
+        }
+      ]
+    },
+    {
+      "vin": "2T1BURHE8JC123456",
+      "make": "Honda",
+      "model": "Fit",
+      "year": 2017,
+      "synthetic_demo": true,
+      "media": [
+        {
+          "facet": "exterior-front",
+          "generation_id": "148e3921-ad26-46fd-9c5d-02df5dff5323",
+          "source_url": "https://d8j0ntlcm91z4.cloudfront.net/user_3INtVVsrCBipnAp2zgCDZq6LsaM/hf_20260827_024734_148e3921-ad26-46fd-9c5d-02df5dff5323.png",
+          "display_order": 0,
+          "is_primary": false
+        },
+        {
+          "facet": "exterior-rear",
+          "generation_id": "3dd50e3b-ce32-4fc7-9982-d7c2431bb991",
+          "source_url": "https://d8j0ntlcm91z4.cloudfront.net/user_3INtVVsrCBipnAp2zgCDZq6LsaM/hf_20260827_024734_3dd50e3b-ce32-4fc7-9982-d7c2431bb991.png",
+          "display_order": 1,
+          "is_primary": false
+        },
+        {
+          "facet": "exterior-side",
+          "generation_id": "0a85f7dd-3b75-46f6-92cf-732ef6644aff",
+          "source_url": "https://d8j0ntlcm91z4.cloudfront.net/user_3INtVVsrCBipnAp2zgCDZq6LsaM/hf_20260827_024734_0a85f7dd-3b75-46f6-92cf-732ef6644aff.png",
+          "display_order": 2,
+          "is_primary": false
+        },
+        {
+          "facet": "interior",
+          "generation_id": "7079ce45-13c2-42d8-9e53-0556a1d25e36",
+          "source_url": "https://d8j0ntlcm91z4.cloudfront.net/user_3INtVVsrCBipnAp2zgCDZq6LsaM/hf_20260827_024734_7079ce45-13c2-42d8-9e53-0556a1d25e36.png",
+          "display_order": 3,
+          "is_primary": false
+        },
+        {
+          "facet": "engine-bay",
+          "generation_id": "1998463e-7ae7-4af0-aa3d-b7e5ecfd82ff",
+          "source_url": "https://d8j0ntlcm91z4.cloudfront.net/user_3INtVVsrCBipnAp2zgCDZq6LsaM/hf_20260827_024734_1998463e-7ae7-4af0-aa3d-b7e5ecfd82ff.png",
+          "display_order": 4,
+          "is_primary": false
+        }
+      ]
+    },
+    {
+      "vin": "1HGBH41JXMN109186",
+      "make": "Toyota",
+      "model": "Corolla",
+      "year": 2018,
+      "synthetic_demo": true,
+      "media": [
+        {
+          "facet": "exterior-front",
+          "generation_id": "41b5dfbe-c135-4526-83d4-4abcf1e18c63",
+          "source_url": "https://d8j0ntlcm91z4.cloudfront.net/user_3INtVVsrCBipnAp2zgCDZq6LsaM/hf_20260827_030444_41b5dfbe-c135-4526-83d4-4abcf1e18c63.png",
+          "display_order": 0,
+          "is_primary": false
+        },
+        {
+          "facet": "exterior-rear",
+          "generation_id": "aa7a8fee-e210-4042-9975-892b60f0923b",
+          "source_url": "https://d8j0ntlcm91z4.cloudfront.net/user_3INtVVsrCBipnAp2zgCDZq6LsaM/hf_20260827_030444_aa7a8fee-e210-4042-9975-892b60f0923b.png",
+          "display_order": 1,
+          "is_primary": false
+        },
+        {
+          "facet": "exterior-side",
+          "generation_id": "e4974ca7-cb71-4720-b78c-1232c94331fc",
+          "source_url": "https://d8j0ntlcm91z4.cloudfront.net/user_3INtVVsrCBipnAp2zgCDZq6LsaM/hf_20260827_030445_e4974ca7-cb71-4720-b78c-1232c94331fc.png",
+          "display_order": 2,
+          "is_primary": false
+        },
+        {
+          "facet": "interior",
+          "generation_id": "9c68939d-3513-46b2-837c-e17871378085",
+          "source_url": "https://d8j0ntlcm91z4.cloudfront.net/user_3INtVVsrCBipnAp2zgCDZq6LsaM/hf_20260827_030444_9c68939d-3513-46b2-837c-e17871378085.png",
+          "display_order": 3,
+          "is_primary": false
+        },
+        {
+          "facet": "engine-bay",
+          "generation_id": "e482e386-4860-429e-8e77-a3aa09a25814",
+          "source_url": "https://d8j0ntlcm91z4.cloudfront.net/user_3INtVVsrCBipnAp2zgCDZq6LsaM/hf_20260827_030445_e482e386-4860-429e-8e77-a3aa09a25814.png",
+          "display_order": 4,
+          "is_primary": false
+        }
+      ]
+    }
+  ]
+}

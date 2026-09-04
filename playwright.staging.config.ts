@@ -18,9 +18,11 @@ import { defineConfig, devices } from '@playwright/test';
  */
 export default defineConfig({
   testDir: './tests/agents',
-  // 32–35: vehicle / parts / security / recovery. 36–37: the Issue #127 go-to-market surfaces and
-  // their fail-closed counterparts. Both sets run against the same deployed candidate.
-  testMatch: /3[2-7]-diaspora-staging-browser-.*\.spec\.ts/,
+  // 32–35: vehicle / parts / security / recovery. 36–37: Issue #127 go-to-market. 38: the
+  // Golden Dynamic Seller lifecycle. Every set runs against the same frozen deployed candidate.
+  // 42 is ADDITIVE: the certified Seller Exact-Head Staging UAT names spec 38 on its own command
+  // line, so widening this pattern cannot change what that gate runs.
+  testMatch: /(?:3[2-7]-diaspora-staging-browser-.*|38-seller-staging-browser-golden|41-seller-phase-e-staging|42-seller-media-lifecycle-staging|43-operations-serena-staging)\.spec\.ts/,
   timeout: 90_000,
   expect: { timeout: 15_000 },
   fullyParallel: false, // journeys mutate shared staging state; keep deterministic order
@@ -42,6 +44,14 @@ export default defineConfig({
   },
   projects: [
     { name: 'chromium', use: { ...devices['Desktop Chrome'] } },
+    {
+      name: 'tablet-chromium',
+      use: {
+        ...devices['Desktop Chrome'],
+        viewport: { width: 820, height: 1180 },
+        hasTouch: true,
+      },
+    },
     { name: 'mobile-chromium', use: { ...devices['Pixel 5'] } },
   ],
   outputDir: 'test-results/staging-uat-artifacts',

@@ -46,12 +46,14 @@ export async function compareListings(client, vins = []) {
           currency: detail.currency,
           mileage: detail.mileage,
           condition_category: detail.condition_category,
+          trust: detail.trust ?? null,
           trust_score: detail.trust_score,
           marketplace_tags: detail.marketplace_tags,
           trust_summary: detail.trust_summary,
           verification_summary: detail.verification_summary,
           pricing_summary: detail.pricing_summary,
           primary_image_url: detail.primary_image_url,
+          primary_image_state: detail.primary_image_state,
         };
       } catch {
         return null;

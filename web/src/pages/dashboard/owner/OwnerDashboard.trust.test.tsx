@@ -388,9 +388,10 @@ describe('owner list surfaces — no invented tier vocabulary', () => {
     })
   }
 
-  it('SavedCars makes no trust claim at all — the score-threshold "Verified" badge is gone', async () => {
-    // The card rendered `trust_score > 80 && <Badge>Verified</Badge>`: a threshold set on this page,
-    // over a number this page may not bucket, producing a verification claim from a trust score.
+  it('SavedCars renders canonical Trust without reviving the score-threshold "Verified" tier', async () => {
+    // Saved Cars now deliberately reuses the Marketplace vehicle-story component. It may therefore
+    // render the canonical public Trust projection, but it still must never infer "Verified" from
+    // trust_score (or from any client-side threshold).
     fetchSavedMarketplaceListings.mockResolvedValue({
       listings: [savedListing(evaluated(96, 'high'), { trust_score: 96 })],
     })
@@ -399,7 +400,10 @@ describe('owner list surfaces — no invented tier vocabulary', () => {
 
     const page = container.textContent || ''
     expect(page).not.toContain('Verified')
-    expect(page).not.toMatch(/Trust/i)
+    const trust = screen.getByTestId('marketplace-card-trust')
+    expect(trust.textContent).toMatch(/CarUp Trust/i)
+    expect(trust.textContent).toContain('96/100')
+    expect(trust.textContent).toMatch(/High/i)
   })
 
   it('no owner surface buckets a score client-side or falls back to the stored column', () => {

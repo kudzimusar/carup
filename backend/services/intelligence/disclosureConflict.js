@@ -52,13 +52,17 @@ export function extractClaims(snapshot = {}) {
  * Returns a conflict object (not persisted) or null when supported/not applicable.
  */
 export function classifyConflict(claim, evidence = {}) {
-  const mk = (classification, severity, evidence_ids, summary, internal) => ({
+  // `confidence` defaults to 0.75 so every pre-existing arm below is byte-identical. The structured
+  // record-vs-record arms pass `null` DELIBERATELY: those compare a Seller's selection from a closed
+  // vocabulary against a governed record, which is a deterministic comparison with no inference in
+  // it — a confidence score there would be a fabricated number attached to a fact.
+  const mk = (classification, severity, evidence_ids, summary, internal, confidence = 0.75) => ({
     vin: claim.vin,
     claim_id: claim.id || null,
     conflict_type: claim.claim_type,
     classification,
     evidence_ids: evidence_ids || [],
-    confidence: 0.75,
+    confidence,
     severity,
     reviewer_state: 'pending_review',
     public_summary: summary,
@@ -104,6 +108,19 @@ export function classifyConflict(claim, evidence = {}) {
         return mk('strong_conflict', 'high', evidence.importEvidenceIds || [],
           'Historical import evidence exists while the listing states the vehicle was never imported. Requires reviewer confirmation.',
           'claim never_imported vs import evidence');
+      }
+      return null;
+    // M16 (master plan §0.7): the Seller stated no outstanding finance / a since-cleared finance,
+    // while a GOVERNED finance obligation (backend/services/finance/vehicleFinanceObligationService.js
+    // — lender/provider-attested or admin-recorded ONLY, never the Seller's own statement) is
+    // currently active/unreleased. No amount, no lender name, no reference ever appears in
+    // `evidence_ids` here — this compares STATES, not documents, so it carries none.
+    case 'no_finance_outstanding':
+      if (evidence.hasGovernedFinanceObligation) {
+        return mk('possible_conflict', 'medium', [],
+          'A governed finance/lender record for this vehicle does not agree with the seller’s finance statement. This is a possible disclosure conflict and requires reviewer confirmation before it can be shown to buyers.',
+          'seller no_finance_outstanding vs governed blocking finance obligation',
+          null);
       }
       return null;
     default:

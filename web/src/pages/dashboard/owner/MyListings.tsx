@@ -1,18 +1,19 @@
 import { useState, useEffect } from 'react'
 import { Link } from 'react-router-dom'
-import { Card, CardContent } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
-import { Plus, Eye, DollarSign, TrendingUp, Loader2, Car, MessageSquare } from 'lucide-react'
+import { Input } from '@/components/ui/input'
+import { Plus, Eye, DollarSign, TrendingUp, Loader2, Car, MessageSquare, ArrowRight, FileCheck2 } from 'lucide-react'
 import { toast } from 'sonner'
-import { ListingImage } from '@/components/marketplace/ListingImage'
-import { primaryListingImageUrl } from '@/lib/listingMedia'
+import ListingInsights from '@/components/intelligence/ListingInsights'
+import { OwnerListingMedia } from '@/components/listing/OwnerListingMedia'
 import { useCarUpApi } from '@/hooks/useCarUpApi'
 import { SellerInquiriesCard } from '@/components/marketplace/SellerInquiriesCard'
 import { PUBLICATION_BADGE } from '@/lib/publicationStatus'
 import { describePublicationRefusal } from '@/lib/publicationRefusal'
 import { readOwnerTrustClaim, statedPrice } from './ownerStatedValues'
 import type { Vehicle } from '@/types'
+import { SellerWorkspaceHeader } from '@/components/seller/SellerWorkspaceHeader'
 
 const STATUS_BADGE: Record<string, string> = {
   available: 'bg-green-100 text-green-700',
@@ -62,8 +63,10 @@ export default function MyListings() {
     fetchCommunicationThreads,
     publishVehicleListing,
     unpublishVehicleListing,
+    updateVehiclePrice,
   } = useCarUpApi()
   const [listingStatuses, setListingStatuses] = useState<Record<string, string>>({})
+  const [insightsFor, setInsightsFor] = useState<string | null>(null)
   const [markingId, setMarkingId] = useState<string | null>(null)
   const [publishingVin, setPublishingVin] = useState<string | null>(null)
   const [publicationStatuses, setPublicationStatuses] = useState<Record<string, string>>({})
@@ -72,6 +75,50 @@ export default function MyListings() {
   // Lets SellerInquiriesCard tell "owned listings not loaded yet" apart from
   // "loaded and genuinely empty" — it receives undefined until the fetch lands.
   const [ownedLoaded, setOwnedLoaded] = useState(false)
+  const [listingsState, setListingsState] = useState<'loading' | 'ready' | 'error'>('loading')
+  const [communicationsState, setCommunicationsState] = useState<'loading' | 'ready' | 'error'>('loading')
+  // S8 — the seller's own price. `editingPriceVin` is the open editor; `priceDraft` is what they
+  // typed, kept as a STRING so an empty box stays empty rather than becoming 0.
+  const [editingPriceVin, setEditingPriceVin] = useState<string | null>(null)
+  const [priceDraft, setPriceDraft] = useState('')
+  const [savingPriceVin, setSavingPriceVin] = useState<string | null>(null)
+
+  const openPriceEditor = (vin: string, current: unknown) => {
+    setEditingPriceVin(vin)
+    // Pre-filled from the current price when there is one, and left EMPTY when there is not —
+    // seeding '0' would offer the seller a free car as a starting point.
+    setPriceDraft(typeof current === 'number' && Number.isFinite(current) ? String(current) : '')
+  }
+
+  const closePriceEditor = () => {
+    setEditingPriceVin(null)
+    setPriceDraft('')
+  }
+
+  const handlePriceSave = async (vin: string) => {
+    if (savingPriceVin) return
+    const parsed = Number(priceDraft.trim())
+    // The same rule the route enforces, applied before the request so the seller gets an immediate
+    // answer — not instead of the server check, which stays authoritative.
+    if (!priceDraft.trim() || !Number.isFinite(parsed) || parsed <= 0) {
+      toast.error('Enter a price greater than zero.')
+      return
+    }
+    setSavingPriceVin(vin)
+    try {
+      const result = await updateVehiclePrice(vin, parsed)
+      // The SERVER's price is displayed, never the typed one: echoing the input would show a price
+      // that was never stored if the write were refused or adjusted.
+      const persisted = typeof result?.price === 'number' ? result.price : parsed
+      setMyListings(prev => prev.map(item => (item.vin === vin ? { ...item, price: persisted } : item)))
+      toast.success('Price updated. Buyers will see the new price on your listing.')
+      closePriceEditor()
+    } catch (e: unknown) {
+      toast.error(e instanceof Error && e.message ? e.message : 'Could not update the price. Please try again.')
+    } finally {
+      setSavingPriceVin(null)
+    }
+  }
 
   const handlePublishToggle = async (vin: string, currentlyPublished: boolean) => {
     if (publishingVin) return
@@ -93,14 +140,30 @@ export default function MyListings() {
 
   useEffect(() => {
     let mounted = true
-    Promise.all([
+    // Both states already INITIALISE to 'loading' and both readers are stable useCallbacks, so this
+    // effect runs once per mount; re-asserting 'loading' in the effect body was a redundant
+    // cascading render. The 'ready'/'error' transitions below still ride the async boundary.
+    Promise.allSettled([
       fetchOwnedVehicles(),
-      fetchCommunicationThreads().catch(() => ({ threads: [] })),
-    ]).then(([vehicles, communications]) => {
+      fetchCommunicationThreads(),
+    ]).then(([vehiclesResult, communicationsResult]) => {
       if (!mounted) return
-      setMyListings(vehicles)
-      setConversations((communications.threads || []) as ListingConversation[])
-      setOwnedLoaded(true)
+      if (vehiclesResult.status === 'fulfilled') {
+        setMyListings(Array.isArray(vehiclesResult.value) ? vehiclesResult.value : [])
+        setOwnedLoaded(true)
+        setListingsState('ready')
+      } else {
+        setMyListings([])
+        setOwnedLoaded(false)
+        setListingsState('error')
+      }
+      if (communicationsResult.status === 'fulfilled') {
+        setConversations((communicationsResult.value.threads || []) as ListingConversation[])
+        setCommunicationsState('ready')
+      } else {
+        setConversations([])
+        setCommunicationsState('error')
+      }
     })
     return () => { mounted = false }
   }, [fetchCommunicationThreads, fetchOwnedVehicles])
@@ -125,154 +188,343 @@ export default function MyListings() {
     conversation.business_workflow === 'marketplace' || conversation.thread_type === 'marketplace_inquiry')
   const totalUnread = marketplaceConversations.reduce((sum, conversation) => sum + Number(conversation.unread_count || 0), 0)
 
+  const publishedCount = myListings.filter((listing) =>
+    (publicationStatuses[listing.vin] || listing.publication_status) === 'published').length
+  const draftsNeedingAction = myListings.filter((listing) => {
+    const publication = publicationStatuses[listing.vin] || listing.publication_status
+    const status = listingStatuses[listing.vin] || listing.status
+    return publication !== 'published' && !isSoldListingStatus(status)
+  }).length
+  const trackedViews = myListings
+    .map(listing => listing.viewCount)
+    .filter((value): value is number => typeof value === 'number' && Number.isFinite(value))
+  const rawSaveCounts = myListings
+    .map(listing => (listing as Vehicle & { saveCount?: number }).saveCount)
+    .filter((value): value is number => typeof value === 'number' && Number.isFinite(value))
+  const pricedListings = myListings.filter(listing =>
+    typeof listing.price === 'number' && Number.isFinite(listing.price) && Boolean(listing.currency))
+  const valueCurrencies = new Set(pricedListings.map(listing => String(listing.currency)))
+  const canAggregateValue = myListings.length > 0
+    && pricedListings.length === myListings.length
+    && valueCurrencies.size === 1
+  const listingValue = canAggregateValue
+    ? `${[...valueCurrencies][0]} ${pricedListings.reduce((sum, listing) => sum + Number(listing.price), 0).toLocaleString()}`
+    : 'Mixed / incomplete'
+
   return (
-    <div className="space-y-6 max-w-7xl mx-auto">
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-bold">My Listings</h1>
-          <p className="text-gray-500">
-            {myListings.length} listings · {marketplaceConversations.length} conversations · {totalUnread} unread
-          </p>
-        </div>
-        <Button className="bg-orange-500 hover:bg-orange-600 gap-1" asChild>
-          <Link to="/dashboard/sell-vehicle"><Plus className="w-4 h-4" /> New Listing</Link>
-        </Button>
-      </div>
+    <div className="mx-auto max-w-[1440px] space-y-9">
+      <SellerWorkspaceHeader
+        eyebrow="Commerce workspace"
+        title="My Listings"
+        description="Operate the commercial lifecycle around the same Vehicle Passport: continue drafts, publish deliberately, respond to buyers and retire sold stock without creating a parallel vehicle record."
+        statusLabel={listingsState === 'loading'
+          ? 'Loading governed listing state'
+          : listingsState === 'error'
+            ? 'Listing read unavailable'
+            : communicationsState === 'error'
+              ? `${myListings.length} vehicle listings · conversation read unavailable`
+              : `${myListings.length} vehicle listings · ${marketplaceConversations.length} conversations · ${totalUnread} unread`}
+        primaryAction={(
+          <Button className="min-h-11 rounded-none bg-orange-600 font-black hover:bg-orange-700" asChild>
+            <Link to="/sell"><Plus className="mr-2 h-4 w-4" /> Sell another vehicle</Link>
+          </Button>
+        )}
+      />
+
+      {listingsState === 'ready' && (
+        <section className="grid gap-px border-y border-slate-200 bg-slate-200 sm:grid-cols-2 xl:grid-cols-6" data-testid="seller-listing-kpis">
+          {[
+            ['Published', String(publishedCount), 'Public Marketplace listings'],
+            ['Need action', String(draftsNeedingAction), 'Unpublished active drafts'],
+            ['Buyer inquiries', communicationsState === 'ready' ? String(marketplaceConversations.length) : 'Unavailable', communicationsState === 'ready' ? `${totalUnread} unread` : 'Conversation read failed'],
+            ['Tracked views', trackedViews.length ? String(trackedViews.reduce((a, b) => a + b, 0)) : 'Not tracked', trackedViews.length ? `${trackedViews.length} listing${trackedViews.length === 1 ? '' : 's'} reporting` : 'No view measurement exposed'],
+            ['Tracked saves', rawSaveCounts.length ? String(rawSaveCounts.reduce((a, b) => a + b, 0)) : 'Not tracked', rawSaveCounts.length ? `${rawSaveCounts.length} listing${rawSaveCounts.length === 1 ? '' : 's'} reporting` : 'No save measurement exposed'],
+            ['Listing value', listingValue, canAggregateValue ? 'One recorded currency' : 'Not aggregated across currencies/gaps'],
+          ].map(([label, value, detail]) => (
+            <div key={label} className="bg-white px-4 py-5">
+              <p className="text-[10px] font-black uppercase tracking-[0.16em] text-slate-400">{label}</p>
+              <p className="mt-2 break-words text-2xl font-black tracking-[-0.04em] text-slate-950">{value}</p>
+              <p className="mt-1 text-[11px] leading-4 text-slate-500">{detail}</p>
+            </div>
+          ))}
+        </section>
+      )}
 
       <SellerInquiriesCard ownedListings={ownedLoaded ? myListings : undefined} />
 
-      {myListings.length === 0 ? (
-        <Card className="border-0 card-shadow">
-          <CardContent className="p-12 text-center">
-            <Car className="w-12 h-12 text-gray-300 mx-auto mb-4" />
-            <h3 className="text-lg font-semibold mb-2">No Listings Yet</h3>
-            <p className="text-gray-500 mb-4">List your vehicle on the marketplace to reach thousands of buyers across Zimbabwe.</p>
-            <Button className="bg-orange-500 hover:bg-orange-600" asChild>
-              <Link to="/dashboard/sell-vehicle">Create Your First Listing</Link>
-            </Button>
-          </CardContent>
-        </Card>
-      ) : (
-        <div className="space-y-4">
-          {myListings.map((listing) => {
+      {listingsState === 'loading' && (
+        <div className="border-y border-slate-200 py-14 text-sm text-slate-500" role="status">
+          Loading your Seller commerce workspace…
+        </div>
+      )}
+
+      {listingsState === 'error' && (
+        <div className="border-y border-amber-200 bg-amber-50 px-5 py-9" role="alert">
+          <p className="font-black text-slate-950">Listings could not be read.</p>
+          <p className="mt-1 text-sm text-slate-600">CarUp has not converted that failure into zero listings or zero buyer activity.</p>
+        </div>
+      )}
+
+      {listingsState === 'ready' && myListings.length === 0 && (
+        <section className="grid gap-6 border-y border-slate-200 py-12 lg:grid-cols-[1fr_auto] lg:items-center">
+          <div>
+            <Car className="h-9 w-9 text-slate-300" />
+            <h2 className="mt-4 text-3xl font-black tracking-[-0.04em] text-slate-950">No Seller listing thread yet.</h2>
+            <p className="mt-2 max-w-2xl text-sm leading-6 text-slate-600">
+              Choose a vehicle already in your Garage or add one new to CarUp. A draft remains private until publication blockers clear and you explicitly publish it.
+            </p>
+          </div>
+          <Button asChild className="min-h-12 rounded-none bg-orange-600 font-black hover:bg-orange-700">
+            <Link to="/sell">Start Seller journey <ArrowRight className="ml-2 h-4 w-4" /></Link>
+          </Button>
+        </section>
+      )}
+
+      {listingsState === 'ready' && myListings.length > 0 && (
+        <section className="divide-y divide-slate-200 border-y border-slate-200">
+          {myListings.map((listing, index) => {
             const effectiveStatus = listingStatuses[listing.vin] || listing.status || ''
             const normalizedStatus = normalizeListingStatus(effectiveStatus)
+            const publication = publicationStatuses[listing.vin] || listing.publication_status || ''
+            const publicationMeta = publication ? PUBLICATION_BADGE[publication] : null
             const trust = readOwnerTrustClaim(listing)
             const isSold = isSoldListingStatus(effectiveStatus)
+            const isPublished = publication === 'published'
             const listingConversations = marketplaceConversations.filter((conversation) =>
               String(conversation.marketplace_listing_id || '').toUpperCase() === String(listing.vin || '').toUpperCase())
             const listingUnread = listingConversations.reduce((sum, conversation) => sum + Number(conversation.unread_count || 0), 0)
             const latest = listingConversations[0]?.latest_message?.text
+            const dominant = isSold
+              ? { label: 'View Vehicle Passport', href: `/dashboard/garage/${encodeURIComponent(listing.vin)}` }
+              : isPublished
+                ? { label: 'View on Marketplace', href: `/marketplace/${encodeURIComponent(listing.vin)}` }
+                : { label: 'Continue listing', href: `/dashboard/sell-vehicle?vin=${encodeURIComponent(listing.vin)}` }
+
             return (
-              <Card key={listing.vin} className={`border-0 card-shadow transition-opacity ${isSold ? 'opacity-60' : ''}`}>
-                <CardContent className="p-5" data-testid={`my-listing-card-${listing.vin}`}>
-                  <div className="flex gap-4">
-                    {/* No stock-photo stand-in: an unrelated car is a claim about this listing. */}
-                    <ListingImage
-                      src={primaryListingImageUrl(listing.listing_media)}
-                      alt={`${listing.year} ${listing.make} ${listing.model}`}
-                      className="w-32 h-24 rounded-lg overflow-hidden flex-shrink-0"
-                    />
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-start justify-between gap-2 flex-wrap">
-                        <div>
-                          <h3 className="font-semibold">{listing.year} {listing.make} {listing.model}</h3>
-                          <p className="text-lg font-bold text-orange-600 mt-0.5" data-testid={`listing-price-${listing.vin}`}>
-                            {statedPrice(listing.price)}
-                          </p>
-                        </div>
-                        <div className="flex gap-1.5 flex-wrap justify-end">
-                          <Badge className={`text-xs font-medium ${STATUS_BADGE[normalizedStatus] || 'bg-gray-100 text-gray-600'}`}>
-                            {formatListingStatus(effectiveStatus)}
-                          </Badge>
-                          {(() => {
-                            const pub = publicationStatuses[listing.vin] || listing.publication_status
-                            const meta = pub ? PUBLICATION_BADGE[pub] : null
-                            return meta ? (
-                              <Badge data-testid={`publication-badge-${listing.vin}`} className={`text-xs font-medium ${meta.className}`}>
-                                {meta.label}
-                              </Badge>
-                            ) : null
-                          })()}
-                        </div>
-                      </div>
-                      <div className="flex flex-wrap gap-3 mt-2 text-xs text-gray-500">
-                        {/* `viewCount || 0` reported "0 views" on a listing nothing counts views
-                            for — a measurement of zero where no measurement is taken. */}
-                        <span className="flex items-center gap-1" data-testid={`listing-views-${listing.vin}`}>
-                          <Eye className="w-3 h-3" />
-                          {typeof listing.viewCount === 'number' ? `${listing.viewCount} views` : 'Views not tracked'}
-                        </span>
-                        <span className="flex items-center gap-1" data-testid={`trust-claim-${listing.vin}`}>
-                          <TrendingUp className="w-3 h-3" />
-                          {trust.score !== null ? (
-                            <span data-testid={`trust-claim-score-${listing.vin}`}>Trust: {trust.score} / 100 · {trust.headline}</span>
-                          ) : (
-                            <span className="italic text-gray-400" data-testid={`trust-claim-state-${listing.vin}`}>Trust: {trust.headline}</span>
-                          )}
-                        </span>
-                        <span className="flex items-center gap-1"><MessageSquare className="w-3 h-3" />{listingConversations.length} conversations · {listingUnread} unread</span>
-                        {/* `vehicles.created_at` is the row-insert timestamp, not the date this
-                            listing was published — there is no governed publication date, so the
-                            absence is stated rather than filled with the record's birthday. */}
-                        <span>Listing date not recorded</span>
-                      </div>
-                      {latest && <p className="mt-2 line-clamp-1 text-xs text-gray-600">Latest: “{latest}”</p>}
-                      {/* OBS-16: a non-wrapping flex row of four actions, the last of them the long
-                          "Publish to Marketplace", pushed the CTA outside the card on a narrow
-                          viewport and gave the page horizontal overflow. Wrapping is the whole fix —
-                          the publication semantics are untouched. */}
-                      <div className="flex flex-wrap gap-2 mt-3" data-testid={`listing-actions-${listing.vin}`}>
-                        <Button size="sm" className="text-xs gap-1" asChild>
-                          <Link to="/dashboard/communications"><MessageSquare className="w-3 h-3" /> Conversations</Link>
-                        </Button>
-                        <Button size="sm" variant="outline" className="text-xs gap-1" asChild>
-                          <Link to={`/marketplace/${listing.vin}`}><Eye className="w-3 h-3" /> View listing</Link>
-                        </Button>
-                        {!isSold && (
-                          <Button
-                            size="sm"
-                            variant="outline"
-                            className="text-xs gap-1"
-                            data-testid={`mark-sold-${listing.vin}`}
-                            disabled={markingId === listing.vin}
-                            onClick={() => handleMarkSold(listing.vin, listing.vin)}
-                          >
-                            {markingId === listing.vin
-                              ? <><Loader2 className="w-3 h-3 animate-spin" /> Updating...</>
-                              : <><DollarSign className="w-3 h-3" /> Mark sold</>
-                            }
-                          </Button>
-                        )}
-                        {!isSold && (() => {
-                          const pub = publicationStatuses[listing.vin] || listing.publication_status
-                          if (!pub) return null
-                          const isPublished = pub === 'published'
-                          return (
-                            <Button
-                              size="sm"
-                              variant={isPublished ? 'outline' : 'default'}
-                              className={`text-xs gap-1 ${isPublished ? '' : 'bg-green-600 hover:bg-green-700'}`}
-                              data-testid={`publish-toggle-${listing.vin}`}
-                              disabled={publishingVin === listing.vin}
-                              onClick={() => handlePublishToggle(listing.vin, isPublished)}
-                            >
-                              {publishingVin === listing.vin
-                                ? <><Loader2 className="w-3 h-3 animate-spin" /> Updating...</>
-                                : (isPublished ? 'Unpublish' : 'Publish to Marketplace')
-                              }
-                            </Button>
-                          )
-                        })()}
-                        {isSold && <Badge className="text-xs text-gray-400 font-normal">Sale completed</Badge>}
-                      </div>
+              <article
+                key={listing.vin}
+                className={`grid gap-0 py-8 lg:grid-cols-[340px_minmax(0,1fr)] lg:gap-9 ${isSold ? 'opacity-75' : ''}`}
+                data-testid={`my-listing-card-${listing.vin}`}
+              >
+                <div className="relative min-h-[230px] overflow-hidden bg-slate-100">
+                  <OwnerListingMedia
+                    media={listing.listing_media}
+                    alt={`${listing.year || ''} ${listing.make || ''} ${listing.model || ''}`.trim() || 'Vehicle listing media'}
+                    className="absolute inset-0 h-full w-full"
+                    imgClassName="h-full w-full"
+                  />
+                  <div className="pointer-events-none absolute inset-x-0 bottom-0 bg-gradient-to-t from-slate-950/85 to-transparent px-5 pb-5 pt-16 text-white">
+                    <p className="font-mono text-[11px]">{listing.vin}</p>
+                    <p className="mt-1 text-xs text-slate-200">Vehicle Passport commerce thread</p>
+                  </div>
+                </div>
+
+                <div className="min-w-0 py-5 lg:py-1">
+                  <div className="flex flex-col gap-5 xl:flex-row xl:items-start xl:justify-between">
+                    <div className="min-w-0">
+                      <p className="text-[10px] font-black uppercase tracking-[0.18em] text-slate-400">
+                        Listing {String(index + 1).padStart(2, '0')}
+                      </p>
+                      <h2 className="mt-2 text-3xl font-black tracking-[-0.045em] text-slate-950">
+                        {[listing.year, listing.make, listing.model].filter(Boolean).join(' ') || 'Vehicle identity incomplete'}
+                      </h2>
+                      <p className="mt-2 text-xl font-black text-orange-600" data-testid={`listing-price-${listing.vin}`}>
+                        {statedPrice(listing.price)}
+                      </p>
+                    </div>
+                    <Button asChild className="min-h-11 rounded-none bg-slate-950 px-6 font-black hover:bg-orange-600">
+                      <Link to={dominant.href} data-testid={`listing-primary-${listing.vin}`}>
+                        {dominant.label} <ArrowRight className="ml-2 h-4 w-4" />
+                      </Link>
+                    </Button>
+                  </div>
+
+                  <div className="mt-5 flex flex-wrap gap-2">
+                    <Badge className={`rounded-none text-xs font-bold ${STATUS_BADGE[normalizedStatus] || 'bg-slate-100 text-slate-700'}`}>
+                      Availability: {formatListingStatus(effectiveStatus)}
+                    </Badge>
+                    {publicationMeta ? (
+                      <Badge data-testid={`publication-badge-${listing.vin}`} className={`rounded-none text-xs font-bold ${publicationMeta.className}`}>
+                        Publication: {publicationMeta.label}
+                      </Badge>
+                    ) : (
+                      <Badge data-testid={`publication-badge-${listing.vin}`} className="rounded-none bg-slate-100 text-xs font-bold text-slate-700">
+                        Publication state not recorded
+                      </Badge>
+                    )}
+                  </div>
+
+                  <div className="mt-6 grid gap-px bg-slate-200 sm:grid-cols-3">
+                    <div className="bg-white px-4 py-4" data-testid={`listing-views-${listing.vin}`}>
+                      <p className="text-[10px] font-black uppercase tracking-[0.14em] text-slate-400">Views</p>
+                      <p className="mt-2 text-sm font-bold text-slate-800">
+                        {typeof listing.viewCount === 'number' ? `${listing.viewCount} views` : 'Views not tracked'}
+                      </p>
+                    </div>
+                    <div className="bg-white px-4 py-4" data-testid={`trust-claim-${listing.vin}`}>
+                      <p className="text-[10px] font-black uppercase tracking-[0.14em] text-slate-400">Canonical Trust</p>
+                      {trust.score !== null ? (
+                        <p className="mt-2 text-sm font-bold text-slate-800" data-testid={`trust-claim-score-${listing.vin}`}>
+                          {trust.score} / 100 · {trust.headline}
+                        </p>
+                      ) : (
+                        <p className="mt-2 text-sm font-bold text-slate-500" data-testid={`trust-claim-state-${listing.vin}`}>
+                          {trust.headline}
+                        </p>
+                      )}
+                    </div>
+                    <div className="bg-white px-4 py-4">
+                      <p className="text-[10px] font-black uppercase tracking-[0.14em] text-slate-400">Buyer activity</p>
+                      <p className="mt-2 text-sm font-bold text-slate-800">
+                        {communicationsState === 'ready'
+                          ? `${listingConversations.length} conversations · ${listingUnread} unread`
+                          : 'Conversation state unavailable'}
+                      </p>
                     </div>
                   </div>
-                </CardContent>
-              </Card>
+
+                  <p className="mt-4 text-xs text-slate-500">Listing date not recorded</p>
+                  {latest && <p className="mt-2 line-clamp-2 text-xs leading-5 text-slate-600">Latest buyer message: “{latest}”</p>}
+
+                  <div className="mt-6 border-t border-slate-200 pt-5">
+                    <p className="text-[10px] font-black uppercase tracking-[0.16em] text-slate-400">Manage this listing</p>
+                    <div className="flex flex-wrap gap-2 mt-3" data-testid={`listing-actions-${listing.vin}`}>
+                      <Button size="sm" variant="outline" className="min-h-10 rounded-none text-xs font-bold" asChild>
+                        <Link to={isPublished
+                          ? `/marketplace/${encodeURIComponent(listing.vin)}`
+                          : `/marketplace/${encodeURIComponent(listing.vin)}?mode=seller_preview`}>
+                          <Eye className="mr-1.5 h-3.5 w-3.5" /> {isPublished ? 'Public detail' : 'Buyer Preview'}
+                        </Link>
+                      </Button>
+                      <Button size="sm" variant="outline" className="min-h-10 rounded-none text-xs font-bold" asChild>
+                        <Link to={`/dashboard/garage/${encodeURIComponent(listing.vin)}`}>
+                          <FileCheck2 className="mr-1.5 h-3.5 w-3.5" /> Evidence &amp; Trust
+                        </Link>
+                      </Button>
+                      {!isSold && !isPublished && (
+                        <Button size="sm" variant="outline" className="min-h-10 rounded-none text-xs font-bold" asChild>
+                          <Link to={`/dashboard/sell-vehicle?vin=${encodeURIComponent(listing.vin)}&stage=review`} data-testid={`publication-readiness-${listing.vin}`}>
+                            <FileCheck2 className="mr-1.5 h-3.5 w-3.5" /> Publication readiness
+                          </Link>
+                        </Button>
+                      )}
+                      <Button size="sm" variant="outline" className="min-h-10 rounded-none text-xs font-bold" asChild>
+                        <Link to="/dashboard/communications">
+                          <MessageSquare className="mr-1.5 h-3.5 w-3.5" /> Conversations
+                        </Link>
+                      </Button>
+                      {!isSold && (
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          className="min-h-10 rounded-none text-xs font-bold"
+                          data-testid={`change-price-${listing.vin}`}
+                          onClick={() => openPriceEditor(listing.vin, listing.price)}
+                        >
+                          <DollarSign className="mr-1 h-3.5 w-3.5" /> Change price
+                        </Button>
+                      )}
+                      {!isSold && (
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          className="min-h-10 rounded-none text-xs font-bold"
+                          data-testid={`mark-sold-${listing.vin}`}
+                          disabled={markingId === listing.vin}
+                          onClick={() => handleMarkSold(listing.vin, listing.vin)}
+                        >
+                          {markingId === listing.vin
+                            ? <><Loader2 className="mr-1 h-3 w-3 animate-spin" /> Updating…</>
+                            : 'Mark sold'}
+                        </Button>
+                      )}
+                      {!isSold && publication && (
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          className="min-h-10 rounded-none text-xs font-bold"
+                          data-testid={`publish-toggle-${listing.vin}`}
+                          disabled={publishingVin === listing.vin}
+                          onClick={() => handlePublishToggle(listing.vin, isPublished)}
+                        >
+                          {publishingVin === listing.vin
+                            ? <><Loader2 className="mr-1 h-3 w-3 animate-spin" /> Updating…</>
+                            : (isPublished ? 'Unpublish' : 'Publish to Marketplace')}
+                        </Button>
+                      )}
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        className="min-h-10 rounded-none px-2 text-xs font-bold"
+                        data-testid={`toggle-insights-${listing.vin}`}
+                        aria-expanded={insightsFor === listing.vin}
+                        onClick={() => setInsightsFor(insightsFor === listing.vin ? null : listing.vin)}
+                      >
+                        <TrendingUp className="mr-1.5 h-3.5 w-3.5" />
+                        {insightsFor === listing.vin ? 'Hide performance' : 'Performance'}
+                      </Button>
+                    </div>
+
+                    {insightsFor === listing.vin && (
+                      <div className="mt-4" data-testid={`listing-insights-panel-${listing.vin}`}>
+                        <ListingInsights vin={listing.vin} />
+                      </div>
+                    )}
+
+                    {editingPriceVin === listing.vin && (
+                      <div className="mt-4 border-l-2 border-orange-500 bg-slate-50 p-4" data-testid={`price-editor-${listing.vin}`}>
+                        <label className="text-xs font-bold text-slate-700" htmlFor={`price-input-${listing.vin}`}>
+                          New price
+                          {listing.currency && <span className="ml-1 font-normal text-slate-500">({listing.currency})</span>}
+                        </label>
+                        <div className="mt-2 flex flex-wrap items-center gap-2">
+                          <Input
+                            id={`price-input-${listing.vin}`}
+                            data-testid={`price-input-${listing.vin}`}
+                            type="number"
+                            min="1"
+                            value={priceDraft}
+                            onChange={e => setPriceDraft(e.target.value)}
+                            className="h-10 w-44 rounded-none text-sm"
+                          />
+                          <Button
+                            size="sm"
+                            className="min-h-10 rounded-none text-xs font-bold"
+                            data-testid={`price-save-${listing.vin}`}
+                            disabled={savingPriceVin === listing.vin}
+                            onClick={() => handlePriceSave(listing.vin)}
+                          >
+                            {savingPriceVin === listing.vin
+                              ? <><Loader2 className="mr-1 h-3 w-3 animate-spin" /> Saving…</>
+                              : 'Save price'}
+                          </Button>
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            className="min-h-10 rounded-none text-xs"
+                            data-testid={`price-cancel-${listing.vin}`}
+                            onClick={closePriceEditor}
+                          >
+                            Cancel
+                          </Button>
+                        </div>
+                        <p className="mt-2 text-[11px] leading-4 text-slate-500">
+                          Only the recorded amount changes. Currency, availability, Trust and verification remain separate.
+                        </p>
+                      </div>
+                    )}
+
+                    {isSold && (
+                      <p className="mt-4 text-xs font-bold text-slate-500">
+                        Sale completed. The Vehicle Passport remains durable even though active Marketplace commerce has ended.
+                      </p>
+                    )}
+                  </div>
+                </div>
+              </article>
             )
           })}
-        </div>
+        </section>
       )}
     </div>
   )

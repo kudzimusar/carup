@@ -31,6 +31,7 @@ import { IMPORT_ORDER_STATUSES } from '../../constants/diaspora/diasporaStatuses
 import { GOVERNMENT_DOCUMENT_CATEGORIES } from '../../constants/diaspora/diasporaDocumentTypes.js';
 import { ZIMBABWE_READY_REQUIRED_DOCUMENTS } from './diasporaWorkflowService.js';
 import { calculateHash } from '../blockchain/blockchainService.js';
+import { signSystemLedgerHash } from '../blockchain/blockchainKeyCustodyService.js';
 import { CarUpError, DatabaseError, ForbiddenError, NotFoundError, ValidationError } from '../../utils/errors.js';
 import {
   assertCanReadImportOrder,
@@ -237,8 +238,14 @@ async function appendHandoffTimelineEvent(client, { vin, payload }) {
   const previousHash = lastEvents?.[0]?.current_hash || GENESIS_HASH;
   const timestamp = new Date().toISOString();
   const currentHash = calculateHash(previousHash, vin, HANDOFF_EVENT_TYPE, timestamp, payload);
-  const hmac = crypto.createHmac('sha256', 'carup-system-secret');
-  hmac.update(currentHash);
+
+  // Sign through the CANONICAL system signer, not a local HMAC over a hardcoded literal.
+  // Issue #158 retired the hardcoded system-secret literal in favour of the configured
+  // CARUP_BLOCKCHAIN_SYSTEM_HMAC_SECRET, and verifyChain validates system signatures with
+  // verifySystemLedgerHash. A copy of the retired literal here does not merely duplicate a
+  // secret: every handoff event it signed would FAIL chain verification for that VIN
+  // forever, because the verifier no longer holds the key this signer used.
+  const systemSignature = signSystemLedgerHash(currentHash);
 
   const { data, error } = await client
     .from(TIMELINE_EVENTS)
@@ -249,7 +256,7 @@ async function appendHandoffTimelineEvent(client, { vin, payload }) {
       event_type: HANDOFF_EVENT_TYPE,
       payload: JSON.stringify(payload),
       timestamp,
-      signature: `system:${hmac.digest('hex')}`,
+      signature: `system:${systemSignature}`,
     })
     .select()
     .single();

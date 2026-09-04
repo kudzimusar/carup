@@ -339,7 +339,6 @@ test('the allow-lists match the Issue #164 branch exactly, so reconciling is a d
     'captured_at', 'uploaded_at', 'verified_at', 'created_at',
     'verification_status', 'visibility_level',
     'file_url', 'mime_type', 'file_size',
-    'trust_score_impact', 'trust_impact',
     'source_name', 'checksum', 'image_hash',
     'odometer_value', 'odometer_unit', 'declared_condition', 'component_tags',
     'linked_registry_event_id', 'timeline_event_id',
@@ -352,11 +351,17 @@ test('the allow-lists match the Issue #164 branch exactly, so reconciling is a d
     'the only field this hotfix publishes beyond the Issue #164 list must be the recorded delta');
   assert.deepEqual(missing, [],
     'this hotfix must not publish LESS than the Issue #164 list');
+  for (const forbidden of ['trust_score_impact', 'trust_impact']) {
+    assert.ok(!PUBLIC_EVIDENCE_FIELDS.includes(forbidden),
+      `${forbidden} is a legacy scoring input, not public evidence truth`);
+    assert.ok(!PUBLIC_TIMELINE_EVENT_FIELDS.includes(forbidden),
+      `${forbidden} must not leak through a public Passport timeline`);
+  }
 
   assert.deepEqual([...PUBLIC_TIMELINE_EVENT_FIELDS], [
     'id', 'event_source', 'event_type', 'evidence_type', 'timestamp',
     'label', 'desc', 'details', 'publicDescription', 'publicSummary',
-    'verification_status', 'file_url', 'mime_type', 'trust_score_impact',
+    'verification_status', 'file_url', 'mime_type',
   ], 'must equal PUBLIC_TIMELINE_EVENT_FIELDS on the Issue #164 branch');
 });
 

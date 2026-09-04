@@ -250,6 +250,33 @@ export interface ApiRequestConfig {
 }
 
 /**
+ * Supplies the pseudonymous session / page-view headers that let a SERVER-emitted
+ * Intelligence observation be attributed to a shopper (contract §3).
+ *
+ * Injected here rather than at each call site because this is the single request
+ * chokepoint: one hook instruments every page, and no page needs to know that
+ * analytics exists. It is a mutable slot rather than a direct import so this
+ * framework-agnostic module keeps no dependency on the activity client, and so
+ * tests can run without any activity state at all.
+ */
+let activityContextProvider: (() => Record<string, string>) | null = null
+
+export function setActivityContextProvider(provider: (() => Record<string, string>) | null): void {
+  activityContextProvider = provider
+}
+
+function activityContextHeaders(): Record<string, string> {
+  if (!activityContextProvider) return {}
+  try {
+    const provided = activityContextProvider()
+    return provided && typeof provided === 'object' ? provided : {}
+  } catch {
+    // Telemetry context must never break a product request.
+    return {}
+  }
+}
+
+/**
  * Perform an API request. For unsafe methods it first obtains a correctly-bound CSRF token and
  * attaches it as x-csrf-token (with credentials). If the token cannot be obtained it throws a
  * clear error BEFORE the unsafe request is sent, so the caller never fires a request the server
@@ -263,6 +290,8 @@ export async function apiRequest<T = any>({
   fetchImpl = fetch,
 }: ApiRequestConfig): Promise<T> {
   const headers: Record<string, string> = {
+    // Activity context first, so an explicit auth header always wins a name clash.
+    ...activityContextHeaders(),
     ...(authHeaders as Record<string, string>),
   }
 

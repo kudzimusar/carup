@@ -65,6 +65,8 @@ import {
   shouldShowFixtures,
 } from './listingSummaryService.js';
 import { toListingMediaBlock } from '../../utils/vehicleMediaProjection.js';
+import { toVehicleHistoryDisclosures } from '../../utils/publicVehicleProjection.js';
+import { projectFinanceObligationForVehicle } from '../finance/vehicleFinanceObligationService.js';
 import { getFixtureExclusion } from './marketplaceClassificationRules.js';
 import { buildTrustSummary, buildVerificationSummary } from './marketplaceTrustSummaryService.js';
 import { buildPricingSummary } from './marketplacePricingService.js';
@@ -157,10 +159,10 @@ function buildTransactionIntent(trustSummary, reservationSummary) {
 /**
  * @param {object} supabaseClient
  * @param {string} vin
- * @param {{ audience?: 'public'|'admin', showFixtures?: boolean }} [options]
+ * @param {{ audience?: 'public'|'admin', showFixtures?: boolean, fixtureScope?: string|null }} [options]
  * @returns {Promise<object>} MarketplaceListingDetail
  */
-export async function getMarketplaceListingDetail(supabaseClient, vin, { audience = 'public', showFixtures } = {}) {
+export async function getMarketplaceListingDetail(supabaseClient, vin, { audience = 'public', showFixtures, fixtureScope } = {}) {
   if (!vin) throw new NotFoundError('Listing not found');
 
   const { data: rows, error } = await selectListingRows(supabaseClient, (q) => q.eq('vin', vin));
@@ -179,12 +181,12 @@ export async function getMarketplaceListingDetail(supabaseClient, vin, { audienc
     }
   } else {
     // Public/buyer audience: only publicly-visible, non-fixture listings resolve.
-    const visible = filterVisibleVehicles([candidate], { showFixtures });
+    const visible = filterVisibleVehicles([candidate], { showFixtures, fixtureScope });
     if (!visible.length) throw new NotFoundError('Listing not found');
   }
   const vehicle = candidate;
 
-  const [related, trustByVin, reservationSummary] = await Promise.all([
+  const [related, trustByVin, reservationSummary, financeObligation] = await Promise.all([
     fetchListingRelatedRows(supabaseClient, [vin]),
     // THE SAME READ THE LIST USES. `fetchCanonicalTrustByVin` is the cache-only batch path, so the
     // detail page reports exactly what the card reported for this VIN — same score, same
@@ -195,6 +197,12 @@ export async function getMarketplaceListingDetail(supabaseClient, vin, { audienc
     // READ ONLY. `vehicle_reservations` decides whether a hold is live; the vehicle row's Reserved
     // marker is only a cache and may legitimately lag expiry reconciliation.
     getPublicReservationProjection(vin, { client: supabaseClient }),
+    // GOVERNED finance obligation / encumbrance (Track 1). A separate table from `vehicles`, so it
+    // cannot ride the vehicle select above; the composed contract fetches AND projects in one call
+    // so this file never imports `toVehicleFinanceObligationBlock` directly (no free-name forking
+    // of the passport's closed-collaborator discipline — this file is not source-executed the way
+    // buildVehiclePassport is, but the projection stays single-sourced regardless).
+    projectFinanceObligationForVehicle(supabaseClient, vin),
   ]);
   const { evidenceByVin, partSentryByVin, ownershipByVin } = related;
 
@@ -214,7 +222,14 @@ export async function getMarketplaceListingDetail(supabaseClient, vin, { audienc
   });
   const projectedListingStatus = projectListingStatusWithReservation(listingSummary.status, reservationSummary);
 
-  const trust_summary = buildTrustSummary({ vehicle, listingSummary, evidenceRows, partSentryRows, audience });
+  const trust_summary = buildTrustSummary({
+    vehicle, listingSummary, evidenceRows, partSentryRows, audience,
+    // Carry WHETHER each trust input actually resolved, so an unreadable table cannot be published
+    // as a governed all-clear. `related` defaults these to true when a caller supplies pre-fetched
+    // rows without the discriminators.
+    evidenceRead: related?.evidenceRead !== false,
+    partSentryRead: related?.partSentryRead !== false,
+  });
   const verification_summary = buildVerificationSummary({ vehicle, listingSummary, evidenceRows, partSentryRows });
   const pricing_summary = buildPricingSummary({ listingSummary, listingType: 'vehicle' });
 
@@ -238,7 +253,10 @@ export async function getMarketplaceListingDetail(supabaseClient, vin, { audienc
     url: item.url,
     url_form: item.url_form,
     position: item.position,
+    seller_order: item.seller_order,
     is_primary: item.is_primary,
+    synthetic_demo: item.synthetic_demo,
+    photo_label: item.photo_label,
     type: 'image',
   }));
 
@@ -259,6 +277,14 @@ export async function getMarketplaceListingDetail(supabaseClient, vin, { audienc
     // Derived from it, never computed beside it. See the header note on why the key survives.
     media,
     seller_summary: buildSellerSummary(listingSummary),
+    // Vehicle History & Obligations (K17–K19): the Seller's structured accident/insurance/finance
+    // statements, block-attributed as seller_stated. A topic the seller never answered is null and
+    // must render "not recorded" — never a clean-history claim (L27). Governed accident evidence,
+    // insurer records and lender truth are separate authorities and never merge into this block.
+    history_disclosures: toVehicleHistoryDisclosures(vehicle),
+    // The GOVERNED counterpart, `authority: 'governed'` — never merged with the seller-stated block
+    // above. K20 parity with the passport: both surfaces publish through the same one contract.
+    finance_obligation: financeObligation,
     trust_summary,
     verification_summary,
     pricing_summary,

@@ -28,10 +28,22 @@ export function registerDomainListeners(worker) {
     const { vin, reservationId, transactionIntentId } = payload || {};
     console.log(`👷 [Domain Listener] VEHICLE_RESERVED observed for VIN: ${vin || 'unknown'}`);
     if (vin) {
-      await addEvent(vin, 'Vehicle Reservation Recorded', {
-        reservationId: reservationId || null,
-        transactionIntentId: transactionIntentId || null,
-      });
+      // The canonical reservation RPC has already committed the reservation, so its id is
+      // the durable operation identity. When the event carries none there is nothing durable
+      // to key on; the write stays audit-only and non-terminal, and addEvent refuses it
+      // outright if it ever reaches the terminal instant.
+      await addEvent(
+        vin,
+        'Vehicle Reservation Recorded',
+        {
+          reservationId: reservationId || null,
+          transactionIntentId: transactionIntentId || null,
+        },
+        'SYSTEM_SIGNATURE',
+        reservationId
+          ? { operationId: `reservation_recorded:${encodeURIComponent(String(reservationId))}` }
+          : {},
+      );
     }
   });
 
@@ -52,6 +64,12 @@ export function registerDomainListeners(worker) {
     const { escrowId, vin } = payload || {};
     if (!vin) return;
     console.log(`👷 [Domain Listener] Logging legacy ESCROW_CREATED audit for Escrow: ${escrowId || 'unknown'}`);
-    await addEvent(vin, 'Escrow Ledger Initiated', { escrowId: escrowId || null });
+    await addEvent(
+      vin,
+      'Escrow Ledger Initiated',
+      { escrowId: escrowId || null },
+      'SYSTEM_SIGNATURE',
+      escrowId ? { operationId: `escrow_initiated:${encodeURIComponent(String(escrowId))}` } : {},
+    );
   });
 }

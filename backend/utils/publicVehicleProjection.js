@@ -174,6 +174,13 @@ export const PUBLIC_VEHICLE_FIELDS = Object.freeze([
   'mileage', 'fuel_type', 'drivetrain', 'transmission',
   // listing
   'price', 'currency', 'status', 'publication_status', 'created_at',
+  // Seller-stated commercial listing copy. These are the seller's own words about their own
+  // listing, already published to this same anonymous audience by the Marketplace listing summary
+  // — omitting them here changed the projection, not the audience, and left the Vehicle Detail
+  // page reading `description`/`features` keys this projection never emitted. They are seller
+  // STATEMENTS: `seller_stated_condition` is deliberately separate from the governed
+  // `vehicle_condition_category` below, and neither may be rendered as the other.
+  'body_style', 'seller_stated_condition', 'seller_description', 'seller_features',
   // provenance-adjacent, non-identifying
   'import_source', 'registration_country', 'registration_authority',
   'registration_status', 'plate_status', 'vehicle_condition_category',
@@ -242,7 +249,8 @@ export const PUBLIC_EVIDENCE_FIELDS = Object.freeze([
   'captured_at', 'uploaded_at', 'verified_at', 'created_at',
   'verification_status', 'visibility_level',
   'file_url', 'mime_type', 'file_size',
-  'trust_score_impact', 'trust_impact',
+  // Legacy per-evidence scoring inputs are not public Trust facts. Canonical Trust is
+  // published through the canonical Trust contract, never reconstructed from evidence rows.
   // `source_name` only. #175 additionally published `source_id`, on the belief that newer
   // M1/ingestion rows carry attribution ONLY there. Measured against the live schema, that is not
   // what the column is: `source_id` is `uuid` (an internal FK) while `source_name` is `text`. A UUID
@@ -281,7 +289,7 @@ export const PUBLIC_PLATE_HISTORY_FIELDS = Object.freeze([
 export const PUBLIC_TIMELINE_EVENT_FIELDS = Object.freeze([
   'id', 'event_source', 'event_type', 'evidence_type', 'timestamp',
   'label', 'desc', 'details', 'publicDescription', 'publicSummary',
-  'verification_status', 'file_url', 'mime_type', 'trust_score_impact',
+  'verification_status', 'file_url', 'mime_type',
 ]);
 
 /**
@@ -537,7 +545,18 @@ export function isClaimSource(source) {
  * withholds, because absence is not permission (the rule `isPublicPlateHistoryRow` already
  * applies to plate history).
  */
-export const CLAIM_VISIBILITY = Object.freeze({ PUBLIC: 'public', WITHHELD: 'withheld' });
+/**
+ * What a seller has agreed to publish about where the vehicle is.
+ *
+ * `PROVINCE_ONLY` (Seller Journey S3) is the middle answer: it discloses strictly less than
+ * `PUBLIC` — the city leaf is withheld exactly as `WITHHELD` withholds it — so a seller willing to
+ * be found at province level is not forced to choose between their street and invisibility.
+ */
+export const CLAIM_VISIBILITY = Object.freeze({
+  PUBLIC: 'public',
+  WITHHELD: 'withheld',
+  PROVINCE_ONLY: 'province_only',
+});
 
 /**
  * Columns the Phase 4 claim contract depends on that DO NOT YET EXIST on `public.vehicles`.
@@ -895,15 +914,22 @@ export function toLocationClaim(vehicle, options) {
   const row = vehicle ?? {};
   const { audience = 'public' } = options ?? {};
   const source = options?.locationSource !== undefined ? options.locationSource : row.listing_location_source;
-  const published = row.listing_location_visibility === CLAIM_VISIBILITY.PUBLIC;
+  const visibility = row.listing_location_visibility;
+  const published = visibility === CLAIM_VISIBILITY.PUBLIC;
+  // S3: withholding is now per leaf, because `province_only` publishes the coarse location and
+  // withholds the precise one. Only the CITY separates it from `public` — a province with no
+  // country is not a smaller disclosure, it is a less useful one.
+  const provincePublished = published || visibility === CLAIM_VISIBILITY.PROVINCE_ONLY;
   // Nothing recorded means nothing to withhold: an unprovenanced location is not_recorded for
   // every audience, so "withheld" never becomes a way of implying a location exists.
-  const withheld = isClaimSource(source) && !published && audience !== 'owner';
+  const gated = isClaimSource(source) && audience !== 'owner';
+  const cityWithheld = gated && !published;
+  const areaWithheld = gated && !provincePublished;
 
   return sealClaimBlock('location', {
-    city: attestedValue(row.listing_city, source, { withheld }),
-    province: attestedValue(row.listing_province, source, { withheld }),
-    country: attestedValue(row.listing_country, source, { withheld }),
+    city: attestedValue(row.listing_city, source, { withheld: cityWithheld }),
+    province: attestedValue(row.listing_province, source, { withheld: areaWithheld }),
+    country: attestedValue(row.listing_country, source, { withheld: areaWithheld }),
   });
 }
 
@@ -972,4 +998,193 @@ export function toListingClaims(vehicle, options) {
     specification: toSpecificationClaim(vehicle),
     publication: toPublicationClaim(vehicle),
   });
+}
+
+/**
+ * ── Vehicle History & Obligations — Seller disclosure projection (DESIGN.md §11.7, K17–K19) ─────
+ *
+ * The three seller_*_disclosure columns are SELLER STATEMENTS, written only through the
+ * seller-attributed create/autosave routes and validated there against closed vocabularies.
+ * This projection re-validates on the way OUT (defense in depth, same posture as toListingClaims):
+ * a row value outside the declared vocabulary projects as null — junk is never published as an
+ * answer. `null` per topic is the honest "not recorded" state; the read surface must render it as
+ * such and never as "no accident" / "not insured" / "finance clear" (L27, INV-17).
+ *
+ * Private banking terms cannot appear here twice over: the write path refuses them (400) and the
+ * migration CHECK bans them; this allow-list would drop them even if both failed (M17, INV-18).
+ */
+export const HISTORY_DISCLOSURE_COLUMNS = Object.freeze([
+  'seller_accident_disclosure', 'seller_insurance_disclosure', 'seller_finance_disclosure',
+]);
+
+const ACCIDENT_DISCLOSURE_STATES = Object.freeze(['yes', 'no_known_accident_history', 'unknown']);
+const INSURANCE_DISCLOSURE_STATES = Object.freeze(['insured', 'not_insured', 'unknown']);
+const FINANCE_DISCLOSURE_STATES = Object.freeze(['none_known', 'active', 'settlement_pending', 'cleared', 'unknown']);
+const FINANCE_TYPES = Object.freeze(['bank_loan', 'vehicle_finance', 'lease', 'hire_purchase', 'secured_lien', 'other']);
+const ACCIDENT_EVENT_PUBLIC_FIELDS = Object.freeze([
+  'approx_date', 'mileage', 'damage_area', 'severity',
+  'insurer_involved', 'police_report_state', 'repair_state', 'repairer',
+]);
+
+function projectedDisclosureText(value) {
+  if (value === null || value === undefined) return undefined;
+  const text = String(value).trim();
+  return text === '' ? undefined : text.slice(0, 200);
+}
+
+function projectAccidentDisclosure(raw) {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null;
+  if (!ACCIDENT_DISCLOSURE_STATES.includes(raw.state)) return null;
+  const value = { state: raw.state };
+  if (raw.state === 'yes' && Array.isArray(raw.events)) {
+    const events = raw.events.slice(0, 10)
+      .map((entry) => {
+        if (!entry || typeof entry !== 'object' || Array.isArray(entry)) return null;
+        const event = {};
+        for (const field of ACCIDENT_EVENT_PUBLIC_FIELDS) {
+          const text = projectedDisclosureText(entry[field]);
+          if (text !== undefined) event[field] = text;
+        }
+        return Object.keys(event).length > 0 ? event : null;
+      })
+      .filter(Boolean);
+    if (events.length > 0) value.events = events;
+  }
+  return value;
+}
+
+function projectInsuranceDisclosure(raw) {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null;
+  if (!INSURANCE_DISCLOSURE_STATES.includes(raw.state)) return null;
+  const value = { state: raw.state };
+  if (raw.state === 'insured') {
+    const insurerName = projectedDisclosureText(raw.insurer_name);
+    if (insurerName !== undefined) value.insurer_name = insurerName;
+  }
+  return value;
+}
+
+function projectFinanceDisclosure(raw) {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null;
+  if (!FINANCE_DISCLOSURE_STATES.includes(raw.state)) return null;
+  const value = { state: raw.state };
+  if (FINANCE_TYPES.includes(raw.finance_type)) value.finance_type = raw.finance_type;
+  const lenderName = projectedDisclosureText(raw.lender_name);
+  if (lenderName !== undefined) value.lender_name = lenderName;
+  return value;
+}
+
+/**
+ * The buyer-facing Vehicle History & Obligations block. Safe on an over-broad select AND on a
+ * narrow one: a row that never carried the columns (unmigrated schema, degraded select rung)
+ * projects every topic as null — "not recorded", which is exactly true of such a row.
+ *
+ * `authority: 'seller_stated'` is the block-level attribution the read surfaces must keep visibly
+ * separate from governed accident evidence, insurer records and lender/encumbrance truth.
+ */
+export function toVehicleHistoryDisclosures(vehicle) {
+  return Object.freeze({
+    authority: 'seller_stated',
+    accident: projectAccidentDisclosure(vehicle?.seller_accident_disclosure),
+    insurance: projectInsuranceDisclosure(vehicle?.seller_insurance_disclosure),
+    finance: projectFinanceDisclosure(vehicle?.seller_finance_disclosure),
+  });
+}
+
+// ─────────────────────────────────────────────────────────────────────────────────────────────
+// GOVERNED VEHICLE FINANCE OBLIGATION / ENCUMBRANCE (Track 1: M16, M17, M18, R22–R26, R28).
+//
+// `authority: 'governed'` — the block-level attribution that must never be confused with
+// `history_disclosures`'s `authority: 'seller_stated'` above. There is no `seller_asserted` member
+// anywhere here: a Seller's own finance statement lives ONLY in `history_disclosures.finance` and
+// never enters this block. `document_extracted` obligations ARE recorded but are not GOVERNED for
+// this projection's purposes and therefore emit no `attribution` beyond the row's raw kind — see
+// GOVERNED_SOURCE_AUTHORITIES in vehicleFinanceObligationService.js.
+//
+// THREE-STATE HONESTY, not two. `source_state` answers "does a finance attestation channel exist
+// and could CarUp read it", completely independent of whether any obligation rows were found:
+//   - 'unavailable' — no channel is configured, OR the read failed. A governed authority that does
+//     not exist cannot have found "no obligations"; that would be a governed zero manufactured
+//     from a read that never happened.
+//   - 'available'   — a channel exists and the read succeeded, whether or not it found any rows.
+// `rows === undefined` (the read was never attempted / failed) always yields 'unavailable', never a
+// truthy envelope — see toVehicleFinanceObligationBlock.
+// ─────────────────────────────────────────────────────────────────────────────────────────────
+export const FINANCE_OBLIGATION_PUBLIC_FIELDS = Object.freeze([
+  'id', 'state', 'obligation_kind', 'lender_name', 'transfer_condition',
+  'valuation_at_origination', 'cleared_on', 'released_on', 'recorded_on', 'superseded',
+]);
+
+const OBLIGATION_STATES_PUBLIC = Object.freeze([
+  'active', 'arrears', 'settlement_pending', 'settled_pending_release', 'released', 'disputed',
+]);
+const OBLIGATION_KINDS_PUBLIC = FINANCE_TYPES;
+const VALUATION_SOURCES_PUBLIC = Object.freeze([
+  'lender_valuation', 'independent_valuer', 'insurer_valuation', 'auction_result', 'customs_declared_value',
+]);
+// 'arrears' names a private individual's repayment-delinquency status (M17's private list:
+// "repayment transaction history"). It is recorded and used for the R24 gate, but it is never the
+// PUBLIC state — it collapses to 'active' ("settlement required") on the way out, same as the
+// non-public `transfer_condition` derivation already does internally.
+function publicObligationState(state) {
+  return state === 'arrears' ? 'active' : state;
+}
+
+/**
+ * One obligation row, explicitly constructed field-by-field (no spread — the same discipline as
+ * `projectFinanceDisclosure` above), re-validating every vocabulary on the way out. `settlement_context`,
+ * `attestation_reference` and `release_reference` have no field to travel through even if a caller
+ * handed the raw row straight in.
+ */
+export function toVehicleFinanceObligation(row, { supersededIds = new Set() } = {}) {
+  if (!row || typeof row !== 'object') return null;
+  if (!OBLIGATION_STATES_PUBLIC.includes(row.state)) return null;
+  if (!OBLIGATION_KINDS_PUBLIC.includes(row.obligation_kind)) return null;
+
+  const value = {
+    id: typeof row.id === 'string' ? row.id : null,
+    state: publicObligationState(row.state),
+    obligation_kind: row.obligation_kind,
+    transfer_condition: row.state === 'settled_pending_release' ? 'release_confirmation_outstanding'
+      : row.state === 'released' ? null
+      : row.state === 'disputed' ? 'obligation_under_review'
+      : 'settlement_required',
+    superseded: supersededIds.has(row.id),
+  };
+  if (row.lender_disclosure_permitted === true) {
+    const name = projectedDisclosureText(row.lender_display_name);
+    if (name !== undefined) value.lender_name = name;
+  }
+  if (row.origination_valuation_amount !== null && row.origination_valuation_amount !== undefined
+      && row.origination_valuation_currency && row.origination_valuation_date
+      && VALUATION_SOURCES_PUBLIC.includes(row.origination_valuation_source)) {
+    value.valuation_at_origination = {
+      amount: Number(row.origination_valuation_amount),
+      currency: String(row.origination_valuation_currency),
+      date: String(row.origination_valuation_date),
+      source: row.origination_valuation_source,
+    };
+  }
+  if (row.cleared_at) value.cleared_on = row.cleared_at;
+  if (row.released_at) value.released_on = row.released_at;
+  if (row.recorded_at) value.recorded_on = row.recorded_at;
+  return Object.freeze(value);
+}
+
+/**
+ * The block-level envelope. `rows === undefined` means "no reader was wired / the read failed" and
+ * MUST produce `source_state: 'unavailable'` — never a truthy 'none_recorded' object manufactured
+ * from a read that never happened. `channelAvailable` additionally requires that a real finance
+ * attestation channel (an active lender or a live finance provider) exists at all; with none
+ * configured every vehicle honestly reports 'unavailable', not a governed zero.
+ */
+export function toVehicleFinanceObligationBlock(rows, { channelAvailable = false } = {}) {
+  if (rows === undefined || rows === null || !channelAvailable) {
+    return Object.freeze({ authority: 'governed', source_state: 'unavailable', obligations: [] });
+  }
+  const supersededIds = new Set(rows.filter((r) => r?.supersedes_obligation_id).map((r) => r.supersedes_obligation_id));
+  const obligations = rows
+    .map((row) => toVehicleFinanceObligation(row, { supersededIds }))
+    .filter(Boolean);
+  return Object.freeze({ authority: 'governed', source_state: 'available', obligations });
 }

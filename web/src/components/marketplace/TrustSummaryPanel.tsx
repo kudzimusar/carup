@@ -38,7 +38,15 @@ export function TrustSummaryPanel({
         <h3 className="text-sm font-semibold text-gray-900">Trust summary</h3>
       </div>
 
-      {trust.risk_status !== 'clear' && (
+      {trust.risk_status === 'unavailable' ? (
+        <div className="mb-3 flex items-start gap-2 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-700" data-testid="marketplace-trust-inputs-unreadable">
+          <ShieldAlert className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+          <span>
+            CarUp could not read this vehicle’s evidence or parts-provenance records. Nothing below
+            is a finding about this vehicle, and the absence of a warning here is not an all-clear.
+          </span>
+        </div>
+      ) : trust.risk_status !== 'clear' && (
         <div className={`mb-3 flex items-start gap-2 rounded-lg border px-3 py-2 text-xs ${riskTone}`} data-testid="marketplace-risk-banner">
           <ShieldAlert className="mt-0.5 h-3.5 w-3.5 shrink-0" />
           <span>{trust.safe_public_copy}</span>
@@ -69,9 +77,20 @@ export function TrustSummaryPanel({
 
       <div className="grid grid-cols-2 gap-2 text-xs">
         <TrustRow label="PartSentry" value={partsentryLabel[trust.partsentry_public_status] || trust.partsentry_public_status} testid="marketplace-partsentry-status" />
-        <TrustRow label="Evidence" value={trust.evidence_status.replace(/_/g, ' ')} />
+        {/* 'unavailable' means CarUp could not READ the input, not that it read it and found
+            nothing. Rendering the bare enum would leave the buyer to guess; "Not checked" says
+            which of the two facts this is. A governed 'none'/'clear' still reads as before. */}
+        <TrustRow
+          label="Evidence"
+          value={trust.evidence_status === 'unavailable' ? 'Not checked' : trust.evidence_status.replace(/_/g, ' ')}
+          testid="marketplace-evidence-status"
+        />
         <TrustRow label="Passport" value={trust.vehicle_passport_available ? 'Available' : 'Not available'} />
-        <TrustRow label="Suspicion" value={trust.suspicion_status} />
+        <TrustRow
+          label="Suspicion"
+          value={trust.suspicion_status === 'unavailable' ? 'Not checked' : trust.suspicion_status}
+          testid="marketplace-suspicion-status"
+        />
       </div>
 
       {verification && verification.verification_notes_public.length > 0 && (

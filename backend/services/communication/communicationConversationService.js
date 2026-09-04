@@ -127,12 +127,30 @@ export class CommunicationConversationService {
     for (const participant of participants) {
       if (!unique.has(participant.thread_id)) unique.set(participant.thread_id, participant);
     }
+    const threadIds = [...unique.keys()];
+    // Batched IN-queries (same pattern as CommunicationRepository#enrichPage) instead of one
+    // findOne + one list PER thread: a seller with dozens of threads was issuing dozens of
+    // sequential round trips here, turning this endpoint into the slowest call in the Seller
+    // journey as their thread count grew across CI runs.
+    const [threads, allMessages] = threadIds.length
+      ? await Promise.all([
+        this.repository.list('message_threads', { id: threadIds }),
+        this.repository.list('messages', { thread_id: threadIds }, { order: { column: 'created_at', ascending: true } }),
+      ])
+      : [[], []];
+    const threadById = new Map(threads.map((thread) => [thread.id, thread]));
+    const messagesByThread = new Map();
+    for (const message of allMessages) {
+      if (message.direction === 'internal') continue;
+      const bucket = messagesByThread.get(message.thread_id);
+      if (bucket) bucket.push(message);
+      else messagesByThread.set(message.thread_id, [message]);
+    }
     const conversations = [];
     for (const [threadId, participant] of unique.entries()) {
-      const thread = await this.repository.findOne('message_threads', { id: threadId });
+      const thread = threadById.get(threadId);
       if (!thread) continue;
-      const messages = (await this.repository.list('messages', { thread_id: threadId }, { order: { column: 'created_at', ascending: true } }))
-        .filter((message) => message.direction !== 'internal');
+      const messages = messagesByThread.get(threadId) || [];
       const latest = messages.at(-1) || null;
       const readAt = participant.last_read_at ? Date.parse(participant.last_read_at) : 0;
       const unread = messages.filter((message) => {

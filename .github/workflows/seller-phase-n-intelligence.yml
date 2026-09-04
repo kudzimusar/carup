@@ -1,0 +1,50 @@
+name: Seller Phase N Intelligence Gate
+
+on:
+  pull_request:
+    branches:
+      - integration/vehicle-passport-v16-cert
+    paths:
+      - 'backend/services/intelligence/**'
+      - 'backend/routes/intelligenceProjectionRoutes.js'
+      - 'backend/routes/vehiclesRoutes.js'
+      - 'backend/tests/intelligence-*.test.js'
+      - 'web/src/pages/dashboard/owner/SellerIntelligence.tsx'
+      - 'web/src/pages/dashboard/owner/SellerIntelligence.test.ts'
+      - 'web/src/lib/intelligenceDisplay.*'
+      - 'web/src/config/featureRegistry.ts'
+      - 'web/src/App.tsx'
+      - '.github/workflows/seller-phase-n-intelligence.yml'
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+jobs:
+  seller-intelligence:
+    runs-on: ubuntu-latest
+    env:
+      NODE_ENV: test
+      SUPABASE_URL: http://127.0.0.1:54321
+      SUPABASE_SERVICE_ROLE_KEY: seller-phase-n-test-service-role-key
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      - name: Seller intelligence authority and instrumentation contracts
+        run: |
+          node --test \
+            backend/tests/intelligence-projections.test.js \
+            backend/tests/intelligence-marketplace-instrumentation.test.js \
+            backend/tests/intelligence-rollups.test.js \
+            backend/tests/intelligence-activity-ledger.test.js
+      - name: Seller intelligence presentation contract
+        run: npm run test:unit --workspace=web -- src/pages/dashboard/owner/SellerIntelligence.test.ts src/lib/intelligenceDisplay.test.ts
+      - name: Web production build
+        run: npm run build --workspace=web

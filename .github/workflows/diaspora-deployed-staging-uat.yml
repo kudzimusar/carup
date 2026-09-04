@@ -22,7 +22,7 @@ permissions:
 
 concurrency:
   group: diaspora-deployed-staging-uat
-  cancel-in-progress: true
+  cancel-in-progress: false
 
 jobs:
   deployed-staging-uat:

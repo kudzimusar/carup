@@ -73,6 +73,18 @@ const MIGRATION_PATH = path.join(
 const MODULE_SOURCE = readFileSync(MODULE_PATH, 'utf8');
 const MIGRATION_SOURCE = readFileSync(MIGRATION_PATH, 'utf8');
 
+/**
+ * Every migration that DEFINES the listing-location visibility constraint, oldest first. Seller
+ * Journey S3 widened the vocabulary with `province_only`, so the constraint in force is no longer
+ * declared by this phase's migration alone. The invariant below is unchanged and still checked
+ * against the DATABASE's effective vocabulary — it simply now reads every statement that sets it,
+ * because pinning only the first migration would have let a later one drift unnoticed.
+ */
+const VISIBILITY_MIGRATION_PATHS = [
+  '20260818110000_issue164_listing_location_provenance.sql',
+  '20260828160000_seller_s3_location_visibility_province_only.sql',
+].map((name) => path.join(REPO_ROOT, 'database', 'migrations', name));
+
 const SOURCE = CLAIM_SOURCES[0];
 
 /**
@@ -857,9 +869,29 @@ function extractStringLiterals(source) {
   return literals;
 }
 
+/**
+ * Literals that are MEMBERS OF A GOVERNED CLOSED VOCABULARY, not fabricated defaults.
+ *
+ * The sentinels exist to catch a DB default reappearing as a string in the canonical module —
+ * `plate_status` 'Active' on 16 of 16 rows, `status` 'Available' on every listing. Those are
+ * capitalized, because that is how the defaults were written.
+ *
+ * The finance-obligation authority later gave the same module two lowercase vocabulary members:
+ * `FINANCE_DISCLOSURE_STATES` includes 'active', and the governed encumbrance projection publishes
+ * `source_state: 'available'` to mean "a channel exists and the read succeeded". Both are the
+ * OPPOSITE of a fabrication — they are the closed vocabulary that stops one — and neither can be
+ * renamed to satisfy a scanner without changing a published contract.
+ *
+ * Exempting them by EXACT lowercase value keeps the scan's teeth: a capitalized 'Available' or
+ * 'Active' — the actual fabricated-default form — still fires, as the anti-vacuity test below
+ * proves. Only these two exact literals are exempt, and only in lowercase.
+ */
+const GOVERNED_VOCABULARY_LITERALS = new Set(['active', 'available']);
+
 function sentinelsIn(literals) {
   const hits = new Set();
   for (const literal of literals) {
+    if (GOVERNED_VOCABULARY_LITERALS.has(literal)) continue;
     for (const sentinel of FABRICATED_DEFAULT_SENTINELS) {
       const pattern = new RegExp(`(^|\\W)${sentinel.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(\\W|$)`, 'i');
       if (pattern.test(literal)) hits.add(sentinel);
@@ -891,6 +923,19 @@ test('ANTI-VACUITY: the reader ignores comments and word-fragments, and catches 
     sentinelsIn(extractStringLiterals(control)),
     ['Harare'],
     'exactly the planted literal — a comment, a word-fragment and a regex must not fire, and the regex must not desynchronise the reader',
+  );
+});
+
+test('ANTI-VACUITY: the governed-vocabulary exemption is exact, and the fabricated form still fires', () => {
+  // The exemption must not become a hole. Only the two exact lowercase vocabulary members pass;
+  // the capitalized DB-default form — the thing the sentinel exists to catch — must still fire,
+  // and so must any literal that merely CONTAINS the exempt word.
+  assert.deepEqual(sentinelsIn(['active', 'available']), [], 'the governed vocabulary members are exempt');
+  assert.deepEqual(sentinelsIn(['Available']), ['Available'], 'the fabricated default form must still fire');
+  assert.deepEqual(sentinelsIn(['Active']), ['Active'], 'the fabricated default form must still fire');
+  assert.deepEqual(
+    sentinelsIn(['status is active']), ['Active'],
+    'the exemption is the whole literal, never a substring — a sentence containing the word still fires',
   );
 });
 
@@ -950,10 +995,28 @@ test('the migration and the module share one provenance vocabulary', () => {
   const fromSql = [...declared[1].matchAll(/'([a-z_]+)'/g)].map((match) => match[1]);
   assert.deepEqual([...fromSql].sort(), [...CLAIM_SOURCES].sort());
 
-  const visibility = MIGRATION_SOURCE.match(/c_visibility\s+text\[\]\s*:=\s*ARRAY\[([\s\S]*?)\]/);
-  assert.ok(visibility);
-  const visibilityValues = [...visibility[1].matchAll(/'([a-z_]+)'/g)].map((match) => match[1]);
-  assert.deepEqual(visibilityValues.sort(), Object.values(CLAIM_VISIBILITY).sort());
+  // The visibility vocabulary is declared by more than one migration since S3 widened it. Two
+  // properties are checked, and together they are strictly stronger than pinning one file:
+  //   1. the constraint IN FORCE — the last migration to define it — is exactly the module's list,
+  //      so the database can never accept a visibility the projection does not understand;
+  //   2. no migration ever declared a value the module does not carry.
+  const declaredPerMigration = VISIBILITY_MIGRATION_PATHS.map((migrationPath) => {
+    const match = readFileSync(migrationPath, 'utf8')
+      .match(/c_visibility\s+text\[\]\s*:=\s*ARRAY\[([\s\S]*?)\]/);
+    assert.ok(match, `${path.basename(migrationPath)} must declare the visibility vocabulary`);
+    return [...match[1].matchAll(/'([a-z_]+)'/g)].map((entry) => entry[1]);
+  });
+
+  const inForce = declaredPerMigration[declaredPerMigration.length - 1];
+  assert.deepEqual(
+    [...inForce].sort(),
+    Object.values(CLAIM_VISIBILITY).sort(),
+    'the constraint in force and the module must be one vocabulary, not two copies',
+  );
+
+  const everDeclared = [...new Set(declaredPerMigration.flat())];
+  const unknown = everDeclared.filter((value) => !Object.values(CLAIM_VISIBILITY).includes(value));
+  assert.deepEqual(unknown, [], `a migration allowed a visibility the projection ignores: ${unknown.join(', ')}`);
 });
 
 test('the migration proves it backfilled nothing and rewrote nothing', () => {
@@ -1052,8 +1115,15 @@ describe('POST /api/vehicles/add — what a submitted fact is allowed to become'
         return { data: null, error: null };
       }
       const found = store.vehicles.find((v) => v.vin === op.filters.vin) || null;
-      // PostgREST reports "no rows" from `.single()` as an error, not as a null row.
-      return found ? { data: found, error: null } : { data: null, error: { code: 'PGRST116', message: 'no rows' } };
+      if (found) return { data: found, error: null };
+      // `.single()` and `.maybeSingle()` answer an empty result DIFFERENTLY, and modelling them the
+      // same way made every handler that correctly uses `.maybeSingle()` look like it had thrown.
+      // postgrest-js fetches a list and enforces cardinality client-side: with `isMaybeSingle` set,
+      // zero rows resolve to `{ data: null, error: null }` and PGRST116 is raised only for MORE than
+      // one row (PostgrestBuilder.ts). `.single()` alone reports "no rows" as an error.
+      return op.maybeSingle
+        ? { data: null, error: null }
+        : { data: null, error: { code: 'PGRST116', message: 'no rows' } };
     }
     if (op.action === 'insert') {
       const rows = Array.isArray(op.payload) ? op.payload : [op.payload];
@@ -1073,7 +1143,7 @@ describe('POST /api/vehicles/add — what a submitted fact is allowed to become'
         delete() { op.action = 'delete'; return chain; },
         eq(key, value) { op.filters[key] = value; return chain; },
         in() { return chain; }, is() { return chain; }, order() { return chain; }, limit() { return chain; },
-        maybeSingle() { op.single = true; return chain; },
+        maybeSingle() { op.single = true; op.maybeSingle = true; return chain; },
         single() { op.single = true; return chain; },
         then(onFulfilled, onRejected) { return Promise.resolve(handle(op)).then(onFulfilled, onRejected); },
       };

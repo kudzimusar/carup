@@ -151,3 +151,62 @@ describe('VehicleCompletenessPanel', () => {
     expect(html).toContain('Not required')
   })
 })
+
+/**
+ * THE WIRE SHAPE, not the shape the fixtures above assumed.
+ *
+ * `completenessEvaluator.js` builds these as
+ *   `blocking_gaps: missingBlocking.map((r) => ({ key: r.key, label: r.label }))`
+ * — an array of OBJECTS. Every fixture above used strings, so the panel was never once rendered
+ * with what the backend actually sends, and `types/index.ts` declared `string[]`, so the compiler
+ * agreed with the fixtures instead of with the server.
+ *
+ * The consequence was not cosmetic: `{data.blocking_gaps.map(gap => <li key={gap}>{gap}</li>)}`
+ * renders an object as a React child, which is React error #31 — a CRASH of the Seller
+ * publication-readiness surface, hit the moment a draft has any blocking requirement, i.e. on
+ * every newly created listing. It was found by driving the real Seller Studio through the UI on
+ * the exact head; no API-driven test could reach it.
+ */
+describe('VehicleCompletenessPanel with the REAL {key,label} gap shape', () => {
+  const wireShaped: VehicleCompleteness = {
+    ...blockingGapData,
+    blocking_gaps: [
+      { key: 'ownership_document', label: 'Ownership document' },
+      { key: 'engine_number', label: 'Engine number' },
+    ],
+    pending_gaps: [{ key: 'plate_or_temp', label: 'Number plate / TIP' }],
+  }
+
+  it('renders object gaps by their label instead of crashing', () => {
+    const html = render(wireShaped)
+    expect(html).toContain('Ownership document')
+    expect(html).toContain('Engine number')
+    // The failure mode this guards against: an object stringified into the markup.
+    expect(html).not.toContain('[object Object]')
+    expect(html).not.toContain('object Object')
+  })
+
+  it('names pending gaps by label too, never "[object Object]"', () => {
+    const html = render(wireShaped)
+    expect(html).toContain('Number plate / TIP')
+    expect(html).toContain('submitted and under review')
+    expect(html).not.toContain('[object Object]')
+  })
+
+  it('still accepts legacy string gaps, so an older payload does not regress', () => {
+    const html = render(blockingGapData)
+    expect(html).toContain('Ownership document required')
+    expect(html).not.toContain('[object Object]')
+  })
+
+  it('falls back to key, then a generic word, when no label is present', () => {
+    const html = render({
+      ...blockingGapData,
+      blocking_gaps: [{ key: 'chassis_number' }, {}],
+      pending_gaps: [],
+    })
+    expect(html).toContain('chassis_number')
+    expect(html).toContain('requirement')
+    expect(html).not.toContain('[object Object]')
+  })
+})

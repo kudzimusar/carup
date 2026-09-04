@@ -568,3 +568,17 @@ test('empty / all-fixture input returns an empty list cleanly (no error)', () =>
   assert.deepEqual(filterVisibleVehicles(undefined, { showFixtures: false }), []);
   assert.equal(filterVisibleVehicles(FIXTURE_VEHICLES, { showFixtures: false }).length, 0);
 });
+
+
+test('Seller automation fixtures stay hidden unless the exact preview run scope is requested', () => {
+  const fixture = {
+    vin: 'JTDKARFP0H3123456',
+    status: 'Available',
+    publication_status: 'published',
+    owner_id: '550e8400-e29b-41d4-a716-446655440000',
+    seller_description: 'Golden Dynamic Seller seller-12345-1: staging-only vehicle',
+  };
+  assert.equal(filterVisibleVehicles([fixture], { showFixtures: false }).length, 0);
+  assert.equal(filterVisibleVehicles([fixture], { showFixtures: false, fixtureScope: 'seller-99999-1' }).length, 0);
+  assert.equal(filterVisibleVehicles([fixture], { showFixtures: false, fixtureScope: 'seller-12345-1' }).length, 1);
+});

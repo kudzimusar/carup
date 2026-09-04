@@ -1,0 +1,157 @@
+name: Seller Phase B Baseline Visual Audit
+
+on:
+  push:
+    branches:
+      - integration/vehicle-passport-v16-cert
+    paths:
+      - 'tests/agents/39-seller-baseline-visual-audit.spec.ts'
+      - 'playwright.seller-baseline.config.ts'
+      - '.github/workflows/seller-baseline-visual-audit.yml'
+  workflow_dispatch: {}
+
+concurrency:
+  group: seller-baseline-visual-audit-${{ github.ref_name }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  capture-baseline:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    env:
+      EXPECTED_HEAD_SHA: ${{ github.sha }}
+      BASELINE_RUNTIME_SHA: ${{ github.sha }}
+      BASELINE_WEB_URL: https://carup-staging-git-integration-vehicle-passport-v16-cert-11-11.vercel.app
+      BASELINE_API_URL: https://carup-backend-staging-git-integration-vehicle-pass-35ac1d-11-11.vercel.app/api
+      DIASPORA_STAGING_DATABASE_URL: ${{ secrets.DIASPORA_STAGING_DATABASE_URL }}
+      EXPECTED_STAGING_PROJECT_REF: eoyenigwevnxwwhyhaer
+
+    steps:
+      - name: Checkout exact audit head
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ env.EXPECTED_HEAD_SHA }}
+
+      - name: Assert exact checkout
+        run: test "$(git rev-parse HEAD)" = "$EXPECTED_HEAD_SHA"
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Wait for exact-head paired staging provenance
+        run: |
+          node --input-type=module <<'NODE'
+          const expected = process.env.EXPECTED_HEAD_SHA;
+          const web = process.env.BASELINE_WEB_URL;
+          const api = process.env.BASELINE_API_URL;
+          const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
+
+          for (let attempt = 1; attempt <= 72; attempt += 1) {
+            try {
+              const [provRes, healthRes] = await Promise.all([
+                fetch(`${web}/carup-provenance.json?baseline=${attempt}`, { cache: 'no-store' }),
+                fetch(`${api}/health?baseline=${attempt}`, { cache: 'no-store' }),
+              ]);
+              const provenance = provRes.ok ? await provRes.json() : null;
+              const health = healthRes.ok ? await healthRes.json() : null;
+              if (
+                provenance?.commit_sha === expected &&
+                provenance?.unpaired === false &&
+                health?.status === 'UP' &&
+                health?.build?.commit_sha === expected
+              ) {
+                console.log(JSON.stringify({
+                  frontend_sha: provenance.commit_sha,
+                  backend_sha: health.build.commit_sha,
+                  frontend: web,
+                  backend: api,
+                  backend_deployment: health.build.deployment_id,
+                }));
+                process.exit(0);
+              }
+              console.log(`attempt ${attempt}: frontend=${provenance?.commit_sha || 'not-ready'} backend=${health?.build?.commit_sha || 'not-ready'}`);
+            } catch (error) {
+              console.log(`attempt ${attempt}: ${error.message}`);
+            }
+            await sleep(5000);
+          }
+          throw new Error('Baseline frontend/backend never converged on the audit head.');
+          NODE
+
+      - name: Require approved staging database
+        run: |
+          if [ -z "$DIASPORA_STAGING_DATABASE_URL" ]; then
+            echo '::error::DIASPORA_STAGING_DATABASE_URL is not configured.'
+            exit 1
+          fi
+          case "$DIASPORA_STAGING_DATABASE_URL" in
+            *"$EXPECTED_STAGING_PROJECT_REF"*) ;;
+            *)
+              echo '::error::Refusing baseline synthetic-account setup outside approved staging.'
+              exit 1
+              ;;
+          esac
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Install Chromium
+        run: npx playwright install --with-deps chromium
+
+      - name: Rotate synthetic owner credential only
+        run: |
+          node --input-type=module <<'NODE'
+          import crypto from 'node:crypto';
+          import fs from 'node:fs';
+          import pg from 'pg';
+
+          const dbUrl = process.env.DIASPORA_STAGING_DATABASE_URL || '';
+          if (!dbUrl.includes(process.env.EXPECTED_STAGING_PROJECT_REF)) {
+            throw new Error('Refusing synthetic owner rotation outside approved staging.');
+          }
+
+          const password = crypto.randomBytes(30).toString('base64url');
+          const salt = crypto.randomBytes(16).toString('hex');
+          const derived = await new Promise((resolve, reject) => {
+            crypto.scrypt(password, salt, 64, (error, key) => error ? reject(error) : resolve(key));
+          });
+          const passwordHash = `scrypt:${salt}:${derived.toString('hex')}`;
+
+          const cleanedDbUrl = dbUrl.replace(/([?&])sslmode=[^&]*&?/i, '$1').replace(/[?&]$/, '');
+          const client = new pg.Client({ connectionString: cleanedDbUrl, ssl: { rejectUnauthorized: false } });
+          await client.connect();
+          try {
+            const result = await client.query(
+              'update public.users set password_hash = $1 where email = $2 returning id, role',
+              [passwordHash, 'uat.buyer@carup-staging.test'],
+            );
+            if (result.rowCount !== 1) throw new Error('Synthetic staging owner is missing.');
+            if (result.rows[0].role !== 'owner') throw new Error('Synthetic staging owner no longer has owner role.');
+          } finally {
+            await client.end();
+          }
+
+          console.log(`::add-mask::${password}`);
+          fs.appendFileSync(process.env.GITHUB_ENV, `STAGING_UAT_BUYER_PASSWORD=${password}\n`, { mode: 0o600 });
+          console.log('Rotated only the synthetic baseline-audit owner credential; no human UAT account was touched.');
+          NODE
+
+      - name: Capture 39 Phase B baseline screenshots
+        run: npx playwright test tests/agents/39-seller-baseline-visual-audit.spec.ts --config=playwright.seller-baseline.config.ts
+
+      - name: Upload Phase B baseline evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: seller-phase-b-baseline-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            test-results/seller-baseline
+            test-results/seller-baseline-results.json
+            test-results/seller-baseline-playwright
+          if-no-files-found: error
+          retention-days: 30

@@ -11,7 +11,7 @@
     "ts:check": "tsc --noEmit",
     "lint": "expo lint",
     "test": "vitest run --config vitest.config.ts",
-    "test:native": "tsx tests/native-navigation.test.ts && tsx tests/native-tabs.test.ts && tsx tests/native-drawer.test.ts && tsx tests/native-boundary-audit.test.ts && tsx tests/native-dashboard-bootstrap.test.ts && tsx tests/upload-queue-store.test.ts && tsx tests/upload-queue-drain.test.ts",
+    "test:native": "tsx tests/native-navigation.test.ts && tsx tests/native-tabs.test.ts && tsx tests/native-drawer.test.ts && tsx tests/native-boundary-audit.test.ts && tsx tests/native-dashboard-bootstrap.test.ts && tsx tests/upload-queue-store.test.ts && tsx tests/upload-queue-drain.test.ts && tsx tests/marketplace-media-contract.test.ts",
     "test:static": "tsx tests/login-submit-button.test.ts && tsx tests/start-verification-flow.test.ts && tsx tests/tab-stability-guard.test.ts && tsx tests/verification-api.test.ts && tsx tests/verification-flow-smoke.ts"
   },
   "dependencies": {

@@ -1,0 +1,92 @@
+name: Vehicle Finance Obligation Authority CI
+
+# The governed finance-obligation / encumbrance authority (master plan §0.7; M16–M18, R22–R26, R28).
+#
+# WHY THIS WORKFLOW EXISTS. The behavioural PGlite proof for this migration is also wired into
+# ci.yml, but ci.yml only triggers on pull requests into `main` — and this work lands on a branch
+# targeting an integration branch, so that step would not run until long after the code shipped.
+# A gate that does not protect the PR introducing it is barely a gate. This runs the same proof on
+# every PR that touches the authority.
+#
+# It is also the ONLY execution of this DDL anywhere in CI:
+# `migration-integrity.test.js` merely parses migration files, and
+# `database/test/migration_pglite_check.mjs` carries a hardcoded NEW_MIGRATIONS list that ends at
+# 20260810120000, so a newer migration is applied by no other gate.
+
+on:
+  pull_request:
+    paths:
+      - 'database/migrations/*finance_obligation*.sql'
+      - 'database/test/finance_obligation_pglite_check.mjs'
+      - 'backend/services/finance/**'
+      - 'backend/routes/vehicleFinanceObligationRoutes.js'
+      - 'backend/utils/publicVehicleProjection.js'
+      - 'backend/services/intelligence/disclosureConflict.js'
+      - 'backend/tests/vehicle-finance-obligation-authority.test.js'
+      - '.github/workflows/vehicle-finance-obligation-ci.yml'
+  push:
+    branches:
+      - integration/vehicle-passport-v16-cert
+    paths:
+      - 'database/migrations/*finance_obligation*.sql'
+      - 'database/test/finance_obligation_pglite_check.mjs'
+      - 'backend/services/finance/**'
+      - 'backend/routes/vehicleFinanceObligationRoutes.js'
+      - 'backend/utils/publicVehicleProjection.js'
+      - 'backend/services/intelligence/disclosureConflict.js'
+      - 'backend/tests/vehicle-finance-obligation-authority.test.js'
+      - '.github/workflows/vehicle-finance-obligation-ci.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: finance-obligation-ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  finance-obligation:
+    name: Finance obligation authority contracts
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      NODE_ENV: test
+      SUPABASE_URL: http://localhost:54321
+      SUPABASE_SERVICE_ROLE_KEY: finance-obligation-test-key
+      SUPABASE_ANON_KEY: finance-obligation-anon-key
+      JWT_SECRET: finance-obligation-jwt-key
+      ALLOW_OCR_MOCK: 'true'
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      # BEHAVIOURAL, against real PostgreSQL (PGlite 17.5): applies Up, proves R24 blocks an
+      # ownership transfer AND has a real exit, R25 append-only on both tables, R26 origination
+      # immutability, the closed-shape settlement_context (including a private term nested one
+      # level down, which a `?|` ban list would miss), and the provenance rules — then applies Down
+      # and re-applies Up.
+      - name: Finance obligation authority verification (isolated PGlite Postgres)
+        run: node database/test/finance_obligation_pglite_check.mjs
+
+      - name: Finance obligation authority contracts
+        run: node --test backend/tests/vehicle-finance-obligation-authority.test.js
+
+      # The seller-stated half must keep working beside the governed half — the two authorities are
+      # rendered adjacently and must never merge.
+      - name: Seller history disclosure projection contract
+        run: node --test backend/tests/seller-history-disclosure-projection.test.js backend/tests/seller-history-disclosures.test.js
+
+      # The passport's closed-collaborator contract: the finance projection is an INJECTED 9th
+      # parameter, never a free module-scope name, and every shipped call site must hand it in.
+      - name: Passport collaborator wiring contract
+        run: node --test backend/tests/issue164-phase5-passport-media-wiring.test.js
+
+      - name: Preserve repository migration integrity
+        run: node --test backend/tests/migration-integrity.test.js

@@ -38,30 +38,37 @@ describe('OBS-16 — My Listings action row must not overflow its card', () => {
   })
 })
 
-describe('OBS-06 — a disabled action must stay legible', () => {
-  // The base Button applies `disabled:opacity-50`. On the dark detail panel that rendered white text
-  // on a half-opacity fill, and an outline button as `border-white/30 text-white` at half opacity —
-  // effectively invisible. The label is what tells a buyer WHICH action is unavailable.
-  it('the disabled contact actions override the global opacity fade', () => {
-    for (const testid of ['call-disabled', 'whatsapp-disabled']) {
-      const idx = VEHICLE_DETAIL.indexOf(`data-testid="${testid}"`)
-      expect(idx, `${testid} must exist`).toBeGreaterThan(-1)
-      const element = VEHICLE_DETAIL.slice(Math.max(0, idx - 400), idx + 100)
-      expect(element, `${testid} must not render at 50% opacity`).toContain('disabled:opacity-100')
-      expect(element, `${testid} must remain marked disabled`).toContain('aria-disabled')
-    }
+describe('OBS-06 — unavailable direct actions must become legible governed next steps', () => {
+  // Direct Call/WhatsApp are shown only when a public seller number exists. When they do not,
+  // Vehicle Detail must not leave faded dead buttons behind; it offers a CarUp-routed inquiry.
+  it('missing direct seller contact exposes the governed CarUp contact path', () => {
+    expect(VEHICLE_DETAIL).toContain('data-testid="seller-contact-unavailable"')
+    expect(VEHICLE_DETAIL).toContain('triggerLabel="Contact through CarUp"')
+    expect(VEHICLE_DETAIL).toContain("intentMetadata={{ buyer_intent: 'seller_contact' }}")
   })
 
-  it('a disabled action is never re-enabled to make it visible', () => {
-    // The remedy for an invisible disabled control is contrast, never removing `disabled`.
-    const idx = VEHICLE_DETAIL.indexOf('data-testid="call-disabled"')
-    expect(VEHICLE_DETAIL.slice(idx - 400, idx)).toContain('disabled')
+  it('direct call and WhatsApp links are conditional on an actually published number', () => {
+    expect(VEHICLE_DETAIL).toContain('sellerContactNumber && sellerWhatsAppLink ?')
+    expect(VEHICLE_DETAIL).toContain('tel:${sellerContactNumber}')
+    expect(VEHICLE_DETAIL).toContain('href={sellerWhatsAppLink}')
+    expect(VEHICLE_DETAIL).toContain('border-white/30 bg-transparent text-white hover:bg-white/10 hover:text-white')
   })
 
-  it('the Reserve control keeps its disabled state and its explanation', () => {
-    expect(VEHICLE_DETAIL).toContain('data-testid="reserve-vehicle"')
-    expect(VEHICLE_DETAIL).toContain('data-testid="reserve-unavailable"')
-    expect(VEHICLE_DETAIL).toContain('disabled={!resolvedSellerId}')
+  it('financing inquiry remains legible on the dark action panel', () => {
+    expect(VEHICLE_DETAIL).toContain('triggerLabel="Ask about financing"')
+    expect(VEHICLE_DETAIL).toContain('border-white/20 bg-transparent text-white hover:bg-white/10 hover:text-white')
+  })
+
+  it('reservation stays a governed request until the server proves transaction state', () => {
+    expect(VEHICLE_DETAIL).toContain('data-testid="reservation-request-entry"')
+    expect(VEHICLE_DETAIL).toContain("intentMetadata={{ buyer_intent: 'reservation_request', safepay_requested: true }}")
+    expect(VEHICLE_DETAIL).toContain('data-testid="reserved-state"')
+    expect(VEHICLE_DETAIL).toContain("reservationSummary?.state === 'active' && reservationSummary.reserved === true")
+    expect(VEHICLE_DETAIL).not.toContain('data-testid="reserve-vehicle"')
+    expect(VEHICLE_DETAIL).not.toContain('vehicle.tenant_id ?? vehicle.sellerId')
+    expect(VEHICLE_DETAIL).not.toContain("vehicle.status === 'Reserved'")
+    expect(VEHICLE_DETAIL).not.toContain("vehicle.status === 'reserved'")
+    expect(VEHICLE_DETAIL).not.toContain('createSafePayEscrow')
   })
 })
 

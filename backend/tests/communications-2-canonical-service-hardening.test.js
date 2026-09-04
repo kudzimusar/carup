@@ -155,12 +155,18 @@ test('terminal provider failure advances exactly one canonical message to the ne
       type: 'conversation_message', notification_type: 'conversation_message',
       title: 'CarUp conversation', message: 'Same semantic seller reply', channel: 'whatsapp',
       status: 'queued', dedupe_key: 'primary-fallback', priority: 'normal', max_attempts: 1,
-      payload: { phone_number: '263771234567' },
+      // G2: a conversation_message is `conversational`. The fallback row inherits it by spreading
+      // the parent payload, which is how the email fallback below gets a canonical family.
+      payload: { phone_number: '263771234567', classification: 'conversational' },
       metadata: {
         transactional: true,
         fallback_channels: ['email', 'in_app'],
         attempted_channels: ['whatsapp'],
         routing_mode: 'single_primary_with_ordered_fallback',
+        // G5: a real conversational producer attaches the exact recipient participant. The email
+        // fallback row inherits this metadata, which is how the fallback Email gets an
+        // authenticated Reply-To bound to the same person the WhatsApp message was for.
+        recipient_participant_id: 'participant-fallback',
       },
     }],
   });
@@ -198,6 +204,7 @@ test('terminal provider failure advances exactly one canonical message to the ne
     repository,
     adapterRegistry: registry,
     notificationService,
+    replyTokenService: { issue: async () => ({ address: 'conversation+FALLBACKTOKEN0000000@mail.carup.dev', record: { id: 'tok-fallback' } }) },
     workerId: 'fallback-test-worker',
   });
 

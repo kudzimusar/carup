@@ -32,6 +32,7 @@ export default function DiasporaStockManager() {
   const [listError, setListError] = useState('')
   const [selected, setSelected] = useState<DiasporaStockItem | null>(null)
   const [ledger, setLedger] = useState<DiasporaStockLedgerEntry[]>([])
+  const [ledgerUnreadable, setLedgerUnreadable] = useState(false)
   const [docs, setDocs] = useState<DiasporaSupplyDocument[]>([])
   const [docError, setDocError] = useState('')
 
@@ -101,8 +102,11 @@ export default function DiasporaStockManager() {
   const loadLedger = useCallback(async (id: string) => {
     try {
       setLedger(await api.fetchDiasporaStockLedger(id))
+      setLedgerUnreadable(false)
     } catch {
+      // An unreadable ledger is not an untouched one.
       setLedger([])
+      setLedgerUnreadable(true)
     }
   }, [api])
 
@@ -471,7 +475,11 @@ export default function DiasporaStockManager() {
                     </TableHeader>
                     <TableBody>
                       {ledger.length === 0 ? (
-                        <TableRow><TableCell colSpan={3} className="h-12 text-center text-gray-500">No movements yet.</TableCell></TableRow>
+                        <TableRow><TableCell colSpan={3} className="h-12 text-center text-gray-500" data-testid="stock-ledger-state">
+                    {ledgerUnreadable
+                      ? 'The movement ledger could not be loaded. This is not a report of an untouched ledger.'
+                      : 'No movements yet.'}
+                  </TableCell></TableRow>
                       ) : ledger.map((entry) => (
                         <TableRow key={entry.id} data-testid="diaspora-stock-ledger-row">
                           <TableCell>{entry.action_type}</TableCell>

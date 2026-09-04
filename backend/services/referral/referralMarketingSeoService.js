@@ -2,6 +2,7 @@ import { ForbiddenError, NotFoundError, ValidationError } from '../../utils/erro
 import { ACTOR_TYPES, REFERRAL_CHANNELS } from '../../constants/referral/referralConstants.js';
 import { REFERRAL_TABLES } from './referralEngineRepository.js';
 import { ReferralEngineService, normalizeReferralCode, slugify } from './referralEngineService.js';
+import { resolveOutboundShareOrigin } from '../../config/canonicalWebOrigin.js';
 
 export const MARKETING_EVENT_TYPES = Object.freeze({
   KIT_CREATED: 'ai_marketing.kit_created',
@@ -80,8 +81,21 @@ function actorCanPublish(actor = {}) {
   return actorIsAdmin(actor) || actor.gateway_trusted === true;
 }
 
+/**
+ * The origin every generated referral/SEO/share URL is published on.
+ *
+ * G12 closed a real public-origin defect. This fell back to `https://carup.app` — a domain CarUp
+ * does not own as its canonical public origin — and honoured `input.base_url` verbatim, so a caller
+ * could put any host it liked into a durable, forwardable marketing link.
+ *
+ * It now delegates to `canonicalWebOrigin.js`, the single authority for "which origin may we publish
+ * to a human". A caller-supplied origin is honoured ONLY when it is already canonical; anything else
+ * — an external host, a *.vercel.app alias, carup.app — is ignored in favour of the canonical
+ * origin rather than trusted. No second configuration system, and deliberately no revived
+ * `CARUP_PUBLIC_URL`: one public-link authority is the point.
+ */
 function baseUrl(input = {}) {
-  return String(input.base_url || process.env.CARUP_PUBLIC_URL || 'https://carup.app').replace(/\/+$/, '');
+  return resolveOutboundShareOrigin(input.base_url, process.env).replace(/\/+$/, '');
 }
 
 function makeUtm(input = {}, assetType, context = {}) {

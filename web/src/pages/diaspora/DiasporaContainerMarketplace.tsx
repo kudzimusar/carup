@@ -30,6 +30,7 @@ export default function DiasporaContainerMarketplace() {
   const [containers, setContainers] = useState<DiasporaMarketplaceContainer[]>([])
   const [selected, setSelected] = useState<DiasporaMarketplaceContainer | null>(null)
   const [reservations, setReservations] = useState<DiasporaMarketplaceReservation[]>([])
+  const [reservationsUnreadable, setReservationsUnreadable] = useState(false)
   const [volume, setVolume] = useState('')
   const [error, setError] = useState('')
   const [reserveError, setReserveError] = useState('')
@@ -54,7 +55,14 @@ export default function DiasporaContainerMarketplace() {
   const open = async (container: DiasporaMarketplaceContainer) => {
     setSelected(container)
     setReserveError('')
-    try { setReservations(await api.fetchDiasporaContainerReservations(container.id)) } catch { setReservations([]) }
+    try {
+      setReservations(await api.fetchDiasporaContainerReservations(container.id))
+      setReservationsUnreadable(false)
+    } catch {
+      // A reviewer could otherwise close a booking believing nobody reserved space.
+      setReservations([])
+      setReservationsUnreadable(true)
+    }
   }
 
   const refreshSelected = async () => {
@@ -167,7 +175,11 @@ export default function DiasporaContainerMarketplace() {
                   <TableHeader><TableRow><TableHead>Volume</TableHead><TableHead>Status</TableHead>{isReviewer && <TableHead>Action</TableHead>}</TableRow></TableHeader>
                   <TableBody>
                     {reservations.length === 0 ? (
-                      <TableRow><TableCell colSpan={isReviewer ? 3 : 2} className="h-12 text-center text-gray-500">No reservations.</TableCell></TableRow>
+                      <TableRow><TableCell colSpan={isReviewer ? 3 : 2} className="h-12 text-center text-gray-500" data-testid="container-reservations-state">
+                    {reservationsUnreadable
+                      ? 'Reservations could not be loaded. This is not a report that none exist.'
+                      : 'No reservations.'}
+                  </TableCell></TableRow>
                     ) : reservations.map((r) => (
                       <TableRow key={r.id} data-testid="diaspora-container-reservation-row">
                         <TableCell>{r.estimated_volume} CBM</TableCell>

@@ -1,0 +1,2967 @@
+{
+  "version": "carup-global-vehicle-taxonomy@1.0.0",
+  "supersedes": [
+    "carup-vehicle-taxonomy-1.0.0"
+  ],
+  "marketPriority": [
+    "ZW",
+    "JP",
+    "ZA",
+    "SADC"
+  ],
+  "yearPolicy": {
+    "technicalMin": 1886,
+    "maxOffsetFromCurrentYear": 1
+  },
+  "dimensions": {
+    "bodyStyles": [
+      {
+        "id": "sedan",
+        "label": "Sedan",
+        "aliases": []
+      },
+      {
+        "id": "hatchback",
+        "label": "Hatchback",
+        "aliases": []
+      },
+      {
+        "id": "suv",
+        "label": "SUV",
+        "aliases": []
+      },
+      {
+        "id": "crossover",
+        "label": "Crossover",
+        "aliases": []
+      },
+      {
+        "id": "pickup",
+        "label": "Pickup",
+        "aliases": [
+          "Bakkie",
+          "Ute"
+        ]
+      },
+      {
+        "id": "wagon",
+        "label": "Wagon",
+        "aliases": [
+          "Estate"
+        ]
+      },
+      {
+        "id": "coupe",
+        "label": "Coupe",
+        "aliases": []
+      },
+      {
+        "id": "convertible",
+        "label": "Convertible",
+        "aliases": []
+      },
+      {
+        "id": "van",
+        "label": "Van",
+        "aliases": []
+      },
+      {
+        "id": "minibus",
+        "label": "Minibus",
+        "aliases": []
+      },
+      {
+        "id": "bus",
+        "label": "Bus",
+        "aliases": []
+      },
+      {
+        "id": "truck",
+        "label": "Truck",
+        "aliases": []
+      },
+      {
+        "id": "commercial",
+        "label": "Commercial",
+        "aliases": []
+      },
+      {
+        "id": "mpv",
+        "label": "MPV",
+        "aliases": [
+          "People Carrier",
+          "Multi-Purpose Vehicle"
+        ]
+      },
+      {
+        "id": "chassis_cab",
+        "label": "Chassis Cab",
+        "aliases": [
+          "Cab Chassis"
+        ]
+      },
+      {
+        "id": "other",
+        "label": "Other",
+        "aliases": []
+      }
+    ],
+    "colors": [
+      {
+        "id": "black",
+        "label": "Black",
+        "aliases": []
+      },
+      {
+        "id": "white",
+        "label": "White",
+        "aliases": []
+      },
+      {
+        "id": "silver",
+        "label": "Silver",
+        "aliases": []
+      },
+      {
+        "id": "grey",
+        "label": "Grey",
+        "aliases": [
+          "Gray"
+        ]
+      },
+      {
+        "id": "blue",
+        "label": "Blue",
+        "aliases": []
+      },
+      {
+        "id": "red",
+        "label": "Red",
+        "aliases": []
+      },
+      {
+        "id": "green",
+        "label": "Green",
+        "aliases": []
+      },
+      {
+        "id": "brown",
+        "label": "Brown",
+        "aliases": []
+      },
+      {
+        "id": "beige",
+        "label": "Beige",
+        "aliases": []
+      },
+      {
+        "id": "gold",
+        "label": "Gold",
+        "aliases": []
+      },
+      {
+        "id": "orange",
+        "label": "Orange",
+        "aliases": []
+      },
+      {
+        "id": "yellow",
+        "label": "Yellow",
+        "aliases": []
+      },
+      {
+        "id": "purple",
+        "label": "Purple",
+        "aliases": []
+      },
+      {
+        "id": "maroon",
+        "label": "Maroon",
+        "aliases": []
+      },
+      {
+        "id": "bronze",
+        "label": "Bronze",
+        "aliases": []
+      },
+      {
+        "id": "other",
+        "label": "Other",
+        "aliases": []
+      }
+    ],
+    "fuelTypes": [
+      {
+        "id": "petrol",
+        "label": "Petrol",
+        "aliases": [
+          "Gasoline"
+        ]
+      },
+      {
+        "id": "diesel",
+        "label": "Diesel",
+        "aliases": []
+      },
+      {
+        "id": "hybrid",
+        "label": "Hybrid",
+        "aliases": [
+          "HEV",
+          "Self-Charging Hybrid"
+        ]
+      },
+      {
+        "id": "plug_in_hybrid",
+        "label": "Plug-in Hybrid",
+        "aliases": [
+          "PHEV",
+          "Plug In Hybrid"
+        ]
+      },
+      {
+        "id": "electric",
+        "label": "Electric",
+        "aliases": [
+          "EV",
+          "BEV",
+          "Battery Electric"
+        ]
+      },
+      {
+        "id": "lpg",
+        "label": "LPG",
+        "aliases": [
+          "Autogas"
+        ]
+      },
+      {
+        "id": "cng",
+        "label": "CNG",
+        "aliases": [
+          "Compressed Natural Gas"
+        ]
+      },
+      {
+        "id": "hydrogen",
+        "label": "Hydrogen",
+        "aliases": [
+          "Fuel Cell",
+          "FCEV"
+        ]
+      },
+      {
+        "id": "other",
+        "label": "Other",
+        "aliases": []
+      }
+    ],
+    "transmissions": [
+      {
+        "id": "automatic",
+        "label": "Automatic",
+        "aliases": [
+          "Auto",
+          "AT",
+          "Torque Converter Automatic"
+        ]
+      },
+      {
+        "id": "manual",
+        "label": "Manual",
+        "aliases": [
+          "MT"
+        ]
+      },
+      {
+        "id": "cvt",
+        "label": "CVT",
+        "aliases": [
+          "Continuously Variable Transmission"
+        ]
+      },
+      {
+        "id": "dct",
+        "label": "DCT",
+        "aliases": [
+          "Dual-Clutch",
+          "Dual Clutch",
+          "DSG"
+        ]
+      },
+      {
+        "id": "automated_manual",
+        "label": "Automated Manual",
+        "aliases": [
+          "AMT",
+          "Robotized Manual"
+        ]
+      },
+      {
+        "id": "single_speed",
+        "label": "Single-Speed",
+        "aliases": [
+          "Single Speed"
+        ]
+      },
+      {
+        "id": "other",
+        "label": "Other",
+        "aliases": []
+      }
+    ],
+    "drivetrains": [
+      {
+        "id": "fwd",
+        "label": "FWD",
+        "aliases": [
+          "Front-Wheel Drive",
+          "Front Wheel Drive"
+        ]
+      },
+      {
+        "id": "rwd",
+        "label": "RWD",
+        "aliases": [
+          "Rear-Wheel Drive",
+          "Rear Wheel Drive"
+        ]
+      },
+      {
+        "id": "awd",
+        "label": "AWD",
+        "aliases": [
+          "All-Wheel Drive",
+          "All Wheel Drive"
+        ]
+      },
+      {
+        "id": "4wd",
+        "label": "4WD",
+        "aliases": [
+          "4x4",
+          "Four-Wheel Drive",
+          "Four Wheel Drive"
+        ]
+      },
+      {
+        "id": "other",
+        "label": "Other",
+        "aliases": []
+      }
+    ],
+    "sellerConditions": [
+      {
+        "id": "new",
+        "label": "New",
+        "aliases": [
+          "Brand New"
+        ]
+      },
+      {
+        "id": "used",
+        "label": "Used",
+        "aliases": [
+          "Pre-Owned",
+          "Pre Owned"
+        ]
+      },
+      {
+        "id": "other",
+        "label": "Other",
+        "aliases": []
+      }
+    ]
+  },
+  "makes": [
+    {
+      "id": "make:toyota",
+      "name": "Toyota",
+      "aliases": [],
+      "markets": [],
+      "status": "active",
+      "models": [
+        {
+          "id": "model:toyota:hilux",
+          "name": "Hilux",
+          "aliases": [],
+          "bodyStyleIds": [
+            "pickup"
+          ],
+          "generations": [],
+          "status": "active"
+        },
+        {
+          "id": "model:toyota:corolla",
+          "name": "Corolla",
+          "aliases": [],
+          "bodyStyleIds": [
+            "sedan",
+            "hatchback",
+            "wagon"
+          ],
+          "generations": [],
+          "status": "active"
+        },
+        {
+          "id": "model:toyota:fortuner",
+          "name": "Fortuner",
+          "aliases": [],
+          "bodyStyleIds": [
+            "suv"
+          ],
+          "generations": [],
+          "status": "active"
+        },
+        {
+          "id": "model:toyota:land-cruiser",
+          "name": "Land Cruiser",
+          "aliases": [
+            "LC"
+          ],
+          "bodyStyleIds": [
+            "suv"
+          ],
+          "generations": [],
+          "status": "active"
+        },
+        {
+          "id": "model:toyota:prado",
+          "name": "Prado",
+          "aliases": [
+            "Land Cruiser Prado"
+          ],
+          "bodyStyleIds": [
+            "suv"
+          ],
+          "generations": [],
+          "status": "active"
+        },
+        {
+          "id": "model:toyota:rav4",
+          "name": "RAV4",
+          "aliases": [],
+          "bodyStyleIds": [
+            "suv",
+            "crossover"
+          ],
+          "generations": [],
+          "status": "active"
+        },
+        {
+          "id": "model:toyota:aqua",
+          "name": "Aqua",
+          "aliases": [
+            "Prius C"
+          ],
+          "bodyStyleIds": [
+            "hatchback"
+          ],
+          "generations": [],
+          "status": "active"
+        },
+        {
+          "id": "model:toyota:prius",
+          "name": "Prius",
+          "aliases": [],
+          "bodyStyleIds": [
+            "hatchback",
+            "sedan"
+          ],
+          "generations": [],
+          "status": "active"
+        },
+        {
+          "id": "model:toyota:vitz",
+          "name": "Vitz",
+          "aliases": [
+            "Yaris"
+          ],
+          "bodyStyleIds": [
+            "hatchback"
+          ],
+          "generations": [],
+          "status": "active"
+        },
+        {
+          "id": "model:toyota:wish",
+          "name": "Wish",
+          "aliases": [],
+          "bodyStyleIds": [
+            "wagon"
+          ],
+          "generations": [],
+          "status": "active"
+        },
+        {
+          "id": "model:toyota:noah",
+          "name": "Noah",
+          "aliases": [],
+          "bodyStyleIds": [
+            "van"
+          ],
+          "generations": [],
+          "status": "active"
+        },
+        {
+          "id": "model:toyota:voxy",
+          "name": "Voxy",
+          "aliases": [],
+          "bodyStyleIds": [
+            "van"
+          ],
+          "generations": [],
+          "status": "active"
+        },
+        {
+          "id": "model:toyota:hiace",
+          "name": "HiAce",
+          "aliases": [],
+          "bodyStyleIds": [
+            "van",
+            "minibus"
+          ],
+          "generations": [],
+          "status": "active"
+        },
+        {
+          "id": "model:toyota:harrier",
+          "name": "Harrier",
+          "aliases": [],
+          "bodyStyleIds": [
+            "suv"
+          ],
+          "generations": [],
+          "status": "active"
+        },
+        {
+          "id": "model:toyota:c-hr",
+          "name": "C-HR",
+          "aliases": [],
+          "bodyStyleIds": [
+            "crossover"
+          ],
+          "generations": [],
+          "status": "active"
+        },
+        {
+          "id": "model:toyota:probox",
+          "name": "Probox",
+          "aliases": [],
+          "bodyStyleIds": [
+            "wagon",
+            "commercial"
+          ],
+          "generations": [],
+          "status": "active"
+        }
+      ]
+    },
+    {
+      "id": "make:nissan",
+      "name": "Nissan",
+      "aliases": [],
+      "markets": [],
+      "status": "active",
+      "models": [
+        {
+          "id": "model:nissan:np200",
+          "name": "NP200",
+          "aliases": [],
+          "bodyStyleIds": [
+            "pickup"
+          ],
+          "generations": [],
+          "status": "active"
+        },
+        {
+          "id": "model:nissan:navara",
+          "name": "Navara",
+          "aliases": [],
+          "bodyStyleIds": [
+            "pickup"
+          ],
+          "generations": [],
+          "status": "active"
+        },
+        {
+          "id": "model:nissan:x-trail",
+          "name": "X-Trail",
+          "aliases": [],
+          "bodyStyleIds": [
+            "suv"
+          ],
+          "generations": [],
+          "status": "active"
+        },
+        {
+          "id": "model:nissan:qashqai",
+          "name": "Qashqai",
+          "aliases": [],
+          "bodyStyleIds": [
+            "crossover"
+          ],
+          "generations": [],
+          "status": "active"
+        },
+        {
+          "id": "model:nissan:note",
+          "name": "Note",
+          "aliases": [],
+          "bodyStyleIds": [
+            "hatchback"
+          ],
+          "generations": [],
+          "status": "active"
+        },
+        {
+          "id": "model:nissan:tiida",
+          "name": "Tiida",
+          "aliases": [],
+          "bodyStyleIds": [
+            "hatchback",
+            "sedan"
+          ],
+          "generations": [],
+          "status": "active"
+        },
+        {
+          "id": "model:nissan:march",
+          "name": "March",
+          "aliases": [
+            "Micra"
+          ],
+          "bodyStyleIds": [
+            "hatchback"
+          ],
+          "generations": [],
+          "status": "active"
+        },
+        {
+          "id": "model:nissan:juke",
+          "name": "Juke",
+          "aliases": [],
+          "bodyStyleIds": [
+            "crossover"
+          ],
+          "generations": [],
+          "status": "active"
+        },
+        {
+          "id": "model:nissan:serena",
+          "name": "Serena",
+          "aliases": [],
+          "bodyStyleIds": [
+            "van"
+          ],
+          "generations": [],
+          "status": "active"
+        },
+        {
+          "id": "model:nissan:patrol",
+          "name": "Patrol",
+          "aliases": [],
+          "bodyStyleIds": [
+            "suv"
+          ],
+          "generations": [],
+          "status": "active"
+        },
+        {
+          "id": "model:nissan:nv200",
+          "name": "NV200",
+          "aliases": [],
+          "bodyStyleIds": [
+            "van",
+            "commercial"
+          ],
+          "generations": [],
+          "status": "active"
+        }
+      ]
+    },
+    {
+      "id": "make:honda",
+      "name": "Honda",
+      "aliases": [],
+      "markets": [],
+      "status": "active",
+      "models": [
+        {
+          "id": "model:honda:fit",
+          "name": "Fit",
+          "aliases": [
+            "Jazz"
+          ],
+          "bodyStyleIds": [
+            "hatchback"
+          ],
+          "generations": [],
+          "status": "active"
+        },
+        {
+          "id": "model:honda:cr-v",
+          "name": "CR-V",
+          "aliases": [],
+          "bodyStyleIds": [
+            "suv"
+          ],
+          "generations": [],
+          "status": "active"
+        },
+        {
+          "id": "model:honda:vezel",
+          "name": "Vezel",
+          "aliases": [
+            "HR-V"
+          ],
+          "bodyStyleIds": [
+            "crossover"
+          ],
+          "generations": [],
+          "status": "active"
+        },
+        {
+          "id": "model:honda:civic",
+          "name": "Civic",
+          "aliases": [],
+          "bodyStyleIds": [
+            "sedan",
+            "hatchback"
+          ],
+          "generations": [],
+          "status": "active"
+        },
+        {
+          "id": "model:honda:accord",
+          "name": "Accord",
+          "aliases": [],
+          "bodyStyleIds": [
+            "sedan"
+          ],
+          "generations": [],
+          "status": "active"
+        },
+        {
+          "id": "model:honda:freed",
+          "name": "Freed",
+          "aliases": [],
+          "bodyStyleIds": [
+            "van"
+          ],
+          "generations": [],
+          "status": "active"
+        },
+        {
+          "id": "model:honda:stepwgn",
+          "name": "Stepwgn",
+          "aliases": [
+            "Step Wagon"
+          ],
+          "bodyStyleIds": [
+            "van"
+          ],
+          "generations": [],
+          "status": "active"
+        }
+      ]
+    },
+    {
+      "id": "make:mazda",
+      "name": "Mazda",
+      "aliases": [],
+      "markets": [],
+      "status": "active",
+      "models": [
+        {
+          "id": "model:mazda:demio",
+          "name": "Demio",
+          "aliases": [
+            "Mazda2"
+          ],
+          "bodyStyleIds": [
+            "hatchback"
+          ],
+          "generations": [],
+          "status": "active"
+        },
+        {
+          "id": "model:mazda:axela",
+          "name": "Axela",
+          "aliases": [
+            "Mazda3"
+          ],
+          "bodyStyleIds": [
+            "sedan",
+            "hatchback"
+          ],
+          "generations": [],
+          "status": "active"
+        },
+        {
+          "id": "model:mazda:atenza",
+          "name": "Atenza",
+          "aliases": [
+            "Mazda6"
+          ],
+          "bodyStyleIds": [
+            "sedan",
+            "wagon"
+          ],
+          "generations": [],
+          "status": "active"
+        },
+        {
+          "id": "model:mazda:cx-3",
+          "name": "CX-3",
+          "aliases": [],
+          "bodyStyleIds": [
+            "crossover"
+          ],
+          "generations": [],
+          "status": "active"
+        },
+        {
+          "id": "model:mazda:cx-5",
+          "name": "CX-5",
+          "aliases": [],
+          "bodyStyleIds": [
+            "suv"
+          ],
+          "generations": [],
+          "status": "active"
+        },
+        {
+          "id": "model:mazda:cx-30",
+          "name": "CX-30",
+          "aliases": [],
+          "bodyStyleIds": [
+            "crossover"
+          ],
+          "generations": [],
+          "status": "active"
+        },
+        {
+          "id": "model:mazda:bt-50",
+          "name": "BT-50",
+          "aliases": [],
+          "bodyStyleIds": [
+            "pickup"
+          ],
+          "generations": [],
+          "status": "active"
+        }
+      ]
+    },
+    {
+      "id": "make:ford",
+      "name": "Ford",
+      "aliases": [],
+      "markets": [],
+      "status": "active",
+      "models": [
+        {
+          "id": "model:ford:ranger",
+          "name": "Ranger",
+          "aliases": [],
+          "bodyStyleIds": [
+            "pickup"
+          ],
+          "generations": [],
+          "status": "active"
+        },
+        {
+          "id": "model:ford:everest",
+          "name": "Everest",
+          "aliases": [],
+          "bodyStyleIds": [
+            "suv"
+          ],
+          "generations": [],
+          "status": "active"
+        },
+        {
+          "id": "model:ford:ecosport",
+          "name": "EcoSport",
+          "aliases": [],
+          "bodyStyleIds": [
+            "crossover"
+          ],
+          "generations": [],
+          "status": "active"
+        },
+        {
+          "id": "model:ford:kuga",
+          "name": "Kuga",
+          "aliases": [],
+          "bodyStyleIds": [
+            "suv"
+          ],
+          "generations": [],
+          "status": "active"
+        },
+        {
+          "id": "model:ford:focus",
+          "name": "Focus",
+          "aliases": [],
+          "bodyStyleIds": [
+            "hatchback",
+            "sedan"
+          ],
+          "generations": [],
+          "status": "active"
+        },
+        {
+          "id": "model:ford:fiesta",
+          "name": "Fiesta",
+          "aliases": [],
+          "bodyStyleIds": [
+            "hatchback"
+          ],
+          "generations": [],
+          "status": "active"
+        },
+        {
+          "id": "model:ford:transit",
+          "name": "Transit",
+          "aliases": [],
+          "bodyStyleIds": [
+            "van",
+            "commercial"
+          ],
+          "generations": [],
+          "status": "active"
+        }
+      ]
+    },
+    {
+      "id": "make:isuzu",
+      "name": "Isuzu",
+      "aliases": [],
+      "markets": [],
+      "status": "active",
+      "models": [
+        {
+          "id": "model:isuzu:d-max",
+          "name": "D-Max",
+          "aliases": [],
+          "bodyStyleIds": [
+            "pickup"
+          ],
+          "generations": [],
+          "status": "active"
+        },
+        {
+          "id": "model:isuzu:kb",
+          "name": "KB",
+          "aliases": [],
+          "bodyStyleIds": [
+            "pickup"
+          ],
+          "generations": [],
+          "status": "active"
+        },
+        {
+          "id": "model:isuzu:mu-x",
+          "name": "MU-X",
+          "aliases": [],
+          "bodyStyleIds": [
+            "suv"
+          ],
+          "generations": [],
+          "status": "active"
+        },
+        {
+          "id": "model:isuzu:n-series",
+          "name": "N-Series",
+          "aliases": [],
+          "bodyStyleIds": [
+            "truck"
+          ],
+          "generations": [],
+          "status": "active"
+        }
+      ]
+    },
+    {
+      "id": "make:mitsubishi",
+      "name": "Mitsubishi",
+      "aliases": [],
+      "markets": [],
+      "status": "active",
+      "models": [
+        {
+          "id": "model:mitsubishi:triton",
+          "name": "Triton",
+          "aliases": [
+            "L200"
+          ],
+          "bodyStyleIds": [
+            "pickup"
+          ],
+          "generations": [],
+          "status": "active"
+        },
+        {
+          "id": "model:mitsubishi:pajero",
+          "name": "Pajero",
+          "aliases": [],
+          "bodyStyleIds": [
+            "suv"
+          ],
+          "generations": [],
+          "status": "active"
+        },
+        {
+          "id": "model:mitsubishi:outlander",
+          "name": "Outlander",
+          "aliases": [],
+          "bodyStyleIds": [
+            "suv"
+          ],
+          "generations": [],
+          "status": "active"
+        },
+        {
+          "id": "model:mitsubishi:asx",
+          "name": "ASX",
+          "aliases": [],
+          "bodyStyleIds": [
+            "crossover"
+          ],
+          "generations": [],
+          "status": "active"
+        },
+        {
+          "id": "model:mitsubishi:delica",
+          "name": "Delica",
+          "aliases": [],
+          "bodyStyleIds": [
+            "van"
+          ],
+          "generations": [],
+          "status": "active"
+        }
+      ]
+    },
+    {
+      "id": "make:subaru",
+      "name": "Subaru",
+      "aliases": [],
+      "markets": [],
+      "status": "active",
+      "models": [
+        {
+          "id": "model:subaru:impreza",
+          "name": "Impreza",
+          "aliases": [],
+          "bodyStyleIds": [
+            "sedan",
+            "hatchback"
+          ],
+          "generations": [],
+          "status": "active"
+        },
+        {
+          "id": "model:subaru:forester",
+          "name": "Forester",
+          "aliases": [],
+          "bodyStyleIds": [
+            "suv"
+          ],
+          "generations": [],
+          "status": "active"
+        },
+        {
+          "id": "model:subaru:xv",
+          "name": "XV",
+          "aliases": [
+            "Crosstrek"
+          ],
+          "bodyStyleIds": [
+            "crossover"
+          ],
+          "generations": [],
+          "status": "active"
+        },
+        {
+          "id": "model:subaru:legacy",
+          "name": "Legacy",
+          "aliases": [],
+          "bodyStyleIds": [
+            "sedan",
+            "wagon"
+          ],
+          "generations": [],
+          "status": "active"
+        },
+        {
+          "id": "model:subaru:outback",
+          "name": "Outback",
+          "aliases": [],
+          "bodyStyleIds": [
+            "wagon"
+          ],
+          "generations": [],
+          "status": "active"
+        },
+        {
+          "id": "model:subaru:levorg",
+          "name": "Levorg",
+          "aliases": [],
+          "bodyStyleIds": [
+            "wagon"
+          ],
+          "generations": [],
+          "status": "active"
+        }
+      ]
+    },
+    {
+      "id": "make:suzuki",
+      "name": "Suzuki",
+      "aliases": [],
+      "markets": [],
+      "status": "active",
+      "models": [
+        {
+          "id": "model:suzuki:swift",
+          "name": "Swift",
+          "aliases": [],
+          "bodyStyleIds": [
+            "hatchback"
+          ],
+          "generations": [],
+          "status": "active"
+        },
+        {
+          "id": "model:suzuki:jimny",
+          "name": "Jimny",
+          "aliases": [],
+          "bodyStyleIds": [
+            "suv"
+          ],
+          "generations": [],
+          "status": "active"
+        },
+        {
+          "id": "model:suzuki:vitara",
+          "name": "Vitara",
+          "aliases": [],
+          "bodyStyleIds": [
+            "suv"
+          ],
+          "generations": [],
+          "status": "active"
+        },
+        {
+          "id": "model:suzuki:ertiga",
+          "name": "Ertiga",
+          "aliases": [],
+          "bodyStyleIds": [
+            "van"
+          ],
+          "generations": [],
+          "status": "active"
+        },
+        {
+          "id": "model:suzuki:baleno",
+          "name": "Baleno",
+          "aliases": [],
+          "bodyStyleIds": [
+            "hatchback"
+          ],
+          "generations": [],
+          "status": "active"
+        },
+        {
+          "id": "model:suzuki:s-presso",
+          "name": "S-Presso",
+          "aliases": [],
+          "bodyStyleIds": [
+            "hatchback"
+          ],
+          "generations": [],
+          "status": "active"
+        }
+      ]
+    },
+    {
+      "id": "make:volkswagen",
+      "name": "Volkswagen",
+      "aliases": [
+        "VW"
+      ],
+      "markets": [],
+      "status": "active",
+      "models": [
+        {
+          "id": "model:volkswagen:polo",
+          "name": "Polo",
+          "aliases": [],
+          "bodyStyleIds": [
+            "hatchback",
+            "sedan"
+          ],
+          "generations": [],
+          "status": "active"
+        },
+        {
+          "id": "model:volkswagen:golf",
+          "name": "Golf",
+          "aliases": [],
+          "bodyStyleIds": [
+            "hatchback"
+          ],
+          "generations": [],
+          "status": "active"
+        },
+        {
+          "id": "model:volkswagen:amarok",
+          "name": "Amarok",
+          "aliases": [],
+          "bodyStyleIds": [
+            "pickup"
+          ],
+          "generations": [],
+          "status": "active"
+        },
+        {
+          "id": "model:volkswagen:tiguan",
+          "name": "Tiguan",
+          "aliases": [],
+          "bodyStyleIds": [
+            "suv"
+          ],
+          "generations": [],
+          "status": "active"
+        },
+        {
+          "id": "model:volkswagen:t-cross",
+          "name": "T-Cross",
+          "aliases": [],
+          "bodyStyleIds": [
+            "crossover"
+          ],
+          "generations": [],
+          "status": "active"
+        },
+        {
+          "id": "model:volkswagen:passat",
+          "name": "Passat",
+          "aliases": [],
+          "bodyStyleIds": [
+            "sedan",
+            "wagon"
+          ],
+          "generations": [],
+          "status": "active"
+        },
+        {
+          "id": "model:volkswagen:caddy",
+          "name": "Caddy",
+          "aliases": [],
+          "bodyStyleIds": [
+            "van",
+            "commercial"
+          ],
+          "generations": [],
+          "status": "active"
+        },
+        {
+          "id": "model:volkswagen:transporter",
+          "name": "Transporter",
+          "aliases": [],
+          "bodyStyleIds": [
+            "van",
+            "commercial"
+          ],
+          "generations": [],
+          "status": "active"
+        }
+      ]
+    },
+    {
+      "id": "make:mercedes-benz",
+      "name": "Mercedes-Benz",
+      "aliases": [
+        "Mercedes",
+        "Benz"
+      ],
+      "markets": [],
+      "status": "active",
+      "models": [
+        {
+          "id": "model:mercedes-benz:a-class",
+          "name": "A-Class",
+          "aliases": [],
+          "bodyStyleIds": [
+            "hatchback",
+            "sedan"
+          ],
+          "generations": [],
+          "status": "active"
+        },
+        {
+          "id": "model:mercedes-benz:c-class",
+          "name": "C-Class",
+          "aliases": [],
+          "bodyStyleIds": [
+            "sedan",
+            "coupe"
+          ],
+          "generations": [],
+          "status": "active"
+        },
+        {
+          "id": "model:mercedes-benz:e-class",
+          "name": "E-Class",
+          "aliases": [],
+          "bodyStyleIds": [
+            "sedan",
+            "wagon"
+          ],
+          "generations": [],
+          "status": "active"
+        },
+        {
+          "id": "model:mercedes-benz:s-class",
+          "name": "S-Class",
+          "aliases": [],
+          "bodyStyleIds": [
+            "sedan"
+          ],
+          "generations": [],
+          "status": "active"
+        },
+        {
+          "id": "model:mercedes-benz:gla",
+          "name": "GLA",
+          "aliases": [],
+          "bodyStyleIds": [
+            "crossover"
+          ],
+          "generations": [],
+          "status": "active"
+        },
+        {
+          "id": "model:mercedes-benz:glc",
+          "name": "GLC",
+          "aliases": [],
+          "bodyStyleIds": [
+            "suv"
+          ],
+          "generations": [],
+          "status": "active"
+        },
+        {
+          "id": "model:mercedes-benz:gle",
+          "name": "GLE",
+          "aliases": [],
+          "bodyStyleIds": [
+            "suv"
+          ],
+          "generations": [],
+          "status": "active"
+        },
+        {
+          "id": "model:mercedes-benz:g-class",
+          "name": "G-Class",
+          "aliases": [
+            "G-Wagon"
+          ],
+          "bodyStyleIds": [
+            "suv"
+          ],
+          "generations": [],
+          "status": "active"
+        },
+        {
+          "id": "model:mercedes-benz:vito",
+          "name": "Vito",
+          "aliases": [],
+          "bodyStyleIds": [
+            "van"
+          ],
+          "generations": [],
+          "status": "active"
+        },
+        {
+          "id": "model:mercedes-benz:sprinter",
+          "name": "Sprinter",
+          "aliases": [],
+          "bodyStyleIds": [
+            "van",
+            "commercial"
+          ],
+          "generations": [],
+          "status": "active"
+        }
+      ]
+    },
+    {
+      "id": "make:bmw",
+      "name": "BMW",
+      "aliases": [],
+      "markets": [],
+      "status": "active",
+      "models": [
+        {
+          "id": "model:bmw:1-series",
+          "name": "1 Series",
+          "aliases": [],
+          "bodyStyleIds": [
+            "hatchback"
+          ],
+          "generations": [],
+          "status": "active"
+        },
+        {
+          "id": "model:bmw:3-series",
+          "name": "3 Series",
+          "aliases": [],
+          "bodyStyleIds": [
+            "sedan",
+            "wagon"
+          ],
+          "generations": [],
+          "status": "active"
+        },
+        {
+          "id": "model:bmw:5-series",
+          "name": "5 Series",
+          "aliases": [],
+          "bodyStyleIds": [
+            "sedan",
+            "wagon"
+          ],
+          "generations": [],
+          "status": "active"
+        },
+        {
+          "id": "model:bmw:x1",
+          "name": "X1",
+          "aliases": [],
+          "bodyStyleIds": [
+            "crossover"
+          ],
+          "generations": [],
+          "status": "active"
+        },
+        {
+          "id": "model:bmw:x3",
+          "name": "X3",
+          "aliases": [],
+          "bodyStyleIds": [
+            "suv"
+          ],
+          "generations": [],
+          "status": "active"
+        },
+        {
+          "id": "model:bmw:x5",
+          "name": "X5",
+          "aliases": [],
+          "bodyStyleIds": [
+            "suv"
+          ],
+          "generations": [],
+          "status": "active"
+        },
+        {
+          "id": "model:bmw:x6",
+          "name": "X6",
+          "aliases": [],
+          "bodyStyleIds": [
+            "suv"
+          ],
+          "generations": [],
+          "status": "active"
+        }
+      ]
+    },
+    {
+      "id": "make:audi",
+      "name": "Audi",
+      "aliases": [],
+      "markets": [],
+      "status": "active",
+      "models": [
+        {
+          "id": "model:audi:a1",
+          "name": "A1",
+          "aliases": [],
+          "bodyStyleIds": [
+            "hatchback"
+          ],
+          "generations": [],
+          "status": "active"
+        },
+        {
+          "id": "model:audi:a3",
+          "name": "A3",
+          "aliases": [],
+          "bodyStyleIds": [
+            "sedan",
+            "hatchback"
+          ],
+          "generations": [],
+          "status": "active"
+        },
+        {
+          "id": "model:audi:a4",
+          "name": "A4",
+          "aliases": [],
+          "bodyStyleIds": [
+            "sedan",
+            "wagon"
+          ],
+          "generations": [],
+          "status": "active"
+        },
+        {
+          "id": "model:audi:a6",
+          "name": "A6",
+          "aliases": [],
+          "bodyStyleIds": [
+            "sedan",
+            "wagon"
+          ],
+          "generations": [],
+          "status": "active"
+        },
+        {
+          "id": "model:audi:q3",
+          "name": "Q3",
+          "aliases": [],
+          "bodyStyleIds": [
+            "crossover"
+          ],
+          "generations": [],
+          "status": "active"
+        },
+        {
+          "id": "model:audi:q5",
+          "name": "Q5",
+          "aliases": [],
+          "bodyStyleIds": [
+            "suv"
+          ],
+          "generations": [],
+          "status": "active"
+        },
+        {
+          "id": "model:audi:q7",
+          "name": "Q7",
+          "aliases": [],
+          "bodyStyleIds": [
+            "suv"
+          ],
+          "generations": [],
+          "status": "active"
+        }
+      ]
+    },
+    {
+      "id": "make:land-rover",
+      "name": "Land Rover",
+      "aliases": [],
+      "markets": [],
+      "status": "active",
+      "models": [
+        {
+          "id": "model:land-rover:defender",
+          "name": "Defender",
+          "aliases": [],
+          "bodyStyleIds": [
+            "suv"
+          ],
+          "generations": [],
+          "status": "active"
+        },
+        {
+          "id": "model:land-rover:discovery",
+          "name": "Discovery",
+          "aliases": [],
+          "bodyStyleIds": [
+            "suv"
+          ],
+          "generations": [],
+          "status": "active"
+        },
+        {
+          "id": "model:land-rover:discovery-sport",
+          "name": "Discovery Sport",
+          "aliases": [],
+          "bodyStyleIds": [
+            "suv"
+          ],
+          "generations": [],
+          "status": "active"
+        },
+        {
+          "id": "model:land-rover:range-rover",
+          "name": "Range Rover",
+          "aliases": [],
+          "bodyStyleIds": [
+            "suv"
+          ],
+          "generations": [],
+          "status": "active"
+        },
+        {
+          "id": "model:land-rover:range-rover-sport",
+          "name": "Range Rover Sport",
+          "aliases": [],
+          "bodyStyleIds": [
+            "suv"
+          ],
+          "generations": [],
+          "status": "active"
+        },
+        {
+          "id": "model:land-rover:range-rover-evoque",
+          "name": "Range Rover Evoque",
+          "aliases": [],
+          "bodyStyleIds": [
+            "suv"
+          ],
+          "generations": [],
+          "status": "active"
+        }
+      ]
+    },
+    {
+      "id": "make:hyundai",
+      "name": "Hyundai",
+      "aliases": [],
+      "markets": [],
+      "status": "active",
+      "models": [
+        {
+          "id": "model:hyundai:i10",
+          "name": "i10",
+          "aliases": [],
+          "bodyStyleIds": [
+            "hatchback"
+          ],
+          "generations": [],
+          "status": "active"
+        },
+        {
+          "id": "model:hyundai:i20",
+          "name": "i20",
+          "aliases": [],
+          "bodyStyleIds": [
+            "hatchback"
+          ],
+          "generations": [],
+          "status": "active"
+        },
+        {
+          "id": "model:hyundai:elantra",
+          "name": "Elantra",
+          "aliases": [],
+          "bodyStyleIds": [
+            "sedan"
+          ],
+          "generations": [],
+          "status": "active"
+        },
+        {
+          "id": "model:hyundai:tucson",
+          "name": "Tucson",
+          "aliases": [],
+          "bodyStyleIds": [
+            "suv"
+          ],
+          "generations": [],
+          "status": "active"
+        },
+        {
+          "id": "model:hyundai:santa-fe",
+          "name": "Santa Fe",
+          "aliases": [],
+          "bodyStyleIds": [
+            "suv"
+          ],
+          "generations": [],
+          "status": "active"
+        },
+        {
+          "id": "model:hyundai:h-1",
+          "name": "H-1",
+          "aliases": [],
+          "bodyStyleIds": [
+            "van"
+          ],
+          "generations": [],
+          "status": "active"
+        }
+      ]
+    },
+    {
+      "id": "make:kia",
+      "name": "Kia",
+      "aliases": [],
+      "markets": [],
+      "status": "active",
+      "models": [
+        {
+          "id": "model:kia:picanto",
+          "name": "Picanto",
+          "aliases": [],
+          "bodyStyleIds": [
+            "hatchback"
+          ],
+          "generations": [],
+          "status": "active"
+        },
+        {
+          "id": "model:kia:rio",
+          "name": "Rio",
+          "aliases": [],
+          "bodyStyleIds": [
+            "hatchback",
+            "sedan"
+          ],
+          "generations": [],
+          "status": "active"
+        },
+        {
+          "id": "model:kia:cerato",
+          "name": "Cerato",
+          "aliases": [],
+          "bodyStyleIds": [
+            "sedan"
+          ],
+          "generations": [],
+          "status": "active"
+        },
+        {
+          "id": "model:kia:seltos",
+          "name": "Seltos",
+          "aliases": [],
+          "bodyStyleIds": [
+            "crossover"
+          ],
+          "generations": [],
+          "status": "active"
+        },
+        {
+          "id": "model:kia:sportage",
+          "name": "Sportage",
+          "aliases": [],
+          "bodyStyleIds": [
+            "suv"
+          ],
+          "generations": [],
+          "status": "active"
+        },
+        {
+          "id": "model:kia:sorento",
+          "name": "Sorento",
+          "aliases": [],
+          "bodyStyleIds": [
+            "suv"
+          ],
+          "generations": [],
+          "status": "active"
+        }
+      ]
+    },
+    {
+      "id": "make:chevrolet",
+      "name": "Chevrolet",
+      "aliases": [],
+      "markets": [],
+      "status": "active",
+      "models": [
+        {
+          "id": "model:chevrolet:spark",
+          "name": "Spark",
+          "aliases": [],
+          "bodyStyleIds": [
+            "hatchback"
+          ],
+          "generations": [],
+          "status": "active"
+        },
+        {
+          "id": "model:chevrolet:aveo",
+          "name": "Aveo",
+          "aliases": [],
+          "bodyStyleIds": [
+            "sedan",
+            "hatchback"
+          ],
+          "generations": [],
+          "status": "active"
+        },
+        {
+          "id": "model:chevrolet:cruze",
+          "name": "Cruze",
+          "aliases": [],
+          "bodyStyleIds": [
+            "sedan"
+          ],
+          "generations": [],
+          "status": "active"
+        },
+        {
+          "id": "model:chevrolet:trailblazer",
+          "name": "Trailblazer",
+          "aliases": [],
+          "bodyStyleIds": [
+            "suv"
+          ],
+          "generations": [],
+          "status": "active"
+        },
+        {
+          "id": "model:chevrolet:captiva",
+          "name": "Captiva",
+          "aliases": [],
+          "bodyStyleIds": [
+            "suv"
+          ],
+          "generations": [],
+          "status": "active"
+        }
+      ]
+    },
+    {
+      "id": "make:renault",
+      "name": "Renault",
+      "aliases": [],
+      "markets": [],
+      "status": "active",
+      "models": [
+        {
+          "id": "model:renault:kwid",
+          "name": "Kwid",
+          "aliases": [],
+          "bodyStyleIds": [
+            "hatchback"
+          ],
+          "generations": [],
+          "status": "active"
+        },
+        {
+          "id": "model:renault:clio",
+          "name": "Clio",
+          "aliases": [],
+          "bodyStyleIds": [
+            "hatchback"
+          ],
+          "generations": [],
+          "status": "active"
+        },
+        {
+          "id": "model:renault:duster",
+          "name": "Duster",
+          "aliases": [],
+          "bodyStyleIds": [
+            "suv"
+          ],
+          "generations": [],
+          "status": "active"
+        },
+        {
+          "id": "model:renault:koleos",
+          "name": "Koleos",
+          "aliases": [],
+          "bodyStyleIds": [
+            "suv"
+          ],
+          "generations": [],
+          "status": "active"
+        },
+        {
+          "id": "model:renault:master",
+          "name": "Master",
+          "aliases": [],
+          "bodyStyleIds": [
+            "van",
+            "commercial"
+          ],
+          "generations": [],
+          "status": "active"
+        }
+      ]
+    },
+    {
+      "id": "make:peugeot",
+      "name": "Peugeot",
+      "aliases": [],
+      "markets": [],
+      "status": "active",
+      "models": [
+        {
+          "id": "model:peugeot:208",
+          "name": "208",
+          "aliases": [],
+          "bodyStyleIds": [
+            "hatchback"
+          ],
+          "generations": [],
+          "status": "active"
+        },
+        {
+          "id": "model:peugeot:308",
+          "name": "308",
+          "aliases": [],
+          "bodyStyleIds": [
+            "hatchback",
+            "wagon"
+          ],
+          "generations": [],
+          "status": "active"
+        },
+        {
+          "id": "model:peugeot:2008",
+          "name": "2008",
+          "aliases": [],
+          "bodyStyleIds": [
+            "crossover"
+          ],
+          "generations": [],
+          "status": "active"
+        },
+        {
+          "id": "model:peugeot:3008",
+          "name": "3008",
+          "aliases": [],
+          "bodyStyleIds": [
+            "suv"
+          ],
+          "generations": [],
+          "status": "active"
+        },
+        {
+          "id": "model:peugeot:5008",
+          "name": "5008",
+          "aliases": [],
+          "bodyStyleIds": [
+            "suv"
+          ],
+          "generations": [],
+          "status": "active"
+        },
+        {
+          "id": "model:peugeot:boxer",
+          "name": "Boxer",
+          "aliases": [],
+          "bodyStyleIds": [
+            "van",
+            "commercial"
+          ],
+          "generations": [],
+          "status": "active"
+        }
+      ]
+    },
+    {
+      "id": "make:jeep",
+      "name": "Jeep",
+      "aliases": [],
+      "markets": [],
+      "status": "active",
+      "models": [
+        {
+          "id": "model:jeep:renegade",
+          "name": "Renegade",
+          "aliases": [],
+          "bodyStyleIds": [
+            "crossover"
+          ],
+          "generations": [],
+          "status": "active"
+        },
+        {
+          "id": "model:jeep:compass",
+          "name": "Compass",
+          "aliases": [],
+          "bodyStyleIds": [
+            "suv"
+          ],
+          "generations": [],
+          "status": "active"
+        },
+        {
+          "id": "model:jeep:cherokee",
+          "name": "Cherokee",
+          "aliases": [],
+          "bodyStyleIds": [
+            "suv"
+          ],
+          "generations": [],
+          "status": "active"
+        },
+        {
+          "id": "model:jeep:grand-cherokee",
+          "name": "Grand Cherokee",
+          "aliases": [],
+          "bodyStyleIds": [
+            "suv"
+          ],
+          "generations": [],
+          "status": "active"
+        },
+        {
+          "id": "model:jeep:wrangler",
+          "name": "Wrangler",
+          "aliases": [],
+          "bodyStyleIds": [
+            "suv"
+          ],
+          "generations": [],
+          "status": "active"
+        }
+      ]
+    },
+    {
+      "id": "make:volvo",
+      "name": "Volvo",
+      "aliases": [],
+      "markets": [],
+      "status": "active",
+      "models": [
+        {
+          "id": "model:volvo:s60",
+          "name": "S60",
+          "aliases": [],
+          "bodyStyleIds": [
+            "sedan"
+          ],
+          "generations": [],
+          "status": "active"
+        },
+        {
+          "id": "model:volvo:s90",
+          "name": "S90",
+          "aliases": [],
+          "bodyStyleIds": [
+            "sedan"
+          ],
+          "generations": [],
+          "status": "active"
+        },
+        {
+          "id": "model:volvo:v60",
+          "name": "V60",
+          "aliases": [],
+          "bodyStyleIds": [
+            "wagon"
+          ],
+          "generations": [],
+          "status": "active"
+        },
+        {
+          "id": "model:volvo:xc40",
+          "name": "XC40",
+          "aliases": [],
+          "bodyStyleIds": [
+            "crossover"
+          ],
+          "generations": [],
+          "status": "active"
+        },
+        {
+          "id": "model:volvo:xc60",
+          "name": "XC60",
+          "aliases": [],
+          "bodyStyleIds": [
+            "suv"
+          ],
+          "generations": [],
+          "status": "active"
+        },
+        {
+          "id": "model:volvo:xc90",
+          "name": "XC90",
+          "aliases": [],
+          "bodyStyleIds": [
+            "suv"
+          ],
+          "generations": [],
+          "status": "active"
+        }
+      ]
+    },
+    {
+      "id": "make:lexus",
+      "name": "Lexus",
+      "aliases": [],
+      "markets": [],
+      "status": "active",
+      "models": [
+        {
+          "id": "model:lexus:is",
+          "name": "IS",
+          "aliases": [],
+          "bodyStyleIds": [
+            "sedan"
+          ],
+          "generations": [],
+          "status": "active"
+        },
+        {
+          "id": "model:lexus:es",
+          "name": "ES",
+          "aliases": [],
+          "bodyStyleIds": [
+            "sedan"
+          ],
+          "generations": [],
+          "status": "active"
+        },
+        {
+          "id": "model:lexus:gs",
+          "name": "GS",
+          "aliases": [],
+          "bodyStyleIds": [
+            "sedan"
+          ],
+          "generations": [],
+          "status": "active"
+        },
+        {
+          "id": "model:lexus:nx",
+          "name": "NX",
+          "aliases": [],
+          "bodyStyleIds": [
+            "suv"
+          ],
+          "generations": [],
+          "status": "active"
+        },
+        {
+          "id": "model:lexus:rx",
+          "name": "RX",
+          "aliases": [],
+          "bodyStyleIds": [
+            "suv"
+          ],
+          "generations": [],
+          "status": "active"
+        },
+        {
+          "id": "model:lexus:lx",
+          "name": "LX",
+          "aliases": [],
+          "bodyStyleIds": [
+            "suv"
+          ],
+          "generations": [],
+          "status": "active"
+        }
+      ]
+    },
+    {
+      "id": "make:daihatsu",
+      "name": "Daihatsu",
+      "aliases": [],
+      "markets": [],
+      "status": "active",
+      "models": [
+        {
+          "id": "model:daihatsu:mira",
+          "name": "Mira",
+          "aliases": [],
+          "bodyStyleIds": [
+            "hatchback"
+          ],
+          "generations": [],
+          "status": "active"
+        },
+        {
+          "id": "model:daihatsu:move",
+          "name": "Move",
+          "aliases": [],
+          "bodyStyleIds": [
+            "hatchback"
+          ],
+          "generations": [],
+          "status": "active"
+        },
+        {
+          "id": "model:daihatsu:tanto",
+          "name": "Tanto",
+          "aliases": [],
+          "bodyStyleIds": [
+            "hatchback"
+          ],
+          "generations": [],
+          "status": "active"
+        },
+        {
+          "id": "model:daihatsu:terios",
+          "name": "Terios",
+          "aliases": [],
+          "bodyStyleIds": [
+            "suv"
+          ],
+          "generations": [],
+          "status": "active"
+        }
+      ]
+    },
+    {
+      "id": "make:hino",
+      "name": "Hino",
+      "aliases": [],
+      "markets": [],
+      "status": "active",
+      "models": [
+        {
+          "id": "model:hino:300",
+          "name": "300",
+          "aliases": [],
+          "bodyStyleIds": [
+            "truck"
+          ],
+          "generations": [],
+          "status": "active"
+        },
+        {
+          "id": "model:hino:500",
+          "name": "500",
+          "aliases": [],
+          "bodyStyleIds": [
+            "truck"
+          ],
+          "generations": [],
+          "status": "active"
+        },
+        {
+          "id": "model:hino:700",
+          "name": "700",
+          "aliases": [],
+          "bodyStyleIds": [
+            "truck"
+          ],
+          "generations": [],
+          "status": "active"
+        }
+      ]
+    },
+    {
+      "id": "make:fuso",
+      "name": "Fuso",
+      "aliases": [
+        "Mitsubishi Fuso"
+      ],
+      "markets": [],
+      "status": "active",
+      "models": [
+        {
+          "id": "model:fuso:canter",
+          "name": "Canter",
+          "aliases": [],
+          "bodyStyleIds": [
+            "truck"
+          ],
+          "generations": [],
+          "status": "active"
+        },
+        {
+          "id": "model:fuso:fighter",
+          "name": "Fighter",
+          "aliases": [],
+          "bodyStyleIds": [
+            "truck"
+          ],
+          "generations": [],
+          "status": "active"
+        }
+      ]
+    },
+    {
+      "id": "make:ud-trucks",
+      "name": "UD Trucks",
+      "aliases": [
+        "Nissan Diesel"
+      ],
+      "markets": [],
+      "status": "active",
+      "models": [
+        {
+          "id": "model:ud-trucks:quon",
+          "name": "Quon",
+          "aliases": [],
+          "bodyStyleIds": [
+            "truck"
+          ],
+          "generations": [],
+          "status": "active"
+        },
+        {
+          "id": "model:ud-trucks:condor",
+          "name": "Condor",
+          "aliases": [],
+          "bodyStyleIds": [
+            "truck"
+          ],
+          "generations": [],
+          "status": "active"
+        }
+      ]
+    },
+    {
+      "id": "make:scania",
+      "name": "Scania",
+      "aliases": [],
+      "markets": [],
+      "status": "active",
+      "models": [
+        {
+          "id": "model:scania:p-series",
+          "name": "P-Series",
+          "aliases": [],
+          "bodyStyleIds": [
+            "truck"
+          ],
+          "generations": [],
+          "status": "active"
+        },
+        {
+          "id": "model:scania:g-series",
+          "name": "G-Series",
+          "aliases": [],
+          "bodyStyleIds": [
+            "truck"
+          ],
+          "generations": [],
+          "status": "active"
+        },
+        {
+          "id": "model:scania:r-series",
+          "name": "R-Series",
+          "aliases": [],
+          "bodyStyleIds": [
+            "truck"
+          ],
+          "generations": [],
+          "status": "active"
+        }
+      ]
+    },
+    {
+      "id": "make:man",
+      "name": "MAN",
+      "aliases": [],
+      "markets": [],
+      "status": "active",
+      "models": [
+        {
+          "id": "model:man:tgl",
+          "name": "TGL",
+          "aliases": [],
+          "bodyStyleIds": [
+            "truck"
+          ],
+          "generations": [],
+          "status": "active"
+        },
+        {
+          "id": "model:man:tgm",
+          "name": "TGM",
+          "aliases": [],
+          "bodyStyleIds": [
+            "truck"
+          ],
+          "generations": [],
+          "status": "active"
+        },
+        {
+          "id": "model:man:tgx",
+          "name": "TGX",
+          "aliases": [],
+          "bodyStyleIds": [
+            "truck"
+          ],
+          "generations": [],
+          "status": "active"
+        }
+      ]
+    },
+    {
+      "id": "make:iveco",
+      "name": "Iveco",
+      "aliases": [],
+      "markets": [],
+      "status": "active",
+      "models": [
+        {
+          "id": "model:iveco:daily",
+          "name": "Daily",
+          "aliases": [],
+          "bodyStyleIds": [
+            "van",
+            "commercial"
+          ],
+          "generations": [],
+          "status": "active"
+        },
+        {
+          "id": "model:iveco:eurocargo",
+          "name": "Eurocargo",
+          "aliases": [],
+          "bodyStyleIds": [
+            "truck"
+          ],
+          "generations": [],
+          "status": "active"
+        }
+      ]
+    },
+    {
+      "id": "make:jac",
+      "name": "JAC",
+      "aliases": [],
+      "markets": [],
+      "status": "active",
+      "models": [
+        {
+          "id": "model:jac:t8",
+          "name": "T8",
+          "aliases": [],
+          "bodyStyleIds": [
+            "pickup"
+          ],
+          "generations": [],
+          "status": "active"
+        },
+        {
+          "id": "model:jac:t9",
+          "name": "T9",
+          "aliases": [],
+          "bodyStyleIds": [
+            "pickup"
+          ],
+          "generations": [],
+          "status": "active"
+        },
+        {
+          "id": "model:jac:n-series",
+          "name": "N-Series",
+          "aliases": [],
+          "bodyStyleIds": [
+            "truck"
+          ],
+          "generations": [],
+          "status": "active"
+        }
+      ]
+    },
+    {
+      "id": "make:gwm",
+      "name": "GWM",
+      "aliases": [
+        "Great Wall"
+      ],
+      "markets": [],
+      "status": "active",
+      "models": [
+        {
+          "id": "model:gwm:p-series",
+          "name": "P-Series",
+          "aliases": [
+            "P-Series Pickup"
+          ],
+          "bodyStyleIds": [
+            "pickup"
+          ],
+          "generations": [],
+          "status": "active"
+        },
+        {
+          "id": "model:gwm:steed",
+          "name": "Steed",
+          "aliases": [],
+          "bodyStyleIds": [
+            "pickup"
+          ],
+          "generations": [],
+          "status": "active"
+        }
+      ]
+    },
+    {
+      "id": "make:haval",
+      "name": "Haval",
+      "aliases": [],
+      "markets": [],
+      "status": "active",
+      "models": [
+        {
+          "id": "model:haval:jolion",
+          "name": "Jolion",
+          "aliases": [],
+          "bodyStyleIds": [
+            "crossover"
+          ],
+          "generations": [],
+          "status": "active"
+        },
+        {
+          "id": "model:haval:h6",
+          "name": "H6",
+          "aliases": [],
+          "bodyStyleIds": [
+            "suv"
+          ],
+          "generations": [],
+          "status": "active"
+        },
+        {
+          "id": "model:haval:h9",
+          "name": "H9",
+          "aliases": [],
+          "bodyStyleIds": [
+            "suv"
+          ],
+          "generations": [],
+          "status": "active"
+        }
+      ]
+    },
+    {
+      "id": "make:chery",
+      "name": "Chery",
+      "aliases": [],
+      "markets": [],
+      "status": "active",
+      "models": [
+        {
+          "id": "model:chery:tiggo-4",
+          "name": "Tiggo 4",
+          "aliases": [],
+          "bodyStyleIds": [
+            "crossover"
+          ],
+          "generations": [],
+          "status": "active"
+        },
+        {
+          "id": "model:chery:tiggo-7",
+          "name": "Tiggo 7",
+          "aliases": [],
+          "bodyStyleIds": [
+            "suv"
+          ],
+          "generations": [],
+          "status": "active"
+        },
+        {
+          "id": "model:chery:tiggo-8",
+          "name": "Tiggo 8",
+          "aliases": [],
+          "bodyStyleIds": [
+            "suv"
+          ],
+          "generations": [],
+          "status": "active"
+        }
+      ]
+    },
+    {
+      "id": "make:byd",
+      "name": "BYD",
+      "aliases": [],
+      "markets": [],
+      "status": "active",
+      "models": [
+        {
+          "id": "model:byd:dolphin",
+          "name": "Dolphin",
+          "aliases": [],
+          "bodyStyleIds": [
+            "hatchback"
+          ],
+          "generations": [],
+          "status": "active"
+        },
+        {
+          "id": "model:byd:atto-3",
+          "name": "Atto 3",
+          "aliases": [],
+          "bodyStyleIds": [
+            "crossover"
+          ],
+          "generations": [],
+          "status": "active"
+        },
+        {
+          "id": "model:byd:seal",
+          "name": "Seal",
+          "aliases": [],
+          "bodyStyleIds": [
+            "sedan"
+          ],
+          "generations": [],
+          "status": "active"
+        }
+      ]
+    },
+    {
+      "id": "make:geely",
+      "name": "Geely",
+      "aliases": [],
+      "markets": [],
+      "status": "active",
+      "models": [
+        {
+          "id": "model:geely:coolray",
+          "name": "Coolray",
+          "aliases": [],
+          "bodyStyleIds": [
+            "crossover"
+          ],
+          "generations": [],
+          "status": "active"
+        },
+        {
+          "id": "model:geely:emgrand",
+          "name": "Emgrand",
+          "aliases": [],
+          "bodyStyleIds": [
+            "sedan"
+          ],
+          "generations": [],
+          "status": "active"
+        },
+        {
+          "id": "model:geely:okavango",
+          "name": "Okavango",
+          "aliases": [],
+          "bodyStyleIds": [
+            "suv"
+          ],
+          "generations": [],
+          "status": "active"
+        }
+      ]
+    },
+    {
+      "id": "make:mahindra",
+      "name": "Mahindra",
+      "aliases": [],
+      "markets": [],
+      "status": "active",
+      "models": [
+        {
+          "id": "model:mahindra:scorpio",
+          "name": "Scorpio",
+          "aliases": [],
+          "bodyStyleIds": [
+            "suv"
+          ],
+          "generations": [],
+          "status": "active"
+        },
+        {
+          "id": "model:mahindra:pik-up",
+          "name": "Pik Up",
+          "aliases": [],
+          "bodyStyleIds": [
+            "pickup"
+          ],
+          "generations": [],
+          "status": "active"
+        },
+        {
+          "id": "model:mahindra:xuv700",
+          "name": "XUV700",
+          "aliases": [],
+          "bodyStyleIds": [
+            "suv"
+          ],
+          "generations": [],
+          "status": "active"
+        }
+      ]
+    },
+    {
+      "id": "make:tata",
+      "name": "Tata",
+      "aliases": [],
+      "markets": [],
+      "status": "active",
+      "models": [
+        {
+          "id": "model:tata:xenon",
+          "name": "Xenon",
+          "aliases": [],
+          "bodyStyleIds": [
+            "pickup"
+          ],
+          "generations": [],
+          "status": "active"
+        },
+        {
+          "id": "model:tata:nexon",
+          "name": "Nexon",
+          "aliases": [],
+          "bodyStyleIds": [
+            "crossover"
+          ],
+          "generations": [],
+          "status": "active"
+        },
+        {
+          "id": "model:tata:ace",
+          "name": "Ace",
+          "aliases": [],
+          "bodyStyleIds": [
+            "commercial"
+          ],
+          "generations": [],
+          "status": "active"
+        }
+      ]
+    },
+    {
+      "id": "make:opel",
+      "name": "Opel",
+      "aliases": [],
+      "markets": [],
+      "status": "active",
+      "models": [
+        {
+          "id": "model:opel:corsa",
+          "name": "Corsa",
+          "aliases": [],
+          "bodyStyleIds": [
+            "hatchback"
+          ],
+          "generations": [],
+          "status": "active"
+        },
+        {
+          "id": "model:opel:astra",
+          "name": "Astra",
+          "aliases": [],
+          "bodyStyleIds": [
+            "hatchback",
+            "sedan"
+          ],
+          "generations": [],
+          "status": "active"
+        },
+        {
+          "id": "model:opel:mokka",
+          "name": "Mokka",
+          "aliases": [],
+          "bodyStyleIds": [
+            "crossover"
+          ],
+          "generations": [],
+          "status": "active"
+        }
+      ]
+    },
+    {
+      "id": "make:citroen",
+      "name": "Citroën",
+      "aliases": [
+        "Citroen"
+      ],
+      "markets": [],
+      "status": "active",
+      "models": [
+        {
+          "id": "model:citroen:c3",
+          "name": "C3",
+          "aliases": [],
+          "bodyStyleIds": [
+            "hatchback"
+          ],
+          "generations": [],
+          "status": "active"
+        },
+        {
+          "id": "model:citroen:c4",
+          "name": "C4",
+          "aliases": [],
+          "bodyStyleIds": [
+            "hatchback"
+          ],
+          "generations": [],
+          "status": "active"
+        },
+        {
+          "id": "model:citroen:berlingo",
+          "name": "Berlingo",
+          "aliases": [],
+          "bodyStyleIds": [
+            "van"
+          ],
+          "generations": [],
+          "status": "active"
+        }
+      ]
+    },
+    {
+      "id": "make:fiat",
+      "name": "Fiat",
+      "aliases": [],
+      "markets": [],
+      "status": "active",
+      "models": [
+        {
+          "id": "model:fiat:500",
+          "name": "500",
+          "aliases": [],
+          "bodyStyleIds": [
+            "hatchback"
+          ],
+          "generations": [],
+          "status": "active"
+        },
+        {
+          "id": "model:fiat:panda",
+          "name": "Panda",
+          "aliases": [],
+          "bodyStyleIds": [
+            "hatchback"
+          ],
+          "generations": [],
+          "status": "active"
+        },
+        {
+          "id": "model:fiat:ducato",
+          "name": "Ducato",
+          "aliases": [],
+          "bodyStyleIds": [
+            "van",
+            "commercial"
+          ],
+          "generations": [],
+          "status": "active"
+        }
+      ]
+    },
+    {
+      "id": "make:porsche",
+      "name": "Porsche",
+      "aliases": [],
+      "markets": [],
+      "status": "active",
+      "models": [
+        {
+          "id": "model:porsche:cayenne",
+          "name": "Cayenne",
+          "aliases": [],
+          "bodyStyleIds": [
+            "suv"
+          ],
+          "generations": [],
+          "status": "active"
+        },
+        {
+          "id": "model:porsche:macan",
+          "name": "Macan",
+          "aliases": [],
+          "bodyStyleIds": [
+            "suv"
+          ],
+          "generations": [],
+          "status": "active"
+        },
+        {
+          "id": "model:porsche:911",
+          "name": "911",
+          "aliases": [],
+          "bodyStyleIds": [
+            "coupe",
+            "convertible"
+          ],
+          "generations": [],
+          "status": "active"
+        }
+      ]
+    },
+    {
+      "id": "make:jaguar",
+      "name": "Jaguar",
+      "aliases": [],
+      "markets": [],
+      "status": "active",
+      "models": [
+        {
+          "id": "model:jaguar:xe",
+          "name": "XE",
+          "aliases": [],
+          "bodyStyleIds": [
+            "sedan"
+          ],
+          "generations": [],
+          "status": "active"
+        },
+        {
+          "id": "model:jaguar:xf",
+          "name": "XF",
+          "aliases": [],
+          "bodyStyleIds": [
+            "sedan"
+          ],
+          "generations": [],
+          "status": "active"
+        },
+        {
+          "id": "model:jaguar:f-pace",
+          "name": "F-Pace",
+          "aliases": [],
+          "bodyStyleIds": [
+            "suv"
+          ],
+          "generations": [],
+          "status": "active"
+        }
+      ]
+    },
+    {
+      "id": "make:mini",
+      "name": "Mini",
+      "aliases": [
+        "MINI"
+      ],
+      "markets": [],
+      "status": "active",
+      "models": [
+        {
+          "id": "model:mini:hatch",
+          "name": "Hatch",
+          "aliases": [],
+          "bodyStyleIds": [
+            "hatchback"
+          ],
+          "generations": [],
+          "status": "active"
+        },
+        {
+          "id": "model:mini:countryman",
+          "name": "Countryman",
+          "aliases": [],
+          "bodyStyleIds": [
+            "crossover"
+          ],
+          "generations": [],
+          "status": "active"
+        },
+        {
+          "id": "model:mini:clubman",
+          "name": "Clubman",
+          "aliases": [],
+          "bodyStyleIds": [
+            "wagon"
+          ],
+          "generations": [],
+          "status": "active"
+        }
+      ]
+    }
+  ]
+}

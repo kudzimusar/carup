@@ -41,12 +41,18 @@ router.post('/ocr', async (req, res) => {
 // 1b. Admin/Government OCR Verification Approval
 router.post('/ocr/:id/approve', async (req, res) => {
   const { id } = req.params;
-  const { actorId, vin, overrideJustification } = req.body;
+  const { vin, overrideJustification } = req.body;
+
+  // The actor is WHO IS CALLING, never who the caller says they are. An administrative
+  // override is written to administrative_overrides with this id as its accountable
+  // reviewer, so accepting req.body.actorId let any caller attribute their own override to
+  // someone else. The mount now guarantees a proven admin/government session.
+  const actorId = req.userContext?.id;
 
   if (!actorId || !vin) {
     return res.status(400).json({
       success: false,
-      error: 'Missing required parameters: actorId and vin are mandatory.'
+      error: 'Missing required parameters: an authenticated reviewer and vin are mandatory.'
     });
   }
 
@@ -97,6 +103,11 @@ router.get('/trust-score/:userId', async (req, res) => {
 });
 
 // 4. Manual / Admin Trust Level Promotion
+// NOTE: this remains a second writer of identity verification level, parallel to the
+// governed reviewVerificationSession authority. The mount now requires a proven
+// admin/government session, which closes the unauthenticated path; consolidating the two
+// writers is recorded as an outstanding authority obligation rather than done here, because
+// it changes the governed identity-review contract.
 router.post('/promote-trust', async (req, res) => {
   const { userId, trustLevel, details } = req.body;
 

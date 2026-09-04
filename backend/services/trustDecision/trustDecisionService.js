@@ -19,6 +19,7 @@ async function getDefaultClient() {
 }
 import { evaluateCompleteness } from '../evidence/completenessEvaluator.js';
 import { getCoverage } from '../sourceVerification/sourceVerificationService.js';
+import { evaluateZimbabweRegistrationReadiness } from '../registration/zimbabweRegistrationLifecycle.js';
 
 export const CALCULATION_VERSION = 'trust-decision-1.0.0';
 
@@ -49,9 +50,6 @@ function identityDimension(vehicle, sourceConflicts) {
   for (const f of ['vin', 'chassis_number', 'engine_number']) {
     (vehicle && vehicle[f] ? present : missing).push(f);
   }
-  const hasPlate = vehicle && (vehicle.plate_number || vehicle.temp_plate_id);
-  if (hasPlate) present.push('plate_or_temp'); else missing.push('plate_or_temp');
-
   if (sourceConflicts.length > 0) {
     return dim('conflict', 'identity_conflict', sourceConflicts.map((c) => `conflict:${c}`),
       { rest: { present, missing } });
@@ -185,6 +183,17 @@ export function assembleDecision(inputs) {
 
   const dimensions = {
     identity: identityDimension(vehicle, sourceConflictsList),
+    registration_readiness: (() => {
+      const readiness = evaluateZimbabweRegistrationReadiness({
+        status: vehicle.registration_status,
+        statusSource: vehicle.registration_status_source,
+        plateNumber: vehicle.plate_number,
+        tempPlateId: vehicle.temp_plate_id,
+      });
+      return dim(readiness.status, readiness.lifecycle_status, readiness.reason_codes, {
+        rest: { publication_blocking: readiness.publication_blocking, label: readiness.label, source: readiness.source },
+      });
+    })(),
     evidence_completeness: completeness
       ? dim(completeness.is_publishable ? 'complete' : 'incomplete', `${completeness.completeness_percent}%`,
           // blocking_gaps are {key,label} objects; interpolating the object yields
@@ -274,6 +283,13 @@ function deriveLimitations(dimensions) {
   if (dimensions.source_coverage.connected === 0) {
     lims.push('No live government/partner source is connected for this vehicle yet.');
   }
+  if (dimensions.registration_readiness.status === 'not_recorded' || dimensions.registration_readiness.status === 'not_established') {
+    lims.push('Zimbabwe registration stage has not been established from a recorded claim.');
+  } else if (dimensions.registration_readiness.status === 'pending') {
+    lims.push('Zimbabwe local registration is still in progress; this is a readiness limitation, not an adverse Trust finding.');
+  } else if (dimensions.registration_readiness.status === 'temporary') {
+    lims.push('This is recorded as a temporary foreign vehicle under TIP; ordinary sale eligibility requires review.');
+  }
   for (const key of ['dealer_compliance', 'insurance_eligibility', 'finance_eligibility', 'escrow_eligibility']) {
     if (dimensions[key].status === 'not_evaluated') {
       lims.push(`${key.replace(/_/g, ' ')} has not been evaluated for this vehicle.`);
@@ -311,7 +327,7 @@ export async function getTrustDecision(vin, opts = {}) {
   if (!vehicle) {
     const { data, error } = await client
       .from('vehicles')
-      .select('vin, make, model, year, chassis_number, engine_number, plate_number, temp_plate_id, tenant_id')
+      .select('vin, make, model, year, chassis_number, engine_number, plate_number, temp_plate_id, registration_status, registration_status_source, tenant_id')
       .eq('vin', vin)
       .maybeSingle();
     if (error) throw new Error(`Vehicle read error: ${error.message}`);

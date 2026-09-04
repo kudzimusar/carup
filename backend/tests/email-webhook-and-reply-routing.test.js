@@ -17,6 +17,7 @@ import {
   parseReplyToAddress,
 } from '../services/communication/emailReplyTokenService.js';
 import { BrevoMarketingAdapter, EmailTransportRouter } from '../services/communication/adapters/providerAdapters.js';
+import { renderEmailForNotification } from '../services/communication/emailExperience/renderEmail.js';
 
 /**
  * E3/E4/E5 — source-level proofs for Resend lifecycle + inbound routing and Brevo marketing
@@ -266,6 +267,24 @@ test('Brevo refuses a marketing send with no canonical campaign context', async 
   assert.equal(r.errorCode, 'campaign_context_missing');
 });
 
+/**
+ * Finished marketing content, as the canonical G2 renderer produces it.
+ *
+ * G2 reclassification: this used to call `applyMarketingUnsubscribePresentation`, the interim
+ * composer that existed only while no renderer did. That carrier is retired — the canonical Email
+ * shell now renders the marketing family and composes G3's block through `emailFooters.js`. What
+ * these tests are about (the exactly-one contract, transport pass-through, URL identity) is
+ * unchanged; the content simply comes from the real producer now, which makes them end-to-end.
+ */
+function composedMarketing(body, unsubscribeUrl) {
+  const rendered = renderEmailForNotification(
+    { title: 'CarUp Weekly', message: body, payload: { classification: 'marketing', unsubscribe_url: unsubscribeUrl } },
+    { env: {} },
+  );
+  if (!rendered.ok) throw new Error(`renderer refused the fixture: ${rendered.errorCode}`);
+  return { body: rendered.text, text: rendered.text, html: rendered.html, provenance: rendered.unsubscribe_presentation };
+}
+
 test('Brevo sends from the verified marketing sender and tags canonical ids', async () => {
   let captured = null;
   const brevo = new BrevoMarketingAdapter({
@@ -275,15 +294,19 @@ test('Brevo sends from the verified marketing sender and tags canonical ids', as
       return { ok: true, status: 200, text: async () => JSON.stringify({ messageId: '<brevo-1@marketing.carup.dev>' }), headers: new Map() };
     },
   });
+  const unsub = 'https://api-staging.carup.dev/api/communications/unsubscribe?token=abc';
+  const content = composedMarketing('hello', unsub);
   const r = await brevo.send({
     content: {
       data: {
         classification: 'marketing', email: 'buyer@example.test', campaign_id: 'camp-1', campaign_delivery_id: 'del-1',
-        unsubscribe_url: 'https://api-staging.carup.dev/api/communications/unsubscribe?token=abc',
+        unsubscribe_url: unsub,
         unsubscribe_mailto: 'unsubscribe+abc@mail.carup.dev',
+        unsubscribe_presentation: content.provenance,
       },
       subject: 'News',
-      body: 'hello',
+      body: content.body,
+      html: content.html,
     },
   });
   assert.equal(r.accepted, true);
@@ -324,13 +347,15 @@ test('marketing Email carries RFC 8058 headers and a visible unsubscribe action 
     },
   });
   const url = 'https://api-staging.carup.dev/api/communications/unsubscribe?token=tok123';
+  const content = composedMarketing('Body copy.', url);
   await brevo.send({
     content: {
       data: {
         classification: 'marketing', email: 'b@example.test', campaign_id: 'c', campaign_delivery_id: 'd',
         unsubscribe_url: url, unsubscribe_mailto: 'unsubscribe+tok123@mail.carup.dev',
+        unsubscribe_presentation: content.provenance,
       },
-      subject: 'News', body: 'Body copy.',
+      subject: 'News', body: content.body, html: content.html,
     },
   });
 
@@ -343,17 +368,23 @@ test('marketing Email carries RFC 8058 headers and a visible unsubscribe action 
   assert.ok(captured.htmlContent, 'marketing Email must always have an HTML part');
   assert.ok(captured.htmlContent.includes(`href="${url}"`), 'HTML part must contain a clickable unsubscribe anchor');
   assert.ok(/unsubscribe/i.test(captured.htmlContent));
-  // The original copy must survive footer injection.
+  // The original copy must survive composition.
   assert.ok(captured.textContent.includes('Body copy.'));
   assert.ok(captured.htmlContent.includes('Body copy.'));
+  // G3: and transport added none of it. What the adapter received is exactly what it transmitted.
+  assert.equal(captured.textContent, content.body, 'the adapter must not rewrite the text part');
+  assert.equal(captured.htmlContent, content.html, 'the adapter must not rewrite the HTML part');
 });
 
 test('the router keeps marketing on Brevo and everything else on Resend', () => {
   const router = new EmailTransportRouter({ env: { ...BREVO_ENV, RESEND_API_KEY: 'k', RESEND_FROM_EMAIL: 'notifications@mail.carup.dev' } });
   assert.equal(router.selectAdapter({ content: { data: { classification: 'marketing' } } }).adapter.provider, 'brevo');
-  for (const c of ['security', 'auth', 'conversational', 'transactional', 'service']) {
+  for (const c of ['security', 'conversational', 'transactional', 'service']) {
     assert.equal(router.selectAdapter({ content: { data: { classification: c } } }).adapter.provider, 'resend');
   }
+  // G2: 'auth' is not one of the five. It used to reach Resend by falling through the marketing
+  // check, which is routing by accident rather than by contract.
+  assert.equal(router.selectAdapter({ content: { data: { classification: 'auth' } } }).adapter, null);
 });
 
 test('no application code path reads BREVO_API_MCP_KEY', () => {
@@ -574,13 +605,15 @@ test('a marketing send records provenance proving the unsubscribe action was act
     fetchImpl: async () => ({ ok: true, status: 200, text: async () => JSON.stringify({ messageId: '<m@x>' }), headers: new Map() }),
   });
   const url = 'https://api-staging.carup.dev/api/communications/unsubscribe?token=prov1';
+  const content = composedMarketing('Copy.', url);
   const r = await brevo.send({
     content: {
       data: {
         classification: 'marketing', email: 'b@example.test', campaign_id: 'c', campaign_delivery_id: 'd',
         unsubscribe_url: url, unsubscribe_mailto: 'unsubscribe+prov1@mail.carup.dev',
+        unsubscribe_presentation: content.provenance,
       },
-      subject: 'News', body: 'Copy.',
+      subject: 'News', body: content.body, html: content.html,
     },
   });
   assert.equal(r.accepted, true);
@@ -591,6 +624,10 @@ test('a marketing send records provenance proving the unsubscribe action was act
   assert.equal(m.marketing_text_link_present, true);
   assert.equal(m.list_unsubscribe_header_sent, true);
   assert.equal(m.list_unsubscribe_post_header_sent, true);
+  // G3 additions: the exactly-one contract, and that transport transmitted the content unmodified.
+  assert.equal(m.marketing_unsubscribe_blocks, 1);
+  assert.equal(m.marketing_unsubscribe_presentation_validated, true);
+  assert.equal(m.marketing_content_unmodified_by_transport, true);
 });
 
 // ---------- E4: inbound BODY retrieval via Resend's Receiving API ----------
@@ -770,7 +807,16 @@ test('the worker refuses to send marketing to a suppressed recipient, at SEND ti
   assert.ok(updates.some((p) => p.last_error_code === 'recipient_suppressed'));
 
   // An unsuppressed marketing recipient still sends.
-  const allowed = { id: 2, channel: 'email', payload: { classification: 'marketing', email: 'ok@example.test' } };
+  // G2: a marketing notification always carries the unsubscribe handle its campaign minted at
+  // queue time. Without one the canonical renderer refuses it before transport — correctly, but for
+  // a reason unrelated to what this test is about.
+  const allowed = {
+    id: 2, channel: 'email', message: 'Weekly picks.',
+    payload: {
+      classification: 'marketing', email: 'ok@example.test',
+      unsubscribe_url: 'https://carup.dev/api/communications/unsubscribe?token=send-time',
+    },
+  };
   await worker.deliverNotification(allowed);
   assert.equal(providerCalls, 1, 'suppression must not block an unsuppressed recipient');
 

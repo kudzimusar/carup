@@ -1,0 +1,216 @@
+name: Vehicle Passport Foundation CI
+
+on:
+  pull_request:
+    paths:
+      - 'backend/services/passport/**'
+      - 'backend/routes/passportOwnershipTransferRoutes.js'
+      - 'backend/services/communication/communicationEventListeners.js'
+      - 'backend/services/communication/communicationNotificationService.js'
+      - 'backend/services/communication/communicationTemplateService.js'
+      - 'database/migrations/20260828220000_passport_ownership_transfer_communications.sql'
+      - 'backend/tests/passport-*.test.js'
+      - 'database/migrations/*passport*.sql'
+      - 'database/migrations/*issue158*.sql'
+      - 'database/scripts/issue158_*.sql'
+      - 'backend/services/blockchain/blockchainService.js'
+      - 'backend/services/blockchain/blockchainKeyCustodyService.js'
+      - 'backend/tests/issue-158-*.test.js'
+      - 'web/src/pages/dashboard/owner/VehicleProfile.tsx'
+      - 'web/src/pages/dashboard/owner/VehicleProfile*.test.tsx'
+      - 'web/src/components/VehicleLifeStageTimeline.tsx'
+      - 'docs/vehicle-passport-lifecycle/**'
+      - '.github/workflows/vehicle-passport-foundation-ci.yml'
+  push:
+    branches:
+      - feat/vehicle-passport-foundation
+      - integration/vehicle-passport-v16-cert
+    paths:
+      - 'backend/services/passport/**'
+      - 'backend/routes/passportOwnershipTransferRoutes.js'
+      - 'backend/services/communication/communicationEventListeners.js'
+      - 'backend/services/communication/communicationNotificationService.js'
+      - 'backend/services/communication/communicationTemplateService.js'
+      - 'database/migrations/20260828220000_passport_ownership_transfer_communications.sql'
+      - 'backend/tests/passport-*.test.js'
+      - 'database/migrations/*passport*.sql'
+      - 'database/migrations/*issue158*.sql'
+      - 'database/scripts/issue158_*.sql'
+      - 'backend/services/blockchain/blockchainService.js'
+      - 'backend/services/blockchain/blockchainKeyCustodyService.js'
+      - 'backend/tests/issue-158-*.test.js'
+      - 'web/src/pages/dashboard/owner/VehicleProfile.tsx'
+      - 'web/src/pages/dashboard/owner/VehicleProfile*.test.tsx'
+      - 'web/src/components/VehicleLifeStageTimeline.tsx'
+      - 'docs/vehicle-passport-lifecycle/**'
+      - '.github/workflows/vehicle-passport-foundation-ci.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: vehicle-passport-foundation-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  passport-foundation:
+    name: Passport foundation contracts
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      NODE_ENV: test
+      SUPABASE_URL: http://localhost:54321
+      SUPABASE_SERVICE_ROLE_KEY: passport-foundation-test-key
+      SUPABASE_ANON_KEY: passport-foundation-anon-key
+      JWT_SECRET: passport-foundation-jwt-key
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Passport foundation contract
+        run: node --test backend/tests/passport-foundation-contract.test.js
+
+      - name: Passport V2 identity and access contract
+        run: node --test backend/tests/passport-v2-identity-access.test.js
+
+      - name: Passport V3 evidence and provenance contract
+        run: node --test backend/tests/passport-v3-evidence-provenance.test.js
+
+      - name: Passport V4 verification and discrepancy contract
+        run: node --test backend/tests/passport-v4-verification-discrepancy.test.js
+
+      - name: Passport V5 canonical Trust Lens contract
+        run: node --test backend/tests/passport-v5-trust-lens.test.js
+
+      - name: Passport V6 unified lifecycle contract
+        run: node --test backend/tests/passport-v6-lifecycle-timeline.test.js
+
+      - name: Passport V7 ownership transfer contract
+        run: node --test backend/tests/passport-v7-ownership-transfer.test.js
+
+      - name: Passport V8 service and PartSentry contract
+        run: node --test backend/tests/passport-v8-service-parts.test.js
+
+      - name: Preserve canonical service timeline privacy
+        run: node --test backend/tests/issue164-phase8-service-timeline-privacy.test.js
+
+      - name: Preserve canonical PartSentry governance
+        run: node --test backend/tests/partsentry-review-workflow.test.js
+
+      - name: Passport V9 governed attention contract
+        run: node --test backend/tests/passport-v9-attention-rail.test.js
+
+      - name: Passport V10 Marketplace convergence contract
+        run: node --test backend/tests/passport-v10-marketplace-convergence.test.js
+
+      - name: Passport V11 cross-surface convergence contract
+        run: node --test backend/tests/passport-v11-surface-convergence.test.js
+
+      - name: Passport V12 Communications orchestration contract
+        run: node --test backend/tests/passport-v12-communications.test.js
+
+      - name: Passport V13 governed AI advisory contract
+        run: node --test backend/tests/passport-v13-ai-advisory.test.js
+
+      - name: Passport V15 compact and accessibility contract
+        working-directory: web
+        run: npx vitest run src/pages/dashboard/owner/VehicleProfile.passport-v15.test.tsx src/pages/dashboard/owner/VehicleProfile.claims.test.tsx
+
+      - name: Passport V16 Golden lifecycle certification contract
+        run: node --test backend/tests/passport-v16-golden-lifecycle.test.js
+
+      - name: Passport V16 runtime convergence + Golden A/B/adverse
+        run: node --test backend/tests/passport-v16-runtime-convergence.test.js
+
+      - name: Passport V16 governed ownership authority
+        run: node --test backend/tests/passport-v16-ownership-authority.test.js
+
+      - name: Passport V16 PostgreSQL ownership + custody authorities
+        run: node --test backend/tests/passport-v16-postgres-authorities.test.js
+
+      - name: Preserve repository migration integrity
+        run: node --test backend/tests/migration-integrity.test.js
+
+      - name: Issue 158 blockchain key custody
+        run: node --test backend/tests/issue-158-private-key-custody.test.js
+
+      - name: Issue 158 rotation boundary truth (colliding/skewed clocks)
+        run: node --test backend/tests/issue-158-rotation-boundary.test.js
+
+      - name: Issue 158 boundary upgrade over real PostgreSQL (forward-skewed history)
+        run: node --test backend/tests/issue-158-boundary-upgrade-postgres.test.js
+
+      - name: Preserve Golden Vehicle fixture invariants
+        run: |
+          node --test backend/tests/issue164-phase7-golden-vehicles.test.js
+          node --test backend/tests/issue164-phase8-permanent-invariants.test.js
+          node --test backend/tests/golden-journey.test.js
+
+      - name: Preserve native mobile certification contract
+        run: node --test backend/tests/mobile-certification.test.js
+
+      - name: Preserve canonical communication event coverage
+        run: node --test backend/tests/communication-event-coverage.test.js
+
+      - name: Preserve canonical Trust public read path
+        run: node --test backend/tests/issue164-phase3-trust-authority.test.js
+
+      - name: Passport V14 external source adapter contract
+        run: node --test backend/tests/passport-v14-external-adapter.test.js
+
+      - name: Preserve canonical source-verification contract
+        run: node --test backend/tests/source-verification.test.js
+
+      - name: Preserve canonical governance dispute contract
+        run: node --test backend/tests/governance-workflow.test.js
+
+      - name: Preserve canonical evidence taxonomy and provenance
+        run: node --test backend/tests/vehicle-life-taxonomy.test.js
+
+      - name: Preserve canonical Passport lookup policy
+        run: node --test backend/tests/issue164-lookup-policy.test.js
+
+      - name: Preserve canonical Trust decision authority
+        run: node --test backend/tests/trust-decision.test.js
+
+      - name: Syntax check Passport foundation
+        run: |
+          node --check backend/services/passport/passportContract.js
+          node --check backend/services/passport/passportTimelineService.js
+          node --check backend/services/passport/passportReadModelService.js
+          node --check backend/services/passport/passportAccessPolicy.js
+          node --check backend/services/passport/passportClaimStateMachine.js
+          node --check backend/services/passport/passportEvidenceProjection.js
+          node --check backend/services/passport/passportVerificationProjection.js
+          node --check backend/services/passport/passportTrustLens.js
+          node --check backend/services/passport/passportLifecycleTimeline.js
+          node --check backend/services/passport/passportTransferStateMachine.js
+          node --check backend/services/passport/passportOwnershipProjection.js
+          node --check backend/services/passport/passportServicePartsProjection.js
+          node --check backend/services/passport/passportAttentionRail.js
+          node --check backend/services/passport/passportMarketplaceConvergence.js
+          node --check backend/services/passport/passportSurfaceConvergence.js
+          node --check backend/services/passport/passportCommunicationIntent.js
+          node --check backend/services/passport/passportAiAdvisory.js
+          node --check backend/services/passport/passportExternalSourceAdapter.js
+          node --check backend/services/passport/passportGoldenLifecycleCertification.js
+          node --check backend/services/passport/passportOwnershipTransferService.js
+          node --check backend/services/blockchain/blockchainKeyCustodyService.js
+          node --check backend/services/blockchain/blockchainService.js
+          node --check backend/routes/passportOwnershipTransferRoutes.js
+          node --check backend/services/communication/communicationEventListeners.js
+          node --check backend/services/communication/communicationNotificationService.js
+          node --check backend/services/communication/communicationTemplateService.js
+
+      - name: Diff hygiene
+        run: git diff --check HEAD^ HEAD

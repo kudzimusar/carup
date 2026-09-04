@@ -57,13 +57,12 @@ const PASSPORT_GHOST_IMAGE = 'https://ghost.example.test/passport-images-key.jpg
 /** The sentence that shipped. It may not appear anywhere on the page again. */
 const SHIPPED_DEFECT_SENTENCE = 'No verified images uploaded yet'
 
-const reserveVehicle = vi.fn()
-const createSafePayEscrow = vi.fn()
 const submitFinancing = vi.fn()
 const fetchVehicle = vi.fn()
 const fetchVehiclePassport = vi.fn()
 const lookupVehiclePassport = vi.fn()
 const fetchMarketplaceListingDetail = vi.fn()
+const fetchOwnedVehicles = vi.fn()
 const saveMarketplaceListing = vi.fn()
 const unsaveMarketplaceListing = vi.fn()
 const fetchSavedMarketplaceListings = vi.fn()
@@ -80,8 +79,8 @@ const createMarketplaceInquiry = vi.fn()
 
 vi.mock('@/hooks/useCarUpApi', () => ({
   useCarUpApi: () => ({
-    reserveVehicle, createSafePayEscrow, submitFinancing, fetchVehicle, fetchVehiclePassport,
-    lookupVehiclePassport, fetchMarketplaceListingDetail, saveMarketplaceListing,
+    submitFinancing, fetchVehicle, fetchVehiclePassport,
+    lookupVehiclePassport, fetchMarketplaceListingDetail, fetchOwnedVehicles, saveMarketplaceListing,
     unsaveMarketplaceListing, fetchSavedMarketplaceListings, fetchEvidenceTaxonomy,
     fetchEvidenceSources, fetchTemporalFindings, fetchDisclosureConflicts, fetchVehicleReport,
     generateReportVersion, createReportShareLink, fetchVehicleTrustDecision,
@@ -91,7 +90,7 @@ vi.mock('@/hooks/useCarUpApi', () => ({
 
 vi.mock('@/context/AuthContext', () => ({
   useAuth: () => ({
-    user: { id: 'buyer-1', name: 'Buyer', email: 'buyer@carup.dev', role: 'buyer' },
+    user: { id: 'owner-1', name: 'Owner', email: 'owner@carup.dev', role: 'owner' },
     isAuthenticated: true,
     loading: false,
   }),
@@ -203,6 +202,9 @@ function passportFixture(opts: {
   evidenceVault?: unknown
   identity?: Record<string, unknown>
   policeVerified?: boolean
+  plateHistory?: unknown[]
+  plateHistoryState?: 'available' | 'unavailable'
+  ownershipSummary?: Record<string, unknown>
 } = {}) {
   const body: Record<string, unknown> = {
     vehicle: {
@@ -223,8 +225,16 @@ function passportFixture(opts: {
     trustReport: publicTrust(),
     chainVerification: { verified: true, count: 0, chain: [] },
     identity: { vin: VIN, plateStatus: 'registered', ...(opts.identity ?? {}) },
-    plateHistory: [],
-    ownershipSummary: { previousOwnerCount: 1, previousOwnersPublicLabel: '1 previous owner' },
+    plateHistory: opts.plateHistory ?? [],
+    plateHistoryState: opts.plateHistoryState ?? 'available',
+    ownershipSummary: {
+      previousOwnerCount: 1,
+      previousOwnerCountState: 'available',
+      previousOwnersPublicLabel: 'Redacted for privacy',
+      ownerNamesRedacted: true,
+      currentOwnerVisible: false,
+      ...(opts.ownershipSummary ?? {}),
+    },
   }
   // Assigned only when the caller supplied one: `evidenceVault: undefined` and "no evidenceVault
   // key" are the same thing to the page, and both must mean `not_loaded`.
@@ -250,6 +260,13 @@ function detailFixture(media: unknown[] | undefined) {
     trust_summary: {},
     verification_summary: {},
     pricing_summary: {},
+    reservation_summary: {
+      state: 'none',
+      reserved: false,
+      reserved_at: null,
+      expires_at: null,
+      reason: null,
+    },
     safety_warnings: [],
   }
 }
@@ -335,6 +352,7 @@ async function renderSettled() {
 
 beforeEach(() => {
   vi.clearAllMocks()
+  fetchOwnedVehicles.mockResolvedValue([{ vin: VIN }])
   servePassport(passportFixture({ evidenceVault: [] }))
   fetchVehicle.mockResolvedValue((passportFixture() as { vehicle: unknown }).vehicle)
   serveListingMedia([image(CARD_IMAGE)])
@@ -359,6 +377,38 @@ describe('VehicleDetail — a photo on the Marketplace card is a photo on this p
     expect(lookupVehiclePassport).toHaveBeenCalled()
     expect(screen.getByTestId('vehicle-image').getAttribute('src')).toBe(CARD_IMAGE)
     expect(screen.queryByTestId('no-images-placeholder')).toBeNull()
+  })
+
+  it('renders a public marketplace listing even when passport lookup never settles', async () => {
+    // Deployed staging exposed this exact race: marketplace detail returned 200 while the richer
+    // passport lookup stayed pending. A public listing must remain usable from its governed detail
+    // response rather than leaving the buyer behind the page-wide loading spinner indefinitely.
+    lookupVehiclePassport.mockImplementation(() => new Promise(() => {}))
+
+    await renderSettled()
+    await waitFor(() => expect(screen.getByTestId('vehicle-image')).toBeTruthy())
+
+    expect(fetchMarketplaceListingDetail).toHaveBeenCalled()
+    expect(fetchVehicle).not.toHaveBeenCalled()
+    expect(screen.getByTestId('vehicle-image').getAttribute('src')).toBe(CARD_IMAGE)
+  })
+
+  it('honors Marketplace seller privacy before optional passport enrichment settles', async () => {
+    // Deployed staging exposed this exact first-render state: Marketplace detail was already public
+    // and declared the private seller profile disabled while passport enrichment was still pending.
+    // The UI must not turn that timing difference into an assertion that the seller name is absent.
+    lookupVehiclePassport.mockImplementation(() => new Promise(() => {}))
+    fetchMarketplaceListingDetail.mockResolvedValue({
+      ...detailFixture([image(CARD_IMAGE)]),
+      seller_summary: { display_label: null, seller_type: 'private', public_profile_enabled: false },
+    })
+
+    await renderSettled()
+    await waitFor(() => expect(screen.getByTestId('seller-name')).toBeTruthy())
+
+    expect(screen.getByTestId('seller-name').textContent).toBe('Not shown publicly')
+    expect(fetchMarketplaceListingDetail).toHaveBeenCalled()
+    expect(fetchVehicle).not.toHaveBeenCalled()
   })
 
   it('takes the gallery from the listing rows, never from the passport vehicle’s images key', async () => {
@@ -428,14 +478,16 @@ describe('VehicleDetail — listing media is never labelled verified', () => {
     })
   }
 
-  it('does not stamp the Police Checked badge onto the seller’s photo', async () => {
-    // The badge is a registry claim about the VEHICLE. Overlaid on the gallery it read as a claim
-    // about the picture underneath it, which is the conflation this phase removes. It still renders
-    // — it moved to the identity row — so this is a placement assertion, not a deletion.
+  it('publishes no unsupported Police Checked approval claim anywhere on the buyer page', async () => {
+    // `police_verified` is a legacy boolean without authoritative public provenance. The hardened
+    // buyer contract suppresses the approval claim entirely. A future public approval claim must
+    // arrive through a governed evidence/fact contract rather than this compatibility boolean.
     servePassport(passportFixture({ evidenceVault: [], policeVerified: true }))
     await renderSettled()
-    await waitFor(() => expect(screen.getByTestId('police-checked-badge')).toBeTruthy())
+    await waitFor(() => expect(screen.getByTestId('listing-media-block')).toBeTruthy())
 
+    expect(screen.queryByTestId('police-checked-badge')).toBeNull()
+    expect(document.body.textContent).not.toContain('Police Checked')
     expect(screen.getByTestId('listing-media-block').innerHTML).not.toContain('Police Checked')
   })
 
@@ -553,6 +605,37 @@ describe('VehicleDetail — a source this page never read may not be reported as
     await waitFor(() => expect(screen.getByTestId('listing-media-not-loaded')).toBeTruthy())
     expect(screen.getByTestId('no-images-placeholder').getAttribute('data-media-state')).toBe('not_loaded')
     expect(screen.getByTestId('verified-evidence-not-loaded')).toBeTruthy()
+  })
+})
+
+// ────────────────────────────────────────────────────────────────────────────
+describe('VehicleDetail — passport collection availability is never rendered as a fake empty history', () => {
+  it('renders ownership history source failure as unavailable rather than zero transfers', async () => {
+    servePassport(passportFixture({
+      evidenceVault: [],
+      ownershipSummary: {
+        previousOwnerCount: null,
+        previousOwnerCountState: 'unavailable',
+      },
+    }))
+    await renderSettled()
+    await waitFor(() => expect(screen.getByTestId('prev-owner-count-unavailable')).toBeTruthy())
+
+    expect(screen.getByTestId('prev-owner-count-unavailable').textContent).toMatch(/source unavailable/i)
+    expect(screen.queryByTestId('prev-owner-count')).toBeNull()
+  })
+
+  it('renders plate-history source failure as unavailable rather than no-history copy', async () => {
+    servePassport(passportFixture({
+      evidenceVault: [],
+      plateHistory: [],
+      plateHistoryState: 'unavailable',
+    }))
+    await renderSettled()
+    await waitFor(() => expect(screen.getByTestId('plate-history-unavailable')).toBeTruthy())
+
+    expect(screen.getByTestId('plate-history-unavailable').textContent).toMatch(/could not be read/i)
+    expect(screen.queryByTestId('plate-history-empty')).toBeNull()
   })
 })
 
@@ -953,11 +1036,86 @@ describe('VehicleDetail — Phase 0/3/4 still hold on the page this phase edited
     expect(screen.getByTestId('trust-score-badge').textContent).not.toMatch(/\d/)
   })
 
-  it('keeps the transaction controls failing closed without a resolved seller', async () => {
+  it('hides contact, reservation and financing actions when no public Marketplace detail resolves', async () => {
+    serveNoListingRead()
     await renderSettled()
-    await waitFor(() => expect(screen.getByTestId('reserve-unavailable')).toBeTruthy())
+    await waitFor(() => expect(screen.getByTestId('marketplace-actions-unavailable')).toBeTruthy())
+
+    expect(screen.queryByTestId('seller-contact-unavailable')).toBeNull()
+    expect(screen.queryByTestId('reservation-request-entry')).toBeNull()
+    expect(screen.queryByTestId('financing-request-entry')).toBeNull()
+    expect(screen.getByTestId('marketplace-actions-unavailable').textContent).toMatch(/not currently backed by a published Marketplace listing/i)
+    expect(DETAIL_CODE).not.toContain('listingId={detail?.vin || vehicle.vin}')
+  })
+
+  it('keeps reservation authority server-owned and offers only the governed request step', async () => {
+    await renderSettled()
+    await waitFor(() => expect(screen.getByTestId('reservation-request-entry')).toBeTruthy())
 
     expect(screen.getByTestId('seller-contact-unavailable')).toBeTruthy()
+    expect(screen.queryByTestId('reserve-vehicle')).toBeNull()
+    expect(screen.queryByTestId('reserved-state')).toBeNull()
+
+    // Vehicle Detail cannot prove current inquiry/transaction eligibility from a tenant or a public
+    // seller hint. It therefore must not open a payment instrument or assert a deposit from this
+    // surface. The canonical reservation/payment authority remains server-side.
+    expect(DETAIL_CODE).not.toContain('createSafePayEscrow')
+    expect(DETAIL_CODE).not.toContain('reserveVehicle(')
+    expect(DETAIL_CODE).not.toContain('vehicle.tenant_id ?? vehicle.sellerId')
+    expect(DETAIL_CODE).not.toContain('SafePay escrow of $500 initiated')
+    expect(DETAIL_CODE).not.toContain('Seller notified immediately via WhatsApp')
+    expect(DETAIL_CODE).toContain("intentMetadata={{ buyer_intent: 'reservation_request', safepay_requested: true }}")
+  })
+
+  it('does not turn a stale Reserved status cache into an active reservation claim', async () => {
+    fetchMarketplaceListingDetail.mockResolvedValue({
+      ...detailFixture([image(CARD_IMAGE)]),
+      status: 'Reserved',
+      reservation_summary: {
+        state: 'unavailable',
+        reserved: null,
+        reserved_at: null,
+        expires_at: null,
+        reason: 'reservation_projection_unavailable',
+      },
+    })
+
+    await renderSettled()
+    await waitFor(() => expect(screen.getByTestId('reservation-request-entry')).toBeTruthy())
+
+    expect(screen.queryByTestId('reserved-state')).toBeNull()
+    expect(DETAIL_CODE).not.toContain("vehicle.status === 'Reserved'")
+    expect(DETAIL_CODE).not.toContain("vehicle.status === 'reserved'")
+  })
+
+  it('renders Reserved only when the canonical reservation summary is actively reserved', async () => {
+    fetchMarketplaceListingDetail.mockResolvedValue({
+      ...detailFixture([image(CARD_IMAGE)]),
+      status: 'Available',
+      reservation_summary: {
+        state: 'active',
+        reserved: true,
+        reserved_at: '2026-08-27T00:00:00.000Z',
+        expires_at: '2026-08-28T00:00:00.000Z',
+        reason: null,
+      },
+    })
+
+    await renderSettled()
+    await waitFor(() => expect(screen.getByTestId('reserved-state')).toBeTruthy())
+
+    expect(screen.queryByTestId('reservation-request-entry')).toBeNull()
+  })
+
+  it('routes financing interest without inventing lender, currency or approval semantics', async () => {
+    await renderSettled()
+    await waitFor(() => expect(screen.getByTestId('financing-request-entry')).toBeTruthy())
+
+    expect(DETAIL_CODE).toContain("intentMetadata={{ buyer_intent: 'financing_interest' }}")
+    expect(DETAIL_CODE).not.toContain('submitFinancing')
+    expect(DETAIL_CODE).not.toContain('Loan Amount (USD)')
+    expect(DETAIL_CODE).not.toContain("CarUp's banking partners")
+    expect(DETAIL_CODE).not.toContain('/pricing?vin=')
   })
 
   it('keeps the de-fabricated seller state', async () => {
@@ -2064,8 +2222,9 @@ describe('Marketplace media — the declared contract matches the published one'
 
   it('declares every key the service publishes on a media entry, and no key it does not', () => {
     const published = serviceMediaKeys()
-    // ANTI-VACUITY: an empty extraction agrees with everything. The service publishes six keys.
-    expect(published.sort()).toEqual(['is_primary', 'media_id', 'position', 'type', 'url', 'url_form'])
+    // ANTI-VACUITY: an empty extraction agrees with everything. The compatibility view publishes
+    // nine keys; synthetic_demo is explicit provenance, while photo_label/seller_order preserve Seller presentation intent without becoming evidence.
+    expect(published.sort()).toEqual(['is_primary', 'media_id', 'photo_label', 'position', 'seller_order', 'synthetic_demo', 'type', 'url', 'url_form'])
 
     const declared = resolvedInterfaceKeys(SHARED_MARKETPLACE_CODE, 'MarketplaceMedia').sort()
     expect(declared, 'the declared media shape has drifted from the wire').toEqual(published.sort())

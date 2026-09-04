@@ -316,13 +316,47 @@ export function milestoneStatusLabel(status: string | null | undefined): string 
   return MILESTONE_STATUS_LABELS[String(status)] ?? String(status)
 }
 
+/** The milestones a plan total counts: not a refund, not cancelled or waived. */
+function countableMilestones(milestones: SafeTradeMilestone[]): SafeTradeMilestone[] {
+  return milestones.filter(
+    (m) => m.milestone_type !== 'REFUND' && !['CANCELLED', 'WAIVED'].includes(String(m.status)),
+  )
+}
+
 /** Sum of non-refund, non-cancelled milestone amounts (mirrors the backend reconciliation filter). */
 export function milestoneHeldTotal(milestones: SafeTradeMilestone[]): number {
   return round2(
-    milestones
-      .filter((m) => m.milestone_type !== 'REFUND' && !['CANCELLED', 'WAIVED'].includes(String(m.status)))
-      .reduce((s, m) => s + Number(m.amount || 0), 0),
+    countableMilestones(milestones).reduce((s, m) => s + Number(m.amount || 0), 0),
   )
+}
+
+/**
+ * The plan total, grouped by the currency each milestone actually carries.
+ *
+ * Each row already renders its own `m.currency`, so a plan can hold more than one
+ * — but the header summed the raw amounts and then labelled the result with the
+ * single case currency, presenting arithmetic across currencies as one figure.
+ * CarUp applies no exchange rate, so the currencies are kept apart.
+ *
+ * A milestone with no recorded amount is reported as unpriced rather than added
+ * as zero, which would quietly understate the plan.
+ */
+export function milestoneTotalsByCurrency(
+  milestones: SafeTradeMilestone[],
+  fallbackCurrency = 'USD',
+): { totals: Array<{ currency: string; amount: number }>; unpriced: number } {
+  const buckets = new Map<string, number>()
+  let unpriced = 0
+  for (const m of countableMilestones(milestones)) {
+    const amount = m.amount === null || m.amount === undefined ? Number.NaN : Number(m.amount)
+    if (!Number.isFinite(amount)) { unpriced += 1; continue }
+    const currency = String(m.currency || fallbackCurrency).toUpperCase()
+    buckets.set(currency, (buckets.get(currency) || 0) + amount)
+  }
+  return {
+    totals: [...buckets.entries()].map(([currency, amount]) => ({ currency, amount: round2(amount) })),
+    unpriced,
+  }
 }
 
 function round2(n: number): number {

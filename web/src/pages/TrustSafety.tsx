@@ -26,37 +26,52 @@ import {
   HelpCircle
 } from 'lucide-react'
 
-// Mock verification stages specific to Zimbabwe
+/**
+ * What CarUp actually does with a vehicle's evidence.
+ *
+ * The previous version of this array was labelled "Mock verification stages" in
+ * the source and described an operating model CarUp does not have: a real-time
+ * digital sync with the CVR and ZINARA, a 150-point physical inspection at CarUp
+ * hubs in four cities, proprietary ECU scanner tooling reading ABS and
+ * transmission modules, a legal desk auditing ZRP Form 94, and a cryptographic
+ * certificate. None of it exists. `provider_registry` is empty, every registry
+ * check on record ran against a sandbox simulator, and there is no inspection
+ * network, no ECU tooling and no forensic desk.
+ *
+ * These stages describe the real thing instead, and each says who did it — which
+ * is the distinction that matters, because CarUp reviewing a document a seller
+ * supplied is not an authority confirming it.
+ */
 const verificationStages = [
   {
     step: '01',
-    title: 'ZINARA & CVR Registry Check',
-    description: 'We perform a real-time digital sync with the Central Vehicle Registry (CVR) and Zimbabwe National Road Administration (ZINARA). This confirms the chassis number/VIN authenticity, licensing compliance, and validates that duty was legally cleared at ports of entry like Beitbridge or Mutare.',
-    details: ['Chassis & VIN Validation', 'Import Duty Clearance Status', 'ZRP Stolen Vehicle Registry Cross-Reference', 'Licensing Validity Analysis']
+    title: 'Documents are supplied',
+    description: 'A seller uploads the paperwork for their vehicle — the logbook, import and clearance documents, service history. CarUp stores what it is given. Nothing is requested from any registry, because CarUp is not connected to one.',
+    details: ['Seller-supplied documents', 'Stored against the vehicle', 'Nothing is fetched from an authority']
   },
   {
     step: '02',
-    title: 'Physical 150-Point Inspection',
-    description: 'Conducted at CarUp Hubs or certified partner garages across Harare, Bulawayo, Mutare, and Gweru. Our master mechanics conduct rigorous diagnostics on the powertrain, structural integrity, hybrid batteries, suspension, and vehicle electricals.',
-    details: ['Engine & Transmission Diagnostics', 'Under-carriage & Suspension Check', 'Electrical Grid & ECU Health Audit', 'Road Test Performance Validation']
+    title: 'CarUp reviews what it was given',
+    description: 'A reviewer checks the supplied documents for internal consistency and completeness, and records a decision. This is CarUp\'s own assessment of the evidence in front of it. It is not a government verification and CarUp never describes it as one.',
+    details: ['CarUp\'s own review', 'Recorded decision with a reason', 'Not an official or registry confirmation']
   },
   {
     step: '03',
-    title: 'Odometer Integrity Verification',
-    description: 'Odometer fraud is highly prevalent in imported second-hand Japanese and UK vehicles. We deploy proprietary ECU scanner technology to read historical mileage records directly from internal modules (ABS, transmission, key fobs) to detect odometer rollbacks.',
-    details: ['Proprietary ECU Log Extraction', 'Historical Import Mileage Syncing', 'Wear-and-Tear Consistency Check', 'Mileage Discrepancy Flagging']
+    title: 'Service and parts history is logged',
+    description: 'Where a mechanic records a repair or a part replacement through PartSentry, that record is kept with the vehicle. A record can be marked as reviewed, and only a governed review decides whether it may be shown publicly.',
+    details: ['Work and part records', 'Review status carried with each record', 'A governed gate gives public visibility']
   },
   {
     step: '04',
-    title: 'Title Deed & Logbook Forensic Audit',
-    description: 'Our legal desk verifies the original vehicle logbook (title deed) for tampering, scans Customs Clearance Certificates (CCC), and cross-references original ID credentials of the registered owner to eliminate double-selling schemes.',
-    details: ['Original Logbook Forensic Scan', 'Owner National ID Verification', 'Customs Clearance Certificate Audit', 'Police Clearance Verification (ZRP Form 94)']
+    title: 'A Trust position is calculated',
+    description: 'Trust states how much confidence CarUp places in the evidence it holds about a vehicle. A vehicle CarUp has not evaluated is shown as not evaluated — never as a zero, a failure, or a poor result.',
+    details: ['Confidence in the evidence held', 'Versioned, and stamped with what produced it', 'Not evaluated stays not evaluated']
   },
   {
     step: '05',
-    title: 'Cryptographic CarUp Trust Score',
-    description: 'Once passed, all verification reports are hashed and stored securely. The car is issued a digital CarUp Trust Certificate and an AI-calculated Trust Score (ranging from 1 to 10) displayed publically to premium buyers.',
-    details: ['Immutable Certificate Hash', 'Dynamic AI Trust Score Generation', 'Verified Marketplace Badge', 'Lifetime Digital Car Profile Registry']
+    title: 'What Trust is not',
+    description: 'Trust describes a vehicle\'s evidence. It is not a credit score, not an insurance risk rating, not a valuation, and not a judgement about the seller. A thin Trust position means CarUp holds little documentation — not that anything is wrong.',
+    details: ['Not a credit or risk score', 'Not a valuation', 'Not a verdict on the seller']
   }
 ]
 
@@ -82,8 +97,8 @@ const buyerGuidelines = [
 
 const sellerGuidelines = [
   {
-    title: 'Obtain the "CarUp Verified" Seller Status',
-    desc: 'Vehicles listed with a "CarUp Verified" badge receive 4x more engagement and sell within an average of 48 hours because buyers are confident in the absolute integrity of your listing.'
+    title: 'Record as much detail as you can',
+    desc: 'A listing that records more of what buyers filter on appears in more searches. CarUp publishes no figure for how much faster a listing sells, because it does not measure that.'
   },
   {
     title: 'Accept Bank Transfers or CarUp Escrow Only',
@@ -102,24 +117,24 @@ const sellerGuidelines = [
 // FAQs
 const faqsList = [
   {
-    question: 'How does CarUp verify vehicle import and duty clearance in Zimbabwe?',
-    answer: 'We cross-reference every imported vehicle VIN with records from the Zimbabwe Revenue Authority (ZIMRA) and Central Vehicle Registry (CVR). This confirms if the vehicle was cleared under a personal allowance, civil service scheme, or standard commercial duties, ensuring you do not inherit outstanding import liabilities.'
+    question: 'Does CarUp verify import and duty clearance with ZIMRA or the CVR?',
+    answer: 'It does not. CarUp is not connected to ZIMRA, the CVR or any other authority, so it cannot confirm duty status or clearance for you. What CarUp holds is the paperwork a seller supplied and its own review of it. Confirming import liabilities remains something you should do directly with the relevant authority before you buy.'
   },
   {
-    question: 'What happens if a vehicle fails the Odometer Integrity Check?',
-    answer: 'If our proprietary ECU diagnostics reveal an odometer discrepancy (e.g. rolled back from 180,000km to 60,000km), the vehicle is permanently flagged in our registry. The owner is notified and the vehicle cannot be listed with a "Verified Badge" on the marketplace.'
+    question: 'Can CarUp detect an odometer rollback?',
+    answer: 'CarUp has no ECU scanning tooling and reads nothing from a vehicle\'s modules. Where a mileage reading is recorded over time and a later reading is lower than an earlier one, that inconsistency is visible in the records CarUp holds. Judging it is yours to do — CarUp does not operate a registry and cannot flag a vehicle nationally.'
   },
   {
-    question: 'How does the Report Sentry program work?',
-    answer: 'If you encounter any suspicious activity, a pricing anomaly, or suspect a listing is fraudulent, you can report it instantly. Our local team in Harare immediately reviews the flag, freezes the listing if necessary, and coordinates with ZRP CID Vehicle Theft Squad if a stolen vehicle indicator is detected.'
+    question: 'How do I report a suspicious listing?',
+    answer: 'By email, to support@carup.co.zw. CarUp does not yet have an in-product reporting queue, so the form on this page cannot submit and says so rather than pretending otherwise. CarUp has no arrangement with the ZRP or any other authority to escalate on your behalf — if a vehicle may be stolen, report it to the police directly.'
   },
   {
-    question: 'What currencies are accepted in the Safe Escrow program?',
-    answer: 'CarUp supports secure transaction settlement in both US Dollars (USD) and Zimbabwe Gold (ZiG) through our regulated banking partners. Funds are held securely in escrow until both parties sign the digital transfer authorization.'
+    question: 'Does CarUp hold my money in escrow?',
+    answer: 'CarUp is non-custodial: it does not hold, transfer or process funds, and it has no banking partner and no trust account. Its escrow feature currently runs against a sandbox provider only — no live payment has ever been processed through CarUp, and the database itself forbids recording one. Any money you pay moves directly between you and the other party, so the safeguards below matter.'
   },
   {
-    question: 'Is my personal information secure when reporting a listing?',
-    answer: 'Yes, absolutely. All reports submitted to our Trust & Safety Sentry are handled with absolute confidentiality. Your identity is never shared with the reported user or dealer, and is only accessed by our credentialed security officers.'
+    question: 'What happens to the information in a report?',
+    answer: 'There is no in-product report to submit yet, so CarUp stores nothing from the form on this page. An email you send to support@carup.co.zw is handled by CarUp staff. CarUp makes no claim about credentialed security officers, because it does not operate such a team.'
   }
 ]
 
@@ -143,9 +158,6 @@ export default function TrustSafety() {
   const fileInputRef = useRef<HTMLInputElement>(null)
   
   // Submit state
-  const [isSubmitting, setIsSubmitting] = useState(false)
-  const [isSuccess, setIsSuccess] = useState(false)
-  const [ticketNumber, setTicketNumber] = useState('')
 
   const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files) {
@@ -154,7 +166,8 @@ export default function TrustSafety() {
         size: (file.size / (1024 * 1024)).toFixed(2) + ' MB'
       }))
       setAttachedFiles(prev => [...prev, ...filesArray])
-      toast.success('Evidence file(s) attached successfully!')
+      // Selected, not uploaded. Nothing leaves the browser, so nothing is confirmed.
+      toast.info('File selected. Note that nothing is uploaded — reporting is not available yet.')
     }
   }
 
@@ -166,38 +179,28 @@ export default function TrustSafety() {
     fileInputRef.current?.click()
   }
 
+  /**
+   * There is no report to submit.
+   *
+   * This handler previously ran a 1.5-second timer, invented a ticket number with
+   * `Math.random()`, and announced "Report submitted successfully! Security ticket
+   * generated." No request was ever made and nothing was ever stored — so somebody
+   * reporting a stolen vehicle or a fraudulent dealer walked away believing CarUp
+   * had it in hand, and it did not. Of every fabrication in this codebase this was
+   * the one most likely to cause real harm.
+   *
+   * An exhaustive search of the backend found no intake a public reporter can
+   * reach: the fraud routes evaluate an existing vehicle or serve a reviewer
+   * queue, and every review, dispute and moderation route is gated to staff. So
+   * the action is disabled and says so, and the page directs people to a channel
+   * that genuinely exists. It will be wired up when an authoritative intake is
+   * built — not before.
+   */
   const handleFormSubmit = (e: React.FormEvent) => {
     e.preventDefault()
-    
-    if (!reporterName || !reporterEmail || !description) {
-      toast.error('Please fill in all required fields.')
-      return
-    }
-
-    setIsSubmitting(true)
-
-    // Simulate API request to Gutu AI / Trust Team
-    setTimeout(() => {
-      setIsSubmitting(false)
-      setIsSuccess(true)
-      const randomTicket = 'TK-ZIM-' + Math.floor(100000 + Math.random() * 900000)
-      setTicketNumber(randomTicket)
-      toast.success('Report submitted successfully! Security ticket generated.')
-    }, 1500)
+    toast.error('In-product reporting is not available yet. Please email support@carup.co.zw.')
   }
 
-  const resetForm = () => {
-    setReporterName('')
-    setReporterEmail('')
-    setReporterPhone('')
-    setTargetType('listing')
-    setListingId('')
-    setDealerName('')
-    setIssueType('odometer')
-    setDescription('')
-    setAttachedFiles([])
-    setIsSuccess(false)
-  }
 
   const toggleFaq = (index: number) => {
     setExpandedFaq(expandedFaq === index ? null : index)
@@ -216,29 +219,30 @@ export default function TrustSafety() {
             🛡️ SECURE ECOSYSTEM
           </Badge>
           <h1 className="text-4xl md:text-6xl lg:text-7xl font-extrabold tracking-tight leading-[1.1] mb-6 max-w-5xl mx-auto">
-            Zimbabwe's Safest{' '}
+            Buying a car{' '}
             <span className="bg-gradient-to-r from-orange-400 via-amber-400 to-yellow-400 bg-clip-text text-transparent drop-shadow-[0_2px_15px_rgba(249,115,22,0.2)]">
-              Automotive Intelligence
-            </span>{' '}
-            Platform
+              with your eyes open
+            </span>
           </h1>
           <p className="text-gray-300 text-lg md:text-xl max-w-3xl mx-auto mb-10 leading-relaxed font-light">
-            We integrate advanced machine learning, CVR registry synchronization, odometer physical diagnostics, 
-            and cryptographic ledger histories to bring absolute transparency and integrity to the Zimbabwean vehicle market.
+            CarUp records what sellers supply about a vehicle and reviews it. It is not connected to the CVR,
+            ZINARA, ZIMRA or the police, it holds no money, and it inspects no cars — so this page is about
+            what CarUp can genuinely tell you, and what you still need to check yourself.
           </p>
 
-          {/* Glowing Metrics */}
-          <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 md:gap-6 max-w-5xl mx-auto mt-16 pt-10 border-t border-[hsl(222,47%,16%)]">
+          {/* Four claims this page used to make, and the truth behind each. The
+              originals were '10,000+ Verified Odometers', '99.8% Fraud Detection
+              Rate', '100% ZINARA & CVR Sync' and '850+ Vetted Dealerships' — all
+              string literals, none measured. */}
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4 md:gap-6 max-w-5xl mx-auto mt-16 pt-10 border-t border-[hsl(222,47%,16%)]" data-testid="trust-honest-position">
             {[
-              { value: '10,000+', label: 'Verified Odomoteres', desc: 'Japanese & UK imports audited' },
-              { value: '99.8%', label: 'Fraud Detection Rate', desc: 'Pre-listing checks caught early' },
-              { value: '100%', label: 'ZINARA & CVR Sync', desc: 'Duty & ownership validated' },
-              { value: '850+', label: 'Vetted Dealerships', desc: 'Harare & Bulawayo approved' }
-            ].map((stat, idx) => (
-              <div key={idx} className="bg-[hsl(222,47%,11%)]/50 backdrop-blur-md rounded-2xl p-5 border border-[hsl(222,47%,16%)] hover:border-orange-500/25 transition-all duration-300 hover:shadow-[0_0_15px_rgba(249,115,22,0.08)] text-center group">
-                <p className="text-2xl md:text-3xl font-extrabold text-orange-400 group-hover:scale-105 transition-transform duration-300">{stat.value}</p>
-                <p className="text-sm font-semibold text-white mt-1">{stat.label}</p>
-                <p className="text-xs text-gray-500 mt-0.5">{stat.desc}</p>
+              { label: 'No registry connection', desc: 'CarUp cannot confirm ownership, duty or licensing with any authority.' },
+              { label: 'No custody of funds', desc: 'CarUp never holds your money. Payment happens directly between you and the seller.' },
+              { label: 'No physical inspection', desc: 'CarUp does not inspect vehicles. Arrange your own mechanical check before you buy.' }
+            ].map((item, idx) => (
+              <div key={idx} className="bg-[hsl(222,47%,11%)]/50 backdrop-blur-md rounded-2xl p-5 border border-[hsl(222,47%,16%)] text-left">
+                <p className="text-sm font-semibold text-white">{item.label}</p>
+                <p className="text-xs text-gray-400 mt-1 leading-relaxed font-light">{item.desc}</p>
               </div>
             ))}
           </div>
@@ -249,39 +253,39 @@ export default function TrustSafety() {
       <section className="py-24 px-4 md:px-8 max-w-[1440px] mx-auto">
         <div className="text-center max-w-2xl mx-auto mb-16">
           <Badge className="mb-4 bg-orange-500/10 text-orange-400 border border-orange-500/20">SECURITY PILLARS</Badge>
-          <h2 className="text-3xl md:text-4xl font-bold tracking-tight">Our Four Pillars of Immutable Security</h2>
-          <p className="text-gray-400 mt-3 font-light">Engineered to eliminate car fraud, dual-selling, and mechanical tampering across Zimbabwe.</p>
+          <h2 className="text-3xl md:text-4xl font-bold tracking-tight">What CarUp actually does</h2>
+          <p className="text-gray-400 mt-3 font-light">And, just as importantly, what it does not do. CarUp is not a registry, not a custodian and not an inspector.</p>
         </div>
 
         <div className="grid md:grid-cols-2 lg:grid-cols-4 gap-6">
           {[
             {
               icon: ShieldCheck,
-              title: 'Audit Ledger Verification',
-              desc: 'Every vehicle registered gets an immutable digital identity ledger. All legal ownership transactions, ZIMRA tax status, and structural repairs are hashed onto the ledger to prevent document falsification.',
+              title: 'A signed internal record',
+              desc: 'Changes CarUp records against a vehicle are written to its own signed, append-only log, so an entry cannot be quietly altered later. It is an internal ledger — not a blockchain, and it carries no tax or ownership status from any authority.',
               color: 'from-orange-500/20 to-amber-500/20',
-              badge: 'Tamper-Proof'
+              badge: 'Internal log'
             },
             {
               icon: UserCheck,
-              title: 'Mandatory KYC & Vetting',
-              desc: 'Every dealer and individual seller undergoes rigorous National ID, biometric, and physical site verification prior to listing. We eliminate ghost sellers and phantom vehicle listings.',
+              title: 'Accounts and documents',
+              desc: 'Sellers hold CarUp accounts and can supply documents for a vehicle, which CarUp reviews. There is no biometric check and no physical site visit, so treat an account as an account — not as proof of who somebody is.',
               color: 'from-blue-500/20 to-indigo-500/20',
-              badge: '100% Identity Check'
+              badge: 'No biometric check'
             },
             {
               icon: Cpu,
-              title: 'Gutu AI Fraud Sentry',
-              desc: 'Our neural networks scan listing descriptions, analyze listing location profiles, inspect pricing patterns against real-world valuations, and conduct reverse-image audits to catch fraud before it goes live.',
+              title: 'Assisted review',
+              desc: 'CarUp uses automated help when reviewing documents and listings, and a person decides. It does not run reverse-image audits or price a vehicle against a market model, and it makes no claim to catch fraud before it goes live.',
               color: 'from-purple-500/20 to-pink-500/20',
-              badge: 'Real-time AI Guard'
+              badge: 'A person decides'
             },
             {
               icon: Coins,
-              title: 'Secure Escrow Settle',
-              desc: 'Transact with absolute trust in USD or ZiG. Buying funds are safely held in a regulated trust account until both parties complete the physical transfer of the vehicle and clear titles at the CVR offices.',
+              title: 'Non-custodial by design',
+              desc: 'CarUp does not hold, transfer or process your money, and it operates no trust account. Its escrow feature runs against a sandbox provider only — no live payment has ever gone through CarUp. Money moves directly between you and the other party.',
               color: 'from-emerald-500/20 to-teal-500/20',
-              badge: 'Regulated Escrow'
+              badge: 'Holds no funds'
             }
           ].map((pillar, idx) => (
             <Card key={idx} className="bg-[hsl(222,47%,11%)] border-[hsl(222,47%,18%)] text-white hover:border-orange-500/40 transition-all duration-500 group flex flex-col justify-between hover:-translate-y-2 hover:shadow-[0_10px_30px_rgba(249,115,22,0.1)]">
@@ -379,7 +383,7 @@ export default function TrustSafety() {
 
                 <div className="mt-8 pt-6 border-t border-white/5 flex items-center justify-between text-xs text-gray-500">
                   <span className="flex items-center gap-1.5">
-                    <Building className="w-3.5 h-3.5" /> Partners: CVR, ZINARA, ZRP VTS, ZIMRA
+                    <Building className="w-3.5 h-3.5" /> No registry or authority integration
                   </span>
                   <span className="flex items-center gap-1.5">
                     <Clock className="w-3.5 h-3.5" /> Average Audit Time: 2-4 Hours
@@ -454,8 +458,10 @@ export default function TrustSafety() {
               Encountered a <span className="bg-gradient-to-r from-red-400 to-orange-400 bg-clip-text text-transparent">Suspicious Listing</span> or User?
             </h2>
             <p className="text-gray-300 text-base leading-relaxed font-light">
-              Our dedicated Trust & Safety Division and our artificial intelligence engine, Gutu AI, monitor the platform 24/7. However, community alerts are vital. 
-              If you identify cloned listings, mileage rollbacks, fake dealership profiles, or scam activity, submit this confidential report immediately.
+              CarUp has no monitoring team watching the platform around the clock, and no in-product
+              reporting queue yet. If you see a cloned listing, a rolled-back odometer, a fake dealership
+              profile or a scam, email the details to support@carup.co.zw — and contact the police
+              directly if you believe a vehicle is stolen.
             </p>
 
             <div className="space-y-4 pt-4 border-t border-white/5">
@@ -504,7 +510,7 @@ export default function TrustSafety() {
               </CardHeader>
 
               <CardContent className="p-6">
-                {!isSuccess ? (
+                {(
                   <form onSubmit={handleFormSubmit} className="space-y-6">
                     {/* Reporter Info Group */}
                     <div className="bg-[hsl(222,47%,8%)]/60 p-4 rounded-xl border border-[hsl(222,47%,18%)] space-y-4">
@@ -670,68 +676,34 @@ export default function TrustSafety() {
                       )}
                     </div>
 
-                    {/* Submit Button */}
-                    <Button
-                      type="submit"
-                      disabled={isSubmitting}
-                      className="w-full bg-orange-500 hover:bg-orange-600 text-white rounded-xl py-3 font-bold transition-all shadow-lg flex items-center justify-center gap-2 group cursor-pointer"
+                    {/* There is nothing to submit to. The control says so and
+                        stays disabled rather than performing a fake success. */}
+                    <div
+                      className="rounded-xl border border-amber-500/30 bg-amber-500/5 p-4 text-sm text-amber-200"
+                      data-testid="trust-report-unavailable"
                     >
-                      {isSubmitting ? (
-                        <>
-                          <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
-                          <span>Processing Incident Report...</span>
-                        </>
-                      ) : (
-                        <>
-                          <Send className="w-4 h-4 group-hover:translate-x-1 group-hover:-translate-y-1 transition-transform" />
-                          <span>Submit Security Report</span>
-                        </>
-                      )}
-                    </Button>
-                  </form>
-                ) : (
-                  /* Form Success Area */
-                  <div className="text-center py-12 px-4 space-y-6">
-                    <div className="w-20 h-20 bg-emerald-500/10 border-2 border-emerald-500/30 rounded-full flex items-center justify-center mx-auto shadow-[0_0_20px_rgba(16,185,129,0.15)]">
-                      <ShieldCheck className="w-10 h-10 text-emerald-400 animate-pulse" />
-                    </div>
-
-                    <div className="space-y-2">
-                      <h3 className="text-2xl font-bold tracking-tight text-white">Report Successfully Logged</h3>
-                      <p className="text-sm text-gray-400 max-w-md mx-auto font-light">
-                        Thank you for contributing to the integrity of CarUp. A secure priority ticket has been generated.
+                      <p className="font-semibold">In-product reporting is not available yet.</p>
+                      <p className="mt-1 font-light leading-relaxed text-amber-200/80">
+                        CarUp has no reporting queue behind this form, so nothing you type here is
+                        stored or sent. Please email{' '}
+                        <a href="mailto:support@carup.co.zw" className="font-semibold underline">
+                          support@carup.co.zw
+                        </a>{' '}
+                        instead, and contact the police directly if a vehicle may be stolen.
                       </p>
                     </div>
 
-                    {/* Ticket Details Panel */}
-                    <div className="bg-[hsl(222,47%,8%)] border border-[hsl(222,47%,16%)] rounded-2xl p-6 max-w-md mx-auto space-y-3">
-                      <div className="flex justify-between items-center border-b border-white/5 pb-2">
-                        <span className="text-xs text-gray-500">Security Ticket Number</span>
-                        <span className="text-sm font-extrabold text-orange-400 tracking-wider">{ticketNumber}</span>
-                      </div>
-                      <div className="flex justify-between items-center border-b border-white/5 pb-2">
-                        <span className="text-xs text-gray-500">Audit Status</span>
-                        <span className="text-xs font-semibold px-2 py-0.5 bg-red-500/10 border border-red-500/25 rounded text-red-400 animate-pulse">High Priority Audit</span>
-                      </div>
-                      <div className="flex justify-between items-center">
-                        <span className="text-xs text-gray-500">Response SLA</span>
-                        <span className="text-xs font-semibold text-white">Under 2 Hours</span>
-                      </div>
-                    </div>
-
-                    <p className="text-xs text-gray-500 max-w-sm mx-auto font-light leading-relaxed">
-                      A copy of this case status link has been dispatched to <span className="text-gray-300 font-semibold">{reporterEmail}</span>. 
-                      You can securely append extra notes or evidence later if required.
-                    </p>
-
                     <Button
-                      onClick={resetForm}
-                      variant="outline"
-                      className="border-white/10 hover:bg-white/5 text-white"
+                      type="submit"
+                      disabled
+                      aria-disabled="true"
+                      data-testid="trust-report-submit"
+                      className="w-full bg-white/5 text-gray-400 rounded-xl py-3 font-bold flex items-center justify-center gap-2 cursor-not-allowed"
                     >
-                      File Another Incident
+                      <Send className="w-4 h-4" />
+                      <span>Reporting unavailable</span>
                     </Button>
-                  </div>
+                  </form>
                 )}
               </CardContent>
             </Card>

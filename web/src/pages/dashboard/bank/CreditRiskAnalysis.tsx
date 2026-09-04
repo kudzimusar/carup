@@ -1,137 +1,114 @@
-import { useState, useEffect } from 'react'
+/**
+ * Credit risk — CarUp Intelligence I11.
+ *
+ * This page did the one thing the programme's Trust rules most clearly forbid: it
+ * converted a CarUp Trust score directly into a borrower credit grade, banding
+ * applications into "A (Super Trust)", "B (High Trust)", "C (Medium Trust)" and
+ * "D (Low Trust)" by score thresholds.
+ *
+ * Trust is a statement about EVIDENCE — how much confidence CarUp places in what
+ * is known about a VEHICLE. It is not a statement about a PERSON's willingness or
+ * ability to repay, and the two are not related by any model CarUp owns. Re-badging
+ * one as the other would let a vehicle with thin paperwork read as a poor credit
+ * risk, and a well-documented vehicle as a good one, regardless of the borrower.
+ *
+ * The rest of the page was fabricated in the ordinary way: the grade distribution
+ * and a portfolio value were hardcoded as initial state and shown before any fetch,
+ * persisting silently whenever the fetch failed; "AI Credit Model Factors" published
+ * weights (35/25/20/20%) for a model that does not exist; non-performing loans were
+ * reported as a fixed 0.00% with a "Healthy" badge; and escrow coverage was drawn as
+ * a permanently full bar.
+ *
+ * The portfolio value was computed by summing `requested_amount` across
+ * applications — reporting what borrowers ASKED for as money the lender holds.
+ *
+ * None of it is replaced with an estimate, because CarUp records no lender
+ * decision, no disbursement and no repayment. The page states that.
+ */
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
-import { Progress } from '@/components/ui/progress'
-import { Badge } from '@/components/ui/badge'
-import { BarChart3, ArrowUpRight } from 'lucide-react'
-import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer } from 'recharts'
-import { useCarUpApi } from '@/hooks/useCarUpApi'
-import type { FinanceApplication } from '@/types'
+import { BarChart3, Info } from 'lucide-react'
+import { Link } from 'react-router-dom'
+
+const NOT_AVAILABLE = [
+  {
+    key: 'credit_grading',
+    label: 'Borrower credit grading',
+    detail:
+      'CarUp operates no credit model. Trust states confidence in evidence about a vehicle, not a borrower\'s ability to repay, so it is not converted into a credit grade or a risk tier.',
+  },
+  {
+    key: 'portfolio_value',
+    label: 'Portfolio value',
+    detail:
+      'CarUp records no disbursement, so there is no portfolio. The figure previously shown summed the amounts borrowers requested on applications, which is not money lent.',
+  },
+  {
+    key: 'credit_model_factors',
+    label: 'Credit model factors',
+    detail:
+      'No governed finance model owns any scoring weights, so none are published here.',
+  },
+  {
+    key: 'non_performing',
+    label: 'Non-performing loans',
+    detail:
+      'CarUp records no repayment, arrears or default state, so a delinquency rate cannot be derived. The fixed rate shown here previously asserted a healthy book rather than an unmeasured one.',
+  },
+  {
+    key: 'escrow_coverage',
+    label: 'Escrow coverage',
+    detail:
+      'No escrow arrangement is bound to a finance application, so coverage cannot be computed.',
+  },
+]
 
 export default function CreditRiskAnalysis() {
-  const { fetchFinanceApplications } = useCarUpApi()
-  const [riskDistribution, setRiskDistribution] = useState([
-    { grade: 'A (Super Trust)', count: 8 },
-    { grade: 'B (High Trust)', count: 4 },
-    { grade: 'C (Medium Trust)', count: 2 },
-    { grade: 'D (Low Trust)', count: 1 },
-  ])
-  const [totalValue, setTotalValue] = useState(1245000)
-
-  useEffect(() => {
-    const loadApps = async () => {
-      try {
-        const apps = await fetchFinanceApplications()
-        if (Array.isArray(apps) && apps.length > 0) {
-          let a = 0, b = 0, c = 0, d = 0
-          let value = 0
-          apps.forEach((app: FinanceApplication) => {
-            const score = app.trust_score || 0
-            if (score >= 90) a++
-            else if (score >= 80) b++
-            else if (score >= 70) c++
-            else d++
-
-            if (app.requested_amount) {
-              value += Number(app.requested_amount)
-            }
-          })
-          setRiskDistribution([
-            { grade: 'A (Super Trust)', count: a },
-            { grade: 'B (High Trust)', count: b },
-            { grade: 'C (Medium Trust)', count: c },
-            { grade: 'D (Low Trust)', count: d },
-          ])
-          setTotalValue(value)
-        }
-      } catch (err) {
-        console.error(err)
-      }
-    }
-    loadApps()
-  }, [fetchFinanceApplications])
   return (
     <div className="space-y-6 max-w-7xl mx-auto">
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-bold flex items-center gap-2">
-            <BarChart3 className="w-6 h-6 text-indigo-600" />
-            Credit Risk Analysis
-          </h1>
-          <p className="text-gray-500">System-wide credit analytics, portfolio distribution, and risk modeling.</p>
-        </div>
+      <div>
+        <h1 className="text-2xl font-bold flex items-center gap-2">
+          <BarChart3 className="w-6 h-6 text-gray-400" />
+          Credit risk
+        </h1>
+        <p className="text-gray-500">
+          The governed credit domain, kept separate from commercial demand.
+        </p>
       </div>
 
-      <div className="grid lg:grid-cols-3 gap-6">
-        <div className="lg:col-span-2 space-y-6">
-          <Card className="border-0 card-shadow bg-white">
-            <CardHeader className="pb-3"><CardTitle className="text-lg">Portfolio Risk Distribution</CardTitle></CardHeader>
-            <CardContent>
-              <ResponsiveContainer width="100%" height={260}>
-                <BarChart data={riskDistribution}>
-                  <XAxis dataKey="grade" axisLine={false} tickLine={false} tick={{ fontSize: 12 }} />
-                  <YAxis axisLine={false} tickLine={false} tick={{ fontSize: 12 }} />
-                  <Tooltip />
-                  <Bar dataKey="count" fill="#4f46e5" radius={[4, 4, 0, 0]} barSize={40} />
-                </BarChart>
-              </ResponsiveContainer>
-            </CardContent>
-          </Card>
+      <Card className="border-0 card-shadow" data-testid="credit-risk-unavailable">
+        <CardHeader className="pb-3">
+          <CardTitle className="text-lg">Not available</CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <p className="text-sm text-gray-600">
+            CarUp does not hold the records this domain would need. Nothing below is zero — it is
+            unmeasured.
+          </p>
+          <ul className="space-y-3">
+            {NOT_AVAILABLE.map((item) => (
+              <li key={item.key} className="flex items-start gap-2" data-testid={`credit-unavailable-${item.key}`}>
+                <Info className="mt-0.5 h-4 w-4 shrink-0 text-gray-400" aria-hidden="true" />
+                <span>
+                  <span className="block text-sm font-medium text-gray-800">{item.label}</span>
+                  <span className="block text-xs text-gray-600">{item.detail}</span>
+                </span>
+              </li>
+            ))}
+          </ul>
+        </CardContent>
+      </Card>
 
-          <Card className="border-0 card-shadow bg-white">
-            <CardHeader className="pb-3"><CardTitle className="text-lg">AI Credit Model Factors</CardTitle></CardHeader>
-            <CardContent className="space-y-4">
-              {[
-                { factor: 'Odometer progressive validation (OdoAudit)', weight: '35% weight', impact: 'Very High', color: 'text-green-600' },
-                { factor: 'PartSentry replacement consistency logs', weight: '25% weight', impact: 'High', color: 'text-green-600' },
-                { factor: 'Owner vehicle transaction history (SafePay)', weight: '20% weight', impact: 'Medium', color: 'text-blue-600' },
-                { factor: 'ZIMRA custom import compliance record', weight: '20% weight', impact: 'Medium', color: 'text-blue-600' }
-              ].map((item, idx) => (
-                <div key={idx} className="flex justify-between items-center p-3 bg-gray-50 rounded-xl">
-                  <div>
-                    <p className="font-semibold text-sm text-gray-800">{item.factor}</p>
-                    <p className="text-xs text-gray-400">{item.weight}</p>
-                  </div>
-                  <Badge className={`${item.color} bg-white border border-gray-200 shadow-none`}>
-                    {item.impact}
-                  </Badge>
-                </div>
-              ))}
-            </CardContent>
-          </Card>
-        </div>
-
-        <div className="space-y-6">
-          <Card className="border-0 card-shadow bg-white">
-            <CardHeader className="pb-3"><CardTitle className="text-lg">Portfolio Health Summary</CardTitle></CardHeader>
-            <CardContent className="space-y-4">
-              <div className="flex justify-between items-center border-b pb-3">
-                <div>
-                  <p className="text-xs text-gray-400">Total Portfolio Value</p>
-                  <p className="text-xl font-bold">
-                    ${totalValue >= 1000000 ? (totalValue / 1000000).toFixed(2) + 'M' : (totalValue / 1000).toFixed(2) + 'k'} USD
-                  </p>
-                </div>
-                <ArrowUpRight className="w-5 h-5 text-indigo-600" />
-              </div>
-              <div className="flex justify-between items-center border-b pb-3">
-                <div>
-                  <p className="text-xs text-gray-400">Non-Performing Loans</p>
-                  <p className="text-xl font-bold">0.00%</p>
-                </div>
-                <Badge className="bg-green-100 text-green-700 font-semibold border-none">Healthy</Badge>
-              </div>
-              <div>
-                <p className="text-xs text-gray-400">Escrow Split Security Coverage</p>
-                <div className="flex items-center justify-between text-xs mt-1 mb-1">
-                  <span>Funds Covered by Escrow</span>
-                  <span className="font-bold">100%</span>
-                </div>
-                <Progress value={100} className="h-1.5 bg-gray-100" indicatorClassName="bg-indigo-600" />
-              </div>
-            </CardContent>
-          </Card>
-        </div>
-      </div>
+      <Card className="border-0 card-shadow">
+        <CardHeader className="pb-3">
+          <CardTitle className="text-lg">What is available</CardTitle>
+        </CardHeader>
+        <CardContent className="text-sm text-gray-600">
+          <p>
+            The applications CarUp has actually received are listed under{' '}
+            <Link to="/bank/applications" className="text-blue-600 underline">Applications</Link>.
+          </p>
+        </CardContent>
+      </Card>
     </div>
   )
 }
