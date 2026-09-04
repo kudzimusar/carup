@@ -976,6 +976,24 @@ export const FEATURE_REGISTRY: FeatureRegistryItem[] = [
     description: 'Tell suppliers what you need and compare their offers',
   },
   {
+    id: 'diaspora.messages',
+    label: 'Messages',
+    // The canonical Communications surface, reachable from inside the Trade OS shell.
+    // `/dashboard/communications` renders the same component but sits in the OWNER-ONLY
+    // dashboard layout, so a supplier sent there was bounced to /dealer and could never
+    // open the thread they had just created. This route is the participant-neutral entry;
+    // thread visibility is still decided server-side per participant, not by this route.
+    route: '/diaspora/messages',
+    domain: 'diaspora',
+    roles: ['owner', 'dealer', 'admin'],
+    // No sidebar placement: the Trade OS shell renders its own local navigation, and adding
+    // a second "Messages" to the owner dashboard sidebar would duplicate owner.communications.
+    placements: [],
+    requiresAuth: true,
+    icon: 'MessageSquare',
+    description: 'Questions and answers on your trade requests, offers and containers',
+  },
+  {
     id: 'diaspora.buyer-requests',
     label: 'Buyer Requests',
     route: '/diaspora/buyer-requests',

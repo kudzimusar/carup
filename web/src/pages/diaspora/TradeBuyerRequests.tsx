@@ -215,7 +215,7 @@ export default function TradeBuyerRequests() {
     setError('')
     try {
       await ensureDiasporaRfqConversation(rfqId)
-      navigate('/dashboard/communications')
+      navigate('/diaspora/messages')
     } catch (err) {
       setError(err instanceof Error ? err.message : 'The conversation could not be opened')
       setBusy(false)

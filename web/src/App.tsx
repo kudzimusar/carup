@@ -316,6 +316,10 @@ export default function App() {
           <Route path="/diaspora/requests" element={<TradeMyRequests />} />
           <Route path="/diaspora/requests/:id" element={<TradeRequestDetail />} />
           <Route path="/diaspora/buyer-requests" element={<TradeBuyerRequests />} />
+          {/* The SAME canonical Communications surface as /dashboard/communications, mounted in the
+              participant-neutral Trade OS shell. The dashboard path lives in the owner-only layout,
+              so suppliers were bounced to /dealer and could never read the thread they created. */}
+          <Route path="/diaspora/messages" element={<Communications />} />
           <Route path="/diaspora/containers" element={<DiasporaContainerMarketplace />} />
           <Route path="/diaspora/imports" element={<DiasporaImportList />} />
           <Route path="/diaspora/imports/new" element={<NewDiasporaImportOrder />} />

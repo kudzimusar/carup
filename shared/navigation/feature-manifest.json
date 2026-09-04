@@ -588,6 +588,24 @@
     "betaCapable": true
   },
   {
+    "id": "diaspora.messages",
+    "domain": "diaspora",
+    "route": "/diaspora/messages",
+    "defaultLifecycle": "active",
+    "defaultRoles": [
+      "admin",
+      "dealer",
+      "owner"
+    ],
+    "immutableRoles": [
+      "admin",
+      "dealer",
+      "owner"
+    ],
+    "requiresAuth": true,
+    "betaCapable": true
+  },
+  {
     "id": "diaspora.reverse-rfq",
     "domain": "diaspora",
     "route": "/diaspora/request-quotes",

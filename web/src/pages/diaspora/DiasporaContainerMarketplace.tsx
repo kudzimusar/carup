@@ -859,7 +859,7 @@ export default function DiasporaContainerMarketplace() {
                       </dl>
                       <div className="mt-4 flex flex-wrap items-center gap-3">
                         <Button asChild size="sm" variant="outline" className="rounded-none">
-                          <Link to="/dashboard/communications">Open CarUp Communications</Link>
+                          <Link to="/diaspora/messages">Open CarUp Communications</Link>
                         </Button>
                         {openBooking.import_order_id && (
                           <Button asChild size="sm" variant="ghost" className="rounded-none text-gray-700">

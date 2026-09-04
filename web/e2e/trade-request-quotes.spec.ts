@@ -438,9 +438,19 @@ test.describe('Trade OS T2 — Request Quotes', () => {
       await fulfillJson(route, { data: { threadId: 'thread-1', role: 'seller', rfqId: 'order-1' } })
     })
     await page.goto('/diaspora/buyer-requests', { waitUntil: 'domcontentloaded' })
-    await page.getByTestId('trade-ask-question').click()
+    const ask = page.getByTestId('trade-ask-question')
+    await expect(ask).toBeVisible()
+    // The feed refetches once after its first paint. A click that lands during that
+    // re-render is dropped and the assertion below then fails on a button that was
+    // never really pressed, so settle the network first and drive the click and its
+    // POST together rather than asserting on state the click may not have reached.
+    await page.waitForLoadState('networkidle')
+    await Promise.all([
+      page.waitForResponse((r) => /\/buyer-orders\/[^/]+\/conversation/.test(r.url())),
+      ask.click(),
+    ])
     // It reaches the canonical Communications surface, where questions are actually read/answered.
-    await expect(page).toHaveURL(/\/dashboard\/communications/)
+    await expect(page).toHaveURL(/\/diaspora\/messages/)
     expect(conversationCalls).toBe(1)
   })
 
