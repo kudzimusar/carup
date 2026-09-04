@@ -25,6 +25,12 @@
  * imports; `tsc -b` enforces noUnusedLocals where `tsc --noEmit` does not), so
  * its alias was stuck on an older commit. Fixed in 915f45c6; the exact-head
  * pair then reported frontend == backend with unpaired=false.
+ *
+ * Run 33837463100 (14 passed / 3 failed) then found two REAL defects on staging that
+ * mock-backed unit tests could not see: dealer_profiles.id is a uuid column, so the
+ * id-first resolver 500d on a TEXT user id (fixed with a 22P02 fall-through + two pins),
+ * and the O2 pages set light text with no background, so the header failed contrast
+ * (fixed by giving the pages the dark ground their cards already assume).
  */
 import type { APIRequestContext, Page } from '@playwright/test';
 import AxeBuilder from '@axe-core/playwright';

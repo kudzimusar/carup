@@ -253,7 +253,7 @@ export default function DealerOnboarding() {
   const compliance = overview.compliance as Record<string, string | boolean | string[]> | null
 
   return (
-    <div className="mx-auto max-w-4xl space-y-6 p-4 sm:p-8 text-gray-100">
+    <div className="min-h-screen bg-gray-950"><div className="mx-auto max-w-4xl space-y-6 p-4 sm:p-8 text-gray-100">
       <header className="space-y-2">
         <h1 className="text-2xl font-semibold">Dealer onboarding — {overview.registration.organization_name || 'your business'}</h1>
         <div className="flex flex-wrap items-center gap-2">
@@ -466,6 +466,6 @@ export default function DealerOnboarding() {
           </Card>
         </>
       )}
-    </div>
+    </div></div>
   )
 }

@@ -82,11 +82,27 @@ async function getProfileById(dealerId) {
 /**
  * Resolve a profile by its id (the profile UUID) or by the owning user_id. Tries id first,
  * then falls back to user_id, so it works whether the caller holds a dealer id or a user id.
+ *
+ * `dealer_profiles.id` is a uuid column while `user_id` is TEXT, so on real PostgreSQL the
+ * id probe raises 22P02 `invalid input syntax for type uuid` for a `u_...` user id. That is
+ * not a failure of this resolver — it is the type system saying "not a profile id" — so it
+ * falls through to the user lookup instead of 500ing the request. Every OTHER database error
+ * still propagates. Found by P7 on real staging (run 33837463100,
+ * GET /api/dealer-onboarding/overview); mock-backed unit tests could not see it because a
+ * mock does not enforce column types.
  */
+function isUuidCastRefusal(error) {
+  return /invalid input syntax for type uuid/i.test(String(error?.message || error || ''));
+}
+
 export async function getProfile(dealerOrUserId) {
   if (!dealerOrUserId) throw new Error('getProfile requires a dealerId or userId');
-  const byId = await getProfileById(dealerOrUserId);
-  if (byId) return byId;
+  try {
+    const byId = await getProfileById(dealerOrUserId);
+    if (byId) return byId;
+  } catch (error) {
+    if (!isUuidCastRefusal(error)) throw error;
+  }
   return getProfileByUser(dealerOrUserId);
 }
 

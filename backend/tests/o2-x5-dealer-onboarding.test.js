@@ -328,3 +328,51 @@ test('X5: the reviewer raw-evidence preview sits behind X3 step-up and is audite
   assert.match(ok.body.preview.url, /signed\.example\.test/);
   assert.ok(db.trust_audit_events.some((a) => a.event_type === 'DEALER_EVIDENCE_PREVIEWED'));
 });
+
+test('P7 REGRESSION: a uuid-cast refusal on the id probe falls through to the user lookup (real Postgres 22P02)', async () => {
+  const { getProfile } = await import('../services/dealer/dealerComplianceService.js');
+  const original = supabase.from;
+  const seen = [];
+  supabase.from = (table) => {
+    const state = { column: null, value: null };
+    const api = {
+      select() { return api; },
+      eq(column, value) { state.column = column; state.value = value; return api; },
+      maybeSingle() {
+        seen.push(state.column);
+        // Emulate PostgreSQL: the uuid `id` column REFUSES a TEXT user id.
+        if (table === 'dealer_profiles' && state.column === 'id' && !/^[0-9a-f-]{36}$/i.test(String(state.value))) {
+          return Promise.resolve({ data: null, error: { message: 'invalid input syntax for type uuid: "u_text_id"' } });
+        }
+        if (table === 'dealer_profiles' && state.column === 'user_id') {
+          return Promise.resolve({ data: { id: 'dp-uuid', user_id: state.value }, error: null });
+        }
+        return Promise.resolve({ data: null, error: null });
+      },
+    };
+    return api;
+  };
+  try {
+    const profile = await getProfile('u_text_id');
+    assert.ok(profile, 'the user lookup answers instead of the request 500ing');
+    assert.equal(profile.user_id, 'u_text_id');
+    assert.deepEqual(seen, ['id', 'user_id'], 'id probed first, then the user fallback');
+  } finally {
+    supabase.from = original;
+  }
+});
+
+test('P7 REGRESSION: a NON-uuid database error is never swallowed by that fallback', async () => {
+  const { getProfile } = await import('../services/dealer/dealerComplianceService.js');
+  const original = supabase.from;
+  supabase.from = () => ({
+    select() { return this; },
+    eq() { return this; },
+    maybeSingle() { return Promise.resolve({ data: null, error: { message: 'connection terminated unexpectedly' } }); },
+  });
+  try {
+    await assert.rejects(getProfile('dp-1'), /connection terminated/);
+  } finally {
+    supabase.from = original;
+  }
+});

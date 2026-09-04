@@ -61,7 +61,7 @@ export default function WorkbookTools() {
   if (loading) return <div className="p-6 text-sm text-gray-400">Loading your workbook catalogue…</div>
 
   return (
-    <div className="mx-auto max-w-5xl space-y-4 p-4 text-gray-100">
+    <div className="min-h-screen bg-gray-950"><div className="mx-auto max-w-5xl space-y-4 p-4 text-gray-100">
       <div>
         <h1 className="text-lg font-semibold">Workbook tools</h1>
         <p className="text-sm text-gray-400">
@@ -106,6 +106,6 @@ export default function WorkbookTools() {
           </ul>
         </div>
       )}
-    </div>
+    </div></div>
   )
 }

@@ -341,7 +341,7 @@ export default function RegistrationJourney() {
   const showUploads = Boolean(wizardOpen && identity?.session_id)
 
   return (
-    <div className="mx-auto max-w-3xl space-y-6 p-4 sm:p-8 text-gray-100">
+    <div className="min-h-screen bg-gray-950"><div className="mx-auto max-w-3xl space-y-6 p-4 sm:p-8 text-gray-100">
       <header className="space-y-2">
         <h1 className="text-2xl font-semibold">Finish setting up your CarUp account</h1>
         <div className="flex flex-wrap items-center gap-2">
@@ -719,6 +719,6 @@ export default function RegistrationJourney() {
           )}
         </CardContent>
       </Card>
-    </div>
+    </div></div>
   )
 }
