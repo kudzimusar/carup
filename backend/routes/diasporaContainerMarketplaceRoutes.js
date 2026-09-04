@@ -8,7 +8,7 @@
 import express from 'express';
 import { authorizeRole } from '../middleware/authMiddleware.js';
 import { resolveVehicleObjectAuthority } from '../middleware/vehicleObjectAuthority.js';
-import { ForbiddenError, NotFoundError } from '../utils/errors.js';
+import { ForbiddenError } from '../utils/errors.js';
 import {
   createContainer,
   listOpenContainers,
@@ -64,12 +64,10 @@ async function preauthorizeLogisticsVehicleLinks(items, userContext) {
     if (!vin) continue;
     const authority = await resolveVehicleObjectAuthority(vin, userContext);
     if (authority.allowed) continue;
-    // Use the same non-enumerating 403 for missing/foreign VINs at the public route. The deeper
-    // service may distinguish NotFound for internal callers, but an unrelated user should not learn
-    // whether a guessed VIN exists.
+    // Match the canonical vehicle-object boundary: missing and foreign VINs are both 403 so an
+    // unrelated caller cannot use status codes to enumerate whether a guessed VIN exists.
     if (authority.reason === 'no_identity') throw new ForbiddenError('Vehicle linkage requires an authenticated user');
     if (authority.reason === 'lookup_failed') throw new ForbiddenError('Vehicle authority could not be established');
-    if (authority.reason === 'not_found') throw new NotFoundError('Linked vehicle is not on record');
     throw new ForbiddenError('You are not authorized to link that vehicle to this shipping request');
   }
 }
