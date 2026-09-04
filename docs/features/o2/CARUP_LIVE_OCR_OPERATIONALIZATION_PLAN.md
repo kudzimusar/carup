@@ -1,0 +1,82 @@
+# CarUp — Live OCR Operationalization: Plan & Certification Contract
+
+- **Lane:** `fix/o2-live-ocr-operationalization`, branched from
+  `feat/operations-o2-people-compliance@71b81d74` · opened 2026-09-04
+- **Purpose (single):** make document field extraction genuinely image-based and
+  production-honest, preserving the certified candidate → confirmation → governed-decision
+  boundary. O2 stays frozen; PR #208 stays draft/unmerged.
+
+## The law this lane must not touch
+
+OCR extraction **≠** identity verification. OCR may produce machine candidates, provider
+provenance, confidence and quality observations, and may report missing fields. OCR may never
+produce identity approval, Dealer Compliance, Seller Authority, Vehicle Trust, ownership or
+registration truth. The X1 boundary and its guard suite stand.
+
+## Defects this lane closes (all read from the current source, not assumed)
+
+| # | Defect | Evidence |
+|---|---|---|
+| 1 | **Extraction is not image-based at all.** `extractDocumentData` calls `askGemini` (text) with `base64Data.slice(0, 150)` — 150 characters of base64 header. The model never sees the document; any "extraction" is invention conditioned on the doc type | `documentIntelligenceService.js:95-99` |
+| 2 | **Fabricated quality evidence.** `analyzeImageQuality` derives blur, glare and tamper-suspicion from an **MD5 hash** of the payload and presents them as measurements, driving `Poor_Image_Quality` / `Suspected_Tampering` verdicts | same file `:35-53` |
+| 3 | **Invented candidate defaults.** `'Unknown'`, `'N/A'`, **today's date as DOB**, `'M'` as sex, `2020` as year, and the **national-ID number reused** as plate number and customs bill-entry number | same file `:170-201` |
+| 4 | **Invented confidence.** `parsedData.confidenceScore \|\| 0.9`, and the identity lane falls back to the hash-derived **`blurScore` as a confidence value** | same file `:101`; `verificationSessionService.js:162,500` |
+
+## What this lane changes
+
+1. **Real vision.** Route extraction through the existing `askGeminiVision`, which sends the
+   document bytes as `inline_data` parts and **throws** on provider failure. No base64 in a text
+   prompt, ever. Authenticated-user attribution is preserved unchanged.
+2. **Per-document schemas** for Zimbabwe National ID, passport, driver's licence, vehicle
+   registration book and customs declaration. Only fields actually observed are output; the model
+   is instructed to omit what it cannot read rather than guess.
+3. **No invented defaults at runtime.** A structured candidate row is written **only when the
+   fields it requires were genuinely observed**. The `ocr_national_ids` schema is NOT NULL on
+   name/number/DOB/confidence — that constraint is precisely what forced the fabrication, so the
+   truthful resolution is *absence of a row = absence of a candidate*, not a placeholder row. No
+   migration is needed and no historical row is touched. Test-mode mocks stay behind the existing
+   `NODE_ENV=test && ALLOW_OCR_MOCK=true` gate.
+4. **Honest image quality (disposition B).** Hash-derived blur/glare/tamper are removed. The
+   service reports what is genuinely derivable from the bytes — container format, pixel
+   dimensions from the PNG/JPEG header, byte size — and returns an explicit `measured: false`
+   with `not_measured` for blur, glare and tamper. No large CV subsystem is introduced to
+   manufacture precision the product does not have.
+5. **Provenance recorded:** provider, model, execution status, extraction timestamp, latency,
+   and confidence **only when the provider genuinely supplies it** (never a substituted default,
+   never a blur score).
+
+## Out of scope (explicitly)
+
+O2 architecture, Dealer activation, Service Network #197, biometric activation, production
+deployment, provider credentials.
+
+## Accuracy corpus and gate
+
+Synthetic fixtures only, with machine-known expected values (national ID already recorded in
+`uat-assets/FIXTURE_EXPECTED_VALUES.md`), extended with controlled variants: clean, rotated,
+blurred, low-contrast/glare, cropped, non-document, unsupported document. HTTP 200 is not
+success: each fixture is measured field by field — expected vs extracted, classified exact /
+normalized / missing / **incorrect** — with provider, model, latency and confidence. **A
+plausible but wrong value is a FAILURE; missing is preferable to fabrication.**
+
+## Provider activation boundary
+
+Code correction and provider activation are separate gates. No credential enters the repository,
+logs or production. Without Product Owner authorization for staging-only OCR provider activation
+against synthetic documents, this lane completes code + tests and stops at
+**LIVE OCR CODE READY — STAGING PROVIDER AUTHORIZATION REQUIRED**.
+
+## Privacy contract
+
+Images travel only to the configured provider; no base64 or document content in application
+logs; only provenance/result fields persist; private storage stays private; no real identity
+document is ever required or used.
+
+## Certification
+
+New permanent regression tests (image bytes actually sent; the truncated-text path cannot
+return; missing stays missing; no runtime default invention; provider-unavailable fails
+honestly; malformed output fails closed; provenance retained; candidate ≠ verification; user
+confirmation still required; governed reviewer remains the only identity decision writer), plus
+X1, X2, 7C identity, X7 authority guards, full backend, full web, TypeScript, production build
+and lint NET_NEW 0.
