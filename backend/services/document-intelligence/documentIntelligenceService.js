@@ -94,11 +94,14 @@ ${schema.guidance.map((line) => `- ${line}`).join('\n')}
 RULES — these override any instinct to be helpful:
 - OMIT any field you cannot read on the document. Do not guess, infer, complete or standardise a value.
 - Never substitute one field for another, and never repeat a number you read elsewhere on the page into a field it does not belong to.
+- Any format or shape described above is a description only. Never copy an example, a format string, or a placeholder into a value.
 - Write dates as YYYY-MM-DD only when the day and month are unambiguous on the document; otherwise reproduce them exactly as printed.
 - Set document_class_observed to what the attached image actually shows. If it is not a ${schema.label}, say so and return an empty fields object.
 - Report confidence only as your own genuine reading confidence for the fields you returned. If you cannot express one, omit it.
 
-Respond with a JSON object ONLY:
+OUTPUT FORMAT — absolute: your entire reply must be ONE raw JSON object and nothing else. No prose before or after it, no explanation, no markdown code fences. The first character you emit must be { and the last must be }.
+
+Respond with this JSON object ONLY:
 {
   "document_class_observed": string,
   "legible": boolean,

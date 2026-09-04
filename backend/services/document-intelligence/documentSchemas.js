@@ -265,7 +265,7 @@ export const DOCUMENT_SCHEMAS = {
     documentClass: 'zimbabwe_national_id',
     label: 'Zimbabwe National Registration (identity) card',
     guidance: [
-      'The national registration number is printed in the form 63-1234567-A-42 (registry district, serial, check letter, district of origin). Transcribe it exactly as printed, including the hyphens.',
+      'The national registration number has four hyphen-separated parts: registry district, serial, a check letter, and district of origin. Transcribe exactly the characters printed on THIS document, including the hyphens.',
       'Surname and given names are printed on separate lines; do not merge them.',
       'Sex is printed as a single letter, M or F.',
     ],
