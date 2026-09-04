@@ -280,7 +280,7 @@ stagingTest.describe('Trade OS container co-loading — client demo (deployed st
 
     await page.getByTestId('diaspora-container-close-booking').click();
     await expect(page.getByTestId('diaspora-container-reserve-error')).toBeVisible();
-    await expect(page.getByTestId('diaspora-container-status').first()).toContainText('BOOKING_OPEN');
+    await expect(page.getByTestId('diaspora-container-status').first()).toContainText(/BOOKING[ _]OPEN/);
   });
 
   stagingTest('operator: December container + booking-close semantics on a proof container', async ({ page, request }) => {
@@ -310,7 +310,7 @@ stagingTest.describe('Trade OS container co-loading — client demo (deployed st
     await expect(page.getByTestId('diaspora-container-capacity-line')).toContainText('Used 0/10');
     await expect(page.getByText(/Closing stops new requests/i)).toBeVisible();
     await page.getByTestId('diaspora-container-close-booking').click();
-    await expect(page.getByTestId('diaspora-container-detail').getByText('BOOKING_CLOSED')).toBeVisible();
+    await expect(page.getByTestId('diaspora-container-detail').getByText(/BOOKING[ _]CLOSED/).first()).toBeVisible();
     await expect(page.getByTestId('diaspora-container-card').filter({ hasText: '2026-11-05' })).toHaveCount(0);
     await drainOutbox(request);
   });

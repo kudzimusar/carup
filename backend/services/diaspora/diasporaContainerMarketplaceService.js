@@ -12,7 +12,7 @@
  */
 import { NotFoundError, ValidationError, ForbiddenError } from '../../utils/errors.js';
 import { CONTAINER_STATUSES, RESERVATION_STATUSES } from '../../constants/diaspora/diasporaStatuses.js';
-import { requireUserContext, isPlatformAdmin, isPlatformReviewer, isTenantAdminForRecord, normalizeId } from './diasporaAuthorization.js';
+import { requireUserContext, isPlatformAdmin, isPlatformReviewer, isTenantAdminForRecord, normalizeId, TENANT_ADMIN_ROLES } from './diasporaAuthorization.js';
 import { resolveClient, appendAudit, appendCriticalAudit, paging } from './diasporaServiceUtils.js';
 // Enforcement via the GUARD (no-op while DIASPORA_SUBSCRIPTION_ENFORCEMENT is off, which is default).
 import { requireFeature } from './diasporaEntitlementGuard.js';
@@ -235,6 +235,14 @@ async function fetchReservation(client, id) {
 export async function approveReservation(reservationId, userContext = {}, options = {}) {
   const context = requireUserContext(userContext);
   const client = await resolveClient(options);
+
+  // Defense in depth: an actor with neither a platform review role nor ANY tenant-admin membership
+  // can never pass the RPC's authority check — refuse with a clean 403 before invoking it. The RPC
+  // remains the authoritative gate (it re-checks against the container's actual tenant).
+  const tenantRole = String(context.tenantRole || '').toLowerCase();
+  if (!(isPlatformAdmin(context) || isPlatformReviewer(context) || TENANT_ADMIN_ROLES.has(tenantRole))) {
+    throw new ForbiddenError('Only logistics reviewers/admins can approve reservations');
+  }
 
   const { data, error } = await client.rpc(APPROVE_RPC, {
     p_reservation_id: reservationId,
