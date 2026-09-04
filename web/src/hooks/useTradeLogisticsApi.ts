@@ -1,4 +1,4 @@
-import { useCallback } from 'react'
+import { useCallback, useMemo } from 'react'
 import { useAuth } from '@/context/AuthContext'
 import { apiRequest, resolveApiBaseUrl, DEFAULT_PRODUCTION_API_BASE_URL, type AuthHeaders } from '@/lib/apiClient'
 import type {
@@ -146,7 +146,10 @@ export function useTradeLogisticsApi() {
     return response.data || []
   }, [request])
 
-  return {
+  // Consumers use these callbacks inside useEffect/useCallback dependencies. Returning a fresh
+  // object every render would make those dependencies change forever and trigger a fetch loop, so
+  // the facade itself is memoized just like the individual operations.
+  return useMemo(() => ({
     listMyRequests,
     getRequest,
     createRequest,
@@ -164,5 +167,23 @@ export function useTradeLogisticsApi() {
     requestContainerSpace,
     ensureConversation,
     listOpenContainers,
-  }
+  }), [
+    listMyRequests,
+    getRequest,
+    createRequest,
+    updateRequest,
+    publishRequest,
+    listOpportunities,
+    getOpportunity,
+    createQuote,
+    updateQuote,
+    submitQuote,
+    withdrawQuote,
+    listMyQuotes,
+    acceptQuote,
+    findSailingMatches,
+    requestContainerSpace,
+    ensureConversation,
+    listOpenContainers,
+  ])
 }
