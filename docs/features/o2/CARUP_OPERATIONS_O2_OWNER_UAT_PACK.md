@@ -145,6 +145,37 @@ Please still perform 3A.1–3A.11 yourself: if you observe anything different fr
 above — in particular any extracted value — report it, because a value appearing without a
 configured provider would be a serious finding.
 
+### 3B · What the Live OCR Operationalization lane changed (2026-09-04, after the §3A measurement)
+
+The §3A measurement above stands as recorded. Investigating it found that the extraction path
+would not have read the image even with a provider configured: it sent 150 characters of
+truncated base64 to a **text** model. The bounded lane
+`fix/o2-live-ocr-operationalization` corrected that and three related fabrications; the full
+account is in
+[CARUP_LIVE_OCR_OPERATIONALIZATION_RECEIPT.md](CARUP_LIVE_OCR_OPERATIONALIZATION_RECEIPT.md).
+
+What this changes for your walkthrough:
+
+- **3A.2–3A.5** — if a provider is configured, values now come from the actual pixels. If none is
+  configured, you should still see **no** extracted values, and the reason should name a provider
+  failure rather than a document-quality verdict.
+- **3A.6** — provenance is now recorded per reading (provider, model, execution status, latency,
+  and whether the provider reported a confidence at all).
+- **Blur / glare / tampering wording is gone.** CarUp does not measure those. Any screen that used
+  to show a "Blur Score" now says the quality was not measured and shows only file facts. If you
+  see a blur, glare or tampering score anywhere, that is a finding.
+- **"N/A" / "Unknown" / a today's-date birthday can no longer appear as extracted values.** If any
+  of those appears as a suggested value, that is a finding.
+
+**Current status: LIVE OCR CODE READY — STAGING PROVIDER AUTHORIZATION REQUIRED.** The extraction
+code reads real image bytes and is covered by a permanent regression suite and a synthetic
+accuracy corpus (`docs/features/o2/uat-assets/ocr-corpus/`, eleven fixtures: clean, rotated,
+blurred, glare, cropped, non-document and unsupported). The accuracy gate has **not** been run
+against a live provider, because no OCR/vision provider is configured for CarUp staging and
+configuring one is a Product Owner credential decision. Until that gate runs and passes, §3A's
+verdict remains **NOT READY** — routing to manual review is a correct safety behaviour and is not
+a substitute for extraction.
+
 ### 4 · Biometrics (provider deliberately not activated)
 | # | Path | Account | Do this | Expect | PASS/FAIL |
 |---|---|---|---|---|---|

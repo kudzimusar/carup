@@ -20,3 +20,14 @@ fictional; there is no real person, no real document and no real PII.
 Image facts: 1012 × 638 px PNG, high-contrast dark text on a light ground, 24–54 px type — i.e.
 comfortably legible to any working OCR/vision model. A failure to read these is a failure of the
 extraction pipeline, not of image quality.
+
+## The measurement corpus
+
+The three assets above are for the owner's manual walkthrough. The automated accuracy corpus
+lives in [`ocr-corpus/`](ocr-corpus/) — eleven fixtures covering the five document classes plus
+rotated, blurred, glare, cropped, non-document and unsupported-file variants. Its answer key is
+`backend/tests/tools/ocr-corpus-manifest.json`, which is also the file the fixtures are rendered
+from, so the expected values and the pixels cannot drift apart. Regenerate with
+`node backend/tests/tools/generate-ocr-corpus.mjs`; measure with
+`node backend/tests/tools/ocr-accuracy-gate.mjs` (requires a provider credential in the
+environment — never in the repository).
