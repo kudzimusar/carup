@@ -829,8 +829,8 @@ export default function DiasporaContainerMarketplace() {
                               {ownsReservation(r) && ['REQUESTED', 'APPROVED'].includes(r.reservation_status) && (
                                 <Button size="sm" variant="ghost" className="rounded-none text-gray-600" onClick={() => act(() => cancelDiasporaMarketplaceReservation(r.id))} data-testid="diaspora-container-cancel">Cancel</Button>
                               )}
-                              <Button size="sm" variant="ghost" className="rounded-none text-gray-600" onClick={() => setOpenBookingId((prev) => (prev === r.id ? null : r.id))} data-testid="diaspora-container-open-booking">
-                                {openBookingId === r.id ? 'Close' : 'Open booking'}
+                              <Button size="sm" variant="ghost" className="rounded-none px-2 text-gray-600" onClick={() => setOpenBookingId((prev) => (prev === r.id ? null : r.id))} data-testid="diaspora-container-open-booking">
+                                {openBookingId === r.id ? 'Hide' : 'Details'}
                               </Button>
                             </TableCell>
                           </TableRow>

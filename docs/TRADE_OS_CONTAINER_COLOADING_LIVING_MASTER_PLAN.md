@@ -955,3 +955,99 @@ manifest + booking detail; import-order link authorization + adversarial test; h
 proof; migration rollback safety; full staging re-UAT with full-page visual evidence at
 393/820/1024/1280/1366/1440/1536 widths. Kernel, staging demo data (where safe) and production
 boundaries unchanged. PR #207 stays Draft.
+
+---
+
+## Execution entry 2026-09-04 — OWNER-UAT CORRECTION CYCLE COMPLETE (awaiting owner inspection)
+
+**Candidate SHA:** `6168d644d005175509992ee616bce4dac471e4d9` (+ one manifest-action label fix)
+**Branch:** `feat/trade-os-client-demo-convergence` · Draft PR #207 · base `main@bb9d9900` unmoved
+**Staging FE:** `https://carup-staging-git-feat-trade-os-client-demo-convergence-11-11.vercel.app`
+**Staging BE:** `https://carup-backend-staging-git-feat-trade-os-client-dem-dbf311-11-11.vercel.app`
+**Pairing:** exact-head, both sides verified at the candidate SHA, `unpaired: false`
+**DB:** staging `eoyenigwevnxwwhyhaer` · **production untouched**
+
+### What changed, per owner finding
+
+1. **Workspace shell** — new `web/src/components/layout/TradeOSWorkspaceLayout.tsx`. The client-demo
+   routes (`/diaspora/containers`, `/diaspora/imports*`, incl. Order Passport) left the public
+   `MainLayout` for an authenticated operating shell: compact CarUp bar, local Trade OS nav
+   (Containers · Import orders · Communications — only surfaces that work), **no marketing footer,
+   no public mega-menu, no CompactBottomNav**. Other Diaspora routes stay in `MainLayout`
+   deliberately (regression risk bounded).
+2. **Narrow-desktop overflow** — the two-column grid now activates at `xl` (it was `lg`, colliding
+   with the public nav's `lg` breakpoint); every grid child carries `min-w-0`; the manifest table
+   lives in a bounded `overflow-x-auto` region; forms reflow. Certified by a HARD GEOMETRY GATE
+   asserting `document/body/workspace scrollWidth ≤ innerWidth + 1` at **393, 820, 1024, 1280,
+   1366, 1440, 1536**, each with a full-page screenshot attached.
+3. **Trade identity** — new read-only `backend/services/diaspora/tradeContextService.js` +
+   `GET /diaspora/container-marketplace/trade-context`. The operator now reads as
+   *SYNTHETIC Hikari Co-Load Logistics · LOGISTICS PROVIDER · Japan → Zimbabwe trade operations ·
+   Signed in as … · Organisation administrator*; a customer reads as *Trade participant*.
+   `users.role` untouched — security role and commercial identity stay separate, asserted by a
+   regression that fails if "Car Owner" appears in the Trade OS context.
+4. **Cargo breadth** — a purpose band explains, before the form, that shared containers coordinate
+   *vehicles and other eligible goods*, with eight example chips and the caveat
+   "subject to organiser/carrier, safety, customs and applicable legal requirements", plus explicit
+   role framing (CarUp = coordination/record; organiser; participant; carrier/customs).
+5. **Guided measurement** — "I already know my total volume" / "Help me calculate it"; per-item
+   description + quantity + L×W×H in cm/m, multiple item groups, live *Estimated cargo volume: N
+   CBM*, plain-language CBM definition, "Estimated total weight" with helper copy, and an explicit
+   estimates-may-need-organiser-confirmation statement. Vehicle cargo shows the linked import
+   order's identity instead of asking for retyped facts.
+6. **Operator manifest** — privileged reads are enriched with participant display name and a
+   canonical linked-order summary (never private contact data); each row opens a booking detail
+   naming ORGANISER / PARTICIPANT / CONTAINER / CARGO / SPACE / declared value / linkage /
+   requested + decided timestamps, with contact routed through CarUp Communications and a Passport
+   link.
+7. **Actor clarity** — participant vs tenant-scoped logistics organiser vs CarUp platform
+   reviewer/admin remain distinct; the client is never presented as a platform administrator;
+   cross-tenant isolation re-proven (rival admin sees **no** foreign reservations, API approve 403,
+   close denied).
+8. **Container trade identity** — create captures origin/destination ports, loading window,
+   expected arrival, carrier/forwarder, booking reference and documentation notes; the sailing
+   header renders them as facts, with **"Not recorded yet"** wherever the organiser supplied
+   nothing.
+9. **Lifecycle** — a truthful stage strip (Booking open → Space requested → Space approved →
+   Loading preparation → Booking closed → Shipment) marks stages only from authoritative state and
+   labels unconnected domains *Not started* / *Not connected*. No progress percentages.
+10. **Code/security fixes** — (A) `requestReservation` now loads the canonical import order
+    server-side and refuses a foreign linkage **403** / missing **404**; three adversarial tests
+    pin it. (B) D7 is no longer conditional: the staging spec fails unless the participant's
+    canonical notification exists AND the deployed Communications surface renders it, and a new
+    organiser-directed `reservation_received` event addresses the coordinator (proven separately).
+    (C) the migration Down is recovery-safe — it re-asserts the widened, data-compatible CHECKs
+    instead of restoring narrow ones that live rows would violate.
+
+### Extra defect found by reviewing the visual evidence (not by assertions)
+
+The booking manifest rendered **"No reservations." / "0 approved · 0 pending"** while the read was
+still in flight — a false empty on a container with four bookings. Loading, empty and unreadable are
+now three distinct states ("Loading bookings…" / "Counting bookings…"), pinned by a mocked
+regression with a delayed response, and the staging helper waits for the manifest to settle so no
+screenshot can capture a mid-flight state as final. A second pass tightened the manifest action
+column so row decisions are never clipped.
+
+### Evidence
+
+- **Deployed staging certification (spec 45, unmocked): 19 passed / 0 failed**, retries 0,
+  workers 1, across `chromium` + `tablet-chromium` (820×1180) + `mobile-chromium` (Pixel 5).
+  Zero unexpected console errors, zero page errors, zero API 5xx, zero unexplained 4xx.
+- **Backend targeted: 90/90** (container marketplace, marketplace-auth incl. the new linkage
+  authorization + manifest enrichment + trade-context pins, logistics-auth, route-authorization,
+  communications coverage, registration profile, migration integrity).
+- **Web unit: 1555/1555.** **Mocked container e2e: 15/15** (incl. overflow gate, no-footer/no-"Car
+  Owner" shell, guided-CBM maths, scope communication, manifest + booking detail, loading-state).
+  Other diaspora mocked specs: 38 passed. `tsc --noEmit` clean; production build green.
+- **Visual evidence:** full-page screenshots at all seven widths plus operator/participant desktop,
+  narrow-desktop, tablet and mobile, attached to the run and reviewed by eye — not just asserted.
+- **D7 operational proof:** the 14 `diaspora.container_booking.*` events are now **processed** and
+  produced **14 canonical in-app notifications**; `COMMUNICATION_WORKER_SECRET` was provisioned for
+  this branch's Preview environment only (freshly generated, never copied from production).
+
+**Ledger state after this cycle:** D1/D2/D3/D4/D5/D6/D7/D8/D9 evidenced again under the corrected
+design and security model; **D10 remains OPEN pending OWNER INSPECTION** of the new staging surface —
+automated certification does not close it.
+**Production touched:** NO. **PR #207:** Draft, not merged.
+**Next unchecked task:** owner visual/product inspection of the corrected workspace. C1–C18 remain
+unstarted.
