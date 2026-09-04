@@ -1,0 +1,142 @@
+name: O2 Live OCR — Gemini Vision accuracy gate
+
+# Measures the SHIPPED extraction against the synthetic accuracy corpus using the REAL Gemini
+# Vision provider, inside CI — the only approved environment where the credential exists.
+# The key is a repository secret: it is injected as an env var, never printed, never written to
+# an artifact, never committed, and never placed in a frontend environment.
+#
+# A SIBLING gate. It does not touch, mutate or re-run any certified O2/P7/Seller workflow, it
+# writes nothing to staging, and it touches no database. Its only side effect is up to 12
+# provider calls (11 corpus fixtures + 1 reachability probe) against synthetic documents.
+#
+# Triggering follows the established discipline: an explicit push of this workflow or the gate
+# it runs, on the OCR candidate branch, plus workflow_dispatch once this file reaches the
+# default branch.
+on:
+  workflow_dispatch: {}
+  push:
+    branches:
+      - fix/o2-live-ocr-operationalization
+    paths:
+      - '.github/workflows/o2-live-ocr-accuracy.yml'
+      - 'backend/services/document-intelligence/**'
+      - 'backend/services/ai/GeminiClient.js'
+      - 'backend/tests/tools/**'
+      - 'docs/features/o2/uat-assets/ocr-corpus/**'
+
+concurrency:
+  group: o2-live-ocr-accuracy
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  accuracy:
+    name: Live OCR accuracy against the synthetic corpus
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      EXPECTED_HEAD_SHA: ${{ github.sha }}
+      # MANDATORY: a measurement taken against the simulation would measure the simulation.
+      ALLOW_OCR_MOCK: 'false'
+      NODE_ENV: production
+      # Placeholders so modules that read env do not crash. The gate captures every database
+      # write instead of persisting it; these are NEVER real credentials.
+      SUPABASE_URL: http://localhost:54321
+      SUPABASE_SERVICE_ROLE_KEY: gate-local-service-role
+      SUPABASE_ANON_KEY: gate-local-anon
+      JWT_SECRET: gate-local-jwt
+
+    steps:
+      - name: Checkout exact candidate head
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ env.EXPECTED_HEAD_SHA }}
+
+      - name: Assert exact candidate checkout
+        run: |
+          test "$(git rev-parse HEAD)" = "$EXPECTED_HEAD_SHA"
+          echo "candidate SHA: $EXPECTED_HEAD_SHA"
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci || npm install
+
+      - name: Require the Gemini credential (fail closed, never echo it)
+        env:
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+        run: |
+          if [ -z "$GEMINI_API_KEY" ]; then
+            echo '::error::GEMINI_API_KEY is not configured for this repository.'
+            exit 1
+          fi
+          echo "Gemini credential present (length ${#GEMINI_API_KEY} characters, value never printed)."
+
+      # Provider reachability BEFORE the measurement, so a credential or model problem is
+      # root-caused rather than misread as an extraction failure. Prints status and model
+      # names only; the key travels in a header and is never rendered into a command line.
+      - name: Probe provider reachability and model availability
+        env:
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+        run: |
+          node -e '
+            (async () => {
+              const res = await fetch("https://generativelanguage.googleapis.com/v1beta/models", {
+                headers: { "x-goog-api-key": process.env.GEMINI_API_KEY },
+              });
+              console.log("models endpoint HTTP", res.status);
+              const body = await res.json();
+              if (!res.ok) {
+                const detail = body && body.error ? (body.error.status || body.error.message) : "unrecognised response";
+                console.log("provider refused the request:", String(detail).slice(0, 400));
+                process.exit(1);
+              }
+              const names = (body.models || []).map((m) => m.name.replace("models/", ""));
+              console.log("models visible to this credential:", names.length);
+              const wanted = "gemini-2.5-flash";
+              console.log(wanted + " available:", names.includes(wanted));
+              console.log("gemini 2.x/3.x models:", names.filter((n) => /^gemini-(2|3)/.test(n)).join(", "));
+            })().catch((error) => { console.log("probe failed:", error.message); process.exit(1); });
+          '
+
+      - name: Run the live accuracy gate
+        id: gate
+        env:
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+        run: |
+          set -o pipefail
+          node backend/tests/tools/ocr-accuracy-gate.mjs --out "$GITHUB_WORKSPACE/ocr-accuracy" 2>&1 | tee ocr-gate-console.txt
+
+      - name: Publish measured results to the job summary
+        if: always()
+        run: |
+          {
+            echo "## Live OCR accuracy gate — candidate \`$EXPECTED_HEAD_SHA\`"
+            echo
+            if [ -f ocr-accuracy/OCR_ACCURACY_RESULTS.md ]; then
+              cat ocr-accuracy/OCR_ACCURACY_RESULTS.md
+            else
+              echo 'The gate produced no results file. Console output:'
+              echo
+              echo '```'
+              tail -40 ocr-gate-console.txt 2>/dev/null || echo '(no console output captured)'
+              echo '```'
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload measured results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ocr-accuracy-results
+          path: |
+            ocr-accuracy/OCR_ACCURACY_RESULTS.md
+            ocr-accuracy/ocr-accuracy-results.json
+            ocr-gate-console.txt
+          retention-days: 30
+          if-no-files-found: warn
