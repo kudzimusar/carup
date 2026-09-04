@@ -606,6 +606,42 @@
     "betaCapable": true
   },
   {
+    "id": "diaspora.my-request-detail",
+    "domain": "diaspora",
+    "route": "/diaspora/requests/:id",
+    "defaultLifecycle": "active",
+    "defaultRoles": [
+      "admin",
+      "dealer",
+      "owner"
+    ],
+    "immutableRoles": [
+      "admin",
+      "dealer",
+      "owner"
+    ],
+    "requiresAuth": true,
+    "betaCapable": true
+  },
+  {
+    "id": "diaspora.my-requests",
+    "domain": "diaspora",
+    "route": "/diaspora/requests",
+    "defaultLifecycle": "active",
+    "defaultRoles": [
+      "admin",
+      "dealer",
+      "owner"
+    ],
+    "immutableRoles": [
+      "admin",
+      "dealer",
+      "owner"
+    ],
+    "requiresAuth": true,
+    "betaCapable": true
+  },
+  {
     "id": "diaspora.reverse-rfq",
     "domain": "diaspora",
     "route": "/diaspora/request-quotes",

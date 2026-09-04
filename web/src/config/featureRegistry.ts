@@ -976,6 +976,34 @@ export const FEATURE_REGISTRY: FeatureRegistryItem[] = [
     description: 'Tell suppliers what you need and compare their offers',
   },
   {
+    id: 'diaspora.my-requests',
+    label: 'My Requests',
+    // Was unregistered, which made it PUBLIC by the unregistered-path fallback (/diaspora is not a
+    // protected prefix) — any role could load the buyer's request surfaces. The API still authorizes
+    // per buyer, so this is defence in depth, not the only control. Dealers are included because a
+    // dealer can also be a buyer: diaspora.reverse-rfq lets them raise requests.
+    route: '/diaspora/requests',
+    domain: 'diaspora',
+    roles: ['owner', 'dealer', 'admin'],
+    placements: [],
+    requiresAuth: true,
+    icon: 'MessageSquare',
+    description: 'Requests you have raised, and the offers suppliers have made on them',
+  },
+  {
+    id: 'diaspora.my-request-detail',
+    label: 'Request Detail',
+    // Distinct from the list above: matchRoutePattern compares segment counts, so a 3-segment
+    // pattern never shadows the 2-segment list route.
+    route: '/diaspora/requests/:id',
+    domain: 'diaspora',
+    roles: ['owner', 'dealer', 'admin'],
+    placements: [],
+    requiresAuth: true,
+    icon: 'MessageSquare',
+    description: 'Compare supplier offers on one request and choose one',
+  },
+  {
     id: 'diaspora.messages',
     label: 'Messages',
     // The canonical Communications surface, reachable from inside the Trade OS shell.

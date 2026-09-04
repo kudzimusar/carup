@@ -2,6 +2,8 @@ import { useEffect, useState } from 'react'
 import { Link, Navigate, NavLink, Outlet, useLocation } from 'react-router-dom'
 import { Car, Loader2 } from 'lucide-react'
 import { useAuth } from '@/context/AuthContext'
+import { canRoleAccessRoute } from '@/config/featureRegistry'
+import type { UserRole } from '@shared/types'
 import { useCarUpApi } from '@/hooks/useCarUpApi'
 import { RegistryRouteBoundary } from '@/components/routing/RegistryRouteBoundary'
 import type { DiasporaTradeContext } from '@/types'
@@ -21,6 +23,11 @@ import type { DiasporaTradeContext } from '@/types'
  * Local Trade OS navigation (T2 §8). Only surfaces that genuinely work are listed — no placeholder
  * destinations. "Request quotes" is the buyer's sourcing entry; "Buyer requests" is the supplier's
  * opportunity marketplace; both are named for what the user is doing, not for the domain object.
+ *
+ * The list is filtered per role against the SAME registry rule the route boundary enforces, so a
+ * link is shown only if pressing it actually arrives. Rendering the full list unconditionally gave
+ * a buyer a "Buyer requests" tab that the boundary then denied — a dead link of exactly the kind
+ * this shell claims not to have.
  */
 const NAV_ITEMS: Array<[string, string]> = [
   ['/diaspora/request-quotes', 'Request quotes'],
@@ -81,7 +88,7 @@ function TradeIdentity({ context, unreadable }: { context: DiasporaTradeContext 
 }
 
 export default function TradeOSWorkspaceLayout() {
-  const { isAuthenticated, loading } = useAuth()
+  const { isAuthenticated, loading, user } = useAuth()
   const { fetchDiasporaTradeContext } = useCarUpApi()
   const location = useLocation()
   const [context, setContext] = useState<DiasporaTradeContext | null>(null)
@@ -120,7 +127,7 @@ export default function TradeOSWorkspaceLayout() {
             <TradeIdentity context={context} unreadable={contextUnreadable} />
           </div>
           <nav className="-mx-1 flex gap-1 overflow-x-auto pb-2" aria-label="Trade OS">
-            {NAV_ITEMS.map(([to, label]) => (
+            {NAV_ITEMS.filter(([to]) => canRoleAccessRoute((user?.role as UserRole) ?? 'owner', to)).map(([to, label]) => (
               <NavLink
                 key={to}
                 to={to}
