@@ -217,6 +217,26 @@ test.describe('Diaspora container marketplace (Phase 6)', () => {
     expect(state.createPayloads).toHaveLength(0)
   })
 
+  test('loading manifest is never rendered as "No reservations." (DESIGN.md §8)', async ({ page }) => {
+    const state = initial()
+    state.reservations.push({ id: 'res-l', container_id: 'cont-1', buyer_id: 'b-1', estimated_volume: 9, reservation_status: 'REQUESTED' })
+    await loginAs(page, operator, 'op-token')
+    await mockApi(page, state, operator)
+    // Delay the manifest read so the in-flight state is observable.
+    await page.context().route('**/container-marketplace/containers/*/reservations', async (route) => {
+      if (route.request().method() !== 'GET') return route.fallback()
+      await new Promise((r) => setTimeout(r, 1200))
+      await route.fallback()
+    })
+    await page.goto('/diaspora/containers', { waitUntil: 'domcontentloaded' })
+    await page.getByTestId('diaspora-container-open').click()
+    await expect(page.getByTestId('container-reservations-state')).toContainText(/Loading bookings/i)
+    await expect(page.getByTestId('diaspora-container-counts')).toContainText(/Counting bookings/i)
+    // …and it settles into the real manifest, never a false empty.
+    await expect(page.getByTestId('diaspora-container-reservation-row')).toHaveCount(1)
+    await expect(page.getByTestId('diaspora-container-counts')).toContainText('0 approved · 1 pending')
+  })
+
   test('buyer does not see the Create Container section', async ({ page }) => {
     const state = initial()
     await loginAs(page, buyer, 'b-token')

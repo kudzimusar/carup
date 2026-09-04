@@ -90,12 +90,17 @@ async function sessionToken(page: Page): Promise<string> {
   return token;
 }
 
-/** Open the newest container card whose text carries the given departure date. */
+/**
+ * Open the container whose card carries the given departure date, and WAIT for its booking manifest
+ * to finish loading — a screenshot or assertion taken mid-flight would read the honest
+ * "Loading bookings…" state as if it were the settled manifest.
+ */
 async function openContainerByDeparture(page: Page, departure: string): Promise<void> {
   const card = page.getByTestId('diaspora-container-card').filter({ hasText: departure }).first();
   await expect(card).toBeVisible();
   await card.getByTestId('diaspora-container-open').click();
   await expect(page.getByTestId('diaspora-container-detail')).toBeVisible();
+  await expect(page.getByTestId('diaspora-container-counts')).not.toContainText(/Counting bookings/i, { timeout: 15_000 });
 }
 
 stagingTest.describe('Trade OS container co-loading — client demo (deployed staging)', () => {

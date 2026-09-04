@@ -197,6 +197,9 @@ export default function DiasporaContainerMarketplace() {
   const [selected, setSelected] = useState<DiasporaMarketplaceContainer | null>(null)
   const [reservations, setReservations] = useState<DiasporaMarketplaceReservation[]>([])
   const [reservationsUnreadable, setReservationsUnreadable] = useState(false)
+  // Loading is NOT empty: while the manifest is in flight the table must not claim "No
+  // reservations." on a container that has bookings (DESIGN.md §8 data-state contract).
+  const [reservationsLoading, setReservationsLoading] = useState(false)
   const [openBookingId, setOpenBookingId] = useState<string | null>(null)
   const [error, setError] = useState('')
   const [reserveError, setReserveError] = useState('')
@@ -250,12 +253,17 @@ export default function DiasporaContainerMarketplace() {
     setSelected(container)
     setReserveError('')
     setOpenBookingId(null)
+    setReservations([])
+    setReservationsUnreadable(false)
+    setReservationsLoading(true)
     try {
       setReservations(await fetchDiasporaContainerReservations(container.id))
       setReservationsUnreadable(false)
     } catch {
       setReservations([])
       setReservationsUnreadable(true)
+    } finally {
+      setReservationsLoading(false)
     }
   }
 
@@ -264,12 +272,15 @@ export default function DiasporaContainerMarketplace() {
     if (!targetId) return
     const cap = await fetchDiasporaContainerCapacity(targetId)
     setSelected(cap.container)
+    setReservationsLoading(true)
     try {
       setReservations(await fetchDiasporaContainerReservations(targetId))
       setReservationsUnreadable(false)
     } catch {
       setReservations([])
       setReservationsUnreadable(true)
+    } finally {
+      setReservationsLoading(false)
     }
     await load()
   }
@@ -614,7 +625,11 @@ export default function DiasporaContainerMarketplace() {
                         Used {selFill.used}/{selFill.total} CBM · available {selFill.available} · {(selFill.pct * 100).toFixed(0)}%
                       </p>
                       <p className="text-xs uppercase tracking-wide text-gray-500" data-testid="diaspora-container-counts">
-                        {counts.approved} approved · {counts.pending} pending
+                        {reservationsLoading
+                          ? 'Counting bookings…'
+                          : reservationsUnreadable
+                            ? 'Booking counts unavailable'
+                            : `${counts.approved} approved · ${counts.pending} pending`}
                       </p>
                     </div>
                   </div>
@@ -778,9 +793,11 @@ export default function DiasporaContainerMarketplace() {
                       <TableBody>
                         {reservations.length === 0 ? (
                           <TableRow><TableCell colSpan={5} className="h-12 text-center text-gray-500" data-testid="container-reservations-state">
-                        {reservationsUnreadable
-                          ? 'Reservations could not be loaded. This is not a report that none exist.'
-                          : 'No reservations.'}
+                        {reservationsLoading
+                          ? 'Loading bookings…'
+                          : reservationsUnreadable
+                            ? 'Reservations could not be loaded. This is not a report that none exist.'
+                            : 'No reservations.'}
                       </TableCell></TableRow>
                         ) : reservations.map((r) => (
                           <TableRow key={r.id} className={openBookingId === r.id ? 'bg-orange-50/50' : undefined} data-testid="diaspora-container-reservation-row">
