@@ -107,6 +107,8 @@ export async function askGemini(systemPrompt, userPrompt, jsonMode = false) {
  * and returns the same generic simulated payload, so test-mode behaviour of
  * callers is identical to the text path.
  */
+export const GEMINI_VISION_MODEL = 'gemini-2.5-flash';
+
 export async function askGeminiVision(systemPrompt, textPrompt, images = [], jsonMode = false) {
   const apiKey = process.env.GEMINI_API_KEY;
 
@@ -125,7 +127,7 @@ export async function askGeminiVision(systemPrompt, textPrompt, images = [], jso
     return 'This is a simulated high-fidelity response from the CarUp OS AI Orchestration engine.';
   }
 
-  const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`;
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_VISION_MODEL}:generateContent?key=${apiKey}`;
   const parts = [{ text: `${systemPrompt}\n\n${textPrompt}` }];
   for (const image of images) {
     if (!image?.base64) continue;

@@ -285,8 +285,21 @@ function DocumentReviewPanel({ document, onStatusChange }: { document: DiasporaT
           <p className="text-xs text-blue-600">Success: {ocrResult.success ? 'Yes' : 'No'}</p>
           {ocrResult.qualityMetrics && (
             <div className="mt-1 text-xs text-blue-600">
-              <p>Quality Passed: {(ocrResult.qualityMetrics as Record<string, unknown>).qualityPassed ? 'Yes' : 'No'}</p>
-              <p>Blur Score: {((ocrResult.qualityMetrics as Record<string, unknown>).blurScore as number)?.toFixed(2)}</p>
+              <p>
+                Image quality:{' '}
+                {(ocrResult.qualityMetrics as Record<string, unknown>).measured
+                  ? 'Measured'
+                  : 'Not measured by CarUp'}
+              </p>
+              {(() => {
+                const media = (ocrResult.qualityMetrics as Record<string, unknown>).media as
+                  | { mimeType?: string; byteSize?: number; widthPx?: number | null; heightPx?: number | null }
+                  | null
+                if (!media) return null
+                const dimensions = media.widthPx && media.heightPx ? `${media.widthPx}×${media.heightPx} px, ` : ''
+                const kilobytes = media.byteSize ? `${Math.round(media.byteSize / 1024)} KB` : ''
+                return <p>File: {media.mimeType} ({dimensions}{kilobytes})</p>
+              })()}
             </div>
           )}
         </div>
