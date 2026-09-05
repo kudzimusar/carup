@@ -261,3 +261,59 @@ test('the canonical Postgres ledger is never named public.schema_migrations in t
   const db = fs.readFileSync(path.resolve(__dirname, '../db/database.js'), 'utf8');
   assert.match(db, /sqlite/i, 'the local runner is expected to be SQLite-backed');
 });
+
+/**
+ * pgcrypto is installed in the `extensions` schema on Supabase, not `public`. A function that
+ * calls digest() while pinning `SET search_path = public, pg_temp` therefore fails EVERY call with
+ * SQLSTATE 42883, and neither a mock nor an embedded-Postgres harness catches it — those install
+ * pgcrypto into `public`, where the bare name resolves.
+ *
+ * 20260725120000_diaspora_rpc_pgcrypto_search_path_fix.sql had to repair exactly this for five
+ * atomic RPCs. The T3 logistics award RPC then reintroduced it, and it was caught only by calling
+ * the function on the real staging database. This gate makes the next one fail here instead.
+ */
+test('a migration function that calls digest() pins `extensions` on its search_path', () => {
+  const files = fs.readdirSync(migrationsDir).filter(f => f.endsWith('.sql')).sort();
+  const offenders = [];
+
+  // A function whose defining migration is already applied must NOT have its bytes edited — the
+  // repair is a later, additive `ALTER FUNCTION ... SET search_path = ... extensions ...`. Collect
+  // everything repaired that way so the historical five are recognised as fixed, not re-reported.
+  const repaired = new Set();
+  for (const file of files) {
+    const sql = fs.readFileSync(path.join(migrationsDir, file), 'utf8');
+    if (!/ALTER\s+FUNCTION/i.test(sql) || !/\bextensions\b/i.test(sql)) continue;
+    for (const match of sql.matchAll(/'([a-z0-9_]+)'/gi)) repaired.add(match[1].toLowerCase());
+    for (const match of sql.matchAll(/ALTER\s+FUNCTION\s+(?:public\.)?([a-z0-9_]+)/gi)) {
+      repaired.add(match[1].toLowerCase());
+    }
+  }
+
+  for (const file of files) {
+    const sql = fs.readFileSync(path.join(migrationsDir, file), 'utf8');
+    // Split into CREATE FUNCTION bodies so one repaired function does not excuse another.
+    const bodies = sql.split(/CREATE\s+(?:OR\s+REPLACE\s+)?FUNCTION/i).slice(1);
+    for (const body of bodies) {
+      // Only the definition, up to the end of its AS $...$ header block.
+      const header = body.split(/\bAS\s+\$/i)[0];
+      const usesDigest = /\bdigest\s*\(/i.test(body);
+      const pinsSearchPath = /SET\s+search_path\s*=/i.test(header);
+      if (!usesDigest || !pinsSearchPath) continue;
+      const searchPath = header.match(/SET\s+search_path\s*=\s*([^\n]+)/i)?.[1] || '';
+      if (!/\bextensions\b/i.test(searchPath)) {
+        const name = body.trim().split(/[\s(]/)[0];
+        const bare = name.replace(/^public\./i, '').toLowerCase();
+        if (repaired.has(bare)) continue;
+        offenders.push(`${file} :: ${name} :: search_path = ${searchPath.trim()}`);
+      }
+    }
+  }
+
+  assert.deepEqual(
+    offenders,
+    [],
+    'These functions call pgcrypto digest() but pin a search_path without `extensions`. On Supabase '
+    + 'that fails every call with 42883. Use `SET search_path = public, extensions, pg_temp`:\n  '
+    + offenders.join('\n  '),
+  );
+});

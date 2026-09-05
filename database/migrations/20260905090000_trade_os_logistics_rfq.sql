@@ -138,7 +138,12 @@ CREATE OR REPLACE FUNCTION public.diaspora_accept_logistics_quote_atomic(
 RETURNS jsonb
 LANGUAGE plpgsql
 SECURITY INVOKER
-SET search_path = public, pg_temp
+-- `extensions` is required, not decorative: the audit seal below calls pgcrypto's digest(), and on
+-- Supabase pgcrypto lives in `extensions`, not `public`. Pinning `public, pg_temp` alone makes
+-- EVERY award fail with SQLSTATE 42883. This is the same defect 20260725120000 had to repair for
+-- the five earlier atomic RPCs, and — exactly as its comment warns — it is invisible to mocks and
+-- to embedded-Postgres harnesses, which install pgcrypto into `public`.
+SET search_path = public, extensions, pg_temp
 AS $$
 DECLARE
   v_request public.diaspora_logistics_requests%ROWTYPE;
