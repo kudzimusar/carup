@@ -4,7 +4,7 @@
 - **Branch:** `feat/trade-os-client-demo-convergence`
 - **Draft PR:** #207
 - **Production:** untouched
-- **Status:** T3-PARTIAL at head `afa80e35` — everything provable without a deployed environment
+- **Status:** T3-PARTIAL at head `ca06e8c3` — everything provable without a deployed environment
   is proven; nothing on staging has been run. This receipt is evidence, **not a competing plan**.
 
 ## Why T3 exists
@@ -249,15 +249,35 @@ container-auth suites · communications coverage 9/9 · browser 48/48 across
 `trade-shipping-rfq` (7), `diaspora-container-marketplace` (16) and `trade-request-quotes` (25).
 Adversarial matrix and seven-viewport geometry both proven — see §30 for the itemized list.
 
+## Staging activation — three defects only a real database could show
+
+The migration is now applied to **staging only**. Applying and exercising it found three defects
+that every local suite had been green through. Full detail is in the master plan §30 entry
+"T3 staging schema activation"; in short:
+
+1. **No Row Level Security** on any of the three new tables, while every sibling Diaspora trade
+   table has carried it since `013`. The logistics demand book would have been readable with the
+   anon key — making the marketplace projection decorative. RLS now on, sibling policy applied.
+2. **The award RPC was executable by `anon` and `authenticated`.** `REVOKE … FROM PUBLIC` is not
+   enough on Supabase, which grants the API roles directly. Now `anon=false, authenticated=false,
+   service_role=true`, matching both hardened siblings.
+3. **The award RPC failed every call** with `42883 function digest(text, unknown) does not exist` —
+   pgcrypto lives in `extensions`, not `public`. T3's atomic award was 100% broken against a real
+   database. `migration-integrity` now guards this class permanently.
+
+Award authority then measured on real Postgres: provider / privileged-provider / stranger / NULL
+actor all refused with the request untouched; the requester's award produced exactly one ACCEPTED,
+one REJECTED, one audit row with a 64-character seal, an idempotent replay that wrote no second
+row, and **zero reservations** — an award is not a booking. Fixture removed afterwards.
+
 ## Known work still required before T3 closure
 
 The following are deliberately **not yet certified complete**:
 
-- full T3 deployed staging migration (`20260905090000_trade_os_logistics_rfq.sql` is unapplied);
-- staging backend and frontend provenance on one exact candidate;
-- the exact-head unmocked requester → provider → offer → award → container-space journey;
-- final CI result on the exact candidate;
+- the frontend/backend pairing on the branch preview is NOT proven (a branch web preview can
+  silently call the shared staging backend);
+- the exact-head unmocked requester → provider → offer → award → container-space browser journey;
 - owner visual/product UAT, which automation cannot replace.
 
-**T3 is T3-PARTIAL.** Do not call it usable/client-ready/production-ready until the staging and
-owner-UAT rows in the master plan's T3 acceptance ledger are satisfied.
+**T3 is T3-PARTIAL.** Do not call it usable/client-ready/production-ready until the remaining rows
+in the master plan's T3 acceptance ledger are satisfied.

@@ -1557,21 +1557,23 @@ This replaces the old C1–C18 backlog as the active roadmap.
 
 | Acceptance dimension | State |
 |---|---|
-| Implemented | ✅ head `afa80e35` |
-| Tested locally | ✅ backend 41/41, browser 28/28 (see the cycle entry in §30) |
+| Implemented | ✅ head `ca06e8c3` |
+| Tested locally | ✅ backend 42/42, browser 48/48 (see the cycle entry in §30) |
 | Lint / typecheck | ✅ `tsc` clean, lint gate `NET_NEW_ERRORS=0` |
-| CI proven on the exact head | ⏳ pending — see the cycle entry |
+| CI proven | ✅ all 7 workflows green at `658e2e44` and `2cb2c503`; re-running on `ca06e8c3` |
 | Adversarial security proven | ✅ 13/13 over HTTP, full §9 matrix |
 | Responsive UAT proven | ✅ all seven contracted widths, one real 393px defect found and fixed |
-| Staging migration applied | ❌ NOT DONE — `20260905090000_trade_os_logistics_rfq.sql` is unapplied |
-| Staging backend proven | ❌ NOT DONE |
-| Staging frontend proven | ❌ NOT DONE |
-| Exact-head unmocked staging journey | ❌ NOT DONE |
+| Staging migration applied | ✅ applied to STAGING ONLY; 3 tables `rls_enabled=true`, RPC service_role-only |
+| Staging DB authority proven | ✅ award RPC exercised on real Postgres — see the cycle entry |
+| Staging backend serves T3 | ✅ branch preview answers the T3 routes 401, not 404 |
+| Staging frontend paired to that backend | ❌ NOT PROVEN |
+| Exact-head unmocked browser journey | ❌ NOT DONE |
 | Owner visual/product UAT | ❌ PENDING — cannot be replaced by automation |
 
-**T3 therefore returns T3-PARTIAL, not T3-USABLE.** Everything provable without a deployed
-environment is proven; nothing on deployed staging has been run. Do not describe T3 as
-client-ready.
+**T3 therefore returns T3-PARTIAL, not T3-USABLE.** The schema and its atomic authority are now
+proven against the real staging database, and that is where three defects were found that no local
+suite could see. What is still missing is the browser journey on a proven frontend/backend pairing,
+and owner UAT. Do not describe T3 as client-ready.
 
 ## T4 — Order & Booking Passport convergence
 
@@ -2379,5 +2381,107 @@ nothing — fixed at the root, not with `overflow-x-hidden`.
 
 Staging migration, staging backend/frontend provenance, the exact-head unmocked
 requester→provider→offer→award→container-space journey, and owner UAT. **T3 = T3-PARTIAL.**
+
+Production untouched. PR #207 remains Draft.
+
+## Execution entry — 2026-09-05 · T3 staging schema activation, and three defects only a real database could show
+
+Continues the stabilization cycle above. CI went fully green (7/7) at `658e2e44`, so the T3
+migration was applied to **staging only**. Applying it, and then exercising it, found three
+security/correctness defects that every local suite had been green through.
+
+### 1. The migration shipped with no Row Level Security
+
+`diaspora_logistics_requests`, `diaspora_logistics_request_items` and `diaspora_logistics_quotes`
+were created without RLS, while every sibling Diaspora trade table has carried it since
+`013_diaspora_trade_schema.sql`. That would have left the entire logistics demand book — requester
+ids, tenant ids and linked vehicle VINs — readable with the anon key, which is precisely the
+exposure the T3 marketplace projection exists to prevent at the API layer. An open table makes that
+projection decorative.
+
+RLS is now enabled on all three with the sibling `diaspora_platform_admin_access` policy.
+Deliberately no owner-scoped policies: CarUp authenticates through its own backend, not Supabase
+Auth, so `auth.uid()` is never populated for an ordinary user and such a policy could never match —
+writing one would look protective without being so.
+
+### 2. The award RPC was executable by `anon` and `authenticated`
+
+`REVOKE ALL … FROM PUBLIC` is not sufficient, because Supabase applies DIRECT execute grants to the
+API roles on a new function. Measured on staging after the first apply:
+
+```text
+diaspora_accept_logistics_quote_atomic     anon EXECUTE = true
+diaspora_accept_quote_atomic               anon EXECUTE = false
+diaspora_approve_cargo_reservation_atomic  anon EXECUTE = false
+```
+
+The named revokes from `20260621094000_diaspora_h7_rpc_execute_grants.sql` were applied; all three
+now measure `anon=false, authenticated=false, service_role=true`.
+
+### 3. The award RPC failed EVERY call — pgcrypto `search_path`
+
+```text
+SELECT diaspora_accept_logistics_quote_atomic(...)
+ERROR: 42883 function digest(text, unknown) does not exist
+```
+
+The seal uses pgcrypto's `digest()`, but the function pinned `search_path = public, pg_temp`. On
+Supabase pgcrypto lives in `extensions`. **T3's atomic award was 100% broken against a real
+database while every local suite was green.**
+
+`20260725120000_diaspora_rpc_pgcrypto_search_path_fix.sql` had already repaired exactly this for
+five earlier RPCs, and its own comment records why it hides: the embedded-Postgres harnesses
+install pgcrypto into `public`, where the bare name resolves. The T3 RPC was written from the
+template of the functions that had the bug rather than the migration that fixed it.
+
+`migration-integrity` now carries a guard — any migration function calling `digest()` while pinning
+a `search_path` must include `extensions`, exempting functions repaired by a later compensating
+`ALTER`. Proven non-vacuous: reintroducing the defect fails the gate and names the function.
+
+### Staging DB authority — measured after the fixes
+
+A synthetic fixture was built on the existing `SYNTHETIC` tradeos staging identities
+(`u_tradeos_participant_b` as requester, `u_tradeos_operator` — a real `logistics_provider`
+profile — and `u_tradeos_outsider` as competing providers):
+
+```text
+provider awards its own offer            refused DIASPORA_LOGISTICS/FORBIDDEN
+PRIVILEGED provider awards its own       refused DIASPORA_LOGISTICS/SELF_AWARD
+stranger awards someone else's request   refused DIASPORA_LOGISTICS/FORBIDDEN
+NULL actor                               refused DIASPORA_LOGISTICS/UNAUTHENTICATED
+  after all four: request still OPEN_FOR_QUOTES, 0 quotes altered
+
+requester awards                         AWARDED, correct quote, ACCEPTED=1, REJECTED=1
+audit                                    1 row, 64-hex-character cryptographic seal
+idempotent replay                        returns true, writes NO second audit row
+reservations created                     0 — an award is not a booking
+```
+
+Note the ordering the real function revealed: a provider is refused at the OWNERSHIP gate before
+the self-award gate is reached, so `SELF_AWARD` is the deeper guard that still holds for an actor
+who passes ownership. The first version of this proof asserted the wrong code; the function was
+right and the expectation was wrong.
+
+Fixture removed afterwards — 0 requests / 0 items / 0 quotes remain. The append-only audit row is
+deliberately retained.
+
+### Backend provenance
+
+The branch auto-deploys to a stable Vercel alias
+(`carup-backend-staging-git-feat-trade-os-client-dem-dbf311-11-11.vercel.app`), so no shared
+staging deployment was displaced. That preview answers `/api/diaspora/logistics-requests/mine` with
+**401**, not 404 — the T3 routes are deployed and guarded.
+
+### Still not done
+
+The frontend/backend pairing is NOT proven (a branch web preview can silently call the shared
+staging backend — see the standing hazard), the unmocked browser journey has not been run, and
+owner UAT remains outstanding. **T3 stays T3-PARTIAL.**
+
+### Unrelated finding, reported not fixed
+
+Staging reports `public.vehicle_taxonomy_observations` with **RLS disabled** — fully exposed to the
+anon key. It is outside the T3 slice and was not touched; enabling RLS without policies would block
+its current readers, so it needs its own decision.
 
 Production untouched. PR #207 remains Draft.
