@@ -244,14 +244,26 @@ test.describe('Trade OS T2 — Request Quotes', () => {
     expect(state.createdPayloads).toHaveLength(1)
   })
 
-  test('the Ship path is honest about what is and is not available yet', async ({ page }) => {
+  test('the Ship path continues into the real shipping-request journey, not a dead end', async ({ page }) => {
     const state = initial()
     await loginAs(page, buyer)
     await mockApi(page, state, buyer)
     await page.goto('/diaspora/request-quotes', { waitUntil: 'domcontentloaded' })
     await page.getByTestId('trade-intent-ship').click()
+
+    // T3 shipped multi-provider logistics quotation, so this path must no longer claim it is
+    // unavailable. Both real continuations are offered, and the request journey leads.
+    await expect(page.getByText(/is not available yet/i)).toHaveCount(0)
+    await expect(page.getByTestId('trade-ship-request')).toBeVisible()
     await expect(page.getByTestId('trade-ship-containers')).toBeVisible()
-    await expect(page.getByText(/is not available yet/i)).toBeVisible()
+
+    // Ordinary language only — the internal domain term never becomes the customer's CTA.
+    await expect(page.getByTestId('trade-ship-path')).not.toContainText(/logistics rfq/i)
+    await expect(page.getByTestId('trade-ship-path')).not.toContainText(/reverse rfq/i)
+
+    await page.getByTestId('trade-ship-request').click()
+    await expect(page).toHaveURL(/\/diaspora\/containers\?view=mine/)
+    await expect(page.getByRole('button', { name: /New shipping request/i })).toBeVisible()
   })
 
   // ── Buyer: offers and the decision ───────────────────────────────────────

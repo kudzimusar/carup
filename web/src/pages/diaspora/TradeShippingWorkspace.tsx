@@ -1,4 +1,5 @@
-import { useState, type ReactNode } from 'react'
+import { type ReactNode } from 'react'
+import { useSearchParams } from 'react-router-dom'
 import { Box, Container, Truck } from 'lucide-react'
 import { useAuth } from '@/context/AuthContext'
 import { canRoleAccessRoute, normalizeFrontendRole } from '@/config/featureRegistry'
@@ -16,6 +17,7 @@ export default function TradeShippingWorkspace({
   children: ReactNode
 }) {
   const { user } = useAuth()
+  const [searchParams, setSearchParams] = useSearchParams()
 
   // Authorization boundary for the T3 surfaces. Wrapping /diaspora/containers in this workspace
   // must not become a way around the gate the container product already enforced: before this
@@ -30,14 +32,30 @@ export default function TradeShippingWorkspace({
 
   const isProvider = context?.business_type === 'logistics_provider'
 
-  // The trade context is fetched by the shell after this component mounts, so `isProvider` starts
-  // false for everyone. Deriving the tab during render (rather than seeding useState once and
-  // correcting it in an effect) is what actually lets a logistics provider land on their own
-  // queue when the context resolves, and it drops a provider back to My shipping if that
-  // eligibility is ever lost. `chosenTab` stays null until the person picks a tab themselves.
-  const [chosenTab, setChosenTab] = useState<Tab | null>(null)
+  // The tab lives in the URL rather than in component state, for two reasons.
+  //
+  // First, it makes the three modes linkable: "Ship something" can send someone straight to the
+  // request journey and "Find container space" straight to the sailings, instead of dropping
+  // everyone on the same landing tab and asking them to find the rest.
+  //
+  // Second, the shell fetches the trade context AFTER this component mounts, so `isProvider`
+  // starts false for everyone. A useState seed would capture that first false and never
+  // reconsider it — which is exactly why a logistics provider could never land on their own
+  // queue. Deriving the tab on every render fixes that, and equally drops a provider back to
+  // My shipping if the eligibility is ever lost.
+  const requestedView = searchParams.get('view')
+  const requestedTab: Tab | null =
+    requestedView === 'mine' || requestedView === 'provider' || requestedView === 'containers'
+      ? requestedView
+      : null
   const defaultTab: Tab = isProvider ? 'provider' : 'mine'
-  const tab: Tab = chosenTab && (chosenTab !== 'provider' || isProvider) ? chosenTab : defaultTab
+  const tab: Tab = requestedTab && (requestedTab !== 'provider' || isProvider) ? requestedTab : defaultTab
+
+  const selectTab = (id: Tab) => {
+    const next = new URLSearchParams(searchParams)
+    next.set('view', id)
+    setSearchParams(next, { replace: true })
+  }
 
   // Placed after every hook so the early return cannot make hook order conditional.
   if (!mayUseShippingWorkspace) return <>{children}</>
@@ -68,7 +86,7 @@ export default function TradeShippingWorkspace({
                 type="button"
                 role="tab"
                 aria-selected={tab === id}
-                onClick={() => setChosenTab(id)}
+                onClick={() => selectTab(id)}
                 className={`min-w-[190px] border-b-2 px-3 py-3 text-left transition-colors ${
                   tab === id ? 'border-orange-500 bg-white text-slate-950' : 'border-transparent text-slate-600 hover:text-slate-950'
                 }`}

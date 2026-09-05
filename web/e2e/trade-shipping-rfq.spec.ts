@@ -80,8 +80,21 @@ const openOpportunity = {
   ],
 }
 
-async function mockApi(page: Page, state: State, user: TestUser, isProvider = false) {
+/** The requester's own CarUp vehicles, or 'unreadable' to make that read fail. */
+type OwnedVehicles = MockRow[] | 'unreadable'
+
+async function mockApi(
+  page: Page,
+  state: State,
+  user: TestUser,
+  isProvider = false,
+  ownedVehicles: OwnedVehicles = [],
+) {
   await page.context().route('**/api/auth/me', (route) => fulfillJson(route, { user }))
+  await page.context().route('**/api/vehicles/me', (route) =>
+    ownedVehicles === 'unreadable'
+      ? fulfillJson(route, { error: 'vehicle read failed' }, 500)
+      : fulfillJson(route, ownedVehicles))
   await page.context().route('**/api/security/csrf-token', (route) => fulfillJson(route, { csrfToken: 'mock-csrf' }))
   await page.context().route('**/api/diaspora/**', async (route) => {
     const url = new URL(route.request().url())
@@ -219,6 +232,61 @@ test.describe('Trade OS T3 — Shipping requests', () => {
     expect(payload.items[0].width_value).toBe(45)
     expect(payload.items[0].height_value).toBe(40)
     expect(payload.items[0].dimension_unit).toBe('cm')
+  })
+
+  test('a vehicle cargo group reuses a CarUp vehicle instead of asking for it again', async ({ page }) => {
+    const state = baseState()
+    await loginAs(page, customer)
+    await mockApi(page, state, customer, false, [
+      { id: 'v1', vin: 'JTDKN3DU0A1234567', make: 'Toyota', model: 'Aqua', year: 2018, trim: 'S' },
+      { id: 'v2', vin: 'JHMGE8H599S000111', make: 'Honda', model: 'Fit', year: 2016 },
+    ])
+    await page.goto('/diaspora/containers', { waitUntil: 'domcontentloaded' })
+    await page.getByRole('button', { name: /New shipping request/i }).click()
+
+    const group = page.getByTestId('logistics-cargo-item').first()
+    await group.locator('select').first().selectOption('vehicle')
+
+    // Linking reuses the identity CarUp already holds — the person does not retype year/make/model.
+    await page.getByTestId('logistics-vehicle-select').selectOption('JTDKN3DU0A1234567')
+    await expect(page.getByTestId('logistics-cargo-description')).toHaveValue('2018 Toyota Aqua S')
+    await expect(page.getByTestId('logistics-vehicle-linked')).toBeVisible()
+
+    await page.getByRole('button', { name: /^Continue/i }).click()
+    await page.getByRole('button', { name: /^Continue/i }).click()
+    await page.getByRole('button', { name: /^Continue/i }).click()
+    await page.getByRole('button', { name: /Publish shipping request/i }).click()
+    await expect(page.getByTestId('logistics-request-detail')).toBeVisible()
+
+    const item = state.createdRequestPayloads[0].items[0]
+    expect(item.linked_vehicle_vin).toBe('JTDKN3DU0A1234567')
+    expect(item.description).toBe('2018 Toyota Aqua S')
+  })
+
+  test('a vehicle can still be described manually, and an unreadable vehicle list never blocks that', async ({ page }) => {
+    const state = baseState()
+    await loginAs(page, customer)
+    await mockApi(page, state, customer, false, 'unreadable')
+    await page.goto('/diaspora/containers', { waitUntil: 'domcontentloaded' })
+    await page.getByRole('button', { name: /New shipping request/i }).click()
+
+    const group = page.getByTestId('logistics-cargo-item').first()
+    await group.locator('select').first().selectOption('vehicle')
+
+    // A failed read is stated as a failed read — never as "you have no vehicles" (DESIGN.md §8).
+    await expect(page.getByTestId('logistics-vehicle-unreadable')).toBeVisible()
+
+    // …and manual capture still works, so the person is not blocked by CarUp's own outage.
+    await page.getByTestId('logistics-cargo-description').fill('2004 Nissan Caravan van')
+    await page.getByRole('button', { name: /^Continue/i }).click()
+    await page.getByRole('button', { name: /^Continue/i }).click()
+    await page.getByRole('button', { name: /^Continue/i }).click()
+    await page.getByRole('button', { name: /Publish shipping request/i }).click()
+    await expect(page.getByTestId('logistics-request-detail')).toBeVisible()
+
+    const item = state.createdRequestPayloads[0].items[0]
+    expect(item.description).toBe('2004 Nissan Caravan van')
+    expect(item.linked_vehicle_vin).toBeUndefined()
   })
 
   test('logistics provider gets a provider workspace and reviews a transparent offer before submit', async ({ page }) => {

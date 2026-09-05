@@ -311,7 +311,10 @@ export default function TradeRequestQuotes() {
     )
   }
 
-  // ── Ship path: honest routing to what actually exists today ───────────────
+  // ── Ship path: the two real ways to move cargo you already own ────────────
+  // This used to end in a dead end saying multi-provider logistics quotation was unavailable.
+  // T3 built it, so the primary action is now the shipping request itself. The user-facing words
+  // stay ordinary — "ask providers to quote", never "logistics RFQ".
   if (intent === 'ship') {
     return (
       <div className="mx-auto w-full max-w-[900px] min-w-0 px-4 py-10 sm:px-6 lg:px-10" data-testid="trade-ship-path">
@@ -320,27 +323,39 @@ export default function TradeRequestQuotes() {
         </button>
         <h1 className="mt-4 text-2xl font-bold tracking-tight text-gray-950">Ship something</h1>
         <p className="mt-2 text-sm leading-relaxed text-gray-600">
-          You already have the goods and need to move them. Today CarUp can place your cargo in a
-          shared container that an organiser is already running.
+          You already have the goods and need to move them. You can ask logistics providers to
+          quote for the job, or go straight to a shared container an organiser is already running.
         </p>
+
         <div className="mt-6 border border-gray-300 bg-white p-5">
-          <h2 className="text-base font-bold text-gray-950">Shared container space</h2>
+          <h2 className="text-base font-bold text-gray-950">Ask providers to quote</h2>
           <p className="mt-1 text-sm text-gray-600">
-            Browse open sailings, describe your cargo — vehicles, parts, household effects or other
-            eligible goods — and request space. The organiser reviews and approves your booking.
+            Describe the cargo once — vehicles, parts, household effects or other eligible goods —
+            and qualified logistics providers reply with what they would charge and what that
+            price includes. You compare the offers and choose. You do not need dimensions or
+            freight knowledge to start; unknown measurements stay visibly unknown.
           </p>
           <Button asChild className="mt-4 bg-orange-500 text-white hover:bg-orange-600">
-            <Link to="/diaspora/containers" data-testid="trade-ship-containers">Find container space</Link>
+            <Link to="/diaspora/containers?view=mine" data-testid="trade-ship-request">Create a shipping request</Link>
           </Button>
         </div>
-        <div className="mt-4 border border-dashed border-gray-300 p-5">
-          <h2 className="text-base font-semibold text-gray-800">Asking several logistics providers to quote</h2>
+
+        <div className="mt-4 border border-gray-300 bg-white p-5">
+          <h2 className="text-base font-bold text-gray-950">Shared container space</h2>
           <p className="mt-1 text-sm text-gray-600">
-            Sending one shipping request to multiple providers and comparing their prices is not
-            available yet. When it is, it will appear here. Until then, request space on an open
-            sailing above.
+            Already know you want to share a container? Browse open sailings and request space
+            directly. The organiser reviews and approves your booking.
           </p>
+          <Button asChild variant="outline" className="mt-4 rounded-none">
+            <Link to="/diaspora/containers?view=containers" data-testid="trade-ship-containers">Find container space</Link>
+          </Button>
         </div>
+
+        <p className="mt-4 text-xs leading-relaxed text-gray-500">
+          A provider&rsquo;s offer is a price for a stated service. It is not customs approval,
+          carrier acceptance, or approved container space — those remain separate steps CarUp
+          keeps visibly separate.
+        </p>
       </div>
     )
   }

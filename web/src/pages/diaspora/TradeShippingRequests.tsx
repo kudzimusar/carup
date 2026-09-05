@@ -5,6 +5,8 @@ import { Input } from '@/components/ui/input'
 import { Alert, AlertDescription } from '@/components/ui/alert'
 import { useNavigate } from 'react-router-dom'
 import { useTradeLogisticsApi } from '@/hooks/useTradeLogisticsApi'
+import { useCarUpApi } from '@/hooks/useCarUpApi'
+import type { Vehicle } from '@/types'
 import type {
   LogisticsCargoCategory,
   LogisticsQuote,
@@ -56,6 +58,15 @@ function num(value: string | number | null | undefined): number | undefined {
   return Number.isFinite(n) && n > 0 ? n : undefined
 }
 
+/**
+ * The canonical identity of a CarUp vehicle, written the way a person would describe it. Reusing
+ * this is the whole point of linking: the year/make/model are already recorded facts, so the
+ * requester should never retype them, and providers read the same identity CarUp holds.
+ */
+function vehicleIdentity(vehicle: Vehicle): string {
+  return [vehicle.year, vehicle.make, vehicle.model, vehicle.trim].filter(Boolean).join(' ').trim()
+}
+
 function categoryLabel(category: string) {
   return CATEGORY_OPTIONS.find(([value]) => value === category)?.[1] || category.replace(/_/g, ' ')
 }
@@ -88,8 +99,15 @@ function tri(value: boolean | null | undefined) {
 
 export default function TradeShippingRequests() {
   const api = useTradeLogisticsApi()
+  // Destructured deliberately: the useCarUpApi aggregate object is a new identity every render and
+  // depending on it directly loops.
+  const { fetchOwnedVehicles } = useCarUpApi()
   const navigate = useNavigate()
   const [requests, setRequests] = useState<LogisticsRequest[]>([])
+  // null = not read yet. An empty array is a real answer ("you have none"); a failed read is
+  // `myVehiclesUnreadable`, and the two must never render as the same thing (DESIGN.md §8).
+  const [myVehicles, setMyVehicles] = useState<Vehicle[] | null>(null)
+  const [myVehiclesUnreadable, setMyVehiclesUnreadable] = useState(false)
   const [view, setView] = useState<View>('list')
   const [selected, setSelected] = useState<LogisticsRequest | null>(null)
   const [sailings, setSailings] = useState<LogisticsSailingMatch[]>([])
@@ -125,6 +143,18 @@ export default function TradeShippingRequests() {
 
   // eslint-disable-next-line react-hooks/set-state-in-effect -- canonical repo data-fetch pattern: load() flips the loading flag before awaiting so the panel never renders a false empty state.
   useEffect(() => { void load() }, [load])
+
+  // The requester's own CarUp vehicles, read only once a vehicle cargo group actually exists.
+  // setState happens in the async callbacks, so this effect needs no suppression.
+  const needsVehicleList = items.some((item) => item.cargo_category === 'vehicle')
+  useEffect(() => {
+    if (!needsVehicleList || myVehicles !== null) return
+    let live = true
+    fetchOwnedVehicles()
+      .then((vehicles) => { if (live) { setMyVehicles(vehicles || []); setMyVehiclesUnreadable(false) } })
+      .catch(() => { if (live) { setMyVehicles([]); setMyVehiclesUnreadable(true) } })
+    return () => { live = false }
+  }, [needsVehicleList, myVehicles, fetchOwnedVehicles])
 
   const resetEditor = () => {
     setEditingId(null)
@@ -305,6 +335,63 @@ export default function TradeShippingRequests() {
                   </label>
                 </div>
                 <p className="mt-2 text-xs text-slate-500">{CATEGORY_OPTIONS.find(([value]) => value === item.cargo_category)?.[2]}</p>
+
+                {item.cargo_category === 'vehicle' && (
+                  <div className="mt-4 border-t border-slate-200 pt-4" data-testid="logistics-vehicle-link">
+                    <label className={fieldLabel}>Is this one of your CarUp vehicles?
+                      <select
+                        className={selectClass}
+                        data-testid="logistics-vehicle-select"
+                        value={item.linked_vehicle_vin || ''}
+                        onChange={(e) => {
+                          const vin = e.target.value
+                          if (!vin) { setItem(index, { linked_vehicle_vin: undefined }); return }
+                          const vehicle = (myVehicles || []).find((row) => row.vin === vin)
+                          // Reuse the identity CarUp already holds instead of asking for it again.
+                          // The description is only replaced when it is empty or was itself
+                          // generated from a vehicle, so anything the person typed is preserved.
+                          const previous = (myVehicles || []).find((row) => row.vin === item.linked_vehicle_vin)
+                          const describedByUs = !item.description.trim() || (previous && item.description.trim() === vehicleIdentity(previous))
+                          setItem(index, {
+                            linked_vehicle_vin: vin,
+                            ...(vehicle && describedByUs ? { description: vehicleIdentity(vehicle) } : {}),
+                          })
+                        }}
+                      >
+                        <option value="">No — I will describe it myself</option>
+                        {(myVehicles || []).map((vehicle) => (
+                          <option key={vehicle.vin} value={vehicle.vin}>
+                            {vehicleIdentity(vehicle)} · VIN {vehicle.vin}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                    {myVehiclesUnreadable ? (
+                      <p className="mt-2 text-xs text-amber-800" data-testid="logistics-vehicle-unreadable">
+                        Your CarUp vehicles could not be loaded, so this list is not a report that
+                        you have none. You can still describe the vehicle yourself and continue.
+                      </p>
+                    ) : myVehicles === null ? (
+                      <p className="mt-2 text-xs text-slate-500">Checking your CarUp vehicles…</p>
+                    ) : myVehicles.length === 0 ? (
+                      <p className="mt-2 text-xs text-slate-500">
+                        No vehicles are recorded against your CarUp account yet. Describe the
+                        vehicle above and providers can still quote for it.
+                      </p>
+                    ) : item.linked_vehicle_vin ? (
+                      <p className="mt-2 text-xs text-slate-600" data-testid="logistics-vehicle-linked">
+                        Linked to your CarUp vehicle. Providers see that a vehicle is linked and the
+                        description — never the VIN. CarUp re-checks that this vehicle is yours when
+                        the request is saved.
+                      </p>
+                    ) : (
+                      <p className="mt-2 text-xs text-slate-500">
+                        Linking reuses the make, model and year CarUp already holds, so you do not
+                        have to type them again.
+                      </p>
+                    )}
+                  </div>
+                )}
               </div>
             ))}
             <Button type="button" variant="outline" className="rounded-none" onClick={() => setItems((current) => [...current, emptyItem()])}><Plus className="mr-1.5 h-4 w-4" /> Add another cargo group</Button>
