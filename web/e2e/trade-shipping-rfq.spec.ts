@@ -332,3 +332,100 @@ test.describe('Trade OS T3 — Shipping requests', () => {
     expect(state.quotePayloads[0].submit).toBe(true)
   })
 })
+
+// ── Responsive geometry (DESIGN.md §10, directive §17) ─────────────────────────────────────────
+// Every viewport class the contract names, across the T3 surfaces that actually carry layout
+// risk: the wizard's dimension grid, the route form, the review/privacy pair, the provider
+// opportunity cards and the charge composer. Horizontal page overflow is a defect, and it is
+// never to be hidden with a global overflow-x-hidden.
+
+const VIEWPORTS: Array<[number, number]> = [
+  [393, 852],   // phone
+  [820, 1180],  // tablet portrait
+  [1024, 768],  // tablet landscape / small laptop
+  [1280, 800],
+  [1366, 768],
+  [1440, 900],
+  [1536, 864],
+]
+
+async function assertNoOverflow(page: Page, where: string, width: number) {
+  const overflow = await page.evaluate(() => ({
+    doc: document.documentElement.scrollWidth - window.innerWidth,
+    body: document.body.scrollWidth - window.innerWidth,
+  }))
+  expect(overflow.doc, `${where}: document overflows by ${overflow.doc}px at ${width}`).toBeLessThanOrEqual(1)
+  expect(overflow.body, `${where}: body overflows by ${overflow.body}px at ${width}`).toBeLessThanOrEqual(1)
+}
+
+test('the customer shipping journey has no horizontal overflow at any contracted width', async ({ page }) => {
+  // Seven viewports, each re-walking the journey — well past the 30s default.
+  test.setTimeout(180_000)
+
+  const state = baseState()
+  await loginAs(page, customer)
+  await mockApi(page, state, customer)
+
+  for (const [width, height] of VIEWPORTS) {
+    await page.setViewportSize({ width, height })
+    await page.goto('/diaspora/containers', { waitUntil: 'domcontentloaded' })
+
+    // Shell identity + shipping tabs + the empty state.
+    await expect(page.getByTestId('tradeos-identity')).toBeVisible()
+    await expect(page.getByTestId('trade-shipping-workspace')).toBeVisible()
+    await assertNoOverflow(page, 'shipping workspace', width)
+
+    // Cargo step.
+    await page.getByRole('button', { name: /New shipping request/i }).click()
+    await page.getByTestId('logistics-cargo-description').fill('14 cartons of household effects')
+    await assertNoOverflow(page, 'cargo step', width)
+
+    // Size & weight, with the guided dimension grid open — the densest row in the wizard.
+    await page.getByRole('button', { name: /^Continue/i }).click()
+    await page.getByLabel(/Help me calculate it/i).check()
+    const numbers = page.locator('[data-testid="logistics-request-wizard"] input[type="number"]')
+    await numbers.nth(0).fill('60')
+    await numbers.nth(1).fill('45')
+    await numbers.nth(2).fill('40')
+    await assertNoOverflow(page, 'dimensions', width)
+
+    // Route.
+    await page.getByRole('button', { name: /^Continue/i }).click()
+    await assertNoOverflow(page, 'route', width)
+
+    // Review + the privacy preview beside it.
+    await page.getByRole('button', { name: /^Continue/i }).click()
+    await expect(page.getByText(/What logistics providers will see/i)).toBeVisible()
+    await assertNoOverflow(page, 'review', width)
+  }
+})
+
+test('the provider workspace and charge composer have no horizontal overflow at any contracted width', async ({ page }) => {
+  // Seven viewports, each re-walking the journey — well past the 30s default.
+  test.setTimeout(180_000)
+
+  const state = baseState()
+  state.opportunities = [openOpportunity]
+  await loginAs(page, provider)
+  await mockApi(page, state, provider, true)
+
+  for (const [width, height] of VIEWPORTS) {
+    await page.setViewportSize({ width, height })
+    await page.goto('/diaspora/containers', { waitUntil: 'domcontentloaded' })
+
+    await page.getByTestId('shipping-tab-provider').click()
+    await expect(page.getByTestId('logistics-provider-workspace')).toBeVisible()
+    await assertNoOverflow(page, 'provider opportunities', width)
+
+    await page.getByTestId('logistics-opportunity').getByRole('button', { name: /Prepare offer/i }).click()
+    const composer = page.getByTestId('logistics-quote-composer')
+    await expect(composer).toBeVisible()
+    await assertNoOverflow(page, 'offer composer', width)
+
+    // The review pane is a two-column comparison at desktop widths and must fold, not overflow.
+    await composer.getByLabel(/Offer total/i).fill('800')
+    await composer.getByRole('button', { name: /Review offer/i }).click()
+    await expect(composer).toContainText(/Exactly what the customer will compare/i)
+    await assertNoOverflow(page, 'offer review', width)
+  }
+})
