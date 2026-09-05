@@ -1,0 +1,73 @@
+name: O2 OCR Offline Hardening
+
+# This gate is deliberately safe to run on every OCR-lane hardening push.
+# It never receives Cloudflare credentials and never invokes the live accuracy workflow.
+on:
+  push:
+    branches:
+      - fix/o2-live-ocr-operationalization
+    paths:
+      - 'backend/services/ai/aiServiceBus.js'
+      - 'backend/services/diaspora/diasporaDocumentService.js'
+      - 'backend/services/evidence/vehicleDocumentOcrService.js'
+      - 'backend/routes/ocrConvergenceRoutes.js'
+      - 'backend/routes/identityVerificationRoutes.js'
+      - 'backend/tests/o2-ocr-three-problem-hardening.test.js'
+      - 'backend/tests/o2-ocr-path-convergence.test.js'
+      - 'backend/tests/o2-live-ocr-operationalization.test.js'
+      - 'backend/tests/o2-cloudflare-ocr-provider.test.js'
+      - 'backend/tests/o2-ocr-accuracy-corpus.test.js'
+      - 'backend/tests/o2-x1-document-intelligence-authority.test.js'
+      - 'backend/tests/diaspora-ocr-route.test.js'
+      - '.github/workflows/o2-ocr-hardening-offline.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: o2-ocr-offline-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  offline-ocr-regression:
+    name: Offline OCR regression
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      NODE_ENV: test
+      SUPABASE_URL: http://localhost:54321
+      SUPABASE_SERVICE_ROLE_KEY: test-service-role-key
+      SUPABASE_ANON_KEY: test-anon-key
+      JWT_SECRET: test-jwt-secret
+      ALLOW_OCR_MOCK: 'false'
+    steps:
+      - name: Checkout exact candidate
+        uses: actions/checkout@v4
+
+      - name: Set up Node 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+          cache-dependency-path: backend/package-lock.json
+
+      - name: Install backend dependencies
+        run: npm ci --prefix backend --ignore-scripts
+
+      - name: Prove no live-provider credential is exposed to this gate
+        shell: bash
+        run: |
+          test -z "${CLOUDFLARE_API_TOKEN:-}"
+          test -z "${CLOUDFLARE_ACCOUNT_ID:-}"
+
+      - name: Run OCR convergence and authority regression suites
+        run: |
+          node --test \
+            backend/tests/o2-ocr-three-problem-hardening.test.js \
+            backend/tests/o2-ocr-path-convergence.test.js \
+            backend/tests/o2-live-ocr-operationalization.test.js \
+            backend/tests/o2-cloudflare-ocr-provider.test.js \
+            backend/tests/o2-ocr-accuracy-corpus.test.js \
+            backend/tests/o2-x1-document-intelligence-authority.test.js \
+            backend/tests/diaspora-ocr-route.test.js
