@@ -3,6 +3,12 @@ name: O2 Live OCR — schema suppression probe
 # Bounded diagnostic. Runs one script that varies only the requested json_schema against one
 # fixture, to tell a model limitation apart from a CarUp request defect. No corpus asset is read
 # for grading and nothing is certified here.
+#
+# MANUAL DISPATCH ONLY. This workflow previously also carried a `push:` trigger on the OCR branch,
+# which made it an unintended automatic consumer of the Cloudflare Workers AI daily allocation
+# (6 live calls per run, no owner dispatch). Live external-AI calls cost real money and must be an
+# explicit owner decision. Do not reintroduce `push:`, `pull_request:` or `schedule:` here; a
+# permanent guard in backend/tests/o2-ocr-accuracy-corpus.test.js fails the suite if any returns.
 on:
   workflow_dispatch:
     inputs:
@@ -10,12 +16,6 @@ on:
         description: Workers AI model id to probe
         required: false
         default: ''
-  push:
-    branches:
-      - fix/o2-live-ocr-operationalization
-    paths:
-      - '.github/workflows/o2-ocr-schema-probe.yml'
-      - 'backend/tests/tools/ocr-schema-suppression-probe.mjs'
 
 concurrency:
   group: o2-ocr-schema-probe

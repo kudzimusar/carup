@@ -9,7 +9,7 @@
 
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { readFileSync, existsSync } from 'node:fs';
+import { readFileSync, existsSync, readdirSync } from 'node:fs';
 import { execFileSync } from 'node:child_process';
 import path from 'node:path';
 
@@ -360,4 +360,76 @@ test('grader v2: the gate supplies transport evidence and reports inconclusive f
   assert.match(gate, /transportVerified/, 'the gate must tell the grader whether the transport is proven');
   assert.match(gate, /gradeFixture\(fixture, \{ \.\.\.result, providerCalls, transportVerified \}\)/);
   assert.match(gate, /INCONCLUSIVE/, 'inconclusive fixtures must be visible in the report');
+});
+
+// ═══════════════════════════════════════════════════════════════════════════════════════════
+// COST GOVERNANCE — live external-AI certification is MANUAL DISPATCH ONLY
+//
+// Both OCR workflows once carried a `push:` trigger on the OCR branch. That made them unintended
+// automatic consumers of the Cloudflare Workers AI daily allocation: run 33935601087 fired from an
+// ordinary push, ran the full 11-fixture corpus and spent ~2,503.6 neurons — about 42% of a day's
+// free budget — with no owner dispatch and no approval. These guards are static: they read the
+// workflow files and need no secrets, no network and no provider.
+// ═══════════════════════════════════════════════════════════════════════════════════════════
+
+const LIVE_PROVIDER_WORKFLOWS = [
+  '../../.github/workflows/o2-live-ocr-accuracy.yml',
+  '../../.github/workflows/o2-ocr-schema-probe.yml',
+];
+
+/** The `on:` block only — so a `push:` inside a job step or a comment cannot fool the guard. */
+function triggerBlock(yaml) {
+  const lines = yaml.split('\n');
+  const start = lines.findIndex((l) => /^on:/.test(l));
+  assert.ok(start > -1, 'the workflow must declare an on: block');
+  const rest = lines.slice(start + 1);
+  const end = rest.findIndex((l) => /^[A-Za-z_]/.test(l));
+  return rest.slice(0, end === -1 ? rest.length : end).join('\n');
+}
+
+for (const rel of LIVE_PROVIDER_WORKFLOWS) {
+  const name = rel.split('/').pop();
+
+  test(`cost governance: ${name} is workflow_dispatch ONLY — no automatic live-provider execution`, () => {
+    const yaml = readFileSync(new URL(rel, import.meta.url), 'utf8');
+    const on = triggerBlock(yaml);
+
+    assert.match(on, /^\s{2}workflow_dispatch:/m, 'the workflow must remain manually dispatchable');
+
+    // Any of these would spend the Cloudflare daily allocation without an owner deciding to.
+    for (const [pattern, event] of [
+      [/^\s{2}push:/m, 'push'],
+      [/^\s{2}pull_request(_target)?:/m, 'pull_request'],
+      [/^\s{2}schedule:/m, 'schedule'],
+      [/^\s{2}repository_dispatch:/m, 'repository_dispatch'],
+      [/^\s{2}workflow_run:/m, 'workflow_run'],
+      [/^\s{2}issue_comment:/m, 'issue_comment'],
+    ]) {
+      assert.doesNotMatch(on, pattern,
+        `${name} must not run automatically on ${event}: live external-AI certification costs real money and must be an explicit owner decision`);
+    }
+  });
+
+  test(`cost governance: ${name} still reaches a real provider, so the dispatch-only rule matters`, () => {
+    const yaml = readFileSync(new URL(rel, import.meta.url), 'utf8');
+    // If this ever stops being true the guard above is pointless and should be re-examined,
+    // rather than silently guarding a workflow that no longer spends anything.
+    assert.match(yaml, /CLOUDFLARE_API_TOKEN/, `${name} is expected to use real provider credentials`);
+  });
+}
+
+test('cost governance: no OTHER workflow gains automatic access to the Cloudflare AI credentials', () => {
+  const dir = path.resolve(toolDir, '../../../.github/workflows');
+  const offenders = [];
+  for (const entry of readdirSync(dir)) {
+    if (!entry.endsWith('.yml') && !entry.endsWith('.yaml')) continue;
+    const yaml = readFileSync(path.join(dir, entry), 'utf8');
+    if (!/CLOUDFLARE_API_TOKEN/.test(yaml)) continue;
+    const on = triggerBlock(yaml);
+    if (/^\s{2}(push|pull_request|pull_request_target|schedule|repository_dispatch|workflow_run):/m.test(on)) {
+      offenders.push(entry);
+    }
+  }
+  assert.deepEqual(offenders, [],
+    'a workflow holding the Cloudflare AI token must not run on an automatic event');
 });

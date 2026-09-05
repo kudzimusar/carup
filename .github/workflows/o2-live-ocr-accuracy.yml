@@ -6,8 +6,17 @@ name: O2 Live OCR — Cloudflare Workers AI accuracy gate
 # committed, and never placed in a frontend environment.
 #
 # A SIBLING gate. It does not touch, mutate or re-run any certified O2/P7/Seller workflow, it
-# writes nothing to staging, and it touches no database. Its only side effect is up to 12
-# provider calls (11 corpus fixtures + 1 reachability probe) against synthetic documents.
+# writes nothing to staging, and it touches no database. Its only side effect is provider calls
+# against synthetic documents — up to 33 of them (11 fixtures x 3 attempts) plus one reachability
+# probe.
+#
+# MANUAL DISPATCH ONLY. This workflow previously also carried a `push:` trigger on the OCR branch.
+# That made it an UNINTENDED AUTOMATIC CONSUMER of the Cloudflare Workers AI daily allocation: run
+# 33935601087 fired from an ordinary push, ran the full 11-fixture corpus and spent ~2,503.6
+# neurons — roughly 42% of a day's free budget — with no owner dispatch and no approval. Live
+# external-AI certification costs real money and must be an explicit owner decision, so the push
+# trigger was removed. Do not reintroduce `push:`, `pull_request:` or `schedule:` here; a permanent
+# guard in backend/tests/o2-ocr-accuracy-corpus.test.js fails the suite if any of them returns.
 #
 # Triggering follows the established discipline: an explicit push of this workflow or the gate
 # it runs, on the OCR candidate branch, plus workflow_dispatch once this file reaches the
@@ -28,15 +37,6 @@ on:
           full corpus, which is the only form that can pass the gate.
         required: false
         default: ''
-  push:
-    branches:
-      - fix/o2-live-ocr-operationalization
-    paths:
-      - '.github/workflows/o2-live-ocr-accuracy.yml'
-      - 'backend/services/document-intelligence/**'
-      - 'backend/services/ai/GeminiClient.js'
-      - 'backend/tests/tools/**'
-      - 'docs/features/o2/uat-assets/ocr-corpus/**'
 
 concurrency:
   group: o2-live-ocr-accuracy
