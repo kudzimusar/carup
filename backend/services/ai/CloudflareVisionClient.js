@@ -178,13 +178,17 @@ export async function askCloudflareVision(systemPrompt, textPrompt, images = [],
   const usage = payload?.result?.usage ?? null;
   return {
     content,
-    usage: usage
-      ? {
-        neurons: usage.neurons ?? null,
-        promptTokens: usage.prompt_tokens ?? null,
-        completionTokens: usage.completion_tokens ?? null,
-        totalTokens: usage.total_tokens ?? null,
-      }
-      : null,
+    // `finishReason` and `transportForm` are EXECUTION EVIDENCE, not telemetry. The accuracy gate
+    // uses them to tell a normal model completion apart from a truncation, a refusal or a request
+    // whose image may never have been delivered. Absent means "the provider stated none".
+    usage: {
+      neurons: usage?.neurons ?? null,
+      promptTokens: usage?.prompt_tokens ?? null,
+      completionTokens: usage?.completion_tokens ?? null,
+      totalTokens: usage?.total_tokens ?? null,
+      finishReason: finishReason ?? null,
+      transportForm: transportFor(model).form,
+      imageBytesSent: usable[0].base64.length,
+    },
   };
 }

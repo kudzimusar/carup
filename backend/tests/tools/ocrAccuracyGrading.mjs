@@ -4,14 +4,86 @@
  * The rule this encodes: a plausible but WRONG value is a failure; a missing value is not
  * fabrication. Everything here is pure so the arithmetic of the gate is itself testable, and so a
  * "PASS" can never come from a comparison that quietly treated a wrong reading as acceptable.
+ *
+ * ── GRADER VERSION 2 (2026-09-05, Product Owner authorized) ─────────────────────────────────
+ *
+ * Version 1 contained a correctness defect: it inferred abstention from an EMPTY RESULT, without
+ * asking whether the model had ever run. A fixture whose provider call was refused — quota
+ * exhausted, timeout, outage, malformed envelope — produced zero fields, and zero fields is a PASS
+ * in the absence-checking modes. Provider unavailability therefore masqueraded as model restraint,
+ * and the run of 2026-09-05 reported `PASS 11/11` while the non-document FABRICATION SENTINEL had
+ * never been shown the image at all.
+ *
+ * Version 2 adds one law:
+ *
+ *     NO SUCCESSFUL PROVIDER/MODEL EXECUTION = NO ACCURACY PASS.
+ *
+ * A fixture earns an accuracy verdict only on evidence that the configured model genuinely ran
+ * against the intended image over a transport proven to carry it. Otherwise the fixture is
+ * INCONCLUSIVE, which is not a pass, is not counted as "0 missing / 0 fabrications", and makes the
+ * whole corpus non-PASS.
+ *
+ * This version changes NO benchmark material: not a fixture, not an expected value, not a
+ * normalization rule, not a threshold. It only refuses to award a pass it cannot justify.
+ * The grader is VERSIONED AND CHANGE-CONTROLLED — its bugs are fixable, under authorization and
+ * on the record — rather than frozen.
  */
+
+export const GRADER_VERSION = 2;
 
 export const MATCH = {
   EXACT: 'exact',
   NORMALIZED: 'normalized',
   MISSING: 'missing',
   INCORRECT: 'incorrect',
+  /** No accuracy judgement is possible: the model did not demonstrably run on this image. */
+  INCONCLUSIVE: 'inconclusive',
 };
+
+export const VERDICT = { PASS: 'PASS', FAIL: 'FAIL', INCONCLUSIVE: 'INCONCLUSIVE' };
+
+/** Completion states that are NOT a normal end of generation. */
+const ABNORMAL_FINISH = new Set(['length', 'content_filter', 'refusal', 'error', 'tool_calls']);
+
+/**
+ * Decides whether a result carries evidence the configured model actually executed against the
+ * intended image. Positive evidence only — nothing here is assumed, and HTTP 200 alone is worth
+ * nothing: Qwen was measured accepting an ill-formed request with 200 while ignoring the image.
+ *
+ * Returns { executed, reason }.
+ */
+export function classifyExecution(result = {}) {
+  const provenance = result.extractedData?.provenance ?? null;
+  const usage = result.providerUsage ?? provenance?.providerUsage ?? null;
+
+  if (result.error) return { executed: false, reason: `provider error: ${String(result.error).slice(0, 200)}` };
+  if (result.executionStatus !== 'provider_succeeded') {
+    return { executed: false, reason: `executionStatus is "${result.executionStatus ?? 'absent'}", not provider_succeeded` };
+  }
+  if (!result.provider || result.provider === 'mock') {
+    return { executed: false, reason: `provider is "${result.provider ?? 'absent'}" — a simulated reading is not an execution` };
+  }
+  if (!result.model) return { executed: false, reason: 'no model was recorded for the reading' };
+  if (result.mock === true) return { executed: false, reason: 'the reading was simulated' };
+
+  // The image must provably have been supplied, over a transport known to deliver it.
+  if (!provenance) return { executed: false, reason: 'no provenance was recorded for the reading' };
+  if (!(Number(provenance.imageBytesSent) > 0)) {
+    return { executed: false, reason: 'provenance records no image bytes sent' };
+  }
+  if (!provenance.mimeTypeSent) return { executed: false, reason: 'provenance records no media type sent' };
+  if (result.transportVerified !== true) {
+    return { executed: false, reason: 'the image transport for this model is not verified, so delivery of the image cannot be proven' };
+  }
+
+  // An apparently successful call that stopped abnormally is not a normal completion, and its
+  // emptiness must never be read as the model choosing to say nothing.
+  if (usage && usage.finishReason && ABNORMAL_FINISH.has(String(usage.finishReason))) {
+    return { executed: false, reason: `completion ended abnormally (finish_reason: ${usage.finishReason})` };
+  }
+
+  return { executed: true, reason: null };
+}
 
 const collapse = (value) => String(value).trim().replace(/\s+/g, ' ');
 const loose = (value) => String(value).toUpperCase().replace(/[^A-Z0-9]/g, '');
@@ -53,6 +125,30 @@ export function flattenExtraction(extractedData = {}) {
  * but a legible field was not read).
  */
 export function gradeFixture(fixture, result) {
+  // `unsupported` is the one mode whose EXPECTED outcome is non-execution: the file must be refused
+  // before any byte reaches the provider. Requiring a successful execution there would invert it.
+  // Every other mode makes a claim about what the model read, and that claim needs the model to
+  // have run.
+  if (fixture.mode !== 'unsupported') {
+    const execution = classifyExecution(result);
+    if (!execution.executed) {
+      return {
+        id: fixture.id,
+        mode: fixture.mode,
+        // Expected fields are reported as INCONCLUSIVE, never as "missing": nothing was withheld,
+        // because nothing was ever asked of the model.
+        fields: Object.entries(fixture.expected || {}).map(([field, spec]) => ({
+          field, expected: spec.value, extracted: null, match: MATCH.INCONCLUSIVE,
+        })),
+        failures: [{ kind: 'inconclusive', field: '(execution)', expected: 'a successful model execution on this image', extracted: execution.reason }],
+        verdict: VERDICT.INCONCLUSIVE,
+        inconclusiveReason: execution.reason,
+        fabricationCount: 0,
+        shortfallCount: 0,
+      };
+    }
+  }
+
   const flat = result.success ? flattenExtraction(result.extractedData) : {};
   const fields = [];
   const failures = [];
@@ -100,19 +196,27 @@ export function gradeFixture(fixture, result) {
 }
 
 export function summarize(gradedFixtures) {
-  const counts = { exact: 0, normalized: 0, missing: 0, incorrect: 0 };
+  const counts = { exact: 0, normalized: 0, missing: 0, incorrect: 0, inconclusive: 0 };
   for (const fixture of gradedFixtures) {
     for (const row of fixture.fields) counts[row.match] += 1;
   }
   const fabrications = gradedFixtures.reduce((total, f) => total + f.fabricationCount, 0);
   const shortfalls = gradedFixtures.reduce((total, f) => total + f.shortfallCount, 0);
+  const inconclusiveFixtures = gradedFixtures.filter((f) => f.verdict === VERDICT.INCONCLUSIVE);
+
   return {
+    graderVersion: GRADER_VERSION,
     counts,
     fabrications,
     shortfalls,
-    fixturesPassed: gradedFixtures.filter((f) => f.verdict === 'PASS').length,
+    fixturesPassed: gradedFixtures.filter((f) => f.verdict === VERDICT.PASS).length,
     fixturesTotal: gradedFixtures.length,
-    // A single fabricated value fails the gate outright, whatever the recall.
-    verdict: gradedFixtures.every((f) => f.verdict === 'PASS') ? 'PASS' : 'FAIL',
+    inconclusive: inconclusiveFixtures.length,
+    inconclusiveFixtures: inconclusiveFixtures.map((f) => ({ id: f.id, reason: f.inconclusiveReason })),
+    // A single fabricated value fails the gate outright, whatever the recall — and a single
+    // fixture the model never ran on makes the corpus unjudgeable, whatever the rest scored.
+    // `fabrications: 0` on an inconclusive run means "nothing was invented because nothing was
+    // read"; it is not evidence of restraint and cannot carry a PASS.
+    verdict: gradedFixtures.every((f) => f.verdict === VERDICT.PASS) ? 'PASS' : 'FAIL',
   };
 }

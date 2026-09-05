@@ -217,13 +217,22 @@ test('cloudflare: provider-reported usage is passed through, and never estimated
     const cap = captureFetch(() => okChoice({ ok: true }, { neurons: 43.29, prompt_tokens: 1622, completion_tokens: 33, total_tokens: 1655 }));
     try {
       const out = await askCloudflareVision('s', 'u', [{ mimeType: 'image/png', base64: 'AAAA' }]);
-      assert.deepEqual(out.usage, { neurons: 43.29, promptTokens: 1622, completionTokens: 33, totalTokens: 1655 });
+      assert.equal(out.usage.neurons, 43.29);
+      assert.equal(out.usage.promptTokens, 1622);
+      assert.equal(out.usage.completionTokens, 33);
+      assert.equal(out.usage.totalTokens, 1655);
+      // Execution evidence the accuracy gate needs to tell a real completion from a truncation.
+      assert.equal(out.usage.finishReason, 'stop');
+      assert.equal(out.usage.transportForm, 'contentPart');
+      assert.ok(out.usage.imageBytesSent > 0);
     } finally { cap.restore(); }
 
     const noUsage = captureFetch(() => okChoice({ ok: true }));
     try {
       const out = await askCloudflareVision('s', 'u', [{ mimeType: 'image/png', base64: 'AAAA' }]);
-      assert.equal(out.usage, null, 'no usage reported means null, never a guess');
+      assert.equal(out.usage.neurons, null, 'no usage reported means null, never a guess');
+      assert.equal(out.usage.promptTokens, null);
+      assert.equal(out.usage.transportForm, 'contentPart', 'transport evidence is ours, not the provider\'s');
     } finally { noUsage.restore(); }
   });
 });

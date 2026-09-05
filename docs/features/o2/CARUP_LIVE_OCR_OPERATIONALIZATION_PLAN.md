@@ -107,3 +107,28 @@ JSON mode as best-effort and lists neither model.
 **A standing rule this round established.** The accuracy gate cannot tell "the model abstained"
 from "the provider never answered". Until it can, a corpus run in which any negative or degraded
 fixture failed to reach the provider is **not** a certification, however the summary line reads.
+
+
+## Grader governance (appended 2026-09-05)
+
+`backend/tests/tools/ocrAccuracyGrading.mjs` is **VERSIONED AND CHANGE-CONTROLLED**, not immutable.
+It was corrected once, under Product Owner authorization, from v1 to v2 — see the
+[receipt](CARUP_LIVE_OCR_OPERATIONALIZATION_RECEIPT.md) section 4F for the before/after hashes,
+the defect and the offline replay proving the correction reverses a false pass.
+
+The distinction that matters:
+
+- **Benchmark material is immutable** — the 11 fixtures and their bytes, the manifest, expected
+  values, missing-field rules, normalization and thresholds. Moving any of these to suit a
+  candidate destroys the benchmark's meaning, and their hashes are checked before every
+  qualification round.
+- **The grader is code, and code has bugs.** v1 read an empty result as abstention without asking
+  whether the model had run, so a quota refusal passed the fabrication sentinel. Freezing that bug
+  would have preserved a falsehood. Fixing it requires authorization, a recorded rationale, and
+  before/after hashes — never a silent edit.
+
+The standing law the grader now enforces:
+
+> **NO SUCCESSFUL PROVIDER/MODEL EXECUTION = NO ACCURACY PASS.**
+> HTTP 200 is not evidence. A fixture the model did not demonstrably run on is INCONCLUSIVE, and
+> one INCONCLUSIVE fixture makes the whole corpus non-PASS.

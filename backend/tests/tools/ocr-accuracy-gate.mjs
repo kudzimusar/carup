@@ -17,7 +17,7 @@
 import { readFileSync, writeFileSync, mkdirSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { gradeFixture, summarize, flattenExtraction } from './ocrAccuracyGrading.mjs';
+import { gradeFixture, summarize, flattenExtraction, GRADER_VERSION } from './ocrAccuracyGrading.mjs';
 
 const toolDir = path.dirname(fileURLToPath(import.meta.url));
 const root = path.resolve(toolDir, '../../..');
@@ -31,7 +31,12 @@ const outDir = outIndex > -1 ? path.resolve(process.argv[outIndex + 1]) : path.j
 process.env.ALLOW_OCR_MOCK = 'false';
 
 const { resolveVisionProvider } = await import('../../services/ai/ocrVisionProvider.js');
+const { TRANSPORTS } = await import('../../services/ai/CloudflareVisionClient.js');
 const activeProvider = resolveVisionProvider();
+// Whether THIS model's image transport has been measured to deliver pixels. The grader refuses to
+// certify abstention without it, because HTTP 200 has been observed on a request that dropped the
+// image entirely.
+const transportVerified = activeProvider.id !== 'cloudflare' ? false : Boolean(TRANSPORTS[activeProvider.model]);
 if (!activeProvider.isConfigured()) {
   console.log('OCR_ACCURACY_GATE: NOT_RUN');
   console.log(`  Provider "${activeProvider.id}" is selected but ${activeProvider.requiredEnv.join(' and ')} are not configured.`);
@@ -129,7 +134,7 @@ for (const fixture of selected) {
   }
   const wallMs = Date.now() - startedAt;
 
-  const grade = gradeFixture(fixture, { ...result, providerCalls });
+  const grade = gradeFixture(fixture, { ...result, providerCalls, transportVerified });
   graded.push(grade);
   runs.push({
     id: fixture.id,
@@ -164,7 +169,8 @@ for (const fixture of selected) {
     },
   });
 
-  const label = `${grade.verdict === 'PASS' ? '✓' : '✗'} ${fixture.id}`;
+  const mark = grade.verdict === 'PASS' ? '✓' : grade.verdict === 'INCONCLUSIVE' ? '?' : '✗';
+  const label = `${mark} ${fixture.id}${grade.verdict === 'INCONCLUSIVE' ? ' [INCONCLUSIVE]' : ''}`;
   const neurons = result.providerUsage?.neurons;
   console.log(`${label} — ${result.provider}/${result.model || 'n/a'} · ${result.extractionStatus} · ${wallMs}ms · confidence ${result.confidenceReported ? result.confidence : 'not reported'}${neurons ? ` · ${neurons.toFixed(2)} neurons` : ''}`);
   for (const failure of grade.failures) {
@@ -186,13 +192,15 @@ const report = [
   '',
   `- Run: ${new Date().toISOString()}`,
   `- Corpus: ${manifest.version} (${manifest.fixtures.length} fixtures)`,
-  `- Provider: ${activeProvider.id} / ${activeProvider.model}`,
+  `- Provider: ${activeProvider.id} / ${activeProvider.model} (transport verified: ${transportVerified})`,
+  `- Grader version: ${GRADER_VERSION} — a fixture the model never ran on is INCONCLUSIVE, never a pass`,
   `- Provider-reported usage: ${runs.reduce((t, r) => t + (r.providerUsage?.neurons ?? 0), 0).toFixed(2)} neurons across ${runs.reduce((t, r) => t + r.providerCalls, 0)} call(s)`,
   `- Verdict: **${summary.verdict}**`,
   ...(summary.partial ? [`- **PARTIAL DIAGNOSTIC RUN — ${summary.fixturesSkipped} fixture(s) were not measured. A partial run is never a gate pass.**`] : []),
-  `- Fixtures passed: ${summary.fixturesPassed}/${summary.fixturesTotal}`,
+  `- Fixtures passed: ${summary.fixturesPassed}/${summary.fixturesTotal}` + (summary.inconclusive ? ` · **${summary.inconclusive} INCONCLUSIVE**` : ''),
+  ...(summary.inconclusive ? ['', '**Inconclusive fixtures — the model did not demonstrably run on these images, so no accuracy claim is made about them:**', ...summary.inconclusiveFixtures.map((f) => `- \`${f.id}\` — ${f.reason}`)] : []),
   `- Fabricated values: ${summary.fabrications} · shortfalls (legible field not read): ${summary.shortfalls}`,
-  `- Field results: ${summary.counts.exact} exact · ${summary.counts.normalized} normalized · ${summary.counts.missing} missing · ${summary.counts.incorrect} incorrect`,
+  `- Field results: ${summary.counts.exact} exact · ${summary.counts.normalized} normalized · ${summary.counts.missing} missing · ${summary.counts.incorrect} incorrect · ${summary.counts.inconclusive} inconclusive`,
   '',
   '| Fixture | Field | Expected | Extracted | Result | Provider/model | Latency | Confidence |',
   '|---|---|---|---|---|---|---|---|',
@@ -204,8 +212,9 @@ writeFileSync(path.join(outDir, 'OCR_ACCURACY_RESULTS.md'), `${report}\n`, 'utf8
 writeFileSync(path.join(outDir, 'ocr-accuracy-results.json'), `${JSON.stringify({ manifest: manifest.version, summary, runs, graded }, null, 2)}\n`, 'utf8');
 
 console.log(`\nOCR_ACCURACY_GATE: ${summary.verdict}`);
-console.log(`  fixtures ${summary.fixturesPassed}/${summary.fixturesTotal} · fabrications ${summary.fabrications} · shortfalls ${summary.shortfalls}`);
-console.log(`  field results: ${summary.counts.exact} exact, ${summary.counts.normalized} normalized, ${summary.counts.missing} missing, ${summary.counts.incorrect} incorrect`);
+console.log(`  fixtures ${summary.fixturesPassed}/${summary.fixturesTotal} · fabrications ${summary.fabrications} · shortfalls ${summary.shortfalls} · INCONCLUSIVE ${summary.inconclusive}`);
+console.log(`  field results: ${summary.counts.exact} exact, ${summary.counts.normalized} normalized, ${summary.counts.missing} missing, ${summary.counts.incorrect} incorrect, ${summary.counts.inconclusive} inconclusive`);
+for (const f of summary.inconclusiveFixtures) console.log(`  INCONCLUSIVE ${f.id}: ${f.reason}`);
 console.log(`  written to ${path.relative(root, outDir)}/OCR_ACCURACY_RESULTS.md`);
 
 process.exit(summary.verdict === 'PASS' ? 0 : 1);

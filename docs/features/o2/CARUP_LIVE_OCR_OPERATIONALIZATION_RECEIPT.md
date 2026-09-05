@@ -169,6 +169,113 @@ provider-quality result**: nothing the provider read was ever wrong.
 No expected fixture value was changed, no strictness was reduced, no fuzzy acceptance was
 introduced for identity numbers or VINs, and no second provider was substituted.
 
+## 4F. Grader integrity correction — v1 to v2 (2026-09-05, Product Owner authorized)
+
+The Product Owner accepted the LIVE OCR NOT READY verdict of section 4E and authorized ONE narrow
+correction: the accuracy grader itself contained a correctness defect. This section records it in
+full. No earlier evidence in this receipt was rewritten.
+
+### The defect
+
+Grader v1 inferred ABSTENTION FROM AN EMPTY RESULT without ever asking whether the model had run.
+In the absence-checking modes (no_document, no_fabrication) zero extracted fields is a PASS, so a
+fixture whose provider call was refused produced zero fields and passed.
+
+That is how run 33936092801 reported PASS 11/11 while the non-document FABRICATION SENTINEL had
+never been shown the image: the account's daily neuron allocation ran out mid-run. Provider
+unavailability masqueraded as model restraint.
+
+### Exact behaviour before
+
+    provider/model did not execute  +  zero extracted fields  =  PASS   (absence fixtures)
+
+Such a fixture also reported zero fabrications and zero missing, and both fed the overall PASS.
+
+### Exact behaviour after
+
+    NO SUCCESSFUL PROVIDER/MODEL EXECUTION  =  NO ACCURACY PASS
+
+`classifyExecution()` grants an accuracy verdict only on positive evidence that the configured
+model ran against the intended image: executionStatus is provider_succeeded, a real provider that
+is not mock, a recorded model, provenance showing image bytes and a media type actually sent, a
+VERIFIED image transport for that model, no provider error, and a NORMAL completion (finish_reason
+not length / content_filter / refusal). HTTP 200 alone proves nothing — Qwen was measured accepting
+an ill-formed request with 200 while ignoring the image entirely.
+
+Failing that, the fixture is INCONCLUSIVE: not a pass, its expected fields reported as
+`inconclusive` rather than `missing`, contributing NO fabrication or shortfall counts that could
+launder into a pass, and forcing the whole corpus to NON-PASS.
+
+Genuine abstention is preserved: a real execution, on the correct transport, with a normal
+completion and zero candidate fields still PASSES the sentinel — that is a model declining to
+guess, which is exactly what the sentinel exists to detect.
+
+`unsupported-file` is the one exempt mode: its expected outcome IS non-execution (refused before
+upload), so requiring a successful execution there would invert the fixture. The exemption is
+explicit in the code and pinned by a test.
+
+### Proof the correction reverses the false pass
+
+Re-grading the recorded run 33936092801 offline under v2 — no live calls:
+
+| | Verdict | Fixtures | Inconclusive |
+|---|---|---|---|
+| v1, as recorded | **PASS** | 11/11 | — |
+| v2, replayed | **FAIL** | 9/11 | **2** |
+
+The two named are exactly the ones the model never ran on: `non-document` (quota refusal) and
+`national-id-blurred` (no content produced).
+
+### Hashes and immutability proof
+
+| Artefact | Before | After |
+|---|---|---|
+| `ocrAccuracyGrading.mjs` | `1a4c962167f453124adc5fabe5dd4596a296de90b6c90b3cfd0fdb2994fbb42d` | `bbad11b2c4d0b2e1c174bd981419af39ad8c1d7046461bb514a628a6f3032eeb` |
+| `ocr-corpus-manifest.json` | `b48ecadc8f580d3dfc90d70ebc14d523b2700cfb8cfd2a9668c2789309ae6057` | `b48ecadc8f580d3dfc90d70ebc14d523b2700cfb8cfd2a9668c2789309ae6057` (unchanged) |
+| 11 corpus fixtures | see below | identical, all eleven |
+
+```
+f17a46b9909bb06ad70f592de47616b09b9a1d7a0d8b2760b51fbdc29a719976  customs-declaration-clean.png
+9398899e7da0b8ce396e80d5c7fadbf761bb70163c76d8158e09b35d5873f389  drivers-licence-clean.png
+46df355ad287ec5549c12ee6372798b64bc447cba736fac45049ac49c76ebc9a  national-id-blurred.png
+978f6ac48a570e33479f865e467781e765355ff41b33a62917d96666d2b0b320  national-id-clean.png
+175d3aba5e5f1d56a8303596420479e645f638678e9adf49109ccac6e36afff9  national-id-cropped.png
+d517aea30916ccfa35554a16d10f1ab21059239d1c81956389fff687e4174b21  national-id-glare.png
+8ac50bf8bad9bf5c43d11ba007d3ab91e44cfafbf5d4b9524713a31241dc5497  national-id-rotated.png
+83d6ddd2da7ba9827000a585794759ca880e424bd53c64cbcd94a16783e309c3  non-document.png
+21c00b534410faab5f327e9f807f4c95d5ede69f3ff211a6ad4ed9bf1fd3aaef  passport-clean.png
+ee0ae7863e7077a088d04cff625793c18c96be2f3c6804da1dc8c7a29b7450f1  registration-book-clean.png
+d4171785c315d91fd3d6f27b22cf05b0633d6566e3ca35d6937056c9355a7c85  unsupported-file.txt
+```
+
+NO expected value, missing-field rule, normalization rule, threshold, prompt or fixture ordering
+was changed. The correction only refuses to award a pass it cannot justify — it makes the gate
+strictly harder to pass, never easier.
+
+### Regression at the correction head (no live provider calls)
+
+| Gate | Result |
+|---|---|
+| Full backend suite (repo root, CI env) | **6020 tests · 5999 pass · 0 fail · 21 skipped** |
+| `o2-ocr-accuracy-corpus` (grader, +9 new guards) | **23/23** |
+| `o2-cloudflare-ocr-provider` | **21/21** |
+| `o2-live-ocr-operationalization` | **31/31** |
+| X1 authority · X7 guards · 7C identity · mock guard · diaspora route | all green |
+| Production build (`tsc -b && vite build`) | **PASS** — 27.58s |
+| Lint regression gate vs `71b81d74` | **NET_NEW 0/0** |
+
+**No Cloudflare live calls were made in this task.** The Qwen selection, the Llama rejection and the
+Gemma reserve status are unchanged; no staging deploy, no section 3A, no production, no biometrics.
+
+### Governance status of the grader
+
+`ocrAccuracyGrading.mjs` is no longer treated as immutable. It is VERSIONED AND CHANGE-CONTROLLED:
+`GRADER_VERSION` is exported, stamped into every result summary and printed in the report header,
+and a change requires Product Owner authorization plus a recorded before/after hash and rationale,
+as here. Benchmark material — fixtures, answer key, manifest, normalization, thresholds — remains
+immutable. A grader may contain bugs; a benchmark that moves to suit a candidate cannot be trusted
+at all.
+
 ## 4E. Candidate qualification: Qwen 3.8 and Gemma 4 (2026-09-05)
 
 Llama was rejected for fabrication (§4D). Two Cloudflare-hosted vision models were put through the
@@ -593,7 +700,7 @@ authorized, so it can never be read as a pass.
 
 ## 7. Verdict
 
-**LIVE OCR NOT READY — Qwen 3.8 is the leading candidate and reads accurately (45 exact, 0 incorrect, 0 fabrications across 9 genuinely-read fixtures), but the fabrication safety sentinel was graded on a provider outage rather than a model abstention, and the Cloudflare daily neuron allocation is exhausted so it cannot be re-run. See §4E. Llama remains REJECTED for fabrication (§4D).**
+**GATE INTEGRITY FIX APPLIED (section 4F); LIVE OCR still NOT READY — Qwen 3.8 is the leading candidate and reads accurately (45 exact, 0 incorrect, 0 fabrications across 9 genuinely-read fixtures), but the fabrication safety sentinel was graded on a provider outage rather than a model abstention, and the Cloudflare daily neuron allocation is exhausted so it cannot be re-run. See §4E. Llama remains REJECTED for fabrication (§4D).**
 
 *(Superseded the Gemini quota verdict of §4C: the provider changed, and so did the blocker — from "the credential cannot serve requests" to "the model invents readings".)*
 
