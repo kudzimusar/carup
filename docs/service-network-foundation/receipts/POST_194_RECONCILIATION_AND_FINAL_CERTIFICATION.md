@@ -450,7 +450,73 @@ What exists instead is not a substitute and is not presented as one, but it is n
 a database with `20260904120000`–`20260904190000` applied — a Product Owner decision, since it means
 migrating a hosted environment.
 
-## B.6 Two pinned truths that this work deliberately changed
+## B.6 Exact-head CI
+
+Certified head **`fbfa2678`** (`5a0306e5` plus a documentation-only whitespace fix).
+`local == origin == PR #197 head`, working tree clean, PR still **Draft**, `main` unmoved at
+`bb9d9900`.
+
+| Workflow | Result at `fbfa2678` |
+|---|---|
+| CI (Lint · Types · Build · Tests) | **success** — `6021 tests, 6000 pass, 0 fail, 21 skipped`, identical to the local run |
+| CI · Service Network migration harnesses | **success** — "All 6 Service Network harnesses passed" against real PostgreSQL |
+| CI · Secret scan | success |
+| CI · Dependency audit | success |
+| Vehicle Passport Foundation CI | **success** |
+| Referral Engine CI | success |
+| Navigation Intelligence CI | success |
+| Diaspora Phases 3-7 Validation | success |
+| Communication Command Center CI | success |
+| Diaspora Deployed Staging UAT | skipped (by design) |
+| Marketplace Reference Regression | **failure — blocked, see below** |
+
+### Two gates that had never run on this branch
+
+Both `Vehicle Passport Foundation CI` and `Marketplace Reference Regression` are path-filtered, and
+both are filtered on `backend/server.js`. At the broken head that file was **byte-identical to
+main**, so the PR presented no diff for either gate and neither ever ran. Repairing the file gave
+them one, and both fired for the first time at `5a0306e5`.
+
+This is the hazard in its purest form: the branch looked green because two gates were never asked.
+
+- **Passport CI** failed on `git diff --check` — six trailing-whitespace lines in the canonical
+  plan's metadata header, pre-existing PR content in a file this work never touched. They were
+  deliberate markdown hard line breaks; the block is now a list, which renders identically. **Now
+  green.**
+- **Marketplace Reference Regression** is blocked on a precondition, not a regression. See B.7.
+
+## B.7 Blocked, and why it is a Product Owner decision
+
+`Marketplace Reference Regression` fails at its first step:
+
+```
+{"error":"candidate preview pair is not governed",
+ "branch":"feat/service-network-foundation-1-0",
+ "frontend_configured":false,"backend_configured":false}
+```
+
+The gate refuses to certify a branch that is not registered in `web/preview-frontend-pairing.json`
+and `web/preview-backend-pairing.json`. **That refusal is correct and must not be worked around.**
+The maps exist so a branch preview cannot silently certify against the shared staging backend, which
+produces evidence that looks real and is not.
+
+What is established:
+
+- a frontend preview for the exact head **does exist and is READY** —
+  `dpl_DSKAmTR2NrMLX3c573ydaxYCZjbC`, commit `5a0306e5`, alias
+  `carup-staging-git-feat-service-network-foundation-1-0-11-11.vercel.app`;
+- the backend alias was **not** guessed. Vercel truncates and hashes long branch names (existing
+  entries show `…-control-6e0b93-…`, `…-comm-25bf18-…`), so a constructed URL could point at another
+  deployment — exactly the mispairing the gate prevents.
+
+Even with a correct pair, the gate's later steps run an **unmocked staging certification**, which
+needs migrations `20260904120000`–`20260904190000` applied to the staging database. They are not.
+
+So one decision unblocks both this gate and the six data journeys in B.5: **apply the Service
+Network migrations to staging and register the verified preview pair.** Both mutate a hosted
+environment and were outside this lane's authorization, so neither was done and neither is claimed.
+
+## B.8 Two pinned truths that this work deliberately changed
 
 Both gates were working correctly; each pinned a fact that an obligation changed. Both pins were
 flipped rather than deleted.
@@ -463,7 +529,7 @@ flipped rather than deleted.
   two-entry registry, plus the property that makes each entry safe, plus that `RESTRICTED` never
   becomes public. A third entry still has to arrive as a deliberate change there.
 
-## B.7 Scope
+## B.9 Scope
 
 - Production untouched. No staging deployment, no migration applied to any hosted database.
 - `main` untouched.
