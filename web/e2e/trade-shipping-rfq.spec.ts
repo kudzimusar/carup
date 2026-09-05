@@ -357,6 +357,102 @@ test.describe('Trade OS T3 — Shipping requests', () => {
   })
 })
 
+// ── Owner UAT round 1 corrections ──────────────────────────────────────────────────────────────
+
+test('a request with NO cargo rows never reports 0.000 CBM, and gets no invented title', async ({ page }) => {
+  const state = baseState()
+  // The exact shape that produced the fake zero: an opportunity with an EMPTY items array.
+  // `items.some(...)` on [] is false, so the "unknown" branch was skipped and reduce() published a
+  // confident 0.000 for cargo nobody had described.
+  state.opportunities = [{ ...openOpportunity, id: 'ship-empty', reference: 'SHIP-EMPTY001', items: [] }]
+  await loginAs(page, provider)
+  await mockApi(page, state, provider, true)
+  await page.goto('/diaspora/containers?view=provider', { waitUntil: 'domcontentloaded' })
+
+  const card = page.getByTestId('logistics-opportunity')
+  await expect(card).toBeVisible({ timeout: 60_000 })
+  await expect(card).not.toContainText('0.000 CBM')
+  await expect(card).toContainText(/no cargo has been described yet/i)
+  await expect(page.getByTestId('logistics-opportunity-no-cargo')).toBeVisible()
+  // No invented cargo title, but the request stays identifiable.
+  await expect(card).toContainText(/Cargo details not recorded/i)
+  await expect(card).toContainText('SHIP-EMPTY001')
+})
+
+test('a request whose cargo volume is partly unknown says so, and a fully known one shows the total', async ({ page }) => {
+  const state = baseState()
+  state.opportunities = [
+    { ...openOpportunity, id: 'ship-unknown', reference: 'SHIP-UNKNOWN1',
+      items: [{ id: 'i1', line_number: 1, cargo_category: 'boxes', description: 'Cartons, size unknown', quantity: 3, estimated_volume_cbm: null, measurement_basis: 'UNKNOWN', has_linked_vehicle: false }] },
+    { ...openOpportunity, id: 'ship-known', reference: 'SHIP-KNOWN001',
+      items: [{ id: 'i2', line_number: 1, cargo_category: 'boxes', description: 'Cartons, measured', quantity: 3, estimated_volume_cbm: 2.5, measurement_basis: 'PROVIDED', has_linked_vehicle: false }] },
+  ]
+  await loginAs(page, provider)
+  await mockApi(page, state, provider, true)
+  await page.goto('/diaspora/containers?view=provider', { waitUntil: 'domcontentloaded' })
+
+  const unknown = page.getByTestId('logistics-opportunity').filter({ hasText: 'SHIP-UNKNOWN1' })
+  await expect(unknown).toContainText(/one or more cargo volumes are still unknown/i)
+  await expect(unknown).not.toContainText('0.000 CBM')
+
+  const known = page.getByTestId('logistics-opportunity').filter({ hasText: 'SHIP-KNOWN001' })
+  await expect(known).toContainText('2.500 CBM estimated across the request')
+})
+
+test('the provider review shows the validity the provider is committing to', async ({ page }) => {
+  const state = baseState()
+  state.opportunities = [openOpportunity]
+  await loginAs(page, provider)
+  await mockApi(page, state, provider, true)
+  await page.goto('/diaspora/containers?view=provider', { waitUntil: 'domcontentloaded' })
+  await page.getByTestId('logistics-opportunity').getByRole('button', { name: /Prepare offer/i }).click()
+
+  const composer = page.getByTestId('logistics-quote-composer')
+  await composer.getByLabel(/Offer total/i).fill('800')
+  await composer.getByLabel(/Valid until/i).fill('2026-10-31')
+  await composer.getByRole('button', { name: /Review offer/i }).click()
+
+  // Validity is an ENFORCED commercial term now — the review that claims to show "exactly what the
+  // customer will compare" must show it, using the same semantics the requester sees.
+  await expect(composer.getByTestId('logistics-review-valid-until')).toHaveText('2026-10-31')
+})
+
+test('an offer with no stated validity reviews as Not provided, not as blank', async ({ page }) => {
+  const state = baseState()
+  state.opportunities = [openOpportunity]
+  await loginAs(page, provider)
+  await mockApi(page, state, provider, true)
+  await page.goto('/diaspora/containers?view=provider', { waitUntil: 'domcontentloaded' })
+  await page.getByTestId('logistics-opportunity').getByRole('button', { name: /Prepare offer/i }).click()
+  const composer = page.getByTestId('logistics-quote-composer')
+  await composer.getByLabel(/Offer total/i).fill('800')
+  await composer.getByRole('button', { name: /Review offer/i }).click()
+  await expect(composer.getByTestId('logistics-review-valid-until')).toHaveText('Not provided')
+})
+
+test('the Trade OS header does not collide at 393px, for a long organisation name', async ({ page }) => {
+  await page.setViewportSize({ width: 393, height: 852 })
+  const state = baseState()
+  await loginAs(page, provider)
+  await mockApi(page, state, provider, true)
+  await page.goto('/diaspora/containers', { waitUntil: 'domcontentloaded' })
+  await expect(page.getByTestId('tradeos-identity')).toBeVisible({ timeout: 60_000 })
+
+  // The lockup and the commercial identity must occupy DIFFERENT vertical bands at this width;
+  // sharing a row is what put the organisation name on top of "TRADE OS".
+  const brand = await page.getByText('Trade OS', { exact: true }).first().boundingBox()
+  const identity = await page.getByTestId('tradeos-identity').boundingBox()
+  expect(brand, 'brand lockup not found').toBeTruthy()
+  expect(identity, 'identity block not found').toBeTruthy()
+  expect(identity!.y, 'identity still shares the brand row at 393px')
+    .toBeGreaterThanOrEqual(brand!.y + brand!.height - 1)
+
+  // …and the identity must still be READABLE, not hidden away to dodge the collision.
+  await expect(page.getByTestId('tradeos-identity')).toContainText(/Logistics provider/i)
+  const overflow = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth)
+  expect(overflow).toBeLessThanOrEqual(1)
+})
+
 // ── Responsive geometry (DESIGN.md §10, directive §17) ─────────────────────────────────────────
 // Every viewport class the contract names, across the T3 surfaces that actually carry layout
 // risk: the wizard's dimension grid, the route form, the review/privacy pair, the provider

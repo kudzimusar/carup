@@ -34,7 +34,7 @@ function corridorOf(context: DiasporaTradeContext | null): string | null {
 function TradeIdentity({ context, unreadable }: { context: DiasporaTradeContext | null; unreadable: boolean }) {
   if (unreadable) {
     return (
-      <div className="min-w-0 text-right" data-testid="tradeos-identity">
+      <div className="min-w-0 text-left sm:text-right" data-testid="tradeos-identity">
         <p className="truncate text-sm font-semibold text-white">Trade OS</p>
         <p className="truncate text-[11px] text-slate-400">Business context could not be loaded</p>
       </div>
@@ -42,15 +42,15 @@ function TradeIdentity({ context, unreadable }: { context: DiasporaTradeContext 
   }
   if (!context) {
     return (
-      <div className="min-w-0 text-right" data-testid="tradeos-identity">
-        <p className="truncate text-[11px] text-slate-400">Loading business context…</p>
+      <div className="min-w-0 text-left sm:text-right" data-testid="tradeos-identity">
+        <p className="flex items-center gap-1.5 truncate text-[11px] text-slate-400" data-testid="tradeos-identity-loading"><Loader2 className="h-3 w-3 animate-spin" aria-hidden="true" /> Loading business context…</p>
       </div>
     )
   }
   const corridor = corridorOf(context)
   if (context.organisation) {
     return (
-      <div className="min-w-0 text-right" data-testid="tradeos-identity">
+      <div className="min-w-0 text-left sm:text-right" data-testid="tradeos-identity">
         <p className="truncate text-sm font-semibold text-white" data-testid="tradeos-identity-org">{context.organisation.name || 'Organisation'}</p>
         <p className="truncate text-[11px] uppercase tracking-wide text-orange-400">
           {context.business_type === 'logistics_provider' ? 'Logistics provider' : (context.business_type ? context.business_type.replace(/_/g, ' ') : 'Business')}
@@ -63,7 +63,7 @@ function TradeIdentity({ context, unreadable }: { context: DiasporaTradeContext 
     )
   }
   return (
-    <div className="min-w-0 text-right" data-testid="tradeos-identity">
+    <div className="min-w-0 text-left sm:text-right" data-testid="tradeos-identity">
       <p className="truncate text-sm font-semibold text-white" data-testid="tradeos-identity-participant">{context.user.name || 'Trade participant'}</p>
       <p className="truncate text-[11px] uppercase tracking-wide text-orange-400">
         Trade participant
@@ -83,10 +83,19 @@ export default function TradeOSWorkspaceLayout() {
   useEffect(() => {
     if (loading || !isAuthenticated) return
     let live = true
+    // The read is genuinely slow on a cold backend (measured 1.5-2.5s on staging), and the first
+    // Trade OS screen a customer sees was sitting on a bare "Loading…" for that whole time. The
+    // request is not the problem; the absence of a TERMINAL guarantee is. A read that never
+    // settles must resolve into the honest unreadable state rather than claiming to still be
+    // loading forever — the shell already renders "Business context could not be loaded", which is
+    // true and recoverable, whereas a permanent spinner is neither.
+    const settle = window.setTimeout(() => {
+      if (live) { setContext(null); setContextUnreadable(true) }
+    }, 15_000)
     fetchDiasporaTradeContext()
-      .then((ctx) => { if (live) { setContext(ctx && ctx.user ? ctx : null); setContextUnreadable(!ctx || !ctx.user) } })
-      .catch(() => { if (live) { setContext(null); setContextUnreadable(true) } })
-    return () => { live = false }
+      .then((ctx) => { if (live) { window.clearTimeout(settle); setContext(ctx && ctx.user ? ctx : null); setContextUnreadable(!ctx || !ctx.user) } })
+      .catch(() => { if (live) { window.clearTimeout(settle); setContext(null); setContextUnreadable(true) } })
+    return () => { live = false; window.clearTimeout(settle) }
   }, [loading, isAuthenticated, fetchDiasporaTradeContext])
 
   if (loading) {
@@ -100,7 +109,14 @@ export default function TradeOSWorkspaceLayout() {
     <div className="flex min-h-screen flex-col bg-white" data-testid="tradeos-workspace">
       <header className="bg-slate-950">
         <div className="mx-auto w-full max-w-[1440px] px-4 sm:px-6 lg:px-10">
-          <div className="flex min-w-0 items-center justify-between gap-4 py-3">
+          {/*
+            * At narrow widths the brand lockup and the commercial identity must NOT share a
+            * physical row: both are meaningful, neither may be dropped, and squeezing them
+            * together collided "TRADE OS" with the organisation name at 393px. Below `sm` the
+            * header composes vertically — lockup, then identity — and returns to the single
+            * justified row from `sm` upward, where there is genuinely space for both.
+            */}
+          <div className="flex min-w-0 flex-col items-stretch gap-2 py-3 sm:flex-row sm:items-center sm:justify-between sm:gap-4">
             <div className="flex min-w-0 items-center gap-3">
               <Link to="/" className="flex shrink-0 items-center gap-2" aria-label="CarUp home">
                 <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-gradient-to-br from-orange-500 to-amber-500">
