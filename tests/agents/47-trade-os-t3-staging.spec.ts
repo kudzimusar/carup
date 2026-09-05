@@ -51,7 +51,13 @@ const FIXTURE_TOTAL_CBM = Number(process.env.TRADEOS_T3_FIXTURE_TOTAL_CBM || 47)
 /** The sailing the provider attaches. Pinned by id for the same reason as the card above. */
 const FIXTURE_CONTAINER_ID = process.env.TRADEOS_T3_CONTAINER_ID
   || 'aaaa1111-bbbb-4ccc-8ddd-999900001111';
-const CARGO = `SYNTHETIC T3 ${RUN_TAG} household cartons`;
+/**
+ * The cargo description doubles as this run's identifier on shared surfaces (the opportunity feed,
+ * the operator manifest), so it must be unique per PROJECT as well as per run. All three viewport
+ * projects execute the same spec against the same long-lived staging sailing; with only the run tag
+ * in the string, tablet and mobile matched chromium's rows as well as their own.
+ */
+const cargoFor = (project: string) => `SYNTHETIC T3 ${RUN_TAG} ${project} household cartons`;
 
 function password(who: Who): string {
   const value = process.env[IDS[who].envPassword];
@@ -139,8 +145,9 @@ stagingTest.describe('Trade OS T3 — Shipping requests (deployed staging, unmoc
   stagingTest.skip(!provisioned(),
     'T3 staging identities are not provisioned (TRADEOS_T3_{REQUESTER,PROVIDER}_{EMAIL,PASSWORD}).');
 
-  stagingTest('requester publishes, provider offers safely, requester awards — and nothing is booked', async ({ page }) => {
+  stagingTest('requester publishes, provider offers safely, requester awards — and nothing is booked', async ({ page }, testInfo) => {
     stagingTest.setTimeout(300_000);
+    const CARGO = cargoFor(testInfo.project.name);
 
     // ── Requester: describe cargo without knowing CBM, then publish ────────
     await signIn(page, 'requester');
@@ -209,9 +216,9 @@ stagingTest.describe('Trade OS T3 — Shipping requests (deployed staging, unmoc
     await expect(detail).not.toContainText(/Space approved|Booking approved/i);
   });
 
-  stagingTest('a shared-container offer converts to a REQUESTED reservation that consumes nothing until the organiser approves', async ({ page }) => {
+  stagingTest('a shared-container offer converts to a REQUESTED reservation that consumes nothing until the organiser approves', async ({ page }, testInfo) => {
     stagingTest.setTimeout(300_000);
-    const cargo = `${CARGO} container-space`;
+    const cargo = `${cargoFor(testInfo.project.name)} container-space`;
 
     // ── Requester publishes ───────────────────────────────────────────────
     await signIn(page, 'requester');
@@ -301,8 +308,15 @@ stagingTest.describe('Trade OS T3 — Shipping requests (deployed staging, unmoc
     // ── Organiser approves, through the EXISTING container authority ──────
     await page.goto('/diaspora/containers?view=containers');
     await fixtureCard(page).getByTestId('diaspora-container-open').click();
-    await page.getByTestId('diaspora-container-approve').first().click();
-    await expect(page.getByTestId('diaspora-container-reservation-row').getByText('APPROVED')).toBeVisible({ timeout: 60_000 });
+
+    // Scope to THIS run's reservation. The sailing is long-lived and accumulates rows from earlier
+    // certifications, so approving `.first()` would approve a stranger's booking and then assert on
+    // whichever APPROVED badge happened to render — which is how this step first went green while
+    // proving nothing, and then broke on strict mode once two approvals existed.
+    const row = page.getByTestId('diaspora-container-reservation-row').filter({ hasText: cargo });
+    await expect(row, 'this run\'s reservation is not on the manifest').toHaveCount(1);
+    await row.getByTestId('diaspora-container-approve').click();
+    await expect(row.getByText('APPROVED')).toBeVisible({ timeout: 60_000 });
 
     // …and ONLY now does capacity move, by exactly the reserved volume.
     await page.goto('/diaspora/containers?view=containers');
