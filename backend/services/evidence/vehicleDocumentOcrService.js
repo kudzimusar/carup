@@ -81,9 +81,10 @@ export function toVehicleExtractionFields(contract, ocrResult = {}) {
   if (!contract) return [];
   const extracted = ocrResult.extractedData || {};
   const sourceModel = [ocrResult.provider, ocrResult.model].filter(Boolean).join('/') || null;
-  const confidence = Number.isFinite(Number(extracted.confidenceScore))
-    ? Number(extracted.confidenceScore)
-    : null;
+  const rawConfidence = extracted.confidenceScore;
+  const confidence = rawConfidence === null || rawConfidence === undefined || rawConfidence === ''
+    ? null
+    : (Number.isFinite(Number(rawConfidence)) ? Number(rawConfidence) : null);
 
   const fields = [];
   for (const [fieldName, comparedVehicleField] of contract.fields) {

@@ -1,5 +1,5 @@
 import express from 'express';
-import { authorizeRole } from '../middleware/authMiddleware.js';
+import { authorizeRole, requireProvenIdentity } from '../middleware/authMiddleware.js';
 import { runVehicleEvidenceOcr } from '../services/evidence/vehicleDocumentOcrService.js';
 
 /**
@@ -40,6 +40,7 @@ router.post('/api/diaspora/documents/:documentId/extractions', authorizeRole(), 
 router.post(
   '/api/vehicles/:vin/evidence/:evidenceId/run-ocr',
   authorizeRole(['owner', 'dealer', 'admin', 'government']),
+  requireProvenIdentity(),
   asyncHandler(async (req, res) => {
     const result = await runVehicleEvidenceOcr(
       undefined,
