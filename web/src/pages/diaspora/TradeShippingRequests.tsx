@@ -289,7 +289,7 @@ export default function TradeShippingRequests() {
   if (view === 'edit') {
     const steps = ['Cargo', 'Size & weight', 'Route', 'Review']
     return (
-      <section className="mx-auto w-full max-w-[1180px] min-w-0 px-4 py-8 sm:px-6 lg:px-10" data-testid="logistics-request-wizard">
+      <section className="mx-auto w-full max-w-[1440px] min-w-0 px-4 py-8 sm:px-6 lg:px-10" data-testid="logistics-request-wizard"><div className="max-w-[1180px]">
         <button type="button" onClick={() => setView('list')} className="inline-flex items-center gap-1.5 text-sm text-slate-600 hover:text-orange-700">
           <ArrowLeft className="h-4 w-4" /> My shipping
         </button>
@@ -473,6 +473,7 @@ export default function TradeShippingRequests() {
           {step > 0 && <Button variant="outline" className="rounded-none" onClick={() => setStep((value) => value - 1)} disabled={busy}>Back</Button>}
           {step < 3 ? <Button className="bg-orange-500 text-white hover:bg-orange-600" onClick={() => { if (step === 0 && items.some((item) => !item.description.trim())) { setError('Describe every cargo group before continuing.'); return } setError(''); setStep((value) => value + 1) }}>Continue <ArrowRight className="ml-1.5 h-4 w-4" /></Button> : <><Button className="bg-orange-500 text-white hover:bg-orange-600" onClick={() => void save(true)} disabled={busy}>{busy && <Loader2 className="mr-1.5 h-4 w-4 animate-spin" />} Publish shipping request</Button><Button variant="outline" className="rounded-none" onClick={() => void save(false)} disabled={busy}>Save draft</Button></>}
         </div>
+        </div>
       </section>
     )
   }
@@ -483,7 +484,7 @@ export default function TradeShippingRequests() {
     const accepted = offers.find((quote) => quote.id === selected.accepted_quote_id)
     const reservationId = typeof selected.metadata?.reservation_id === 'string' ? selected.metadata.reservation_id : null
     return (
-      <section className="mx-auto w-full max-w-[1280px] min-w-0 px-4 py-8 sm:px-6 lg:px-10" data-testid="logistics-request-detail">
+      <section className="mx-auto w-full max-w-[1440px] min-w-0 px-4 py-8 sm:px-6 lg:px-10" data-testid="logistics-request-detail"><div className="max-w-[1280px]">
         <button type="button" onClick={() => setView('list')} className="inline-flex items-center gap-1.5 text-sm text-slate-600 hover:text-orange-700"><ArrowLeft className="h-4 w-4" /> My shipping</button>
         <div className="mt-4 border-b-2 border-slate-950 pb-4"><p className="font-mono text-xs text-slate-500">{selected.reference}</p><div className="mt-1 flex flex-wrap items-start justify-between gap-4"><div><h1 className="text-2xl font-bold text-slate-950">{selected.items?.[0]?.description || 'Shipping request'}</h1><p className="mt-1 text-sm text-slate-600">{[selected.origin_city, selected.origin_country].filter(Boolean).join(', ')} → {[selected.destination_city, selected.destination_country].filter(Boolean).join(', ')}</p></div><div className="text-right"><span className={`inline-flex rounded-full border px-2.5 py-1 text-xs font-semibold ${meta.tone}`}>{meta.label}</span><p className="mt-1 text-xs text-slate-500">{meta.note}</p></div></div></div>
         {error && <Alert className="mt-5 border-red-200 bg-red-50"><AlertDescription>{error}</AlertDescription></Alert>}
@@ -504,16 +505,18 @@ export default function TradeShippingRequests() {
             {accepted && <div className="mt-6 border border-slate-300 bg-slate-50 p-5"><h3 className="font-bold text-slate-950">Continue the shipping transaction</h3>{accepted.compatible_container_id ? <><p className="mt-1 text-sm text-slate-600">This offer references a real CarUp shared-container sailing. Requesting space creates a <strong>pending</strong> reservation; the organiser still has to approve it.</p>{reservationId ? <p className="mt-4 text-sm font-semibold text-emerald-800">Container-space request recorded · {reservationId.slice(0, 8)}</p> : <Button className="mt-4 bg-orange-500 text-white hover:bg-orange-600" onClick={() => void requestSpace()} disabled={busy}><Ship className="mr-1.5 h-4 w-4" /> Request container space</Button>}</> : <p className="mt-1 text-sm text-slate-600">This provider did not attach a CarUp container sailing. Continue through Messages to agree the operational next step; CarUp will not invent a booking.</p>}</div>}
           </div>
         </div>
+        </div>
       </section>
     )
   }
 
   return (
-    <section className="mx-auto w-full max-w-[1280px] min-w-0 px-4 py-8 sm:px-6 lg:px-10" data-testid="trade-my-shipping">
+    <section className="mx-auto w-full max-w-[1440px] min-w-0 px-4 py-8 sm:px-6 lg:px-10" data-testid="trade-my-shipping"><div className="max-w-[1280px]">
       <div className="flex flex-wrap items-end justify-between gap-4 border-b-2 border-slate-950 pb-4"><div><p className="text-xs font-semibold uppercase tracking-[0.18em] text-orange-700">My shipping</p><h1 className="mt-1 text-2xl font-bold tracking-tight text-slate-950">Move goods you already own or bought</h1><p className="mt-1 max-w-3xl text-sm text-slate-600">Describe the cargo once, let qualified logistics providers propose a service, compare what each price includes, then choose. You can also use open CarUp container space directly.</p></div><Button className="bg-orange-500 text-white hover:bg-orange-600" onClick={startNew}><Plus className="mr-1.5 h-4 w-4" /> New shipping request</Button></div>
       {unreadable && <Alert className="mt-5 border-amber-200 bg-amber-50"><AlertDescription>Your shipping requests could not be loaded. This is not a report that you have none.</AlertDescription></Alert>}
       {error && <Alert className="mt-5 border-red-200 bg-red-50"><AlertDescription>{error}</AlertDescription></Alert>}
       {!unreadable && requests.length === 0 ? <div className="mt-6 border border-dashed border-slate-300 p-8"><Box className="h-7 w-7 text-orange-600" /><h2 className="mt-3 text-lg font-bold text-slate-950">Nothing to ship yet</h2><p className="mt-2 max-w-xl text-sm text-slate-600">Start with what you know. You can request quotes even when dimensions are not final; CarUp keeps unknown measurements visibly unknown.</p><Button className="mt-4 bg-orange-500 text-white hover:bg-orange-600" onClick={startNew}>Create shipping request</Button></div> : <div className="mt-5 divide-y divide-slate-200">{requests.map((request) => { const meta = statusMeta(request.status); return <button key={request.id} type="button" onClick={() => void openDetail(request.id)} className="flex w-full min-w-0 items-start justify-between gap-4 py-5 text-left hover:bg-slate-50"><div className="min-w-0"><p className="truncate font-semibold text-slate-950">{request.items?.[0]?.description || 'Shipping request'}</p><p className="mt-0.5 font-mono text-xs text-slate-500">{request.reference}</p><p className="mt-1 text-sm text-slate-600">{[request.origin_city, request.origin_country].filter(Boolean).join(', ')} → {[request.destination_city, request.destination_country].filter(Boolean).join(', ')}</p></div><div className="shrink-0 text-right"><span className={`inline-flex rounded-full border px-2.5 py-1 text-xs font-semibold ${meta.tone}`}>{meta.label}</span><p className="mt-1 text-xs text-slate-500">{meta.note}</p></div></button> })}</div>}
+      </div>
     </section>
   )
 }
