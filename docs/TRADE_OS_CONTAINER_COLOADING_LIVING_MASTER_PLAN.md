@@ -1587,10 +1587,9 @@ Do not describe T3 as client-ready, and do not begin T4, before then.
 - [x] One operating record from awarded procurement/logistics quote.
 - [x] Aggregate participants, quote, cargo, container, documents, milestones, communications and audit.
 - [x] Prevent shadow duplication.
-- [~] Deployed-staging evidence: logistics-origin certified; procurement-origin blocked on the
-      staging migration (see §33).
+- [x] Deployed-staging evidence for BOTH origins (see §34).
 
-Executed at `8fc31aaa`. Receipt:
+Executed at `8fc31aaa`, certified at `3a3d729e`. Receipt:
 `docs/trade-os/receipts/T4_ORDER_BOOKING_PASSPORT_CONVERGENCE.md`.
 
 ## T5 — Container Marketplace full product
@@ -3098,3 +3097,70 @@ Twelve local backend failures in `verification-*` and `provision-staging-qa-acco
 failure markers in the same four files. They pass in CI.
 
 **T4-PARTIAL. Owner UAT required. T5 NOT STARTED — it needs separate owner authorization.**
+
+---
+
+## §34 — T4 FINAL TECHNICAL CERTIFICATION (both origins on deployed staging)
+
+**Candidate `3a3d729e`. T4-PARTIAL, remaining for exactly one reason: OWNER VISUAL / PRODUCT UAT.**
+T3 frozen at `b446d8ea` and green. Production untouched. T5 not started. PR #207 Draft.
+
+### Staging schema, applied under authorization
+
+`20260906090000_trade_os_t4_transaction_continuation_link.sql` applied to STAGING only through the
+approved migration authority; ledger `20260905151925`. Verified afterwards rather than trusted:
+the nullable `import_order_id`, the FK with `ON DELETE SET NULL`, the partial lookup index, and the
+live-continuation unique index carrying exactly
+`deleted_at IS NULL AND import_order_id IS NOT NULL AND status <> ALL (ARRAY['CANCELLED','CLOSED'])`.
+**Production checked: the column does not exist there (0).**
+
+### The defect only the deployed journey could find
+
+The first procurement run returned **201 with zero cargo lines** — the API looked healthy while
+T4's core "no re-entry" guarantee was silently broken. `cargo_category` is a lowercase vocabulary
+and `'VEHICLE'` violated the CHECK; worse, **the insert's error was never inspected**, so it failed
+silently. Fixed in `3a3d729e`, together with a latent hazard on the same line: `linked_vehicle_vin`
+is a FK to `vehicles`, so an unverified VIN would both break the insert and assert an unauthorised
+vehicle link — it is now carried only when the vehicle exists *and* belongs to the buyer. The
+continuation now converges: a replay repairs a missing cargo line. No mock could have caught this,
+because the mock has no CHECK constraints.
+
+### Both origins, on the same deployed candidate
+
+**Procurement** `ORD-C1F0F150` → `SHIP-18F70CAB`: refused before acceptance ("Accept a supplier
+offer before arranging shipping"); after acceptance the passport reads `COUNTERPARTY_SELECTED`,
+the continuation is 201 with the order linked and the route inherited, the cargo line carries
+"Toyota Aqua" with `measurement_basis UNKNOWN` and **null** volume and weight, replay is idempotent,
+and **four concurrent activations returned one id with no raw 23505**.
+
+**Logistics** `SHIP-54829F7F`: `SPACE_APPROVED`, sailing 24/3/21, `consumes_capacity=true`,
+`continued_from_order = null` — no procurement order manufactured — and the five unimplemented
+stages honest.
+
+### Security, on deployed staging
+
+Requester and buyer 200 on their own; unrelated user **403** on both passports and on
+continue-to-logistics; anonymous **401** on both; non-awarded provider **403**; awarded provider 200
+with the requester **withheld** and no VIN field. Payload scans show no requester id, no reference,
+and none of `storage_path`, `document_url`, `service_role`, `tenant_users`, `deleted_at`,
+`created_by`. Public registration cannot self-grant `dealer`; that control was not worked around.
+
+### Gates
+
+Backend **87/87** · real-Postgres T4 gate **11/11** · web unit **1572/1572** · tsc clean · lint
+NET_NEW 0/0 · build ✓ · **CI 7/7**, with **both T4 gates confirmed executing** (the PGlite step by
+name, five T4 subtests and the constraint checks visible in the log).
+
+Responsive: both passports, seven widths, `scrollWidth <= innerWidth + 1` everywhere, 0 console
+errors, 0 5xx. The procurement surface says **"Supplier selected"**, the logistics one **"Container
+space approved"** — origin-specific human language, each with its evidence line.
+
+### Named gap
+
+**Nothing in the codebase writes `CANCELLED` or `CLOSED` to a logistics request** — T3 shipped no
+cancel capability. The slot-release predicate is therefore correct and proven on real Postgres but
+unreachable through the product, which means a buyer who starts shipping for an order cannot start a
+different one for it. The index is built for the capability that should exist; the capability is a
+T-phase gap, not a T4 defect.
+
+**Remaining gate: OWNER UAT. Do not treat this entry as an owner pass.**

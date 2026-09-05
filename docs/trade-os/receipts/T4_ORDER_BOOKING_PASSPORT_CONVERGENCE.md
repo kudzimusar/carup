@@ -190,40 +190,149 @@ payload scan shows `VIN leaked: false`, `requester leaked: false`.
 1440×900, 1536×864: `scrollWidth <= innerWidth + 1` at **all seven**; 0 console errors; 0 5xx;
 0 unexpected 4xx.
 
-### BLOCKED: procurement-origin staging journey
+### Staging schema (authorized, staging only)
 
-The staging migration was **not applied** — `apply_migration` was refused by the environment's
-safety classifier, and subsequent staging SQL reads were refused too. I did not re-route the same
-DDL through another tool, because that would work around the intent of the refusal rather than the
-mechanism.
+`20260906090000_trade_os_t4_transaction_continuation_link.sql` applied to the STAGING Supabase
+project through the approved migration authority. Ledger entry
+`20260905151925 trade_os_t4_transaction_continuation_link`. Verified independently afterwards:
 
-Consequence, stated precisely: `diaspora_logistics_requests.import_order_id` does not exist on
-staging, so **the procurement-origin passport and the continuation cannot be exercised there**. The
-logistics-origin passport is unaffected and is certified above — it reads the column only for the
-optional `continued_from_order`, which is absent and correctly renders as none.
+```
+column   import_order_id            uuid nullable=YES
+FK       diaspora_logistics_requests_import_order_id_fkey
+         FOREIGN KEY (import_order_id) REFERENCES diaspora_import_orders(id) ON DELETE SET NULL
+lookup   idx_diaspora_logistics_requests_import_order
+         WHERE deleted_at IS NULL AND import_order_id IS NOT NULL
+unique   uq_diaspora_logistics_request_live_import_order
+         WHERE deleted_at IS NULL AND import_order_id IS NOT NULL
+           AND status <> ALL (ARRAY['CANCELLED','CLOSED'])
+```
 
-Both are fully covered by the service tests and by the real-Postgres constraint gate. What is
-missing is deployed-staging evidence for those two paths, and it needs one authorized action:
-apply `20260906090000_trade_os_t4_transaction_continuation_link.sql` to staging.
+**Production verified untouched:** the column count in the production project is **0**.
 
-## 6. Known limitations and deferred work
+### PROCUREMENT-ORIGIN journey, unmocked on deployed staging
 
-- **Procurement-origin + continuation not certified on deployed staging** — blocked above.
-- **Documents for a pure logistics-origin transaction** have no anchor; `diaspora_trade_documents`
-  keys on `import_order_id` only. The passport says so rather than inventing one. Owner: **T8**.
-- **No shipment path for logistics-origin** — `diaspora_shipments` anchors on `import_order_id`.
-  Owner: **T11**.
-- **The legacy `DiasporaOrderPassport` remains** as the compliance record (government footprint,
-  audit, payment milestones, ownership handoff). The two surfaces now link to each other so neither
-  is orphaned; absorbing those sections belongs with T8/T12/T13.
-- **Intelligence pairing is event-level only.** T4 emits no new event types; the existing
-  `diaspora.rfq.*`, `diaspora.logistics.*` and `diaspora.container_booking.*` already carry award,
-  request and approval. No dashboards were built (T15).
+`ORD-C1F0F150` → `SHIP-18F70CAB`:
 
-## 7. Status
+| Step | Result |
+|---|---|
+| create procurement request | 201 |
+| publish RFQ | 200 |
+| supplier offer recorded | 201 (`ISSUED`) |
+| accept offer | 200 |
+| procurement passport | `COUNTERPARTY_SELECTED` — *"An offer has been accepted"*, USD 8200 (`QTE-C54D6E27`), supplier present |
+| continue to logistics | **201**, `import_order_id = c1f0f150…`, route inherited (`SYNTHETIC … Yokohama / Japan → Harare / Zimbabwe`), status `DRAFT` |
+| inherited cargo | **1 line** — "Toyota Aqua", `measurement_basis UNKNOWN`, volume **null**, weight **null** |
+| replay | 200, `idempotentReplay=true`, same request |
+| **4 concurrent** | all 200, **one** id returned, **no raw 23505**, all resolve to the winner |
+| passport after continuation | `shipping_continuation → SHIP-18F70CAB` |
+| logistics side | `continued_from_order → ORD-C1F0F150` |
 
-**T4-PARTIAL.** Implementation complete and certified everywhere it can be, but the
-procurement-origin journey lacks deployed-staging evidence until the migration is applied.
+**Refusal proven first:** before an offer was accepted, `continue-to-logistics` returned 400
+*"Accept a supplier offer before arranging shipping for this order"* — you cannot ship what you
+have not bought.
 
-**Owner UAT required: YES.** T3 remains frozen and green. Production untouched. T5 not started.
-PR #207 stays Draft.
+**No duplicated authority:** the shipping request holds the edge and the inherited route only.
+Quote totals, supplier identity and order status stay in the procurement tables and are read, never
+copied.
+
+#### A real defect this journey caught — and only this journey could
+
+The first deployed run returned **201 with zero cargo lines**. The API looked healthy; the
+"no re-entry" guarantee that is T4's core acceptance condition was silently broken. Two causes:
+
+1. `cargo_category` is a **lowercase** vocabulary (`'vehicle'`); `'VEHICLE'` violates the CHECK.
+2. **The insert's error was never inspected**, so the violation failed silently and the endpoint
+   still answered 201.
+
+The second is the one that mattered — a loud failure would have been caught the first time. Both are
+fixed in `3a3d729e`, along with a latent hazard on the same path: `linked_vehicle_vin` is a FOREIGN
+KEY to `vehicles`, so carrying a VIN the order merely mentions would fail the insert whenever no such
+row exists *and* would assert a vehicle link CarUp has not authorised. The VIN is now carried only
+when the vehicle exists **and belongs to the buyer**; otherwise the line keeps the descriptive
+vehicle context with no link. The continuation also now **converges**: a replay repairs a request
+whose cargo line is missing, so a transaction that hit this once is not blank forever.
+
+Two regression tests added (unowned-VIN, missing-cargo repair). No local suite could have caught
+this — the mock has no CHECK constraints.
+
+### LOGISTICS-ORIGIN, re-proven on the same final candidate
+
+`SHIP-54829F7F`: `SPACE_APPROVED` — *"The organiser approved the container space"*; sailing
+`SAIL-2BACA5F7` at **24 total / 3 used / 21 available**; reservation `APPROVED`,
+`consumes_capacity=true`; `continued_from_order = null` (**no procurement order manufactured**);
+documents `authority=false` (stated, not faked); lifecycle `…SPACE_APPROVED:CURRENT`,
+`WAREHOUSE_INTAKE:NOT_STARTED`, `LOADING:NOT_STARTED`, `SHIPMENT:NOT_CONNECTED`,
+`CUSTOMS:NOT_RECORDED`, `HANDOVER:NOT_RECORDED`. Capacity remains owned by the container authority.
+
+### SECURITY, on deployed staging
+
+| Check | Result |
+|---|---|
+| requester → own logistics passport | 200 |
+| buyer → own procurement passport | 200 |
+| unrelated user → logistics passport | **403** |
+| unrelated user → procurement passport | **403** |
+| anonymous → logistics passport | **401** |
+| anonymous → procurement passport | **401** |
+| unrelated user → continue-to-logistics | **403** |
+| non-awarded provider → logistics passport | **403** |
+| awarded provider → logistics passport | 200, requester **withheld**, no VIN field |
+| stranger payload leaks requester id / any reference | **false / false** |
+| legit payload exposes `storage_path`, `document_url`, `service_role`, `tenant_users`, `deleted_at`, `created_by` | **all false** |
+
+The unrelated identity was created through public registration for this run (owner, no tenant).
+Public registration **cannot** self-grant `dealer` — it fails closed to `owner` — and that control
+was not worked around.
+
+### DEPLOYMENT
+
+FE `https://carup-staging-git-feat-trade-os-client-demo-convergence-11-11.vercel.app`, bundle
+**`index-DNz56QRa.js`** · BE
+`https://carup-backend-staging-git-feat-trade-os-client-dem-dbf311-11-11.vercel.app`,
+`/api/health → commit_sha 3a3d729e` · same branch pair · staging Supabase project.
+
+A bundle hash identifies the BUILD that was measured, not a reproducible hash of source.
+
+### RESPONSIVE
+
+Both surfaces, on the deployed build, at 393×852, 820×1180, 1024×768, 1280×800, 1366×768,
+1440×900, 1536×864 — `scrollWidth <= innerWidth + 1` at **all seven**, **0** console errors,
+**0** 5xx, **0** unexpected 4xx.
+
+The procurement passport renders **"Supplier selected"** and the logistics one **"Container space
+approved"**, each with its evidence line — human product language, and the origin-specific wording
+proves the procurement label path is live.
+
+### GATES
+
+Backend (T4 + T3 + container + migration-integrity + T3 isolation) **87/87** · real-Postgres T4 gate
+**11/11** · web unit **1572/1572** · `tsc` clean · lint NET_NEW **0/0** · build ✓ · **CI 7/7** at
+`3a3d729e`.
+
+**Both T4 gates confirmed EXECUTING in CI**, not merely present: the PGlite step reports `success`
+by name, five T4 service subtests appear in the log (including both new regressions), and the
+constraint-rejection and slot-release checks appear in the PGlite output.
+
+## 7. Known limitations
+
+- **The cancel/close slot-release predicate cannot be exercised on staging** — not because it is
+  wrong, but because **nothing in the codebase writes `CANCELLED` or `CLOSED` to a logistics
+  request**. T3 shipped no cancel capability. The predicate is proven on real Postgres (checks 5–7
+  of the gate). Product consequence worth naming: today a buyer who starts shipping for an order
+  cannot start a different one for that order, because nothing can free the slot. The index is
+  built for the capability that should exist; the capability is a T-phase gap.
+- **Documents for a pure logistics-origin transaction** have no anchor (`diaspora_trade_documents`
+  keys on `import_order_id`). Stated as unknown, not faked. Owner: **T8**.
+- **No shipment path for logistics-origin.** Owner: **T11**.
+- **The legacy `DiasporaOrderPassport` remains** as the compliance record; the two surfaces link to
+  each other. Absorbing it belongs with T8/T12/T13.
+- **Intelligence pairing is event-level only** — no new event types, no dashboards (T15).
+- Twelve local `verification-*` failures are **pre-existing**: stashing every T4 change reproduced
+  the identical 25 markers at `04558148`. They pass in CI.
+
+## 8. Status
+
+**T4-PARTIAL**, remaining for exactly one reason: **OWNER VISUAL / PRODUCT UAT.**
+
+Every technical gate passes on the exact deployed candidate, for both origins. T3 remains frozen at
+`b446d8ea` and green. Production untouched. T5 not started. PR #207 Draft.
