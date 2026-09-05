@@ -193,6 +193,14 @@ function normalizeItem(raw = {}, index = 0) {
     measurementBasis = 'PROVIDED';
   }
 
+  // The column CHECK admits NULL or > 0, and round3 floors anything under 0.0005 m³ to exactly 0 —
+  // which the insert would then reject AFTER the update path has already deleted the previous
+  // items. Refuse it here, before any write, with advice a layman can act on.
+  if (estimatedVolume !== null && !(estimatedVolume > 0)) {
+    throw new ValidationError(
+      `Cargo item ${index + 1}'s measurements round to 0.000 CBM — check the unit (cm vs m), or use "I know the total volume" with the group's combined volume`);
+  }
+
   return {
     cargo_category: category,
     description,
@@ -314,13 +322,19 @@ export async function listMyLogisticsRequests(filters = {}, userContext = {}, op
   const context = requireUserContext(userContext);
   const client = await resolveClient(options);
   const { limit, offset } = paging(filters);
-  const { data, error } = await client.from(REQUESTS).select('*').is('deleted_at', null).order('created_at', { ascending: false });
-  if (error) throw new ValidationError(`Could not list shipping requests: ${error.message}`);
-  let rows = (data || []).filter((row) => ownsRequest(row, context) || isPrivileged(context));
+  // Ownership and paging belong in the QUERY, not in JavaScript. The previous shape selected every
+  // live row platform-wide and filtered/sliced in JS, which (a) read the whole cross-tenant table
+  // to serve one requester and (b) let PostgREST's response cap silently hide a user's own rows
+  // once the table outgrew it — truncation before the ownership filter is data loss, not paging.
+  // requester_id is NOT NULL and always the creator, so the equality filter is the ownership rule.
+  let query = client.from(REQUESTS).select('*').is('deleted_at', null);
+  if (!isPrivileged(context)) query = query.eq('requester_id', context.id);
   if (filters.status && REQUEST_STATUSES.has(String(filters.status).toUpperCase())) {
-    rows = rows.filter((row) => row.status === String(filters.status).toUpperCase());
+    query = query.eq('status', String(filters.status).toUpperCase());
   }
-  rows = rows.slice(offset, offset + limit);
+  const { data, error } = await query.order('created_at', { ascending: false }).range(offset, offset + limit - 1);
+  if (error) throw new ValidationError(`Could not list shipping requests: ${error.message}`);
+  const rows = (data || []).filter((row) => ownsRequest(row, context) || isPrivileged(context));
   const itemsByRequest = await loadItems(client, rows.map((row) => row.id));
   return rows.map((row) => ({ ...row, reference: requestReference(row.id), items: itemsByRequest.get(row.id) || [] }));
 }
@@ -453,26 +467,36 @@ function normalizeQuotePayload(payload = {}, previous = {}) {
   if (!SERVICE_MODES.has(mode)) throw new ValidationError('Unsupported logistics service mode');
   const total = positiveNumber(payload.total_amount ?? payload.totalAmount ?? previous.total_amount);
   if (!total) throw new ValidationError('Offer total must be a positive amount');
+  // "Key present" decides the merge. `??` cannot express "clear this field": a provider who
+  // deletes a charge sends null (or the key is absent when a client strips empties), and falling
+  // back to the stored value silently resurrects a number the provider removed — wrong terms on
+  // the offer they then submit. An absent key still keeps the previous value, so partial PATCHes
+  // remain partial.
+  const sent = (...keys) => keys.find((key) => Object.prototype.hasOwnProperty.call(payload, key));
+  const money = (snake, camel) => {
+    const key = sent(snake, camel);
+    return key ? nonNegativeNumber(payload[key]) ?? null : previous[snake] ?? null;
+  };
   return {
     service_mode: mode,
-    freight_amount: nonNegativeNumber(payload.freight_amount ?? payload.freightAmount ?? previous.freight_amount),
-    handling_amount: nonNegativeNumber(payload.handling_amount ?? payload.handlingAmount ?? previous.handling_amount),
-    origin_charges: nonNegativeNumber(payload.origin_charges ?? payload.originCharges ?? previous.origin_charges),
-    destination_charges: nonNegativeNumber(payload.destination_charges ?? payload.destinationCharges ?? previous.destination_charges),
-    documentation_fees: nonNegativeNumber(payload.documentation_fees ?? payload.documentationFees ?? previous.documentation_fees),
+    freight_amount: money('freight_amount', 'freightAmount'),
+    handling_amount: money('handling_amount', 'handlingAmount'),
+    origin_charges: money('origin_charges', 'originCharges'),
+    destination_charges: money('destination_charges', 'destinationCharges'),
+    documentation_fees: money('documentation_fees', 'documentationFees'),
     optional_services: normalizeOptionalServices(payload.optional_services ?? payload.optionalServices ?? previous.optional_services),
     total_amount: total,
     currency: cleanText(payload.currency ?? previous.currency ?? 'USD', 10) || 'USD',
     transit_days: positiveNumber(payload.transit_days ?? payload.transitDays ?? previous.transit_days)
       ? Math.round(positiveNumber(payload.transit_days ?? payload.transitDays ?? previous.transit_days)) : null,
-    valid_until: payload.valid_until ?? payload.validUntil ?? previous.valid_until ?? null,
+    valid_until: sent('valid_until', 'validUntil') ? (payload[sent('valid_until', 'validUntil')] || null) : (previous.valid_until ?? null),
     pickup_included: typeof (payload.pickup_included ?? payload.pickupIncluded) === 'boolean'
       ? (payload.pickup_included ?? payload.pickupIncluded) : (previous.pickup_included ?? null),
     delivery_included: typeof (payload.delivery_included ?? payload.deliveryIncluded) === 'boolean'
       ? (payload.delivery_included ?? payload.deliveryIncluded) : (previous.delivery_included ?? null),
-    inclusions: normalizeStringArray(payload.inclusions ?? previous.inclusions),
-    exclusions: normalizeStringArray(payload.exclusions ?? previous.exclusions),
-    conditions: cleanText(payload.conditions ?? previous.conditions, 2000),
+    inclusions: normalizeStringArray(sent('inclusions') ? payload.inclusions : previous.inclusions),
+    exclusions: normalizeStringArray(sent('exclusions') ? payload.exclusions : previous.exclusions),
+    conditions: cleanText(sent('conditions') ? payload.conditions : previous.conditions, 2000) || null,
   };
 }
 
@@ -630,7 +654,7 @@ export async function acceptLogisticsQuote(requestId, quoteId, userContext = {},
     const request = data.request || {};
     await notifyLogisticsQuoteAccepted({ request, quote: data.acceptedQuote, tenantId: request.tenant_id });
     const { data: siblings } = await client.from(QUOTES).select('*').eq('logistics_request_id', requestId).is('deleted_at', null);
-    await notifyLogisticsQuoteNotSelected({ request, quotes: siblings || [], acceptedQuoteId: data.acceptedQuote.id, tenantId: request.tenant_id });
+    await notifyLogisticsQuoteNotSelected({ request, quotes: siblings || [], acceptedQuoteId: data.acceptedQuote.id, acceptedProviderId: data.acceptedQuote.provider_id, tenantId: request.tenant_id });
   }
   return {
     request: data.request,
@@ -649,6 +673,71 @@ function totalKnownWeight(items) {
   return round3(items.reduce((sum, item) => sum + Number(item.estimated_weight_kg), 0));
 }
 
+/**
+ * Confirm missing measurements on a PUBLISHED shipping request.
+ *
+ * The wizard promises that "container-space booking will wait until every cargo group has an
+ * estimated volume" — a deferral, not a dead end. But items are edit-locked at publish (correctly:
+ * providers priced what they read), and requestSpaceForAward refuses unknown volume, so an awarded
+ * shared-container journey that started from "I don't know yet" had NO way forward: the error told
+ * the requester to confirm a volume no surface allowed them to record.
+ *
+ * This is deliberately NOT request editing. It is fill-only: only items whose volume is still
+ * NULL accept one, nothing already stated can be changed, and descriptions/categories/quantities/
+ * vehicle links stay frozen exactly as publish froze them. Providers quoted cargo whose size was
+ * visibly UNKNOWN; recording the missing estimate before booking is the step the copy promised.
+ */
+export async function confirmLogisticsItemMeasurements(requestId, payload = {}, userContext = {}, options = {}) {
+  const context = requireUserContext(userContext);
+  const client = await resolveClient(options);
+  const request = await loadRequest(client, requestId);
+  if (!ownsRequest(request, context) && !isPrivileged(context)) {
+    throw new ForbiddenError('Only the requester can confirm cargo measurements');
+  }
+  if (!['OPEN_FOR_QUOTES', 'AWARDED'].includes(request.status)) {
+    throw new ValidationError('Measurements can be confirmed only on a published shipping request');
+  }
+  const entries = Array.isArray(payload.items) ? payload.items : [];
+  if (!entries.length) throw new ValidationError('Provide at least one cargo measurement to confirm');
+
+  const itemRows = (await loadItems(client, [requestId])).get(requestId) || [];
+  const byId = new Map(itemRows.map((item) => [String(item.id), item]));
+  const updates = [];
+  for (const entry of entries) {
+    const item = byId.get(String(entry.item_id ?? entry.itemId ?? ''));
+    if (!item) throw new ValidationError('Unknown cargo item on this shipping request');
+    if (item.estimated_volume_cbm != null) {
+      throw new ValidationError('This cargo item already has an estimated volume; stated measurements are not editable after publish');
+    }
+    const volume = round3(positiveNumber(entry.estimated_volume_cbm ?? entry.estimatedVolumeCbm) || 0);
+    if (!(volume > 0)) throw new ValidationError('Estimated volume must be a positive number of CBM');
+    const weight = positiveNumber(entry.estimated_weight_kg ?? entry.estimatedWeightKg);
+    updates.push({
+      id: item.id,
+      estimated_volume_cbm: volume,
+      estimated_weight_kg: weight ?? item.estimated_weight_kg ?? null,
+    });
+  }
+
+  for (const update of updates) {
+    const { error } = await client.from(ITEMS).update({
+      estimated_volume_cbm: update.estimated_volume_cbm,
+      estimated_weight_kg: update.estimated_weight_kg,
+      measurement_basis: 'PROVIDED',
+      updated_by: context.id,
+      updated_at: new Date().toISOString(),
+    }).eq('id', update.id);
+    if (error) throw new ValidationError(`Could not record the confirmed measurement: ${error.message}`);
+  }
+
+  await appendAudit(client, {
+    actorId: context.id, tenantId: request.tenant_id, action: 'LOGISTICS_MEASUREMENTS_CONFIRMED',
+    resourceType: 'diaspora_logistics_request', resourceId: requestId,
+    newState: { confirmed: updates }, req: options.req,
+  });
+  return getMyLogisticsRequest(requestId, userContext, options);
+}
+
 export async function findCompatibleSailings(requestId, userContext = {}, options = {}) {
   const context = requireUserContext(userContext);
   const client = await resolveClient(options);
@@ -659,9 +748,15 @@ export async function findCompatibleSailings(requestId, userContext = {}, option
   const { data: containers, error } = await client.from(CONTAINERS).select('*').eq('status', 'BOOKING_OPEN').is('deleted_at', null).order('departure_date', { ascending: true });
   if (error) throw new ValidationError(`Could not find compatible sailings: ${error.message}`);
 
+  // §10.4 names FOUR match conditions; this function owns route, deadline and capacity, and
+  // reports that cargo eligibility stays with the organiser. A sailing whose booking cut-off has
+  // passed is not bookable, so presenting it as a match would promise something the container
+  // product itself refuses. A NULL deadline means "not recorded", which is not "closed".
+  const nowMs = Date.now();
   const routeMatches = (containers || []).filter((container) =>
     String(container.origin_country || '').toLowerCase() === String(request.origin_country || '').toLowerCase()
-    && String(container.destination_country || '').toLowerCase() === String(request.destination_country || '').toLowerCase());
+    && String(container.destination_country || '').toLowerCase() === String(request.destination_country || '').toLowerCase()
+    && (!container.booking_deadline || Date.parse(container.booking_deadline) >= nowMs));
   if (!routeMatches.length) return [];
 
   const tenantIds = [...new Set(routeMatches.map((container) => container.tenant_id).filter(Boolean))];
@@ -691,7 +786,8 @@ export async function findCompatibleSailings(requestId, userContext = {}, option
       capacity_match: capacityMatch,
       match_reasons: [
         'Origin and destination countries match',
-        ...(capacityMatch === true ? ['Recorded available capacity covers the current cargo estimate'] : ['Cargo volume is not fully known yet']),
+        container.booking_deadline ? 'Booking is open until the recorded cut-off' : 'No booking cut-off is recorded',
+        ...(capacityMatch === true ? ['Recorded available capacity covers the current cargo estimate'] : ['Cargo volume is not fully known yet, so capacity fit is not evaluated']),
       ],
       requires_operator_confirmation: true,
     });

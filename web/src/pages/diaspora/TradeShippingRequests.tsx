@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { ArrowLeft, ArrowRight, Box, Check, Loader2, MessageSquare, Plus, Ruler, Ship, Trash2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -105,6 +105,7 @@ function quoteValidityEnded(quote: LogisticsQuote): boolean {
 
 export default function TradeShippingRequests() {
   const api = useTradeLogisticsApi()
+  const { confirmMeasurements, fetchContainerReservations } = api
   // Destructured deliberately: the useCarUpApi aggregate object is a new identity every render and
   // depending on it directly loops.
   const { fetchOwnedVehicles } = useCarUpApi()
@@ -118,6 +119,14 @@ export default function TradeShippingRequests() {
   const [selected, setSelected] = useState<LogisticsRequest | null>(null)
   const [sailings, setSailings] = useState<LogisticsSailingMatch[]>([])
   const [sailingsUnreadable, setSailingsUnreadable] = useState(false)
+  // #29: the reservation's REAL state, read back from the hardened container product. null = none
+  // requested yet; 'UNREADABLE' = the read failed, which must never render as any concrete state.
+  const [reservationState, setReservationState] = useState<string | null>(null)
+  // #28: volumes the requester is typing to CONFIRM missing measurements (item id → input text).
+  const [confirmVolumes, setConfirmVolumes] = useState<Record<string, string>>({})
+  // #4: monotonically increasing token so a slower, OLDER detail response can never overwrite a
+  // newer one. React state setters are compared against the ref at await boundaries.
+  const detailGeneration = useRef(0)
   const [loading, setLoading] = useState(true)
   const [busy, setBusy] = useState(false)
   const [unreadable, setUnreadable] = useState(false)
@@ -240,6 +249,9 @@ export default function TradeShippingRequests() {
     setBusy(true); setError('')
     try {
       const saved = editingId ? await api.updateRequest(editingId, payload) : await api.createRequest(payload)
+      // The created id is recorded IMMEDIATELY. Publish is a second write; if it fails, the retry
+      // must PATCH this same request, not run create again and leave an orphan draft per click.
+      if (!editingId) setEditingId(saved.id)
       const finalRequest = publish ? await api.publishRequest(saved.id) : saved
       await load()
       if (publish) await openDetail(finalRequest.id)
@@ -250,21 +262,47 @@ export default function TradeShippingRequests() {
   }
 
   const openDetail = async (id: string) => {
+    if (busy) return
+    const generation = ++detailGeneration.current
     setBusy(true); setError(''); setSailings([]); setSailingsUnreadable(false)
+    setReservationState(null); setConfirmVolumes({})
     try {
       const request = await api.getRequest(id)
+      if (generation !== detailGeneration.current) return // a newer open superseded this one
       setSelected(request)
       try {
-        setSailings(await api.findSailingMatches(id))
+        const matches = await api.findSailingMatches(id)
+        if (generation !== detailGeneration.current) return
+        setSailings(matches)
         setSailingsUnreadable(false)
       } catch {
+        if (generation !== detailGeneration.current) return
         setSailings([])
         setSailingsUnreadable(true)
       }
+      // #29: a recorded space request is a live thing with a real state — read it back from the
+      // container product instead of narrating a frozen "pending". A failed read is UNREADABLE,
+      // never a claimed state.
+      const reservationId = typeof request.metadata?.reservation_id === 'string' ? request.metadata.reservation_id : null
+      const acceptedQuote = (request.quotes || []).find((quote) => quote.id === request.accepted_quote_id)
+      if (reservationId && acceptedQuote?.compatible_container_id) {
+        try {
+          const rows = await fetchContainerReservations(String(acceptedQuote.compatible_container_id))
+          if (generation !== detailGeneration.current) return
+          const row = rows.find((entry) => String(entry.id) === reservationId)
+          setReservationState(row ? String(row.reservation_status || 'UNREADABLE') : 'UNREADABLE')
+        } catch {
+          if (generation !== detailGeneration.current) return
+          setReservationState('UNREADABLE')
+        }
+      }
       setView('detail')
     } catch (err) {
+      if (generation !== detailGeneration.current) return
       setError(err instanceof Error ? err.message : 'Shipping request could not be loaded')
-    } finally { setBusy(false) }
+    } finally {
+      if (generation === detailGeneration.current) setBusy(false)
+    }
   }
 
   const chooseQuote = async (quote: LogisticsQuote) => {
@@ -433,6 +471,19 @@ export default function TradeShippingRequests() {
                     <label className={fieldLabel}>Total weight kg<Input className="mt-1 rounded-none" type="number" min="0" value={item.estimated_weight_kg ?? ''} onChange={(e) => setItem(index, { estimated_weight_kg: Number(e.target.value) || undefined })} /></label>
                   </div>
                 )}
+                {item.measurementMode === 'dimensions' && (() => {
+                  // The step's copy says "CarUp calculates it" — so the calculation must be shown,
+                  // here, while the person is typing, not silently carried to the server.
+                  const divisor = item.dimension_unit === 'm' ? 1 : 100
+                  const l = Number(item.length_value); const w = Number(item.width_value); const h = Number(item.height_value)
+                  const cbm = l > 0 && w > 0 && h > 0 ? Math.round(((l / divisor) * (w / divisor) * (h / divisor) * Math.max(1, Number(item.quantity) || 1) + Number.EPSILON) * 1000) / 1000 : null
+                  return cbm !== null ? (
+                    <p className={`mt-3 border-l-2 pl-3 text-sm ${cbm > 0 ? 'border-emerald-500 text-slate-700' : 'border-red-400 text-red-800'}`} data-testid="logistics-computed-cbm">
+                      {cbm > 0 ? <>Estimated volume: <strong>{cbm.toFixed(3)} CBM</strong> for this group ({item.quantity} × {item.length_value}×{item.width_value}×{item.height_value} {item.dimension_unit}). An estimate, not a measurement.</>
+                        : <>These measurements round to 0.000 CBM — check the unit ({item.dimension_unit}), or switch to “I know the total volume”.</>}
+                    </p>
+                  ) : null
+                })()}
                 {item.measurementMode === 'volume' && (
                   <div className="mt-4 grid max-w-lg gap-3 sm:grid-cols-2">
                     <label className={fieldLabel}>Estimated total volume (CBM)<Input className="mt-1 rounded-none" type="number" min="0" step="0.001" value={item.estimated_volume_cbm ?? ''} onChange={(e) => setItem(index, { estimated_volume_cbm: Number(e.target.value) || undefined })} /></label>
@@ -467,7 +518,14 @@ export default function TradeShippingRequests() {
               <h2 className="text-lg font-bold text-slate-950">Review your shipping request</h2>
               <p className="mt-1 text-sm text-slate-600">Providers will quote for this cargo and route. Publishing does not book or approve container space.</p>
               <div className="mt-5 space-y-4">
-                {items.map((item, index) => <div key={index} className="border-l-2 border-orange-500 pl-3"><p className="font-medium text-slate-950">{item.quantity} × {item.description}</p><p className="text-xs text-slate-600">{categoryLabel(item.cargo_category)} · {item.measurementMode === 'unknown' ? 'Size not known yet' : item.measurementMode === 'volume' ? `${item.estimated_volume_cbm || '—'} CBM estimated` : 'Dimensions supplied for CBM calculation'}</p></div>)}
+                {items.map((item, index) => <div key={index} className="border-l-2 border-orange-500 pl-3"><p className="font-medium text-slate-950">{item.quantity} × {item.description}</p><p className="text-xs text-slate-600">{categoryLabel(item.cargo_category)} · {(() => {
+                  if (item.measurementMode === 'unknown') return 'Size not known yet'
+                  if (item.measurementMode === 'volume') return `${item.estimated_volume_cbm || '—'} CBM estimated`
+                  const divisor = item.dimension_unit === 'm' ? 1 : 100
+                  const l = Number(item.length_value); const w = Number(item.width_value); const h = Number(item.height_value)
+                  const cbm = l > 0 && w > 0 && h > 0 ? Math.round(((l / divisor) * (w / divisor) * (h / divisor) * Math.max(1, Number(item.quantity) || 1) + Number.EPSILON) * 1000) / 1000 : null
+                  return cbm && cbm > 0 ? `${cbm.toFixed(3)} CBM calculated from dimensions` : 'Dimensions incomplete — volume not yet calculable'
+                })()}</p></div>)}
               </div>
               <dl className="mt-5 grid grid-cols-2 gap-4 text-sm"><div><dt className="text-xs uppercase tracking-wide text-slate-500">From</dt><dd>{[originCity, originCountry].filter(Boolean).join(', ')}</dd></div><div><dt className="text-xs uppercase tracking-wide text-slate-500">To</dt><dd>{[destinationCity, destinationCountry].filter(Boolean).join(', ')}</dd></div><div><dt className="text-xs uppercase tracking-wide text-slate-500">Service</dt><dd>{serviceLabel(servicePreference)}</dd></div><div><dt className="text-xs uppercase tracking-wide text-slate-500">Needed by</dt><dd>{neededBy || 'Not specified'}</dd></div></dl>
             </div>
@@ -514,7 +572,7 @@ export default function TradeShippingRequests() {
                 ) : sailings.length === 0 ? (
                   <p className="mt-2 text-xs text-slate-500" data-testid="logistics-sailings-empty">No compatible open CarUp sailings were found from the recorded route and capacity facts.</p>
                 ) : (
-                  <><p className="mt-1 text-xs text-slate-500">These are route/capacity matches only. They do not mean the cargo is accepted or space is approved.</p><div className="mt-3 space-y-3">{sailings.map((sailing) => <div key={sailing.id} className="border border-slate-200 p-3"><p className="font-medium text-slate-900">{sailing.organiser_name || 'Organiser not recorded'} · {sailing.container_type}</p><p className="text-xs text-slate-600">Departs {String(sailing.departure_date).slice(0, 10)} · {sailing.available_capacity_cbm} CBM recorded available</p></div>)}</div></>
+                  <><p className="mt-1 text-xs text-slate-500">These are route/capacity matches only. They do not mean the cargo is accepted or space is approved.</p><div className="mt-3 space-y-3">{sailings.map((sailing) => <div key={sailing.id} className="border border-slate-200 p-3"><p className="font-medium text-slate-900">{sailing.organiser_name || 'Organiser not recorded'} · {sailing.container_type}</p><p className="text-xs text-slate-600">Departs {String(sailing.departure_date).slice(0, 10)}{sailing.booking_deadline ? ` · book by ${String(sailing.booking_deadline).slice(0, 10)}` : ''} · {sailing.available_capacity_cbm} CBM recorded available</p>{sailing.capacity_match === null && <p className="mt-1 text-[11px] text-amber-900">Capacity fit not evaluated — this request’s cargo volume is not fully known yet.</p>}</div>)}</div></>
                 )}
               </div>
             )}
@@ -526,7 +584,46 @@ export default function TradeShippingRequests() {
               const expired = quoteValidityEnded(quote)
               return <article key={quote.id} className={`border p-5 ${chosen ? 'border-emerald-500 bg-emerald-50/40' : expired ? 'border-amber-300 bg-amber-50/30' : 'border-slate-300 bg-white'}`} data-testid="logistics-offer-card"><div className="flex flex-wrap justify-between gap-3"><div><p className="font-semibold text-slate-950">{quote.provider?.display_name || 'Logistics provider'}</p><p className="text-xs text-slate-500">{[quote.provider?.city, quote.provider?.country].filter(Boolean).join(', ') || 'Location not provided'} · provider-stated, not verified by CarUp</p><p className="mt-2 text-xl font-bold text-slate-950">{money(quote.total_amount, quote.currency)}</p></div><span className="text-xs font-semibold uppercase tracking-wide text-slate-500">{quote.service_mode.replace(/_/g, ' ')}</span></div><dl className="mt-4 grid grid-cols-2 gap-3 text-sm sm:grid-cols-3"><div><dt className="text-[10px] uppercase text-slate-500">Freight</dt><dd>{quote.freight_amount == null ? 'Not provided' : money(quote.freight_amount, quote.currency)}</dd></div><div><dt className="text-[10px] uppercase text-slate-500">Handling</dt><dd>{quote.handling_amount == null ? 'Not provided' : money(quote.handling_amount, quote.currency)}</dd></div><div><dt className="text-[10px] uppercase text-slate-500">Origin charges</dt><dd>{quote.origin_charges == null ? 'Not provided' : money(quote.origin_charges, quote.currency)}</dd></div><div><dt className="text-[10px] uppercase text-slate-500">Destination charges</dt><dd>{quote.destination_charges == null ? 'Not provided' : money(quote.destination_charges, quote.currency)}</dd></div><div><dt className="text-[10px] uppercase text-slate-500">Documentation</dt><dd>{quote.documentation_fees == null ? 'Not provided' : money(quote.documentation_fees, quote.currency)}</dd></div><div><dt className="text-[10px] uppercase text-slate-500">Transit</dt><dd>{quote.transit_days ? `${quote.transit_days} days stated` : 'Not provided'}</dd></div><div><dt className="text-[10px] uppercase text-slate-500">Pickup</dt><dd>{tri(quote.pickup_included)}</dd></div><div><dt className="text-[10px] uppercase text-slate-500">Delivery</dt><dd>{tri(quote.delivery_included)}</dd></div><div><dt className="text-[10px] uppercase text-slate-500">Valid until</dt><dd>{quote.valid_until ? String(quote.valid_until).slice(0, 10) : 'Not provided'}</dd></div></dl>{quote.inclusions?.length ? <p className="mt-3 text-xs text-slate-600"><strong>Includes:</strong> {quote.inclusions.join(', ')}</p> : null}{quote.exclusions?.length ? <p className="text-xs text-slate-600"><strong>Excludes:</strong> {quote.exclusions.join(', ')}</p> : null}{quote.conditions ? <p className="mt-2 text-xs text-slate-600"><strong>Conditions:</strong> {quote.conditions}</p> : null}{expired && <p className="mt-3 text-xs font-semibold text-amber-900" data-testid="logistics-offer-expired">This offer’s stated validity has ended. Ask the provider for a current offer before choosing.</p>}<div className="mt-4 flex flex-wrap gap-2">{!selected.accepted_quote_id && quote.status === 'SUBMITTED' && !expired && <Button className="bg-orange-500 text-white hover:bg-orange-600" onClick={() => void chooseQuote(quote)} disabled={busy}>Choose this provider</Button>}<Button variant="outline" className="rounded-none" onClick={() => void askProvider(quote.provider_id)} disabled={busy}><MessageSquare className="mr-1.5 h-4 w-4" /> Ask a question</Button></div>{chosen && <p className="mt-3 flex items-center gap-2 text-sm font-medium text-emerald-800"><Check className="h-4 w-4" /> You selected this provider.</p>}</article>
             })}</div>}
-            {accepted && <div className="mt-6 border border-slate-300 bg-slate-50 p-5"><h3 className="font-bold text-slate-950">Continue the shipping transaction</h3>{accepted.compatible_container_id ? <><p className="mt-1 text-sm text-slate-600">This offer references a real CarUp shared-container sailing. Requesting space creates a <strong>pending</strong> reservation; the organiser still has to approve it.</p>{reservationId ? <p className="mt-4 text-sm font-semibold text-emerald-800">Container-space request recorded · {reservationId.slice(0, 8)}</p> : <Button className="mt-4 bg-orange-500 text-white hover:bg-orange-600" onClick={() => void requestSpace()} disabled={busy}><Ship className="mr-1.5 h-4 w-4" /> Request container space</Button>}</> : <p className="mt-1 text-sm text-slate-600">This provider did not attach a CarUp container sailing. Continue through Messages to agree the operational next step; CarUp will not invent a booking.</p>}</div>}
+            {accepted && (() => {
+              const missingVolumeItems = (selected.items || []).filter((item) => item.estimated_volume_cbm == null)
+              const confirmReady = missingVolumeItems.every((item) => Number(confirmVolumes[item.id]) > 0)
+              return <div className="mt-6 border border-slate-300 bg-slate-50 p-5" data-testid="logistics-continue-panel"><h3 className="font-bold text-slate-950">Continue the shipping transaction</h3>{accepted.compatible_container_id ? <>
+                <p className="mt-1 text-sm text-slate-600">This offer references a real CarUp shared-container sailing. Requesting space creates a <strong>pending</strong> reservation; the organiser still has to approve it.</p>
+
+                {/* #28: the wizard promised container-space booking would WAIT for missing volumes,
+                    not die on them. Confirming is fill-only — stated measurements stay stated. */}
+                {!reservationId && missingVolumeItems.length > 0 && (
+                  <div className="mt-4 border-l-2 border-amber-400 pl-3" data-testid="logistics-confirm-measurements">
+                    <p className="text-sm font-medium text-slate-900">Confirm the estimated volume before booking space</p>
+                    <p className="mt-1 text-xs text-slate-600">Providers quoted this cargo with its size marked unknown. Container space is allocated in CBM, so each group needs an estimate now — it stays an estimate until the organiser or warehouse measures.</p>
+                    {missingVolumeItems.map((item) => (
+                      <label key={item.id} className="mt-3 block text-xs font-semibold uppercase tracking-wide text-slate-600">{item.quantity} × {item.description}
+                        <span className="mt-1 flex items-center gap-2 normal-case"><Input className="w-32 rounded-none" type="number" min="0.001" step="0.001" value={confirmVolumes[item.id] || ''} onChange={(e) => setConfirmVolumes((current) => ({ ...current, [item.id]: e.target.value }))} data-testid="logistics-confirm-volume-input" /><span className="text-xs tracking-normal text-slate-500">estimated CBM</span></span>
+                      </label>
+                    ))}
+                    <Button className="mt-3 bg-orange-500 text-white hover:bg-orange-600" disabled={busy || !confirmReady} data-testid="logistics-confirm-volumes-submit" onClick={() => void (async () => {
+                      if (!selected || busy) return
+                      setBusy(true); setError('')
+                      try {
+                        await confirmMeasurements(selected.id, missingVolumeItems.map((item) => ({ item_id: item.id, estimated_volume_cbm: Number(confirmVolumes[item.id]) })))
+                        setBusy(false)
+                        await openDetail(selected.id)
+                      } catch (err) {
+                        setError(err instanceof Error ? err.message : 'Measurements could not be confirmed')
+                        setBusy(false)
+                      }
+                    })()}>Confirm measurements</Button>
+                  </div>
+                )}
+
+                {reservationId ? (
+                  /* #29: the reservation has a REAL state — narrate that, never a frozen "pending". */
+                  reservationState === 'APPROVED' ? <p className="mt-4 text-sm font-semibold text-emerald-800" data-testid="logistics-reservation-approved">Container space approved by the organiser · {reservationId.slice(0, 8)}. Booking, loading and shipping milestones continue in the container workspace.</p>
+                  : reservationState === 'REJECTED' || reservationState === 'CANCELLED' ? <p className="mt-4 text-sm font-semibold text-red-800" data-testid="logistics-reservation-refused">The organiser did not approve this space request ({reservationState.toLowerCase()}). Ask the provider through Messages how to continue; the selected offer itself still stands.</p>
+                  : reservationState === 'UNREADABLE' || reservationState === null ? <p className="mt-4 text-sm text-slate-700" data-testid="logistics-reservation-unreadable">Container-space request recorded · {reservationId.slice(0, 8)}. Its current review state could not be read just now — this is not a report of approval or rejection.</p>
+                  : <p className="mt-4 text-sm font-semibold text-slate-800" data-testid="logistics-reservation-pending">Container-space request recorded · {reservationId.slice(0, 8)} — waiting for the organiser to review. A request is not yet a booking.</p>
+                ) : missingVolumeItems.length === 0 && <Button className="mt-4 bg-orange-500 text-white hover:bg-orange-600" onClick={() => void requestSpace()} disabled={busy}><Ship className="mr-1.5 h-4 w-4" /> Request container space</Button>}</> : <p className="mt-1 text-sm text-slate-600">This provider did not attach a CarUp container sailing. Continue through Messages to agree the operational next step; CarUp will not invent a booking.</p>}</div>
+            })()}
           </div>
         </div>
         </div>

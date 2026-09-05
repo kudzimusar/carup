@@ -127,6 +127,24 @@ export function useTradeLogisticsApi() {
     return response.data || []
   }, [request])
 
+  const confirmMeasurements = useCallback(async (
+    requestId: string,
+    items: Array<{ item_id: string; estimated_volume_cbm: number; estimated_weight_kg?: number }>,
+  ): Promise<LogisticsRequest> => {
+    const response = await request<{ data: LogisticsRequest }>(`/diaspora/logistics-requests/${encodeURIComponent(requestId)}/confirm-measurements`, {
+      method: 'POST',
+      body: JSON.stringify({ items }),
+    })
+    return response.data
+  }, [request])
+
+  // The participant-scoped container reservations read the hardened marketplace already serves;
+  // T3 uses it to show the TRUE reservation state instead of a frozen "pending" sentence.
+  const fetchContainerReservations = useCallback(async (containerId: string): Promise<Array<Record<string, unknown>>> => {
+    const response = await request<{ data: Array<Record<string, unknown>> }>(`/diaspora/container-marketplace/containers/${encodeURIComponent(containerId)}/reservations`)
+    return response.data || []
+  }, [request])
+
   const requestContainerSpace = useCallback(async (requestId: string): Promise<LogisticsReservationResult> => {
     const response = await request<{ data: LogisticsReservationResult }>(`/diaspora/logistics-requests/${encodeURIComponent(requestId)}/request-space`, {
       method: 'POST', body: JSON.stringify({}),
@@ -165,6 +183,8 @@ export function useTradeLogisticsApi() {
     acceptQuote,
     findSailingMatches,
     requestContainerSpace,
+    confirmMeasurements,
+    fetchContainerReservations,
     ensureConversation,
     listOpenContainers,
   }), [
@@ -183,6 +203,8 @@ export function useTradeLogisticsApi() {
     acceptQuote,
     findSailingMatches,
     requestContainerSpace,
+    confirmMeasurements,
+    fetchContainerReservations,
     ensureConversation,
     listOpenContainers,
   ])

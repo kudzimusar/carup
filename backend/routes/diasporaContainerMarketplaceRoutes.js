@@ -34,6 +34,7 @@ import {
   withdrawLogisticsQuote,
   listMyLogisticsQuotes,
   acceptLogisticsQuote,
+  confirmLogisticsItemMeasurements,
   findCompatibleSailings,
   requestSpaceForAward,
 } from '../services/diaspora/diasporaLogisticsRfqService.js';
@@ -74,6 +75,18 @@ function prevalidateLogisticsItems(items) {
     }
     if (!String(item?.description ?? '').trim()) {
       throw new ValidationError(`Cargo item ${index + 1} needs a plain-language description`);
+    }
+    // Deterministic: dimensions that round to 0.000 CBM will violate the column CHECK after the
+    // header write. The service repeats this refusal; here it runs before any mutation.
+    const unit = String(item?.dimension_unit ?? item?.dimensionUnit ?? '').toLowerCase();
+    const l = Number(item?.length_value ?? item?.length); const w = Number(item?.width_value ?? item?.width); const h = Number(item?.height_value ?? item?.height);
+    if ((unit === 'cm' || unit === 'm') && l > 0 && w > 0 && h > 0) {
+      const d = unit === 'cm' ? 100 : 1;
+      const qty = Math.max(1, Math.round(Number(item?.quantity) || 1));
+      const cbm = Math.round(((l / d) * (w / d) * (h / d) * qty + Number.EPSILON) * 1000) / 1000;
+      if (!(cbm > 0)) {
+        throw new ValidationError(`Cargo item ${index + 1}'s measurements round to 0.000 CBM — check the unit (cm vs m), or use "I know the total volume" with the group's combined volume`);
+      }
     }
   });
 }
@@ -189,10 +202,16 @@ router.post('/logistics-quotes/:id/withdraw', participantAuth, asyncHandler(asyn
 }));
 router.get('/logistics-requests/:id', participantAuth, asyncHandler(async (req, res) => {
   const data = await getMyLogisticsRequest(req.params.id, req.userContext, { req });
-  // DRAFT offers are private work-in-progress. Every visible offer then crosses an explicit
-  // allow-list projection rather than the database row returned by the service-role client.
+  // Requester visibility is an ALLOW-LIST of states, the same set the conversation gate uses.
+  // Excluding only DRAFT leaked a quote withdrawn from DRAFT: it was never shown while private,
+  // and the act of withdrawing flipped it past the filter with its full price and terms attached.
+  // WITHDRAWN rows are therefore not projected at all — a retracted offer no longer stands, and
+  // the row does not record whether it was ever submitted, so hiding is the only rule that cannot
+  // disclose a never-submitted draft. (Telling the requester ABOUT a retraction is the separate,
+  // deliberately deferred quote_withdrawn notification recorded in the receipt.)
+  const REQUESTER_VISIBLE = new Set(['SUBMITTED', 'ACCEPTED', 'REJECTED', 'EXPIRED']);
   const quotes = (data.quotes || [])
-    .filter((quote) => quote.status !== 'DRAFT')
+    .filter((quote) => REQUESTER_VISIBLE.has(quote.status))
     .map(projectLogisticsQuoteForRequester);
   res.json({ data: { ...data, quotes } });
 }));
@@ -210,6 +229,9 @@ router.post('/logistics-requests/:id/accept-quote', participantAuth, asyncHandle
 }));
 router.get('/logistics-requests/:id/sailing-matches', participantAuth, asyncHandler(async (req, res) => {
   res.json({ data: await findCompatibleSailings(req.params.id, req.userContext, { req }) });
+}));
+router.post('/logistics-requests/:id/confirm-measurements', participantAuth, asyncHandler(async (req, res) => {
+  res.json({ data: await confirmLogisticsItemMeasurements(req.params.id, req.body, req.userContext, { req }) });
 }));
 router.post('/logistics-requests/:id/request-space', participantAuth, asyncHandler(async (req, res) => {
   res.json({ data: await requestSpaceWithConcurrentReplay(req.params.id, req.userContext, { req }) });

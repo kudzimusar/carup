@@ -8,6 +8,7 @@
  * membership); it duplicates nothing and grants nothing. Unknown facts stay null — the UI renders
  * truthful absence, never a guess.
  */
+import { ValidationError } from '../../utils/errors.js';
 import { requireUserContext, TENANT_ADMIN_ROLES } from './diasporaAuthorization.js';
 import { resolveClient } from './diasporaServiceUtils.js';
 
@@ -23,6 +24,13 @@ export async function getTradeContext(userContext = {}, options = {}) {
       : Promise.resolve({ data: null }),
   ]);
 
+  // A failed profile read is NOT an absent profile. Swallowing the error here returned
+  // business_type: null, which downstream reads as "not a logistics provider" — the provider tab
+  // silently vanishes on a transient DB error, indistinguishable from a real non-provider. The
+  // shell already has an honest "Business context could not be loaded" state; give it the error.
+  if (profileRes?.error) {
+    throw new ValidationError(`Business context could not be read: ${profileRes.error.message}`);
+  }
   const profile = profileRes?.data || null;
   const tenant = tenantRes?.data || null;
   const tenantRole = String(context.tenantRole || '').toLowerCase() || null;

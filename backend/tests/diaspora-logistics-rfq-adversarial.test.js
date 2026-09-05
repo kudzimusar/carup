@@ -39,6 +39,7 @@ function seeded() {
       { id: 'prov-1', name: 'SYNTHETIC Hikari Logistics', role: 'owner', is_verified: true },
       { id: 'prov-2', name: 'SYNTHETIC Rival Logistics', role: 'owner', is_verified: true },
       { id: 'dealer-1', name: 'SYNTHETIC Ordinary Dealer', role: 'dealer', is_verified: true },
+      { id: 'padmin-1', name: 'SYNTHETIC Platform Admin', role: 'admin', is_verified: true },
     ],
     tenants: [
       { id: TENANT_P, name: 'SYNTHETIC Hikari Logistics', type: 'import', status: 'active' },
@@ -53,6 +54,9 @@ function seeded() {
       { user_id: 'prov-2', account_kind: 'business', business_type: 'logistics_provider', organization_name: 'SYNTHETIC Rival Freight', country_of_residence: 'Japan', city: 'Kobe' },
       // A dealer is a commercial account, but NOT a logistics business.
       { user_id: 'dealer-1', account_kind: 'business', business_type: 'dealer', organization_name: 'SYNTHETIC Ordinary Dealer', country_of_residence: 'Japan', city: 'Tokyo' },
+      // req-A IS provider-eligible on purpose: the self-quote test below must be refused by the
+      // "cannot quote your own shipping request" guard, not bounce off eligibility first.
+      { user_id: 'req-A', account_kind: 'business', business_type: 'logistics_provider', organization_name: 'SYNTHETIC Tariro Own-Truck Logistics', country_of_residence: 'United Kingdom', city: 'London' },
     ],
     diaspora_logistics_requests: [
       { id: 'ship-open', tenant_id: null, requester_id: 'req-A', created_by: 'req-A', origin_country: 'Japan', origin_city: 'Yokohama', destination_country: 'Zimbabwe', destination_city: 'Harare', service_preference: 'flexible', status: 'OPEN_FOR_QUOTES', accepted_quote_id: null, metadata: {}, deleted_at: null },
@@ -127,7 +131,11 @@ test('ADVERSARIAL: a provider cannot read the requester’s private DRAFT shippi
   // Not in the marketplace…
   const list = await call('GET', `${T3}/logistics-opportunities`, { userId: 'prov-1', tenantId: TENANT_P });
   assert.equal(list.status, 200);
-  assert.deepEqual(list.body.data.map((row) => row.reference).filter((ref) => ref.includes('SHIPDRAFT')), []);
+  // requestReference truncates the id to 8 chars, so 'ship-draft' renders as 'SHIP-SHIPDRAF'.
+  // The original filter searched for 'SHIPDRAFT' (9 chars) — a substring the reference can never
+  // contain, making the assertion pass unconditionally. Verified falsifiable: 'SHIPDRAF' matches
+  // the draft's real reference when the DRAFT filter is removed.
+  assert.deepEqual(list.body.data.map((row) => row.reference).filter((ref) => ref.includes('SHIPDRAF')), []);
   assert.ok(!JSON.stringify(list.body).includes('Private draft cargo'));
 
   // …and not by naming it directly.
@@ -328,6 +336,173 @@ test('ADVERSARIAL: anonymous callers reach none of the T3 surfaces', async () =>
     ['POST', `${T3}/logistics-requests/ship-open/request-space`],
   ]) {
     const { status } = await call(method, path, { body: method === 'POST' ? {} : undefined });
+    assert.equal(status, 401, `${method} ${path} was reachable anonymously`);
+  }
+});
+
+// ── Post-closure audit fixes — each of these pins a defect the adversarial workflow confirmed ──
+
+test('ADVERSARIAL: a PRIVILEGED provider awarding its own offer is refused by SELF_AWARD itself', async () => {
+  // The earlier self-award case was refused at the OWNERSHIP gate (the provider was not the
+  // requester), so the deeper SELF_AWARD guard was never executed by any HTTP test. A privileged
+  // actor passes ownership, which makes this the one path that genuinely reaches it.
+  const offer = await call('POST', `${T3}/logistics-opportunities/ship-open/quotes`, {
+    userId: 'padmin-1', body: { ...OFFER, submit: true },
+  });
+  assert.equal(offer.status, 201, 'privileged oversight may quote');
+  const award = await call('POST', `${T3}/logistics-requests/ship-open/accept-quote`, {
+    userId: 'padmin-1', body: { quoteId: offer.body.data.id },
+  });
+  assert.ok([400, 403].includes(award.status), `expected refusal, got ${award.status}`);
+  assert.match(JSON.stringify(award.body), /own offer|SELF_AWARD/i);
+});
+
+test('ADVERSARIAL: the self-quote refusal is the OWN-REQUEST guard, not an eligibility accident', async () => {
+  // req-A is seeded WITH a logistics_provider profile, so eligibility passes and the refusal
+  // below can only come from "cannot quote your own shipping request".
+  const { status, body } = await call('POST', `${T3}/logistics-opportunities/ship-open/quotes`, {
+    userId: 'req-A', body: { ...OFFER, submit: true },
+  });
+  assert.equal(status, 403);
+  assert.match(JSON.stringify(body), /own shipping request/i);
+});
+
+test('PRIVACY: withdrawing a never-submitted DRAFT does not disclose it to the requester', async () => {
+  const draft = await call('POST', `${T3}/logistics-opportunities/ship-open/quotes`, {
+    userId: 'prov-1', tenantId: TENANT_P, body: { ...OFFER, total_amount: 4321 },
+  });
+  assert.equal(draft.status, 201);
+  const withdrawn = await call('POST', `${T3}/logistics-quotes/${draft.body.data.id}/withdraw`, {
+    userId: 'prov-1', tenantId: TENANT_P,
+  });
+  assert.equal(withdrawn.status, 200);
+
+  // Before the allow-list, this exact read leaked the retracted draft's full terms: the filter
+  // excluded only status==='DRAFT', and withdrawal had just moved the row past it.
+  const seen = await call('GET', `${T3}/logistics-requests/ship-open`, { userId: 'req-A' });
+  assert.equal(seen.status, 200);
+  assert.deepEqual(seen.body.data.quotes, []);
+  assert.ok(!JSON.stringify(seen.body).includes('4321'), 'the withdrawn draft price crossed the boundary');
+});
+
+test('PRIVACY: the requester quote projection is an allow-list — no tenant id, metadata or actor ids', async () => {
+  const offer = await submitOfferAs('prov-1', TENANT_P);
+  assert.equal(offer.status, 201);
+  const seen = await call('GET', `${T3}/logistics-requests/ship-open`, { userId: 'req-A' });
+  assert.equal(seen.status, 200);
+  assert.equal(seen.body.data.quotes.length, 1);
+  const projected = seen.body.data.quotes[0];
+  for (const forbidden of ['provider_tenant_id', 'metadata', 'created_by', 'updated_by', 'deleted_at']) {
+    assert.ok(!(forbidden in projected), `requester projection carries ${forbidden}`);
+  }
+  assert.equal(projected.total_amount, OFFER.total_amount);
+});
+
+test('TRUTH: cargo that rounds to 0.000 CBM is refused BEFORE any request header exists', async () => {
+  const { status, body } = await call('POST', `${T3}/logistics-requests`, {
+    userId: 'req-A',
+    body: {
+      origin_country: 'Japan', destination_country: 'Zimbabwe',
+      items: [{ cargo_category: 'parts', description: 'One tiny bolt', quantity: 1, dimension_unit: 'cm', length_value: 1, width_value: 1, height_value: 1 }],
+    },
+  });
+  assert.equal(status, 400);
+  assert.match(JSON.stringify(body), /0\.000 CBM/);
+  // The point of the preflight: the refusal wrote NOTHING — no header, no items. Asserted on the
+  // table itself, because the seeded fixture legitimately contains its own draft.
+  assert.equal(mock._tables.diaspora_logistics_requests.length, 2, 'a request header was written before the refusal');
+  assert.equal(mock._tables.diaspora_logistics_request_items.some((row) => /tiny bolt/i.test(row.description || '')), false);
+});
+
+test('TRUTH: an unknown-volume award is a DEFERRAL, not a dead end — confirm-measurements unblocks booking', async () => {
+  // Publish with volume UNKNOWN (the wizard's default), collect a shared-container offer, award it.
+  const created = await call('POST', `${T3}/logistics-requests`, {
+    userId: 'req-B',
+    body: {
+      origin_country: 'Japan', destination_country: 'Zimbabwe',
+      items: [{ cargo_category: 'household', description: 'Boxes, size not yet known', quantity: 6 }],
+    },
+  });
+  assert.equal(created.status, 201);
+  const requestId = created.body.data.id;
+  assert.equal((await call('POST', `${T3}/logistics-requests/${requestId}/publish`, { userId: 'req-B' })).status, 200);
+  const offer = await call('POST', `${T3}/logistics-opportunities/${requestId}/quotes`, {
+    userId: 'prov-1', tenantId: TENANT_P, body: { ...OFFER, submit: true, compatible_container_id: 'cont-ok' },
+  });
+  assert.equal(offer.status, 201);
+  assert.equal((await call('POST', `${T3}/logistics-requests/${requestId}/accept-quote`, {
+    userId: 'req-B', body: { quoteId: offer.body.data.id },
+  })).status, 200);
+
+  // The dead end the audit confirmed: booking refused for a volume no surface allowed recording.
+  const blocked = await call('POST', `${T3}/logistics-requests/${requestId}/request-space`, { userId: 'req-B' });
+  assert.equal(blocked.status, 400);
+  assert.match(JSON.stringify(blocked.body), /estimated volume/i);
+
+  const itemId = created.body.data.items[0].id;
+  // A stranger cannot confirm someone else's measurements…
+  assert.equal((await call('POST', `${T3}/logistics-requests/${requestId}/confirm-measurements`, {
+    userId: 'req-A', body: { items: [{ item_id: itemId, estimated_volume_cbm: 2 }] },
+  })).status, 403);
+  // …and the requester can only FILL, with a real positive volume.
+  assert.equal((await call('POST', `${T3}/logistics-requests/${requestId}/confirm-measurements`, {
+    userId: 'req-B', body: { items: [{ item_id: itemId, estimated_volume_cbm: 0 }] },
+  })).status, 400);
+  const confirmed = await call('POST', `${T3}/logistics-requests/${requestId}/confirm-measurements`, {
+    userId: 'req-B', body: { items: [{ item_id: itemId, estimated_volume_cbm: 2.5, estimated_weight_kg: 120 }] },
+  });
+  assert.equal(confirmed.status, 200);
+  assert.equal(confirmed.body.data.items[0].estimated_volume_cbm, 2.5);
+  assert.equal(confirmed.body.data.items[0].measurement_basis, 'PROVIDED');
+
+  // Fill-only: a second confirmation of the SAME item is refused — stated facts stay stated.
+  assert.equal((await call('POST', `${T3}/logistics-requests/${requestId}/confirm-measurements`, {
+    userId: 'req-B', body: { items: [{ item_id: itemId, estimated_volume_cbm: 9 }] },
+  })).status, 400);
+
+  // The promised deferral now completes: booking proceeds, REQUESTED as always.
+  const space = await call('POST', `${T3}/logistics-requests/${requestId}/request-space`, { userId: 'req-B' });
+  assert.equal(space.status, 200);
+  assert.equal(space.body.data.reservation.reservation_status, 'REQUESTED');
+});
+
+test('TRUTH: clearing a charge on a DRAFT offer clears it — the stored value must not resurrect', async () => {
+  const draft = await call('POST', `${T3}/logistics-opportunities/ship-open/quotes`, {
+    userId: 'prov-1', tenantId: TENANT_P, body: { ...OFFER, freight_amount: 700, handling_amount: 55 },
+  });
+  assert.equal(draft.status, 201);
+  const patched = await call('PATCH', `${T3}/logistics-quotes/${draft.body.data.id}`, {
+    userId: 'prov-1', tenantId: TENANT_P, body: { freight_amount: null, total_amount: 800 },
+  });
+  assert.equal(patched.status, 200);
+  assert.equal(patched.body.data.freight_amount, null, 'cleared freight resurrected from the stored row');
+  assert.equal(patched.body.data.handling_amount, 55, 'an UNSENT key must keep its previous value');
+});
+
+test('ADVERSARIAL: anonymous callers reach NONE of the T3 surfaces — the full route table', async () => {
+  // The earlier loop covered 7 of the registered T3 routes; this is all of them, so a newly added
+  // route cannot ship unauthenticated by being forgotten here.
+  const routes = [
+    ['GET', `${T3}/logistics-requests/mine`],
+    ['POST', `${T3}/logistics-requests`],
+    ['GET', `${T3}/logistics-opportunities`],
+    ['GET', `${T3}/logistics-opportunities/ship-open`],
+    ['POST', `${T3}/logistics-opportunities/ship-open/quotes`],
+    ['GET', `${T3}/logistics-quotes/mine`],
+    ['PATCH', `${T3}/logistics-quotes/some-id`],
+    ['POST', `${T3}/logistics-quotes/some-id/submit`],
+    ['POST', `${T3}/logistics-quotes/some-id/withdraw`],
+    ['GET', `${T3}/logistics-requests/ship-open`],
+    ['PATCH', `${T3}/logistics-requests/ship-open`],
+    ['POST', `${T3}/logistics-requests/ship-open/publish`],
+    ['POST', `${T3}/logistics-requests/ship-open/accept-quote`],
+    ['GET', `${T3}/logistics-requests/ship-open/sailing-matches`],
+    ['POST', `${T3}/logistics-requests/ship-open/confirm-measurements`],
+    ['POST', `${T3}/logistics-requests/ship-open/request-space`],
+    ['POST', `${T3}/logistics-requests/ship-open/conversation`],
+  ];
+  for (const [method, path] of routes) {
+    const { status } = await call(method, path, { body: method === 'GET' ? undefined : {} });
     assert.equal(status, 401, `${method} ${path} was reachable anonymously`);
   }
 });

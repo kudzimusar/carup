@@ -84,9 +84,14 @@ export async function notifyLogisticsQuoteAccepted({ request, quote, tenantId = 
  * keeps chasing a closed request — and silence is its own bad product decision. A WITHDRAWN offer
  * is not "not selected"; the provider already left, so telling them they lost would be false.
  */
-export async function notifyLogisticsQuoteNotSelected({ request, quotes = [], acceptedQuoteId, tenantId = null }) {
+export async function notifyLogisticsQuoteNotSelected({ request, quotes = [], acceptedQuoteId, acceptedProviderId = null, tenantId = null }) {
   const results = [];
   const seen = new Set();
+  // A provider may hold SEVERAL offers on one request (a named alternative is legitimate). The
+  // winner must be skipped as a PERSON, not merely as a quote id — telling the provider whose
+  // offer was just accepted that they were "not selected" for their other option on the same
+  // request is false in the way that destroys trust in every later notification.
+  if (acceptedProviderId) seen.add(acceptedProviderId);
   for (const quote of quotes) {
     if (quote.id === acceptedQuoteId) continue;
     if (quote.status === 'WITHDRAWN' || quote.status === 'DRAFT') continue;
