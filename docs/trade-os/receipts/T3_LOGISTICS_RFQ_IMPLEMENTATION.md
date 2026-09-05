@@ -289,16 +289,21 @@ Data measured across all four staging runs: 4 requests, 4 AWARDED, 4 accepted qu
 
 ## Known work still required before T3 closure
 
-1. **exact-head CI completion** on the final candidate;
-2. **shared-container conversion staging proof** — the chain to organiser approval is measured
-   (REQUESTED consumed 0 of 60 CBM; approval consumed exactly 3, leaving 57), but the organiser
-   step ran by hand rather than as a repeatable spec, and staging carries no idempotent-replay or
-   foreign provider/container denial proof;
-3. **Trade OS route-boundary foundation correction** — the shell passes `enforceAuth={false}`, so
-   registry role enforcement is skipped on protected Trade OS routes (T1/T0 hardening found here);
-4. **staging taxonomy RLS drift** — repo desired state enables RLS on
-   `vehicle_taxonomy_observations`; staging measured it DISABLED;
-5. **owner visual/product UAT**, which automation cannot replace (§29) —
+1. **owner visual/product UAT**, which automation cannot replace (§29) —
    see `docs/trade-os/T3_OWNER_UAT_GUIDE.md`.
+
+The other four items from the closure correction are now closed — see the master plan §30 entry
+"T3 final closure correction":
+
+- **shared-container conversion** is a repeatable spec, not a hand measurement: REQUESTED consumes
+  0, replay is idempotent, a foreign sailing is refused, and approval consumes exactly the reserved
+  volume. Measured on the fixture: `total 47 · used 3 · available 44`, with **3 REQUESTED
+  reservations consuming nothing** alongside the single APPROVED one.
+- **the route boundary** enforces the registry again: nav visibility equals typed-URL eligibility,
+  pinned for all seven roles. `/diaspora/imports/:id/passport` was unregistered and rendering as
+  PUBLIC; that is closed too.
+- **taxonomy RLS drift** reconciled by forward migration, with a generalised migration-integrity
+  guard covering the class.
+- **CI** re-confirmed on the final candidate.
 
 **T3 is T3-PARTIAL.** Saying "only owner UAT remains" was an overclaim and is corrected above. Do not call it usable/client-ready/production-ready, and do not begin T4, until all five clear.

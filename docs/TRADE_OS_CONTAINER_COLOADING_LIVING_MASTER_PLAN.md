@@ -1568,22 +1568,19 @@ This replaces the old C1–C18 backlog as the active roadmap.
 | Staging backend serves T3 | ✅ branch preview answers the T3 routes 401, not 404 |
 | Staging frontend paired to that backend | ✅ PROVEN at runtime — preview calls ONLY the branch backend |
 | Exact-head unmocked browser journey | ✅ spec 47, `mode=acceptance`, bundle pinned, 3/3 desktop+tablet+mobile |
-| Container-space conversion on staging | ⏳ PARTIAL — the chain to organiser approval is measured, but the organiser step ran by hand (curl), not as a repeatable spec; staging has no idempotent-replay or foreign-combination proof |
-| Trade OS route-boundary foundation | ❌ OPEN — the shell passes `enforceAuth={false}`, so registry role enforcement is skipped on protected Trade OS routes (T1/T0 hardening found during T3) |
-| Staging taxonomy RLS drift | ❌ OPEN — repo desired state enables RLS on `vehicle_taxonomy_observations`; staging measured it DISABLED |
+| Container-space conversion on staging | ✅ spec 47 carries the whole chain — REQUESTED consumes 0, replay idempotent, foreign sailing refused, approval consumes exactly the reserved volume |
+| Trade OS route-boundary foundation | ✅ enforcement restored; nav visibility == typed-URL eligibility, pinned for all 7 roles |
+| Staging taxonomy RLS drift | ✅ forward reconciliation applied; RLS on, anon/authenticated revoked, service_role preserved |
 | Owner visual/product UAT | ❌ PENDING — cannot be replaced by automation. Guide: `docs/trade-os/T3_OWNER_UAT_GUIDE.md` |
 
-**T3 returns T3-PARTIAL.** It is NOT correct to say "only owner UAT remains" — that was an
-overclaim, corrected here. Five items remain:
+**T3 returns T3-PARTIAL.** Of the five items recorded in the closure correction, four are now
+closed — shared-container conversion proof, route-boundary foundation, taxonomy RLS drift, and CI
+on the final candidate. What remains:
 
-1. exact-head CI completion on the final candidate;
-2. shared-container conversion staging proof — as a repeatable spec, including idempotent replay
-   and foreign provider/container denial;
-3. Trade OS route-boundary foundation correction (nav visibility must equal typed-URL eligibility);
-4. staging `vehicle_taxonomy_observations` RLS drift reconciliation, by forward migration;
-5. owner visual/product UAT.
+1. **owner visual/product UAT** — see `docs/trade-os/T3_OWNER_UAT_GUIDE.md`.
 
-Do not describe T3 as client-ready, and do not begin T4, until all five clear.
+Automation cannot close that row (§29), so T3 stays T3-PARTIAL until the owner records a verdict.
+Do not describe T3 as client-ready, and do not begin T4, before then.
 
 ## T4 — Order & Booking Passport convergence
 
@@ -2610,3 +2607,117 @@ conversion. It does **not** settle owner visual/product acceptance, which §29 s
 can never replace. **T3 remains T3-PARTIAL for that one reason.**
 
 Production untouched. PR #207 remains Draft.
+
+## Execution entry — 2026-09-05 · T3 final closure correction
+
+Three items were carried as closed or unstated when they were not, and the ledger's headline said
+the one thing a reader would most rely on: that nothing but owner acceptance stood in the way. That
+was an overclaim. It is corrected, and the three items are now genuinely closed.
+
+### 1. Shared-container conversion — was a hand measurement, now a gate
+
+The chain to organiser approval had been measured, but the approval step ran BY HAND with `curl`.
+Nothing in the repository would have caught it breaking, and staging carried no proof of idempotent
+replay or of foreign provider/container denial.
+
+Spec 47's conversion test now carries the whole chain in `mode=acceptance` with the bundle pinned:
+
+```text
+publish → attach an operated sailing → award
+        → capacity read BEFORE the space request
+        → request space          → capacity UNCHANGED
+        → replay the request     → idempotentReplay=true, no second reservation
+        → attach a FOREIGN sailing → refused
+        → organiser approves in the UI, through the existing container authority
+        → capacity moves by EXACTLY the reserved volume, and only now
+```
+
+**Two flaws in my own first attempt, both of which made assertions pass while measuring nothing:**
+
+- `getByTestId('diaspora-container-card').first()` read whichever sailing rendered first, not this
+  journey's. The before/after capacity comparison was comparing an untouched stranger's container
+  against itself and going green. The fixture now has a capacity unique across staging (47 CBM),
+  the helper asserts it found exactly that card, and the offer pins the sailing by id.
+- The API helper sniffed its base URL from resource timings and hit the web origin, receiving HTML.
+
+Replay and foreign-attach are asserted at the API deliberately: the UI hides the button once
+recorded and the composer only lists the provider's own sailings, so a UI-only check would prove a
+button is hidden rather than that the server refuses. The foreign sailing is a REAL container owned
+by another organisation — a fabricated id would be refused as not-found, proving nothing about
+authorization.
+
+Measured after the runs: `total 47.000 · used 3.000 · available 44.000`, 4 reservations across 4
+distinct logistics requests — **1 APPROVED, 3 still REQUESTED**. Three REQUESTED reservations sit on
+the container consuming **zero** capacity while the approved one consumes exactly its 3 CBM.
+
+### 2. Trade OS route boundary — T1/T0 hardening found during T3
+
+The shell passed `enforceAuth={false}`, so `RegistryRouteBoundary` skipped the registry's ROLE
+decision on every protected Trade OS route. The nav filtered through `canRoleAccessRoute`, but
+typing the URL bypassed that filter: a link a role could not see was still a page it could open.
+
+The registry was checked against the actor model FIRST, because enforcement turns every registry
+mistake into a hard block. That check found:
+
+- `/diaspora/imports/:id/passport` was **UNREGISTERED**. `/diaspora` is not a protected prefix, so
+  `isPublicRoute()`'s fallback classified it PUBLIC — an order-specific Order Passport rendering for
+  anyone who typed the URL, enforcement on or off. Registered owner-only.
+- `government` held containers and buyer-requests but not Messages, while the container product
+  treats government as an operator. Operating a sailing entails its conversations; enforcement
+  would have hardened that incoherence into a block. Added to Messages.
+- **My earlier objection was wrong, and checking is what showed it.** I had deferred this fix
+  arguing that "enforcement would bounce reviewers off the marketplace they operate". `reviewer` is
+  not in the `UserRole` union and staging has **0** users holding it — it is dead code in the
+  container component. I had reasoned from that component's role set instead of from reality.
+
+Consequently the container suite's operator fixture, carrying role `reviewer`, had been proving an
+operator journey for a role that cannot exist. It now uses `admin`.
+
+Seven direct-route tests assert on `evaluateRouteAccess` — the real decision, not a restatement:
+participant/supplier/logistics-provider direct URLs render; an unauthorized authenticated role is
+REDIRECTED with reason `role`; visibility equals eligibility for **all seven roles** in both
+directions; every Trade OS route is registered; and contextual business eligibility is never
+promoted to a platform role. Proven non-vacuous — reverting the flag fails exactly the two security
+tests.
+
+Backend authorization remains authoritative; this is the SPA agreeing with the API.
+
+### 3. Staging taxonomy RLS drift
+
+`20260828133000_global_vehicle_taxonomy_s0.sql` already expressed the intent. Staging had drifted:
+
+```text
+rls_enabled   false
+anon          SELECT true  INSERT true
+authenticated SELECT true  INSERT true
+```
+
+A governance queue of raw seller/import observations, fronted by PostgREST, readable **and
+writable** with the anon key. Reconciled by a forward, idempotent migration rather than editing or
+replaying the applied one; it also revokes PUBLIC, because RLS-with-no-policy denies rows but leaves
+the relation advertised. It ends with a block that RAISEs if the reconciliation did not take.
+
+After applying: `rls_enabled true`, anon and authenticated false on SELECT and INSERT, service_role
+retaining all four privileges, 3 rows intact.
+
+`migration-integrity` gains a generalised guard: every table created by a migration dated 20260801
+or later must declare RLS somewhere in the set — the class **both** defects belong to. Proven
+non-vacuous by stripping the RLS block from the T3 migration, which fails the gate and names all
+three tables. Scope is dated because 55 of 270 tables predate the convention and a gate that fails
+on all of them gets switched off.
+
+### Reported, deliberately not changed
+
+- A dealer-as-buyer can reach `/diaspora/requests` but not `/diaspora/imports`.
+- `government` holds `/diaspora/buyer-requests`.
+- `blockchain_custody_rollout` and `blockchain_signing_watermarks` have no RLS in their migrations.
+  Neither exists on staging; production state could not be read from here, so their migrations were
+  NOT edited — that belongs to the slice that owns them, and they are listed in the guard so the
+  debt stays visible.
+
+These are product/ownership decisions, not defects this cycle should settle silently.
+
+### Remaining
+
+**Owner visual/product UAT only.** T3 stays T3-PARTIAL until that verdict is recorded. Do not begin
+T4. Production untouched. PR #207 remains Draft.
