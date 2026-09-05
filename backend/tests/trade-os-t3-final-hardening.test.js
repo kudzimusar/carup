@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 
 const migration = readFileSync(new URL('../../database/migrations/20260905150000_trade_os_t3_final_hardening.sql', import.meta.url), 'utf8');
+const validityMigration = readFileSync(new URL('../../database/migrations/20260905151000_trade_os_t3_quote_validity_reconciliation.sql', import.meta.url), 'utf8');
 const conversation = readFileSync(new URL('../services/diaspora/diasporaLogisticsConversationService.js', import.meta.url), 'utf8');
 const routes = readFileSync(new URL('../routes/diasporaContainerMarketplaceRoutes.js', import.meta.url), 'utf8');
 const shippingUi = readFileSync(new URL('../../web/src/pages/diaspora/TradeShippingRequests.tsx', import.meta.url), 'utf8');
@@ -15,20 +16,28 @@ test('T3 final hardening pins submitted quote terms and terminal lifecycle state
   assert.match(migration, /TERMINAL_QUOTE_STATE/);
 });
 
-test('T3 final hardening refuses an expired submitted quote at the database transition boundary', () => {
-  assert.match(migration, /OLD\.status = 'SUBMITTED'/);
-  assert.match(migration, /NEW\.status = 'ACCEPTED'/);
-  assert.match(migration, /OLD\.valid_until <= now\(\)/);
-  assert.match(migration, /DIASPORA_LOGISTICS\/EXPIRED/);
+test('T3 final hardening treats validity as an inclusive date and rejects already-past offers', () => {
+  assert.match(validityMigration, /v_today_utc date/);
+  assert.match(validityMigration, /OLD\.status = 'DRAFT'/);
+  assert.match(validityMigration, /NEW\.status = 'SUBMITTED'/);
+  assert.match(validityMigration, /NEW\.valid_until::date < v_today_utc/);
+  assert.match(validityMigration, /OLD\.status = 'SUBMITTED'/);
+  assert.match(validityMigration, /NEW\.status = 'ACCEPTED'/);
+  assert.match(validityMigration, /OLD\.valid_until::date < v_today_utc/);
+  assert.match(validityMigration, /DIASPORA_LOGISTICS\/EXPIRED/);
+  assert.match(routes, /T23:59:59\.999Z/);
   assert.match(shippingUi, /quoteValidityEnded/);
   assert.match(shippingUi, /This offer’s stated validity has ended/);
 });
 
-test('T3 final hardening makes a live logistics-request reservation unique', () => {
+test('T3 final hardening makes a live logistics-request reservation unique and converts the losing race into replay', () => {
   assert.match(migration, /CREATE UNIQUE INDEX IF NOT EXISTS uq_diaspora_cargo_reservation_live_logistics_request/);
   assert.match(migration, /metadata->>'logistics_request_id'/);
   assert.match(migration, /reservation_status IN \('REQUESTED', 'APPROVED'\)/);
   assert.match(migration, /deleted_at IS NULL/);
+  assert.match(routes, /function requestSpaceWithConcurrentReplay/);
+  assert.match(routes, /uq_diaspora_cargo_reservation_live_logistics_request/);
+  assert.match(routes, /return requestSpaceForAward\(requestId, userContext, options\)/);
 });
 
 test('requester conversation bootstrap cannot use a provider DRAFT as an existence oracle', () => {
@@ -40,7 +49,7 @@ test('requester conversation bootstrap cannot use a provider DRAFT as an existen
 test('requester quote HTTP projection is allow-listed and omits provider tenant/internal metadata', () => {
   assert.match(routes, /function projectLogisticsQuoteForRequester/);
   assert.match(routes, /\.map\(projectLogisticsQuoteForRequester\)/);
-  const projection = routes.slice(routes.indexOf('function projectLogisticsQuoteForRequester'), routes.indexOf('// ── T3:'));
+  const projection = routes.slice(routes.indexOf('function projectLogisticsQuoteForRequester'), routes.indexOf('/**\n * The service performs an idempotent read-before-write.'));
   assert.doesNotMatch(projection, /provider_tenant_id/);
   assert.doesNotMatch(projection, /metadata:/);
   assert.doesNotMatch(projection, /created_by/);
