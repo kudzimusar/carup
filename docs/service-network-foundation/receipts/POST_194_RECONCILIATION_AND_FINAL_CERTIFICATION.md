@@ -827,7 +827,36 @@ Exact-head CI at `9c95e2a2` — **all eight workflows**:
 | Communication Command Center CI | success |
 | Diaspora Deployed Staging UAT | skipped (by design) |
 
-## C.9 Scope
+## C.9 Re-certification after the receipt commit
+
+The rule is that any commit moving the branch re-runs exact-head certification. This receipt is
+itself such a commit, so the head it describes cannot be the head it lives on. That is stated here
+rather than papered over.
+
+- **`9c95e2a2` is the certified CODE head.** Every gate, journey and database assertion above was
+  performed against it, and the hosted deployments served it.
+- **`46af9532` adds this receipt and nothing else** — one documentation file. It was re-certified in
+  full, and both deployments rebuilt and re-verified at it:
+  frontend `carup-provenance.json → commit_sha 46af9532…, unpaired false`,
+  backend `/api/health → build.commit_sha 46af9532…` (`dpl_HVrcPopKGckyuadtWSWXehXsUoKD`).
+
+All eight workflows at `46af9532`:
+
+| Workflow | Result |
+|---|---|
+| CI | **success** — 6021 tests, 6000 pass, 0 fail, 21 skipped; "All 6 Service Network harnesses passed" |
+| Marketplace Reference Regression | **success** — pair governed, backend reporting `46af9532` |
+| Vehicle Passport Foundation CI | success |
+| Referral Engine CI | success |
+| Navigation Intelligence CI | success |
+| Diaspora Phases 3-7 Validation | success |
+| Communication Command Center CI | success |
+| Diaspora Deployed Staging UAT | skipped (by design) |
+
+Any commit after this one is documentation-only by construction; its CI result is reported to the
+Product Owner directly, because a receipt cannot contain the outcome of its own commit.
+
+## C.10 Scope
 
 - **Production untouched.** No production migration, no production deployment, no production data.
 - **`main` untouched** — still `bb9d9900`.
