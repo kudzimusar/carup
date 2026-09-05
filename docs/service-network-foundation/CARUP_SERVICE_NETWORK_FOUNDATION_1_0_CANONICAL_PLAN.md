@@ -1,12 +1,12 @@
 # CarUp Service Network Foundation 1.0 — Canonical Plan
 
-**Status:** CANONICAL PLANNING SPECIFICATION — IMPLEMENTATION NOT YET AUTHORIZED  
-**Programme:** CarUp Service Network  
-**Target implementation lane:** one future feature branch, one PR, sequential phases  
-**Planning branch:** `docs/service-network-foundation-1-0-plan`  
-**Planning baseline:** `main@ba208963d863654157335189c60f587cbe330041`  
-**Planning-time integrated candidate:** PR #194, observed at `ef13a1893935e320e91746275a0170566f025ab6` on 2026-08-29  
-**Implementation base rule:** the implementation branch MUST be created from the exact canonical `main` commit produced after PR #194 (or its approved successor) is merged and reconciled. The planning-time PR head above is informative only and MUST NOT be treated as the implementation base.
+- **Status:** CANONICAL PLANNING SPECIFICATION — IMPLEMENTATION NOT YET AUTHORIZED
+- **Programme:** CarUp Service Network
+- **Target implementation lane:** one future feature branch, one PR, sequential phases
+- **Planning branch:** `docs/service-network-foundation-1-0-plan`
+- **Planning baseline:** `main@ba208963d863654157335189c60f587cbe330041`
+- **Planning-time integrated candidate:** PR #194, observed at `ef13a1893935e320e91746275a0170566f025ab6` on 2026-08-29
+- **Implementation base rule:** the implementation branch MUST be created from the exact canonical `main` commit produced after PR #194 (or its approved successor) is merged and reconciled. The planning-time PR head above is informative only and MUST NOT be treated as the implementation base.
 
 ---
 
