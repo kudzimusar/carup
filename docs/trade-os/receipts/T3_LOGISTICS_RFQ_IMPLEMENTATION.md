@@ -289,7 +289,10 @@ Data measured across all four staging runs: 4 requests, 4 AWARDED, 4 accepted qu
 
 ## Known work still required before T3 closure
 
+- the **container-space conversion** (`award → request space → REQUESTED → organiser approval`) is
+  proven against the real router and RPC reference, but **not on deployed staging** — the path
+  needs a provider with governed tenant membership over an open sailing, and the synthetic fixture
+  created through public registration has no tenant;
 - **owner visual/product UAT**, which automation cannot replace (§29).
 
-**T3 is T3-PARTIAL for that one reason.** Everything automation can establish is established. Do
-not call it usable/client-ready/production-ready until the owner has seen it.
+**T3 is T3-PARTIAL.** Do not call it usable/client-ready/production-ready until both are closed.

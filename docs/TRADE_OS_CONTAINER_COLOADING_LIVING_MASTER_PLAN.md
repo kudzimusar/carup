@@ -2556,10 +2556,25 @@ Both carry reference and route. No `quote_not_selected`, correctly — each run 
 The synthetic rows are left in place as the evidence. They are unmistakably marked and all
 `AWARDED`, so they cannot surface in a later provider opportunity feed.
 
+### One part of the journey NOT exercised on staging
+
+Spec 47 certifies `requester → provider → offer → award`. It does **not** exercise the
+**container-space conversion** (`award → request space → REQUESTED reservation → organiser
+approval`), because that path only opens when the winning offer has a real CarUp sailing attached,
+and a provider may attach only a sailing it coordinates or tenant-administers. The synthetic
+provider was created through public registration, which grants no tenant membership, so it had no
+attachable sailing.
+
+That conversion is proven in `diaspora-logistics-rfq-adversarial.test.js` against the real router
+and RPC reference — exactly one REQUESTED reservation, idempotent on retry, consuming no capacity
+until the organiser approves, and not approvable by the requester. It is **not** yet proven on
+deployed staging, and this entry does not claim otherwise. Closing it needs a staging provider
+fixture with governed tenant membership over an open sailing.
+
 ### What this does and does not settle
 
-It settles the backend, the schema, the pairing and the journey. It does **not** settle owner
-visual/product acceptance, which §29 says green automation can never replace. **T3 remains
-T3-PARTIAL for that one reason.**
+It settles the backend, the schema, the pairing and the award journey. It does **not** settle the
+container-space conversion on staging, nor owner visual/product acceptance, which §29 says green
+automation can never replace. **T3 remains T3-PARTIAL.**
 
 Production untouched. PR #207 remains Draft.
