@@ -52,8 +52,11 @@ jobs:
           cache: npm
           cache-dependency-path: backend/package-lock.json
 
-      - name: Install backend dependencies
-        run: npm ci --prefix backend --ignore-scripts
+      # backend/package.json currently contains dependencies added after backend/package-lock.json.
+      # Do not rewrite that unrelated lockfile from this OCR lane; install the declared package graph
+      # without scripts or lockfile mutation so these zero-network-provider unit guards can execute.
+      - name: Install backend dependencies for offline tests
+        run: npm install --prefix backend --ignore-scripts --no-save --package-lock=false --no-audit --no-fund
 
       - name: Prove no live-provider credential is exposed to this gate
         shell: bash
