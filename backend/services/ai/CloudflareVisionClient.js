@@ -31,10 +31,25 @@ const CLOUDFLARE_AI_BASE = 'https://api.cloudflare.com/client/v4/accounts';
  *   contentPart — image as an `image_url` data URI inside the user message (OpenAI shape),
  *                 answer at result.choices[0].message.content
  */
+/**
+ * `sendResponseFormat` is FALSE for the OpenAI-shaped vision models, and that is a measurement,
+ * not a preference. Holding the image and prompt constant and varying only the schema:
+ *
+ *   @cf/google/gemma-4-26b-a4b-it   with response_format -> 5/8 fields, and it declared
+ *                                   date_of_birth, country and date_of_issue "unreadable"
+ *                                   without response_format -> 8/8, every value correct
+ *   @cf/qwen/qwen3.8-27b            with response_format -> 4/8    without -> 8/8
+ *
+ * Sending the schema SUPPRESSED fields both models can plainly read — the values are printed in
+ * 25px bold. Cloudflare's own JSON Mode page agrees it is best-effort, and its supported-model
+ * list names neither of these. Structure is therefore obtained the way that measurably works: an
+ * absolute output-format instruction in the prompt, plus fail-closed JSON-object recovery in
+ * DocumentIntelligenceService. CarUp's document schema remains the authority for what a field is.
+ */
 export const TRANSPORTS = {
-  '@cf/qwen/qwen3.8-27b': { form: 'contentPart', maxTokens: 2048 },
-  '@cf/google/gemma-4-26b-a4b-it': { form: 'contentPart', maxTokens: 4096 },
-  '@cf/meta/llama-3.2-11b-vision-instruct': { form: 'inlineImage', maxTokens: 2048 },
+  '@cf/qwen/qwen3.8-27b': { form: 'contentPart', maxTokens: 2048, sendResponseFormat: false },
+  '@cf/google/gemma-4-26b-a4b-it': { form: 'contentPart', maxTokens: 4096, sendResponseFormat: false },
+  '@cf/meta/llama-3.2-11b-vision-instruct': { form: 'inlineImage', maxTokens: 2048, sendResponseFormat: true },
 };
 
 export function transportFor(model) {
@@ -57,7 +72,9 @@ export function buildCloudflareRequestBody({ model, systemPrompt, textPrompt, im
   const base = {
     max_tokens: tokens,
     temperature: 0,
-    ...(jsonSchema ? { response_format: { type: 'json_schema', json_schema: jsonSchema } } : {}),
+    ...(jsonSchema && transport.sendResponseFormat
+      ? { response_format: { type: 'json_schema', json_schema: jsonSchema } }
+      : {}),
   };
 
   if (transport.form === 'inlineImage') {

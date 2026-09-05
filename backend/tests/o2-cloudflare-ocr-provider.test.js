@@ -115,6 +115,27 @@ test('cloudflare: each model uses the image form MEASURED to deliver its pixels'
   assert.equal(typeof llama.messages[1].content, 'string');
 });
 
+test('cloudflare: response_format is withheld from the models it demonstrably harms', () => {
+  // Holding image and prompt constant and varying only the schema:
+  //   gemma-4-26b-a4b-it  with schema 5/8 fields (3 declared "unreadable")  without schema 8/8
+  //   qwen3.8-27b         with schema 4/8                                    without schema 8/8
+  // Sending it cost four correct readings of 25px bold text. This guard keeps it off.
+  for (const model of ['@cf/qwen/qwen3.8-27b', '@cf/google/gemma-4-26b-a4b-it']) {
+    assert.equal(TRANSPORTS[model].sendResponseFormat, false, `${model} must not be sent response_format`);
+    const body = buildCloudflareRequestBody({
+      model, systemPrompt: 'S', textPrompt: 'U',
+      image: { mimeType: 'image/png', base64: 'QUJD' },
+      jsonSchema: { name: 'x', schema: { type: 'object' } },
+    });
+    assert.equal(body.response_format, undefined, `${model} must not carry response_format`);
+  }
+  // Structure still comes from somewhere: the absolute output-format instruction in the prompt,
+  // and fail-closed JSON-object recovery in the service. Neither infers anything from prose.
+  const service = readFileSync(new URL('../services/document-intelligence/documentIntelligenceService.js', import.meta.url), 'utf8');
+  assert.match(service, /OUTPUT FORMAT — absolute/);
+  assert.match(service, /a single balanced JSON object is recovered|recovered from the string/i);
+});
+
 test('cloudflare: each model is read from the envelope it actually answers in', () => {
   // Qwen and Gemma are OpenAI-shaped (choices[]); Llama answers at result.response.
   assert.equal(readCloudflareContent('@cf/qwen/qwen3.8-27b', { choices: [{ message: { content: '{\"a\":1}' } }] }), '{\"a\":1}');
@@ -183,8 +204,10 @@ test('cloudflare: the request carries the COMPLETE image bytes, the messages for
       assert.deepEqual(call.body.messages.map((m) => m.role), ['system', 'user']);
       assert.equal(call.body.messages[0].content, 'SYSTEM');
       assert.equal(call.body.prompt, undefined, 'the prose-producing bare prompt form is not used');
-      assert.equal(call.body.response_format.type, 'json_schema');
       assert.equal(call.body.temperature, 0);
+      // Measured: sending response_format to this model SUPPRESSED fields it can plainly read.
+      assert.equal(call.body.response_format, undefined,
+        'response_format is not sent to a model measured to lose readable fields because of it');
     } finally { cap.restore(); }
   });
 });
