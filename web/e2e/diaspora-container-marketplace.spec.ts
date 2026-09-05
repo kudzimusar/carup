@@ -337,6 +337,10 @@ test.describe('Diaspora container marketplace (Phase 6)', () => {
   })
 
   test('no horizontal document overflow at narrow-desktop and phone widths (owner UAT #2)', async ({ page }) => {
+    // Four viewports, each a full page load plus opening Container space inside the T3 workspace.
+    // That is genuinely more work than the pre-T3 version of this test and it sits close to the
+    // 30s default, so the budget is stated rather than left to chance.
+    test.setTimeout(120_000)
     const state = initial()
     state.reservations.push({ id: 'res-w', container_id: 'cont-1', buyer_id: 'b-1', estimated_volume: 20, reservation_status: 'REQUESTED' })
     await loginAs(page, operator, 'op-token')
