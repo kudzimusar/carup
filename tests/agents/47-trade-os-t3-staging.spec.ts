@@ -1,5 +1,5 @@
 import type { Page } from '@playwright/test';
-import { stagingTest, expect } from './staging-helpers';
+import { stagingTest, expect, API_URL } from './staging-helpers';
 
 /**
  * Spec 47 — Trade OS T3 (Logistics RFQ / "Ship something") certification on deployed staging.
@@ -28,6 +28,29 @@ type Who = keyof typeof IDS;
 
 /** Unique per run so repeated certifications never collide or read each other's rows. */
 const RUN_TAG = process.env.STAGING_RUN_ID || 't3';
+
+/**
+ * A sailing operated by a DIFFERENT organisation. Overridable so the spec is not welded to one
+ * staging fixture. It must be a real, open sailing the provider does not operate — a fabricated id
+ * would be refused as not-found, which proves nothing about authorization.
+ */
+const FOREIGN_CONTAINER_ID = process.env.TRADEOS_T3_FOREIGN_CONTAINER_ID
+  || 'bbbb2222-cccc-4ddd-8eee-999900002222';
+
+/** The volume the conversion test reserves; capacity must move by exactly this, and only on approval. */
+const RESERVED_CBM = 3;
+
+/**
+ * The dedicated conversion sailing's total capacity, which is UNIQUE across staging's sailings so
+ * the spec can identify its own card. Taking `.first()` silently read a different operator's
+ * container and compared it against itself — the before/after assertions passed while measuring
+ * nothing. A test that reads the wrong row and still goes green is worse than one that fails.
+ */
+const FIXTURE_TOTAL_CBM = Number(process.env.TRADEOS_T3_FIXTURE_TOTAL_CBM || 47);
+
+/** The sailing the provider attaches. Pinned by id for the same reason as the card above. */
+const FIXTURE_CONTAINER_ID = process.env.TRADEOS_T3_CONTAINER_ID
+  || 'aaaa1111-bbbb-4ccc-8ddd-999900001111';
 const CARGO = `SYNTHETIC T3 ${RUN_TAG} household cartons`;
 
 function password(who: Who): string {
@@ -67,6 +90,49 @@ async function switchActor(page: Page, who: Who): Promise<void> {
   await page.context().clearCookies();
   await page.evaluate(() => window.localStorage.clear()).catch(() => undefined);
   await signIn(page, who);
+}
+
+/**
+ * Call the deployed API as the signed-in user, exactly the way the app does: identity headers from
+ * localStorage plus a CSRF token bound to that identity, with credentials. Used for the assertions
+ * that are about what the SERVER refuses — those must not be made through a UI that simply never
+ * offers the option, or they prove nothing.
+ */
+async function apiAs(page: Page, method: string, path: string, body?: unknown) {
+  return page.evaluate(async ({ api, method, path, body }) => {
+    const user = JSON.parse(window.localStorage.getItem('carup_user') || '{}')
+    const token = window.localStorage.getItem('carup_token') || ''
+    const auth: Record<string, string> = { 'x-user-id': user.id || '', 'x-session-token': token }
+    // CSRF is bound to the identity, so it must be fetched with the SAME headers the mutation uses.
+    const csrfRes = await fetch(`${api}/security/csrf-token`, { credentials: 'include', headers: auth })
+    const { csrfToken } = await csrfRes.json()
+    const res = await fetch(`${api}${path}`, {
+      method,
+      credentials: 'include',
+      headers: { ...auth, 'content-type': 'application/json', 'x-csrf-token': csrfToken },
+      body: body === undefined ? undefined : JSON.stringify(body),
+    })
+    let payload: unknown = null
+    try { payload = await res.json() } catch { payload = null }
+    return { status: res.status, body: payload, api, sentUserId: auth['x-user-id'] }
+  }, { api: API_URL, method, path, body })
+}
+
+/** The conversion fixture's own card, identified by its unique total capacity. */
+function fixtureCard(page: Page) {
+  return page.getByTestId('diaspora-container-card')
+    .filter({ hasText: new RegExp(`/\\s*${FIXTURE_TOTAL_CBM}\\s*CBM`) })
+}
+
+/** Read the fixture container's stated capacity straight off the operator surface. */
+async function capacityFromCard(page: Page): Promise<{ used: number; available: number }> {
+  const card = fixtureCard(page)
+  await expect(card, `no sailing card with a ${FIXTURE_TOTAL_CBM} CBM total`).toHaveCount(1)
+  const text = await card.innerText()
+  const m = text.match(/Used\s+([\d.]+)\s*\/\s*([\d.]+)\s*CBM\s*·\s*available\s+([\d.]+)/i)
+  if (!m) throw new Error(`could not read capacity from card: ${text}`)
+  expect(Number(m[2]), 'read the wrong sailing card').toBe(FIXTURE_TOTAL_CBM)
+  return { used: Number(m[1]), available: Number(m[3]) }
 }
 
 stagingTest.describe('Trade OS T3 — Shipping requests (deployed staging, unmocked)', () => {
@@ -155,10 +221,18 @@ stagingTest.describe('Trade OS T3 — Shipping requests (deployed staging, unmoc
     await page.locator('[data-testid="logistics-request-wizard"] input[type="number"]').first().fill('4');
     await page.getByRole('button', { name: /^Continue/i }).click();
     await page.getByLabel(/I know the total volume/i).check();
-    await page.locator('[data-testid="logistics-request-wizard"] input[type="number"]').first().fill('3');
+    await page.locator('[data-testid="logistics-request-wizard"] input[type="number"]').first().fill(String(RESERVED_CBM));
     await page.getByRole('button', { name: /^Continue/i }).click();   // → Route
     await page.getByRole('button', { name: /^Continue/i }).click();   // → Review
+
+    // Capture the real request id from the publish response — the reference on screen (SHIP-XXXX)
+    // is a display string, not the identifier the API takes.
+    const published = page.waitForResponse((r) =>
+      r.request().method() === 'POST' && /\/logistics-requests\/[^/]+\/publish$/.test(new URL(r.url()).pathname),
+      { timeout: 60_000 });
     await page.getByRole('button', { name: /Publish shipping request/i }).click();
+    const requestId = (await (await published).json())?.data?.id as string;
+    expect(requestId, 'publish did not return a request id').toBeTruthy();
     await expect(page.getByTestId('logistics-request-detail')).toBeVisible({ timeout: 60_000 });
 
     // ── Provider attaches a sailing it actually operates ──────────────────
@@ -170,9 +244,11 @@ stagingTest.describe('Trade OS T3 — Shipping requests (deployed staging, unmoc
 
     const composer = page.getByTestId('logistics-quote-composer');
     const sailing = composer.getByLabel(/CarUp sailing/i);
-    // Only a sailing this provider coordinates or tenant-administers may be offered; the server
-    // re-checks it regardless of what the select contains.
-    await sailing.selectOption({ index: 1 });
+    // Pinned by id, not by index: the provider administers several sailings and attaching an
+    // arbitrary one would make the capacity assertions below measure a container this journey
+    // never touched. Only a sailing this provider coordinates or tenant-administers may be
+    // offered, and the server re-checks that regardless of what the select contains.
+    await sailing.selectOption(FIXTURE_CONTAINER_ID);
     await composer.getByLabel(/Offer total/i).fill('650');
     await composer.getByRole('button', { name: /Review offer/i }).click();
     await composer.getByRole('button', { name: /Submit offer/i }).click();
@@ -189,7 +265,51 @@ stagingTest.describe('Trade OS T3 — Shipping requests (deployed staging, unmoc
 
     // The award alone must NOT read as a booking — space is a separate, deliberate act.
     await expect(detail).toContainText(/organiser still has to approve/i);
+
+    // Capacity BEFORE any space request, read off the operator surface rather than assumed.
+    await page.goto('/diaspora/containers?view=containers');
+    const before = await capacityFromCard(page);
+
+    await page.goto('/diaspora/containers?view=mine');
+    await page.getByText(cargo).first().click();
     await detail.getByRole('button', { name: /Request container space/i }).click();
     await expect(detail).toContainText(/Container-space request recorded/i, { timeout: 60_000 });
+
+    // A REQUESTED reservation consumes NOTHING. This is the invariant the whole product rests on.
+    await page.goto('/diaspora/containers?view=containers');
+    const afterRequest = await capacityFromCard(page);
+    expect(afterRequest.used, 'a REQUESTED reservation consumed capacity').toBe(before.used);
+    expect(afterRequest.available, 'a REQUESTED reservation reduced availability').toBe(before.available);
+
+    // Replaying the space request must not book the same cargo twice. Driven at the API, because
+    // the UI hides the button once recorded — which would prove only that the button is hidden.
+    const replay = await apiAs(page, 'POST', `/diaspora/logistics-requests/${requestId}/request-space`);
+    expect(replay.status, `replayed space request rejected: api=${replay.api} as=${replay.sentUserId} body=${JSON.stringify(replay.body)}`).toBe(200);
+    const replayBody = replay.body as { data?: { idempotentReplay?: boolean; reservation?: { id?: string } } };
+    expect(replayBody?.data?.idempotentReplay, 'replay created a SECOND reservation').toBe(true);
+
+    // A provider may not attach a sailing another organisation operates. Asserted at the API: the
+    // composer only lists the provider's own sailings, so a UI-only check proves nothing.
+    await switchActor(page, 'provider');
+    await page.goto('/diaspora/containers?view=provider');
+    const foreign = await apiAs(page, 'POST', `/diaspora/logistics-opportunities/${requestId}/quotes`, {
+      service_mode: 'shared_container', total_amount: 500, currency: 'USD',
+      compatible_container_id: FOREIGN_CONTAINER_ID, submit: true,
+    });
+    expect([400, 403], `foreign container attach returned ${foreign.status}`).toContain(foreign.status);
+
+    // ── Organiser approves, through the EXISTING container authority ──────
+    await page.goto('/diaspora/containers?view=containers');
+    await fixtureCard(page).getByTestId('diaspora-container-open').click();
+    await page.getByTestId('diaspora-container-approve').first().click();
+    await expect(page.getByTestId('diaspora-container-reservation-row').getByText('APPROVED')).toBeVisible({ timeout: 60_000 });
+
+    // …and ONLY now does capacity move, by exactly the reserved volume.
+    await page.goto('/diaspora/containers?view=containers');
+    const afterApproval = await capacityFromCard(page);
+    expect(afterApproval.used, 'approval did not consume exactly the reserved volume')
+      .toBeCloseTo(before.used + RESERVED_CBM, 3);
+    expect(afterApproval.available, 'availability did not fall by exactly the reserved volume')
+      .toBeCloseTo(before.available - RESERVED_CBM, 3);
   });
 });
