@@ -1,11 +1,11 @@
 # Trade OS T3 — Logistics RFQ implementation receipt
 
-**Programme authority:** `docs/TRADE_OS_CONTAINER_COLOADING_LIVING_MASTER_PLAN.md` §10  
-**Branch:** `feat/trade-os-client-demo-convergence`  
-**Draft PR:** #207  
-**Production:** untouched  
-**Status:** T3-PARTIAL at head `afa80e35` — everything provable without a deployed environment is
-proven; nothing on staging has been run. This receipt is evidence, **not a competing plan**.
+- **Programme authority:** `docs/TRADE_OS_CONTAINER_COLOADING_LIVING_MASTER_PLAN.md` §10
+- **Branch:** `feat/trade-os-client-demo-convergence`
+- **Draft PR:** #207
+- **Production:** untouched
+- **Status:** T3-PARTIAL at head `afa80e35` — everything provable without a deployed environment
+  is proven; nothing on staging has been run. This receipt is evidence, **not a competing plan**.
 
 ## Why T3 exists
 
