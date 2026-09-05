@@ -1,0 +1,713 @@
+name: Seller Exact-Head Staging UAT
+
+# Mandatory Golden Dynamic Seller deployed acceptance for the Seller remediation lane.
+# Runs only for PRs into the Passport integration branch; it never promotes or targets main.
+on:
+  pull_request:
+    branches:
+      - integration/vehicle-passport-v16-cert
+    paths:
+      - 'backend/**'
+      - 'web/**'
+      - 'tests/agents/38-seller-staging-browser-golden.spec.ts'
+      - 'playwright.staging.config.ts'
+      - '.github/workflows/seller-exact-head-staging-uat.yml'
+  workflow_dispatch: {}
+
+
+concurrency:
+  group: seller-exact-head-staging-uat-${{ github.event.pull_request.number || github.ref_name }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  golden-dynamic-seller:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    env:
+      EXPECTED_HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+      CANDIDATE_BRANCH: ${{ github.event.pull_request.head.ref || github.ref_name }}
+      STAGING_RUN_ID: seller-${{ github.run_id }}-${{ github.run_attempt }}
+      DIASPORA_STAGING_DATABASE_URL: ${{ secrets.DIASPORA_STAGING_DATABASE_URL }}
+      EXPECTED_STAGING_PROJECT_REF: eoyenigwevnxwwhyhaer
+
+    steps:
+      - name: Checkout exact candidate head
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ env.EXPECTED_HEAD_SHA }}
+
+      - name: Assert exact candidate checkout
+        run: test "$(git rev-parse HEAD)" = "$EXPECTED_HEAD_SHA"
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Require staging operator secret
+        run: |
+          if [ -z "$DIASPORA_STAGING_DATABASE_URL" ]; then
+            echo '::error::DIASPORA_STAGING_DATABASE_URL is not configured; Golden Dynamic Seller acceptance cannot provision its isolated staging identities.'
+            exit 1
+          fi
+          case "$DIASPORA_STAGING_DATABASE_URL" in
+            *"$EXPECTED_STAGING_PROJECT_REF"*) ;;
+            *)
+              echo '::error::Refusing Seller UAT identity rotation: database URL is not the approved carup-staging project.'
+              exit 1
+              ;;
+          esac
+
+      - name: Resolve governed exact-head preview pair
+        run: |
+          node <<'NODE'
+          const fs = require('fs');
+          const branch = process.env.CANDIDATE_BRANCH;
+          const frontendPairs = JSON.parse(fs.readFileSync('web/preview-frontend-pairing.json', 'utf8')).branches || {};
+          const backendPairs = JSON.parse(fs.readFileSync('web/preview-backend-pairing.json', 'utf8')).branches || {};
+          const frontend = frontendPairs[branch];
+          const backend = backendPairs[branch];
+          if (!frontend || !backend) {
+            console.error(JSON.stringify({
+              error: 'Seller candidate preview pair is not governed',
+              branch,
+              frontend_configured: Boolean(frontend),
+              backend_configured: Boolean(backend),
+            }));
+            process.exit(1);
+          }
+          fs.appendFileSync(process.env.GITHUB_ENV,
+            `STAGING_WEB_URL=${frontend}\nSTAGING_API_URL=${backend.replace(/\/$/, '')}/api\n`);
+          console.log(JSON.stringify({ branch, frontend, backend }));
+          NODE
+
+      - name: Wait for exact-head frontend and backend provenance
+        run: |
+          node --input-type=module <<'NODE'
+          const expected = process.env.EXPECTED_HEAD_SHA;
+          const web = process.env.STAGING_WEB_URL;
+          const api = process.env.STAGING_API_URL;
+          const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
+
+          for (let attempt = 1; attempt <= 72; attempt += 1) {
+            try {
+              const [provRes, healthRes] = await Promise.all([
+                fetch(`${web}/carup-provenance.json?attempt=${attempt}`, { cache: 'no-store' }),
+                fetch(`${api}/health?attempt=${attempt}`, { cache: 'no-store' }),
+              ]);
+              const provenance = provRes.ok ? await provRes.json() : null;
+              const health = healthRes.ok ? await healthRes.json() : null;
+              const frontendOk = provenance?.commit_sha === expected && provenance?.unpaired === false;
+              const backendOk = health?.status === 'UP' && health?.build?.commit_sha === expected;
+              if (frontendOk && backendOk) {
+                console.log(JSON.stringify({
+                  frontend_sha: provenance.commit_sha,
+                  backend_sha: health.build.commit_sha,
+                  deployment_id: health.build.deployment_id,
+                  api_base_url: provenance.api_base_url,
+                }));
+                process.exit(0);
+              }
+              console.log(`provenance attempt ${attempt}: frontend=${provenance?.commit_sha || 'not-ready'} backend=${health?.build?.commit_sha || 'not-ready'}`);
+            } catch (error) {
+              console.log(`provenance attempt ${attempt}: ${error.message}`);
+            }
+            await sleep(5000);
+          }
+          console.error('Exact-head Seller preview pair never reported the candidate SHA.');
+          process.exit(1);
+          NODE
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Install Chromium
+        run: npx playwright install --with-deps chromium
+
+      - name: Apply additive Seller migrations to approved staging
+        run: |
+          node --input-type=module <<'NODE'
+          import fs from 'node:fs'
+          import pg from 'pg'
+
+          const dbUrl = process.env.DIASPORA_STAGING_DATABASE_URL || ''
+          if (!dbUrl.includes(process.env.EXPECTED_STAGING_PROJECT_REF)) {
+            throw new Error('Refusing Seller migration outside the approved staging project.')
+          }
+          const migrationPaths = [
+            'database/migrations/20260830123000_seller_listing_photo_labels.sql',
+            'database/migrations/20260831100000_seller_listing_submission_id.sql',
+            'database/migrations/20260831150000_seller_vehicle_history_disclosures.sql',
+            'database/migrations/20260902110000_zimbabwe_registration_lifecycle_and_evidence.sql',
+            'database/migrations/20260902123000_auth_activity_not_conversation.sql',
+          ]
+          const cleaned = dbUrl.replace(/([?&])sslmode=[^&]*&?/i, '$1').replace(/[?&]$/, '')
+          const client = new pg.Client({ connectionString: cleaned, ssl: { rejectUnauthorized: false } })
+          await client.connect()
+          try {
+            await client.query('BEGIN')
+            for (const migrationPath of migrationPaths) {
+              const source = fs.readFileSync(migrationPath, 'utf8')
+              const up = source.split('-- +migrate Down')[0].replace('-- +migrate Up', '')
+              await client.query(up)
+            }
+
+            const columnProof = await client.query(`
+              select table_name, column_name
+                from information_schema.columns
+               where table_schema='public'
+                 and (
+                   (table_name='listing_images' and column_name='photo_label')
+                   or (table_name='vehicles' and column_name='seller_listing_submission_id')
+                   or (table_name='vehicles' and column_name='seller_accident_disclosure')
+                   or (table_name='vehicles' and column_name='seller_insurance_disclosure')
+                   or (table_name='vehicles' and column_name='seller_finance_disclosure')
+                 )
+               order by table_name, column_name
+            `)
+            if (columnProof.rows.length !== 5) {
+              throw new Error(`Seller additive columns did not land: ${JSON.stringify(columnProof.rows)}`)
+            }
+
+            const indexProof = await client.query(`
+              select indexname
+                from pg_indexes
+               where schemaname='public'
+                 and tablename='vehicles'
+                 and indexname='vehicles_seller_listing_submission_id_unique'
+            `)
+            if (indexProof.rows.length !== 1) throw new Error('Seller submission id unique index did not land')
+
+            const registrationConstraint = await client.query(`
+              select conname, convalidated
+                from pg_constraint
+               where conrelid='public.vehicles'::regclass
+                 and conname='vehicles_registration_status_canonical_when_sourced'
+            `)
+            if (registrationConstraint.rows.length !== 1) {
+              throw new Error('Zimbabwe registration lifecycle constraint did not land')
+            }
+
+            const registrationTaxonomy = await client.query(`
+              select count(*)::int as count
+                from public.evidence_class_taxonomy
+               where evidence_class='registration'
+            `)
+            if (Number(registrationTaxonomy.rows[0]?.count || 0) < 6) {
+              throw new Error('Zimbabwe registration evidence taxonomy did not land')
+            }
+
+            await client.query('COMMIT')
+          } catch (error) {
+            await client.query('ROLLBACK')
+            throw error
+          } finally {
+            await client.end()
+          }
+          NODE
+
+
+      - name: Physical verification Email + notification separation proof
+        if: github.event.pull_request.number == 205
+        run: |
+          mkdir -p test-results
+          node --input-type=module <<'NODE'
+          import fs from 'node:fs'
+          import pg from 'pg'
+
+          const suffix = `${process.env.EXPECTED_HEAD_SHA.slice(0, 8)}-${process.env.GITHUB_RUN_ID || 'run'}`
+          // Controlled certification mailbox already used by CarUp provider certification. A unique
+          // plus-address keeps the run isolated without exposing an owner's personal mailbox in source.
+          const email = `eleven.eleven.testing+carup-pr205-${suffix}@gmail.com`
+          const password = `CarUp-UAT-${process.env.EXPECTED_HEAD_SHA.slice(0, 12)}-A9!`
+          const api = process.env.STAGING_API_URL.replace(/\/$/, '')
+
+          // Follow the same double-submit CSRF contract as the browser. The registration request is
+          // anonymous, so the token is intentionally bound to the canonical 'guest' context.
+          const csrfResponse = await fetch(`${api}/security/csrf-token`, {
+            headers: { 'user-agent': 'carup-pr205-email-uat', 'x-user-id': 'guest' },
+          })
+          const csrfBody = await csrfResponse.json()
+          if (!csrfResponse.ok || !csrfBody?.csrfToken) {
+            throw new Error(`Physical Email UAT could not establish CSRF context (${csrfResponse.status}).`)
+          }
+
+          const registerResponse = await fetch(`${api}/auth/register`, {
+            method: 'POST',
+            headers: {
+              'content-type': 'application/json',
+              'user-agent': 'carup-pr205-email-uat',
+              'x-user-id': 'guest',
+              'x-csrf-token': csrfBody.csrfToken,
+            },
+            body: JSON.stringify({
+              name: 'CarUp PR205 Email UAT',
+              email,
+              password,
+              role: 'owner',
+            }),
+          })
+          const registerBody = await registerResponse.json()
+          if (!registerResponse.ok) {
+            throw new Error(`Physical Email UAT registration failed (${registerResponse.status}): ${registerBody?.error || 'unknown'}`)
+          }
+          if (registerBody?.email_verification?.status !== 'sent') {
+            throw new Error(`Verification Email was not provider-accepted as sent: ${registerBody?.email_verification?.status || 'missing'}`)
+          }
+          const userId = registerBody?.user?.id
+          const sessionToken = registerBody?.token
+          if (!userId || !sessionToken) throw new Error('Registration did not return the staging user/session needed for UAT.')
+
+          const authHeaders = { authorization: `Bearer ${sessionToken}` }
+          const [notificationsResponse, conversationsResponse, accountActivityResponse] = await Promise.all([
+            fetch(`${api}/notifications/me`, { headers: authHeaders }),
+            fetch(`${api}/communications/threads`, { headers: authHeaders }),
+            fetch(`${api}/communications/account-activity`, { headers: authHeaders }),
+          ])
+          if (!notificationsResponse.ok) throw new Error(`Notification projection read failed: ${notificationsResponse.status}`)
+          if (!conversationsResponse.ok) throw new Error(`Communications projection read failed: ${conversationsResponse.status}`)
+          if (!accountActivityResponse.ok) throw new Error(`Account activity projection read failed: ${accountActivityResponse.status}`)
+          const notifications = await notificationsResponse.json()
+          const conversations = await conversationsResponse.json()
+          const accountActivity = await accountActivityResponse.json()
+
+          if ((notifications || []).some((row) => row.channel && row.channel !== 'in_app')) {
+            throw new Error('Notification bell projection leaked a transport delivery row.')
+          }
+          if (JSON.stringify(notifications).includes('/auth/verify-email') || JSON.stringify(notifications).includes('token=')) {
+            throw new Error('Notification bell projection leaked an auth action URL/token.')
+          }
+          if ((conversations?.threads || []).some((thread) => thread.thread_type === 'account' || thread.conversation_type === 'account')) {
+            throw new Error('Account/security activity leaked into the reply-capable Communications inbox.')
+          }
+          const verificationActivity = (accountActivity?.activity || []).find((row) => row.activity_type === 'auth_email_verification_v1')
+          if (!verificationActivity) throw new Error('Account & security activity did not expose the verification Email status.')
+          const activityJson = JSON.stringify(accountActivity)
+          if (activityJson.includes('/auth/verify-email') || activityJson.includes('token=')) {
+            throw new Error('Account & security activity leaked an auth action URL/token.')
+          }
+
+          const dbUrl = process.env.DIASPORA_STAGING_DATABASE_URL || ''
+          const cleaned = dbUrl.replace(/([?&])sslmode=[^&]*&?/i, '$1').replace(/[?&]$/, '')
+          const client = new pg.Client({ connectionString: cleaned, ssl: { rejectUnauthorized: false } })
+          await client.connect()
+          let emailRow
+          let accountThread
+          try {
+            for (let attempt = 0; attempt < 30; attempt += 1) {
+              const emailResult = await client.query(
+                `select id, thread_id, status, channel, provider, template_key, payload, last_error_code, last_error_message
+                   from public.notification_queue
+                  where recipient_user_id=$1
+                    and channel='email'
+                    and template_key='auth_email_verification_v1'
+                  order by created_at desc
+                  limit 1`,
+                [userId],
+              )
+              emailRow = emailResult.rows[0] || null
+              if (emailRow?.status === 'failed' || emailRow?.status === 'dead_letter') {
+                throw new Error(`Verification Email provider delivery failed: ${emailRow.last_error_code || emailRow.status}`)
+              }
+              if (emailRow?.status === 'delivered') break
+              await new Promise((resolve) => setTimeout(resolve, 1000))
+            }
+            if (!emailRow) throw new Error('Canonical verification Email delivery row was not persisted.')
+            if (emailRow.channel !== 'email') throw new Error('Verification delivery row has the wrong channel.')
+            if (emailRow.status !== 'delivered') {
+              throw new Error(`Verification Email did not reach a provider-delivered receipt within the UAT window (status: ${emailRow.status || 'missing'}).`)
+            }
+            const actionUrl = String(emailRow.payload?.action_url || '')
+            if (!actionUrl.includes('/auth/verify-email') || !actionUrl.includes('token=')) {
+              throw new Error('Verification Email row does not contain the expected private action URL.')
+            }
+
+            const threadResult = await client.query(
+              `select id, thread_type
+                 from public.message_threads
+                where id=$1
+                limit 1`,
+              [emailRow.thread_id],
+            )
+            accountThread = threadResult.rows[0] || null
+            if (accountThread?.thread_type !== 'account') {
+              throw new Error(`Verification Email was not recorded as Account activity (got ${accountThread?.thread_type || 'missing'}).`)
+            }
+          } finally {
+            await client.end()
+          }
+
+          const receipt = {
+            exact_head_sha: process.env.EXPECTED_HEAD_SHA,
+            recipient: email,
+            registration_http_status: registerResponse.status,
+            registration_delivery_status: registerBody.email_verification.status,
+            canonical_email_row: {
+              id: emailRow.id,
+              status: emailRow.status,
+              channel: emailRow.channel,
+              provider: emailRow.provider,
+              template_key: emailRow.template_key,
+              action_url_present: true,
+            },
+            account_thread_type: accountThread.thread_type,
+            bell_rows: Array.isArray(notifications) ? notifications.length : null,
+            bell_contains_transport_delivery: false,
+            bell_contains_auth_token: false,
+            communications_contains_account_activity: false,
+            account_activity_visible: true,
+            account_activity_contains_auth_token: false,
+          }
+          fs.writeFileSync('test-results/seller-verification-email-physical-uat.json', JSON.stringify(receipt, null, 2))
+          console.log(JSON.stringify({
+            exact_head_sha: receipt.exact_head_sha,
+            recipient: receipt.recipient,
+            registration_delivery_status: receipt.registration_delivery_status,
+            canonical_email_provider: receipt.canonical_email_row.provider,
+            account_thread_type: receipt.account_thread_type,
+            bell_contains_auth_token: false,
+            communications_contains_account_activity: false,
+            account_activity_visible: true,
+            provider_delivery_receipt: receipt.canonical_email_row.status,
+          }))
+          NODE
+
+      - name: Freeze exact candidate bundle
+        run: |
+          node --input-type=module <<'NODE'
+          import fs from 'node:fs';
+          const response = await fetch(process.env.STAGING_WEB_URL, { cache: 'no-store' });
+          if (!response.ok) throw new Error(`frontend returned ${response.status}`);
+          const html = await response.text();
+          const bundle = (html.match(/\/assets\/(index-[A-Za-z0-9_-]+\.js)/) || [])[1];
+          if (!bundle) throw new Error('Seller preview did not expose a Vite entry bundle');
+          fs.appendFileSync(process.env.GITHUB_ENV, `STAGING_EXPECTED_BUNDLE=${bundle}\n`);
+          console.log(`Frozen Seller exact-head bundle: ${bundle}`);
+          NODE
+
+      - name: Rotate staging-only owner and reviewer identities
+        run: |
+          node --input-type=module <<'NODE'
+          import crypto from 'node:crypto';
+          import fs from 'node:fs';
+          import pg from 'pg';
+
+          const dbUrl = process.env.DIASPORA_STAGING_DATABASE_URL || '';
+          const expectedRef = process.env.EXPECTED_STAGING_PROJECT_REF;
+          if (!dbUrl.includes(expectedRef)) throw new Error('Refusing identity setup outside the approved staging project.');
+
+          const password = crypto.randomBytes(30).toString('base64url');
+          const salt = crypto.randomBytes(16).toString('hex');
+          const derived = await new Promise((resolve, reject) => {
+            crypto.scrypt(password, salt, 64, (error, key) => error ? reject(error) : resolve(key));
+          });
+          const passwordHash = `scrypt:${salt}:${derived.toString('hex')}`;
+
+          // ISOLATED PER-RUN SELLER. The gate used to run as the shared `uat.buyer` identity, whose
+          // garage accumulated every vehicle every previous Golden run ever created — 132 listings,
+          // 107 of them this gate's own synthetics. `SellerIntelligence` fans out ONE analytics
+          // request per owned vehicle and waits for all of them before it reaches its ready state,
+          // so that inherited history became a self-amplifying load test: more runs -> more
+          // listings -> more concurrent analytics -> 29-97s backend responses -> unrelated 20s
+          // client timeouts -> a certification nobody could trust. Measured: 113 listings when the
+          // gate last passed cleanly, 131 by the time it was failing on every run.
+          //
+          // A run now owns its Seller outright, so it starts from an empty garage and CANNOT
+          // inherit another run's inventory. Nothing is deleted to achieve this: the historical
+          // automation vehicles stay attached to `uat.buyer` as the record of what they were.
+          const runId = process.env.GITHUB_RUN_ID;
+          if (!runId) throw new Error('GITHUB_RUN_ID is required to mint the per-run Golden Seller.');
+          const runSellerEmail = `golden.seller.${runId}@carup-staging.test`;
+          const runSellerId = `u_golden_${runId}`;
+
+          const cleanedDbUrl = dbUrl.replace(/([?&])sslmode=[^&]*&?/i, '$1').replace(/[?&]$/, '');
+          const client = new pg.Client({ connectionString: cleanedDbUrl, ssl: { rejectUnauthorized: false } });
+          await client.connect();
+          try {
+            await client.query('BEGIN');
+
+            // The run's own Seller. Unmistakably synthetic, staging-only, and never shared with
+            // Serena, Media Lifecycle, Marketplace, human UAT or O2.
+            const seller = await client.query(
+              `insert into public.users (id, name, email, role, join_date, is_verified, password_hash)
+               values ($1, $2, $3, 'owner', to_char(now(), 'YYYY-MM-DD'), false, $4)
+               on conflict (email) do update set password_hash = excluded.password_hash, role = 'owner'
+               returning id`,
+              [runSellerId, `Golden Dynamic Seller ${runId} (staging automation)`, runSellerEmail, passwordHash],
+            );
+            if (seller.rowCount !== 1) throw new Error('Could not provision the per-run Golden Seller identity.');
+
+            // The reviewer stays shared: it holds no inventory, so it cannot accumulate the state
+            // this change exists to prevent.
+            const reviewer = await client.query(
+              'update public.users set password_hash = $1, role = $2 where email = $3 returning id',
+              [passwordHash, 'admin', 'uat.reviewer@carup-staging.test'],
+            );
+            if (reviewer.rowCount !== 1) throw new Error('Missing staging UAT identity: uat.reviewer@carup-staging.test');
+
+            await client.query('COMMIT');
+          } catch (error) {
+            await client.query('ROLLBACK');
+            throw error;
+          } finally {
+            await client.end();
+          }
+
+          // The random password exists only for this workflow run. Register it with the Actions
+          // masker BEFORE exporting it so a later failing command cannot echo the credential.
+          console.log(`::add-mask::${password}`);
+          fs.appendFileSync(
+            process.env.GITHUB_ENV,
+            [
+              `STAGING_UAT_BUYER_EMAIL=${runSellerEmail}`,
+              `STAGING_UAT_BUYER_PASSWORD=${password}`,
+              `STAGING_UAT_REVIEWER_PASSWORD=${password}`,
+            ].join('\n') + '\n',
+            { mode: 0o600 },
+          );
+          console.log(`Per-run Golden Seller provisioned (${runSellerEmail}); reviewer rotated. No credentials printed.`);
+          NODE
+
+      - name: Run Golden Dynamic Seller desktop + mobile Chromium
+        run: npx playwright test tests/agents/38-seller-staging-browser-golden.spec.ts --config=playwright.staging.config.ts
+
+      - name: Audit Seller automation inventory after run
+        if: always()
+        run: |
+          mkdir -p test-results
+          node --input-type=module <<'NODE'
+          import fs from 'node:fs';
+          import pg from 'pg';
+
+          const dbUrl = process.env.DIASPORA_STAGING_DATABASE_URL || '';
+          if (!dbUrl.includes(process.env.EXPECTED_STAGING_PROJECT_REF)) {
+            throw new Error('Refusing automation inventory audit outside approved staging.');
+          }
+          const cleaned = dbUrl.replace(/([?&])sslmode=[^&]*&?/i, '$1').replace(/[?&]$/, '');
+          const client = new pg.Client({ connectionString: cleaned, ssl: { rejectUnauthorized: false } });
+          await client.connect();
+          try {
+            const { rows } = await client.query(`
+              select
+                v.vin,
+                v.publication_status,
+                v.status,
+                v.created_at,
+                v.seller_description,
+                count(li.id)::int as media_count
+              from public.vehicles v
+              left join public.listing_images li on li.vin = v.vin
+              where v.seller_description like 'Golden Dynamic Seller %'
+              group by v.vin, v.publication_status, v.status, v.created_at, v.seller_description
+              order by v.created_at desc
+            `);
+            const inventory = rows.map((row) => ({
+              vin: row.vin,
+              run_marker: String(row.seller_description || '').match(/^Golden Dynamic Seller ([^:]+):/)?.[1] || null,
+              publication_status: row.publication_status,
+              lifecycle_status: row.status,
+              media_count: row.media_count,
+              created_at: row.created_at,
+              owner_class: 'staging-synthetic-seller',
+            }));
+            const publicRows = inventory.filter((row) =>
+              ['published', 'public'].includes(String(row.publication_status || '').toLowerCase()) &&
+              ['available', 'reserved'].includes(String(row.lifecycle_status || '').toLowerCase())
+            );
+            const receipt = {
+              expected_head_sha: process.env.EXPECTED_HEAD_SHA,
+              run_id: process.env.STAGING_RUN_ID,
+              total_automation_records: inventory.length,
+              public_automation_records: publicRows.length,
+              inventory,
+            };
+            fs.writeFileSync('test-results/seller-automation-inventory.json', JSON.stringify(receipt, null, 2));
+            console.log(JSON.stringify({ total_automation_records: inventory.length, public_automation_records: publicRows.length }));
+            if (publicRows.length) {
+              throw new Error(`Human UAT contamination: ${publicRows.length} Seller automation listing(s) remain public.`);
+            }
+          } finally {
+            await client.end();
+          }
+          NODE
+
+      - name: Explain Marketplace population semantics
+        if: always()
+        run: |
+          mkdir -p test-results
+          node --input-type=module <<'NODE'
+          import fs from 'node:fs';
+          import pg from 'pg';
+          import { getFixtureExclusion } from './backend/services/marketplace/marketplaceClassificationRules.js';
+
+          const dbUrl = process.env.DIASPORA_STAGING_DATABASE_URL || '';
+          if (!dbUrl.includes(process.env.EXPECTED_STAGING_PROJECT_REF)) {
+            throw new Error('Refusing Marketplace population audit outside approved staging.');
+          }
+          const cleaned = dbUrl.replace(/([?&])sslmode=[^&]*&?/i, '$1').replace(/[?&]$/, '');
+          const client = new pg.Client({ connectionString: cleaned, ssl: { rejectUnauthorized: false } });
+          await client.connect();
+          try {
+            const { rows } = await client.query(`
+              select vin, owner_id, tenant_id, seller_description, publication_status, status, created_at
+                from public.vehicles
+               order by created_at desc
+            `);
+
+            const isLivePublic = (row) =>
+              ['published', 'public'].includes(String(row.publication_status || '').toLowerCase()) &&
+              ['available', 'reserved'].includes(String(row.status || '').toLowerCase());
+            const isSellerAutomation = (row) => /^Golden Dynamic Seller [^:]+:/.test(String(row.seller_description || ''));
+            const enriched = rows.map((row) => ({
+              ...row,
+              live_public: isLivePublic(row),
+              fixture_reason: getFixtureExclusion(row),
+              seller_automation: isSellerAutomation(row),
+              human_uat: row.vin === 'UAT20260828SELL01',
+            }));
+
+            const apiResponse = await fetch(`${process.env.STAGING_API_URL}/marketplace/listings?limit=100`, { cache: 'no-store' });
+            if (!apiResponse.ok) throw new Error(`Marketplace listing read failed during count reconciliation: ${apiResponse.status}`);
+            const apiBody = await apiResponse.json();
+
+            const receipt = {
+              expected_head_sha: process.env.EXPECTED_HEAD_SHA,
+              public_discovery_api_total: Number(apiBody.total ?? (apiBody.listings || []).length),
+              database: {
+                vehicle_identities_total: enriched.length,
+                live_public_rows_total: enriched.filter((row) => row.live_public).length,
+                live_public_discovery_eligible: enriched.filter((row) => row.live_public && !row.fixture_reason).length,
+                live_public_automation: enriched.filter((row) => row.live_public && row.seller_automation).length,
+                live_public_other_fixtures: enriched.filter((row) => row.live_public && row.fixture_reason && !row.seller_automation).length,
+                draft_or_nonpublic: enriched.filter((row) => !row.live_public && !['sold', 'retired'].includes(String(row.status || '').toLowerCase())).length,
+                sold_or_retired: enriched.filter((row) => ['sold', 'retired'].includes(String(row.status || '').toLowerCase())).length,
+              },
+              owner_uat_vehicle: enriched.find((row) => row.human_uat) || null,
+              semantics: {
+                marketplace_count: 'published, active, non-fixture listings eligible for human discovery',
+                vehicle_identity_count: 'all durable vehicle identities regardless of listing/publication state',
+                automation_policy: 'Seller automation rows are excluded from human discovery and must finish non-public/retired',
+                featured_policy: 'Home live showroom is newest eligible published inventory, not editorial Featured endorsement',
+              },
+            };
+
+            if (receipt.public_discovery_api_total !== receipt.database.live_public_discovery_eligible) {
+              throw new Error(`Marketplace count mismatch: API=${receipt.public_discovery_api_total}, eligible_db=${receipt.database.live_public_discovery_eligible}`);
+            }
+            if (receipt.database.live_public_automation !== 0) {
+              throw new Error(`Human UAT contamination: ${receipt.database.live_public_automation} live Seller automation rows remain.`);
+            }
+
+            fs.writeFileSync('test-results/seller-marketplace-population-semantics.json', JSON.stringify(receipt, null, 2));
+            console.log(JSON.stringify({
+              public_discovery_api_total: receipt.public_discovery_api_total,
+              live_public_discovery_eligible: receipt.database.live_public_discovery_eligible,
+              live_public_automation: receipt.database.live_public_automation,
+              live_public_other_fixtures: receipt.database.live_public_other_fixtures,
+              draft_or_nonpublic: receipt.database.draft_or_nonpublic,
+              sold_or_retired: receipt.database.sold_or_retired,
+              owner_uat_publication_status: receipt.owner_uat_vehicle?.publication_status || null,
+            }));
+          } finally {
+            await client.end();
+          }
+          NODE
+
+      - name: Audit Phase N generated-event chain
+        if: always()
+        run: |
+          mkdir -p test-results
+          node --input-type=module <<'NODE'
+          import fs from 'node:fs';
+          import pg from 'pg';
+
+          const dbUrl = process.env.DIASPORA_STAGING_DATABASE_URL || '';
+          if (!dbUrl.includes(process.env.EXPECTED_STAGING_PROJECT_REF)) {
+            throw new Error('Refusing Seller Intelligence event audit outside approved staging.');
+          }
+          const cleaned = dbUrl.replace(/([?&])sslmode=[^&]*&?/i, '$1').replace(/[?&]$/, '');
+          const client = new pg.Client({ connectionString: cleaned, ssl: { rejectUnauthorized: false } });
+          await client.connect();
+          try {
+            const vehicleResult = await client.query(
+              `select vin
+                 from public.vehicles
+                where seller_description like $1
+                order by vin`,
+              [`Golden Dynamic Seller ${process.env.STAGING_RUN_ID}:%`],
+            );
+            const vins = vehicleResult.rows.map((row) => row.vin);
+            if (!vins.length) throw new Error('No current-run Golden Seller VINs found for Phase N audit.');
+
+            const eventResult = await client.query(
+              `select event_type, listing_id, vehicle_reference, occurred_at, exclusion_flags
+                 from public.marketplace_activity_events
+                where listing_id = any($1::text[])
+                   or vehicle_reference = any($1::text[])
+                order by occurred_at asc`,
+              [vins],
+            );
+
+            const required = [
+              'marketplace_listing_impression',
+              'marketplace_listing_opened',
+              'marketplace_compare_added',
+              'marketplace_listing_saved',
+              'marketplace_inquiry_created',
+              'marketplace_inspection_requested',
+              'marketplace_price_changed',
+            ];
+
+            const byVin = Object.fromEntries(vins.map((vin) => [vin, {}]));
+            for (const row of eventResult.rows) {
+              const vin = vins.includes(row.vehicle_reference) ? row.vehicle_reference : row.listing_id;
+              if (!vin || !byVin[vin]) continue;
+              byVin[vin][row.event_type] = (byVin[vin][row.event_type] || 0) + 1;
+            }
+
+            const missing = [];
+            for (const vin of vins) {
+              for (const eventType of required) {
+                if (!byVin[vin][eventType]) missing.push({ vin, event_type: eventType });
+              }
+            }
+
+            const receipt = {
+              expected_head_sha: process.env.EXPECTED_HEAD_SHA,
+              run_id: process.env.STAGING_RUN_ID,
+              vins,
+              required_event_types: required,
+              counts_by_vin: byVin,
+              missing,
+              events: eventResult.rows,
+            };
+            fs.writeFileSync('test-results/seller-intelligence-event-chain.json', JSON.stringify(receipt, null, 2));
+            console.log(JSON.stringify({ vins, counts_by_vin: byVin, missing }));
+
+            if (missing.length) {
+              throw new Error(`Phase N generated-event chain is incomplete: ${JSON.stringify(missing)}`);
+            }
+          } finally {
+            await client.end();
+          }
+          NODE
+
+      - name: Upload Seller deployed-UAT evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: seller-exact-head-staging-uat-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            test-results/staging-env-truth.json
+            test-results/staging-uat-results.json
+            test-results/staging-uat-html
+            test-results/staging-uat-artifacts
+            test-results/seller-automation-inventory.json
+            test-results/seller-marketplace-population-semantics.json
+            test-results/seller-intelligence-event-chain.json
+            test-results/seller-verification-email-physical-uat.json
+          if-no-files-found: warn
+          retention-days: 14

@@ -29,13 +29,18 @@ test('completeness endpoint is ownership-scoped for non-admin/non-reviewer sessi
     'only admin/reviewer may read any VIN; everyone else is scope-checked',
   );
   assert.ok(
-    section.includes("select('owner_id, tenant_id')"),
-    'the scope check must resolve the VIN owner/tenant',
+    section.includes("select('owner_id, current_seller_id, tenant_id')"),
+    'the scope check must resolve VIN owner/current-seller/tenant authority',
   );
   assert.match(
     section,
     /owner_id === req\.userContext\.id/,
     'owner match must key on the session identity',
+  );
+  assert.match(
+    section,
+    /current_seller_id === req\.userContext\.id/,
+    'current-seller match must key on the session identity',
   );
   assert.match(
     section,

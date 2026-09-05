@@ -10,6 +10,7 @@ import {
   toSellerClaim,
 } from '../../utils/publicVehicleProjection.js';
 import { getFixtureExclusion } from './marketplaceClassificationRules.js';
+import { resolveBodyStyle, resolveColor, resolveFuelType, resolveTransmission, resolveVehicleMake, resolveVehicleModel, resolveVehicleYear } from '../taxonomy/vehicleTaxonomyService.js';
 /**
  * THE ONE DEFINITION OF "A PUBLISHABLE LISTING PHOTO" — Issue #164 Phase 5 convergence.
  *
@@ -29,6 +30,7 @@ import { getFixtureExclusion } from './marketplaceClassificationRules.js';
  * by there being only one function that decides.
  */
 import { MEDIA_BLOCK_STATES, toListingMediaBlock } from '../../utils/vehicleMediaProjection.js';
+import { projectCarUpGold } from './carUpGoldService.js';
 
 /**
  * THE TRUST NUMBER ON A LISTING COMES FROM THE CANONICAL AUTHORITY, NEVER FROM THE ROW.
@@ -637,6 +639,7 @@ export function buildMarketplaceListingSummary({
     vin: vehicle.vin,
     make: vehicle.make,
     model: vehicle.model,
+    color: isRecordedValue(vehicle.color) ? String(vehicle.color).trim() : null,
     // EVERY BUSINESS FACT BELOW IS THE COLUMN OR IT IS NULL. `numericValue(x, 0)` published a
     // fabricated 0 for an unrecorded year, price and odometer — a $0, 0 km, year-0 listing that a
     // shopper cannot tell from a real one — and `|| 'USD'` / `|| 'Available'` stated a currency and
@@ -654,6 +657,20 @@ export function buildMarketplaceListingSummary({
     mileage: claims.specification.mileage.value,
     fuel_type: claims.specification.fuel_type.value,
     transmission: claims.specification.transmission.value,
+    drivetrain: claims.specification.drivetrain.value,
+    // Seller-stated commercial facts are deliberately separate from governed condition_category.
+    body_style: isRecordedValue(vehicle.body_style) ? String(vehicle.body_style).trim() : null,
+    seller_stated_condition: isRecordedValue(vehicle.seller_stated_condition) ? String(vehicle.seller_stated_condition).trim() : null,
+    seller_description: isRecordedValue(vehicle.seller_description) ? String(vehicle.seller_description).trim() : null,
+    seller_features: Array.isArray(vehicle.seller_features) ? vehicle.seller_features.filter(isRecordedValue).map(value => String(value).trim()) : [],
+    taxonomy_version: isRecordedValue(vehicle.taxonomy_version) ? String(vehicle.taxonomy_version).trim() : null,
+    make_taxon_id: isRecordedValue(vehicle.make_taxon_id) ? String(vehicle.make_taxon_id).trim() : null,
+    model_taxon_id: isRecordedValue(vehicle.model_taxon_id) ? String(vehicle.model_taxon_id).trim() : null,
+    color_taxon_id: isRecordedValue(vehicle.color_taxon_id) ? String(vehicle.color_taxon_id).trim() : null,
+    fuel_taxon_id: isRecordedValue(vehicle.fuel_taxon_id) ? String(vehicle.fuel_taxon_id).trim() : null,
+    transmission_taxon_id: isRecordedValue(vehicle.transmission_taxon_id) ? String(vehicle.transmission_taxon_id).trim() : null,
+    drivetrain_taxon_id: isRecordedValue(vehicle.drivetrain_taxon_id) ? String(vehicle.drivetrain_taxon_id).trim() : null,
+    body_style_taxon_id: isRecordedValue(vehicle.body_style_taxon_id) ? String(vehicle.body_style_taxon_id).trim() : null,
     status: claims.publication.listing_status.value,
     condition_category: conditionCategory,
     marketplace_tags: marketplaceTags,
@@ -665,6 +682,9 @@ export function buildMarketplaceListingSummary({
     // null whenever there is nothing canonical to publish. It is never `numericValue(...)` of the
     // raw column: that read is what published an unfounded 84 to the marketplace.
     trust_score: canonicalTrust?.score ?? null,
+    // A premium tier is a backend-governed qualification, not a frontend score colour.
+    // It deliberately remains null for today's low-confidence staging population.
+    carup_gold: projectCarUpGold(canonicalTrust),
     // Same key, same election, ONE definition of publishable — plus the two facts that keep it
     // honest. See `electPrimaryImage`.
     ...primaryImage,
@@ -731,7 +751,13 @@ function summaryMatchesSearch(summary, query) {
     summary.vin,
     summary.make,
     summary.model,
+    summary.year,
+    summary.color,
     summary.condition_category,
+    summary.body_style,
+    summary.seller_stated_condition,
+    summary.seller_description,
+    ...(summary.seller_features || []),
     summary.seller_type,
     summary.seller_display_label,
     summary.marketplace_tags.join(' '),
@@ -749,6 +775,76 @@ function summaryMatchesCondition(summary, condition) {
 function summaryMatchesTags(summary, tags) {
   if (!tags || !tags.length) return true;
   return tags.every(tag => summary.marketplace_tags.includes(tag));
+}
+
+/** Exact-match a canonical public text facet. Missing values never match. */
+export function summaryMatchesTextFacet(summary, value, field) {
+  if (value === undefined || value === null || normalizeText(value) === '' || normalizeText(value) === 'all') return true;
+  const actual = summary?.[field];
+  if (!isRecordedValue(actual)) return false;
+  return normalizeText(actual) === normalizeText(value);
+}
+
+export function summaryMatchesColorFacet(summary, value) {
+  if (value === undefined || value === null || normalizeText(value) === '' || normalizeText(value) === 'all') return true;
+  const wanted = resolveColor(value);
+  const actual = resolveColor(summary?.color);
+  if (wanted.canonical_id && actual.canonical_id) return wanted.canonical_id === actual.canonical_id;
+  return normalizeText(summary?.color) === normalizeText(value);
+}
+
+export function summaryMatchesMakeFacet(summary, value) {
+  if (value === undefined || value === null || normalizeText(value) === '' || normalizeText(value) === 'all') return true;
+  const wanted = resolveVehicleMake(value);
+  const actual = resolveVehicleMake(summary?.make);
+  if (wanted.canonical_id && actual.canonical_id) return wanted.canonical_id === actual.canonical_id;
+  return normalizeText(summary?.make) === normalizeText(value);
+}
+
+export function summaryMatchesModelFacet(summary, value, requestedMake = null) {
+  if (value === undefined || value === null || normalizeText(value) === '' || normalizeText(value) === 'all') return true;
+  const makeContext = requestedMake || summary?.make;
+  const wanted = resolveVehicleModel(makeContext, value);
+  const actual = resolveVehicleModel(summary?.make, summary?.model);
+  if (wanted.canonical_id && actual.canonical_id) return wanted.canonical_id === actual.canonical_id;
+  return normalizeText(summary?.model) === normalizeText(value);
+}
+
+export function summaryMatchesFuelFacet(summary, value) {
+  if (value === undefined || value === null || normalizeText(value) === '' || normalizeText(value) === 'all') return true;
+  const wanted = resolveFuelType(value);
+  const actual = resolveFuelType(summary?.fuel_type);
+  if (wanted.canonical_id && actual.canonical_id) return wanted.canonical_id === actual.canonical_id;
+  return normalizeText(summary?.fuel_type) === normalizeText(value);
+}
+
+export function summaryMatchesTransmissionFacet(summary, value) {
+  if (value === undefined || value === null || normalizeText(value) === '' || normalizeText(value) === 'all') return true;
+  const wanted = resolveTransmission(value);
+  const actual = resolveTransmission(summary?.transmission);
+  if (wanted.canonical_id && actual.canonical_id) return wanted.canonical_id === actual.canonical_id;
+  return normalizeText(summary?.transmission) === normalizeText(value);
+}
+
+export function summaryMatchesBodyStyleFacet(summary, value) {
+  if (value === undefined || value === null || normalizeText(value) === '' || normalizeText(value) === 'all') return true;
+  const wanted = resolveBodyStyle(value);
+  const actual = resolveBodyStyle(summary?.body_style);
+  if (wanted.canonical_id && actual.canonical_id) return wanted.canonical_id === actual.canonical_id;
+  return normalizeText(summary?.body_style) === normalizeText(value);
+}
+
+/**
+ * Location is provenance-gated. Match only recorded canonical location leaves, never a
+ * raw registration/seller fallback. A composed full label may also match exactly.
+ */
+export function summaryMatchesLocationFacet(summary, value) {
+  if (value === undefined || value === null || normalizeText(value) === '' || normalizeText(value) === 'all') return true;
+  if (summary?.location_state !== FIELD_STATES.RECORDED) return false;
+  const wanted = normalizeText(value);
+  if (normalizeText(summary?.location) === wanted) return true;
+  const leaves = Object.values(summary?.claims?.location || {});
+  return leaves.some(leaf => leaf?.state === FIELD_STATES.RECORDED && normalizeText(leaf?.value) === wanted);
 }
 
 /**
@@ -840,17 +936,31 @@ function describeTrustRanking(summaries, sort) {
   };
 }
 
+/**
+ * Read rows for a set of VINs, reporting WHETHER THE READ HAPPENED as well as what it found.
+ *
+ * This used to `return []` on any error, and for the trust inputs that was not a degradation but an
+ * inversion: `deriveSuspicionLevel([])` is `'clear'` and `deriveEvidenceStatus([])` is `'none'`, so
+ * a failed `partsentry_logs` read published a governed all-clear — risk_status 'clear', no risk
+ * banner, `operator_review_required: false` — for a vehicle whose rows might carry `flagged`. The
+ * buyer could not tell it from a vehicle that was actually checked and found clean.
+ *
+ * The rule was already stated in this file, one reader down: `readListingImages` is deliberately
+ * kept OUT of this helper because "`[]` is a FINDING … and a read that threw has found nothing of
+ * the sort". Evidence and PartSentry were simply left inside it. They now carry the same `ok`
+ * discriminator the image reader already returns.
+ */
 async function maybeFetchRows(supabaseClient, table, select, vins, order) {
-  if (!vins.length) return [];
+  if (!vins.length) return { ok: true, rows: [] };
   try {
     let query = supabaseClient.from(table).select(select).in('vin', vins);
     if (order) query = query.order(order.column, { ascending: order.ascending });
     const { data, error } = await query;
     if (error) throw error;
-    return data || [];
+    return { ok: true, rows: data || [] };
   } catch (error) {
-    console.warn(`Marketplace summary skipped ${table}:`, error.message);
-    return [];
+    console.warn(`Marketplace summary could not read ${table}:`, error.message);
+    return { ok: false, rows: [] };
   }
 }
 
@@ -877,7 +987,7 @@ function withApprovalProvenance(rows, available) {
 }
 
 async function fetchPartSentryRows(supabaseClient, vins) {
-  if (!vins.length) return [];
+  if (!vins.length) return { ok: true, rows: [] };
   const run = async (select) => {
     const { data, error } = await supabaseClient
       .from('partsentry_logs')
@@ -889,18 +999,20 @@ async function fetchPartSentryRows(supabaseClient, vins) {
   };
 
   try {
-    return withApprovalProvenance(await run(PARTSENTRY_GOVERNED_SELECT), true);
+    return { ok: true, rows: withApprovalProvenance(await run(PARTSENTRY_GOVERNED_SELECT), true) };
   } catch (error) {
     if (!isMissingApprovedByError(error)) {
-      console.warn('Marketplace summary skipped partsentry_logs:', error.message);
-      return [];
+      // A HARD failure. Not the same thing as the approved_by column drift below, which is a
+      // known additive-migration lag with its own honest degraded state.
+      console.warn('Marketplace summary could not read partsentry_logs:', error.message);
+      return { ok: false, rows: [] };
     }
     console.warn('Marketplace summary using legacy partsentry_logs projection: approved_by unavailable.');
     try {
-      return withApprovalProvenance(await run(PARTSENTRY_LEGACY_SELECT), false);
+      return { ok: true, rows: withApprovalProvenance(await run(PARTSENTRY_LEGACY_SELECT), false) };
     } catch (legacyError) {
-      console.warn('Marketplace summary skipped partsentry_logs legacy projection:', legacyError.message);
-      return [];
+      console.warn('Marketplace summary could not read partsentry_logs legacy projection:', legacyError.message);
+      return { ok: false, rows: [] };
     }
   }
 }
@@ -917,12 +1029,25 @@ export function shouldShowFixtures(env = process.env) {
 }
 
 /** Keep only public, non-fixture vehicles (fixtures retained only when showFixtures is true). */
-export function filterVisibleVehicles(vehicles, { showFixtures } = {}) {
+function sellerAutomationScope(vehicle = {}) {
+  const description = String(vehicle.seller_description ?? '').trim();
+  const match = description.match(/^Golden Dynamic Seller ([a-z0-9-]+):/i);
+  return match?.[1] || null;
+}
+
+/** Keep only public, non-fixture vehicles. A preview-only Seller automation request may reveal
+ * exactly the fixture whose reserved marker matches its run scope; ordinary discovery never does. */
+export function filterVisibleVehicles(vehicles, { showFixtures, fixtureScope } = {}) {
   const show = showFixtures ?? shouldShowFixtures();
+  const requestedScope = String(fixtureScope ?? '').trim();
   return (vehicles || [])
     .filter(vehicle => isPublicVehicleStatus(vehicle.status))
     .filter(vehicle => isPubliclyVisiblePublication(vehicle.publication_status))
-    .filter(vehicle => show || getFixtureExclusion(vehicle) === null);
+    .filter(vehicle => {
+      const exclusion = getFixtureExclusion(vehicle);
+      if (exclusion === null || show) return true;
+      return Boolean(requestedScope) && sellerAutomationScope(vehicle) === requestedScope;
+    });
 }
 
 /** Columns selected for a marketplace listing. owner_id/tenant_id are fetched ONLY for fixture
@@ -969,6 +1094,14 @@ export function filterVisibleVehicles(vehicles, { showFixtures } = {}) {
  * unconditionally would take down every marketplace read on any database where
  * `20260818110000_issue164_listing_location_provenance.sql` has not yet been applied.
  *
+ * `registration_status` / `registration_authority` ARE named here (Operations Control Plane
+ * closure). `toRegistrationClaim` has always read them, but the select never fetched them, so the
+ * claims block reported `registration.status: not_recorded` for a stage the row genuinely held —
+ * a buyer was never told local registration was still pending, which is precisely the disclosure
+ * the Zimbabwe registration lifecycle exists to make. Both are BASE columns of the original
+ * `vehicles` schema, not provenance columns added by a later migration, so naming them cannot
+ * break a pre-migration read and does not weaken the narrow/wide split (INV-1).
+ *
  * `selectListingRows` below asks for them anyway and falls back to this set when the database says
  * they are missing — the same degrade the write path already performs in `/api/vehicles/add`. So a
  * migrated database publishes provenance-backed location/currency/seller-type/registration claims,
@@ -982,6 +1115,7 @@ export const LISTING_SELECT_COLUMNS = `
       make,
       model,
       year,
+      color,
       mileage,
       fuel_type,
       transmission,
@@ -994,6 +1128,8 @@ export const LISTING_SELECT_COLUMNS = `
       created_at,
       plate_status,
       registration_country,
+      registration_status,
+      registration_authority,
       plate_verified_at,
       current_seller_type,
       public_seller_display_enabled,
@@ -1013,6 +1149,48 @@ export const LISTING_SELECT_COLUMNS_WITH_CLAIMS = `${LISTING_SELECT_COLUMNS},
       ${LISTING_CLAIM_COLUMNS.join(',\n      ')}
     `;
 
+export const SELLER_TAXONOMY_LISTING_COLUMNS = Object.freeze([
+  'seller_description',
+  'seller_features',
+  'body_style',
+  'seller_stated_condition',
+  'make_taxon_id',
+  'model_taxon_id',
+  'color_taxon_id',
+  'fuel_taxon_id',
+  'transmission_taxon_id',
+  'drivetrain_taxon_id',
+  'body_style_taxon_id',
+  'taxonomy_version',
+]);
+
+export const LISTING_SELECT_COLUMNS_WITH_SELLER_TAXONOMY = `${LISTING_SELECT_COLUMNS_WITH_CLAIMS},
+      ${SELLER_TAXONOMY_LISTING_COLUMNS.join(',\n      ')}
+    `;
+
+/**
+ * Newest rung: the Vehicle History & Obligations seller-disclosure columns
+ * (20260831150000_seller_vehicle_history_disclosures.sql). Preferred first; a database that
+ * predates the migration degrades one rung rather than erroring the read — and a row read without
+ * these columns honestly projects every disclosure as "not recorded" (toVehicleHistoryDisclosures).
+ */
+export const HISTORY_DISCLOSURE_LISTING_COLUMNS = Object.freeze([
+  'seller_accident_disclosure',
+  'seller_insurance_disclosure',
+  'seller_finance_disclosure',
+]);
+
+export const LISTING_SELECT_COLUMNS_WITH_HISTORY_DISCLOSURES = `${LISTING_SELECT_COLUMNS_WITH_SELLER_TAXONOMY},
+      ${HISTORY_DISCLOSURE_LISTING_COLUMNS.join(',\n      ')}
+    `;
+
+function isMissingSchemaColumnError(error) {
+  const code = String(error?.code ?? '').toUpperCase();
+  if (code === 'PGRST204' || code === '42703') return true;
+  const text = [error?.message, error?.details, error?.hint].filter(Boolean).join(' ').toLowerCase();
+  return text.includes('could not find') || text.includes('does not exist') || text.includes('schema cache');
+}
+
 /**
  * Run a listing-row read that PREFERS provenance and degrades instead of failing.
  *
@@ -1030,14 +1208,23 @@ export const LISTING_SELECT_COLUMNS_WITH_CLAIMS = `${LISTING_SELECT_COLUMNS},
  * landed and working cards where it has not.
  */
 export async function selectListingRows(client, shape = (query) => query) {
-  // Both selects name a canonical list literally, so the read-contract scanner can see that this
-  // service reads through the contract rather than a hand-rolled column set.
-  const wide = await shape(client.from('vehicles').select(LISTING_SELECT_COLUMNS_WITH_CLAIMS));
-  if (!wide?.error) return wide;
-  if (isMissingListingClaimColumnError(wide.error)) {
+  // Prefer the complete Seller S0 + claim + history-disclosure projection. During controlled
+  // migration, degrade one schema generation at a time rather than taking Marketplace down or
+  // pretending new fields exist.
+  const historyWide = await shape(client.from('vehicles').select(LISTING_SELECT_COLUMNS_WITH_HISTORY_DISCLOSURES));
+  if (!historyWide?.error) return historyWide;
+  if (!isMissingSchemaColumnError(historyWide.error)) return historyWide;
+
+  const sellerWide = await shape(client.from('vehicles').select(LISTING_SELECT_COLUMNS_WITH_SELLER_TAXONOMY));
+  if (!sellerWide?.error) return sellerWide;
+  if (!isMissingSchemaColumnError(sellerWide.error)) return sellerWide;
+
+  const claimsWide = await shape(client.from('vehicles').select(LISTING_SELECT_COLUMNS_WITH_CLAIMS));
+  if (!claimsWide?.error) return claimsWide;
+  if (isMissingListingClaimColumnError(claimsWide.error)) {
     return shape(client.from('vehicles').select(LISTING_SELECT_COLUMNS));
   }
-  return wide;
+  return claimsWide;
 }
 
 
@@ -1062,16 +1249,30 @@ export async function selectListingRows(client, shape = (query) => query) {
 async function readListingImages(supabaseClient, vins) {
   if (!vins.length) return { ok: true, rows: [] };
   try {
-    const { data, error } = await supabaseClient
+    const wide = await supabaseClient
+      .from('listing_images')
+      .select('id, vin, image_url, is_primary, display_order, photo_label')
+      .in('vin', vins)
+      .order('display_order', { ascending: true });
+    if (!wide.error) return { ok: true, rows: wide.data || [], labelsAvailable: true };
+    if (!isMissingSchemaColumnError(wide.error)) throw wide.error;
+
+    // Additive Phase G migration may lag the preview deployment briefly. Preserve the established
+    // gallery contract and represent only the NEW annotation as absent until the column lands.
+    const legacy = await supabaseClient
       .from('listing_images')
       .select('id, vin, image_url, is_primary, display_order')
       .in('vin', vins)
       .order('display_order', { ascending: true });
-    if (error) throw error;
-    return { ok: true, rows: data || [] };
+    if (legacy.error) throw legacy.error;
+    return {
+      ok: true,
+      labelsAvailable: false,
+      rows: (legacy.data || []).map(row => ({ ...row, photo_label: null })),
+    };
   } catch (error) {
     console.warn('Marketplace summary could not read listing_images:', error.message);
-    return { ok: false, rows: null };
+    return { ok: false, rows: null, labelsAvailable: false };
   }
 }
 
@@ -1084,7 +1285,7 @@ async function readListingImages(supabaseClient, vins) {
  * media may be published from this result.
  */
 export async function fetchListingRelatedRows(supabaseClient, vins = []) {
-  const [evidenceRows, partSentryRows, ownershipRows, imageRead] = await Promise.all([
+  const [evidenceRead, partSentryRead, ownershipRead, imageRead] = await Promise.all([
     maybeFetchRows(supabaseClient, 'vehicle_evidence', 'vin, verification_status, visibility_level', vins),
     // approved_by/mechanic_id are fetched ONLY for the in-memory self-approval guard; never echoed publicly.
     fetchPartSentryRows(supabaseClient, vins),
@@ -1092,11 +1293,17 @@ export async function fetchListingRelatedRows(supabaseClient, vins = []) {
     readListingImages(supabaseClient, vins),
   ]);
   return {
-    evidenceByVin: toRecordMap(evidenceRows),
-    partSentryByVin: toRecordMap(partSentryRows),
-    ownershipByVin: toRecordMap(ownershipRows),
+    evidenceByVin: toRecordMap(evidenceRead.rows),
+    partSentryByVin: toRecordMap(partSentryRead.rows),
+    ownershipByVin: toRecordMap(ownershipRead.rows),
     imagesByVin: toRecordMap(imageRead.rows || []),
     listingImagesRead: imageRead.ok,
+    // The same discriminator, for the two reads the trust summary is derived from. `false` means
+    // the query did not resolve, and NO governed negative — not 'clear', not 'none', not a zero —
+    // may be published from that result.
+    evidenceRead: evidenceRead.ok,
+    partSentryRead: partSentryRead.ok,
+    ownershipRead: ownershipRead.ok,
   };
 }
 
@@ -1114,6 +1321,8 @@ export async function listMarketplaceListings(supabaseClient, params = {}) {
   const limit = safeLimit(params.limit);
   const minPrice = params.minPrice !== undefined ? numericValue(params.minPrice) : null;
   const maxPrice = params.maxPrice !== undefined ? numericValue(params.maxPrice) : null;
+  const yearResolution = resolveVehicleYear(params.year);
+  const validYear = yearResolution.state === 'canonical' ? yearResolution.canonical_year : null;
 
   // QA Round 4: ONE mutually-exclusive condition/category + MANY stackable trust tags (AND).
   const requestedTags = parseTagList(params.tag);
@@ -1136,7 +1345,10 @@ export async function listMarketplaceListings(supabaseClient, params = {}) {
   // it has not.
   const shapeListQuery = (query) => {
     let q = query;
-    if (params.make) q = q.eq('make', params.make);
+    // Make/model aliases may exist on historical rows, so canonical filtering happens over the
+    // full eligible population below. Year is numeric and safe to prefilter.
+    if (validYear !== null) q = q.eq('year', validYear);
+    if (params.color) q = q.eq('color', params.color);
     if (minPrice !== null) q = q.gte('price', minPrice);
     if (maxPrice !== null) q = q.lte('price', maxPrice);
     if (requestedCondition && CONDITION_CATEGORIES.includes(requestedCondition)) {
@@ -1148,7 +1360,7 @@ export async function listMarketplaceListings(supabaseClient, params = {}) {
   const { data: vehicles, error } = await selectListingRows(supabaseClient, shapeListQuery);
   if (error) throw error;
 
-  const publicVehicles = filterVisibleVehicles(vehicles);
+  const publicVehicles = filterVisibleVehicles(vehicles, { fixtureScope: params.__fixtureScope });
   const vins = publicVehicles.map(vehicle => vehicle.vin).filter(Boolean);
   const [related, trustByVin] = await Promise.all([
     fetchListingRelatedRows(supabaseClient, vins),
@@ -1168,10 +1380,20 @@ export async function listMarketplaceListings(supabaseClient, params = {}) {
     canonicalTrust: trustByVin.get(vehicle.vin) || null,
   }));
 
+  // All buyer-facing facets operate on canonical public summaries BEFORE sort/limit. This avoids
+  // the first-page bug where a valid vehicle outside the initial 48 could never be discovered.
   const filtered = summaries
     .filter(summary => summaryMatchesSearch(summary, params.q))
+    .filter(summary => summaryMatchesMakeFacet(summary, params.make))
+    .filter(summary => summaryMatchesModelFacet(summary, params.model, params.make))
+    .filter(summary => validYear === null || summary.year === validYear)
+    .filter(summary => summaryMatchesColorFacet(summary, params.color))
+    .filter(summary => summaryMatchesBodyStyleFacet(summary, params.bodyStyle ?? params.body_style ?? params.body))
     .filter(summary => summaryMatchesCondition(summary, requestedCondition))
-    .filter(summary => summaryMatchesTags(summary, requestedTags));
+    .filter(summary => summaryMatchesTags(summary, requestedTags))
+    .filter(summary => summaryMatchesLocationFacet(summary, params.location))
+    .filter(summary => summaryMatchesFuelFacet(summary, params.fuel))
+    .filter(summary => summaryMatchesTransmissionFacet(summary, params.transmission));
 
   const sorted = sortSummaries(filtered, params.sort);
 

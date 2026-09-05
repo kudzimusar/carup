@@ -1,0 +1,33 @@
+Your SafeTrade journey
+
+Hi Fixture,
+
+The payment provider has confirmed funds are held for this journey.
+
+Funds recorded as held
+  The payment provider has confirmed funds are held for this journey.
+
+SafeTrade journey
+VIN FIXTUREVIN0000001
+Reference: FIXTURE-TXN-0002
+Stage: Funds recorded as held
+Vehicle: VIN FIXTUREVIN0000001
+
+View this vehicle on CarUp:
+https://carup.dev/marketplace/listing/FIXTUREVIN0000001
+
+Questions about this journey? Contact CarUp Support: https://carup.dev/support
+
+CarUp records the stage of a SafeTrade journey. Always confirm payment details on CarUp itself, and never send money to someone because an email asked you to.
+
+—
+
+You are receiving this because you are part of this SafeTrade journey on CarUp.
+
+Need help? support@carup.dev
+
+Privacy: https://carup.dev/privacy
+Terms: https://carup.dev/terms
+Support: https://carup.dev/support
+
+CarUp Technologies · Automotive Intelligence & Trust Network

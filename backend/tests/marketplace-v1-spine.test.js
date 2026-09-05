@@ -29,7 +29,13 @@ import { compareListings } from '../services/marketplace/marketplaceDiscoverySer
 import { moderateListing, deriveListingPublicStatus } from '../services/marketplace/marketplaceModerationService.js';
 import { getMarketplaceAnalytics } from '../services/marketplace/marketplaceAnalyticsService.js';
 import { listingDraft, deterministicShareCopy } from '../services/marketplace/marketplaceAiAssistantService.js';
-import { getPartsListings, getServiceListings, buildPartSummary } from '../services/marketplace/marketplacePartsService.js';
+import {
+  getPartsListings,
+  getServiceListings,
+  buildPartSummary,
+  normalizePartFitment,
+  partFitmentMatches,
+} from '../services/marketplace/marketplacePartsService.js';
 
 const NOW = new Date().toISOString();
 const REAL_VIN = '1HGBH41JXMN109186';
@@ -239,9 +245,9 @@ test('listing detail 404s a non-public (Sold) listing and an unknown vin', async
 // QA Round 2 — prove the backend does NOT filter the seeded staging QA vehicles (rules out cause #3).
 const QA_VINS = ['JTDKARFP0H3000731', 'WBA8E9C50HK000732', 'MAJFP1CD0HC000733'];
 const QA_VEHICLES = [
-  { vin: 'JTDKARFP0H3000731', make: 'Toyota', model: 'Corolla', year: 2018, mileage: 68000, price: 9500, currency: 'USD', status: 'Available', owner_id: 'qa-staging-seller-73', tenant_id: null, registration_country: 'ZW', import_source: 'Local', current_seller_type: 'Private Owner', duty_paid: true, police_verified: true, safe_pay_ready: true, trust_score: 74, created_at: NOW },
-  { vin: 'WBA8E9C50HK000732', make: 'BMW', model: '320i', year: 2020, mileage: 41000, price: 24000, currency: 'USD', status: 'Available', owner_id: 'qa-staging-seller-73', tenant_id: null, registration_country: 'ZW', import_source: 'Japan', current_seller_type: 'Private Owner', duty_paid: true, police_verified: true, zimra_verified: true, safe_pay_ready: true, inspection_ready: true, trust_score: 90, created_at: NOW },
-  { vin: 'MAJFP1CD0HC000733', make: 'Ford', model: 'Ranger', year: 2019, mileage: 88000, price: 21000, currency: 'USD', status: 'Available', owner_id: 'qa-staging-seller-73', tenant_id: null, registration_country: 'ZW', import_source: 'Local', current_seller_type: 'Private Owner', duty_paid: true, police_verified: true, safe_pay_ready: true, trust_score: 80, created_at: NOW },
+  { vin: 'JTDKARFP0H3000731', make: 'Toyota', model: 'Corolla', year: 2018, color: 'Silver', mileage: 68000, price: 9500, currency: 'USD', status: 'Available', owner_id: 'qa-staging-seller-73', tenant_id: null, registration_country: 'ZW', import_source: 'Local', current_seller_type: 'Private Owner', duty_paid: true, police_verified: true, safe_pay_ready: true, trust_score: 74, created_at: NOW },
+  { vin: 'WBA8E9C50HK000732', make: 'BMW', model: '320i', year: 2020, color: 'Black', mileage: 41000, price: 24000, currency: 'USD', status: 'Available', owner_id: 'qa-staging-seller-73', tenant_id: null, registration_country: 'ZW', import_source: 'Japan', current_seller_type: 'Private Owner', duty_paid: true, police_verified: true, zimra_verified: true, safe_pay_ready: true, inspection_ready: true, trust_score: 90, created_at: NOW },
+  { vin: 'MAJFP1CD0HC000733', make: 'Ford', model: 'Ranger', year: 2019, color: 'White', mileage: 88000, price: 21000, currency: 'USD', status: 'Available', owner_id: 'qa-staging-seller-73', tenant_id: null, registration_country: 'ZW', import_source: 'Local', current_seller_type: 'Private Owner', duty_paid: true, police_verified: true, safe_pay_ready: true, trust_score: 80, created_at: NOW },
 ];
 
 test('seeded staging QA vehicles are returned by the marketplace list (total>=3, all VINs present)', async () => {
@@ -249,6 +255,45 @@ test('seeded staging QA vehicles are returned by the marketplace list (total>=3,
   assert.ok(res.total >= 3, `expected >=3, got ${res.total}`);
   const vins = res.listings.map((l) => l.vin);
   for (const v of QA_VINS) assert.ok(vins.includes(v), `seeded QA VIN missing from list: ${v}`);
+});
+
+test('Marketplace model/year/colour facets apply before result limiting', async () => {
+  // Filler vehicles sort newer and would crowd out the target if filtering happened only after limit.
+  const fillers = Array.from({ length: 55 }, (_, index) => ({
+    ...QA_VEHICLES[0],
+    vin: `FILLERQA${String(index).padStart(9, '0')}`.slice(0, 17),
+    make: 'Toyota',
+    model: 'Corolla',
+    year: 2018,
+    color: 'Silver',
+    created_at: new Date(Date.now() + index * 1000).toISOString(),
+  }));
+  const target = {
+    ...QA_VEHICLES[2],
+    vin: '1FTBR1C89MKA12345',
+    make: 'Ford',
+    model: 'Ranger',
+    year: 2019,
+    color: 'White',
+    created_at: '2020-01-01T00:00:00.000Z',
+  };
+  const result = await listMarketplaceListings(
+    buildMockSupabase({ vehicles: [...fillers, target] }),
+    { model: 'Ranger', year: '2019', color: 'White', limit: 10 },
+  );
+
+  assert.equal(result.total, 1);
+  assert.equal(result.listings[0].vin, target.vin);
+  assert.equal(result.listings[0].color, 'White');
+});
+
+test('Marketplace free-text search includes recorded year and colour', async () => {
+  const store = { vehicles: QA_VEHICLES };
+  const byYear = await listMarketplaceListings(buildMockSupabase(store), { q: '2019' });
+  assert.deepEqual(byYear.listings.map((item) => item.vin), ['MAJFP1CD0HC000733']);
+
+  const byColour = await listMarketplaceListings(buildMockSupabase(store), { q: 'black' });
+  assert.deepEqual(byColour.listings.map((item) => item.vin), ['WBA8E9C50HK000732']);
 });
 
 test('each seeded QA detail resolves and never leaks owner_id/tenant_id; suppressed part stays suppressed', async () => {
@@ -649,20 +694,37 @@ test('PartSentry: legacy rows with absent suspicion_status are treated as non-su
   assert.equal(s.partsentry_checked, true);
 });
 
-test('inquiry metadata is allow-list sanitized (off-contract keys + shipment data dropped)', async () => {
+test('inquiry metadata preserves governed intent/fitment and drops off-contract shipment/PII', async () => {
   const store = { marketplace_inquiries: [] };
   await createInquiry(
     buildMockSupabase(store),
     {
       inquiry_type: 'import_quote_request',
       guest_email: 'b@example.com',
-      metadata: { utm_source: 'fb', tracking_number: 'SECRET123', container_id: 'C1', guest_email: 'leak@x.com' },
+      metadata: {
+        utm_source: 'fb',
+        buyer_intent: 'parts_fitment_quote',
+        safepay_requested: true,
+        fitment_taxonomy_version: 'carup-vehicle-taxonomy-1.0.0',
+        fitment_make: 'Toyota',
+        fitment_model: 'Hilux',
+        fitment_year: '2019',
+        tracking_number: 'SECRET123',
+        container_id: 'C1',
+        guest_email: 'leak@x.com',
+      },
     },
     null,
     { referralBridge: spyBridge(), emitDomainEvent: outboxSpy().emitDomainEvent }
   );
   const meta = store.marketplace_inquiries[0].metadata;
   assert.equal(meta.utm_source, 'fb');
+  assert.equal(meta.buyer_intent, 'parts_fitment_quote');
+  assert.equal(meta.safepay_requested, 'true');
+  assert.equal(meta.fitment_taxonomy_version, 'carup-vehicle-taxonomy-1.0.0');
+  assert.equal(meta.fitment_make, 'Toyota');
+  assert.equal(meta.fitment_model, 'Hilux');
+  assert.equal(meta.fitment_year, '2019');
   assert.equal('tracking_number' in meta, false);
   assert.equal('container_id' in meta, false);
   assert.equal('guest_email' in meta, false);
@@ -684,19 +746,59 @@ test('updateInquiryStatus 404s a missing inquiry (maybeSingle, not a 500)', asyn
   );
 });
 
-test('parts/services v1 surfaces are governed (empty + no fabricated trust) and parts summary is sanitized', async () => {
-  const parts = await getPartsListings(buildMockSupabase({}), {});
+test('parts/services v1 surfaces are governed, fitment-aware and free of fabricated trust', async () => {
+  const parts = await getPartsListings(buildMockSupabase({}), { make: 'Toyota', model: 'Hilux', year: '2019' });
   assert.equal(parts.governed, true);
   assert.equal(parts.listing_type, 'part');
   assert.equal(parts.total, 0);
+  assert.equal(parts.fitment_contract.requested.make, 'Toyota');
+  assert.equal(parts.fitment_contract.requested.model, 'Hilux');
+  assert.equal(parts.fitment_contract.requested.year, 2019);
+
   const services = await getServiceListings(buildMockSupabase({}), {});
   assert.equal(services.governed, true);
-  // Part summary never fabricates verified-parts/PartSentry status and carries no supplier PII.
-  const summary = buildPartSummary({ id: 'p1', part_name: 'Brake pad', supplier_id: 'mech-1', supplier_phone: '+263' });
+
+  const summary = buildPartSummary({
+    id: 'p1',
+    part_name: 'Brake pad',
+    supplier_id: 'mech-1',
+    supplier_phone: '+263',
+    fitment: [
+      { make: 'Toyota', model: 'Hilux', year_from: 2020, year_to: 2015, engine_code: '1GD' },
+      { make: 'Toyota', model: 'Hilux', year_from: 2015, year_to: 2020, engine_code: '1GD' },
+      { make: '', model: 'Missing make' },
+    ],
+  });
   assert.equal(summary.verified_parts, false);
   assert.equal(summary.partsentry_public_status, 'not_applicable');
   assert.equal('supplier_id' in summary, false);
   assert.equal('supplier_phone' in summary, false);
+  assert.equal(summary.fitment.length, 1, 'equivalent normalized fitments dedupe');
+  assert.equal(summary.fitment[0].year_from, 2015);
+  assert.equal(summary.fitment[0].year_to, 2020);
+  assert.equal(partFitmentMatches(summary.fitment[0], { make: 'Toyota', model: 'Hilux', year: 2019 }), true);
+  assert.equal(partFitmentMatches(summary.fitment[0], { make: 'Toyota', model: 'Hilux', year: 2024 }), false);
+  assert.equal(partFitmentMatches(summary.fitment[0], { make: 'Nissan', model: 'NP200', year: 2019 }), false);
+});
+
+test('parts fitment normalization rejects incomplete claims and preserves bounded model-range facts', () => {
+  const fitment = normalizePartFitment([
+    null,
+    'Toyota Hilux',
+    { make: 'Toyota', model: 'Hilux', year_from: '2010', year_to: '2015', body_style: 'Pickup' },
+    { make: 'Toyota', model: '' },
+  ]);
+  assert.equal(fitment.length, 1);
+  assert.deepEqual(fitment[0], {
+    taxonomy_version: 'carup-vehicle-taxonomy-1.0.0',
+    make: 'Toyota',
+    model: 'Hilux',
+    year_from: 2010,
+    year_to: 2015,
+    body_style: 'Pickup',
+    engine_code: null,
+    variant: null,
+  });
 });
 
 test('signed-in inquiry enriches buyer contact from profile so the seller has a reply channel (P1)', async () => {

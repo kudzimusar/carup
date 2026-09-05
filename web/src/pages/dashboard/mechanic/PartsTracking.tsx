@@ -1,3 +1,24 @@
+/**
+ * Parts tracking — CarUp Intelligence I12.
+ *
+ * Four things on this page asserted facts nobody recorded:
+ *
+ *   - a failed fetch only raised a toast, leaving `parts` empty, so all four
+ *     tiles read 0 and the table said "No parts found. Add a new part to your
+ *     inventory." An outage was indistinguishable from an empty shelf;
+ *   - a part with no supplier recorded was labelled "Internal", asserting a
+ *     sourcing fact from a missing value;
+ *   - a part with no reorder threshold was given one of 5, which then drove the
+ *     Low Stock tile and the amber row badge. A garage that never set a threshold
+ *     was being alerted against a number CarUp invented;
+ *   - an unrecorded stock level or price became 0, which fed the Out of Stock
+ *     count and silently understated the inventory value.
+ *
+ * The "Upload Invoice" control was worse than any of them: its handler only
+ * raised `toast.success('Invoice uploaded')`. No request was made and no file was
+ * stored — there is no parts-invoice endpoint. It told a garage its document was
+ * filed while discarding it, so it is removed rather than relabelled.
+ */
 import { Card, CardContent } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -8,10 +29,45 @@ import { toast } from 'sonner'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog'
 import { Label } from '@/components/ui/label'
 import type { Part } from '@/types'
+import PartsIntelligence from '@/components/intelligence/PartsIntelligence'
+
+/** A part as recorded — a missing number stays missing rather than becoming 0. */
+interface TrackedPart {
+  id: string
+  name: string
+  sku: string
+  stock: number | null
+  minStock: number | null
+  supplier: string | null
+  price: number | null
+}
+
+const asNumber = (value: unknown): number | null => (
+  Number.isFinite(Number(value)) && value !== null && value !== '' ? Number(value) : null
+)
+
+const toTracked = (d: Part): TrackedPart => ({
+  id: String(d.id),
+  name: d.name,
+  sku: d.sku,
+  stock: asNumber(d.stock_level ?? d.stock),
+  minStock: asNumber(d.min_stock ?? d.minStock),
+  supplier: d.supplier || null,
+  price: asNumber(d.unit_price ?? d.price),
+})
+
+const isBelowThreshold = (part: TrackedPart): boolean => (
+  part.stock !== null && part.minStock !== null && part.stock <= part.minStock
+)
 
 export default function PartsTracking() {
   const { fetchMechanicParts, createMechanicPart, loading } = useCarUpApi()
-  const [parts, setParts] = useState<Part[]>([])
+  const [parts, setParts] = useState<TrackedPart[]>([])
+  const [loadFailed, setLoadFailed] = useState(false)
+  // An unread inventory is not an empty one either. Until the read settles this page has
+  // counted nothing, so it must not render tiles whose values would be indistinguishable
+  // from a measured zero — the same rule that makes a FAILED read refuse to show figures.
+  const [readSettled, setReadSettled] = useState(false)
   const [search, setSearch] = useState('')
 
   const [isModalOpen, setIsModalOpen] = useState(false)
@@ -25,25 +81,24 @@ export default function PartsTracking() {
 
   useEffect(() => {
     fetchMechanicParts().then(data => {
-      if (data && data.length > 0) {
-        const formatted = data.map((d: Part) => ({
-          id: d.id.substring(0, 8).toUpperCase(),
-          name: d.name,
-          sku: d.sku,
-          stock: d.stock_level ?? d.stock ?? 0,
-          minStock: d.min_stock ?? d.minStock ?? 5,
-          supplier: d.supplier || 'Internal',
-          price: d.unit_price ?? d.price ?? 0
-        }))
-        setParts(formatted)
-      }
+      setLoadFailed(false)
+      setParts(Array.isArray(data) ? data.map(toTracked) : [])
     }).catch(err => {
+      // An unreadable inventory is not an empty one.
       console.error(err)
+      setLoadFailed(true)
       toast.error('Failed to load Parts Inventory.')
+    }).finally(() => {
+      setReadSettled(true)
     })
   }, [fetchMechanicParts])
 
   const filtered = parts.filter(p => !search || p.name.toLowerCase().includes(search.toLowerCase()) || p.sku.toLowerCase().includes(search.toLowerCase()))
+
+  const priced = parts.filter(p => p.price !== null && p.stock !== null)
+  const inventoryValue = priced.reduce((a, p) => a + (p.price as number) * (p.stock as number), 0)
+  const withThreshold = parts.filter(p => p.minStock !== null)
+  const stockRecorded = parts.filter(p => p.stock !== null)
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -58,14 +113,16 @@ export default function PartsTracking() {
       if (res.success) {
         toast.success('Part added successfully!')
         setIsModalOpen(false)
+        // Only what was actually submitted. No supplier and no reorder threshold
+        // were given, so neither is invented here.
         setParts([{
-          id: res.part?.id || Math.random().toString(),
+          id: String(res.part?.id ?? formData.sku),
           name: formData.name,
           sku: formData.sku,
-          stock: formData.stock_level,
-          minStock: 5,
-          supplier: 'Internal',
-          price: formData.unit_price
+          stock: Number(formData.stock_level),
+          minStock: null,
+          supplier: null,
+          price: Number(formData.unit_price)
         }, ...parts])
         setFormData({ name: '', sku: '', stock_level: 0, unit_price: 0 })
       }
@@ -87,7 +144,7 @@ export default function PartsTracking() {
           </h1>
           <p className="text-gray-500">Inventory management and parts ledger</p>
         </div>
-        
+
         <Dialog open={isModalOpen} onOpenChange={setIsModalOpen}>
           <DialogTrigger asChild>
             <Button className="bg-orange-500 hover:bg-orange-600 gap-1 text-white" data-testid="add-part-button">
@@ -126,90 +183,134 @@ export default function PartsTracking() {
         </Dialog>
       </div>
 
-      <div className="grid sm:grid-cols-4 gap-4">
-        <Card className="border-0 card-shadow transition-transform hover:-translate-y-1"><CardContent className="p-5"><p className="text-sm text-gray-500">Total Parts Types</p><p className="text-2xl font-bold">{parts.length}</p></CardContent></Card>
-        <Card className="border-0 card-shadow transition-transform hover:-translate-y-1"><CardContent className="p-5"><p className="text-sm text-gray-500">Inventory Value</p><p className="text-2xl font-bold text-orange-600">${parts.reduce((a, p) => a + p.price * p.stock, 0).toLocaleString()}</p></CardContent></Card>
-        <Card className="border-0 card-shadow transition-transform hover:-translate-y-1"><CardContent className="p-5"><p className="text-sm text-gray-500">Low Stock</p><p className="text-2xl font-bold text-amber-600">{parts.filter(p => p.stock <= (p.minStock ?? 5)).length}</p></CardContent></Card>
-        <Card className="border-0 card-shadow transition-transform hover:-translate-y-1"><CardContent className="p-5"><p className="text-sm text-gray-500">Out of Stock</p><p className="text-2xl font-bold text-red-600">{parts.filter(p => p.stock === 0).length}</p></CardContent></Card>
-      </div>
+      {/* The governed projection: PartSentry provenance for this practitioner,
+          and the list of what CarUp cannot measure about parts at all. */}
+      <PartsIntelligence scope="mechanic" windowDays={30} />
 
-      <div className="relative">
-        <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
-        <Input
-          placeholder="Search parts by name or SKU..."
-          value={search}
-          onChange={e => setSearch(e.target.value)}
-          className="pl-10 bg-white"
-          data-testid="parts-search-input"
-          aria-label="Search parts"
-        />
-      </div>
+      {!readSettled ? (
+        <Card className="border-0 card-shadow" data-testid="parts-not-yet-counted">
+          <CardContent className="p-5 text-sm text-gray-600">
+            Your parts inventory has not been read yet. No figures are shown below, because
+            none have been counted.
+          </CardContent>
+        </Card>
+      ) : loadFailed ? (
+        <Card className="border-0 card-shadow" data-testid="parts-load-failed">
+          <CardContent className="p-5 text-sm text-gray-600">
+            Your parts inventory could not be loaded. These figures are NOT zero — nothing below
+            has been counted.
+          </CardContent>
+        </Card>
+      ) : (
+        <>
+          <div className="grid sm:grid-cols-4 gap-4">
+            <Card className="border-0 card-shadow transition-transform hover:-translate-y-1"><CardContent className="p-5"><p className="text-sm text-gray-500">Total Parts Types</p><p className="text-2xl font-bold" data-testid="parts-total">{parts.length}</p></CardContent></Card>
+            <Card className="border-0 card-shadow transition-transform hover:-translate-y-1">
+              <CardContent className="p-5">
+                <p className="text-sm text-gray-500">Inventory Value</p>
+                <p className="text-2xl font-bold text-orange-600" data-testid="parts-value">${inventoryValue.toLocaleString()}</p>
+                {/* Parts with no recorded price or stock are excluded rather than
+                    counted as zero, so the shortfall is stated. */}
+                {priced.length !== parts.length && (
+                  <p className="mt-1 text-[11px] text-gray-500" data-testid="parts-value-coverage">
+                    Covers {priced.length} of {parts.length} parts. The true total is higher.
+                  </p>
+                )}
+              </CardContent>
+            </Card>
+            <Card className="border-0 card-shadow transition-transform hover:-translate-y-1">
+              <CardContent className="p-5">
+                <p className="text-sm text-gray-500">Low Stock</p>
+                {withThreshold.length === 0 ? (
+                  <p className="text-sm italic text-gray-500" data-testid="parts-low-stock">No reorder level set</p>
+                ) : (
+                  <p className="text-2xl font-bold text-amber-600" data-testid="parts-low-stock">{withThreshold.filter(isBelowThreshold).length}</p>
+                )}
+              </CardContent>
+            </Card>
+            <Card className="border-0 card-shadow transition-transform hover:-translate-y-1">
+              <CardContent className="p-5">
+                <p className="text-sm text-gray-500">Out of Stock</p>
+                <p className="text-2xl font-bold text-red-600" data-testid="parts-out-of-stock">{stockRecorded.filter(p => p.stock === 0).length}</p>
+              </CardContent>
+            </Card>
+          </div>
 
-      <div className="bg-white rounded-xl border border-gray-100 overflow-hidden card-shadow">
-        <table className="w-full text-left border-collapse" data-testid="mechanic-parts-table">
-          <thead>
-            <tr className="border-b border-gray-100 bg-gray-50/50 text-xs font-semibold text-gray-500 uppercase tracking-wider">
-              <th className="p-4">Part Details</th>
-              <th className="p-4">SKU / Code</th>
-              <th className="p-4">Stock Status</th>
-              <th className="p-4">Unit Price</th>
-              <th className="p-4">Supplier</th>
-              <th className="p-4 text-right">Actions</th>
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-gray-50 text-sm">
-            {filtered.map((part, idx) => {
-              const minStock = part.minStock ?? 5
-              return (
-                <tr key={part.id + idx} className={`hover:bg-gray-50/50 transition-colors ${part.stock <= minStock ? 'bg-amber-50/5' : ''}`} data-testid={`part-row-${part.id}`}>
-                  <td className="p-4">
-                    <div className="flex items-center gap-3">
-                      <div className={`w-8 h-8 rounded-lg flex items-center justify-center shrink-0 ${part.stock <= minStock ? 'bg-amber-100 text-amber-600' : 'bg-blue-100 text-blue-600'}`}>
-                        <Package className="w-4 h-4" />
-                      </div>
-                      <div>
-                        <p className="font-medium text-gray-900">{part.name}</p>
-                        {part.stock <= minStock && (
-                          <span className="inline-flex items-center text-[10px] text-amber-600 font-medium bg-amber-50 px-1.5 py-0.5 rounded mt-0.5">
-                            <AlertTriangle className="w-2.5 h-2.5 mr-0.5" /> Low Stock
+          <div className="relative">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+            <Input
+              placeholder="Search parts by name or SKU..."
+              value={search}
+              onChange={e => setSearch(e.target.value)}
+              className="pl-10 bg-white"
+              data-testid="parts-search-input"
+              aria-label="Search parts"
+            />
+          </div>
+
+          <div className="bg-white rounded-xl border border-gray-100 overflow-hidden card-shadow">
+            <table className="w-full text-left border-collapse" data-testid="mechanic-parts-table">
+              <thead>
+                <tr className="border-b border-gray-100 bg-gray-50/50 text-xs font-semibold text-gray-500 uppercase tracking-wider">
+                  <th className="p-4">Part Details</th>
+                  <th className="p-4">SKU / Code</th>
+                  <th className="p-4">Stock Status</th>
+                  <th className="p-4">Unit Price</th>
+                  <th className="p-4">Supplier</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-gray-50 text-sm">
+                {filtered.map((part, idx) => {
+                  const low = isBelowThreshold(part)
+                  return (
+                    <tr key={part.id + idx} className={`hover:bg-gray-50/50 transition-colors ${low ? 'bg-amber-50/5' : ''}`} data-testid={`part-row-${part.id}`}>
+                      <td className="p-4">
+                        <div className="flex items-center gap-3">
+                          <div className={`w-8 h-8 rounded-lg flex items-center justify-center shrink-0 ${low ? 'bg-amber-100 text-amber-600' : 'bg-blue-100 text-blue-600'}`}>
+                            <Package className="w-4 h-4" />
+                          </div>
+                          <div>
+                            <p className="font-medium text-gray-900">{part.name}</p>
+                            {/* Only where the garage set a reorder level itself. */}
+                            {low && (
+                              <span className="inline-flex items-center text-[10px] text-amber-600 font-medium bg-amber-50 px-1.5 py-0.5 rounded mt-0.5">
+                                <AlertTriangle className="w-2.5 h-2.5 mr-0.5" /> Low Stock
+                              </span>
+                            )}
+                          </div>
+                        </div>
+                      </td>
+                      <td className="p-4 font-mono text-xs text-gray-500">{part.sku}</td>
+                      <td className="p-4">
+                        {part.stock === null ? (
+                          <span className="text-sm italic text-gray-500">Not recorded</span>
+                        ) : (
+                          <span className={`font-semibold ${part.stock === 0 ? 'text-red-600' : low ? 'text-amber-600' : 'text-gray-900'}`}>
+                            {part.stock} units
                           </span>
                         )}
-                      </div>
-                    </div>
-                  </td>
-                  <td className="p-4 font-mono text-xs text-gray-500">{part.sku}</td>
-                  <td className="p-4">
-                    <span className={`font-semibold ${part.stock === 0 ? 'text-red-600' : part.stock <= minStock ? 'text-amber-600' : 'text-gray-900'}`}>
-                      {part.stock} units
-                    </span>
-                </td>
-                <td className="p-4 font-semibold text-orange-600">${part.price}</td>
-                <td className="p-4 text-gray-500">{part.supplier}</td>
-                <td className="p-4 text-right">
-                  <div className="flex items-center justify-end gap-2">
-                    <Button variant="outline" size="sm" className="text-xs text-orange-600 border-orange-200 hover:bg-orange-50/50" onClick={() => document.getElementById(`invoice-upload-${part.id}`)?.click()}>
-                      Upload Invoice
-                    </Button>
-                    <input type="file" id={`invoice-upload-${part.id}`} className="hidden" accept="image/*,application/pdf" onChange={(e) => {
-                      if (e.target.files?.length) {
-                        toast.success(`Invoice uploaded for ${part.name}!`);
-                      }
-                    }} />
-                  </div>
-                </td>
-              </tr>
-              )
-            })}
-          </tbody>
-        </table>
-        {filtered.length === 0 && (
-          <div className="text-center py-12 bg-white rounded-xl border border-gray-100" data-testid="no-parts-state">
-            <Package className="w-12 h-12 text-gray-200 mx-auto mb-4" />
-            <h3 className="text-lg font-medium text-gray-900 mb-1">No parts found</h3>
-            <p className="text-gray-500">Add a new part to your inventory.</p>
+                      </td>
+                      <td className="p-4 font-semibold text-orange-600">
+                        {part.price === null ? <span className="text-sm italic font-normal text-gray-500">Not recorded</span> : `$${part.price}`}
+                      </td>
+                      <td className="p-4 text-gray-500">
+                        {part.supplier ?? <span className="italic">Not recorded</span>}
+                      </td>
+                    </tr>
+                  )
+                })}
+              </tbody>
+            </table>
+            {filtered.length === 0 && (
+              <div className="text-center py-12 bg-white rounded-xl border border-gray-100" data-testid="no-parts-state">
+                <Package className="w-12 h-12 text-gray-200 mx-auto mb-4" />
+                <h3 className="text-lg font-medium text-gray-900 mb-1">No parts found</h3>
+                <p className="text-gray-500">Add a new part to your inventory.</p>
+              </div>
+            )}
           </div>
-        )}
-      </div>
+        </>
+      )}
     </div>
   )
 }

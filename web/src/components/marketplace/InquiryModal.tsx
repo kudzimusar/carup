@@ -14,6 +14,7 @@ import { toast } from 'sonner'
 import { useCarUpApi } from '@/hooks/useCarUpApi'
 import { useAuth } from '@/context/AuthContext'
 import { inquiryAttributionFields } from '@/lib/marketplaceReferral'
+import { track as trackActivity } from '@/lib/intelligenceActivity'
 import { getErrorMessage } from '@/lib/errorMessage'
 import type { MarketplaceInquiryType } from '@/types'
 
@@ -41,7 +42,10 @@ export function InquiryModal({
   triggerLabel = 'Contact seller',
   triggerClassName = '',
   triggerVariant = 'default',
+  defaultMessage = '',
+  intentMetadata,
   onSubmitted,
+  sourceSurface = 'marketplace_detail',
 }: {
   listingId?: string
   inquiryTypes?: MarketplaceInquiryType[]
@@ -49,17 +53,34 @@ export function InquiryModal({
   triggerLabel?: string
   triggerClassName?: string
   triggerVariant?: 'default' | 'outline' | 'secondary'
+  defaultMessage?: string
+  intentMetadata?: Record<string, unknown>
   onSubmitted?: (inquiryId: string) => void
+  sourceSurface?: 'marketplace_detail' | 'marketplace_list' | 'marketplace_compare' | 'dashboard' | 'saved' | 'search' | 'other'
 }) {
   const { user } = useAuth()
   const { createMarketplaceInquiry } = useCarUpApi()
   const [open, setOpen] = useState(false)
   const [submitting, setSubmitting] = useState(false)
   const [inquiryType, setInquiryType] = useState<MarketplaceInquiryType>(defaultInquiryType || inquiryTypes[0])
+
+  // The open action is non-authoritative interaction telemetry. Inquiry truth begins only
+  // after the server persists the inquiry row.
+  const handleOpenChange = (next: boolean) => {
+    if (next && !open) {
+      trackActivity({
+        event_type: 'marketplace_inquiry_started',
+        listing_id: listingId || null,
+        source_surface: sourceSurface,
+        metadata: { inquiry_type: inquiryType },
+      })
+    }
+    setOpen(next)
+  }
   const [name, setName] = useState(user?.name || '')
   const [email, setEmail] = useState(user?.email || '')
   const [phone, setPhone] = useState(user?.phone || '')
-  const [message, setMessage] = useState('')
+  const [message, setMessage] = useState(defaultMessage)
   const [preferredContact, setPreferredContact] = useState<PreferredContact>(user ? 'carup' : 'whatsapp')
 
   const submit = async (e: React.FormEvent) => {
@@ -86,12 +107,12 @@ export function InquiryModal({
         guest_name: name || undefined,
         guest_email: email || undefined,
         guest_phone: phone || undefined,
-        metadata: { preferred_contact: preferredContact },
+        metadata: { preferred_contact: preferredContact, ...(intentMetadata || {}) },
         ...attribution,
       })
       toast.success('Inquiry sent. Continue the conversation safely through CarUp.')
       setOpen(false)
-      setMessage('')
+      setMessage(defaultMessage)
       onSubmitted?.(inquiry.id)
     } catch (err) {
       toast.error(getErrorMessage(err, 'Could not send inquiry. Please try again.'))
@@ -101,7 +122,7 @@ export function InquiryModal({
   }
 
   return (
-    <Dialog open={open} onOpenChange={setOpen}>
+    <Dialog open={open} onOpenChange={handleOpenChange}>
       <DialogTrigger asChild>
         <Button variant={triggerVariant} className={triggerClassName} data-testid="marketplace-inquiry-open">
           <MessageSquare className="mr-2 h-4 w-4" />

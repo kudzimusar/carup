@@ -49,3 +49,6 @@ test-results/staging-uat-*
 
 # Issue #164 Golden fixture run receipt (local evidence artifact, not source)
 issue164-golden-vehicles-receipt.json
+
+# Issue #158 mutation-testing artifacts (written and removed by the test run)
+backend/services/blockchain/__mutant__*.js

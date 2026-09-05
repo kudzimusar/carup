@@ -12,7 +12,7 @@ import type {
   EvidenceTaxonomySubtype,
 } from '@/types'
 
-// Human-readable labels for the eight life-stage classes (falls back to a
+// Human-readable labels for the nine life-stage classes (falls back to a
 // title-cased class code if the taxonomy ever adds a new class).
 const evidenceClassLabels: Record<string, string> = {
   import: 'Import',
@@ -21,8 +21,28 @@ const evidenceClassLabels: Record<string, string> = {
   repair: 'Repair',
   inspection: 'Inspection',
   ownership_transfer: 'Ownership Transfer',
+  registration: 'Zimbabwe Registration',
   dealer_listing: 'Dealer Listing',
   current_condition: 'Current Condition',
+}
+
+// Client-side mirror of the backend canonical-class upload authorization
+// (evidenceService.classUploadRoleMatrix). The server remains authoritative.
+const classUploadRoleMatrix: Record<string, string[]> = {
+  import: ['owner', 'dealer', 'admin', 'government'],
+  auction: ['dealer', 'admin'],
+  accident: ['owner', 'dealer', 'admin', 'mechanic', 'insurance'],
+  repair: ['mechanic', 'owner', 'dealer', 'admin'],
+  inspection: ['owner', 'dealer', 'admin', 'government', 'mechanic'],
+  ownership_transfer: ['owner', 'dealer', 'admin', 'government'],
+  registration: ['owner', 'dealer', 'admin', 'government'],
+  dealer_listing: ['dealer', 'admin'],
+  current_condition: ['owner', 'dealer', 'admin', 'mechanic'],
+}
+
+// Subtype-level authorization overrides (tighter than their class).
+const subtypeUploadRoleOverrides: Record<string, string[]> = {
+  'registration:police_clearance_first_registration': ['government', 'admin'],
 }
 
 const titleCase = (val: string) =>
@@ -90,12 +110,14 @@ export default function EvidenceUploadModal({
   const [notes, setNotes] = useState('')
   const [capturedAt, setCapturedAt] = useState('')
 
-  // Vehicle Life Evidence Taxonomy (M1) — all optional, layered on top of the
-  // still-required legacy evidence_type above.
+  // Vehicle Life Evidence Taxonomy — canonical-first (Operations M1): the
+  // life-stage class + subtype ARE the classification the user chooses. The
+  // legacy evidence_type select survives only as a fallback for when the
+  // taxonomy cannot be loaded, so uploads never become impossible.
   const [taxonomyClasses, setTaxonomyClasses] = useState<EvidenceTaxonomyClass[]>([])
-  const [legacyTypeToClass, setLegacyTypeToClass] = useState<Record<string, string>>({})
   const [evidenceClass, setEvidenceClass] = useState<string>('')
   const [evidenceSubtype, setEvidenceSubtype] = useState<string>('')
+  const [visibilityTouched, setVisibilityTouched] = useState(false)
   const [eventDate, setEventDate] = useState('')
   const [odometerValue, setOdometerValue] = useState('')
   const [odometerUnit, setOdometerUnit] = useState<string>('km')
@@ -109,7 +131,6 @@ export default function EvidenceUploadModal({
       .then((data) => {
         if (cancelled) return
         setTaxonomyClasses(data.classes || [])
-        setLegacyTypeToClass(data.legacy_type_to_class || {})
       })
       .catch((err) => console.error('Error fetching evidence taxonomy:', err))
     return () => {
@@ -117,11 +138,10 @@ export default function EvidenceUploadModal({
     }
   }, [isOpen, taxonomyClasses.length, fetchEvidenceTaxonomy])
 
-  // The class to display: an explicitly chosen class wins; otherwise derive from
-  // the legacy evidence_type via the taxonomy's legacy map (display-only default).
-  const effectiveClass = evidenceClass || (evidenceType ? legacyTypeToClass[evidenceType] || '' : '')
+  // Canonical-first mode is active whenever the taxonomy loaded.
+  const canonicalMode = taxonomyClasses.length > 0
   const subtypesForClass: EvidenceTaxonomySubtype[] =
-    taxonomyClasses.find((c) => c.evidence_class === effectiveClass)?.subtypes ?? []
+    taxonomyClasses.find((c) => c.evidence_class === evidenceClass)?.subtypes ?? []
   const selectedSubtype = subtypesForClass.find((s) => s.subtype_code === evidenceSubtype)
   // Only surface mileage / components when the chosen subtype declares support.
   const showMileage = selectedSubtype?.requires_mileage ?? false
@@ -133,16 +153,28 @@ export default function EvidenceUploadModal({
   const [isDragActive, setIsDragActive] = useState(false)
   const fileInputRef = useRef<HTMLInputElement>(null)
 
-  // Filter allowed evidence types based on user role
+  // Filter allowed evidence types (legacy fallback mode) based on user role
   const userRole = user?.role || 'owner'
   const allowedEvidenceTypes = Object.keys(uploadRoleMatrix).filter((type) => {
     if (userRole === 'admin') return true
     return uploadRoleMatrix[type]?.includes(userRole)
   })
 
+  // Canonical-first: filter life-stage classes / subtypes by role (server re-checks).
+  const allowedTaxonomyClasses = taxonomyClasses.filter((cls) => {
+    if (userRole === 'admin') return true
+    return classUploadRoleMatrix[String(cls.evidence_class)]?.includes(userRole)
+  })
+  const allowedSubtypes = subtypesForClass.filter((sub) => {
+    if (userRole === 'admin') return true
+    const override = subtypeUploadRoleOverrides[`${evidenceClass}:${sub.subtype_code}`]
+    return !override || override.includes(userRole)
+  })
+
   const handleReset = () => {
     setEvidenceType('')
     setVisibilityLevel('public_safe')
+    setVisibilityTouched(false)
     setLinkedEventId('')
     setNotes('')
     setCapturedAt('')
@@ -218,7 +250,12 @@ export default function EvidenceUploadModal({
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
-    if (!evidenceType) {
+    if (canonicalMode) {
+      if (!evidenceClass || !evidenceSubtype) {
+        setUploadError('Please select the life stage and what this evidence is.')
+        return
+      }
+    } else if (!evidenceType) {
       setUploadError('Please select an evidence type.')
       return
     }
@@ -232,7 +269,6 @@ export default function EvidenceUploadModal({
 
     try {
       const payload: any = {
-        evidence_type: evidenceType,
         file: fileBase64,
         visibility_level: visibilityLevel,
         verification_notes: notes || undefined,
@@ -243,11 +279,16 @@ export default function EvidenceUploadModal({
         payload.linked_registry_event_id = linkedEventId
       }
 
-      // Vehicle Life Evidence Taxonomy + provenance (M1) — optional fields.
-      // Send the explicitly chosen class, or fall back to the legacy-derived one
-      // so M1 records always carry a life-stage class when the form can determine it.
-      if (effectiveClass) payload.evidence_class = effectiveClass
-      if (evidenceSubtype) payload.evidence_subtype = evidenceSubtype
+      // Canonical-first (Operations M1): the classification IS class + subtype;
+      // the server derives the legacy compatibility evidence_type so a record can
+      // never be born with a contradictory legacy meaning. The legacy field is
+      // sent only in fallback mode (taxonomy unavailable).
+      if (canonicalMode) {
+        payload.evidence_class = evidenceClass
+        payload.evidence_subtype = evidenceSubtype
+      } else {
+        payload.evidence_type = evidenceType
+      }
       if (eventDate) payload.event_date = eventDate
       if (showMileage && odometerValue) {
         const parsed = Number(odometerValue)
@@ -292,59 +333,72 @@ export default function EvidenceUploadModal({
             </div>
           )}
 
-          {/* Evidence Type */}
-          <div className="space-y-2">
-            <Label htmlFor="evidence-type" className="font-medium text-gray-700">Evidence Category *</Label>
-            <select
-              id="evidence-type"
-              className="flex h-10 w-full rounded-md border border-gray-200 bg-white px-3 py-2 text-sm ring-offset-white placeholder:text-gray-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange-500 focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
-              value={evidenceType}
-              onChange={(e) => setEvidenceType(e.target.value)}
-              required
-            >
-              <option value="">-- Select Category --</option>
-              {allowedEvidenceTypes.map((type) => (
-                <option key={type} value={type}>
-                  {evidenceTypeLabels[type] || type}
-                </option>
-              ))}
-            </select>
-          </div>
+          {/* Legacy evidence type — FALLBACK ONLY, when the taxonomy could not load.
+              Canonical-first uploads never ask the user for a legacy category
+              (Operations M1: an import invoice must not be filed as a
+              "Registration Document" just because it is a PDF). */}
+          {!canonicalMode && (
+            <div className="space-y-2">
+              <Label htmlFor="evidence-type" className="font-medium text-gray-700">Evidence Category *</Label>
+              <select
+                id="evidence-type"
+                className="flex h-10 w-full rounded-md border border-gray-200 bg-white px-3 py-2 text-sm ring-offset-white placeholder:text-gray-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange-500 focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
+                value={evidenceType}
+                onChange={(e) => setEvidenceType(e.target.value)}
+                required
+              >
+                <option value="">-- Select Category --</option>
+                {allowedEvidenceTypes.map((type) => (
+                  <option key={type} value={type}>
+                    {evidenceTypeLabels[type] || type}
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
 
-          {/* Life stage (evidence_class) + dependent subtype — optional taxonomy (M1) */}
-          {taxonomyClasses.length > 0 && (
+          {/* Canonical classification: life stage (evidence_class) + subtype */}
+          {canonicalMode && (
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <div className="space-y-2">
-                <Label htmlFor="evidence-class" className="font-medium text-gray-700">Life stage (Optional)</Label>
+                <Label htmlFor="evidence-class" className="font-medium text-gray-700">Life stage *</Label>
                 <select
                   id="evidence-class"
                   className="flex h-10 w-full rounded-md border border-gray-200 bg-white px-3 py-2 text-sm ring-offset-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange-500"
-                  value={effectiveClass}
+                  value={evidenceClass}
                   onChange={(e) => {
                     setEvidenceClass(e.target.value)
                     setEvidenceSubtype('')
                   }}
+                  required
                 >
-                  <option value="">-- Auto / from category --</option>
-                  {taxonomyClasses.map((cls) => (
+                  <option value="">-- Select life stage --</option>
+                  {allowedTaxonomyClasses.map((cls) => (
                     <option key={cls.evidence_class} value={cls.evidence_class}>
-                      {evidenceClassLabels[cls.evidence_class] || titleCase(cls.evidence_class)}
+                      {evidenceClassLabels[cls.evidence_class] || titleCase(String(cls.evidence_class))}
                     </option>
                   ))}
                 </select>
               </div>
 
               <div className="space-y-2">
-                <Label htmlFor="evidence-subtype" className="font-medium text-gray-700">Detail / subtype (Optional)</Label>
+                <Label htmlFor="evidence-subtype" className="font-medium text-gray-700">What is this evidence? *</Label>
                 <select
                   id="evidence-subtype"
                   className="flex h-10 w-full rounded-md border border-gray-200 bg-white px-3 py-2 text-sm ring-offset-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange-500 disabled:cursor-not-allowed disabled:opacity-50"
                   value={evidenceSubtype}
-                  onChange={(e) => setEvidenceSubtype(e.target.value)}
-                  disabled={subtypesForClass.length === 0}
+                  onChange={(e) => {
+                    setEvidenceSubtype(e.target.value)
+                    // Documents default to Restricted unless the user already chose.
+                    const next = allowedSubtypes.find((s) => s.subtype_code === e.target.value)
+                    if (next?.is_document && !visibilityTouched) setVisibilityLevel('restricted')
+                    if (next && !next.is_document && !visibilityTouched) setVisibilityLevel('public_safe')
+                  }}
+                  disabled={allowedSubtypes.length === 0}
+                  required
                 >
-                  <option value="">{subtypesForClass.length === 0 ? '-- Select a life stage first --' : '-- Select subtype --'}</option>
-                  {subtypesForClass.map((sub) => (
+                  <option value="">{allowedSubtypes.length === 0 ? '-- Select a life stage first --' : '-- Select --'}</option>
+                  {allowedSubtypes.map((sub) => (
                     <option key={sub.subtype_code} value={sub.subtype_code}>
                       {sub.label}
                     </option>
@@ -355,7 +409,7 @@ export default function EvidenceUploadModal({
           )}
 
           {/* Event date — optional; the date the documented event actually occurred */}
-          {taxonomyClasses.length > 0 && (
+          {canonicalMode && (
             <div className="space-y-2">
               <Label htmlFor="event-date" className="font-medium text-gray-700">Event date (Optional)</Label>
               <input
@@ -494,7 +548,7 @@ export default function EvidenceUploadModal({
               id="visibility"
               className="flex h-10 w-full rounded-md border border-gray-200 bg-white px-3 py-2 text-sm ring-offset-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange-500"
               value={visibilityLevel}
-              onChange={(e) => setVisibilityLevel(e.target.value)}
+              onChange={(e) => { setVisibilityTouched(true); setVisibilityLevel(e.target.value) }}
               required
             >
               <option value="public_safe">Public (Visible to future buyers after verification)</option>

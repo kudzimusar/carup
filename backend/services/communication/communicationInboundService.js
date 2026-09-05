@@ -350,6 +350,9 @@ export class CommunicationInboundService {
         templateKey: 'message_acknowledgement_v1',
         variables: { topic: classification.intent, reference: thread.id },
         priority: 'normal',
+        // An acknowledgement that we received something is a transactional receipt, not the
+        // conversation itself. The thread's own messages are conversational; this is not one.
+        classification: 'transactional',
         dedupeParts: ['ack', thread.id, message.id, channel],
       });
     }

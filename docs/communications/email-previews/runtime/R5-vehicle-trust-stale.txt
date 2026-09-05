@@ -1,0 +1,40 @@
+Your Vehicle Passport was updated
+
+Hi Fixture,
+
+CarUp has a previous evaluation for this vehicle, but it is no longer current. It is not shown as a live position.
+
+Trust position needs re-checking
+
+2018 Toyota Aqua
+VIN FIXTUREVIN0000001
+Trust score: Trust position needs re-checking
+Evidence confidence: not evaluated
+Facts with evidence: 3 of 7
+Connected sources: 1
+Year: 2018
+Make: Toyota
+Model: Aqua
+Mileage: 88,000 km
+
+View your vehicle record:
+https://carup.dev/dashboard/garage/FIXTUREVIN0000001
+
+What CarUp cannot confirm yet
+-----------------------------
+
+No live government or partner source is connected for this vehicle yet.
+
+Know the car. Trust the journey. A gap in a vehicle record is shown as a gap. CarUp does not fill one in with an assumption.
+
+—
+
+You are receiving this because you are the recorded owner of this vehicle on CarUp.
+
+Need help? support@carup.dev
+
+Privacy: https://carup.dev/privacy
+Terms: https://carup.dev/terms
+Support: https://carup.dev/support
+
+CarUp Technologies · Automotive Intelligence & Trust Network

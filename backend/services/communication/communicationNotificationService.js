@@ -1,7 +1,20 @@
 import { CommunicationTemplateService } from './communicationTemplateService.js';
 import { CommunicationPreferenceService } from './communicationPreferenceService.js';
 import { buildDedupeKey, normalizeChannel, nowIso } from './communicationUtils.js';
+import { CLASSIFICATION_SOURCES } from './emailExperience/emailClassification.js';
 
+/**
+ * G2 — every policy declares its canonical Email classification EXPLICITLY.
+ *
+ * All nine are transactional: each is a status change or an acknowledgement about something the
+ * recipient already did or owns. None is a conversation (no human is on the other end of them) and
+ * none is marketing. `service` is deliberately not used — the owner's rule is that a family is
+ * SELECTED by a producer, never arrived at because something else was missing.
+ *
+ * The default policy below carries NO classification on purpose. An unrecognised domain event that
+ * reaches Email is refused rather than defaulted, because `missing => transactional` is exactly the
+ * absence-as-semantics defect this gate removes.
+ */
 export const NOTIFICATION_POLICIES = Object.freeze({
   'marketplace.inquiry.created': {
     notificationType: 'marketplace_inquiry',
@@ -10,6 +23,7 @@ export const NOTIFICATION_POLICIES = Object.freeze({
     channels: ['in_app', 'push', 'email'],
     fallbackChannels: ['whatsapp', 'sms'],
     templateKey: 'marketplace_inquiry_received_v1',
+    classification: 'transactional',
     transactional: true,
   },
   ESCROW_CREATED: {
@@ -19,6 +33,7 @@ export const NOTIFICATION_POLICIES = Object.freeze({
     channels: ['in_app', 'push', 'email', 'whatsapp'],
     fallbackChannels: ['sms'],
     templateKey: 'escrow_status_v1',
+    classification: 'transactional',
     transactional: true,
     quietHoursBypass: true,
   },
@@ -29,6 +44,7 @@ export const NOTIFICATION_POLICIES = Object.freeze({
     channels: ['in_app', 'push', 'email', 'whatsapp'],
     fallbackChannels: ['sms'],
     templateKey: 'escrow_status_v1',
+    classification: 'transactional',
     transactional: true,
     quietHoursBypass: true,
   },
@@ -39,6 +55,7 @@ export const NOTIFICATION_POLICIES = Object.freeze({
     channels: ['in_app', 'push', 'email'],
     fallbackChannels: ['sms'],
     templateKey: 'finance_status_v1',
+    classification: 'transactional',
     transactional: true,
   },
   // Decision-specific finance events share the finance_status_v1 rendering but
@@ -52,6 +69,7 @@ export const NOTIFICATION_POLICIES = Object.freeze({
     channels: ['in_app', 'push', 'email'],
     fallbackChannels: ['sms'],
     templateKey: 'finance_status_v1',
+    classification: 'transactional',
     transactional: true,
   },
   'finance.application.declined': {
@@ -61,6 +79,7 @@ export const NOTIFICATION_POLICIES = Object.freeze({
     channels: ['in_app', 'push', 'email'],
     fallbackChannels: ['sms'],
     templateKey: 'finance_status_v1',
+    classification: 'transactional',
     transactional: true,
   },
   // threadType note for the three policies below: message_threads.thread_type carries the DB
@@ -83,6 +102,7 @@ export const NOTIFICATION_POLICIES = Object.freeze({
     fallbackChannels: [],
     policyChannelsOnly: true,
     templateKey: 'verification_decision_v1',
+    classification: 'transactional',
     transactional: true,
   },
   'marketplace.listing.moderated': {
@@ -93,6 +113,7 @@ export const NOTIFICATION_POLICIES = Object.freeze({
     fallbackChannels: [],
     policyChannelsOnly: true,
     templateKey: 'listing_moderation_v1',
+    classification: 'transactional',
     transactional: true,
   },
   'evidence.review.decided': {
@@ -103,9 +124,219 @@ export const NOTIFICATION_POLICIES = Object.freeze({
     fallbackChannels: [],
     policyChannelsOnly: true,
     templateKey: 'evidence_review_v1',
+    classification: 'transactional',
     transactional: true,
   },
+
+  // Operations M2 — governed Seller Authority review outcome for the seller.
+  'seller.authority.decided': {
+    notificationType: 'seller_authority',
+    threadType: 'trust_safety',
+    priority: 'normal',
+    channels: ['in_app'],
+    fallbackChannels: [],
+    policyChannelsOnly: true,
+    templateKey: 'seller_authority_v1',
+    classification: 'transactional',
+    transactional: true,
+  },
+
+  // R4 — SafeTrade / marketplace transaction stages.
+  //
+  // These are REAL canonical events, emitted by `issue164_transition_session_atomic` into
+  // `domain_events` when the transaction authority moves a session. They were emitted and never
+  // subscribed, so the customer was never told. Subscribing them is wiring, not invention.
+  //
+  // Every one is `transactional`: a stage change on a journey the recipient is party to. None is a
+  // payment claim — `referenceSafeTradeTransaction.js` decides what may be SAID about each state,
+  // and refuses any state nobody mapped.
+  MARKETPLACE_PAYMENT_INITIATED: {
+    notificationType: 'safetrade_transaction', threadType: 'escrow', priority: 'high',
+    channels: ['in_app', 'email'], fallbackChannels: [],
+    templateKey: 'safetrade_transaction_v1', classification: 'transactional', transactional: true,
+  },
+  MARKETPLACE_INSPECTION_PENDING: {
+    notificationType: 'safetrade_transaction', threadType: 'escrow', priority: 'high',
+    channels: ['in_app', 'email'], fallbackChannels: [],
+    templateKey: 'safetrade_transaction_v1', classification: 'transactional', transactional: true,
+  },
+  MARKETPLACE_RELEASE_APPROVED: {
+    notificationType: 'safetrade_transaction', threadType: 'escrow', priority: 'high',
+    channels: ['in_app', 'email'], fallbackChannels: [],
+    templateKey: 'safetrade_transaction_v1', classification: 'transactional', transactional: true,
+  },
+  MARKETPLACE_TRANSACTION_DISPUTED: {
+    notificationType: 'safetrade_transaction', threadType: 'escrow', priority: 'high',
+    channels: ['in_app', 'email'], fallbackChannels: [],
+    templateKey: 'safetrade_transaction_v1', classification: 'transactional', transactional: true,
+    quietHoursBypass: true,
+  },
+  MARKETPLACE_TRANSACTION_CANCELLED: {
+    notificationType: 'safetrade_transaction', threadType: 'escrow', priority: 'normal',
+    channels: ['in_app', 'email'], fallbackChannels: [],
+    templateKey: 'safetrade_transaction_v1', classification: 'transactional', transactional: true,
+  },
+  // The provider-confirmed outcomes, emitted by `issue164_record_payment_state_atomic`. These are
+  // the stages a customer most needs to hear about, and leaving them unsubscribed would have meant
+  // telling someone their journey started and never telling them it settled.
+  MARKETPLACE_FUNDS_HELD: {
+    notificationType: 'safetrade_transaction', threadType: 'escrow', priority: 'high',
+    channels: ['in_app', 'email'], fallbackChannels: [],
+    templateKey: 'safetrade_transaction_v1', classification: 'transactional', transactional: true,
+  },
+  MARKETPLACE_TRANSACTION_SETTLED: {
+    notificationType: 'safetrade_transaction', threadType: 'escrow', priority: 'high',
+    channels: ['in_app', 'email'], fallbackChannels: [],
+    templateKey: 'safetrade_transaction_v1', classification: 'transactional', transactional: true,
+  },
+  MARKETPLACE_TRANSACTION_REFUNDED: {
+    notificationType: 'safetrade_transaction', threadType: 'escrow', priority: 'high',
+    channels: ['in_app', 'email'], fallbackChannels: [],
+    templateKey: 'safetrade_transaction_v1', classification: 'transactional', transactional: true,
+  },
+  MARKETPLACE_TRANSACTION_FAILED: {
+    notificationType: 'safetrade_transaction', threadType: 'escrow', priority: 'high',
+    channels: ['in_app', 'email'], fallbackChannels: [],
+    templateKey: 'safetrade_transaction_v1', classification: 'transactional', transactional: true,
+  },
+  MARKETPLACE_PAYMENT_FAILED: {
+    notificationType: 'safetrade_transaction', threadType: 'escrow', priority: 'high',
+    channels: ['in_app', 'email'], fallbackChannels: [],
+    templateKey: 'safetrade_transaction_v1', classification: 'transactional', transactional: true,
+  },
+  // R5 — a customer-visible Vehicle Trust position changed. Emitted by
+  // `trustPresentationChangeProducer.js` immediately after the canonical Trust write, and only when
+  // the audience-safe projection materially moved AND a current owner resolves.
+  //
+  // `service`: platform-initiated, about something the recipient owns. Not the outcome of an action
+  // they just took, which is what separates it from `transactional`.
+  'vehicle.trust.presentation_changed': {
+    notificationType: 'vehicle_trust_update', threadType: 'account', priority: 'normal',
+    channels: ['in_app', 'email'], fallbackChannels: [],
+    templateKey: 'vehicle_trust_update_v1', classification: 'service', transactional: true,
+  },
+  'vehicle.ownership.transfer_started': {
+    notificationType: 'ownership_transfer', threadType: 'account', priority: 'high',
+    channels: ['in_app'], fallbackChannels: [], policyChannelsOnly: true,
+    templateKey: 'ownership_transfer_v1', classification: 'transactional', transactional: true,
+  },
+  'vehicle.ownership.transfer_action_required': {
+    notificationType: 'ownership_transfer', threadType: 'account', priority: 'high',
+    channels: ['in_app'], fallbackChannels: [], policyChannelsOnly: true,
+    templateKey: 'ownership_transfer_v1', classification: 'transactional', transactional: true,
+  },
+  'vehicle.ownership.transfer_state_changed': {
+    notificationType: 'ownership_transfer', threadType: 'account', priority: 'normal',
+    channels: ['in_app'], fallbackChannels: [], policyChannelsOnly: true,
+    templateKey: 'ownership_transfer_v1', classification: 'transactional', transactional: true,
+  },
+  'vehicle.ownership.transfer_completed': {
+    notificationType: 'ownership_transfer', threadType: 'account', priority: 'high',
+    channels: ['in_app'], fallbackChannels: [], policyChannelsOnly: true,
+    templateKey: 'ownership_transfer_v1', classification: 'transactional', transactional: true,
+  },
+  // MARKETPLACE_PAYMENT_RECONCILED is deliberately NOT subscribed. Reconciliation is an internal
+  // bookkeeping step with no customer-facing stage change, and `referenceSafeTradeTransaction.js`
+  // has no presentation for it — which is the correct answer, not a gap to fill.
 });
+
+/**
+ * Carry the canonical classification onto the payload the worker and adapters actually read.
+ *
+ * A producer that already put one on its payload keeps it — the campaign path and the auth recovery
+ * route both do, and silently overwriting a producer's explicit choice with a parameter would make
+ * the two disagree in exactly the way `resolveEmailClassification` is built to refuse.
+ */
+export function withClassification(payload, classification) {
+  const base = payload || {};
+  if (!classification) return base;
+  if (String(base.classification ?? '').trim() !== '') return base;
+  return { ...base, classification };
+}
+
+/**
+ * Record WHERE the classification came from.
+ *
+ * `metadata.classification` is provenance, not a second authority: it is written from the same value
+ * as the payload, so the two can only disagree if a row was written outside this service or
+ * mutated afterwards — and that disagreement is refused at the Email boundary rather than resolved
+ * by preferring one of them.
+ */
+export function classificationMetadata(base, payload, classification, source) {
+  const effective = String(payload?.classification ?? '').trim() || classification || null;
+  if (!effective) return base;
+  return { ...base, classification: effective, classification_source: source || CLASSIFICATION_SOURCES.PRODUCER };
+}
+
+/**
+ * Extra payload a reference template needs, derived from the domain event.
+ *
+ * Kept narrow and explicit. A domain event's `safe_payload` is a producer's own shape; a reference
+ * template reads named fields, so the mapping between the two lives here rather than being guessed
+ * at inside a renderer.
+ */
+const SAFETRADE_EVENT_TYPES = new Set([
+  'MARKETPLACE_PAYMENT_INITIATED', 'MARKETPLACE_INSPECTION_PENDING', 'MARKETPLACE_RELEASE_APPROVED',
+  'MARKETPLACE_TRANSACTION_DISPUTED', 'MARKETPLACE_TRANSACTION_CANCELLED',
+  'MARKETPLACE_FUNDS_HELD', 'MARKETPLACE_TRANSACTION_SETTLED', 'MARKETPLACE_TRANSACTION_REFUNDED',
+  'MARKETPLACE_TRANSACTION_FAILED', 'MARKETPLACE_PAYMENT_FAILED',
+]);
+
+export function referencePayloadFor(eventType, payload = {}) {
+  if (eventType === 'vehicle.trust.presentation_changed') {
+    // The audience-safe Trust projection the producer already computed, plus public vehicle
+    // identity. `recipientUserId` addresses a person and is NOT copied into the payload — it must
+    // never become content, and the queue row already carries the recipient separately.
+    return {
+      reference_template: 'vehicle_trust_update',
+      vin: payload.vin || payload.trust?.vin || null,
+      trust: payload.trust || null,
+      ...(payload.vehicle ? { vehicle: payload.vehicle } : {}),
+    };
+  }
+  if (!SAFETRADE_EVENT_TYPES.has(eventType)) return {};
+  // The audience-safe transaction projection only. No amount, no currency, no provider identifier —
+  // all exist upstream and none belongs in a forwardable Email.
+  const session = payload.session || payload.transaction_session || payload;
+  return {
+    reference_template: 'safetrade_transaction',
+    transaction_session: {
+      transaction_intent_id: session.transaction_intent_id || session.id || null,
+      vin: session.vin || payload.vin || null,
+      status: session.status || payload.status || null,
+    },
+  };
+}
+
+const ACCOUNT_SECURITY_TEMPLATES = Object.freeze({
+  auth_email_verification_v1: 'Email verification',
+  auth_password_reset_v1: 'Password reset',
+  auth_password_changed_v1: 'Password changed',
+});
+
+export function projectAccountSecurityActivity(row = {}) {
+  const label = ACCOUNT_SECURITY_TEMPLATES[row.template_key];
+  if (!label || row.channel !== 'email') return null;
+  const status = String(row.status || 'queued');
+  const summary = status === 'delivered'
+    ? `${label} email was reported delivered by the Email provider.`
+    : status === 'sent'
+      ? `${label} email was accepted by the Email provider and is awaiting delivery confirmation.`
+      : status === 'failed' || status === 'dead_letter'
+        ? `${label} email could not be delivered. You can request another Email.`
+        : `${label} email is queued for delivery.`;
+  return {
+    id: String(row.id),
+    activity_type: row.template_key,
+    title: label,
+    channel: 'email',
+    status,
+    summary,
+    created_at: row.created_at || null,
+    sent_at: row.sent_at || null,
+    delivered_at: row.delivered_at || null,
+  };
+}
 
 export class CommunicationNotificationService {
   constructor({ repository, threadService, templateService = null, preferenceService = null } = {}) {
@@ -124,6 +355,9 @@ export class CommunicationNotificationService {
       fallbackChannels: ['email'],
       templateKey: 'message_acknowledgement_v1',
       transactional: true,
+      // NO classification. An unrecognised event that reaches Email is refused at the boundary,
+      // not silently assigned a family and a provider.
+      classification: null,
     }), ...override };
   }
 
@@ -136,9 +370,9 @@ export class CommunicationNotificationService {
       topic: payload.topic || payload.intent || eventType,
       listing_id: payload.listingId || payload.listing_id || payload.vin || 'listing',
       escrow_id: payload.escrowId || payload.escrow_id || 'escrow',
-      status: payload.currentStatus || payload.status || payload.current_status || 'updated',
+      status: payload.transfer_state || payload.currentStatus || payload.status || payload.current_status || 'updated',
       application_id: payload.applicationId || payload.application_id || payload.id || 'application',
-      reference: payload.publicReference || payload.reference || payload.escrowId || payload.applicationId || payload.inquiryId || payload.sessionId || payload.evidenceId || 'CarUp',
+      reference: payload.publicReference || payload.reference || payload.transferId || payload.transfer_id || payload.escrowId || payload.applicationId || payload.inquiryId || payload.sessionId || payload.evidenceId || 'CarUp',
       decision: payload.decision || payload.action || '',
       reason: payload.reason || '',
       summary: payload.summary || '',
@@ -192,12 +426,18 @@ export class CommunicationNotificationService {
         variables: this.variablesForEvent(eventType, payload),
         priority: policy.priority,
         transactional: policy.transactional,
+        classification: policy.classification || null,
+        classificationSource: CLASSIFICATION_SOURCES.POLICY,
         // Prefer the outbox record id (per-event) as the dedupe discriminator; the payload
         // fallbacks cover every emitter's subject id (incl. sessionId/evidenceId/vin for
         // verification, evidence-review, and listing-moderation events) so distinct events
         // for the same user never collapse into one dedupe key.
         dedupeParts: [eventType, event.id || event.dedupe_key || event.event_id || payload.id || payload.inquiryId || payload.escrowId || payload.applicationId || payload.sessionId || payload.evidenceId || payload.vin, recipientUserId, policy.templateKey, channel],
-        payload: { event_type: eventType, safe_payload: payload },
+        payload: {
+          event_type: eventType,
+          safe_payload: payload,
+          ...referencePayloadFor(eventType, payload),
+        },
       }));
     }
     return queued;
@@ -251,7 +491,7 @@ export class CommunicationNotificationService {
       channel,
       provider: input.provider || null,
       template_key: input.templateKey || rendered.templateKey,
-      payload: input.payload || {},
+      payload: withClassification(input.payload, input.classification),
       priority: input.priority || 'normal',
       status: 'queued',
       dedupe_key: dedupeKey,
@@ -262,7 +502,12 @@ export class CommunicationNotificationService {
       read: false,
       created_at: nowIso(),
       updated_at: nowIso(),
-      metadata: { transactional: input.transactional !== false },
+      metadata: classificationMetadata(
+        { transactional: input.transactional !== false },
+        input.payload,
+        input.classification,
+        input.classificationSource,
+      ),
     };
     if (input.id) notificationRow.id = input.id;
     try {
@@ -293,11 +538,22 @@ export class CommunicationNotificationService {
     if (channel === 'in_app') return null;
     const address = String(input.recipientAddress || input.address || input.email || '').trim().toLowerCase();
     if (!address) return null;
-    const scopes = input.transactional === false ? ['marketing', 'all'] : ['all'];
-    const rows = await this.repository.list('communication_suppressions', {
-      channel,
-      address,
-    }).catch(() => []);
+    const marketing = input.transactional === false;
+    const scopes = marketing ? ['marketing', 'all'] : ['all'];
+    let rows;
+    try {
+      rows = await this.repository.list('communication_suppressions', { channel, address });
+    } catch (error) {
+      // G3. This used to be `.catch(() => [])`, which turned every failure to ESTABLISH consent
+      // state into "not suppressed" — the same fail-open the send-time gate had.
+      //
+      // Fail closed for MARKETING only, and deliberately not for anything else: holding a password
+      // reset because a suppression lookup timed out would lock someone out of their account over a
+      // consent question that does not apply to security mail. Marketing is refused here and again
+      // at send time by `marketingConsentState.js`, which is the authoritative gate.
+      if (marketing) return 'suppressed_consent_state_unavailable';
+      return null;
+    }
     const active = (rows || []).find((row) => !row.released_at && scopes.includes(row.scope));
     return active ? `suppressed_${active.reason}` : null;
   }
@@ -369,7 +625,7 @@ export class CommunicationNotificationService {
       channel,
       provider: input.provider || message.provider || null,
       template_key: input.templateKey || 'admin_reply_v1',
-      payload: input.payload || {},
+      payload: withClassification(input.payload, input.classification),
       priority: input.priority || thread.priority || 'normal',
       status: suppressionReason ? 'suppressed' : 'queued',
       dedupe_key: dedupeKey,
@@ -380,11 +636,24 @@ export class CommunicationNotificationService {
       read: false,
       created_at: nowIso(),
       updated_at: nowIso(),
-      metadata: {
-        transactional,
-        source: 'existing_message',
-        suppression_reason: suppressionReason,
-      },
+      metadata: classificationMetadata(
+        {
+          transactional,
+          source: 'existing_message',
+          suppression_reason: suppressionReason,
+          // C2-RACE — the caller's routing context travels WITH the insert.
+          //
+          // It used to be patched in afterwards by the canonical subclass, which meant the row was
+          // claimable by the delivery worker for one full HTTP round trip while missing the
+          // participant id a conversational Email needs. A claim inside that window dead-lettered
+          // the message permanently as `conversation_reply_context_missing`. Merging here means the
+          // row is complete the moment it exists, so the incomplete state cannot be observed.
+          ...(input.metadata && typeof input.metadata === 'object' ? input.metadata : {}),
+        },
+        input.payload,
+        input.classification,
+        input.classificationSource,
+      ),
     };
     if (input.id) notificationRow.id = input.id;
     const notification = await this.insertNotificationIdempotently(notificationRow);
@@ -404,6 +673,25 @@ export class CommunicationNotificationService {
   }
 
   async listNotificationsForUser(userId) {
-    return this.repository.list('notification_queue', { recipient_user_id: userId }, { order: { column: 'created_at' }, limit: 100 });
+    // Transport delivery rows are not in-app notifications. Filtering at the source also keeps
+    // token-bearing security Email content out of the ordinary user's notification surface.
+    return this.repository.list(
+      'notification_queue',
+      { recipient_user_id: userId, channel: 'in_app' },
+      { order: { column: 'created_at' }, limit: 100 },
+    );
+  }
+
+  async listAccountSecurityActivityForUser(userId) {
+    if (!userId) return [];
+    const rows = await this.repository.list(
+      'notification_queue',
+      { recipient_user_id: userId },
+      { order: { column: 'created_at' }, limit: 100 },
+    );
+    return (rows || [])
+      .map(projectAccountSecurityActivity)
+      .filter(Boolean)
+      .slice(0, 20);
   }
 }

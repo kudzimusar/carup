@@ -24,6 +24,7 @@ import {
   matchRoutePattern,
   getStaticLifecycle,
   getDashboardRoute,
+  normalizeFrontendRole,
   type FeatureRegistryItem,
   type EffectiveFeatureState,
   type FeatureLifecycleState,
@@ -134,7 +135,11 @@ function effectiveState(
 }
 
 export function evaluateRouteAccess(input: RouteAccessInput): RouteDecision {
-  const { route, isBootstrapping, isAuthenticated, role, effectiveStates } = input
+  const { route, isBootstrapping, isAuthenticated, effectiveStates } = input
+  // Operations M6: backend platform_admin/super_admin route as admin — the
+  // shared UserRole cannot represent them, and bouncing a platform authority
+  // to the owner dashboard was the standing defect (manual §5.2).
+  const role = normalizeFrontendRole(input.role)
   const enforceAuth = input.enforceAuth ?? true
 
   // 1. Never decide an AUTH outcome while the session is bootstrapping. Public

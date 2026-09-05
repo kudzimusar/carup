@@ -1,0 +1,63 @@
+name: Seller Phase L-M Parity Trust Gate
+
+on:
+  pull_request:
+    branches:
+      - integration/vehicle-passport-v16-cert
+    paths:
+      - 'web/src/pages/VehicleDetail.tsx'
+      - 'web/src/pages/VehicleDetail.*.test.*'
+      - 'web/src/pages/dashboard/owner/SellVehicle.tsx'
+      - 'web/src/components/VehicleCompletenessPanel*'
+      - 'web/src/components/SourceCoveragePanel*'
+      - 'web/src/components/marketplace/TrustSummaryPanel.tsx'
+      - 'web/src/components/marketplace/AllInPricePanel.tsx'
+      - 'backend/utils/publicVehicleProjection.js'
+      - 'backend/services/trustDecision/**'
+      - 'backend/services/marketplace/**'
+      - 'backend/tests/seller-reconciliation-privacy.test.js'
+      - '.github/workflows/seller-phase-lm-parity-trust.yml'
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+jobs:
+  parity-trust-privacy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      NODE_ENV: test
+      SUPABASE_URL: http://127.0.0.1:54321
+      SUPABASE_SERVICE_ROLE_KEY: seller-phase-lm-test-service-role-key
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+
+      - name: Shared-detail parity and semantic separation
+        run: |
+          npm run test:unit --workspace=web -- \
+            src/pages/VehicleDetail.parity.test.ts \
+            src/pages/VehicleDetail.sellerStatement.test.tsx \
+            src/pages/VehicleDetail.trust.test.tsx \
+            src/components/SourceCoveragePanel.test.tsx \
+            src/components/VehicleCompletenessPanel.test.tsx
+
+      - name: Public privacy and canonical Trust authority
+        run: |
+          node --test \
+            backend/tests/seller-reconciliation-privacy.test.js \
+            backend/tests/seller-location-province-only.test.js \
+            backend/tests/seller-consent-controls.test.js \
+            backend/tests/seller-cross-surface-convergence.test.js \
+            backend/tests/issue164-phase3-trust-authority.test.js \
+            backend/tests/marketplace-listing-summary.test.js
+
+      - name: Web production build
+        run: npm run build --workspace=web

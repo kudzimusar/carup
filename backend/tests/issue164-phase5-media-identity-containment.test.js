@@ -196,6 +196,20 @@ const SOURCES = SOURCE_FILES.map((path) => ({
 }));
 
 /**
+ * `readListingImagesCompat` applies the vin scope through a HELPER rather than inline:
+ *
+ *   const applyScope = (query) => vin ? query.eq('vin', vin) : query.in('vin', [...vins]);
+ *   const wide = await applyScope(supabase.from('listing_images').select(...)).order(...);
+ *
+ * The scope is real, but it is not lexically inside the chain, so the chain scanner below cannot
+ * see it. That is an aperture in the SCANNER, never in the contract — so the exemption is granted
+ * only while the helper is PROVEN to key on vin, and evaporates the moment it stops.
+ */
+const SCOPE_HELPER_IS_VIN_KEYED = SOURCES.some(({ code }) => (
+  /const applyScope = \(query\) =>[\s\S]{0,200}?query\.eq\('vin'[\s\S]{0,200}?query\.in\('vin'/.test(code)
+));
+
+/**
  * Find every place `code` accepts one of `names` as an INBOUND request value.
  *
  * Four doors, because those are the four a value comes through:
@@ -239,8 +253,30 @@ function extractQueryChains(code, table) {
     while (end < code.length) {
       const ch = code[end];
       if (ch === '(') depth += 1;
-      else if (ch === ')') depth -= 1;
-      else if (ch === ';' && depth <= 0) break;
+      else if (ch === ')') {
+        depth -= 1;
+        // A method chain ends where the chaining stops, NOT at the next semicolon. Terminating on
+        // `;` assumes semicolons exist: backend/server.js is written without them, so a chain ran
+        // on for ~185 lines and swallowed a `.eq('id', req.params.id)` belonging to an unrelated
+        // notification_queue handler. The scanner then reported the vehicles query as keyed by a
+        // row identity and this guard failed on a query that does not exist. Look past whitespace
+        // (and line comments, which may sit between chained calls) for the next `.`; anything else
+        // means the chain is over.
+        if (depth <= 0) {
+          let peek = end + 1;
+          for (;;) {
+            while (peek < code.length && /\s/.test(code[peek])) peek += 1;
+            if (code.startsWith('//', peek)) {
+              const lineEnd = code.indexOf('\n', peek);
+              if (lineEnd === -1) { peek = code.length; break; }
+              peek = lineEnd + 1;
+              continue;
+            }
+            break;
+          }
+          if (code[peek] !== '.') { end += 1; break; }
+        }
+      } else if (ch === ';' && depth <= 0) break;
       end += 1;
     }
     chains.push(code.slice(start, end).replace(/\s+/g, ' ').trim());
@@ -256,6 +292,61 @@ function filterColumnsOf(chain) {
   }
   return columns;
 }
+
+// ===========================================================================================
+// SUITE 0 — THE SCANNER ITSELF
+// ===========================================================================================
+// A static guard is only as good as its parser. This suite exists because the chain extractor was
+// silently wrong: it terminated on `;`, and in semicolon-free source a chain absorbed unrelated
+// statements, so the guard reported a filter that no vehicles query performed. Correcting a false
+// positive is worthless if it introduces a false negative, so both directions are pinned here.
+describe('Phase 5 containment — the chain scanner reports what the code actually does', () => {
+
+  it('a chain ends where the chaining ends, in semicolon-free source', () => {
+    // Verbatim shape of the /api/vehicles/owned handler: no semicolons, and a later unrelated
+    // handler that filters a DIFFERENT table by row id.
+    const code = [
+      "const { data, error } = await supabase",
+      "  .from('vehicles')",
+      "  .select('*')",
+      "  .or(`owner_id.eq.${req.userContext.id}`)",
+      "if (error) throw error",
+      "await supabase",
+      "  .from('notification_queue')",
+      "  .update({ read: true })",
+      "  .eq('id', req.params.id);",
+    ].join('\n');
+
+    const chains = extractQueryChains(code, 'vehicles');
+    assert.equal(chains.length, 1);
+    assert.ok(!chains[0].includes('notification_queue'),
+      'the vehicles chain must not absorb a following statement on another table');
+    assert.deepEqual(filterColumnsOf(chains[0]), [],
+      'the vehicles query filters on nothing; reporting `id` here is the false positive');
+  });
+
+  it('it still sees a real filter — on both semicolon styles', () => {
+    for (const terminator of [';', '']) {
+      const code = `const x = await supabase.from('vehicles').select('*').eq('primary_image_id', req.params.imageId)${terminator}\nreturn x`;
+      const [chain] = extractQueryChains(code, 'vehicles');
+      assert.deepEqual(filterColumnsOf(chain), ['primary_image_id'],
+        `a genuine media-identity filter must still be detected (terminator: ${JSON.stringify(terminator)})`);
+    }
+  });
+
+  it('it keeps a multi-predicate chain whole across line comments', () => {
+    const code = [
+      "await supabase",
+      "  .from('vehicles')",
+      "  // scoped to the caller",
+      "  .eq('owner_id', id)",
+      "  .eq('vin', vin)",
+      "return done",
+    ].join('\n');
+    const [chain] = extractQueryChains(code, 'vehicles');
+    assert.deepEqual(filterColumnsOf(chain), ['owner_id', 'vin']);
+  });
+});
 
 // ===========================================================================================
 // SUITE 1 — NOTHING ACCEPTS A MEDIA IDENTITY INBOUND
@@ -296,15 +387,24 @@ describe('Phase 5 containment — no query resolves a row BY a listing-image ide
     const offenders = [];
     let chainCount = 0;
     for (const { path, code } of SOURCES) {
+      // `extractQueryChains` collapses whitespace, so a chain string cannot be located in the raw
+      // source. Search the same normalised space the chain came from.
+      const flat = code.replace(/\s+/g, ' ');
       for (const chain of extractQueryChains(code, 'listing_images')) {
         chainCount += 1;
         const columns = filterColumnsOf(chain);
+        // A chain handed straight to the vin-keyed scope helper is scoped even though the scanner
+        // cannot read the filter out of the chain text itself.
+        const chainAt = flat.indexOf(chain);
+        const scopedByVinHelper = SCOPE_HELPER_IS_VIN_KEYED
+          && chainAt > 0
+          && /applyScope\(\s*supabase\s*$/.test(flat.slice(Math.max(0, chainAt - 48), chainAt));
         // An INSERT legitimately filters on nothing at all; a READ must be keyed by the FK.
         const isWrite = /\.(?:insert|upsert|update|delete)\s*\(/.test(chain);
         if (columns.includes('id')) {
           offenders.push(`${path}: filters listing_images by id -> ${chain.slice(0, 140)}`);
         }
-        if (!isWrite && !columns.includes('vin')) {
+        if (!isWrite && !columns.includes('vin') && !scopedByVinHelper) {
           offenders.push(`${path}: reads listing_images unkeyed by vin -> ${chain.slice(0, 140)}`);
         }
       }
@@ -315,6 +415,14 @@ describe('Phase 5 containment — no query resolves a row BY a listing-image ide
       'a listing_images read keyed by `id` can be handed an identity the caller did not obtain from '
       + 'a passport they were entitled to. Keyed by `vin`, the query can only ever return photographs '
       + 'of a vehicle the caller had already named.');
+  });
+
+  it('ANTI-VACUITY: the scope-helper exemption is earned, not assumed', () => {
+    // The exemption above is the only way a listing_images read may lack an inline vin filter. If
+    // `applyScope` ever stops keying on vin, this fails FIRST and loudly, rather than the exemption
+    // silently widening into a hole in the containment contract.
+    assert.equal(SCOPE_HELPER_IS_VIN_KEYED, true,
+      'readListingImagesCompat must scope every listing_images read by vin — .eq(vin) or .in(vin)');
   });
 
   it('no vehicles query is filtered by a media identity', () => {
@@ -338,8 +446,13 @@ describe('Phase 5 containment — no query resolves a row BY a listing-image ide
     // Rule 6b's mechanical half, restated as a containment property: the only thing travelling out
     // beside the identity is a URL the caller can already see. There is no bucket, path or key that
     // a recipient could turn back into a query.
+    // `photo_label` (the seller's own label for the shot) and `seller_order` (the seller's chosen
+    // ordering) joined the shape with the Seller media work. Both are DESCRIPTIONS of a photograph
+    // the caller is already looking at — neither is a locator, and neither can be turned back into
+    // a query for a row the caller was not entitled to. The forbidden-locator assertion below is
+    // what actually holds the line, and it is unchanged.
     assert.deepEqual([...LISTING_MEDIA_ITEM_FIELDS].sort(),
-      ['is_primary', 'media_id', 'position', 'url', 'url_form']);
+      ['is_primary', 'media_id', 'photo_label', 'position', 'seller_order', 'synthetic_demo', 'url', 'url_form']);
     for (const forbidden of ['file_path', 'storage_bucket', 'object_key', 'uploaded_by', 'tenant_id', 'vin']) {
       assert.equal(LISTING_MEDIA_ITEM_FIELDS.includes(forbidden), false,
         `${forbidden} on a listing item would let a holder address something other than this photo`);

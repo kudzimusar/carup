@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
+import { Link } from 'react-router-dom'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
@@ -18,6 +19,20 @@ function labelize(value?: string) {
     .filter(Boolean)
     .map(part => part.charAt(0).toUpperCase() + part.slice(1))
     .join(' ')
+}
+
+/**
+ * Canonical classification is the semantic authority (Operations M1): a row
+ * canonically classed import/commercial_invoice must never be presented to a
+ * reviewer as a "Registration Document" because of its legacy compatibility
+ * field. Legacy-only historical rows keep their historical label.
+ */
+function classificationLabel(item: VehicleEvidence) {
+  if (item.evidence_class) {
+    const subtype = item.evidence_subtype ? labelize(item.evidence_subtype) : null
+    return subtype ? `${labelize(item.evidence_class)} — ${subtype}` : labelize(item.evidence_class)
+  }
+  return labelize(item.evidence_type)
 }
 
 export default function EvidenceReview() {
@@ -129,7 +144,7 @@ export default function EvidenceReview() {
                           <span className="text-xs font-medium">Open document</span>
                         </div>
                       ) : (
-                        <img src={item.file_url} alt={labelize(item.evidence_type)} className="h-36 w-full rounded-md object-cover bg-gray-100" />
+                        <img src={item.file_url} alt={classificationLabel(item)} className="h-36 w-full rounded-md object-cover bg-gray-100" />
                       )}
                     </a>
                   ) : (
@@ -147,11 +162,19 @@ export default function EvidenceReview() {
                       <div>
                         <div className="flex flex-wrap items-center gap-2">
                           {isDocument ? <FileText className="w-4 h-4 text-orange-500" /> : <ImageIcon className="w-4 h-4 text-orange-500" />}
-                          <h2 className="font-semibold">{labelize(item.evidence_type)}</h2>
+                          <h2 className="font-semibold">{classificationLabel(item)}</h2>
                           <Badge variant="outline" className="text-[10px]">{labelize(item.verification_status)}</Badge>
                         </div>
                         <p className="text-xs text-gray-500 mt-1">
                           {item.vin} · {labelize(item.uploader_role)} · {new Date(item.uploaded_at).toLocaleString()}
+                          {' · '}
+                          <Link
+                            to={`/admin/vehicles/${item.vin}/review`}
+                            className="text-orange-600 hover:underline"
+                            data-testid="open-vehicle-operations"
+                          >
+                            Open Vehicle Operations
+                          </Link>
                         </p>
                       </div>
                       <Badge className="bg-gray-100 text-gray-700 border-0 shadow-none w-fit">

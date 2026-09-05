@@ -15,6 +15,7 @@ import LazyRouteBoundary from './components/routing/LazyRouteBoundary'
 
 // Public Pages
 import Landing from './pages/Landing'
+import GuestSell from './pages/GuestSell'
 import Marketplace from './pages/Marketplace'
 import MarketplaceCompare from './pages/MarketplaceCompare'
 import MarketplaceCategoryPage from './pages/MarketplaceCategoryPage'
@@ -23,12 +24,12 @@ import VehicleSearch from './pages/VehicleSearch'
 import SharedReport from './pages/SharedReport'
 import DealerDirectory from './pages/DealerDirectory'
 import GarageDirectory from './pages/GarageDirectory'
-import GarageDetail from './pages/GarageDetail'
 import InsuranceDirectory from './pages/InsuranceDirectory'
 import Pricing from './pages/Pricing'
 import About from './pages/About'
 import Contact from './pages/Contact'
 import ScrollToTop from './components/layout/ScrollToTop'
+import ActivityInstrumentation from './components/intelligence/ActivityInstrumentation'
 
 // New Footer Pages
 import Careers from './pages/Careers'
@@ -38,6 +39,8 @@ import HelpCenter from './pages/HelpCenter'
 import TrustSafety from './pages/TrustSafety'
 import PrivacyPolicy from './pages/PrivacyPolicy'
 import TermsOfService from './pages/TermsOfService'
+import Support from './pages/Support'
+import Security from './pages/Security'
 import APIDocs from './pages/APIDocs'
 import {
   DiasporaComplianceAdmin,
@@ -70,11 +73,13 @@ import Login from './pages/auth/Login'
 import Register from './pages/auth/Register'
 import ForgotPassword from './pages/auth/ForgotPassword'
 import ResetPassword from './pages/auth/ResetPassword'
+import VerifyEmail from './pages/auth/VerifyEmail'
 import KYCVerification from './pages/auth/KYCVerification'
 
 // Owner Dashboard
 import OwnerDashboard from './pages/dashboard/owner/OwnerDashboard'
 import MyGarage from './pages/dashboard/owner/MyGarage'
+import EvidenceVault from './pages/dashboard/owner/EvidenceVault'
 import VehicleProfile from './pages/dashboard/owner/VehicleProfile'
 import ServiceHistory from './pages/dashboard/owner/ServiceHistory'
 import InsuranceRecords from './pages/dashboard/owner/InsuranceRecords'
@@ -82,9 +87,11 @@ import PartSentry from './pages/dashboard/owner/PartSentry'
 import MyListings from './pages/dashboard/owner/MyListings'
 import SavedCars from './pages/dashboard/owner/SavedCars'
 import SellVehicle from './pages/dashboard/owner/SellVehicle'
+import { SellerRouteErrorBoundary } from './components/sell/SellerRouteErrorBoundary'
 import AIDashboard from './pages/dashboard/owner/AIDashboard'
 import ReferralWallet from './pages/dashboard/owner/ReferralWallet'
 import Communications from './pages/dashboard/owner/Communications'
+import SellerIntelligence from './pages/dashboard/owner/SellerIntelligence'
 
 // Dealer Dashboard
 import DealerDashboard from './pages/dashboard/dealer/DealerDashboard'
@@ -137,6 +144,7 @@ import UserManagement from './pages/dashboard/admin/UserManagement'
 import AIMonitoring from './pages/dashboard/admin/AIMonitoring'
 import MarketplaceModeration from './pages/dashboard/admin/MarketplaceModeration'
 import EvidenceReview from './pages/dashboard/admin/EvidenceReview'
+import VehicleOperationsReview from './pages/dashboard/admin/VehicleOperationsReview'
 import FraudQueue from './pages/dashboard/admin/FraudQueue'
 import DealerCompliance from './pages/dashboard/admin/DealerCompliance'
 import IdentityVerificationCaseManagement from './pages/dashboard/admin/IdentityVerificationCaseManagement'
@@ -232,12 +240,14 @@ export default function App() {
       )}
       <Toaster position="top-right" />
       <ScrollToTop />
+      <ActivityInstrumentation />
       <FeatureGovernanceLoader>
       <Routes>
         {/* Public Routes */}
         <Route element={<MainLayout />}>
           <Route path="/" element={<Landing />} />
           <Route path="/marketplace" element={<Marketplace />} />
+          <Route path="/sell" element={<GuestSell />} />
           <Route path="/marketplace/parts" element={<MarketplaceCategoryPage kind="part" />} />
           <Route path="/marketplace/services" element={<MarketplaceCategoryPage kind="service" />} />
           <Route path="/marketplace/compare" element={<MarketplaceCompare />} />
@@ -247,7 +257,6 @@ export default function App() {
           <Route path="/reports/shared/:token" element={<SharedReport />} />
           <Route path="/dealers" element={<DealerDirectory />} />
           <Route path="/garages" element={<GarageDirectory />} />
-          <Route path="/garages/:slug" element={<GarageDetail />} />
           <Route path="/insurance" element={<InsuranceDirectory />} />
           <Route path="/pricing" element={<Pricing />} />
           <Route path="/about" element={<About />} />
@@ -259,6 +268,11 @@ export default function App() {
           <Route path="/trust" element={<TrustSafety />} />
           <Route path="/privacy" element={<PrivacyPolicy />} />
           <Route path="/terms" element={<TermsOfService />} />
+          {/* G12: Email footers link "Support" and "Security" by name. These are their own routes,
+              not aliases to /help or /trust, because a link whose label and destination disagree is
+              exactly the small dishonesty an Email footer cannot afford. */}
+          <Route path="/support" element={<Support />} />
+          <Route path="/security" element={<Security />} />
           <Route path="/api-docs" element={<APIDocs />} />
           <Route path="/diaspora" element={<DiasporaLanding />} />
           <Route path="/diaspora/imports" element={<DiasporaImportList />} />
@@ -305,6 +319,7 @@ export default function App() {
           <Route path="/verify-otp" element={<Navigate to="/login" replace />} />
           <Route path="/auth/forgot-password" element={<ForgotPassword />} />
           <Route path="/auth/reset-password" element={<ResetPassword />} />
+          <Route path="/auth/verify-email" element={<VerifyEmail />} />
           <Route path="/kyc" element={<KYCVerification />} />
         </Route>
 
@@ -312,16 +327,18 @@ export default function App() {
         <Route element={<DashboardLayout role="owner" />}>
           <Route path="/dashboard" element={<OwnerDashboard />} />
           <Route path="/dashboard/garage" element={<MyGarage />} />
+          <Route path="/dashboard/evidence" element={<EvidenceVault />} />
           <Route path="/dashboard/garage/:id" element={<VehicleProfile />} />
           <Route path="/dashboard/service-history" element={<ServiceHistory />} />
           <Route path="/dashboard/insurance" element={<InsuranceRecords />} />
           <Route path="/dashboard/partsentry" element={<PartSentry />} />
           <Route path="/dashboard/listings" element={<MyListings />} />
           <Route path="/dashboard/saved" element={<SavedCars />} />
-          <Route path="/dashboard/sell-vehicle" element={<SellVehicle />} />
+          <Route path="/dashboard/sell-vehicle" element={<SellerRouteErrorBoundary><SellVehicle /></SellerRouteErrorBoundary>} />
           <Route path="/dashboard/ai" element={<AIDashboard />} />
           <Route path="/dashboard/referrals" element={<ReferralWallet />} />
           <Route path="/dashboard/communications" element={<Communications />} />
+          <Route path="/dashboard/intelligence" element={<SellerIntelligence />} />
         </Route>
 
         {/* Dealer Dashboard */}
@@ -358,6 +375,10 @@ export default function App() {
           <Route path="/government/compliance" element={<ComplianceReports />} />
           <Route path="/government/evidence" element={<EvidenceReview />} />
           <Route path="/government/trust-review" element={<TrustReviewQueue />} />
+          {/* Operations M6: registry owns this route as government.governance-review
+              (roles: government); it previously sat inside the ADMIN layout block,
+              which contradicted the registry's ownership (manual §5.20). */}
+          <Route path="/government/governance-review" element={<GovernanceReviewQueue />} />
         </Route>
 
         {/* Bank Dashboard */}
@@ -391,12 +412,12 @@ export default function App() {
           <Route path="/admin/ai" element={<AIMonitoring />} />
           <Route path="/admin/moderation" element={<MarketplaceModeration />} />
           <Route path="/admin/evidence" element={<EvidenceReview />} />
+          <Route path="/admin/vehicles/:vin/review" element={<VehicleOperationsReview />} />
           <Route path="/admin/fraud-queue" element={<FraudQueue />} />
           <Route path="/admin/dealer-compliance" element={<DealerCompliance />} />
           <Route path="/admin/verification" element={<IdentityVerificationCaseManagement />} />
           <Route path="/admin/trust-review" element={<TrustReviewQueue />} />
           <Route path="/admin/governance-review" element={<GovernanceReviewQueue />} />
-          <Route path="/government/governance-review" element={<GovernanceReviewQueue />} />
           <Route path="/admin/referrals" element={<ReferralCampaigns />} />
           <Route path="/admin/referrals/codes" element={<ReferralCodes />} />
           <Route path="/admin/referrals/local-leads" element={<ReferralLocalLeads />} />

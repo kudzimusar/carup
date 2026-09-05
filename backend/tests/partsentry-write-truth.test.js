@@ -26,11 +26,13 @@ const WORK_ORDERS_SRC = readFileSync(join(ROOT, 'routes', 'workOrdersRoutes.js')
 
 const { supabase } = await import('../db/supabase.js');
 const { addRepairLog } = await import('../services/partsentry/partsentryService.js');
+const { custodyGeneration } = await import('../services/blockchain/blockchainKeyCustodyService.js');
 
 // ── In-memory supabase stub ─────────────────────────────────────────────────────
 let db;
 let calls;
 let insertErrors;
+let watermarkMs;
 
 function resetDb() {
   db = {
@@ -42,6 +44,7 @@ function resetDb() {
   };
   calls = { inserts: [], updates: [], upserts: [] };
   insertErrors = {};
+  watermarkMs = 0;
 }
 
 function builder(table) {
@@ -100,6 +103,61 @@ function run(st) {
 beforeEach(() => {
   resetDb();
   supabase.from = (t) => builder(t);
+  supabase.rpc = async (name, args) => {
+    if (name === 'blockchain_custody_rollout_contract') {
+      // The authorized generation mirrors the runtime's own derived custody
+      // generation (same process-level test secret + version), exactly like an
+      // owner-authorized FINALIZED database.
+      return {
+        data: { state: 'FINALIZED', authorized_generation: custodyGeneration() },
+        error: null,
+      };
+    }
+    if (name !== 'blockchain_activate_public_key_boundary') {
+      return { data: null, error: { message: `unsupported test RPC: ${name}` } };
+    }
+    if (args.p_custody_generation !== custodyGeneration()) {
+      return {
+        data: null,
+        error: { message: 'stakeholder signer custody generation is not authorized' },
+      };
+    }
+
+    // The boundary contract takes no caller timestamp: the fake DB owns a strictly
+    // monotonic activation/event boundary, exactly like the real RPC.
+    watermarkMs = Math.max(Date.now(), watermarkMs + 1);
+    const boundary = new Date(watermarkMs).toISOString();
+
+    const rows = db.public_keys;
+    const active = rows.find((row) => row.user_id === args.p_user_id && row.status === 'ACTIVE');
+    if (active?.public_key_pem === args.p_public_key_pem) {
+      Object.assign(active, {
+        key_ref: args.p_key_ref,
+        key_version: args.p_key_version,
+        custody_provider: args.p_custody_provider,
+      });
+      return { data: [{ ...active, event_timestamp: boundary }], error: null };
+    }
+    if (active) {
+      active.status = 'REVOKED';
+      active.revoked_at = boundary;
+    }
+
+    const activated = {
+      id: args.p_candidate_id,
+      user_id: args.p_user_id,
+      public_key_pem: args.p_public_key_pem,
+      key_type: args.p_key_type,
+      status: 'ACTIVE',
+      created_at: boundary,
+      revoked_at: null,
+      key_ref: args.p_key_ref,
+      key_version: args.p_key_version,
+      custody_provider: args.p_custody_provider,
+    };
+    rows.push(activated);
+    return { data: [{ ...activated, event_timestamp: boundary }], error: null };
+  };
 });
 
 // ── 1. Source contract: error check precedes every side effect ──────────────────

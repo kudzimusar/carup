@@ -93,7 +93,10 @@ import {
   toPublicEvidence,
   toPublicPlateHistory,
   toPublicTimelineEvent,
+  toVehicleHistoryDisclosures,
 } from '../utils/publicVehicleProjection.js';
+
+import { projectFinanceObligationForVehicle } from '../services/finance/vehicleFinanceObligationService.js';
 
 import { isPublicVehicleStatus, isPubliclyVisiblePublication } from '../utils/vehicleStatus.js';
 
@@ -204,6 +207,18 @@ const REPLAY_TRUST = Object.freeze({
   known_limitations: [], source: 'canonical_trust_cache',
 });
 
+const REPLAY_LIFECYCLE = Object.freeze({
+  schema: 'vehicle_lifecycle_projection.v1',
+  projection_version: 'vehicle-lifecycle-replay',
+  vin: 'REPLAY-LIFECYCLE-VIN',
+  audience: 'public',
+  events: [],
+  counts: {},
+  mileage: { observations: [], anomaly: false },
+  source_diversity: 0,
+});
+const replayLifecycleBuilder = async () => REPLAY_LIFECYCLE;
+
 /**
  * How each argument expression the routes actually write is resolved. Keyed by the NORMALISED
  * expression text, so a rename of the local (`vin` -> `resolvedVin`) is visible here rather than
@@ -224,6 +239,15 @@ function resolveCallSiteArguments(site, { vin, req }) {
     ['toListingClaims', toListingClaims],
     ['attestedValue', attestedValue],
     ['toVehicleMedia', toVehicleMedia],
+    ['buildCanonicalVehicleLifecycle', replayLifecycleBuilder],
+    // Vehicle History & Obligations (K17–K19). Routed through the replay deliberately, exactly as
+    // this resolver's header requires of a new call-site argument — the real projection, so the
+    // replayed body carries the block the routes actually publish rather than an `undefined` the
+    // test would go on passing over.
+    ['toVehicleHistoryDisclosures', toVehicleHistoryDisclosures],
+    // Vehicle Finance Obligation / Encumbrance (Track 1). Same discipline as the entry above: the
+    // real collaborator, so the replayed body carries the block the routes actually publish.
+    ['projectFinanceObligationForVehicle', projectFinanceObligationForVehicle],
   ]);
   return site.arguments.map((expression) => {
     assert.ok(
@@ -379,6 +403,10 @@ function instantiatePassport({
   listingImageRows = [],
   evidenceRows = [],
   listingImagesFail = false,
+  plateHistoryRows = [],
+  ownershipHistoryRows = [],
+  plateHistoryFail = false,
+  ownershipHistoryFail = false,
 } = {}) {
   const supabase = {
     from(table) {
@@ -386,6 +414,14 @@ function instantiatePassport({
         case 'vehicles': return queryStub(vehicle);
         case 'users': return queryStub({ name: 'Jane Owner' });
         case 'vehicle_evidence': return queryStub(evidenceRows);
+        case 'vehicle_plate_history':
+          return plateHistoryFail
+            ? queryStub(null, { message: 'plate history unavailable' })
+            : queryStub(plateHistoryRows);
+        case 'vehicle_ownership_history':
+          return ownershipHistoryFail
+            ? queryStub(null, { message: 'ownership history unavailable' })
+            : queryStub(ownershipHistoryRows);
         case 'listing_images':
           return listingImagesFail
             ? queryStub(null, { message: 'permission denied for table listing_images' })
@@ -447,6 +483,41 @@ const galleryFixture = (overrides = {}) => ({
   listingImageRows: [...GALLERY_ROWS],
   evidenceRows: [],
   ...overrides,
+});
+
+// ════════════════════════════════════════════════════════════════════════════════════════════════
+// COLLECTION READ-STATE HARDENING — an outage is not an empty history
+// ════════════════════════════════════════════════════════════════════════════════════════════════
+
+describe('Phase 5 wiring — collection outages stay unavailable rather than becoming zero/empty', () => {
+  it('an ownership-history read failure never publishes zero previous transfers', async () => {
+    const passport = await buildWired(galleryFixture({ ownershipHistoryFail: true }));
+
+    assert.equal(passport.ownershipSummary.previousOwnerCount, null);
+    assert.equal(passport.ownershipSummary.previousOwnerCountState, 'unavailable');
+  });
+
+  it('a successful empty ownership-history read is a real zero for current CarUp coverage', async () => {
+    const passport = await buildWired(galleryFixture({ ownershipHistoryRows: [] }));
+
+    assert.equal(passport.ownershipSummary.previousOwnerCount, 0);
+    assert.equal(passport.ownershipSummary.previousOwnerCountState, 'available');
+  });
+
+  it('a plate-history read failure is explicit and never masquerades as a loaded empty list', async () => {
+    const passport = await buildWired(galleryFixture({ plateHistoryFail: true }));
+
+    assert.deepEqual(passport.plateHistory, []);
+    assert.equal(passport.plateHistoryState, 'unavailable');
+    assert.equal(passport.plateHistoryRedacted, false);
+  });
+
+  it('a successful empty plate-history read remains distinguishable from an outage', async () => {
+    const passport = await buildWired(galleryFixture({ plateHistoryRows: [] }));
+
+    assert.deepEqual(passport.plateHistory, []);
+    assert.equal(passport.plateHistoryState, 'available');
+  });
 });
 
 // ════════════════════════════════════════════════════════════════════════════════════════════════
@@ -668,11 +739,23 @@ describe('Phase 5 wiring — every shipped route hands the contract in (M3)', ()
 
     assert.deepEqual(
       params,
-      ['vin', 'req', 'canonicalTrust', 'listingClaimContract', 'attestClaim', 'mediaContract'],
+      [
+        'vin', 'req', 'canonicalTrust', 'listingClaimContract', 'attestClaim', 'mediaContract',
+        'lifecycleBuilder',
+        // 8th: the Vehicle History & Obligations projection (K17–K19), added as a PARAMETER rather
+        // than a free module-scope name so the four source-executing harnesses keep their fixed
+        // 11-name dependency list. Re-aimed here deliberately, per the note below.
+        'historyDisclosureContract',
+        // 9th: the GOVERNED Vehicle Finance Obligation / Encumbrance projection (Track 1). Same
+        // closed-collaborator reason, and re-aimed here deliberately for the identical cause.
+        'financeObligationContract',
+      ],
       'the passport composes over authorities it is HANDED. If this signature changes, the replay '
       + 'below must be re-aimed deliberately rather than left pointing at a stale position.',
     );
     assert.equal(params[5], 'mediaContract');
+    assert.equal(params[7], 'historyDisclosureContract');
+    assert.equal(params[8], 'financeObligationContract');
   });
 
   it('M3: every call site passes toVehicleMedia at position 6 — present-in-the-list is not enough', () => {
@@ -681,13 +764,25 @@ describe('Phase 5 wiring — every shipped route hands the contract in (M3)', ()
     for (const site of sites) {
       const resolved = resolveCallSiteArguments(site, { vin: GALLERY_VIN, req: anonymous() });
       assert.equal(
-        resolved.length, 6,
-        `server.js:${site.lineNumber} calls buildVehiclePassport with ${resolved.length} arguments, so its `
-        + `gallery is dead:\n  ${site.line}`,
+        resolved.length, 9,
+        `server.js:${site.lineNumber} calls buildVehiclePassport with ${resolved.length} arguments; the media, lifecycle, history-disclosure and finance-obligation collaborators must all remain wired:\n  ${site.line}`,
       );
       assert.equal(
         resolved[5], toVehicleMedia,
         `server.js:${site.lineNumber} does not pass the media contract as the 6th argument:\n  ${site.line}`,
+      );
+      // The same guarantee for the history/obligations projection: an injected collaborator that
+      // no route hands in is a surface that is dead by construction, and the buyer-facing
+      // accident/insurance/finance sections would silently publish nothing.
+      assert.equal(
+        resolved[7], toVehicleHistoryDisclosures,
+        `server.js:${site.lineNumber} does not pass the history-disclosure contract as the 8th argument, so its Vehicle History & Obligations sections are dead:\n  ${site.line}`,
+      );
+      // And for the GOVERNED finance obligation / encumbrance projection (Track 1): an unwired
+      // route would silently publish `finance_obligation` as absent from every passport forever.
+      assert.equal(
+        resolved[8], projectFinanceObligationForVehicle,
+        `server.js:${site.lineNumber} does not pass the finance-obligation contract as the 9th argument, so its governed encumbrance section is dead:\n  ${site.line}`,
       );
       assert.equal(
         resolved[4], attestedValue,
@@ -713,7 +808,7 @@ describe('Phase 5 wiring — every shipped route hands the contract in (M3)', ()
       );
       // ...argument 4 on the claim contract...
       assert.ok(passport.claims, 'the claim contract argument did not land');
-      // ...and argument 6 on the media contract, which is the whole subject of this file.
+      // ...argument 6 on the media contract, which is the whole subject of this file...
       assert.ok(
         'listing_media' in passport,
         `the passport built from server.js:${site.lineNumber}'s own argument list carries no gallery:\n  ${site.line}`,
@@ -723,6 +818,8 @@ describe('Phase 5 wiring — every shipped route hands the contract in (M3)', ()
         passport.listing_media.items.map((item) => item.url),
         GALLERY_ROWS.map((row) => row.image_url),
       );
+      // ...and the new seventh collaborator remains independent of that media position.
+      assert.equal(passport.lifecycle, REPLAY_LIFECYCLE);
       // A swapped 5th/6th argument publishes these three at the root instead of the two blocks.
       for (const stray of ['value', 'state', 'source']) {
         assert.equal(

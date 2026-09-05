@@ -559,15 +559,22 @@ describe('the public HTTP surfaces — the bodies a client actually receives', (
       const matched = vehicles.filter((row) => Object.entries(op.filters)
         .every(([key, value]) => row[key] === value));
       if (op.single) {
-        return matched.length
-          ? { data: matched[0], error: null }
-          // PostgREST reports "no rows" from `.single()` as an error, not as a null row.
+        if (matched.length) return { data: matched[0], error: null };
+        // `.single()` reports "no rows" as an error; `.maybeSingle()` resolves it to a null row with
+        // no error (postgrest-js enforces cardinality client-side and raises PGRST116 only for MORE
+        // than one row). Conflating them turned a correct maybeSingle caller into a 500.
+        return op.maybeSingle
+          ? { data: null, error: null }
           : { data: null, error: { code: 'PGRST116', message: 'no rows' } };
       }
       return { data: matched, error: null, count: matched.length };
     }
 
-    if (op.single) return { data: null, error: { code: 'PGRST116', message: 'no rows' } };
+    if (op.single) {
+      return op.maybeSingle
+        ? { data: null, error: null }
+        : { data: null, error: { code: 'PGRST116', message: 'no rows' } };
+    }
     return { data: [], error: null, count: 0 };
   }
 
@@ -581,7 +588,7 @@ describe('the public HTTP surfaces — the bodies a client actually receives', (
         update(payload) { op.action = 'update'; op.payload = payload; return proxy; },
         delete() { op.action = 'delete'; return proxy; },
         eq(key, value) { op.filters[key] = value; return proxy; },
-        maybeSingle() { op.single = true; return proxy; },
+        maybeSingle() { op.single = true; op.maybeSingle = true; return proxy; },
         single() { op.single = true; return proxy; },
         then(onFulfilled, onRejected) { return Promise.resolve(handle(op)).then(onFulfilled, onRejected); },
       };

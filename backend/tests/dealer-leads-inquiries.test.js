@@ -37,7 +37,7 @@ function resetDb() {
 }
 
 function builder(table) {
-  const st = { table, filters: {}, orLegs: null, single: false, maybe: false };
+  const st = { table, filters: {}, orLegs: null, single: false, maybe: false, order: null };
   const chain = {
     select() { return chain; },
     eq(k, v) { st.filters[k] = v; return chain; },
@@ -51,6 +51,7 @@ function builder(table) {
       });
       return chain;
     },
+    order(column, opts) { st.order = { column, ascending: opts?.ascending !== false }; return chain; },
     single() { st.single = true; return chain; },
     maybeSingle() { st.maybe = true; return chain; },
     then(res, rej) { try { return Promise.resolve(run(st)).then(res, rej); } catch (e) { return rej ? rej(e) : Promise.reject(e); } },
@@ -64,6 +65,14 @@ function run(st) {
   const rows = (db[st.table] = db[st.table] || []);
   let out = rows.filter((r) => Object.entries(st.filters).every(([k, v]) => r[k] === v));
   if (st.orLegs) out = out.filter((r) => st.orLegs.some(({ col, val }) => r[col] === val || String(r[col]) === val));
+  if (st.order) {
+    const { column, ascending } = st.order;
+    out = [...out].sort((a, b) => {
+      const av = a[column]; const bv = b[column];
+      if (av === bv) return 0;
+      return (av > bv ? 1 : -1) * (ascending ? 1 : -1);
+    });
+  }
   if (st.maybe) return { data: out[0] || null, error: null };
   if (st.single) return out[0] ? { data: out[0], error: null } : { data: null, error: { message: 'not found' } };
   return { data: out, error: null };

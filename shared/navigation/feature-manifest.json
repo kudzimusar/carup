@@ -252,6 +252,20 @@
     "betaCapable": true
   },
   {
+    "id": "admin.vehicle-operations",
+    "domain": "evidence",
+    "route": "/admin/vehicles/:vin/review",
+    "defaultLifecycle": "active",
+    "defaultRoles": [
+      "admin"
+    ],
+    "immutableRoles": [
+      "admin"
+    ],
+    "requiresAuth": true,
+    "betaCapable": true
+  },
+  {
     "id": "admin.verification",
     "domain": "trust",
     "route": "/admin/verification",
@@ -974,7 +988,7 @@
   {
     "id": "owner.evidence-vault",
     "domain": "evidence",
-    "route": "/dashboard/garage",
+    "route": "/dashboard/evidence",
     "defaultLifecycle": "active",
     "defaultRoles": [
       "owner"
@@ -1073,6 +1087,20 @@
     "id": "owner.insurance",
     "domain": "insurance",
     "route": "/dashboard/insurance",
+    "defaultLifecycle": "active",
+    "defaultRoles": [
+      "owner"
+    ],
+    "immutableRoles": [
+      "owner"
+    ],
+    "requiresAuth": true,
+    "betaCapable": true
+  },
+  {
+    "id": "owner.intelligence",
+    "domain": "commerce",
+    "route": "/dashboard/intelligence",
     "defaultLifecycle": "active",
     "defaultRoles": [
       "owner"

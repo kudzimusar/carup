@@ -16,6 +16,9 @@ type OwnerNotification = {
   read?: boolean
   title?: string
   message?: string
+  notification_type?: string
+  channel?: 'in_app'
+  action_path?: string | null
   created_at?: string
 }
 
@@ -28,16 +31,15 @@ type OwnerNotification = {
  *  1. **A failed read is not "zero".** If the fetch fails, the bell shows an explicit unavailable
  *     state rather than a confident empty inbox — "we could not load your notifications" and "you have
  *     none" are different facts, and only one of them is known.
- *  2. **No local read-state fabrication.** `/notifications/me` is read-only today: there is no
- *     server-side mark-as-read endpoint for it (only the separate Communications contract has one).
- *     So this bell does not offer a mark-read control and never flips `read` in the browser — clearing
- *     an unread badge with no server acknowledgement would be the browser asserting a fact it cannot
- *     know. The unread count is exactly what the server last reported.
- *  3. **Unauthenticated means none.** Notifications are per-user; with no session there is nothing to
+ *  2. **Read state is server acknowledged.** A selection advances the canonical row; the browser
+ *     only reflects read=true after that mutation succeeds.
+ *  3. **Channel separation.** Only in-app activity reaches the bell. Email/security delivery rows
+ *     are not UI notifications and token-bearing auth content is never rendered here.
+ *  4. **Unauthenticated means none.** Notifications are per-user; with no session there is nothing to
  *     show, and nothing is invented.
  */
 export function OwnerNotificationBell() {
-  const { fetchNotifications } = useCarUpApi()
+  const { fetchNotifications, markNotificationRead } = useCarUpApi()
   const [notifications, setNotifications] = useState<OwnerNotification[]>([])
   const [loadError, setLoadError] = useState(false)
 
@@ -110,15 +112,47 @@ export function OwnerNotificationBell() {
           </div>
         )}
 
-        {!loadError && notifications.slice(0, 6).map((n) => (
-          <DropdownMenuItem key={n.id} className="flex flex-col items-start gap-1 p-3">
-            <div className="flex items-center gap-2 w-full">
-              <span className={`w-2 h-2 rounded-full shrink-0 ${n.read ? 'bg-gray-300' : 'bg-orange-500'}`} />
-              <span className="font-medium text-sm flex-1">{n.title || 'Notification'}</span>
-            </div>
-            {n.message && <p className="text-xs text-gray-500 ml-4 line-clamp-2">{n.message}</p>}
-          </DropdownMenuItem>
-        ))}
+        {!loadError && notifications.slice(0, 6).map((n) => {
+          const acknowledge = async () => {
+            if (n.read) return
+            try {
+              await markNotificationRead(n.id)
+              setNotifications(current => current.map(item => item.id === n.id ? { ...item, read: true } : item))
+            } catch {
+              // A failed mutation is not a read receipt.
+            }
+          }
+          const content = (
+            <>
+              <div className="flex items-center gap-2 w-full">
+                <span className={`w-2 h-2 rounded-full shrink-0 ${n.read ? 'bg-gray-300' : 'bg-orange-500'}`} />
+                <span className="font-medium text-sm flex-1">{n.title || 'Notification'}</span>
+              </div>
+              {n.message && <p className="text-xs text-gray-500 ml-4 line-clamp-3">{n.message}</p>}
+            </>
+          )
+          return n.action_path ? (
+            <DropdownMenuItem key={n.id} asChild className="p-0">
+              <Link
+                to={n.action_path}
+                className="flex flex-col items-start gap-1 p-3 cursor-pointer"
+                onClick={() => { void acknowledge() }}
+                data-testid={`owner-notification-action-${n.id}`}
+              >
+                {content}
+              </Link>
+            </DropdownMenuItem>
+          ) : (
+            <DropdownMenuItem
+              key={n.id}
+              className="flex flex-col items-start gap-1 p-3"
+              onSelect={() => { void acknowledge() }}
+              data-testid={`owner-notification-info-${n.id}`}
+            >
+              {content}
+            </DropdownMenuItem>
+          )
+        })}
 
         <DropdownMenuSeparator />
         <DropdownMenuItem asChild>

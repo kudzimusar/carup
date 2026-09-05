@@ -1,0 +1,57 @@
+name: Seller Phase F-G Continuity Gate
+
+on:
+  pull_request:
+    branches:
+      - integration/vehicle-passport-v16-cert
+    paths:
+      - 'backend/server.js'
+      - 'backend/utils/vehicleMediaProjection.js'
+      - 'backend/services/marketplace/**'
+      - 'backend/tests/issue164-phase5-media-contract.test.js'
+      - 'database/migrations/20260830123000_seller_listing_photo_labels.sql'
+      - 'database/migrations/20260831100000_seller_listing_submission_id.sql'
+      - 'shared/types/marketplace.ts'
+      - 'web/src/lib/guestSellDraft.ts'
+      - 'web/src/lib/listingMedia.ts'
+      - 'web/src/hooks/useCarUpApi.ts'
+      - 'web/src/pages/dashboard/owner/SellVehicle.tsx'
+      - 'web/src/pages/SellFlow.media.test.tsx'
+      - 'web/src/pages/SellerResume.contract.test.ts'
+      - 'web/src/lib/guestSellDraft.continuity.test.ts'
+      - 'web/src/lib/guestSellDraft.annotations.test.ts'
+      - 'backend/tests/seller-listing-idempotency.test.js'
+      - 'tests/agents/38-seller-staging-browser-golden.spec.ts'
+      - '.github/workflows/seller-phase-fg-continuity.yml'
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+jobs:
+  continuity:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      - name: Canonical media/write and idempotency authority contracts
+        run: |
+          node --test \
+            backend/tests/issue164-phase5-media-contract.test.js \
+            backend/tests/seller-listing-idempotency.test.js
+      - name: Seller browser/server continuity contracts
+        run: |
+          npm run test:unit --workspace=web -- \
+            src/lib/guestSellDraft.continuity.test.ts \
+            src/lib/guestSellDraft.annotations.test.ts \
+            src/pages/SellerResume.contract.test.ts \
+            src/pages/SellFlow.media.test.tsx
+      - name: Web typecheck/build
+        run: npm run build --workspace=web

@@ -540,11 +540,21 @@ describe('Rule 1b — an unreadable publication state publishes nothing and clai
   it('the gate reads the row the passport ALREADY has — it issues no query of its own', () => {
     const fnSrc = buildVehiclePassportSource();
     const tableReads = [...fnSrc.matchAll(/\.from\('([a-z_]+)'\)/g)].map((m) => m[1]);
+    // `listing_images` appears TWICE, and both reads are the GALLERY's: the wide read that selects
+    // the additive `photo_label`, and its schema-compatibility fallback that re-reads without that
+    // column. The fallback is not a second read in any ordinary request — it is unreachable unless
+    // the wide read has already FAILED with a photo_label-missing error. The PUBLICATION GATE, which
+    // is what this test is about, still issues no query at all: it reads `publication_status` off
+    // the row the passport already holds, asserted below.
     assert.deepEqual(tableReads, [
-      'vehicles', 'vehicle_evidence', 'listing_images', 'vehicle_plate_history',
+      'vehicles', 'vehicle_evidence', 'listing_images', 'listing_images', 'vehicle_plate_history',
       'vehicle_ownership_history', 'users',
     ], 'the gate must not have added a query. A second read is a second failure mode, and a '
       + 'conditional one would also make response time a signal about publication state.');
+    // Pin the fallback's guard, so the conditional second read can never quietly become an
+    // unconditional one — which WOULD be the extra failure mode this test exists to refuse.
+    assert.match(fnSrc, /if \(photoLabelMissing\) \{[\s\S]{0,600}?\.from\('listing_images'\)/,
+      'the second listing_images read must remain reachable ONLY when photo_label is missing');
     assert.match(fnSrc, /listingPublicationStatus: vehicle\.publication_status/,
       'the status must be carried from the row already in hand, raw, with no local re-derivation');
   });

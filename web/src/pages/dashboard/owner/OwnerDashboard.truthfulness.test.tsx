@@ -228,3 +228,56 @@ describe('OwnerDashboard document upload truthfulness (no simulated OCR)', () =>
       .toMatch(/not available from this dashboard yet/i)
   })
 })
+
+/**
+ * SJO-5 — "unknown is not zero" on the Notifications card.
+ *
+ * The badge was rendered unconditionally from `recentNotifications`, which is `[]` both BEFORE the
+ * read settles and AFTER it fails. A pending or broken read therefore published a measured
+ * "0 new" beside an empty list — indistinguishable from "you have no notifications". The same file
+ * already gated `unreadNotifications` on `notificationsState`; this pins that rule on the surface
+ * the owner actually reads.
+ */
+describe('OwnerDashboard notifications — unknown is not zero (SJO-5)', () => {
+  it('publishes no count while the notifications read is still pending', async () => {
+    // A read that never settles: the card must say nothing has been counted.
+    fetchNotifications.mockReturnValue(new Promise(() => {}))
+    const { container } = renderFreshDashboard()
+
+    expect(screen.getByTestId('owner-notifications-not-read')).toBeTruthy()
+    expect(container.textContent || '').not.toContain('0 new')
+  })
+
+  it('a FAILED notifications read is never presented as "no notifications"', async () => {
+    fetchNotifications.mockRejectedValue(new Error('network down'))
+    const { container } = renderFreshDashboard()
+
+    await waitFor(() => expect(screen.getByTestId('owner-notifications-unavailable')).toBeTruthy())
+    const text = container.textContent || ''
+    expect(text).not.toContain('0 new')
+    expect(screen.getByTestId('owner-notifications-unavailable').textContent)
+      .toMatch(/could not read/i)
+    // The failure must not be dressed up as an empty inbox.
+    expect(screen.queryByTestId('owner-notifications-none')).toBeNull()
+  })
+
+  it('a SUCCESSFUL empty read may say zero — that is a measured zero, and it is correct', async () => {
+    fetchNotifications.mockResolvedValue([])
+    renderFreshDashboard()
+
+    await waitFor(() => expect(screen.getByTestId('owner-notifications-none')).toBeTruthy())
+    // ANTI-VACUITY: the badge exists again once something has actually been counted, so the gate
+    // above suppresses an UNMEASURED count rather than the count itself.
+    expect(screen.getByText('0 new')).toBeTruthy()
+  })
+
+  it('a successful non-empty read publishes the real unread count', async () => {
+    fetchNotifications.mockResolvedValue([
+      { id: 'n1', title: 'A', message: 'a', type: 'info', read: false },
+      { id: 'n2', title: 'B', message: 'b', type: 'info', read: true },
+    ])
+    renderFreshDashboard()
+
+    await waitFor(() => expect(screen.getByText('1 new')).toBeTruthy())
+  })
+})

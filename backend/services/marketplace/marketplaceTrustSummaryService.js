@@ -91,25 +91,44 @@ export function deriveSuspicionLevel(partSentryRows = []) {
  * @param {object[]} args.partSentryRows
  * @param {'public'|'admin'} [args.audience='public']
  */
-export function buildTrustSummary({ vehicle = {}, listingSummary = {}, evidenceRows = [], partSentryRows = [], audience = 'public' }) {
+export function buildTrustSummary({
+  vehicle = {}, listingSummary = {}, evidenceRows = [], partSentryRows = [], audience = 'public',
+  // WHETHER THE INPUTS WERE READ. Default true so every existing caller keeps its meaning; the
+  // detail path passes the real discriminators from fetchListingRelatedRows.
+  //
+  // Without these, an unreadable table published a governed ALL-CLEAR: deriveSuspicionLevel([]) is
+  // 'clear' and deriveEvidenceStatus([]) is 'none', so a failed partsentry_logs read suppressed the
+  // risk banner and set operator_review_required false — for a vehicle whose rows might carry
+  // 'flagged'. The safety signal inverted silently. "Not checked" and "checked and clean" are two
+  // different facts and must render as two different facts.
+  evidenceRead = true, partSentryRead = true,
+}) {
   const tags = Array.isArray(listingSummary.marketplace_tags) ? listingSummary.marketplace_tags : [];
   const partSentry = summarizePartSentry(partSentryRows);
-  const evidenceStatus = deriveEvidenceStatus(evidenceRows);
-  const suspicion = deriveSuspicionLevel(partSentryRows);
+  const evidenceStatus = evidenceRead ? deriveEvidenceStatus(evidenceRows) : 'unavailable';
+  const suspicion = partSentryRead ? deriveSuspicionLevel(partSentryRows) : 'unavailable';
 
   const trust_badges = BADGE_ORDER.filter((tag) => tags.includes(tag));
   const public_badge_copy = trust_badges.map((tag) => BADGE_COPY[tag]).filter(Boolean);
 
   const quarantined = isVehicleQuarantinedStatus(vehicle.status);
+  const trustInputsUnreadable = !evidenceRead || !partSentryRead;
   let risk_status = 'clear';
   if (quarantined) risk_status = 'blocked';
   else if (suspicion === 'flagged') risk_status = 'flagged';
   else if (suspicion === 'watch') risk_status = 'watch';
+  // FAIL CLOSED. An unread input cannot support 'clear'. This also carries the vehicle into
+  // `operator_review_required`, which is derived from `risk_status !== 'clear'`, so a vehicle whose
+  // provenance could not be read is reviewed rather than quietly passed.
+  else if (trustInputsUnreadable) risk_status = 'unavailable';
 
   const risk_reasons = [];
   if (quarantined) risk_reasons.push('listing_restricted_pending_review');
-  if (suspicion !== 'clear') risk_reasons.push('parts_provenance_under_review');
+  // `suspicion` is now 'unavailable' when unread, which is not 'clear', so this still fires — but
+  // the reason names the right fact rather than implying a provenance finding that was never made.
+  if (suspicion === 'flagged' || suspicion === 'watch') risk_reasons.push('parts_provenance_under_review');
   if (evidenceStatus === 'review_required') risk_reasons.push('evidence_pending_review');
+  if (trustInputsUnreadable) risk_reasons.push('trust_inputs_unreadable');
 
   const dealer_verified = tags.includes('dealer_verified');
   const vehicle_passport_available = Boolean(listingSummary.passport_verified);

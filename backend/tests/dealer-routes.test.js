@@ -6,7 +6,7 @@
  * decision, the buyer summary is readable by any authenticated user without private fields,
  * and a suspend decision blocks publication via evaluateCompliance.
  */
-import test, { before } from 'node:test';
+import test, { before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import http from 'node:http';
 
@@ -90,16 +90,51 @@ const app = (() => {
   a.use(errorHandler);
   return a;
 })();
-function request(method, path, body, userId) {
+// ONE server for the whole file, not one per request.
+//
+// This helper used to `app.listen(0)` and `srv.close()` around EVERY request. Under a saturated
+// full-suite run that listen/close churn is load-sensitive — a failed or slow bind makes the POST
+// return something other than 201, and because no caller asserted the POST's status the next line
+// read `db.dealer_profiles[0].id` and died with "Cannot read properties of undefined", which names
+// neither the cause nor the request that failed. Binding once removes the churn; `assertCreated`
+// below makes any remaining failure legible instead of cryptic.
+let sharedServer = null;
+function serverPort() {
   return new Promise((resolve, reject) => {
-    const srv = app.listen(0, () => {
-      const { port } = srv.address();
+    if (sharedServer) return resolve(sharedServer.address().port);
+    sharedServer = app.listen(0, () => resolve(sharedServer.address().port));
+    sharedServer.on('error', reject);
+  });
+}
+
+after(() => { if (sharedServer) sharedServer.close(); });
+
+/**
+ * The dealer profile the preceding POST was supposed to create.
+ *
+ * Reading `db.dealer_profiles[0].id` directly turned a FAILED create into
+ * "Cannot read properties of undefined (reading 'id')" — a message that names neither the request
+ * that failed nor the reason. If the precondition did not hold, say so.
+ */
+function createdDealerId() {
+  const profile = db.dealer_profiles[0];
+  if (!profile) {
+    throw new Error(
+      `precondition failed: POST /api/dealer/profile created no row (dealer_profiles is empty). `
+      + `This test asserts admin behaviour and cannot run without it.`,
+    );
+  }
+  return profile.id;
+}
+
+function request(method, path, body, userId) {
+  return serverPort().then((port) => new Promise((resolve, reject) => {
+    {
       const data = body ? JSON.stringify(body) : null;
       const req = http.request({ host: '127.0.0.1', port, path, method, headers: { 'content-type': 'application/json', ...(userId ? { 'x-user-id': userId } : {}), ...(data ? { 'content-length': Buffer.byteLength(data) } : {}) } }, (res) => {
         let buf = '';
         res.on('data', (c) => (buf += c));
         res.on('end', () => {
-          srv.close();
           let body = null;
           // Guard the parse: a non-JSON error body (e.g. Node's plain-text "Client sent an HTTP
           // request to an HTTPS server" or an unexpected 4xx text) must not throw an
@@ -108,11 +143,11 @@ function request(method, path, body, userId) {
           resolve({ status: res.statusCode, body });
         });
       });
-      req.on('error', (e) => { srv.close(); reject(e); });
+      req.on('error', (e) => reject(e));
       if (data) req.write(data);
       req.end();
-    });
-  });
+    }
+  }));
 }
 
 before(() => { resetDb(); supabase.from = (t) => builder(t); });
@@ -148,7 +183,7 @@ test('a dealer cannot read another dealer\'s full profile (cross-tenant isolatio
 test('admin records a governance decision (suspend) and it appears in the ledger', async () => {
   resetDb();
   await request('POST', '/api/dealer/profile', { legal_name: 'Acme Motors', tenant_id: 't1' }, 'dealer-1');
-  const dealerId = db.dealer_profiles[0].id;
+  const dealerId = createdDealerId();
   const res = await request('PATCH', `/api/admin/dealers/${dealerId}/decision`, { decision: 'suspend', reason: 'fraud' }, 'admin-1');
   assert.equal(res.status, 201);
   assert.equal(res.body.decision.decision, 'suspend');
@@ -159,7 +194,7 @@ test('admin records a governance decision (suspend) and it appears in the ledger
 test('admin decision with an invalid decision -> 400', async () => {
   resetDb();
   await request('POST', '/api/dealer/profile', { legal_name: 'Acme' }, 'dealer-1');
-  const dealerId = db.dealer_profiles[0].id;
+  const dealerId = createdDealerId();
   const res = await request('PATCH', `/api/admin/dealers/${dealerId}/decision`, { decision: 'nuke' }, 'admin-1');
   assert.equal(res.status, 400);
 });
@@ -167,7 +202,7 @@ test('admin decision with an invalid decision -> 400', async () => {
 test('admin decision is denied to a dealer (403)', async () => {
   resetDb();
   await request('POST', '/api/dealer/profile', { legal_name: 'Acme' }, 'dealer-1');
-  const dealerId = db.dealer_profiles[0].id;
+  const dealerId = createdDealerId();
   const res = await request('PATCH', `/api/admin/dealers/${dealerId}/decision`, { decision: 'suspend' }, 'dealer-2');
   assert.equal(res.status, 403);
 });
@@ -175,7 +210,7 @@ test('admin decision is denied to a dealer (403)', async () => {
 test('buyer summary returns 200 to a buyer and exposes NO private fields', async () => {
   resetDb();
   await request('POST', '/api/dealer/profile', { legal_name: 'Acme', responsible_person: 'Jane Private', physical_address: '42 Secret St' }, 'dealer-1');
-  const dealerId = db.dealer_profiles[0].id;
+  const dealerId = createdDealerId();
   Object.assign(db.dealer_profiles[0], { active_state: 'active' });
   const res = await request('GET', `/api/dealers/${dealerId}/summary`, null, 'buyer-1');
   assert.equal(res.status, 200);
@@ -189,7 +224,7 @@ test('buyer summary returns 200 to a buyer and exposes NO private fields', async
 test('suspend blocks publication via evaluateCompliance', async () => {
   resetDb();
   await request('POST', '/api/dealer/profile', { legal_name: 'Acme' }, 'dealer-1');
-  const dealerId = db.dealer_profiles[0].id;
+  const dealerId = createdDealerId();
   // Make it otherwise publishable, then suspend.
   Object.assign(db.dealer_profiles[0], { identity_status: 'verified', compliance_review_state: 'passed', active_state: 'active' });
   const before = await svc.evaluateCompliance(dealerId);
@@ -205,7 +240,7 @@ test('suspend blocks publication via evaluateCompliance', async () => {
 test('admin reads a dealer\'s full privileged view with compliance evaluation', async () => {
   resetDb();
   await request('POST', '/api/dealer/profile', { legal_name: 'Acme', tenant_id: 't1' }, 'dealer-1');
-  const dealerId = db.dealer_profiles[0].id;
+  const dealerId = createdDealerId();
   const res = await request('GET', `/api/admin/dealers/${dealerId}`, null, 'admin-1');
   assert.equal(res.status, 200);
   assert.equal(res.body.profile.legal_name, 'Acme');

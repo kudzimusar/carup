@@ -252,8 +252,11 @@ test.describe('Vehicle Evidence Upload & Review Flow', () => {
     // 5. Click Upload Evidence to open modal
     await page.getByRole('button', { name: /Upload Evidence/i }).first().click();
 
-    // 6. Select evidence type
-    await page.locator('select#evidence-type').selectOption('odometer_photo');
+    // 6. Classify the evidence canonically. The uploader is canonical-first (Operations M1): the
+    //    legacy `select#evidence-type` renders ONLY as a fallback when the taxonomy cannot load.
+    //    current_condition/odometer derives the legacy `odometer_photo` compatibility value.
+    await page.locator('select#evidence-class').selectOption('current_condition');
+    await page.locator('select#evidence-subtype').selectOption('odometer');
 
     // 7. Mock file upload
     const fileInput = page.locator('input[type="file"]');

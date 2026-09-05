@@ -34,7 +34,15 @@ export async function createInsurancePolicy(vin, insurerId, userId, coverageDeta
   
   await supabase.from('insurance_records').insert({ id, vin, insurer_id: insurerId, policy_number: policyNumber, coverage_details: coverageDetails, premium_amount: quote.yearlyPremium, start_date: startDate, end_date: endDate, active: true, risk_score: quote.riskScore });
   
-  await addEvent(vin, 'Insurance Insured', { policyId: id, policyNumber, premiumAmount: quote.yearlyPremium, insurerId, riskScore: quote.riskScore });
+  // The insurance_records id is allocated before the row is written and is therefore the
+  // durable operation identity for this policy's ledger event.
+  await addEvent(
+    vin,
+    'Insurance Insured',
+    { policyId: id, policyNumber, premiumAmount: quote.yearlyPremium, insurerId, riskScore: quote.riskScore },
+    'SYSTEM_SIGNATURE',
+    { operationId: `insurance_policy:${encodeURIComponent(id)}` },
+  );
 
   return { id, vin, policyNumber, insurerId, premiumAmount: quote.yearlyPremium, startDate, endDate, riskScore: quote.riskScore, active: true };
 }

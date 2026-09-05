@@ -1,0 +1,133 @@
+name: Seller Phase E Staging Navigation
+
+on:
+  pull_request:
+    branches:
+      - integration/vehicle-passport-v16-cert
+    paths:
+      - 'web/src/components/seller/**'
+      - 'web/src/components/layout/DashboardLayout.tsx'
+      - 'web/src/config/featureRegistry.ts'
+      - 'web/src/App.tsx'
+      - 'web/src/pages/GuestSell.tsx'
+      - 'web/src/pages/dashboard/owner/**'
+      - 'tests/agents/41-seller-phase-e-staging.spec.ts'
+      - '.github/workflows/seller-phase-e-staging.yml'
+      - 'web/preview-frontend-pairing.json'
+      - 'web/preview-backend-pairing.json'
+  workflow_dispatch: {}
+
+
+concurrency:
+  group: seller-phase-e-staging-${{ github.event.pull_request.number || github.ref_name }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  phase-e-staging:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      EXPECTED_HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+      CANDIDATE_BRANCH: ${{ github.event.pull_request.head.ref || github.ref_name }}
+      STAGING_RUN_ID: seller-e-${{ github.run_id }}-${{ github.run_attempt }}
+      DIASPORA_STAGING_DATABASE_URL: ${{ secrets.DIASPORA_STAGING_DATABASE_URL }}
+      EXPECTED_STAGING_PROJECT_REF: eoyenigwevnxwwhyhaer
+      STAGING_UAT_BUYER_EMAIL: uat.seller@carup-staging.test
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.EXPECTED_HEAD_SHA }}
+      - name: Assert exact checkout
+        run: test "$(git rev-parse HEAD)" = "$EXPECTED_HEAD_SHA"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - name: Require approved staging database
+        run: |
+          case "$DIASPORA_STAGING_DATABASE_URL" in
+            *"$EXPECTED_STAGING_PROJECT_REF"*) ;;
+            *) echo '::error::Approved staging database is unavailable.'; exit 1 ;;
+          esac
+      - name: Resolve governed exact-head preview pair
+        run: |
+          node <<'NODE'
+          const fs = require('fs')
+          const branch = process.env.CANDIDATE_BRANCH
+          const frontendPairs = JSON.parse(fs.readFileSync('web/preview-frontend-pairing.json', 'utf8')).branches || {}
+          const backendPairs = JSON.parse(fs.readFileSync('web/preview-backend-pairing.json', 'utf8')).branches || {}
+          const frontend = frontendPairs[branch]
+          const backend = backendPairs[branch]
+          if (!frontend || !backend) {
+            throw new Error(`Phase E candidate preview pair is not governed for ${branch}`)
+          }
+          fs.appendFileSync(process.env.GITHUB_ENV,
+            `STAGING_WEB_URL=${frontend}\nSTAGING_API_URL=${backend.replace(/\/$/, '')}/api\n`)
+          console.log(JSON.stringify({ branch, frontend, backend }))
+          NODE
+
+      - name: Wait for exact-head frontend/backend
+        run: |
+          node --input-type=module <<'NODE'
+          const sleep = ms => new Promise(resolve => setTimeout(resolve, ms))
+          for (let attempt = 1; attempt <= 72; attempt++) {
+            try {
+              const [p, h] = await Promise.all([
+                fetch(`${process.env.STAGING_WEB_URL}/carup-provenance.json?e=${attempt}`, { cache: 'no-store' }).then(r => r.json()),
+                fetch(`${process.env.STAGING_API_URL}/health?e=${attempt}`, { cache: 'no-store' }).then(r => r.json()),
+              ])
+              if (p.commit_sha === process.env.EXPECTED_HEAD_SHA && p.unpaired === false && h.build?.commit_sha === process.env.EXPECTED_HEAD_SHA) {
+                console.log(JSON.stringify({ frontend_sha: p.commit_sha, backend_sha: h.build.commit_sha }))
+                process.exit(0)
+              }
+            } catch {}
+            await sleep(5000)
+          }
+          throw new Error('Phase E staging never converged on the candidate head.')
+          NODE
+      - run: npm ci
+      - run: npx playwright install --with-deps chromium
+      - name: Rotate synthetic owner identity
+        run: |
+          node --input-type=module <<'NODE'
+          import crypto from 'node:crypto'
+          import fs from 'node:fs'
+          import pg from 'pg'
+          const dbUrl = process.env.DIASPORA_STAGING_DATABASE_URL
+          const password = crypto.randomBytes(30).toString('base64url')
+          const salt = crypto.randomBytes(16).toString('hex')
+          const key = await new Promise((resolve, reject) => crypto.scrypt(password, salt, 64, (e, k) => e ? reject(e) : resolve(k)))
+          const hash = `scrypt:${salt}:${key.toString('hex')}`
+          const cleaned = dbUrl.replace(/([?&])sslmode=[^&]*&?/i, '$1').replace(/[?&]$/, '')
+          const client = new pg.Client({ connectionString: cleaned, ssl: { rejectUnauthorized: false } })
+          await client.connect()
+          try {
+            const result = await client.query(
+              'update public.users set password_hash=$1, role=$2 where email=$3 returning id',
+              [hash, 'owner', process.env.STAGING_UAT_BUYER_EMAIL],
+            )
+            if (result.rowCount !== 1) throw new Error('Synthetic owner identity missing.')
+          } finally {
+            await client.end()
+          }
+          console.log(`::add-mask::${password}`)
+          fs.appendFileSync(process.env.GITHUB_ENV, `STAGING_UAT_BUYER_PASSWORD=${password}\n`, { mode: 0o600 })
+          NODE
+      - name: Run Phase E responsive navigation journey
+        run: npx playwright test tests/agents/41-seller-phase-e-staging.spec.ts --config=playwright.staging.config.ts
+      - name: Upload Phase E evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: seller-phase-e-staging-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            test-results/staging-env-truth.json
+            test-results/staging-uat-results.json
+            test-results/staging-uat-html
+            test-results/staging-uat-artifacts
+          if-no-files-found: warn
+          retention-days: 14

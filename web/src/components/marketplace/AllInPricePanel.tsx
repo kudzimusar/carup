@@ -7,8 +7,21 @@ import type { MarketplacePricingSummary } from '@/types'
  * them) and clearly labelled — never presented as an authoritative quote.
  */
 export function AllInPricePanel({ pricing }: { pricing: MarketplacePricingSummary }) {
-  const cur = pricing.currency || 'USD'
-  const fmt = (n?: number) => (typeof n === 'number' ? `${cur} ${n.toLocaleString()}` : '—')
+  // `pricing.currency || 'USD'` re-created, on the surface the buyer actually reads, exactly the
+  // fabrication `marketplacePricingService` removed one layer down. That service publishes a
+  // PROVENANCE-GATED currency — null unless `currency_source` names who asserted it — and emits a
+  // warning saying the total cannot be reconciled when it is not recorded. The panel rendered that
+  // warning AND stamped every amount "USD" beside it: two answers to one question, the wrong one
+  // in the larger type.
+  //
+  // An amount with no unit, next to the warning the service already supplies, is honest. An amount
+  // with an invented unit is not.
+  const currencyRecorded = pricing.currency_state
+    ? pricing.currency_state === 'recorded' && Boolean(pricing.currency)
+    : Boolean(pricing.currency)
+  const cur = currencyRecorded ? pricing.currency : null
+  const fmt = (n?: number) =>
+    typeof n !== 'number' ? '—' : cur ? `${cur} ${n.toLocaleString()}` : n.toLocaleString()
   const rows: { label: string; value?: number }[] = [
     { label: 'Asking price', value: pricing.asking_price },
     { label: 'Inspection (est.)', value: pricing.inspection_estimate },
@@ -31,6 +44,15 @@ export function AllInPricePanel({ pricing }: { pricing: MarketplacePricingSummar
           {pricing.estimate_basis === 'ai_assisted' ? 'AI-assisted' : 'Estimate'} · {pricing.price_confidence} confidence
         </Badge>
       </div>
+
+      {!currencyRecorded && (
+        <p className="mb-2 text-xs text-gray-600" data-testid="marketplace-allin-currency-unrecorded">
+          This listing’s currency is not recorded, so the figures below are shown without one.
+          {pricing.estimate_denomination
+            ? ` Fixed estimate components are denominated in ${pricing.estimate_denomination}.`
+            : ''}
+        </p>
+      )}
 
       <div className="space-y-1.5 text-sm">
         {rows.map((r) => (

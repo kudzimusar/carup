@@ -1,12 +1,33 @@
 import { createDefaultAdapterRegistry } from './adapters/providerAdapters.js';
 import { COMMUNICATION_EVENTS, calculateBackoffMs, classifyError, normalizeChannel, nowIso } from './communicationUtils.js';
 import { COMMUNICATION_AUDIT_EVENTS, logCommunicationAuditEvent } from './communicationAuditLog.js';
+import { RECIPIENT_RESOLUTION_REASONS, resolveNotificationRecipient } from './emailExperience/recipientResolution.js';
+import { renderEmailForNotification } from './emailExperience/renderEmail.js';
+import {
+  MARKETING_CONSENT_DISPOSITIONS,
+  MARKETING_CONSENT_STATES,
+  MARKETING_CONSENT_UNAVAILABLE_CODE,
+  evaluateMarketingConsent,
+} from './marketingConsentState.js';
+
+/** Channels whose delivery requires an external address the platform must resolve. */
+const ADDRESS_REQUIRED_CHANNELS = new Set(['email', 'sms', 'whatsapp']);
 
 export class CommunicationDeliveryWorker {
-  constructor({ repository, adapterRegistry = null, notificationService = null, workerId = 'communication-worker' } = {}) {
+  constructor({
+    repository, adapterRegistry = null, notificationService = null,
+    emailRenderer = null, replyTokenService = null, workerId = 'communication-worker',
+  } = {}) {
     this.repository = repository;
     this.adapterRegistry = adapterRegistry || createDefaultAdapterRegistry();
     this.notificationService = notificationService;
+    // G2 — the one canonical Email rendering boundary, injected so a test can substitute a failing
+    // renderer and prove the degradation and refusal paths are real rather than asserted.
+    this.emailRenderer = emailRenderer || renderEmailForNotification;
+    // G5 — authenticated conversation Reply-To. Minted HERE, at the dispatch boundary, because this
+    // is the only place where classification is proven, the recipient is resolved, the canonical
+    // thread/participant context is present, and transport is about to happen.
+    this.replyTokenService = replyTokenService;
     this.workerId = workerId;
   }
 
@@ -43,22 +64,19 @@ export class CommunicationDeliveryWorker {
   }
 
   /**
-   * Canonical suppression check for a marketing notification, evaluated at SEND time.
+   * Canonical marketing consent, evaluated at SEND time against the G0-resolved address.
    *
-   * Scoped to marketing (and 'all'): an unsubscribe from marketing must never block security, auth
-   * or transactional Email. Returns the suppression reason, or null when the send may proceed.
+   * Delegates to `marketingConsentState.js` — the single consent authority — and never decides
+   * anything itself. Scoped to marketing (and 'all'): an unsubscribe from marketing must never block
+   * security, auth or transactional Email.
    */
-  async marketingSuppressionFor(notification) {
-    const classification = String(notification?.payload?.classification || '').toLowerCase();
-    if (classification !== 'marketing') return null;
-    const channel = normalizeChannel(notification.channel) || notification.channel;
-    const address = String(
-      notification?.payload?.email || notification?.payload?.address || notification?.payload?.to || '',
-    ).trim().toLowerCase();
-    if (!address) return null;
-    const rows = await this.repository.list('communication_suppressions', { channel, address });
-    const active = (rows || []).find((row) => !row.released_at && ['marketing', 'all'].includes(row.scope));
-    return active ? active.reason : null;
+  async marketingConsentFor(notification, address) {
+    return evaluateMarketingConsent({
+      notification,
+      repository: this.repository,
+      channel: normalizeChannel(notification.channel) || notification.channel,
+      address,
+    });
   }
 
   async deliverNotification(notification, { alreadyClaimed = false } = {}) {
@@ -68,18 +86,200 @@ export class CommunicationDeliveryWorker {
       return this.markDeadLetter(notification, { errorCode: 'adapter_missing', errorMessage: `No adapter registered for ${channel}` });
     }
 
+    // G0 — resolve the recipient BEFORE dispatch.
+    //
+    // Policy-driven notifications carry only `{ event_type, safe_payload }`, so the adapter used to
+    // hard-fail `recipient_missing` on the primary attempt and the message survived only via the
+    // fallback route's enrichment. Producers keep passing identifiers; the address is resolved once,
+    // here, immediately before the provider call.
+    //
+    // Fails CLOSED: an unresolved recipient never reaches a provider, and is recorded with its own
+    // error code so it stays distinguishable from a provider failure.
+    //
+    // Scoped to channels that genuinely need an EXTERNAL address. `in_app` and `push` are delivered
+    // without one — guarding them would dead-letter working deliveries, which an over-broad first
+    // version of this check did.
+    const resolved = ADDRESS_REQUIRED_CHANNELS.has(channel)
+      ? await resolveNotificationRecipient({ notification, repository: this.repository, channel })
+      : { ok: true, address: null, identityId: null, userId: null, verified: false };
+    if (!resolved.ok) {
+      const failure = {
+        errorCode: `recipient_unresolved:${resolved.reason}`,
+        errorMessage: `No deliverable ${channel} recipient could be resolved for this notification (${resolved.reason}).`,
+      };
+      // A lookup fault is transient — retry it. Everything else is a durable absence of an address,
+      // which retrying cannot conjure, so it dead-letters instead of burning attempts.
+      return resolved.reason === RECIPIENT_RESOLUTION_REASONS.LOOKUP_FAILED
+        ? this.markRetry(notification, failure)
+        : this.markDeadLetter(notification, failure);
+    }
+    // Carry the resolved address on the payload the adapter reads, without mutating the stored row.
+    if (resolved.address) {
+    const resolvedPayload = { ...(notification.payload || {}) };
+    if (channel === 'email') resolvedPayload.email = resolved.address;
+    else if (channel === 'sms' || channel === 'whatsapp') resolvedPayload.phone_number = resolved.address;
+    else if (channel === 'telegram') resolvedPayload.telegram_chat_id = resolved.address;
+    resolvedPayload.address = resolvedPayload.address || resolved.address;
+    notification = { ...notification, payload: resolvedPayload };
+    }
+
     // Last line of defence before a marketing message reaches a provider.
     //
     // Consent suppression is otherwise enforced only at QUEUE time, so anything that inserts into
     // notification_queue directly — a backfill, a script, a future code path — would sail past it and
     // mail somebody who has unsubscribed. That is the one failure mode a consent system must not
     // have, so the check is repeated here, immediately before dispatch, against canonical state.
-    const suppression = await this.marketingSuppressionFor(notification).catch(() => null);
-    if (suppression) {
+    //
+    // G3 — and it FAILS CLOSED. This call used to end in `.catch(() => null)`, which made a database
+    // timeout, a dropped connection, a missing table and a revoked grant all indistinguishable from
+    // "not suppressed". Every way of failing to KNOW whether someone had unsubscribed was converted
+    // into permission to mail them. UNKNOWN CONSENT STATE IS NOT PERMISSION.
+    const consent = await this.marketingConsentFor(notification, resolved.address);
+    if (consent.state === MARKETING_CONSENT_STATES.SUPPRESSED) {
       return this.markDeadLetter(notification, {
         errorCode: 'recipient_suppressed',
-        errorMessage: `Recipient is suppressed in canonical CarUp consent state (${suppression}); refusing to send marketing.`,
+        errorMessage: `Recipient is suppressed in canonical CarUp consent state (${consent.reason}); refusing to send marketing.`,
       });
+    }
+    if (consent.state === MARKETING_CONSENT_STATES.UNAVAILABLE) {
+      // Reported as ITSELF, never folded into recipient_suppressed. Recording a fault of ours as a
+      // customer's unsubscribe would put a decision in the audit trail that nobody made.
+      const failure = {
+        errorCode: `${MARKETING_CONSENT_UNAVAILABLE_CODE}:${consent.disposition}`,
+        errorMessage: `Canonical marketing consent state could not be established (${consent.detail}); refusing to send marketing.`,
+      };
+      return consent.disposition === MARKETING_CONSENT_DISPOSITIONS.TRANSIENT
+        ? this.markRetry(notification, failure)
+        : this.markDeadLetter(notification, failure);
+    }
+
+    // G2 — prepare canonical content BEFORE dispatch, through the ONE rendering boundary.
+    //
+    // This replaced the G3 interim composer, which only ever produced marketing content. Every Email
+    // family now passes through the same renderer, and non-email channels do not reach it at all —
+    // an in_app or push notification has no presentation to render and must stay byte-identical to
+    // what it was before G2.
+    //
+    // The renderer decides both directions of failure itself: non-marketing degrades to the
+    // canonical plain text, marketing refuses. The worker's job is to honour a refusal without
+    // calling a provider.
+    let renderedReplyTo = null;
+    let preparedSubject = notification.title;
+    let preparedBody = notification.message || '';
+    let preparedHtml = notification.payload?.html || null;
+    let renderProvenance = null;
+    if (channel === 'email') {
+      const rendered = this.emailRenderer(notification, { env: process.env });
+      if (!rendered.ok) {
+        // A refusal here never reaches a provider. It is durable — an unclassified or
+        // non-compliant Email does not become classified or compliant by being retried.
+        return this.markDeadLetter(notification, {
+          errorCode: rendered.errorCode,
+          errorMessage: rendered.errorMessage,
+        });
+      }
+      preparedSubject = rendered.subject || preparedSubject;
+      preparedBody = rendered.text;
+      preparedHtml = rendered.html || null;
+      // A reference may declare a monitored HUMAN reply address (R1 uses info@carup.dev). That is a
+      // published alias, not a credential, and it is a different thing from G5's authenticated
+      // conversation Reply-To — which is minted below and always wins where it applies.
+      if (rendered.reply_to) renderedReplyTo = rendered.reply_to;
+      renderProvenance = {
+        renderer_version: rendered.renderer_version,
+        classification: rendered.classification,
+        classification_source: rendered.classification_source,
+        template_key: rendered.template_key,
+        template_version: rendered.template_version,
+        footer_family: rendered.footer_family,
+        sender_persona: rendered.sender_persona,
+        html_part_rendered: rendered.html_part_rendered,
+        text_part_rendered: rendered.text_part_rendered,
+        cta_href_canonical: rendered.cta_href_canonical,
+        cta_route: rendered.cta_route,
+        leadership_identity_rendered: rendered.leadership_identity_rendered,
+        render_fallback_used: rendered.render_fallback_used,
+        auth_equivalence_verified: rendered.auth_equivalence_verified ?? false,
+      };
+    }
+
+    // G5 — an authenticated Reply-To for genuine conversational Email, and nothing else.
+    //
+    // A conversational Email without one is not a smaller failure than not sending it: it LOOKS
+    // replyable and is not. That exact state was observed — a human replied to
+    // notifications@mail.carup.dev, the message carried no token and no RFC reference, and their
+    // reply was permanently unroutable. So this fails closed in every direction rather than
+    // degrading to an address that swallows the answer.
+    let replyToAddress = null;
+    let replyTokenId = null;
+    if (channel === 'email' && renderProvenance?.classification === 'conversational') {
+      const context = {
+        threadId: notification.thread_id || null,
+        participantId: notification.metadata?.recipient_participant_id || null,
+        tenantId: notification.tenant_id || null,
+        // Only a binding that is itself an EMAIL binding. A fallback notification carries the
+        // originating channel's binding in the same metadata, and an Email credential validated
+        // against a WhatsApp binding is a credential validated against the wrong thing.
+        bindingId: notification.metadata?.recipient_binding_channel === 'email'
+          ? (notification.metadata?.recipient_binding_id || null)
+          : null,
+      };
+      if (!this.replyTokenService) {
+        return this.markDeadLetter(notification, {
+          errorCode: 'reply_token_service_unavailable',
+          errorMessage: 'Conversational Email requires an authenticated Reply-To and no reply-token service is wired.',
+        });
+      }
+      // A NULL tenant is the platform tenant and is canonicalised by the token service; a missing
+      // thread or participant is genuinely missing context.
+      if (!context.threadId || !context.participantId) {
+        // Durable: a missing canonical binding is not a fault that retrying can resolve, and
+        // guessing the participant would defeat the credential entirely.
+        return this.markDeadLetter(notification, {
+          errorCode: 'conversation_reply_context_missing',
+          errorMessage: 'Conversational Email has no canonical thread/participant/tenant context to bind an authenticated Reply-To to.',
+        });
+      }
+      try {
+        const issued = await this.replyTokenService.issue(context);
+        // C4 — a promised Reply-To must be DURABLE before it is promised.
+        //
+        // `issue()` reports whether the reuse refresh actually persisted. Ignoring that was the
+        // defect: the credential state the send depends on lives only in the token row, so an Email
+        // sent after a failed refresh advertises a reply window the database never accepted. The
+        // recipient answers inside the window they were promised and the reply is unroutable.
+        //
+        // RETRY, not dead-letter. The token is still live — it was selected by
+        // `.gt('expires_at', now)` — so nothing is broken, only unconfirmed, and the next attempt
+        // re-runs the same reuse path. The token is NOT revoked, no second credential is minted,
+        // and no provider call is made, so there is nothing to duplicate.
+        //
+        // `refreshPersisted` is undefined on the fresh-issue path, where the insert either
+        // succeeded or threw; only an explicit `false` withholds the send.
+        if (issued.refreshPersisted === false) {
+          return this.markRetry(notification, {
+            errorCode: 'reply_token_refresh_unpersisted',
+            // The failed half only — never the raw token, never the Reply-To address.
+            errorMessage: `Conversational Email withheld: the reply credential's ${issued.refreshFailed || 'refresh'} did not persist, so its reply window is unconfirmed.`,
+          });
+        }
+        replyToAddress = issued.address;
+        replyTokenId = issued.record?.id || null;
+      } catch (error) {
+        const failure = {
+          errorCode: error?.code === 'reply_token_secret_missing'
+            ? 'reply_token_secret_missing'
+            : 'reply_token_unavailable',
+          errorMessage: error?.code === 'reply_token_secret_missing'
+            ? 'Conversational Email cannot be given an authenticated Reply-To: the reply-token secret is not configured.'
+            : `Conversational Email could not be given an authenticated Reply-To (${error?.message || 'token store failure'}).`,
+        };
+        // A missing secret is configuration, not weather. Everything else is a store fault worth
+        // re-asking about. Neither reaches a provider.
+        return error?.code === 'reply_token_secret_missing'
+          ? this.markDeadLetter(notification, failure)
+          : this.markRetry(notification, failure);
+      }
     }
 
     const attemptNumber = alreadyClaimed ? Number(notification.attempt_count || 1) : Number(notification.attempt_count || 0) + 1;
@@ -110,9 +310,23 @@ export class CommunicationDeliveryWorker {
           expoPushToken: notification.payload?.expo_push_token || notification.payload?.push_token,
         },
         content: {
-          subject: notification.title,
-          body: notification.message || '',
-          data: notification.payload || {},
+          subject: preparedSubject,
+          // `body` AND `text` both carry the renderer's final plain text. `textBody()` reads
+          // `content.body || content.text`, so leaving `body` as the pre-render message would let an
+          // adapter transmit the stale copy while the renderer's text went nowhere.
+          body: preparedBody,
+          text: preparedBody,
+          ...(preparedHtml ? { html: preparedHtml } : {}),
+          // EPHEMERAL. This object exists for the provider call and is never written back: the raw
+          // Reply-To is a live routing credential, and the queue row, the canonical message and the
+          // delivery attempt all keep only the hash or the record id.
+          data: {
+            ...(notification.payload || {}),
+            ...(renderProvenance ? { email_render_provenance: renderProvenance } : {}),
+            // G5's authenticated conversation address wins where it applies; otherwise a
+            // reference's declared human reply address is used.
+            ...(replyToAddress || renderedReplyTo ? { reply_to: replyToAddress || renderedReplyTo } : {}),
+          },
         },
         idempotencyKey: notification.dedupe_key,
         correlationId: notification.event_id || notification.id,
@@ -133,7 +347,12 @@ export class CommunicationDeliveryWorker {
       channel,
       provider_request_id: result.providerRequestId || null,
       provider_message_id: result.providerMessageId || null,
-      request_metadata: { idempotency_key: notification.dedupe_key },
+      // The token RECORD id, never the credential. It is enough to prove
+      // attempt -> token -> thread/participant without the audit trail becoming replayable.
+      request_metadata: {
+        idempotency_key: notification.dedupe_key,
+        ...(replyTokenId ? { email_reply_token_id: replyTokenId } : {}),
+      },
       response_metadata: {
         provider_status: result.providerStatus || null,
         ...(result.providerMetadata ? { provider_metadata: result.providerMetadata } : {}),
@@ -215,6 +434,32 @@ export class CommunicationDeliveryWorker {
       errorMessage: error.message || 'Provider adapter threw during delivery',
       thrown: true,
     };
+  }
+
+  /**
+   * Schedule a retry for a TRANSIENT pre-dispatch failure.
+   *
+   * Extracted so a fault that happened before the provider was ever called can use the same backoff
+   * and audit trail as a retryable provider failure, instead of being dead-lettered as if the
+   * condition were permanent.
+   */
+  async markRetry(notification, result = {}) {
+    const attempt = Number(notification.attempt_count || 1);
+    if (attempt >= Number(notification.max_attempts || 5)) return this.markDeadLetter(notification, result);
+    const nextRetryAt = new Date(Date.now() + calculateBackoffMs(attempt)).toISOString();
+    await this.repository.updateById('notification_queue', notification.id, {
+      status: 'retry_scheduled',
+      next_attempt_at: nextRetryAt,
+      last_error_code: result.errorCode || 'retryable_failure',
+      last_error_message: result.errorMessage || 'Retryable failure',
+      locked_at: null,
+      locked_by: null,
+    });
+    await this.auditNotification(notification, COMMUNICATION_AUDIT_EVENTS.RETRY_SCHEDULED, {
+      summary: `Retry scheduled for ${nextRetryAt}`,
+      metadata: { attempt, next_retry_at: nextRetryAt, error_code: result.errorCode || null },
+    });
+    return { notificationId: notification.id, status: 'retry_scheduled', nextRetryAt };
   }
 
   async markDeadLetter(notification, result = {}) {

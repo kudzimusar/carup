@@ -109,14 +109,21 @@ async function loadAllVehicles() {
 
 async function loadEvidence(vin) {
   try {
+    // `odometer_value` / `odometer_unit` are COLUMNS, not metadata. The canonical evidence writer
+    // normalises the submitted reading into them (evidenceService buildEvidenceProvenanceColumns),
+    // and every other reader of that fact uses the column. Omitting them here is what left
+    // detectMileageAnomalies reading a metadata key CarUp never populates — so the only mileage
+    // signal carrying blocks_publication could not fire on CarUp-written evidence.
     const { data, error } = await supabase
       .from('vehicle_evidence')
-      .select('id, vin, evidence_type, checksum, image_hash, verification_status, metadata, captured_at, created_at')
+      .select('id, vin, evidence_type, checksum, image_hash, verification_status, metadata, odometer_value, odometer_unit, captured_at, created_at')
       .eq('vin', vin);
-    if (error) return [];
+    // A read FAILURE is not "no evidence". Returning [] for both made an unreadable evidence table
+    // indistinguishable from a clean one, and every detector downstream then reported no anomalies.
+    if (error) return null;
     return data || [];
   } catch {
-    return [];
+    return null;
   }
 }
 
@@ -387,10 +394,18 @@ function detectMileageAnomalies(myEvidence, opts) {
   const readings = [];
   for (const ev of myEvidence) {
     const meta = ev.metadata || {};
-    const raw = meta.odometer_km ?? meta.mileage_km ?? meta.odometer ?? meta.mileage;
+    // COLUMN FIRST — that is where the canonical writer puts it. The metadata keys are kept only as
+    // a legacy fallback for rows written before the columns existed.
+    const raw = ev.odometer_value
+      ?? meta.odometer_km ?? meta.mileage_km ?? meta.odometer ?? meta.mileage;
     if (raw == null) continue;
-    const km = Number(raw);
+    let km = Number(raw);
     if (!Number.isFinite(km)) continue;
+    // A reading in miles compared against one in kilometres would manufacture a reversal out of a
+    // unit change. Normalise to km; an unstated unit is treated as km, which is the unit every
+    // CarUp ingestion adapter records.
+    const unit = String(ev.odometer_unit || '').trim().toLowerCase();
+    if (unit === 'mi' || unit === 'mile' || unit === 'miles') km *= 1.609344;
     const when = ev.captured_at || ev.created_at || null;
     readings.push({ km, when, evidence_id: ev.id });
   }
@@ -462,7 +477,12 @@ export async function evaluateVehicle(vin, opts = {}) {
   // Load context (allow injection for tests / batch reuse).
   const allVehicles = opts.others || (await loadAllVehicles());
   const others = allVehicles.filter((v) => v.vin !== vin);
-  const myEvidence = opts.evidence || (await loadEvidence(vin));
+  // `loadEvidence` answers null when the read FAILED, as distinct from [] for "no evidence". The
+  // detectors take a list, so an unreadable table becomes an empty one here — but only after the
+  // distinction has been made explicit and recorded, rather than being silently erased in the loader.
+  const loadedEvidence = opts.evidence || (await loadEvidence(vin));
+  const evidenceReadFailed = loadedEvidence === null;
+  const myEvidence = evidenceReadFailed ? [] : loadedEvidence;
   const sourceResults = opts.sourceResults || (await loadSourceResults(vin));
 
   // Build a checksum -> [{vin, id}] index across OTHER vehicles' evidence for reuse detection.
@@ -492,6 +512,23 @@ export async function evaluateVehicle(vin, opts = {}) {
   ];
 
   const signals = [];
+
+  // "We could not look" is not "we looked and found nothing". Every evidence-backed detector below
+  // silently reports no anomalies against an empty list, so an unreadable vehicle_evidence table
+  // would otherwise render as a clean vehicle. Non-blocking by design — a read failure is an
+  // operational fault, not an accusation about this vehicle — but it must be visible.
+  if (evidenceReadFailed) {
+    signals.push(makeSignal('evidence_not_readable', 'low', {
+      confidence: 1,
+      reason_codes: ['evidence_read_failed'],
+      evidence_refs: [],
+      related_identities: [],
+      recommended_action: 'retry_evidence_read',
+      blocks_publication: false,
+      requires_review: false,
+    }));
+  }
+
   for (const run of detectors) {
     try {
       const out = run();

@@ -131,6 +131,7 @@ function vehicleRow(spec) {
     current_seller_id: spec.ownerId, current_seller_type: spec.sellerType,
     public_seller_display_enabled: false,
     registration_country: spec.location.country,
+    registration_status: 'locally_registered',
     engine_number: spec.engine_number, chassis_number: spec.chassis_number,
     plate_number: spec.plate_number, temp_plate_id: null,
     publication_status: 'draft',
@@ -138,7 +139,8 @@ function vehicleRow(spec) {
     listing_city: spec.location.city, listing_province: spec.location.province,
     listing_country: spec.location.country, listing_location_source: claimSource,
     listing_location_visibility: 'public', listing_location_recorded_at: new Date().toISOString(),
-    registration_country_source: claimSource, current_seller_type_source: claimSource,
+    registration_country_source: claimSource, registration_status_source: claimSource,
+    current_seller_type_source: claimSource,
     currency_source: claimSource,
   };
 }

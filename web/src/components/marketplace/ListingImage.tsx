@@ -23,12 +23,14 @@ export function ListingImage({
   className = '',
   imgClassName = '',
   representative = false,
+  loading = 'lazy',
 }: {
   src?: string | null
   alt: string
   className?: string
   imgClassName?: string
   representative?: boolean
+  loading?: 'lazy' | 'eager'
 }) {
   // Remember WHICH src failed, not merely THAT one did. A new src is then a fresh attempt by
   // construction — no reset effect, so switching gallery photos after one failure cannot suppress
@@ -43,7 +45,7 @@ export function ListingImage({
           src={src}
           alt={alt}
           className={`h-full w-full object-cover ${imgClassName}`}
-          loading="lazy"
+          loading={loading}
           onError={() => setFailedSrc(src)}
         />
         {representative && (

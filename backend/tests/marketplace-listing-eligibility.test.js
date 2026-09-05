@@ -10,8 +10,9 @@ import {
   isAllowedMarketplaceStatus,
   isAllowedImportSource,
 } from '../services/marketplace/marketplaceListingEligibility.js';
+import { vehicleYearBounds } from '../services/taxonomy/vehicleTaxonomyService.js';
 
-// Base real listings (valid VINs: 17 chars, no I/O/Q, no underscore)
+// Base real listings (standard VINs remain valid; documented 12–17 char import frame IDs are too)
 const realPrivate = {
   vin: '1HGBH41JXMN109186', make: 'Toyota', model: 'Hilux', year: 2021, price: 25000,
   status: 'Available', owner_id: 'd4e5f6a7-1111-2222-3333-444455556666', tenant_id: null,
@@ -58,17 +59,16 @@ test('VIN with underscore fails', () => {
 });
 
 // 6
-test('VIN with I/O/Q fails', () => {
-  assert.equal(isStructurallyValidVin('1HGBH41JIMN109186'), false); // contains I
-  assert.equal(isStructurallyValidVin('1HGBH41JOMN109186'), false); // contains O
-  assert.equal(isStructurallyValidVin('1HGBH41JQMN109186'), false); // contains Q
-  assert.ok(reasons(P({ vin: '1HGBH41JIMN109186' })).includes('invalid_vin_format'));
+test('documented Japanese frame/chassis identifier is accepted as a real vehicle identifier', () => {
+  assert.equal(isStructurallyValidVin('GFC27-027051'), true);
+  const r = getListingEligibility(P({ vin: 'GFC27-027051' }));
+  assert.equal(r.reasons.includes('invalid_vin_format'), false, JSON.stringify(r.reasons));
 });
 
 // 7
-test('16-character VIN fails', () => {
-  assert.equal(isStructurallyValidVin('1HGBH41JXMN10918'), false);
-  assert.ok(reasons(P({ vin: '1HGBH41JXMN10918' })).includes('invalid_vin_format'));
+test('11-character identifier fails the minimum-length gate', () => {
+  assert.equal(isStructurallyValidVin('GFC27-02705'), false);
+  assert.ok(reasons(P({ vin: 'GFC27-02705' })).includes('invalid_vin_format'));
 });
 
 // 8
@@ -106,14 +106,12 @@ test('price <= 0 fails', () => {
   assert.ok(reasons(P({ price: -5 })).includes('invalid_price'));
 });
 
-// 14
-test('year too old fails', () => {
-  assert.ok(reasons(P({ year: 1900 })).includes('invalid_year'));
-});
-
-// 15
-test('year too far future fails', () => {
-  assert.ok(reasons(P({ year: 3000 })).includes('invalid_year'));
+// 14 / 15 — derive both boundaries from the one global taxonomy contract.
+test('year bounds follow the canonical global taxonomy policy', () => {
+  const { min, max } = vehicleYearBounds();
+  assert.ok(reasons(P({ year: min - 1 })).includes('invalid_year'));
+  assert.equal(reasons(P({ year: min })).includes('invalid_year'), false);
+  assert.ok(reasons(P({ year: max + 1 })).includes('invalid_year'));
 });
 
 // 16
@@ -267,4 +265,13 @@ test('normalizeListingInput coerces year/price and defaults currency', () => {
   assert.equal(n.year, 2020);
   assert.equal(n.price, 15000);
   assert.equal(n.currency, 'USD');
+});
+
+
+test('fixture detector does not misclassify a documented Japanese chassis/frame identifier', () => {
+  const listing = P({ vin: 'GFC27-027051' });
+  const result = getListingEligibility(listing);
+  assert.equal(result.reasons.includes('invalid_vin_format'), false, JSON.stringify(result.reasons));
+  assert.equal(result.reasons.includes('fixture_excluded'), false, JSON.stringify(result.reasons));
+  assert.equal(result.eligible, true, JSON.stringify(result.reasons));
 });

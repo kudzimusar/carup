@@ -11,7 +11,7 @@ import { submitFinancingApplication } from '../services/finance/financeService.j
 import { calculateInsuranceQuote, createInsurancePolicy } from '../services/insurance/insuranceService.js';
 import { calculateZimraDuty } from '../services/import/importService.js';
 import { reportVehicleStolen, checkStolenStatus } from '../services/security/securityService.js';
-import { calculateDealerReputation } from '../services/reputation/reputationService.js';
+import { recalculateDealerReputation } from '../services/reputation/reputationService.js';
 import { getSmartRecommendations } from '../services/recommendation/recommendationService.js';
 import { reserveVehicle } from '../services/reservation/reservationService.js';
 import { authorizeRole } from '../middleware/authMiddleware.js';
@@ -245,8 +245,10 @@ async function runTests() {
 
     // 12. Dealer Reputation Indices
     console.log('\n🧪 Test 12: Dealer Reputation Scoring...');
-    const dealerScore = await calculateDealerReputation('u3');
-    console.log(`Dealer Reputation score calculated: ${dealerScore.reputationScore}% (${dealerScore.stats.verificationTier})`);
+    // The recompute is now the single writer; the GET route is a pure read. `verificationTier`
+    // moved to the top level beside the score it describes.
+    const dealerScore = await recalculateDealerReputation('u3');
+    console.log(`Dealer Reputation score calculated: ${dealerScore.reputationScore}% (${dealerScore.verificationTier})`);
     console.log('✅ Dealer reputation algorithms verified.');
 
     // 13. Marketplace AI Recommendations

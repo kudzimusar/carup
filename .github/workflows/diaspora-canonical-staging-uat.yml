@@ -8,7 +8,7 @@ on:
 
 concurrency:
   group: diaspora-canonical-staging-uat
-  cancel-in-progress: true
+  cancel-in-progress: false
 
 jobs:
   canonical-staging-uat:

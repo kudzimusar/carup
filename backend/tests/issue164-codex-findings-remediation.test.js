@@ -382,7 +382,15 @@ test('P1-A — PostgreSQL-only refresh forwards client to default getTrustDecisi
         currency_source text DEFAULT 'seller',
         make text DEFAULT 'Honda', model text DEFAULT 'Accord', year integer DEFAULT 2023,
         chassis_number text DEFAULT 'CH123', engine_number text DEFAULT 'ENG123', plate_number text DEFAULT 'ABC123',
+        normalized_plate_number text DEFAULT 'ABC123',
         temp_plate_id text DEFAULT NULL, tenant_id uuid DEFAULT NULL, publication_status text DEFAULT 'draft',
+        -- The Zimbabwe registration lifecycle columns the trust engine reads, and the ownership
+        -- columns the publication evaluator reads. This fixture hand-builds the vehicles table, so every
+        -- column a governed reader selects has to be modelled here or the read throws and the
+        -- refresh counts the VIN failed — which is precisely how this test was failing.
+        owner_id uuid DEFAULT NULL,
+        registration_status text DEFAULT NULL,
+        registration_status_source text DEFAULT NULL,
         trust_score numeric(5,2) DEFAULT NULL,
         trust_calculation_version text DEFAULT NULL,
         trust_evaluated_at timestamptz DEFAULT NULL,
@@ -392,7 +400,22 @@ test('P1-A — PostgreSQL-only refresh forwards client to default getTrustDecisi
         trust_evidence_basis jsonb DEFAULT NULL
       );
 
-      CREATE TABLE vehicle_evidence (id text PRIMARY KEY, vin text, evidence_type text, verification_status text);
+      -- evidence_class/evidence_subtype are the canonical semantic authority; evidence_type is
+      -- retained compatibility metadata. The publication evaluator reads all of them plus the
+      -- uploader, so the fixture models the real shape rather than the pre-canonical subset.
+      CREATE TABLE vehicle_evidence (
+        id text PRIMARY KEY, vin text, evidence_type text,
+        evidence_class text, evidence_subtype text,
+        verification_status text, uploaded_by uuid
+      );
+      -- Seller Journey S5: the publication evaluator reconciles seller-stated facts against document
+      -- readings, and fails closed when it cannot read them. This fixture models the real schema, so
+      -- the table it reads has to exist here too — omitting it made the evaluator correctly refuse.
+      CREATE TABLE vehicle_document_extractions (
+        id text PRIMARY KEY, vin text, evidence_id text, document_type text,
+        field_name text, raw_value text, normalized_value text, expected_value text,
+        compared_vehicle_field text, match_status text, review_status text, created_at timestamptz
+      );
       CREATE TABLE eligibility_requests (id text PRIMARY KEY, vin text, capability text, status text, conditions jsonb, mode text, validity_until timestamptz, created_at timestamptz);
       CREATE TABLE fraud_cases (id text PRIMARY KEY, vin text, status text, highest_severity text, blocks_publication boolean);
       CREATE TABLE insurance_provider_decisions (id text PRIMARY KEY, vin text, decision text, verified_at timestamptz);
@@ -644,10 +667,13 @@ test('P1-READ — getTrustDecision fails closed on dependency read errors; no wr
     },
   };
 
-  // getTrustDecision MUST reject on DB read failure
+  // getTrustDecision MUST reject on DB read failure. Operations M3 added a
+  // second fail-closed reader of fraud_cases (the completeness evaluator's
+  // risk_governance requirement), so the failure may surface from either — the
+  // invariant is that it THROWS, never that a specific reader throws first.
   await assert.rejects(
     () => getTrustDecision(testVin, { client: failingFraudClient }),
-    /Fraud summary read error/,
+    /Fraud summary read error|Risk case query error/,
     'getTrustDecision must fail closed and throw when fraud summary query fails',
   );
 

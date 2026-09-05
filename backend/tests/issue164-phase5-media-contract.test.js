@@ -1233,7 +1233,7 @@ describe('Phase 5 — the passport is wired to the media contract (kills M1/M2/M
       'buildVehiclePassport must still read listing_images — this is the defect this phase closed',
     );
     assert.ok(
-      /\.select\('id, image_url, is_primary, display_order'\)/.test(fnSrc),
+      /\.select\('id, image_url, is_primary, display_order, photo_label'\)/.test(fnSrc),
       'the gallery read must select `id`, or every item becomes unpublishable for want of an identity',
     );
     assert.ok(
@@ -1320,7 +1320,10 @@ describe('Phase 5 — the write path records the seller`s media, and invents non
       if (op.action === 'update') return { data: null, error: null };
       const matched = vehicles.filter((row) => Object.entries(op.filters).every(([k, v]) => row[k] === v));
       if (op.single) {
-        return matched.length ? { data: matched[0], error: null } : { data: null, error: { code: 'PGRST116', message: 'no rows' } };
+        if (matched.length) return { data: matched[0], error: null };
+        return op.maybeSingle
+          ? { data: null, error: null }
+          : { data: null, error: { code: 'PGRST116', message: 'no rows' } };
       }
       return { data: matched, error: null, count: matched.length };
     }
@@ -1337,7 +1340,7 @@ describe('Phase 5 — the write path records the seller`s media, and invents non
     const { app } = await import('../server.js');
     const { supabase } = await import('../db/supabase.js');
     supabase.from = (table) => {
-      const op = { table, action: 'select', filters: {}, payload: null, single: false };
+      const op = { table, action: 'select', filters: {}, payload: null, single: false, maybeSingle: false };
       const declared = {
         select() { return proxy; },
         insert(payload) { op.action = 'insert'; op.payload = payload; return proxy; },
@@ -1345,7 +1348,7 @@ describe('Phase 5 — the write path records the seller`s media, and invents non
         update(payload) { op.action = 'update'; op.payload = payload; return proxy; },
         delete() { op.action = 'delete'; return proxy; },
         eq(key, value) { op.filters[key] = value; return proxy; },
-        maybeSingle() { op.single = true; return proxy; },
+        maybeSingle() { op.single = true; op.maybeSingle = true; return proxy; },
         single() { op.single = true; return proxy; },
         then(f, r) { return Promise.resolve(handle(op)).then(f, r); },
       };
@@ -1418,6 +1421,28 @@ describe('Phase 5 — the write path records the seller`s media, and invents non
     assert.deepEqual(listingImages.map((row) => row.is_primary), [false, true],
       'the SECOND image is the seller`s choice, and array order must not override it');
     assert.equal(body.images_primary_recorded, true);
+  });
+
+  it('B1a/G: a Seller photo label is stored and projected as presentation metadata only', async () => {
+    const { status, body } = await addVehicle({
+      images: [
+        { url: 'https://cdn.carup.dev/front.jpg', photo_label: 'Front' },
+        { url: 'https://cdn.carup.dev/interior.jpg', photo_label: 'Interior', is_primary: true },
+      ],
+    });
+
+    assert.equal(status, 201, JSON.stringify(body));
+    assert.equal(body.images_labels_recorded, true);
+    assert.deepEqual(listingImages.map((row) => row.photo_label), ['Front', 'Interior']);
+
+    const written = listingImages.map((row, i) => ({
+      ...row,
+      id: `bbbbbbbb-cccc-4ddd-8eee-00000000000${i + 1}`,
+    }));
+    const block = toListingMediaBlock(written);
+    assert.deepEqual(block.items.map((item) => item.photo_label), ['Interior', 'Front']);
+    assert.deepEqual(findMediaBlockCrossContamination({ listing_media: block, verified_evidence: { items: [] } }), []);
+    assert.deepEqual(findTrustLanguage(block), []);
   });
 
   it('B1a: only `is_primary === true` is a claim — truthy-ish values are not consent', async () => {

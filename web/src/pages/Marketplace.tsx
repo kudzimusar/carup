@@ -1,392 +1,357 @@
-import { useState, useEffect, useCallback, useRef, useMemo } from 'react'
-import { Link, useSearchParams, useNavigate } from 'react-router-dom'
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
+import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
-import { Badge } from '@/components/ui/badge'
-import { Card, CardContent } from '@/components/ui/card'
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from '@/components/ui/select'
 import { Slider } from '@/components/ui/slider'
-import { Separator } from '@/components/ui/separator'
 import {
-  Sheet, SheetContent, SheetTrigger, SheetHeader, SheetTitle, SheetFooter,
+  Sheet, SheetContent, SheetFooter, SheetHeader, SheetTitle, SheetTrigger,
 } from '@/components/ui/sheet'
 import {
-  Search, SlidersHorizontal, CheckCircle, Heart, MapPin, Gauge, Fuel, Settings2, X, Loader2, ShieldCheck,
-  GitCompare, Share2, Globe2,
+  ArrowRight,
+  CarFront,
+  GitCompare,
+  Loader2,
+  Search,
+  ShieldCheck,
+  SlidersHorizontal,
+  Sparkles,
+  X,
 } from 'lucide-react'
+import { toast } from 'sonner'
 import { vehicles as mockVehicles, zimbabweLocations } from '@/data/mockData'
 import { useCarUpApi } from '@/hooks/useCarUpApi'
 import { useAuth } from '@/context/AuthContext'
-import { useIsMobile } from '@/hooks/use-mobile'
-import { toast } from 'sonner'
-import type { MarketplaceListingSummary, Vehicle, MarketplaceInquiryType } from '@/types'
+import type { MarketplaceListingSummary } from '@/types'
 import { captureReferralFromUrl } from '@/lib/marketplaceReferral'
 import { summaryLocationLine } from '@/lib/governedLocation'
-import { InquiryModal } from '@/components/marketplace/InquiryModal'
-import { BuyerAssistantDrawer } from '@/components/marketplace/BuyerAssistantDrawer'
 import { ListingImage } from '@/components/marketplace/ListingImage'
+import {
+  MarketplaceListingCard,
+  type MarketplaceListingCardModel,
+} from '@/components/marketplace/MarketplaceListingCard'
+import {
+  ALL,
+  CATEGORY_CHIPS,
+  PRICE_MAX_DEFAULT,
+  PRICE_MIN_DEFAULT,
+  TRUST_QUICK_FILTERS,
+  TRUST_TAG_CHIPS,
+  getActiveFilterChips,
+  getResultSummary,
+  isCategoryChip,
+  paramsToState,
+  stateToApiFilters,
+  stateToParams,
+} from '@/lib/marketplaceParams'
+import type { ActiveFilterKey, MarketplaceSort, MarketplaceUrlState } from '@/lib/marketplaceParams'
+import { isAdversePlateStatus, plateStatusLabel, primaryImageForListing } from '@/lib/marketplacePresentation'
+import { track as trackActivity } from '@/lib/intelligenceActivity'
+import { BODY_STYLES, FUEL_TYPES, TRANSMISSIONS, VEHICLE_COLORS, VEHICLE_MAKES, VEHICLE_TAXONOMY, modelsForMake, vehicleYearOptions } from '@/data/vehicleTaxonomy'
 
-const DIASPORA_INQUIRY_TYPES: MarketplaceInquiryType[] = [
-  'import_quote_request',
-  'container_space_interest',
-  'diaspora_vehicle_request',
-  'diaspora_parts_request',
-  'family_purchase_support',
-]
 const MAX_COMPARE = 4
+const makes = ['All', ...VEHICLE_MAKES]
+const fuelTypes = ['All', ...FUEL_TYPES]
+const transmissions = ['All', ...TRANSMISSIONS]
+const marketplaceYears = vehicleYearOptions()
+const allTaxonomyModels = Array.from(new Set(VEHICLE_TAXONOMY.flatMap(make => make.models.map(model => model.name)))).sort()
+const CONDITION_CHIPS = [...CATEGORY_CHIPS, 'Parts & Accessories']
+const TRUST_CHIPS = TRUST_TAG_CHIPS
 
-async function shareListing(vin: string, name: string) {
-  const url = `${window.location.origin}/marketplace/${encodeURIComponent(vin)}`
-  try {
-    if (navigator.share) {
-      await navigator.share({ title: name, text: `Check out ${name} on CarUp`, url })
-    } else {
-      await navigator.clipboard.writeText(url)
-      toast.success('Listing link copied to clipboard')
-    }
-  } catch {
-    /* user cancelled share — ignore */
-  }
+
+function MarketplaceImpression({
+  vin,
+  position,
+  children,
+}: {
+  vin: string
+  position: number
+  children: ReactNode
+}) {
+  const ref = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    const node = ref.current
+    if (!node || typeof IntersectionObserver === 'undefined') return
+
+    const observer = new IntersectionObserver((entries) => {
+      if (!entries.some(entry => entry.isIntersecting && entry.intersectionRatio >= 0.25)) return
+      trackActivity({
+        event_type: 'marketplace_listing_impression',
+        listing_id: vin,
+        source_surface: 'marketplace_list',
+        metadata: { position: position + 1, result_page: 1 },
+      })
+      observer.disconnect()
+    }, { threshold: 0.25 })
+
+    observer.observe(node)
+    return () => observer.disconnect()
+  }, [position, vin])
+
+  return <div ref={ref}>{children}</div>
 }
 
-// Mock listings are a DEV/demo convenience ONLY. In staging/production an empty or failed live result
-// must NOT render fake cards — those link to nonexistent detail pages ("Vehicle Not Found"). Enable
-// explicitly with VITE_MARKETPLACE_ALLOW_MOCK=true only for a backend-less demo.
-const ALLOW_MOCK_LISTINGS =
-  import.meta.env.DEV || import.meta.env.VITE_MARKETPLACE_ALLOW_MOCK === 'true'
+const ALLOW_MOCK_LISTINGS = import.meta.env.DEV || import.meta.env.VITE_MARKETPLACE_ALLOW_MOCK === 'true'
+
+function marketplacePriceLabel(price: number | null | undefined, currency: string | null | undefined) {
+  if (typeof price !== 'number' || !Number.isFinite(price)) return 'Price not recorded'
+  const amount = price.toLocaleString()
+  if (!currency?.trim()) return `${amount} · currency not recorded`
+  return currency.toUpperCase() === 'USD' ? `${amount}` : `${currency.toUpperCase()} ${amount}`
+}
 
 /** Real listings when present; mock only when explicitly allowed; otherwise an honest empty list. */
 export function withMockFallback<T>(live: T[], mock: T[], allowMock: boolean = ALLOW_MOCK_LISTINGS): T[] {
   if (live.length > 0) return live
   return allowMock ? mock : []
 }
-import {
-  paramsToState,
-  stateToParams,
-  stateToApiFilters,
-  getActiveFilterChips,
-  getResultSummary,
-  TRUST_QUICK_FILTERS,
-  CATEGORY_CHIPS,
-  TRUST_TAG_CHIPS,
-  isCategoryChip,
-  ALL,
-} from '@/lib/marketplaceParams'
-import type { MarketplaceUrlState, MarketplaceSort, ActiveFilterKey } from '@/lib/marketplaceParams'
 
-const categories = ['All', 'Sedan', 'SUV', 'Hatchback', 'Pickup', 'Luxury', 'Commercial']
-const conditions = ['All', 'New', 'Used', 'Certified Pre-Owned']
-const makes = ['All', 'Toyota', 'BMW', 'Mercedes-Benz', 'Nissan', 'Mazda', 'Volkswagen', 'Ford', 'Honda', 'Land Rover', 'Audi']
-const fuelTypes = ['All', 'Petrol', 'Diesel', 'Hybrid', 'Electric']
-const transmissions = ['All', 'Automatic', 'Manual']
+type TrustRanking = { requested?: string; applied?: string; note?: string }
+type CanonicalListing = MarketplaceListingSummary
+type MockVehicle = (typeof mockVehicles)[number]
 
-// Single-select condition/category chips (one active at a time). 'Parts & Accessories' is a
-// non-serialized convenience filter (it has no backend slug — see marketplaceParams.ts).
-const CONDITION_CHIPS = [...CATEGORY_CHIPS, 'Parts & Accessories']
-// Stackable trust-signal chips — multiple can be active together (AND semantics).
-const TRUST_CHIPS = TRUST_TAG_CHIPS
-
-function normalizeText(value?: string | null) {
-  return (value || '').toLowerCase()
+const CONDITION_LABELS: Record<string, string> = {
+  brand_new: 'Brand New',
+  recently_imported: 'Recently Imported',
+  locally_used: 'Locally Used',
+  second_hand: 'Second Hand',
+  certified_dealer: 'Certified Pre-Owned',
 }
 
-/**
- * The persisted `trust_score` on a listing summary is a CACHE, not an authority (Issue #164
- * principle 2): it carries no calculation version, no evaluated-at and no evidence basis, so the
- * card cannot tell a governed score from a stale or unfounded one. It is neither rendered NOR
- * sorted on here — the governed assessment is published on the vehicle passport, which every card
- * links to.
- *
- * RANKING IS A CLAIM, which is why there is no client-side trust sort at all. `sort=trust` goes to
- * the listings API, and `listingSummaryService.sortSummaries()` ranks ONLY listings the canonical
- * authority actually scored; everything unscored keeps newest-first order. Re-sorting that page
- * here by the stored column would put the hand-set 84 back on top of a page the backend had just
- * ordered honestly — the same defect, one layer up. The server's order is the order.
- */
+function humanizeTag(tag: string) {
+  return tag.split('_').map(part => part.charAt(0).toUpperCase() + part.slice(1)).join(' ')
+}
 
-/** What the ordering on the returned page ACTUALLY is, as the listings API reports it. */
-type TrustRanking = { requested?: string; applied?: string; note?: string }
+function listingLabels(listing: MarketplaceListingSummary) {
+  const labels = new Set<string>()
+  const condition = CONDITION_LABELS[listing.condition_category]
+  if (condition) labels.add(condition)
+  for (const tag of listing.marketplace_tags || []) labels.add(humanizeTag(tag))
+  return Array.from(labels)
+}
+
+function sellerLabel(listing: MarketplaceListingSummary) {
+  return listing.seller_display_label?.trim() || 'Seller not disclosed'
+}
 
 function readTrustRanking(payload: unknown): TrustRanking | null {
   const ranking = (payload as { ranking?: unknown } | null | undefined)?.ranking
   if (!ranking || typeof ranking !== 'object' || Array.isArray(ranking)) return null
-  const r = ranking as Record<string, unknown>
+  const value = ranking as Record<string, unknown>
   return {
-    requested: typeof r.requested === 'string' ? r.requested : undefined,
-    applied: typeof r.applied === 'string' ? r.applied : undefined,
-    note: typeof r.note === 'string' ? r.note : undefined,
+    requested: typeof value.requested === 'string' ? value.requested : undefined,
+    applied: typeof value.applied === 'string' ? value.applied : undefined,
+    note: typeof value.note === 'string' ? value.note : undefined,
   }
-}
-
-function getFuelType(vehicle: Vehicle): string | null {
-  // No 'Petrol' default — an unstated fuel type is not Petrol. Absent → null (chip hidden; never
-  // matches a specific fuel filter).
-  return vehicle.fuel_type || vehicle.fuelType || null
-}
-
-// Phase 5: removed broad isVerifiedVehicle helper — plate verification and police checks
-// are separate source-specific signals; they must not produce a generic "Verified" claim.
-
-function getVehicleEvidenceCount(vehicle: Vehicle) {
-  const candidate = vehicle as Vehicle & {
-    evidence_count?: number
-    evidenceCount?: number
-    evidence_summary?: { count?: number }
-  }
-  return candidate.evidence_count ?? candidate.evidenceCount ?? candidate.evidence_summary?.count ?? 0
-}
-
-function getRepairHistoryCount(vehicle: Vehicle) {
-  return (vehicle.repair_history_count || 0) + (vehicle.service_history?.length || 0) + (vehicle.service_records?.length || 0)
-}
-
-function hasPartSentrySignal(vehicle: Vehicle) {
-  const candidate = vehicle as Vehicle & {
-    partsentry_checked?: boolean
-    partSentryChecked?: boolean
-    partsentry_status?: string
-  }
-  return Boolean(
-    candidate.partsentry_checked ||
-    candidate.partSentryChecked ||
-    candidate.partsentry_status === 'checked'
-  )
-}
-
-function hasVerifiedParts(vehicle: Vehicle) {
-  // blockchainHash removed: part authenticity is tracked by CarUp audit ledger, not a public blockchain
-  return Boolean(vehicle.verified_parts_count || vehicle.parts?.some(part => part.type === 'OEM'))
-}
-
-function getSellerLabel(vehicle: Vehicle): string {
-  // The seller's OWN governed display label (summary.seller_display_label → sellerName), consent-gated
-  // upstream. No fabricated 'CarUp Dealer' / 'Private seller' stand-in when the seller published none.
-  const label = normalizeText(vehicle.sellerName)
-  return label ? (vehicle.sellerName as string) : 'Seller not disclosed'
 }
 
 /**
- * Plate posture for a listing card. The plate itself is never in a public payload
- * (PRIVATE_VEHICLE_FIELDS in backend/utils/publicVehicleProjection.js), so the posture is read
- * from the non-identifying signals the API does return. No signal is an explicit unknown, never
- * a blank line the buyer could mistake for "no plate".
+ * Dev-only adapter. Production/staging never use this path. Mock rows intentionally carry no
+ * canonical Trust projection, so the reference card presents an unevaluated/unknown Trust state
+ * rather than laundering mock `trustScore` into a public claim.
  */
-function getPlateStatusLabel(vehicle: Vehicle) {
-  if ((vehicle as Vehicle & { plate_verified?: boolean }).plate_verified) return 'Plate verified'
-  if (normalizeText(vehicle.plate_status)) return 'Plate on file'
-  return 'Plate status unknown'
+function mockVehicleToListing(vehicle: MockVehicle): CanonicalListing {
+  return {
+    vin: vehicle.vin,
+    make: vehicle.make,
+    model: vehicle.model,
+    year: vehicle.year,
+    price: vehicle.price,
+    currency: vehicle.currency,
+    mileage: vehicle.mileage,
+    fuel_type: vehicle.fuelType,
+    transmission: vehicle.transmission,
+    status: vehicle.status || 'Available',
+    condition_category: 'unknown',
+    marketplace_tags: [],
+    trust_score: null,
+    trust: null,
+    primary_image_url: vehicle.images?.[0] || null,
+    primary_image_state: vehicle.images?.[0] ? 'first_published' : 'none',
+    primary_image_unpublishable_count: 0,
+    plate_verified: false,
+    plate_status: null,
+    passport_verified: false,
+    evidence_count: 0,
+    partsentry_checked: false,
+    repair_history_count: 0,
+    verified_parts_count: 0,
+    duty_cleared: false,
+    zimra_verified: false,
+    cid_clear: false,
+    seller_type: vehicle.sellerType === 'Dealer' ? 'dealer' : 'private',
+    seller_display_label: vehicle.sellerName,
+    seller_public_profile_enabled: true,
+    location: vehicle.location,
+    location_state: 'recorded',
+    created_at: vehicle.listingDate || null,
+  }
 }
 
-function getVehicleLabels(vehicle: Vehicle) {
-  const labels: string[] = []
-  const condition = normalizeText(vehicle.condition)
-  const conditionCategory = normalizeText(vehicle.vehicle_condition_category)
-  const importSource = normalizeText((vehicle as Vehicle & { import_source?: string }).import_source)
-  const registrationCountry = normalizeText(vehicle.registration_country)
-
-  if (condition === 'new' || conditionCategory === 'brand_new') labels.push('Brand New')
-  if (condition === 'used' || conditionCategory === 'second_hand') labels.push('Second Hand')
-  // Phase 5: Broad 'Verified' and 'Dealer Verified' replaced with source-specific claims.
-  // 'Certified Pre-Owned' is a dealer-certified condition, not a CarUp verification claim.
-  if (condition === 'certified pre-owned' || conditionCategory === 'certified_dealer') labels.push('Certified Pre-Owned')
-  // Source-specific trust signals (plate and police are separate, not whole-vehicle verification)
-  if ((vehicle as Vehicle & { plate_verified?: boolean }).plate_verified) labels.push('Plate Confirmed')
-  if ((vehicle as Vehicle & { passport_verified?: boolean }).passport_verified) labels.push('Evidence Reviewed')
-  // 'Police Checked' (from police_verified) and 'Duty Cleared' (from duty_paid) were derived here,
-  // a THIRD publication route independent of marketplace_tags. Both are removed.
-  //
-  // police_verified is the sharper of the two: its ONLY writer in this repository records "was
-  // reported stolen, then recovered", so the label asserted a clean police check on the strength of
-  // a theft report — the inverse of what the column means. duty_paid has no writer that sets it
-  // true at all. Neither can be restored by a legacy boolean; they need a governed source record.
-  if (importSource || conditionCategory === 'recently_imported') labels.push('Recently Imported', 'Fresh Import')
-  if (registrationCountry === 'zimbabwe' || conditionCategory === 'locally_used') labels.push('Locally Used')
-  if ((vehicle.mileage || 0) > 0 && (vehicle.mileage || 0) <= 50000) labels.push('Low Mileage')
-  if (getVehicleEvidenceCount(vehicle) > 0) labels.push('Evidence Available')
-  if (hasPartSentrySignal(vehicle)) labels.push('PartSentry Checked')
-  if (getRepairHistoryCount(vehicle) > 0) labels.push('Repair History Available')
-  if (hasVerifiedParts(vehicle)) labels.push('Verified Parts')
-
-  const backendTags = vehicle.marketplace_tags || []
-  const backendTagLabels = backendTags.map(tag => tag.split('_').map(part => part.charAt(0).toUpperCase() + part.slice(1)).join(' '))
-  return Array.from(new Set([...labels, ...backendTagLabels]))
-}
-
-/** Single condition/category match. 'All' and 'Parts & Accessories' (no backend slug) never narrow. */
-function matchesConditionChip(vehicle: Vehicle, chip: string) {
-  if (chip === 'All' || chip === 'Parts & Accessories') return true
-  return getVehicleLabels(vehicle).includes(chip)
-}
-
-/** AND semantics across stackable trust tags: a vehicle must carry EVERY selected trust label. */
-function matchesAllTrustTags(vehicle: Vehicle, tags: string[]) {
-  if (!tags.length) return true
-  const labels = getVehicleLabels(vehicle)
-  return tags.every(tag => labels.includes(tag))
-}
-
-function SkeletonCard() {
-  return (
-    <div className="rounded-xl overflow-hidden bg-white shadow-md animate-pulse">
-      <div className="aspect-[16/10] bg-gray-200" />
-      <div className="p-4 space-y-2">
-        <div className="h-4 bg-gray-200 rounded w-3/4" />
-        <div className="h-5 bg-gray-200 rounded w-1/2" />
-        <div className="h-3 bg-gray-200 rounded w-full" />
-        <div className="h-px bg-gray-100 my-2" />
-        <div className="h-3 bg-gray-200 rounded w-2/3" />
-      </div>
-    </div>
-  )
+async function shareListing(vin: string, name: string) {
+  const url = `${window.location.origin}/marketplace/${encodeURIComponent(vin)}`
+  try {
+    if (navigator.share) await navigator.share({ title: name, text: `Check out ${name} on CarUp`, url })
+    else {
+      await navigator.clipboard.writeText(url)
+      toast.success('Listing link copied to clipboard')
+    }
+  } catch {
+    // User cancelled the native share sheet.
+  }
 }
 
 function getFavorites(): string[] {
   try {
     return JSON.parse(localStorage.getItem('carup_favorites') || '[]')
-  } catch { return [] }
+  } catch {
+    return []
+  }
 }
 
 function setFavorites(ids: string[]) {
   localStorage.setItem('carup_favorites', JSON.stringify(ids))
 }
 
-/**
- * Adapt one public listing summary to the card model. Every field here must already exist on the
- * summary: the public listing contract is the only source of truth for a listing, so nothing is
- * substituted for a missing value (Issue #164 principles 4 and 5). Registry identifiers
- * (plate/chassis) are absent from that contract by design — `plate_verified`/`plate_status` carry
- * the plate trust signal instead.
- */
-function marketplaceSummaryToVehicle(summary: MarketplaceListingSummary): Vehicle & { plate_verified: boolean } {
-  return {
-    vin: summary.vin,
-    make: summary.make,
-    model: summary.model,
-    year: summary.year,
-    mileage: summary.mileage,
-    fuel_type: summary.fuel_type || undefined,
-    transmission: summary.transmission || undefined,
-    status: summary.status || undefined,
-    // Carried ONLY because `trust_score` is still required on the shared `Vehicle` type
-    // (shared/types/index.ts). Nothing in this file renders it and nothing sorts on it. Making it
-    // optional there, so the card model can drop it outright, is the remaining cleanup — it is a
-    // shared-type change and does not belong to this page.
-    trust_score: summary.trust_score,
-    price: summary.price,
-    currency: summary.currency,
-    created_at: summary.created_at || undefined,
-    location: summary.location || undefined,
-    location_state: summary.location_state,
-    images: summary.primary_image_url ? [summary.primary_image_url] : undefined,
-    vehicle_condition_category: summary.condition_category,
-    marketplace_tags: summary.marketplace_tags,
-    passport_verified: summary.passport_verified,
-    plate_status: summary.plate_status || undefined,
-    plate_verified: summary.plate_verified,
-    evidence_count: summary.evidence_count,
-    partsentry_checked: summary.partsentry_checked,
-    repair_history_count: summary.repair_history_count,
-    verified_parts_count: summary.verified_parts_count,
-    duty_paid: summary.duty_cleared,
-    zimra_verified: summary.zimra_verified,
-    police_verified: summary.cid_clear,
-    cid_clear: summary.cid_clear,
-    // No 'Private Owner' fabrication when the governed seller_type is absent — pass through the
-    // governed distinction or leave it undisclosed.
-    sellerType: summary.seller_type === 'dealer' ? 'Dealership' : (summary.seller_type ? 'Private Owner' : undefined),
-    sellerName: summary.seller_display_label || undefined,
-    current_seller_type: summary.seller_type,
-    public_seller_display_enabled: summary.seller_public_profile_enabled,
-  }
-}
-
 interface FilterControlsProps {
   selectedMake: string
-  setSelectedMake: (value: string) => void
-  selectedCategory: string
-  setSelectedCategory: (value: string) => void
-  selectedCondition: string
-  setSelectedCondition: (value: string) => void
+  onMake: (value: string) => void
+  selectedModel: string
+  onModel: (value: string) => void
+  selectedYear: string
+  onYear: (value: string) => void
+  selectedColor: string
+  onColor: (value: string) => void
+  selectedBodyStyle: string
+  onBodyStyle: (value: string) => void
   selectedLocation: string
-  setSelectedLocation: (value: string) => void
+  onLocation: (value: string) => void
   selectedFuel: string
-  setSelectedFuel: (value: string) => void
-  selectedTrans: string
-  setSelectedTrans: (value: string) => void
+  onFuel: (value: string) => void
+  selectedTransmission: string
+  onTransmission: (value: string) => void
   priceRange: number[]
   setPriceRange: (value: number[]) => void
 }
 
-/**
- * Advanced filter controls, shared by the desktop panel and the mobile drawer.
- * Note: make + price are part of the URL contract; category(body type)/condition/
- * location/fuel/transmission remain client-side refinements only (see marketplaceParams.ts).
- */
-function FilterControls(props: FilterControlsProps) {
-  const {
-    selectedMake, setSelectedMake,
-    selectedCategory, setSelectedCategory,
-    selectedCondition, setSelectedCondition,
-    selectedLocation, setSelectedLocation,
-    selectedFuel, setSelectedFuel,
-    selectedTrans, setSelectedTrans,
-    priceRange, setPriceRange,
-  } = props
-
+function FilterControls({
+  selectedMake,
+  onMake,
+  selectedModel,
+  onModel,
+  selectedYear,
+  onYear,
+  selectedColor,
+  onColor,
+  selectedBodyStyle,
+  onBodyStyle,
+  selectedLocation,
+  onLocation,
+  selectedFuel,
+  onFuel,
+  selectedTransmission,
+  onTransmission,
+  priceRange,
+  setPriceRange,
+}: FilterControlsProps) {
   return (
-    <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-4">
+    <div className="grid gap-4">
       <div>
-        <label className="text-sm font-medium mb-1.5 block">Make</label>
-        <Select value={selectedMake} onValueChange={setSelectedMake}>
-          <SelectTrigger data-testid="marketplace-make-filter"><SelectValue /></SelectTrigger>
-          <SelectContent>{makes.map(m => <SelectItem key={m} value={m}>{m}</SelectItem>)}</SelectContent>
+        <label className="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-slate-500">Make</label>
+        <Select value={selectedMake} onValueChange={onMake}>
+          <SelectTrigger data-testid="marketplace-make-filter" className="bg-white"><SelectValue /></SelectTrigger>
+          <SelectContent>{makes.map(make => <SelectItem key={make} value={make}>{make}</SelectItem>)}</SelectContent>
         </Select>
       </div>
+
       <div>
-        <label className="text-sm font-medium mb-1.5 block">Body type</label>
-        <Select value={selectedCategory} onValueChange={setSelectedCategory}>
-          <SelectTrigger><SelectValue /></SelectTrigger>
-          <SelectContent>{categories.map(c => <SelectItem key={c} value={c}>{c}</SelectItem>)}</SelectContent>
-        </Select>
+        <label className="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-slate-500">Model</label>
+        <Input
+          list="marketplace-model-options"
+          value={selectedModel === ALL ? '' : selectedModel}
+          onChange={event => onModel(event.target.value.trim() || ALL)}
+          placeholder={selectedMake === ALL ? 'Any model' : `Any ${selectedMake} model`}
+          data-testid="marketplace-model-filter"
+        />
+        <datalist id="marketplace-model-options">
+          {(selectedMake === ALL ? allTaxonomyModels : modelsForMake(selectedMake).map(model => model.name))
+            .map(model => <option key={model} value={model} />)}
+        </datalist>
       </div>
-      <div>
-        <label className="text-sm font-medium mb-1.5 block">Condition</label>
-        <Select value={selectedCondition} onValueChange={setSelectedCondition}>
-          <SelectTrigger><SelectValue /></SelectTrigger>
-          <SelectContent>{conditions.map(c => <SelectItem key={c} value={c}>{c}</SelectItem>)}</SelectContent>
-        </Select>
+
+      <div className="grid grid-cols-2 gap-3 lg:grid-cols-1">
+        <div>
+          <label className="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-slate-500">Year</label>
+          <Select value={selectedYear} onValueChange={onYear}>
+            <SelectTrigger className="bg-white" data-testid="marketplace-year-filter"><SelectValue /></SelectTrigger>
+            <SelectContent>
+              <SelectItem value={ALL}>All years</SelectItem>
+              {marketplaceYears.map(year => <SelectItem key={year} value={year}>{year}</SelectItem>)}
+            </SelectContent>
+          </Select>
+        </div>
+        <div>
+          <label className="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-slate-500">Colour</label>
+          <Select value={selectedColor} onValueChange={onColor}>
+            <SelectTrigger className="bg-white" data-testid="marketplace-color-filter"><SelectValue /></SelectTrigger>
+            <SelectContent>
+              <SelectItem value={ALL}>All colours</SelectItem>
+              {VEHICLE_COLORS.map(color => <SelectItem key={color} value={color}>{color}</SelectItem>)}
+            </SelectContent>
+          </Select>
+        </div>
       </div>
+
       <div>
-        <label className="text-sm font-medium mb-1.5 block">Location</label>
-        <Select value={selectedLocation} onValueChange={setSelectedLocation}>
-          <SelectTrigger><SelectValue /></SelectTrigger>
+        <label className="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-slate-500">Body style</label>
+        <Select value={selectedBodyStyle} onValueChange={onBodyStyle}>
+          <SelectTrigger className="bg-white" data-testid="marketplace-body-style-filter"><SelectValue /></SelectTrigger>
           <SelectContent>
-            <SelectItem value="All">All Locations</SelectItem>
-            {zimbabweLocations.map(l => <SelectItem key={l} value={l}>{l}</SelectItem>)}
+            <SelectItem value="All">All body styles</SelectItem>
+            {BODY_STYLES.map(bodyStyle => <SelectItem key={bodyStyle} value={bodyStyle}>{bodyStyle}</SelectItem>)}
           </SelectContent>
         </Select>
       </div>
+
       <div>
-        <label className="text-sm font-medium mb-1.5 block">Fuel Type</label>
-        <Select value={selectedFuel} onValueChange={setSelectedFuel}>
-          <SelectTrigger><SelectValue /></SelectTrigger>
-          <SelectContent>{fuelTypes.map(f => <SelectItem key={f} value={f}>{f}</SelectItem>)}</SelectContent>
+        <label className="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-slate-500">Location</label>
+        <Select value={selectedLocation} onValueChange={onLocation}>
+          <SelectTrigger className="bg-white" data-testid="marketplace-location-filter"><SelectValue /></SelectTrigger>
+          <SelectContent>
+            <SelectItem value="All">All locations</SelectItem>
+            {zimbabweLocations.map(location => <SelectItem key={location} value={location}>{location}</SelectItem>)}
+          </SelectContent>
         </Select>
       </div>
-      <div>
-        <label className="text-sm font-medium mb-1.5 block">Transmission</label>
-        <Select value={selectedTrans} onValueChange={setSelectedTrans}>
-          <SelectTrigger><SelectValue /></SelectTrigger>
-          <SelectContent>{transmissions.map(t => <SelectItem key={t} value={t}>{t}</SelectItem>)}</SelectContent>
-        </Select>
+
+      <div className="grid grid-cols-2 gap-3 lg:grid-cols-1">
+        <div>
+          <label className="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-slate-500">Fuel</label>
+          <Select value={selectedFuel} onValueChange={onFuel}>
+            <SelectTrigger className="bg-white" data-testid="marketplace-fuel-filter"><SelectValue /></SelectTrigger>
+            <SelectContent>{fuelTypes.map(fuel => <SelectItem key={fuel} value={fuel}>{fuel}</SelectItem>)}</SelectContent>
+          </Select>
+        </div>
+        <div>
+          <label className="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-slate-500">Transmission</label>
+          <Select value={selectedTransmission} onValueChange={onTransmission}>
+            <SelectTrigger className="bg-white" data-testid="marketplace-transmission-filter"><SelectValue /></SelectTrigger>
+            <SelectContent>{transmissions.map(transmission => <SelectItem key={transmission} value={transmission}>{transmission}</SelectItem>)}</SelectContent>
+          </Select>
+        </div>
       </div>
-      <div className="sm:col-span-2">
-        <label className="text-sm font-medium mb-1.5 block">
-          Price Range: ${priceRange[0].toLocaleString()} - ${priceRange[1].toLocaleString()}
-        </label>
-        <div className="flex items-center gap-2 mb-3">
+
+      <div>
+        <div className="mb-2 flex items-center justify-between gap-3">
+          <label className="text-xs font-semibold uppercase tracking-wide text-slate-500">Price</label>
+          <span className="text-[11px] font-medium text-slate-500">
+            ${priceRange[0].toLocaleString()} – {priceRange[1] >= 100000 ? 'Any max' : `$${priceRange[1].toLocaleString()}`}
+          </span>
+        </div>
+        <div className="mb-3 grid grid-cols-2 gap-2">
           <Input
             type="number"
             inputMode="numeric"
@@ -395,13 +360,12 @@ function FilterControls(props: FilterControlsProps) {
             aria-label="Minimum price"
             data-testid="marketplace-price-min-filter"
             value={priceRange[0] > 0 ? priceRange[0] : ''}
-            onChange={(e) => {
-              const n = Number(e.target.value)
-              const min = Number.isFinite(n) && n > 0 ? Math.min(n, priceRange[1]) : 0
+            onChange={event => {
+              const parsed = Number(event.target.value)
+              const min = Number.isFinite(parsed) && parsed > 0 ? Math.min(parsed, priceRange[1]) : 0
               setPriceRange([min, priceRange[1]])
             }}
           />
-          <span className="text-gray-400">–</span>
           <Input
             type="number"
             inputMode="numeric"
@@ -410,14 +374,29 @@ function FilterControls(props: FilterControlsProps) {
             aria-label="Maximum price"
             data-testid="marketplace-price-max-filter"
             value={priceRange[1] < 100000 ? priceRange[1] : ''}
-            onChange={(e) => {
-              const n = Number(e.target.value)
-              const max = Number.isFinite(n) && n > 0 ? Math.max(n, priceRange[0]) : 100000
+            onChange={event => {
+              const parsed = Number(event.target.value)
+              const max = Number.isFinite(parsed) && parsed > 0 ? Math.max(parsed, priceRange[0]) : 100000
               setPriceRange([priceRange[0], max])
             }}
           />
         </div>
-        <Slider value={priceRange} onValueChange={setPriceRange} max={100000} step={1000} className="mt-1" />
+        <Slider value={priceRange} onValueChange={setPriceRange} max={100000} step={1000} />
+      </div>
+
+    </div>
+  )
+}
+
+function SkeletonCard() {
+  return (
+    <div className="animate-pulse overflow-hidden rounded-2xl border border-slate-200 bg-white">
+      <div className="aspect-[16/10] bg-slate-200" />
+      <div className="space-y-3 p-4">
+        <div className="h-4 w-3/4 rounded bg-slate-200" />
+        <div className="h-6 w-1/2 rounded bg-slate-200" />
+        <div className="h-16 rounded-xl bg-slate-100" />
+        <div className="h-9 rounded bg-slate-200" />
       </div>
     </div>
   )
@@ -425,61 +404,63 @@ function FilterControls(props: FilterControlsProps) {
 
 export default function Marketplace() {
   const [searchParams, setSearchParams] = useSearchParams()
-
-  const { fetchMarketplaceListings, fetchVehicles, saveMarketplaceListing, unsaveMarketplaceListing, fetchSavedMarketplaceListings } = useCarUpApi()
+  const {
+    fetchMarketplaceListings,
+    saveMarketplaceListing,
+    unsaveMarketplaceListing,
+    fetchSavedMarketplaceListings,
+  } = useCarUpApi()
   const { isAuthenticated } = useAuth()
-  const isMobile = useIsMobile()
   const navigate = useNavigate()
 
-  // Capture referral/campaign/UTM attribution from the URL once, so a later inquiry can forward it.
   useEffect(() => { captureReferralFromUrl() }, [])
 
-  // Compare selection (up to 4 listings) -> /marketplace/compare?vins=...
   const [compareVins, setCompareVins] = useState<string[]>([])
-  const toggleCompare = useCallback((e: React.MouseEvent, vin: string) => {
-    e.preventDefault()
-    e.stopPropagation()
-    setCompareVins((prev) => {
-      if (prev.includes(vin)) return prev.filter((v) => v !== vin)
-      if (prev.length >= MAX_COMPARE) {
-        toast.info(`You can compare up to ${MAX_COMPARE} listings.`)
-        return prev
-      }
-      return [...prev, vin]
-    })
-  }, [])
+  const [liveListings, setLiveListings] = useState<CanonicalListing[]>([])
+  const [loadingVehicles, setLoadingVehicles] = useState(true)
+  const [loadError, setLoadError] = useState(false)
+  const [trustRanking, setTrustRanking] = useState<TrustRanking | null>(null)
+  const [favorites, setFavoritesState] = useState<string[]>(getFavorites)
+  const [mobileFiltersOpen, setMobileFiltersOpen] = useState(false)
+  // Set the instant a save/unsave click fires, so the in-flight initial-load fetch (which started
+  // before that click and can resolve after it) never overwrites a more recent optimistic update.
+  const favoritesMutatedRef = useRef(false)
 
-  // The URL is the single source of truth for the shareable, structural filters. Deriving them
-  // straight from searchParams means browser back/forward and deep-links update the page for free.
   const url = useMemo(() => paramsToState(searchParams), [searchParams])
-  const selectedMake = url.selectedMake
-  // QA Round 4: ONE mutually-exclusive condition/category chip + MANY stackable trust tags (AND).
-  const marketplaceCategory = url.selectedCategory
-  // `trustTags` keeps a stable identity per URL (derived from the memoized `url`), so it can drive the
-  // fetch effect directly without re-firing on unrelated re-renders.
-  const trustTags = url.selectedTags
-  const sortBy = url.sortBy
-  // Committed (URL) price drives the API fetch; the live `priceRange` draft below drives the slider
-  // and instant client-side filtering. They diverge only while the user is dragging/typing.
-  const committedMinPrice = url.priceRange[0]
-  const committedMaxPrice = url.priceRange[1]
-
-  // Free-flowing controls keep a local draft for instant feedback, mirrored to the URL on change.
+  const fixtureScope = searchParams.get('fixture_scope') || undefined
   const [searchQuery, setSearchQuery] = useState(url.searchQuery)
   const [priceRange, setPriceRange] = useState<number[]>(url.priceRange)
 
-  const [liveVehicles, setLiveVehicles] = useState<Vehicle[]>([])
-  const [loadingVehicles, setLoadingVehicles] = useState(true)
-  const [loadError, setLoadError] = useState(false)
-  // What the returned page is actually ordered by. A shopper who picks "Highest Trust Score" while
-  // no listing carries a canonical evaluation gets newest-first, and must be told so rather than
-  // left to read the first card as the most trustworthy.
-  const [trustRanking, setTrustRanking] = useState<TrustRanking | null>(null)
-  const [favorites, setFavoritesState] = useState<string[]>(getFavorites)
+  const updateUrl = useCallback((patch: Partial<MarketplaceUrlState>, replace = false) => {
+    setSearchParams(previous => stateToParams({ ...paramsToState(previous), ...patch }), { replace })
+  }, [setSearchParams])
 
-  // Saved listings are SERVER-backed and account-scoped for authenticated users (existing
-  // /marketplace/saved API). Guests fall back to the browser-local list. Loading from the server on
-  // auth change makes saved state survive refresh and never leak across accounts.
+  const mutateUrl = useCallback((mutate: (state: MarketplaceUrlState) => Partial<MarketplaceUrlState>, replace = false) => {
+    const current = paramsToState(new URLSearchParams(window.location.search))
+    setSearchParams(stateToParams({ ...current, ...mutate(current) }), { replace })
+  }, [setSearchParams])
+
+  useEffect(() => {
+    /* eslint-disable react-hooks/set-state-in-effect */
+    setSearchQuery(previous => (previous.trim() === url.searchQuery ? previous : url.searchQuery))
+    setPriceRange(previous => (
+      previous[0] === url.priceRange[0] && previous[1] === url.priceRange[1] ? previous : url.priceRange
+    ))
+    /* eslint-enable react-hooks/set-state-in-effect */
+  }, [url])
+
+  useEffect(() => {
+    if (searchQuery.trim() === url.searchQuery) return
+    const timer = setTimeout(() => mutateUrl(() => ({ searchQuery: searchQuery.trim() }), true), 300)
+    return () => clearTimeout(timer)
+  }, [searchQuery, url.searchQuery, mutateUrl])
+
+  useEffect(() => {
+    if (priceRange[0] === url.priceRange[0] && priceRange[1] === url.priceRange[1]) return
+    const timer = setTimeout(() => mutateUrl(() => ({ priceRange: [priceRange[0], priceRange[1]] }), true), 350)
+    return () => clearTimeout(timer)
+  }, [priceRange, url.priceRange, mutateUrl])
+
   useEffect(() => {
     if (!isAuthenticated) {
       setFavoritesState(getFavorites())
@@ -487,149 +468,87 @@ export default function Marketplace() {
     }
     let active = true
     fetchSavedMarketplaceListings()
-      .then(res => { if (active) setFavoritesState((res.listings || []).map(l => l.vin).filter(Boolean)) })
-      .catch(() => { /* server unavailable — keep current view, no localStorage write for authed users */ })
+      .then(response => {
+        // A save/unsave click already told us the true state more recently than this request
+        // started; applying this response on top would revert that optimistic update back to
+        // whatever was saved before the click, even though the mutation itself succeeded.
+        if (active && !favoritesMutatedRef.current) {
+          setFavoritesState((response.listings || []).map(listing => listing.vin).filter(Boolean))
+        }
+      })
+      .catch(() => { /* retain current view; never copy authenticated state to guest localStorage */ })
     return () => { active = false }
   }, [isAuthenticated, fetchSavedMarketplaceListings])
 
-  // Client-side-only refinements (not yet in the URL contract — see marketplaceParams.ts / Phase 6)
-  const [selectedCategory, setSelectedCategory] = useState('All')
-  const [selectedCondition, setSelectedCondition] = useState('All')
-  const [selectedFuel, setSelectedFuel] = useState('All')
-  const [selectedTrans, setSelectedTrans] = useState('All')
-  const [selectedLocation, setSelectedLocation] = useState('All')
-
-  const [showFilters, setShowFilters] = useState(false)
-  const [mobileFiltersOpen, setMobileFiltersOpen] = useState(false)
-
-  // Merge a filter patch into the URL. Structural changes (make/chip/sort) push a history entry so
-  // back/forward step between filter states; free-text/price changes replace it to avoid history spam.
-  const updateUrl = useCallback((patch: Partial<MarketplaceUrlState>, replace = false) => {
-    setSearchParams(prev => stateToParams({ ...paramsToState(prev), ...patch }), { replace })
-  }, [setSearchParams])
-
-  // Like updateUrl, but the patch is derived from the LIVE URL (read from window.location at click
-  // time), NOT a React render closure. Essential for toggles (stacking trust tags / removing one):
-  // react-router hands setSearchParams' functional `prev` the stale render-closure value, so two fast
-  // clicks could race and overwrite the array. Reading window.location.search — which navigation
-  // updates synchronously — makes every toggle compose on the freshest committed state.
-  const mutateUrl = useCallback((mutate: (state: MarketplaceUrlState) => Partial<MarketplaceUrlState>, replace = false) => {
-    const current = paramsToState(new URLSearchParams(window.location.search))
-    setSearchParams(stateToParams({ ...current, ...mutate(current) }), { replace })
-  }, [setSearchParams])
-
-  const setMakeFilter = (value: string) => updateUrl({ selectedMake: value })
-  // Single-select condition/category: clicking the active one clears it back to 'All'.
-  const setCategoryFilter = (value: string) =>
-    mutateUrl(s => ({ selectedCategory: s.selectedCategory === value ? ALL : value }))
-  // Multi-select trust tags: toggle membership; stacks combine with AND.
-  const toggleTrustTag = (label: string) =>
-    mutateUrl(s => ({ selectedTags: s.selectedTags.includes(label) ? s.selectedTags.filter(t => t !== label) : [...s.selectedTags, label] }))
-  const setSortFilter = (value: string) => updateUrl({ sortBy: value as MarketplaceSort })
-  const setSearchFilter = (value: string) => { setSearchQuery(value); updateUrl({ searchQuery: value }, true) }
-
-  const filterState: MarketplaceUrlState = {
-    searchQuery,
-    selectedMake,
-    selectedCategory: marketplaceCategory,
-    selectedTags: trustTags,
-    priceRange: [priceRange[0], priceRange[1]],
-    sortBy,
-  }
-
-  // Latest search text, read by the fetch effect so typing filters client-side instantly without a
-  // network round-trip per keystroke.
-  const searchQueryRef = useRef(searchQuery)
-  useEffect(() => { searchQueryRef.current = searchQuery }, [searchQuery])
-
-  // Pull local drafts back into sync when the URL changes externally (back/forward, deep-links).
-  // Functional updaters that return the previous value when unchanged stop our own writes from
-  // clobbering in-progress typing (e.g. a trailing space the URL trims away).
-  useEffect(() => {
-    /* eslint-disable react-hooks/set-state-in-effect */
-    setSearchQuery(prev => (prev.trim() === url.searchQuery ? prev : url.searchQuery))
-    setPriceRange(prev => (prev[0] === url.priceRange[0] && prev[1] === url.priceRange[1] ? prev : url.priceRange))
-    /* eslint-enable react-hooks/set-state-in-effect */
-  }, [url])
-
-  // Phase 1.1: debounce price -> URL. Dragging the slider or editing the min/max inputs updates the
-  // local `priceRange` instantly (live client-side filtering + slider position), but the committed
-  // value is only written to the URL after a short pause — so price changes no longer fire an API
-  // refetch on every drag tick / keystroke. The selected price still updates the URL and the results.
-  useEffect(() => {
-    if (priceRange[0] === url.priceRange[0] && priceRange[1] === url.priceRange[1]) return
-    const timer = setTimeout(() => {
-      updateUrl({ priceRange: [priceRange[0], priceRange[1]] }, true)
-    }, 350)
-    return () => clearTimeout(timer)
-  }, [priceRange, url, updateUrl])
-
-  // Re-fetch when backend-supported structural filters change (make/chip/sort + the COMMITTED price).
-  // Search text (q) and the live price draft don't re-trigger this: q is read via a ref and price via
-  // the committed URL value — so typing and dragging the price slider never fire a network request.
+  // ONE public contract. Marketplace no longer falls back to /api/vehicles when this request fails:
+  // that path lacks the listing-specific ranking/media/reservation contract and creates two answers
+  // for the same shopping surface. Production fails closed; explicit dev mode may show mock inventory.
   useEffect(() => {
     let cancelled = false
-    const apiFilters = stateToApiFilters({
-      searchQuery: searchQueryRef.current,
-      selectedMake,
-      selectedCategory: marketplaceCategory,
-      selectedTags: trustTags,
-      priceRange: [committedMinPrice, committedMaxPrice],
-      sortBy,
-    }) as Record<string, string | number | boolean | undefined>
-    // Standard data-fetch loading reset: the listings API is an external system this effect drives.
+    const apiFilters = stateToApiFilters(url) as Record<string, string | number | boolean | undefined>
+    if (fixtureScope) apiFilters.fixture_scope = fixtureScope
+
     /* eslint-disable react-hooks/set-state-in-effect */
     setLoadingVehicles(true)
     setLoadError(false)
     /* eslint-enable react-hooks/set-state-in-effect */
+
     fetchMarketplaceListings(apiFilters)
-      .then((data) => {
+      .then(data => {
         if (cancelled) return
         setTrustRanking(readTrustRanking(data))
-        if (data && Array.isArray(data.listings)) {
-          setLiveVehicles(withMockFallback(data.listings.map(marketplaceSummaryToVehicle), mockVehicles as unknown as Vehicle[]))
-        } else {
-          setLiveVehicles(withMockFallback([], mockVehicles as unknown as Vehicle[]))
-        }
+        const listings = Array.isArray(data?.listings) ? data.listings as CanonicalListing[] : []
+        setLiveListings(withMockFallback(listings, mockVehicles.map(mockVehicleToListing)))
       })
-      .catch(async (err) => {
+      .catch(error => {
         if (cancelled) return
-        console.error('Failed to fetch marketplace listing summaries:', err)
-        // The fallback endpoint reports no ranking, so no ordering claim is carried over from the
-        // request that failed.
+        console.error('Failed to fetch canonical marketplace listing summaries:', error)
         setTrustRanking(null)
-        try {
-          const data = await fetchVehicles(apiFilters)
-          if (cancelled) return
-          setLiveVehicles(withMockFallback(data, mockVehicles as unknown as Vehicle[]))
-          setLoadError(true)
-        } catch (fallbackErr) {
-          if (cancelled) return
-          console.error('Failed to fetch marketplace vehicles:', fallbackErr)
-          setLiveVehicles(withMockFallback([], mockVehicles as unknown as Vehicle[]))
-          setLoadError(true)
-        }
+        setLoadError(true)
+        setLiveListings(withMockFallback([], mockVehicles.map(mockVehicleToListing)))
       })
-      .finally(() => { if (!cancelled) setLoadingVehicles(false) })
-    return () => { cancelled = true }
-  }, [selectedMake, marketplaceCategory, trustTags, committedMinPrice, committedMaxPrice, sortBy, fetchMarketplaceListings, fetchVehicles])
+      .finally(() => {
+        if (!cancelled) setLoadingVehicles(false)
+      })
 
-  const toggleFavorite = useCallback(async (e: React.MouseEvent, vehicleId: string, vehicleName: string) => {
-    e.preventDefault()
-    e.stopPropagation()
-    const isSaved = favorites.includes(vehicleId)
-    const optimistic = isSaved ? favorites.filter(id => id !== vehicleId) : [...favorites, vehicleId]
+    return () => { cancelled = true }
+  }, [url, fixtureScope, fetchMarketplaceListings])
+
+  const toggleCompare = useCallback((event: React.MouseEvent, vin: string) => {
+    event.preventDefault()
+    event.stopPropagation()
+    const removing = compareVins.includes(vin)
+    if (!removing && compareVins.length >= MAX_COMPARE) {
+      toast.info(`You can compare up to ${MAX_COMPARE} listings.`)
+      return
+    }
+    const next = removing ? compareVins.filter(value => value !== vin) : [...compareVins, vin]
+    setCompareVins(next)
+    trackActivity({
+      event_type: removing ? 'marketplace_compare_removed' : 'marketplace_compare_added',
+      listing_id: vin,
+      source_surface: 'marketplace_list',
+      compare_listing_ids: next,
+      metadata: { compare_set_size: next.length },
+    })
+  }, [compareVins])
+
+  const toggleFavorite = useCallback(async (event: React.MouseEvent, vin: string, vehicleName: string) => {
+    event.preventDefault()
+    event.stopPropagation()
+    favoritesMutatedRef.current = true
+    const isSaved = favorites.includes(vin)
+    const optimistic = isSaved ? favorites.filter(id => id !== vin) : [...favorites, vin]
 
     if (isAuthenticated) {
-      // Server-backed + account-scoped. Optimistic UI, rolled back on error. No localStorage write.
       const previous = favorites
       setFavoritesState(optimistic)
       try {
         if (isSaved) {
-          await unsaveMarketplaceListing(vehicleId)
+          await unsaveMarketplaceListing(vin)
           toast.info('Removed from saved cars')
         } else {
-          await saveMarketplaceListing(vehicleId)
+          await saveMarketplaceListing(vin)
           toast.success(`${vehicleName} saved!`)
         }
       } catch {
@@ -639,571 +558,586 @@ export default function Marketplace() {
       return
     }
 
-    // Guest fallback: browser-local only (clearly guest-scoped).
     setFavorites(optimistic)
     setFavoritesState(optimistic)
     toast[isSaved ? 'info' : 'success'](isSaved ? 'Removed from saved cars' : `${vehicleName} saved!`)
   }, [favorites, isAuthenticated, saveMarketplaceListing, unsaveMarketplaceListing])
 
-  const filtered = liveVehicles.filter((v: Vehicle) => {
-    const loc = v.location || ''
-    const q = searchQuery.toLowerCase()
-    // Plate/chassis are not searchable client-side: they are absent from the public listing
-    // contract, and matching on them would turn the grid into an identifier oracle.
-    const searchableText = [
-      v.make,
-      v.model,
-      loc,
-      v.vin,
-      v.condition,
-      v.category,
-      v.sellerName,
-      v.sellerType,
-      v.current_seller_type,
-      v.tenant?.name,
-      hasPartSentrySignal(v) ? 'partsentry repair part history checked' : '',
-      getRepairHistoryCount(v) > 0 ? 'repair history service logs work orders' : '',
-    ].map(value => value || '').join(' ').toLowerCase()
-    const matchSearch = !searchQuery || searchableText.includes(q)
-    const matchCat = selectedCategory === 'All' || v.category === selectedCategory
-    const matchMarketplaceCategory = matchesConditionChip(v, marketplaceCategory)
-    const matchTrustTags = matchesAllTrustTags(v, trustTags)
-    const matchMake = selectedMake === 'All' || v.make === selectedMake
-    const matchCond = selectedCondition === 'All' || v.condition === selectedCondition
-    const matchFuel = selectedFuel === 'All' || getFuelType(v) === selectedFuel
-    const matchTrans = selectedTrans === 'All' || v.transmission === selectedTrans
-    const matchLoc = selectedLocation === 'All' || loc === selectedLocation
-    const matchPrice = (v.price || 0) >= priceRange[0] && (v.price || 0) <= priceRange[1]
-    return matchSearch && matchCat && matchMarketplaceCategory && matchTrustTags && matchMake && matchCond && matchFuel && matchTrans && matchLoc && matchPrice
-  })
+  // Draft search/price filtering keeps the UI responsive during debounce. All structural facets are
+  // already applied by the backend over the full eligible population before its result limit.
+  const visibleListings = useMemo(() => liveListings.filter(listing => {
+    const query = searchQuery.trim().toLowerCase()
+    const searchable = [
+      listing.vin,
+      listing.make,
+      listing.model,
+      listing.year,
+      listing.color,
+      listing.location,
+      listing.seller_display_label,
+      listing.seller_type,
+      listing.condition_category,
+      ...(listing.marketplace_tags || []),
+    ].filter(Boolean).join(' ').toLowerCase()
+    const matchesSearch = !query || searchable.includes(query)
+    const price = typeof listing.price === 'number' && Number.isFinite(listing.price) ? listing.price : null
+    const atDefaultPriceRange = priceRange[0] === PRICE_MIN_DEFAULT && priceRange[1] === PRICE_MAX_DEFAULT
+    const matchesPrice = price === null
+      ? atDefaultPriceRange
+      : price >= priceRange[0] && (priceRange[1] === PRICE_MAX_DEFAULT || price <= priceRange[1])
+    return matchesSearch && matchesPrice
+  }), [liveListings, searchQuery, priceRange])
 
-  const sorted = [...filtered].sort((a: Vehicle, b: Vehicle) => {
-    if (sortBy === 'price-low') return (a.price || 0) - (b.price || 0)
-    if (sortBy === 'price-high') return (b.price || 0) - (a.price || 0)
-    if (sortBy === 'newest') return new Date(b.created_at || 0).getTime() - new Date(a.created_at || 0).getTime()
-    // No `sortBy === 'trust'` branch. Trust ordering is the backend's, computed from canonical
-    // scores only; re-ranking it here on the unversioned cached column would undo exactly that.
-    return 0
-  })
+  const spotlightListing = visibleListings[0] ?? null
+  const compareSelections = compareVins
+    .map(vin => liveListings.find(listing => listing.vin === vin))
+    .filter((listing): listing is CanonicalListing => Boolean(listing))
 
-  const activeFilterCount = [
-    selectedCategory !== 'All', selectedMake !== 'All', selectedCondition !== 'All',
-    selectedFuel !== 'All', selectedTrans !== 'All', selectedLocation !== 'All',
-    marketplaceCategory !== 'All',
-    priceRange[0] > 0 || priceRange[1] < 100000,
-  ].filter(Boolean).length + trustTags.length
+  const filterState: MarketplaceUrlState = {
+    ...url,
+    searchQuery,
+    priceRange: [priceRange[0], priceRange[1]],
+  }
+  const activeChips = getActiveFilterChips(filterState)
+  const activeFilterCount = activeChips.filter(chip => chip.key !== 'sort').length
 
   const resetFilters = () => {
-    setSelectedCategory('All'); setSelectedCondition('All')
-    setSelectedFuel('All'); setSelectedTrans('All'); setSelectedLocation('All')
-    setSearchQuery(''); setPriceRange([0, 100000])
+    setSearchQuery('')
+    setPriceRange([PRICE_MIN_DEFAULT, PRICE_MAX_DEFAULT])
     setSearchParams(new URLSearchParams(), { replace: false })
   }
 
-  const activeChips = getActiveFilterChips(filterState)
   const removeChip = (key: ActiveFilterKey, value?: string) => {
-    if (key === 'make') updateUrl({ selectedMake: ALL })
-    else if (key === 'q') setSearchFilter('')
-    else if (key === 'category') updateUrl({ selectedCategory: ALL })
-    else if (key === 'tag') mutateUrl(s => ({ selectedTags: s.selectedTags.filter(t => t !== value) }))
-    else if (key === 'price') updateUrl({ priceRange: [0, 100000] }, true)
-    else if (key === 'sort') updateUrl({ sortBy: 'newest' })
+    if (key === 'make') updateUrl({ selectedMake: ALL, selectedModel: ALL })
+    else if (key === 'model') updateUrl({ selectedModel: ALL })
+    else if (key === 'year') updateUrl({ selectedYear: ALL })
+    else if (key === 'color') updateUrl({ selectedColor: ALL })
+    else if (key === 'bodyStyle') updateUrl({ selectedBodyStyle: ALL })
+    else if (key === 'q') {
+      setSearchQuery('')
+      updateUrl({ searchQuery: '' }, true)
+    } else if (key === 'category') updateUrl({ selectedCategory: ALL })
+    else if (key === 'tag') mutateUrl(state => ({ selectedTags: state.selectedTags.filter(tag => tag !== value) }))
+    else if (key === 'fuel') updateUrl({ selectedFuel: ALL })
+    else if (key === 'transmission') updateUrl({ selectedTransmission: ALL })
+    else if (key === 'location') updateUrl({ selectedLocation: ALL })
+    else if (key === 'price') {
+      setPriceRange([PRICE_MIN_DEFAULT, PRICE_MAX_DEFAULT])
+      updateUrl({ priceRange: [PRICE_MIN_DEFAULT, PRICE_MAX_DEFAULT] }, true)
+    } else if (key === 'sort') updateUrl({ sortBy: 'newest' })
   }
+
+  const setCategoryFilter = (value: string) => mutateUrl(state => ({
+    selectedCategory: state.selectedCategory === value ? ALL : value,
+  }))
+  const toggleTrustTag = (label: string) => mutateUrl(state => ({
+    selectedTags: state.selectedTags.includes(label)
+      ? state.selectedTags.filter(tag => tag !== label)
+      : [...state.selectedTags, label],
+  }))
 
   const filterControls = (
     <FilterControls
-      selectedMake={selectedMake} setSelectedMake={setMakeFilter}
-      selectedCategory={selectedCategory} setSelectedCategory={setSelectedCategory}
-      selectedCondition={selectedCondition} setSelectedCondition={setSelectedCondition}
-      selectedLocation={selectedLocation} setSelectedLocation={setSelectedLocation}
-      selectedFuel={selectedFuel} setSelectedFuel={setSelectedFuel}
-      selectedTrans={selectedTrans} setSelectedTrans={setSelectedTrans}
-      priceRange={priceRange} setPriceRange={setPriceRange}
+      selectedMake={url.selectedMake}
+      onMake={value => updateUrl({ selectedMake: value, selectedModel: ALL })}
+      selectedModel={url.selectedModel}
+      onModel={value => updateUrl({ selectedModel: value })}
+      selectedYear={url.selectedYear}
+      onYear={value => updateUrl({ selectedYear: value })}
+      selectedColor={url.selectedColor}
+      onColor={value => updateUrl({ selectedColor: value })}
+      selectedBodyStyle={url.selectedBodyStyle}
+      onBodyStyle={value => updateUrl({ selectedBodyStyle: value })}
+      selectedLocation={url.selectedLocation}
+      onLocation={value => updateUrl({ selectedLocation: value })}
+      selectedFuel={url.selectedFuel}
+      onFuel={value => updateUrl({ selectedFuel: value })}
+      selectedTransmission={url.selectedTransmission}
+      onTransmission={value => updateUrl({ selectedTransmission: value })}
+      priceRange={priceRange}
+      setPriceRange={setPriceRange}
     />
   )
 
-  return (
-    <div className="min-h-screen bg-gray-50" data-testid="marketplace-page">
-      {/* Header */}
-      <div className="bg-white border-b">
-        <div className="section-padding mx-auto max-w-[1440px] py-8">
-          <h1 className="text-3xl font-bold mb-2">Vehicle Marketplace</h1>
-          <p className="text-gray-600">
-            {/* Not "verified vehicles across Zimbabwe" — the population is neither all verified nor
-                asserted to be all in Zimbabwe. Each vehicle carries its own governed trust signals. */}
-            Browse {liveVehicles.length} published {liveVehicles.length === 1 ? 'listing' : 'listings'}, with governed trust, parts and repair signals shown per vehicle where data exists.
-          </p>
-          <div className="mt-4 flex flex-wrap items-center gap-2" data-testid="marketplace-entry-actions">
-            <BuyerAssistantDrawer />
-            <Button asChild variant="outline" data-testid="marketplace-parts-link">
-              <Link to="/marketplace/parts">Parts</Link>
+  const taxonomyControls = (
+    <div className="space-y-5">
+      <div data-testid="marketplace-condition-group">
+        <div className="mb-2 flex items-start justify-between gap-3">
+          <div>
+            <p className="text-sm font-semibold text-slate-900">Vehicle condition</p>
+            <p className="mt-0.5 text-xs leading-4 text-slate-500">Choose one classification.</p>
+          </div>
+          {url.selectedCategory !== ALL && (
+            <Button variant="ghost" size="sm" className="h-7 px-2 text-xs" onClick={() => updateUrl({ selectedCategory: ALL })} data-testid="marketplace-clear-condition">
+              Clear
             </Button>
-            <Button asChild variant="outline" data-testid="marketplace-services-link">
-              <Link to="/marketplace/services">Garages &amp; Services</Link>
-            </Button>
-            <InquiryModal
-              inquiryTypes={DIASPORA_INQUIRY_TYPES}
-              defaultInquiryType="import_quote_request"
-              triggerLabel="Import to Zimbabwe"
-              triggerVariant="outline"
-            />
-            <span className="hidden items-center gap-1 text-xs text-gray-500 sm:flex">
-              <Globe2 className="h-3.5 w-3.5 text-blue-500" /> Diaspora & import inquiries — no shipment data exposed
-            </span>
-          </div>
+          )}
         </div>
-      </div>
-
-      <div className="section-padding mx-auto max-w-[1440px] py-6">
-        {/* Search & Sort Bar */}
-        <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-center mb-4">
-          <div className="relative flex-1 min-w-[220px]">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
-            <Input
-              placeholder="Search make, model, location, VIN, plate, chassis, or seller type..."
-              value={searchQuery}
-              onChange={(e) => setSearchFilter(e.target.value)}
-              className="pl-10"
-              data-testid="marketplace-search-input"
-            />
-          </div>
-          <div className="flex items-center gap-2">
-            <Select value={sortBy} onValueChange={setSortFilter}>
-              <SelectTrigger className="w-[150px] sm:w-[170px]" data-testid="marketplace-sort-select">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="newest">Newest First</SelectItem>
-                <SelectItem value="price-low">Price: Low to High</SelectItem>
-                <SelectItem value="price-high">Price: High to Low</SelectItem>
-                <SelectItem value="trust">Highest Trust Score</SelectItem>
-              </SelectContent>
-            </Select>
-
-            {isMobile ? (
-              <Sheet open={mobileFiltersOpen} onOpenChange={setMobileFiltersOpen}>
-                <SheetTrigger asChild>
-                  <Button variant="outline" data-testid="marketplace-mobile-filter-button">
-                    <SlidersHorizontal className="w-4 h-4 mr-2" />
-                    Filters
-                    {activeFilterCount > 0 && (
-                      <Badge variant="secondary" className="ml-2 text-[10px]">{activeFilterCount}</Badge>
-                    )}
-                  </Button>
-                </SheetTrigger>
-                <SheetContent
-                  side="left"
-                  className="w-[88%] max-w-sm overflow-y-auto"
-                  data-testid="marketplace-mobile-filter-drawer"
-                >
-                  <SheetHeader>
-                    <SheetTitle>Filters</SheetTitle>
-                  </SheetHeader>
-                  <div className="px-4 pb-2">
-                    {filterControls}
-                  </div>
-                  <SheetFooter className="flex-row gap-2">
-                    <Button variant="ghost" className="flex-1" onClick={resetFilters}>
-                      Clear all
-                    </Button>
-                    <Button
-                      className="flex-1 bg-orange-500 hover:bg-orange-600"
-                      onClick={() => setMobileFiltersOpen(false)}
-                      data-testid="marketplace-mobile-filter-close"
-                    >
-                      Show results
-                    </Button>
-                  </SheetFooter>
-                </SheetContent>
-              </Sheet>
-            ) : (
-              <Button
-                variant={showFilters ? 'default' : 'outline'}
-                className={showFilters ? 'bg-orange-500 hover:bg-orange-600' : ''}
-                onClick={() => setShowFilters(!showFilters)}
-              >
-                <SlidersHorizontal className="w-4 h-4 mr-2" />
-                Filters
-                {activeFilterCount > 0 && (
-                  <Badge variant="secondary" className="ml-2 text-[10px]">{activeFilterCount}</Badge>
-                )}
-              </Button>
-            )}
-          </div>
-        </div>
-
-        {/* Quick filters — condition chips pick one, trust chips stack (routed by kind) */}
-        <div className="mb-4 flex items-center gap-2 overflow-x-auto pb-1" data-testid="marketplace-quick-filters">
-          <span className="flex shrink-0 items-center gap-1 text-xs font-semibold text-gray-500">
-            <ShieldCheck className="h-3.5 w-3.5 text-orange-500" /> Quick filters
-          </span>
-          {TRUST_QUICK_FILTERS.map(filter => {
-            const isCategory = isCategoryChip(filter.label)
-            const active = isCategory ? marketplaceCategory === filter.label : trustTags.includes(filter.label)
+        <div className="flex flex-wrap gap-1.5">
+          {['All', ...CONDITION_CHIPS].map(chip => {
+            const active = chip === 'All' ? url.selectedCategory === ALL : url.selectedCategory === chip
             return (
               <button
-                key={filter.label}
+                key={chip}
                 type="button"
-                data-testid={filter.testId}
                 aria-pressed={active}
-                onClick={() => (isCategory ? setCategoryFilter(filter.label) : toggleTrustTag(filter.label))}
-                className={`shrink-0 rounded-full border px-3 py-1.5 text-xs font-semibold transition-colors ${
-                  active
-                    ? 'border-orange-500 bg-orange-50 text-orange-700'
-                    : 'border-gray-200 bg-white text-gray-700 hover:border-orange-300 hover:bg-orange-50'
-                }`}
+                onClick={() => (chip === 'All' ? updateUrl({ selectedCategory: ALL }) : setCategoryFilter(chip))}
+                className={`rounded-full border px-2.5 py-1.5 text-[11px] font-semibold transition ${active
+                  ? 'border-orange-500 bg-orange-50 text-orange-800'
+                  : 'border-slate-200 bg-white text-slate-600 hover:border-orange-300 hover:text-slate-900'}`}
+                data-testid="marketplace-category-chip"
               >
-                {filter.label}
+                {chip}
               </button>
             )
           })}
         </div>
+      </div>
 
-        {/* Filter taxonomy — ONE condition + MANY stackable trust filters, visually separated */}
-        <div className="mb-6 space-y-4 rounded-xl border border-gray-100 bg-white p-4 shadow-sm">
-          {/* Condition / category — single-select (mutually exclusive) */}
-          <div data-testid="marketplace-condition-group">
-            <div className="mb-2 flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
-              <div>
-                <p className="text-sm font-semibold text-gray-900">Condition <span className="font-normal text-gray-400">(choose one)</span></p>
-                <p className="text-xs text-gray-500">Pick a single vehicle classification. Selecting another replaces it.</p>
-              </div>
-              {marketplaceCategory !== 'All' && (
-                <Button variant="ghost" size="sm" onClick={() => setCategoryFilter('All')} data-testid="marketplace-clear-condition">
-                  Clear condition
-                </Button>
-              )}
+      <div className="border-t border-slate-200 pt-5" data-testid="marketplace-trust-group">
+        <div className="mb-2 flex items-start justify-between gap-3">
+          <div>
+            <p className="flex items-center gap-1.5 text-sm font-semibold text-slate-900">
+              <ShieldCheck className="h-4 w-4 text-orange-600" /> Trust signals
+            </p>
+            <p className="mt-0.5 text-xs leading-4 text-slate-500">Stack filters; every selected signal must match.</p>
+          </div>
+          {url.selectedTags.length > 0 && (
+            <Button variant="ghost" size="sm" className="h-7 px-2 text-xs" onClick={() => updateUrl({ selectedTags: [] })} data-testid="marketplace-clear-trust">
+              Clear
+            </Button>
+          )}
+        </div>
+        <div className="flex flex-wrap gap-1.5">
+          {TRUST_CHIPS.map(chip => {
+            const active = url.selectedTags.includes(chip)
+            return (
+              <button
+                key={chip}
+                type="button"
+                aria-pressed={active}
+                onClick={() => toggleTrustTag(chip)}
+                className={`rounded-full border px-2.5 py-1.5 text-[11px] font-semibold transition ${active
+                  ? 'border-orange-500 bg-orange-50 text-orange-800'
+                  : 'border-slate-200 bg-white text-slate-600 hover:border-orange-300 hover:text-slate-900'}`}
+                data-testid="marketplace-trust-chip"
+              >
+                {chip}
+              </button>
+            )
+          })}
+        </div>
+      </div>
+    </div>
+  )
+
+  return (
+    <div className="min-h-screen bg-white text-slate-950" data-testid="marketplace-page">
+      <section
+        className="relative overflow-hidden bg-[#070b12] text-white"
+        data-testid="marketplace-compact-header"
+      >
+        <div className="pointer-events-none absolute inset-0 opacity-70 [background-image:radial-gradient(circle_at_18%_20%,rgba(249,115,22,0.16),transparent_24%),linear-gradient(120deg,transparent_0%,transparent_58%,rgba(255,255,255,0.04)_58%,rgba(255,255,255,0.04)_59%,transparent_59%)]" />
+        <div className="section-padding relative mx-auto max-w-[1440px] pb-20 pt-5 sm:pb-24 lg:pb-28 lg:pt-7">
+          <div className="flex items-center justify-between gap-5 border-b border-white/10 pb-4">
+            <div className="flex items-center gap-2 text-[10px] font-black uppercase tracking-[0.24em] text-orange-400">
+              <CarFront className="h-4 w-4" /> CarUp Marketplace
             </div>
-            <div className="flex flex-wrap gap-2">
-              {['All', ...CONDITION_CHIPS].map(chip => {
-                const active = chip === 'All' ? marketplaceCategory === 'All' : marketplaceCategory === chip
-                return (
-                  <button
-                    key={chip}
-                    type="button"
-                    aria-pressed={active}
-                    onClick={() => setCategoryFilter(chip === 'All' ? ALL : chip)}
-                    className={`rounded-full border px-3 py-1.5 text-xs font-semibold transition-colors ${
-                      active
-                        ? 'border-orange-500 bg-orange-50 text-orange-700'
-                        : 'border-gray-200 bg-white text-gray-700 hover:border-orange-300 hover:bg-orange-50'
-                    }`}
-                    data-testid="marketplace-category-chip"
-                  >
-                    {chip}
-                  </button>
-                )
-              })}
-            </div>
+            <nav className="flex max-w-[72vw] gap-1 overflow-x-auto text-xs font-semibold sm:text-sm" aria-label="Marketplace categories">
+              <Link to="/marketplace" className="shrink-0 border-b border-orange-400 px-2.5 py-2 text-white">Cars</Link>
+              <Link to="/marketplace/parts" className="shrink-0 border-b border-transparent px-2.5 py-2 text-slate-400 hover:text-white">Parts</Link>
+              <Link to="/marketplace/services" className="shrink-0 border-b border-transparent px-2.5 py-2 text-slate-400 hover:text-white">Garages</Link>
+              <Link to="/diaspora" className="shrink-0 border-b border-transparent px-2.5 py-2 text-slate-400 hover:text-white">Imports</Link>
+              <Link to="/insurance" className="hidden shrink-0 border-b border-transparent px-2.5 py-2 text-slate-400 hover:text-white sm:block">Insurance</Link>
+              <Link to="/pricing" className="hidden shrink-0 border-b border-transparent px-2.5 py-2 text-slate-400 hover:text-white sm:block">Finance</Link>
+            </nav>
           </div>
 
-          {/* Trust filters — multi-select (stackable, AND) */}
-          <div className="border-t border-gray-100 pt-4" data-testid="marketplace-trust-group">
-            <div className="mb-2 flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
-              <div>
-                <p className="text-sm font-semibold text-gray-900">Trust filters <span className="font-normal text-gray-400">(stack any — all must match)</span></p>
-                <p className="text-xs text-gray-500">Combine multiple trust signals; results match every selected filter.</p>
+          <div className="grid gap-8 pt-8 lg:grid-cols-[0.78fr_1.22fr] lg:items-end lg:gap-12 lg:pt-12">
+            <div className="relative z-10 lg:pb-5">
+              <p className="text-xs font-black uppercase tracking-[0.2em] text-slate-400">Zimbabwe&apos;s vehicle showroom + trust layer</p>
+              <h1 className="mt-4 max-w-3xl text-5xl font-black leading-[0.9] tracking-[-0.055em] text-white sm:text-6xl lg:text-7xl">
+                Find the car.
+                <span className="mt-1 block text-orange-400">Know what stands behind it.</span>
+              </h1>
+              <p className="mt-6 max-w-xl text-sm leading-6 text-slate-300 sm:text-base sm:leading-7">
+                Shop published vehicles with the commercial facts up front and CarUp&apos;s governed Trust,
+                evidence and lifecycle context close enough to act on — without turning seller claims into verified facts.
+              </p>
+              <div className="mt-7 flex flex-wrap gap-x-6 gap-y-2 border-t border-white/10 pt-4 text-xs text-slate-400">
+                <span><strong className="text-white">Published</strong> inventory only</span>
+                <span><strong className="text-white">Canonical</strong> Trust states</span>
+                <span><strong className="text-white">4 cars</strong> max compare</span>
               </div>
-              {trustTags.length > 0 && (
-                <Button variant="ghost" size="sm" onClick={() => updateUrl({ selectedTags: [] })} data-testid="marketplace-clear-trust">
-                  Clear trust filters
-                </Button>
-              )}
             </div>
-            <div className="flex flex-wrap gap-2">
-              {TRUST_CHIPS.map(chip => {
-                const active = trustTags.includes(chip)
-                return (
-                  <button
-                    key={chip}
-                    type="button"
-                    aria-pressed={active}
-                    onClick={() => toggleTrustTag(chip)}
-                    className={`rounded-full border px-3 py-1.5 text-xs font-semibold transition-colors ${
-                      active
-                        ? 'border-orange-500 bg-orange-50 text-orange-700'
-                        : 'border-gray-200 bg-white text-gray-700 hover:border-orange-300 hover:bg-orange-50'
-                    }`}
-                    data-testid="marketplace-trust-chip"
-                  >
-                    {chip}
-                  </button>
-                )
-              })}
+
+            <div className="relative min-h-[300px] sm:min-h-[390px] lg:min-h-[470px]" data-testid="marketplace-showroom-spotlight">
+              <div className="absolute -right-8 top-0 h-[88%] w-[92%] border border-white/10 [clip-path:polygon(9%_0,100%_0,100%_88%,82%_100%,0_91%,0_14%)]" />
+              {spotlightListing ? (
+                <Link
+                  to={`/marketplace/${encodeURIComponent(spotlightListing.vin)}${fixtureScope ? `?fixture_scope=${encodeURIComponent(fixtureScope)}` : ''}`}
+                  className="group absolute inset-x-0 top-3 block h-[82%] overflow-hidden bg-slate-900 shadow-[0_38px_100px_rgba(0,0,0,0.52)] [clip-path:polygon(8%_0,100%_0,100%_88%,82%_100%,0_91%,0_14%)]"
+                  aria-label={`Open ${[spotlightListing.year, spotlightListing.make, spotlightListing.model].filter(Boolean).join(' ')}`}
+                >
+                  <ListingImage
+                    src={primaryImageForListing(spotlightListing)}
+                    alt={[spotlightListing.year, spotlightListing.make, spotlightListing.model].filter(Boolean).join(' ') || 'Marketplace vehicle'}
+                    className="h-full w-full"
+                    imgClassName="transition duration-700 ease-out group-hover:scale-[1.035]"
+                    loading="eager"
+                  />
+                  <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/5 to-black/10" />
+                  <div className="absolute left-5 top-5 border border-white/25 bg-black/35 px-3 py-1.5 text-[10px] font-black uppercase tracking-[0.16em] text-white backdrop-blur-sm">
+                    Live inventory
+                  </div>
+                  <div className="absolute inset-x-0 bottom-0 flex items-end justify-between gap-5 p-5 sm:p-7">
+                    <div className="min-w-0">
+                      <p className="text-xs font-semibold uppercase tracking-[0.14em] text-orange-300">Showroom spotlight</p>
+                      <p className="mt-1 truncate text-2xl font-black tracking-[-0.035em] text-white sm:text-3xl">
+                        {[spotlightListing.year, spotlightListing.make, spotlightListing.model].filter(Boolean).join(' ')}
+                      </p>
+                      <p className="mt-2 text-sm text-slate-300">
+                        {summaryLocationLine(spotlightListing.location, spotlightListing.location_state).label}
+                      </p>
+                    </div>
+                    <div className="shrink-0 text-right">
+                      <p className="text-2xl font-black text-white">{marketplacePriceLabel(spotlightListing.price, spotlightListing.currency)}</p>
+                      <span className="mt-2 inline-flex items-center gap-2 text-xs font-bold text-orange-300">
+                        Open vehicle <ArrowRight className="h-4 w-4 transition group-hover:translate-x-1" />
+                      </span>
+                    </div>
+                  </div>
+                </Link>
+              ) : (
+                <div className="absolute inset-x-0 top-3 flex h-[82%] items-center justify-center bg-slate-900 text-sm text-slate-500 [clip-path:polygon(8%_0,100%_0,100%_88%,82%_100%,0_91%,0_14%)]">
+                  {loadingVehicles ? 'Loading live showroom…' : 'No published vehicle to spotlight'}
+                </div>
+              )}
             </div>
           </div>
         </div>
+      </section>
 
-        {/* Active filters */}
+      <div className="section-padding relative mx-auto max-w-[1440px] pb-12 pt-0 sm:pb-16">
+        <section className="relative z-20 -mt-12 bg-white shadow-[0_28px_80px_rgba(15,23,42,0.18)] sm:-mt-14">
+          <div className="border-b border-slate-200 px-4 py-3 sm:px-6">
+            <div className="flex items-center justify-between gap-4">
+              <div>
+                <p className="text-[10px] font-black uppercase tracking-[0.2em] text-orange-600">Search the showroom</p>
+                <p className="mt-0.5 text-xs text-slate-500">Make, model, year, location, seller or a vehicle identifier.</p>
+              </div>
+              {!loadingVehicles && (
+                <p className="hidden text-xs font-semibold text-slate-500 sm:block">
+                  <span className="text-slate-950">{visibleListings.length}</span> published {visibleListings.length === 1 ? 'listing' : 'listings'}
+                </p>
+              )}
+            </div>
+          </div>
+
+          <div className="grid lg:grid-cols-[minmax(0,1.7fr)_0.7fr_0.6fr_0.85fr_auto]">
+            <div className="relative border-b border-slate-200 lg:border-b-0 lg:border-r">
+              <Search className="absolute left-5 top-1/2 h-5 w-5 -translate-y-1/2 text-orange-500" />
+              <Input
+                placeholder="Try “Hilux diesel”, “Harare”, a VIN, make or model…"
+                value={searchQuery}
+                onChange={event => setSearchQuery(event.target.value)}
+                className="h-16 rounded-none border-0 bg-transparent pl-14 pr-4 text-base font-semibold shadow-none placeholder:font-normal placeholder:text-slate-400 focus-visible:ring-0 sm:h-[72px] sm:text-lg"
+                data-testid="marketplace-search-input"
+              />
+            </div>
+
+            <div className="hidden border-r border-slate-200 lg:block">
+              <Select value={url.selectedMake} onValueChange={value => updateUrl({ selectedMake: value, selectedModel: ALL })}>
+                <SelectTrigger className="h-[72px] rounded-none border-0 bg-white px-4 shadow-none focus:ring-0" data-testid="marketplace-command-make">
+                  <div className="text-left">
+                    <span className="block text-[9px] font-black uppercase tracking-[0.16em] text-slate-400">Make</span>
+                    <SelectValue />
+                  </div>
+                </SelectTrigger>
+                <SelectContent>{makes.map(make => <SelectItem key={make} value={make}>{make}</SelectItem>)}</SelectContent>
+              </Select>
+            </div>
+
+            <div className="hidden border-r border-slate-200 lg:block">
+              <Select value={url.selectedYear} onValueChange={value => updateUrl({ selectedYear: value })}>
+                <SelectTrigger className="h-[72px] rounded-none border-0 bg-white px-4 shadow-none focus:ring-0" data-testid="marketplace-command-year">
+                  <div className="text-left">
+                    <span className="block text-[9px] font-black uppercase tracking-[0.16em] text-slate-400">Year</span>
+                    <SelectValue />
+                  </div>
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value={ALL}>Any year</SelectItem>
+                  {marketplaceYears.map(year => <SelectItem key={year} value={year}>{year}</SelectItem>)}
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div className="hidden border-r border-slate-200 lg:block">
+              <Select value={url.selectedLocation} onValueChange={value => updateUrl({ selectedLocation: value })}>
+                <SelectTrigger className="h-[72px] rounded-none border-0 bg-white px-4 shadow-none focus:ring-0" data-testid="marketplace-command-location">
+                  <div className="min-w-0 text-left">
+                    <span className="block text-[9px] font-black uppercase tracking-[0.16em] text-slate-400">Location</span>
+                    <SelectValue />
+                  </div>
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="All">Anywhere</SelectItem>
+                  {zimbabweLocations.map(location => <SelectItem key={location} value={location}>{location}</SelectItem>)}
+                </SelectContent>
+              </Select>
+            </div>
+
+            <Sheet open={mobileFiltersOpen} onOpenChange={setMobileFiltersOpen}>
+              <SheetTrigger asChild>
+                <Button
+                  className="h-16 rounded-none bg-orange-500 px-5 font-black text-white shadow-none hover:bg-orange-600 sm:h-[72px]"
+                  data-testid="marketplace-mobile-filter-button"
+                >
+                  <SlidersHorizontal className="mr-2 h-4 w-4" />
+                  All filters
+                  {activeFilterCount > 0 && <span className="ml-2 bg-white px-1.5 py-0.5 text-[10px] font-black text-orange-700">{activeFilterCount}</span>}
+                </Button>
+              </SheetTrigger>
+              <SheetContent side="left" className="w-[94%] max-w-md overflow-y-auto bg-[#f8fafc] p-0 sm:max-w-lg" data-testid="marketplace-mobile-filter-drawer">
+                <SheetHeader className="border-b border-slate-200 bg-[#08111f] px-5 py-5 text-left text-white">
+                  <SheetTitle className="text-white">Build your shortlist</SheetTitle>
+                  <p className="text-xs leading-5 text-slate-400">Refine the published inventory. Seller-stated and governed facts keep their original evidence states.</p>
+                </SheetHeader>
+                <div className="space-y-7 px-5 py-6">
+                  {filterControls}
+                  <div className="border-t border-slate-200 pt-6">{taxonomyControls}</div>
+                </div>
+                <SheetFooter className="sticky bottom-0 flex-row gap-2 border-t border-slate-200 bg-white p-4">
+                  <Button variant="ghost" className="flex-1 rounded-none" onClick={resetFilters}>Clear all</Button>
+                  <Button className="flex-1 rounded-none bg-orange-600 hover:bg-orange-700" onClick={() => setMobileFiltersOpen(false)} data-testid="marketplace-mobile-filter-close">
+                    Show {visibleListings.length} published {visibleListings.length === 1 ? 'listing' : 'listings'}
+                  </Button>
+                </SheetFooter>
+              </SheetContent>
+            </Sheet>
+          </div>
+
+          <div className="flex flex-col gap-3 border-t border-slate-200 px-4 py-3 sm:px-6 lg:flex-row lg:items-center lg:justify-between">
+            <div className="flex min-w-0 items-center gap-2 overflow-x-auto" data-testid="marketplace-quick-filters">
+              <span className="flex shrink-0 items-center gap-1.5 pr-1 text-[10px] font-black uppercase tracking-[0.16em] text-slate-400">
+                <Sparkles className="h-3.5 w-3.5 text-orange-600" /> Discover
+              </span>
+              {TRUST_QUICK_FILTERS.map(filter => {
+                const category = isCategoryChip(filter.label)
+                const active = category ? url.selectedCategory === filter.label : url.selectedTags.includes(filter.label)
+                return (
+                  <button
+                    key={filter.label}
+                    type="button"
+                    data-testid={filter.testId}
+                    aria-pressed={active}
+                    onClick={() => (category ? setCategoryFilter(filter.label) : toggleTrustTag(filter.label))}
+                    className={`shrink-0 border-b-2 px-2.5 py-1.5 text-xs font-bold transition ${active
+                      ? 'border-orange-500 text-orange-700'
+                      : 'border-transparent text-slate-500 hover:border-slate-300 hover:text-slate-950'}`}
+                  >
+                    {filter.label}
+                  </button>
+                )
+              })}
+            </div>
+
+            <Select value={url.sortBy} onValueChange={value => updateUrl({ sortBy: value as MarketplaceSort })}>
+              <SelectTrigger className="h-9 w-full rounded-none border-0 border-b border-slate-300 bg-white px-0 text-xs shadow-none focus:ring-0 sm:w-[190px]" data-testid="marketplace-sort-select">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="newest">Newest first</SelectItem>
+                <SelectItem value="price-low">Price: low to high</SelectItem>
+                <SelectItem value="price-high">Price: high to low</SelectItem>
+                <SelectItem value="trust">Highest canonical Trust</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+        </section>
+
         {activeChips.length > 0 && (
-          <div className="mb-4 flex flex-wrap items-center gap-2" data-testid="marketplace-active-filters">
-            <span className="text-xs font-medium text-gray-500">Active:</span>
+          <div className="mt-4 flex flex-wrap items-center gap-2" data-testid="marketplace-active-filters">
+            <span className="text-xs font-medium text-slate-500">Active</span>
             {activeChips.map(chip => (
               <button
                 key={`${chip.key}:${chip.value ?? chip.label}`}
                 type="button"
                 onClick={() => removeChip(chip.key, chip.value)}
                 data-testid="marketplace-active-filter-chip"
-                className="inline-flex items-center gap-1 rounded-full border border-orange-200 bg-orange-50 px-3 py-1 text-xs font-medium text-orange-700 transition-colors hover:bg-orange-100"
+                className="inline-flex items-center gap-1 rounded-full border border-orange-200 bg-orange-50 px-3 py-1 text-xs font-medium text-orange-800 transition hover:bg-orange-100"
               >
-                {chip.label}
-                <X className="h-3 w-3" />
+                {chip.label}<X className="h-3 w-3" />
               </button>
             ))}
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={resetFilters}
-              data-testid="marketplace-clear-filters"
-              className="text-xs text-gray-600"
-            >
+            <Button variant="ghost" size="sm" onClick={resetFilters} data-testid="marketplace-clear-filters" className="h-7 text-xs text-slate-600">
               Clear all
             </Button>
           </div>
         )}
 
-        {/* Desktop Filters Panel */}
-        {!isMobile && showFilters && (
-          <Card className="mb-6 border-0 card-shadow">
-            <CardContent className="p-5">
-              <div className="flex items-center justify-between mb-4">
-                <h3 className="font-semibold">Filters</h3>
-                <Button variant="ghost" size="sm" onClick={resetFilters}>
-                  <X className="w-4 h-4 mr-1" /> Reset
-                </Button>
-              </div>
-              <div data-testid="marketplace-filter-sidebar">
-                {filterControls}
-              </div>
-            </CardContent>
-          </Card>
-        )}
+        <main className="mt-10 min-w-0">
+          {loadError && !loadingVehicles && (
+            <div className="mb-6 border-y border-amber-200 bg-amber-50 px-4 py-3 text-xs leading-5 text-amber-900" data-testid="marketplace-error-state">
+              Marketplace data is temporarily unavailable. CarUp has not substituted another public vehicle endpoint or fabricated production inventory.
+            </div>
+          )}
 
-        {/* Fallback notice */}
-        {loadError && !loadingVehicles && (
-          <div
-            className="mb-4 rounded-lg border border-amber-200 bg-amber-50 px-4 py-2 text-xs text-amber-800"
-            data-testid="marketplace-error-state"
-          >
-            Showing sample marketplace listings while live data is unavailable.
-          </div>
-        )}
+          {!loadingVehicles && trustRanking?.requested === 'trust' && trustRanking.applied !== 'trust' && (
+            <div className="mb-6 border-y border-slate-200 bg-slate-50 px-4 py-3 text-xs leading-5 text-slate-600" data-testid="marketplace-trust-ranking-notice">
+              {trustRanking.note || 'No listing on this page carries a canonical Trust evaluation, so these results are not ordered by Trust.'}
+            </div>
+          )}
 
-        {/* The requested trust ordering was not the ordering applied. Saying so is the point: a
-            silently newest-first page under a "Highest Trust Score" control invites the shopper to
-            read position as trust, which is the ranking claim this programme removed. */}
-        {!loadingVehicles && trustRanking?.requested === 'trust' && trustRanking.applied !== 'trust' && (
-          <div
-            className="mb-4 rounded-lg border border-gray-200 bg-gray-50 px-4 py-2 text-xs text-gray-600"
-            data-testid="marketplace-trust-ranking-notice"
-          >
-            {trustRanking.note
-              || 'No listing on this page carries a canonical trust evaluation, so these results are not ordered by trust.'}
+          <div className="mb-7 flex flex-col gap-4 border-b border-slate-200 pb-5 sm:flex-row sm:items-end sm:justify-between">
+            <div>
+              <p className="text-[10px] font-black uppercase tracking-[0.2em] text-orange-600">Available now</p>
+              <h2 className="mt-1 text-3xl font-black tracking-[-0.04em] text-slate-950 sm:text-4xl">Published vehicles</h2>
+              <p className="mt-2 text-sm text-slate-500" data-testid="marketplace-results-summary">{getResultSummary(filterState)}</p>
+              <p className="mt-1 text-[11px] font-semibold uppercase tracking-[0.1em] text-slate-400">Published listings only · Trust and vehicle facts retain their governed states.</p>
+            </div>
+            <div className="flex items-end gap-5">
+              <p className="text-sm text-slate-500" data-testid="marketplace-results-count">
+                {loadingVehicles
+                  ? <span className="flex items-center gap-2"><Loader2 className="h-4 w-4 animate-spin" />Loading vehicles…</span>
+                  : <><span className="text-2xl font-black text-slate-950">{visibleListings.length}</span> published {visibleListings.length === 1 ? 'listing' : 'listings'}</>}
+              </p>
+              <Button
+                variant="ghost"
+                className="hidden h-auto rounded-none border-b border-slate-300 px-0 pb-1 text-xs font-bold text-slate-600 hover:bg-transparent hover:text-orange-700 sm:inline-flex"
+                onClick={() => setMobileFiltersOpen(true)}
+              >
+                <SlidersHorizontal className="mr-1.5 h-3.5 w-3.5" /> Refine
+              </Button>
+            </div>
           </div>
-        )}
 
-        {/* Result summary + count */}
-        <div className="mb-4 flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
-          <p className="text-sm font-medium text-gray-800" data-testid="marketplace-results-summary">
-            {getResultSummary(filterState)}
-          </p>
-          <p className="text-sm text-gray-600" data-testid="marketplace-results-count">
-            {loadingVehicles
-              ? <span className="flex items-center gap-2"><Loader2 className="w-4 h-4 animate-spin" /> Loading vehicles...</span>
-              : <><span className="font-semibold">{sorted.length}</span> vehicles found</>
-            }
-          </p>
-        </div>
+          {loadingVehicles ? (
+            <div className="grid gap-x-7 gap-y-12 md:grid-cols-2" data-testid="marketplace-loading-state">
+              {Array.from({ length: 6 }).map((_, index) => <SkeletonCard key={index} />)}
+            </div>
+          ) : visibleListings.length === 0 ? (
+            <div className="border-y border-dashed border-slate-300 bg-white px-6 py-20 text-center" data-testid="marketplace-empty-state">
+              <Search className="mx-auto mb-4 h-10 w-10 text-slate-300" />
+              <h3 className="text-xl font-black text-slate-900">No matching vehicles</h3>
+              <p className="mx-auto mt-2 max-w-md text-sm leading-6 text-slate-500">
+                Broaden the search or remove one of the active filters. CarUp will not fill an empty result with demo inventory.
+              </p>
+              <Button variant="outline" className="mt-5 rounded-none" onClick={resetFilters}>Clear all filters</Button>
+            </div>
+          ) : (
+            <div className="grid gap-x-7 gap-y-12 md:grid-cols-2" data-testid="marketplace-results-grid">
+              {visibleListings.map((listing, position) => {
+                const vin = listing.vin
+                const vehicleName = [listing.year, listing.make, listing.model].filter(value => value !== null && value !== undefined && value !== '').join(' ')
+                const labels = listingLabels(listing)
+                const href = `/marketplace/${encodeURIComponent(vin)}${fixtureScope ? `?fixture_scope=${encodeURIComponent(fixtureScope)}` : ''}`
+                const model: MarketplaceListingCardModel = {
+                  vin,
+                  name: vehicleName || `${listing.make} ${listing.model}`,
+                  price: typeof listing.price === 'number' && Number.isFinite(listing.price) ? listing.price : null,
+                  currency: typeof listing.currency === 'string' && listing.currency.trim() ? listing.currency : null,
+                  primaryImage: primaryImageForListing(listing),
+                  primaryImageState: listing.primary_image_state,
+                  mileage: typeof listing.mileage === 'number' && Number.isFinite(listing.mileage) ? listing.mileage : null,
+                  transmission: listing.transmission || null,
+                  fuel: listing.fuel_type || null,
+                  sellerLabel: sellerLabel(listing),
+                  locationLabel: summaryLocationLine(listing.location, listing.location_state).label,
+                  plateStatus: plateStatusLabel(listing),
+                  plateVerified: listing.plate_verified === true && !isAdversePlateStatus(listing.plate_status),
+                  reserved: listing.reservation_summary?.reserved === true,
+                  partSentryChecked: listing.partsentry_checked,
+                  labels: labels.length > 0 ? labels : ['Published listing'],
+                  trust: listing.trust || null,
+                  carupGold: listing.carup_gold?.state === 'qualified',
+                  syntheticDemo: Boolean(listing.primary_image_url?.includes('/marketplace-reference-synthetic/')),
+                }
 
-        {/* Grid */}
-        {loadingVehicles ? (
-          <div className="grid sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6" data-testid="marketplace-loading-state">
-            {Array.from({ length: 8 }).map((_, i) => <SkeletonCard key={i} />)}
-          </div>
-        ) : sorted.length === 0 ? (
-          <div className="text-center py-20" data-testid="marketplace-empty-state">
-            <Search className="w-12 h-12 text-gray-300 mx-auto mb-4" />
-            <h3 className="text-lg font-semibold mb-2">No matching vehicles found</h3>
-            <p className="text-gray-500 mb-4">Try removing a filter or broadening your search term.</p>
-            <Button variant="outline" onClick={resetFilters}>Clear all filters</Button>
-          </div>
-        ) : (
-          <div className="grid sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6" data-testid="marketplace-results-grid">
-            {sorted.map((vehicle: Vehicle) => {
-              const isFav = favorites.includes(vehicle.vin || '')
-              const isReserved = vehicle.status === 'reserved' || vehicle.status === 'Reserved'
-              // Real public listing media only — no misleading stock vehicle fallback (QA Round 4).
-              const primaryImage = vehicle.images?.[0] || vehicle.primary_image_url || null
-              const vehicleName = `${vehicle.year || ''} ${vehicle.make || ''} ${vehicle.model || ''}`.trim()
-              const vehicleLabels = getVehicleLabels(vehicle)
-              const cardLabels = vehicleLabels.slice(0, 4)
-              const passportHref = `/marketplace/${encodeURIComponent(vehicle.vin || vehicle.id || '')}`
-              const plateStatus = getPlateStatusLabel(vehicle)
-              return (
-                <Link
-                  key={vehicle.vin || vehicle.id || ''}
-                  to={passportHref}
-                  className="group"
-                  data-testid="marketplace-view-passport"
-                >
-                  <Card className="overflow-hidden border-0 card-shadow hover-lift h-full bg-white" data-testid="marketplace-vehicle-card">
-                    <div className="relative aspect-[16/10] overflow-hidden bg-gray-100">
-                      <ListingImage
-                        src={primaryImage}
-                        alt={vehicleName}
-                        className="h-full w-full"
-                        imgClassName="group-hover:scale-105 transition-transform duration-500"
-                      />
-                      <div className="absolute top-3 left-3 flex flex-wrap gap-2">
-                        {(vehicle as Vehicle & { plate_verified?: boolean }).plate_verified && (
-                          <Badge className="bg-green-600 text-white text-[10px]" data-testid="marketplace-plate-confirmed-badge">
-                            <CheckCircle className="w-3 h-3 mr-1" /> Plate Confirmed
-                          </Badge>
-                        )}
-                        {(vehicle as Vehicle & { police_verified?: boolean }).police_verified && (
-                          <Badge className="bg-blue-700 text-white text-[10px]" data-testid="marketplace-police-checked-badge">
-                            Police Checked
-                          </Badge>
-                        )}
-                        {/* No "High Trust" badge: it was awarded by a client-side score threshold
-                            against an unversioned cache, which is a trust claim this card has no
-                            authority to make. The governed assessment is on the passport. */}
-                        {isReserved && (
-                          <Badge className="bg-amber-500 text-white text-[10px]">Reserved</Badge>
-                        )}
-                        {hasPartSentrySignal(vehicle) && (
-                          <Badge className="bg-purple-600 text-white text-[10px]" data-testid="marketplace-partsentry-badge">
-                            PartSentry Checked
-                          </Badge>
-                        )}
-                      </div>
-                      <div className="absolute top-3 right-3 flex items-center gap-1.5">
-                        <button
-                          type="button"
-                          aria-label="Add to compare"
-                          aria-pressed={compareVins.includes(vehicle.vin || '')}
-                          onClick={(e) => toggleCompare(e, vehicle.vin || '')}
-                          data-testid="marketplace-compare-toggle"
-                          className={`w-8 h-8 rounded-full flex items-center justify-center shadow-sm transition-transform hover:scale-110 ${
-                            compareVins.includes(vehicle.vin || '')
-                              ? 'bg-orange-500 text-white'
-                              : 'bg-white/90 text-gray-600'
-                          }`}
-                        >
-                          <GitCompare className="w-4 h-4" />
-                        </button>
-                        <button
-                          type="button"
-                          aria-label="Share listing"
-                          onClick={(e) => { e.preventDefault(); e.stopPropagation(); shareListing(vehicle.vin || '', vehicleName) }}
-                          data-testid="marketplace-share-button"
-                          className="w-8 h-8 rounded-full bg-white/90 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity hover:scale-110 text-gray-600"
-                        >
-                          <Share2 className="w-4 h-4" />
-                        </button>
-                        <button
-                          type="button"
-                          aria-label="Save listing"
-                          aria-pressed={isFav}
-                          data-testid="marketplace-save-toggle"
-                          onClick={(e) => toggleFavorite(e, vehicle.vin || vehicle.id || '', vehicleName)}
-                          className={`w-8 h-8 rounded-full bg-white/90 flex items-center justify-center transition-opacity hover:scale-110 ${
-                            isFav ? 'opacity-100 shadow-sm' : 'opacity-100 sm:opacity-0 sm:group-hover:opacity-100'
-                          }`}
-                        >
-                          <Heart className={`w-4 h-4 ${isFav ? 'fill-red-500 text-red-500' : 'text-gray-600'}`} />
-                        </button>
-                      </div>
-                    </div>
-                    <CardContent className="p-4">
-                      {/* No score, no "High Trust" and no "Low Evidence" tier on the card. The public
-                          listing contract carries only the unversioned cached number, which cannot
-                          support any of those claims, and inventing a threshold to replace them
-                          would repeat the fault. Trust is stated once, where it is governed. */}
-                      <div className="flex items-start justify-between mb-1">
-                        <h3 className="font-semibold text-sm line-clamp-1">{vehicleName}</h3>
-                      </div>
-                      <p className="text-xl font-bold text-orange-600">${(vehicle.price || 0).toLocaleString()}</p>
-                      <div className="mt-2 flex flex-wrap gap-1.5">
-                        {(cardLabels.length > 0 ? cardLabels : [vehicle.condition || vehicle.category || 'Listed vehicle']).map(label => (
-                          <Badge
-                            key={label}
-                            variant="outline"
-                            className="border-gray-200 bg-gray-50 text-[10px] text-gray-700"
-                            data-testid="marketplace-condition-tag"
-                          >
-                            {label}
-                          </Badge>
-                        ))}
-                      </div>
-                      <div className="flex flex-wrap gap-2 mt-2 text-xs text-gray-500">
-                        {/* Only recorded specs are shown — no '0 km' / 'Auto' / 'Petrol' stand-ins for
-                            an unstated value. A genuine 0 km import still shows (finite check). */}
-                        {Number.isFinite(vehicle.mileage as number) && (
-                          <span className="flex items-center gap-1"><Gauge className="w-3 h-3" />{(vehicle.mileage as number).toLocaleString()} km</span>
-                        )}
-                        {vehicle.transmission && (
-                          <span className="flex items-center gap-1"><Settings2 className="w-3 h-3" />{vehicle.transmission}</span>
-                        )}
-                        {getFuelType(vehicle) && (
-                          <span className="flex items-center gap-1"><Fuel className="w-3 h-3" />{getFuelType(vehicle)}</span>
-                        )}
-                      </div>
-                      <p className="mt-2 text-xs font-medium text-blue-700" data-testid="marketplace-plate-status">
-                        {plateStatus}
-                      </p>
-                      {/* Identical on every card by design: it explains why no card shows a score,
-                          so a missing badge is not read as an adverse signal about this listing. */}
-                      <p className="mt-1 text-xs text-gray-500" data-testid="marketplace-trust-deferred">
-                        Trust assessment shown on the vehicle passport
-                      </p>
-                      <Separator className="my-3" />
-                      <div className="flex items-center justify-between gap-3">
-                        <div className="flex items-center gap-1.5">
-                          <div className="w-5 h-5 bg-gray-200 rounded-full" />
-                          <span className="text-xs text-gray-600 line-clamp-1">{getSellerLabel(vehicle)}</span>
-                        </div>
-                        <span className="flex items-center gap-1 text-xs text-gray-400">
-                          <MapPin className="w-3 h-3" />
-                          <span data-testid="listing-location">
-                            {summaryLocationLine(vehicle.location, vehicle.location_state).label}
-                          </span>
-                        </span>
-                      </div>
-                      <Button
-                        asChild
-                        className="mt-4 w-full bg-gray-950 text-white hover:bg-gray-800"
-                      >
-                        <span>View Passport</span>
-                      </Button>
-                    </CardContent>
-                  </Card>
-                </Link>
-              )
-            })}
-          </div>
-        )}
+                return (
+                  <MarketplaceImpression key={vin} vin={vin} position={position}>
+                    <MarketplaceListingCard
+                      vehicle={model}
+                      href={href}
+                      isFavorite={favorites.includes(vin)}
+                      isCompared={compareVins.includes(vin)}
+                      onFavorite={event => toggleFavorite(event, vin, model.name)}
+                      onCompare={event => toggleCompare(event, vin)}
+                      onShare={event => {
+                        event.preventDefault()
+                        event.stopPropagation()
+                        shareListing(vin, model.name)
+                      }}
+                    />
+                  </MarketplaceImpression>
+                )
+              })}
+            </div>
+          )}
+        </main>
       </div>
 
-      {/* Floating compare bar */}
-      {compareVins.length > 0 && (
+      {compareVins.length > 0 && !mobileFiltersOpen && (
         <div
-          className="fixed bottom-4 left-1/2 z-40 flex -translate-x-1/2 items-center gap-3 rounded-full border border-gray-200 bg-white px-4 py-2 shadow-lg"
+          className="fixed inset-x-3 bottom-[calc(5rem+env(safe-area-inset-bottom))] z-[60] mx-auto max-w-5xl border border-slate-700 bg-[#08111f]/[0.98] px-3 py-3 text-white shadow-[0_26px_80px_rgba(2,6,23,0.55)] backdrop-blur-xl lg:bottom-6"
           data-testid="marketplace-compare-bar"
+          aria-live="polite"
         >
-          <span className="text-sm font-medium text-gray-700">{compareVins.length} selected to compare</span>
-          <Button variant="ghost" size="sm" onClick={() => setCompareVins([])}>Clear</Button>
-          <Button
-            size="sm"
-            className="bg-orange-500 hover:bg-orange-600"
-            disabled={compareVins.length < 2}
-            onClick={() => navigate(`/marketplace/compare?vins=${compareVins.join(',')}`)}
-            data-testid="marketplace-compare-go"
-          >
-            <GitCompare className="mr-1 h-4 w-4" /> Compare
-          </Button>
+          <div className="flex items-center gap-3">
+            <div className="hidden min-w-0 flex-1 items-center gap-2 overflow-hidden sm:flex">
+              {compareSelections.map(listing => (
+                <div key={listing.vin} className="flex min-w-0 max-w-[190px] flex-1 items-center gap-2 border-r border-white/10 pr-2 last:border-r-0">
+                  <ListingImage
+                    src={primaryImageForListing(listing)}
+                    alt={[listing.year, listing.make, listing.model].filter(Boolean).join(' ') || 'Selected vehicle'}
+                    className="h-11 w-16 shrink-0 overflow-hidden bg-slate-800"
+                    imgClassName="object-cover"
+                  />
+                  <div className="min-w-0">
+                    <p className="truncate text-[11px] font-black text-white">
+                      {[listing.year, listing.make, listing.model].filter(Boolean).join(' ')}
+                    </p>
+                    <p className="mt-0.5 truncate text-[10px] text-slate-400">
+                      {marketplacePriceLabel(listing.price, listing.currency)}
+                    </p>
+                  </div>
+                </div>
+              ))}
+            </div>
+
+            <div className="min-w-0 flex-1 sm:hidden">
+              <p className="truncate text-sm font-black text-white">{compareVins.length} selected to compare</p>
+              <p className="mt-0.5 text-[10px] text-slate-400">
+                {compareVins.length < 2 ? 'Select one more vehicle.' : 'Your side-by-side shortlist is ready.'}
+              </p>
+            </div>
+
+            <div className="ml-auto flex shrink-0 items-center gap-1.5">
+              <Button variant="ghost" size="sm" className="hidden rounded-none text-slate-300 hover:bg-white/10 hover:text-white sm:inline-flex" onClick={() => setCompareVins([])}>
+                Clear
+              </Button>
+              <Button
+                size="sm"
+                className="min-w-[9.5rem] rounded-none bg-orange-500 font-black text-white hover:bg-orange-600 disabled:bg-slate-700 disabled:text-slate-400"
+                disabled={compareVins.length < 2}
+                onClick={() => {
+                  trackActivity({
+                    event_type: 'marketplace_compare_viewed',
+                    source_surface: 'marketplace_list',
+                    compare_listing_ids: compareVins,
+                    metadata: { compare_set_size: compareVins.length },
+                  })
+                  navigate(`/marketplace/compare?vins=${compareVins.join(',')}`)
+                }}
+                data-testid="marketplace-compare-go"
+              >
+                <GitCompare className="mr-1 h-4 w-4" />
+                {compareVins.length < 2 ? 'Select one more' : `Compare ${compareVins.length} vehicles`}
+              </Button>
+            </div>
+          </div>
         </div>
-      )}
-    </div>
+      )}    </div>
   )
 }

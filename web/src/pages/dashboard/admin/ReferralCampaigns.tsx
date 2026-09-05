@@ -5,6 +5,7 @@ import { Badge } from '@/components/ui/badge'
 import { Input } from '@/components/ui/input'
 import { Tag, RefreshCw } from 'lucide-react'
 import { useCarUpApi } from '@/hooks/useCarUpApi'
+import ReferralIntelligence from '@/components/intelligence/ReferralIntelligence'
 import type {
   ReferralCampaign,
   ReferralCampaignType,
@@ -104,6 +105,10 @@ export default function ReferralCampaigns() {
           <p className="text-gray-500">Create and manage referral campaigns</p>
         </div>
       </div>
+
+      {/* The governed referral projection: activity separated from the shared
+          event log, accrued benefits kept apart from paid, and no ROI. */}
+      <ReferralIntelligence windowDays={30} />
 
       {/* Create */}
       <Card className="border-0 card-shadow">

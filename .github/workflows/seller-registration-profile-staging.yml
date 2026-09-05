@@ -1,0 +1,104 @@
+name: Seller Registration Profile Staging Gate
+
+# One-time bounded staging gate for Seller UAT account-handoff remediation.
+#
+# The workflow is registered by PR #199, but the database-bearing job checks out ONE immutable
+# candidate commit. No ref/SQL input is accepted. The migration Git blob hash is asserted before
+# any staging credential is placed in scope.
+on:
+  pull_request:
+    branches: [main]
+    types: [opened, synchronize, reopened]
+    paths:
+      - '.github/workflows/seller-registration-profile-staging.yml'
+      - 'backend/scripts/seller-registration-profile-staging.mjs'
+      - 'database/migrations/20260829123000_user_registration_profiles.sql'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: seller-registration-profile-staging-pr199
+  cancel-in-progress: true
+
+env:
+  CANDIDATE_SHA: 8065dd172afa446aa13b998df90db8bec3d66b53
+  EXPECTED_MIGRATION_BLOB: 5f3ec18849b2c36f616222609e2e057055ee7769
+  PG_DRIVER_VERSION: '8.21.0'
+
+jobs:
+  preflight-apply-verify:
+    if: >-
+      github.event.pull_request.number == 199 &&
+      github.event.pull_request.head.ref == 'fix/seller-uat-account-handoff-194' &&
+      github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    environment: staging
+
+    steps:
+      - name: Check out immutable reviewed Seller registration candidate
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ env.CANDIDATE_SHA }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Assert immutable candidate and migration bytes
+        run: |
+          actual="$(git rev-parse HEAD)"
+          if [ "$actual" != "$CANDIDATE_SHA" ]; then
+            echo "::error::checked out $actual; expected $CANDIDATE_SHA"
+            exit 1
+          fi
+          blob="$(git hash-object database/migrations/20260829123000_user_registration_profiles.sql)"
+          if [ "$blob" != "$EXPECTED_MIGRATION_BLOB" ]; then
+            echo "::error::registration migration blob $blob != frozen $EXPECTED_MIGRATION_BLOB"
+            exit 1
+          fi
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Install pinned PostgreSQL driver without credentials
+        run: npm install --no-save --no-audit --no-fund --ignore-scripts "pg@${PG_DRIVER_VERSION}"
+
+      - name: Require protected CarUp staging operator secret
+        env:
+          DIASPORA_STAGING_DATABASE_URL: ${{ secrets.DIASPORA_STAGING_DATABASE_URL }}
+        run: |
+          if [ -z "$DIASPORA_STAGING_DATABASE_URL" ]; then
+            echo '::error::DIASPORA_STAGING_DATABASE_URL is unavailable; refusing staging operation.'
+            exit 1
+          fi
+
+      - name: Preflight registration-profile migration in rollback-only transaction
+        env:
+          DIASPORA_STAGING_DATABASE_URL: ${{ secrets.DIASPORA_STAGING_DATABASE_URL }}
+          DIASPORA_STAGING_CA_CERT: ${{ secrets.DIASPORA_STAGING_CA_CERT }}
+          CANDIDATE_SHA: ${{ env.CANDIDATE_SHA }}
+        run: node backend/scripts/seller-registration-profile-staging.mjs --mode=preflight
+
+      - name: Apply reviewed registration-profile migration
+        env:
+          DIASPORA_STAGING_DATABASE_URL: ${{ secrets.DIASPORA_STAGING_DATABASE_URL }}
+          DIASPORA_STAGING_CA_CERT: ${{ secrets.DIASPORA_STAGING_CA_CERT }}
+          CANDIDATE_SHA: ${{ env.CANDIDATE_SHA }}
+        run: node backend/scripts/seller-registration-profile-staging.mjs --mode=apply
+
+      - name: Verify registration-profile contract read-only
+        env:
+          DIASPORA_STAGING_DATABASE_URL: ${{ secrets.DIASPORA_STAGING_DATABASE_URL }}
+          DIASPORA_STAGING_CA_CERT: ${{ secrets.DIASPORA_STAGING_CA_CERT }}
+          CANDIDATE_SHA: ${{ env.CANDIDATE_SHA }}
+        run: node backend/scripts/seller-registration-profile-staging.mjs --mode=verify
+
+      - name: Preserve non-secret staging receipt
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: seller-registration-profile-8065dd172afa446aa13b998df90db8bec3d66b53
+          path: seller-registration-profile-staging-receipt.json
+          if-no-files-found: error
+          retention-days: 30

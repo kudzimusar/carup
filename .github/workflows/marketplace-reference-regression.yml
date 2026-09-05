@@ -1,0 +1,242 @@
+name: Marketplace Reference Regression
+# Exact-head certification gate; seller-privacy closure trigger, no runtime semantics.
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'backend/services/marketplace/**'
+      - 'backend/services/report/**'
+      - 'backend/routes/escrowTrustRoutes.js'
+      - 'backend/services/reservation/**'
+      - 'backend/server.js'
+      - 'backend/fixtures/marketplace-reference-media-v1.json'
+      - 'backend/scripts/marketplace-reference-media-staging.mjs'
+      - 'backend/utils/vehicleMediaProjection.js'
+      - 'backend/tests/marketplace-*.test.js'
+      - 'backend/tests/vehicle-report.test.js'
+      - 'backend/tests/issue164-phase5-*.test.js'
+      - 'shared/types/**'
+      - 'mobile/app/(tabs)/marketplace.tsx'
+      - 'mobile/app/vehicle/**'
+      - 'mobile/utils/marketplaceApi.ts'
+      - 'mobile/tests/marketplace-*.test.ts'
+      - 'web/src/pages/Landing.tsx'
+      - 'web/src/pages/Marketplace.tsx'
+      - 'web/src/pages/MarketplaceCategoryPage.tsx'
+      - 'web/src/pages/GuestSell.tsx'
+      - 'web/src/pages/dashboard/owner/SellVehicle.tsx'
+      - 'web/src/pages/auth/Register.tsx'
+      - 'web/src/pages/VehicleDetail.tsx'
+      - 'web/src/pages/VehicleDetail.*.test.tsx'
+      - 'web/src/components/marketplace/**'
+      - 'web/src/components/VehicleHistoryReport.tsx'
+      - 'web/src/components/layout/**'
+      - 'web/src/hooks/useCarUpApi.ts'
+      - 'web/src/lib/returnTo.ts'
+      - 'web/src/lib/returnTo.test.ts'
+      - 'web/src/pages/SellFlow.resilience.test.ts'
+      - 'web/src/pages/dashboard/owner/MyListings.responsive.test.tsx'
+      - 'web/src/data/vehicleTaxonomy.ts'
+      - 'web/src/data/vehicleTaxonomy.test.ts'
+      - 'web/src/lib/guestSellDraft.ts'
+      - 'web/preview-backend-pairing.json'
+      - 'web/preview-frontend-pairing.json'
+      - 'web/src/lib/marketplace*.ts'
+      - 'web/src/lib/marketplace*.test.ts'
+      - 'web/e2e/marketplace-*.spec.ts'
+      - '.github/workflows/marketplace-reference-regression.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: marketplace-reference-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  reference-regression:
+    name: Exact-head reference + staging certification
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    env:
+      EXPECTED_HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+      STAGING_FRONTEND_URL: https://carup-staging-git-integration-vehicle-passport-v16-cert-11-11.vercel.app
+      STAGING_BACKEND_URL: https://carup-backend-staging-git-integration-vehicle-pass-35ac1d-11-11.vercel.app
+      NODE_ENV: test
+      SUPABASE_URL: http://localhost:54321
+      SUPABASE_SERVICE_ROLE_KEY: marketplace-reference-test-service-role
+      SUPABASE_ANON_KEY: marketplace-reference-test-anon-key
+      JWT_SECRET: marketplace-reference-test-jwt-secret
+
+    steps:
+      - name: Checkout exact candidate
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ env.EXPECTED_HEAD_SHA }}
+
+      - name: Assert exact candidate checkout
+        run: test "$(git rev-parse HEAD)" = "$EXPECTED_HEAD_SHA"
+
+      - name: Resolve exact-head preview pair
+        env:
+          CANDIDATE_BRANCH: ${{ github.event.pull_request.head.ref || github.ref_name }}
+        run: |
+          node <<'NODE'
+          const fs = require('fs');
+
+          const branch = process.env.CANDIDATE_BRANCH;
+          const backendPairs = JSON.parse(fs.readFileSync('web/preview-backend-pairing.json', 'utf8')).branches || {};
+          const frontendPairs = JSON.parse(fs.readFileSync('web/preview-frontend-pairing.json', 'utf8')).branches || {};
+          const frontend = frontendPairs[branch];
+          const backend = backendPairs[branch];
+
+          if (!frontend || !backend) {
+            console.error(JSON.stringify({
+              error: 'candidate preview pair is not governed',
+              branch,
+              frontend_configured: Boolean(frontend),
+              backend_configured: Boolean(backend),
+            }));
+            process.exit(1);
+          }
+
+          fs.appendFileSync(process.env.GITHUB_ENV, `STAGING_FRONTEND_URL=${frontend}\nSTAGING_BACKEND_URL=${backend}\n`);
+          console.log(JSON.stringify({ branch, frontend, backend }));
+          NODE
+
+      - name: Setup Node.js 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install web dependencies
+        run: npm --prefix web install --no-audit --no-fund
+
+      - name: Install backend dependencies
+        run: npm --prefix backend install --no-audit --no-fund
+
+      - name: Run Marketplace governance regressions
+        run: >-
+          node --test
+          backend/tests/marketplace-carup-gold.test.js
+          backend/tests/marketplace-reference-media.test.js
+          backend/tests/marketplace-v1-spine.test.js
+          backend/tests/vehicle-report.test.js
+          backend/tests/issue164-phase5-media-contract.test.js
+          backend/tests/issue164-phase5-passport-media-wiring.test.js
+          backend/tests/issue164-phase6-transaction-authority.test.js
+
+      - name: Run expanded Marketplace and Vehicle Detail unit regressions
+        run: >-
+          npm --prefix web run test:unit --
+          src/data/vehicleTaxonomy.test.ts
+          src/lib/marketplaceParams.test.ts
+          src/lib/marketplacePresentation.test.ts
+          src/lib/returnTo.test.ts
+          src/pages/SellFlow.resilience.test.ts
+          src/pages/dashboard/owner/MyListings.responsive.test.tsx
+          src/pages/VehicleDetail.media.test.tsx
+          src/pages/VehicleDetail.trust.test.tsx
+
+      - name: Install Playwright Chromium
+        working-directory: web
+        run: npx playwright install --with-deps chromium
+
+      - name: Start local Vite reference server
+        run: |
+          npm --prefix web run dev -- --host 127.0.0.1 > /tmp/carup-marketplace-vite.log 2>&1 &
+          echo $! > /tmp/carup-marketplace-vite.pid
+          for attempt in {1..30}; do
+            if curl --fail --silent --show-error http://127.0.0.1:5173/marketplace >/dev/null; then
+              exit 0
+            fi
+            sleep 1
+          done
+          cat /tmp/carup-marketplace-vite.log
+          exit 1
+
+      - name: Run Marketplace mocked reference suite
+        env:
+          PLAYWRIGHT_BASE_URL: http://127.0.0.1:5173
+        run: npm --prefix web run test:qa -- e2e/marketplace-reference-ux.spec.ts
+
+      - name: Wait for exact-head staging deployment
+        run: |
+          for attempt in {1..60}; do
+            frontend_ok=0
+            backend_ok=0
+
+            if curl --fail --silent --show-error "$STAGING_FRONTEND_URL/carup-provenance.json" > /tmp/marketplace-frontend-provenance.json; then
+              if node -e '
+                const fs = require("fs");
+                const provenance = JSON.parse(fs.readFileSync("/tmp/marketplace-frontend-provenance.json", "utf8"));
+                const expected = process.env.EXPECTED_HEAD_SHA;
+                const expectedBackend = process.env.STAGING_BACKEND_URL.replace(/\/+$/, "");
+                if (
+                  provenance.commit_sha === expected
+                  && provenance.api_base_url === expectedBackend
+                  && provenance.unpaired === false
+                ) process.exit(0);
+                console.error(JSON.stringify({
+                  expected,
+                  frontend_commit_sha: provenance.commit_sha,
+                  expected_backend: expectedBackend,
+                  api_base_url: provenance.api_base_url,
+                  unpaired: provenance.unpaired,
+                }));
+                process.exit(1);
+              '; then
+                frontend_ok=1
+              fi
+            fi
+
+            if curl --fail --silent --show-error "$STAGING_BACKEND_URL/api/health" > /tmp/marketplace-staging-health.json; then
+              if node -e '
+                const fs = require("fs");
+                const health = JSON.parse(fs.readFileSync("/tmp/marketplace-staging-health.json", "utf8"));
+                const expected = process.env.EXPECTED_HEAD_SHA;
+                const build = health.build || {};
+                if (build.commit_sha === expected && build.provenance_available === true) process.exit(0);
+                console.error(JSON.stringify({ expected, commit_sha: build.commit_sha, provenance_available: build.provenance_available }));
+                process.exit(1);
+              '; then
+                backend_ok=1
+              fi
+            fi
+
+            if [ "$frontend_ok" -eq 1 ] && [ "$backend_ok" -eq 1 ]; then
+              cat /tmp/marketplace-frontend-provenance.json
+              cat /tmp/marketplace-staging-health.json
+              exit 0
+            fi
+
+            sleep 10
+          done
+
+          echo "Exact-head staging did not become ready."
+          cat /tmp/marketplace-frontend-provenance.json 2>/dev/null || true
+          cat /tmp/marketplace-staging-health.json 2>/dev/null || true
+          exit 1
+
+      - name: Run unmocked staging functional and visual certification
+        env:
+          PLAYWRIGHT_BASE_URL: ${{ env.STAGING_FRONTEND_URL }}
+          MARKETPLACE_EXPECTED_SHA: ${{ env.EXPECTED_HEAD_SHA }}
+        run: npm --prefix web run test:qa -- e2e/marketplace-staging-certification.spec.ts
+
+      - name: Upload Marketplace certification evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: marketplace-certification-${{ env.EXPECTED_HEAD_SHA }}
+          path: |
+            web/test-results/**
+            web/playwright-report/**
+          if-no-files-found: warn
+          retention-days: 14
+
+      - name: Print local Vite log on failure
+        if: failure()
+        run: cat /tmp/carup-marketplace-vite.log || true

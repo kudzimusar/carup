@@ -5,6 +5,7 @@
  */
 import express from 'express';
 import { authorizeRole } from '../middleware/authMiddleware.js';
+import { requireVehicleObjectAuthority } from '../middleware/vehicleObjectAuthority.js';
 import {
   initEligibility,
   requestEligibility,
@@ -85,10 +86,12 @@ function eligibilityHandlers(capability) {
 const insurance = eligibilityHandlers('insurance');
 const finance = eligibilityHandlers('finance');
 
-router.post('/api/vehicles/:vin/insurance/eligibility', authorizeRole(['owner', 'dealer', 'admin', 'reviewer']), insurance.request);
-router.get('/api/vehicles/:vin/insurance/eligibility', authorizeRole(['owner', 'dealer', 'admin', 'reviewer']), insurance.status);
-router.post('/api/vehicles/:vin/finance/eligibility', authorizeRole(['owner', 'dealer', 'admin']), finance.request);
-router.get('/api/vehicles/:vin/finance/eligibility', authorizeRole(['owner', 'dealer', 'admin']), finance.status);
+// OBJECT SCOPE on all four. These handlers never read req.userContext for anything but
+// `requestedBy`, so role authority was the ONLY gate and it admits every registered account.
+router.post('/api/vehicles/:vin/insurance/eligibility', authorizeRole(['owner', 'dealer', 'admin', 'reviewer']), requireVehicleObjectAuthority(), insurance.request);
+router.get('/api/vehicles/:vin/insurance/eligibility', authorizeRole(['owner', 'dealer', 'admin', 'reviewer']), requireVehicleObjectAuthority(), insurance.status);
+router.post('/api/vehicles/:vin/finance/eligibility', authorizeRole(['owner', 'dealer', 'admin']), requireVehicleObjectAuthority(), finance.request);
+router.get('/api/vehicles/:vin/finance/eligibility', authorizeRole(['owner', 'dealer', 'admin']), requireVehicleObjectAuthority(), finance.status);
 
 router.post('/api/eligibility/:capability/webhook', express.json({
   verify: (req, _res, buf) => { req.rawBody = buf.toString(); },

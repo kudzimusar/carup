@@ -1,6 +1,9 @@
 import { useState, useEffect } from 'react'
 import { Link } from 'react-router-dom'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+import MarketplacePulse from '@/components/intelligence/MarketplacePulse'
+import NextBestActions from '@/components/intelligence/NextBestActions'
+import PeriodicReport from '@/components/intelligence/PeriodicReport'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Progress } from '@/components/ui/progress'
@@ -19,11 +22,10 @@ import {
   Wallet,
   Upload
 } from 'lucide-react'
-import { ListingImage } from '@/components/marketplace/ListingImage'
-import { primaryListingImageUrl } from '@/lib/listingMedia'
+import { OwnerListingMedia } from '@/components/listing/OwnerListingMedia'
 import { useCarUpApi } from '@/hooks/useCarUpApi'
 import { useAuth } from '@/context/AuthContext'
-import type { Vehicle, Notification, Escrow } from '@/types'
+import type { Vehicle, Escrow } from '@/types'
 import { readOwnerTrustClaim, statedMileage } from './ownerStatedValues'
 
 // ── The canonical trust claim on the owner's list surfaces (Issue #164, Phases 3 & 4) ───────
@@ -45,12 +47,23 @@ import { readOwnerTrustClaim, statedMileage } from './ownerStatedValues'
  * drifted apart in the first place. All four pages are statically imported by App.tsx into one
  * bundle, so the shared import adds no chunk.
  */
+type OwnerActivityNotification = {
+  id: string
+  read?: boolean
+  title?: string
+  message?: string
+  notification_type?: string
+  priority?: string | null
+  action_path?: string | null
+  created_at?: string | null
+}
+
 export default function OwnerDashboard() {
   const { fetchSafePayEscrows, fetchOwnedVehicles, fetchNotifications } = useCarUpApi()
   const { user } = useAuth()
 
   const [vehicles, setVehicles] = useState<Vehicle[]>([])
-  const [liveNotifications, setLiveNotifications] = useState<Notification[]>([])
+  const [liveNotifications, setLiveNotifications] = useState<OwnerActivityNotification[]>([])
 
   // Loading and failure are distinct from "you own nothing". Both reads previously left `vehicles` at
   // its initial [], and a rejection had no handler at all — so a real owner whose read failed would be
@@ -184,6 +197,18 @@ export default function OwnerDashboard() {
         </div>
       </div>
 
+      {/* Marketplace Pulse (Intelligence I7). Governed, session-scoped figures:
+          every metric arrives in an availability envelope, so an unmeasured
+          figure shows words rather than a zero that reads as "nobody came". */}
+      <MarketplacePulse />
+
+      {/* Deterministic next-best-action. A rule abstains rather than advising
+          from a figure nobody measured. */}
+      <NextBestActions />
+
+      {/* The periodic summary, with the export that carries its own provenance. */}
+      <PeriodicReport period="monthly" />
+
       {/* Needs Your Attention — real outstanding items only; hidden entirely when there are none. */}
       {attentionItems.length > 0 && (
         <Card className="border-0 card-shadow border-l-4 border-l-orange-400" data-testid="owner-needs-attention">
@@ -296,8 +321,8 @@ export default function OwnerDashboard() {
                   {/* An unrelated stock car is a claim about this vehicle's condition. ListingImage
                       renders a neutral "Image unavailable" placeholder instead. */}
                   {!lowBandwidth && (
-                    <ListingImage
-                      src={primaryListingImageUrl(vehicle.listing_media)}
+                    <OwnerListingMedia
+                      media={vehicle.listing_media}
                       alt={`${vehicle.year} ${vehicle.make} ${vehicle.model}`}
                       className="w-20 h-14 rounded-lg overflow-hidden shrink-0"
                     />
@@ -409,14 +434,33 @@ export default function OwnerDashboard() {
             <CardHeader className="pb-3">
               <div className="flex items-center justify-between">
                 <CardTitle className="text-lg">Notifications</CardTitle>
-                <Badge className="bg-orange-100 text-orange-700 text-[10px]">{recentNotifications.filter(n => !n.read).length} new</Badge>
+                {/* The badge is a COUNT, so it may only exist once something has been counted. It was
+                    rendered unconditionally off `recentNotifications`, which is [] both before the
+                    read settles and after it fails — so a pending or broken read published a
+                    measured "0 new". The same file already gates `unreadNotifications` on this exact
+                    state; this is that rule applied to the surface a user actually reads. */}
+                {notificationsState === 'ready' && (
+                  <Badge className="bg-orange-100 text-orange-700 text-[10px]">{recentNotifications.filter(n => !n.read).length} new</Badge>
+                )}
               </div>
             </CardHeader>
             <CardContent className="space-y-3">
-              {recentNotifications.map((n) => (
+              {notificationsState === 'loading' ? (
+                <p className="text-xs text-gray-600" data-testid="owner-notifications-not-read">
+                  Your notifications have not been read yet. No count is shown, because none has been counted.
+                </p>
+              ) : notificationsState === 'unavailable' ? (
+                <p className="text-xs text-gray-600" data-testid="owner-notifications-unavailable">
+                  CarUp could not read your notifications. This is NOT “you have no notifications” — nothing below has been counted.
+                </p>
+              ) : recentNotifications.length === 0 ? (
+                <p className="text-xs text-gray-600" data-testid="owner-notifications-none">
+                  No notifications yet.
+                </p>
+              ) : recentNotifications.map((n) => (
                 <div key={n.id} className={`p-3 rounded-lg ${n.read ? 'bg-gray-50' : 'bg-orange-50 border border-orange-100 text-xs'}`}>
                   <div className="flex items-start gap-2">
-                    <div className={`w-1.5 h-1.5 rounded-full mt-1.5 shrink-0 ${n.type === 'warning' ? 'bg-amber-500' : n.type === 'success' ? 'bg-green-500' : 'bg-blue-500'}`} />
+                    <div className={`w-1.5 h-1.5 rounded-full mt-1.5 shrink-0 ${n.priority === 'high' ? 'bg-amber-500' : 'bg-blue-500'}`} />
                     <div>
                       <p className="font-semibold text-gray-800">{n.title}</p>
                       <p className="text-gray-500 mt-0.5">{n.message}</p>

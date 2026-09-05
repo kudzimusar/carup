@@ -1,6 +1,7 @@
 import { useState, useCallback, useMemo } from 'react'
 import { useAuth } from '@/context/AuthContext'
 import { apiRequest, resolveApiBaseUrl, DEFAULT_PRODUCTION_API_BASE_URL, extractApiErrorMessage, fetchCsrfToken, type AuthHeaders } from '@/lib/apiClient'
+import type { AccidentDisclosure, FinanceDisclosure, InsuranceDisclosure } from '@/lib/vehicleHistoryDisclosures'
 import {
   fetchVerificationReviewQueue as fetchVerificationReviewQueueRequest,
   fetchVerificationSessionDetail as fetchVerificationSessionDetailRequest,
@@ -292,6 +293,18 @@ type CommunicationNotificationSummary = {
   updated_at?: string | null
 }
 
+type CommunicationAccountActivitySummary = {
+  id: string
+  activity_type: string
+  title: string
+  channel: 'email'
+  status: string
+  summary: string
+  created_at?: string | null
+  sent_at?: string | null
+  delivered_at?: string | null
+}
+
 type CommunicationPreferences = Record<string, boolean | string | number | null | undefined>
 type CommunicationMutationResponse = {
   success?: boolean
@@ -544,7 +557,7 @@ export function useCarUpApi() {
   }, [request])
 
   // ── Marketplace v1 (detail / inquiry / save / compare / recommendations / AI) ──
-  const fetchMarketplaceListingDetail = useCallback(async (vin: string, attribution?: { ref?: string; campaign?: string; source?: string }): Promise<MarketplaceListingDetail> => {
+  const fetchMarketplaceListingDetail = useCallback(async (vin: string, attribution?: { ref?: string; campaign?: string; source?: string; fixture_scope?: string; presentation_mode?: 'seller_preview' }): Promise<MarketplaceListingDetail> => {
     const query = attribution
       ? '?' + new URLSearchParams(Object.entries(attribution).filter(([, v]) => v).map(([k, v]) => [k, String(v)])).toString()
       : ''
@@ -621,6 +634,43 @@ export function useCarUpApi() {
     request(`/admin/marketplace/inquiries/${encodeURIComponent(id)}/status`, { method: 'PATCH', body: JSON.stringify({ status }) }), [request])
   const fetchMarketplaceAnalytics = useCallback(async (): Promise<any> =>
     request('/admin/marketplace/analytics'), [request])
+
+  /**
+   * CarUp Intelligence. Scope is resolved from the verified session; availability
+   * envelopes prevent unmeasured values from being rendered as zero.
+   */
+  const fetchSellerIntelligence = useCallback(async (windowDays: 7 | 30 | 90 = 7): Promise<unknown> =>
+    request(`/marketplace/my-analytics?window=${windowDays}`), [request])
+  const fetchListingIntelligence = useCallback(async (vin: string, windowDays: 7 | 30 | 90 = 7): Promise<unknown> =>
+    request(`/marketplace/my-listings/${encodeURIComponent(vin)}/analytics?window=${windowDays}`), [request])
+  const fetchDealerIntelligence = useCallback(async (windowDays: 7 | 30 | 90 = 7): Promise<unknown> =>
+    request(`/dealer/analytics?window=${windowDays}`), [request])
+  const fetchMechanicIntelligence = useCallback(async (windowDays: 7 | 30 | 90 = 30): Promise<unknown> =>
+    request(`/mechanic/analytics?window=${windowDays}`), [request])
+  const fetchMyReport = useCallback(async (period: 'weekly' | 'monthly' = 'monthly'): Promise<unknown> =>
+    request(`/marketplace/my-report?period=${period}`), [request])
+  const fetchKpiCatalogue = useCallback(async (): Promise<unknown> =>
+    request('/intelligence/kpi-catalogue'), [request])
+  const fetchAssistantContext = useCallback(async (): Promise<unknown> =>
+    request('/intelligence/assistant-context'), [request])
+  const fetchMyRecommendations = useCallback(async (): Promise<unknown> =>
+    request('/marketplace/my-recommendations'), [request])
+  const fetchCommandCentre = useCallback(async (windowDays: 7 | 30 | 90 = 30): Promise<unknown> =>
+    request(`/admin/intelligence/command-centre?window=${windowDays}`), [request])
+  const fetchGovernmentProvenance = useCallback(async (windowDays: 7 | 30 | 90 = 30): Promise<unknown> =>
+    request(`/government/provenance-intelligence?window=${windowDays}`), [request])
+  const fetchReferralIntelligence = useCallback(async (windowDays: 7 | 30 | 90 = 30): Promise<unknown> =>
+    request(`/admin/referrals/intelligence?window=${windowDays}`), [request])
+  const fetchTradeIntelligence = useCallback(async (windowDays: 7 | 30 | 90 = 30): Promise<unknown> =>
+    request(`/trade/intelligence?window=${windowDays}`), [request])
+  const fetchPartsIntelligence = useCallback(async (windowDays: 7 | 30 | 90 = 30): Promise<unknown> =>
+    request(`/parts/intelligence?window=${windowDays}`), [request])
+  const fetchPlatformPartsIntelligence = useCallback(async (windowDays: 7 | 30 | 90 = 30): Promise<unknown> =>
+    request(`/admin/parts/intelligence?window=${windowDays}`), [request])
+  const fetchFinanceIntelligence = useCallback(async (windowDays: 7 | 30 | 90 = 30): Promise<unknown> =>
+    request(`/finance/demand-intelligence?window=${windowDays}`), [request])
+  const fetchGarageIntelligence = useCallback(async (windowDays: 7 | 30 | 90 = 30): Promise<unknown> =>
+    request(`/garage/analytics?window=${windowDays}`), [request])
   const marketplaceAiModerationSummary = useCallback(async (payload: { vin?: string; listingSummary?: unknown; trustSummary?: unknown }): Promise<any> =>
     request('/admin/marketplace/ai/moderation-summary', { method: 'POST', body: JSON.stringify(payload) }), [request])
 
@@ -861,6 +911,36 @@ export function useCarUpApi() {
     })
   }, [request])
 
+  // Operations Control Plane M4 — VIN-centered reviewer aggregate (read model).
+  const fetchVehicleOperationsReview = useCallback(async (vin: string): Promise<{ success: boolean; review: Record<string, unknown> }> => {
+    return request<{ success: boolean; review: Record<string, unknown> }>(`/admin/vehicles/${vin}/review`)
+  }, [request])
+
+  // Operations M1 — governed classification correction (reason mandatory).
+  const correctEvidenceClassification = useCallback(async (
+    vin: string,
+    evidenceId: string,
+    // `visibility_level` is optional: omitting it corrects the classification and leaves the
+    // record's publication untouched.
+    payload: { evidence_class: string; evidence_subtype: string; reason: string; visibility_level?: string },
+  ): Promise<{ success: boolean; changed: boolean }> => {
+    return request<{ success: boolean; changed: boolean }>(`/vehicles/${vin}/evidence/${evidenceId}/classification`, {
+      method: 'PATCH',
+      body: JSON.stringify(payload),
+    })
+  }, [request])
+
+  // Operations M2 — governed Seller Authority reviewer decision.
+  const reviewSellerAuthority = useCallback(async (
+    vin: string,
+    payload: { seller_user_id: string; decision: string; reason: string },
+  ): Promise<{ success: boolean; record?: Record<string, unknown> }> => {
+    return request<{ success: boolean; record?: Record<string, unknown> }>(`/vehicles/${vin}/seller-authority/review`, {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    })
+  }, [request])
+
   const lookupVehiclePassport = useCallback(async (identifier: string): Promise<VehiclePassport> => {
     return request<VehiclePassport>(`/vehicles/passport/lookup/${identifier}`)
   }, [request])
@@ -877,10 +957,12 @@ export function useCarUpApi() {
     return request(`/vehicles/${vin}/odometer-audit`)
   }, [request])
 
-  const createSafePayEscrow = useCallback(async (vin: string, sellerId: string, amount: number, currency = 'USD'): Promise<any> => {
+  const createSafePayEscrow = useCallback(async (vin: string): Promise<any> => {
+    // The compatibility URL is still live, but the browser no longer sends seller/amount/currency
+    // even as ignored fields. VIN + authenticated actor are the only client inputs.
     return request('/safepay/create', {
       method: 'POST',
-      body: JSON.stringify({ vin, sellerId, amount, currency })
+      body: JSON.stringify({ vin })
     })
   }, [request])
 
@@ -896,7 +978,7 @@ export function useCarUpApi() {
   }, [request])
 
   // The mechanic identity is derived server-side from req.userContext.id — never client-supplied.
-  const addRepairLog = useCallback(async (vin: string, partName: string, partOem: string, actionType: string, description: string, mileage: number): Promise<any> => {
+  const addRepairLog = useCallback(async (vin: string, partName: string, partOem: string | null, actionType: string, description: string, mileage: number): Promise<any> => {
     return request('/partsentry/add', {
       method: 'POST',
       body: JSON.stringify({ vin, partName, partOem, actionType, description, mileage })
@@ -1982,12 +2064,21 @@ export function useCarUpApi() {
     return request(`/vehicles/${vin}/unpublish`, { method: 'POST' })
   }, [request])
 
-  const reserveVehicle = useCallback(async (vin: string, duration = 7): Promise<any> => {
-    // Buyer identity is the authenticated session server-side; never client-supplied.
-    return request(`/vehicles/${vin}/reserve`, {
-      method: 'POST',
-      body: JSON.stringify({ duration })
+  // S8 — the seller's own price, changed without a database write. The amount travels alone: this
+  // endpoint accepts no currency, because redenominating an existing listing is not a price change.
+  const updateVehiclePrice = useCallback(async (vin: string, price: number): Promise<{
+    success: boolean; vin: string; price: number; previous_price?: number | null; unchanged?: boolean
+  }> => {
+    return request(`/vehicles/${encodeURIComponent(vin)}/price`, {
+      method: 'PATCH',
+      body: JSON.stringify({ price }),
     })
+  }, [request])
+
+  const reserveVehicle = useCallback(async (vin: string): Promise<any> => {
+    // Canonical reservation authority is VIN + authenticated actor only. Duration, seller,
+    // economics and eligibility are all server-owned.
+    return request(`/vehicles/${encodeURIComponent(vin)}/reserve`, { method: 'POST' })
   }, [request])
 
   // --- Domain 1: Dealer & Mechanic ---
@@ -2140,8 +2231,26 @@ export function useCarUpApi() {
     return request<any[]>('/service-history/me', { method: 'GET' })
   }, [request])
 
-  const fetchNotifications = useCallback(async (): Promise<any[]> => {
-    return request<any[]>('/notifications/me', { method: 'GET' })
+  const fetchNotifications = useCallback(async (): Promise<Array<{
+    id: string
+    read?: boolean
+    title?: string
+    message?: string
+    notification_type?: string
+    status?: string | null
+    priority?: string | null
+    channel?: 'in_app'
+    action_path?: string | null
+    created_at?: string | null
+  }>> => {
+    return request('/notifications/me', { method: 'GET' })
+  }, [request])
+
+  const markNotificationRead = useCallback(async (notificationId: string) => {
+    return request<{ notification: { id: string; read: boolean } }>(
+      `/notifications/${encodeURIComponent(notificationId)}/read`,
+      { method: 'POST' },
+    )
   }, [request])
 
   // ── Agent 8 Omnichannel Communication Engine ──
@@ -2167,6 +2276,17 @@ export function useCarUpApi() {
 
   const fetchCommunicationNotifications = useCallback(async (): Promise<{ notifications: CommunicationNotificationSummary[] }> => {
     return request('/communications/notifications', { method: 'GET' })
+  }, [request])
+
+  const fetchCommunicationAccountActivity = useCallback(async (): Promise<{ activity: CommunicationAccountActivitySummary[] }> => {
+    return request('/communications/account-activity', { method: 'GET' })
+  }, [request])
+
+  const resendVerificationEmail = useCallback(async (email: string): Promise<{ success?: boolean; message?: string }> => {
+    return request('/auth/resend-verification', {
+      method: 'POST',
+      body: JSON.stringify({ email }),
+    })
   }, [request])
 
   const markCommunicationNotificationRead = useCallback(async (id: string): Promise<CommunicationMutationResponse> => {
@@ -2354,6 +2474,61 @@ export function useCarUpApi() {
     })
   }, [request])
 
+  const updateSellerDraft = useCallback(async (vin: string, payload: {
+    description?: string
+    features?: string[]
+    body_style?: string
+    seller_stated_condition?: string
+    price?: number
+    currency?: string
+    location?: string
+    province?: string
+    listing_country?: string
+    location_visibility?: 'withheld' | 'province_only' | 'public'
+    public_seller_display_enabled?: boolean
+    accident_disclosure?: AccidentDisclosure | null
+    insurance_disclosure?: InsuranceDisclosure | null
+    finance_disclosure?: FinanceDisclosure | null
+  }): Promise<{
+    success: boolean
+    vin: string
+    publication_status: string
+    claim_provenance_recorded?: boolean
+    unchanged?: boolean
+    draft?: {
+      description: string
+      features: string[]
+      body_style: string
+      seller_stated_condition: string
+      price: number | null
+      currency: string
+      location: string
+      province: string
+      listing_country: string
+      location_visibility: 'withheld' | 'province_only' | 'public'
+      public_seller_display_enabled: boolean
+      // Present only when the request touched a disclosure; echoes exactly what the DB stored.
+      accident_disclosure?: AccidentDisclosure | null
+      insurance_disclosure?: InsuranceDisclosure | null
+      finance_disclosure?: FinanceDisclosure | null
+    } | null
+  }> => {
+    return request(`/vehicles/${encodeURIComponent(vin)}/seller-draft`, {
+      method: 'PATCH',
+      body: JSON.stringify(payload),
+    })
+  }, [request])
+
+  const requestSellerAuthorityClaim = useCallback(async (
+    vin: string,
+    claimType: 'owner' | 'authorised_seller',
+  ): Promise<{ success: boolean; status: 'recognized' | 'evidence_required'; vin: string; claim_type: string }> => {
+    return request(`/vehicles/${encodeURIComponent(vin)}/seller-claim`, {
+      method: 'POST',
+      body: JSON.stringify({ claim_type: claimType }),
+    })
+  }, [request])
+
   const uploadVehicleImages = useCallback(async (vin: string, images: string[]): Promise<{ urls: string[] }> => {
     return request('/media/upload/vehicle', {
       method: 'POST',
@@ -2373,14 +2548,15 @@ export function useCarUpApi() {
   }, [request])
 
   const uploadEvidence = useCallback(async (vin: string, payload: {
-    evidence_type: string;
+    // Canonical-first (Operations M1): either supply evidence_class +
+    // evidence_subtype (the server derives the legacy compatibility
+    // evidence_type), or supply the legacy evidence_type alone.
+    evidence_type?: string;
     file: string; // base64 string
     captured_at?: string;
     visibility_level?: string;
     linked_registry_event_id?: string;
     verification_notes?: string;
-    // Vehicle Life Evidence Taxonomy + provenance (M1) — all optional; the
-    // backend still requires the legacy evidence_type above.
     evidence_class?: string;
     evidence_subtype?: string;
     event_date?: string;
@@ -2553,10 +2729,28 @@ export function useCarUpApi() {
     request<ReferralServiceResponse>(`/referrals/trust/audit-export${referralQuery(filters)}`), [request])
 
   return {
+    fetchSellerIntelligence,
+    fetchListingIntelligence,
+    fetchDealerIntelligence,
+    fetchFinanceIntelligence,
+    fetchPartsIntelligence,
+    fetchTradeIntelligence,
+    fetchReferralIntelligence,
+    fetchGovernmentProvenance,
+    fetchCommandCentre,
+    fetchMyRecommendations,
+    fetchAssistantContext,
+    fetchMyReport,
+    fetchKpiCatalogue,
+    fetchPlatformPartsIntelligence,
+    fetchMechanicIntelligence,
+    fetchGarageIntelligence,
     uploadKycDocument,
     uploadEvidence,
     linkEvidenceToEvent,
     createVehicleListing,
+    updateSellerDraft,
+    requestSellerAuthorityClaim,
     uploadVehicleImages,
     fetchOwnedVehicles,
     fetchSavedVehicles,
@@ -2564,12 +2758,15 @@ export function useCarUpApi() {
     saveVehicle,
     fetchServiceHistory,
     fetchNotifications,
+    markNotificationRead,
     fetchCommunicationThreads,
     fetchCommunicationThread,
     createCommunicationThread,
     sendCommunicationMessage,
     sendCommunicationFeedback,
     fetchCommunicationNotifications,
+    fetchCommunicationAccountActivity,
+    resendVerificationEmail,
     markCommunicationNotificationRead,
     fetchCommunicationPreferences,
     updateCommunicationPreferences,
@@ -2674,6 +2871,9 @@ export function useCarUpApi() {
     submitDispute,
     approveEvidence,
     rejectEvidence,
+    fetchVehicleOperationsReview,
+    correctEvidenceClassification,
+    reviewSellerAuthority,
     lookupVehiclePassport,
     fetchVehicle,
     verifyLedger,
@@ -2846,6 +3046,7 @@ export function useCarUpApi() {
     reserveVehicle,
     publishVehicleListing,
     unpublishVehicleListing,
+    updateVehiclePrice,
     fetchDealerLeads,
     fetchDealerPromotions,
     createDealerPromotion,

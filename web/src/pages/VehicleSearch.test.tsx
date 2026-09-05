@@ -12,6 +12,20 @@ import type { MarketplaceListingSummary } from '@/types'
  * resolve identifier-shaped queries through the passport lookup endpoint.
  */
 
+/*
+ * A TIMEOUT BUDGET, NOT AN ASSERTION. This suite renders a full search page with two data effects
+ * and a marketplace card grid. Alone it finishes 11 tests in a few seconds; inside the whole
+ * 121-file run on a loaded machine it intermittently exceeded vitest's 5s default and failed on
+ * elapsed time rather than on behaviour — observed four times across the Seller Journey programme,
+ * passing 11/11 in isolation every time.
+ *
+ * A flake that recurs is worse than a slow test, because it teaches everyone to re-run a red suite
+ * instead of reading it, and the next failure it hides may be real. Nothing about the product is
+ * asserted by the deadline, so raising it weakens no check. The precedent in this repo is
+ * VehicleDetail.media.test.tsx, which already carries 15s for the same reason.
+ */
+vi.setConfig({ testTimeout: 30_000 })
+
 const fetchMarketplaceListings = vi.fn()
 const fetchMarketplaceCategories = vi.fn()
 const lookupVehiclePassport = vi.fn()
@@ -21,7 +35,25 @@ vi.mock('@/hooks/useCarUpApi', () => ({
   useCarUpApi: () => ({ fetchMarketplaceListings, fetchMarketplaceCategories, lookupVehiclePassport, fetchMarketplaceListingDetail }),
 }))
 
-const VehicleSearch = (await import('./VehicleSearch')).default
+const { default: VehicleSearch, SEARCH_DEBOUNCE_MS } = await import('./VehicleSearch')
+
+/*
+ * A WAIT BUDGET DERIVED FROM THE PRODUCT, NOT A MAGIC NUMBER.
+ *
+ * The component commits a query only after SEARCH_DEBOUNCE_MS of quiet. The async utilities
+ * default to a 1000 ms budget, so every wait after a keystroke had 650 ms left to cover the
+ * debounce, an async passport lookup and a React commit. That is thin on a loaded machine,
+ * and it failed there — asserting nothing about behaviour when it did.
+ *
+ * This is a deadline, not an assertion: `waitFor` polls until the condition holds and fails
+ * the moment the budget expires, so a longer budget cannot make a wrong result pass. It is
+ * derived from the debounce so that changing the debounce cannot silently shorten it.
+ *
+ * The remaining wall-clock dependence is real and is recorded as an open item: fully
+ * deterministic timing needs fake timers across this file, which is a larger change than
+ * this cycle should make to a suite it did not otherwise touch.
+ */
+const SETTLE = { timeout: SEARCH_DEBOUNCE_MS * 12 }
 const { looksLikeIdentifier } = await import('@/lib/marketplaceParams')
 const SRC = readFileSync(resolve(dirname(fileURLToPath(import.meta.url)), 'VehicleSearch.tsx'), 'utf8')
 
@@ -84,8 +116,8 @@ describe('VehicleSearch de-mock (no fabricated inventory)', () => {
 
   it('renders live marketplace listings from the API', async () => {
     renderSearch()
-    await waitFor(() => expect(fetchMarketplaceListings).toHaveBeenCalled())
-    await waitFor(() => expect(screen.getByTestId('vehicle-search-result')).toBeTruthy())
+    await waitFor(() => expect(fetchMarketplaceListings).toHaveBeenCalled(), SETTLE)
+    await waitFor(() => expect(screen.getByTestId('vehicle-search-result')).toBeTruthy(), SETTLE)
 
     const text = document.body.textContent || ''
     expect(text).toContain('Toyota')
@@ -95,21 +127,23 @@ describe('VehicleSearch de-mock (no fabricated inventory)', () => {
 
   it('links browse results to the marketplace listing detail route', async () => {
     renderSearch()
-    await waitFor(() => expect(screen.getByTestId('vehicle-search-result')).toBeTruthy())
-    expect(screen.getByTestId('vehicle-search-result').getAttribute('href')).toBe('/marketplace/listing/JTDKARFP0H3000731')
+    await waitFor(() => expect(screen.getByTestId('vehicle-search-result')).toBeTruthy(), SETTLE)
+    const card = screen.getByTestId('vehicle-search-result')
+    const link = card.querySelector('[data-testid="marketplace-view-passport"]')
+    expect(link?.getAttribute('href')).toBe('/marketplace/listing/JTDKARFP0H3000731')
   })
 
   it('shows a truthful empty state when the live API returns no listings', async () => {
     fetchMarketplaceListings.mockResolvedValue({ listings: [], total: 0, limit: 60 })
     renderSearch()
-    await waitFor(() => expect(screen.getByTestId('vehicle-search-empty')).toBeTruthy())
+    await waitFor(() => expect(screen.getByTestId('vehicle-search-empty')).toBeTruthy(), SETTLE)
     expect((document.body.textContent || '')).toContain('0 vehicles found')
   })
 
   it('shows an honest error state instead of fabricated inventory when the API fails', async () => {
     fetchMarketplaceListings.mockRejectedValue(new Error('backend down'))
     renderSearch()
-    await waitFor(() => expect(screen.getByTestId('vehicle-search-error')).toBeTruthy())
+    await waitFor(() => expect(screen.getByTestId('vehicle-search-error')).toBeTruthy(), SETTLE)
     expect(screen.queryAllByTestId('vehicle-search-result')).toHaveLength(0)
   })
 
@@ -119,12 +153,12 @@ describe('VehicleSearch de-mock (no fabricated inventory)', () => {
     })
     fetchMarketplaceListingDetail.mockResolvedValue({ vin: 'JH4KA8260MC000000' })
     renderSearch()
-    await waitFor(() => expect(fetchMarketplaceListings).toHaveBeenCalled())
+    await waitFor(() => expect(fetchMarketplaceListings).toHaveBeenCalled(), SETTLE)
 
     fireEvent.change(screen.getByTestId('vehicle-search-input'), { target: { value: 'JH4KA8260MC000000' } })
 
-    await waitFor(() => expect(lookupVehiclePassport).toHaveBeenCalledWith('JH4KA8260MC000000'))
-    await waitFor(() => expect(screen.getByTestId('vehicle-search-passport-match')).toBeTruthy())
+    await waitFor(() => expect(lookupVehiclePassport).toHaveBeenCalledWith('JH4KA8260MC000000'), SETTLE)
+    await waitFor(() => expect(screen.getByTestId('vehicle-search-passport-match')).toBeTruthy(), SETTLE)
     expect(screen.getByTestId('vehicle-search-passport-match').getAttribute('href'))
       .toBe('/marketplace/listing/JH4KA8260MC000000')
   })
@@ -135,18 +169,18 @@ describe('VehicleSearch de-mock (no fabricated inventory)', () => {
     })
     fetchMarketplaceListingDetail.mockRejectedValue(Object.assign(new Error('Listing not found'), { status: 404 }))
     renderSearch()
-    await waitFor(() => expect(fetchMarketplaceListings).toHaveBeenCalled())
+    await waitFor(() => expect(fetchMarketplaceListings).toHaveBeenCalled(), SETTLE)
 
     fireEvent.change(screen.getByTestId('vehicle-search-input'), { target: { value: 'JH4KA8260MC000001' } })
 
-    await waitFor(() => expect(screen.getByTestId('vehicle-search-passport-history-only')).toBeTruthy())
+    await waitFor(() => expect(screen.getByTestId('vehicle-search-passport-history-only')).toBeTruthy(), SETTLE)
     expect(screen.queryByTestId('vehicle-search-passport-match')).toBeNull()
     expect(screen.getByTestId('vehicle-search-passport-history-only').textContent).toContain('not currently listed')
   })
 
   it('passes non-identifier queries straight through to the listings API without a lookup', async () => {
     renderSearch()
-    await waitFor(() => expect(fetchMarketplaceListings).toHaveBeenCalled())
+    await waitFor(() => expect(fetchMarketplaceListings).toHaveBeenCalled(), SETTLE)
 
     fireEvent.change(screen.getByTestId('vehicle-search-input'), { target: { value: 'toyota corolla' } })
 
@@ -160,7 +194,7 @@ describe('VehicleSearch de-mock (no fabricated inventory)', () => {
     renderSearch()
     fireEvent.change(screen.getByTestId('vehicle-search-input'), { target: { value: 'ABC1234' } })
 
-    await waitFor(() => expect(lookupVehiclePassport).toHaveBeenCalledWith('ABC1234'))
+    await waitFor(() => expect(lookupVehiclePassport).toHaveBeenCalledWith('ABC1234'), SETTLE)
     await waitFor(() =>
       expect(fetchMarketplaceListings).toHaveBeenCalledWith(expect.objectContaining({ q: 'ABC1234' })),
     )

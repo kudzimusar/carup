@@ -19,6 +19,7 @@
  * unavailable state and fetches nothing.
  */
 import { useCallback, useEffect, useState } from 'react'
+import { UnavailableNote } from '@/components/diaspora/DataStateNotes'
 import { AlertTriangle, CheckCircle2, Clock, Loader2, Lock, RefreshCw, ShieldAlert, XCircle } from 'lucide-react'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Badge } from '@/components/ui/badge'
@@ -37,6 +38,8 @@ export default function DiasporaSafeTradeOperations() {
   const api = useCarUpApi()
 
   const [approvals, setApprovals] = useState<SafeTradeApproval[]>([])
+  // Per-section readability, so a failed section never claims a clean result.
+  const [unreadable, setUnreadable] = useState({ approvals: false, queue: false, backlog: false, deadLetters: false })
   const [queue, setQueue] = useState<SafeTradeOperation[]>([])
   const [backlog, setBacklog] = useState<SafeTradeOutboxBacklog | null>(null)
   const [deadLetters, setDeadLetters] = useState<SafeTradeOutboxDeadLetter[]>([])
@@ -63,10 +66,20 @@ export default function DiasporaSafeTradeOperations() {
         api.getSafeTradeOutboxBacklog(),
         api.getSafeTradeOutboxDeadLetters(),
       ])
+      // Each section records whether IT could be read. A shared "some data could
+      // not be loaded" banner left the reader unable to tell which section failed,
+      // while the failed one still claimed "Everything is reconciled" — the one
+      // assertion on this page that must never be faked.
       if (a.status === 'fulfilled') setApprovals(a.value)
       if (q.status === 'fulfilled') setQueue(q.value)
       if (b.status === 'fulfilled') setBacklog(b.value)
       if (d.status === 'fulfilled') setDeadLetters(d.value)
+      setUnreadable({
+        approvals: a.status === 'rejected',
+        queue: q.status === 'rejected',
+        backlog: b.status === 'rejected',
+        deadLetters: d.status === 'rejected',
+      })
 
       const firstFailure = [a, q, b, d].find((r) => r.status === 'rejected') as PromiseRejectedResult | undefined
       if (firstFailure) {
@@ -163,7 +176,9 @@ export default function DiasporaSafeTradeOperations() {
           Awaiting a second approver
         </h2>
         {approvals.length === 0 ? (
-          <p className="text-sm text-slate-600" data-testid="approvals-empty">No approvals are waiting.</p>
+          unreadable.approvals
+            ? <UnavailableNote testId="approvals-unavailable">Pending approvals could not be loaded. This is not a report that none are waiting.</UnavailableNote>
+            : <p className="text-sm text-slate-600" data-testid="approvals-empty">No approvals are waiting.</p>
         ) : (
           <ul className="space-y-3" data-testid="approvals-list">
             {approvals.map((a) => (
@@ -173,7 +188,7 @@ export default function DiasporaSafeTradeOperations() {
                   <Badge variant="outline">{a.risk_level}</Badge>
                   {a.amount != null && (
                     <span className="text-sm tabular-nums text-slate-700">
-                      {a.currency || ''} {Number(a.amount).toLocaleString()}
+                      {a.currency || 'Currency not recorded —'} {Number(a.amount).toLocaleString()}
                     </span>
                   )}
                   <span className="text-xs text-slate-500">requested {new Date(a.requested_at).toLocaleString()}</span>
@@ -225,7 +240,9 @@ export default function DiasporaSafeTradeOperations() {
           failures — do not retry them here.
         </p>
         {queue.length === 0 ? (
-          <p className="text-sm text-slate-600" data-testid="recon-empty">Everything is reconciled.</p>
+          unreadable.queue
+            ? <UnavailableNote testId="recon-unavailable">The reconciliation queue could not be read, so reconciliation is unverified. This is not a report that everything is reconciled.</UnavailableNote>
+            : <p className="text-sm text-slate-600" data-testid="recon-empty">Everything is reconciled.</p>
         ) : (
           <ul className="space-y-2" data-testid="recon-list">
             {queue.map((op) => (
@@ -291,7 +308,9 @@ export default function DiasporaSafeTradeOperations() {
 
         <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500">Undeliverable events</h3>
         {deadLetters.length === 0 ? (
-          <p className="text-sm text-slate-600" data-testid="outbox-dead-empty">No undeliverable events.</p>
+          unreadable.deadLetters
+            ? <UnavailableNote testId="outbox-dead-unavailable">Undeliverable events could not be read. This is not a report that there are none.</UnavailableNote>
+            : <p className="text-sm text-slate-600" data-testid="outbox-dead-empty">No undeliverable events.</p>
         ) : (
           <ul className="space-y-2" data-testid="outbox-dead-list">
             {deadLetters.map((dl) => (

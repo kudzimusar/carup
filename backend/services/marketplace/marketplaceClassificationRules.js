@@ -100,12 +100,18 @@ export const SEED_TENANT_IDS = new Set([
   '00000000-0000-0000-0000-000000000000',
   '00000000-0000-0000-0000-000000000001',
 ])
-/** VIN encodes an integration/QA fixture (only checked for VINs that are not structurally valid). */
+/** Vehicle identifier encodes an integration/QA fixture (only checked when not structurally valid). */
 const INTEGRATION_VIN_RE = /(^|[_-])(int|integ|integration|trans|e2e|smoke|qa)([_-]|\d|$)/i
-/** Obviously synthetic VIN (starts with the literal letters "VIN" or a test/demo prefix). */
+/** Obviously synthetic identifier (starts with the literal letters "VIN" or a test/demo prefix). */
 const SYNTHETIC_VIN_RE = /^(vin|test|demo|seed|fixture|sample|mock|dummy)/i
-/** Structurally valid 17-char VIN (no I/O/Q, per ISO 3779). Real VINs never contain "_" or "I". */
-const VALID_VIN_RE = /^[A-HJ-NPR-Z0-9]{17}$/i
+/**
+ * Real-market Seller identifiers. Standard 17-char VINs remain accepted, while documented
+ * Japanese domestic frame/chassis identifiers such as GFC27-027051 are valid 12–17 character
+ * identifiers. Hyphen is permitted; underscore remains reserved/synthetic.
+ */
+const VALID_VEHICLE_IDENTIFIER_RE = /^[A-Z0-9-]{12,17}$/i
+/** Reserved Seller automation marker. Human listings using this exact prefix are treated as fixtures. */
+export const SELLER_AUTOMATION_DESCRIPTION_RE = /^Golden Dynamic Seller ([a-z0-9-]+):/i
 
 /**
  * Return a fixture/seed/demo exclusion reason for a vehicle, or null when it looks like real data.
@@ -118,9 +124,23 @@ export function getFixtureExclusion(vehicle = {}) {
   const owner = norm(vehicle.owner_id ?? vehicle.seller_id ?? vehicle.user_id)
   const tenant = norm(vehicle.tenant_id)
 
-  if (vin && !VALID_VIN_RE.test(vin)) {
-    if (INTEGRATION_VIN_RE.test(vin)) return `integration_fixture_vin(${vin})`
-    if (SYNTHETIC_VIN_RE.test(vin) || vin.includes('_')) return `synthetic_vin_prefix(${vin})`
+  const sellerDescription = String(vehicle.seller_description ?? '').trim()
+  const automationMatch = sellerDescription.match(SELLER_AUTOMATION_DESCRIPTION_RE)
+  if (automationMatch) return `seller_automation_fixture(${automationMatch[1]})`
+
+  // Syntax widening for genuine Japanese frame IDs must never make an explicit fixture marker
+  // look real. Provenance markers win over shape: "VIN...", test/demo/seed prefixes and integration
+  // identifiers remain excluded even when their character count happens to fall inside 12–17.
+  //
+  // The INTEGRATION marker is asked FIRST because it is the more specific diagnosis. Asking the
+  // synthetic-prefix question first shadowed it completely: every integration fixture is also named
+  // `VIN...`, so `SYNTHETIC_VIN_RE` claimed it and the `integration_fixture_vin` branch below became
+  // unreachable — an operator reading an exclusion report was told "synthetic prefix" about a row
+  // that was excluded for being an integration fixture. Both orders exclude exactly the same rows
+  // (synthetic OR integration OR underscored); only the reported reason differs.
+  if (vin && INTEGRATION_VIN_RE.test(vin)) return `integration_fixture_vin(${vin})`
+  if (vin && (SYNTHETIC_VIN_RE.test(vin) || vin.includes('_'))) return `synthetic_vin_prefix(${vin})`
+  if (vin && !VALID_VEHICLE_IDENTIFIER_RE.test(vin)) {
     return `invalid_vin_format(${vin})`
   }
   if (owner && (SEED_OWNER_IDS.has(owner) || /^u\d+$/.test(owner))) return `seed_owner_id(${owner})`

@@ -17,6 +17,7 @@
  * failure. Nothing on this page is what actually prevents a bad import.
  */
 import { useCallback, useEffect, useMemo, useState } from 'react'
+import { UnavailableNote } from '@/components/diaspora/DataStateNotes'
 import {
   AlertTriangle, CheckCircle2, Download, FileSpreadsheet, Loader2, Lock, RefreshCw, ShieldAlert, XCircle,
 } from 'lucide-react'
@@ -46,6 +47,9 @@ export default function DiasporaConfirmedImport() {
   const [result, setResult] = useState<WorkbookImportExecutionResult | null>(null)
   const [receipts, setReceipts] = useState<WorkbookImportReceipt[]>([])
   const [interrupted, setInterrupted] = useState<WorkbookInterruptedBatch[]>([])
+  // An unreadable check is not a clean result — see loadInterrupted/loadReceipts.
+  const [interruptedUnreadable, setInterruptedUnreadable] = useState(false)
+  const [receiptsUnreadable, setReceiptsUnreadable] = useState(false)
   const [busy, setBusy] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [notice, setNotice] = useState<string | null>(null)
@@ -74,14 +78,29 @@ export default function DiasporaConfirmedImport() {
 
   const loadInterrupted = useCallback(async () => {
     if (!canView) return
-    try { setInterrupted(await api.getWorkbookInterruptedImports()) } catch { setInterrupted([]) }
+    try {
+      setInterrupted(await api.getWorkbookInterruptedImports())
+      setInterruptedUnreadable(false)
+    } catch {
+      // The whole section is gated on this list being non-empty, so swallowing
+      // the failure hid the "do not retry" warning from an operator whose import
+      // may be partly applied. An unreadable check is reported, never hidden.
+      setInterrupted([])
+      setInterruptedUnreadable(true)
+    }
   }, [api, canView])
 
   // eslint-disable-next-line react-hooks/exhaustive-deps, react-hooks/set-state-in-effect
   useEffect(() => { if (!authLoading && canView) void loadInterrupted() }, [authLoading, canView])
 
   const loadReceipts = useCallback(async (batchId: string) => {
-    try { setReceipts(await api.getWorkbookImportReceipts(batchId)) } catch { setReceipts([]) }
+    try {
+      setReceipts(await api.getWorkbookImportReceipts(batchId))
+      setReceiptsUnreadable(false)
+    } catch {
+      setReceipts([])
+      setReceiptsUnreadable(true)
+    }
   }, [api])
 
   const onConfirm = useCallback(async () => {
@@ -372,7 +391,7 @@ export default function DiasporaConfirmedImport() {
 
           <dl className="mt-3 grid grid-cols-2 gap-x-6 gap-y-2 text-sm sm:grid-cols-4" data-testid="result-totals">
             <div><dt className="text-slate-600">Status</dt><dd className="font-medium" data-testid="result-status">{result.status}</dd></div>
-            <div><dt className="text-slate-600">Applied</dt><dd className="font-medium tabular-nums" data-testid="result-applied">{result.appliedRows ?? 0}</dd></div>
+            <div><dt className="text-slate-600">Applied</dt><dd className="font-medium tabular-nums" data-testid="result-applied">{result.appliedRows ?? 'Not reported'}</dd></div>
             <div><dt className="text-slate-600">Rejected</dt><dd className="font-medium tabular-nums" data-testid="result-rejected">{totals.rejected}</dd></div>
             <div><dt className="text-slate-600">Reversed</dt><dd className="font-medium tabular-nums" data-testid="result-compensated">{result.compensatedRows ?? totals.compensated}</dd></div>
           </dl>
@@ -386,6 +405,14 @@ export default function DiasporaConfirmedImport() {
       )}
 
       {/* ── 5. Receipts ───────────────────────────────────────────────────── */}
+      {receiptsUnreadable && (
+        <section className="rounded-lg border border-slate-200 bg-white p-4">
+          <UnavailableNote testId="import-receipts-unavailable">
+            The per-row import results could not be loaded. This is not a report of zero rows.
+          </UnavailableNote>
+        </section>
+      )}
+
       {receipts.length > 0 && (
         <section aria-labelledby="receipts-heading" className="mb-6 rounded-lg border border-slate-200 bg-white p-4">
           <div className="mb-3 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
@@ -424,6 +451,15 @@ export default function DiasporaConfirmedImport() {
       )}
 
       {/* ── 6. Interrupted imports ────────────────────────────────────────── */}
+      {interruptedUnreadable && (
+        <section className="rounded-lg border border-slate-200 bg-white p-4">
+          <UnavailableNote testId="interrupted-imports-unavailable">
+            CarUp could not check for interrupted imports. This is not confirmation that there are
+            none — if an import was interrupted, do not retry it until this check succeeds.
+          </UnavailableNote>
+        </section>
+      )}
+
       {interrupted.length > 0 && (
         <section aria-labelledby="interrupted-heading" className="rounded-lg border border-slate-200 bg-white p-4" data-testid="interrupted-imports">
           <h2 id="interrupted-heading" className="mb-3 text-sm font-semibold text-slate-900">Interrupted imports</h2>
