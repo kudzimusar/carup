@@ -1569,7 +1569,7 @@ This replaces the old C1–C18 backlog as the active roadmap.
 | Staging frontend paired to that backend | ✅ PROVEN at runtime — preview calls ONLY the branch backend |
 | Exact-head unmocked browser journey | ✅ spec 47, `mode=acceptance`, bundle pinned, 3/3 desktop+tablet+mobile |
 | Container-space conversion on staging | ✅ REQUESTED consumes 0; organiser approval consumes exactly 3 of 60 |
-| Owner visual/product UAT | ❌ PENDING — cannot be replaced by automation |
+| Owner visual/product UAT | ❌ PENDING — cannot be replaced by automation. Guide: `docs/trade-os/T3_OWNER_UAT_GUIDE.md` |
 
 **T3 therefore returns T3-PARTIAL, not T3-USABLE** — and the single reason is the last row.
 Everything automation can establish is established: the schema and its atomic authority against

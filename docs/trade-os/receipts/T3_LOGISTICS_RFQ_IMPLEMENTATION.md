@@ -289,7 +289,8 @@ Data measured across all four staging runs: 4 requests, 4 AWARDED, 4 accepted qu
 
 ## Known work still required before T3 closure
 
-- **owner visual/product UAT**, which automation cannot replace (§29).
+- **owner visual/product UAT**, which automation cannot replace (§29) —
+  see `docs/trade-os/T3_OWNER_UAT_GUIDE.md`.
 
 The container-space conversion is now also proven on deployed staging: a REQUESTED reservation
 consumed **0 of 60 CBM**, and the organiser's approval through the existing hardened authority
