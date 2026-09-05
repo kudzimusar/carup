@@ -48,40 +48,25 @@ export async function runFraudAnalysis(vin, price, listingTitle) {
   return result;
 }
 
-export async function runOcrParsing(docType, base64Data, userId) {
-  if (!userId) {
-    // Evidence rows are attribution: outside the test suite the caller must say WHO the
-    // extraction belongs to. The route passes the proven session identity.
-    if (process.env.NODE_ENV !== 'test') {
-      throw new Error('OCR parsing requires the authenticated user id it is being run for.');
-    }
-    userId = 'u1';
-  }
-  const systemPrompt = `You are the CarUp OS Document OCR Parser Agent. 
-  Analyze the uploaded vehicle registration logbook or ZIMRA Form 21. 
-  Extract all structured details into a JSON payload with: { confidenceScore: number, vin: string, owner: string, engineNumber: string, make: string, model: string, year: number, importSource: string, dutyPaid: boolean }`;
-  
-  const userPrompt = `Document Type: ${docType}
-  Image Payload Base64: ${base64Data ? base64Data.slice(0, 100) : 'Mock Data'}...`;
-  
-  const startTime = Date.now();
-  const response = await askGemini(systemPrompt, userPrompt, true);
-  await logInference('gemini-vision', userPrompt, response, startTime);
-  
-  const result = JSON.parse(response);
-  
-  try {
-    const id = generateId('ocr');
-    await supabase.from('ocr_documents').insert({
-      id, user_id: userId, document_type: docType, file_path: base64Data ? 'inline_b64' : 'mock_path', extracted_json: JSON.stringify(result), confidence_score: result.confidenceScore || 0.5, status: 'Pending_Verification', created_at: new Date().toISOString()
-    });
-    
-    result._ocrDocumentId = id;
-  } catch (err) {
-    console.warn('⚠️ OCR persistence failed (non-fatal):', err.message);
-  }
-  
-  return result;
+/**
+ * RETIRED OCR COMPATIBILITY SYMBOL.
+ *
+ * The historical implementation behind this export sent only a truncated Base64 prefix to a
+ * text-only Gemini request and substituted confidence. Keeping that implementation anywhere in
+ * the runtime means a future route-order or import regression can silently re-open a second OCR
+ * truth path. The symbol remains exported only so older imports fail closed with an explicit 410
+ * instead of crashing the process at module load.
+ *
+ * All document OCR must go through DocumentIntelligenceService and its governed provider boundary.
+ */
+export async function runOcrParsing() {
+  const error = new Error(
+    'The legacy generic OCR parser is retired. Use the governed identity, dealer, diaspora run-ocr, or vehicle-evidence OCR workflow.'
+  );
+  error.name = 'LegacyOcrPathRetiredError';
+  error.statusCode = 410;
+  error.code = 'LEGACY_OCR_PATH_RETIRED';
+  throw error;
 }
 
 export async function runRiskScoring(vin, mileage, basePrice) {

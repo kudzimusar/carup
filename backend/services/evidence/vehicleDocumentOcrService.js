@@ -22,7 +22,8 @@ import { ForbiddenError, NotFoundError, ValidationError } from '../../utils/erro
  * document-class authority.
  */
 
-const PLATFORM_OCR_ROLES = new Set(['admin', 'government']);
+const PLATFORM_OCR_ROLES = new Set(['admin', 'platform_admin', 'super_admin', 'government']);
+const VEHICLE_OCR_ROLES = new Set(['owner', 'dealer', 'admin', 'platform_admin', 'super_admin', 'government']);
 
 const DOCUMENT_CONTRACTS = Object.freeze({
   'registration:registration_book': Object.freeze({
@@ -102,9 +103,27 @@ export function toVehicleExtractionFields(contract, ocrResult = {}) {
   return fields;
 }
 
-async function requireVehicleScope(client, actor, vin) {
+function assertVehicleOcrActor(actor = {}) {
   const userId = actorId(actor);
   if (!userId) throw new ValidationError('Authenticated user context is required.');
+
+  const role = String(actor.role || actor.effectiveRole || '').toLowerCase();
+  if (!VEHICLE_OCR_ROLES.has(role)) {
+    throw new ForbiddenError(`Role '${role || 'unknown'}' cannot process private vehicle documents with OCR.`);
+  }
+
+  // The route already composes authorizeRole + requireProvenIdentity. The service repeats the
+  // consequential part so a future internal caller cannot bypass it by importing this function
+  // directly. Tests intentionally omit authenticationMethod and remain injectable under NODE_ENV=test.
+  if (process.env.NODE_ENV !== 'test' && actor.authenticationMethod !== 'session') {
+    throw new ForbiddenError('Vehicle document OCR requires a proven authenticated session.');
+  }
+
+  return { userId, role };
+}
+
+async function requireVehicleScope(client, actor, vin) {
+  const { userId, role } = assertVehicleOcrActor(actor);
 
   const { data: vehicle, error } = await client
     .from('vehicles')
@@ -114,13 +133,19 @@ async function requireVehicleScope(client, actor, vin) {
   if (error) throw new Error(`Vehicle OCR scope read failed: ${error.message}`);
   if (!vehicle) throw new NotFoundError('Vehicle not found.');
 
-  if (PLATFORM_OCR_ROLES.has(String(actor.role || '').toLowerCase())) return vehicle;
+  if (PLATFORM_OCR_ROLES.has(role)) return vehicle;
 
   const ownsVehicle = vehicle.owner_id && vehicle.owner_id === userId;
   const isCurrentSeller = vehicle.current_seller_id && vehicle.current_seller_id === userId;
-  const sameTenant = vehicle.tenant_id && actor.tenantId && vehicle.tenant_id === actor.tenantId;
-  if (!ownsVehicle && !isCurrentSeller && !sameTenant) {
-    throw new ForbiddenError('You do not have owner, current-seller, or organizational scope over this vehicle.');
+  // Tenant membership alone is not enough to read/process a private vehicle document. Only the
+  // governed dealer context may use the organizational relationship; an owner/member who merely
+  // belongs to the same tenant must not inherit dealer evidence authority by supplying tenantId.
+  const isDealerTenant = role === 'dealer'
+    && vehicle.tenant_id
+    && actor.tenantId
+    && vehicle.tenant_id === actor.tenantId;
+  if (!ownsVehicle && !isCurrentSeller && !isDealerTenant) {
+    throw new ForbiddenError('You do not have owner, current-seller, or governed dealer scope over this vehicle.');
   }
 
   // Canonical owner access is evidence preparation, not Seller Authority. A non-owner relationship,

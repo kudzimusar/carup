@@ -1,6 +1,6 @@
 import { supabase } from '../../db/supabase.js';
 import { DOCUMENT_STATUSES, IMPORT_ORDER_STATUSES } from '../../constants/diaspora/diasporaStatuses.js';
-import { DatabaseError, NotFoundError } from '../../utils/errors.js';
+import { DatabaseError, NotFoundError, ValidationError } from '../../utils/errors.js';
 import { validateTradeDocumentPayload } from '../../validators/diaspora/diasporaSchemas.js';
 import { writeDiasporaAudit } from './diasporaAuditService.js';
 import { transitionImportOrder } from './diasporaWorkflowService.js';
@@ -126,17 +126,89 @@ export async function getTradeDocument(id, userContext = {}) {
   return redactTradeDocumentStorage(await getTradeDocumentWithStorage(id, userContext));
 }
 
+const DIASPORA_PROVIDER_OCR_ROUTE = /\/api\/diaspora\/(?:documents|trade-documents)\/[^/?#]+\/run-ocr(?:$|[?#])/;
+
+function retiredClientExtractionError() {
+  const error = new ValidationError(
+    'Client-authored OCR extraction records are retired. Provider-backed extraction must come from the governed Diaspora run-ocr workflow.'
+  );
+  error.statusCode = 410;
+  error.code = 'CLIENT_AUTHORED_OCR_EXTRACTION_RETIRED';
+  return error;
+}
+
+/**
+ * Runtime Diaspora OCR evidence must be derived from a provider execution CarUp itself observed.
+ *
+ * The historical service accepted extraction_provider, extracted_fields, confidence_score and
+ * raw_response straight from an authenticated request body. The route-level convergence guard
+ * already retires that endpoint, but truth integrity may not depend on route ordering alone. This
+ * service therefore independently refuses any runtime request that did not originate from the
+ * provider-backed /run-ocr path, and it derives the persisted fields/provider/confidence from the
+ * returned Document Intelligence object rather than trusting duplicated caller fields.
+ *
+ * Direct service calls without an HTTP request are retained only for NODE_ENV=test integration
+ * fixtures. There is no runtime caller without req in the repository.
+ */
+function normalizeProviderBackedExtraction(payload = {}, req = null) {
+  if (!req) {
+    if (process.env.NODE_ENV !== 'test') {
+      throw retiredClientExtractionError();
+    }
+    return {
+      extractionProvider: payload.extraction_provider || 'carup_ocr',
+      extractedFields: payload.extracted_fields || {},
+      confidenceScore: payload.confidence_score || 0,
+      rawResponse: payload.raw_response || {},
+    };
+  }
+
+  const sourceRoute = String(req.originalUrl || req.url || '');
+  if (!DIASPORA_PROVIDER_OCR_ROUTE.test(sourceRoute)) {
+    throw retiredClientExtractionError();
+  }
+
+  const raw = payload.raw_response;
+  if (!raw || raw.executionStatus !== 'provider_succeeded' || raw.success !== true || !raw.provider || !raw.model) {
+    throw new ValidationError(
+      'Provider-backed OCR execution evidence is required before a Diaspora extraction can be recorded.'
+    );
+  }
+
+  const extractedFields = raw.extractedData && typeof raw.extractedData === 'object'
+    ? raw.extractedData
+    : {};
+  const confidenceScore = raw.confidenceReported === true && Number.isFinite(Number(raw.confidence))
+    ? Number(raw.confidence)
+    : 0;
+
+  return {
+    extractionProvider: raw.provider,
+    extractedFields,
+    confidenceScore,
+    rawResponse: raw,
+  };
+}
+
 export async function recordDocumentExtraction(documentId, payload, userContext = {}, req = null) {
+  // This happens BEFORE any document/database read so the retired client-authored route cannot use
+  // a valid document id to get as far as the evidence store. A provider outage/no-content result is
+  // also refused here: no successful provider execution means no OCR_EXTRACTED state transition.
+  const normalized = normalizeProviderBackedExtraction(payload, req);
+
   const doc = await getTradeDocument(documentId, userContext);
   const { data, error } = await supabase
     .from('diaspora_trade_document_extractions')
     .insert({
       trade_document_id: documentId,
       tenant_id: doc.tenant_id,
-      extraction_provider: payload.extraction_provider || 'carup_ocr',
-      extracted_fields: payload.extracted_fields || {},
-      confidence_score: payload.confidence_score || 0,
-      raw_response: payload.raw_response || {},
+      extraction_provider: normalized.extractionProvider,
+      extracted_fields: normalized.extractedFields,
+      // Schema 013 keeps this NOT NULL. Zero is only the storage sentinel for "provider reported no
+      // confidence"; raw_response.confidenceReported is the authority for whether a measurement
+      // existed, so zero can never be interpreted as a substituted model score.
+      confidence_score: normalized.confidenceScore,
+      raw_response: normalized.rawResponse,
       verification_status: DOCUMENT_STATUSES.OCR_EXTRACTED,
       created_by: userContext?.id,
       updated_by: userContext?.id,
