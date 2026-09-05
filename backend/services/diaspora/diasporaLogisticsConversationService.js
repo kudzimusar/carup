@@ -13,6 +13,7 @@ import { createCommunicationServices } from '../communication/communicationServi
 
 const REQUESTS = 'diaspora_logistics_requests';
 const QUOTES = 'diaspora_logistics_quotes';
+const REQUESTER_VISIBLE_QUOTE_STATUSES = new Set(['SUBMITTED', 'ACCEPTED', 'REJECTED', 'EXPIRED']);
 export const LOGISTICS_SUBJECT_TYPE = 'diaspora_logistics_request';
 export const LOGISTICS_WORKFLOW = 'marketplace';
 
@@ -26,11 +27,18 @@ async function loadRequest(client, requestId) {
   return data;
 }
 
-async function providerHasEngaged(client, requestId, providerId) {
+async function providerHasEngaged(client, requestId, providerId, { requesterVisibleOnly = false } = {}) {
   const { data } = await client.from(QUOTES).select('id, provider_id, status')
     .eq('logistics_request_id', requestId)
     .eq('provider_id', providerId)
     .is('deleted_at', null);
+  if (requesterVisibleOnly) {
+    // A provider DRAFT is private work-in-progress. The requester must not be able to use the
+    // conversation bootstrap as an existence oracle for a draft they cannot otherwise see.
+    return Boolean((data || []).some((quote) => REQUESTER_VISIBLE_QUOTE_STATUSES.has(quote.status)));
+  }
+  // The provider may continue a conversation they themselves started while the request was open;
+  // a withdrawn offer deliberately no longer counts as an active engagement.
   return Boolean((data || []).some((quote) => quote.status !== 'WITHDRAWN'));
 }
 
@@ -48,8 +56,8 @@ export async function ensureLogisticsConversation(requestId, userContext = {}, o
   if (isRequester) {
     providerId = normalizeId(options.providerId || userContext.providerId);
     if (!providerId) throw new ValidationError('providerId is required to open a specific provider conversation');
-    if (!privileged(context) && !(await providerHasEngaged(client, requestId, providerId))) {
-      throw new ForbiddenError('A provider must engage with this request before the requester can open a direct conversation');
+    if (!privileged(context) && !(await providerHasEngaged(client, requestId, providerId, { requesterVisibleOnly: true }))) {
+      throw new ForbiddenError('A provider must submit an offer before the requester can open a direct conversation');
     }
     role = 'requester';
   } else {
