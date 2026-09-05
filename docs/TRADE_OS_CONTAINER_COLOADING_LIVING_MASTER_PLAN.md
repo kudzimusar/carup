@@ -1557,17 +1557,17 @@ This replaces the old C1–C18 backlog as the active roadmap.
 
 | Acceptance dimension | State |
 |---|---|
-| Implemented | ✅ head `f63e88e0` (code complete at `2e197b83`) |
-| Tested locally | ✅ backend 41/41 (T3 12 · T3-adversarial 13 · container-auth 16); 75/75 including migration-integrity 25 and communications coverage 9; browser 48/48 |
+| Implemented | ✅ head `232b68c3` — post-closure hardening + adversarial-audit fixes |
+| Tested locally | ✅ diaspora gate 1424/0/7 · T3-adversarial 21/21 · comms coverage 10/10 · migration-integrity 27/27 · browser 48/48 (incl. the new unreadable-sailings case) |
 | Lint / typecheck | ✅ `tsc` clean, lint gate `NET_NEW_ERRORS=0` |
-| CI proven | ✅ all 7 workflows green at `2e197b83` — the head carrying every code change of this cycle |
+| CI proven | ✅ all 7 workflows green at `232b68c3` — the exact certified head |
 | Adversarial security proven | ✅ 13/13 over HTTP, full §9 matrix |
 | Responsive UAT proven | ✅ all seven contracted widths, one real 393px defect found and fixed |
 | Staging migration applied | ✅ applied to STAGING ONLY; 3 tables `rls_enabled=true`, RPC service_role-only |
 | Staging DB authority proven | ✅ award RPC exercised on real Postgres — see the cycle entry |
 | Staging backend serves T3 | ✅ branch preview answers the T3 routes 401, not 404 |
 | Staging frontend paired to that backend | ✅ PROVEN at runtime — preview calls ONLY the branch backend |
-| Exact-head unmocked browser journey | ✅ spec 47, `mode=acceptance`, bundle `index-Bi6fJZ2P.js` pinned — **6/6** (both journeys × desktop/tablet/mobile) on the build that carries route enforcement |
+| Exact-head unmocked browser journey | ✅ spec 47, `mode=acceptance`, bundle `index-BPPgy9UI.js` pinned — **6/6** (both journeys × desktop/tablet/mobile), FE and BE both built from `232b68c3` |
 | Container-space conversion on staging | ✅ spec 47 carries the whole chain — REQUESTED consumes 0, replay idempotent, foreign sailing refused, approval consumes exactly the reserved volume |
 | Trade OS route-boundary foundation | ✅ enforcement restored; nav visibility == typed-URL eligibility, pinned for all 7 roles |
 | Staging taxonomy RLS drift | ✅ forward reconciliation applied; RLS on, anon/authenticated revoked, service_role preserved |
@@ -2721,3 +2721,47 @@ These are product/ownership decisions, not defects this cycle should settle sile
 
 **Owner visual/product UAT only.** T3 stays T3-PARTIAL until that verdict is recorded. Do not begin
 T4. Production untouched. PR #207 remains Draft.
+
+## Execution entry — 2026-09-05 · T3 post-closure re-certification at `232b68c3`
+
+The interim hardening (immutable submitted terms, terminal states, inclusive validity, concurrent
+request-space uniqueness, DRAFT-engagement privacy, requester projection, truthful sailing states,
+cargo preflight) was audited, preserved, and extended: the 9-dimension adversarial audit's remaining
+confirmed findings were closed in `232b68c3` (see that commit for the itemized list — notably the
+governed-template registration without which every T2/T3 lifecycle notification dead-letters, the
+withdrawn-DRAFT disclosure, the unknown-CBM dead end now resolved by fill-only confirm-measurements,
+the 0.000-CBM data-loss path, the cross-tenant my-requests scan, and four vacuous tests).
+
+Everything below was then proven on the DEPLOYED exact head — FE `index-BPPgy9UI.js` and BE both
+built from `232b68c3`, against the real staging database:
+
+| # | Targeted proof | Result |
+|---|---|---|
+| A | Expired offer selection | DB guard: yesterday→ACCEPTED **EXPIRED**; today (inclusive) accepted; past-dated DRAFT→SUBMITTED **EXPIRED** |
+| B | Submitted-term immutability | `total_amount` update on SUBMITTED → **IMMUTABLE_SUBMITTED_QUOTE** |
+| C | Terminal-state guard | ACCEPTED→WITHDRAWN → **TERMINAL_QUOTE_STATE** |
+| D | DRAFT Communications privacy | conversation on DRAFT-only engagement **403**; after submit **200** + thread |
+| E | Requester quote projection | no `provider_tenant_id` / `metadata` / `created_by` / `updated_by` / `deleted_at`; provider safe identity present |
+| F | Sailing unreadable ≠ empty | pinned in the mocked suite (fault injection is not possible against deployed staging; stated, not claimed) |
+| G | Cargo preflight | 0.000-CBM item → **400**, `/mine` count unchanged — no header written |
+| H | Concurrent space-request uniqueness | two SIMULTANEOUS calls → one reservation |
+| I | Losing racer | **200 + idempotentReplay:true**, no raw uniqueness-constraint leak |
+| J | REQUESTED capacity | 2.000 CBM REQUESTED, container 27/20 **unchanged** |
+| K | APPROVED capacity | organiser approval → 27→**29**, exactly once |
+| L | Replay after approval | idempotentReplay:true, capacity stayed 29/18 |
+| M | Foreign sailing | **403** |
+
+Full journey: spec 47 `mode=acceptance`, **6/6** across chromium / tablet-chromium /
+mobile-chromium at the pinned bundle; harness console/page/HTTP capture gates clean. Local at the
+same tree: diaspora gate **1424/0/7**, adversarial **21/21**, browser **48/48** including both
+seven-width geometry loops. CI: **all 7 workflows green at `232b68c3`**.
+
+Product decisions recorded, not silently made: (1) multiple named alternative offers per provider
+remain PERMITTED — no one-provider-one-quote uniqueness was added; accidental duplicates vs named
+alternatives is an owner decision. (2) CarUp staff acting FOR a provider currently rides on
+privileged oversight; if wanted as a product behaviour it must become explicit delegated authority
+with audit. (3) `quote_withdrawn` notification stays a deliberate T7 deferral. (4) Six foreign-lane
+template keys remain unregistered, listed in the coverage gate as visible debt.
+
+**T3 returns T3-PARTIAL for exactly one reason: OWNER VISUAL / PRODUCT UAT**
+(`docs/trade-os/T3_OWNER_UAT_GUIDE.md`). T4 not begun. Production untouched. PR #207 Draft.

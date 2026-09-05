@@ -4,7 +4,7 @@
 - **Branch:** `feat/trade-os-client-demo-convergence`
 - **Draft PR:** #207
 - **Production:** untouched
-- **Status:** T3-PARTIAL — five items remain (see "Known work still required"); production untouched — everything provable without a deployed environment
+- **Status:** T3-PARTIAL at certified head `232b68c3` — the sole remaining gate is OWNER VISUAL / PRODUCT UAT; production untouched — everything provable without a deployed environment
   is proven; nothing on staging has been run. This receipt is evidence, **not a competing plan**.
 
 ## Why T3 exists
@@ -286,6 +286,19 @@ Data measured across all four staging runs: 4 requests, 4 AWARDED, 4 accepted qu
 `estimated_volume_cbm` `1.512` basis `CALCULATED` computed by the real backend, 8 lifecycle events
 (`quote_submitted` → requester, `quote_accepted` → provider), and — the invariant that matters —
 **0 container reservations**. An award is not a booking.
+
+## Post-closure re-certification — head `232b68c3`
+
+The interim hardening was preserved and the adversarial audit's remaining confirmed findings were
+closed (governed-template registration, withdrawn-DRAFT disclosure, unknown-CBM dead end →
+fill-only confirm-measurements, 0.000-CBM refusal before write, DB-scoped my-requests, cleared-charge
+merge semantics, reservation-state read-back, winner-not-selected notification, four vacuous tests).
+
+All thirteen targeted hardening proofs (A–M) then ran against the DEPLOYED exact head — FE bundle
+`index-BPPgy9UI.js` and BE both from `232b68c3` — with API/database assertions, and the full
+requester → provider → award → container-space → organiser-approval journey passed **6/6** across
+desktop, tablet and mobile in `mode=acceptance`. CI is green on the same head. The itemized A–M
+table lives in the master plan §30 entry "T3 post-closure re-certification".
 
 ## Known work still required before T3 closure
 
