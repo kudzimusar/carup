@@ -10,6 +10,12 @@ on:
         description: Workers AI model id to probe
         required: false
         default: ''
+  push:
+    branches:
+      - fix/o2-live-ocr-operationalization
+    paths:
+      - '.github/workflows/o2-ocr-schema-probe.yml'
+      - 'backend/tests/tools/ocr-schema-suppression-probe.mjs'
 
 concurrency:
   group: o2-ocr-schema-probe

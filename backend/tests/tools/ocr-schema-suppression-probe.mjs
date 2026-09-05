@@ -22,7 +22,9 @@ const { askCloudflareVision } = await import(`${root}/backend/services/ai/Cloudf
 const { resolveCloudflareModel } = await import(`${root}/backend/services/ai/ocrVisionProvider.js`);
 const { resolveSchema, printedLabelsFor } = await import(`${root}/backend/services/document-intelligence/documentSchemas.js`);
 
-const model = resolveCloudflareModel();
+const MODELS = process.env.CARUP_OCR_MODEL
+  ? [process.env.CARUP_OCR_MODEL]
+  : ['@cf/google/gemma-4-26b-a4b-it', '@cf/qwen/qwen3.8-27b'];
 const schema = resolveSchema('national_id');
 const base64 = readFileSync(`${root}/docs/features/o2/uat-assets/ocr-corpus/national-id-clean.png`).toString('base64');
 const image = [{ mimeType: 'image/png', base64 }];
@@ -74,7 +76,8 @@ const variants = [
 ];
 
 const EXPECT = ['first_name', 'last_name', 'national_id_number', 'date_of_birth', 'country', 'sex', 'place_of_birth', 'date_of_issue'];
-console.log(`model: ${model}\n`);
+for (const model of MODELS) {
+console.log(`\n================ ${model} ================`);
 for (const [label, jsonSchema] of variants) {
   try {
     const { content, usage } = await askCloudflareVision(systemPrompt, `Transcribe the attached ${schema.label}.`, image, jsonSchema, { model });
@@ -94,4 +97,5 @@ for (const [label, jsonSchema] of variants) {
   } catch (e) {
     console.log(`${label}\n   FAILED: ${e.message}\n`);
   }
+}
 }
