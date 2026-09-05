@@ -8,7 +8,7 @@
 import express from 'express';
 import { authorizeRole } from '../middleware/authMiddleware.js';
 import { resolveVehicleObjectAuthority } from '../middleware/vehicleObjectAuthority.js';
-import { ForbiddenError } from '../utils/errors.js';
+import { ForbiddenError, ValidationError } from '../utils/errors.js';
 import {
   createContainer,
   listOpenContainers,
@@ -43,12 +43,39 @@ import { getTradeContext } from '../services/diaspora/tradeContextService.js';
 const router = express.Router();
 const asyncHandler = (fn) => (req, res, next) => Promise.resolve(fn(req, res, next)).catch(next);
 const base = '/container-marketplace';
+const logisticsCargoCategories = new Set([
+  'vehicle', 'parts', 'household', 'furniture_appliances', 'boxes',
+  'machinery_equipment', 'pallet_crate', 'general', 'other',
+]);
 
 // Route middleware is deliberately coarse. The services are the authority boundary: participant
 // ownership, provider business eligibility, tenant operator authority and object scope are all
 // resolved server-side from authenticated context rather than from stakeholder headers.
 const participantAuth = authorizeRole(['owner', 'dealer', 'admin', 'platform_admin', 'super_admin', 'government', 'government_reviewer', 'reviewer']);
 const operatorAuth = participantAuth;
+
+/**
+ * Deterministic item validation before request-header mutation.
+ *
+ * The service remains the canonical normalizer and repeats these checks. This preflight exists to
+ * prevent a malformed cargo array from first creating/updating a request header and only then
+ * failing while its items are replaced. It deliberately mirrors only validation that can reject
+ * input; measurements that are merely unknown remain valid.
+ */
+function prevalidateLogisticsItems(items) {
+  if (!Array.isArray(items)) return;
+  if (!items.length) throw new ValidationError('Add at least one cargo item');
+  if (items.length > 50) throw new ValidationError('A shipping request can contain at most 50 cargo item groups');
+  items.forEach((item, index) => {
+    const category = String(item?.cargo_category ?? item?.cargoCategory ?? 'other').toLowerCase();
+    if (!logisticsCargoCategories.has(category)) {
+      throw new ValidationError(`Cargo item ${index + 1} has an unsupported category`);
+    }
+    if (!String(item?.description ?? '').trim()) {
+      throw new ValidationError(`Cargo item ${index + 1} needs a plain-language description`);
+    }
+  });
+}
 
 /**
  * HTTP transaction preflight for linked vehicles.
@@ -72,12 +99,51 @@ async function preauthorizeLogisticsVehicleLinks(items, userContext) {
   }
 }
 
+/**
+ * Requester-safe commercial offer projection.
+ *
+ * A requester legitimately needs an opaque provider id to open the canonical provider conversation,
+ * plus the provider's safe commercial identity and the actual offered terms. Provider tenant ids,
+ * internal metadata and mutation/audit actor ids have no buyer-facing purpose and never cross this
+ * HTTP boundary. The allow-list also means a future quote column cannot leak by default.
+ */
+function projectLogisticsQuoteForRequester(quote = {}) {
+  return {
+    id: quote.id,
+    reference: quote.reference,
+    logistics_request_id: quote.logistics_request_id,
+    provider_id: quote.provider_id,
+    service_mode: quote.service_mode,
+    compatible_container_id: quote.compatible_container_id ?? null,
+    freight_amount: quote.freight_amount ?? null,
+    handling_amount: quote.handling_amount ?? null,
+    origin_charges: quote.origin_charges ?? null,
+    destination_charges: quote.destination_charges ?? null,
+    documentation_fees: quote.documentation_fees ?? null,
+    optional_services: Array.isArray(quote.optional_services) ? quote.optional_services : [],
+    total_amount: quote.total_amount,
+    currency: quote.currency,
+    transit_days: quote.transit_days ?? null,
+    valid_until: quote.valid_until ?? null,
+    pickup_included: quote.pickup_included ?? null,
+    delivery_included: quote.delivery_included ?? null,
+    inclusions: Array.isArray(quote.inclusions) ? quote.inclusions : [],
+    exclusions: Array.isArray(quote.exclusions) ? quote.exclusions : [],
+    conditions: quote.conditions ?? null,
+    status: quote.status,
+    provider: quote.provider || null,
+    created_at: quote.created_at,
+    updated_at: quote.updated_at,
+  };
+}
+
 // ── T3: Logistics RFQ / "Ship something" ──────────────────────────────────
 // Specific collection routes are registered before any /:id route to avoid Express shadowing.
 router.get('/logistics-requests/mine', participantAuth, asyncHandler(async (req, res) => {
   res.json({ data: await listMyLogisticsRequests(req.query, req.userContext, { req }) });
 }));
 router.post('/logistics-requests', participantAuth, asyncHandler(async (req, res) => {
+  prevalidateLogisticsItems(req.body?.items);
   await preauthorizeLogisticsVehicleLinks(req.body?.items, req.userContext);
   res.status(201).json({ data: await createLogisticsRequest(req.body, req.userContext, { req }) });
 }));
@@ -104,11 +170,15 @@ router.post('/logistics-quotes/:id/withdraw', participantAuth, asyncHandler(asyn
 }));
 router.get('/logistics-requests/:id', participantAuth, asyncHandler(async (req, res) => {
   const data = await getMyLogisticsRequest(req.params.id, req.userContext, { req });
-  // Provider DRAFT offers are private work-in-progress. The service composes the request transaction,
-  // but the requester HTTP projection must never reveal a draft's price/terms before submission.
-  res.json({ data: { ...data, quotes: (data.quotes || []).filter((quote) => quote.status !== 'DRAFT') } });
+  // DRAFT offers are private work-in-progress. Every visible offer then crosses an explicit
+  // allow-list projection rather than the database row returned by the service-role client.
+  const quotes = (data.quotes || [])
+    .filter((quote) => quote.status !== 'DRAFT')
+    .map(projectLogisticsQuoteForRequester);
+  res.json({ data: { ...data, quotes } });
 }));
 router.patch('/logistics-requests/:id', participantAuth, asyncHandler(async (req, res) => {
+  prevalidateLogisticsItems(req.body?.items);
   await preauthorizeLogisticsVehicleLinks(req.body?.items, req.userContext);
   res.json({ data: await updateLogisticsRequest(req.params.id, req.body, req.userContext, { req }) });
 }));
@@ -116,7 +186,8 @@ router.post('/logistics-requests/:id/publish', participantAuth, asyncHandler(asy
   res.json({ data: await publishLogisticsRequest(req.params.id, req.userContext, { req }) });
 }));
 router.post('/logistics-requests/:id/accept-quote', participantAuth, asyncHandler(async (req, res) => {
-  res.json({ data: await acceptLogisticsQuote(req.params.id, req.body?.quoteId, req.userContext, { req }) });
+  const data = await acceptLogisticsQuote(req.params.id, req.body?.quoteId, req.userContext, { req });
+  res.json({ data: { ...data, acceptedQuote: data.acceptedQuote ? projectLogisticsQuoteForRequester(data.acceptedQuote) : null } });
 }));
 router.get('/logistics-requests/:id/sailing-matches', participantAuth, asyncHandler(async (req, res) => {
   res.json({ data: await findCompatibleSailings(req.params.id, req.userContext, { req }) });
