@@ -1588,6 +1588,7 @@ Do not describe T3 as client-ready, and do not begin T4, before then.
 - [x] Aggregate participants, quote, cargo, container, documents, milestones, communications and audit.
 - [x] Prevent shadow duplication.
 - [x] Deployed-staging evidence for BOTH origins (see §34).
+- [x] Owner UAT PASS WITH FINDINGS; blocking comprehension findings closed (see §35). **T4-USABLE.**
 
 Executed at `8fc31aaa`, certified at `3a3d729e`. Receipt:
 `docs/trade-os/receipts/T4_ORDER_BOOKING_PASSPORT_CONVERGENCE.md`.
@@ -3169,3 +3170,71 @@ different one for it. The index is built for the capability that should exist; t
 T-phase gap, not a T4 defect.
 
 **Remaining gate: OWNER UAT. Do not treat this entry as an owner pass.**
+
+---
+
+## §35 — T4 OWNER UAT AND UX CLOSURE → **T4-USABLE**, FROZEN at `736f06c5`
+
+**Owner T4 UAT: PASS WITH FINDINGS.** The convergence architecture was accepted. Three HIGH findings
+blocked the freeze — all of them about the passport being hard to *understand*, none about it being
+untrue. The findings stay in the record; they are not rewritten away.
+
+### The findings, and why they mattered
+
+**F1 — the passport printed internal user ids.** "Who is involved" rendered
+`u_75baf4fa3c9a4f29`, so a customer could not tell who their supplier was and an internal
+identifier sat on a customer-facing surface. Identity now resolves business/trading name, then the
+governed person's name, then the **role**. There is deliberately **no id fallback**: an unresolvable
+party reads "Selected supplier", which is truthful and useful where an opaque id is neither. A
+withheld party renders by role and says it is not shared, so T3's requester-withheld contract is
+untouched — and a test now pins that no raw id can reach `participants` for any viewer.
+
+**F2 — the passport never said what to do next.** It answered *what is this / what happened / what
+is waiting* and stopped, so a freshly awarded logistics transaction offered no action while the real
+next step sat one navigation away. `next_step` is now derived on the server from the same
+authoritative facts as the stage. It links to the canonical workspace instead of reimplementing the
+workflow; a blocked step names what is missing ("Confirm cargo volume before requesting space")
+rather than hiding the control; a pending space request shows WAITING rather than a second CTA; and
+an APPROVED transaction offers **nothing**, because warehouse intake, loading, shipment, customs and
+handoff have no authority yet.
+
+**F3 — "Arrange shipping" ended in a soft dead-end.** It created a correct linked DRAFT and left the
+customer there. The next step now carries **"Continue shipping request"** straight to that draft.
+The continuation still begins as DRAFT deliberately: a procurement award is not a published
+logistics RFQ, and nothing publishes on the customer's behalf.
+
+**F4** gave Messages a real "Open conversation" link into canonical Communications — no second
+inbox. **F5** stopped the procurement passport discarding the recorded city ("Japan → Zimbabwe"
+where the order said Yokohama and Harare). **F7** gave the mobile nav a trailing fade so scrollable
+items stop reading as accidentally chopped.
+
+**F6 required no product change.** The supplier UI needs governed `dealer` authority and public
+registration correctly refuses to grant it; that control was not weakened. Future UAT needs a
+governed supplier tenant fixture — recorded as a certification-fixture improvement.
+
+### Closure evidence (deployed `736f06c5`, FE `index-Bks3yTmb.js`, paired)
+
+Four passport states re-walked. No raw user id on any of them or on the provider view; conversation
+link present on all four; procurement route reads "Japan → Harare, Zimbabwe"; mobile 393px clean
+with a scrollable nav; and each next step correct for its state, including the two that correctly
+offer no action at all. "Continue shipping request" lands on the linked draft with its inherited
+cargo intact. Backend **90/90**, real-Postgres gate **11/11**, tsc clean, lint 0/0, build ✓, 0 5xx.
+
+> Recorded because it was nearly reported as a defect: the UAT harness logged 16–24
+> `TypeError: Failed to fetch` console entries. Idling on the dashboard and on a passport **without
+> navigating** produces **zero**. They were the harness aborting its own in-flight requests.
+
+### Non-blocking gap, owner-classified, not lost
+
+**A procurement-linked live logistics request cannot be cancelled or closed through the customer
+product.** Nothing in the codebase writes `CANCELLED` or `CLOSED` to a logistics request — T3
+shipped no cancel capability — so the one-live-continuation slot cannot be intentionally released.
+The partial index is correct and proven on real Postgres; what is missing is a **product action**.
+**NON-BLOCKING for T4, and required before production readiness.** Its home is logistics
+request-lifecycle ownership, to be placed against the canonical roadmap when that work is scheduled
+rather than assigned blindly to T5 or T7.
+
+### Verdict
+
+**T4-PARTIAL → T4-USABLE. T4 IS FROZEN at `736f06c5`.**
+Production untouched. **T5 NOT STARTED — it requires separate owner authorization.** PR #207 Draft.

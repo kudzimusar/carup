@@ -336,3 +336,84 @@ constraint-rejection and slot-release checks appear in the PGlite output.
 
 Every technical gate passes on the exact deployed candidate, for both origins. T3 remains frozen at
 `b446d8ea` and green. Production untouched. T5 not started. PR #207 Draft.
+
+---
+
+## 9. OWNER UAT: PASS WITH FINDINGS → UX CLOSURE → **T4-USABLE**
+
+**Owner T4 UAT verdict: PASS WITH FINDINGS.** The convergence architecture was accepted; three HIGH
+findings blocked the freeze because the passport was hard to *understand*, not because it was
+untrue. The findings are kept in the record below exactly as they were found.
+
+### What the UAT found, and what was done
+
+| # | Finding | Class | Blocked freeze | Closure |
+|---|---|---|---|---|
+| **F1** | Passport printed internal user ids (`u_75baf4fa3c9a4f29`) under "Who is involved" | UX/DESIGN | YES | Identity resolves business/trading name → governed person's name → **ROLE**. No id fallback exists by construction; a test pins that no raw id can reach `participants` for any viewer. Withheld parties render by role and say they are not shared — T3's contract unchanged. |
+| **F2** | Passport never answered "what should I do next" | MISSING CAPABILITY / UX | YES | Server-derived `next_step` from the same authoritative facts as the stage. Links to the canonical workspace, never reimplements it; a blocked step names what is missing; a pending space request shows WAITING, not a duplicate CTA. |
+| **F3** | "Arrange shipping" created a correct DRAFT then left the user at a soft dead-end | UX/DESIGN | YES | The next step carries **"Continue shipping request"** straight to that draft. The continuation still begins as DRAFT deliberately — a procurement award is not a published logistics RFQ, and nothing publishes on the customer's behalf. |
+| **F4** | Messages stated where the conversation lives with no way to open it | UX/DESIGN | no | **"Open conversation"** link to canonical Communications. No second inbox. |
+| **F5** | Procurement passport showed "Japan → Zimbabwe" while the order recorded Yokohama/Harare | DEFECT | YES | The recorded city is no longer discarded. |
+| **F6** | Supplier UI not walkable with the available fixture | UAT LIMITATION | no | **No product change.** `/diaspora/buyer-requests` requires governed `dealer` authority and public registration correctly refuses to grant it. Recorded as a certification-fixture improvement: future UAT needs a governed supplier tenant fixture. |
+| **F7** | Mobile nav read as accidentally chopped at 393px | UX/DESIGN | no | The nav already scrolled; a trailing fade now says so. Nothing hidden, no text shrunk. |
+
+### Closure verified on the deployed candidate `736f06c5`
+
+FE `index-Bks3yTmb.js` · BE `/api/health → commit_sha 736f06c5` · paired.
+
+Four passport states walked (procurement with a draft continuation, the DRAFT continuation itself,
+an awarded logistics transaction with no sailing, and an approved-space transaction):
+
+```
+F1  raw user id on page ......... false on ALL FOUR, and false on the PROVIDER view
+F4  conversation link ........... present on all four
+F5  procurement route ........... "Japan -> Harare, Zimbabwe"
+F7  mobile 393px ................ page 393 vs 393, nav scrollable with affordance
+
+F2  next step, per state:
+      procurement + draft continuation  ACTION   "Continue shipping request"
+                                                 "…a draft - review it and publish when you are ready."
+      continuation (DRAFT)              ACTION   "Review and publish this shipping request"
+                                                 "Providers cannot see it until you publish."
+      logistics awarded, NO sailing     NONE     "Agree the shipping arrangement with your provider"
+                                                 "…does not use a CarUp shared-container sailing…"
+      logistics space APPROVED          NONE     "Container space approved"
+                                                 "The later stages of the journey are not connected yet."
+
+F3  "Continue shipping request" -> /diaspora/containers?view=mine&request=5d118a9f…
+    draft reachable and still showing its inherited cargo: true
+```
+
+The APPROVED state deliberately offers **no** action: warehouse intake, loading, shipment, customs
+and handoff have no authority yet, and inventing a button for them is exactly what the rest of this
+programme refuses to do.
+
+**Provider view:** no raw id, requester still withheld and labelled as such.
+
+**Gates at closure:** backend **90/90** · real-Postgres T4 gate **11/11** · tsc clean · lint NET_NEW
+**0/0** · build ✓ · 0 5xx, 0 unexpected 4xx.
+
+> Console-error note, recorded because it was nearly reported as a defect: the UAT harness logged
+> 16–24 `TypeError: Failed to fetch` entries. Idling 12s on the dashboard and 6s on a passport
+> **without navigating** produces **zero**. Every one was the harness aborting in-flight requests by
+> navigating immediately after sign-in. Not a product defect.
+
+### Recorded non-blocking gap (owner-classified)
+
+**A procurement-linked live logistics request cannot be cancelled or closed through the customer
+product**, so the one-live-continuation slot cannot be intentionally released and a buyer cannot
+arrange different shipping for that order. Nothing in the codebase writes `CANCELLED` or `CLOSED`
+to a logistics request — T3 shipped no cancel capability. The partial index is correct and proven on
+real Postgres; the missing piece is a **product action**, not a T4 convergence fault.
+
+**Owner classification: NON-BLOCKING for T4. It must be implemented before production readiness.**
+Placement belongs with logistics **request-lifecycle ownership** rather than being assigned blindly
+to T5 or T7 — to be reconciled against the canonical roadmap when that lifecycle work is scheduled.
+
+### Status
+
+**T4-PARTIAL → T4-USABLE. T4 FROZEN at `736f06c5`.**
+
+Blocking findings F1, F2, F3, F5 closed and verified on the deployed candidate; F4 and F7 closed in
+the same bounded pass; F6 requires no product change. Production untouched. T5 not started.
+PR #207 Draft.
