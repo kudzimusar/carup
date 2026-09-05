@@ -1,0 +1,45 @@
+name: O2 Live OCR — schema suppression probe
+
+# Bounded diagnostic. Runs one script that varies only the requested json_schema against one
+# fixture, to tell a model limitation apart from a CarUp request defect. No corpus asset is read
+# for grading and nothing is certified here.
+on:
+  workflow_dispatch:
+    inputs:
+      model:
+        description: Workers AI model id to probe
+        required: false
+        default: ''
+
+concurrency:
+  group: o2-ocr-schema-probe
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      ALLOW_OCR_MOCK: 'false'
+      CARUP_OCR_PROVIDER: cloudflare
+      NODE_ENV: production
+      SUPABASE_URL: http://localhost:54321
+      SUPABASE_SERVICE_ROLE_KEY: probe
+      SUPABASE_ANON_KEY: probe
+      JWT_SECRET: probe
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci || npm install
+      - name: Probe
+        env:
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CARUP_OCR_MODEL: ${{ github.event.inputs.model }}
+        run: node backend/tests/tools/ocr-schema-suppression-probe.mjs
