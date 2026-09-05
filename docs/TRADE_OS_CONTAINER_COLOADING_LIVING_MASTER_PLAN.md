@@ -1568,14 +1568,15 @@ This replaces the old C1–C18 backlog as the active roadmap.
 | Staging backend serves T3 | ✅ branch preview answers the T3 routes 401, not 404 |
 | Staging frontend paired to that backend | ✅ PROVEN at runtime — preview calls ONLY the branch backend |
 | Exact-head unmocked browser journey | ✅ spec 47, `mode=acceptance`, bundle pinned, 3/3 desktop+tablet+mobile |
+| Container-space conversion on staging | ✅ REQUESTED consumes 0; organiser approval consumes exactly 3 of 60 |
 | Owner visual/product UAT | ❌ PENDING — cannot be replaced by automation |
 
 **T3 therefore returns T3-PARTIAL, not T3-USABLE** — and the single reason is the last row.
 Everything automation can establish is established: the schema and its atomic authority against
-real Postgres, the frontend/backend pairing, and the full unmocked requester → provider → award
-journey on the deployed candidate at three viewport classes. Owner visual/product acceptance has
-not happened, and green automation does not substitute for it (§29). Do not describe T3 as
-client-ready until the owner has seen it.
+real Postgres, the frontend/backend pairing, the full unmocked requester → provider → award
+journey at three viewport classes, and the container-space conversion through the existing
+organiser authority. Owner visual/product acceptance has not happened, and green automation does
+not substitute for it (§29). Do not describe T3 as client-ready until the owner has seen it.
 
 ## T4 — Order & Booking Passport convergence
 
@@ -2556,25 +2557,49 @@ Both carry reference and route. No `quote_not_selected`, correctly — each run 
 The synthetic rows are left in place as the evidence. They are unmistakably marked and all
 `AWARDED`, so they cannot surface in a later provider opportunity feed.
 
-### One part of the journey NOT exercised on staging
+### Container-space conversion — also proven on staging
 
-Spec 47 certifies `requester → provider → offer → award`. It does **not** exercise the
-**container-space conversion** (`award → request space → REQUESTED reservation → organiser
-approval`), because that path only opens when the winning offer has a real CarUp sailing attached,
-and a provider may attach only a sailing it coordinates or tenant-administers. The synthetic
-provider was created through public registration, which grants no tenant membership, so it had no
-attachable sailing.
+The provider fixture was given governed tenant membership over a **dedicated** synthetic sailing,
+so the test never consumes capacity on an existing fixture container. Spec 47's second test then
+runs the conversion unmocked:
 
-That conversion is proven in `diaspora-logistics-rfq-adversarial.test.js` against the real router
-and RPC reference — exactly one REQUESTED reservation, idempotent on retry, consuming no capacity
-until the organiser approves, and not approvable by the requester. It is **not** yet proven on
-deployed staging, and this entry does not claim otherwise. Closing it needs a staging provider
-fixture with governed tenant membership over an open sailing.
+```text
+requester publishes cargo with a stated volume
+provider attaches a sailing it actually operates, and submits
+requester awards
+UI states plainly that "the organiser still has to approve" BEFORE any space exists
+requester explicitly requests container space
+```
+
+Measured immediately after the space request:
+
+| | total | used | available |
+|---|---|---|---|
+| container | 60.000 | **0.000** | **60.000** |
+
+reservation `REQUESTED`, 3.000 CBM, `source: logistics_rfq_award`, carrying `logistics_request_id`
+— **consuming nothing.**
+
+The organiser then approved through the **existing hardened container authority** — the same
+route, service and atomic RPC the container product has always used, not a T3 shortcut:
+
+| | total | used | available |
+|---|---|---|---|
+| container | 60.000 | **3.000** | **57.000** |
+
+reservation `APPROVED`, `reviewed_by` the organiser, 2 audit rows.
+
+The whole chain is therefore proven against a real database, in order and with every boundary
+intact: **a quote is not a booking, an award is not approved capacity, a space request is not an
+approval, and only an APPROVED reservation consumes capacity.**
+
+The provenance gate also did its job on the way here: it refused an acceptance run when a later
+push had rebuilt the preview, rather than certifying stale pages.
 
 ### What this does and does not settle
 
-It settles the backend, the schema, the pairing and the award journey. It does **not** settle the
-container-space conversion on staging, nor owner visual/product acceptance, which §29 says green
-automation can never replace. **T3 remains T3-PARTIAL.**
+It settles the backend, the schema, the pairing, the award journey and the container-space
+conversion. It does **not** settle owner visual/product acceptance, which §29 says green automation
+can never replace. **T3 remains T3-PARTIAL for that one reason.**
 
 Production untouched. PR #207 remains Draft.
