@@ -87,12 +87,28 @@ function resetMockState() {
     createSignedUrl: async () => ({ data: { signedUrl: `${SIGNED_URL_PREFIX}doc.pdf` }, error: null }),
     // fetch() of the signed URL
     signedFetch: async () => duckResponse({ contentType: 'application/pdf', contentLength: '12', body: 'PDFCONTENT!!' }),
-    // DocumentIntelligenceService.extractDocumentData behaviour
+    // DocumentIntelligenceService.extractDocumentData behaviour. A successful double carries the
+    // same provider-execution evidence the real service returns; otherwise this harness could make
+    // a non-execution look like provider-backed OCR evidence.
     ocr: async () => ({
       success: true,
+      provider: 'cloudflare',
+      model: '@cf/qwen/qwen3.8-27b',
+      executionStatus: 'provider_succeeded',
+      confidence: 0.92,
+      confidenceReported: true,
       ocrDocumentId: 'ocr-doc-1',
-      qualityMetrics: { blurScore: 0.9 },
-      extractedData: { confidenceScore: 0.92, first_name: 'Tendai', last_name: 'Moyo' },
+      qualityMetrics: { measured: false },
+      extractedData: {
+        confidenceScore: 0.92,
+        first_name: 'Tendai',
+        last_name: 'Moyo',
+        provenance: {
+          provider: 'cloudflare',
+          model: '@cf/qwen/qwen3.8-27b',
+          executionStatus: 'provider_succeeded',
+        },
+      },
     }),
     // every terminal supabase query is recorded here for assertions
     calls: [],
