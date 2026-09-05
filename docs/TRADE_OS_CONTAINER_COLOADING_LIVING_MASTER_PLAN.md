@@ -1557,17 +1557,17 @@ This replaces the old C1–C18 backlog as the active roadmap.
 
 | Acceptance dimension | State |
 |---|---|
-| Implemented | ✅ head `9486463d` |
+| Implemented | ✅ head `f63e88e0` (code complete at `2e197b83`) |
 | Tested locally | ✅ backend 41/41 (T3 12 · T3-adversarial 13 · container-auth 16); 75/75 including migration-integrity 25 and communications coverage 9; browser 48/48 |
 | Lint / typecheck | ✅ `tsc` clean, lint gate `NET_NEW_ERRORS=0` |
-| CI proven | ⏳ green at `9486463d`; must be re-confirmed on the FINAL candidate |
+| CI proven | ✅ all 7 workflows green at `2e197b83` — the head carrying every code change of this cycle |
 | Adversarial security proven | ✅ 13/13 over HTTP, full §9 matrix |
 | Responsive UAT proven | ✅ all seven contracted widths, one real 393px defect found and fixed |
 | Staging migration applied | ✅ applied to STAGING ONLY; 3 tables `rls_enabled=true`, RPC service_role-only |
 | Staging DB authority proven | ✅ award RPC exercised on real Postgres — see the cycle entry |
 | Staging backend serves T3 | ✅ branch preview answers the T3 routes 401, not 404 |
 | Staging frontend paired to that backend | ✅ PROVEN at runtime — preview calls ONLY the branch backend |
-| Exact-head unmocked browser journey | ✅ spec 47, `mode=acceptance`, bundle pinned, 3/3 desktop+tablet+mobile |
+| Exact-head unmocked browser journey | ✅ spec 47, `mode=acceptance`, bundle `index-Bi6fJZ2P.js` pinned — **6/6** (both journeys × desktop/tablet/mobile) on the build that carries route enforcement |
 | Container-space conversion on staging | ✅ spec 47 carries the whole chain — REQUESTED consumes 0, replay idempotent, foreign sailing refused, approval consumes exactly the reserved volume |
 | Trade OS route-boundary foundation | ✅ enforcement restored; nav visibility == typed-URL eligibility, pinned for all 7 roles |
 | Staging taxonomy RLS drift | ✅ forward reconciliation applied; RLS on, anon/authenticated revoked, service_role preserved |
