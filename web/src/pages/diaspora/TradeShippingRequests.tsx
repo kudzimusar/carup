@@ -123,6 +123,7 @@ export default function TradeShippingRequests() {
     }
   }, [api])
 
+  // eslint-disable-next-line react-hooks/set-state-in-effect -- canonical repo data-fetch pattern: load() flips the loading flag before awaiting so the panel never renders a false empty state.
   useEffect(() => { void load() }, [load])
 
   const resetEditor = () => {

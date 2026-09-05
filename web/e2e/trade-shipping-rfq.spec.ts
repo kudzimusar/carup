@@ -30,12 +30,41 @@ async function loginAs(page: Page, user: TestUser) {
   }, { user })
 }
 
+/** A mock row the fake API serves back to the app. Only `id` is read by this spec. */
+type MockRow = { id: string; [key: string]: unknown }
+
+/** The cargo item as the app actually posts it — the fields these tests assert on. */
+interface CapturedItem {
+  description?: string
+  quantity?: number
+  estimated_volume_cbm?: number | null
+  length_value?: number
+  width_value?: number
+  height_value?: number
+  dimension_unit?: string
+  [key: string]: unknown
+}
+
+interface CapturedRequestPayload {
+  items: CapturedItem[]
+  [key: string]: unknown
+}
+
+interface CapturedQuotePayload {
+  compatible_container_id?: string | null
+  freight_amount?: number
+  handling_amount?: number
+  total_amount?: number
+  submit?: boolean
+  [key: string]: unknown
+}
+
 interface State {
-  requests: Array<Record<string, any>>
-  opportunities: Array<Record<string, any>>
-  myQuotes: Array<Record<string, any>>
-  createdRequestPayloads: Array<Record<string, any>>
-  quotePayloads: Array<Record<string, any>>
+  requests: MockRow[]
+  opportunities: MockRow[]
+  myQuotes: Array<{ quote: MockRow; request: MockRow | null }>
+  createdRequestPayloads: CapturedRequestPayload[]
+  quotePayloads: CapturedQuotePayload[]
 }
 
 function baseState(): State {

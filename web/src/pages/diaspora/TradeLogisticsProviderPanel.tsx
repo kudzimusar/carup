@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { Check, Loader2, MessageSquare, Ship } from 'lucide-react'
+import { Loader2, MessageSquare } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Alert, AlertDescription } from '@/components/ui/alert'
@@ -82,6 +82,7 @@ export default function TradeLogisticsProviderPanel({ context }: { context: Dias
     } finally { setLoading(false) }
   }, [api, isProvider])
 
+  // eslint-disable-next-line react-hooks/set-state-in-effect -- canonical repo data-fetch pattern: load() flips the loading flag before awaiting so the panel never renders a false empty state.
   useEffect(() => { void load() }, [load])
 
   const myContainers = useMemo(() => containers.filter((container) => {

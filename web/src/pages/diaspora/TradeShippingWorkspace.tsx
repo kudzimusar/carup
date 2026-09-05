@@ -1,4 +1,4 @@
-import { useEffect, useState, type ReactNode } from 'react'
+import { useState, type ReactNode } from 'react'
 import { Box, Container, Truck } from 'lucide-react'
 import type { DiasporaTradeContext } from '@/types'
 import TradeShippingRequests from './TradeShippingRequests'
@@ -14,11 +14,15 @@ export default function TradeShippingWorkspace({
   children: ReactNode
 }) {
   const isProvider = context?.business_type === 'logistics_provider'
-  const [tab, setTab] = useState<Tab>(isProvider ? 'provider' : 'mine')
 
-  useEffect(() => {
-    if (!isProvider && tab === 'provider') setTab('mine')
-  }, [isProvider, tab])
+  // The trade context is fetched by the shell after this component mounts, so `isProvider` starts
+  // false for everyone. Deriving the tab during render (rather than seeding useState once and
+  // correcting it in an effect) is what actually lets a logistics provider land on their own
+  // queue when the context resolves, and it drops a provider back to My shipping if that
+  // eligibility is ever lost. `chosenTab` stays null until the person picks a tab themselves.
+  const [chosenTab, setChosenTab] = useState<Tab | null>(null)
+  const defaultTab: Tab = isProvider ? 'provider' : 'mine'
+  const tab: Tab = chosenTab && (chosenTab !== 'provider' || isProvider) ? chosenTab : defaultTab
 
   const tabs: Array<{ id: Tab; label: string; note: string; icon: typeof Box }> = [
     { id: 'mine', label: 'My shipping', note: 'Ask providers to move cargo you already own', icon: Box },
@@ -46,7 +50,7 @@ export default function TradeShippingWorkspace({
                 type="button"
                 role="tab"
                 aria-selected={tab === id}
-                onClick={() => setTab(id)}
+                onClick={() => setChosenTab(id)}
                 className={`min-w-[190px] border-b-2 px-3 py-3 text-left transition-colors ${
                   tab === id ? 'border-orange-500 bg-white text-slate-950' : 'border-transparent text-slate-600 hover:text-slate-950'
                 }`}
