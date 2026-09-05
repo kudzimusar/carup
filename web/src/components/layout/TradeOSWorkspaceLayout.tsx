@@ -128,8 +128,13 @@ export default function TradeOSWorkspaceLayout() {
             </div>
             <TradeIdentity context={context} unreadable={contextUnreadable} />
           </div>
-          <nav className="-mx-1 flex gap-1 overflow-x-auto pb-2" aria-label="Trade OS" data-testid="tradeos-nav">
-            {NAV_ITEMS.filter(([to]) => canRoleAccessRoute((user?.role as UserRole) ?? 'owner', to)).map(([to, label]) => (
+          {/* F7 — the nav already scrolled horizontally, but with no affordance the trailing items
+              read as accidentally chopped rather than as "there is more this way". A fade at the
+              trailing edge says so without hiding anything or shrinking the labels. `pr-6` keeps
+              the last item from sitting under the fade. */}
+          <div className="relative">
+            <nav className="-mx-1 flex gap-1 overflow-x-auto pb-2 pr-6 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden" aria-label="Trade OS" data-testid="tradeos-nav">
+              {NAV_ITEMS.filter(([to]) => canRoleAccessRoute((user?.role as UserRole) ?? 'owner', to)).map(([to, label]) => (
               <NavLink
                 key={to}
                 to={to}
@@ -143,6 +148,9 @@ export default function TradeOSWorkspaceLayout() {
               </NavLink>
             ))}
           </nav>
+            <div aria-hidden="true"
+                 className="pointer-events-none absolute inset-y-0 right-0 w-6 bg-gradient-to-l from-slate-950 to-transparent" />
+          </div>
         </div>
       </header>
       <main className="min-w-0 flex-1">

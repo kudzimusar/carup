@@ -26,7 +26,7 @@ import {
 import { ForbiddenError, NotFoundError, ValidationError } from '../../utils/errors.js';
 import { resolveClient } from './diasporaServiceUtils.js';
 import { computeCapacity } from './diasporaContainerMarketplaceService.js';
-import { deriveTransactionStage, buildLifecycleRail } from './tradeTransactionStage.js';
+import { deriveTransactionStage, buildLifecycleRail, deriveNextStep } from './tradeTransactionStage.js';
 
 const REQUESTS = 'diaspora_logistics_requests';
 const REQUEST_ITEMS = 'diaspora_logistics_request_items';
@@ -127,6 +127,54 @@ async function loadDocuments(client, importOrderId) {
   };
 }
 
+/**
+ * Human participant identity — never a raw id.
+ *
+ * The passport used to render `u_75baf4fa3c9a4f29` under "Who is involved", which tells a customer
+ * nothing and leaks an internal identifier into a customer-facing surface. Resolution priority is
+ * the one the product already uses for provider identity in T3: business/trading name, then the
+ * governed person's name, then a ROLE LABEL. There is no id fallback by construction — a caller
+ * that resolves nothing gets the role, because "Selected supplier" is both truthful and useful
+ * while an opaque id is neither.
+ *
+ * Withholding is unchanged: a party the viewer may not identify never reaches this function, and
+ * is rendered from its role alone.
+ */
+async function resolveIdentities(client, userIds) {
+  const ids = [...new Set((userIds || []).filter(Boolean).map((id) => normalizeId(id)))];
+  if (!ids.length) return new Map();
+  const [usersRes, profilesRes] = await Promise.all([
+    client.from('users').select('id, name').in('id', ids),
+    client.from('user_registration_profiles').select('user_id, organization_name, business_type').in('user_id', ids),
+  ]);
+  const users = new Map((usersRes.data || []).map((u) => [normalizeId(u.id), u]));
+  const profiles = new Map((profilesRes.data || []).map((pr) => [normalizeId(pr.user_id), pr]));
+  const out = new Map();
+  for (const id of ids) {
+    const profile = profiles.get(id);
+    const user = users.get(id);
+    out.set(id, {
+      display_name: profile?.organization_name || user?.name || null,
+      business_type: profile?.business_type || null,
+    });
+  }
+  return out;
+}
+
+/** A party the viewer may see, named as well as the governed record allows. */
+function namedParty(identities, userId, roleLabel) {
+  const found = identities.get(normalizeId(userId));
+  return {
+    display_name: found?.display_name || roleLabel,
+    business_type: found?.business_type || null,
+    role: roleLabel,
+    identified: Boolean(found?.display_name),
+  };
+}
+
+/** A party the viewer may NOT identify. Role only — the withholding is stated, not implied. */
+const withheldParty = (roleLabel) => ({ display_name: roleLabel, business_type: null, role: roleLabel, withheld: true });
+
 /** The canonical conversation entry point. T4 opens no second messaging system (§11). */
 function conversationEntry(kind, anchorId) {
   return {
@@ -174,9 +222,22 @@ async function projectLogisticsTransaction(client, request, context) {
     reservationStatus: reservation?.reservation_status || null,
   });
 
+  const identities = await resolveIdentities(client, [
+    (isRequester || privileged) ? request.requester_id : null,
+    acceptedQuote?.provider_id || null,
+  ]);
+  const knownVolume = items.some((item) => Number(item.estimated_volume_cbm) > 0);
+  const nextStep = deriveNextStep({
+    kind: 'logistics', stage,
+    hasSailing: Boolean(acceptedQuote?.compatible_container_id),
+    knownVolume,
+    reservationStatus: reservation?.reservation_status || null,
+  });
+
   return {
     kind: 'logistics',
     viewer_role: viewer,
+    next_step: nextStep,
     identity: {
       reference: shortRef('SHIP', requestId),
       anchor_id: requestId,
@@ -190,12 +251,13 @@ async function projectLogisticsTransaction(client, request, context) {
         ? { reference: shortRef('ORD', request.import_order_id), anchor_id: request.import_order_id }
         : null,
     },
-    // A provider never learns who asked; that is T3's contract and it does not lapse here.
+    // A provider never learns who asked; that is T3's contract and it does not lapse here. The
+    // withheld party is rendered from its ROLE, never from an id.
     participants: {
       requester: (isRequester || privileged)
-        ? { user_id: request.requester_id, role: 'Shipper' }
-        : { user_id: null, role: 'Shipper', withheld: true },
-      provider: acceptedQuote ? { user_id: acceptedQuote.provider_id, role: 'Logistics provider' } : null,
+        ? namedParty(identities, request.requester_id, 'Shipper')
+        : withheldParty('Shipper'),
+      provider: acceptedQuote ? namedParty(identities, acceptedQuote.provider_id, 'Logistics provider') : null,
     },
     commercial: acceptedQuote ? {
       quote_reference: shortRef('OFR', acceptedQuote.id),
@@ -264,26 +326,45 @@ async function projectProcurementTransaction(client, order, context) {
     reservationStatus: reservation?.reservation_status || null,
   });
 
+  const identities = await resolveIdentities(client, [
+    order.buyer_id,
+    acceptedQuote?.seller_id || null,
+    ...participants.map((pt) => pt.user_id),
+  ]);
+  const nextStep = deriveNextStep({
+    kind: 'procurement', stage,
+    hasContinuation: Boolean(continuation),
+    continuationId: continuation?.id || null,
+    continuationStatus: continuation?.status || null,
+  });
+
   return {
     kind: 'procurement',
     viewer_role: isPrivileged(context) ? 'privileged' : normalizeId(order.buyer_id) === context.id ? 'buyer' : 'participant',
+    next_step: nextStep,
     identity: {
       reference: shortRef('ORD', orderId),
       anchor_id: orderId,
       context: 'Buying and importing a vehicle',
       stage,
       stage_evidence: evidence,
-      origin: { city: null, country: stated(order.origin_country) },
-      destination: { city: null, country: stated(order.destination_country) },
+      // F5: the order records origin/destination CITY. Dropping it made the passport show
+      // "Japan -> Zimbabwe" while the continuation showed "Japan -> Harare, Zimbabwe" — the same
+      // transaction described two ways, and the less truthful one on the customer's own purchase.
+      origin: { city: stated(order.origin_city), country: stated(order.origin_country) },
+      destination: { city: stated(order.destination_city), country: stated(order.destination_country) },
       // Whether shipping has been arranged for this purchase — the T4 edge, read not copied.
       shipping_continuation: continuation
         ? { reference: shortRef('SHIP', continuation.id), anchor_id: continuation.id, status: continuation.status }
         : null,
     },
     participants: {
-      buyer: { user_id: order.buyer_id, role: 'Buyer' },
-      supplier: acceptedQuote ? { user_id: acceptedQuote.seller_id, role: 'Supplier' } : null,
-      others: participants.map((p) => ({ user_id: p.user_id, role: stated(p.participant_role), verification: stated(p.verification_status) })),
+      buyer: namedParty(identities, order.buyer_id, 'Buyer'),
+      supplier: acceptedQuote ? namedParty(identities, acceptedQuote.seller_id, 'Selected supplier') : null,
+      others: participants.map((pt) => ({
+        ...namedParty(identities, pt.user_id, stated(pt.participant_role) || 'Participant'),
+        verification: stated(pt.verification_status),
+      })),
     },
     commercial: acceptedQuote ? {
       quote_reference: shortRef('QTE', acceptedQuote.id),

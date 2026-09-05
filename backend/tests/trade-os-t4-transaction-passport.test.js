@@ -79,6 +79,8 @@ function seed({ requestStatus = 'AWARDED', acceptedQuoteId = QUOTE_ID, reservati
     diaspora_import_order_participants: [{ id: 'p1', import_order_id: ORDER_ID, user_id: 'buyer-a', participant_role: 'buyer', verification_status: 'VERIFIED' }],
     diaspora_trade_documents: [{ id: 'doc-1', import_order_id: ORDER_ID, document_type: 'INVOICE', verification_status: 'PENDING', deleted_at: null, created_at: '2026-09-02T00:00:00Z' }],
     diaspora_import_audit_log: [],
+    users: [{ id: 'buyer-a', name: 'Buyer Person' }, { id: 'provider-b', name: 'Provider Person' }],
+    user_registration_profiles: [{ user_id: 'provider-b', organization_name: 'Provider B Logistics', business_type: 'logistics_provider' }],
     // linked_vehicle_vin is a FK to vehicles; the continuation may only carry a VIN this buyer owns.
     vehicles: vehicleOwner === null ? [] : [{ vin: VIN, owner_id: vehicleOwner }],
   });
@@ -138,17 +140,41 @@ test('unknown measurements stay unknown', async () => {
 
 // ────────────────────────── PARTICIPANT SECURITY ─────────────────────────
 
-test('the requester sees their own transaction', async () => {
+test('the requester sees their own transaction, named not id-ed', async () => {
   const view = await get('logistics', REQUEST_ID, buyer, seed());
   assert.equal(view.viewer_role, 'requester');
-  assert.equal(view.participants.requester.user_id, 'buyer-a');
+  assert.equal(view.participants.requester.display_name, 'Buyer Person');
+  assert.equal(view.participants.requester.role, 'Shipper');
+});
+
+test('a raw internal user id NEVER reaches a customer-facing passport', async () => {
+  for (const [kind, id] of [['logistics', REQUEST_ID], ['procurement', ORDER_ID]]) {
+    for (const who of [buyer, provider]) {
+      const view = await get(kind, id, who, seed()).catch(() => null);
+      if (!view) continue;
+      const parties = JSON.stringify(view.participants);
+      for (const rawId of ['buyer-a', 'provider-b', 'supplier-s', 'rival-c']) {
+        assert.ok(!parties.includes(rawId),
+          `${kind} passport leaked the raw id "${rawId}" to ${who.id} in participants: ${parties}`);
+      }
+    }
+  }
+});
+
+test('an unresolvable party falls back to its ROLE, never to an id', async () => {
+  // No users/profile rows for the supplier: the label must still be human.
+  const opts = seed();
+  const view = await get('procurement', ORDER_ID, buyer, opts);
+  assert.equal(view.participants.supplier.display_name, 'Selected supplier');
+  assert.equal(view.participants.supplier.identified, false);
 });
 
 test('the awarded provider sees the transaction but never the requester identity or the VIN', async () => {
   const view = await get('logistics', REQUEST_ID, provider, seed());
   assert.equal(view.viewer_role, 'provider');
-  assert.equal(view.participants.requester.user_id, null);
   assert.equal(view.participants.requester.withheld, true);
+  assert.equal(view.participants.requester.display_name, 'Shipper', 'a withheld party is shown by role');
+  assert.ok(!JSON.stringify(view.participants.requester).includes('buyer-a'));
   assert.equal(view.cargo[0].linked_vehicle_vin, undefined, 'VIN is private vehicle identity');
   assert.equal(view.cargo[0].has_linked_vehicle, true, 'the FACT of a vehicle may cross; its identity may not');
 });
@@ -184,6 +210,8 @@ test('a procurement transaction projects its own origin, not a logistics one', a
   const view = await get('procurement', ORDER_ID, buyer, seed());
   assert.equal(view.kind, 'procurement');
   assert.equal(view.commercial.total_amount, 8200);
+  assert.equal(view.identity.destination.city, 'Harare', 'the recorded city must not be discarded (F5)');
+  assert.equal(view.identity.origin.city, 'Yokohama');
   assert.equal(view.identity.shipping_continuation, null, 'no shipping arranged yet');
 });
 
@@ -301,6 +329,26 @@ test('documents come from the document authority and never expose storage paths'
 
 test('an unknown transaction kind is refused rather than guessed', async () => {
   await assert.rejects(() => get('shipment', REQUEST_ID, buyer, seed()), /Unknown transaction kind/i);
+});
+
+test('the passport tells the reader what to do next (F2)', async () => {
+  const awardedNoSailing = await get('logistics', REQUEST_ID, buyer, seed({ acceptedQuoteId: QUOTE_ID }));
+  assert.ok(awardedNoSailing.next_step, 'every passport carries a next step');
+
+  const approved = await get('logistics', REQUEST_ID, buyer, seed({ reservationStatus: 'APPROVED' }));
+  assert.equal(approved.next_step.state, 'NONE');
+  assert.match(approved.next_step.label, /Container space approved/i);
+
+  const requested = await get('logistics', REQUEST_ID, buyer, seed({ reservationStatus: 'REQUESTED' }));
+  assert.equal(requested.next_step.state, 'WAITING', 'a pending space request offers no duplicate CTA');
+
+  const proc = await get('procurement', ORDER_ID, buyer, seed());
+  assert.equal(proc.next_step.state, 'ACTION');
+  assert.match(proc.next_step.label, /Arrange shipping/i);
+
+  const procWithContinuation = await get('procurement', ORDER_ID, buyer, seed({ importOrderId: ORDER_ID }));
+  assert.match(procWithContinuation.next_step.label, /Continue shipping request|View shipping request/i,
+    'once a continuation exists the passport points at it instead of offering to create another');
 });
 
 // ───────────────────────── PURE STAGE FUNCTION ──────────────────────────

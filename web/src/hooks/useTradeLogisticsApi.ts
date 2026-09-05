@@ -237,7 +237,14 @@ export function useTradeLogisticsApi() {
 // never a zero, and the UI must render it as unknown rather than as an answer.
 
 export interface PassportStageEntry { key: string; label: string; state: 'DONE' | 'CURRENT' | 'PENDING' | 'NOT_STARTED' | 'NOT_CONNECTED' | 'NOT_RECORDED'; owner?: string }
-export interface PassportParty { user_id: string | null; role: string; withheld?: boolean }
+export interface PassportParty {
+  display_name: string; role: string; business_type?: string | null
+  identified?: boolean; withheld?: boolean; verification?: string | null
+}
+export interface PassportNextStep {
+  state: 'ACTION' | 'BLOCKED' | 'WAITING' | 'NONE'
+  label: string; detail: string | null; href: string | null
+}
 export interface PassportCargoLine {
   line_number: number; description: string | null; quantity: number | null
   estimated_volume_cbm: number | null; estimated_weight_kg: number | null
@@ -246,6 +253,7 @@ export interface PassportCargoLine {
 export interface TransactionPassport {
   kind: 'procurement' | 'logistics'
   viewer_role: string
+  next_step: PassportNextStep
   identity: {
     reference: string; anchor_id: string; context: string
     stage: string; stage_evidence: string

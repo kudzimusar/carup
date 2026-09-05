@@ -128,3 +128,76 @@ export function buildLifecycleRail(stage, { procurement = false } = {}) {
   }));
   return [...rail, ...UNIMPLEMENTED_STAGES.map((entry) => ({ ...entry }))];
 }
+
+/**
+ * What the reader can legitimately DO next.
+ *
+ * The passport used to answer "what is this / what happened / what is waiting" and stop there, so
+ * a freshly awarded logistics transaction offered no action at all even though the next step
+ * existed one navigation away. This derives the step from the same authoritative facts as the
+ * stage, and it obeys the same two rules: never invent an action whose capability does not exist,
+ * and when a step is blocked, say exactly what is missing instead of hiding the button.
+ *
+ * `href` points at the canonical workspace that already owns the action. T4 links to the workflow;
+ * it does not reimplement it.
+ *
+ * @returns {{state:'ACTION'|'BLOCKED'|'WAITING'|'NONE', label:string, detail:string|null, href:string|null}}
+ */
+export function deriveNextStep(facts = {}) {
+  const {
+    kind, stage,
+    hasContinuation = false, continuationId = null, continuationStatus = null,
+    hasSailing = false, knownVolume = false, reservationStatus = null,
+  } = facts;
+  const none = (label, detail = null) => ({ state: 'NONE', label, detail, href: null });
+  const waiting = (label, detail = null) => ({ state: 'WAITING', label, detail, href: null });
+
+  if (kind === 'procurement') {
+    if (stage !== 'COUNTERPARTY_SELECTED') {
+      if (stage === 'DRAFT') return { state: 'ACTION', label: 'Finish and publish this request', detail: 'Suppliers cannot see it until you publish.', href: '/diaspora/requests' };
+      if (stage === 'OPEN_FOR_OFFERS') return waiting('Waiting for supplier offers', 'CarUp will tell you when an offer arrives.');
+      if (stage === 'OFFERS_RECEIVED') return { state: 'ACTION', label: 'Compare offers and choose a supplier', detail: null, href: '/diaspora/requests' };
+    }
+    // A purchase with a supplier chosen: shipping is the next real step.
+    if (hasContinuation) {
+      const draft = String(continuationStatus || '').toUpperCase() === 'DRAFT';
+      return {
+        state: 'ACTION',
+        label: draft ? 'Continue shipping request' : 'View shipping request',
+        detail: draft ? 'Your shipping request is a draft — review it and publish when you are ready.' : null,
+        href: continuationId ? `/diaspora/containers?view=mine&request=${continuationId}` : '/diaspora/containers?view=mine',
+      };
+    }
+    if (stage === 'COUNTERPARTY_SELECTED') {
+      return { state: 'ACTION', label: 'Arrange shipping for this purchase', detail: 'CarUp already has the route and the vehicle, so you will not be asked for them again.', href: null };
+    }
+    return none('Nothing to do right now');
+  }
+
+  // ── logistics ──────────────────────────────────────────────────────────
+  switch (stage) {
+    case 'DRAFT':
+      return { state: 'ACTION', label: 'Review and publish this shipping request', detail: 'Providers cannot see it until you publish.', href: '/diaspora/containers?view=mine' };
+    case 'OPEN_FOR_OFFERS':
+      return waiting('Waiting for provider offers', 'CarUp will tell you when an offer arrives.');
+    case 'OFFERS_RECEIVED':
+      return { state: 'ACTION', label: 'Compare offers and choose a provider', detail: null, href: '/diaspora/containers?view=mine' };
+    case 'COUNTERPARTY_SELECTED': {
+      if (!hasSailing) {
+        // No CarUp sailing is attached, so container space is not the next step and pretending it
+        // is would send the customer at a button that cannot succeed.
+        return none('Agree the shipping arrangement with your provider', 'This offer does not use a CarUp shared-container sailing, so there is no container space to request.');
+      }
+      if (!knownVolume) {
+        return { state: 'BLOCKED', label: 'Confirm cargo volume before requesting space', detail: 'An organiser cannot approve space for a volume nobody has stated yet.', href: '/diaspora/containers?view=mine' };
+      }
+      return { state: 'ACTION', label: 'Request container space', detail: 'Asking for space does not take up space — the organiser still has to approve it.', href: '/diaspora/containers?view=mine' };
+    }
+    case 'SPACE_REQUESTED':
+      return waiting('Waiting for the organiser to review your space request', 'Your request takes up no space on the sailing until it is approved.');
+    case 'SPACE_APPROVED':
+      return none('Container space approved', 'The later stages of the journey are not connected yet.');
+    default:
+      return none('Nothing to do right now');
+  }
+}

@@ -14,12 +14,72 @@
  */
 import { useCallback, useEffect, useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
-import { AlertTriangle, ArrowLeft, Loader2, MessageSquare, Package, Ship } from 'lucide-react'
-import { useTradeLogisticsApi, type TransactionPassport, type PassportStageEntry } from '@/hooks/useTradeLogisticsApi'
+import { AlertTriangle, ArrowLeft, ArrowRight, Clock, Loader2, MessageSquare, Package, Ship } from 'lucide-react'
+import { useTradeLogisticsApi, type TransactionPassport, type PassportStageEntry, type PassportParty, type PassportNextStep } from '@/hooks/useTradeLogisticsApi'
 
 /** A fact CarUp does not hold. Stated plainly rather than dressed up as a value. */
 function Unknown({ children = 'Not recorded' }: { children?: string }) {
   return <span className="text-slate-400">{children}</span>
+}
+
+/**
+ * A participant, as a person would name them. The passport used to print the internal user id
+ * here; the server now resolves a business or personal name and falls back to the ROLE, so there
+ * is no id to render even when nothing resolves. A withheld party says so.
+ */
+function Party({ party }: { party: PassportParty }) {
+  return (
+    <div className="min-w-0">
+      <dt className="text-xs font-medium uppercase tracking-wide text-slate-500">{party.role}</dt>
+      <dd className="mt-0.5 break-words text-sm font-semibold text-slate-950">
+        {party.display_name}
+        {party.withheld && <span className="ml-2 text-xs font-normal text-slate-400">(not shared with you)</span>}
+      </dd>
+      {party.business_type && (
+        <p className="text-xs text-slate-500">{party.business_type.replace(/_/g, ' ')}</p>
+      )}
+    </div>
+  )
+}
+
+/**
+ * What the reader can actually do now. Derived on the server from the same authoritative facts as
+ * the stage, so it can never offer an action the transaction has not earned — and when a step is
+ * blocked it says what is missing rather than hiding.
+ */
+function NextStep({ step, onPrimary, busy }: { step: PassportNextStep; onPrimary?: () => void; busy?: boolean }) {
+  const isAction = step.state === 'ACTION'
+  const tone = isAction ? 'border-orange-200 bg-orange-50'
+    : step.state === 'BLOCKED' ? 'border-amber-200 bg-amber-50'
+    : 'border-slate-200 bg-slate-50'
+  return (
+    <section className={`mt-6 border ${tone} p-4`} data-testid="transaction-next-step">
+      <p className="text-xs font-bold uppercase tracking-wide text-slate-500">What happens next</p>
+      <p className="mt-1 flex min-w-0 items-center gap-2 text-sm font-bold text-slate-950">
+        {step.state === 'WAITING' && <Clock className="h-4 w-4 shrink-0 text-slate-400" aria-hidden="true" />}
+        <span className="min-w-0">{step.label}</span>
+      </p>
+      {step.detail && <p className="mt-1 text-sm text-slate-600">{step.detail}</p>}
+      {isAction && onPrimary && (
+        <button type="button" onClick={onPrimary} disabled={busy} data-testid="next-step-primary"
+                className="mt-3 inline-flex items-center gap-2 bg-orange-500 px-4 py-2 text-sm font-semibold text-white hover:bg-orange-600 disabled:opacity-60">
+          {busy ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" /> : <Ship className="h-4 w-4" aria-hidden="true" />}
+          {busy ? 'Starting…' : step.label}
+        </button>
+      )}
+      {isAction && !onPrimary && step.href && (
+        <Link to={step.href} data-testid="next-step-link"
+              className="mt-3 inline-flex items-center gap-2 bg-orange-500 px-4 py-2 text-sm font-semibold text-white hover:bg-orange-600">
+          {step.label} <ArrowRight className="h-4 w-4" aria-hidden="true" />
+        </Link>
+      )}
+      {step.state === 'BLOCKED' && step.href && (
+        <Link to={step.href} data-testid="next-step-link" className="mt-3 inline-block text-sm font-semibold text-orange-700 hover:underline">
+          Open the shipping request
+        </Link>
+      )}
+    </section>
+  )
 }
 
 function Fact({ label, value }: { label: string; value: React.ReactNode }) {
@@ -159,10 +219,10 @@ export default function TradeTransactionPassport() {
   }
 
   const { identity, participants, commercial, booking, documents, lifecycle } = data
-  const requester = participants.requester as { user_id: string | null; role: string; withheld?: boolean } | undefined
-  const provider = participants.provider as { user_id: string | null; role: string } | null | undefined
-  const buyer = participants.buyer as { user_id: string | null; role: string } | undefined
-  const supplier = participants.supplier as { user_id: string | null; role: string } | null | undefined
+  const requester = participants.requester as PassportParty | undefined
+  const provider = participants.provider as PassportParty | null | undefined
+  const buyer = participants.buyer as PassportParty | undefined
+  const supplier = participants.supplier as PassportParty | null | undefined
 
   return (
     <div className="mx-auto min-w-0 max-w-4xl p-4 sm:p-6" data-testid="transaction-passport">
@@ -206,18 +266,21 @@ export default function TradeTransactionPassport() {
         )}
       </div>
 
+      {/* F2/F3 — the passport now answers "what should I do next", and the procurement CTA lives
+          here rather than buried in the shipping section. */}
+      <NextStep
+        step={data.next_step}
+        onPrimary={data.kind === 'procurement' && !identity.shipping_continuation ? () => void arrangeShipping() : undefined}
+        busy={arranging}
+      />
+      {arrangeError && <p className="mt-2 text-sm text-amber-800" data-testid="arrange-shipping-error">{arrangeError}</p>}
+
       <Section title="Who is involved">
         <dl className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-          {buyer && <Fact label={buyer.role} value={buyer.user_id} />}
-          {requester && (
-            <Fact
-              label={requester.role}
-              // A withheld identity is stated as withheld. It is not blank, and it is not a bug.
-              value={requester.withheld ? <Unknown>Withheld from you</Unknown> : requester.user_id}
-            />
-          )}
-          {supplier ? <Fact label={supplier.role} value={supplier.user_id} /> : null}
-          {provider ? <Fact label={provider.role} value={provider.user_id} /> : null}
+          {buyer && <Party party={buyer} />}
+          {requester && <Party party={requester} />}
+          {supplier ? <Party party={supplier} /> : null}
+          {provider ? <Party party={provider} /> : null}
         </dl>
       </Section>
 
@@ -296,27 +359,10 @@ export default function TradeTransactionPassport() {
             )}
           </div>
         ) : data.kind === 'procurement' && !identity.shipping_continuation ? (
-          <div>
-            <p className="text-sm text-slate-600">
-              Shipping has not been arranged for this purchase yet.
-              {commercial ? ' CarUp already has the route and the vehicle, so you will not be asked for them again.' : ''}
-            </p>
-            {commercial ? (
-              <button
-                type="button"
-                onClick={() => void arrangeShipping()}
-                disabled={arranging}
-                data-testid="arrange-shipping"
-                className="mt-3 inline-flex items-center gap-2 bg-orange-500 px-4 py-2 text-sm font-semibold text-white hover:bg-orange-600 disabled:opacity-60"
-              >
-                {arranging ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" /> : <Ship className="h-4 w-4" aria-hidden="true" />}
-                {arranging ? 'Starting…' : 'Arrange shipping for this purchase'}
-              </button>
-            ) : (
-              <p className="mt-2 text-xs text-slate-500">Accept a supplier offer first — there is nothing to ship until then.</p>
-            )}
-            {arrangeError && <p className="mt-2 text-sm text-amber-800" data-testid="arrange-shipping-error">{arrangeError}</p>}
-          </div>
+          <p className="text-sm text-slate-600">
+            Shipping has not been arranged for this purchase yet. CarUp already has the route and the
+            vehicle, so you will not be asked for them again.
+          </p>
         ) : (
           <p className="text-sm text-slate-600">No sailing has been attached to this transaction.</p>
         )}
@@ -350,6 +396,12 @@ export default function TradeTransactionPassport() {
         <p className="text-sm text-slate-600">
           Messages about this transaction stay in the conversation CarUp already keeps for it.
         </p>
+        {/* F4 — the statement was true but unactionable. This links to the canonical Communications
+            surface; it does not create a second inbox. */}
+        <Link to="/diaspora/messages" data-testid="open-conversation"
+              className="mt-3 inline-flex items-center gap-1 text-sm font-semibold text-orange-700 hover:underline">
+          Open conversation <ArrowRight className="h-4 w-4" aria-hidden="true" />
+        </Link>
       </Section>
     </div>
   )
