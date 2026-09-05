@@ -1,32 +1,99 @@
 /**
  * Cloudflare Workers AI vision client.
  *
- * Sends the ACTUAL document bytes to `@cf/meta/llama-3.2-11b-vision-instruct` and asks for a
+ * Sends the ACTUAL document bytes to the selected Workers AI vision model and asks for a
  * structured reading. Like the Gemini vision client it THROWS on provider failure, so the caller
  * can tell a provider error from a model verdict and fail closed on its own terms.
  *
- * Two contract facts were established by measuring the live API, not assumed:
+ * WORKERS AI MODELS DO NOT SHARE ONE CONTRACT. Every fact below was established by probing the
+ * live API, not by assuming Llama's shape generalises:
  *
- *   1. The bare `prompt` form returns PROSE wrapping a fenced JSON block. Supplying `messages`
- *      (a system turn plus a user turn) instead makes Workers AI return `result.response` as a
- *      parsed JSON OBJECT. That is why this client always uses the messages form.
- *   2. `response_format` / `guided_json` are ACCEPTED by the API but do NOT constrain key names on
- *      this model — a schema asking for `colour` came back as `dominant_colour`. The schema is
- *      still sent (it is the documented contract and costs nothing), but it is NOT trusted: the
- *      authority for what a field is remains CarUp's own document schema and its normalizers,
- *      which drop anything they cannot verify. Nothing here parses prose.
+ *   - `@cf/meta/llama-3.2-11b-vision-instruct` takes the image as a TOP-LEVEL `image` base64
+ *     field and answers at `result.response`.
+ *   - `@cf/qwen/qwen3.8-27b` and `@cf/google/gemma-4-26b-a4b-it` are OpenAI-shaped: the image is
+ *     an `image_url` content part INSIDE the user message, and the answer is at
+ *     `result.choices[0].message.content`.
+ *
+ * That difference is not cosmetic. Sending Qwen the top-level `image` field returns HTTP 200 with
+ * the image SILENTLY IGNORED — measured: prompt_tokens was identical to a request with no image
+ * at all (106 vs 106), while the content-part form raised it to 172 and the model then described
+ * the picture correctly. A naive port would have produced an "extraction" that never saw the
+ * document, which is exactly the text-only failure this lane exists to eliminate. TRANSPORTS
+ * therefore binds each model to the form proven to deliver its pixels.
  */
 
-export const CLOUDFLARE_VISION_MODEL = '@cf/meta/llama-3.2-11b-vision-instruct';
+export const CLOUDFLARE_VISION_MODEL = '@cf/qwen/qwen3.8-27b';
 const CLOUDFLARE_AI_BASE = 'https://api.cloudflare.com/client/v4/accounts';
+
+/**
+ * How each model actually accepts an image and returns an answer.
+ *   inlineImage — image as a top-level base64 `image` field, answer at result.response
+ *   contentPart — image as an `image_url` data URI inside the user message (OpenAI shape),
+ *                 answer at result.choices[0].message.content
+ */
+export const TRANSPORTS = {
+  '@cf/qwen/qwen3.8-27b': { form: 'contentPart', maxTokens: 2048 },
+  '@cf/google/gemma-4-26b-a4b-it': { form: 'contentPart', maxTokens: 4096 },
+  '@cf/meta/llama-3.2-11b-vision-instruct': { form: 'inlineImage', maxTokens: 2048 },
+};
+
+export function transportFor(model) {
+  const transport = TRANSPORTS[model];
+  if (!transport) {
+    // Fail closed. Guessing a transport is how an image gets silently dropped.
+    throw new Error(`No verified Workers AI transport for "${model}". Probe the model's image and response shape before enabling it.`);
+  }
+  return transport;
+}
 
 export function isCloudflareVisionConfigured(env = process.env) {
   return Boolean(env.CLOUDFLARE_ACCOUNT_ID && env.CLOUDFLARE_API_TOKEN);
 }
 
+/** Builds the request body for a model using the transport proven to deliver its pixels. */
+export function buildCloudflareRequestBody({ model, systemPrompt, textPrompt, image, jsonSchema, maxTokens }) {
+  const transport = transportFor(model);
+  const tokens = Number(maxTokens) > 0 ? Number(maxTokens) : transport.maxTokens;
+  const base = {
+    max_tokens: tokens,
+    temperature: 0,
+    ...(jsonSchema ? { response_format: { type: 'json_schema', json_schema: jsonSchema } } : {}),
+  };
+
+  if (transport.form === 'inlineImage') {
+    return {
+      ...base,
+      messages: [{ role: 'system', content: systemPrompt }, { role: 'user', content: textPrompt }],
+      image: image.base64,
+    };
+  }
+
+  return {
+    ...base,
+    messages: [
+      { role: 'system', content: systemPrompt },
+      {
+        role: 'user',
+        content: [
+          { type: 'text', text: textPrompt },
+          { type: 'image_url', image_url: { url: `data:${image.mimeType || 'image/png'};base64,${image.base64}` } },
+        ],
+      },
+    ],
+  };
+}
+
+/** Reads the answer out of whichever envelope this model uses, without guessing. */
+export function readCloudflareContent(model, result) {
+  const transport = transportFor(model);
+  if (transport.form === 'inlineImage') return result?.response;
+  const choice = result?.choices?.[0];
+  return choice?.message?.content ?? choice?.text;
+}
+
 /**
- * `images` is an array of `{ mimeType, base64 }`; this model accepts a single image, so the first
- * is sent and any further images are reported rather than silently dropped.
+ * `images` is an array of `{ mimeType, base64 }`; these models accept a single image, so a second
+ * is refused rather than silently dropped.
  *
  * Returns `{ content, usage }` where `content` is whatever the model returned (an object when
  * Workers AI parsed it, otherwise the raw string) and `usage` is the provider's own accounting.
@@ -38,6 +105,7 @@ export async function askCloudflareVision(systemPrompt, textPrompt, images = [],
     throw new Error('Cloudflare Workers AI unavailable: CLOUDFLARE_ACCOUNT_ID and CLOUDFLARE_API_TOKEN are both required.');
   }
 
+  const model = options.model || CLOUDFLARE_VISION_MODEL;
   const usable = images.filter((image) => image?.base64);
   if (usable.length === 0) {
     throw new Error('Cloudflare Workers AI vision requires an image; none was supplied.');
@@ -46,23 +114,16 @@ export async function askCloudflareVision(systemPrompt, textPrompt, images = [],
     throw new Error(`Cloudflare Workers AI vision accepts one image per request; ${usable.length} were supplied.`);
   }
 
-  const body = {
-    messages: [
-      { role: 'system', content: systemPrompt },
-      { role: 'user', content: textPrompt },
-    ],
-    image: usable[0].base64,
-    max_tokens: Number(options.maxTokens) > 0 ? Number(options.maxTokens) : 2048,
-    temperature: 0,
-    ...(jsonSchema ? { response_format: { type: 'json_schema', json_schema: jsonSchema } } : {}),
-  };
+  const body = buildCloudflareRequestBody({
+    model, systemPrompt, textPrompt, image: usable[0], jsonSchema, maxTokens: options.maxTokens,
+  });
 
   // A hung provider must not hold a user's upload open indefinitely.
   const timeoutMs = Number(options.timeoutMs) > 0 ? Number(options.timeoutMs) : 90_000;
 
   let response;
   try {
-    response = await fetch(`${CLOUDFLARE_AI_BASE}/${encodeURIComponent(accountId)}/ai/run/${CLOUDFLARE_VISION_MODEL}`, {
+    response = await fetch(`${CLOUDFLARE_AI_BASE}/${encodeURIComponent(accountId)}/ai/run/${model}`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${apiToken}` },
       body: JSON.stringify(body),
@@ -86,9 +147,15 @@ export async function askCloudflareVision(systemPrompt, textPrompt, images = [],
     throw new Error(`Cloudflare Workers AI refused the request — ${errors}`);
   }
 
-  const content = payload?.result?.response;
+  const content = readCloudflareContent(model, payload?.result);
+  const finishReason = payload?.result?.choices?.[0]?.finish_reason;
   if (content === undefined || content === null || content === '') {
-    throw new Error('Cloudflare Workers AI returned no response content');
+    // An empty answer with finish_reason "length" means the budget ran out before the model
+    // emitted anything, which is a request-sizing fault and must not read as an unreadable document.
+    const because = finishReason === 'length'
+      ? ' (output budget exhausted before any content was produced — raise max_tokens for this model)'
+      : finishReason ? ` (finish_reason: ${finishReason})` : '';
+    throw new Error(`Cloudflare Workers AI returned no response content${because}`);
   }
 
   const usage = payload?.result?.usage ?? null;

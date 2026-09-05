@@ -13,18 +13,45 @@
  */
 
 import { askGeminiVision, GEMINI_VISION_MODEL } from './GeminiClient.js';
-import { askCloudflareVision, CLOUDFLARE_VISION_MODEL, isCloudflareVisionConfigured } from './CloudflareVisionClient.js';
+import { askCloudflareVision, CLOUDFLARE_VISION_MODEL, isCloudflareVisionConfigured, TRANSPORTS } from './CloudflareVisionClient.js';
 
 export const DEFAULT_OCR_PROVIDER = 'cloudflare';
 
+/**
+ * Models this project has REJECTED, and may not silently become the selected model again.
+ *
+ * `@cf/meta/llama-3.2-11b-vision-instruct` reads clean documents well — which is exactly why it is
+ * named here. Shown the corpus non-document fixture (a landscape photograph containing no text and
+ * no document) it returned a complete invented Zimbabwean identity with legible:true and
+ * confidence 1, reproducibly, across three prompt variants at temperature 0. Good clean-document
+ * performance is not a reason to reselect it. Reinstating it requires a separately governed
+ * investigation proving materially different behaviour, not a configuration change.
+ */
+export const REJECTED_MODELS = {
+  '@cf/meta/llama-3.2-11b-vision-instruct':
+    'REJECTED 2026-09-05 — fabricated 8 identity fields from the non-document landscape fixture at confidence 1.',
+};
+
+/** The model Cloudflare OCR runs, overridable for a governed evaluation of another candidate. */
+export function resolveCloudflareModel(env = process.env) {
+  const model = String(env.CARUP_OCR_MODEL || CLOUDFLARE_VISION_MODEL).trim();
+  if (REJECTED_MODELS[model]) {
+    throw new Error(`Refusing to use "${model}": ${REJECTED_MODELS[model]}`);
+  }
+  if (!TRANSPORTS[model]) {
+    throw new Error(`No verified Workers AI transport for "${model}". Probe its image and response shape before enabling it.`);
+  }
+  return model;
+}
+
 const cloudflareProvider = {
   id: 'cloudflare',
-  model: CLOUDFLARE_VISION_MODEL,
+  get model() { return resolveCloudflareModel(); },
   isConfigured: () => isCloudflareVisionConfigured(),
   requiredEnv: ['CLOUDFLARE_ACCOUNT_ID', 'CLOUDFLARE_API_TOKEN'],
   async extract({ systemPrompt, textPrompt, images, jsonSchema, timeoutMs }) {
     const { content, usage } = await askCloudflareVision(systemPrompt, textPrompt, images, jsonSchema, {
-      maxTokens: 2048,
+      model: resolveCloudflareModel(),
       timeoutMs,
     });
     return { content, usage };

@@ -15,6 +15,12 @@ name: O2 Live OCR — Cloudflare Workers AI accuracy gate
 on:
   workflow_dispatch:
     inputs:
+      model:
+        description: >-
+          Optional Workers AI model id to qualify (e.g. @cf/google/gemma-4-26b-a4b-it). Blank uses
+          the selected model. A model with no probed transport, or a REJECTED model, is refused.
+        required: false
+        default: ''
       fixtures:
         description: >-
           Optional comma-separated fixture ids for a PARTIAL diagnostic run (e.g.
@@ -95,38 +101,31 @@ jobs:
       # One real Workers AI call on the real fixture, so "the provider is available" is proven by
       # a request rather than inferred from a variable. Prints the provider's own error detail on
       # refusal. Carries no credential into the output.
+      # One real Workers AI call through CarUp's OWN client, so the request uses the transport
+      # measured to deliver that model's pixels. Proves availability by a request, not a variable.
       - name: Prove one real vision request
         env:
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CARUP_OCR_MODEL: ${{ github.event.inputs.model }}
         run: |
           node -e '
             (async () => {
               const fs = require("fs");
-              const image = fs.readFileSync("docs/features/o2/uat-assets/ocr-corpus/national-id-clean.png").toString("base64");
-              const res = await fetch(`https://api.cloudflare.com/client/v4/accounts/${process.env.CLOUDFLARE_ACCOUNT_ID}/ai/run/@cf/meta/llama-3.2-11b-vision-instruct`, {
-                method: "POST",
-                headers: { "Content-Type": "application/json", Authorization: `Bearer ${process.env.CLOUDFLARE_API_TOKEN}` },
-                body: JSON.stringify({
-                  messages: [
-                    { role: "system", content: "You output only JSON." },
-                    { role: "user", content: "Reply with {\"ok\":true}." },
-                  ],
-                  image, max_tokens: 32, temperature: 0,
-                }),
-              });
-              const body = await res.json().catch(() => null);
-              console.log("HTTP", res.status, "success:", body && body.success);
-              if (!res.ok || !body || body.success === false) {
-                console.log("PROOF FAILED — the provider refused a single real request.");
-                console.log(JSON.stringify(body && body.errors ? body.errors : body, null, 1).slice(0, 2000));
-                process.exitCode = 1;
-                return;
-              }
+              const { askCloudflareVision } = await import("./backend/services/ai/CloudflareVisionClient.js");
+              const { resolveCloudflareModel } = await import("./backend/services/ai/ocrVisionProvider.js");
+              const model = resolveCloudflareModel();
+              console.log("model under test:", model);
+              const base64 = fs.readFileSync("docs/features/o2/uat-assets/ocr-corpus/national-id-clean.png").toString("base64");
+              const out = await askCloudflareVision(
+                "You output only a raw JSON object and nothing else.",
+                "Reply with exactly {\"ok\":true}.",
+                [{ mimeType: "image/png", base64 }], null, { model },
+              );
               console.log("PROOF: a real Workers AI vision request SUCCEEDED.");
-              console.log("response:", JSON.stringify(body.result && body.result.response).slice(0, 300));
-              console.log("usage:", JSON.stringify(body.result && body.result.usage));
-            })().catch((e) => { console.log("proof error:", e.message); process.exitCode = 1; });
+              console.log("content:", JSON.stringify(out.content).slice(0, 300));
+              console.log("usage:", JSON.stringify(out.usage));
+            })().catch((e) => { console.log("PROOF FAILED:", e.message); process.exitCode = 1; });
           '
 
       - name: Run the live accuracy gate
@@ -135,6 +134,7 @@ jobs:
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           OCR_GATE_ONLY: ${{ github.event.inputs.fixtures }}
+          CARUP_OCR_MODEL: ${{ github.event.inputs.model }}
         run: |
           set -o pipefail
           node backend/tests/tools/ocr-accuracy-gate.mjs --out "$GITHUB_WORKSPACE/ocr-accuracy" 2>&1 | tee ocr-gate-console.txt

@@ -34,7 +34,7 @@ const read = (relative) => readFileSync(new URL(relative, import.meta.url), 'utf
 const SERVICE = read('../services/document-intelligence/documentIntelligenceService.js');
 const PROVIDER_BOUNDARY = read('../services/ai/ocrVisionProvider.js');
 const CLOUDFLARE = read('../services/ai/CloudflareVisionClient.js');
-const CLOUDFLARE_MODEL = '@cf/meta/llama-3.2-11b-vision-instruct';
+const CLOUDFLARE_MODEL = '@cf/qwen/qwen3.8-27b';
 const MEDIA = read('../services/document-intelligence/documentMedia.js');
 const SCHEMAS = read('../services/document-intelligence/documentSchemas.js');
 
@@ -118,7 +118,7 @@ test('live-ocr: the truncated-base64 text path is gone from the source', () => {
   assert.doesNotMatch(SERVICE, /slice\(0,\s*150\)/);
   assert.match(SERVICE, /configuredProvider\.extract\(/, 'extraction goes through the provider boundary');
   assert.match(SERVICE, /mimeType: media\.mimeType, base64: media\.base64/, 'the real bytes are the image part');
-  assert.match(CLOUDFLARE, /image: usable\[0\]\.base64/, 'Cloudflare receives the real image bytes');
+  assert.match(CLOUDFLARE, /image_url: \{ url: `data:\$\{image\.mimeType/, 'Cloudflare receives the real image bytes');
   assert.doesNotMatch(CLOUDFLARE, /\.slice\(0,\s*\d+\)/, 'no truncated payload may be sent');
 });
 

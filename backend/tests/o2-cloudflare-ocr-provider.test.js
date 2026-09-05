@@ -20,7 +20,8 @@ process.env.JWT_SECRET ||= 'test-jwt-secret';
 const { supabase } = await import('../db/supabase.js');
 const { DocumentIntelligenceService } = await import('../services/document-intelligence/documentIntelligenceService.js');
 const { resolveVisionProvider, providerFromClient, DEFAULT_OCR_PROVIDER } = await import('../services/ai/ocrVisionProvider.js');
-const { askCloudflareVision, CLOUDFLARE_VISION_MODEL, isCloudflareVisionConfigured } = await import('../services/ai/CloudflareVisionClient.js');
+const { askCloudflareVision, CLOUDFLARE_VISION_MODEL, isCloudflareVisionConfigured, buildCloudflareRequestBody, readCloudflareContent, TRANSPORTS, transportFor } = await import('../services/ai/CloudflareVisionClient.js');
+const { REJECTED_MODELS, resolveCloudflareModel } = await import('../services/ai/ocrVisionProvider.js');
 const { FIELD_ALIASES, resolveSchema } = await import('../services/document-intelligence/documentSchemas.js');
 
 const read = (rel) => readFileSync(new URL(rel, import.meta.url), 'utf8');
@@ -57,16 +58,70 @@ function captureFetch(responder) {
 const okResponse = (result) => new Response(JSON.stringify({ success: true, errors: [], result }), {
   status: 200, headers: { 'Content-Type': 'application/json' },
 });
+/** The OpenAI-shaped envelope Qwen and Gemma actually answer in. */
+const okChoice = (content, usage) => okResponse({ choices: [{ message: { content }, finish_reason: 'stop' }], ...(usage ? { usage } : {}) });
 
 // ---------------------------------------------------------------------------------------
 // 1. Provider selection is explicit, and never falls back.
 // ---------------------------------------------------------------------------------------
 
-test('cloudflare: Cloudflare is the configured OCR provider by default', () => {
+test('cloudflare: Cloudflare is the configured OCR provider, on the qualified model', () => {
   assert.equal(DEFAULT_OCR_PROVIDER, 'cloudflare');
   const provider = resolveVisionProvider({});
   assert.equal(provider.id, 'cloudflare');
-  assert.equal(provider.model, '@cf/meta/llama-3.2-11b-vision-instruct');
+  assert.equal(provider.model, '@cf/qwen/qwen3.8-27b');
+  assert.equal(CLOUDFLARE_VISION_MODEL, '@cf/qwen/qwen3.8-27b');
+});
+
+test('cloudflare: the REJECTED Llama vision model cannot be selected by configuration', () => {
+  // It reads clean documents well, which is precisely why it is named: good clean-document
+  // performance must never be a route back in. Shown a landscape photograph it invented a
+  // complete identity at confidence 1.
+  assert.ok(REJECTED_MODELS['@cf/meta/llama-3.2-11b-vision-instruct']);
+  assert.throws(
+    () => resolveCloudflareModel({ CARUP_OCR_MODEL: '@cf/meta/llama-3.2-11b-vision-instruct' }),
+    /Refusing to use .*fabricated 8 identity fields/,
+  );
+});
+
+test('cloudflare: a model with no PROVEN transport is refused rather than guessed at', () => {
+  assert.throws(() => resolveCloudflareModel({ CARUP_OCR_MODEL: '@cf/some/unprobed-model' }), /No verified Workers AI transport/);
+  assert.throws(() => transportFor('@cf/some/unprobed-model'), /No verified Workers AI transport/);
+});
+
+test('cloudflare: each model uses the image form MEASURED to deliver its pixels', () => {
+  // Qwen accepts a top-level `image` field with HTTP 200 and silently ignores it: prompt_tokens
+  // was identical to a request with no image at all (106 vs 106), while the content-part form
+  // raised it to 172 and the model then described the picture correctly. Binding the wrong form
+  // would yield an "extraction" that never saw the document.
+  assert.equal(TRANSPORTS['@cf/qwen/qwen3.8-27b'].form, 'contentPart');
+  assert.equal(TRANSPORTS['@cf/google/gemma-4-26b-a4b-it'].form, 'contentPart');
+  assert.equal(TRANSPORTS['@cf/meta/llama-3.2-11b-vision-instruct'].form, 'inlineImage');
+
+  const qwen = buildCloudflareRequestBody({
+    model: '@cf/qwen/qwen3.8-27b', systemPrompt: 'S', textPrompt: 'U',
+    image: { mimeType: 'image/png', base64: 'QUJD' }, jsonSchema: null,
+  });
+  assert.equal(qwen.image, undefined, 'the silently-ignored top-level image field must not be used for Qwen');
+  const parts = qwen.messages[1].content;
+  assert.equal(parts[1].type, 'image_url');
+  assert.equal(parts[1].image_url.url, 'data:image/png;base64,QUJD', 'the complete bytes travel as the data URI');
+
+  const llama = buildCloudflareRequestBody({
+    model: '@cf/meta/llama-3.2-11b-vision-instruct', systemPrompt: 'S', textPrompt: 'U',
+    image: { mimeType: 'image/png', base64: 'QUJD' }, jsonSchema: null,
+  });
+  assert.equal(llama.image, 'QUJD', 'Llama genuinely takes the top-level form');
+  assert.equal(typeof llama.messages[1].content, 'string');
+});
+
+test('cloudflare: each model is read from the envelope it actually answers in', () => {
+  // Qwen and Gemma are OpenAI-shaped (choices[]); Llama answers at result.response.
+  assert.equal(readCloudflareContent('@cf/qwen/qwen3.8-27b', { choices: [{ message: { content: '{\"a\":1}' } }] }), '{\"a\":1}');
+  assert.equal(readCloudflareContent('@cf/google/gemma-4-26b-a4b-it', { choices: [{ message: { content: 'X' } }] }), 'X');
+  assert.equal(readCloudflareContent('@cf/meta/llama-3.2-11b-vision-instruct', { response: 'Y' }), 'Y');
+  // Reading Qwen with Llama's envelope would silently yield nothing.
+  assert.equal(readCloudflareContent('@cf/qwen/qwen3.8-27b', { response: 'Y' }), undefined);
 });
 
 test('cloudflare: Gemini remains implemented and selectable, but only by explicit configuration', () => {
@@ -114,14 +169,17 @@ test('cloudflare: an unconfigured provider fails honestly and names what is miss
 
 test('cloudflare: the request carries the COMPLETE image bytes, the messages form and a schema', async () => {
   await withEnv({ CLOUDFLARE_ACCOUNT_ID: 'acct-test', CLOUDFLARE_API_TOKEN: 'token-test' }, async () => {
-    const cap = captureFetch(() => okResponse({ response: { document_class_observed: 'x', fields: {} }, usage: { neurons: 1.5 } }));
+    const cap = captureFetch(() => okChoice({ document_class_observed: 'x', fields: {} }, { neurons: 1.5 }));
     try {
       await askCloudflareVision('SYSTEM', 'USER', [{ mimeType: 'image/png', base64: PNG_BYTES.toString('base64') }], { name: 's', schema: { type: 'object' } });
       const [call] = cap.calls;
-      assert.match(call.url, /\/accounts\/acct-test\/ai\/run\/@cf\/meta\/llama-3\.2-11b-vision-instruct$/);
+      assert.match(call.url, /\/accounts\/acct-test\/ai\/run\/@cf\/qwen\/qwen3\.8-27b$/);
       assert.equal(call.init.headers.Authorization, 'Bearer token-test');
-      assert.deepEqual(Buffer.from(call.body.image, 'base64'), PNG_BYTES, 'the complete original bytes are sent');
-      // The bare `prompt` form makes this model answer in prose; the messages form returns JSON.
+      const imagePart = call.body.messages[1].content.find((c) => c.type === 'image_url');
+      assert.deepEqual(
+        Buffer.from(imagePart.image_url.url.split(',')[1], 'base64'), PNG_BYTES,
+        'the complete original bytes are sent',
+      );
       assert.deepEqual(call.body.messages.map((m) => m.role), ['system', 'user']);
       assert.equal(call.body.messages[0].content, 'SYSTEM');
       assert.equal(call.body.prompt, undefined, 'the prose-producing bare prompt form is not used');
@@ -133,13 +191,13 @@ test('cloudflare: the request carries the COMPLETE image bytes, the messages for
 
 test('cloudflare: provider-reported usage is passed through, and never estimated', async () => {
   await withEnv({ CLOUDFLARE_ACCOUNT_ID: 'a', CLOUDFLARE_API_TOKEN: 't' }, async () => {
-    const cap = captureFetch(() => okResponse({ response: { ok: true }, usage: { neurons: 43.29, prompt_tokens: 1622, completion_tokens: 33, total_tokens: 1655 } }));
+    const cap = captureFetch(() => okChoice({ ok: true }, { neurons: 43.29, prompt_tokens: 1622, completion_tokens: 33, total_tokens: 1655 }));
     try {
       const out = await askCloudflareVision('s', 'u', [{ mimeType: 'image/png', base64: 'AAAA' }]);
       assert.deepEqual(out.usage, { neurons: 43.29, promptTokens: 1622, completionTokens: 33, totalTokens: 1655 });
     } finally { cap.restore(); }
 
-    const noUsage = captureFetch(() => okResponse({ response: { ok: true } }));
+    const noUsage = captureFetch(() => okChoice({ ok: true }));
     try {
       const out = await askCloudflareVision('s', 'u', [{ mimeType: 'image/png', base64: 'AAAA' }]);
       assert.equal(out.usage, null, 'no usage reported means null, never a guess');
@@ -164,7 +222,7 @@ test('cloudflare: a refusal names the provider error and NEVER returns a reading
 
 test('cloudflare: an empty or absent response body fails closed', async () => {
   await withEnv({ CLOUDFLARE_ACCOUNT_ID: 'a', CLOUDFLARE_API_TOKEN: 't' }, async () => {
-    for (const result of [{ response: '' }, { response: null }, {}]) {
+    for (const result of [{ choices: [{ message: { content: '' } }] }, { choices: [{ message: { content: null } }] }, {}]) {
       const cap = captureFetch(() => okResponse(result));
       try {
         await assert.rejects(() => askCloudflareVision('s', 'u', [{ mimeType: 'image/png', base64: 'AAAA' }]), /returned no response content/);
