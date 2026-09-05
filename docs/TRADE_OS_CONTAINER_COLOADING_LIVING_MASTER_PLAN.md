@@ -1557,10 +1557,10 @@ This replaces the old C1–C18 backlog as the active roadmap.
 
 | Acceptance dimension | State |
 |---|---|
-| Implemented | ✅ head `ca06e8c3` |
-| Tested locally | ✅ backend 42/42, browser 48/48 (see the cycle entry in §30) |
+| Implemented | ✅ head `9486463d` |
+| Tested locally | ✅ backend 41/41 (T3 12 · T3-adversarial 13 · container-auth 16); 75/75 including migration-integrity 25 and communications coverage 9; browser 48/48 |
 | Lint / typecheck | ✅ `tsc` clean, lint gate `NET_NEW_ERRORS=0` |
-| CI proven | ✅ all 7 workflows green at `658e2e44` and `2cb2c503`; re-running on `ca06e8c3` |
+| CI proven | ✅ all 7 workflows green on the final head `9486463d` (8th is manual-dispatch only) |
 | Adversarial security proven | ✅ 13/13 over HTTP, full §9 matrix |
 | Responsive UAT proven | ✅ all seven contracted widths, one real 393px defect found and fixed |
 | Staging migration applied | ✅ applied to STAGING ONLY; 3 tables `rls_enabled=true`, RPC service_role-only |
