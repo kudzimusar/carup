@@ -1013,7 +1013,9 @@ export const FEATURE_REGISTRY: FeatureRegistryItem[] = [
     // thread visibility is still decided server-side per participant, not by this route.
     route: '/diaspora/messages',
     domain: 'diaspora',
-    roles: ['owner', 'dealer', 'admin'],
+    // Government operates containers (registry admits it to /diaspora/containers, and the
+    // container product treats it as a reviewer). Operating a sailing entails its conversations.
+    roles: ['owner', 'dealer', 'admin', 'government'],
     // No sidebar placement: the Trade OS shell renders its own local navigation, and adding
     // a second "Messages" to the owner dashboard sidebar would duplicate owner.communications.
     placements: [],
@@ -1499,6 +1501,20 @@ export const FEATURE_REGISTRY: FeatureRegistryItem[] = [
     id: 'owner.import-shipment',
     label: 'Import Shipment',
     route: '/diaspora/imports/:id/shipment',
+    domain: 'diaspora',
+    roles: ['owner'],
+    placements: [],
+    requiresAuth: true,
+    icon: 'FileText',
+  },
+  {
+    // Was UNREGISTERED. `/diaspora` is not a protected prefix, so isPublicRoute()'s fallback
+    // classified this PUBLIC and the Order Passport for a specific import order rendered for
+    // anyone who typed the URL. Registered with the same owner-only scope as every sibling
+    // /diaspora/imports/:id/* surface. The API authorizes independently; this is the SPA agreeing.
+    id: 'owner.import-passport',
+    label: 'Order Passport',
+    route: '/diaspora/imports/:id/passport',
     domain: 'diaspora',
     roles: ['owner'],
     placements: [],

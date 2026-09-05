@@ -595,11 +595,13 @@
     "defaultRoles": [
       "admin",
       "dealer",
+      "government",
       "owner"
     ],
     "immutableRoles": [
       "admin",
       "dealer",
+      "government",
       "owner"
     ],
     "requiresAuth": true,
@@ -1129,6 +1131,20 @@
     "id": "owner.import-orders",
     "domain": "diaspora",
     "route": "/diaspora/imports",
+    "defaultLifecycle": "active",
+    "defaultRoles": [
+      "owner"
+    ],
+    "immutableRoles": [
+      "owner"
+    ],
+    "requiresAuth": true,
+    "betaCapable": true
+  },
+  {
+    "id": "owner.import-passport",
+    "domain": "diaspora",
+    "route": "/diaspora/imports/:id/passport",
     "defaultLifecycle": "active",
     "defaultRoles": [
       "owner"

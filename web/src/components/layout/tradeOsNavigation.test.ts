@@ -16,7 +16,8 @@
  * actually open, and the links each role genuinely needs must not silently disappear.
  */
 import { describe, expect, it } from 'vitest'
-import { canRoleAccessRoute, getFeatureByRoute } from '@/config/featureRegistry'
+import { canRoleAccessRoute, getFeatureByRoute, FEATURE_REGISTRY } from '@/config/featureRegistry'
+import { evaluateRouteAccess } from '@/lib/routeAccess'
 import type { UserRole } from '@shared/types'
 
 /** Kept in step with NAV_ITEMS in TradeOSWorkspaceLayout.tsx. */
@@ -79,5 +80,117 @@ describe('Trade OS shell navigation', () => {
     // Pointing the shell there is what broke the supplier, so it must not come back as a nav target.
     expect(NAV_ROUTES).not.toContain('/dashboard/communications' as never)
     expect(canRoleAccessRoute('dealer', '/dashboard/communications')).toBe(false)
+  })
+})
+
+/**
+ * Direct-route eligibility — the other half of the agreement.
+ *
+ * The tests above prove the shell only SHOWS a role links it can open. They could all pass while a
+ * hidden link was still reachable by typing the URL, and for a long time that was exactly the
+ * situation: the shell passed `enforceAuth={false}` to RegistryRouteBoundary, so the registry's
+ * ROLE decision was skipped on every protected Trade OS route. Being logged in as anything was
+ * enough. The nav filter looked like a security boundary and was only a tidiness filter.
+ *
+ * These pin the boundary itself. `evaluateRouteAccess` is the pure decision the boundary renders,
+ * so asserting on it tests the real rule rather than a restatement of it.
+ *
+ * None of this is the authorization. The API decides every read and write regardless of what the
+ * SPA renders; this is the SPA agreeing with the API instead of contradicting it.
+ */
+const decide = (role: UserRole | null, route: string) =>
+  evaluateRouteAccess({
+    route,
+    isBootstrapping: false,
+    isAuthenticated: role !== null,
+    role,
+    enforceAuth: true,
+  })
+
+const renders = (role: UserRole | null, route: string) => {
+  const kind = decide(role, route).kind
+  return kind === 'render' || kind === 'render-beta'
+}
+
+describe('Trade OS direct-route eligibility', () => {
+  it('a valid participant can open their sourcing routes by typing the URL', () => {
+    for (const route of ['/diaspora/request-quotes', '/diaspora/requests', '/diaspora/messages', '/diaspora/containers', '/diaspora/imports']) {
+      expect(renders('owner', route), `participant blocked from ${route}`).toBe(true)
+    }
+  })
+
+  it('a valid supplier can open their opportunity routes by typing the URL', () => {
+    for (const route of ['/diaspora/buyer-requests', '/diaspora/request-quotes', '/diaspora/messages']) {
+      expect(renders('dealer', route), `supplier blocked from ${route}`).toBe(true)
+    }
+  })
+
+  it('a valid logistics provider can open the Shipping route by typing the URL', () => {
+    // A logistics provider is NOT a platform role — it is an ordinary account whose registration
+    // profile says logistics_provider. At the route layer it is therefore an `owner` (or a dealer
+    // running a freight business), and the contextual eligibility is resolved server-side.
+    expect(renders('owner', '/diaspora/containers')).toBe(true)
+    expect(renders('dealer', '/diaspora/containers')).toBe(true)
+  })
+
+  it('an unauthorized authenticated role is REDIRECTED, not merely un-linked', () => {
+    // `mechanic` is a real, logged-in CarUp role with no Trade OS business. Before enforcement it
+    // could open every route below simply by typing them.
+    for (const route of NAV_ROUTES) {
+      const decision = decide('mechanic', route)
+      expect(decision.kind, `mechanic was allowed to render ${route}`).toBe('redirect')
+      if (decision.kind === 'redirect') {
+        expect(decision.reason, `${route} refused for the wrong reason`).toBe('role')
+      }
+    }
+  })
+
+  it('a hidden nav item cannot be reached by typing the URL just because the user is logged in', () => {
+    // The exact defect: visibility and eligibility must be ONE rule, in both directions, for every
+    // role — not just the two that happen to be exercised elsewhere.
+    const ALL_ROLES: UserRole[] = ['owner', 'dealer', 'mechanic', 'bank', 'insurance', 'government', 'admin']
+    for (const role of ALL_ROLES) {
+      for (const route of NAV_ROUTES) {
+        expect(
+          renders(role, route),
+          `${role}: nav shows ${route}=${canRoleAccessRoute(role, route)} but typing it renders=${renders(role, route)}`,
+        ).toBe(canRoleAccessRoute(role, route))
+      }
+    }
+  })
+
+  it('every Trade OS route is registered, so none falls through to the PUBLIC fallback', () => {
+    // isPublicRoute() treats an unregistered path outside the protected prefixes as PUBLIC, and a
+    // public route renders for ANYONE even with enforcement on. /diaspora/imports/:id/passport was
+    // exactly that: an order-specific surface reachable by typing the URL while logged out.
+    const TRADE_OS_ROUTES = [
+      ...NAV_ROUTES,
+      '/diaspora/requests/:id',
+      '/diaspora/imports/new',
+      '/diaspora/imports/:id',
+      '/diaspora/imports/:id/documents',
+      '/diaspora/imports/:id/shipment',
+      '/diaspora/imports/:id/passport',
+    ]
+    for (const route of TRADE_OS_ROUTES) {
+      const feature = getFeatureByRoute(route)
+      expect(feature, `${route} is unregistered and would render as PUBLIC`).toBeDefined()
+      expect(feature?.requiresAuth, `${route} is registered but not protected`).toBe(true)
+    }
+  })
+
+  it('contextual business eligibility is NEVER promoted to a platform role', () => {
+    // The master plan is explicit: business labels do not self-grant authority. If a
+    // logistics_provider / supplier / buyer / shipper ever appears in a registry roles list, the
+    // commercial model has leaked into the security model and this whole gate becomes a role
+    // escalation surface rather than a boundary.
+    const CONTEXTUAL = ['logistics_provider', 'supplier', 'buyer', 'shipper', 'consignee', 'organiser', 'exporter', 'importer']
+    const leaked: string[] = []
+    for (const feature of FEATURE_REGISTRY) {
+      for (const role of feature.roles as string[]) {
+        if (CONTEXTUAL.includes(role)) leaked.push(`${feature.route} :: ${role}`)
+      }
+    }
+    expect(leaked, 'commercial context leaked into the registry role model').toEqual([])
   })
 })

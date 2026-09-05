@@ -3,7 +3,11 @@ import { expect, test, type Page, type Route } from '@playwright/test'
 type TestUser = { id: string; name: string; email: string; role: string; active_tenant_id?: string; tenant_role?: string }
 
 const buyer: TestUser = { id: 'b-1', name: 'Buyer', email: 'b@carup.test', role: 'owner' }
-const reviewer: TestUser = { id: 'r-1', name: 'Rev', email: 'r@carup.test', role: 'reviewer' }
+// A PLATFORM reviewer. This fixture used to carry role 'reviewer', which is not a member of the
+// UserRole union and which no CarUp account can actually hold — staging has 0 such users — so the
+// test was proving an operator journey for a role that cannot exist. `admin` is the real platform
+// authority the container product means here (its reviewerRoles set includes both).
+const reviewer: TestUser = { id: 'r-1', name: 'Rev', email: 'r@carup.test', role: 'admin' }
 const mechanic: TestUser = { id: 'm-1', name: 'Mech', email: 'm@carup.test', role: 'mechanic' }
 // D2: a legitimate logistics operator is a plain 'owner' with a verified tenant-admin membership —
 // NOT a platform reviewer/admin. The operator UI keys off active_tenant_id + tenant_role.
@@ -150,14 +154,18 @@ test.describe('Diaspora container marketplace (Phase 6)', () => {
     await mockApi(page, state, mechanic)
     await page.goto('/diaspora/containers', { waitUntil: 'domcontentloaded' })
 
-    // The canonical denial is still the container product's own: the Feature Registry does not
-    // admit `mechanic` to /diaspora/containers, so the T3 workspace is never offered and the
-    // hardened page decides, exactly as it did before T3 existed.
-    await expect(page.getByTestId('diaspora-container-access-denied')).toBeVisible()
+    // The CANONICAL boundary is now the route boundary, not the child component. The Trade OS
+    // shell enforces the Feature Registry, which does not admit `mechanic`, so the route is
+    // refused before any Trade OS surface mounts and the user is sent to their own dashboard.
+    // Previously the shell passed enforceAuth={false} and this same URL rendered for any logged-in
+    // role; the container product's own access-denied page was the only thing standing in the way.
+    await expect(page).not.toHaveURL(/\/diaspora\/containers/)
 
-    // The regression that matters: wrapping this route must not hand an unauthorized role a
-    // working logistics surface. None of the T3 tabs, and no shipping-request entry point, may
-    // render for a role that cannot access the route at all.
+    // Nothing from either product may render — not the hardened container surfaces, and not the
+    // T3 workspace that wraps them. Asserting the absence of BOTH is the point: a redirect that
+    // still painted the page first would be a leak.
+    await expect(page.getByTestId('diaspora-container-card')).toHaveCount(0)
+    await expect(page.getByTestId('diaspora-container-purpose')).toHaveCount(0)
     await expect(page.getByTestId('trade-shipping-workspace')).toHaveCount(0)
     await expect(page.getByTestId('shipping-tab-containers')).toHaveCount(0)
     await expect(page.getByTestId('shipping-tab-mine')).toHaveCount(0)

@@ -130,7 +130,21 @@ export default function TradeOSWorkspaceLayout() {
         </div>
       </header>
       <main className="min-w-0 flex-1">
-        <RegistryRouteBoundary enforceAuth={false}>
+        {/*
+          * enforceAuth is ON. It was previously false, which meant the registry's ROLE decision was
+          * skipped for every protected Trade OS route: the shell filtered its navigation through
+          * canRoleAccessRoute, but typing the URL bypassed that filter entirely, so a link a role
+          * could not see was still a page it could open. Nav visibility and typed-URL eligibility
+          * are now the same rule, which is what dc812007's nav filter already assumed was true.
+          *
+          * This is a defence-in-depth agreement, not the authorization itself — the API decides
+          * every read and write regardless of what the SPA chooses to render.
+          *
+          * Auth (rather than role) is still settled above: this component returns its own spinner
+          * while the session restores and redirects to /login when there is no user, so the
+          * boundary never has to make a premature auth decision here.
+          */}
+        <RegistryRouteBoundary>
           {location.pathname === '/diaspora/containers'
             ? <TradeShippingWorkspace context={context}><Outlet /></TradeShippingWorkspace>
             : <Outlet />}
