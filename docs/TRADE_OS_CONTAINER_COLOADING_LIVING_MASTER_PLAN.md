@@ -1557,21 +1557,21 @@ This replaces the old C1–C18 backlog as the active roadmap.
 
 | Acceptance dimension | State |
 |---|---|
-| Implemented | ✅ head `232b68c3` — post-closure hardening + adversarial-audit fixes |
+| Implemented | ✅ head `5958e436` — owner UAT round 1 corrections |
 | Tested locally | ✅ diaspora gate 1424/0/7 · T3-adversarial 21/21 · comms coverage 10/10 · migration-integrity 27/27 · browser 48/48 (incl. the new unreadable-sailings case) |
 | Lint / typecheck | ✅ `tsc` clean, lint gate `NET_NEW_ERRORS=0` |
-| CI proven | ✅ all 7 workflows green at `232b68c3` — the exact certified head |
+| CI proven | ✅ all 7 workflows green at `5958e436` |
 | Adversarial security proven | ✅ 13/13 over HTTP, full §9 matrix |
 | Responsive UAT proven | ✅ all seven contracted widths, one real 393px defect found and fixed |
 | Staging migration applied | ✅ applied to STAGING ONLY; 3 tables `rls_enabled=true`, RPC service_role-only |
 | Staging DB authority proven | ✅ award RPC exercised on real Postgres — see the cycle entry |
 | Staging backend serves T3 | ✅ branch preview answers the T3 routes 401, not 404 |
 | Staging frontend paired to that backend | ✅ PROVEN at runtime — preview calls ONLY the branch backend |
-| Exact-head unmocked browser journey | ✅ spec 47, `mode=acceptance`, bundle `index-BPPgy9UI.js` pinned — **6/6** (both journeys × desktop/tablet/mobile), FE and BE both built from `232b68c3` |
+| Exact-head unmocked browser journey | ✅ spec 47, `mode=acceptance`, bundle `index-DbaX20hJ.js` pinned — **6/6** (both journeys × desktop/tablet/mobile) on the corrected build |
 | Container-space conversion on staging | ✅ spec 47 carries the whole chain — REQUESTED consumes 0, replay idempotent, foreign sailing refused, approval consumes exactly the reserved volume |
 | Trade OS route-boundary foundation | ✅ enforcement restored; nav visibility == typed-URL eligibility, pinned for all 7 roles |
 | Staging taxonomy RLS drift | ✅ forward reconciliation applied; RLS on, anon/authenticated revoked, service_role preserved |
-| Owner visual/product UAT | ❌ PENDING — cannot be replaced by automation. Guide: `docs/trade-os/T3_OWNER_UAT_GUIDE.md` |
+| Owner visual/product UAT | ⏳ ROUND 1 COMPLETE — 8 findings, all corrected at `5958e436`. **ROUND 2 REQUIRED.** Guide: `docs/trade-os/T3_OWNER_UAT_GUIDE.md` |
 
 **T3 returns T3-PARTIAL.** Of the five items recorded in the closure correction, four are now
 closed — shared-container conversion proof, route-boundary foundation, taxonomy RLS drift, and CI
@@ -2765,3 +2765,66 @@ template keys remain unregistered, listed in the coverage gate as visible debt.
 
 **T3 returns T3-PARTIAL for exactly one reason: OWNER VISUAL / PRODUCT UAT**
 (`docs/trade-os/T3_OWNER_UAT_GUIDE.md`). T4 not begun. Production untouched. PR #207 Draft.
+
+## Execution entry — 2026-09-05 · OWNER UAT ROUND 1 → corrections at `5958e436`
+
+The owner walked one complete transaction — **SHIP-9D8120DA** — on desktop and mobile against
+bundle `index-CBnC8_u3.js`: published → provider offered USD 1,030 on a real sailing → compared and
+selected → requested space → organiser approved → requester saw approved. Capacity moved **only** on
+approval. 30 full-page screenshots (`scratchpad/uat/`, `scratchpad/uatm/`).
+
+### Passed owner judgement — do not destabilize
+
+Buy vs Ship entry; the real Ship journey; no freight knowledge required; the CBM calculation showing
+its arithmetic AND labelling itself an estimate; the three measurement options; "I don't know yet"
+feeling permitted; the privacy preview; offer comparison with component charges, *Not provided*,
+*provider-stated, not verified by CarUp*, Includes/Excludes; container space clearly a request;
+the organiser view reading as an operating system; truthful downstream states (*Loading preparation
+— Not started*, *Shipment — Not connected*, *Not recorded yet*); the mobile cargo wizard.
+
+### The eight findings, and what they actually were
+
+| # | Finding | Root cause |
+|---|---|---|
+| 1 | "Review state could not be read" right after a SUCCESSFUL space request | `requestSpace()` discarded the mutation response — which already carried `REQUESTED` — and re-derived it from a racing read |
+| 2 | "0.000 CBM estimated" for a request with no cargo | `items.some(...)` on an EMPTY array is `false`, so the unknown branch was skipped and `reduce()` published a confident zero |
+| 3 | Mobile identity overlapped the TRADE OS lockup at 393px | lockup and identity shared one flex row at every width |
+| 4 | "Loading business context…" looked stuck | **My round-1 report was WRONG.** Measured: 200 in 1.5–2.5s, every time. Latency + weak affordance, not a hang |
+| 5 | Sailing matches were a wall of 8 near-identical rows | no grouping, no identity, outweighed the offer |
+| 6 | Validity missing from the provider's own review | field simply absent from the review pane |
+| 7 | Header stuck at "Provider selected" after approval | header rendered the request's status enum, which stops at AWARDED |
+| 8 | "FROM Japan" vs "TO Harare, Zimbabwe" read as unfinished | two code paths formatting the two halves |
+
+Finding 4 is recorded as a correction to my own report rather than quietly dropped: the endpoint
+always answered; my 600 ms screenshots caught it in flight. The fix is therefore an affordance plus
+a **terminal guarantee** (a read that never settles resolves to the honest unreadable state), not a
+chase after a phantom hang.
+
+### Corrections
+
+The reservation state is now taken from the authoritative mutation response and a failed refresh can
+no longer erase it. Zero/unknown/known cargo are three distinct statements, and an itemless request
+says *"Cargo details not recorded"* rather than inventing a title. The header composes vertically
+below `sm` — nothing hidden, nothing shrunk to illegibility. Sailings group by WHO operates and WHEN
+it departs, state equivalence as a count instead of repeating it, show the soonest three with
+progressive disclosure, and claim no ranking CarUp has no authority for. Validity appears in the
+provider review. A derived stage projection reports the furthest REAL state (published → offers
+received → provider selected → space requested → space approved) without mutating the enum, and
+stops there — loaded/shipped/cleared/delivered are not implied by a container approval. One route
+formatter now composes both halves.
+
+### Evidence at `5958e436`
+
+FE `index-DbaX20hJ.js` and BE both built from the correction head. Spec 47 `mode=acceptance`
+**6/6** across chromium / tablet / mobile. Round-2 owner journey re-walked end to end on desktop
+**and** at 393px, with all eight corrections asserted inline (`scratchpad/uat2/`,
+`scratchpad/uatm2/`). Diaspora gate **1424/0/7**; browser **54/54**; web unit **213/213**; tsc,
+vite build and lint gate clean; CI **7/7 green**.
+
+One spec-47 run failed first for a reason worth recording: the shared fixture sailing had reached
+**45.296 of 47 CBM** across ~24 accumulated certification approvals, so the container product
+**correctly refused** further approval as overfill. That is the capacity guard working. The fixture
+was reset; the spec consumes 3 CBM per run and needs periodic reset or its own per-run sailing.
+
+**OWNER UAT ROUND 2 REQUIRED.** T3 remains **T3-PARTIAL** — automation cannot close it, and round 1
+is not a pass. T4 not begun. Production untouched. PR #207 Draft.

@@ -4,7 +4,7 @@
 - **Branch:** `feat/trade-os-client-demo-convergence`
 - **Draft PR:** #207
 - **Production:** untouched
-- **Status:** T3-PARTIAL at certified head `232b68c3` — the sole remaining gate is OWNER VISUAL / PRODUCT UAT; production untouched — everything provable without a deployed environment
+- **Status:** T3-PARTIAL at `5958e436` — owner UAT round 1 complete (8 findings, all corrected); **ROUND 2 REQUIRED**; production untouched — everything provable without a deployed environment
   is proven; nothing on staging has been run. This receipt is evidence, **not a competing plan**.
 
 ## Why T3 exists
@@ -300,10 +300,23 @@ requester → provider → award → container-space → organiser-approval jour
 desktop, tablet and mobile in `mode=acceptance`. CI is green on the same head. The itemized A–M
 table lives in the master plan §30 entry "T3 post-closure re-certification".
 
+## Owner UAT round 1 → corrections at `5958e436`
+
+The owner walked SHIP-9D8120DA end to end on desktop and mobile and returned eight findings; all
+are corrected and re-certified on the deployed build (`index-DbaX20hJ.js`, spec 47 6/6 across three
+viewports). Detail is in the master plan §30 entry "OWNER UAT ROUND 1".
+
+Two entries are worth carrying here because they are corrections to the record, not just to code:
+finding 4 ("Loading business context…") was reported as never resolving; measurement showed it
+always returns in 1.5–2.5s, so the fix is an affordance plus a terminal guarantee rather than a
+hang fix. And one spec-47 run failed because the shared fixture sailing had reached 45.296/47 CBM —
+the container product correctly refusing overfill, which is the guard working; the fixture needs
+periodic reset.
+
 ## Known work still required before T3 closure
 
-1. **owner visual/product UAT**, which automation cannot replace (§29) —
-   see `docs/trade-os/T3_OWNER_UAT_GUIDE.md`.
+1. **OWNER UAT ROUND 2** on the corrected build — round 1 produced findings, not a pass, and
+   automation cannot close it (§29). See `docs/trade-os/T3_OWNER_UAT_GUIDE.md`.
 
 The other four items from the closure correction are now closed — see the master plan §30 entry
 "T3 final closure correction":
