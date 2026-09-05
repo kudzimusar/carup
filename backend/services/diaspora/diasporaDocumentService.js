@@ -150,7 +150,10 @@ function retiredClientExtractionError() {
  * Direct service calls without an HTTP request are retained only for NODE_ENV=test integration
  * fixtures. There is no runtime caller without req in the repository.
  */
-function normalizeProviderBackedExtraction(payload = {}, req = null) {
+// Exported for adversarial regression only. This is the single point where a client-supplied
+// provider name, confidence or field set is discarded in favour of the server-observed provider
+// result, so that property must be provable by executing it — not by matching its source text.
+export function normalizeProviderBackedExtraction(payload = {}, req = null) {
   if (!req) {
     if (process.env.NODE_ENV !== 'test') {
       throw retiredClientExtractionError();

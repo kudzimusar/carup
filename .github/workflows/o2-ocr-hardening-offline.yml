@@ -14,10 +14,17 @@ on:
       - 'backend/routes/identityVerificationRoutes.js'
       - 'backend/tests/o2-ocr-three-problem-hardening.test.js'
       - 'backend/tests/o2-ocr-path-convergence.test.js'
+      - 'backend/tests/o2-ocr-adversarial-hardening.test.js'
+      - 'backend/tests/o2-ocr-stakeholder-coverage.test.js'
       - 'backend/tests/o2-live-ocr-operationalization.test.js'
       - 'backend/tests/o2-cloudflare-ocr-provider.test.js'
       - 'backend/tests/o2-ocr-accuracy-corpus.test.js'
       - 'backend/tests/o2-x1-document-intelligence-authority.test.js'
+      # Both of these consume the RETIRED OCR symbols. They are not "OCR lane" files by name, which
+      # is exactly why they were invisible to this path filter while the retirement broke one of
+      # them. A path-filtered gate is only as honest as its list of dependants.
+      - 'backend/tests/o2-x2-registration-journey.test.js'
+      - 'backend/tests/diaspora-supabase-integration.test.js'
       - 'backend/tests/diaspora-ocr-route.test.js'
       - '.github/workflows/o2-ocr-hardening-offline.yml'
   workflow_dispatch:
@@ -63,8 +70,12 @@ jobs:
           node --test \
             backend/tests/o2-ocr-three-problem-hardening.test.js \
             backend/tests/o2-ocr-path-convergence.test.js \
+            backend/tests/o2-ocr-adversarial-hardening.test.js \
+            backend/tests/o2-ocr-stakeholder-coverage.test.js \
             backend/tests/o2-live-ocr-operationalization.test.js \
             backend/tests/o2-cloudflare-ocr-provider.test.js \
             backend/tests/o2-ocr-accuracy-corpus.test.js \
             backend/tests/o2-x1-document-intelligence-authority.test.js \
+            backend/tests/o2-x2-registration-journey.test.js \
+            backend/tests/diaspora-supabase-integration.test.js \
             backend/tests/diaspora-ocr-route.test.js

@@ -299,9 +299,23 @@ test('X2: outside the test suite, extraction without a user id refuses to run �
       () => DocumentIntelligenceService.extractDocumentData('national_id', 'data:image/png;base64,QUJD'),
       /requires the authenticated user id/,
     );
+
+    // The second call site was the legacy generic parser. OCR path convergence retired it outright,
+    // which SUPERSEDES the attribution guard rather than weakening it: the original concern was an
+    // unattributed extraction, and this path can no longer extract anything for anyone. The guard is
+    // kept — not deleted — so that reviving the path without attribution fails here.
     await assert.rejects(
       () => runOcrParsing('registration_book', 'data:image/png;base64,QUJD'),
-      /requires the authenticated user id/,
+      (error) => error?.statusCode === 410
+        && error?.code === 'LEGACY_OCR_PATH_RETIRED'
+        && /retired/i.test(error?.message || ''),
+      'the legacy call site must refuse unconditionally, not merely when a user id is absent',
+    );
+
+    // And it refuses identically WITH a user id — proving the refusal is retirement, not attribution.
+    await assert.rejects(
+      () => runOcrParsing('registration_book', 'data:image/png;base64,QUJD', 'user-1'),
+      (error) => error?.statusCode === 410 && error?.code === 'LEGACY_OCR_PATH_RETIRED',
     );
   } finally {
     process.env.NODE_ENV = savedEnv;

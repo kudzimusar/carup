@@ -106,6 +106,18 @@ alone is deliberately insufficient to select an OCR schema.
 
 These tests use injected provider/storage/persistence seams and make **zero live Cloudflare calls**.
 
+Two of the guards in this file assert **source text** rather than behaviour (`convergence: client-authored
+Diaspora OCR evidence is shadow-retired…` and the mount-ordering index comparisons). They are retained
+because structural facts are what they are meant to pin, but they are no longer the only evidence for
+those properties: `backend/tests/o2-ocr-adversarial-hardening.test.js` proves the same closures by
+executing them, and `backend/tests/o2-ocr-stakeholder-coverage.test.js` proves the `/api/ai/ocr`
+retirement by calling the retired symbol and asserting `410 LEGACY_OCR_PATH_RETIRED`.
+
+The evidence-object scope enforced by `loadEvidenceForOcr` (bucket, VIN prefix, traversal,
+document-artifact form) is **not** covered by this file. It is covered in the adversarial suite. See
+*Certification of the three closures* in `CARUP_OCR_THREE_PROBLEM_HARDENING_RECEIPT.md` for the full
+audit, the mutation-testing results and the authoritative OCR route table.
+
 ## Certification state after this hardening
 
 This closes product path convergence. It does **not** certify Qwen operationally.
