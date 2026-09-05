@@ -1312,6 +1312,20 @@
     "betaCapable": true
   },
   {
+    "id": "owner.trade-transaction-passport",
+    "domain": "diaspora",
+    "route": "/diaspora/transactions/:kind/:id",
+    "defaultLifecycle": "active",
+    "defaultRoles": [
+      "owner"
+    ],
+    "immutableRoles": [
+      "owner"
+    ],
+    "requiresAuth": true,
+    "betaCapable": true
+  },
+  {
     "id": "product.dealers",
     "domain": "commerce",
     "route": "/dealers",

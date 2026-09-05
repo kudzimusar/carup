@@ -39,6 +39,7 @@ import {
   requestSpaceForAward,
 } from '../services/diaspora/diasporaLogisticsRfqService.js';
 import { ensureLogisticsConversation } from '../services/diaspora/diasporaLogisticsConversationService.js';
+import { getTransactionPassport, continueToLogistics } from '../services/diaspora/tradeTransactionPassportService.js';
 import { getTradeContext } from '../services/diaspora/tradeContextService.js';
 
 const router = express.Router();
@@ -273,6 +274,25 @@ router.post(`${base}/reservations/:id/reject`, operatorAuth, asyncHandler(async 
 }));
 router.post(`${base}/reservations/:id/cancel`, participantAuth, asyncHandler(async (req, res) => {
   res.json({ data: await cancelReservation(req.params.id, req.userContext, { req }) });
+}));
+
+// ── Trade OS T4 — Order & Booking Passport ────────────────────────────────
+//
+// One projection, two anchors. `kind` is part of the PATH rather than a query flag so that the
+// two origins can never be silently conflated by a missing parameter: a procurement passport and
+// a logistics passport are different transactions, not one endpoint with a mode.
+//
+// The service performs participant-scoped authorization itself, because who may read a
+// transaction depends on facts (who the awarded provider is) that a route-level role check cannot
+// see. `participantAuth` here only establishes that there IS an identity.
+router.get('/trade-transactions/:kind/:id', participantAuth, asyncHandler(async (req, res) => {
+  res.json({ data: await getTransactionPassport({ kind: req.params.kind, id: req.params.id }, req.userContext, { req }) });
+}));
+
+// Continue an awarded purchase into shipping. Idempotent by database constraint, not by UI state.
+router.post('/import-orders/:id/continue-to-logistics', participantAuth, asyncHandler(async (req, res) => {
+  const result = await continueToLogistics(req.params.id, req.userContext, { req });
+  res.status(result.idempotentReplay ? 200 : 201).json({ data: result });
 }));
 
 export default router;

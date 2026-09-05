@@ -57,6 +57,7 @@ import {
   NewDiasporaImportOrder,
 } from './pages/diaspora/DiasporaTrade'
 import DiasporaOrderPassport from './pages/diaspora/DiasporaOrderPassport'
+import TradeTransactionPassport from './pages/diaspora/TradeTransactionPassport'
 import DiasporaStockPassport from './pages/diaspora/DiasporaStockPassport'
 import DiasporaWorkbookDryRun from './pages/diaspora/DiasporaWorkbookDryRun'
 import DiasporaWorkbookOperatorConsole from './pages/diaspora/DiasporaWorkbookOperatorConsole'
@@ -327,6 +328,9 @@ export default function App() {
           <Route path="/diaspora/imports/:id/documents" element={<DiasporaImportDocuments />} />
           <Route path="/diaspora/imports/:id/shipment" element={<DiasporaImportShipment />} />
           <Route path="/diaspora/imports/:id/passport" element={<DiasporaOrderPassport />} />
+          {/* T4 — the operating transaction passport. `kind` is in the path so a purchase and a
+              shipment can never be conflated by a missing parameter. */}
+          <Route path="/diaspora/transactions/:kind/:id" element={<TradeTransactionPassport />} />
         </Route>
 
         {/* Auth Routes */}

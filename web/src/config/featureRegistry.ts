@@ -1521,6 +1521,19 @@ export const FEATURE_REGISTRY: FeatureRegistryItem[] = [
     requiresAuth: true,
     icon: 'FileText',
   },
+  {
+    // T4 — the operating transaction passport. Registered so that typed-URL access and navigation
+    // eligibility are the same rule: an unregistered route falls through isPublicRoute()'s default
+    // and renders for anyone, which is exactly the hole T3 found on the order passport.
+    id: 'owner.trade-transaction-passport',
+    label: 'Transaction',
+    route: '/diaspora/transactions/:kind/:id',
+    domain: 'diaspora',
+    roles: ['owner'],
+    placements: [],
+    requiresAuth: true,
+    icon: 'FileText',
+  },
 ]
 
 // ── Selector helpers ───────────────────────────────────────────────────────

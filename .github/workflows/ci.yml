@@ -101,6 +101,20 @@ jobs:
       - name: Operations Serena slice migrations verification (isolated PGlite Postgres)
         run: node database/test/operations_serena_slice_pglite_check.mjs
 
+      # Trade OS T4 — the procurement→logistics continuation edge (20260906090000).
+      #
+      # Same rationale as the two steps above: migration_pglite_check.mjs's NEW_MIGRATIONS list
+      # ends at 20260810120000, so this migration is executed by NO other gate, and
+      # migration-integrity.test.js only parses its markers.
+      #
+      # What only real Postgres can show: the PARTIAL unique index rejects a second LIVE
+      # continuation for one order, and — the half the in-memory mock deliberately gets wrong —
+      # FREES the slot once a continuation is CANCELLED, CLOSED or soft-deleted. Getting that
+      # second half wrong in production would leave a buyer whose shipping request was cancelled
+      # permanently unable to arrange shipping for that purchase again.
+      - name: Trade OS T4 continuation edge verification (isolated PGlite Postgres)
+        run: node database/test/trade_os_t4_continuation_check.mjs
+
       # Issue #101 P0 hardening — BLOCKING behavioural proof, not a shape check.
       #
       # This is load-bearing security evidence: it runs the migration against real

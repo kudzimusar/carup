@@ -159,6 +159,23 @@ export function useTradeLogisticsApi() {
     return response.data
   }, [request])
 
+  /**
+   * T4 — the operating transaction passport. One projection, two anchors; `kind` is in the path so
+   * the two origins can never be conflated by a missing parameter.
+   */
+  const getTransactionPassport = useCallback(async (kind: 'procurement' | 'logistics', id: string): Promise<TransactionPassport> => {
+    const response = await request<{ data: TransactionPassport }>(
+      `/diaspora/trade-transactions/${encodeURIComponent(kind)}/${encodeURIComponent(id)}`)
+    return response.data
+  }, [request])
+
+  /** Continue an awarded purchase into shipping. Idempotent server-side; safe to retry. */
+  const continueToLogistics = useCallback(async (importOrderId: string): Promise<{ request: { id: string }; idempotentReplay: boolean }> => {
+    const response = await request<{ data: { request: { id: string }; idempotentReplay: boolean } }>(
+      `/diaspora/import-orders/${encodeURIComponent(importOrderId)}/continue-to-logistics`, { method: 'POST' })
+    return response.data
+  }, [request])
+
   const listOpenContainers = useCallback(async (): Promise<Array<Record<string, unknown>>> => {
     const response = await request<{ data: Array<Record<string, unknown>> }>('/diaspora/container-marketplace/containers')
     return response.data || []
@@ -187,6 +204,8 @@ export function useTradeLogisticsApi() {
     fetchContainerReservations,
     ensureConversation,
     listOpenContainers,
+    getTransactionPassport,
+    continueToLogistics,
   }), [
     listMyRequests,
     getRequest,
@@ -207,5 +226,53 @@ export function useTradeLogisticsApi() {
     fetchContainerReservations,
     ensureConversation,
     listOpenContainers,
+    getTransactionPassport,
+    continueToLogistics,
   ])
+}
+
+// ── T4 — Order & Booking Passport ────────────────────────────────────────
+// Mirrors tradeTransactionPassportService's projection. Every field is READ from an authority;
+// nothing here is a second copy of a canonical fact. A `null` means CarUp does not know — it is
+// never a zero, and the UI must render it as unknown rather than as an answer.
+
+export interface PassportStageEntry { key: string; label: string; state: 'DONE' | 'CURRENT' | 'PENDING' | 'NOT_STARTED' | 'NOT_CONNECTED' | 'NOT_RECORDED'; owner?: string }
+export interface PassportParty { user_id: string | null; role: string; withheld?: boolean }
+export interface PassportCargoLine {
+  line_number: number; description: string | null; quantity: number | null
+  estimated_volume_cbm: number | null; estimated_weight_kg: number | null
+  measurement_basis: string; has_linked_vehicle: boolean; linked_vehicle_vin?: string | null
+}
+export interface TransactionPassport {
+  kind: 'procurement' | 'logistics'
+  viewer_role: string
+  identity: {
+    reference: string; anchor_id: string; context: string
+    stage: string; stage_evidence: string
+    origin: { city: string | null; country: string | null }
+    destination: { city: string | null; country: string | null }
+    continued_from_order?: { reference: string; anchor_id: string } | null
+    shipping_continuation?: { reference: string; anchor_id: string; status: string } | null
+  }
+  participants: Record<string, PassportParty | PassportParty[] | null>
+  commercial: {
+    quote_reference: string; total_amount: number | string | null; currency: string | null
+    service_mode?: string | null; valid_until?: string | null; agreed_at?: string | null
+    stock_item_id?: string | null
+  } | null
+  offers_visible: number
+  cargo?: PassportCargoLine[]
+  booking: {
+    sailing?: {
+      reference: string
+      origin: { city: string | null; country: string | null }
+      destination: { city: string | null; country: string | null }
+      departure_date: string | null; booking_deadline: string | null; container_type: string | null
+      capacity: { total_cbm: number; used_cbm: number; available_cbm: number }
+    } | null
+    reservation: { reference: string; state: string; reserved_cbm: number | string | null; consumes_capacity: boolean } | null
+  } | null
+  documents: { authority_available: boolean; records: Array<{ id: string; document_type: string | null; verification_status: string | null; recorded_at: string | null }>; note?: string }
+  lifecycle: PassportStageEntry[]
+  communications: { workflow: string; subject_type: string; subject_anchor_id: string; note: string }
 }

@@ -276,6 +276,23 @@ export default function DiasporaOrderPassport() {
       </header>
 
       <div className="space-y-4">
+        {/* T4 — this page is the COMPLIANCE record (government footprint, audit, milestones,
+            ownership handoff). The operating transaction — what was agreed, what is being moved,
+            where it stands and what happens next — lives on the transaction passport, so the two
+            surfaces point at each other instead of one quietly becoming obsolete. */}
+        <div className="mb-4 border border-orange-200 bg-orange-50 p-4" data-testid="order-passport-operating-link">
+          <p className="text-sm text-orange-900">
+            This is the compliance record for the order. To see the live transaction — the agreement,
+            the cargo, shipping and what happens next — open the transaction view.
+          </p>
+          <Link
+            to={`/diaspora/transactions/procurement/${order.id}`}
+            className="mt-2 inline-flex items-center gap-1 text-sm font-semibold text-orange-700 hover:underline"
+          >
+            Open the transaction <BookOpenCheck className="h-4 w-4" aria-hidden="true" />
+          </Link>
+        </div>
+
         {/* 1 — Order identity & state */}
         <PassportSection title="Order identity & state" testId="order-passport-identity">
           <Field label="Order id" value={shortId(order.id)} testId="order-passport-id" />
