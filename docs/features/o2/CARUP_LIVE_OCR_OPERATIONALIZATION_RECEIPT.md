@@ -169,6 +169,115 @@ provider-quality result**: nothing the provider read was ever wrong.
 No expected fixture value was changed, no strictness was reduced, no fuzzy acceptance was
 introduced for identity numbers or VINs, and no second provider was substituted.
 
+## 4E. Candidate qualification: Qwen 3.8 and Gemma 4 (2026-09-05)
+
+Llama was rejected for fabrication (§4D). Two Cloudflare-hosted vision models were put through the
+ordered gates. **No evaluation asset was touched** — the corpus fixtures, answer key, manifest,
+normalization and grading each have exactly one commit in their entire history (`cf5b71a8`),
+verified by `git log` and SHA-256 before any benchmarking began.
+
+### Models and outcomes
+
+| Workers AI model id | Gate 0 abstention | Gate 1 clean National ID | Gate 2 full corpus | Disposition |
+|---|---|---|---|---|
+| `@cf/meta/llama-3.2-11b-vision-instruct` | **FAIL** — 8 fabricated fields, confidence 1 | — | — | **REJECTED — FABRICATION.** Blocked in code; cannot be selected by configuration |
+| `@cf/qwen/qwen3.8-27b` | **PASS** — zero fields, correct abstention | **PASS** — 8/8 exact, confidence 0.99 | 9/11 read genuinely, **not certifiable** | Leading candidate, **unproven** |
+| `@cf/google/gemma-4-26b-a4b-it` | **PASS** — zero fields, correct abstention | 8/8 in the schema probe | not reached | Reserve candidate |
+
+### The adapter defect both candidates exposed — and the repair
+
+Both models initially failed Gate 1 by declaring `date_of_birth`, `country` and `date_of_issue`
+**unreadable** — values printed in 25px bold. Two unrelated model families failing identically
+pointed at CarUp's request rather than at their eyesight. A bounded probe held image and prompt
+constant and varied only the schema:
+
+| Model | with `response_format` | without |
+|---|---|---|
+| Gemma 4 | 5/8 (3 declared unreadable) | **8/8, every value correct** |
+| Qwen 3.8 | 4/8 | **8/8, every value correct** |
+
+CarUp's own request was destroying four correct readings per document. Cloudflare's JSON Mode page
+states enforcement is best-effort and lists neither model. `response_format` is now withheld
+per-transport with the measurement recorded and a permanent guard; structure comes from the
+absolute output-format instruction plus fail-closed JSON-object recovery, neither of which infers
+anything from prose. Gate 1 then passed 8/8. **Only the request changed.**
+
+### A silent-image trap, caught before it could certify anything
+
+`@cf/qwen/qwen3.8-27b` accepts Llama's top-level `image` field with HTTP 200 and **silently ignores
+it** — prompt_tokens identical to a request carrying no image (106 vs 106), versus 172 for the
+OpenAI content-part form, which the model then answered correctly. Both candidates also answer at
+`result.choices[0].message.content`, not `result.response`. A naive port of Llama's shape would have
+produced an "extraction" that never saw the document while returning 200 — the precise failure this
+lane exists to eliminate. Transports are now bound per model and an unprobed model is refused.
+
+### Gate 2 — reported PASS, not a certification
+
+[Run 33936092801](https://github.com/kudzimusar/carup/actions/runs/33936092801) reported
+`PASS · 11/11 · 0 fabrications · 45 exact · 0 normalized · 6 missing · 0 incorrect`.
+
+Nine fixtures earned it. Two did not:
+
+- **`non-document`**, the fabrication safety sentinel, was refused mid-run — *"you have used up your
+  daily free allocation of 10,000 neurons"*. Zero fields came back because the model never saw the
+  image, and `no_document` mode reads zero fields as PASS.
+- **`national-id-blurred`** returned no content in three attempts, and `no_fabrication` accepts
+  missing.
+
+Absence caused by provider unavailability is not a model declining to guess. Qwen did pass the
+sentinel genuinely earlier ([run 33935029777](https://github.com/kudzimusar/carup/actions/runs/33935029777),
+156.75 neurons, zero fields) — but **before** the `response_format` repair, and that repair made
+both models markedly more forthcoming, which is exactly what could change abstention behaviour. The
+sentinel must be re-run under the shipping configuration.
+
+**This lane therefore does not count Gate 2 as passed, and staging deployment and §3A were not
+started.** A fail-closed outcome is not an OCR success.
+
+### Hard external blocker
+
+The Cloudflare account's **daily free allocation of 10,000 neurons is exhausted**, confirmed
+directly against both candidate models after the run. Qwen costs ~180–530 neurons per document; one
+full corpus run is ~2,500–3,000 before retries. To finish: raise the Workers AI allocation (Workers
+Paid), then re-run Gate 0 → Gate 1 → Gate 2 unchanged, and only then staging + §3A.
+
+### Regression matrix at the qualification head
+
+| Gate | Result |
+|---|---|
+| Full backend suite (repo root, CI env) | **6010 tests · 5989 pass · 0 fail · 21 skipped** |
+| `o2-cloudflare-ocr-provider` | **21/21** (5 new guards this round) |
+| `o2-live-ocr-operationalization` | **31/31** |
+| `o2-ocr-accuracy-corpus` | **13/13** |
+| X1 authority · X2 journey · X3 lifecycle · X7 guards | 6/6 · 13/13 · 7/7 · 13/13 |
+| 7C identity (`verification-*`) | 15/15 · 4/4 · 5/5 |
+| `ocr-mock-guard` · `diaspora-ocr-route` | 3/3 · 13/13 |
+| `non-seller-authority-hardening` · `issue164-phase3-trust-authority` | 8/8 · 57/57 |
+| Production build (`tsc -b && vite build`) | **PASS** — 55.82s |
+| Lint regression gate vs `71b81d74` | **NET_NEW 0/0** |
+
+The web suite was not re-run: no web code was touched this round (the change surface is the
+Cloudflare client, the provider boundary, the document schemas, backend tests, the gate tool and
+two workflows), and the production build compiles the whole frontend.
+
+### Permanent guards added this round
+
+- the REJECTED Llama model cannot be selected by configuration, and the refusal names the reason;
+- a model with no PROVEN transport is refused rather than guessed at;
+- each model uses the image form measured to deliver its pixels — Qwen must never be sent the
+  top-level `image` field it silently ignores;
+- each model is read from the envelope it actually answers in, and reading Qwen with Llama's
+  envelope yields nothing rather than a false empty;
+- `response_format` is withheld from the models it demonstrably harms, with the 5/8-vs-8/8 and
+  4/8-vs-8/8 measurements recorded beside the guard.
+
+### Recommendation, deliberately not applied
+
+The gate cannot distinguish "the model abstained" from "the provider never answered" — for
+`no_document` and `no_fabrication` fixtures both present as zero fields. A fixture whose provider
+call failed should grade **INCONCLUSIVE** and fail the gate. That is a strengthening, but
+`ocrAccuracyGrading.mjs` is on the immutable list, so it is recorded as a Product Owner decision
+rather than changed unilaterally.
+
 ## 4D. Provider change: Cloudflare Workers AI (2026-09-05) — NOT READY, on fabrication
 
 Gemini's paid tier was unavailable, so the Product Owner authorized Cloudflare Workers AI
@@ -484,7 +593,7 @@ authorized, so it can never be read as a pass.
 
 ## 7. Verdict
 
-**CLOUDFLARE OCR NOT READY — `@cf/meta/llama-3.2-11b-vision-instruct` fabricates a complete identity from a photograph containing no document, at confidence 1. See §4D.**
+**LIVE OCR NOT READY — Qwen 3.8 is the leading candidate and reads accurately (45 exact, 0 incorrect, 0 fabrications across 9 genuinely-read fixtures), but the fabrication safety sentinel was graded on a provider outage rather than a model abstention, and the Cloudflare daily neuron allocation is exhausted so it cannot be re-run. See §4E. Llama remains REJECTED for fabrication (§4D).**
 
 *(Superseded the Gemini quota verdict of §4C: the provider changed, and so did the blocker — from "the credential cannot serve requests" to "the model invents readings".)*
 

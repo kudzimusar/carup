@@ -2,16 +2,16 @@
   "manifest": "2026.09.ocr-corpus-v1",
   "summary": {
     "counts": {
-      "exact": 27,
-      "normalized": 3,
-      "missing": 21,
-      "incorrect": 8
+      "exact": 45,
+      "normalized": 0,
+      "missing": 6,
+      "incorrect": 0
     },
-    "fabrications": 8,
-    "shortfalls": 15,
-    "fixturesPassed": 7,
+    "fabrications": 0,
+    "shortfalls": 0,
+    "fixturesPassed": 11,
     "fixturesTotal": 11,
-    "verdict": "FAIL"
+    "verdict": "PASS"
   },
   "runs": [
     {
@@ -20,65 +20,13 @@
       "docType": "national_id",
       "mode": "strict",
       "provider": "cloudflare",
-      "model": null,
-      "executionStatus": "provider_failed",
-      "extractionStatus": "OCR_Provider_Unavailable",
-      "confidence": null,
-      "confidenceReported": false,
-      "latencyMs": 5035,
-      "wallMs": 20291,
-      "providerCalls": 3,
-      "structuredCandidate": null,
-      "providerUsage": null,
-      "verdict": "FAIL",
-      "attempts": [
-        {
-          "attempt": 1,
-          "executionStatus": "provider_failed",
-          "extractionStatus": "OCR_Provider_Unavailable",
-          "error": "The extraction provider returned output that is not valid JSON.",
-          "latencyMs": 5973
-        },
-        {
-          "attempt": 2,
-          "executionStatus": "provider_failed",
-          "extractionStatus": "OCR_Provider_Unavailable",
-          "error": "The extraction provider returned output that is not valid JSON.",
-          "latencyMs": 5278
-        },
-        {
-          "attempt": 3,
-          "executionStatus": "provider_failed",
-          "extractionStatus": "OCR_Provider_Unavailable",
-          "error": "The extraction provider returned output that is not valid JSON.",
-          "latencyMs": 5035
-        }
-      ],
-      "error": "The extraction provider returned output that is not valid JSON.",
-      "diagnostics": {
-        "documentClassObserved": null,
-        "observedFields": [],
-        "missingFields": [],
-        "unnormalizedValues": {},
-        "carriedIdentifiers": [],
-        "unreadableFields": [],
-        "observations": [],
-        "allExtracted": {}
-      }
-    },
-    {
-      "id": "national-id-rotated",
-      "file": "national-id-rotated.png",
-      "docType": "national_id",
-      "mode": "strict",
-      "provider": "cloudflare",
-      "model": "@cf/meta/llama-3.2-11b-vision-instruct",
+      "model": "@cf/qwen/qwen3.8-27b",
       "executionStatus": "provider_succeeded",
       "extractionStatus": "Pending_Verification",
-      "confidence": 1,
+      "confidence": 0.98,
       "confidenceReported": true,
-      "latencyMs": 3968,
-      "wallMs": 3969,
+      "latencyMs": 17091,
+      "wallMs": 17093,
       "providerCalls": 1,
       "structuredCandidate": {
         "table": "ocr_national_ids",
@@ -86,10 +34,10 @@
         "skippedReason": null
       },
       "providerUsage": {
-        "neurons": 38.212743566625,
-        "promptTokens": 6991,
-        "completionTokens": 120,
-        "totalTokens": 7111
+        "neurons": 262.35455322265625,
+        "promptTokens": 1286,
+        "completionTokens": 721,
+        "totalTokens": 2007
       },
       "verdict": "PASS",
       "attempts": [
@@ -98,12 +46,12 @@
           "executionStatus": "provider_succeeded",
           "extractionStatus": "Pending_Verification",
           "error": null,
-          "latencyMs": 3968
+          "latencyMs": 17091
         }
       ],
       "error": null,
       "diagnostics": {
-        "documentClassObserved": "national_id",
+        "documentClassObserved": "Zimbabwe National Registration (identity) card — specimen/synthetic test asset",
         "observedFields": [
           "first_name",
           "last_name",
@@ -118,7 +66,80 @@
         "unnormalizedValues": {},
         "carriedIdentifiers": [],
         "unreadableFields": [],
-        "observations": [],
+        "observations": [
+          "Document is marked 'SYNTHETIC TEST ASSET — NOT A REAL DOCUMENT' and 'SPECIMEN ISSUE — training and test use only'.",
+          "Footer states 'Generated for CarUp OCR accuracy measurement. Fictional identity. Not valid for any purpose.'"
+        ],
+        "allExtracted": {
+          "first_name": "TESTCASE",
+          "last_name": "SPECIMEN",
+          "national_id_number": "63-1234567-A-42",
+          "date_of_birth": "1990-01-01",
+          "country": "ZIMBABWE",
+          "carriedIdentifiers": [],
+          "place_of_birth": "GWERU",
+          "sex": "M",
+          "date_of_issue": "2015-03-15"
+        }
+      }
+    },
+    {
+      "id": "national-id-rotated",
+      "file": "national-id-rotated.png",
+      "docType": "national_id",
+      "mode": "strict",
+      "provider": "cloudflare",
+      "model": "@cf/qwen/qwen3.8-27b",
+      "executionStatus": "provider_succeeded",
+      "extractionStatus": "Pending_Verification",
+      "confidence": 0.98,
+      "confidenceReported": true,
+      "latencyMs": 21894,
+      "wallMs": 21894,
+      "providerCalls": 1,
+      "structuredCandidate": {
+        "table": "ocr_national_ids",
+        "written": true,
+        "skippedReason": null
+      },
+      "providerUsage": {
+        "neurons": 282.6999816894531,
+        "promptTokens": 1634,
+        "completionTokens": 742,
+        "totalTokens": 2376
+      },
+      "verdict": "PASS",
+      "attempts": [
+        {
+          "attempt": 1,
+          "executionStatus": "provider_succeeded",
+          "extractionStatus": "Pending_Verification",
+          "error": null,
+          "latencyMs": 21894
+        }
+      ],
+      "error": null,
+      "diagnostics": {
+        "documentClassObserved": "Zimbabwe National Registration (identity) card — specimen/synthetic test asset",
+        "observedFields": [
+          "first_name",
+          "last_name",
+          "national_id_number",
+          "date_of_birth",
+          "country",
+          "place_of_birth",
+          "sex",
+          "date_of_issue"
+        ],
+        "missingFields": [],
+        "unnormalizedValues": {},
+        "carriedIdentifiers": [],
+        "unreadableFields": [],
+        "observations": [
+          "Card is marked 'SYNTHETIC TEST ASSET — NOT A REAL DOCUMENT' and 'SPECIMEN ISSUE — training and test use only'.",
+          "Footer states 'Generated for CarUp OCR accuracy measurement. Fictional identity. Not valid for any purpose.'",
+          "Dates printed as DD MON YYYY; converted to YYYY-MM-DD as day and month are unambiguous."
+        ],
         "allExtracted": {
           "first_name": "TESTCASE",
           "last_name": "SPECIMEN",
@@ -143,8 +164,8 @@
       "extractionStatus": "OCR_Provider_Unavailable",
       "confidence": null,
       "confidenceReported": false,
-      "latencyMs": 4746,
-      "wallMs": 17504,
+      "latencyMs": 72041,
+      "wallMs": 201115,
       "providerCalls": 3,
       "structuredCandidate": null,
       "providerUsage": null,
@@ -154,25 +175,25 @@
           "attempt": 1,
           "executionStatus": "provider_failed",
           "extractionStatus": "OCR_Provider_Unavailable",
-          "error": "The extraction provider returned output that is not valid JSON.",
-          "latencyMs": 4640
+          "error": "Cloudflare Workers AI returned no response content (output budget exhausted before any content was produced — raise max_tokens for this model)",
+          "latencyMs": 54270
         },
         {
           "attempt": 2,
           "executionStatus": "provider_failed",
           "extractionStatus": "OCR_Provider_Unavailable",
-          "error": "The extraction provider returned output that is not valid JSON.",
-          "latencyMs": 4114
+          "error": "Cloudflare Workers AI returned no response content (output budget exhausted before any content was produced — raise max_tokens for this model)",
+          "latencyMs": 70801
         },
         {
           "attempt": 3,
           "executionStatus": "provider_failed",
           "extractionStatus": "OCR_Provider_Unavailable",
-          "error": "The extraction provider returned output that is not valid JSON.",
-          "latencyMs": 4746
+          "error": "Cloudflare Workers AI returned no response content (output budget exhausted before any content was produced — raise max_tokens for this model)",
+          "latencyMs": 72041
         }
       ],
-      "error": "The extraction provider returned output that is not valid JSON.",
+      "error": "Cloudflare Workers AI returned no response content (output budget exhausted before any content was produced — raise max_tokens for this model)",
       "diagnostics": {
         "documentClassObserved": null,
         "observedFields": [],
@@ -190,13 +211,13 @@
       "docType": "national_id",
       "mode": "no_fabrication",
       "provider": "cloudflare",
-      "model": "@cf/meta/llama-3.2-11b-vision-instruct",
+      "model": "@cf/qwen/qwen3.8-27b",
       "executionStatus": "provider_succeeded",
       "extractionStatus": "Pending_Verification",
-      "confidence": 1,
+      "confidence": 0.98,
       "confidenceReported": true,
-      "latencyMs": 4158,
-      "wallMs": 4158,
+      "latencyMs": 11438,
+      "wallMs": 11438,
       "providerCalls": 1,
       "structuredCandidate": {
         "table": "ocr_national_ids",
@@ -204,10 +225,10 @@
         "skippedReason": null
       },
       "providerUsage": {
-        "neurons": 38.212743566625,
-        "promptTokens": 6991,
-        "completionTokens": 120,
-        "totalTokens": 7111
+        "neurons": 220.463623046875,
+        "promptTokens": 1286,
+        "completionTokens": 577,
+        "totalTokens": 1863
       },
       "verdict": "PASS",
       "attempts": [
@@ -216,12 +237,12 @@
           "executionStatus": "provider_succeeded",
           "extractionStatus": "Pending_Verification",
           "error": null,
-          "latencyMs": 4158
+          "latencyMs": 11438
         }
       ],
       "error": null,
       "diagnostics": {
-        "documentClassObserved": "national_id",
+        "documentClassObserved": "Zimbabwe National Registration Card (specimen / synthetic test asset)",
         "observedFields": [
           "first_name",
           "last_name",
@@ -236,7 +257,12 @@
         "unnormalizedValues": {},
         "carriedIdentifiers": [],
         "unreadableFields": [],
-        "observations": [],
+        "observations": [
+          "Red banner at top reads 'SYNTHETIC TEST ASSET — NOT A REAL DOCUMENT'.",
+          "Subtitle states 'Registrar General (SPECIMEN ISSUE — training and test use only)'.",
+          "Footer states 'Generated for CarUp OCR accuracy measurement. Fictional identity. Not valid for any purpose.'",
+          "Date of birth printed as '01 JAN 1990' and date of issue as '15 MAR 2015'; converted to ISO as day and month are unambiguous."
+        ],
         "allExtracted": {
           "first_name": "TESTCASE",
           "last_name": "SPECIMEN",
@@ -256,52 +282,38 @@
       "docType": "national_id",
       "mode": "no_fabrication",
       "provider": "cloudflare",
-      "model": "@cf/meta/llama-3.2-11b-vision-instruct",
+      "model": "@cf/qwen/qwen3.8-27b",
       "executionStatus": "provider_succeeded",
       "extractionStatus": "Pending_Verification",
-      "confidence": 1,
+      "confidence": 0.98,
       "confidenceReported": true,
-      "latencyMs": 2651,
-      "wallMs": 14372,
-      "providerCalls": 3,
+      "latencyMs": 10832,
+      "wallMs": 10832,
+      "providerCalls": 1,
       "structuredCandidate": {
         "table": "ocr_national_ids",
         "written": true,
         "skippedReason": null
       },
       "providerUsage": {
-        "neurons": 22.737583745375,
-        "promptTokens": 3789,
-        "completionTokens": 98,
-        "totalTokens": 3887
+        "neurons": 193.99090576171875,
+        "promptTokens": 966,
+        "completionTokens": 531,
+        "totalTokens": 1497
       },
       "verdict": "PASS",
       "attempts": [
         {
           "attempt": 1,
-          "executionStatus": "provider_failed",
-          "extractionStatus": "OCR_Provider_Unavailable",
-          "error": "The extraction provider returned output that is not valid JSON.",
-          "latencyMs": 3786
-        },
-        {
-          "attempt": 2,
-          "executionStatus": "provider_failed",
-          "extractionStatus": "OCR_Provider_Unavailable",
-          "error": "The extraction provider returned output that is not valid JSON.",
-          "latencyMs": 3932
-        },
-        {
-          "attempt": 3,
           "executionStatus": "provider_succeeded",
           "extractionStatus": "Pending_Verification",
           "error": null,
-          "latencyMs": 2651
+          "latencyMs": 10832
         }
       ],
       "error": null,
       "diagnostics": {
-        "documentClassObserved": "national_id",
+        "documentClassObserved": "Zimbabwe National Registration Card (specimen / synthetic test asset)",
         "observedFields": [
           "first_name",
           "last_name",
@@ -317,7 +329,11 @@
         "unnormalizedValues": {},
         "carriedIdentifiers": [],
         "unreadableFields": [],
-        "observations": [],
+        "observations": [
+          "Red banner at top reads 'SYNTHETIC TEST ASSET — NOT A REAL DOCUMENT'.",
+          "Subtitle reads 'Registrar General (SPECIMEN ISSUE — training and test use only)'.",
+          "Place of birth and date of issue fields are not present on the document."
+        ],
         "allExtracted": {
           "first_name": "TESTCASE",
           "last_name": "SPECIMEN",
@@ -335,13 +351,13 @@
       "docType": "passport",
       "mode": "strict",
       "provider": "cloudflare",
-      "model": "@cf/meta/llama-3.2-11b-vision-instruct",
+      "model": "@cf/qwen/qwen3.8-27b",
       "executionStatus": "provider_succeeded",
       "extractionStatus": "Pending_Verification",
-      "confidence": 1,
+      "confidence": 0.98,
       "confidenceReported": true,
-      "latencyMs": 4399,
-      "wallMs": 4400,
+      "latencyMs": 21672,
+      "wallMs": 21672,
       "providerCalls": 1,
       "structuredCandidate": {
         "table": null,
@@ -349,10 +365,10 @@
         "skippedReason": "no_structured_table_for_document_class"
       },
       "providerUsage": {
-        "neurons": 39.653549217125004,
-        "promptTokens": 6997,
-        "completionTokens": 143,
-        "totalTokens": 7140
+        "neurons": 232.30453491210938,
+        "promptTokens": 1355,
+        "completionTokens": 608,
+        "totalTokens": 1963
       },
       "verdict": "PASS",
       "attempts": [
@@ -361,12 +377,12 @@
           "executionStatus": "provider_succeeded",
           "extractionStatus": "Pending_Verification",
           "error": null,
-          "latencyMs": 4399
+          "latencyMs": 21672
         }
       ],
       "error": null,
       "diagnostics": {
-        "documentClassObserved": "passport",
+        "documentClassObserved": "Passport biographical data page (specimen / synthetic test asset)",
         "observedFields": [
           "first_name",
           "last_name",
@@ -386,20 +402,25 @@
         "unnormalizedValues": {},
         "carriedIdentifiers": [],
         "unreadableFields": [],
-        "observations": [],
+        "observations": [
+          "Red banner at top reads 'SYNTHETIC TEST ASSET — NOT A REAL DOCUMENT'.",
+          "Subtitle states 'Republic of Zimbabwe (SPECIMEN ISSUE — training and test use only)'.",
+          "Footer states 'Generated for CarUp OCR accuracy measurement. Fictional identity. Not valid for travel.'",
+          "No machine-readable zone (MRZ) present on the page."
+        ],
         "allExtracted": {
-          "first_name": "Verify",
-          "last_name": "Exemplar",
+          "first_name": "VERIFY",
+          "last_name": "EXEMPLAR",
           "national_id_number": "ZN1234567",
           "date_of_birth": "1988-02-12",
-          "country": "Zimbabwe",
+          "country": "ZIMBABWE",
           "carriedIdentifiers": [],
           "passport_number": "ZN1234567",
           "sex": "F",
-          "nationality": "Zimbabwean",
+          "nationality": "ZIMBABWEAN",
           "date_of_issue": "2020-03-03",
           "expiry": "2030-03-02",
-          "issuing_authority": "Registrar General Harare"
+          "issuing_authority": "REGISTRAR GENERAL HARARE"
         }
       }
     },
@@ -409,13 +430,13 @@
       "docType": "drivers_license",
       "mode": "strict",
       "provider": "cloudflare",
-      "model": "@cf/meta/llama-3.2-11b-vision-instruct",
+      "model": "@cf/qwen/qwen3.8-27b",
       "executionStatus": "provider_succeeded",
-      "extractionStatus": "Pending_Manual_Review",
-      "confidence": 1,
+      "extractionStatus": "Pending_Verification",
+      "confidence": 0.98,
       "confidenceReported": true,
-      "latencyMs": 5173,
-      "wallMs": 5174,
+      "latencyMs": 8398,
+      "wallMs": 8400,
       "providerCalls": 1,
       "structuredCandidate": {
         "table": null,
@@ -423,19 +444,19 @@
         "skippedReason": "no_structured_table_for_document_class"
       },
       "providerUsage": {
-        "neurons": 39.841679143250005,
-        "promptTokens": 6956,
-        "completionTokens": 149,
-        "totalTokens": 7105
+        "neurons": 180.29998779296875,
+        "promptTokens": 1250,
+        "completionTokens": 444,
+        "totalTokens": 1694
       },
-      "verdict": "FAIL",
+      "verdict": "PASS",
       "attempts": [
         {
           "attempt": 1,
           "executionStatus": "provider_succeeded",
-          "extractionStatus": "Pending_Manual_Review",
+          "extractionStatus": "Pending_Verification",
           "error": null,
-          "latencyMs": 5173
+          "latencyMs": 8398
         }
       ],
       "error": null,
@@ -443,6 +464,7 @@
         "documentClassObserved": "drivers_license",
         "observedFields": [
           "first_name",
+          "last_name",
           "national_id_number",
           "date_of_birth",
           "country",
@@ -452,15 +474,16 @@
           "expiry",
           "issuing_authority"
         ],
-        "missingFields": [
-          "last_name"
-        ],
+        "missingFields": [],
         "unnormalizedValues": {},
         "carriedIdentifiers": [],
         "unreadableFields": [],
-        "observations": [],
+        "observations": [
+          "Document is marked as a synthetic test asset / specimen issue, not a real document."
+        ],
         "allExtracted": {
           "first_name": "SAMPLE",
+          "last_name": "PROTOTYPE",
           "national_id_number": "ZWDL4471902",
           "date_of_birth": "1990-02-08",
           "country": "ZIMBABWE",
@@ -469,7 +492,7 @@
           "licence_classes": "4, 2",
           "date_of_issue": "2019-02-09",
           "expiry": "2029-02-07",
-          "issuing_authority": "Vehicle Inspection Department (SPECIMEN ISSUE - training and test use only)"
+          "issuing_authority": "Vehicle Inspection Department"
         }
       }
     },
@@ -479,13 +502,13 @@
       "docType": "registration_book",
       "mode": "strict",
       "provider": "cloudflare",
-      "model": "@cf/meta/llama-3.2-11b-vision-instruct",
+      "model": "@cf/qwen/qwen3.8-27b",
       "executionStatus": "provider_succeeded",
       "extractionStatus": "Pending_Verification",
-      "confidence": 1,
+      "confidence": 0.95,
       "confidenceReported": true,
-      "latencyMs": 5064,
-      "wallMs": 5065,
+      "latencyMs": 35063,
+      "wallMs": 35063,
       "providerCalls": 1,
       "structuredCandidate": {
         "table": "ocr_registration_books",
@@ -493,10 +516,10 @@
         "skippedReason": null
       },
       "providerUsage": {
-        "neurons": 39.986717805625005,
-        "promptTokens": 6961,
-        "completionTokens": 151,
-        "totalTokens": 7112
+        "neurons": 530.3408813476562,
+        "promptTokens": 1387,
+        "completionTokens": 1628,
+        "totalTokens": 3015
       },
       "verdict": "PASS",
       "attempts": [
@@ -505,12 +528,12 @@
           "executionStatus": "provider_succeeded",
           "extractionStatus": "Pending_Verification",
           "error": null,
-          "latencyMs": 5064
+          "latencyMs": 35063
         }
       ],
       "error": null,
       "diagnostics": {
-        "documentClassObserved": "registration_book",
+        "documentClassObserved": "Vehicle registration book",
         "observedFields": [
           "vin",
           "chassis_number",
@@ -529,11 +552,14 @@
         "unnormalizedValues": {},
         "carriedIdentifiers": [],
         "unreadableFields": [],
-        "observations": [],
+        "observations": [
+          "Document is marked as a SYNTHETIC TEST ASSET / SPECIMEN ISSUE, not a real document.",
+          "No country name or registration book number is printed on the page."
+        ],
         "allExtracted": {
           "carriedIdentifiers": [],
           "vin": "JTDBR32E870123456",
-          "chassis_number": "JTDBR32E870123456",
+          "chassis_number": "JTD BR32E870123456",
           "engine_number": "1NZFE4829384",
           "make": "TOYOTA",
           "model": "COROLLA",
@@ -550,41 +576,112 @@
       "docType": "customs_declaration",
       "mode": "strict",
       "provider": "cloudflare",
+      "model": "@cf/qwen/qwen3.8-27b",
+      "executionStatus": "provider_succeeded",
+      "extractionStatus": "Pending_Verification",
+      "confidence": 0.98,
+      "confidenceReported": true,
+      "latencyMs": 16753,
+      "wallMs": 16753,
+      "providerCalls": 1,
+      "structuredCandidate": {
+        "table": "ocr_customs_declarations",
+        "written": true,
+        "skippedReason": null
+      },
+      "providerUsage": {
+        "neurons": 279.4818115234375,
+        "promptTokens": 1278,
+        "completionTokens": 781,
+        "totalTokens": 2059
+      },
+      "verdict": "PASS",
+      "attempts": [
+        {
+          "attempt": 1,
+          "executionStatus": "provider_succeeded",
+          "extractionStatus": "Pending_Verification",
+          "error": null,
+          "latencyMs": 16753
+        }
+      ],
+      "error": null,
+      "diagnostics": {
+        "documentClassObserved": "Customs / ZIMRA import declaration (bill of entry) — marked as synthetic test asset / specimen issue",
+        "observedFields": [
+          "country",
+          "vin",
+          "bill_entry_number",
+          "duty_value_zig",
+          "currency",
+          "importer_name",
+          "stamp_date",
+          "entry_point"
+        ],
+        "missingFields": [],
+        "unnormalizedValues": {},
+        "carriedIdentifiers": [],
+        "unreadableFields": [],
+        "observations": [
+          "Header banner reads 'SYNTHETIC TEST ASSET — NOT A REAL DOCUMENT'.",
+          "Subtitle notes 'SPECIMEN ISSUE — training and test use only'.",
+          "Footer states 'Generated for CarUp OCR accuracy measurement. Fictional import. Not a revenue document.'",
+          "Stamp date printed as '14 MAR 2026', converted to ISO format."
+        ],
+        "allExtracted": {
+          "country": "Zimbabwe",
+          "carriedIdentifiers": [],
+          "vin": "JTDBR32E870123456",
+          "bill_entry_number": "BOE-2026-884213",
+          "duty_value_zig": 48250.5,
+          "currency": "ZiG",
+          "importer_name": "SPECIMEN MOTORS (PRIVATE) LIMITED",
+          "stamp_date": "2026-03-14",
+          "entry_point": "BEITBRIDGE"
+        }
+      }
+    },
+    {
+      "id": "non-document",
+      "file": "non-document.png",
+      "docType": "national_id",
+      "mode": "no_document",
+      "provider": "cloudflare",
       "model": null,
       "executionStatus": "provider_failed",
       "extractionStatus": "OCR_Provider_Unavailable",
       "confidence": null,
       "confidenceReported": false,
-      "latencyMs": 5729,
-      "wallMs": 23917,
+      "latencyMs": 63,
+      "wallMs": 4222,
       "providerCalls": 3,
       "structuredCandidate": null,
       "providerUsage": null,
-      "verdict": "FAIL",
+      "verdict": "PASS",
       "attempts": [
         {
           "attempt": 1,
           "executionStatus": "provider_failed",
           "extractionStatus": "OCR_Provider_Unavailable",
-          "error": "The extraction provider returned output that is not valid JSON.",
-          "latencyMs": 6076
+          "error": "Cloudflare Workers AI refused the request — 4006: AiError: AiError: you have used up your daily free allocation of 10,000 neurons, please upgrade to Cloudflare's Workers Paid plan if you would like to continue usage. (0ec1c08d-18de-495a-958f-f64649790bda)",
+          "latencyMs": 99
         },
         {
           "attempt": 2,
           "executionStatus": "provider_failed",
           "extractionStatus": "OCR_Provider_Unavailable",
-          "error": "The extraction provider returned output that is not valid JSON.",
-          "latencyMs": 8109
+          "error": "Cloudflare Workers AI refused the request — 4006: AiError: AiError: you have used up your daily free allocation of 10,000 neurons, please upgrade to Cloudflare's Workers Paid plan if you would like to continue usage. (b813ece1-4042-4620-95d7-2a20c85906f9)",
+          "latencyMs": 58
         },
         {
           "attempt": 3,
           "executionStatus": "provider_failed",
           "extractionStatus": "OCR_Provider_Unavailable",
-          "error": "The extraction provider returned output that is not valid JSON.",
-          "latencyMs": 5729
+          "error": "Cloudflare Workers AI refused the request — 4006: AiError: AiError: you have used up your daily free allocation of 10,000 neurons, please upgrade to Cloudflare's Workers Paid plan if you would like to continue usage. (8d083c7e-27b9-4901-8fae-501f5ad0bfe0)",
+          "latencyMs": 63
         }
       ],
-      "error": "The extraction provider returned output that is not valid JSON.",
+      "error": "Cloudflare Workers AI refused the request — 4006: AiError: AiError: you have used up your daily free allocation of 10,000 neurons, please upgrade to Cloudflare's Workers Paid plan if you would like to continue usage. (8d083c7e-27b9-4901-8fae-501f5ad0bfe0)",
       "diagnostics": {
         "documentClassObserved": null,
         "observedFields": [],
@@ -594,72 +691,6 @@
         "unreadableFields": [],
         "observations": [],
         "allExtracted": {}
-      }
-    },
-    {
-      "id": "non-document",
-      "file": "non-document.png",
-      "docType": "national_id",
-      "mode": "no_document",
-      "provider": "cloudflare",
-      "model": "@cf/meta/llama-3.2-11b-vision-instruct",
-      "executionStatus": "provider_succeeded",
-      "extractionStatus": "Pending_Verification",
-      "confidence": 1,
-      "confidenceReported": true,
-      "latencyMs": 4991,
-      "wallMs": 4991,
-      "providerCalls": 1,
-      "structuredCandidate": {
-        "table": "ocr_national_ids",
-        "written": true,
-        "skippedReason": null
-      },
-      "providerUsage": {
-        "neurons": 38.089757231125006,
-        "promptTokens": 6991,
-        "completionTokens": 118,
-        "totalTokens": 7109
-      },
-      "verdict": "FAIL",
-      "attempts": [
-        {
-          "attempt": 1,
-          "executionStatus": "provider_succeeded",
-          "extractionStatus": "Pending_Verification",
-          "error": null,
-          "latencyMs": 4991
-        }
-      ],
-      "error": null,
-      "diagnostics": {
-        "documentClassObserved": "national_id",
-        "observedFields": [
-          "first_name",
-          "last_name",
-          "national_id_number",
-          "date_of_birth",
-          "country",
-          "place_of_birth",
-          "sex",
-          "date_of_issue"
-        ],
-        "missingFields": [],
-        "unnormalizedValues": {},
-        "carriedIdentifiers": [],
-        "unreadableFields": [],
-        "observations": [],
-        "allExtracted": {
-          "first_name": "Tendai",
-          "last_name": "Makore",
-          "national_id_number": "65-123456-7",
-          "date_of_birth": "1990-01-01",
-          "country": "Zimbabwe",
-          "carriedIdentifiers": [],
-          "place_of_birth": "Harare",
-          "sex": "M",
-          "date_of_issue": "2010-01-01"
-        }
       }
     },
     {
@@ -709,97 +740,56 @@
         {
           "field": "first_name",
           "expected": "TESTCASE",
-          "extracted": null,
-          "match": "missing"
+          "extracted": "TESTCASE",
+          "match": "exact"
         },
         {
           "field": "last_name",
           "expected": "SPECIMEN",
-          "extracted": null,
-          "match": "missing"
+          "extracted": "SPECIMEN",
+          "match": "exact"
         },
         {
           "field": "national_id_number",
           "expected": "63-1234567-A-42",
-          "extracted": null,
-          "match": "missing"
+          "extracted": "63-1234567-A-42",
+          "match": "exact"
         },
         {
           "field": "date_of_birth",
           "expected": "1990-01-01",
-          "extracted": null,
-          "match": "missing"
+          "extracted": "1990-01-01",
+          "match": "exact"
         },
         {
           "field": "country",
           "expected": "ZIMBABWE",
-          "extracted": null,
-          "match": "missing"
+          "extracted": "ZIMBABWE",
+          "match": "exact"
         },
         {
           "field": "sex",
           "expected": "M",
-          "extracted": null,
-          "match": "missing"
+          "extracted": "M",
+          "match": "exact"
         },
         {
           "field": "place_of_birth",
           "expected": "GWERU",
-          "extracted": null,
-          "match": "missing"
+          "extracted": "GWERU",
+          "match": "exact"
         },
         {
           "field": "date_of_issue",
           "expected": "2015-03-15",
-          "extracted": null,
-          "match": "missing"
+          "extracted": "2015-03-15",
+          "match": "exact"
         }
       ],
-      "failures": [
-        {
-          "kind": "shortfall",
-          "field": "first_name",
-          "expected": "TESTCASE"
-        },
-        {
-          "kind": "shortfall",
-          "field": "last_name",
-          "expected": "SPECIMEN"
-        },
-        {
-          "kind": "shortfall",
-          "field": "national_id_number",
-          "expected": "63-1234567-A-42"
-        },
-        {
-          "kind": "shortfall",
-          "field": "date_of_birth",
-          "expected": "1990-01-01"
-        },
-        {
-          "kind": "shortfall",
-          "field": "country",
-          "expected": "ZIMBABWE"
-        },
-        {
-          "kind": "shortfall",
-          "field": "sex",
-          "expected": "M"
-        },
-        {
-          "kind": "shortfall",
-          "field": "place_of_birth",
-          "expected": "GWERU"
-        },
-        {
-          "kind": "shortfall",
-          "field": "date_of_issue",
-          "expected": "2015-03-15"
-        }
-      ],
-      "verdict": "FAIL",
+      "failures": [],
+      "verdict": "PASS",
       "fabricationCount": 0,
-      "shortfallCount": 8
+      "shortfallCount": 0
     },
     {
       "id": "national-id-rotated",
@@ -956,14 +946,14 @@
         {
           "field": "first_name",
           "expected": "VERIFY",
-          "extracted": "Verify",
-          "match": "normalized"
+          "extracted": "VERIFY",
+          "match": "exact"
         },
         {
           "field": "last_name",
           "expected": "EXEMPLAR",
-          "extracted": "Exemplar",
-          "match": "normalized"
+          "extracted": "EXEMPLAR",
+          "match": "exact"
         },
         {
           "field": "national_id_number",
@@ -986,8 +976,8 @@
         {
           "field": "nationality",
           "expected": "ZIMBABWEAN",
-          "extracted": "Zimbabwean",
-          "match": "normalized"
+          "extracted": "ZIMBABWEAN",
+          "match": "exact"
         },
         {
           "field": "expiry",
@@ -1014,8 +1004,8 @@
         {
           "field": "last_name",
           "expected": "PROTOTYPE",
-          "extracted": null,
-          "match": "missing"
+          "extracted": "PROTOTYPE",
+          "match": "exact"
         },
         {
           "field": "national_id_number",
@@ -1036,16 +1026,10 @@
           "match": "exact"
         }
       ],
-      "failures": [
-        {
-          "kind": "shortfall",
-          "field": "last_name",
-          "expected": "PROTOTYPE"
-        }
-      ],
-      "verdict": "FAIL",
+      "failures": [],
+      "verdict": "PASS",
       "fabricationCount": 0,
-      "shortfallCount": 1
+      "shortfallCount": 0
     },
     {
       "id": "registration-book-clean",
@@ -1106,181 +1090,52 @@
         {
           "field": "vin",
           "expected": "JTDBR32E870123456",
-          "extracted": null,
-          "match": "missing"
+          "extracted": "JTDBR32E870123456",
+          "match": "exact"
         },
         {
           "field": "bill_entry_number",
           "expected": "BOE-2026-884213",
-          "extracted": null,
-          "match": "missing"
+          "extracted": "BOE-2026-884213",
+          "match": "exact"
         },
         {
           "field": "duty_value_zig",
           "expected": 48250.5,
-          "extracted": null,
-          "match": "missing"
+          "extracted": 48250.5,
+          "match": "exact"
         },
         {
           "field": "importer_name",
           "expected": "SPECIMEN MOTORS (PRIVATE) LIMITED",
-          "extracted": null,
-          "match": "missing"
+          "extracted": "SPECIMEN MOTORS (PRIVATE) LIMITED",
+          "match": "exact"
         },
         {
           "field": "stamp_date",
           "expected": "2026-03-14",
-          "extracted": null,
-          "match": "missing"
+          "extracted": "2026-03-14",
+          "match": "exact"
         },
         {
           "field": "entry_point",
           "expected": "BEITBRIDGE",
-          "extracted": null,
-          "match": "missing"
+          "extracted": "BEITBRIDGE",
+          "match": "exact"
         }
       ],
-      "failures": [
-        {
-          "kind": "shortfall",
-          "field": "vin",
-          "expected": "JTDBR32E870123456"
-        },
-        {
-          "kind": "shortfall",
-          "field": "bill_entry_number",
-          "expected": "BOE-2026-884213"
-        },
-        {
-          "kind": "shortfall",
-          "field": "duty_value_zig",
-          "expected": 48250.5
-        },
-        {
-          "kind": "shortfall",
-          "field": "importer_name",
-          "expected": "SPECIMEN MOTORS (PRIVATE) LIMITED"
-        },
-        {
-          "kind": "shortfall",
-          "field": "stamp_date",
-          "expected": "2026-03-14"
-        },
-        {
-          "kind": "shortfall",
-          "field": "entry_point",
-          "expected": "BEITBRIDGE"
-        }
-      ],
-      "verdict": "FAIL",
+      "failures": [],
+      "verdict": "PASS",
       "fabricationCount": 0,
-      "shortfallCount": 6
+      "shortfallCount": 0
     },
     {
       "id": "non-document",
       "mode": "no_document",
-      "fields": [
-        {
-          "field": "first_name",
-          "expected": "(no document in the image)",
-          "extracted": "Tendai",
-          "match": "incorrect"
-        },
-        {
-          "field": "last_name",
-          "expected": "(no document in the image)",
-          "extracted": "Makore",
-          "match": "incorrect"
-        },
-        {
-          "field": "national_id_number",
-          "expected": "(no document in the image)",
-          "extracted": "65-123456-7",
-          "match": "incorrect"
-        },
-        {
-          "field": "date_of_birth",
-          "expected": "(no document in the image)",
-          "extracted": "1990-01-01",
-          "match": "incorrect"
-        },
-        {
-          "field": "country",
-          "expected": "(no document in the image)",
-          "extracted": "Zimbabwe",
-          "match": "incorrect"
-        },
-        {
-          "field": "place_of_birth",
-          "expected": "(no document in the image)",
-          "extracted": "Harare",
-          "match": "incorrect"
-        },
-        {
-          "field": "sex",
-          "expected": "(no document in the image)",
-          "extracted": "M",
-          "match": "incorrect"
-        },
-        {
-          "field": "date_of_issue",
-          "expected": "(no document in the image)",
-          "extracted": "2010-01-01",
-          "match": "incorrect"
-        }
-      ],
-      "failures": [
-        {
-          "kind": "fabrication",
-          "field": "first_name",
-          "expected": "(no document in the image)",
-          "extracted": "Tendai"
-        },
-        {
-          "kind": "fabrication",
-          "field": "last_name",
-          "expected": "(no document in the image)",
-          "extracted": "Makore"
-        },
-        {
-          "kind": "fabrication",
-          "field": "national_id_number",
-          "expected": "(no document in the image)",
-          "extracted": "65-123456-7"
-        },
-        {
-          "kind": "fabrication",
-          "field": "date_of_birth",
-          "expected": "(no document in the image)",
-          "extracted": "1990-01-01"
-        },
-        {
-          "kind": "fabrication",
-          "field": "country",
-          "expected": "(no document in the image)",
-          "extracted": "Zimbabwe"
-        },
-        {
-          "kind": "fabrication",
-          "field": "place_of_birth",
-          "expected": "(no document in the image)",
-          "extracted": "Harare"
-        },
-        {
-          "kind": "fabrication",
-          "field": "sex",
-          "expected": "(no document in the image)",
-          "extracted": "M"
-        },
-        {
-          "kind": "fabrication",
-          "field": "date_of_issue",
-          "expected": "(no document in the image)",
-          "extracted": "2010-01-01"
-        }
-      ],
-      "verdict": "FAIL",
-      "fabricationCount": 8,
+      "fields": [],
+      "failures": [],
+      "verdict": "PASS",
+      "fabricationCount": 0,
       "shortfallCount": 0
     },
     {

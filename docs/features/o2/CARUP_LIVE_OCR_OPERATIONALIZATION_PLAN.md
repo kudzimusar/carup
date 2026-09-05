@@ -80,3 +80,30 @@ honestly; malformed output fails closed; provenance retained; candidate ≠ veri
 confirmation still required; governed reviewer remains the only identity decision writer), plus
 X1, X2, 7C identity, X7 authority guards, full backend, full web, TypeScript, production build
 and lint NET_NEW 0.
+
+
+---
+
+## Provider selection record (appended 2026-09-05)
+
+The plan above was written for a single provider. Provider selection became the hard part, so the
+outcome is recorded here permanently. Full measurements: the
+[receipt](CARUP_LIVE_OCR_OPERATIONALIZATION_RECEIPT.md) §4D–§4E and
+[uat-assets/OCR_ACCURACY_RUN_HISTORY.md](uat-assets/OCR_ACCURACY_RUN_HISTORY.md).
+
+| Provider / model | Verdict | Reason |
+|---|---|---|
+| Gemini `gemini-2.5-flash` | Blocked, not rejected | Reads accurately (48 fields correct, none ever wrong) but every credential CarUp holds is metered free tier at 20 requests/day |
+| Cloudflare `@cf/meta/llama-3.2-11b-vision-instruct` | **REJECTED — FABRICATION** | Shown a landscape photograph containing no document, returned a complete invented Zimbabwean identity at confidence 1, reproducibly, across three prompt variants at temperature 0. **It reads clean documents well — that is not a reason to reselect it.** Blocked in `ocrVisionProvider.js`; reinstatement requires a separately governed investigation |
+| Cloudflare `@cf/qwen/qwen3.8-27b` | Leading candidate, unproven | Passed the abstention sentinel and Gate 1 (8/8 exact). Gate 2's PASS is not certifiable: the sentinel and the blurred fixture were graded on provider outages |
+| Cloudflare `@cf/google/gemma-4-26b-a4b-it` | Reserve candidate | Passed the abstention sentinel; 8/8 in the schema probe; Gate 2 not reached |
+
+**Two integration lessons worth keeping.** Workers AI models do not share one contract — Qwen
+accepts Llama's top-level `image` field with HTTP 200 and silently ignores it, so a naive port
+yields an extraction that never saw the document. And CarUp's own `response_format` schema was
+suppressing readable fields on both candidates (4–5 of 8 instead of 8 of 8); Cloudflare documents
+JSON mode as best-effort and lists neither model.
+
+**A standing rule this round established.** The accuracy gate cannot tell "the model abstained"
+from "the provider never answered". Until it can, a corpus run in which any negative or degraded
+fixture failed to reach the provider is **not** a certification, however the summary line reads.
