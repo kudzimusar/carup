@@ -119,20 +119,83 @@ async function mockApi(page: Page, state: CState, user: TestUser) {
   })
 }
 
+/**
+ * Open the hardened Container Co-Loading product at /diaspora/containers.
+ *
+ * T3 turned that route into the Shipping workspace — My shipping / Provider requests /
+ * Container space — and it opens on My shipping, because "I already own cargo and need it moved"
+ * is the broader intent. The container product itself is unchanged: it is the Container space
+ * tab. Roles the Feature Registry does not admit to the route never get the workspace at all and
+ * fall straight through to the container product's own access decision, so the tab is clicked
+ * only when it is actually on the page.
+ *
+ * Every container assertion in this file therefore still runs against the SAME hardened product,
+ * which is the point: it proves Container Co-Loading survived the new information architecture
+ * rather than being quietly replaced by it.
+ */
+async function openContainerSpace(page: Page) {
+  await page.goto('/diaspora/containers', { waitUntil: 'domcontentloaded' })
+  const tab = page.getByTestId('shipping-tab-containers')
+  const bare = page
+    .getByTestId('diaspora-container-purpose')
+    .or(page.getByTestId('diaspora-container-access-denied'))
+  await tab.or(bare).first().waitFor({ state: 'visible', timeout: 15_000 })
+  if (await tab.isVisible()) await tab.click()
+}
+
 test.describe('Diaspora container marketplace (Phase 6)', () => {
-  test('unauthorized role is denied', async ({ page }) => {
+  test('unauthorized role is denied — and the T3 Shipping workspace does not become a way around it', async ({ page }) => {
     const state = initial()
     await loginAs(page, mechanic, 'm-token')
     await mockApi(page, state, mechanic)
     await page.goto('/diaspora/containers', { waitUntil: 'domcontentloaded' })
+
+    // The canonical denial is still the container product's own: the Feature Registry does not
+    // admit `mechanic` to /diaspora/containers, so the T3 workspace is never offered and the
+    // hardened page decides, exactly as it did before T3 existed.
     await expect(page.getByTestId('diaspora-container-access-denied')).toBeVisible()
+
+    // The regression that matters: wrapping this route must not hand an unauthorized role a
+    // working logistics surface. None of the T3 tabs, and no shipping-request entry point, may
+    // render for a role that cannot access the route at all.
+    await expect(page.getByTestId('trade-shipping-workspace')).toHaveCount(0)
+    await expect(page.getByTestId('shipping-tab-containers')).toHaveCount(0)
+    await expect(page.getByTestId('shipping-tab-mine')).toHaveCount(0)
+    await expect(page.getByRole('button', { name: /New shipping request/i })).toHaveCount(0)
+  })
+
+  test('Shipping workspace → Container space still serves the hardened container product', async ({ page }) => {
+    const state = initial()
+    await loginAs(page, buyer, 'b-token')
+    await mockApi(page, state, buyer)
+    await page.goto('/diaspora/containers', { waitUntil: 'domcontentloaded' })
+
+    // An authorized participant lands on My shipping — the broader intent — with Container space
+    // one deliberate click away.
+    await expect(page.getByTestId('trade-shipping-workspace')).toBeVisible()
+    await expect(page.getByTestId('shipping-tab-mine')).toHaveAttribute('aria-selected', 'true')
+    await expect(page.getByTestId('diaspora-container-card')).toHaveCount(0)
+
+    await page.getByTestId('shipping-tab-containers').click()
+
+    // …and the Container Co-Loading product behind that tab is the same operational product,
+    // not a summary or a link out to one.
+    await expect(page.getByTestId('shipping-tab-containers')).toHaveAttribute('aria-selected', 'true')
+    await expect(page.getByTestId('diaspora-container-card')).toHaveCount(1)
+    await expect(page.getByTestId('diaspora-container-purpose')).toBeVisible()
+    await page.getByTestId('diaspora-container-open').click()
+    await expect(page.getByTestId('diaspora-container-detail')).toBeVisible()
+    await page.getByTestId('diaspora-container-reserve-volume').fill('12')
+    await page.getByTestId('diaspora-container-reserve-submit').click()
+    await expect(page.getByTestId('diaspora-container-reservation-row')).toHaveCount(1)
+    expect(state.reservePayloads[0].estimated_volume).toBe(12)
   })
 
   test('buyer can request space and sees capacity', async ({ page }) => {
     const state = initial()
     await loginAs(page, buyer, 'b-token')
     await mockApi(page, state, buyer)
-    await page.goto('/diaspora/containers', { waitUntil: 'domcontentloaded' })
+    await openContainerSpace(page)
     await expect(page.getByTestId('diaspora-container-card')).toHaveCount(1)
     await page.getByTestId('diaspora-container-open').click()
     await page.getByTestId('diaspora-container-reserve-volume').fill('20')
@@ -145,7 +208,7 @@ test.describe('Diaspora container marketplace (Phase 6)', () => {
     const state = initial()
     await loginAs(page, buyer, 'b-token')
     await mockApi(page, state, buyer)
-    await page.goto('/diaspora/containers', { waitUntil: 'domcontentloaded' })
+    await openContainerSpace(page)
     await page.getByTestId('diaspora-container-open').click()
     await page.getByTestId('diaspora-container-reserve-volume').fill('60') // > 50 total
     await page.getByTestId('diaspora-container-reserve-submit').click()
@@ -157,7 +220,7 @@ test.describe('Diaspora container marketplace (Phase 6)', () => {
     state.reservations.push({ id: 'res-x', container_id: 'cont-1', buyer_id: 'b-1', estimated_volume: 45, reservation_status: 'REQUESTED' })
     await loginAs(page, reviewer, 'r-token')
     await mockApi(page, state, reviewer)
-    await page.goto('/diaspora/containers', { waitUntil: 'domcontentloaded' })
+    await openContainerSpace(page)
     await page.getByTestId('diaspora-container-open').click()
     await expect(page.getByTestId('diaspora-container-approve')).toBeVisible()
     await page.getByTestId('diaspora-container-approve').click()
@@ -170,7 +233,7 @@ test.describe('Diaspora container marketplace (Phase 6)', () => {
     const state = initial()
     await loginAs(page, buyer, 'b-token')
     await mockApi(page, state, buyer)
-    await page.goto('/diaspora/containers', { waitUntil: 'domcontentloaded' })
+    await openContainerSpace(page)
     await page.getByTestId('diaspora-container-open').click()
     await page.getByTestId('diaspora-container-reserve-category').selectOption('household')
     await page.getByTestId('diaspora-container-reserve-description').fill('Boxed kitchenware, 12 cartons')
@@ -189,7 +252,7 @@ test.describe('Diaspora container marketplace (Phase 6)', () => {
     const state = initial()
     await loginAs(page, operator, 'op-token')
     await mockApi(page, state, operator)
-    await page.goto('/diaspora/containers', { waitUntil: 'domcontentloaded' })
+    await openContainerSpace(page)
     await page.getByTestId('diaspora-container-create-toggle').click()
     await page.getByTestId('create-origin-city').fill('Yokohama')
     await page.getByTestId('create-destination-city').fill('Harare')
@@ -210,7 +273,7 @@ test.describe('Diaspora container marketplace (Phase 6)', () => {
     const state = initial()
     await loginAs(page, operator, 'op-token')
     await mockApi(page, state, operator)
-    await page.goto('/diaspora/containers', { waitUntil: 'domcontentloaded' })
+    await openContainerSpace(page)
     await page.getByTestId('diaspora-container-create-toggle').click()
     await page.getByTestId('diaspora-container-create-submit').click()
     await expect(page.getByTestId('diaspora-container-create-error')).toContainText(/Required:/)
@@ -228,7 +291,7 @@ test.describe('Diaspora container marketplace (Phase 6)', () => {
       await new Promise((r) => setTimeout(r, 1200))
       await route.fallback()
     })
-    await page.goto('/diaspora/containers', { waitUntil: 'domcontentloaded' })
+    await openContainerSpace(page)
     await page.getByTestId('diaspora-container-open').click()
     await expect(page.getByTestId('container-reservations-state')).toContainText(/Loading bookings/i)
     await expect(page.getByTestId('diaspora-container-counts')).toContainText(/Counting bookings/i)
@@ -241,7 +304,7 @@ test.describe('Diaspora container marketplace (Phase 6)', () => {
     const state = initial()
     await loginAs(page, buyer, 'b-token')
     await mockApi(page, state, buyer)
-    await page.goto('/diaspora/containers', { waitUntil: 'domcontentloaded' })
+    await openContainerSpace(page)
     await expect(page.getByTestId('diaspora-container-card')).toHaveCount(1)
     await expect(page.getByTestId('diaspora-container-create-section')).toHaveCount(0)
   })
@@ -280,7 +343,7 @@ test.describe('Diaspora container marketplace (Phase 6)', () => {
     await mockApi(page, state, operator)
     for (const [width, height] of [[1024, 768], [1280, 800], [1366, 768], [393, 852]] as Array<[number, number]>) {
       await page.setViewportSize({ width, height })
-      await page.goto('/diaspora/containers', { waitUntil: 'domcontentloaded' })
+      await openContainerSpace(page)
       await page.getByTestId('diaspora-container-open').first().click()
       await expect(page.getByTestId('diaspora-container-detail')).toBeVisible()
       const overflow = await page.evaluate(() => ({
@@ -296,7 +359,7 @@ test.describe('Diaspora container marketplace (Phase 6)', () => {
     const state = initial()
     await loginAs(page, buyer, 'b-token')
     await mockApi(page, state, buyer)
-    await page.goto('/diaspora/containers', { waitUntil: 'domcontentloaded' })
+    await openContainerSpace(page)
     await page.getByTestId('diaspora-container-open').click()
     await page.getByTestId('diaspora-container-measure-calc').check()
     await page.getByTestId('measure-item-description').fill('Boxed kitchenware')
@@ -316,7 +379,7 @@ test.describe('Diaspora container marketplace (Phase 6)', () => {
     const state = initial()
     await loginAs(page, buyer, 'b-token')
     await mockApi(page, state, buyer)
-    await page.goto('/diaspora/containers', { waitUntil: 'domcontentloaded' })
+    await openContainerSpace(page)
     await expect(page.getByTestId('diaspora-container-purpose')).toContainText(/vehicles and other eligible goods/i)
     await expect(page.getByTestId('diaspora-container-eligible-examples')).toContainText('Household & personal effects')
     await expect(page.getByText(/subject to organiser\/carrier, safety, customs/i)).toBeVisible()
@@ -327,7 +390,7 @@ test.describe('Diaspora container marketplace (Phase 6)', () => {
     state.reservations.push({ id: 'res-m', container_id: 'cont-1', buyer_id: 'b-1', estimated_volume: 12, reservation_status: 'REQUESTED', participant_display_name: 'SYNTHETIC Tapiwa Vehicle Importer', cargo_type: 'vehicle', cargo_description: 'Toyota Aqua 2018' } as Reservation & Record<string, unknown>)
     await loginAs(page, operator, 'op-token')
     await mockApi(page, state, operator)
-    await page.goto('/diaspora/containers', { waitUntil: 'domcontentloaded' })
+    await openContainerSpace(page)
     await page.getByTestId('diaspora-container-open').click()
     await expect(page.getByTestId('diaspora-container-participant-name')).toContainText('Tapiwa')
     await page.getByTestId('diaspora-container-open-booking').click()

@@ -209,6 +209,11 @@ test.describe('Trade OS T3 — Shipping requests', () => {
     await page.getByRole('button', { name: /^Continue/i }).click()
     await page.getByRole('button', { name: /Publish shipping request/i }).click()
 
+    // Wait for the request to actually reach the API before reading what was captured: click()
+    // returns when the click is dispatched, not when the POST has been served, so asserting on
+    // `state` straight after it is a race that fails whenever the round trip has not completed.
+    await expect(page.getByTestId('logistics-request-detail')).toBeVisible()
+
     const payload = state.createdRequestPayloads[0]
     expect(payload.items[0].length_value).toBe(60)
     expect(payload.items[0].width_value).toBe(45)
@@ -238,14 +243,18 @@ test.describe('Trade OS T3 — Shipping requests', () => {
     await composer.getByLabel(/Freight charge/i).fill('700')
     await composer.getByLabel(/Handling/i).fill('100')
     await composer.getByLabel(/Offer total/i).fill('800')
-    await composer.getByLabel(/Included/i).fill('export handling, port delivery')
-    await composer.getByLabel(/Excluded/i).fill('customs duty')
+    await composer.getByLabel('Included (comma separated)', { exact: true }).fill('export handling, port delivery')
+    await composer.getByLabel('Excluded (comma separated)', { exact: true }).fill('customs duty')
     await composer.getByRole('button', { name: /Review offer/i }).click()
 
     await expect(composer).toContainText(/Exactly what the customer will compare/i)
     await expect(composer).toContainText('Hikari Co-Load Logistics')
     await expect(composer).toContainText('800 USD')
     await composer.getByRole('button', { name: /Submit offer/i }).click()
+
+    // Submitting closes the composer and moves the provider to My offers; wait for that before
+    // reading the captured payload, for the same reason as above.
+    await expect(composer).toBeHidden()
 
     expect(state.quotePayloads).toHaveLength(1)
     expect(state.quotePayloads[0].compatible_container_id).toBe('container-hikari')

@@ -1,5 +1,7 @@
 import { useState, type ReactNode } from 'react'
 import { Box, Container, Truck } from 'lucide-react'
+import { useAuth } from '@/context/AuthContext'
+import { canRoleAccessRoute, normalizeFrontendRole } from '@/config/featureRegistry'
 import type { DiasporaTradeContext } from '@/types'
 import TradeShippingRequests from './TradeShippingRequests'
 import TradeLogisticsProviderPanel from './TradeLogisticsProviderPanel'
@@ -13,6 +15,19 @@ export default function TradeShippingWorkspace({
   context: DiasporaTradeContext | null
   children: ReactNode
 }) {
+  const { user } = useAuth()
+
+  // Authorization boundary for the T3 surfaces. Wrapping /diaspora/containers in this workspace
+  // must not become a way around the gate the container product already enforced: before this
+  // wrapper existed, an unauthorized role reaching the route got the hardened page's own
+  // access-denied state. The wrapper is therefore offered only to a role the canonical Feature
+  // Registry admits to /diaspora/containers — the SAME rule the Trade OS shell filters its nav
+  // with — and anyone else falls straight through to the container product, which remains the
+  // authority on its own access. No role gains a surface here that it did not already have, and
+  // the server stays authoritative regardless of what the SPA renders.
+  const role = normalizeFrontendRole(user?.role)
+  const mayUseShippingWorkspace = !!role && canRoleAccessRoute(role, '/diaspora/containers')
+
   const isProvider = context?.business_type === 'logistics_provider'
 
   // The trade context is fetched by the shell after this component mounts, so `isProvider` starts
@@ -23,6 +38,9 @@ export default function TradeShippingWorkspace({
   const [chosenTab, setChosenTab] = useState<Tab | null>(null)
   const defaultTab: Tab = isProvider ? 'provider' : 'mine'
   const tab: Tab = chosenTab && (chosenTab !== 'provider' || isProvider) ? chosenTab : defaultTab
+
+  // Placed after every hook so the early return cannot make hook order conditional.
+  if (!mayUseShippingWorkspace) return <>{children}</>
 
   const tabs: Array<{ id: Tab; label: string; note: string; icon: typeof Box }> = [
     { id: 'mine', label: 'My shipping', note: 'Ask providers to move cargo you already own', icon: Box },
