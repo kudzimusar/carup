@@ -47,6 +47,7 @@ const logisticsCargoCategories = new Set([
   'vehicle', 'parts', 'household', 'furniture_appliances', 'boxes',
   'machinery_equipment', 'pallet_crate', 'general', 'other',
 ]);
+const logisticsReservationUniqueness = 'uq_diaspora_cargo_reservation_live_logistics_request';
 
 // Route middleware is deliberately coarse. The services are the authority boundary: participant
 // ownership, provider business eligibility, tenant operator authority and object scope are all
@@ -108,6 +109,7 @@ async function preauthorizeLogisticsVehicleLinks(items, userContext) {
  * HTTP boundary. The allow-list also means a future quote column cannot leak by default.
  */
 function projectLogisticsQuoteForRequester(quote = {}) {
+  const validityDate = quote.valid_until ? String(quote.valid_until).slice(0, 10) : null;
   return {
     id: quote.id,
     reference: quote.reference,
@@ -124,7 +126,9 @@ function projectLogisticsQuoteForRequester(quote = {}) {
     total_amount: quote.total_amount,
     currency: quote.currency,
     transit_days: quote.transit_days ?? null,
-    valid_until: quote.valid_until ?? null,
+    // The provider UI captures a calendar date, so requester comparison treats that date as
+    // inclusive. The DB guard applies the same UTC-calendar rule at submit/award time.
+    valid_until: validityDate ? `${validityDate}T23:59:59.999Z` : null,
     pickup_included: quote.pickup_included ?? null,
     delivery_included: quote.delivery_included ?? null,
     inclusions: Array.isArray(quote.inclusions) ? quote.inclusions : [],
@@ -135,6 +139,21 @@ function projectLogisticsQuoteForRequester(quote = {}) {
     created_at: quote.created_at,
     updated_at: quote.updated_at,
   };
+}
+
+/**
+ * The service performs an idempotent read-before-write. The database now also has a unique partial
+ * index for one live reservation per logistics request. If two HTTP calls race, exactly one insert
+ * wins; the loser is retried once through the normal service path, which now observes that row and
+ * returns `idempotentReplay:true` rather than surfacing a duplicate-key implementation detail.
+ */
+async function requestSpaceWithConcurrentReplay(requestId, userContext, options) {
+  try {
+    return await requestSpaceForAward(requestId, userContext, options);
+  } catch (error) {
+    if (!String(error?.message || '').includes(logisticsReservationUniqueness)) throw error;
+    return requestSpaceForAward(requestId, userContext, options);
+  }
 }
 
 // ── T3: Logistics RFQ / "Ship something" ──────────────────────────────────
@@ -193,7 +212,7 @@ router.get('/logistics-requests/:id/sailing-matches', participantAuth, asyncHand
   res.json({ data: await findCompatibleSailings(req.params.id, req.userContext, { req }) });
 }));
 router.post('/logistics-requests/:id/request-space', participantAuth, asyncHandler(async (req, res) => {
-  res.json({ data: await requestSpaceForAward(req.params.id, req.userContext, { req }) });
+  res.json({ data: await requestSpaceWithConcurrentReplay(req.params.id, req.userContext, { req }) });
 }));
 router.post('/logistics-requests/:id/conversation', participantAuth, asyncHandler(async (req, res) => {
   res.json({ data: await ensureLogisticsConversation(req.params.id, req.userContext, {
