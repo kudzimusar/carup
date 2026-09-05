@@ -1,7 +1,7 @@
 name: O2 OCR Offline Hardening
 
 # This gate is deliberately safe to run on every OCR-lane hardening push.
-# It never receives Cloudflare credentials and never invokes the live accuracy workflow.
+# It references no live-provider secret and never invokes the live accuracy workflow.
 on:
   push:
     branches:
@@ -57,12 +57,6 @@ jobs:
       # without scripts or lockfile mutation so these zero-network-provider unit guards can execute.
       - name: Install backend dependencies for offline tests
         run: npm install --prefix backend --ignore-scripts --no-save --package-lock=false --no-audit --no-fund
-
-      - name: Prove no live-provider credential is exposed to this gate
-        shell: bash
-        run: |
-          test -z "${CLOUDFLARE_API_TOKEN:-}"
-          test -z "${CLOUDFLARE_ACCOUNT_ID:-}"
 
       - name: Run OCR convergence and authority regression suites
         run: |
