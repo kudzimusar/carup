@@ -4,7 +4,8 @@
 **Branch:** `feat/trade-os-client-demo-convergence`  
 **Draft PR:** #207  
 **Production:** untouched  
-**Status:** implementation in progress; this receipt is evidence, **not a competing plan**.
+**Status:** T3-PARTIAL at head `afa80e35` — everything provable without a deployed environment is
+proven; nothing on staging has been run. This receipt is evidence, **not a competing plan**.
 
 ## Why T3 exists
 
@@ -209,16 +210,54 @@ Pins:
 - review-before-submit;
 - provider-safe opportunity display.
 
+## Stabilization and completion cycle — head `afa80e35`
+
+The three receipt gaps below are now **closed**, and two real defects were found while stabilizing
+the previous head. The canonical record is the execution entry
+"2026-09-05 · T3 stabilization and completion cycle" in the master plan §30; this section is the
+short form.
+
+### Closed since `f6c10e9b`
+
+- **T2 → T3 handoff.** `Ship something` no longer claims multi-provider logistics quotation is
+  unavailable. It leads with *Ask providers to quote → Create a shipping request*, keeps
+  *Find container space* as the direct second route, and never shows internal RFQ terminology.
+- **CarUp vehicle identity reuse.** A vehicle cargo group offers the requester's own vehicles from
+  `/api/vehicles/me` — a strict subset of what `resolveVehicleObjectAuthority` permits, so the
+  picker can never offer a vehicle the server would refuse. Not-read, genuinely-empty and
+  read-FAILED stay three distinct states, and a failed read never blocks manual capture.
+- **Lifecycle notifications.** Decided for T3 rather than deferred: three outbox events on the
+  existing Communications authority (`quote_submitted` / `quote_accepted` / `quote_not_selected`),
+  no new notification store or chat authority. DRAFT emits nothing, WITHDRAWN is never told it
+  lost, and an idempotent acceptance replay re-notifies nobody.
+
+### Defects found and fixed
+
+- The logistics provider could never land on `Provider requests`: the tab was seeded from
+  `useState` before the shell had fetched the trade context, so `isProvider` was always false at
+  seed time. The tab is now derived during render and lives in the URL.
+- Wrapping `/diaspora/containers` in the Shipping workspace bypassed the container product's own
+  access-denied gate, giving an unauthorized role a working shipping surface. The workspace is now
+  gated on the canonical Feature Registry rule.
+- A 393px horizontal overflow in the offer composer (a `w-24` appended to a class string already
+  carrying `w-full`, which narrows nothing).
+
+### Verified at this head
+
+`tsc` clean · lint gate `NET_NEW_ERRORS=0` · backend 41/41 across the T3, T3-adversarial and
+container-auth suites · communications coverage 9/9 · browser 48/48 across
+`trade-shipping-rfq` (7), `diaspora-container-marketplace` (16) and `trade-request-quotes` (25).
+Adversarial matrix and seven-viewport geometry both proven — see §30 for the itemized list.
+
 ## Known work still required before T3 closure
 
 The following are deliberately **not yet certified complete**:
 
-- final update of the T2 `Ship something` handoff copy so it no longer says multi-provider logistics RFQ is unavailable;
-- customer UI selector for an existing CarUp vehicle on vehicle cargo (backend authority already exists);
-- quote lifecycle notifications/events beyond the canonical direct conversation entry;
-- full T3 deployed staging migration + exact-head real buyer/provider/container journey;
-- desktop/narrow-desktop/tablet/mobile visual/geometry review;
+- full T3 deployed staging migration (`20260905090000_trade_os_logistics_rfq.sql` is unapplied);
+- staging backend and frontend provenance on one exact candidate;
+- the exact-head unmocked requester → provider → offer → award → container-space journey;
 - final CI result on the exact candidate;
-- master-plan checkbox/evidence reconciliation after the T3 slice reaches a stable candidate.
+- owner visual/product UAT, which automation cannot replace.
 
-Do not call T3 usable/client-ready/production-ready until these are resolved or explicitly reclassified in the canonical master plan.
+**T3 is T3-PARTIAL.** Do not call it usable/client-ready/production-ready until the staging and
+owner-UAT rows in the master plan's T3 acceptance ledger are satisfied.

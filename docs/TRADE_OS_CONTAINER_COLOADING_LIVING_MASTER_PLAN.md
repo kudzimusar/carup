@@ -1544,14 +1544,34 @@ This replaces the old C1–C18 backlog as the active roadmap.
 
 **Goal:** allow people who already own cargo to request transport.
 
-- [ ] Build Ship Something wizard.
-- [ ] Reuse guided measurement/cargo item groups.
-- [ ] Support vehicle and non-vehicle eligible cargo.
-- [ ] Build logistics-provider opportunity marketplace.
-- [ ] Build logistics quote schema/composer/comparison.
-- [ ] Match requests to compatible real container sailings where evidence permits.
-- [ ] Preserve operator approval as authority.
-- [ ] Connect canonical Communications.
+- [x] Build Ship Something wizard.
+- [x] Reuse guided measurement/cargo item groups.
+- [x] Support vehicle and non-vehicle eligible cargo.
+- [x] Build logistics-provider opportunity marketplace.
+- [x] Build logistics quote schema/composer/comparison.
+- [x] Match requests to compatible real container sailings where evidence permits.
+- [x] Preserve operator approval as authority.
+- [x] Connect canonical Communications.
+
+**T3 acceptance ledger — these are deliberately NOT collapsed into one “done”:**
+
+| Acceptance dimension | State |
+|---|---|
+| Implemented | ✅ head `afa80e35` |
+| Tested locally | ✅ backend 41/41, browser 28/28 (see the cycle entry in §30) |
+| Lint / typecheck | ✅ `tsc` clean, lint gate `NET_NEW_ERRORS=0` |
+| CI proven on the exact head | ⏳ pending — see the cycle entry |
+| Adversarial security proven | ✅ 13/13 over HTTP, full §9 matrix |
+| Responsive UAT proven | ✅ all seven contracted widths, one real 393px defect found and fixed |
+| Staging migration applied | ❌ NOT DONE — `20260905090000_trade_os_logistics_rfq.sql` is unapplied |
+| Staging backend proven | ❌ NOT DONE |
+| Staging frontend proven | ❌ NOT DONE |
+| Exact-head unmocked staging journey | ❌ NOT DONE |
+| Owner visual/product UAT | ❌ PENDING — cannot be replaced by automation |
+
+**T3 therefore returns T3-PARTIAL, not T3-USABLE.** Everything provable without a deployed
+environment is proven; nothing on deployed staging has been run. Do not describe T3 as
+client-ready.
 
 ## T4 — Order & Booking Passport convergence
 
@@ -2243,3 +2263,121 @@ services this machine does not have — a real Postgres (`password authenticatio
 "postgres"`) and a live OCR provider (`fetch failed`) — and none is a Trade OS test. The same
 suite is green in CI, which supplies those services; CI is the authority for this gate, and the
 local run is reported here only so the discrepancy is explained rather than hidden.
+
+## Execution entry — 2026-09-05 · T3 stabilization and completion cycle
+
+Takeover at head `f6c10e9b` (the T3 implementation commits plus its receipt). This cycle stabilized
+that head, reconciled the Container Co-Loading regression suite with the new Shipping information
+architecture, and closed the three gaps the T3 receipt itself listed as outstanding.
+
+### The head was red, and it was one cause, not six
+
+Six workflows were failing at `f6c10e9b` — CI, Diaspora Phases 3-7 Validation, Referral Engine CI,
+Navigation Intelligence CI, Vehicle Passport Foundation CI and Marketplace Reference Regression.
+All six were **green at `cd450edd`**, the last commit before the T3 frontend landed. The single
+cause was two unused imports in `TradeLogisticsProviderPanel` failing web TypeScript, which every
+one of those workflows runs. Backend T3 was never implicated: migration sanity and the focused
+Diaspora backend tests passed inside the same failing run.
+
+Per §30's standing hazard note, the per-workflow baseline was established BEFORE attributing any
+red gate to this branch.
+
+### Two real defects the stabilization uncovered
+
+1. **The provider default was dead by construction.** `TradeShippingWorkspace` seeded its tab from
+   `useState(isProvider ? 'provider' : 'mine')`, but the shell fetches the trade context *after*
+   the component mounts, so `isProvider` was always `false` at seed time; the corrective effect
+   only ever moved provider → mine. A logistics provider could therefore never land on “Provider
+   requests”, which is exactly what the receipt documented as the behaviour. The tab is now derived
+   during render, and lives in the URL (`?view=`) so the three modes are linkable.
+
+2. **The T3 wrapper bypassed the container product's access gate.** Before T3, an unauthorized role
+   reaching `/diaspora/containers` got the hardened page's own access-denied state. The Shipping
+   workspace renders first and opens on “My shipping”, and `TradeShippingRequests` has no role gate,
+   so a `mechanic` received a working shipping-request surface. The workspace is now offered only to
+   a role the Feature Registry admits to `/diaspora/containers` — the same rule the shell nav filters
+   with — and every other role falls through to the container product, which remains the authority
+   on its own access.
+
+### Recorded gap, deliberately not absorbed into T3
+
+`TradeOSWorkspaceLayout` passes `RegistryRouteBoundary enforceAuth={false}`, so **role checks are
+skipped for every Trade OS route**, not just the container one. This predates T3 (introduced in
+`77e85246`). Enabling enforcement is not a free correction: `reviewer` is not a valid `UserRole`
+yet the container product authorizes it, so enforcement would bounce reviewers off the marketplace
+they operate, and `government` off `/diaspora/request-quotes` and `/diaspora/messages`. It needs its
+own decision plus registry reconciliation, and is listed here rather than silently fixed or ignored.
+The API authorizes independently, so this is defence-in-depth, not the only control.
+
+### Container Co-Loading reconciled with the Shipping IA
+
+Thirteen container tests were failing. Audited individually: twelve were stale assumptions (they
+reached for container test ids before opening Container space) and one was the real defect above.
+The twelve now route through a shared `openContainerSpace()` helper — `/diaspora/containers` →
+`shipping-tab-containers` → the existing assertions, unchanged and unweakened. Two regressions were
+added: the unauthorized-role test now also proves the T3 wrapper leaks nothing, and an explicit
+Shipping → Container space test proves the hardened product behind the tab still runs a real
+reservation end to end. **16/16.**
+
+Two further defects were found in the T3 spec itself and confirmed to be **already failing at
+`f6c10e9b`** by re-running that exact tree: both tests read the captured mock payload straight after
+`click()`, which returns on dispatch rather than round-trip completion, and `getByLabel(/Included/i)`
+matched three elements.
+
+### Receipt gaps closed
+
+- **T2 → T3 handoff.** “Ship something” said multi-provider logistics quotation was “not available
+  yet”. T3 built it, so the copy was false. The path now leads with *Ask providers to quote →
+  Create a shipping request* and keeps *Find container space* as the direct second route. Ordinary
+  language only: neither “logistics RFQ” nor “reverse RFQ” appears, and a test asserts it.
+- **CarUp vehicle identity reuse.** A vehicle cargo group now offers the requester's own vehicles
+  from `/api/vehicles/me`, whose scope (`owner_id` or `current_seller_id`) is a strict SUBSET of
+  `resolveVehicleObjectAuthority`, so the picker can never offer a vehicle the server would refuse.
+  Selecting one fills the description from the identity CarUp already holds. Three states stay
+  distinct per §8: not-read, genuinely empty, and read-FAILED — and a failed read never blocks
+  manual capture.
+- **Lifecycle notifications — decided for T3, not deferred to T7.** T2 already tells a buyer when an
+  offer arrives and tells every supplier whether they won; a logistics provider is in the same
+  position, and asymmetry would be felt immediately. Three outbox events
+  (`diaspora.logistics.quote_submitted` / `_accepted` / `_not_selected`) on the existing
+  Communications authority — no new notification store, no second chat authority. A DRAFT emits
+  nothing; a WITHDRAWN offer is never told it “lost”; an idempotent acceptance replay re-notifies
+  nobody. T7 still owns warehouse, shipment exceptions and provider-channel routing.
+
+### Evidence
+
+| Gate | Result |
+|---|---|
+| `tsc --noEmit -p web/tsconfig.app.json` | clean |
+| `node scripts/lint-baseline-gate.mjs` | `NET_NEW_ERRORS=0` (repo errors 145 → 135) |
+| `diaspora-logistics-rfq.test.js` | 12/12 |
+| `diaspora-logistics-rfq-adversarial.test.js` | 13/13 |
+| `diaspora-container-marketplace-auth.test.js` | 16/16 |
+| `communication-event-coverage.test.js` | 9/9 (emitter-literal, C1 addressability, threadType DB CHECK, policy/template) |
+| `trade-shipping-rfq.spec.ts` | 7/7 |
+| `diaspora-container-marketplace.spec.ts` | 16/16 (14 preserved + 2 new) |
+| `trade-request-quotes.spec.ts` | 25/25 |
+
+Adversarial matrix proven over HTTP against the real router: private DRAFT unreadable by a provider
+(list, direct and requester-read); projection carries no requester id/name/email/phone; a dealer is
+not a logistics business; spoofed role and tenant headers manufacture no eligibility; a requester
+cannot quote their own request; foreign / route-mismatched / closed sailings all refused with no
+partial row; DRAFT price never reaches the requester; neither requester nor rival can edit an offer;
+no self-award; acceptance takes exactly one and rejects every submitted sibling; a second award
+cannot displace the first; a quote creates no reservation and consumes no capacity; an award books
+nothing; request-space creates exactly one REQUESTED reservation and retries idempotently; a
+REQUESTED reservation consumes no capacity; the requester cannot approve their own space and nor can
+a rival organiser; all seven T3 surfaces answer 401 anonymously.
+
+Responsive geometry proven at 393×852, 820×1180, 1024×768, 1280×800, 1366×768, 1440×900 and
+1536×864 across the customer wizard (cargo, dimensions, route, review + privacy preview) and the
+provider journey (opportunities, composer, offer review). It found a real 18px overflow at 393px —
+the currency select composed `w-24` onto a class string already carrying `w-full`, which narrows
+nothing — fixed at the root, not with `overflow-x-hidden`.
+
+### Not done
+
+Staging migration, staging backend/frontend provenance, the exact-head unmocked
+requester→provider→offer→award→container-space journey, and owner UAT. **T3 = T3-PARTIAL.**
+
+Production untouched. PR #207 remains Draft.
