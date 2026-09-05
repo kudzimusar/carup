@@ -3016,6 +3016,11 @@ the new exact deployed head; CI 7/7; FE/BE pairing confirmed.
 **T4 NOT STARTED — it requires separate owner authorization. Production untouched. PR #207 remains
 Draft.**
 
+> *Superseded on the T4 authorization:* T4 was subsequently authorized and is now materially
+> implemented and certified on staging for both origins — see **§33** (execution) and **§34** (final
+> technical certification). This paragraph is retained as the record of what was true at T3 closure.
+> T5 remains not started.
+
 ### The principle this closes on
 
 Each certification project owns the capacity state it measures. Do not reintroduce a shared sailing,
