@@ -91,11 +91,13 @@ const customsEvidence = {
   file_path: `${vehicle.vin}/customs_entry_specimen.png`,
 };
 
-test('convergence: legacy generic OCR is shadow-retired before its old Gemini parser can execute', () => {
+test('convergence: legacy generic OCR is retired at both route and service boundaries', () => {
   assert.match(CONVERGENCE_ROUTER, /router\.post\('\/api\/ai\/ocr'/);
   assert.match(CONVERGENCE_ROUTER, /LEGACY_OCR_PATH_RETIRED/);
   assert.match(CONVERGENCE_ROUTER, /res\.status\(410\)/);
-  assert.match(LEGACY_AI, /base64Data\.slice\(0,\s*100\)/, 'guard proves the hazardous old implementation still exists only as unreachable legacy code');
+  assert.match(LEGACY_AI, /LEGACY_OCR_PATH_RETIRED/, 'the compatibility symbol must fail closed if imported directly');
+  assert.doesNotMatch(LEGACY_AI, /base64Data\.slice\(0,\s*100\)/, 'the hazardous truncated-base64 parser must be physically gone');
+  assert.doesNotMatch(LEGACY_AI, /Image Payload Base64/, 'the old text-prompt OCR payload must not return');
   assert.match(IDENTITY_ROUTER, /ocrConvergenceRouter/);
   assert.ok(
     SERVER.indexOf('app.use(identityVerificationRouter)') < SERVER.indexOf("app.use('/api/diaspora', diasporaRouter)"),
