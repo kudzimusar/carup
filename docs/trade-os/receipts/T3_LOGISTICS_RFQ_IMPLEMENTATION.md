@@ -410,4 +410,63 @@ Spec 47's own 6/6 browser run is **not re-run at this head**: it requires the br
 redeployed, which would move the bundle the owner is inspecting for UAT Round 2 (`index-DbaX20hJ.js`
 → `index-BFDpNUlS.js`). It is deliberately deferred until Round 2 concludes.
 
-**Owner UAT Round 2: PENDING. T3 remains T3-PARTIAL. T4 not begun. Production untouched.**
+**Superseded below:** Owner UAT Round 2 returned PASS and the isolated fixture is certified on a
+deployed head.
+
+---
+
+## T3 CLOSURE — OWNER UAT ROUND 2 PASS · **T3-USABLE** · FROZEN at `b446d8ea`
+
+**Owner UAT Round 2: PASS**, performed against runtime candidate `5958e436` / `index-DbaX20hJ.js`.
+
+The final head `b446d8ea` differs from that candidate only by staging certification fixture
+isolation, the CI drift guard, two inert DOM identifiers (`data-container-id`,
+`data-reservation-id`) and documentation. **No visual, product or runtime behaviour changed after
+owner approval**, so the owner was not asked to repeat the full transaction walkthrough.
+
+### Certified deployment
+
+FE `index-C8Mq-5Lh.js` (both DOM identifiers verified present in the served asset) · BE
+`/api/health → commit_sha b446d8ea` · pairing confirmed: the served bundle bakes exactly one backend
+origin and it is that branch backend.
+
+### Spec 47 — 6/6, `mode=acceptance`, run `t3iso-1788615917`
+
+Desktop / tablet / mobile, each creating and using its own run-scoped sailing. Verified from the
+database ledger as well as from assertions — all three sailings identical:
+
+```
+golden.t3.sailing.t3iso-1788615917.{chromium,tablet-chromium,mobile-chromium}
+  total 24.000 · used 3.000 · available 21.000 · BOOKING_CLOSED
+  reservations 1 · APPROVED 1 (3.000 CBM)
+```
+
+`available = total − sum(APPROVED)` = 24 − 3 = 21. One reservation each proves replay added no
+second row; one APPROVED each proves re-approval did not consume twice; BOOKING_CLOSED proves
+cleanup touched only run-owned resources.
+
+### Accumulation proven eliminated
+
+The old shared sailing `aaaa1111-…` still reads **9.000 / 47 with `updated_at` 11:51:31Z**, before
+this run started — untouched. The previous model would have left it at 18.000/47. A full
+certification now consumes **zero** shared capacity.
+
+### CI at exact head — 7/7
+
+All seven workflows green; Diaspora Deployed Staging UAT skipped by design. The drift guard was
+confirmed to **execute** (subtests 5342–5349, all `ok`), not merely to exist.
+
+### Provenance caveat
+
+Bundle hashes here are **not reproducible for identical source** — `5958e436` → `355887dc` is
+docs-only yet produced `index-DbaX20hJ.js` vs `index-BaUwx5WP.js`. `STAGING_EXPECTED_BUNDLE`
+therefore pins "the measured build is still the one served", not "the served code equals commit X".
+Read the served hash from the live deployment; never predict it.
+
+### Status
+
+**T3-USABLE. T3 FROZEN at `b446d8ea`.** All five closure conditions met: Owner UAT Round 2 PASS ·
+fixture isolation pushed and deployed · Spec 47 6/6 on the new exact deployed head · CI 7/7 ·
+FE/BE pairing confirmed.
+
+**T4 NOT STARTED — requires separate owner authorization. Production untouched. PR #207 Draft.**

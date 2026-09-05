@@ -2928,5 +2928,93 @@ the DOM hook each failed exactly one test and no others.
 behaviour, no styling. They exist because selecting a container by position or by a capacity string
 has twice read a stranger's sailing and still gone green.
 
-**Owner UAT Round 2 remains PENDING. T3 stays T3-PARTIAL. T4 not begun. Production untouched.
-PR #207 Draft.**
+**Superseded by §32:** Owner UAT Round 2 returned PASS and this work is now certified on a
+deployed head. T4 not begun. Production untouched. PR #207 Draft.
+
+---
+
+## §32 — T3 CLOSURE: OWNER UAT ROUND 2 PASS, FIXTURE ISOLATION CERTIFIED → **T3-USABLE**
+
+**Owner UAT Round 2: PASS.**
+
+### What the owner inspected, and how the final head differs
+
+Round 2 was performed against runtime candidate **`5958e436`**, served as **`index-DbaX20hJ.js`**.
+The final repository head **`b446d8ea`** differs from that candidate by exactly four things:
+
+1. staging certification fixture isolation (`tests/agents/47-trade-os-t3-staging.spec.ts`);
+2. the CI drift guard (`backend/tests/trade-os-t3-certification-isolation.test.js`);
+3. two inert DOM identifiers — `data-container-id`, `data-reservation-id`;
+4. documentation.
+
+**No visual, product or runtime behaviour was changed after owner approval.** The owner was
+therefore not asked to repeat the full transaction walkthrough.
+
+> **Provenance caveat, recorded because it is load-bearing.** Bundle hashes in this pipeline are
+> **not reproducible for identical source**: `5958e436` → `355887dc` is docs-only (zero bundle
+> inputs) yet the two builds produced `index-DbaX20hJ.js` and `index-BaUwx5WP.js`. A hash therefore
+> identifies a BUILD, not a source state, and `STAGING_EXPECTED_BUNDLE` pins "the build I measured
+> is still the one being served" — not "the served code equals commit X". Always read the served
+> hash off the live deployment; never predict it. Note also that the branch **alias** follows the
+> newest push, so it had already moved to `355887dc` before this task began; the per-deployment URL
+> `carup-staging-nmc25clbk-11-11.vercel.app` is what pins `5958e436`/`index-DbaX20hJ.js`.
+
+### Certified deployment
+
+| | |
+|---|---|
+| Head | `b446d8ea` |
+| Frontend | `index-C8Mq-5Lh.js` — carries both DOM identifiers (verified in the served asset) |
+| Backend | `/api/health` reports `commit_sha b446d8ea` |
+| Pairing | the served bundle bakes exactly ONE backend origin, and it is the branch backend the run used |
+
+### Spec 47 — 6/6, `mode=acceptance`, run `t3iso-1788615917`
+
+Desktop, tablet and mobile, each creating and using **its own** run-scoped sailing.
+
+Confirmed independently from the database ledger, not only from test assertions:
+
+| Sailing | total | used | available | reservations | APPROVED | status |
+|---|---|---|---|---|---|---|
+| `golden.t3.sailing.t3iso-1788615917.chromium` | 24.000 | 3.000 | 21.000 | 1 | 1 (3.000 CBM) | BOOKING_CLOSED |
+| `…t3iso-1788615917.tablet-chromium` | 24.000 | 3.000 | 21.000 | 1 | 1 (3.000 CBM) | BOOKING_CLOSED |
+| `…t3iso-1788615917.mobile-chromium` | 24.000 | 3.000 | 21.000 | 1 | 1 (3.000 CBM) | BOOKING_CLOSED |
+
+Every promised invariant holds and is visible in the ledger: `available = total − sum(APPROVED)`
+(24 − 3 = 21); exactly ONE reservation per sailing, so replay created no second row; exactly ONE
+APPROVED, so re-approval did not consume twice; and each run-owned sailing is BOOKING_CLOSED, so
+cleanup touched only what the run created.
+
+### The accumulation defect is proven eliminated
+
+The old shared sailing `aaaa1111-…` reads **9.000 / 47, 3 APPROVED, `updated_at` 11:51:31Z** —
+*before* this certification began. It was **not touched**. Under the previous model this run would
+have driven it to 18.000/47. **A full 6/6 certification now consumes zero shared capacity.** The
+foreign sailing `bbbb2222-…` likewise remains 0.000/60 with 0 reservations, because a refused
+attach writes nothing.
+
+### CI at the exact head — 7/7
+
+CI · Communication Command Center CI · Diaspora Phases 3-7 Validation · Marketplace Reference
+Regression · Navigation Intelligence CI · Referral Engine CI · Vehicle Passport Foundation CI —
+all **success**. Diaspora Deployed Staging UAT skipped by design (manual dispatch).
+
+The drift guard was verified to **execute** in CI, not merely to exist: subtests 5342–5349 in the
+`Backend tests (node:test)` step, all `ok`.
+
+### Verdict
+
+**T3-PARTIAL → T3-USABLE. T3 is FROZEN at `b446d8ea`.**
+
+The closure rests on: Owner UAT Round 2 PASS; fixture isolation pushed and deployed; Spec 47 6/6 on
+the new exact deployed head; CI 7/7; FE/BE pairing confirmed.
+
+**T4 NOT STARTED — it requires separate owner authorization. Production untouched. PR #207 remains
+Draft.**
+
+### The principle this closes on
+
+Each certification project owns the capacity state it measures. Do not reintroduce a shared sailing,
+periodic manual reset, indefinitely growing capacity, `.first()` resource selection, or relative
+capacity assertions against unknown inherited state. `backend/tests/trade-os-t3-certification-isolation.test.js`
+enforces this in ordinary CI.
