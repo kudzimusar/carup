@@ -97,6 +97,12 @@ function tri(value: boolean | null | undefined) {
   return 'Not provided'
 }
 
+function quoteValidityEnded(quote: LogisticsQuote): boolean {
+  if (!quote.valid_until || quote.status !== 'SUBMITTED') return false
+  const timestamp = Date.parse(String(quote.valid_until))
+  return Number.isFinite(timestamp) && timestamp <= Date.now()
+}
+
 export default function TradeShippingRequests() {
   const api = useTradeLogisticsApi()
   // Destructured deliberately: the useCarUpApi aggregate object is a new identity every render and
@@ -111,6 +117,7 @@ export default function TradeShippingRequests() {
   const [view, setView] = useState<View>('list')
   const [selected, setSelected] = useState<LogisticsRequest | null>(null)
   const [sailings, setSailings] = useState<LogisticsSailingMatch[]>([])
+  const [sailingsUnreadable, setSailingsUnreadable] = useState(false)
   const [loading, setLoading] = useState(true)
   const [busy, setBusy] = useState(false)
   const [unreadable, setUnreadable] = useState(false)
@@ -243,20 +250,25 @@ export default function TradeShippingRequests() {
   }
 
   const openDetail = async (id: string) => {
-    setBusy(true); setError('')
+    setBusy(true); setError(''); setSailings([]); setSailingsUnreadable(false)
     try {
-      const [request, matches] = await Promise.all([
-        api.getRequest(id),
-        api.findSailingMatches(id).catch(() => []),
-      ])
-      setSelected(request); setSailings(matches); setView('detail')
+      const request = await api.getRequest(id)
+      setSelected(request)
+      try {
+        setSailings(await api.findSailingMatches(id))
+        setSailingsUnreadable(false)
+      } catch {
+        setSailings([])
+        setSailingsUnreadable(true)
+      }
+      setView('detail')
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Shipping request could not be loaded')
     } finally { setBusy(false) }
   }
 
   const chooseQuote = async (quote: LogisticsQuote) => {
-    if (!selected || busy) return
+    if (!selected || busy || quoteValidityEnded(quote)) return
     setBusy(true); setError('')
     try {
       await api.acceptQuote(selected.id, quote.id)
@@ -494,13 +506,25 @@ export default function TradeShippingRequests() {
             <div className="mt-3 space-y-3">{selected.items.map((item) => <div key={item.id} className="border-l-2 border-orange-500 pl-3"><p className="font-medium text-slate-950">{item.quantity} × {item.description}</p><p className="text-xs text-slate-600">{categoryLabel(item.cargo_category)} · {item.estimated_volume_cbm ? `${item.estimated_volume_cbm} CBM estimated` : 'Volume not recorded'} · {item.estimated_weight_kg ? `${item.estimated_weight_kg} kg estimated` : 'Weight not recorded'}</p></div>)}</div>
             <dl className="mt-5 grid grid-cols-2 gap-4 text-sm"><div><dt className="text-xs uppercase tracking-wide text-slate-500">Service preference</dt><dd>{serviceLabel(selected.service_preference)}</dd></div><div><dt className="text-xs uppercase tracking-wide text-slate-500">Needed by</dt><dd>{selected.needed_by ? String(selected.needed_by).slice(0, 10) : 'Not specified'}</dd></div></dl>
             {selected.status === 'DRAFT' && <Button className="mt-5 bg-orange-500 text-white hover:bg-orange-600" onClick={() => startEdit(selected)}>Edit request</Button>}
-            {selected.status === 'OPEN_FOR_QUOTES' && sailings.length > 0 && <div className="mt-7"><h2 className="text-sm font-bold text-slate-950">CarUp sailings that may fit</h2><p className="mt-1 text-xs text-slate-500">These are route/capacity matches only. They do not mean the cargo is accepted or space is approved.</p><div className="mt-3 space-y-3">{sailings.map((sailing) => <div key={sailing.id} className="border border-slate-200 p-3"><p className="font-medium text-slate-900">{sailing.organiser_name || 'Organiser not recorded'} · {sailing.container_type}</p><p className="text-xs text-slate-600">Departs {String(sailing.departure_date).slice(0, 10)} · {sailing.available_capacity_cbm} CBM recorded available</p></div>)}</div></div>}
+            {selected.status === 'OPEN_FOR_QUOTES' && (
+              <div className="mt-7" data-testid="logistics-sailing-matches-state">
+                <h2 className="text-sm font-bold text-slate-950">CarUp sailings that may fit</h2>
+                {sailingsUnreadable ? (
+                  <p className="mt-2 border-l-2 border-amber-400 pl-3 text-xs text-amber-900" data-testid="logistics-sailings-unreadable">Compatible sailings could not be checked. This is not a report that none are available; you can still compare provider offers.</p>
+                ) : sailings.length === 0 ? (
+                  <p className="mt-2 text-xs text-slate-500" data-testid="logistics-sailings-empty">No compatible open CarUp sailings were found from the recorded route and capacity facts.</p>
+                ) : (
+                  <><p className="mt-1 text-xs text-slate-500">These are route/capacity matches only. They do not mean the cargo is accepted or space is approved.</p><div className="mt-3 space-y-3">{sailings.map((sailing) => <div key={sailing.id} className="border border-slate-200 p-3"><p className="font-medium text-slate-900">{sailing.organiser_name || 'Organiser not recorded'} · {sailing.container_type}</p><p className="text-xs text-slate-600">Departs {String(sailing.departure_date).slice(0, 10)} · {sailing.available_capacity_cbm} CBM recorded available</p></div>)}</div></>
+                )}
+              </div>
+            )}
           </div>
           <div className="min-w-0">
             <div className="flex items-baseline justify-between border-b border-slate-300 pb-2"><h2 className="text-xs font-bold uppercase tracking-wide text-slate-600">Provider offers</h2><span className="text-xs text-slate-500">{offers.length ? `${offers.length} received` : 'None yet'}</span></div>
             {!offers.length ? <div className="mt-4 border border-dashed border-slate-300 p-6"><p className="font-medium text-slate-900">{selected.status === 'DRAFT' ? 'Not published yet' : 'Waiting for logistics providers'}</p><p className="mt-1 text-sm text-slate-600">{selected.status === 'DRAFT' ? 'Publish when you are ready for providers to quote.' : 'Offers will appear here with price components, service mode and what is included.'}</p></div> : <div className="mt-4 space-y-4">{offers.map((quote) => {
               const chosen = quote.id === selected.accepted_quote_id
-              return <article key={quote.id} className={`border p-5 ${chosen ? 'border-emerald-500 bg-emerald-50/40' : 'border-slate-300 bg-white'}`} data-testid="logistics-offer-card"><div className="flex flex-wrap justify-between gap-3"><div><p className="font-semibold text-slate-950">{quote.provider?.display_name || 'Logistics provider'}</p><p className="text-xs text-slate-500">{[quote.provider?.city, quote.provider?.country].filter(Boolean).join(', ') || 'Location not provided'} · provider-stated, not verified by CarUp</p><p className="mt-2 text-xl font-bold text-slate-950">{money(quote.total_amount, quote.currency)}</p></div><span className="text-xs font-semibold uppercase tracking-wide text-slate-500">{quote.service_mode.replace(/_/g, ' ')}</span></div><dl className="mt-4 grid grid-cols-2 gap-3 text-sm sm:grid-cols-3"><div><dt className="text-[10px] uppercase text-slate-500">Freight</dt><dd>{quote.freight_amount == null ? 'Not provided' : money(quote.freight_amount, quote.currency)}</dd></div><div><dt className="text-[10px] uppercase text-slate-500">Handling</dt><dd>{quote.handling_amount == null ? 'Not provided' : money(quote.handling_amount, quote.currency)}</dd></div><div><dt className="text-[10px] uppercase text-slate-500">Origin charges</dt><dd>{quote.origin_charges == null ? 'Not provided' : money(quote.origin_charges, quote.currency)}</dd></div><div><dt className="text-[10px] uppercase text-slate-500">Destination charges</dt><dd>{quote.destination_charges == null ? 'Not provided' : money(quote.destination_charges, quote.currency)}</dd></div><div><dt className="text-[10px] uppercase text-slate-500">Documentation</dt><dd>{quote.documentation_fees == null ? 'Not provided' : money(quote.documentation_fees, quote.currency)}</dd></div><div><dt className="text-[10px] uppercase text-slate-500">Transit</dt><dd>{quote.transit_days ? `${quote.transit_days} days stated` : 'Not provided'}</dd></div><div><dt className="text-[10px] uppercase text-slate-500">Pickup</dt><dd>{tri(quote.pickup_included)}</dd></div><div><dt className="text-[10px] uppercase text-slate-500">Delivery</dt><dd>{tri(quote.delivery_included)}</dd></div><div><dt className="text-[10px] uppercase text-slate-500">Valid until</dt><dd>{quote.valid_until ? String(quote.valid_until).slice(0, 10) : 'Not provided'}</dd></div></dl>{quote.inclusions?.length ? <p className="mt-3 text-xs text-slate-600"><strong>Includes:</strong> {quote.inclusions.join(', ')}</p> : null}{quote.exclusions?.length ? <p className="text-xs text-slate-600"><strong>Excludes:</strong> {quote.exclusions.join(', ')}</p> : null}{quote.conditions ? <p className="mt-2 text-xs text-slate-600"><strong>Conditions:</strong> {quote.conditions}</p> : null}<div className="mt-4 flex flex-wrap gap-2">{!selected.accepted_quote_id && quote.status === 'SUBMITTED' && <Button className="bg-orange-500 text-white hover:bg-orange-600" onClick={() => void chooseQuote(quote)} disabled={busy}>Choose this provider</Button>}<Button variant="outline" className="rounded-none" onClick={() => void askProvider(quote.provider_id)} disabled={busy}><MessageSquare className="mr-1.5 h-4 w-4" /> Ask a question</Button></div>{chosen && <p className="mt-3 flex items-center gap-2 text-sm font-medium text-emerald-800"><Check className="h-4 w-4" /> You selected this provider.</p>}</article>
+              const expired = quoteValidityEnded(quote)
+              return <article key={quote.id} className={`border p-5 ${chosen ? 'border-emerald-500 bg-emerald-50/40' : expired ? 'border-amber-300 bg-amber-50/30' : 'border-slate-300 bg-white'}`} data-testid="logistics-offer-card"><div className="flex flex-wrap justify-between gap-3"><div><p className="font-semibold text-slate-950">{quote.provider?.display_name || 'Logistics provider'}</p><p className="text-xs text-slate-500">{[quote.provider?.city, quote.provider?.country].filter(Boolean).join(', ') || 'Location not provided'} · provider-stated, not verified by CarUp</p><p className="mt-2 text-xl font-bold text-slate-950">{money(quote.total_amount, quote.currency)}</p></div><span className="text-xs font-semibold uppercase tracking-wide text-slate-500">{quote.service_mode.replace(/_/g, ' ')}</span></div><dl className="mt-4 grid grid-cols-2 gap-3 text-sm sm:grid-cols-3"><div><dt className="text-[10px] uppercase text-slate-500">Freight</dt><dd>{quote.freight_amount == null ? 'Not provided' : money(quote.freight_amount, quote.currency)}</dd></div><div><dt className="text-[10px] uppercase text-slate-500">Handling</dt><dd>{quote.handling_amount == null ? 'Not provided' : money(quote.handling_amount, quote.currency)}</dd></div><div><dt className="text-[10px] uppercase text-slate-500">Origin charges</dt><dd>{quote.origin_charges == null ? 'Not provided' : money(quote.origin_charges, quote.currency)}</dd></div><div><dt className="text-[10px] uppercase text-slate-500">Destination charges</dt><dd>{quote.destination_charges == null ? 'Not provided' : money(quote.destination_charges, quote.currency)}</dd></div><div><dt className="text-[10px] uppercase text-slate-500">Documentation</dt><dd>{quote.documentation_fees == null ? 'Not provided' : money(quote.documentation_fees, quote.currency)}</dd></div><div><dt className="text-[10px] uppercase text-slate-500">Transit</dt><dd>{quote.transit_days ? `${quote.transit_days} days stated` : 'Not provided'}</dd></div><div><dt className="text-[10px] uppercase text-slate-500">Pickup</dt><dd>{tri(quote.pickup_included)}</dd></div><div><dt className="text-[10px] uppercase text-slate-500">Delivery</dt><dd>{tri(quote.delivery_included)}</dd></div><div><dt className="text-[10px] uppercase text-slate-500">Valid until</dt><dd>{quote.valid_until ? String(quote.valid_until).slice(0, 10) : 'Not provided'}</dd></div></dl>{quote.inclusions?.length ? <p className="mt-3 text-xs text-slate-600"><strong>Includes:</strong> {quote.inclusions.join(', ')}</p> : null}{quote.exclusions?.length ? <p className="text-xs text-slate-600"><strong>Excludes:</strong> {quote.exclusions.join(', ')}</p> : null}{quote.conditions ? <p className="mt-2 text-xs text-slate-600"><strong>Conditions:</strong> {quote.conditions}</p> : null}{expired && <p className="mt-3 text-xs font-semibold text-amber-900" data-testid="logistics-offer-expired">This offer’s stated validity has ended. Ask the provider for a current offer before choosing.</p>}<div className="mt-4 flex flex-wrap gap-2">{!selected.accepted_quote_id && quote.status === 'SUBMITTED' && !expired && <Button className="bg-orange-500 text-white hover:bg-orange-600" onClick={() => void chooseQuote(quote)} disabled={busy}>Choose this provider</Button>}<Button variant="outline" className="rounded-none" onClick={() => void askProvider(quote.provider_id)} disabled={busy}><MessageSquare className="mr-1.5 h-4 w-4" /> Ask a question</Button></div>{chosen && <p className="mt-3 flex items-center gap-2 text-sm font-medium text-emerald-800"><Check className="h-4 w-4" /> You selected this provider.</p>}</article>
             })}</div>}
             {accepted && <div className="mt-6 border border-slate-300 bg-slate-50 p-5"><h3 className="font-bold text-slate-950">Continue the shipping transaction</h3>{accepted.compatible_container_id ? <><p className="mt-1 text-sm text-slate-600">This offer references a real CarUp shared-container sailing. Requesting space creates a <strong>pending</strong> reservation; the organiser still has to approve it.</p>{reservationId ? <p className="mt-4 text-sm font-semibold text-emerald-800">Container-space request recorded · {reservationId.slice(0, 8)}</p> : <Button className="mt-4 bg-orange-500 text-white hover:bg-orange-600" onClick={() => void requestSpace()} disabled={busy}><Ship className="mr-1.5 h-4 w-4" /> Request container space</Button>}</> : <p className="mt-1 text-sm text-slate-600">This provider did not attach a CarUp container sailing. Continue through Messages to agree the operational next step; CarUp will not invent a booking.</p>}</div>}
           </div>
