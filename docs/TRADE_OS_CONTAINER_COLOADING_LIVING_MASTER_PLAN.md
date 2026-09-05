@@ -1566,14 +1566,16 @@ This replaces the old C1–C18 backlog as the active roadmap.
 | Staging migration applied | ✅ applied to STAGING ONLY; 3 tables `rls_enabled=true`, RPC service_role-only |
 | Staging DB authority proven | ✅ award RPC exercised on real Postgres — see the cycle entry |
 | Staging backend serves T3 | ✅ branch preview answers the T3 routes 401, not 404 |
-| Staging frontend paired to that backend | ❌ NOT PROVEN |
-| Exact-head unmocked browser journey | ❌ NOT DONE |
+| Staging frontend paired to that backend | ✅ PROVEN at runtime — preview calls ONLY the branch backend |
+| Exact-head unmocked browser journey | ✅ spec 47, `mode=acceptance`, bundle pinned, 3/3 desktop+tablet+mobile |
 | Owner visual/product UAT | ❌ PENDING — cannot be replaced by automation |
 
-**T3 therefore returns T3-PARTIAL, not T3-USABLE.** The schema and its atomic authority are now
-proven against the real staging database, and that is where three defects were found that no local
-suite could see. What is still missing is the browser journey on a proven frontend/backend pairing,
-and owner UAT. Do not describe T3 as client-ready.
+**T3 therefore returns T3-PARTIAL, not T3-USABLE** — and the single reason is the last row.
+Everything automation can establish is established: the schema and its atomic authority against
+real Postgres, the frontend/backend pairing, and the full unmocked requester → provider → award
+journey on the deployed candidate at three viewport classes. Owner visual/product acceptance has
+not happened, and green automation does not substitute for it (§29). Do not describe T3 as
+client-ready until the owner has seen it.
 
 ## T4 — Order & Booking Passport convergence
 
@@ -2483,5 +2485,81 @@ owner UAT remains outstanding. **T3 stays T3-PARTIAL.**
 Staging reports `public.vehicle_taxonomy_observations` with **RLS disabled** — fully exposed to the
 anon key. It is outside the T3 slice and was not touched; enabling RLS without policies would block
 its current readers, so it needs its own decision.
+
+Production untouched. PR #207 remains Draft.
+
+## Execution entry — 2026-09-05 · T3 deployed-staging certification (spec 47)
+
+The T3 journey now runs unmocked on the deployed candidate. Added `tests/agents/47-trade-os-t3-staging.spec.ts`
+and registered it **additively** in `playwright.staging.config.ts` — no certified gate was mutated.
+
+### Pairing proven BEFORE the journey
+
+A branch preview that quietly calls the shared staging backend would make any UAT evidence
+worthless (standing hazard). Measured at runtime on the deployed preview:
+
+```text
+API hosts observed:
+  carup-backend-staging-git-feat-trade-os-client-dem-dbf311-11-11.vercel.app   ← branch backend
+shared staging backend (carup-backend-staging.vercel.app)   0 calls
+production                                                  0 calls
+```
+
+`resolveApiBaseUrl` is configured with that branch backend in 15 places in the shipped bundle. The
+repo's own `UNPAIRED_PREVIEW_API_BASE_URL` guard means an unconfigured preview would have failed
+loudly to `unpaired-preview.carup.invalid` rather than silently reaching a real backend.
+
+### Fixtures created through the real product path
+
+Both identities were created through the **public registration API**, not by writing password
+hashes. That also demonstrates the eligibility design under test: the provider is an ordinary
+`owner` account whose registration profile says `logistics_provider`.
+
+```text
+onboarding: {"status":"requested","business_type":"logistics_provider","market_relationship":"international"}
+role: owner
+```
+
+Commercial eligibility is a profile. It is never a platform role.
+
+### The certified journey — `mode=acceptance`, bundle `index-DoUNtrHE.js`
+
+3/3 on `chromium`, `tablet-chromium` and `mobile-chromium`:
+
+```text
+requester  publishes cargo with no freight knowledge, supplying only a box size
+provider   discovers it cross-organisation through the SAFE projection
+           — asserted the card carries neither the requester's email nor name
+provider   submits a transparent offer; unstated components render "Not provided"
+requester  sees the offer AND its provider, compares, awards
+```
+
+### Data validated after the mutations, not only the pixels
+
+Across all four staging runs:
+
+| Fact | Measured |
+|---|---|
+| requests / awarded | 4 / 4 |
+| accepted quotes / total quotes | 4 / 4 |
+| `estimated_volume_cbm` | `1.512`, basis `CALCULATED` — 0.6 × 0.45 × 0.4 × 14, computed by the real backend |
+| **reservations created from logistics** | **0** — an award is not a booking |
+| lifecycle events | 8 (2 per run) |
+
+```text
+diaspora.logistics.quote_submitted   OFFER_RECEIVED   → the requester
+diaspora.logistics.quote_accepted    OFFER_ACCEPTED   → the provider
+```
+
+Both carry reference and route. No `quote_not_selected`, correctly — each run had a single offer.
+
+The synthetic rows are left in place as the evidence. They are unmistakably marked and all
+`AWARDED`, so they cannot surface in a later provider opportunity feed.
+
+### What this does and does not settle
+
+It settles the backend, the schema, the pairing and the journey. It does **not** settle owner
+visual/product acceptance, which §29 says green automation can never replace. **T3 remains
+T3-PARTIAL for that one reason.**
 
 Production untouched. PR #207 remains Draft.

@@ -4,7 +4,7 @@
 - **Branch:** `feat/trade-os-client-demo-convergence`
 - **Draft PR:** #207
 - **Production:** untouched
-- **Status:** T3-PARTIAL at head `ca06e8c3` — everything provable without a deployed environment
+- **Status:** T3-PARTIAL at head `4f88a464` — certified on deployed staging; only owner UAT remains — everything provable without a deployed environment
   is proven; nothing on staging has been run. This receipt is evidence, **not a competing plan**.
 
 ## Why T3 exists
@@ -270,14 +270,26 @@ actor all refused with the request untouched; the requester's award produced exa
 one REJECTED, one audit row with a 64-character seal, an idempotent replay that wrote no second
 row, and **zero reservations** — an award is not a booking. Fixture removed afterwards.
 
+## Deployed-staging certification
+
+`tests/agents/47-trade-os-t3-staging.spec.ts`, registered additively in the staging harness, runs
+the journey **unmocked** on the deployed candidate in `mode=acceptance` with the served bundle
+pinned. 3/3 on desktop, tablet and mobile.
+
+Pairing was proven first: the branch preview issues API calls only to the branch backend, with
+zero to the shared staging backend and zero to production. Fixtures were created through the real
+public registration API, which also demonstrates that provider eligibility is a registration
+profile (`business_type: logistics_provider` on an ordinary `owner` account), never a platform
+role.
+
+Data measured across all four staging runs: 4 requests, 4 AWARDED, 4 accepted quotes of 4,
+`estimated_volume_cbm` `1.512` basis `CALCULATED` computed by the real backend, 8 lifecycle events
+(`quote_submitted` → requester, `quote_accepted` → provider), and — the invariant that matters —
+**0 container reservations**. An award is not a booking.
+
 ## Known work still required before T3 closure
 
-The following are deliberately **not yet certified complete**:
+- **owner visual/product UAT**, which automation cannot replace (§29).
 
-- the frontend/backend pairing on the branch preview is NOT proven (a branch web preview can
-  silently call the shared staging backend);
-- the exact-head unmocked requester → provider → offer → award → container-space browser journey;
-- owner visual/product UAT, which automation cannot replace.
-
-**T3 is T3-PARTIAL.** Do not call it usable/client-ready/production-ready until the remaining rows
-in the master plan's T3 acceptance ledger are satisfied.
+**T3 is T3-PARTIAL for that one reason.** Everything automation can establish is established. Do
+not call it usable/client-ready/production-ready until the owner has seen it.
