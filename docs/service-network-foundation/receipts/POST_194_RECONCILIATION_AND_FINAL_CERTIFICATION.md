@@ -11,6 +11,10 @@ unedited because it is the institutional record of why the runtime mounting gate
 staging database, the governed preview pair, the six hosted journeys and their database evidence.
 Section B named one blocker; section C closes it.
 
+**Section D corrects a provenance inconsistency in section C and re-certifies against an explicitly
+identified paired deployment.** Where C and D disagree, **D is authoritative**; C is kept because how
+the inconsistency arose is part of the record.
+
 ---
 
 # A. Failed reconciliation audit (pre-repair, at `93b97a36`)
@@ -555,6 +559,10 @@ unavoidable is in C.3.
 
 ## C.1 Provenance of the exact preview pair
 
+> **SUPERSEDED BY D.3.** The table below records the pre-pairing verification this brief required,
+> at `c81e1e98`. That SHA does **not** contain the pairing registry entry, which `vite.config.ts`
+> reads at build time, so it is not the certified candidate. See section D.
+
 Verified twice from independent sources before anything was used.
 
 | Side | Deployment ID | URL | Commit SHA | State |
@@ -804,6 +812,9 @@ which is itself the degradation guarantee.
 
 ## C.8 Final certification at `9c95e2a2`
 
+> **SUPERSEDED BY D.5**, which certifies the deployed candidate at `90c57626` — the same runtime
+> tree plus documentation — against an explicitly identified paired deployment.
+
 | Gate | Result |
 |---|---|
 | Marketplace Reference Regression | **PASS** (pair governed; 205 tests + 7 Playwright vs deployed staging) |
@@ -865,3 +876,182 @@ Product Owner directly, because a receipt cannot contain the outcome of its own 
 - No third-party provider credential was added and no communication channel was enabled.
 - The historical `93b97a36` failed-reconciliation evidence in section A is unchanged, as is the
   record of the runtime guards it produced.
+
+---
+
+# D. Deployed-provenance closure — correction and re-certification
+
+Section C contained a provenance inconsistency. It is corrected here rather than rewritten, because
+how it happened is part of the record.
+
+## D.1 The inconsistency
+
+C.1 recorded the deployed pair as `c81e1e98` while naming `9c95e2a2` the certified code head. Those
+cannot both describe the certified candidate, because **`c81e1e98` does not contain the pairing
+registry entry** and `web/vite.config.ts` reads that registry **at build time**.
+
+Verified, not assumed:
+
+```
+git show c81e1e98:web/preview-backend-pairing.json  | grep -c service-network-foundation-1-0  → 0
+git show c81e1e98:web/preview-frontend-pairing.json | grep -c service-network-foundation-1-0  → 0
+git diff --name-only c81e1e98 9c95e2a2  → web/preview-backend-pairing.json
+                                          web/preview-frontend-pairing.json
+```
+
+So a frontend built from `c81e1e98` was necessarily unpaired and could not prove that the paired
+build works. **C.1's table describes the pre-pairing verification step required by the brief, not
+the certified candidate.** Reporting it as the certified pair was wrong, and this section supersedes
+it.
+
+What was *not* wrong: the journeys in C.5 were executed after the pairing commit, against a
+build that reported `unpaired: false`. The defect was in the reporting, not in the run. This section
+re-runs everything against an explicitly identified paired candidate anyway, so the claim rests on
+evidence gathered under the corrected understanding rather than on that argument.
+
+## D.2 The provenance chain, stated
+
+| SHA | What it is | Frontend pairing at that SHA |
+|---|---|---|
+| `c81e1e98` | first branch deployments | **absent** — build baked `unpaired-preview.carup.invalid`, could reach no backend |
+| `9c95e2a2` | pairing registry added (**the only runtime change**) | present |
+| `90c57626` | docs-only final head | present |
+
+`git diff --name-only 9c95e2a2 90c57626` → one file, `docs/…/POST_194_RECONCILIATION_AND_FINAL_CERTIFICATION.md`.
+**No runtime file changed after `9c95e2a2`**, so `90c57626` is a valid certification candidate.
+
+## D.3 The deployed exact candidate
+
+Read from Vercel deployment metadata, not inferred from aliases.
+
+| Side | Deployment ID | Immutable URL | Commit SHA | State |
+|---|---|---|---|---|
+| Frontend | `dpl_FwMegxi4kE7qhDRrf22NCxzRugDo` | `https://carup-staging-ex3y9dsvu-11-11.vercel.app` | `90c57626…` | READY |
+| Backend | `dpl_FgJXXGLaT8Tw8Xme2SnyH2YYcxrm` | `https://carup-backend-staging-i2wf80soc-11-11.vercel.app` | `90c57626…` | READY |
+
+Corroborated independently:
+
+- frontend `/carup-provenance.json` → `commit_sha 90c57626…`, `unpaired false`,
+  `api_base_source: "paired from preview-backend-pairing.json"`;
+- backend `/api/health` → `build.commit_sha 90c57626…`, and it self-reports
+  `deployment_id dpl_FgJXXGLaT8Tw8Xme2SnyH2YYcxrm`, matching Vercel.
+
+**Served bundle:** `/assets/index-DXJ-nV1q.js`, 2,804,914 bytes,
+sha256 `9a689163544d28f27f5e9d981916c2db5891187a4d829ac5a2f65ec31aa63de9`.
+
+## D.4 Pairing proved from the bundle, not the registry
+
+The bundle contains five host literals, including the shared staging backend and the invalid host.
+Their presence is not a defect — they are the resolver's constants. What matters is which one this
+build can select:
+
+```js
+const Oq = <production api>, vre = "https://carup-backend-staging.vercel.app/api",
+      Pq = "https://unpaired-preview.carup.invalid/api";
+function pr(t, a) {              // t = build-time configured base, a = hostname
+  const s = t?.trim();
+  return s ? wre(s)              // ← a non-empty configured base SHORT-CIRCUITS everything
+       : a && jre.includes(a) ? "/api"
+       : Dq(a) ? vre             // shared staging
+       : Iq(a) ? Pq              // branch preview with NO configured base → invalid host
+       : Oq;                     // production
+}
+```
+
+**All 17 resolver call sites pass the Service Network branch backend as `t`** — 15 as an inline
+literal, 2 via a local assigned that same literal, each verified individually. Because `t` is always
+non-empty, the `vre`, `Pq` and `Oq` branches are unreachable in this build. `Pq`'s only other
+reference is the provenance banner that *detects* an unpaired build and sets `blocksUat: true`; it
+does not fire, because `apiBaseUrl !== Pq`.
+
+Had the registry entry been missing, this build's own hostname (`carup-staging-…vercel.app`)
+satisfies `Iq`, so it would have resolved to the invalid host — which is exactly what `c81e1e98`
+did.
+
+**Runtime confirmation.** The deployed candidate was driven in Chromium across `/`, `/garages`,
+`/garages/:slug`, `/marketplace` and `/dealers`, recording every request:
+
+| Origin | Requests |
+|---|---|
+| Service Network branch backend (paired) | **27** |
+| the frontend deployment itself (assets) | 15 |
+| `fonts.googleapis.com` / `fonts.gstatic.com` | 10 |
+| `eoyenigwevnxwwhyhaer.supabase.co` (the approved staging project) | 2 |
+
+**Forbidden-origin violations: NONE.** Zero requests to the shared staging backend, the main
+backend, production (`api.carup.dev` / `carup.dev`) or `carup.invalid`. Observed calls include
+`GET <paired-be>/api/garage-directory`, so the Service Network surface is genuinely being served
+through the paired backend.
+
+## D.5 Hosted certification re-run on this candidate
+
+| Gate | Result |
+|---|---|
+| Marketplace Reference Regression @ `90c57626` | **success** — pair governed, backend reporting `90c57626` |
+| Service Network deployed Playwright, against `dpl_FwMegxi4kE7qhDRrf22NCxzRugDo` | **6 / 6** — desktop + mobile, control case at each width |
+| Six hosted journeys, run `snf014553`, against `dpl_FgJXXGLaT8Tw8Xme2SnyH2YYcxrm` | **36 / 36** |
+| Exact-head CI @ `90c57626` | **8 / 8** (one skipped by design) |
+
+The journey run is newly scoped — its own tenant `cf717f62…`, four fresh accounts, VIN
+`SNFINAL014553VIN1`, slug `sn-cert-snf014553` — so no earlier certification could supply its state.
+It covers garage directory, case lifecycle, mechanic assignment, work-order linkage, completion,
+service record, provider targeting and degraded Communications, with refusals asserted alongside
+successes.
+
+## D.6 Database — verified, not reapplied
+
+No migration was reapplied. The schema was re-read:
+
+| Check | Result |
+|---|---|
+| Service Network tables | **11 / 11** |
+| S4 columns on `mechanic_work_orders` | **7 / 7** |
+| Key constraints | **4 / 4** |
+| RLS enabled **and** forced | **11 / 11** |
+| Service Network migrations in the ledger | **8 / 8** |
+| S3 column · O4 branch · O5 thread type | present · present · present |
+
+**Binding re-proved at the immutable deployment**: `/api/health` reported `outboxBacklog: 297` and
+the database reported exactly **297** pending `domain_events`.
+
+Fresh run `snf014553` wrote every expected consequence:
+
+- **case history** — `requested → accepted → active (service.work.started) → completed`, append-only, in order;
+- **work-order link** — `service_case_id = 10b61d47…`, `status Completed`, `completed_at` set;
+- **assignment** — mechanic `u_3078db18…`, assigned by the garage user, live;
+- **cost + currency** — `250 ZIG` (ISO-4217 uppercase), never a bare zero;
+- **mileage observation** — `91000`, `garage_stated`, an observation and not a canonical odometer write;
+- **provider tenant target** — `target_provider_tenant_id = cf717f62…` with `seller_id` and `seller_tenant_id` both **NULL**;
+- **`service.*` dedupe events** — all four, keyed `<eventType>:<serviceCaseId>`.
+
+**Replay re-proved on the fresh case:** a duplicate `service.case.accepted` insert raised
+`unique_violation`; the row count was **1 before and 1 after**.
+
+## D.7 Communications — degraded mode reconfirmed
+
+Unchanged and deliberately so. **No credential added, no provider enabled, no delivery claimed.**
+
+| Property | Observed |
+|---|---|
+| Service truth completes | case completed, work order completed, record written, owner history correct |
+| Outbox events durable | 4 `service.*` rows persisted |
+| Correct dedupe keys | all four, exact format |
+| Correct recipient semantics | `service.case.accepted` → `recipientUserId = u_8665a9e7…` (the requester); `service.case.requested` → **none**, its audience being a tenant |
+| No private free-text leakage | `private_summary_leaked = false` — the request summary appears in no event payload |
+| Delivery | **`events_pending = 4`, `threads_for_case = 0`** |
+
+The engine remains `BLOCKED` (`COMMUNICATION_ENGINE_ENABLED` not true, worker secret absent). This
+is an external-delivery limitation of the staging environment. It corrupts nothing in the Foundation
+contract, and the degradation guarantee is itself evidence: all 36 journey assertions passed with
+Communications down.
+
+## D.8 What supersedes what
+
+- **C.1's deployment table is superseded by D.3.** C.1 remains as the record of the pre-pairing
+  verification the brief asked for.
+- **C.8's "certified at `9c95e2a2`" is superseded by D.5**, which certifies the deployed candidate at
+  `90c57626` — the same runtime tree, plus documentation.
+- Sections A and B are untouched. A is byte-identical; the `93b97a36` failed-reconciliation evidence
+  and the runtime guards it produced remain exactly as recorded.
+
+Production untouched. `main` untouched at `bb9d9900`. PR #197 remains **Draft**.
