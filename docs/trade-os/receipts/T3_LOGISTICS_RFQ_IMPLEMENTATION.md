@@ -333,3 +333,81 @@ The other four items from the closure correction are now closed — see the mast
 - **CI** re-confirmed on the final candidate.
 
 **T3 is T3-PARTIAL.** Saying "only owner UAT remains" was an overclaim and is corrected above. Do not call it usable/client-ready/production-ready, and do not begin T4, until all five clear.
+
+---
+
+## T3 CERTIFICATION INFRASTRUCTURE HARDENING — run-scoped sailing
+
+**Classification: certification infrastructure, not product.** No runtime product behaviour was
+changed; the Owner UAT Round 2 candidate `5958e436` is preserved intact.
+
+### What was wrong
+
+The staging certification depended on a shared fixture sailing. Each run approved 3 CBM into it and
+never gave the capacity back, so the fixture ratcheted toward full (**9.000/47** after three runs;
+**45.296/47** after ~24, where a healthy run failed because the container product correctly refused
+overfill). Isolation depended on someone resetting a shared row by hand.
+
+### What it is now
+
+Spec 47 creates its own sailing per run **and per viewport project** — three projects execute the
+same journey, so a single per-run sailing would still be shared three ways. Reference
+`golden.t3.sailing.<run>.<project>`, written to `origin_city` (a field the matcher ignores; only
+countries are matched) so the operator surface shows plainly that the sailing is scaffolding and
+which run owns it.
+
+Created through the governed operator API — `POST /container-marketplace/containers` — never seeded
+behind the product. `createContainer` makes the creator the `coordinator_id`, and
+`assertProviderMayOfferContainer` admits the coordinator, so the provider attaches its own sailing
+through the same authority a real operator passes. `apiAs` now sends `x-tenant-id` from the stored
+user's `active_tenant_id` exactly as the app does, because `authorizeRole` only reads `tenant_users`
+when that header is present — without it, creation is refused 403.
+
+### Exact proof (real staging, governed API)
+
+```
+CREATE            201   coordinator === caller: true   BOOKING_OPEN
+  total / used / available            24 / 0 / 24
+CAPACITY                       usedVolume 0, availableVolume 24
+RESERVATIONS                   count = 0   (nothing inherited)
+CLEANUP close-booking          200 → BOOKING_CLOSED
+```
+
+### Replay semantics
+
+Replaying `request-space` still returns `idempotentReplay=true`, and the spec now also re-reads the
+manifest to assert the reservation count is **still exactly 1** — previously only the flag was
+checked. Re-approving an already-APPROVED reservation is asserted not to consume capacity twice.
+
+### Cleanup semantics
+
+The run closes booking on its own sailing, best effort, touching nothing else. A future run never
+depends on it having worked, because that run creates its own sailing. Structural isolation over
+cleanup.
+
+### Drift guard
+
+`backend/tests/trade-os-t3-certification-isolation.test.js` — 8 tests in ordinary CI. Pins the
+architecture rather than an id: governed creation, no shared default, empty starting ledger, no
+inherited reservations, id-based selection with no `.first()`, run-scoped reference, every preserved
+capacity invariant, the DOM identities, and best-effort cleanup. Mutation-tested: reverting to a
+hardcoded sailing, deleting the empty-ledger assertion, and removing the card attribute each failed
+exactly one test and no others.
+
+### Verification at this head
+
+| Gate | Result |
+|---|---|
+| Drift guard | 8/8 |
+| `diaspora-logistics-rfq` + `diaspora-container-marketplace` | 25/25 |
+| Governed create/capacity/cleanup on staging | 201 / 0-used / 0-inherited / closed |
+| `tsc --noEmit` (web app + spec) | clean |
+| `lint-baseline-gate` | NET_NEW_ERRORS=0, NET_NEW_WARNINGS=0 |
+| `npm run build` | built |
+| Playwright collection | 2 tests × 3 projects = 6 |
+
+Spec 47's own 6/6 browser run is **not re-run at this head**: it requires the branch preview to be
+redeployed, which would move the bundle the owner is inspecting for UAT Round 2 (`index-DbaX20hJ.js`
+→ `index-BFDpNUlS.js`). It is deliberately deferred until Round 2 concludes.
+
+**Owner UAT Round 2: PENDING. T3 remains T3-PARTIAL. T4 not begun. Production untouched.**

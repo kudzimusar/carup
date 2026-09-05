@@ -26,36 +26,44 @@ const IDS = {
 } as const;
 type Who = keyof typeof IDS;
 
-/** Unique per run so repeated certifications never collide or read each other's rows. */
-const RUN_TAG = process.env.STAGING_RUN_ID || 't3';
+/**
+ * Unique per run so repeated certifications never collide or read each other's rows. Falls back to
+ * a clock-derived tag locally, because two local runs are still two runs.
+ */
+const RUN_TAG = process.env.STAGING_RUN_ID || `local-${Date.now().toString(36)}`;
 
 /**
- * A sailing operated by a DIFFERENT organisation. Overridable so the spec is not welded to one
- * staging fixture. It must be a real, open sailing the provider does not operate — a fabricated id
- * would be refused as not-found, which proves nothing about authorization.
+ * The volume the conversion test reserves; capacity must move by exactly this, and only on approval.
+ */
+const RESERVED_CBM = 3;
+
+/**
+ * Total capacity of the sailing THIS RUN creates. Comfortably above RESERVED_CBM, and deliberately
+ * small enough to be obviously a fixture rather than a plausible real sailing.
+ */
+const RUN_SAILING_TOTAL_CBM = Number(process.env.TRADEOS_T3_RUN_SAILING_CBM || 24);
+
+/**
+ * The run-owned sailing's human reference. It is written to `origin_city` — a free-text field the
+ * matcher ignores (only COUNTRIES are matched) — so anyone looking at staging's operator surface
+ * can see at a glance that the sailing is certification scaffolding and which run owns it.
+ */
+const sailingReferenceFor = (project: string) => `golden.t3.sailing.${RUN_TAG}.${project}`;
+
+/**
+ * A sailing operated by a DIFFERENT organisation, used to prove the server refuses a cross-operator
+ * attach. It is deliberately NOT run-scoped: a refused attach writes nothing, so this container
+ * accumulates no capacity and cannot drift. The spec asserts it is genuinely foreign rather than
+ * assuming it — a fabricated id would be refused as not-found, which proves nothing about authority.
  */
 const FOREIGN_CONTAINER_ID = process.env.TRADEOS_T3_FOREIGN_CONTAINER_ID
   || 'bbbb2222-cccc-4ddd-8eee-999900002222';
 
-/** The volume the conversion test reserves; capacity must move by exactly this, and only on approval. */
-const RESERVED_CBM = 3;
-
-/**
- * The dedicated conversion sailing's total capacity, which is UNIQUE across staging's sailings so
- * the spec can identify its own card. Taking `.first()` silently read a different operator's
- * container and compared it against itself — the before/after assertions passed while measuring
- * nothing. A test that reads the wrong row and still goes green is worse than one that fails.
- */
-const FIXTURE_TOTAL_CBM = Number(process.env.TRADEOS_T3_FIXTURE_TOTAL_CBM || 47);
-
-/** The sailing the provider attaches. Pinned by id for the same reason as the card above. */
-const FIXTURE_CONTAINER_ID = process.env.TRADEOS_T3_CONTAINER_ID
-  || 'aaaa1111-bbbb-4ccc-8ddd-999900001111';
 /**
  * The cargo description doubles as this run's identifier on shared surfaces (the opportunity feed,
  * the operator manifest), so it must be unique per PROJECT as well as per run. All three viewport
- * projects execute the same spec against the same long-lived staging sailing; with only the run tag
- * in the string, tablet and mobile matched chromium's rows as well as their own.
+ * projects execute the same spec; with only the run tag in the string, tablet and mobile matched
+ * chromium's rows as well as their own.
  */
 const cargoFor = (project: string) => `SYNTHETIC T3 ${RUN_TAG} ${project} household cartons`;
 
@@ -109,6 +117,12 @@ async function apiAs(page: Page, method: string, path: string, body?: unknown) {
     const user = JSON.parse(window.localStorage.getItem('carup_user') || '{}')
     const token = window.localStorage.getItem('carup_token') || ''
     const auth: Record<string, string> = { 'x-user-id': user.id || '', 'x-session-token': token }
+    // The tenant header is what turns a membership into an authority: `authorizeRole` only reads
+    // tenant_users when `x-tenant-id` is present, so without it an operator is treated as having
+    // no tenant role at all and creating a sailing is refused 403. Sent exactly as the app sends
+    // it — from the stored user's active_tenant_id — so this helper carries no privilege the UI
+    // does not already have.
+    if (user.active_tenant_id) auth['x-tenant-id'] = String(user.active_tenant_id)
     // CSRF is bound to the identity, so it must be fetched with the SAME headers the mutation uses.
     const csrfRes = await fetch(`${api}/security/csrf-token`, { credentials: 'include', headers: auth })
     const { csrfToken } = await csrfRes.json()
@@ -124,21 +138,115 @@ async function apiAs(page: Page, method: string, path: string, body?: unknown) {
   }, { api: API_URL, method, path, body })
 }
 
-/** The conversion fixture's own card, identified by its unique total capacity. */
-function fixtureCard(page: Page) {
-  return page.getByTestId('diaspora-container-card')
-    .filter({ hasText: new RegExp(`/\\s*${FIXTURE_TOTAL_CBM}\\s*CBM`) })
+const CONTAINER_API = '/diaspora/container-marketplace';
+const days = (n: number) => new Date(Date.now() + n * 86_400_000).toISOString().slice(0, 10);
+
+type RunSailing = { id: string; reference: string; tenantId: string | null; coordinatorId: string | null };
+
+/**
+ * Create the sailing THIS RUN will fill, through the governed operator API, signed in as the
+ * provider.
+ *
+ * This replaces a long-lived shared fixture. Every certification used to approve ~3 CBM into the
+ * same container, so used capacity ratcheted upward run after run (measured at 9.000/47 across
+ * three runs) until a healthy run finally failed at 45.296/47 — the container product correctly
+ * refusing to overfill. That was never a product defect; it was the certification depending on
+ * capacity that earlier runs had consumed, and on someone periodically resetting it by hand.
+ *
+ * A sailing created inside the run cannot inherit capacity, because it did not exist when the
+ * previous run ran. Isolation is therefore structural, not a cleanup that has to succeed.
+ *
+ * `createContainer` sets `coordinator_id` to the creator, and `assertProviderMayOfferContainer`
+ * admits the coordinator — so the provider is authorised to attach the sailing it just created,
+ * through exactly the same authority check a real operator passes. Nothing is bypassed.
+ */
+async function createRunSailing(page: Page, project: string): Promise<RunSailing> {
+  const reference = sailingReferenceFor(project);
+  const created = await apiAs(page, 'POST', `${CONTAINER_API}/containers`, {
+    origin_country: 'Japan',
+    origin_city: reference,
+    destination_country: 'Zimbabwe',
+    destination_city: 'Harare',
+    departure_date: days(45),
+    booking_deadline: days(30),
+    container_type: '40HC',
+    total_capacity_volume: RUN_SAILING_TOTAL_CBM,
+    metadata: { certification: 'trade-os-t3-spec-47', run_reference: reference, synthetic: true },
+  });
+  expect(created.status,
+    `run-scoped sailing was not created (api=${created.api} as=${created.sentUserId}): ${JSON.stringify(created.body)}`)
+    .toBe(201);
+
+  const container = (created.body as { data?: Record<string, unknown> })?.data || {};
+  const id = String(container.id || '');
+  expect(id, 'container creation returned no id').toBeTruthy();
+
+  // ── Drift guard, asserted at the moment of creation ──────────────────────
+  // If any of these ever fails, the spec has drifted back onto a pre-existing shared sailing.
+  expect(Number(container.total_capacity_volume), 'run sailing has the wrong total')
+    .toBe(RUN_SAILING_TOTAL_CBM);
+  expect(Number(container.used_capacity_volume), 'a freshly created sailing must consume nothing')
+    .toBe(0);
+  expect(Number(container.available_capacity_volume), 'a fresh sailing must offer its whole capacity')
+    .toBe(RUN_SAILING_TOTAL_CBM);
+  expect(String(container.origin_city), 'the sailing is not tagged to this run').toBe(reference);
+
+  const inherited = await apiAs(page, 'GET', `${CONTAINER_API}/containers/${id}/reservations`);
+  expect(inherited.status, 'could not read the new sailing\'s manifest').toBe(200);
+  expect(((inherited.body as { data?: unknown[] })?.data || []).length,
+    'a run-owned sailing inherited reservations from an earlier run').toBe(0);
+
+  return {
+    id,
+    reference,
+    tenantId: container.tenant_id ? String(container.tenant_id) : null,
+    coordinatorId: container.coordinator_id ? String(container.coordinator_id) : null,
+  };
 }
 
-/** Read the fixture container's stated capacity straight off the operator surface. */
-async function capacityFromCard(page: Page): Promise<{ used: number; available: number }> {
-  const card = fixtureCard(page)
-  await expect(card, `no sailing card with a ${FIXTURE_TOTAL_CBM} CBM total`).toHaveCount(1)
-  const text = await card.innerText()
-  const m = text.match(/Used\s+([\d.]+)\s*\/\s*([\d.]+)\s*CBM\s*·\s*available\s+([\d.]+)/i)
-  if (!m) throw new Error(`could not read capacity from card: ${text}`)
-  expect(Number(m[2]), 'read the wrong sailing card').toBe(FIXTURE_TOTAL_CBM)
-  return { used: Number(m[1]), available: Number(m[3]) }
+/**
+ * Retire this run's sailing so it stops accepting bookings. Best effort by design: the NEXT run
+ * creates its own sailing, so it never depends on this having succeeded. Cleanup touches only the
+ * container this run created.
+ */
+async function retireRunSailing(page: Page, sailing: RunSailing): Promise<string> {
+  try {
+    const closed = await apiAs(page, 'POST', `${CONTAINER_API}/containers/${sailing.id}/close-booking`);
+    return closed.status === 200 ? 'BOOKING_CLOSED' : `not closed (HTTP ${closed.status})`;
+  } catch {
+    return 'not closed (request failed)';
+  }
+}
+
+/**
+ * Capacity straight from the governed capacity endpoint, which is the authority: it derives used
+ * volume from APPROVED reservations only (`available = total - sum(APPROVED)`).
+ */
+async function capacityOf(page: Page, containerId: string): Promise<{ used: number; available: number; total: number }> {
+  const res = await apiAs(page, 'GET', `${CONTAINER_API}/containers/${containerId}/capacity`);
+  expect(res.status, `capacity read failed: ${JSON.stringify(res.body)}`).toBe(200);
+  const capacity = (res.body as { data?: { capacity?: Record<string, number> } })?.data?.capacity || {};
+  return {
+    used: Number(capacity.usedVolume),
+    available: Number(capacity.availableVolume),
+    total: Number(capacity.totalVolume),
+  };
+}
+
+/** This run's own card, addressed by container id — never `.first()`, never a capacity string. */
+function runCard(page: Page, containerId: string) {
+  return page.locator(`[data-testid="diaspora-container-card"][data-container-id="${containerId}"]`);
+}
+
+/** What the operator surface SAYS about this run's sailing, to check the UI against the authority. */
+async function capacityFromCard(page: Page, containerId: string): Promise<{ used: number; available: number }> {
+  const card = runCard(page, containerId);
+  await expect(card, `this run's sailing card (${containerId}) is not on the operator surface`).toHaveCount(1);
+  const text = await card.innerText();
+  const m = text.match(/Used\s+([\d.]+)\s*\/\s*([\d.]+)\s*CBM\s*·\s*available\s+([\d.]+)/i);
+  if (!m) throw new Error(`could not read capacity from card: ${text}`);
+  expect(Number(m[2]), 'read a card for the wrong sailing').toBe(RUN_SAILING_TOTAL_CBM);
+  return { used: Number(m[1]), available: Number(m[3]) };
 }
 
 stagingTest.describe('Trade OS T3 — Shipping requests (deployed staging, unmocked)', () => {
@@ -242,20 +350,34 @@ stagingTest.describe('Trade OS T3 — Shipping requests (deployed staging, unmoc
     expect(requestId, 'publish did not return a request id').toBeTruthy();
     await expect(page.getByTestId('logistics-request-detail')).toBeVisible({ timeout: 60_000 });
 
-    // ── Provider attaches a sailing it actually operates ──────────────────
+    // ── Provider creates THIS RUN's sailing, then attaches it ─────────────
     await switchActor(page, 'provider');
     await page.goto('/diaspora/containers?view=provider');
+
+    // Created inside the run, so it starts empty by construction and no later run can inherit it.
+    const runSailing = await createRunSailing(page, testInfo.project.name);
+    testInfo.annotations.push({ type: 'run-sailing', description: `${runSailing.reference} (${runSailing.id})` });
+
+    // The refusal proof is only a proof if the other container really is another operator's.
+    const foreignRead = await apiAs(page, 'GET', `${CONTAINER_API}/containers/${FOREIGN_CONTAINER_ID}/capacity`);
+    const foreignContainer = (foreignRead.body as { data?: { container?: Record<string, unknown> } })?.data?.container || {};
+    expect(String(foreignContainer.coordinator_id || ''), 'the "foreign" sailing is coordinated by this provider')
+      .not.toBe(String(runSailing.coordinatorId || ''));
+    expect(String(foreignContainer.tenant_id || ''), 'the "foreign" sailing belongs to this provider\'s tenant')
+      .not.toBe(String(runSailing.tenantId || ''));
+
     const card = page.getByTestId('logistics-opportunity').filter({ hasText: cargo });
     await expect(card).toBeVisible({ timeout: 60_000 });
     await card.getByRole('button', { name: /Prepare offer/i }).click();
 
     const composer = page.getByTestId('logistics-quote-composer');
     const sailing = composer.getByLabel(/CarUp sailing/i);
-    // Pinned by id, not by index: the provider administers several sailings and attaching an
-    // arbitrary one would make the capacity assertions below measure a container this journey
-    // never touched. Only a sailing this provider coordinates or tenant-administers may be
-    // offered, and the server re-checks that regardless of what the select contains.
-    await sailing.selectOption(FIXTURE_CONTAINER_ID);
+    // Pinned to the sailing THIS RUN created, by id. Attaching an arbitrary one would make the
+    // capacity assertions below measure a container this journey never touched, and attaching a
+    // shared one would make them measure capacity earlier runs had already consumed. Only a
+    // sailing this provider coordinates or tenant-administers may be offered, and the server
+    // re-checks that regardless of what the select contains.
+    await sailing.selectOption(runSailing.id);
     await composer.getByLabel(/Offer total/i).fill('650');
     await composer.getByRole('button', { name: /Review offer/i }).click();
     await composer.getByRole('button', { name: /Submit offer/i }).click();
@@ -273,9 +395,16 @@ stagingTest.describe('Trade OS T3 — Shipping requests (deployed staging, unmoc
     // The award alone must NOT read as a booking — space is a separate, deliberate act.
     await expect(detail).toContainText(/organiser still has to approve/i);
 
-    // Capacity BEFORE any space request, read off the operator surface rather than assumed.
+    // Capacity BEFORE any space request. The governed capacity endpoint is the authority; the
+    // operator card is checked against it so the UI cannot quietly disagree with the ledger.
+    // On a run-owned sailing this is 0 used by construction, not a value inherited from a
+    // previous certification — so the assertions below can be exact rather than relative.
     await page.goto('/diaspora/containers?view=containers');
-    const before = await capacityFromCard(page);
+    const before = await capacityOf(page, runSailing.id);
+    expect(before.used, 'this run\'s sailing started with capacity already consumed').toBe(0);
+    expect(before.available, 'this run\'s sailing did not offer its whole capacity').toBe(RUN_SAILING_TOTAL_CBM);
+    expect(await capacityFromCard(page, runSailing.id), 'the operator card disagrees with the capacity ledger')
+      .toEqual({ used: before.used, available: before.available });
 
     await page.goto('/diaspora/containers?view=mine');
     await page.getByText(cargo).first().click();
@@ -284,9 +413,16 @@ stagingTest.describe('Trade OS T3 — Shipping requests (deployed staging, unmoc
 
     // A REQUESTED reservation consumes NOTHING. This is the invariant the whole product rests on.
     await page.goto('/diaspora/containers?view=containers');
-    const afterRequest = await capacityFromCard(page);
-    expect(afterRequest.used, 'a REQUESTED reservation consumed capacity').toBe(before.used);
-    expect(afterRequest.available, 'a REQUESTED reservation reduced availability').toBe(before.available);
+    const afterRequest = await capacityOf(page, runSailing.id);
+    expect(afterRequest.used, 'a REQUESTED reservation consumed capacity').toBe(0);
+    expect(afterRequest.available, 'a REQUESTED reservation reduced availability').toBe(RUN_SAILING_TOTAL_CBM);
+
+    // Exactly ONE reservation exists on this run's sailing, and it is this run's own. On a shared
+    // sailing this could only ever be a "greater than before" check.
+    const manifest = await apiAs(page, 'GET', `${CONTAINER_API}/containers/${runSailing.id}/reservations`);
+    const rows = (manifest.body as { data?: Array<Record<string, unknown>> })?.data || [];
+    expect(rows.length, 'the run-owned sailing carries a reservation this run did not create').toBe(1);
+    expect(String(rows[0]?.reservation_status), 'the reservation is not REQUESTED').toBe('REQUESTED');
 
     // Replaying the space request must not book the same cargo twice. Driven at the API, because
     // the UI hides the button once recorded — which would prove only that the button is hidden.
@@ -294,6 +430,9 @@ stagingTest.describe('Trade OS T3 — Shipping requests (deployed staging, unmoc
     expect(replay.status, `replayed space request rejected: api=${replay.api} as=${replay.sentUserId} body=${JSON.stringify(replay.body)}`).toBe(200);
     const replayBody = replay.body as { data?: { idempotentReplay?: boolean; reservation?: { id?: string } } };
     expect(replayBody?.data?.idempotentReplay, 'replay created a SECOND reservation').toBe(true);
+
+    const afterReplay = await apiAs(page, 'GET', `${CONTAINER_API}/containers/${runSailing.id}/reservations`);
+    expect(((afterReplay.body as { data?: unknown[] })?.data || []).length, 'replay added a second reservation').toBe(1);
 
     // A provider may not attach a sailing another organisation operates. Asserted at the API: the
     // composer only lists the provider's own sailings, so a UI-only check proves nothing.
@@ -307,23 +446,35 @@ stagingTest.describe('Trade OS T3 — Shipping requests (deployed staging, unmoc
 
     // ── Organiser approves, through the EXISTING container authority ──────
     await page.goto('/diaspora/containers?view=containers');
-    await fixtureCard(page).getByTestId('diaspora-container-open').click();
+    await runCard(page, runSailing.id).getByTestId('diaspora-container-open').click();
 
-    // Scope to THIS run's reservation. The sailing is long-lived and accumulates rows from earlier
-    // certifications, so approving `.first()` would approve a stranger's booking and then assert on
-    // whichever APPROVED badge happened to render — which is how this step first went green while
-    // proving nothing, and then broke on strict mode once two approvals existed.
+    // Scope to THIS run's reservation by cargo. On a run-owned sailing there is only one row, but
+    // the filter stays: approving `.first()` once approved a stranger's booking and then asserted
+    // on whichever APPROVED badge happened to render — green while proving nothing.
     const row = page.getByTestId('diaspora-container-reservation-row').filter({ hasText: cargo });
     await expect(row, 'this run\'s reservation is not on the manifest').toHaveCount(1);
     await row.getByTestId('diaspora-container-approve').click();
     await expect(row.getByText('APPROVED')).toBeVisible({ timeout: 60_000 });
 
-    // …and ONLY now does capacity move, by exactly the reserved volume.
+    // …and ONLY now does capacity move, by exactly the reserved volume. Absolute, because the
+    // sailing began this run empty: available = total - sum(APPROVED).
     await page.goto('/diaspora/containers?view=containers');
-    const afterApproval = await capacityFromCard(page);
+    const afterApproval = await capacityOf(page, runSailing.id);
     expect(afterApproval.used, 'approval did not consume exactly the reserved volume')
-      .toBeCloseTo(before.used + RESERVED_CBM, 3);
+      .toBeCloseTo(RESERVED_CBM, 3);
     expect(afterApproval.available, 'availability did not fall by exactly the reserved volume')
-      .toBeCloseTo(before.available - RESERVED_CBM, 3);
+      .toBeCloseTo(RUN_SAILING_TOTAL_CBM - RESERVED_CBM, 3);
+    expect(await capacityFromCard(page, runSailing.id), 'the operator card disagrees with the capacity ledger after approval')
+      .toEqual({ used: afterApproval.used, available: afterApproval.available });
+
+    // Approval is not repeatable capacity. Re-approving must not consume a second time.
+    const reApprove = await apiAs(page, 'POST', `${CONTAINER_API}/reservations/${String(rows[0]?.id)}/approve`);
+    const afterReApproval = await capacityOf(page, runSailing.id);
+    expect(afterReApproval.used, `re-approval (HTTP ${reApprove.status}) consumed capacity a second time`)
+      .toBeCloseTo(RESERVED_CBM, 3);
+
+    // Retire this run's sailing. Best effort — the next run creates its own and never depends on it.
+    const disposition = await retireRunSailing(page, runSailing);
+    testInfo.annotations.push({ type: 'run-sailing-cleanup', description: disposition });
   });
 });

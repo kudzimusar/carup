@@ -2828,3 +2828,105 @@ was reset; the spec consumes 3 CBM per run and needs periodic reset or its own p
 
 **OWNER UAT ROUND 2 REQUIRED.** T3 remains **T3-PARTIAL** — automation cannot close it, and round 1
 is not a pass. T4 not begun. Production untouched. PR #207 Draft.
+
+---
+
+## §31 — T3 CERTIFICATION INFRASTRUCTURE HARDENING (run-scoped sailing)
+
+**This is not a new product capability.** No runtime product behaviour changed. The Owner UAT
+Round 2 candidate `5958e436` is preserved exactly: `TradeShippingRequests`, the provider workspace,
+the Trade OS header, Request-Quotes business context, route/status logic, sailing presentation and
+the container product are all untouched. The only change inside the product tree is two inert DOM
+attributes used for test selection (below).
+
+### The weakness
+
+Spec 47 filled ONE long-lived staging sailing. Every certification approved 3 CBM into it and never
+returned the capacity, so used volume ratcheted upward run after run — measured at **9.000 / 47**
+across three runs, and previously at **45.296 / 47** after ~24, at which point a perfectly healthy
+run failed because the container product **correctly refused to overfill**.
+
+The product was right every time. The certification was the defect: it depended on capacity earlier
+runs had consumed, and on a human periodically resetting a shared row by hand. §30 recorded this and
+named the fix — "its own per-run sailing". This section delivers it.
+
+### Old model → new model
+
+| | Old | New |
+|---|---|---|
+| Sailing | one shared row, id hardcoded (`aaaa1111-…`) | created inside the run via `POST /container-marketplace/containers` |
+| Identity | matched by a unique total (47 CBM) | addressed by container id (`data-container-id`) |
+| Starting capacity | whatever earlier runs left | **0 used / full available, by construction** |
+| Reservations at start | accumulated from every prior run | asserted **0 inherited** |
+| Capacity assertions | relative (`before + 3`) | absolute (`0 → 3`), because the ledger starts empty |
+| Reset | manual, periodic | none needed — a later run cannot inherit a sailing that did not exist |
+
+The run owns its sailing, cargo, quote, reservation and approval. The requester/provider identities
+and the foreign sailing remain stable on purpose, and that is a deliberate deviation from a literal
+"everything per run": identities accumulate no capacity, minting fresh ones each run would litter
+staging and require ungoverned SQL to grant tenant membership, and a refused foreign attach writes
+nothing so that container cannot drift. **Capacity was the thing that accumulated; capacity is the
+thing now isolated.**
+
+### Authority — nothing is bypassed
+
+`createContainer` sets `coordinator_id` to the creator, and `assertProviderMayOfferContainer` admits
+the coordinator — so the provider may attach the sailing it just created through exactly the check a
+real operator passes. Creation itself still requires tenant-admin authority, which is why `apiAs`
+now sends `x-tenant-id` from the stored user's `active_tenant_id`, precisely as the app does:
+`authorizeRole` only consults `tenant_users` when that header is present, so without it an operator
+holds no tenant role and creation is refused 403. The helper carries no privilege the UI lacks.
+
+A side effect worth stating: the foreign-attach refusal is now a **stronger** proof than before. It
+is refused for a caller who *is* a tenant admin of another tenant, not merely for one with no
+tenant role at all.
+
+### Proof on real staging (governed API, unmocked)
+
+Provider `u_9fe392f59e44494f`, tenant `c0106a0e-…-0a01`, tenant_role `admin`:
+
+```
+CREATE            201   coordinator === caller: true   status BOOKING_OPEN
+  total/used/available                24 / 0 / 24
+CAPACITY  (governed endpoint)  usedVolume 0, availableVolume 24
+RESERVATIONS                   count = 0        (nothing inherited)
+CLEANUP close-booking          200 → BOOKING_CLOSED
+```
+
+### Preserved proofs
+
+Spec 47 still asserts, unweakened: quote submitted → no reservation; accepted → no reservation;
+request space → exactly one REQUESTED; REQUESTED consumes 0; replay → `idempotentReplay=true` and
+still exactly one reservation; foreign sailing refused server-side; approval → APPROVED and capacity
+up by exactly the reserved volume; re-approval does **not** consume twice; `available = total −
+sum(APPROVED)`. Two new assertions were added, not removed: the manifest holds exactly one
+reservation, and the operator card is checked against the capacity ledger so the UI cannot disagree
+with it. Scope stays desktop / tablet / mobile — **6/6**.
+
+### Cleanup semantics
+
+The run closes booking on the sailing it created, best effort. Cleanup is never a precondition: the
+next run creates its own sailing, so it does not matter whether this succeeded. **Structural
+isolation, not housekeeping.** Cleanup touches only run-owned resources and never deletes anything.
+
+### Drift guard
+
+`backend/tests/trade-os-t3-certification-isolation.test.js` (8 tests, ordinary CI — not staging-only,
+because the failure it prevents is silent everywhere else) pins the *architecture*, not any id:
+the sailing is created through the governed endpoint; no shared sailing is pinned as a default
+(exactly one hardcoded id may remain — the foreign one — and it stays env-overridable); creation
+asserts an empty ledger and no inherited reservations; cards are addressed by id and never `.first()`;
+the reference is run-scoped; the capacity invariants above are all still present; the container
+surface still exposes the identities; and cleanup swallows its own failure. Each assertion was
+mutation-tested — reverting to a hardcoded sailing, dropping the empty-ledger assertion, and removing
+the DOM hook each failed exactly one test and no others.
+
+### Product-tree change (inert)
+
+`DiasporaContainerMarketplace.tsx` gains `data-container-id={c.id}` on the sailing card and
+`data-reservation-id={r.id}` on the reservation row. Attributes only — never read by the app, no
+behaviour, no styling. They exist because selecting a container by position or by a capacity string
+has twice read a stranger's sailing and still gone green.
+
+**Owner UAT Round 2 remains PENDING. T3 stays T3-PARTIAL. T4 not begun. Production untouched.
+PR #207 Draft.**

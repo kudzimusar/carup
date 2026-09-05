@@ -553,6 +553,10 @@ export default function DiasporaContainerMarketplace() {
                     key={c.id}
                     className={`min-w-0 py-5 pl-4 pr-2 transition-colors ${isSel ? 'border-l-4 border-orange-500 bg-gray-50' : 'border-l-4 border-transparent'}`}
                     data-testid="diaspora-container-card"
+                    // Identity for test selection only — never read by the app. Certification must
+                    // address the exact sailing it created, not "the first card" or one matched by
+                    // a capacity string, both of which have silently read a stranger's container.
+                    data-container-id={c.id}
                   >
                     <div className="flex min-w-0 items-start justify-between gap-3">
                       <div className="min-w-0">
@@ -800,7 +804,7 @@ export default function DiasporaContainerMarketplace() {
                             : 'No reservations.'}
                       </TableCell></TableRow>
                         ) : reservations.map((r) => (
-                          <TableRow key={r.id} className={openBookingId === r.id ? 'bg-orange-50/50' : undefined} data-testid="diaspora-container-reservation-row">
+                          <TableRow key={r.id} className={openBookingId === r.id ? 'bg-orange-50/50' : undefined} data-testid="diaspora-container-reservation-row" data-reservation-id={r.id}>
                             <TableCell className="whitespace-nowrap">
                               <span className="font-mono text-xs text-gray-700">RES-{String(r.id).replace(/-/g, '').slice(0, 8).toUpperCase()}</span>
                               {typeof r.participant_display_name === 'string' && r.participant_display_name && (
