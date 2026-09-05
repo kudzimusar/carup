@@ -74,6 +74,14 @@ const TEMPLATES = Object.freeze({
     subject: 'Sourcing request {{reference}}',
     body: 'Sourcing request {{reference}} update: {{status}}. Route: {{route}}.',
   },
+  // Trade OS T3 — shipping-request lifecycle. Same required variables as the container and
+  // sourcing templates. It reports the OFFER's state and nothing further: an accepted offer is
+  // not approved container space, carrier acceptance, customs clearance or payment.
+  logistics_update_v1: {
+    transactional: true,
+    subject: 'Shipping request {{reference}}',
+    body: 'Shipping request {{reference}} update: {{status}}. Route: {{route}}.',
+  },
   support_resolved_v1: {
     transactional: true,
     subject: 'CarUp support thread resolved',

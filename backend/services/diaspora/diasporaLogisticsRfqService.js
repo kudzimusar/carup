@@ -25,6 +25,12 @@ import {
 import { resolveClient, appendAudit, appendCriticalAudit, paging } from './diasporaServiceUtils.js';
 import { resolveVehicleObjectAuthority } from '../../middleware/vehicleObjectAuthority.js';
 import { requestReservation, computeCapacity } from './diasporaContainerMarketplaceService.js';
+// T3: best-effort canonical Communications events AFTER the audited mutation. Never authoritative.
+import {
+  notifyLogisticsQuoteSubmitted,
+  notifyLogisticsQuoteAccepted,
+  notifyLogisticsQuoteNotSelected,
+} from './logisticsLifecycleNotifier.js';
 
 const REQUESTS = 'diaspora_logistics_requests';
 const ITEMS = 'diaspora_logistics_request_items';
@@ -499,6 +505,8 @@ export async function createLogisticsQuote(requestId, payload = {}, userContext 
     newState: data, metadata: { logisticsRequestId: requestId }, req: options.req,
   };
   if (submit) await appendCriticalAudit(client, auditFields); else await appendAudit(client, auditFields);
+  // A DRAFT is private to the provider — only a real submission is news for the requester.
+  if (submit) await notifyLogisticsQuoteSubmitted({ request, quote: data, tenantId: request.tenant_id });
   return { ...data, reference: quoteReference(data.id) };
 }
 
@@ -549,6 +557,7 @@ export async function submitLogisticsQuote(quoteId, userContext = {}, options = 
     resourceType: 'diaspora_logistics_quote', resourceId: data.id,
     previousState: previous, newState: data, metadata: { logisticsRequestId: data.logistics_request_id }, req: options.req,
   });
+  await notifyLogisticsQuoteSubmitted({ request, quote: data, tenantId: request.tenant_id });
   return data;
 }
 
@@ -615,6 +624,14 @@ export async function acceptLogisticsQuote(requestId, quoteId, userContext = {},
   });
   if (error) throw translateAcceptError(error);
   if (!data) throw new ValidationError('Logistics offer selection returned no result');
+  // Tell the winner AND the providers who were not selected — silence leaves them chasing a
+  // request that is already awarded. Skipped on an idempotent replay so a retry never re-notifies.
+  if (!data.idempotentReplay && data.acceptedQuote) {
+    const request = data.request || {};
+    await notifyLogisticsQuoteAccepted({ request, quote: data.acceptedQuote, tenantId: request.tenant_id });
+    const { data: siblings } = await client.from(QUOTES).select('*').eq('logistics_request_id', requestId).is('deleted_at', null);
+    await notifyLogisticsQuoteNotSelected({ request, quotes: siblings || [], acceptedQuoteId: data.acceptedQuote.id, tenantId: request.tenant_id });
+  }
   return {
     request: data.request,
     acceptedQuote: data.acceptedQuote,

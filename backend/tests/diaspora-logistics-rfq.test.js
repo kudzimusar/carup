@@ -57,7 +57,14 @@ function seed(extra = {}) {
 }
 
 let vehicleRows;
+/**
+ * Outbox events the T3 notifier actually wrote. emitDomainEvent with no pgClient goes through the
+ * global supabase client, so capturing `domain_events` inserts here exercises the real emission
+ * path rather than a stubbed notifier.
+ */
+let emittedEvents;
 function stubVehicleAuthority() {
+  emittedEvents = [];
   vehicleRows = {
     [MY_VIN]: { vin: MY_VIN, owner_id: 'requester-a', current_seller_id: null, tenant_id: null },
     [FOREIGN_VIN]: { vin: FOREIGN_VIN, owner_id: 'someone-else', current_seller_id: null, tenant_id: OTHER_TENANT },
@@ -66,6 +73,19 @@ function stubVehicleAuthority() {
     configurable: true,
     writable: true,
     value: (table) => {
+      if (table === 'domain_events') {
+        return {
+          insert(rows) {
+            const list = Array.isArray(rows) ? rows : [rows];
+            emittedEvents.push(...list);
+            return {
+              select: () => ({
+                single: () => Promise.resolve({ data: { id: `evt-${emittedEvents.length}`, ...list[0] }, error: null }),
+              }),
+            };
+          },
+        };
+      }
       const chain = {
         _vin: null,
         select() { return chain },
@@ -235,4 +255,100 @@ test('SAILING MATCH: route and actual approved capacity are used; matching does 
   assert.equal(matches[0].capacity_match, true);
   assert.equal(matches[0].requires_operator_confirmation, true);
   assert.equal(c._rows('diaspora_cargo_reservations').length, 2, 'matching is read-only');
+});
+
+// ── T3 lifecycle notifications (§9.12 discipline, applied to logistics) ─────────────────────────
+// These are emitted AFTER the audited mutation and are never authoritative. What matters is who
+// is told, who is not, and that nothing is claimed beyond the offer's own state.
+
+function quoteRow(overrides = {}) {
+  return {
+    id: 'lq-1', logistics_request_id: 'ship-open', provider_id: 'provider-b', provider_tenant_id: TENANT_B,
+    compatible_container_id: null, service_mode: 'lcl', total_amount: 800, currency: 'USD',
+    status: 'SUBMITTED', metadata: {}, created_by: 'provider-b', updated_by: 'provider-b', deleted_at: null,
+    ...overrides,
+  };
+}
+
+function eventsOfType(type) {
+  return emittedEvents.filter((event) => event.event_type === type);
+}
+
+test('NOTIFY: a submitted offer tells the requester; a draft tells nobody', async () => {
+  const c = createMockSupabase(seed({
+    diaspora_logistics_requests: [requestRow()],
+    diaspora_logistics_request_items: [itemRow()],
+  }));
+
+  await logistics.createLogisticsQuote('ship-open', { total_amount: 800, currency: 'USD', service_mode: 'lcl' }, provider, { supabaseClient: c });
+  assert.equal(eventsOfType('diaspora.logistics.quote_submitted').length, 0, 'a DRAFT offer is private to the provider and must notify nobody');
+
+  await logistics.createLogisticsQuote('ship-open', { total_amount: 900, currency: 'USD', service_mode: 'lcl', submit: true }, provider, { supabaseClient: c });
+  const submitted = eventsOfType('diaspora.logistics.quote_submitted');
+  assert.equal(submitted.length, 1);
+  // C1 addressability: the recipient is a literal on the payload, never inferred downstream.
+  assert.equal(submitted[0].payload.recipientUserId, 'requester-a');
+  assert.equal(submitted[0].payload.status, 'OFFER_RECEIVED');
+  assert.equal(submitted[0].payload.reference, 'SHIP-SHIPOPEN');
+  assert.equal(submitted[0].payload.route, 'Yokohama, Japan → Harare, Zimbabwe');
+  // The provider's own price is commercially private; it must not ride along in the notification.
+  assert.ok(!JSON.stringify(submitted[0].payload).includes('900'));
+});
+
+test('NOTIFY: award tells the winner and every provider who was not selected — but never a withdrawn one', async () => {
+  const winner = quoteRow({ id: 'lq-win', provider_id: 'provider-b' });
+  const loser = quoteRow({ id: 'lq-lose', provider_id: 'provider-z', provider_tenant_id: OTHER_TENANT });
+  const gone = quoteRow({ id: 'lq-gone', provider_id: 'provider-w', status: 'WITHDRAWN' });
+  const c = createMockSupabase(seed({
+    diaspora_logistics_requests: [requestRow()],
+    diaspora_logistics_request_items: [itemRow()],
+    diaspora_logistics_quotes: [winner, loser, gone],
+  }), {
+    rpc: {
+      diaspora_accept_logistics_quote_atomic: (params, { table }) => {
+        const request = table('diaspora_logistics_requests').find((row) => row.id === params.p_request_id);
+        const accepted = table('diaspora_logistics_quotes').find((row) => row.id === params.p_quote_id);
+        request.status = 'AWARDED';
+        request.accepted_quote_id = accepted.id;
+        accepted.status = 'ACCEPTED';
+        return { request, acceptedQuote: accepted, idempotentReplay: false };
+      },
+    },
+  });
+
+  await logistics.acceptLogisticsQuote('ship-open', 'lq-win', requester, { supabaseClient: c });
+
+  const accepted = eventsOfType('diaspora.logistics.quote_accepted');
+  assert.equal(accepted.length, 1);
+  assert.equal(accepted[0].payload.recipientUserId, 'provider-b');
+  assert.equal(accepted[0].payload.status, 'OFFER_ACCEPTED');
+
+  const notSelected = eventsOfType('diaspora.logistics.quote_not_selected');
+  assert.equal(notSelected.length, 1, 'exactly the competing provider is told — not the winner, not the withdrawn one');
+  assert.equal(notSelected[0].payload.recipientUserId, 'provider-z');
+
+  // An award is an offer decision and nothing more. It must not imply approved container space,
+  // carrier acceptance, customs or payment.
+  const wording = JSON.stringify([...accepted, ...notSelected]);
+  assert.ok(!/APPROVED|BOOKED|SHIPPED|CLEARED|PAID/i.test(wording));
+});
+
+test('NOTIFY: an idempotent acceptance replay re-notifies nobody', async () => {
+  const c = createMockSupabase(seed({
+    diaspora_logistics_requests: [requestRow({ status: 'AWARDED', accepted_quote_id: 'lq-win' })],
+    diaspora_logistics_request_items: [itemRow()],
+    diaspora_logistics_quotes: [quoteRow({ id: 'lq-win', status: 'ACCEPTED' })],
+  }), {
+    rpc: {
+      diaspora_accept_logistics_quote_atomic: (params, { table }) => ({
+        request: table('diaspora_logistics_requests').find((row) => row.id === params.p_request_id),
+        acceptedQuote: table('diaspora_logistics_quotes').find((row) => row.id === params.p_quote_id),
+        idempotentReplay: true,
+      }),
+    },
+  });
+
+  const result = await logistics.acceptLogisticsQuote('ship-open', 'lq-win', requester, { supabaseClient: c });
+  assert.equal(result.idempotentReplay, true);
+  assert.equal(emittedEvents.length, 0, 'a client retry must never re-notify the winner or the losers');
 });

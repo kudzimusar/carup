@@ -49,6 +49,11 @@ export const COMMUNICATION_EVENT_TYPES = [
   'diaspora.rfq.quote_submitted',
   'diaspora.rfq.quote_accepted',
   'diaspora.rfq.quote_not_selected',
+  // Trade OS T3 — shipping-request (logistics) lifecycle. Emitted best-effort by
+  // services/diaspora/logisticsLifecycleNotifier.js AFTER the audited authoritative mutation.
+  'diaspora.logistics.quote_submitted',
+  'diaspora.logistics.quote_accepted',
+  'diaspora.logistics.quote_not_selected',
   // Trade OS D7 — container co-loading booking lifecycle. Emitted best-effort by
   // services/diaspora/containerBookingNotifier.js AFTER the audited authoritative mutation.
   // Payloads carry `buyerId` (addressable) plus reference/status/route for the governed

@@ -163,6 +163,42 @@ export const NOTIFICATION_POLICIES = Object.freeze({
     transactional: true,
   },
 
+  // Trade OS T3 — shipping-request (logistics) lifecycle. One-way, in-app only, on the same
+  // marketplace_inquiry thread type the T3 requester↔provider conversation already uses.
+  'diaspora.logistics.quote_submitted': {
+    notificationType: 'rfq_update',
+    threadType: 'marketplace_inquiry',
+    priority: 'normal',
+    channels: ['in_app'],
+    fallbackChannels: [],
+    policyChannelsOnly: true,
+    templateKey: 'logistics_update_v1',
+    classification: 'transactional',
+    transactional: true,
+  },
+  'diaspora.logistics.quote_accepted': {
+    notificationType: 'rfq_update',
+    threadType: 'marketplace_inquiry',
+    priority: 'normal',
+    channels: ['in_app'],
+    fallbackChannels: [],
+    policyChannelsOnly: true,
+    templateKey: 'logistics_update_v1',
+    classification: 'transactional',
+    transactional: true,
+  },
+  'diaspora.logistics.quote_not_selected': {
+    notificationType: 'rfq_update',
+    threadType: 'marketplace_inquiry',
+    priority: 'normal',
+    channels: ['in_app'],
+    fallbackChannels: [],
+    policyChannelsOnly: true,
+    templateKey: 'logistics_update_v1',
+    classification: 'transactional',
+    transactional: true,
+  },
+
   // Trade OS D7 — container co-loading booking lifecycle (one-way, in-app only; the governed
   // template says only what CarUp records prove: booking status, never shipment/customs/payment).
   'diaspora.container_booking.reservation_requested': {
