@@ -215,7 +215,15 @@ BEGIN
 END;
 $$;
 
+-- Backend-only, exactly like the sibling atomic mutation RPCs. Supabase applies direct EXECUTE
+-- grants to the API roles on a NEW function, so revoking PUBLIC alone leaves anon and
+-- authenticated able to call it — measured on staging, where this function came out with
+-- anon EXECUTE true while diaspora_accept_quote_atomic and
+-- diaspora_approve_cargo_reservation_atomic were both false. The named revokes below are the
+-- canonical fix from 20260621094000_diaspora_h7_rpc_execute_grants.sql.
 REVOKE ALL ON FUNCTION public.diaspora_accept_logistics_quote_atomic(uuid, uuid, text, boolean) FROM PUBLIC;
+REVOKE ALL ON FUNCTION public.diaspora_accept_logistics_quote_atomic(uuid, uuid, text, boolean) FROM anon;
+REVOKE ALL ON FUNCTION public.diaspora_accept_logistics_quote_atomic(uuid, uuid, text, boolean) FROM authenticated;
 DO $grant$
 BEGIN
   IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'service_role') THEN
@@ -223,6 +231,44 @@ BEGIN
   END IF;
 END;
 $grant$;
+
+-- Row Level Security. Every sibling Diaspora trade table has carried RLS since
+-- 013_diaspora_trade_schema.sql; these three were created without it, which would have left the
+-- whole logistics demand book — requester ids, tenant ids and linked vehicle VINs — readable with
+-- the anon key. That is exactly the exposure the T3 marketplace projection exists to prevent at
+-- the API layer, so leaving the table itself open would have made that projection decorative.
+--
+-- Only the platform-admin policy from the sibling convention is created. CarUp authenticates
+-- through its own backend rather than Supabase Auth, so `auth.uid()` is never populated for an
+-- ordinary CarUp user; owner-scoped policies keyed on it could never match and would be
+-- misleading rather than protective. With RLS on and no such policy, direct anon/authenticated
+-- access reads nothing, and every legitimate read continues to arrive through the service_role
+-- backend, which applies the authorization these tables are actually governed by.
+ALTER TABLE public.diaspora_logistics_requests ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.diaspora_logistics_request_items ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.diaspora_logistics_quotes ENABLE ROW LEVEL SECURITY;
+
+DO $rls$
+DECLARE
+  target TEXT;
+BEGIN
+  IF to_regprocedure('public.is_diaspora_platform_admin()') IS NULL THEN
+    RAISE NOTICE 'is_diaspora_platform_admin() absent; RLS stays enabled with no policy (deny-all to anon).';
+    RETURN;
+  END IF;
+  FOREACH target IN ARRAY ARRAY[
+    'diaspora_logistics_requests',
+    'diaspora_logistics_request_items',
+    'diaspora_logistics_quotes'
+  ]
+  LOOP
+    EXECUTE format('DROP POLICY IF EXISTS diaspora_platform_admin_access ON public.%I', target);
+    EXECUTE format(
+      'CREATE POLICY diaspora_platform_admin_access ON public.%I FOR ALL USING (is_diaspora_platform_admin()) WITH CHECK (is_diaspora_platform_admin())',
+      target);
+  END LOOP;
+END;
+$rls$;
 
 -- +migrate Down
 DROP FUNCTION IF EXISTS public.diaspora_accept_logistics_quote_atomic(uuid, uuid, text, boolean);
