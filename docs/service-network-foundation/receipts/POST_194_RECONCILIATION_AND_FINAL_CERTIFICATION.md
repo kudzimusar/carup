@@ -5,7 +5,11 @@ broken head `93b97a36`, preserved exactly as it was written, before any repair.*
 unedited because it is the institutional record of why the runtime mounting gate now exists:
 184 of 184 Service Network tests were green while all 34 endpoints returned 404.
 
-**Section B records the repair and its verification.**
+**Section B records the repair and its offline verification.**
+
+**Section C records the hosted staging completion** — the migrations applied to the approved
+staging database, the governed preview pair, the six hosted journeys and their database evidence.
+Section B named one blocker; section C closes it.
 
 ---
 
@@ -536,3 +540,299 @@ flipped rather than deleted.
 - PR #197 remains **Draft**.
 - The two new migrations are forward-only and additive; every pre-existing branch of the functions
   they replace is reproduced unchanged.
+
+---
+
+# C. Hosted staging completion
+
+Section B certified the repair offline and named one blocker: the Service Network migrations had
+never been applied to a hosted database, and the branch was not registered as a governed preview
+pair. Both are now closed. This section records the hosted evidence.
+
+**Certified head: `9c95e2a239ed393bf12f4d4f0bdcf129a48a4e30`.** The candidate `c81e1e98` was carried
+forward by exactly one commit, which registers this branch's preview pair. Why that commit was
+unavoidable is in C.3.
+
+## C.1 Provenance of the exact preview pair
+
+Verified twice from independent sources before anything was used.
+
+| Side | Deployment ID | URL | Commit SHA | State |
+|---|---|---|---|---|
+| Frontend | `dpl_DnYCMjFd9spmJrnDwzD4tTYMqrjH` | `https://carup-staging-136orjxmf-11-11.vercel.app` | `c81e1e98…` | READY |
+| Backend | `dpl_BpLZ5bXvnJ13MUSJ3HZ9gZ7z7KuK` | `https://carup-backend-staging-veyxcjyxk-11-11.vercel.app` | `c81e1e98…` | READY |
+
+- **Vercel deployment metadata** reports `githubCommitSha = c81e1e98…` and
+  `githubCommitRef = feat/service-network-foundation-1-0` for both.
+- **The backend's own `/api/health`** independently reports
+  `build.commit_sha = c81e1e98…`, `deployment_id = dpl_BpLZ5bXvnJ13MUSJ3HZ9gZ7z7KuK`,
+  `provenance_available = true`.
+
+Neither side ever reported another SHA, so the fail-closed condition was not triggered.
+
+After the pairing commit, both were re-verified at the new head: frontend
+`carup-provenance.json → commit_sha 9c95e2a2…, unpaired false`, backend
+`/api/health → build.commit_sha 9c95e2a2…`.
+
+## C.2 The migrated staging database
+
+**Project `eoyenigwevnxwwhyhaer`** — the same ref the repository's own workflows pin as
+`EXPECTED_STAGING_PROJECT_REF`. No production database was touched.
+
+**The backend was proven bound to this database before it was migrated**, rather than assumed: the
+deployed `/api/health` reported `outboxBacklog: 284`, and `select count(*) from domain_events where
+status='pending'` on this project returned exactly **284**.
+
+### Preflight
+
+| Check | Result |
+|---|---|
+| Service Network migrations in the ledger | **none of the eight** |
+| Old-timestamp (`20260901*`) Service Network equivalents | **none** — no prior migration had created this schema |
+| The 11 Service Network tables | **all absent** |
+| S3 column, O4 service branch, O5 thread type | absent, absent, absent |
+| FK prerequisites (`tenants`, `users`, `vehicles`, `mechanic_work_orders`, `message_threads`, `domain_events`) | all present |
+
+### Apply
+
+All eight were genuinely missing and all eight were applied, in order, through the governed
+migration mechanism. The `-- +migrate Up` section of each file was applied exactly as the candidate
+defines it.
+
+| # | Migration | Status |
+|---|---|---|
+| 1 | `20260904120000_service_network_s1_garage_identity` | applied |
+| 2 | `20260904130000_service_network_s2_service_cases` | applied |
+| 3 | `20260904140000_service_network_s3_inquiry_target_garage` | applied |
+| 4 | `20260904150000_service_network_s4_work_order_assignment` | applied |
+| 5 | `20260904160000_service_network_s5_service_records` | applied |
+| 6 | `20260904170000_service_network_s8_service_links` | applied |
+| 7 | `20260904180000_service_network_o4_event_dedupe` | applied |
+| 8 | `20260904190000_service_network_o5_thread_type` | applied |
+
+The instruction not to stop at six was load-bearing: O4 and O5 were as absent as the other six, and
+without them the case lifecycle would have had no dedupe identity and every Service Network
+notification would have been rejected by a CHECK constraint.
+
+### One thing found while applying, recorded rather than smoothed over
+
+Staging's `communication_domain_event_dedupe_key()` carried **only** the
+`marketplace.inquiry.created` branch. The repo's canonical version also has `user.email.verified`
+and `vehicle.trust.presentation_changed`, added by `20260826120000_email_1_0_hardening.sql` — which
+is **absent from staging's ledger**. Staging was simply behind on that already-merged lane.
+
+The O4 migration was applied **exactly as the candidate defines it**, which necessarily brings those
+two branches with it. Applying a staging-tailored variant would have certified something other than
+the candidate. The change is additive: no branch was removed, no existing row was altered, and the
+`dedupe_key` column, its partial unique index and the trigger already existed.
+
+### Post-apply verification
+
+| Effect | Result |
+|---|---|
+| 11 Service Network tables | **11 / 11 present** |
+| S3 `marketplace_inquiries.target_provider_tenant_id` | present |
+| S4 columns on `mechanic_work_orders` | **7 / 7** |
+| Key constraints (branch-within-tenant ×2, service-case FK, cost-needs-currency) | **4 / 4** |
+| `service_case_events` append-only trigger | present |
+| O4 `service.case.*` branch in the dedupe function | present |
+| O5 `service_case` in the thread-type CHECK | present |
+| RLS enabled **and forced** | **11 / 11** |
+
+**The decisive before/after:** the deployed backend's `GET /api/garage-directory` answered
+`500 — Could not find the table 'public.garage_public_profiles'` before, and `200 {"garages":[],"total":0}`
+after. That single change re-proves both that the repair reached the deployment and that this
+database is the one it uses.
+
+Migration integrity **24 / 24**; the six PGlite harnesses **6 / 6** against real PostgreSQL.
+
+## C.3 Why the head had to move
+
+The Marketplace gate refused `c81e1e98` with `candidate preview pair is not governed`. Registering
+the pair is a file change, so it necessarily produces a new SHA.
+
+It is not merely bureaucratic. `web/vite.config.ts` reads `preview-backend-pairing.json` **at build
+time**, and with the branch absent the `c81e1e98` frontend baked in:
+
+```json
+{ "api_base_url": "https://unpaired-preview.carup.invalid/api", "unpaired": true,
+  "api_base_source": "branch \"feat/service-network-foundation-1-0\" is not listed in preview-backend-pairing.json" }
+```
+
+That is fail-closed by design — an unpaired preview must not silently borrow another candidate's
+backend. It also means **no hosted UI journey was possible at `c81e1e98`**: that frontend could not
+reach any backend at all. The frontend had to be rebuilt with a real origin.
+
+**The pairing guard was not weakened, bypassed or special-cased.** Two values were added to the
+registry it reads.
+
+Both values are Vercel's stable per-branch **aliases**, which is what these files document
+("Values are the ORIGIN of that branch's backend preview — Vercel's stable per-branch alias, which
+keeps its hostname across redeploys") and what all 13 existing entries use. An immutable
+per-deployment URL could never satisfy this gate: registering one moves the head, and the gate then
+compares that deployment's `commit_sha` against the new head and fails.
+
+Neither alias was constructed. Both were read from Vercel metadata and then verified to resolve to
+exactly the deployments the Product Owner pinned. The backend alias is
+`…-feat-service-network-fou-fda7ff-…` — the truncated-and-hashed form, not the readable form a guess
+would have produced, which is why the previous session refused to invent it.
+
+## C.4 Marketplace Reference Regression
+
+**PASS** at `9c95e2a2` (run `33974162679`). The pairing step now resolves:
+
+```json
+{"branch":"feat/service-network-foundation-1-0",
+ "frontend":"https://carup-staging-git-feat-service-network-foundation-1-0-11-11.vercel.app",
+ "backend":"https://carup-backend-staging-git-feat-service-network-fou-fda7ff-11-11.vercel.app"}
+```
+
+The gate then ran its full unmocked staging certification against that pair: **8 files / 205 tests**
+plus **7 Playwright specs** against deployed staging, all green.
+
+## C.5 The six hosted journeys
+
+Run `snc002742`, against the paired backend and the migrated database. **36 / 36 assertions passed.**
+
+Fixtures are synthetic, staging-only and **run-scoped** — their own tenant, four accounts, VIN
+`SNCERT002742VIN01` and slug `sn-cert-snc002742` — so no earlier certification could manufacture
+state for this one. No production identity or vehicle was used.
+
+Notably, the garage role was **not** granted by editing a user's platform role. Public registration
+refuses to assign one (`"Public registration cannot assign a role; accounts are created as 'owner'"`),
+so the garage and mechanic received their role the governed way: membership in a `garage`-type
+tenant, which `resolveEffectiveRole` honours only when the requested role matches the verified
+`tenant_users` row.
+
+| Journey | Assertions | Result |
+|---|---|---|
+| 1 — Directory → Detail → service request | 6 | PASS |
+| 2 — Marketplace request → target garage | 2 | PASS |
+| 3 — accept → queue / state transition | 4 | PASS |
+| 4 — work order → mechanic → work → record → completion | 8 | PASS |
+| 5 — Owner Service History → Passport / lifecycle | 5 | PASS |
+| 6 — Service Link → anonymous lookup → scoped capability | 9 | PASS |
+
+Each journey asserted refusals as well as successes: an unpublished garage is absent from the public
+directory; an unrelated user cannot read the case; the private queue refuses an anonymous caller;
+an unknown work-order status is refused; another owner does not see this vehicle's history;
+redemption requires authentication; a redeemed capability cannot be replayed; a revoked one cannot
+be redeemed.
+
+## C.6 Database evidence for the consequential transitions
+
+API responses were not accepted as proof. Every consequential transition was read back from the
+staging database.
+
+**Service case** `ae273895-138b-465b-99bb-405f57d5dd3c` — `status completed`, correct VIN, garage
+tenant and requester, `source_channel directory`, and all four stamps present
+(`requested_at`, `accepted_at`, `started_at`, `completed_at`).
+
+**Append-only case history** — the full lifecycle, in order:
+
+```
+service.case.requested   null      → requested
+service.case.accepted    requested → accepted
+service.work.started     accepted  → active
+service.case.completed   active    → completed
+```
+
+**Work order** `0c7f2470…` — `service_case_id` links to the case, `status Completed`, `completed_at`
+set, correct tenant, VIN and category.
+
+**Assignment** — mechanic `u_853bbaff…`, assigned by the garage user, `unassigned_at` null (live).
+
+**Service record** `16ad0880…` — `total_cost 250`, `currency ZIG` (ISO-4217 uppercase), correct VIN
+and tenant, `performed_at` set.
+
+**Mileage** — one observation, `91000`, `observation_source garage_stated` — recorded as an
+observation, never written to a canonical odometer.
+
+**O2** — the marketplace inquiry carries `target_provider_tenant_id = c970d768…`, with `seller_id`
+and `seller_tenant_id` both **NULL**. Seller semantics were never overloaded for routing. A forged
+tenant id was refused outright rather than recorded.
+
+**O4** — all four events carry the correct deterministic key, in the exact format the application
+derives:
+
+```
+service.case.requested:ae273895-…   service.case.accepted:ae273895-…
+service.work.started:ae273895-…     service.case.completed:ae273895-…
+```
+
+Replay was then tested directly against the hosted database: a second
+`service.case.accepted` insert for the same case raised **`unique_violation`**, and the row count
+stayed at 1 before and after. **Replay does not duplicate durable effects.**
+
+**O5** — the recipient contract holds exactly as designed. `service.case.accepted` carries
+`recipientUserId = u_0d0ed7b23cab4b7c`, the case's requester; `service.case.requested` carries
+**none**, because its audience is the garage tenant and Communications addresses a user. Both carry
+the governed participants (`requesterUserId`, `garageTenantId`, `acceptedByUserId`) and neither
+carries the private `request_summary`.
+
+The O5 constraint was verified behaviourally: a `service_case` thread inserts successfully, while a
+bogus thread type is still **rejected** — so the CHECK was extended, not dropped. Both probe rows
+were deleted.
+
+**O6** — the service link is active; two capability grants exist: one redeemed by the governed
+grantee, one revoked and never redeemed.
+
+## C.7 Communications — environment limitation, stated not worked around
+
+The backend reports `communications: BLOCKED`. `COMMUNICATION_ENGINE_ENABLED` is not true and the
+worker/provider settings are absent.
+
+**No provider credential was added. No channel was enabled.** Nothing was changed to make this
+section green.
+
+What the Foundation contract requires was proven:
+
+| Requirement | Evidence |
+|---|---|
+| Domain event emitted | 4 `service.*` events durably in `domain_events` |
+| Governed recipient / context | `recipientUserId` = case requester on customer-facing transitions; participants carried; no private free text |
+| Canonical outbox binding | events are in the canonical `domain_events` outbox with correct dedupe keys — no Service-Network-specific channel |
+| Thread binding *where available* | the `service_case` thread type is accepted by the migrated schema; **fanout did not run** |
+| Service truth survives Communications degradation | the case completed, the work order completed, the service record was written and owner history is correct — **all while Communications is BLOCKED** |
+
+**What did not happen, stated plainly:** the four events remain `status = 'pending'` in the outbox
+and **no thread or notification was produced for this case** (`threads_for_case = 0`). No delivery
+is claimed. Enabling the canonical in-app engine is a separate environment decision.
+
+This does not block any of the six journeys — all 36 assertions passed with Communications disabled,
+which is itself the degradation guarantee.
+
+## C.8 Final certification at `9c95e2a2`
+
+| Gate | Result |
+|---|---|
+| Marketplace Reference Regression | **PASS** (pair governed; 205 tests + 7 Playwright vs deployed staging) |
+| Service Network focused suite + migration integrity | **275 / 275** |
+| Full backend (repo ROOT, CI env contract) | **6021 tests, 6000 pass, 0 fail, 21 skipped** |
+| Migration integrity | **24 / 24** |
+| Six real-PostgreSQL harnesses | **6 / 6** |
+| Playwright desktop + mobile, against **deployed paired staging** | **6 / 6**, control case at each width |
+| Hosted journeys | **36 / 36** |
+
+Exact-head CI at `9c95e2a2` — **all eight workflows**:
+
+| Workflow | Result |
+|---|---|
+| CI (Lint · Types · Build · Tests) | success |
+| Marketplace Reference Regression | **success** |
+| Vehicle Passport Foundation CI | success |
+| Referral Engine CI | success |
+| Navigation Intelligence CI | success |
+| Diaspora Phases 3-7 Validation | success |
+| Communication Command Center CI | success |
+| Diaspora Deployed Staging UAT | skipped (by design) |
+
+## C.9 Scope
+
+- **Production untouched.** No production migration, no production deployment, no production data.
+- **`main` untouched** — still `bb9d9900`.
+- **PR #197 remains Draft.**
+- Only the approved staging project `eoyenigwevnxwwhyhaer` was migrated.
+- No third-party provider credential was added and no communication channel was enabled.
+- The historical `93b97a36` failed-reconciliation evidence in section A is unchanged, as is the
+  record of the runtime guards it produced.
