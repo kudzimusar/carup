@@ -18,9 +18,8 @@ name: O2 Live OCR — Cloudflare Workers AI accuracy gate
 # trigger was removed. Do not reintroduce `push:`, `pull_request:` or `schedule:` here; a permanent
 # guard in backend/tests/o2-ocr-accuracy-corpus.test.js fails the suite if any of them returns.
 #
-# Triggering follows the established discipline: an explicit push of this workflow or the gate
-# it runs, on the OCR candidate branch, plus workflow_dispatch once this file reaches the
-# default branch.
+# Triggering: workflow_dispatch and nothing else. There is no push, pull_request or schedule
+# trigger, on this branch or any other, so this gate runs only when an owner starts it by hand.
 on:
   workflow_dispatch:
     inputs:
