@@ -10,7 +10,7 @@
 Governed garage identity and publication, replacing the empty `GarageDirectory.tsx`
 placeholder with a real registry. Plan §6.5, §22.1, S1.
 
-**Schema** — `20260901120000_service_network_s1_garage_identity.sql` (additive, timestamp
+**Schema** — `20260904120000_service_network_s1_garage_identity.sql` (additive, timestamp
 after the whole #194 lane):
 - `garage_public_profiles` — PK `tenant_id` (one profile per garage tenant), UNIQUE `slug`,
   `publication_status` CHECK draft|published|unpublished, `contact_policy` CHECK

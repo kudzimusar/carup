@@ -1,7 +1,7 @@
 /**
  * Service Network S3 — Marketplace bridge migration proof.
  *
- * Proves 20260901140000_service_network_s3_inquiry_target_garage.sql against REAL
+ * Proves 20260904140000_service_network_s3_inquiry_target_garage.sql against REAL
  * PostgreSQL (PGlite):
  *   1. the additive column lands on the REAL marketplace_inquiries table without
  *      disturbing existing rows or the seller columns;
@@ -18,9 +18,9 @@ import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
 
 const MIG = join(dirname(fileURLToPath(import.meta.url)), '..', 'migrations');
-const S1 = '20260901120000_service_network_s1_garage_identity.sql';
-const S2 = '20260901130000_service_network_s2_service_cases.sql';
-const S3 = '20260901140000_service_network_s3_inquiry_target_garage.sql';
+const S1 = '20260904120000_service_network_s1_garage_identity.sql';
+const S2 = '20260904130000_service_network_s2_service_cases.sql';
+const S3 = '20260904140000_service_network_s3_inquiry_target_garage.sql';
 
 function splitMigration(file) {
   const raw = readFileSync(join(MIG, file), 'utf-8');

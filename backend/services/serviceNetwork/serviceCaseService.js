@@ -67,8 +67,11 @@ function requireTenantContext(userContext = {}) {
   return tenantId;
 }
 
-function actorId(userContext = {}) {
-  const id = userContext.id || userContext.userId || null;
+// A JS default applies only to `undefined`, so an explicit null argument reached the property
+// read and produced a TypeError (HTTP 500) where the honest answer is 403. An absent identity is
+// a refusal, not a server fault.
+function actorId(userContext) {
+  const id = userContext?.id || userContext?.userId || null;
   if (!id) throw new ForbiddenError('An authenticated actor is required');
   return id;
 }
@@ -154,16 +157,67 @@ function toCaseView(row) {
  * Event payloads carry identifiers and safe status metadata ONLY — never the
  * private request summary, never customer free text, never secrets (plan §8).
  */
-function eventPayload(caseRow, extra = {}) {
+/**
+ * Transitions whose audience is the CUSTOMER who asked for the work.
+ *
+ * O5: the recipient is a governed case participant — `requester_user_id`, the person the case was
+ * opened for — never an address supplied by a caller and never a second contact list. Communications
+ * resolves a recipient from the payload, so a participant that is not stated here is silently not
+ * notified; stating it is what makes the subscription real.
+ *
+ * `service.case.requested` and `service.case.cancelled` are deliberately absent: their audience is
+ * the GARAGE, and Communications addresses a user, not a tenant. Inventing a "pick someone at the
+ * tenant" rule here would be a parallel notification system with a guess at its centre. Those two
+ * remain emitted and unsubscribed until a governed tenant-recipient model exists.
+ */
+const CUSTOMER_FACING_TRANSITIONS = new Set([
+  'service.case.accepted',
+  'service.case.declined',
+  'service.work.started',
+  'service.case.completed',
+]);
+
+function eventPayload(caseRow, extra = {}, eventType = null) {
   return {
     serviceCaseId: caseRow.id,
     vin: caseRow.vin,
     garageTenantId: caseRow.garage_tenant_id,
+    // Case participants, carried so consumers never have to re-derive who is involved.
+    requesterUserId: caseRow.requester_user_id || null,
+    acceptedByUserId: caseRow.accepted_by_user_id || null,
     status: caseRow.status,
     occurredAt: new Date().toISOString(),
+    // Communications reads this field. Only set for the transitions the customer is the audience
+    // for, so a garage-facing event does not notify the customer about the garage's own workflow.
+    ...(eventType && CUSTOMER_FACING_TRANSITIONS.has(eventType) && caseRow.requester_user_id
+      ? { recipientUserId: caseRow.requester_user_id }
+      : {}),
     ...extra,
   };
 }
+
+/**
+ * One named emitter per transition, each naming its event as a LITERAL.
+ *
+ * Dispatching `emitDomainEvent(null, eventType, …)` through a variable is correct at runtime but
+ * invisible to static analysis, and `backend/tests/communication-event-coverage.test.js` is a
+ * static gate: it refuses to believe a subscription is real unless it can SEE an emitter for it.
+ * That gate is right to insist. A subscription whose emitter cannot be found is indistinguishable
+ * from one that will never fire, and Communications has shipped exactly that before — the
+ * MARKETPLACE_* transitions were emitted for months with nobody subscribed, and the ESCROW_* pair
+ * was subscribed after its only emitter had been retired.
+ *
+ * SERVICE_CASE_EVENTS remains the single source of truth for the vocabulary; the test below this
+ * registry pins the two together so a literal here can never drift from the canonical name.
+ */
+const CASE_EVENT_EMITTERS = Object.freeze({
+  'service.case.requested': (emitEvent, payload, tenantId) => emitEvent(null, 'service.case.requested', payload, tenantId),
+  'service.case.accepted': (emitEvent, payload, tenantId) => emitEvent(null, 'service.case.accepted', payload, tenantId),
+  'service.case.declined': (emitEvent, payload, tenantId) => emitEvent(null, 'service.case.declined', payload, tenantId),
+  'service.case.cancelled': (emitEvent, payload, tenantId) => emitEvent(null, 'service.case.cancelled', payload, tenantId),
+  'service.case.completed': (emitEvent, payload, tenantId) => emitEvent(null, 'service.case.completed', payload, tenantId),
+  'service.work.started': (emitEvent, payload, tenantId) => emitEvent(null, 'service.work.started', payload, tenantId),
+});
 
 async function emitCaseEvent(eventType, caseRow, extra = {}, deps = {}) {
   // Communications/Intelligence consume this asynchronously through the existing
@@ -173,8 +227,13 @@ async function emitCaseEvent(eventType, caseRow, extra = {}, deps = {}) {
   const persistDomainEvent = deps.emitDomainEvent || emitDomainEvent;
   // A notification failure must never erase an authoritative Service Case
   // (plan §15.5): the problem is reported, the case stands.
+  const emitter = CASE_EVENT_EMITTERS[eventType];
+  if (!emitter) {
+    // An event outside the canonical namespace is a programming error, not a runtime condition.
+    return { emitted: false, reason: `unregistered service case event: ${eventType}` };
+  }
   try {
-    await persistDomainEvent(null, eventType, eventPayload(caseRow, extra), caseRow.garage_tenant_id);
+    await emitter(persistDomainEvent, eventPayload(caseRow, extra, eventType), caseRow.garage_tenant_id);
   } catch (error) {
     return { emitted: false, reason: error?.message || 'emit failed' };
   }

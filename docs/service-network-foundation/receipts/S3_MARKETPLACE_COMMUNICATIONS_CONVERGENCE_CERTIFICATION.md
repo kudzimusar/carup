@@ -9,7 +9,7 @@
 
 Two consume-only seams: Marketplace → Service Case, and Service Case → Communications.
 
-**Schema** — `20260901140000_service_network_s3_inquiry_target_garage.sql`: adds the nullable
+**Schema** — `20260904140000_service_network_s3_inquiry_target_garage.sql`: adds the nullable
 `marketplace_inquiries.target_provider_tenant_id UUID` plus a partial index. This is the
 smallest truthful answer to plan §10.2's question — *which garage tenant was this service request
 directed to?* — which the schema could not answer at all: `createInquiry` populates

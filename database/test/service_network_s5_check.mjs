@@ -1,7 +1,7 @@
 /**
  * Service Network S5 — service records, mileage observations, parts/evidence proof.
  *
- * Proves 20260901160000_service_network_s5_service_records.sql against REAL PostgreSQL:
+ * Proves 20260904160000_service_network_s5_service_records.sql against REAL PostgreSQL:
  *   1. RLS posture on all four tables + sequence grants;
  *   2. the provenance CHECK admits exactly the plan §6.6 vocabulary and refuses
  *      invented strengths such as 'verified repair';
@@ -19,10 +19,10 @@ import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
 
 const MIG = join(dirname(fileURLToPath(import.meta.url)), '..', 'migrations');
-const S1 = '20260901120000_service_network_s1_garage_identity.sql';
-const S2 = '20260901130000_service_network_s2_service_cases.sql';
-const S4 = '20260901150000_service_network_s4_work_order_assignment.sql';
-const S5 = '20260901160000_service_network_s5_service_records.sql';
+const S1 = '20260904120000_service_network_s1_garage_identity.sql';
+const S2 = '20260904130000_service_network_s2_service_cases.sql';
+const S4 = '20260904150000_service_network_s4_work_order_assignment.sql';
+const S5 = '20260904160000_service_network_s5_service_records.sql';
 
 function splitMigration(file) {
   const raw = readFileSync(join(MIG, file), 'utf-8');

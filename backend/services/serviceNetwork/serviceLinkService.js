@@ -5,6 +5,8 @@ import {
   assertServiceCaseAuthority,
   assertVehicleAuthority,
 } from './serviceAuthority.js';
+// O6: the ONE registry of what an anonymous caller may resolve. Consulted rather than mirrored.
+import { LOOKUP_KINDS, LOOKUP_DECISIONS, resolveLookupAccess } from '../../utils/passportLookupPolicy.js';
 
 /**
  * Service Network S8 — Service Link resolver and scoped capability grants.
@@ -48,8 +50,11 @@ function generateToken(bytes) {
   return crypto.randomBytes(bytes).toString('base64url');
 }
 
-function actorId(userContext = {}) {
-  const id = userContext.id || userContext.userId || null;
+// A JS default applies only to `undefined`, so an explicit null argument reached the property
+// read and produced a TypeError (HTTP 500) where the honest answer is 403. An absent identity is
+// a refusal, not a server fault.
+function actorId(userContext) {
+  const id = userContext?.id || userContext?.userId || null;
   if (!id) throw new ForbiddenError('An authenticated actor is required');
   return id;
 }
@@ -155,7 +160,18 @@ export async function resolveServiceLink(supabaseClient, userContext, publicToke
   };
 
   if (!viewerId) {
-    // Unauthenticated: a safe authentication/claim path and nothing else.
+    // O6: anonymous scanning is intentional — a stranger holding a job card must not be forced to
+    // create an account to see that the link is real. But that decision belongs to the CENTRAL
+    // public-lookup policy, not to this file. #194 made the public kinds a deliberate list so a new
+    // anonymous surface has to be added in the open; this resolver predates that list and bypassed
+    // it. Asking here makes the registration load-bearing: drop SERVICE_LINK from
+    // PUBLIC_LOOKUP_KINDS and anonymous resolution genuinely stops.
+    const access = resolveLookupAccess({ kind: LOOKUP_KINDS.SERVICE_LINK, actor: null });
+    if (access.decision !== LOOKUP_DECISIONS.ALLOW) {
+      throw new ForbiddenError('Anonymous service-link resolution is not permitted by the lookup policy.');
+    }
+    // A safe authentication/claim path and nothing else: no VIN, no case, no participants, no
+    // garage identity. Scanning establishes that a link exists — never any authority over it.
     return { ...context, access: 'authentication_required', next_action: 'sign_in_to_continue' };
   }
 

@@ -1,6 +1,6 @@
 import express from 'express';
 import { supabase } from '../db/supabase.js';
-import { authorizeRole } from '../middleware/authMiddleware.js';
+import { authorizeSessionRole } from '../middleware/authMiddleware.js';
 import {
   acceptServiceCase,
   cancelServiceCase,
@@ -18,7 +18,7 @@ import {
  *
  * Every endpoint is session-authenticated; there is no public Service Case surface.
  * Garage-side actions derive the acting tenant from req.userContext (membership
- * verified by authorizeRole), never from a client-supplied parameter, and a case
+ * verified by authorizeSessionRole), never from a client-supplied parameter, and a case
  * belonging to another tenant reads as 404 rather than 403 so the API is not an
  * existence oracle.
  *
@@ -31,46 +31,54 @@ const asyncHandler = (fn) => (req, res, next) => {
   Promise.resolve(fn(req, res, next)).catch(next);
 };
 
+// Service Network auth hardening: every consequential route below composes `authorizeSessionRole`,
+// NOT `authorizeRole`. The difference is `allowUserIdFallback: false` — a spoofable `x-user-id`
+// header can never stand in for a real session on a route that creates a case, moves work, assigns a
+// mechanic, reads a garage's private customer list, or mints/redeems/revokes a capability.
+// `isUserIdFallbackAllowed()` already closes that header in production deployments, but a private
+// garage workspace must not depend on one environment variable being right; the route states its own
+// requirement. The public directory reads and the anonymous service-link resolver deliberately keep
+// their weaker gates — see the comments at those routes.
 const REQUESTER_ROLES = ['owner', 'dealer', 'mechanic', 'admin'];
 const GARAGE_ROLES = ['mechanic', 'dealer', 'admin'];
 
 // ── requester side ──
-router.post('/api/service-cases', authorizeRole(REQUESTER_ROLES), asyncHandler(async (req, res) => {
+router.post('/api/service-cases', authorizeSessionRole(REQUESTER_ROLES), asyncHandler(async (req, res) => {
   const result = await requestServiceCase(supabase, req.userContext, req.body);
   res.status(result.created ? 201 : 200).json(result);
 }));
 
-router.get('/api/service-cases/mine', authorizeRole(REQUESTER_ROLES), asyncHandler(async (req, res) => {
+router.get('/api/service-cases/mine', authorizeSessionRole(REQUESTER_ROLES), asyncHandler(async (req, res) => {
   res.json(await listMyServiceCases(supabase, req.userContext));
 }));
 
 // ── garage side ──
-router.get('/api/garage/service-cases', authorizeRole(GARAGE_ROLES), asyncHandler(async (req, res) => {
+router.get('/api/garage/service-cases', authorizeSessionRole(GARAGE_ROLES), asyncHandler(async (req, res) => {
   res.json(await listGarageServiceCases(supabase, req.userContext, req.query));
 }));
 
-router.post('/api/service-cases/:caseId/accept', authorizeRole(GARAGE_ROLES), asyncHandler(async (req, res) => {
+router.post('/api/service-cases/:caseId/accept', authorizeSessionRole(GARAGE_ROLES), asyncHandler(async (req, res) => {
   res.json({ success: true, ...(await acceptServiceCase(supabase, req.userContext, req.params.caseId, req.body)) });
 }));
 
-router.post('/api/service-cases/:caseId/decline', authorizeRole(GARAGE_ROLES), asyncHandler(async (req, res) => {
+router.post('/api/service-cases/:caseId/decline', authorizeSessionRole(GARAGE_ROLES), asyncHandler(async (req, res) => {
   res.json({ success: true, ...(await declineServiceCase(supabase, req.userContext, req.params.caseId, req.body)) });
 }));
 
-router.post('/api/service-cases/:caseId/start', authorizeRole(GARAGE_ROLES), asyncHandler(async (req, res) => {
+router.post('/api/service-cases/:caseId/start', authorizeSessionRole(GARAGE_ROLES), asyncHandler(async (req, res) => {
   res.json({ success: true, ...(await startServiceCase(supabase, req.userContext, req.params.caseId)) });
 }));
 
-router.post('/api/service-cases/:caseId/complete', authorizeRole(GARAGE_ROLES), asyncHandler(async (req, res) => {
+router.post('/api/service-cases/:caseId/complete', authorizeSessionRole(GARAGE_ROLES), asyncHandler(async (req, res) => {
   res.json({ success: true, ...(await completeServiceCase(supabase, req.userContext, req.params.caseId)) });
 }));
 
 // ── either participant ──
-router.get('/api/service-cases/:caseId', authorizeRole(REQUESTER_ROLES), asyncHandler(async (req, res) => {
+router.get('/api/service-cases/:caseId', authorizeSessionRole(REQUESTER_ROLES), asyncHandler(async (req, res) => {
   res.json(await getServiceCase(supabase, req.userContext, req.params.caseId));
 }));
 
-router.post('/api/service-cases/:caseId/cancel', authorizeRole(REQUESTER_ROLES), asyncHandler(async (req, res) => {
+router.post('/api/service-cases/:caseId/cancel', authorizeSessionRole(REQUESTER_ROLES), asyncHandler(async (req, res) => {
   res.json({ success: true, ...(await cancelServiceCase(supabase, req.userContext, req.params.caseId, req.body)) });
 }));
 

@@ -1,6 +1,6 @@
 import express from 'express';
 import { supabase } from '../db/supabase.js';
-import { authorizeRole, optionalAuth } from '../middleware/authMiddleware.js';
+import { authorizeSessionRole, optionalAuth } from '../middleware/authMiddleware.js';
 import {
   ensureServiceLink,
   grantCapability,
@@ -24,6 +24,14 @@ const asyncHandler = (fn) => (req, res, next) => {
   Promise.resolve(fn(req, res, next)).catch(next);
 };
 
+// Service Network auth hardening: every consequential route below composes `authorizeSessionRole`,
+// NOT `authorizeRole`. The difference is `allowUserIdFallback: false` — a spoofable `x-user-id`
+// header can never stand in for a real session on a route that creates a case, moves work, assigns a
+// mechanic, reads a garage's private customer list, or mints/redeems/revokes a capability.
+// `isUserIdFallbackAllowed()` already closes that header in production deployments, but a private
+// garage workspace must not depend on one environment variable being right; the route states its own
+// requirement. The public directory reads and the anonymous service-link resolver deliberately keep
+// their weaker gates — see the comments at those routes.
 const AUTHENTICATED_ROLES = ['owner', 'dealer', 'mechanic', 'admin'];
 
 // Public resolution — grants nothing on its own.
@@ -31,21 +39,21 @@ router.get('/api/service-links/:publicToken', optionalAuth(), asyncHandler(async
   res.json(await resolveServiceLink(supabase, req.userContext || {}, req.params.publicToken));
 }));
 
-router.post('/api/service-links', authorizeRole(AUTHENTICATED_ROLES), asyncHandler(async (req, res) => {
+router.post('/api/service-links', authorizeSessionRole(AUTHENTICATED_ROLES), asyncHandler(async (req, res) => {
   const result = await ensureServiceLink(supabase, req.userContext, req.body);
   res.status(result.created ? 201 : 200).json(result);
 }));
 
 // Scoped capability grants — resource authority is verified in the service.
-router.post('/api/service-capabilities', authorizeRole(AUTHENTICATED_ROLES), asyncHandler(async (req, res) => {
+router.post('/api/service-capabilities', authorizeSessionRole(AUTHENTICATED_ROLES), asyncHandler(async (req, res) => {
   res.status(201).json(await grantCapability(supabase, req.userContext, req.body));
 }));
 
-router.post('/api/service-capabilities/redeem', authorizeRole(AUTHENTICATED_ROLES), asyncHandler(async (req, res) => {
+router.post('/api/service-capabilities/redeem', authorizeSessionRole(AUTHENTICATED_ROLES), asyncHandler(async (req, res) => {
   res.json(await redeemCapability(supabase, req.userContext, req.body?.token));
 }));
 
-router.delete('/api/service-capabilities/:grantId', authorizeRole(AUTHENTICATED_ROLES), asyncHandler(async (req, res) => {
+router.delete('/api/service-capabilities/:grantId', authorizeSessionRole(AUTHENTICATED_ROLES), asyncHandler(async (req, res) => {
   res.json({ success: true, ...(await revokeCapability(supabase, req.userContext, req.params.grantId)) });
 }));
 

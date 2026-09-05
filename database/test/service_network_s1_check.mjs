@@ -1,7 +1,7 @@
 /**
  * Service Network S1 — Governed Garage Identity & Publication migration proof.
  *
- * Proves 20260901120000_service_network_s1_garage_identity.sql against REAL
+ * Proves 20260904120000_service_network_s1_garage_identity.sql against REAL
  * PostgreSQL (PGlite, PG17 WASM) on top of the REAL 002 tenants shape:
  *   1. bootstrap roles/auth + users, shim uuid_generate_v4, apply real 002 Up;
  *   2. apply S1 Up — tables exist with frozen columns;
@@ -20,7 +20,7 @@ import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
 
 const MIG = join(dirname(fileURLToPath(import.meta.url)), '..', 'migrations');
-const S1 = '20260901120000_service_network_s1_garage_identity.sql';
+const S1 = '20260904120000_service_network_s1_garage_identity.sql';
 
 function splitMigration(file) {
   const raw = readFileSync(join(MIG, file), 'utf-8');

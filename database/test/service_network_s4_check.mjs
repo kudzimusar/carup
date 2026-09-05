@@ -1,7 +1,7 @@
 /**
  * Service Network S4 — Work order convergence + mechanic assignment proof.
  *
- * Proves 20260901150000_service_network_s4_work_order_assignment.sql against REAL
+ * Proves 20260904150000_service_network_s4_work_order_assignment.sql against REAL
  * PostgreSQL (PGlite), layered on the REAL legacy 006 mechanic shape and the REAL
  * 20260808150000 convergence migration — so this runs over the HARDER historical
  * shape, exactly as migration_pglite_check does:
@@ -21,9 +21,9 @@ import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
 
 const MIG = join(dirname(fileURLToPath(import.meta.url)), '..', 'migrations');
-const S1 = '20260901120000_service_network_s1_garage_identity.sql';
-const S2 = '20260901130000_service_network_s2_service_cases.sql';
-const S4 = '20260901150000_service_network_s4_work_order_assignment.sql';
+const S1 = '20260904120000_service_network_s1_garage_identity.sql';
+const S2 = '20260904130000_service_network_s2_service_cases.sql';
+const S4 = '20260904150000_service_network_s4_work_order_assignment.sql';
 
 function splitMigration(file) {
   const raw = readFileSync(join(MIG, file), 'utf-8');

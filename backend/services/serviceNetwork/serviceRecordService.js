@@ -35,8 +35,11 @@ function requireTenantContext(userContext = {}) {
   return tenantId;
 }
 
-function actorId(userContext = {}) {
-  const id = userContext.id || userContext.userId || null;
+// A JS default applies only to `undefined`, so an explicit null argument reached the property
+// read and produced a TypeError (HTTP 500) where the honest answer is 403. An absent identity is
+// a refusal, not a server fault.
+function actorId(userContext) {
+  const id = userContext?.id || userContext?.userId || null;
   if (!id) throw new ForbiddenError('An authenticated actor is required');
   return id;
 }

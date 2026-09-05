@@ -11,7 +11,7 @@ The existing `mechanic_work_orders` table remains **the** work-order authority �
 forbids a second work-order table — and is evolved **additively**, in the style of
 `20260808150000_mechanic_work_orders_convergence.sql`.
 
-**Schema** — `20260901150000_service_network_s4_work_order_assignment.sql`:
+**Schema** — `20260904150000_service_network_s4_work_order_assignment.sql`:
 - Additive nullable columns: `service_case_id`, `branch_id`, `service_category`,
   `completed_at`, `cancelled_at`, `cancellation_reason_code`, `currency`. No column is
   renamed, retyped or repurposed; the status CHECK is **not** mutated.

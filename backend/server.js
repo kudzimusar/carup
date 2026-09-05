@@ -130,6 +130,18 @@ import identityVerificationAdminRouter from './routes/identityVerificationAdminR
 import partsentryReviewRouter from './routes/partsentryReviewRoutes.js';
 import passportOwnershipTransferRouter from './routes/passportOwnershipTransferRoutes.js';
 import vehicleFinanceObligationRouter from './routes/vehicleFinanceObligationRoutes.js';
+// Service Network Foundation 1.0. These imports and their mounts below were dropped when the
+// post-#194 reconciliation resolved this file by taking main's side wholesale. Both sides must be
+// UNIONED here: choosing either one silently unmounts the other's routers while the server still
+// boots, so the loss shows up only as 404s. See backend/tests/service-network-route-mounting.test.js,
+// which boots the real app and fails if any of these mounts goes missing again.
+import garageDirectoryRouter from './routes/garageDirectoryRoutes.js';
+import serviceCaseRouter from './routes/serviceCaseRoutes.js';
+import serviceWorkOrderRouter from './routes/serviceWorkOrderRoutes.js';
+import serviceRecordRouter from './routes/serviceRecordRoutes.js';
+import serviceLinkRouter from './routes/serviceLinkRoutes.js';
+import garageQueueRouter from './routes/garageQueueRoutes.js';
+import { getOwnerServiceHistory } from './services/serviceNetwork/ownerServiceHistoryService.js';
 import { sellerVehicleIdentifierProblem } from './utils/sellerVehicleIdentifier.js';
 import { normalizeVehicleStatus, publicVehicleStatusFilterValues, publiclyVisiblePublicationStatuses, isPublicVehicleStatus, isPubliclyVisiblePublication, PUBLIC_VEHICLE_COLUMNS } from './utils/vehicleStatus.js';
 import { attestedValue, CLAIM_VISIBILITY, LISTING_CLAIM_COLUMNS, PUBLIC_VEHICLE_SELECT, projectVehicle, toListingClaims, toPublicEvidence, toPublicPlateHistory, toPublicTimelineEvent, toVehicleHistoryDisclosures } from './utils/publicVehicleProjection.js';
@@ -405,6 +417,15 @@ app.use(identityVerificationAdminRouter);
 app.use(partsentryReviewRouter);
 app.use(passportOwnershipTransferRouter);
 app.use(vehicleFinanceObligationRouter);
+
+// Service Network Foundation 1.0 — see the import block above. Removing any line here unmounts a
+// whole router family silently; the runtime mounting test is the guard that makes that loud.
+app.use(garageDirectoryRouter);
+app.use(serviceCaseRouter);
+app.use(serviceWorkOrderRouter);
+app.use(serviceRecordRouter);
+app.use(serviceLinkRouter);
+app.use(garageQueueRouter);
 
 // Mount isolated Diaspora Trade bounded context
 app.use('/api/diaspora', diasporaRouter);
@@ -3968,29 +3989,24 @@ app.delete('/api/vehicles/saved/:vin', authorizeRole(['owner', 'dealer', 'admin'
 })
 
 // GET /api/service-history/me - Get service history for owned vehicles
+//
+// Service Network S6: this used to return raw mechanic_work_orders rows, which left the owner
+// surface with no provider identity, no provenance and no currency — so the UI printed the literal
+// word "Garage" and rendered an unrecorded cost as $0. It now returns the governed owner
+// projection, which states a fact or reports it as absent. The original row fields are preserved so
+// existing consumers keep working.
+//
+// The raw implementation was reinstated once already by a merge that took main's side of this file
+// wholesale. It must not come back: an unreadable source is not an empty history, and an absent
+// cost is not zero. backend/tests/service-network-owner-history-route.test.js asserts the mounted
+// route delegates here.
 app.get('/api/service-history/me', authorizeRole(['owner', 'dealer', 'admin']), async (req, res) => {
   try {
-    // 1. Get user's vehicles
-    const { data: vehicles } = await supabase
-      .from('vehicles')
-      .select('vin')
-      .eq('owner_id', req.userContext.id)
-    
-    if (!vehicles || vehicles.length === 0) return res.json([])
-    
-    const vins = vehicles.map(v => v.vin)
-
-    // 2. Get work orders for these vehicles
-    const { data, error } = await supabase
-      .from('mechanic_work_orders')
-      .select('*')
-      .in('vin', vins)
-
-    if (error) throw error
-    res.json(data || [])
+    const result = await getOwnerServiceHistory(supabase, req.userContext)
+    res.json(result.entries)
   } catch (error) {
     console.error('Error fetching service history:', error)
-    res.status(500).json({ error: error.message })
+    res.status(error.statusCode || 500).json({ error: error.message })
   }
 })
 

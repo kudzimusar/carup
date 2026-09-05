@@ -10,7 +10,7 @@
 The source record of what a garage actually did, plus governed links to the parts and
 evidence authorities (plan §7.5, §12, §13).
 
-**Schema** — `20260901160000_service_network_s5_service_records.sql`:
+**Schema** — `20260904160000_service_network_s5_service_records.sql`:
 - `service_records` — work performed, service category, **provenance strength**, money,
   `performed_at` (the real-world service time, distinct from when it was typed in), and a
   `CHECK (total_cost IS NULL OR currency IS NOT NULL)` so money integrity is a database

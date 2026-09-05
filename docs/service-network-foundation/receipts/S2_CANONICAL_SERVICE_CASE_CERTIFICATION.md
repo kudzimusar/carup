@@ -10,7 +10,7 @@
 The canonical Service Case: the durable orchestration record for one service engagement
 (plan §6.1, §6.2, §7, S2).
 
-**Schema** — `20260901130000_service_network_s2_service_cases.sql`:
+**Schema** — `20260904130000_service_network_s2_service_cases.sql`:
 - `service_cases` — every S0-frozen semantic field; FKs to `vehicles(vin)`, `tenants(id)`,
   `garage_branches(id)`, `users(id)`; `status` CHECK over exactly the frozen six states;
   separate server-stamped lifecycle timestamps (`requested_at`, `accepted_at`, `declined_at`,

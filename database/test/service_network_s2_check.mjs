@@ -1,7 +1,7 @@
 /**
  * Service Network S2 — Canonical Service Case migration proof.
  *
- * Proves 20260901130000_service_network_s2_service_cases.sql against REAL
+ * Proves 20260904130000_service_network_s2_service_cases.sql against REAL
  * PostgreSQL (PGlite, PG17 WASM), layered on the real 002 tenants shape and
  * the real S1 garage identity migration:
  *   1. RLS posture: ENABLE + FORCE, ZERO policies, anon/authenticated hold
@@ -23,8 +23,8 @@ import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
 
 const MIG = join(dirname(fileURLToPath(import.meta.url)), '..', 'migrations');
-const S1 = '20260901120000_service_network_s1_garage_identity.sql';
-const S2 = '20260901130000_service_network_s2_service_cases.sql';
+const S1 = '20260904120000_service_network_s1_garage_identity.sql';
+const S2 = '20260904130000_service_network_s2_service_cases.sql';
 
 function splitMigration(file) {
   const raw = readFileSync(join(MIG, file), 'utf-8');

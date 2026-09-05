@@ -10,7 +10,7 @@
 Service Link as a **resource-link protocol**, not a QR subsystem — QR and deep links are
 transports over one resolver, and NFC would reuse it (plan §6.8, §20, §21).
 
-`20260901170000_service_network_s8_service_links.sql` creates two deliberately separate things:
+`20260904170000_service_network_s8_service_links.sql` creates two deliberately separate things:
 
 - **`service_links`** — permanent addresses for `vehicle`, `service_case`, `practitioner`.
   Opaque 128-bit public token; `UNIQUE(resource_type, resource_id)` so a resource has exactly
