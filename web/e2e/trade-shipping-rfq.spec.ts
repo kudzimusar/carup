@@ -289,6 +289,30 @@ test.describe('Trade OS T3 — Shipping requests', () => {
     expect(item.linked_vehicle_vin).toBeUndefined()
   })
 
+  test('a failed sailing-matches read renders as UNREADABLE, never as "none available"', async ({ page }) => {
+    const state = baseState()
+    await loginAs(page, customer)
+    await mockApi(page, state, customer)
+    // Force the compatible-sailings read to fail AFTER the request itself loads fine. Registered
+    // after mockApi so this route wins for the matcher.
+    await page.context().route('**/sailing-matches**', (route) =>
+      route.fulfill({ status: 500, contentType: 'application/json', body: JSON.stringify({ error: 'synthetic read failure' }) }))
+
+    await page.goto('/diaspora/containers', { waitUntil: 'domcontentloaded' })
+    await page.getByRole('button', { name: /New shipping request/i }).click()
+    await page.getByTestId('logistics-cargo-description').fill('Boxes for the unreadable-sailings case')
+    await page.getByRole('button', { name: /^Continue/i }).click()
+    await page.getByRole('button', { name: /^Continue/i }).click()
+    await page.getByRole('button', { name: /^Continue/i }).click()
+    await page.getByRole('button', { name: /Publish shipping request/i }).click()
+    await expect(page.getByTestId('logistics-request-detail')).toBeVisible()
+
+    // The three-state contract: a read failure is a read failure.
+    await expect(page.getByTestId('logistics-sailings-unreadable')).toBeVisible()
+    await expect(page.getByTestId('logistics-sailings-unreadable')).toContainText(/not a report that none are available/i)
+    await expect(page.getByTestId('logistics-sailings-empty')).toHaveCount(0)
+  })
+
   test('logistics provider gets a provider workspace and reviews a transparent offer before submit', async ({ page }) => {
     const state = baseState()
     state.opportunities = [openOpportunity]
