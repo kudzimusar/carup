@@ -142,4 +142,54 @@ stagingTest.describe('Trade OS T3 — Shipping requests (deployed staging, unmoc
     // An award is a chosen offer and nothing more. It must not read as booked space.
     await expect(detail).not.toContainText(/Space approved|Booking approved/i);
   });
+
+  stagingTest('a shared-container offer converts to a REQUESTED reservation that consumes nothing until the organiser approves', async ({ page }) => {
+    stagingTest.setTimeout(300_000);
+    const cargo = `${CARGO} container-space`;
+
+    // ── Requester publishes ───────────────────────────────────────────────
+    await signIn(page, 'requester');
+    await page.goto('/diaspora/containers?view=mine');
+    await page.getByRole('button', { name: /New shipping request/i }).click();
+    await page.getByTestId('logistics-cargo-description').fill(cargo);
+    await page.locator('[data-testid="logistics-request-wizard"] input[type="number"]').first().fill('4');
+    await page.getByRole('button', { name: /^Continue/i }).click();
+    await page.getByLabel(/I know the total volume/i).check();
+    await page.locator('[data-testid="logistics-request-wizard"] input[type="number"]').first().fill('3');
+    await page.getByRole('button', { name: /^Continue/i }).click();   // → Route
+    await page.getByRole('button', { name: /^Continue/i }).click();   // → Review
+    await page.getByRole('button', { name: /Publish shipping request/i }).click();
+    await expect(page.getByTestId('logistics-request-detail')).toBeVisible({ timeout: 60_000 });
+
+    // ── Provider attaches a sailing it actually operates ──────────────────
+    await switchActor(page, 'provider');
+    await page.goto('/diaspora/containers?view=provider');
+    const card = page.getByTestId('logistics-opportunity').filter({ hasText: cargo });
+    await expect(card).toBeVisible({ timeout: 60_000 });
+    await card.getByRole('button', { name: /Prepare offer/i }).click();
+
+    const composer = page.getByTestId('logistics-quote-composer');
+    const sailing = composer.getByLabel(/CarUp sailing/i);
+    // Only a sailing this provider coordinates or tenant-administers may be offered; the server
+    // re-checks it regardless of what the select contains.
+    await sailing.selectOption({ index: 1 });
+    await composer.getByLabel(/Offer total/i).fill('650');
+    await composer.getByRole('button', { name: /Review offer/i }).click();
+    await composer.getByRole('button', { name: /Submit offer/i }).click();
+    await expect(composer).toBeHidden({ timeout: 60_000 });
+
+    // ── Requester awards, then explicitly asks for space ──────────────────
+    await switchActor(page, 'requester');
+    await page.goto('/diaspora/containers?view=mine');
+    await page.getByText(cargo).first().click();
+    const detail = page.getByTestId('logistics-request-detail');
+    await expect(detail).toBeVisible({ timeout: 60_000 });
+    await detail.getByRole('button', { name: /Choose this provider/i }).first().click();
+    await expect(detail).toContainText(/Provider selected/i, { timeout: 60_000 });
+
+    // The award alone must NOT read as a booking — space is a separate, deliberate act.
+    await expect(detail).toContainText(/organiser still has to approve/i);
+    await detail.getByRole('button', { name: /Request container space/i }).click();
+    await expect(detail).toContainText(/Container-space request recorded/i, { timeout: 60_000 });
+  });
 });
