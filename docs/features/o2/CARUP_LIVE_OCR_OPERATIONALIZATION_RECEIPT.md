@@ -169,6 +169,103 @@ provider-quality result**: nothing the provider read was ever wrong.
 No expected fixture value was changed, no strictness was reduced, no fuzzy acceptance was
 introduced for identity numbers or VINs, and no second provider was substituted.
 
+## 4D. Provider change: Cloudflare Workers AI (2026-09-05) — NOT READY, on fabrication
+
+Gemini's paid tier was unavailable, so the Product Owner authorized Cloudflare Workers AI
+(`@cf/meta/llama-3.2-11b-vision-instruct`) as the replacement candidate and supplied credentials in
+both GitHub Actions and the branch-scoped Vercel Preview.
+
+### What was built
+
+Cloudflare sits **behind the existing OCR provider boundary**. Document Intelligence was not
+redesigned: it still observes, and the domain authorities still decide. It now asks
+`ocrVisionProvider.js` for "the configured vision provider" rather than naming a client.
+
+- Selection is `CARUP_OCR_PROVIDER` and nothing else. There is **no automatic fallback** — pinned
+  by a guard — so a reading is never attributed to a model that was never asked.
+- Gemini remains implemented and selectable, is not the default, and was not used here.
+- The response schema is **derived from CarUp's existing document schemas**, so the two cannot
+  drift; a guard asserts the requested properties equal the schema's fields exactly. No document
+  field is ever `required`, because a required field invites invention.
+- Provenance now carries provider, model, execution status, requested and observed document class,
+  latency, media facts, and Workers AI's **own reported usage** (neurons and tokens) — `null` when
+  the provider reports none, never estimated.
+
+### The two integration issues from the manual test, fixed where they belong
+
+**`first_name` vs "Given names".** No new convention was introduced: `first_name` is still the
+field. The prompt now names both CarUp's field and the wording printed on the document, and
+`FIELD_ALIASES` accepts synonyms **for the same printed field**. Fields the schemas deliberately
+keep apart — plate vs registration number, VIN vs book number, tax vs company number — share no
+alias, which is pinned by a guard.
+
+**Prose around JSON.** Measured, not assumed: the bare `prompt` form makes this model answer in
+prose; the `messages` form makes Workers AI return a parsed object. `response_format` and
+`guided_json` are **accepted by the API but not enforced on this model** — a schema asking for
+`colour` came back as `dominant_colour`. The schema is still sent; it is simply not trusted.
+
+### The ordered first gate PASSED
+
+One unchanged clean National-ID fixture through the real provider
+([run 33930917859](https://github.com/kudzimusar/carup/actions/runs/33930917859)):
+**8 expected fields, 8 exact, 0 missing, 0 incorrect**, 6.7 s, confidence 1, 38.21 neurons — against
+the existing answer key, with no change to the fixture, manifest, normalization or grading.
+
+`registration-book-clean` also passed live: **all seven fields exact, including the VIN.**
+
+### The full corpus FAILS — and the reason is fabrication
+
+[Run 33931341267](https://github.com/kudzimusar/carup/actions/runs/33931341267): **7/11 fixtures,
+27 exact, 3 normalized, 21 missing, 8 INCORRECT, 8 FABRICATIONS.**
+
+Shown `non-document` — a rendered landscape photograph with no text and no document — the model
+returned a complete invented Zimbabwean identity: `Tendai Makore`, `65-123456-7`, `1990-01-01`,
+`Zimbabwe`, `Harare`, `M`, `2010-01-01`, with `legible: true`, **confidence 1**, and extraction
+status `Pending_Verification`.
+
+Reproduced across both full-corpus runs and three isolated prompt variants — including one with
+every example value removed from the prompt, and one stating explicitly that an empty result is
+correct and a wrong value far worse than none — at `temperature: 0`. In an early probe the model
+returned the prompt's own example identity number as though it had read it, which is why no example
+value remains in any prompt.
+
+**Prompt engineering does not fix this. It is a measured property of the model.**
+
+A second defect: JSON output is unreliable and non-deterministic. `national-id-clean` scored 8/8
+exact in one run and produced no recoverable JSON at all in the next.
+
+### Regression matrix at the Cloudflare head
+
+Product code changed, so the guards were re-run even though the ordered sequence stopped.
+
+| Gate | Result |
+|---|---|
+| Full backend suite (repo root, CI env) | **6005 tests · 5982 pass · 2 fail · 21 skipped** |
+| — the 2 failures | `fraud-routes.test.js`, a port collision in the full run (`Unexpected token 'W', "WebSockets"`). **12/12 in isolation**, zero OCR references, byte-identical to the lane base — environmental, not a regression |
+| `o2-cloudflare-ocr-provider` (new) | **16/16** |
+| `o2-live-ocr-operationalization` | **31/31** |
+| `o2-ocr-accuracy-corpus` | **13/13** |
+| X1 authority · X2 journey · X3 lifecycle · X7 guards | 6/6 · 13/13 · 7/7 · 13/13 |
+| 7C identity (`verification-*`) | 15/15 · 4/4 · 5/5 |
+| `ocr-mock-guard` · `diaspora-ocr-route` | 3/3 · 13/13 |
+| `non-seller-authority-hardening` · `issue164-phase3-trust-authority` | 8/8 · 57/57 |
+| Production build (`tsc -b && vite build`) | **PASS** — 25.48s |
+| Lint regression gate vs `71b81d74` | **NET_NEW 0/0** |
+
+The web suite was not re-run: no web code was touched in this lane step (the change surface is
+backend services, backend tests, the gate tool and the workflow), and the production build — which
+compiles the whole frontend — passes.
+
+### Why the sequence stopped here
+
+The corpus did not pass, so staging deployment and §3A were **not** run. Putting a provider that
+invents identities from photographs in front of an identity-verification UAT would manufacture
+exactly the false evidence this programme exists to prevent.
+
+Nothing was weakened to accommodate the result: the corpus, answer key, normalization and grading
+are untouched, and CarUp's own guards caught the fabrication, graded it `incorrect`, and failed the
+gate — which is the system working.
+
 ## 4C. Second activation attempt — the quota measured exactly (2026-09-04, 16:00–16:25 UTC)
 
 Reported as: paid Gemini project/key configured in both GitHub Actions and the branch-scoped Vercel
@@ -387,7 +484,9 @@ authorized, so it can never be read as a pass.
 
 ## 7. Verdict
 
-**LIVE OCR NOT READY — both Gemini credentials CarUp uses are metered as FREE TIER at 20 requests/day; the billed key reached neither location.**
+**CLOUDFLARE OCR NOT READY — `@cf/meta/llama-3.2-11b-vision-instruct` fabricates a complete identity from a photograph containing no document, at confidence 1. See §4D.**
+
+*(Superseded the Gemini quota verdict of §4C: the provider changed, and so did the blocker — from "the credential cannot serve requests" to "the model invents readings".)*
 
 *(Superseded the earlier `LIVE OCR CODE READY — STAGING PROVIDER AUTHORIZATION REQUIRED`:
 authorization was granted, the staging pair was built and proven, and the remaining blocker moved

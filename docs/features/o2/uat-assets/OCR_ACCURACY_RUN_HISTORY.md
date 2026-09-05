@@ -132,3 +132,79 @@ credentials are still metered as free tier.
 `national-id-rotated` was read completely — all four expected fields **exact**, confidence 1 — in
 the one window where a request was allowed. Across runs 8 and 9: **4 exact, 0 incorrect, 0
 fabrications.** Every refusal was recorded as a provider failure with no fields, never as a reading.
+
+---
+
+# Provider change: Cloudflare Workers AI (2026-09-05)
+
+Gemini's paid tier was unavailable, so the Product Owner authorized Cloudflare Workers AI
+(`@cf/meta/llama-3.2-11b-vision-instruct`) as the replacement candidate. The corpus, its answer
+key, normalization and grading were **not** changed.
+
+| # | Run | Candidate | Scope | Verdict | Exact | **Incorrect** | Fabrications |
+|---|---|---|---|---|---|---|---|
+| 10 | [33930707171](https://github.com/kudzimusar/carup/actions/runs/33930707171) | `b1986f70` | 1 fixture | PARTIAL | 0 | 0 | 0 |
+| 11 | [33930917859](https://github.com/kudzimusar/carup/actions/runs/33930917859) | `a2aeccef` | 1 fixture (`national-id-clean`) | **PARTIAL — 8/8 exact** | 8 | **0** | 0 |
+| 12 | [33930992334](https://github.com/kudzimusar/carup/actions/runs/33930992334) | `a2aeccef` | full 11 | **FAIL** | 26 | **8** | **8** |
+| 13 | [33931341267](https://github.com/kudzimusar/carup/actions/runs/33931341267) | `14013f9f` | full 11 | **FAIL** | 27 | **8** | **8** |
+
+## The ordered first gate passed
+
+Run 11 put one unchanged clean National-ID fixture through the real provider and it passed the
+existing answer key outright: **8 fields expected, 8 exact, 0 missing, 0 incorrect**, 6.7 s,
+confidence 1, 38.21 neurons. Nothing in the fixture, manifest, normalization or grading moved.
+
+`registration-book-clean` also passed live in run 13 — **all seven fields exact, including
+`vin: JTDBR32E870123456`**. The VIN/chassis carry path was not needed on this reading because the
+model populated `vin` directly (`carriedIdentifiers: []`); the fix remains covered by unit guards.
+
+## Why the full corpus FAILS: the model fabricates
+
+`non-document` is a rendered landscape photograph — sky, sun, two hills, no text and no document.
+Shown that image and asked for a Zimbabwe National Registration card, the model returned:
+
+| Field | Value it returned | Actually in the image |
+|---|---|---|
+| first_name | `Tendai` | nothing |
+| last_name | `Makore` | nothing |
+| national_id_number | `65-123456-7` | nothing |
+| date_of_birth | `1990-01-01` | nothing |
+| country | `Zimbabwe` | nothing |
+| place_of_birth | `Harare` | nothing |
+| sex | `M` | nothing |
+| date_of_issue | `2010-01-01` | nothing |
+
+`legible: true`, `confidence: 1`, extraction status `Pending_Verification`. **Eight fabricated
+fields presented as a confident reading of a photograph of a hillside.**
+
+This reproduced across both full-corpus runs and, in isolated probing, across three prompt
+variants — including one that removed every example value from the prompt and one that stated
+explicitly that an empty result is correct and that a wrong value is far worse than no value. At
+`temperature: 0`. In an early probe the model even returned the prompt's own example identity
+number `63-1234567-A-42` as though it had read it, which is why no example value remains in any
+prompt.
+
+**Prompt engineering did not fix it.** This is a property of the model, measured, not a defect in
+the adapter.
+
+## Second measured defect: unreliable JSON
+
+Even with an absolute output-format instruction and a `response_format` json_schema, this model
+wraps its JSON in prose on a large minority of calls. `response_format` and `guided_json` are
+**accepted by the Workers AI API but not enforced** on this model — a schema asking for `colour`
+came back as `dominant_colour`. A fail-closed recovery of a single balanced JSON object was added
+(nothing is inferred from the prose), and even so two fixtures in run 13 exhausted all three
+attempts with output that contained no recoverable JSON at all.
+
+The runs are also non-deterministic at `temperature: 0`: `national-id-clean` scored 8/8 exact in
+run 11 and produced no usable output at all in run 13.
+
+## Verdict
+
+The corpus did not pass, so the ordered sequence stopped here. Staging deployment and the §3A
+journey were **not** run: putting a provider that invents identities from photographs in front of
+an identity-verification UAT would manufacture exactly the false evidence this programme exists to
+prevent.
+
+CarUp's own guards behaved correctly throughout — the fabrication was caught by the corpus, graded
+`incorrect`, and failed the gate. Nothing was weakened to accommodate it.

@@ -206,7 +206,47 @@ does **not** pass.
 | — | Routed to `pending_manual_review` with `reviewer_id: null`, `review_decision: null` — the governed reviewer remains the only identity decision writer | ☑ |
 | — | No blur, glare or tampering score appears anywhere in the response | ☑ |
 
-#### The exact blocker — measured 2026-09-04 16:00–16:25 UTC
+#### Provider changed to Cloudflare Workers AI — and the blocker changed with it (2026-09-05)
+
+Gemini's paid tier was unavailable, so Cloudflare Workers AI
+(`@cf/meta/llama-3.2-11b-vision-instruct`) was authorized as the replacement. It is now the
+configured provider, behind the same OCR provider boundary. Credentials work; there is no quota
+problem. **The blocker is now the model itself.**
+
+**What works.** One unchanged clean National-ID fixture read through the real provider scored
+**8 expected fields, 8 exact, 0 missing, 0 incorrect** against the existing answer key — 6.7 s,
+confidence 1. The vehicle registration book also read completely, all seven fields exact including
+the VIN.
+
+**What fails.** Shown `non-document` — a rendered landscape photograph with no text and no document
+in it — the model returned a complete invented Zimbabwean identity:
+
+| Field | Returned | Actually in the image |
+|---|---|---|
+| First name | `Tendai` | nothing |
+| Last name | `Makore` | nothing |
+| ID number | `65-123456-7` | nothing |
+| Date of birth | `1990-01-01` | nothing |
+| Country / Place of birth / Sex | `Zimbabwe` / `Harare` / `M` | nothing |
+
+with `legible: true` and **confidence 1**. Eight fabricated fields presented as a confident reading
+of a hillside. Reproduced across two full corpus runs and three prompt variants — including one
+telling the model plainly that an empty answer is correct and a wrong value far worse than none —
+at temperature 0. **Prompt engineering does not fix it.**
+
+Gate result: **FAIL — 7/11 fixtures, 27 exact, 8 incorrect, 8 fabrications.**
+
+**§3A was deliberately NOT run on this provider.** Putting a model that invents identities from
+photographs in front of the identity-verification journey would manufacture exactly the false
+evidence this pack exists to detect. The staging pair remains proven and ready; only the provider
+is unfit.
+
+**What this means for you.** Nothing was weakened to accommodate the result — the corpus, its
+answer key, normalization and grading are untouched, and CarUp's own guards caught the fabrication
+and failed the gate, which is the system working as designed. The decision now is a provider one: a
+vision model that returns nothing when it sees nothing. Until then §3A stays **NOT READY**.
+
+#### The previous blocker, before the provider change (Gemini) — measured 2026-09-04 16:00–16:25 UTC
 
 A single real Gemini request now runs before anything else, so availability is proven rather than
 inferred. It was refused:
