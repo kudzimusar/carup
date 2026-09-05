@@ -1584,9 +1584,14 @@ Do not describe T3 as client-ready, and do not begin T4, before then.
 
 ## T4 — Order & Booking Passport convergence
 
-- [ ] One operating record from awarded procurement/logistics quote.
-- [ ] Aggregate participants, quote, cargo, container, documents, milestones, communications and audit.
-- [ ] Prevent shadow duplication.
+- [x] One operating record from awarded procurement/logistics quote.
+- [x] Aggregate participants, quote, cargo, container, documents, milestones, communications and audit.
+- [x] Prevent shadow duplication.
+- [~] Deployed-staging evidence: logistics-origin certified; procurement-origin blocked on the
+      staging migration (see §33).
+
+Executed at `8fc31aaa`. Receipt:
+`docs/trade-os/receipts/T4_ORDER_BOOKING_PASSPORT_CONVERGENCE.md`.
 
 ## T5 — Container Marketplace full product
 
@@ -3018,3 +3023,78 @@ Each certification project owns the capacity state it measures. Do not reintrodu
 periodic manual reset, indefinitely growing capacity, `.first()` resource selection, or relative
 capacity assertions against unknown inherited state. `backend/tests/trade-os-t3-certification-isolation.test.js`
 enforces this in ordinary CI.
+
+---
+
+## §33 — T4 EXECUTION: Order & Booking Passport convergence
+
+**Start `04558148` · candidate `8fc31aaa` · T4-PARTIAL · owner UAT required.**
+T3 frozen at `b446d8ea` and untouched. Production untouched. T5 not started. PR #207 Draft.
+
+### The authority decision, and why it is one column
+
+The audit ran before any code. Existing authorities already own procurement
+(`diaspora_import_orders` + quotes + participants), logistics (`diaspora_logistics_requests` +
+quotes), capacity (the container authority), documents, Communications and audit — and
+`getImportOrder` already aggregates seven relations in one read. Communications was **already
+converged**: T2 and T3 both call the same canonical `ensureReferenceFlow` on workflow `marketplace`.
+
+Exactly one fact had no home: *"this shipping request is moving the goods from that purchase."*
+That is an edge, not an entity, so T4 adds **one nullable foreign key** —
+`diaspora_logistics_requests.import_order_id` — and no table. A `trade_transactions` table was
+considered and rejected: it would duplicate an identity the two anchors already provide, and every
+column it held would be a second copy of a canonical row.
+
+NULL is the normal case. A logistics-origin transaction moves cargo the requester already owns, and
+§4B's rule — never manufacture a procurement order for it — is exactly what a nullable column
+buys.
+
+### The two origins, never conflated
+
+`kind` is a path segment, not a query flag, so a purchase and a shipment cannot be merged by a
+missing parameter. Procurement-origin anchors on the order; logistics-origin on the shipping
+request. The continuation prefills route and vehicle from the purchase — the buyer never meets a
+blank shipping form — while the crate measurements CarUp genuinely does not know stay `UNKNOWN`
+with a null volume, so T3 still correctly refuses container space until a real volume exists.
+
+### Stage: furthest proven, never beyond evidence
+
+A deterministic ladder on the SERVER as a pure function, because T3's equivalent lives in a React
+component where it cannot be tested alone or shared. An awarded request with an APPROVED
+reservation reads **"Container space approved"**, not "Provider selected". And it stops there:
+warehouse intake, loading, shipment, customs and handoff report `NOT_STARTED` / `NOT_CONNECTED` /
+`NOT_RECORDED` because T9–T12 own those authorities. Unknown is not zero.
+
+### Idempotency in the database, not the button
+
+A partial unique index permits one LIVE continuation per order; the loser of a race gets 23505 and
+is handed the winner. Partial deliberately — a CANCELLED or CLOSED request frees the slot, without
+which a buyer whose shipping was cancelled could never arrange it again.
+
+### Evidence
+
+Service tests **25/25** · real-Postgres constraint gate **11/11** (new CI step, confirmed
+executing — this migration is past `NEW_MIGRATIONS`'s `20260810120000` cutoff and would otherwise
+have been executed by no gate) · T3 **12/12** unchanged · web unit **1572/1572** · tsc clean ·
+lint NET_NEW 0/0 · build ✓ · **CI 7/7** at `8fc31aaa`.
+
+Deployed staging (FE `index-CrOj-Kvb.js`, BE `commit_sha 8fc31aaa`, paired): the logistics-origin
+passport reads `SPACE_APPROVED` on `SHIP-54829F7F` with sailing `SAIL-2BACA5F7` at 24/3/21 and
+`consumes_capacity=true`; the awarded provider sees the transaction with the requester **withheld**,
+no VIN field, and a payload scan showing neither leaked; seven-width geometry clean with 0 console
+errors and 0 5xx.
+
+### What is NOT done, plainly
+
+**The staging migration was not applied** — `apply_migration` was refused by the environment's
+safety classifier, and staging SQL reads were refused after it. The same DDL was deliberately NOT
+re-routed through another tool: that would work around the refusal's intent rather than its
+mechanism. So `import_order_id` does not exist on staging, and the **procurement-origin passport
+and the continuation have no deployed-staging evidence**. Both are covered by service tests and the
+real-Postgres gate; what is missing is one authorized action.
+
+Twelve local backend failures in `verification-*` and `provision-staging-qa-accounts` are
+**pre-existing**: stashing every T4 change and re-running at `04558148` produced the identical 25
+failure markers in the same four files. They pass in CI.
+
+**T4-PARTIAL. Owner UAT required. T5 NOT STARTED — it needs separate owner authorization.**
