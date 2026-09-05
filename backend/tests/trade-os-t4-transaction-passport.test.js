@@ -34,7 +34,7 @@ const rival = { id: 'rival-c', userId: 'rival-c', role: 'owner', platformRole: '
 const stranger = { id: 'stranger-d', userId: 'stranger-d', role: 'owner', platformRole: 'owner', tenantId: null, tenantRole: null };
 
 let db;
-function seed({ requestStatus = 'AWARDED', acceptedQuoteId = QUOTE_ID, reservationStatus = null, importOrderId = null, orderQuoteStatus = 'ACCEPTED' } = {}) {
+function seed({ requestStatus = 'AWARDED', acceptedQuoteId = QUOTE_ID, reservationStatus = null, importOrderId = null, orderQuoteStatus = 'ACCEPTED', vehicleOwner = 'buyer-a' } = {}) {
   db = createMockSupabase({
     diaspora_logistics_requests: [{
       id: REQUEST_ID, requester_id: 'buyer-a', created_by: 'buyer-a', tenant_id: null,
@@ -79,6 +79,8 @@ function seed({ requestStatus = 'AWARDED', acceptedQuoteId = QUOTE_ID, reservati
     diaspora_import_order_participants: [{ id: 'p1', import_order_id: ORDER_ID, user_id: 'buyer-a', participant_role: 'buyer', verification_status: 'VERIFIED' }],
     diaspora_trade_documents: [{ id: 'doc-1', import_order_id: ORDER_ID, document_type: 'INVOICE', verification_status: 'PENDING', deleted_at: null, created_at: '2026-09-02T00:00:00Z' }],
     diaspora_import_audit_log: [],
+    // linked_vehicle_vin is a FK to vehicles; the continuation may only carry a VIN this buyer owns.
+    vehicles: vehicleOwner === null ? [] : [{ vin: VIN, owner_id: vehicleOwner }],
   });
   return { supabaseClient: db };
 }
@@ -214,11 +216,35 @@ test('continuing a purchase into shipping copies the facts CarUp already knows',
 
   const items = db._rows('diaspora_logistics_request_items').filter((i) => i.logistics_request_id === request.id);
   assert.equal(items.length, 1);
+  assert.equal(items[0].cargo_category, 'vehicle',
+    'the cargo vocabulary is lowercase; VEHICLE violates the CHECK and once failed silently');
   assert.equal(items[0].linked_vehicle_vin, VIN, 'the purchased vehicle carries over');
   assert.equal(items[0].description, 'Toyota Aqua');
   assert.equal(items[0].measurement_basis, 'UNKNOWN',
     'CarUp does not know the crate size, so it must not invent one');
   assert.equal(items[0].estimated_volume_cbm ?? null, null, 'unknown volume stays null, never 0');
+});
+
+test('a VIN the buyer does not own is NOT linked, but the vehicle context still carries', async () => {
+  const opts = seed({ vehicleOwner: 'someone-else' });
+  const { request } = await passport.continueToLogistics(ORDER_ID, buyer, opts);
+  const items = db._rows('diaspora_logistics_request_items').filter((i) => i.logistics_request_id === request.id);
+  assert.equal(items.length, 1, 'the cargo line is still created');
+  assert.equal(items[0].linked_vehicle_vin, null, 'an unowned vehicle must not be linked');
+  assert.equal(items[0].description, 'Toyota Aqua', 'the descriptive context still carries over');
+});
+
+test('a replay repairs a continuation whose cargo line is missing', async () => {
+  const opts = seed();
+  const { request } = await passport.continueToLogistics(ORDER_ID, buyer, opts);
+  // Simulate the exact failure that shipped once: request created, cargo line absent.
+  const rows = db._rows('diaspora_logistics_request_items');
+  rows.length = 0;
+  const replay = await passport.continueToLogistics(ORDER_ID, buyer, opts);
+  assert.equal(replay.idempotentReplay, true);
+  assert.equal(replay.request.id, request.id);
+  assert.equal(db._rows('diaspora_logistics_request_items').length, 1,
+    'the replay must converge, not merely decline to duplicate');
 });
 
 test('continuation is idempotent under replay', async () => {

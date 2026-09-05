@@ -368,9 +368,14 @@ export async function continueToLogistics(importOrderId, userContext = {}, optio
   if (!accepted) throw new ValidationError('Accept a supplier offer before arranging shipping for this order');
 
   const live = await findLiveContinuation(client, importOrderId);
-  if (live) return { request: live, idempotentReplay: true };
+  if (live) {
+    // Converge rather than merely decline: if an earlier attempt created the request but not its
+    // cargo line, the replay repairs it. Otherwise the "no re-entry" promise would be silently
+    // broken for the rest of that transaction's life, and retrying would never fix it.
+    await ensureContinuationCargo(client, live, order, context);
+    return { request: live, idempotentReplay: true };
+  }
 
-  const vin = order.vin || order.linked_vehicle_vin || null;
   const describedVehicle = [order.requested_make, order.requested_model].filter(Boolean).join(' ').trim();
 
   const row = {
@@ -401,21 +406,54 @@ export async function continueToLogistics(importOrderId, userContext = {}, optio
     throw new ValidationError(`Could not start shipping for this order: ${error?.message || 'unknown error'}`);
   }
 
-  // The purchased vehicle becomes the cargo line. Measurements stay UNKNOWN — see the header.
-  await client.from(REQUEST_ITEMS).insert({
-    logistics_request_id: created.id,
+  await ensureContinuationCargo(client, created, order, context);
+  return { request: created, idempotentReplay: false };
+}
+
+/**
+ * Give the continuation its cargo line — the whole point of §8's "no re-entry".
+ *
+ * Two details this got wrong once and must not again:
+ *
+ *   - `cargo_category` is a LOWERCASE vocabulary ('vehicle', not 'VEHICLE'). The uppercase value
+ *     violated the CHECK constraint, and because the insert's error was not inspected it failed
+ *     SILENTLY while the API still answered 201. The continuation looked fine and was a blank form.
+ *     The error is now checked and raised.
+ *
+ *   - `linked_vehicle_vin` is a FOREIGN KEY to `vehicles`. Carrying a VIN the order merely mentions
+ *     would fail the insert whenever no such vehicle row exists, and would assert a vehicle link
+ *     CarUp has not authorised. The VIN is therefore carried ONLY when the vehicle exists and
+ *     belongs to this buyer; otherwise the line keeps the descriptive vehicle context and no link.
+ */
+async function ensureContinuationCargo(client, request, order, context) {
+  const { data: existing } = await client.from(REQUEST_ITEMS).select('id')
+    .eq('logistics_request_id', request.id).is('deleted_at', null);
+  if ((existing || []).length > 0) return;
+
+  const candidateVin = order.vin || order.linked_vehicle_vin || null;
+  let linkedVin = null;
+  if (candidateVin) {
+    const { data: vehicle } = await client.from('vehicles')
+      .select('vin, owner_id').eq('vin', candidateVin).maybeSingle();
+    if (vehicle && normalizeId(vehicle.owner_id) === context.id) linkedVin = vehicle.vin;
+  }
+
+  const describedVehicle = [order.requested_make, order.requested_model].filter(Boolean).join(' ').trim();
+  const { error } = await client.from(REQUEST_ITEMS).insert({
+    logistics_request_id: request.id,
     line_number: 1,
-    cargo_category: 'VEHICLE',
+    cargo_category: 'vehicle',
     description: describedVehicle || 'Vehicle purchased through CarUp',
     quantity: 1,
+    // CarUp does not know the crate size. Unknown stays unknown, and T3 will correctly refuse
+    // container space until a real volume is supplied.
     measurement_basis: 'UNKNOWN',
-    linked_vehicle_vin: vin,
-    metadata: { prefilled_from_import_order_id: importOrderId },
+    linked_vehicle_vin: linkedVin,
+    metadata: { prefilled_from_import_order_id: order.id },
     created_by: context.id,
     updated_by: context.id,
   });
-
-  return { request: created, idempotentReplay: false };
+  if (error) throw new ValidationError(`Could not carry the purchased item onto the shipping request: ${error.message}`);
 }
 
 /** The one live shipping continuation for an order, if any. Mirrors the partial unique index. */
