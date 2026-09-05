@@ -4,7 +4,7 @@
 - **Branch:** `feat/trade-os-client-demo-convergence`
 - **Draft PR:** #207
 - **Production:** untouched
-- **Status:** T3-PARTIAL at head `4f88a464` — certified on deployed staging; only owner UAT remains — everything provable without a deployed environment
+- **Status:** T3-PARTIAL — five items remain (see "Known work still required"); production untouched — everything provable without a deployed environment
   is proven; nothing on staging has been run. This receipt is evidence, **not a competing plan**.
 
 ## Why T3 exists
@@ -289,11 +289,16 @@ Data measured across all four staging runs: 4 requests, 4 AWARDED, 4 accepted qu
 
 ## Known work still required before T3 closure
 
-- **owner visual/product UAT**, which automation cannot replace (§29) —
-  see `docs/trade-os/T3_OWNER_UAT_GUIDE.md`.
+1. **exact-head CI completion** on the final candidate;
+2. **shared-container conversion staging proof** — the chain to organiser approval is measured
+   (REQUESTED consumed 0 of 60 CBM; approval consumed exactly 3, leaving 57), but the organiser
+   step ran by hand rather than as a repeatable spec, and staging carries no idempotent-replay or
+   foreign provider/container denial proof;
+3. **Trade OS route-boundary foundation correction** — the shell passes `enforceAuth={false}`, so
+   registry role enforcement is skipped on protected Trade OS routes (T1/T0 hardening found here);
+4. **staging taxonomy RLS drift** — repo desired state enables RLS on
+   `vehicle_taxonomy_observations`; staging measured it DISABLED;
+5. **owner visual/product UAT**, which automation cannot replace (§29) —
+   see `docs/trade-os/T3_OWNER_UAT_GUIDE.md`.
 
-The container-space conversion is now also proven on deployed staging: a REQUESTED reservation
-consumed **0 of 60 CBM**, and the organiser's approval through the existing hardened authority
-consumed exactly **3**, leaving 57.
-
-**T3 is T3-PARTIAL for that one reason.** Do not call it usable/client-ready/production-ready until the owner has seen it.
+**T3 is T3-PARTIAL.** Saying "only owner UAT remains" was an overclaim and is corrected above. Do not call it usable/client-ready/production-ready, and do not begin T4, until all five clear.

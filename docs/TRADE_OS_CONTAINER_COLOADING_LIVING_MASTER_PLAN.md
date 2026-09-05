@@ -1560,7 +1560,7 @@ This replaces the old C1–C18 backlog as the active roadmap.
 | Implemented | ✅ head `9486463d` |
 | Tested locally | ✅ backend 41/41 (T3 12 · T3-adversarial 13 · container-auth 16); 75/75 including migration-integrity 25 and communications coverage 9; browser 48/48 |
 | Lint / typecheck | ✅ `tsc` clean, lint gate `NET_NEW_ERRORS=0` |
-| CI proven | ✅ all 7 workflows green on the final head `9486463d` (8th is manual-dispatch only) |
+| CI proven | ⏳ green at `9486463d`; must be re-confirmed on the FINAL candidate |
 | Adversarial security proven | ✅ 13/13 over HTTP, full §9 matrix |
 | Responsive UAT proven | ✅ all seven contracted widths, one real 393px defect found and fixed |
 | Staging migration applied | ✅ applied to STAGING ONLY; 3 tables `rls_enabled=true`, RPC service_role-only |
@@ -1568,15 +1568,22 @@ This replaces the old C1–C18 backlog as the active roadmap.
 | Staging backend serves T3 | ✅ branch preview answers the T3 routes 401, not 404 |
 | Staging frontend paired to that backend | ✅ PROVEN at runtime — preview calls ONLY the branch backend |
 | Exact-head unmocked browser journey | ✅ spec 47, `mode=acceptance`, bundle pinned, 3/3 desktop+tablet+mobile |
-| Container-space conversion on staging | ✅ REQUESTED consumes 0; organiser approval consumes exactly 3 of 60 |
+| Container-space conversion on staging | ⏳ PARTIAL — the chain to organiser approval is measured, but the organiser step ran by hand (curl), not as a repeatable spec; staging has no idempotent-replay or foreign-combination proof |
+| Trade OS route-boundary foundation | ❌ OPEN — the shell passes `enforceAuth={false}`, so registry role enforcement is skipped on protected Trade OS routes (T1/T0 hardening found during T3) |
+| Staging taxonomy RLS drift | ❌ OPEN — repo desired state enables RLS on `vehicle_taxonomy_observations`; staging measured it DISABLED |
 | Owner visual/product UAT | ❌ PENDING — cannot be replaced by automation. Guide: `docs/trade-os/T3_OWNER_UAT_GUIDE.md` |
 
-**T3 therefore returns T3-PARTIAL, not T3-USABLE** — and the single reason is the last row.
-Everything automation can establish is established: the schema and its atomic authority against
-real Postgres, the frontend/backend pairing, the full unmocked requester → provider → award
-journey at three viewport classes, and the container-space conversion through the existing
-organiser authority. Owner visual/product acceptance has not happened, and green automation does
-not substitute for it (§29). Do not describe T3 as client-ready until the owner has seen it.
+**T3 returns T3-PARTIAL.** It is NOT correct to say "only owner UAT remains" — that was an
+overclaim, corrected here. Five items remain:
+
+1. exact-head CI completion on the final candidate;
+2. shared-container conversion staging proof — as a repeatable spec, including idempotent replay
+   and foreign provider/container denial;
+3. Trade OS route-boundary foundation correction (nav visibility must equal typed-URL eligibility);
+4. staging `vehicle_taxonomy_observations` RLS drift reconciliation, by forward migration;
+5. owner visual/product UAT.
+
+Do not describe T3 as client-ready, and do not begin T4, until all five clear.
 
 ## T4 — Order & Booking Passport convergence
 
