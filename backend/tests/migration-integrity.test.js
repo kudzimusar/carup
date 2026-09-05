@@ -317,3 +317,87 @@ test('a migration function that calls digest() pins `extensions` on its search_p
     + offenders.join('\n  '),
   );
 });
+
+/**
+ * A table created without RLS is not a style problem on Supabase: PostgREST fronts the public
+ * schema, and default privileges hand `anon`/`authenticated` access to new relations, so the table
+ * is reachable with the anon key the moment it exists.
+ *
+ * This has now happened twice. The T3 logistics tables shipped with no RLS at all, and
+ * `vehicle_taxonomy_observations` DRIFTED to rls_enabled=false with anon holding SELECT and INSERT
+ * despite its own migration expressing the opposite. The first was caught by applying the schema to
+ * a real database; the second by reading an advisory. Neither was caught by a test.
+ *
+ * Scope is deliberately dated rather than global. 55 of the 270 tables this repository creates
+ * predate the convention, and a gate that fails on all of them would be turned off within a day.
+ * Everything created from CUTOFF onward must declare RLS somewhere in the migration set — which is
+ * exactly the class both defects belong to.
+ */
+test('every table created by a recent migration has RLS enabled somewhere in the set', () => {
+  const CUTOFF = '20260801';
+
+  // Tables whose absence of RLS is a KNOWN, un-reconciled gap owned by another slice. They are
+  // listed rather than silently skipped so the debt stays visible and countable. Neither exists on
+  // staging, and production state could not be read from here, so their migrations are NOT edited:
+  // rewriting a migration that may already be applied is how provenance pinning gets broken.
+  const KNOWN_UNRECONCILED = new Set([
+    'blockchain_custody_rollout',      // 20260828210000 / 20260829003000 — issue158 custody
+    'blockchain_signing_watermarks',   // 20260829020000 — issue158 activation boundary
+  ]);
+
+  const files = fs.readdirSync(migrationsDir).filter(f => f.endsWith('.sql')).sort();
+
+  // Any table named in an ENABLE ROW LEVEL SECURITY statement, or quoted inside a migration that
+  // performs one (DO-block loops over an ARRAY[...] of table names are a common shape here).
+  const rlsDeclared = new Set();
+  for (const file of files) {
+    const up = fs.readFileSync(path.join(migrationsDir, file), 'utf8').split('-- +migrate Down')[0];
+    for (const m of up.matchAll(/ALTER\s+TABLE\s+(?:IF\s+EXISTS\s+)?(?:public\.)?"?([a-zA-Z0-9_]+)"?\s+ENABLE\s+ROW\s+LEVEL\s+SECURITY/gi)) {
+      rlsDeclared.add(m[1].toLowerCase());
+    }
+    if (/ENABLE\s+ROW\s+LEVEL\s+SECURITY/i.test(up)) {
+      for (const m of up.matchAll(/'([a-z0-9_]+)'/g)) rlsDeclared.add(m[1].toLowerCase());
+    }
+  }
+
+  const offenders = [];
+  for (const file of files) {
+    const stamp = file.split('_')[0];
+    if (!/^\d{8}/.test(stamp) || stamp.slice(0, 8) < CUTOFF) continue;
+    const up = fs.readFileSync(path.join(migrationsDir, file), 'utf8').split('-- +migrate Down')[0];
+    for (const m of up.matchAll(/CREATE\s+TABLE\s+(?:IF\s+NOT\s+EXISTS\s+)?(?:public\.)?"?([a-zA-Z0-9_]+)"?\s*\(/gi)) {
+      const table = m[1].toLowerCase();
+      if (rlsDeclared.has(table) || KNOWN_UNRECONCILED.has(table)) continue;
+      offenders.push(`${file} :: ${table}`);
+    }
+  }
+
+  assert.deepEqual(
+    offenders,
+    [],
+    'These tables are created by a migration dated ' + CUTOFF + ' or later but never get '
+    + 'ENABLE ROW LEVEL SECURITY. On Supabase that leaves them readable — and often writable — '
+    + 'with the anon key:\n  ' + offenders.join('\n  '),
+  );
+});
+
+/**
+ * The reconciliation for `vehicle_taxonomy_observations` must keep expressing ALL of its intent.
+ * Dropping any one line silently re-opens the hole, and the drift that made it necessary proves
+ * that "the earlier migration already says so" is not a guarantee about the live database.
+ */
+test('the taxonomy RLS reconciliation still expresses RLS, both revokes, and the service_role grant', () => {
+  const file = '20260905140000_vehicle_taxonomy_observations_rls_drift_reconciliation.sql';
+  const sql = fs.readFileSync(path.join(migrationsDir, file), 'utf8').split('-- +migrate Down')[0];
+
+  const required = [
+    [/ENABLE\s+ROW\s+LEVEL\s+SECURITY/i, 'enables RLS'],
+    [/REVOKE\s+ALL[\s\S]{0,120}FROM\s+anon/i, 'revokes anon'],
+    [/REVOKE\s+ALL[\s\S]{0,120}FROM\s+authenticated/i, 'revokes authenticated'],
+    [/GRANT\s+SELECT,\s*INSERT,\s*UPDATE,\s*DELETE[\s\S]{0,160}TO\s+service_role/i, 'preserves service_role access'],
+    [/RAISE\s+EXCEPTION\s+'RECONCILE FAILED/i, 'fails loudly instead of reporting false success'],
+  ];
+
+  const missing = required.filter(([re]) => !re.test(sql)).map(([, label]) => label);
+  assert.deepEqual(missing, [], `${file} no longer ${missing.join(', ')}`);
+});
