@@ -1,6 +1,6 @@
 # GMO-8 — Golden Journey, physical UAT · RECEIPT
 
-**Status: PARTIAL.** Acts 1–2 PASS physically at three viewports (27/27). Acts 3–6 were subsequently run: **10 PASS, 1 BLOCKED, 20 blocked upstream** — see the second half of this receipt. The block is a paid vision provider; §"There is no human fallback" and §"the ledger refuses it a second time" below explain why no reviewer, and no fixture, can work around it.
+**Status: PARTIAL.** Acts 1–2 PASS physically at three viewports (27/27). Acts 3–6: **11 PASS, 1 BLOCKED, 20 blocked upstream** at `ba132e45`, **with a real vision provider live on staging**. The block is no longer a missing provider — it is that provider's **prepayment balance**, reported by Google as HTTP 429 *"Your prepayment credits are depleted"*. Getting to that sentence took fixing a real defect in our own vision client, which had been reducing every provider outcome to the words "Malformed Gemini vision API response". See §"The staging vision provider WAS activated".
 
 ## The candidate
 
@@ -278,6 +278,99 @@ Golden Journey harness's own `/auth/register` guard has observed that POST on ev
 
 The remaining Act 6b steps — publish, request, accept, assign, record, complete — need an activated
 garage, so they wait with everything else behind the provider.
+
+---
+
+## The staging vision provider WAS activated — and the block moved one step, to billing
+
+Under Product Owner decision A (staging vision-provider activation authorised, production
+explicitly not), the real classifier was put in front of this journey. What follows is what the
+provider actually did.
+
+### Configuring it
+
+Exactly one Gemini credential exists across all four CarUp Vercel projects. It is on
+`carup-backend-staging` — the right project — with `target: ["preview"]`, and it is
+**`type: sensitive`**, which means Vercel returns its value to nobody, through any API, ever. It
+therefore **cannot be copied** to another branch; only its binding can move. It was bound to a
+dormant sibling lane, `fix/o2-live-ocr-operationalization` (no open PR, no recent runs).
+
+So the binding was moved to this lane for the duration of the run and **moved back afterwards**,
+with the before-state recorded first and the restore verified byte-for-byte against it:
+
+```
+before  {"key":"GEMINI_API_KEY","type":"sensitive","target":["preview"],"gitBranch":"fix/o2-live-ocr-operationalization"}
+after   {"key":"GEMINI_API_KEY","type":"sensitive","target":["preview"],"gitBranch":"fix/o2-live-ocr-operationalization"}
+```
+
+No value was ever read, printed or copied. Nothing on production was touched. The deployed preview
+then reported `ocrProviders.gemini: true` at the exact paired head.
+
+### The evidence had to become a real document first
+
+The harness had been feeding the classifier a procedurally-generated gradient. With no provider that
+was harmless. Against a real one it is worse than useless — the classifier's only question is
+whether the image contains a visible identity document filling the frame, and a gradient answers no,
+correctly, forever. A run that fed it one would have measured its own fixture.
+
+The evidence is now rendered in the browser and screenshotted: a card-shaped identity document,
+legible, front and back distinct, visibly a **SPECIMEN** — fictional holder, an issuing authority
+that is no real state, "NOT VALID FOR IDENTIFICATION" across the foot. Business-presence evidence
+got its own rendered workshop sign instead of reusing the identity image.
+
+### Run 1 found a real product defect, not a provider problem
+
+```
+verification_sessions.failure_reason
+  "Classification provider error: Malformed Gemini vision API response"
+```
+
+`GeminiClient.askGeminiVision` read `data.candidates[0].content.parts[0].text` — assuming the FIRST
+part of a multi-part candidate carries the text, which a 2.5-series model does not guarantee — and
+then **threw away the response**. So a compliance reviewer's row said "malformed", full stop: no
+status, no provider message, no finish reason. A quota refusal, a safety block and a bug in our own
+parser all reduced to the same eight words. The identical two defects sat in `askGemini` one
+function above, on the extraction path of the same journey.
+
+Fixed both: take the first part that actually carries text; surface the provider's own status and
+message on a non-2xx; name `finishReason`/`blockReason` when there is no text part at all. Five
+tests, four mutations red.
+
+### Run 2 then said what was actually wrong
+
+```
+verification_sessions.failure_reason
+  "Classification provider error: Gemini vision API 429: Your prepayment credits are depleted.
+   Please go to AI Studio at https://ai.studio/projects to manage your project and billing."
+```
+
+**The credential is valid, correctly wired, and reaching Google.** The Google AI Studio project
+behind it has no prepayment balance. That is a billing action, and the authorization named it
+precisely: *"If obtaining the credential itself requires … billing setup or action you cannot
+perform from the existing authorised environment, state exactly what external credential is
+required. Do not replace it with a bypass."*
+
+So the block moved one step and got much smaller — from "no provider is configured" to "this
+provider's account balance is empty" — and GMO-8 stays **PARTIAL**. There is no bypass, and the ones
+available were all refused earlier in this receipt for the same reason they are still refused now.
+
+### What resumes it
+
+1. Top up the Google AI Studio project behind the existing staging `GEMINI_API_KEY`
+   (https://ai.studio/projects → billing). Nothing else about the credential changes.
+2. Point that key's preview binding at this lane for the run:
+   `python3 <scratch>/provider/scope.py point feat/garage-mechanic-onboarding-1-0`
+   — or, equivalently, add `GEMINI_API_KEY` as a Preview variable on `carup-backend-staging` scoped
+   to `feat/garage-mechanic-onboarding-1-0`, which is cleaner and leaves the O2 lane alone.
+3. Redeploy the branch preview and wait for `ocrProviders.gemini: true` at a paired head.
+4. `GMO_REVIEWER=<reviewer email> node scripts/uat/gmo-8-acts-3-to-6.mjs --viewport=desktop`
+   (then `--viewport=tablet`, `--viewport=mobile`).
+5. Restore the key's binding afterwards.
+
+Both runs' staging rows — accounts, applications, documents, verification sessions, notification
+queue — were deleted and verified at 0. The two sessions' uploaded images remain in Supabase
+Storage: the platform refuses direct deletion from `storage.objects` and the Storage API needs a
+service-role key this environment does not hold. They belong to deleted synthetic accounts.
 
 ---
 

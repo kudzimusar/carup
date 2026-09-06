@@ -78,6 +78,47 @@ The only writer of a capability-bearing state is `onVerificationApproved`, reach
 
 ---
 
+## It has now happened, for real, on staging
+
+This stopped being hypothetical. With a **real, valid, correctly-wired** Gemini credential in front
+of the deployed staging classifier, a live identity case was refused:
+
+```
+verification_sessions.failure_reason
+  "Classification provider error: Gemini vision API 429: Your prepayment credits are depleted."
+```
+
+A billing lapse — not an outage, not a misconfiguration, not a bad key — produced exactly the total
+identity-verification unavailability this document predicts. Every subject, indefinitely, with no
+human path back. **A depleted prepay balance is currently indistinguishable, in effect, from
+switching identity verification off.**
+
+### And a second finding: the reviewer could not see why
+
+Before the run, the same case recorded only this:
+
+```
+"Classification provider error: Malformed Gemini vision API response"
+```
+
+`GeminiClient.askGeminiVision` discarded the provider's response before throwing, so a quota
+refusal, a safety block and a bug in CarUp's own parser all reached the compliance reviewer's row as
+the same eight words. The reviewer is asked to act on that row. It told them nothing, and it pointed
+at the wrong party. (It also read `parts[0].text`, which is not where a multi-part 2.5-series
+candidate necessarily puts its text — so a perfectly good answer read as malformed.)
+
+Fixed in `backend/services/ai/GeminiClient.js`, both the vision and text paths. But the lesson
+belongs to this document, because it changes the shape of the requirement:
+
+> **Provider-failure observability is part of the resilience gap, not separate from it.** A
+> degraded-mode policy that cannot distinguish "we are out of credit", "the provider is down",
+> "the image was refused on safety grounds" and "our client is broken" cannot choose the right
+> behaviour for any of them, and cannot tell the subject or the reviewer the truth.
+
+Add to the decisions below: **what a reviewer and a subject are each told when the provider fails,
+per failure class** — and which of those classes is an operational alert rather than a case note. A
+depleted balance is an ops page, not a finding against the applicant.
+
 ## What a design must decide (not decided here)
 
 1. **What evidence constitutes a valid human manual-review path** — and how a reviewer proves they
@@ -88,8 +129,9 @@ The only writer of a capability-bearing state is `onVerificationApproved`, reach
    anything a downstream consumer reads.
 3. **How a reviewer is prevented from fabricating `verified`.** The current impossibility is a
    feature; any manual path must replace it with an equally hard constraint, not remove it.
-4. **Degraded-mode policy.** What the product tells subjects and reviewers during an outage, and
-   whether pending cases queue or fail.
+4. **Degraded-mode policy.** What the product tells subjects and reviewers during an outage, per
+   failure class (credit exhausted / provider down / evidence refused / client defect), whether
+   pending cases queue or fail, and which classes page operations instead of sitting on a case.
 5. **Production failover.** Whether a second provider, a queue-and-retry, or an explicit
    maintenance state is the answer. **Unresolved.**
 
