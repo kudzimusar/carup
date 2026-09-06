@@ -1629,17 +1629,17 @@ contract; the slice roll-call lives in the plan document.
 **Objective:** make avoidable trade cost visible and competitively removable — without
 manufacturing certainty.
 
-- [ ] T6.0 Commercial authority audit (money/rate/FX/landed authorities; hardcoded values; schema decision).
-- [ ] T6.1 FX authority — official reference source behind `FxRateProvider`, immutable snapshots, AVAILABLE/STALE/UNAVAILABLE.
-- [ ] T6.2 Canonical cost taxonomy (GOODS … EXCEPTIONS); unknown ≠ not-applicable.
-- [ ] T6.3 Structured charge components (stage, provider, scope, source money, inclusion, status, provenance, revenue class).
-- [ ] T6.4 Quote normalization + deterministic comparability (never a false cheapest).
-- [ ] T6.5 Rate sources/observations, classified and kept separate from provider quotes.
-- [ ] T6.6 Landed-cost estimate that exposes unpriced stages; customs firewall held.
-- [ ] T6.7 Corridor economics over the frozen T5 corridor authority; uncertainty penalised.
-- [ ] T6.8 Deterministic, explainable advisor — no AI authority.
-- [ ] T6.9 Shared-capacity allocation, explicit bases only, exact reconciliation.
-- [ ] T6.10 Security, UI, migration gate, staging journeys A–F, seven widths, owner-UAT proxy.
+- [x] T6.0 Commercial authority audit (§44) — no FX/charge/rate/landed/allocation authority existed.
+- [x] T6.1 FX authority — ECB reference rates behind `FxRateProvider`, immutable snapshots, AVAILABLE/STALE/UNAVAILABLE.
+- [x] T6.2 Canonical cost taxonomy (17 stages); unknown ≠ not-applicable, enforced by one shared rule.
+- [x] T6.3 Structured charge components — one table, two nullable FKs, exactly-one-owner CHECK.
+- [x] T6.4 Quote normalization + deterministic comparability (no false cheapest).
+- [x] T6.5 Rate observations, classified and kept separate from provider quotes.
+- [x] T6.6 Landed-cost estimate that names unpriced stages; customs firewall held.
+- [x] T6.7 Corridor economics over the frozen T5 authority; uncertainty penalised.
+- [x] T6.8 Deterministic, explainable advisor — no AI authority.
+- [x] T6.9 Shared-capacity allocation, explicit bases only, exact reconciliation.
+- [~] T6.10 Security, UI, migration gate and staging journeys COMPLETE; **owner UAT remains**.
 
 **Exit gate:** the 28-row acceptance list in §44. Verdicts: `T6-PARTIAL` / `T6-USABLE`
 (owner-recorded only; never production-ready by itself).
@@ -4009,3 +4009,90 @@ AI authority (T16) · fee & subscription policy (T17) · production (T18).
 
 Sale Incoterm ≠ CarUp service scope: T6 only prevents double-counting where a recorded scope
 explicitly says a cost is already included, and infers nothing where the treatment is unknown.
+
+---
+
+## §45 — T6 EXECUTION: RATES, FX, LANDED COST AND CORRIDOR ECONOMICS
+
+**Execution entry — 2026-09-06. Start `9baf6466`. Code head `b6ba1ccd`. Staging schema activated.
+Production untouched. T7+ not started. PR #207 Draft.**
+
+### FX — the source, and the limitation that matters
+
+The ECB euro reference rates. Chosen because it is a **central bank publishing its own figures**
+rather than a reseller with a convenient API, and — decisively — because the ECB itself publishes
+these as *reference* rates not intended for transaction purposes. A source whose own terms match
+our contract is the point: suitable for comparison, unsuitable for settlement (T13) and customs
+(T12).
+
+Verified live against the feed: 29 currencies, EUR-based. **ZWG, ZWL, MZN and TZS are not
+published** — the destination market and both gateway markets. Those conversions are UNAVAILABLE.
+They are not approximated, not pegged and not filled from a secondary source, because an invented
+Zimbabwe rate would be acted on.
+
+JPY→USD is not published either, so it is triangulated JPY→EUR→USD and **the legs are stored**. On
+staging: `rate 0.0064001322, date 2026-09-04, legs [EUR/JPY, EUR/USD]`. Snapshots are immutable at
+the database level — a newer rate is a new row, so a conversion a customer already saw stays
+reproducible. Publication is business-day only, so the weekend gap is real and reads STALE with the
+source's own date, never today's.
+
+### Schema — four additive tables
+
+`diaspora_fx_rate_snapshots` · `diaspora_trade_charge_components` ·
+`diaspora_trade_rate_observations` · `diaspora_shared_charge_allocations`.
+
+**One charge table, not two.** A component attaches to either a procurement or a logistics offer.
+A polymorphic owner pair would abandon referential integrity; two tables would duplicate every
+rule. Two nullable FKs with a CHECK that exactly one is set gives real integrity into both domains
+and one service path — the shape T4 used for the continuation edge.
+
+**Landed cost gets no table.** It composes immutable components and immutable snapshots, so it is
+reproducible by construction and a later rate change cannot rewrite an earlier estimate.
+
+### Three defects found by actually exercising this
+
+1. **A JPY offer silently became a USD offer.** The audit flagged the `DEFAULT 'USD'` hazard as
+   "unexercised, not absent". The staging journey exercised it: a JPY 2,400,000 supplier offer came
+   back USD. The cause is that the two quote authorities read *different* field names —
+   `quote_currency` and `currency` — and both fell back to `'USD'`, so supplying the other domain's
+   name redenominated the offer by a factor of ~150 with nothing to catch it, because USD is a
+   valid currency. `resolveSourceCurrency()` now honours either name, requires ISO-4217 when
+   supplied, keeps an existing currency across a PATCH, and reaches the USD default only through
+   genuine absence.
+2. **"Not applicable" was treated as a gap.** A logistics quote moves cargo the customer already
+   owns, so GOODS genuinely does not apply — and answering honestly reported the journey as
+   incomplete. This contradicted the contract's own unknown-vs-not-applicable distinction.
+3. **The coverage rule existed three times, and drifted.** Fixing (2) in the landed estimate left
+   the corridor comparison and the `unpriced` list with their own copies, so the same journey read
+   complete on one screen and incomplete on another. `isStageAnswered` / `isUnpricedGap` now live
+   once and are imported by both, guarded by a test that computes coverage through both paths and
+   asserts they agree.
+
+A fourth was found by mutation testing before it ever shipped: an estimate with nothing priced
+returned **USD 0.00** instead of null — the precise unknown-becomes-zero failure this phase exists
+to prevent.
+
+### Recorded, deliberately not fixed
+
+`documentIntelligenceService` writes a hardcoded `exchange_rate_used: 13.5` and a defaulted
+`duty_calculated_zig` into `zimra_declarations` during admin OCR approval. That is **customs** FX
+and **duty** — T12 territory, in a separately certified subsystem, not the Trade OS commercial
+path. Changing a certified lane to tidy a value T6 does not own would be scope creep; T12 owns the
+engine that must replace it. It is named here so it cannot be mistaken for a precedent.
+
+### Evidence
+
+| Gate | Result |
+|---|---|
+| T6 PGlite migration gate (own CI step, **confirmed executed**) | **28/28** |
+| T6 backend suite | **51/51** |
+| Backend regression (T3 · T4 · T5 · Intake · diaspora) | **1577 / 0** |
+| T6 web suite | **16/16** |
+| Staging journeys — FX, procurement, logistics, allocation, security | **31/31** |
+| Staging journeys — corridor economics, mode | **9/9** + **15/15** |
+| Mutation testing | every failure the directive names, plus 4 of my own; three initially survived and exposed real gaps |
+| CI at `b6ba1ccd` | **7/7 green**, T6 gate executed |
+
+### Verdict
+
+**T6-PARTIAL — owner acceptance remains.** T7 not started. Production untouched.
