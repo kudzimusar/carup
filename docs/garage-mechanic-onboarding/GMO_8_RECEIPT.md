@@ -464,3 +464,173 @@ mutation-proven tests, and re-verified on the deployed build:
 
 All four are one shape, and it is the shape this programme keeps producing: **a check that could not
 see what it claimed to see.**
+
+---
+
+# Resumed run — 2026-09-07, with the AI Studio project reported as funded
+
+**Status: STILL BLOCKED. GMO-8 does NOT pass.** The blocker is unchanged and is now measured eight
+times rather than argued: Google answers **HTTP 429 "Your prepayment credits are depleted"** to the
+live classifier, on the deployment carrying the funded key.
+
+## The candidate — exact provenance, paired
+
+```
+frontend  carup-staging-git-feat-garage-mechanic-onboarding-1-0-11-11.vercel.app
+backend   carup-backend-staging-git-feat-garage-mechanic-onb-803043-11-11.vercel.app
+commit    dbf29545   (both sides)        unpaired: false
+```
+
+`dbf29545` is one commit ahead of the head named in the directive (`f7967fec`). That commit touches
+**only** `scripts/uat/gmo-8-acts-3-to-6.mjs`, so the runtime tree is byte-identical:
+`git diff --quiet f7967fec HEAD -- backend web/src database shared` → clean. Stated rather than
+assumed, because "those changes look equivalent" is an argument, not a measurement.
+
+Backend health at run time: `status: UP`, `environment: preview`, `ocrProviders.gemini: true`.
+
+## The provider binding — what I found, and what I did NOT need to do
+
+Step A asked me to rebind the key to this lane. **It was already bound to it.** Recorded before
+touching anything:
+
+```
+id XvKMBHNf0KbeHvRr · type sensitive · target [preview]
+gitBranch  feat/garage-mechanic-onboarding-1-0
+createdAt  2026-09-04T13:25:21.942Z      ← the key VALUE is unchanged
+updatedAt  2026-09-06T21:47:47.273Z      ← only the binding moved, by the owner, when funding
+```
+
+The backend deployment was created `2026-09-06T21:56:56Z` — **nine minutes after** the binding
+change — so it carries the funded key and no redeploy was needed. Forcing one would only have
+churned the deployment id, so I did not.
+
+The key was **not rotated**. `type: sensitive` means Vercel returns its value to nobody, including
+me; only the `gitBranch` binding is mutable.
+
+## What the product itself recorded — eight times
+
+The classifier is reached. Layer 1 (deterministic) passes, the real specimen bytes go to Google, and
+Google refuses. This is `verification_assessments.risk_flags.reasons[0]`, written by the product:
+
+```
+Classification provider error: Gemini vision API 429: Your prepayment credits are depleted.
+Please go to AI Studio at https://ai.studio/projects to manage your project and billing.
+```
+
+Eight independent live calls between `22:01:57Z` and `22:18:04Z`, every one identical. Not a
+transient, not a rate limit — Google names the cause.
+
+`verification_ocr_provenance` has **no row** for any of these sessions, which briefly looked like
+"the provider was never called". It was called: provenance is written on the *extraction* path, and
+extraction never runs because classification failed first. Worth writing down, because the absent
+row is the more visible signal and it points the wrong way.
+
+## Result — Acts 3–6 at three viewports
+
+| | desktop | tablet | mobile |
+|---|---|---|---|
+| steps 1–12 | ✅ 11 PASS + 1 PROV | ✅ 11 PASS + 1 PROV | ✅ 11 PASS + 1 PROV |
+| step 13 · governed identity approval | ❌ 429 | ❌ 429 | ❌ 429 |
+| steps 14–33 | ⏭️ blocked upstream | ⏭️ blocked upstream | ⏭️ blocked upstream |
+
+Step 11 remains the one worth pausing on: **approval is refused while identity is unapproved**, by
+name, on the deployed product. PO-2 is enforced, not assumed.
+
+Act 6b — the real Service Network job, and the revocation semantics after it — **remains unmeasured**.
+It is steps 24–33 and every one of them sits behind step 13.
+
+## What I did not do, and why
+
+- No `ALLOW_OCR_MOCK`, no `NODE_ENV=test`, no fabricated provider response.
+- No SQL forcing an approval, and no minting of a `verified` lifecycle row. Two independent guards
+  exist precisely to prevent that (`decisionPolicy` refuses the APPROVE, and `APPROVAL_ONLY_STATES`
+  refuses the transition), and a journey certified on top of a forced row would be certifying the
+  one thing the platform says is impossible.
+- No key rotation, and no weakening of Storage or of identity approval policy.
+
+## Security and adversarial re-proof — GREEN
+
+The GMO-5 closure holds. Re-executed against the **deployed** backend with the product's real
+transport (`x-session-token` + double-submit CSRF), as a real platform-`owner` applicant:
+
+| check | result |
+|---|---|
+| ordinary user reads the user table | **403** `Role 'owner' cannot access this resource` |
+| `x-tenant-id` for a foreign tenant elevates to platform admin | **403** `You do not have access to this tenant organization` (×2 tenants) |
+| `/api/users/management` + tenant header | **403** |
+| `/api/admin/garage-applications` + tenant header | **403** |
+| foreign tenant grants a garage profile | **403** (×2) |
+| non-reviewer activates an application | **403** |
+| non-reviewer reads reviewer/garage surfaces | **403** (×3) |
+| reviewer decision **without** step-up | **403 `STEP_UP_REQUIRED`** — before the resource is looked up |
+| reviewer queue after step-up | **200** |
+
+An earlier pass of this probe scored several of these as green on **404 "Route not found"** — a
+wrong path always 404s, so that was a check that could not see what it claimed. The paths were
+corrected against the harness's own route list and **404 was disqualified as a refusal**; every
+result above is a real authorization refusal.
+
+Live RLS assertion on staging — all six garage tables, `ENABLE` + `FORCE`, zero policies, and no
+`anon`/`authenticated` SELECT/INSERT/UPDATE:
+
+```
+garage_applications · garage_application_documents · garage_application_decisions
+garage_invitations  · garage_branches              · garage_public_profiles
+```
+
+Backend authority suites: **194/194** (`gmo-1`…`gmo-7` + `service-network-authority-boundaries`).
+
+Step-up nuance, stated exactly: step-up gates the **decision**, not the queue read. The queue
+returns 200 before and after stepping up. That is the design — reading a queue is not a decision —
+and claiming "step-up is required to read the queue" would have been false.
+
+## Fixture cleanup
+
+Run-owned database rows deleted and verified at zero:
+
+| table | deleted |
+|---|---|
+| `verification_assessments` | 17 |
+| `verification_decisions` | 2 |
+| `verification_sessions` | 20 |
+| `garage_application_documents` | 10 |
+| `garage_applications` | 19 |
+| `notification_queue` | 30 |
+| `user_registration_profiles` | 30 |
+| `users` (applicants) | 30 |
+| **`tenant_users` created by this journey** | **0 — nothing was ever activated** |
+
+Re-read after deletion: every count 0.
+
+**Deliberately kept: 1 row** — the provisioned Operations reviewer
+`gmo8.reviewer.mtpwifxc@carup-uat.invalid`. It is the single out-of-band prerequisite the next run
+needs, holds no tenancy and has taken no decision. Flagged rather than removed silently; say the
+word and it goes.
+
+**Storage: governed cleanup debt.** 43 objects (23 MB) in `ocr-documents` from this session, now
+orphaned. Direct deletion is refused by design (`storage.protect_delete()`), and Storage was not
+weakened to get around it. A further **145** pre-existing orphans (6,329 kB, oldest 2026-07-30)
+share the same cause. Total **188 objects / 29 MB / 118 prefixes**. There is **no cleanup script in
+the repository at all** — that is the durable gap: every run of this journey deposits synthetic
+identity images nothing can remove.
+
+## What would close GMO-8 — one thing
+
+Fund **the AI Studio project that owns key `XvKMBHNf0KbeHvRr`** (created 2026-09-04). The
+discriminating question for the owner: was the top-up applied to *that* project, or to a different
+one? The key's value has not changed since 2026-09-04, so if the funded project is a different one,
+a new key value is needed — which is the owner's action, not mine, and is not a rotation "because
+the balance was depleted".
+
+Then, in order: rebind `GEMINI_API_KEY` to `feat/garage-mechanic-onboarding-1-0`, redeploy, and
+
+```
+GMO_REVIEWER=gmo8.reviewer.mtpwifxc@carup-uat.invalid \
+  node scripts/uat/gmo-8-acts-3-to-6.mjs --viewport=desktop|tablet|mobile
+```
+
+Steps 13–33 are written and waiting, Act 6b included.
+
+**Provider binding restored** to its recorded original after this run and verified by an independent
+re-read: `id XvKMBHNf0KbeHvRr · type sensitive · target [preview] · gitBranch
+fix/o2-live-ocr-operationalization`. Not left scoped to the GMO branch.
