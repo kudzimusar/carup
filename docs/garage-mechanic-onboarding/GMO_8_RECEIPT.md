@@ -112,7 +112,11 @@ Fails closed on unpaired or mismatched SHAs. Artifacts and a `report.json` land 
 
 # Acts 3–6 — governed review, activation, context, invitation, revocation
 
-**Status: 10 PASS · 1 BLOCKED · 12 blocked upstream.** Run at `37c96874`, paired, both sides one SHA.
+**Status: 10 PASS · 1 BLOCKED · 20 blocked upstream.** First run at `37c96874`; re-run at
+`ce1d8490` in contract-probe mode, paired, both sides one SHA, with the same result up to the
+block. The blocked count grew from 12 to 20 when Act 6b was added — and finding that the SKIP
+list had not grown with it was itself a reporting bug: eight steps would have vanished from the
+report rather than being declared blocked.
 
 `scripts/uat/gmo-8-acts-3-to-6.mjs`. Each step records HOW it was driven — `[browser]` a person
 clicking the product, `[api]` a real governed endpoint with a real session and real step-up, `[db]` a
