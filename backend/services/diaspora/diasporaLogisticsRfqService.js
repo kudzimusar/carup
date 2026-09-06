@@ -23,6 +23,8 @@ import {
   normalizeId,
 } from './diasporaAuthorization.js';
 import { resolveClient, appendAudit, appendCriticalAudit, paging } from './diasporaServiceUtils.js';
+import { normalizeLogisticsIntake, normalizeCargoIntake } from './tradeIntakeNormalizer.js';
+import { MARKETPLACE_SAFE_CARGO_FIELDS } from './tradeIntakeContract.js';
 import { resolveVehicleObjectAuthority } from '../../middleware/vehicleObjectAuthority.js';
 import { requestReservation, computeCapacity } from './diasporaContainerMarketplaceService.js';
 // T3: best-effort canonical Communications events AFTER the audited mutation. Never authoritative.
@@ -157,6 +159,8 @@ function normalizeRequestPayload(payload = {}, previous = {}) {
   if (!SERVICE_PREFERENCES.has(preference)) throw new ValidationError('Unsupported shipping service preference');
 
   return {
+    // Intake 2.0 (contract §36) — validated columns, never a metadata blob.
+    ...normalizeLogisticsIntake(payload, previous),
     origin_country: originCountry,
     origin_city: cleanText(payload.origin_city ?? payload.originCity ?? previous.origin_city, 150),
     origin_location: cleanText(payload.origin_location ?? payload.originLocation ?? previous.origin_location, 300),
@@ -202,6 +206,9 @@ function normalizeItem(raw = {}, index = 0) {
   }
 
   return {
+    // Intake 2.0 — handling characteristics and content DISCLOSURES. A declaration records what the
+    // customer says is in the box so a provider can decide; it establishes no carrier eligibility.
+    ...normalizeCargoIntake(raw),
     cargo_category: category,
     description,
     quantity,
@@ -407,6 +414,13 @@ export function projectLogisticsRequestForMarketplace(request = {}, items = [], 
       measurement_basis: item.measurement_basis || 'UNKNOWN',
       // A VIN is private vehicle identity. Providers get the cargo description/category, never VIN.
       has_linked_vehicle: Boolean(item.linked_vehicle_vin),
+      // Intake 2.0 — handling characteristics and content disclosures a provider needs to decide
+      // whether they can carry it. Allow-listed: `declared_value` is deliberately NOT here (cargo
+      // value is commercial, and useful to a thief), nor is export clearance state, which is
+      // operational readiness released to an engaged counterparty rather than to a browser.
+      ...Object.fromEntries(MARKETPLACE_SAFE_CARGO_FIELDS
+        .map((field) => [field, item[field]])
+        .filter(([, value]) => value !== undefined && value !== null)),
     })),
     ...extra,
   };

@@ -17,6 +17,7 @@ import { notifyQuoteSubmitted } from './rfqLifecycleNotifier.js';
 import { scoreStockAgainstOrder } from './diasporaDemandSupplyMatchingService.js';
 import { deriveBalances } from './diasporaStockLedgerService.js';
 import { FEATURE_KEYS } from '../../constants/diaspora/diasporaEntitlements.js';
+import { MARKETPLACE_SAFE_ORDER_FIELDS, MARKETPLACE_SAFE_LINE_FIELDS } from './tradeIntakeContract.js';
 
 const ORDERS = 'diaspora_import_orders';
 const QUOTES = 'diaspora_import_quotes';
@@ -77,9 +78,29 @@ export function projectRfqForMarketplace(order = {}, lines = [], extra = {}) {
     // and 0 are VERIFIED, so there is nothing truthful to publish. When that authority is genuinely
     // populated and governed, a non-identifying signal may be derived FROM IT — never from the order.
     // Pinned by diaspora-rfq2-marketplace-projection.test.js.
+    // Intake 2.0 — the expanded intake reaches a supplier ONLY through this allow-list.
+    //
+    // `MARKETPLACE_SAFE_ORDER_FIELDS` is a deliberate enumeration, so a field added to the schema
+    // is invisible here until someone names it on purpose. That is why a richer intake does not
+    // become a wider leak: destination outcome and shipping objective help a supplier decide
+    // whether they can serve the request, while the budget basis behind the number, the payment
+    // intent, the consignee, the delivery area and every locating detail are simply not listed.
+    //
+    // Budget still crosses only through the existing disclosure gate above; nothing here bypasses it.
+    ...pickAllowed(order, MARKETPLACE_SAFE_ORDER_FIELDS),
     lines: (lines || []).map(projectRequestLineForMarketplace),
     ...extra,
   };
+}
+
+/** Copy only the named fields, and only when they have a value. Absence stays absence. */
+function pickAllowed(source = {}, allowed = []) {
+  const out = {};
+  for (const field of allowed) {
+    const value = source[field];
+    if (value !== undefined && value !== null) out[field] = value;
+  }
+  return out;
 }
 
 /** Safe per-line projection. `part_number_known:false` is surfaced deliberately — see the migration. */
@@ -98,6 +119,9 @@ export function projectRequestLineForMarketplace(line = {}) {
     part_number_known: Boolean(line.part_number_known),
     condition_preference: line.condition_preference || null,
     notes: line.notes || null,
+    // Intake 2.0 — the vehicle/part preferences a supplier actually matches inventory against.
+    // Allow-listed for the same reason as the header: a new column is invisible until named.
+    ...pickAllowed(line, MARKETPLACE_SAFE_LINE_FIELDS),
   };
 }
 

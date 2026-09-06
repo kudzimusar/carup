@@ -6,6 +6,7 @@
  * the accepted quote on the order; a repeat accept of the same quote is a no-op replay.
  */
 import { NotFoundError, ValidationError, ForbiddenError } from '../../utils/errors.js';
+import { normalizeOrderIntake } from './tradeIntakeNormalizer.js';
 import { normalizeVehicleTaxonomyInput } from '../taxonomy/vehicleTaxonomyService.js';
 import { RFQ_URGENCY, deriveRfqLifecycle } from '../../constants/diaspora/diasporaRfqConstants.js';
 import { requireUserContext, isPlatformAdmin, isPlatformReviewer, isOrderOwner, normalizeId } from './diasporaAuthorization.js';
@@ -75,7 +76,12 @@ export async function createBuyerOrder(payload = {}, userContext = {}, options =
     year: payload.requested_year_min,
   });
 
+  // Intake 2.0 (contract §36): validated intake facts live in columns, not in metadata, so they
+  // can be matched against supply and projected selectively. An unanswered question stays null.
+  const intake = normalizeOrderIntake(payload);
+
   const row = {
+    ...intake,
     tenant_id: context.tenantId || payload.tenant_id || null,
     buyer_id: context.id,
     order_type: orderType,
@@ -305,6 +311,13 @@ export async function updateBuyerOrder(id, payload = {}, userContext = {}, optio
   const editable = ['origin_city', 'destination_country', 'destination_city', 'requested_make', 'requested_model', 'requested_year_min', 'requested_year_max', 'budget_amount', 'budget_currency'];
   const update = { updated_by: context.id, updated_at: new Date().toISOString() };
   for (const f of editable) if (f in payload) update[f] = payload[f];
+
+  // Intake 2.0: the expanded intake is editable under the SAME rule as everything else here — the
+  // accepted-quote refusal above still stands, so a supplier's offer can never end up describing
+  // requirements that changed underneath it. Each value is re-validated rather than trusted, and
+  // `previous` is passed so an omitted field keeps its stored answer instead of being blanked by a
+  // partial payload.
+  Object.assign(update, normalizeOrderIntake(payload, previous));
 
   if (['requested_make', 'requested_model', 'requested_year_min', 'requested_year_max'].some(field => field in payload)) {
     const nextMake = 'requested_make' in payload ? payload.requested_make : previous.requested_make;

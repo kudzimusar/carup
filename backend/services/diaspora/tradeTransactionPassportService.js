@@ -459,6 +459,14 @@ export async function continueToLogistics(importOrderId, userContext = {}, optio
 
   const describedVehicle = [order.requested_make, order.requested_model].filter(Boolean).join(' ').trim();
 
+  // Intake 2.0 reuse (contract §36.8) — the continuation inherits the OUTCOME the buyer already
+  // stated, not just the route. If the purchase said "door delivery to Harare, cheapest reasonable
+  // cost, available from the 4th", the shipping request starts knowing that. This is what stops
+  // the richer intake dying on the sourcing form and being asked for a second time.
+  //
+  // Only genuinely reusable INTENTIONS carry. Nothing operational is inferred: no port is chosen,
+  // no service mode is decided beyond the buyer's own stated preference, and every field the buyer
+  // left unanswered stays null here too.
   const row = {
     tenant_id: order.tenant_id || context.tenantId || null,
     requester_id: context.id,
@@ -467,6 +475,14 @@ export async function continueToLogistics(importOrderId, userContext = {}, optio
     origin_city: order.origin_city || null,
     destination_country: order.destination_country,
     destination_city: order.destination_city || null,
+    destination_outcome: order.destination_outcome || null,
+    shipping_objective: order.shipping_objective || null,
+    available_from: order.available_from || null,
+    arrival_window_start: order.arrival_window_start || null,
+    arrival_window_end: order.arrival_window_end || null,
+    timing_flexibility: order.timing_flexibility || null,
+    // The buyer's stated shipping mode preference maps onto T3's service preference where it has a
+    // direct equivalent; anything else stays 'flexible' rather than guessing an operational mode.
     service_preference: 'flexible',
     status: 'DRAFT',
     metadata: { continued_from_import_order_id: importOrderId },
@@ -520,12 +536,21 @@ async function ensureContinuationCargo(client, request, order, context) {
   }
 
   const describedVehicle = [order.requested_make, order.requested_model].filter(Boolean).join(' ').trim();
+
+  // The purchased vehicle's own line, so the shipping side inherits WHAT is moving rather than a
+  // bare label. Nature and running state are stated conservatively: a bought-but-not-yet-collected
+  // vehicle's condition is not something the purchase record knows, so it stays unknown rather
+  // than being assumed to run.
   const { error } = await client.from(REQUEST_ITEMS).insert({
     logistics_request_id: request.id,
     line_number: 1,
     cargo_category: 'vehicle',
     description: describedVehicle || 'Vehicle purchased through CarUp',
     quantity: 1,
+    goods_nature: 'commercial_goods',
+    vehicle_running_state: 'unknown',
+    vehicle_keys_state: 'unknown',
+    export_clearance_state: 'unknown',
     // CarUp does not know the crate size. Unknown stays unknown, and T3 will correctly refuse
     // container space until a real volume is supplied.
     measurement_basis: 'UNKNOWN',

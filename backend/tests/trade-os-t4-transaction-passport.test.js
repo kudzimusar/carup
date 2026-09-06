@@ -71,6 +71,12 @@ function seed({ requestStatus = 'AWARDED', acceptedQuoteId = QUOTE_ID, reservati
       id: ORDER_ID, buyer_id: 'buyer-a', tenant_id: null, status: 'QUOTED',
       origin_country: 'Japan', origin_city: 'Yokohama', destination_country: 'Zimbabwe', destination_city: 'Harare',
       requested_make: 'Toyota', requested_model: 'Aqua', vin: VIN, deleted_at: null,
+      // Intake 2.0 answers the buyer gave on the sourcing form.
+      destination_outcome: 'door_delivery', shipping_objective: 'lowest_cost',
+      available_from: '2026-10-04', arrival_window_start: '2026-11-01',
+      arrival_window_end: '2026-12-01', timing_flexibility: 'somewhat_flexible',
+      budget_basis: 'delivered', budget_max_amount: 24000, budget_disclosed: false,
+      payment_intent: 'bank_transfer', clearing_intent: 'want_provider',
     }],
     diaspora_import_quotes: [{
       id: ORDER_QUOTE_ID, import_order_id: ORDER_ID, seller_id: 'supplier-s', status: orderQuoteStatus,
@@ -273,6 +279,40 @@ test('a replay repairs a continuation whose cargo line is missing', async () => 
   assert.equal(replay.request.id, request.id);
   assert.equal(db._rows('diaspora_logistics_request_items').length, 1,
     'the replay must converge, not merely decline to duplicate');
+});
+
+test('the continuation INHERITS the buyer\'s stated outcome, not just the route', async () => {
+  const opts = seed();
+  const { request } = await passport.continueToLogistics(ORDER_ID, buyer, opts);
+
+  // The whole point of Intake 2.0 -> T4: what the buyer already said must not have to be said
+  // again downstream.
+  assert.equal(request.destination_outcome, 'door_delivery', 'the delivery OUTCOME carries over');
+  assert.equal(request.shipping_objective, 'lowest_cost', 'what matters to the buyer carries over');
+  assert.equal(request.available_from, '2026-10-04');
+  assert.equal(request.arrival_window_start, '2026-11-01');
+  assert.equal(request.arrival_window_end, '2026-12-01');
+  assert.equal(request.timing_flexibility, 'somewhat_flexible');
+
+  const items = db._rows('diaspora_logistics_request_items').filter((i) => i.logistics_request_id === request.id);
+  assert.equal(items[0].description, 'Toyota Aqua', 'the purchased item identity carries over');
+  // …and what the purchase genuinely does not know stays unknown rather than being assumed.
+  assert.equal(items[0].vehicle_running_state, 'unknown');
+  assert.equal(items[0].export_clearance_state, 'unknown');
+  assert.equal(items[0].measurement_basis, 'UNKNOWN');
+  assert.equal(items[0].estimated_volume_cbm ?? null, null);
+});
+
+test('the continuation does NOT inherit private commercial intent', async () => {
+  const opts = seed();
+  const { request } = await passport.continueToLogistics(ORDER_ID, buyer, opts);
+  // A shipping request is a different commercial conversation with a different counterparty. The
+  // buyer's budget ceiling and payment intent belong to the purchase, and copying them onto a
+  // logistics row would put them one projection mistake away from a freight provider.
+  for (const leaked of ['budget_max_amount', 'budget_basis', 'payment_intent', 'clearing_intent']) {
+    assert.ok(!(leaked in request) || request[leaked] === undefined || request[leaked] === null,
+      `the continuation must not carry "${leaked}" onto the logistics authority`);
+  }
 });
 
 test('continuation is idempotent under replay', async () => {
