@@ -14,7 +14,7 @@ const isPrivileged = (context) => isPlatformAdmin(context) || isPlatformReviewer
 import {
   COST_STAGE_SET, INCLUSION_SET, COMMERCIAL_STATUS_SET, PROVENANCE_SET, REVENUE_CLASS_SET,
   CHARGE_BASIS_SET, CLIENT_ASSERTABLE_PROVENANCE, CARUP_REVENUE_CLASSES, COST_STAGE_LABELS,
-  T6_MUST_NOT_CALCULATE, MATERIAL_STAGES,
+  T6_MUST_NOT_CALCULATE, MATERIAL_STAGES, isStageAnswered, isUnpricedGap,
 } from './tradeCommercialContract.js';
 import { toReferenceUsd, FX_STATUS } from './tradeFxRateService.js';
 
@@ -204,7 +204,7 @@ export function composeLandedEstimate(projected, { materialStages = MATERIAL_STA
   const included = projected.filter((c) => c.inclusion === 'INCLUDED');
   const excluded = projected.filter((c) => c.inclusion === 'EXCLUDED');
   const contingent = projected.filter((c) => c.inclusion === 'CONTINGENT');
-  const unpriced = projected.filter((c) => c.original.amount === null);
+  const unpriced = projected.filter(isUnpricedGap);
 
   // Subtotals are grouped BY CURRENCY and never summed across currencies — the same rule
   // tradeIntelligenceService already holds, because adding JPY to USD performs a conversion
@@ -226,10 +226,7 @@ export function composeLandedEstimate(projected, { materialStages = MATERIAL_STA
   // the customer already owns has no GOODS cost, and demanding one would report a fully priced
   // journey as incomplete. Only genuine UNKNOWN counts as missing, which is the distinction the
   // contract declares between unknown and not-applicable.
-  const answered = new Set(projected
-    .filter((c) => (c.original.amount !== null && c.inclusion === 'INCLUDED')
-      || c.inclusion === 'NOT_APPLICABLE' || c.inclusion === 'EXCLUDED')
-    .map((c) => c.cost_stage));
+  const answered = new Set(projected.filter(isStageAnswered).map((c) => c.cost_stage));
   const missingMaterial = materialStages.filter((s) => !answered.has(s));
 
   return {

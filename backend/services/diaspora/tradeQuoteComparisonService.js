@@ -9,7 +9,7 @@
  * make hiding costs the winning strategy. Everything below is pure over already-projected facts,
  * so it is exactly testable and performs no I/O.
  */
-import { COST_STAGE_LABELS, MATERIAL_STAGES } from './tradeCommercialContract.js';
+import { COST_STAGE_LABELS, MATERIAL_STAGES, isStageAnswered } from './tradeCommercialContract.js';
 
 export const COMPARABILITY = Object.freeze({
   COMPARABLE: 'COMPARABLE',
@@ -123,9 +123,12 @@ export function compareQuotes(quotes = []) {
  */
 export function compareCorridorEconomics(corridorOptions = [], { materialStages = MATERIAL_STAGES } = {}) {
   const rows = corridorOptions.map((option) => {
+    // The SAME coverage rule the landed estimate uses — imported, not re-implemented, because
+    // these two drifted apart the first time they were written separately.
+    const answered = new Set((option.components || []).filter(isStageAnswered).map((c) => c.cost_stage));
     const priced = new Set((option.components || [])
       .filter((c) => c.inclusion === 'INCLUDED' && c.original.amount !== null).map((c) => c.cost_stage));
-    const missing = materialStages.filter((s) => !priced.has(s));
+    const missing = materialStages.filter((s) => !answered.has(s));
     const convertible = (option.components || []).every((c) => c.original.amount === null || Boolean(c.reference_usd));
     const known = (option.components || [])
       .filter((c) => c.inclusion === 'INCLUDED' && c.reference_usd)

@@ -557,3 +557,36 @@ test('an update keeps the currency it already had rather than resetting to USD',
   assert.equal(money.resolveSourceCurrency({ total_amount: 200 }, ['currency'], { currency: 'JPY' }), 'JPY',
     'a PATCH that does not mention currency must not silently redenominate the offer');
 });
+
+test('the corridor comparison and the landed estimate share ONE coverage rule', () => {
+  // These two drifted the first time they were written separately: the estimate was corrected to
+  // treat NOT_APPLICABLE as answered and the corridor comparison was not, so the same journey read
+  // complete on one screen and incomplete on the other. They now import the same helper, and this
+  // test fails if either grows its own copy again.
+  const components = [
+    { cost_stage: 'GOODS', inclusion: 'NOT_APPLICABLE', original: { amount: null, currency: null }, reference_usd: null },
+    ...['MAIN_CARRIAGE', 'CLEARING', 'INLAND', 'IMPORT_CUSTOMS'].map((stage) => ({
+      cost_stage: stage, inclusion: 'INCLUDED',
+      original: { amount: 100, currency: 'USD' }, reference_usd: { amount: 100, currency: 'USD' },
+    })),
+  ];
+  const estimate = charges.composeLandedEstimate(components);
+  const corridor = compare.compareCorridorEconomics([{ corridor_code: 'X', components }]).corridors[0];
+  assert.equal(estimate.is_complete, true, 'the estimate must see this journey as complete');
+  assert.equal(corridor.coverage_complete, true, 'and so must the corridor comparison');
+  assert.deepEqual(estimate.missing_material_stages, []);
+  assert.deepEqual(corridor.missing_material_stages, []);
+  assert.equal(estimate.unpriced.length, 0, 'a NOT_APPLICABLE stage is not an unpriced gap');
+});
+
+test('a genuinely unknown stage is a gap in BOTH views', () => {
+  const components = [
+    { cost_stage: 'MAIN_CARRIAGE', inclusion: 'INCLUDED', original: { amount: 100, currency: 'USD' }, reference_usd: { amount: 100, currency: 'USD' } },
+    { cost_stage: 'CLEARING', inclusion: 'UNKNOWN', original: { amount: null, currency: null }, reference_usd: null },
+  ];
+  const estimate = charges.composeLandedEstimate(components);
+  const corridor = compare.compareCorridorEconomics([{ corridor_code: 'X', components }]).corridors[0];
+  assert.equal(estimate.is_complete, false);
+  assert.equal(corridor.coverage_complete, false);
+  assert.ok(estimate.unpriced.some((u) => u.stage === 'CLEARING'));
+});

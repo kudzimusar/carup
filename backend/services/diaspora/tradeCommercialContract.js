@@ -98,3 +98,27 @@ export const T6_MUST_NOT_CALCULATE = set('IMPORT_CUSTOMS', 'REGULATORY');
 
 /** Stages a customer generally needs priced before a journey cost is meaningful. */
 export const MATERIAL_STAGES = Object.freeze(['GOODS', 'MAIN_CARRIAGE', 'CLEARING', 'INLAND', 'IMPORT_CUSTOMS']);
+
+/**
+ * Is this component's stage ANSWERED?
+ *
+ * Answered means the provider told us something usable: a price, or an explicit "excluded" or
+ * "not applicable". Only UNKNOWN — and INCLUDED-but-unpriced — leaves a genuine gap.
+ *
+ * This lives here, once, because the coverage rule was originally written twice (the landed
+ * estimate and the corridor comparison) and the two drifted the moment one was corrected.
+ */
+export function isStageAnswered(component) {
+  const inclusion = component.inclusion;
+  if (inclusion === 'NOT_APPLICABLE' || inclusion === 'EXCLUDED') return true;
+  const amount = component.original ? component.original.amount : component.original_amount;
+  return inclusion === 'INCLUDED' && amount !== null && amount !== undefined;
+}
+
+/** Is this component a genuine pricing GAP (as opposed to an answered non-cost)? */
+export function isUnpricedGap(component) {
+  const inclusion = component.inclusion;
+  if (inclusion === 'NOT_APPLICABLE' || inclusion === 'EXCLUDED') return false;
+  const amount = component.original ? component.original.amount : component.original_amount;
+  return amount === null || amount === undefined;
+}
