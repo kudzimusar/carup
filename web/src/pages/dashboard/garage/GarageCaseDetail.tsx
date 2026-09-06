@@ -80,23 +80,24 @@ export default function GarageCaseDetail() {
   const [mileage, setMileage] = useState('')
   const [formError, setFormError] = useState<string | null>(null)
 
-  const load = useCallback(async () => {
-    if (!caseId) return
-    try {
-      const detail = await fetchServiceRequest(caseId)
-      const view = (detail?.case ?? detail) as CaseView
-      setCaseView(view)
-
-      // The case projection carries no work-order id, so the queue — filtered to this case's own
-      // status so a finished job is found too — is where the job card is discovered. Reading it is
-      // the alternative to calling the idempotent create endpoint, which would OPEN a job card as a
-      // side effect of viewing the page.
-      const queue = await fetchGarageQueue(view.status).catch(() => null)
-      setQueueRow(((queue?.queue || []) as QueueCase[]).find((q) => q.id === caseId) ?? null)
-      setState('ready')
-    } catch {
-      setState('error')
-    }
+  const load = useCallback(() => {
+    if (!caseId) return Promise.resolve()
+    return fetchServiceRequest(caseId)
+      .then((detail: { case?: CaseView } | CaseView) => {
+        const view = ((detail as { case?: CaseView })?.case ?? detail) as CaseView
+        setCaseView(view)
+        // The case projection carries no work-order id, so the queue — filtered to this case's own
+        // status so a finished job is found too — is where the job card is discovered. Reading it
+        // is the alternative to calling the idempotent create endpoint, which would OPEN a job card
+        // as a side effect of viewing the page.
+        return fetchGarageQueue(view.status)
+          .catch(() => null)
+          .then((queue) => {
+            setQueueRow(((queue?.queue || []) as QueueCase[]).find((q) => q.id === caseId) ?? null)
+            setState('ready')
+          })
+      })
+      .catch(() => { setState('error') })
   }, [caseId, fetchServiceRequest, fetchGarageQueue])
 
   useEffect(() => { load() }, [load])
@@ -114,7 +115,9 @@ export default function GarageCaseDetail() {
 
   useEffect(() => {
     let mounted = true
-    if (!workOrderId) { setAssignedTo(null); return }
+    // No job card means nobody can be assigned, and `assignedTo` is derived below rather than
+    // cleared here — a synchronous setState in an effect body cascades a render for nothing.
+    if (!workOrderId) return () => { mounted = false }
     fetchWorkOrderAssignment(workOrderId)
       .then((res) => { if (mounted) setAssignedTo(res?.assigned_mechanic_user_id ?? null) })
       .catch(() => { if (mounted) setAssignedTo(null) })
@@ -183,6 +186,8 @@ export default function GarageCaseDetail() {
     )
   }
 
+  // Without a job card there is no assignment, whatever a previous read left behind.
+  const assignedMechanicId = workOrderId ? assignedTo : null
   const terminal = isTerminalCase(caseView.status)
   const next = nextActionFor(caseView.status, Boolean(workOrderId))
 
@@ -296,10 +301,10 @@ export default function GarageCaseDetail() {
                   <UserCog className="w-4 h-4 text-gray-400" aria-hidden="true" /> Who is doing the work
                 </p>
 
-                {assignedTo ? (
+                {assignedMechanicId ? (
                   <div className="flex flex-wrap items-center gap-3">
                     <p className="text-sm" data-testid="assigned-mechanic">
-                      {mechanicLabel(mechanics.find((m) => m.user_id === assignedTo) ?? { user_id: assignedTo })}
+                      {mechanicLabel(mechanics.find((m) => m.user_id === assignedMechanicId) ?? { user_id: assignedMechanicId })}
                     </p>
                     <Button
                       variant="outline" className="min-h-11" disabled={busy} data-testid="unassign-mechanic"

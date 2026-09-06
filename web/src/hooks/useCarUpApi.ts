@@ -450,6 +450,105 @@ type CommunicationAuditEvent = {
   created_at?: string | null
 }
 
+/* ── Service Network response shapes ─────────────────────────────────────────────────────────────
+   These are the exact projections the certified routes return. `any` is the established idiom
+   elsewhere in this file; it is not a reason to add more where the server contract is known. */
+export type ServiceCaseView = {
+  id: string
+  vin: string
+  status: string
+  service_category: string | null
+  request_summary: string | null
+  garage_display_name?: string | null
+  garage_slug?: string | null
+  requested_at: string | null
+  accepted_at: string | null
+  declined_at: string | null
+  started_at: string | null
+  completed_at: string | null
+  cancelled_at: string | null
+  conversation_thread_id?: string | null
+}
+export type ServiceCaseResult = { case: ServiceCaseView; created?: boolean }
+export type ServiceCaseDetail = {
+  case: ServiceCaseView
+  access_basis?: string
+  history?: Array<{ event_type: string; from_status: string | null; to_status: string | null; created_at: string }>
+}
+export type GarageQueueResponse = {
+  queue: Array<{
+    id: string
+    status: string
+    vin: string
+    vehicle: { make: string | null; model: string | null; year: number | null } | null
+    service_category: string | null
+    requested_at: string | null
+    accepted_at?: string | null
+    branch_id?: string | null
+    work_order: { id: string; status: string; assigned_mechanic_user_id?: string | null } | null
+    next_action?: string
+  }>
+  total: number
+  counts: { requested: number; accepted: number; active: number }
+}
+export type GarageMechanicsResponse = {
+  mechanics: Array<{ user_id: string; display_name: string | null; role: string | null }>
+  total: number
+}
+export type GarageCustomersResponse = {
+  customers: Array<{
+    user_id: string
+    display_name: string | null
+    vehicle_count: number
+    case_count: number
+    completed_count: number
+    last_service_at: string | null
+    spend_by_currency: Record<string, number>
+    conversation_thread_id: string | null
+  }>
+  total: number
+}
+export type GarageProfileResponse = {
+  tenant?: { id: string; name: string; type: string }
+  profile: {
+    display_name: string | null
+    slug: string | null
+    description: string | null
+    location_city: string | null
+    location_province: string | null
+    contact_policy: string | null
+    public_phone: string | null
+    service_categories: string[] | null
+    publication_status: string | null
+  } | null
+  branches?: unknown[]
+}
+export type WorkOrderView = { id: string; status: string; service_case_id?: string | null; vin?: string }
+export type WorkOrderResult = { workOrder: WorkOrderView; created?: boolean }
+export type AssignmentResponse = {
+  work_order_id: string
+  assigned_mechanic_user_id: string | null
+  assigned: boolean
+  history: unknown[]
+}
+export type ServiceRecordResult = { record: { id: string; vin: string; work_performed: string | null } }
+export type MileageObservationResult = {
+  observation: { id: string; observed_mileage: number }
+  canonical_mileage: number | null
+  disagrees_with_canonical: boolean | null
+}
+export type ResolvedServiceLink = {
+  resource_type: string
+  access: string
+  next_action?: string | null
+  authenticated?: boolean
+  source_channel?: string | null
+  vin?: string | null
+  service_case_id?: string | null
+  status?: string | null
+  practitioner?: { affiliation: { display_name: string; slug: string } | null; credential_review_state: string | null } | null
+}
+
 export function useCarUpApi() {
   const { user, token } = useAuth()
   const [loading, setLoading] = useState(false)
@@ -2240,8 +2339,8 @@ export function useCarUpApi() {
     service_category?: string | null
     request_summary?: string | null
     source_channel?: string
-  }): Promise<any> => {
-    return request<any>('/service-cases', {
+  }): Promise<ServiceCaseResult> => {
+    return request<ServiceCaseResult>('/service-cases', {
       method: 'POST',
       body: JSON.stringify({
         garage_slug: input.garage_slug,
@@ -2254,13 +2353,13 @@ export function useCarUpApi() {
   }, [request])
 
   /** The requester's own Service Cases — the canonical ledger, not a second list. */
-  const fetchMyServiceRequests = useCallback(async (): Promise<any[]> => {
-    const res = await request<any>('/service-cases/mine', { method: 'GET' })
+  const fetchMyServiceRequests = useCallback(async (): Promise<ServiceCaseView[]> => {
+    const res = await request<ServiceCaseView[] | { cases?: ServiceCaseView[] }>('/service-cases/mine', { method: 'GET' })
     return Array.isArray(res) ? res : (res?.cases ?? [])
   }, [request])
 
-  const fetchServiceRequest = useCallback(async (caseId: string): Promise<any> => {
-    return request<any>(`/service-cases/${encodeURIComponent(caseId)}`, { method: 'GET' })
+  const fetchServiceRequest = useCallback(async (caseId: string): Promise<ServiceCaseDetail> => {
+    return request<ServiceCaseDetail>(`/service-cases/${encodeURIComponent(caseId)}`, { method: 'GET' })
   }, [request])
 
   /* ── Garage operator workspace (R5) ──────────────────────────────────────────────────────────
@@ -2268,76 +2367,76 @@ export function useCarUpApi() {
      queue, its own members, and the case/work-order/record lifecycle. Nothing new is invented
      here — these are the canonical Service Network routes, called from a screen at last. */
 
-  const fetchGarageQueue = useCallback(async (status?: string): Promise<any> => {
+  const fetchGarageQueue = useCallback(async (status?: string): Promise<GarageQueueResponse> => {
     const q = status ? `?status=${encodeURIComponent(status)}` : ''
-    return request<any>(`/garage/queue${q}`, { method: 'GET' })
+    return request<GarageQueueResponse>(`/garage/queue${q}`, { method: 'GET' })
   }, [request])
 
-  const fetchGarageMechanics = useCallback(async (): Promise<any> => {
-    return request<any>('/garage/mechanics', { method: 'GET' })
+  const fetchGarageMechanics = useCallback(async (): Promise<GarageMechanicsResponse> => {
+    return request<GarageMechanicsResponse>('/garage/mechanics', { method: 'GET' })
   }, [request])
 
-  const fetchGarageCustomers = useCallback(async (): Promise<any> => {
-    return request<any>('/garage/customers', { method: 'GET' })
+  const fetchGarageCustomers = useCallback(async (): Promise<GarageCustomersResponse> => {
+    return request<GarageCustomersResponse>('/garage/customers', { method: 'GET' })
   }, [request])
 
   /* The garage's own public page. Certified since S1 and never reachable from the product, which
      left the directory with no way to gain a garage — and so the owner journey with no supply. */
-  const fetchMyGarageProfile = useCallback(async (): Promise<any> => {
-    return request<any>('/garage/profile', { method: 'GET' })
+  const fetchMyGarageProfile = useCallback(async (): Promise<GarageProfileResponse> => {
+    return request<GarageProfileResponse>('/garage/profile', { method: 'GET' })
   }, [request])
 
-  const saveMyGarageProfile = useCallback(async (body: Record<string, unknown>): Promise<any> => {
-    return request<any>('/garage/profile', { method: 'PUT', body: JSON.stringify(body) })
+  const saveMyGarageProfile = useCallback(async (body: Record<string, unknown>): Promise<GarageProfileResponse> => {
+    return request<GarageProfileResponse>('/garage/profile', { method: 'PUT', body: JSON.stringify(body) })
   }, [request])
 
-  const publishMyGarageProfile = useCallback(async (): Promise<any> => {
-    return request<any>('/garage/profile/publish', { method: 'POST', body: '{}' })
+  const publishMyGarageProfile = useCallback(async (): Promise<GarageProfileResponse> => {
+    return request<GarageProfileResponse>('/garage/profile/publish', { method: 'POST', body: '{}' })
   }, [request])
 
-  const unpublishMyGarageProfile = useCallback(async (): Promise<any> => {
-    return request<any>('/garage/profile/unpublish', { method: 'POST', body: '{}' })
+  const unpublishMyGarageProfile = useCallback(async (): Promise<GarageProfileResponse> => {
+    return request<GarageProfileResponse>('/garage/profile/unpublish', { method: 'POST', body: '{}' })
   }, [request])
 
-  const acceptServiceCase = useCallback(async (caseId: string): Promise<any> => {
-    return request<any>(`/service-cases/${encodeURIComponent(caseId)}/accept`, { method: 'POST', body: '{}' })
+  const acceptServiceCase = useCallback(async (caseId: string): Promise<ServiceCaseResult> => {
+    return request<ServiceCaseResult>(`/service-cases/${encodeURIComponent(caseId)}/accept`, { method: 'POST', body: '{}' })
   }, [request])
 
-  const declineServiceCase = useCallback(async (caseId: string, reasonCode?: string): Promise<any> => {
-    return request<any>(`/service-cases/${encodeURIComponent(caseId)}/decline`, {
+  const declineServiceCase = useCallback(async (caseId: string, reasonCode?: string): Promise<ServiceCaseResult> => {
+    return request<ServiceCaseResult>(`/service-cases/${encodeURIComponent(caseId)}/decline`, {
       method: 'POST',
       body: JSON.stringify({ reason_code: reasonCode || 'garage_declined' }),
     })
   }, [request])
 
-  const startServiceCase = useCallback(async (caseId: string): Promise<any> => {
-    return request<any>(`/service-cases/${encodeURIComponent(caseId)}/start`, { method: 'POST', body: '{}' })
+  const startServiceCase = useCallback(async (caseId: string): Promise<ServiceCaseResult> => {
+    return request<ServiceCaseResult>(`/service-cases/${encodeURIComponent(caseId)}/start`, { method: 'POST', body: '{}' })
   }, [request])
 
-  const completeServiceCase = useCallback(async (caseId: string): Promise<any> => {
-    return request<any>(`/service-cases/${encodeURIComponent(caseId)}/complete`, { method: 'POST', body: '{}' })
+  const completeServiceCase = useCallback(async (caseId: string): Promise<ServiceCaseResult> => {
+    return request<ServiceCaseResult>(`/service-cases/${encodeURIComponent(caseId)}/complete`, { method: 'POST', body: '{}' })
   }, [request])
 
-  const openWorkOrderForCase = useCallback(async (caseId: string, body: Record<string, unknown> = {}): Promise<any> => {
-    return request<any>(`/service-cases/${encodeURIComponent(caseId)}/work-order`, {
+  const openWorkOrderForCase = useCallback(async (caseId: string, body: Record<string, unknown> = {}): Promise<WorkOrderResult> => {
+    return request<WorkOrderResult>(`/service-cases/${encodeURIComponent(caseId)}/work-order`, {
       method: 'POST',
       body: JSON.stringify(body),
     })
   }, [request])
 
-  const fetchWorkOrderAssignment = useCallback(async (workOrderId: string): Promise<any> => {
-    return request<any>(`/service-work-orders/${encodeURIComponent(workOrderId)}/assignment`, { method: 'GET' })
+  const fetchWorkOrderAssignment = useCallback(async (workOrderId: string): Promise<AssignmentResponse> => {
+    return request<AssignmentResponse>(`/service-work-orders/${encodeURIComponent(workOrderId)}/assignment`, { method: 'GET' })
   }, [request])
 
-  const assignMechanicToWorkOrder = useCallback(async (workOrderId: string, mechanicUserId: string): Promise<any> => {
-    return request<any>(`/service-work-orders/${encodeURIComponent(workOrderId)}/assign`, {
+  const assignMechanicToWorkOrder = useCallback(async (workOrderId: string, mechanicUserId: string): Promise<{ success: boolean }> => {
+    return request<{ success: boolean }>(`/service-work-orders/${encodeURIComponent(workOrderId)}/assign`, {
       method: 'POST',
       body: JSON.stringify({ mechanic_user_id: mechanicUserId }),
     })
   }, [request])
 
-  const unassignMechanicFromWorkOrder = useCallback(async (workOrderId: string): Promise<any> => {
-    return request<any>(`/service-work-orders/${encodeURIComponent(workOrderId)}/unassign`, {
+  const unassignMechanicFromWorkOrder = useCallback(async (workOrderId: string): Promise<{ success: boolean }> => {
+    return request<{ success: boolean }>(`/service-work-orders/${encodeURIComponent(workOrderId)}/unassign`, {
       method: 'POST',
       body: '{}',
     })
@@ -2349,16 +2448,16 @@ export function useCarUpApi() {
     service_category?: string | null
     total_cost?: number | null
     currency?: string | null
-  }): Promise<any> => {
-    return request<any>(`/service-work-orders/${encodeURIComponent(workOrderId)}/records`, {
+  }): Promise<ServiceRecordResult> => {
+    return request<ServiceRecordResult>(`/service-work-orders/${encodeURIComponent(workOrderId)}/records`, {
       method: 'POST',
       body: JSON.stringify(body),
     })
   }, [request])
 
   /** An OBSERVATION of the odometer. It does not write the vehicle's canonical mileage. */
-  const recordMileageObservation = useCallback(async (recordId: string, observedMileage: number): Promise<any> => {
-    return request<any>(`/service-records/${encodeURIComponent(recordId)}/mileage`, {
+  const recordMileageObservation = useCallback(async (recordId: string, observedMileage: number): Promise<MileageObservationResult> => {
+    return request<MileageObservationResult>(`/service-records/${encodeURIComponent(recordId)}/mileage`, {
       method: 'POST',
       body: JSON.stringify({ observed_mileage: observedMileage, observation_source: 'garage_stated' }),
     })
@@ -2369,12 +2468,12 @@ export function useCarUpApi() {
    * out and signed in — the identity headers `request` attaches when they exist are exactly what
    * decides whether the answer is `authentication_required` or the real one.
    */
-  const resolveServiceLink = useCallback(async (publicToken: string): Promise<any> => {
-    return request<any>(`/service-links/${encodeURIComponent(publicToken)}`, { method: 'GET' })
+  const resolveServiceLink = useCallback(async (publicToken: string): Promise<ResolvedServiceLink> => {
+    return request<ResolvedServiceLink>(`/service-links/${encodeURIComponent(publicToken)}`, { method: 'GET' })
   }, [request])
 
-  const cancelServiceRequest = useCallback(async (caseId: string, reasonCode?: string): Promise<any> => {
-    return request<any>(`/service-cases/${encodeURIComponent(caseId)}/cancel`, {
+  const cancelServiceRequest = useCallback(async (caseId: string, reasonCode?: string): Promise<ServiceCaseResult> => {
+    return request<ServiceCaseResult>(`/service-cases/${encodeURIComponent(caseId)}/cancel`, {
       method: 'POST',
       body: JSON.stringify({ reason_code: reasonCode || 'requester_withdrew' }),
     })

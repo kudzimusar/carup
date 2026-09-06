@@ -24,8 +24,11 @@ export default function ServiceLink() {
   const { user } = useAuth()
   const { resolveServiceLink } = useCarUpApi()
 
-  const [presentation, setPresentation] = useState<LinkPresentation | null>(null)
-  const [loading, setLoading] = useState(true)
+  // A route with no token cannot be resolved, and saying so is a derived fact about the URL — not
+  // something to write into state from inside an effect.
+  const [resolved, setResolved] = useState<LinkPresentation | null>(null)
+  const [loading, setLoading] = useState(Boolean(token))
+  const presentation = token ? resolved : INVALID_LINK
 
   // A garage member and the requester are the two sides of a job and belong in different products.
   const viewerIsGarageMember = Boolean(user?.active_tenant_id)
@@ -33,16 +36,11 @@ export default function ServiceLink() {
 
   useEffect(() => {
     let mounted = true
-    if (!token) {
-      setPresentation(INVALID_LINK)
-      setLoading(false)
-      return
-    }
-    setLoading(true)
+    if (!token) return () => { mounted = false }
     resolveServiceLink(token)
-      .then((resolved: ResolvedLink) => {
+      .then((link: ResolvedLink) => {
         if (!mounted) return
-        setPresentation(presentLink(resolved, { returnTo, viewerIsGarageMember }))
+        setResolved(presentLink(link, { returnTo, viewerIsGarageMember }))
       })
       .catch((err: unknown) => {
         if (!mounted) return
@@ -50,7 +48,7 @@ export default function ServiceLink() {
         // deliberate — it must not become an oracle. Anything else is OUR failure, and saying
         // "invalid link" for a network fault would blame the person holding a perfectly good code.
         const message = err instanceof Error ? err.message : ''
-        setPresentation(/not valid|not found/i.test(message) ? INVALID_LINK : UNREADABLE_LINK)
+        setResolved(/not valid|not found/i.test(message) ? INVALID_LINK : UNREADABLE_LINK)
       })
       .finally(() => { if (mounted) setLoading(false) })
     return () => { mounted = false }

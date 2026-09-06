@@ -24,35 +24,33 @@ export type GarageOperatorState = 'checking' | 'garage' | 'not_garage' | 'unknow
 export function useGarageOperator(): { state: GarageOperatorState; garageName: string | null } {
   const { user } = useAuth()
   const { fetchMyGarageProfile } = useCarUpApi()
-  const [state, setState] = useState<GarageOperatorState>('checking')
+  // Only the PROBE holds state. Whether someone can even be garage staff is a fact about the
+  // session, so it is derived below rather than written into state from inside an effect.
+  const [probe, setProbe] = useState<GarageOperatorState>('checking')
   const [garageName, setGarageName] = useState<string | null>(null)
 
   const tenantId = user?.active_tenant_id ?? null
+  const couldBeGarage = Boolean(user && tenantId)
 
   useEffect(() => {
     let mounted = true
-    if (!user) { setState('not_garage'); return }
-    if (!tenantId) {
-      // No tenant membership means no garage. No request needed, and none made.
-      setState('not_garage')
-      return
-    }
-    setState('checking')
+    // No user, or no tenant membership: no garage, and no request made.
+    if (!couldBeGarage) return () => { mounted = false }
     fetchMyGarageProfile()
       .then((res) => {
         if (!mounted) return
         setGarageName(res?.profile?.display_name ?? res?.tenant?.name ?? null)
-        setState('garage')
+        setProbe('garage')
       })
       .catch((err: unknown) => {
         if (!mounted) return
         const message = err instanceof Error ? err.message : ''
         // A refusal is a real answer: this tenant is not a garage, or this person may not act for
         // it. Anything else (network, 500) is unknown — and unknown never moves anybody.
-        setState(/not a garage|forbidden|not permitted|requires|tenant/i.test(message) ? 'not_garage' : 'unknown')
+        setProbe(/not a garage|forbidden|not permitted|requires|tenant/i.test(message) ? 'not_garage' : 'unknown')
       })
     return () => { mounted = false }
-  }, [user, tenantId, fetchMyGarageProfile])
+  }, [couldBeGarage, fetchMyGarageProfile])
 
-  return { state, garageName }
+  return { state: couldBeGarage ? probe : 'not_garage', garageName }
 }

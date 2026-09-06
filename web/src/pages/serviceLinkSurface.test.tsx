@@ -9,7 +9,7 @@
  * non-participant was not given, and no distinction between revoked, expired and never-existed.
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { render, screen, waitFor } from '@testing-library/react'
+import { render, screen } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
 import ServiceLink from './ServiceLink'
 import { presentLink } from '@/lib/serviceLink'
