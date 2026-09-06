@@ -147,6 +147,7 @@ import serviceWorkOrderRouter from './routes/serviceWorkOrderRoutes.js';
 import serviceRecordRouter from './routes/serviceRecordRoutes.js';
 import serviceLinkRouter from './routes/serviceLinkRoutes.js';
 import garageQueueRouter from './routes/garageQueueRoutes.js';
+import garageOnboardingRouter from './routes/garageOnboardingRoutes.js';
 import { getOwnerServiceHistory } from './services/serviceNetwork/ownerServiceHistoryService.js';
 import { sellerVehicleIdentifierProblem } from './utils/sellerVehicleIdentifier.js';
 import { normalizeVehicleStatus, publicVehicleStatusFilterValues, publiclyVisiblePublicationStatuses, isPublicVehicleStatus, isPubliclyVisiblePublication, PUBLIC_VEHICLE_COLUMNS } from './utils/vehicleStatus.js';
@@ -433,6 +434,9 @@ app.use(serviceWorkOrderRouter);
 app.use(serviceRecordRouter);
 app.use(serviceLinkRouter);
 app.use(garageQueueRouter);
+// GMO-1 — the Garage applicant's own onboarding surface. Upstream of Service Network: it produces
+// the application a reviewer decides and an activation service acts on. It grants nothing itself.
+app.use(garageOnboardingRouter);
 
 // Mount isolated Diaspora Trade bounded context
 app.use('/api/diaspora', diasporaRouter);
