@@ -40,6 +40,91 @@ const CURRENCIES = ['USD', 'JPY', 'ZWG', 'ZAR', 'GBP', 'EUR']
 const fieldLabel = 'block min-w-0 text-xs font-medium uppercase tracking-wide text-gray-600'
 const control = 'mt-1 block w-full min-w-0 border border-gray-300 bg-white px-3 py-2 text-sm focus:border-orange-500 focus:outline-none'
 
+/**
+ * Progressive disclosure (contract §36.4).
+ *
+ * The capabilities all exist; they are not all shown. A first-time buyer completes the same four
+ * steps they always did and never opens one of these. Someone who knows what they want — a dealer
+ * specifying RHD, a mileage ceiling and CIF Beira — opens it and finds structured fields rather
+ * than a free-text box nobody downstream can read.
+ *
+ * The wording matters: "may help providers quote more accurately", never "incomplete". Nothing
+ * inside is required, and leaving it shut is a legitimate way to publish.
+ */
+function MoreDetail({ open, onToggle, summary, children, testId }: {
+  open: boolean; onToggle: () => void; summary: string; children: React.ReactNode; testId: string
+}) {
+  return (
+    <div className="mt-5 border-t border-gray-200 pt-4">
+      <button type="button" onClick={onToggle} data-testid={testId}
+              className="flex w-full min-w-0 items-center justify-between gap-3 text-left">
+        <span className="min-w-0">
+          <span className="block text-sm font-semibold text-gray-950">{summary}</span>
+          <span className="block text-xs text-gray-500">Optional — it may help suppliers quote more accurately.</span>
+        </span>
+        <span className="shrink-0 text-sm font-semibold text-orange-600">{open ? 'Hide' : 'Add'}</span>
+      </button>
+      {open && <div className="mt-4 grid min-w-0 gap-4 sm:grid-cols-2">{children}</div>}
+    </div>
+  )
+}
+
+/** A select whose blank option is a real answer: "not stated" is never a default. */
+function Choice({ label, value, onChange, options, hint, testId }: {
+  label: string; value: string; onChange: (v: string) => void
+  options: Array<[string, string]>; hint?: string; testId: string
+}) {
+  return (
+    <label className={fieldLabel}>{label}
+      <select className={control} value={value} onChange={(e) => onChange(e.target.value)} data-testid={testId}>
+        <option value="">No preference / not sure</option>
+        {options.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
+      </select>
+      {hint && <span className="mt-0.5 block text-[10px] normal-case tracking-normal text-gray-500">{hint}</span>}
+    </label>
+  )
+}
+
+const OUTCOME_OPTIONS: Array<[string, string]> = [
+  ['port_only', 'Collect it at the port myself'],
+  ['port_plus_clearing', 'Port, and I need help clearing it'],
+  ['cross_border_transit', 'Port, then across the border'],
+  ['port_to_city', 'Bring it to my city'],
+  ['door_delivery', 'Deliver it to my address'],
+  ['unsure', "I'm not sure — recommend options"],
+]
+const OBJECTIVE_OPTIONS: Array<[string, string]> = [
+  ['lowest_cost', 'Lowest reasonable cost'],
+  ['faster_arrival', 'Faster arrival'],
+  ['better_protection', 'Better protection / security'],
+  ['extra_goods', 'I need to ship other goods with it'],
+  ['non_running', 'The vehicle does not run'],
+  ['multiple_vehicles', 'I have multiple vehicles'],
+  ['private_container', 'I want a private container'],
+  ['flexible', "I'm flexible — recommend suitable options"],
+]
+const BUDGET_BASIS_OPTIONS: Array<[string, string]> = [
+  ['item_only', 'The vehicle/item price only'],
+  ['fob', 'Purchase at the export port (FOB)'],
+  ['export_side', 'Purchase plus export-side charges'],
+  ['cif_port', 'Everything to the destination port (CIF)'],
+  ['port_cleared', 'Everything up to cleared at the port'],
+  ['delivered', 'Everything, delivered to me'],
+  ['unsure', "I'm not sure — help me work it out"],
+]
+const QUOTE_COMPONENT_OPTIONS: Array<[string, string]> = [
+  ['item_price', 'Vehicle / item price'],
+  ['origin_inland_transport', 'Inland transport at origin'],
+  ['auction_export_charges', 'Auction / exporter charges'],
+  ['export_processing', 'Export processing'],
+  ['inspection', 'Inspection'],
+  ['ocean_freight', 'Ocean freight'],
+  ['insurance', 'Insurance'],
+  ['destination_clearing', 'Destination clearing'],
+  ['cross_border_transit', 'Cross-border transit'],
+  ['inland_delivery', 'Final delivery'],
+]
+
 const emptyLine = (): DiasporaRequestLinePayload => ({
   item_description: '', quantity: 1, part_number: '', part_number_known: false, condition_preference: 'any',
 })
@@ -95,6 +180,54 @@ export default function TradeRequestQuotes() {
   const [neededBy, setNeededBy] = useState('')
 
   /**
+   * Intake 2.0 (contract §36). Every one of these is optional and starts EMPTY — never at a
+   * plausible default — because a blank here means "not stated" and is written as null. They live
+   * behind optional disclosure so the four-step path a first-time buyer walks is unchanged: you can
+   * still say "find me an Alphard and get it to Harare" without opening any of it.
+   */
+  const [showMoreVehicle, setShowMoreVehicle] = useState(false)
+  const [showMoreOutcome, setShowMoreOutcome] = useState(false)
+  const [showMoreServices, setShowMoreServices] = useState(false)
+
+  // What matters / where it ends up
+  const [destinationOutcome, setDestinationOutcome] = useState('')
+  const [destinationArea, setDestinationArea] = useState('')
+  const [preferredPort, setPreferredPort] = useState('')
+  const [consigneeKind, setConsigneeKind] = useState('')
+  const [shippingObjective, setShippingObjective] = useState('')
+  const [shippingMode, setShippingMode] = useState('')
+  // What the budget MEANS
+  const [budgetBasis, setBudgetBasis] = useState('')
+  const [budgetMax, setBudgetMax] = useState('')
+  const [budgetFlexibility, setBudgetFlexibility] = useState('')
+  // Services the buyer wants help with — intentions, not capabilities
+  const [inspectionIntent, setInspectionIntent] = useState('')
+  const [insuranceIntent, setInsuranceIntent] = useState('')
+  const [clearingIntent, setClearingIntent] = useState('')
+  const [paymentIntent, setPaymentIntent] = useState('')
+  const [quoteComponents, setQuoteComponents] = useState<string[]>([])
+  // Timing as a window
+  const [availableFrom, setAvailableFrom] = useState('')
+  const [arrivalFrom, setArrivalFrom] = useState('')
+  const [arrivalTo, setArrivalTo] = useState('')
+  const [timingFlexibility, setTimingFlexibility] = useState('')
+  const [deadlineIsHard, setDeadlineIsHard] = useState(false)
+  // Vehicle preferences a supplier matches inventory against
+  const [steering, setSteering] = useState('')
+  const [transmission, setTransmission] = useState('')
+  const [drivetrain, setDrivetrain] = useState('')
+  const [fuelType, setFuelType] = useState('')
+  const [bodyType, setBodyType] = useState('')
+  const [mileageMax, setMileageMax] = useState('')
+  const [seatsMin, setSeatsMin] = useState('')
+  const [colourPreference, setColourPreference] = useState('')
+  const [accidentTolerance, setAccidentTolerance] = useState('')
+  const [rustTolerance, setRustTolerance] = useState('')
+  const [intendedUse, setIntendedUse] = useState('')
+  const [alternativesPolicy, setAlternativesPolicy] = useState('')
+  const [alternativeModels, setAlternativeModels] = useState('')
+
+  /**
    * Load an existing DRAFT into the wizard so the buyer amends it rather than retyping it
    * (audit item 5). Only a draft is loaded; a published request is not editable here.
    */
@@ -124,6 +257,36 @@ export default function TradeRequestQuotes() {
         } else if (orderLines.length) {
           setLines(orderLines.map((l) => ({ ...l, part_number: l.part_number || '' })))
         }
+        // Intake 2.0 — a longer form makes reliable hydration non-negotiable: a draft that reopens
+        // with half its answers missing silently destroys work the buyer already did.
+        const o = order as unknown as Record<string, unknown>
+        const str = (k: string) => (o[k] === null || o[k] === undefined ? '' : String(o[k]))
+        setDestinationOutcome(str('destination_outcome')); setDestinationArea(str('destination_area'))
+        setPreferredPort(str('preferred_port')); setConsigneeKind(str('consignee_kind'))
+        setShippingObjective(str('shipping_objective')); setShippingMode(str('shipping_mode_preference'))
+        setBudgetBasis(str('budget_basis')); setBudgetMax(str('budget_max_amount'))
+        setBudgetFlexibility(str('budget_flexibility'))
+        setInspectionIntent(str('inspection_intent')); setInsuranceIntent(str('insurance_intent'))
+        setClearingIntent(str('clearing_intent')); setPaymentIntent(str('payment_intent'))
+        setQuoteComponents(Array.isArray(o.requested_quote_components) ? o.requested_quote_components as string[] : [])
+        setAvailableFrom(str('available_from')); setArrivalFrom(str('arrival_window_start'))
+        setArrivalTo(str('arrival_window_end')); setTimingFlexibility(str('timing_flexibility'))
+        setDeadlineIsHard(o.deadline_is_hard === true)
+        setAlternativesPolicy(str('alternatives_policy'))
+        const firstLine = (orderLines[0] || {}) as unknown as Record<string, unknown>
+        const lineStr = (k: string) => (firstLine[k] === null || firstLine[k] === undefined ? '' : String(firstLine[k]))
+        setSteering(lineStr('vehicle_steering')); setTransmission(lineStr('vehicle_transmission'))
+        setDrivetrain(lineStr('vehicle_drivetrain')); setFuelType(lineStr('vehicle_fuel_type'))
+        setBodyType(lineStr('vehicle_body_type')); setMileageMax(lineStr('vehicle_mileage_max_km'))
+        setSeatsMin(lineStr('vehicle_seats_min')); setColourPreference(lineStr('vehicle_colour_preference'))
+        setAccidentTolerance(lineStr('accident_repair_tolerance')); setRustTolerance(lineStr('rust_tolerance'))
+        setIntendedUse(lineStr('intended_use'))
+        setAlternativeModels(Array.isArray(firstLine.alternative_models) ? (firstLine.alternative_models as string[]).join(', ') : '')
+        // Anything the buyer had opened stays open, so returning to a draft does not hide their work.
+        if (o.destination_outcome || o.shipping_objective) setShowMoreOutcome(true)
+        if (o.inspection_intent || o.insurance_intent || o.clearing_intent || o.payment_intent) setShowMoreServices(true)
+        if (firstLine.vehicle_steering || firstLine.intended_use) setShowMoreVehicle(true)
+
         setStep(0)
       })
       .catch(() => { if (live) setError('That draft could not be loaded. It has not been changed.') })
@@ -177,6 +340,64 @@ export default function TradeRequestQuotes() {
     }
   }, [kind, make, model, yearMin, yearMax, condition, activeLines, destinationCity, destinationCountry, originCountry, budget, currency, discloseBudget, neededBy, urgency])
 
+  /**
+   * The Request Brief — the answers the buyer actually gave, in the words they chose.
+   *
+   * Only ANSWERED questions appear. An unopened section contributes nothing, so a simple request
+   * still reads as a simple request rather than a page of "Not specified" rows, and a detailed one
+   * reads as a brief a supplier can act on.
+   */
+  const briefSections = useMemo(() => {
+    const label = (options: Array<[string, string]>, value: string) => options.find(([v]) => v === value)?.[1] || null
+    const rows = (entries: Array<[string, string | null]>) => entries.filter(([, v]) => Boolean(v)) as Array<[string, string]>
+
+    const requirements = rows([
+      ['Steering', label([['rhd', 'Right-hand drive'], ['lhd', 'Left-hand drive'], ['either', 'Either']], steering)],
+      ['Transmission', label([['automatic', 'Automatic'], ['manual', 'Manual'], ['either', 'Either']], transmission)],
+      ['Drivetrain', label([['2wd', '2WD'], ['4wd_awd', '4WD / AWD'], ['either', 'Either']], drivetrain)],
+      ['Fuel', fuelType.trim() || null],
+      ['Body', bodyType.trim() || null],
+      ['Maximum mileage', mileageMax ? `${Number(mileageMax).toLocaleString()} km` : null],
+      ['Minimum seats', seatsMin || null],
+      ['Colour', colourPreference.trim() || null],
+      ['Accident-repaired', label([['none', 'Not acceptable'], ['minor_acceptable', 'Minor repairs acceptable'], ['flexible', 'Flexible'], ['unsure', 'Not sure']], accidentTolerance)],
+      ['Rust', label([['none', 'Not acceptable'], ['minor_acceptable', 'Minor acceptable'], ['flexible', 'Flexible'], ['unsure', 'Not sure']], rustTolerance)],
+      ['Purpose', label([['personal_family', 'Personal / family'], ['company', 'Company use'], ['taxi_ride_hailing', 'Taxi / ride-hailing'], ['dealer_resale', 'Dealer stock / resale'], ['commercial_transport', 'Commercial transport'], ['farm', 'Farm'], ['mining_industrial', 'Mining / industrial'], ['restoration_project', 'Restoration project'], ['donor_parts', 'Parts / donor vehicle'], ['other', 'Something else']], intendedUse)],
+      ['Alternatives', label([['exact_only', 'This model only'], ['flexible_trim', 'Same model, flexible trim'], ['similar_models', 'Similar models are fine'], ['supplier_may_propose', 'Suppliers may propose alternatives'], ['ask_before_proposing', 'Ask me first']], alternativesPolicy)],
+      ['Also acceptable', alternativeModels.trim() || null],
+    ])
+
+    const outcome = rows([
+      ['What you need', label(OUTCOME_OPTIONS, destinationOutcome)],
+      ['What matters most', label(OBJECTIVE_OPTIONS, shippingObjective)],
+      ['Shipping method', label([['no_preference', 'No preference'], ['roro', 'RoRo'], ['shared_container', 'Shared container'], ['private_container', 'Private container'], ['provider_recommendation', 'Provider recommendation']], shippingMode)],
+      ['Preferred port', preferredPort.trim() || null],
+    ])
+
+    const commercial = rows([
+      ['Budget covers', label(BUDGET_BASIS_OPTIONS, budgetBasis)],
+      ['Inspection', label([['please_arrange', 'Wants help arranging it'], ['already_arranged', 'Already arranged'], ['already_completed', 'Already completed'], ['unsure', 'Not sure if required'], ['not_applicable', 'Not applicable']], inspectionIntent)],
+      ['Insurance', label([['interested', 'Interested'], ['not_interested', 'Not interested'], ['already_insured', 'Already insured'], ['unsure', 'Not sure']], insuranceIntent)],
+      ['Clearing', label([['own_agent', 'Has own agent'], ['want_provider', 'Wants a provider'], ['arrange_later', 'Will arrange later'], ['unsure', 'Not sure']], clearingIntent)],
+      ['Offers should cover', quoteComponents.length
+        ? quoteComponents.map((c) => QUOTE_COMPONENT_OPTIONS.find(([v]) => v === c)?.[1] || c).join(' · ') : null],
+      ['Timing', [availableFrom ? `available from ${availableFrom}` : null,
+                  arrivalFrom || arrivalTo ? `ideally arriving ${arrivalFrom || '?'} – ${arrivalTo || '?'}` : null,
+                  label([['fixed', 'fixed deadline'], ['somewhat_flexible', 'somewhat flexible'], ['flexible', 'flexible']], timingFlexibility)]
+        .filter(Boolean).join(', ') || null],
+    ])
+
+    return [
+      ['Your requirements', requirements],
+      ['Destination outcome', outcome],
+      ['Commercial and services', commercial],
+    ].filter(([, entries]) => (entries as Array<unknown>).length > 0) as Array<[string, Array<[string, string]>]>
+  }, [steering, transmission, drivetrain, fuelType, bodyType, mileageMax, seatsMin, colourPreference,
+      accidentTolerance, rustTolerance, intendedUse, alternativesPolicy, alternativeModels,
+      destinationOutcome, shippingObjective, shippingMode, preferredPort, budgetBasis,
+      inspectionIntent, insuranceIntent, clearingIntent, quoteComponents,
+      availableFrom, arrivalFrom, arrivalTo, timingFlexibility])
+
   const buildPayload = useCallback((): DiasporaBuyerOrderPayload => {
     const base: DiasporaBuyerOrderPayload = {
       order_type: kind === 'vehicle' ? 'vehicle' : kind === 'mixed' ? 'mixed' : 'parts',
@@ -217,8 +438,67 @@ export default function TradeRequestQuotes() {
       if (first?.vehicle_model) base.requested_model = first.vehicle_model
       if (first?.part_number_known && first.part_number) base.requested_part_number = first.part_number
     }
+    // Intake 2.0 — only ANSWERED questions are sent. An untouched control contributes nothing, so
+    // the server writes null rather than a default, and "not stated" survives all the way down.
+    const answered: Record<string, unknown> = {
+      intake_intent: kind === 'vehicle' ? 'buy_vehicle' : 'buy_parts',
+      destination_outcome: destinationOutcome || undefined,
+      destination_area: destinationArea.trim() || undefined,
+      preferred_port: preferredPort.trim() || undefined,
+      consignee_kind: consigneeKind || undefined,
+      shipping_objective: shippingObjective || undefined,
+      shipping_mode_preference: shippingMode || undefined,
+      budget_basis: budgetBasis || undefined,
+      budget_max_amount: budgetMax ? Number(budgetMax) : undefined,
+      budget_flexibility: budgetFlexibility || undefined,
+      budget_disclosed: discloseBudget,
+      inspection_intent: inspectionIntent || undefined,
+      insurance_intent: insuranceIntent || undefined,
+      clearing_intent: clearingIntent || undefined,
+      payment_intent: paymentIntent || undefined,
+      requested_quote_components: quoteComponents.length ? quoteComponents : undefined,
+      available_from: availableFrom || undefined,
+      arrival_window_start: arrivalFrom || undefined,
+      arrival_window_end: arrivalTo || undefined,
+      timing_flexibility: timingFlexibility || undefined,
+      deadline_is_hard: deadlineIsHard || undefined,
+      alternatives_policy: alternativesPolicy || undefined,
+    }
+    for (const [key, value] of Object.entries(answered)) {
+      if (value !== undefined) (base as unknown as Record<string, unknown>)[key] = value
+    }
+
+    // Vehicle preferences belong to the LINE, because they describe the thing being sourced.
+    if (kind === 'vehicle' && base.lines?.[0]) {
+      const linePrefs: Record<string, unknown> = {
+        vehicle_steering: steering || undefined,
+        vehicle_transmission: transmission || undefined,
+        vehicle_drivetrain: drivetrain || undefined,
+        vehicle_fuel_type: fuelType.trim() || undefined,
+        vehicle_body_type: bodyType.trim() || undefined,
+        vehicle_mileage_max_km: mileageMax ? Number(mileageMax) : undefined,
+        vehicle_seats_min: seatsMin ? Number(seatsMin) : undefined,
+        vehicle_colour_preference: colourPreference.trim() || undefined,
+        accident_repair_tolerance: accidentTolerance || undefined,
+        rust_tolerance: rustTolerance || undefined,
+        intended_use: intendedUse || undefined,
+        alternative_models: alternativeModels.trim()
+          ? alternativeModels.split(',').map((v) => v.trim()).filter(Boolean)
+          : undefined,
+      }
+      for (const [key, value] of Object.entries(linePrefs)) {
+        if (value !== undefined) (base.lines[0] as unknown as Record<string, unknown>)[key] = value
+      }
+    }
+
     return base
-  }, [kind, originCountry, destinationCountry, destinationCity, urgency, discloseBudget, budget, currency, neededBy, make, model, yearMin, yearMax, requirements, condition, activeLines])
+  }, [kind, originCountry, destinationCountry, destinationCity, urgency, discloseBudget, budget, currency,
+      neededBy, make, model, yearMin, yearMax, requirements, condition, activeLines,
+      destinationOutcome, destinationArea, preferredPort, consigneeKind, shippingObjective, shippingMode,
+      budgetBasis, budgetMax, budgetFlexibility, inspectionIntent, insuranceIntent, clearingIntent,
+      paymentIntent, quoteComponents, availableFrom, arrivalFrom, arrivalTo, timingFlexibility,
+      deadlineIsHard, alternativesPolicy, steering, transmission, drivetrain, fuelType, bodyType,
+      mileageMax, seatsMin, colourPreference, accidentTolerance, rustTolerance, intendedUse, alternativeModels])
 
   const canPublish = kind === 'vehicle'
     ? Boolean(destinationCountry.trim())
@@ -454,6 +734,68 @@ export default function TradeRequestQuotes() {
                   {CONDITIONS.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
                 </select>
               </label>
+              <div className="sm:col-span-2">
+                <MoreDetail open={showMoreVehicle} onToggle={() => setShowMoreVehicle((v) => !v)}
+                            summary="Do you have specific requirements?" testId="trade-more-vehicle">
+                  <Choice label="Steering" value={steering} onChange={setSteering}
+                          options={[['rhd', 'Right-hand drive'], ['lhd', 'Left-hand drive'], ['either', 'Either']]}
+                          testId="trade-steering" />
+                  <Choice label="Transmission" value={transmission} onChange={setTransmission}
+                          options={[['automatic', 'Automatic'], ['manual', 'Manual'], ['either', 'Either']]}
+                          testId="trade-transmission" />
+                  <Choice label="Drivetrain" value={drivetrain} onChange={setDrivetrain}
+                          options={[['2wd', '2WD'], ['4wd_awd', '4WD / AWD'], ['either', 'Either']]}
+                          testId="trade-drivetrain" />
+                  <label className={fieldLabel}>Fuel type (optional)
+                    <Input className="mt-1 rounded-none" placeholder="e.g. petrol, hybrid" value={fuelType}
+                           onChange={(e) => setFuelType(e.target.value)} data-testid="trade-fuel-type" />
+                  </label>
+                  <label className={fieldLabel}>Body type (optional)
+                    <Input className="mt-1 rounded-none" placeholder="e.g. SUV, van" value={bodyType}
+                           onChange={(e) => setBodyType(e.target.value)} data-testid="trade-body-type" />
+                  </label>
+                  <label className={fieldLabel}>Maximum mileage in km (optional)
+                    <Input className="mt-1 rounded-none" inputMode="numeric" placeholder="e.g. 80000" value={mileageMax}
+                           onChange={(e) => setMileageMax(e.target.value)} data-testid="trade-mileage-max" />
+                  </label>
+                  <label className={fieldLabel}>Minimum seats (optional)
+                    <Input className="mt-1 rounded-none" inputMode="numeric" value={seatsMin}
+                           onChange={(e) => setSeatsMin(e.target.value)} data-testid="trade-seats-min" />
+                  </label>
+                  <label className={fieldLabel}>Colour preference (optional)
+                    <Input className="mt-1 rounded-none" value={colourPreference}
+                           onChange={(e) => setColourPreference(e.target.value)} data-testid="trade-colour" />
+                  </label>
+                  <Choice label="Accident-repaired vehicles" value={accidentTolerance} onChange={setAccidentTolerance}
+                          options={[['none', 'Not acceptable'], ['minor_acceptable', 'Minor repairs acceptable'],
+                                    ['flexible', 'Flexible'], ['unsure', 'Not sure']]}
+                          testId="trade-accident-tolerance"
+                          hint="What you will accept. It says nothing about any particular vehicle's history." />
+                  <Choice label="Rust" value={rustTolerance} onChange={setRustTolerance}
+                          options={[['none', 'Not acceptable'], ['minor_acceptable', 'Minor acceptable'],
+                                    ['flexible', 'Flexible'], ['unsure', 'Not sure']]}
+                          testId="trade-rust-tolerance" />
+                  <Choice label="What will you use it for" value={intendedUse} onChange={setIntendedUse}
+                          options={[['personal_family', 'Personal / family'], ['company', 'Company use'],
+                                    ['taxi_ride_hailing', 'Taxi / ride-hailing'], ['dealer_resale', 'Dealer stock / resale'],
+                                    ['commercial_transport', 'Commercial transport'], ['farm', 'Farm'],
+                                    ['mining_industrial', 'Mining / industrial'], ['restoration_project', 'Restoration project'],
+                                    ['donor_parts', 'Parts / donor vehicle'], ['other', 'Something else']]}
+                          testId="trade-intended-use" />
+                  <Choice label="Are alternatives acceptable" value={alternativesPolicy} onChange={setAlternativesPolicy}
+                          options={[['exact_only', 'This model only'], ['flexible_trim', 'Same model, flexible trim'],
+                                    ['similar_models', 'Similar models are fine'],
+                                    ['supplier_may_propose', 'Suppliers may propose alternatives'],
+                                    ['ask_before_proposing', 'Ask me before proposing alternatives']]}
+                          testId="trade-alternatives-policy" />
+                  <label className={fieldLabel}>Models you would also accept (optional)
+                    <Input className="mt-1 rounded-none" placeholder="e.g. Toyota Vellfire" value={alternativeModels}
+                           onChange={(e) => setAlternativeModels(e.target.value)} data-testid="trade-alternative-models" />
+                    <span className="mt-0.5 block text-[10px] normal-case tracking-normal text-gray-500">Separate several with commas.</span>
+                  </label>
+                </MoreDetail>
+              </div>
+
               <label className={`${fieldLabel} sm:col-span-2`}>Anything else suppliers should know? (optional)
                 <textarea className={control} rows={2} value={requirements} onChange={(e) => setRequirements(e.target.value)} placeholder="e.g. must be hybrid, low mileage preferred" data-testid="trade-vehicle-requirements" />
               </label>
@@ -580,6 +922,34 @@ export default function TradeRequestQuotes() {
                 <span className="mt-0.5 block text-[10px] normal-case tracking-normal text-gray-500">Leave as is if you have no preference.</span>
               </label>
             </div>
+
+            <MoreDetail open={showMoreOutcome} onToggle={() => setShowMoreOutcome((v) => !v)}
+                        summary="What should happen when it arrives?" testId="trade-more-outcome">
+              <Choice label="What do you need" value={destinationOutcome} onChange={setDestinationOutcome}
+                      options={OUTCOME_OPTIONS} testId="trade-destination-outcome"
+                      hint="You do not need to know which port. CarUp works that out later." />
+              <Choice label="What matters most" value={shippingObjective} onChange={setShippingObjective}
+                      options={OBJECTIVE_OPTIONS} testId="trade-shipping-objective" />
+              <label className={fieldLabel}>Delivery area (optional)
+                <Input className="mt-1 rounded-none" placeholder="e.g. Borrowdale" value={destinationArea}
+                       onChange={(e) => setDestinationArea(e.target.value)} data-testid="trade-destination-area" />
+                <span className="mt-0.5 block text-[10px] normal-case tracking-normal text-gray-500">Kept private — never shown to suppliers.</span>
+              </label>
+              <Choice label="Who receives it" value={consigneeKind} onChange={setConsigneeKind}
+                      options={[['self', 'Me'], ['my_company', 'My company'], ['another_person', 'Another person'],
+                                ['another_company', 'Another company'], ['undecided', 'Not decided yet']]}
+                      testId="trade-consignee-kind" hint="Kept private." />
+              <Choice label="Shipping method preference" value={shippingMode} onChange={setShippingMode}
+                      options={[['no_preference', 'No preference'], ['roro', 'RoRo (driven on/off)'],
+                                ['shared_container', 'Shared container'], ['private_container', 'Private container'],
+                                ['provider_recommendation', 'Whatever the provider recommends']]}
+                      testId="trade-shipping-mode"
+                      hint="Only if you already know. Providers can propose what suits." />
+              <label className={fieldLabel}>Preferred port (optional)
+                <Input className="mt-1 rounded-none" placeholder="Leave blank if unsure" value={preferredPort}
+                       onChange={(e) => setPreferredPort(e.target.value)} data-testid="trade-preferred-port" />
+              </label>
+            </MoreDetail>
           </section>
         )}
 
@@ -617,6 +987,72 @@ export default function TradeRequestQuotes() {
                 </label>
               )}
             </div>
+
+            <MoreDetail open={showMoreServices} onToggle={() => setShowMoreServices((v) => !v)}
+                        summary="What should your budget cover, and what help do you want?"
+                        testId="trade-more-services">
+              <Choice label="What does your budget include" value={budgetBasis} onChange={setBudgetBasis}
+                      options={BUDGET_BASIS_OPTIONS} testId="trade-budget-basis"
+                      hint="Kept private. It tells CarUp what your number means — it does not calculate a price." />
+              <label className={fieldLabel}>Maximum you would go to (optional)
+                <Input className="mt-1 rounded-none" inputMode="decimal" value={budgetMax}
+                       onChange={(e) => setBudgetMax(e.target.value)} data-testid="trade-budget-max" />
+                <span className="mt-0.5 block text-[10px] normal-case tracking-normal text-gray-500">Never shown to suppliers.</span>
+              </label>
+              <Choice label="Pre-shipment inspection" value={inspectionIntent} onChange={setInspectionIntent}
+                      options={[['please_arrange', 'Please help arrange it'], ['already_arranged', 'Already arranged'],
+                                ['already_completed', 'Already completed'], ['unsure', 'Not sure if it is required'],
+                                ['not_applicable', 'Not applicable']]}
+                      testId="trade-inspection-intent" hint="Records what you want. It does not book anything." />
+              <Choice label="Transport insurance" value={insuranceIntent} onChange={setInsuranceIntent}
+                      options={[['interested', 'Interested — explain the options'], ['not_interested', 'Not interested'],
+                                ['already_insured', 'Already insured'], ['unsure', 'Not sure']]}
+                      testId="trade-insurance-intent" hint="CarUp does not underwrite insurance." />
+              <Choice label="Destination clearing" value={clearingIntent} onChange={setClearingIntent}
+                      options={[['own_agent', 'I have my own clearing agent'], ['want_provider', 'Connect me with someone'],
+                                ['arrange_later', 'I will arrange it later'], ['unsure', 'Not sure']]}
+                      testId="trade-clearing-intent" />
+              <Choice label="How you expect to pay" value={paymentIntent} onChange={setPaymentIntent}
+                      options={[['bank_transfer', 'Bank transfer'], ['already_paid', 'Already paid the supplier'],
+                                ['outstanding', 'Still outstanding'], ['financing_needed', 'I need financing'],
+                                ['installments_interest', 'Interested in instalments'],
+                                ['safetrade_interest', 'Interested in SafeTrade'],
+                                ['decide_after_quote', 'I will decide after quotes']]}
+                      testId="trade-payment-intent" hint="Kept private. Recording an interest does not create a facility." />
+              <div className="sm:col-span-2">
+                <p className={fieldLabel}>What should supplier offers cover?</p>
+                <p className="mt-0.5 text-[10px] normal-case tracking-normal text-gray-500">
+                  Asking for a component does not mean a supplier offers it — each offer states what it actually includes.
+                </p>
+                <div className="mt-2 grid gap-2 sm:grid-cols-2">
+                  {QUOTE_COMPONENT_OPTIONS.map(([value, label]) => (
+                    <label key={value} className="flex min-w-0 items-start gap-2 text-sm text-gray-700">
+                      <input type="checkbox" className="mt-0.5" checked={quoteComponents.includes(value)}
+                             data-testid={`trade-quote-component-${value}`}
+                             onChange={(e) => setQuoteComponents((prev) => (
+                               e.target.checked ? [...prev, value] : prev.filter((v) => v !== value)))} />
+                      <span className="min-w-0">{label}</span>
+                    </label>
+                  ))}
+                </div>
+              </div>
+              <label className={fieldLabel}>Cargo/vehicle available from (optional)
+                <Input className="mt-1 rounded-none" type="date" value={availableFrom}
+                       onChange={(e) => setAvailableFrom(e.target.value)} data-testid="trade-available-from" />
+              </label>
+              <Choice label="How fixed is your timing" value={timingFlexibility} onChange={setTimingFlexibility}
+                      options={[['fixed', 'Fixed — I have a hard deadline'], ['somewhat_flexible', 'Somewhat flexible'],
+                                ['flexible', 'Flexible']]} testId="trade-timing-flexibility" />
+              <label className={fieldLabel}>Ideal arrival — from (optional)
+                <Input className="mt-1 rounded-none" type="date" value={arrivalFrom}
+                       onChange={(e) => setArrivalFrom(e.target.value)} data-testid="trade-arrival-from" />
+              </label>
+              <label className={fieldLabel}>Ideal arrival — to (optional)
+                <Input className="mt-1 rounded-none" type="date" value={arrivalTo}
+                       onChange={(e) => setArrivalTo(e.target.value)} data-testid="trade-arrival-to" />
+                <span className="mt-0.5 block text-[10px] normal-case tracking-normal text-gray-500">A wish, not a shipping date. No one has promised it yet.</span>
+              </label>
+            </MoreDetail>
           </section>
         )}
 
@@ -635,6 +1071,24 @@ export default function TradeRequestQuotes() {
                     </div>
                   ))}
                 </dl>
+
+                {briefSections.length > 0 && (
+                  <div className="mt-5 space-y-4 border-t border-gray-200 pt-4" data-testid="trade-request-brief">
+                    {briefSections.map(([heading, entries]) => (
+                      <div key={heading} className="min-w-0">
+                        <p className="text-[10px] font-bold uppercase tracking-wide text-orange-700">{heading}</p>
+                        <dl className="mt-1 space-y-1">
+                          {entries.map(([k, v]) => (
+                            <div key={k} className="flex min-w-0 flex-wrap gap-x-2 text-sm">
+                              <dt className="text-gray-500">{k}:</dt>
+                              <dd className="min-w-0 font-medium text-gray-900">{v}</dd>
+                            </div>
+                          ))}
+                        </dl>
+                      </div>
+                    ))}
+                  </div>
+                )}
               </div>
 
               <div className="min-w-0 border border-slate-300 bg-slate-50 p-5" data-testid="trade-privacy-preview">
