@@ -473,7 +473,10 @@ export default function TradeShippingRequests() {
       // must PATCH this same request, not run create again and leave an orphan draft per click.
       if (!editingId) setEditingId(saved.id)
       const finalRequest = publish ? await api.publishRequest(saved.id) : saved
-      await load()
+      // F1 — the LIST refresh is for the list, and the user is on their way to the DETAIL. Making
+      // the publish path wait for it added a whole round trip to a page that does not read it.
+      // It still runs, and the list self-corrects when it lands.
+      void load()
       if (publish) await openDetail(finalRequest.id)
       else { setSelected(finalRequest); setView('detail') }
     } catch (err) {
