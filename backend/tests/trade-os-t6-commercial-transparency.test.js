@@ -482,3 +482,37 @@ test('a NEWER published rate never rewrites what an older quote was shown', asyn
   assert.equal(Number(original.rate), first.rate, 'the historical snapshot is unchanged');
   assert.equal(original.rate_date, '2026-09-04');
 });
+
+// ═══ 10. Source-money integrity — a defect found on deployed staging ═════
+//
+// The two quote authorities read DIFFERENT field names (procurement `quote_currency`, logistics
+// `currency`) and both fell back to 'USD'. Sending the other domain's field name silently produced
+// a USD row: a JPY 2,400,000 offer became USD 2,400,000. 'USD' is a valid code, so nothing caught
+// it. These tests exist because the staging run actually triggered it.
+
+const money = await import('../services/diaspora/tradeSourceMoney.js');
+
+test('either domain\'s currency field name is honoured — the mismatch was the API\'s fault', () => {
+  assert.equal(money.resolveSourceCurrency({ quote_currency: 'JPY' }, ['quote_currency', 'currency']), 'JPY');
+  assert.equal(money.resolveSourceCurrency({ currency: 'JPY' }, ['quote_currency', 'currency']), 'JPY',
+    'the logistics field name must not silently become USD in procurement');
+  assert.equal(money.resolveSourceCurrency({ quote_currency: 'JPY' }, ['currency', 'quote_currency']), 'JPY',
+    'and vice versa');
+});
+
+test('a supplied currency must be ISO 4217 — garbage is refused, not stored', () => {
+  for (const bad of ['dollars', 'US', 'USDD', '123']) {
+    assert.throws(() => money.resolveSourceCurrency({ currency: bad }, ['currency']), /ISO 4217/i, `"${bad}" must be refused`);
+  }
+  assert.equal(money.resolveSourceCurrency({ currency: 'jpy' }, ['currency']), 'JPY', 'case is normalised, not rejected');
+});
+
+test('USD remains the default ONLY through genuine absence', () => {
+  assert.equal(money.resolveSourceCurrency({}, ['quote_currency', 'currency']), 'USD');
+  assert.equal(money.resolveSourceCurrency({ quote_amount: 100 }, ['quote_currency', 'currency']), 'USD');
+});
+
+test('an update keeps the currency it already had rather than resetting to USD', () => {
+  assert.equal(money.resolveSourceCurrency({ total_amount: 200 }, ['currency'], { currency: 'JPY' }), 'JPY',
+    'a PATCH that does not mention currency must not silently redenominate the offer');
+});

@@ -5,6 +5,7 @@
  * client key; only DRAFT quotes are editable; withdraw soft-deletes a not-yet-accepted quote.
  */
 import { NotFoundError, ValidationError, ForbiddenError } from '../../utils/errors.js';
+import { resolveSourceCurrency } from './tradeSourceMoney.js';
 import { QUOTE_DB_STATUSES, QUOTE_EDITABLE_FIELDS } from '../../constants/diaspora/diasporaRfqConstants.js';
 import { requireUserContext, isPlatformAdmin, isPlatformReviewer, normalizeId } from './diasporaAuthorization.js';
 import { resolveClient, appendAudit, paging } from './diasporaServiceUtils.js';
@@ -392,7 +393,7 @@ export async function createQuote(orderId, payload = {}, userContext = {}, optio
     import_order_id: orderId,
     seller_id: context.id,
     quote_amount: amount,
-    quote_currency: payload.quote_currency || 'USD',
+    quote_currency: resolveSourceCurrency(payload, ['quote_currency', 'currency']),
     valid_until: payload.valid_until || null,
     inclusions: payload.inclusions || [],
     exclusions: payload.exclusions || [],

@@ -26,6 +26,7 @@ import { resolveClient, appendAudit, appendCriticalAudit, paging } from './diasp
 import { normalizeLogisticsIntake, normalizeCargoIntake } from './tradeIntakeNormalizer.js';
 import { MARKETPLACE_SAFE_CARGO_FIELDS, MARKETPLACE_SAFE_LOGISTICS_FIELDS } from './tradeIntakeContract.js';
 import { listActiveCorridors, sailingRouteMatch } from './tradeCorridorService.js';
+import { resolveSourceCurrency } from './tradeSourceMoney.js';
 import { resolveVehicleObjectAuthority } from '../../middleware/vehicleObjectAuthority.js';
 import { requestReservation, computeCapacity } from './diasporaContainerMarketplaceService.js';
 // T3: best-effort canonical Communications events AFTER the audited mutation. Never authoritative.
@@ -630,7 +631,7 @@ function normalizeQuotePayload(payload = {}, previous = {}) {
     documentation_fees: money('documentation_fees', 'documentationFees'),
     optional_services: normalizeOptionalServices(payload.optional_services ?? payload.optionalServices ?? previous.optional_services),
     total_amount: total,
-    currency: cleanText(payload.currency ?? previous.currency ?? 'USD', 10) || 'USD',
+    currency: resolveSourceCurrency(payload, ['currency', 'quote_currency'], previous),
     transit_days: positiveNumber(payload.transit_days ?? payload.transitDays ?? previous.transit_days)
       ? Math.round(positiveNumber(payload.transit_days ?? payload.transitDays ?? previous.transit_days)) : null,
     valid_until: sent('valid_until', 'validUntil') ? (payload[sent('valid_until', 'validUntil')] || null) : (previous.valid_until ?? null),
