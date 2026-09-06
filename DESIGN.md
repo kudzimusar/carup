@@ -538,6 +538,22 @@ Operational service surfaces use the same global shell and hierarchy but priorit
 
 Service history must feed the Passport lifecycle without visually masquerading as verified evidence unless governed verification exists.
 
+### 17.1 Becoming a Garage or Mechanic is a different journey
+
+Operating a garage and *joining* CarUp as one are separate programmes with separate authorities.
+Professional onboarding surfaces — application, business evidence, review status, activation
+handoff, mechanic invitation — are governed by
+`docs/garage-mechanic-onboarding/GARAGE_MECHANIC_ONBOARDING_1_0_CANONICAL_PLAN.md`.
+
+Two rules from that programme bind the design of those surfaces:
+
+- **Workspace activated ≠ business verified.** A garage may operate while CarUp truthfully states it
+  has verified nothing. Never imply endorsement from activation.
+- **Onboarding states must not collapse.** Not submitted, missing evidence, under review, OCR
+  unavailable, system error, rejected and approved are seven different facts and must read
+  differently — §8 data-state design applied to a governance flow. In particular *OCR failure is not
+  rejection*, and *a failed lookup is not "no application"*.
+
 ---
 
 ## 18. Dealer / business workspace standard

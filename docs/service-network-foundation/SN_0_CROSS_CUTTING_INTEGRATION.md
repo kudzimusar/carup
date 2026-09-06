@@ -136,6 +136,19 @@ a product journey.
 - Journey B ("new garage applicant") ends truthfully at "onboarding pending" — and pending is where
   it stays, because there is no reviewer action that can complete it.
 
+### Owned by
+
+This gap is now a programme of its own:
+**`docs/garage-mechanic-onboarding/GARAGE_MECHANIC_ONBOARDING_1_0_CANONICAL_PLAN.md`**.
+
+The dependency chain reads:
+
+```
+O2 Identity / Registration → Garage & Mechanic Onboarding → Tenant / Context → Service Network
+```
+
+Service Network consumes the membership. It must never create one.
+
 ### What was deliberately NOT done
 
 No activation path was invented. Choosing who may grant a business/tenant membership, and on what

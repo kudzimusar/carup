@@ -2125,6 +2125,60 @@ Agents may refine implementation details during S0, but may not silently change:
 
 ---
 
+# 38.4 STATUS — FROZEN
+
+> ## SERVICE NETWORK FOUNDATION 1.0 — COMPLETE AND CERTIFIED, WITH EXTERNAL PROFESSIONAL-ONBOARDING DEPENDENCY
+
+**Frozen head:** `ee45e556` (PR #197, Draft, unmerged) · exact-head CI 8/8 green · browser
+31 PASS / 0 FAIL / 0 findings on desktop 1440 / tablet 834 / mobile 390 · backend 6034 pass / 0 fail ·
+web 1677 pass · zero new migrations in the design/navigation audit · `main` `bb9d9900` untouched ·
+production untouched.
+
+No further runtime change belongs in #197. Work that looks adjacent almost certainly belongs to
+**Garage & Mechanic Onboarding 1.0** (`docs/garage-mechanic-onboarding/`).
+
+## What #197 proves
+
+- Given a **governed Garage membership**, a Garage can operate Service Network end to end.
+- Given a **governed Mechanic membership**, a Mechanic can perform their permitted Service Network
+  actions.
+- The full loop works: owner request → garage queue → accept → job card → mechanic assignment →
+  work → completion → Service History → Passport projection.
+- Desktop, tablet and mobile navigation are certified, and root `DESIGN.md` governs these surfaces
+  through a durable gate (`web/src/__tests__/designContract.test.ts`).
+- **QR / Service Link creates no authority.** A scan is a read.
+- **OCR creates no authority.** It produces candidate data carrying provenance.
+- **Registration claims create no authority.** `business_type` is an application, not a permission.
+- **Service Network never creates Garage or Mechanic identity, organisation or membership.** Every
+  production reference to `tenants` and `tenant_users` from Service Network is a SELECT.
+
+## What #197 does NOT own
+
+Stated so the boundary cannot blur, and so no future agent implements these inside Service Network:
+
+- creation of the Garage organisation / tenant;
+- approval of a Garage application;
+- creation of the founding Garage operator membership;
+- mechanic invitation and acceptance;
+- business onboarding review;
+- Dealer activation;
+- OCR provider activation.
+
+All of the above belong to **Garage & Mechanic Onboarding 1.0**.
+
+## The dependency, stated exactly
+
+Service Network consumes a governed `tenant_users` membership of a `garage` tenant. **No product
+path creates one.** Verified from source at the frozen head: every reference to `tenants` and
+`tenant_users` in production code is a SELECT, and `user_registration_profiles.onboarding_status` is
+written once at registration and never advanced.
+
+Service Network is therefore complete **and** currently operable only for memberships provisioned
+out of band. That is not a Service Network defect; it is a missing upstream programme, now owned by
+`docs/garage-mechanic-onboarding/GARAGE_MECHANIC_ONBOARDING_1_0_CANONICAL_PLAN.md`.
+
+---
+
 # 38.5 SN-0 — cross-cutting completion gate (added post-Foundation)
 
 S0–S10 define Service Network vertically. They do **not** state the horizontal dependencies every
