@@ -468,8 +468,8 @@ exists.**
 | **GMO-4** | **Canonical Business Activation** | ✅ **PASS (one stated gap)** — `GMO_4_RECEIPT.md` · 19+21 tests · 25/25 real-PostgreSQL incl. fault-injected atomicity · 11/11 mutations red · **true concurrent-session racing NOT executed** |
 | **GMO-5** | Portal / context handoff | ✅ **PASS after a self-inflicted critical, found and fixed** — `GMO_5_RECEIPT.md` · 27+13 tests · adversarial review executed a working privilege-escalation exploit against the first fix; tenant gate is now opt-in per route; all four GMO tables given RLS |
 | **GMO-6** | Mechanic invitation & membership | ✅ **PASS** — `GMO_6_RECEIPT.md` · 34 backend tests · 10/10 mutations red · hashed single-use email-bound token · new enumerated tenancy-write invariant |
-| **GMO-7** | Membership revocation & lifecycle | ⏳ in progress |
-| **GMO-8** | Full physical Golden Journey | ⏳ not started — **blocked on a working browser driver** (the Playwright MCP server failed to connect this session) |
+| **GMO-7** | Membership revocation & lifecycle | ✅ **PASS** — `GMO_7_RECEIPT.md` · 27+20 tests · 7/7 mutations red · future authority ends, historical attribution survives |
+| **GMO-8** | Full physical Golden Journey | 🟡 **PARTIAL** — `GMO_8_RECEIPT.md` · Acts 1–2 **27/27 across desktop/tablet/mobile** on the paired preview at 0d78379f (`unpaired:false`, both sides one SHA); Acts 3–6 NOT RUN, needing a provisioned Operations reviewer and governed O2 identity approval |
 
 **GMO-8 rule:** no direct SQL fixture may stand in for any core onboarding step in the final
 certification. The whole point of this programme is that the journey exists in the product.
