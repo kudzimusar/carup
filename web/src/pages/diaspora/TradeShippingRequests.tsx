@@ -144,6 +144,31 @@ function quoteValidityEnded(quote: LogisticsQuote): boolean {
   return Number.isFinite(timestamp) && timestamp <= Date.now()
 }
 
+
+// Requester-voice labels for the customer's own answers, read back on their own request.
+const OWN_PICKUP_LABELS: Record<string, string> = {
+  yes: 'We collect it for you', no: 'You deliver it to the origin port/yard', unsure: "You weren't sure yet",
+}
+const OWN_ORIGIN_SITE_LABELS: Record<string, string> = {
+  auction: 'Auction house', dealer: 'Dealer', exporter: 'Exporter', private_seller: 'Private seller',
+  warehouse_yard: 'Warehouse / yard', carup_partner_yard: 'CarUp partner yard',
+  customer_location: 'Your location', other: 'Other site',
+}
+const OWN_OUTCOME_LABELS: Record<string, string> = {
+  port_only: 'You collect at the port', port_plus_clearing: 'Port, with clearing help',
+  cross_border_transit: 'Port, then across the border', port_to_city: 'Delivered to your city',
+  door_delivery: 'Delivered to your address', unsure: "You weren't sure — open to recommendations",
+}
+const OWN_OBJECTIVE_LABELS: Record<string, string> = {
+  lowest_cost: 'Lowest reasonable cost', faster_arrival: 'Faster arrival',
+  better_protection: 'Protection / security', extra_goods: 'Other goods travelling with it',
+  non_running: 'The vehicle does not run', multiple_vehicles: 'Multiple vehicles',
+  private_container: 'A private container', flexible: 'Flexible — open to recommendations',
+}
+const OWN_TIMING_LABELS: Record<string, string> = {
+  fixed: 'Fixed', somewhat_flexible: 'Somewhat flexible', flexible: 'Flexible',
+}
+
 export default function TradeShippingRequests() {
   const api = useTradeLogisticsApi()
   const { confirmMeasurements, fetchContainerReservations } = api
@@ -1026,6 +1051,66 @@ export default function TradeShippingRequests() {
             <h2 className="border-b border-slate-300 pb-2 text-xs font-bold uppercase tracking-wide text-slate-600">Your cargo</h2>
             <div className="mt-3 space-y-3">{selected.items.map((item) => <div key={item.id} className="border-l-2 border-orange-500 pl-3"><p className="font-medium text-slate-950">{item.quantity} × {item.description}</p><p className="text-xs text-slate-600">{categoryLabel(item.cargo_category)} · {item.estimated_volume_cbm ? `${item.estimated_volume_cbm} CBM estimated` : 'Volume not recorded'} · {item.estimated_weight_kg ? `${item.estimated_weight_kg} kg estimated` : 'Weight not recorded'}</p></div>)}</div>
             <dl className="mt-5 grid grid-cols-2 gap-4 text-sm"><div><dt className="text-xs uppercase tracking-wide text-slate-500">Service preference</dt><dd>{serviceLabel(selected.service_preference)}</dd></div><div><dt className="text-xs uppercase tracking-wide text-slate-500">Needed by</dt><dd>{selected.needed_by ? String(selected.needed_by).slice(0, 10) : 'Not specified'}</dd></div></dl>
+            {(() => {
+              // The customer answered these. They are private FROM PROVIDERS — every field below is
+              // named in NEVER_MARKETPLACE_VISIBLE and none reaches any marketplace projection —
+              // but they were never private from the person who typed them, who previously had to
+              // open the editor to see their own request back.
+              const shared: Array<[string, string]> = []
+              const priv: Array<[string, string]> = []
+              const add = (into: Array<[string, string]>, label: string, value?: string | null, map?: Record<string, string>) => {
+                if (!value) return
+                into.push([label, map?.[String(value)] ?? String(value)])
+              }
+              add(shared, 'Collection', selected.pickup_required, OWN_PICKUP_LABELS)
+              add(shared, 'Origin site', selected.origin_site_type, OWN_ORIGIN_SITE_LABELS)
+              add(shared, 'At destination', selected.destination_outcome, OWN_OUTCOME_LABELS)
+              add(shared, 'Your priority', selected.shipping_objective, OWN_OBJECTIVE_LABELS)
+              add(shared, 'Timing', selected.timing_flexibility, OWN_TIMING_LABELS)
+              if (selected.available_from) shared.push(['Cargo ready from', String(selected.available_from).slice(0, 10)])
+              add(priv, 'Pickup address', selected.pickup_address)
+              add(priv, 'Pickup contact', selected.pickup_contact_name)
+              add(priv, 'Pickup phone', selected.pickup_contact_phone)
+              add(priv, 'Access notes', selected.pickup_access_notes)
+              add(priv, 'Delivery address', selected.delivery_address)
+              add(priv, 'Delivery contact', selected.delivery_contact_name)
+              add(priv, 'Delivery phone', selected.delivery_contact_phone)
+              add(priv, 'Clearing agent', selected.clearing_agent_name)
+              add(priv, 'Agent contact', selected.clearing_agent_contact)
+              if (!shared.length && !priv.length) return null
+              const rows = (list: Array<[string, string]>) => (
+                <dl className="mt-2 grid grid-cols-2 gap-x-4 gap-y-2 text-sm">
+                  {list.map(([label, value]) => (
+                    <div key={label} className="min-w-0">
+                      <dt className="text-xs uppercase tracking-wide text-slate-500">{label}</dt>
+                      <dd className="break-words text-slate-900">{value}</dd>
+                    </div>
+                  ))}
+                </dl>
+              )
+              return (
+                <div className="mt-6 border-t border-slate-200 pt-5" data-testid="logistics-own-answers">
+                  <h2 className="text-xs font-bold uppercase tracking-wide text-slate-600">What you told us</h2>
+                  {shared.length > 0 && (
+                    <>
+                      {rows(shared)}
+                      <p className="mt-2 text-xs text-slate-500">Providers see these, so they can price the job.</p>
+                    </>
+                  )}
+                  {priv.length > 0 && (
+                    <div className="mt-4 border-l-2 border-slate-400 pl-3" data-testid="logistics-own-private">
+                      <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-600">Kept private</p>
+                      {rows(priv)}
+                      <p className="mt-2 text-xs text-slate-500">
+                        Never shown to providers browsing your request. Shared with the provider you
+                        choose, once you choose them.
+                      </p>
+                    </div>
+                  )}
+                </div>
+              )
+            })()}
+
             {selected.status === 'DRAFT' && <Button className="mt-5 bg-orange-500 text-white hover:bg-orange-600" onClick={() => startEdit(selected)}>Edit request</Button>}
             {selected.status === 'OPEN_FOR_QUOTES' && (
               <div className="mt-7" data-testid="logistics-sailing-matches-state">
@@ -1159,7 +1244,9 @@ export default function TradeShippingRequests() {
       <div className="flex flex-wrap items-end justify-between gap-4 border-b-2 border-slate-950 pb-4"><div><p className="text-xs font-semibold uppercase tracking-[0.18em] text-orange-700">My shipping</p><h1 className="mt-1 text-2xl font-bold tracking-tight text-slate-950">Move goods you already own or bought</h1><p className="mt-1 max-w-3xl text-sm text-slate-600">Describe the cargo once, let qualified logistics providers propose a service, compare what each price includes, then choose. You can also use open CarUp container space directly.</p></div><Button className="bg-orange-500 text-white hover:bg-orange-600" onClick={startNew}><Plus className="mr-1.5 h-4 w-4" /> New shipping request</Button></div>
       {unreadable && <Alert className="mt-5 border-amber-200 bg-amber-50"><AlertDescription>Your shipping requests could not be loaded. This is not a report that you have none.</AlertDescription></Alert>}
       {error && <Alert className="mt-5 border-red-200 bg-red-50"><AlertDescription>{error}</AlertDescription></Alert>}
-      {!unreadable && requests.length === 0 ? <div className="mt-6 border border-dashed border-slate-300 p-8"><Box className="h-7 w-7 text-orange-600" /><h2 className="mt-3 text-lg font-bold text-slate-950">Nothing to ship yet</h2><p className="mt-2 max-w-xl text-sm text-slate-600">Start with what you know. You can request quotes even when dimensions are not final; CarUp keeps unknown measurements visibly unknown.</p><Button className="mt-4 bg-orange-500 text-white hover:bg-orange-600" onClick={startNew}>Create shipping request</Button></div> : <div className="mt-5 divide-y divide-slate-200">{requests.map((request) => { const meta = statusMeta(request.status); return <button key={request.id} type="button" onClick={() => void openDetail(request.id)} className="flex w-full min-w-0 items-start justify-between gap-4 py-5 text-left hover:bg-slate-50"><div className="min-w-0"><p className="truncate font-semibold text-slate-950">{request.items?.[0]?.description || 'Shipping request'}</p><p className="mt-0.5 font-mono text-xs text-slate-500">{request.reference}</p><p className="mt-1 text-sm text-slate-600">{formatRoute({ city: request.origin_city, country: request.origin_country }, { city: request.destination_city, country: request.destination_country })}</p></div><div className="shrink-0 text-right"><span className={`inline-flex rounded-full border px-2.5 py-1 text-xs font-semibold ${meta.tone}`}>{meta.label}</span><p className="mt-1 text-xs text-slate-500">{meta.note}</p></div></button> })}</div>}
+      {!unreadable && requests.length === 0 ? <div className="mt-6 border border-dashed border-slate-300 p-8"><Box className="h-7 w-7 text-orange-600" /><h2 className="mt-3 text-lg font-bold text-slate-950">Nothing to ship yet</h2><p className="mt-2 max-w-xl text-sm text-slate-600">Start with what you know. You can request quotes even when dimensions are not final; CarUp keeps unknown measurements visibly unknown.</p><Button className="mt-4 bg-orange-500 text-white hover:bg-orange-600" onClick={startNew}>Create shipping request</Button></div> : <div className="mt-5 divide-y divide-slate-200">{requests.map((request) => { const meta = statusMeta(request.status); return <button key={request.id} type="button" onClick={() => void openDetail(request.id)} className="flex w-full min-w-0 items-start justify-between gap-4 py-5 text-left hover:bg-slate-50"><div className="min-w-0"><p className="truncate font-semibold text-slate-950">{request.items?.[0]?.description || 'Shipping request'}</p><p className="mt-0.5 font-mono text-xs text-slate-500">{request.reference}</p><p className="mt-1 text-sm text-slate-600">{formatRoute({ city: request.origin_city, country: request.origin_country }, { city: request.destination_city, country: request.destination_country })}</p></div><div className="shrink-0 text-right"><span className={`inline-flex rounded-full border px-2.5 py-1 text-xs font-semibold ${meta.tone}`}>{meta.label}</span>{typeof request.offer_count === 'number' && request.offer_count > 0
+                ? <p className="mt-1 text-xs font-semibold text-emerald-800" data-testid="logistics-row-offer-count">{request.offer_count} offer{request.offer_count === 1 ? '' : 's'} to compare</p>
+                : <p className="mt-1 text-xs text-slate-500">{meta.note}</p>}</div></button> })}</div>}
       </div>
     </section>
   )

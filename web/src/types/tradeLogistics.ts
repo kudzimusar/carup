@@ -151,6 +151,46 @@ export interface LogisticsRequest {
   metadata?: Record<string, unknown>
   created_at?: string
   updated_at?: string
+  /**
+   * Offers the requester can act on, from the list endpoint. Counted with the same rule the detail
+   * screen uses (neither DRAFT nor WITHDRAWN), so the badge cannot contradict the page it opens.
+   * ABSENT means the count could not be read — it does NOT mean zero, and must not be rendered as
+   * "no offers".
+   */
+  offer_count?: number
+  /**
+   * Intake 2.0 answers, on the requester's OWN request.
+   *
+   * These are private FROM PROVIDERS — every one is named in NEVER_MARKETPLACE_VISIBLE and none
+   * appears in any marketplace projection. They are not private from the person who typed them,
+   * who must be able to review their own request without opening the editor.
+   */
+  pickup_required?: string | null
+  origin_site_type?: string | null
+  destination_outcome?: string | null
+  shipping_objective?: string | null
+  service_mode_preference?: string | null
+  available_from?: string | null
+  arrival_window_start?: string | null
+  arrival_window_end?: string | null
+  timing_flexibility?: string | null
+  unloading_required?: string | null
+  inspection_intent?: string | null
+  insurance_intent?: string | null
+  clearing_intent?: string | null
+  pickup_address?: string | null
+  pickup_contact_name?: string | null
+  pickup_contact_phone?: string | null
+  pickup_access_notes?: string | null
+  pickup_available_from?: string | null
+  pickup_loading_equipment?: string | null
+  delivery_address?: string | null
+  delivery_contact_name?: string | null
+  delivery_contact_phone?: string | null
+  clearing_agent_name?: string | null
+  clearing_agent_contact?: string | null
+  preferred_language?: string | null
+  preferred_contact_channel?: string | null
 }
 
 /** Provider-safe marketplace shape: no requester id, tenant id or contact facts. */

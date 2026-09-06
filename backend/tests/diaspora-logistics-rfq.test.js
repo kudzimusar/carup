@@ -352,3 +352,99 @@ test('NOTIFY: an idempotent acceptance replay re-notifies nobody', async () => {
   assert.equal(result.idempotentReplay, true);
   assert.equal(emittedEvents.length, 0, 'a client retry must never re-notify the winner or the losers');
 });
+
+// ── The requester's own list must tell them an offer is waiting ──────────────
+//
+// Found by walking the product: a customer whose request had a SUBMITTED offer saw
+// "Waiting for offers · Logistics providers can respond" — indistinguishable from a request
+// nobody had answered. The list payload carried no count at all.
+//
+// The count uses EXACTLY the rule the detail screen uses to build its offer list (neither DRAFT
+// nor WITHDRAWN), because a badge that disagrees with the page it opens is worse than no badge.
+
+test('the requester\'s own list counts the offers waiting for them', async () => {
+  const c = createMockSupabase(seed({
+    diaspora_logistics_requests: [requestRow()],
+    diaspora_logistics_quotes: [quoteRow(), quoteRow({ id: 'lq-2', provider_id: 'provider-b2' })],
+  }));
+  supabase.from = c.from;
+  const [row] = await logistics.listMyLogisticsRequests({}, requester);
+  assert.equal(row.offer_count, 2);
+});
+
+test('a provider DRAFT is not an offer to anyone, and a WITHDRAWN one is taken back', async () => {
+  const c = createMockSupabase(seed({
+    diaspora_logistics_requests: [requestRow()],
+    diaspora_logistics_quotes: [
+      quoteRow({ id: 'q1', status: 'DRAFT' }),
+      quoteRow({ id: 'q2', status: 'WITHDRAWN' }),
+      quoteRow({ id: 'q3', status: 'SUBMITTED' }),
+    ],
+  }));
+  supabase.from = c.from;
+  const [row] = await logistics.listMyLogisticsRequests({}, requester);
+  assert.equal(row.offer_count, 1, 'only the submitted offer counts');
+});
+
+test('an accepted offer still counts — the customer has not lost it', async () => {
+  const c = createMockSupabase(seed({
+    diaspora_logistics_requests: [requestRow({ accepted_quote_id: 'q1' })],
+    diaspora_logistics_quotes: [quoteRow({ id: 'q1', status: 'ACCEPTED' })],
+  }));
+  supabase.from = c.from;
+  const [row] = await logistics.listMyLogisticsRequests({}, requester);
+  assert.equal(row.offer_count, 1);
+});
+
+test('a request nobody has answered reports a real, earned zero', async () => {
+  const c = createMockSupabase(seed({ diaspora_logistics_requests: [requestRow()] }));
+  supabase.from = c.from;
+  const [row] = await logistics.listMyLogisticsRequests({}, requester);
+  assert.equal(row.offer_count, 0);
+});
+
+test('an UNREADABLE count is absent, never reported as zero offers', async () => {
+  // DESIGN.md §8.1 — unknown is not zero. If the quotes read fails, the customer must be told
+  // nothing rather than told, falsely, that no provider has responded.
+  const c = createMockSupabase(seed({ diaspora_logistics_requests: [requestRow()] }));
+  supabase.from = (table) => {
+    if (table === 'diaspora_logistics_quotes') {
+      const failing = {
+        select: () => failing, in: () => failing, eq: () => failing,
+        is: () => Promise.resolve({ data: null, error: { message: 'quotes unreadable' } }),
+      };
+      return failing;
+    }
+    return c.from(table);
+  };
+  const [row] = await logistics.listMyLogisticsRequests({}, requester);
+  assert.ok(!Object.hasOwn(row, 'offer_count'),
+    'an unreadable count must be ABSENT so the UI stays silent, not 0');
+  assert.equal(row.id, 'ship-open', 'the request itself still lists');
+});
+
+test('an offer is attributed to the request it was made on, not spread across rows', async () => {
+  // Deliberately hostile: the quotes read returns a FOREIGN request's offers alongside the
+  // requester's own, as an over-broad or regressed query would. Isolation must come from
+  // attributing each offer to its own logistics_request_id — not from trusting the query to have
+  // filtered. (The mock's own `.in()` would otherwise do the isolating and prove nothing, which
+  // is exactly what an earlier version of this test did.)
+  const c = createMockSupabase(seed({
+    diaspora_logistics_requests: [requestRow(), requestRow({ id: 'ship-other', requester_id: 'someone-else' })],
+  }));
+  supabase.from = (table) => {
+    if (table === 'diaspora_logistics_quotes') {
+      const rows = [
+        quoteRow({ id: 'lq-1', logistics_request_id: 'ship-open' }),
+        quoteRow({ id: 'lq-2', logistics_request_id: 'ship-other' }),
+        quoteRow({ id: 'lq-3', logistics_request_id: 'ship-other' }),
+      ];
+      const q = { select: () => q, in: () => q, eq: () => q, is: () => Promise.resolve({ data: rows, error: null }) };
+      return q;
+    }
+    return c.from(table);
+  };
+  const rows = await logistics.listMyLogisticsRequests({}, requester);
+  assert.equal(rows.length, 1, "only the requester's own request lists");
+  assert.equal(rows[0].offer_count, 1, 'the two foreign offers must not land on this row');
+});

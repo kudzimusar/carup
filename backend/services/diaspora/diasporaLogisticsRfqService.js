@@ -342,8 +342,50 @@ export async function listMyLogisticsRequests(filters = {}, userContext = {}, op
   const { data, error } = await query.order('created_at', { ascending: false }).range(offset, offset + limit - 1);
   if (error) throw new ValidationError(`Could not list shipping requests: ${error.message}`);
   const rows = (data || []).filter((row) => ownsRequest(row, context) || isPrivileged(context));
-  const itemsByRequest = await loadItems(client, rows.map((row) => row.id));
-  return rows.map((row) => ({ ...row, reference: requestReference(row.id), items: itemsByRequest.get(row.id) || [] }));
+  const [itemsByRequest, offerCounts] = await Promise.all([
+    loadItems(client, rows.map((row) => row.id)),
+    countVisibleOffers(client, rows.map((row) => row.id)),
+  ]);
+  return rows.map((row) => ({
+    ...row,
+    reference: requestReference(row.id),
+    items: itemsByRequest.get(row.id) || [],
+    // A customer whose request has an offer waiting must be able to see that from the list. The
+    // count uses EXACTLY the rule the detail screen uses to build its offer list, so the badge can
+    // never contradict the page it links to — and a provider's DRAFT is not an offer to anyone.
+    //
+    // When the count could not be READ, the field is omitted entirely rather than sent as 0.
+    // DESIGN.md §8.1: unknown is not zero, and "no offers yet" is a claim we must have earned.
+    ...(offerCounts ? { offer_count: offerCounts.get(row.id) || 0 } : {}),
+  }));
+}
+
+/**
+ * Offers the requester can actually act on, per request id.
+ *
+ * DRAFT is excluded because a draft is the provider's private working copy — counting it would
+ * announce an offer that the customer cannot see and the provider has not made. WITHDRAWN is
+ * excluded because it has been taken back. Everything else is a real, comparable offer.
+ *
+ * Returns NULL — never an empty map — when the read fails, so an unreadable count is distinguishable
+ * from a genuine absence of offers.
+ */
+async function countVisibleOffers(client, requestIds) {
+  const counts = new Map();
+  if (!requestIds.length) return counts;
+  const { data, error } = await client.from(QUOTES)
+    .select('logistics_request_id, status')
+    .in('logistics_request_id', requestIds)
+    .is('deleted_at', null);
+  // A failed count must not silently become zero — unknown is not none. NULL means "unreadable",
+  // and the caller omits the field entirely so the UI can stay silent instead of claiming none.
+  if (error) return null;
+  for (const quote of data || []) {
+    if (quote.status === 'DRAFT' || quote.status === 'WITHDRAWN') continue;
+    const key = quote.logistics_request_id;
+    counts.set(key, (counts.get(key) || 0) + 1);
+  }
+  return counts;
 }
 
 async function attachProviderIdentities(client, quotes) {
