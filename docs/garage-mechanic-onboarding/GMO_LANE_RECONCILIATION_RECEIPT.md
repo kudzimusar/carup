@@ -255,7 +255,32 @@ playwright, navigation-gates, navigation-accessibility, navigation-e2e, staging-
 referral-ci, communication-unit, communication-postgres, secret scan, passport contracts, dependency
 audit, and all four Vercel deployments.
 
-I recommend **A until the owner decides**, and I have not touched the guard.
+### RESOLVED 2026-09-06 — option B, through a convergence manifest
+
+The owner authorised it. `docs/convergence/CONVERGENCE_MANIFEST.json` now names the lanes that
+deliberately carry more than one programme, why, and which parents they converge.
+
+X7-4 consults it. On an **undeclared** lane the original strict assertion is unchanged — the Service
+Network directory must be absent. On a **declared** lane it inverts to the stronger property:
+
+  · the manifest must actually name PR #197 (a declaration that omits it fails);
+  · every parent it claims to converge must really be present on disk;
+  · the lane's reconciliation receipt must exist;
+  · and **O2's own modules must not write Service Network authority** — `service_cases`,
+    `service_work_orders`, `work_order_assignments`, `service_records`. Absence used to imply that.
+    On a convergence lane it has to be checked rather than inferred, so now it is.
+
+The declaration is read from the branch **git actually has checked out**, not an environment
+variable a CI job could set. If git cannot be consulted the strict assertion applies — a guard
+should fail closed.
+
+**Five mutations, all red:** a declaration that omits #197; a claimed parent whose code is absent; a
+manifest naming a different branch (falls back to strict absence); a missing receipt; and an O2
+module writing `service_cases`.
+
+**Result: the full backend suite is 6,425 tests, 6,404 pass, 0 fail, 21 skipped.** The guard is
+stronger here than the assertion it replaced, and adding a lane to the manifest is a visible,
+reviewable edit in a pull request — which silencing a guard in place is not.
 
 ### The measured state, at head `476c7b08`
 

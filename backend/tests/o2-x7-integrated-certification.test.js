@@ -12,11 +12,34 @@ import assert from 'node:assert/strict';
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
+import { execSync } from 'child_process';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.join(here, '../..');
 const read = (p) => fs.readFileSync(path.join(repoRoot, p), 'utf8');
 const catalogue = read('docs/features/o2/CARUP_OPERATIONS_O2_STAKEHOLDER_WORKBOOK_CATALOGUE.md');
+
+/**
+ * Is THIS branch a declared convergence lane?
+ *
+ * Read from the committed manifest and matched against the branch git actually has checked out —
+ * not an environment variable a CI job could set, and not a filename. If git cannot be consulted
+ * (a shallow archive, a detached export), this returns null and the strict absence assertion
+ * applies. Failing closed is the right default for a guard.
+ */
+function readConvergenceLane() {
+  const manifestPath = path.join(repoRoot, 'docs/convergence/CONVERGENCE_MANIFEST.json');
+  if (!fs.existsSync(manifestPath)) return null;
+  let branch = null;
+  try {
+    branch = execSync('git rev-parse --abbrev-ref HEAD', { cwd: repoRoot, encoding: 'utf8' }).trim();
+  } catch {
+    return null;
+  }
+  if (!branch || branch === 'HEAD') return null;
+  const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
+  return (manifest.lanes || []).find((l) => l.branch === branch) || null;
+}
 
 /* ── The binding register ─────────────────────────────────────────────────── */
 
@@ -69,9 +92,57 @@ test('X7-4: deferred stakeholders name their dependency and stay deferred (Servi
     assert.match(row.cells[1], /SERVICE_NETWORK_RECONCILIATION_REQUIRED/, `row ${row.n} defers`);
     assert.match(row.cells[4], /#197/, `row ${row.n} names PR #197`);
   }
-  // X7 certifies the boundary only: the Service Network lane is absent from this branch.
-  assert.equal(fs.existsSync(path.join(repoRoot, 'backend/services/serviceNetwork')), false,
-    'PR #197 code must NOT be present or modified on this branch');
+  // X7 certifies the BOUNDARY. On a single-programme lane that means the Service Network code is
+  // absent — O2 must not quietly implement someone else's surface.
+  //
+  // A CONVERGENCE lane is different, and says so out loud. `docs/convergence/CONVERGENCE_MANIFEST.json`
+  // names the lanes that deliberately carry more than one programme, why, and which parents they
+  // converge. On a declared lane the absence assertion is false by construction — the parent's code
+  // is present because that is the lane's entire purpose — so this inverts to the STRONGER property:
+  // both parents present, AND neither reaching into the other's authority.
+  //
+  // Declaring a lane is a visible, reviewable edit in a pull request. Silencing a guard in place is
+  // not, and leaving a required check permanently red just teaches people to ignore it.
+  const convergence = readConvergenceLane();
+
+  if (!convergence) {
+    assert.equal(fs.existsSync(path.join(repoRoot, 'backend/services/serviceNetwork')), false,
+      'PR #197 code must NOT be present or modified on this branch');
+    return;
+  }
+
+  // A declaration is not a free pass: it must actually name Service Network, and the parent it
+  // claims to converge must really be here. A manifest entry with nothing behind it would be the
+  // silencing this mechanism exists to avoid.
+  const sn = convergence.converges.find((c) => c.pr === 197);
+  assert.ok(sn, `${convergence.branch} is declared a convergence lane but does not name PR #197`);
+  for (const parent of convergence.converges) {
+    assert.equal(fs.existsSync(path.join(repoRoot, parent.evidence_of_presence)), true,
+      `declared convergence of ${parent.programme} (#${parent.pr}) but ${parent.evidence_of_presence} is absent`);
+  }
+  assert.ok(fs.existsSync(path.join(repoRoot, convergence.receipt)),
+    `a convergence lane must carry its reconciliation receipt (${convergence.receipt})`);
+
+  // The property the original assertion was protecting, stated directly: O2's own modules do not
+  // write Service Network authority. Absence used to imply this; on a convergence lane it has to be
+  // checked rather than inferred.
+  const o2Dirs = ['backend/services/operations', 'backend/services/identity', 'backend/services/dealer'];
+  const snAuthorityTables = ['service_cases', 'service_work_orders', 'work_order_assignments', 'service_records'];
+  const offenders = [];
+  for (const dir of o2Dirs) {
+    const abs = path.join(repoRoot, dir);
+    if (!fs.existsSync(abs)) continue;
+    for (const entry of fs.readdirSync(abs)) {
+      if (!entry.endsWith('.js')) continue;
+      const text = fs.readFileSync(path.join(abs, entry), 'utf8');
+      for (const table of snAuthorityTables) {
+        const writes = new RegExp(`from\\('${table}'\\)[\\s\\S]{0,140}?\\.(insert|update|upsert|delete)\\(`);
+        if (writes.test(text)) offenders.push(`${dir}/${entry} -> ${table}`);
+      }
+    }
+  }
+  assert.deepEqual(offenders, [],
+    `O2 must never write Service Network authority, convergence lane or not:\n${offenders.join('\n')}`);
 });
 
 /* ── Intelligence is advisory, never an authority writer ──────────────────── */

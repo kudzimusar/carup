@@ -6,6 +6,8 @@ import { Building2, Ban, RotateCcw, ShieldCheck } from 'lucide-react'
 import { useCarUpApi } from '@/hooks/useCarUpApi'
 import { toast } from 'sonner'
 import { getErrorMessage } from '@/lib/errorMessage'
+import StepUpPrompt from '@/components/auth/StepUpPrompt'
+import { isStepUpRequired } from '@/lib/stepUp'
 
 export interface DealerProfile {
   id: string
@@ -74,6 +76,7 @@ export default function DealerCompliance() {
   const [dealers, setDealers] = useState<DealerProfile[]>([])
   const [loading, setLoading] = useState(true)
   const [busy, setBusy] = useState<string | null>(null)
+  const [pendingStepUp, setPendingStepUp] = useState<{ retry: () => Promise<void> } | null>(null)
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -91,13 +94,28 @@ export default function DealerCompliance() {
     return () => { cancelled = true }
   }, [fetchDealers])
 
+  /**
+   * A dealer decision is a SENSITIVE action: `requireAuthenticationAssurance` has guarded
+   * `/api/admin/dealers/:id/decision` since O2-X3, and until now this page had no way to satisfy
+   * it. The reviewer pressed Approve, got STEP_UP_REQUIRED back, and saw a toast telling them so
+   * with nothing they could do about it.
+   */
   const onDecision = async (id: string, decision: string) => {
     setBusy(id)
     try {
       await recordDealerDecision(id, { decision, reason: `Admin ${decision}` })
       toast.success(`Dealer ${decision}`)
+      setPendingStepUp(null)
       await load()
-    } catch (err) { toast.error(getErrorMessage(err)) }
+    } catch (err) {
+      if (isStepUpRequired(err)) {
+        // Deferred, not refused — so it is not reported as a failed decision, and confirming
+        // retries the decision the reviewer actually asked for.
+        setPendingStepUp({ retry: () => onDecision(id, decision) })
+        return
+      }
+      toast.error(getErrorMessage(err))
+    }
     finally { setBusy(null) }
   }
 
@@ -107,6 +125,14 @@ export default function DealerCompliance() {
         <h1 className="text-2xl font-bold flex items-center gap-2"><ShieldCheck className="w-6 h-6 text-purple-500" /> Dealer compliance</h1>
         <p className="text-gray-500 text-sm">Eight separate compliance statuses per dealer. Decisions are append-only; suspension blocks publication and escrow.</p>
       </div>
+      {pendingStepUp && (
+        <StepUpPrompt
+          reason="Recording a dealer compliance decision changes what that business may do on CarUp, so CarUp asks you to confirm your password first."
+          onConfirmed={() => { const again = pendingStepUp.retry; setPendingStepUp(null); void again() }}
+          onCancel={() => setPendingStepUp(null)}
+        />
+      )}
+
       {loading ? [1, 2].map(i => <Skeleton key={i} className="h-24 w-full" />)
         : dealers.length === 0 ? <Card className="border-0 card-shadow"><CardContent className="py-10 text-center text-gray-400">No dealer profiles yet.</CardContent></Card>
         : dealers.map(d => <DealerComplianceCard key={d.id} dealer={d} onDecision={onDecision} busy={busy === d.id} />)}
