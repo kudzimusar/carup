@@ -1,6 +1,6 @@
 {
   "$comment": [
-    "Issue #164 Phase 8 — candidate provenance pairing.",
+    "Issue #164 Phase 8 \u2014 candidate provenance pairing.",
     "",
     "A per-branch PREVIEW of the staging frontend must talk to the SAME branch's backend preview, so",
     "that a physical UAT certifies one candidate end-to-end. The first Phase 8 physical UAT did not:",
@@ -8,11 +8,11 @@
     "backend-dependent step measured `main`'s contract while appearing to certify PR #165.",
     "",
     "Keys are git branch refs (VERCEL_GIT_COMMIT_REF). Values are the ORIGIN of that branch's backend",
-    "preview — Vercel's stable per-branch alias, which keeps its hostname across redeploys of the",
+    "preview \u2014 Vercel's stable per-branch alias, which keeps its hostname across redeploys of the",
     "branch. `/api` is appended by the API client, so record the bare origin here.",
     "",
     "A branch absent from this map builds FAIL-CLOSED: its preview resolves to a reserved `.invalid`",
-    "host and cannot reach any real backend. That is deliberate — an unpaired preview must fail loudly",
+    "host and cannot reach any real backend. That is deliberate \u2014 an unpaired preview must fail loudly",
     "rather than silently borrow another candidate's backend.",
     "",
     "An explicit VITE_API_URL in the environment always wins over this file."
@@ -27,6 +27,7 @@
     "fix/seller-uat-convergence-remediation": "https://carup-backend-staging-git-fix-seller-uat-convergen-e5670a-11-11.vercel.app",
     "fix/zimbabwe-seller-reality-comms-hardening": "https://carup-backend-staging-git-fix-zimbabwe-seller-real-a9b7d7-11-11.vercel.app",
     "feat/operations-control-plane-serena-slice": "https://carup-backend-staging-git-feat-operations-control-6e0b93-11-11.vercel.app",
-    "feat/service-network-foundation-1-0": "https://carup-backend-staging-git-feat-service-network-fou-fda7ff-11-11.vercel.app"
+    "feat/service-network-foundation-1-0": "https://carup-backend-staging-git-feat-service-network-fou-fda7ff-11-11.vercel.app",
+    "feat/garage-mechanic-onboarding-1-0": "https://carup-backend-staging-git-feat-garage-mechanic-onb-803043-11-11.vercel.app"
   }
 }
