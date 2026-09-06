@@ -15,16 +15,11 @@ import { useMemo } from 'react'
 import { Input } from '@/components/ui/input'
 import { Button } from '@/components/ui/button'
 import { Plus, Trash2 } from 'lucide-react'
-import { reconcileBreakdown, COST_STAGE_OPTIONS, INCLUSION_OPTIONS, BASIS_OPTIONS } from './commercialFormat'
+import { reconcileBreakdown, emptyComponent, COST_STAGE_OPTIONS, INCLUSION_OPTIONS, BASIS_OPTIONS } from './commercialFormat'
 import type { DraftComponent, BreakdownPosition } from './commercialFormat'
 
 const label = 'block min-w-0 text-xs font-medium uppercase tracking-wide text-slate-600'
 const control = 'mt-1 block w-full min-w-0 border border-slate-300 bg-white px-2 py-1.5 text-sm focus:border-orange-500 focus:outline-none'
-
-export const emptyComponent = (): DraftComponent => ({
-  cost_stage: 'MAIN_CARRIAGE', label: '', amount: '', currency: '', inclusion: 'INCLUDED',
-  basis: '', quantity: '', notes: '',
-})
 
 export function BreakdownPositionNote({ position }: { position: BreakdownPosition }) {
   if (!position.computable) {

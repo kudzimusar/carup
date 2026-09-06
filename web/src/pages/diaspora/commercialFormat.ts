@@ -183,3 +183,13 @@ export function toComponentPayload(components: DraftComponent[]) {
     notes: c.notes || undefined,
   }))
 }
+
+/**
+ * A blank draft row. Lives here rather than beside the editor because a module that exports a
+ * component may export nothing else — Fast Refresh cannot tell the two apart, and the lint gate
+ * catches the mistake before the dev loop silently stops reloading.
+ */
+export const emptyComponent = (): DraftComponent => ({
+  cost_stage: 'MAIN_CARRIAGE', label: '', amount: '', currency: '', inclusion: 'INCLUDED',
+  basis: '', quantity: '', notes: '',
+})
