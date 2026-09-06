@@ -110,20 +110,70 @@ rather than double-charging.
 4. **An estimate with nothing priced returned USD 0.00** — caught by mutation testing before it
    shipped; the exact unknown-becomes-zero failure this phase exists to prevent.
 
+5. **The whole commercial layer reached no screen.** `QuoteBreakdown`, `LandedEstimatePanel` and
+   `ComparisonVerdict` had passing unit tests and no importer anywhere in the product. A provider
+   could record a complete breakdown and their customer still saw only the five legacy numeric
+   columns. Found by looking for the panel on the deployed buyer screen and not finding it.
+6. **Three different facts told with one phrase.** An EXCLUDED customs line and a NOT_APPLICABLE
+   inspection line both rendered "Not priced yet" — the words used for an included charge whose
+   price is still owed. For a charge that does not apply, no price is ever coming; for an excluded
+   one, the customer pays it to somebody else.
+7. **A comparison requested for a single offer** — 400 on every single-offer request detail,
+   because the two-offer guard sat inside the component that had already fired the request.
+8. **Material coverage was one global list.** A freight offer that priced the entire ocean leg was
+   reported as still missing "The goods themselves". A logistics provider never prices the
+   customer's own cargo, so every shipping offer carried a permanent false entry in the one list
+   whose whole job is to be believed.
+9. **The advisor reached no screen either.** `/quote-comparison` already returned `advice` with the
+   reasoning behind each finding, and the customer surface discarded the field.
+10. **The allocation engine had no operator screen.** `allocateSharedCharge` was written, tested
+    and routed; nothing told an operator which charges exist on a sailing they operate, so it was
+    reachable only by a caller who already knew a charge-component id.
+11. **The truth broke the layout.** At 393px the buyer's breakdown scrolled to 765px. The cause was
+    the sentence this phase exists to protect — "USD comparison unavailable — ZWG/USD is not
+    published by ECB" — sitting in a column that could not wrap. The fuller the truth, the more
+    broken the page.
+
+Six of the eleven (1, 5, 6, 7, 9, 10) were invisible from the source and only appeared by using the
+deployed product. **A module being correct is not the same as a module being wired**, and the only
+test that knows the difference is one that mounts the real screen.
+
 ## 8. Evidence
 
 | Gate | Result |
 |---|---|
 | PGlite migration gate (own CI step, confirmed executed) | **28/28** |
-| T6 backend suite | **51/51** |
+| T6 backend suite | **75/75** |
 | Backend regression (T3/T4/T5/Intake/diaspora) | **1577 / 0** |
-| T6 web suite | **16/16** |
+| Web diaspora suite (incl. T6 wiring tests) | **188/188** |
 | Staging: FX · procurement · logistics · allocation · security | **31/31** |
 | Staging: corridor economics · mode | **9/9**, **15/15** |
-| CI at `b6ba1ccd` | **7/7 green** |
+| Owner-UAT proxy: procurement JPY end-to-end | walked in the browser |
+| Owner-UAT proxy: logistics JPY end-to-end | walked in the browser |
+| Owner-UAT proxy: research workspace + refusals | walked in the browser |
+| Owner-UAT proxy: sailing → attached offer → approved booking → division | walked in the browser |
+| FX states (JPY/EUR AVAILABLE · ZWG/MZN UNAVAILABLE with a reason) | 12/12 |
+| Seven-width geometry (393 · 820 · 1024 · 1280 · 1366 · 1440 · 1536) | 8 surfaces, no overflow |
 
 Staging: Supabase **staging** only; migration `20260908090000` applied there — 4 tables, FX
 immutability trigger, RLS on all four, components and allocations service_role-only.
+
+## 8b. Recorded for T12 — a fabricated customs exchange rate, deliberately left alone
+
+`backend/services/document-intelligence/documentIntelligenceService.js:375` writes a
+`zimra_declarations` row with `exchange_rate_used: 13.5` and `duty_calculated_zig: 50000` — both
+invented constants, written as if they were a customs authority's own figures. A sibling comment in
+`backend/services/evidence/vehicleFactResolver.js:140` already names this service as fabricating
+them, which is why the evidence layer refuses to read it.
+
+**T6 does not touch it, and must not.** Customs valuation is T12's engine; a T6 "fix" here would be
+this phase manufacturing a legal assessment, which §44 forbids in as many words. Verified: no file
+under `backend/services/diaspora/trade*.js` and no route in the container-marketplace router reads
+`documentIntelligenceService` or `exchange_rate_used`.
+
+**T12-BLOCKER:** the customs/tax engine cannot be built on top of this row without first deleting
+the fabricated rate and duty, and deciding what a declaration means when no authority has supplied
+one. Recorded, not fixed.
 
 ## 9. Deferred (phase firewall held)
 

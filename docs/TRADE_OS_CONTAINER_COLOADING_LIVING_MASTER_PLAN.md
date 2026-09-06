@@ -1639,10 +1639,20 @@ manufacturing certainty.
 - [x] T6.7 Corridor economics over the frozen T5 authority; uncertainty penalised.
 - [x] T6.8 Deterministic, explainable advisor — no AI authority.
 - [x] T6.9 Shared-capacity allocation, explicit bases only, exact reconciliation.
-- [~] T6.10 Security, UI, migration gate and staging journeys COMPLETE; **owner UAT remains**.
+- [x] T6.10 Security, UI, migration gate, seven-width geometry and the full owner-UAT proxy.
+- [x] T6.11 Closure — the commercial layer wired into the screens customers actually read, the
+      governed research/operations workspace, and the operator half of the allocation engine.
+
+**Closure findings (2026-09-07).** Six of the eleven defects in the receipt were invisible from the
+source and appeared only by using the deployed product. The largest: `QuoteBreakdown`,
+`LandedEstimatePanel`, `ComparisonVerdict` and the advisor all had passing tests and **no importer**
+— a provider could record a complete breakdown and the customer would still see only the five
+legacy columns; and `allocateSharedCharge` was reachable only by a caller who already knew a
+charge-component id. **A module being correct is not the same as a module being wired.**
 
 **Exit gate:** the 28-row acceptance list in §44. Verdicts: `T6-PARTIAL` / `T6-USABLE`
-(owner-recorded only; never production-ready by itself).
+(owner-recorded only; never production-ready by itself). **Status: `T6-PARTIAL`; owner acceptance
+outstanding. This agent does not mark `T6-USABLE`.**
 
 ## T7 — Full Communications lifecycle
 

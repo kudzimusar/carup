@@ -1,6 +1,6 @@
 # CarUp Trade OS — T6 Rates, Commercial Transparency, FX & Landed-Cost Implementation Plan
 
-**Status:** IN IMPLEMENTATION
+**Status:** IMPLEMENTED — OWNER ACCEPTANCE OUTSTANDING (`T6-PARTIAL`)
 **Date:** 2026-09-06
 **Repository:** `kudzimusar/carup`
 **Branch:** `feat/trade-os-client-demo-convergence`
@@ -106,60 +106,82 @@ rate change cannot rewrite an earlier estimate. A fifth table would store a deri
 - [x] Record the schema decision and its justification.
 
 ### T6.1 — FX authority
-- [ ] Research and document an official reference-rate source (authority, coverage, frequency, effective-date semantics, outage/revision behaviour, triangulation, licensing).
-- [ ] Implement behind an `FxRateProvider` abstraction; no commercial record couples to one provider.
-- [ ] Immutable snapshots sufficient to reproduce a conversion, including triangulation legs.
-- [ ] `AVAILABLE` / `STALE` / `UNAVAILABLE` states; never a silent fallback, never 1:1, never 0.
-- [ ] Reference FX can never become settlement or customs FX.
+- [x] Research and document an official reference-rate source (authority, coverage, frequency, effective-date semantics, outage/revision behaviour, triangulation, licensing).
+- [x] Implement behind an `FxRateProvider` abstraction; no commercial record couples to one provider.
+- [x] Immutable snapshots sufficient to reproduce a conversion, including triangulation legs.
+- [x] `AVAILABLE` / `STALE` / `UNAVAILABLE` states; never a silent fallback, never 1:1, never 0.
+- [x] Reference FX can never become settlement or customs FX.
 
 ### T6.2 — Cost taxonomy
-- [ ] Canonical stage vocabulary (GOODS … EXCEPTIONS); not every category mandatory.
-- [ ] Unknown and not-applicable remain distinct.
-- [ ] A taxonomy entry identifies a charge's TYPE — it never asserts the charge exists.
+- [x] Canonical stage vocabulary (GOODS … EXCEPTIONS); not every category mandatory.
+- [x] Unknown and not-applicable remain distinct.
+- [x] A taxonomy entry identifies a charge's TYPE — it never asserts the charge exists.
 
 ### T6.3 — Charge components
-- [ ] Structured component authority with the families in §8 of the directive.
-- [ ] Inclusion state, commercial status, provenance and revenue classification are separate dimensions.
-- [ ] Evidence-attachment capability without implementing T8.
+- [x] Structured component authority with the families in §8 of the directive.
+- [x] Inclusion state, commercial status, provenance and revenue classification are separate dimensions.
+- [x] Evidence-attachment capability without implementing T8.
 
 ### T6.4 — Quote normalization & comparability
-- [ ] Original money is never destroyed or overwritten.
-- [ ] Reference USD retained beside the source, with its snapshot.
-- [ ] Deterministic comparability: COMPARABLE / PARTIALLY_COMPARABLE / NOT_COMPARABLE / INSUFFICIENT_INFORMATION, with reasons.
-- [ ] An exclusion is never rendered as 0.
-- [ ] Rejected/expired offers retained as history.
+- [x] Original money is never destroyed or overwritten.
+- [x] Reference USD retained beside the source, with its snapshot.
+- [x] Deterministic comparability: COMPARABLE / PARTIALLY_COMPARABLE / NOT_COMPARABLE / INSUFFICIENT_INFORMATION, with reasons.
+- [x] An exclusion is never rendered as 0.
+- [x] Rejected/expired offers retained as history.
 
 ### T6.5 — Rate sources
-- [ ] Rate observations separate from provider quotes.
-- [ ] Classification: PROVIDER_QUOTED / PROVIDER_RATE_CARD / OFFICIAL_FEE / RESEARCH_OBSERVATION / CARUP_ESTIMATE / HISTORICAL_ACTUAL.
-- [ ] Provenance, effective dates, basis/unit, corridor/leg/mode applicability, source reference.
+- [x] Rate observations separate from provider quotes.
+- [x] Classification: PROVIDER_QUOTED / PROVIDER_RATE_CARD / OFFICIAL_FEE / RESEARCH_OBSERVATION / CARUP_ESTIMATE / HISTORICAL_ACTUAL.
+- [x] Provenance, effective dates, basis/unit, corridor/leg/mode applicability, source reference.
 
 ### T6.6 — Landed-cost estimate
-- [ ] Known/estimated subtotal, known exclusions, unpriced stages, contingencies.
-- [ ] Never prints a single "landed cost" when material stages are unknown.
-- [ ] Customs firewall: duty/VAT/valuation not calculated (T12).
-- [ ] Reproducible; immune to later rate changes.
+- [x] Known/estimated subtotal, known exclusions, unpriced stages, contingencies.
+- [x] Never prints a single "landed cost" when material stages are unknown.
+- [x] Customs firewall: duty/VAT/valuation not calculated (T12).
+- [x] Reproducible; immune to later rate changes.
 
 ### T6.7 — Corridor economics
-- [ ] Built over the frozen T5 corridor authority; route truth unchanged.
-- [ ] Uncertainty is penalised, never rewarded — missing components must not make a corridor look cheap.
-- [ ] No corridor declared BEST/CHEAPEST/PREFERRED.
+- [x] Built over the frozen T5 corridor authority; route truth unchanged.
+- [x] Uncertainty is penalised, never rewarded — missing components must not make a corridor look cheap.
+- [x] No corridor declared BEST/CHEAPEST/PREFERRED.
 
 ### T6.8 — Deterministic advisor
-- [ ] Explainable outcomes only; every statement exposes its measured basis.
-- [ ] Says so when options are not commercially comparable.
-- [ ] No LLM decides the commercial answer.
+- [x] Explainable outcomes only; every statement exposes its measured basis.
+- [x] Says so when options are not commercially comparable.
+- [x] No LLM decides the commercial answer.
 
 ### T6.9 — Shared-capacity allocation
-- [ ] Explicit governed bases only; no silent default to CBM.
-- [ ] APPROVED reservations only; REQUESTED never becomes a charge.
-- [ ] Allocations reconcile exactly to the source charge, with deterministic rounding.
+- [x] Explicit governed bases only; no silent default to CBM.
+- [x] APPROVED reservations only; REQUESTED never becomes a charge.
+- [x] Allocations reconcile exactly to the source charge, with deterministic rounding.
 
 ### T6.10 — Security, UI, tests, staging
-- [ ] Server derives provider/tenant/FX/normalized-USD/verification; client cannot supply them.
-- [ ] Customer, provider and research/operations surfaces per root `DESIGN.md`.
-- [ ] Migration gate on real Postgres/PGlite; bounded reads (no T5-style N+1).
-- [ ] Staging journeys A–F + allocation; seven-width geometry; owner-UAT proxy.
+- [x] Server derives provider/tenant/FX/normalized-USD/verification; client cannot supply them.
+- [x] Customer, provider and research/operations surfaces per root `DESIGN.md`.
+- [x] Migration gate on real Postgres/PGlite; bounded reads (no T5-style N+1).
+- [x] Staging journeys A–F + allocation; seven-width geometry; owner-UAT proxy.
+
+### T6.11 — Closure findings (walked in the deployed product, not read in the code)
+
+Six defects were found by using the product; none was visible from the source alone. Recorded here
+because the pattern matters more than the individual fixes.
+
+- [x] **The commercial layer reached no screen.** `QuoteBreakdown`, `LandedEstimatePanel` and
+  `ComparisonVerdict` had passing unit tests and no importer. A provider could record a complete
+  breakdown and their customer still saw only the five legacy columns. Both customer surfaces now
+  mount the same section, and the wiring is mutation-proven on the real pages.
+- [x] **Three facts told as one phrase.** An EXCLUDED customs line and a NOT_APPLICABLE inspection
+  line both read "Not priced yet" — the words used for a charge whose price is still owed.
+- [x] **A comparison requested for one offer.** 400 on every single-offer request detail; the
+  two-offer guard now sits outside the component that loads.
+- [x] **Material coverage was one global list.** A freight offer pricing the whole ocean leg was
+  reported as missing "The goods themselves". Material stages now depend on the purchase.
+- [x] **The advisor reached no screen.** `/quote-comparison` returned `advice`; the customer
+  surface discarded it. Reasoning nobody sees cannot be argued with.
+- [x] **The allocation engine had no operator screen.** It was reachable only by a caller who
+  already knew a charge-component id. A sailing-scoped read plus a panel closes it.
+- [x] **The truth broke the layout.** At 393px the buyer's breakdown scrolled to 765px, because the
+  unavailable-FX explanation could not wrap. The fuller the truth, the more broken the page.
 
 ---
 
