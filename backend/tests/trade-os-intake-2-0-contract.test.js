@@ -22,6 +22,7 @@ const { createMockSupabase } = await import('./helpers/mockSupabase.js');
 const contract = await import('../services/diaspora/tradeIntakeContract.js');
 const rfq = await import('../services/diaspora/diasporaRfqService.js');
 const logistics = await import('../services/diaspora/diasporaLogisticsRfqService.js');
+const buyerOrders = await import('../services/diaspora/diasporaBuyerOrderService.js');
 const observations = await import('../services/diaspora/tradeFactObservationService.js');
 
 const repoRoot = join(dirname(fileURLToPath(import.meta.url)), '..', '..');
@@ -135,6 +136,39 @@ test('an observation with no value is refused', async () => {
     subjectType: 'logistics_request_item', subjectId: ITEM, factKey: 'weight_kg',
     provenance: contract.PROVENANCE.CUSTOMER_STATED,
   }, customer, db()), /needs a value/i);
+});
+
+test('line preferences are actually WRITTEN, not merely normalizable', async () => {
+  // This exists because the normalizer was written and then not called: the module was correct,
+  // the columns were correct, and every vehicle preference still persisted as null. A test that
+  // only exercised the normalizer would have stayed green through it. This one goes through the
+  // real write path.
+  const client = createMockSupabase({
+    diaspora_import_order_request_lines: [],
+    diaspora_import_audit_log: [],
+  });
+  const order = { id: 'order-1', tenant_id: null, metadata: {} };
+  const written = await buyerOrders.replaceRequestLines(client, order, [{
+    item_kind: 'vehicle', item_description: 'Toyota Alphard', quantity: 1,
+    vehicle_steering: 'rhd', vehicle_transmission: 'automatic', vehicle_drivetrain: '4wd_awd',
+    vehicle_mileage_max_km: 80000, accident_repair_tolerance: 'none',
+    intended_use: 'personal_family', alternative_models: ['Toyota Vellfire'],
+    vehicle_fuel_type: 'hybrid',
+  }], customer);
+
+  const line = (written || [])[0] || client._rows('diaspora_import_order_request_lines')[0];
+  assert.ok(line, 'a line was written');
+  assert.equal(line.vehicle_steering, 'rhd');
+  assert.equal(line.vehicle_transmission, 'automatic');
+  assert.equal(line.vehicle_drivetrain, '4wd_awd');
+  assert.equal(line.vehicle_mileage_max_km, 80000);
+  assert.equal(line.accident_repair_tolerance, 'none');
+  assert.equal(line.intended_use, 'personal_family');
+  assert.deepEqual(line.alternative_models, ['Toyota Vellfire']);
+  assert.equal(line.vehicle_fuel_type, 'hybrid');
+  // …and a preference nobody stated is still null, not a default.
+  assert.equal(line.vehicle_trim_preference ?? null, null);
+  assert.equal(line.rust_tolerance ?? null, null);
 });
 
 // ── 3. the richer intake must not widen supplier visibility ────────────

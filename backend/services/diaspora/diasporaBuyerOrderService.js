@@ -6,7 +6,7 @@
  * the accepted quote on the order; a repeat accept of the same quote is a no-op replay.
  */
 import { NotFoundError, ValidationError, ForbiddenError } from '../../utils/errors.js';
-import { normalizeOrderIntake } from './tradeIntakeNormalizer.js';
+import { normalizeOrderIntake, normalizeLineIntake } from './tradeIntakeNormalizer.js';
 import { normalizeVehicleTaxonomyInput } from '../taxonomy/vehicleTaxonomyService.js';
 import { RFQ_URGENCY, deriveRfqLifecycle } from '../../constants/diaspora/diasporaRfqConstants.js';
 import { requireUserContext, isPlatformAdmin, isPlatformReviewer, isOrderOwner, normalizeId } from './diasporaAuthorization.js';
@@ -192,6 +192,10 @@ export async function replaceRequestLines(client, order, rawLines, context) {
     const condition = LINE_CONDITIONS.includes(line.condition_preference) ? line.condition_preference : null;
     const partNumber = String(line.part_number ?? '').trim() || null;
     return {
+      // Intake 2.0 — the vehicle/part preferences a supplier matches inventory against. They live
+      // on the LINE because they describe the thing being sourced, and in columns because they are
+      // exactly what a supplier filters by. Every one is optional; an unstated preference is null.
+      ...normalizeLineIntake(line),
       import_order_id: order.id,
       tenant_id: order.tenant_id || null,
       line_number: index + 1,
