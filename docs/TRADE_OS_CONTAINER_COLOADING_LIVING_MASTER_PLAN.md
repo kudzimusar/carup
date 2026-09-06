@@ -1593,13 +1593,30 @@ Do not describe T3 as client-ready, and do not begin T4, before then.
 Executed at `8fc31aaa`, certified at `3a3d729e`. Receipt:
 `docs/trade-os/receipts/T4_ORDER_BOOKING_PASSPORT_CONVERGENCE.md`.
 
-## T5 — Container Marketplace full product
+## T5 — Container Marketplace & Multi-Corridor Compatibility
 
-- [ ] Sailing discovery/eligibility policy.
-- [ ] Operator sailing management.
-- [ ] Participant booking workspace.
-- [ ] Capacity + manifest + exceptions.
-- [ ] Qualified/public discovery boundaries and anti-bypass policy.
+**Approved implementation plan:** `docs/trade-os/T5_CONTAINER_MARKETPLACE_MULTI_CORRIDOR_IMPLEMENTATION_PLAN.md`
+(owner approved 2026-09-06). §40 of this file carries the reconciled contract; the slice-level
+roll-calls live in the plan document and are mirrored here as the canonical exit record.
+
+**Governing correction:** a customer's FINAL DESTINATION is not the destination of the individual
+sailing they reserve capacity on. Harare stays Harare while the ocean leg ends at Beira or Durban.
+
+- [ ] T5.0 Governance reconciliation and frozen-baseline proof.
+- [ ] T5.1 Authority/schema audit (metadata classification; corridor-authority search; migration proposal).
+- [ ] T5.2 Corridor reference contract (route composition only; ordered legs; no preferred corridor).
+- [ ] T5.3 Sailing identity + lifecycle (DRAFT → BOOKING_OPEN → BOOKING_CLOSED / CANCELLED).
+- [ ] T5.4 Corridor-aware discovery (final-destination ≠ sailing endpoint; no auto-book; no invented inland leg).
+- [ ] T5.5 Mode compatibility (roro representable; marketplace books only what it governs).
+- [ ] T5.6 Booking workspace / service-scope composition (leg vs final destination legible; REQUESTED vs APPROVED).
+- [ ] T5.7 Capacity/manifest/exceptions (kernel preserved; release semantics; lifecycle-gap disposition).
+- [ ] T5.8 Privacy/anti-bypass (allow-lists; 12-case adversarial matrix).
+- [ ] T5.9 UI/UX + seven-width responsive certification.
+- [ ] T5.10 Deployed-staging certification (direct + gateway + both origins + capacity truth), then owner UAT.
+
+**Exit gate (all 33 rows of the plan's §8, tracked verbatim in the plan document):** architecture
+5 rows · corridor 5 · mode 2 · commercial compatibility 5 · sailing/capacity 8 · truth/security 8.
+T5 verdicts: `T5-PARTIAL` / `T5-USABLE` (owner-recorded only; never production-ready by itself).
 
 ## T6 — Rates, pricing and charge allocation
 
@@ -3556,3 +3573,80 @@ mutation-tested.
 **Still deferred and named:** readiness has no upload (T8); managed import stays an intent; rates
 remain T6. The **logistics cancel/close gap** (§36.10) is unchanged — required before production
 readiness.
+
+---
+
+## §40 — T5 GOVERNANCE RECONCILIATION: COMMERCIAL TRANSPARENCY & MULTI-CORRIDOR COMPATIBILITY CONTRACT
+
+**Execution entry — 2026-09-06 · T5.0. Owner authorized T5 implementation at branch head
+`3c382bae` (T5 plan introduced at `70f9a251`, actual head at start of execution `d866e2ce` — one
+docs-only commit past authorization, closing the two Intake findings). This section reconciles the
+owner-approved plan (`docs/trade-os/T5_CONTAINER_MARKETPLACE_MULTI_CORRIDOR_IMPLEMENTATION_PLAN.md`)
+into the canonical authority BEFORE any T5 runtime change, per §0 rule 13.**
+
+### Baseline proof at T5.0
+
+| Fact | State |
+|---|---|
+| Branch / head | `feat/trade-os-client-demo-convergence` @ `d866e2ce`, clean tree |
+| PR #207 | Draft, OPEN |
+| Production | untouched — `origin/main` still `bb9d9900` (pre-Trade-OS); no prod deploy, no prod migration |
+| T3 | frozen at `b446d8ea` semantics (§32) |
+| T4 | **T4-USABLE**, frozen at `736f06c5` (§35) |
+| Intake 2.0 | **INTAKE-2.0-PARTIAL — owner UAT only remains** (candidate `c84ac9b5`, findings closed at `3c382bae`); NOT owner-accepted, NOT frozen. T5 must preserve its contracts and must not pre-empt that UAT. |
+| Known red gate at start | Vehicle Passport Foundation CI `Diff hygiene` — 8 trailing-whitespace lines introduced with the T5 plan at `70f9a251`; fixed in this T5.0 commit |
+
+### The reconciled contract (authoritative summary; full text in the plan document)
+
+**1. The architectural correction.** A customer's final destination must never be assumed to be
+the destination of the sailing they reserve capacity on. `Harare, Zimbabwe` remains the customer
+fact while the booked ocean leg is `Yokohama → Beira`. The composition is made possible; the
+inland continuation is neither fabricated nor implied complete.
+
+**2. Seven concepts that must never collapse** (schema, services, UI and tests):
+
+```text
+FINAL CUSTOMER DESTINATION ≠ CORRIDOR ≠ CORRIDOR LEG ≠ TRANSPORT MODE
+≠ SAILING / CAPACITY OPPORTUNITY ≠ RESERVATION ≠ SHIPMENT
+```
+
+**3. Corridor authority.** A corridor is a reusable ordered-leg route pattern
+(`JP-BEI-ZW`, `JP-DUR-ZW`; `JP-DAR-ZW` research-only). It owns route composition ONLY — never
+rates, customs/tax, shipment state, reputation or a "preferred corridor" claim. New corridors are
+data, not schema redesign.
+
+**4. Sailing lifecycle.** `DRAFT → BOOKING_OPEN → BOOKING_CLOSED | CANCELLED`. Creating ≠
+publishing. Legacy `LOADING/SHIPPED/ARRIVED` container statuses are never T5 shipment truth
+(T10/T11 own those facts). Booking closure means bookings closed — nothing more.
+
+**5. Service scope.** An accepted quote/booking appoints that provider for the quoted scope only.
+Selecting a freight provider does not appoint a clearing agent; selecting a supplier does not
+appoint a freight provider. Trade Journey remains a composition of canonical authorities — no
+`trade_transactions`/`trade_orders`/`trade_journeys` shadow record.
+
+**6. Commercial transparency preserved for T6.** Original amount + original currency are
+permanent; no cross-currency normalization, landed-cost, FX snapshot, rate engine or corridor
+economics in T5 (T6). CarUp revenue must never be labelled as a third party's charge. No corridor
+is presented as universally optimal.
+
+**7. Truth rules carried forward** (plan §12): unknown is never zero; a booking is not a shipment;
+a sailing endpoint is not the customer's destination; customer declarations are not carrier
+acceptance; planned departure/arrival are never shown as shipped/arrived.
+
+**8. Privacy.** New corridor/sailing facts are invisible unless explicitly allow-listed; Intake
+2.0's `NEVER_MARKETPLACE_VISIBLE` set and projection discipline extend to every new T5 surface.
+The plan's 12-case adversarial matrix is mandatory.
+
+**9. Phase firewall.** T5 implements no rate/FX/landed-cost/customs/tracking/warehouse/loading/
+settlement/reputation/optimization capability (plan §9); T6–T18 ownership stands (plan §10).
+
+**10. Known standing gap carried in.** A procurement-linked live logistics request cannot be
+cancelled/closed through the customer product (§36.10, §38, §39). T5.7 must classify its
+disposition deliberately — required T5 work or a scheduled pre-production task — and must not let
+it vanish.
+
+### Execution order
+
+T5.0 (this entry) → T5.1 audit → T5.2 corridor → T5.3 sailing lifecycle → T5.4 discovery →
+T5.5 mode → T5.6 booking workspace → T5.7 capacity → T5.8 privacy → T5.9 UI/responsive →
+T5.10 staging certification → owner UAT. Stop at T5; T6 not authorized.
