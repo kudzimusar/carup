@@ -3388,3 +3388,40 @@ them.
 product**, so the one-live-continuation slot cannot be intentionally released (see §35). It is
 **not** Intake 2.0's to fix, and it must not disappear: **required before production readiness**,
 owned by logistics request-lifecycle work.
+
+---
+
+## §37 — INTAKE 2.0 EXECUTION
+
+**Start `86006034` · candidate `c4bb5425` · INTAKE-2.0-PARTIAL · owner UAT required.**
+Governed by §36. Receipt: `docs/trade-os/receipts/TRADE_OS_COMPREHENSIVE_INTAKE_2_0.md`.
+T3 frozen. T4 frozen at `736f06c5`. Production untouched. **T5 not started.**
+
+**Persistence.** Structured columns on the two existing authorities for everything validated,
+matched, queried or privacy-gated; one append-only observation ledger for facts a later authority
+supersedes. No blob, and no new transaction authority.
+
+**Provenance.** A customer may state or estimate their own facts and nothing else. `VERIFIED`,
+`WAREHOUSE_MEASURED`, `CARRIER_STATED`, `PROVIDER_STATED` and `DOCUMENT_DERIVED` are refused from a
+customer-facing caller. `currentFact` always returns the provenance alongside the value — there is
+no accessor that hands back a bare number, so an estimate cannot be rendered as a measurement.
+
+**Privacy.** The marketplace projections grew by enumerated allow-list only. A runtime sentinel test
+proves no private field crosses. Declared cargo value and export clearance state are deliberately
+withheld from browsing suppliers.
+
+**Progressive disclosure.** The novice path is unchanged and the deep fields are hidden until asked
+for — verified on the deployed build. Blank means "no preference", never a default.
+
+**T4 reuse, proven on staging.** A comprehensive award's continuation inherited the destination
+outcome, the shipping objective, all three timing fields, the route and the item identity, while
+measurements and vehicle state stayed unknown — and the buyer's budget ceiling, budget basis,
+payment intent, clearing intent and delivery area did **not** cross onto the logistics authority.
+
+**One defect only the deployed journey could find:** the line normalizer was written and never
+called, so every vehicle preference persisted as null while the module and the columns were both
+correct. Its regression test drives the real write path.
+
+**Deferred, and named:** the logistics intake UI, the PRIVATE-class contact/document fields (T8), a
+governed supplier fixture for projection UAT, and rates (T6). The logistics cancel/close gap remains
+recorded in §36.10 — required before production readiness.
