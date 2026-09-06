@@ -13,6 +13,7 @@
     "fix/seller-uat-convergence-remediation": "https://carup-staging-git-fix-seller-uat-convergence-remediation-11-11.vercel.app",
     "fix/zimbabwe-seller-reality-comms-hardening": "https://carup-staging-git-fix-zimbabwe-seller-reality-comm-25bf18-11-11.vercel.app",
     "feat/operations-control-plane-serena-slice": "https://carup-staging-git-feat-operations-control-plane-se-00a80a-11-11.vercel.app",
-    "feat/service-network-foundation-1-0": "https://carup-staging-git-feat-service-network-foundation-1-0-11-11.vercel.app"
+    "feat/service-network-foundation-1-0": "https://carup-staging-git-feat-service-network-foundation-1-0-11-11.vercel.app",
+    "feat/garage-mechanic-onboarding-1-0": "https://carup-staging-git-feat-garage-mechanic-onboarding-1-0-11-11.vercel.app"
   }
 }
