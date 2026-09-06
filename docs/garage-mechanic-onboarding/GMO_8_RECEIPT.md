@@ -7,9 +7,13 @@
 ```
 frontend  carup-staging-git-feat-garage-mechanic-onboarding-1-0-11-11.vercel.app
 backend   carup-backend-staging-git-feat-garage-mechanic-onb-803043-11-11.vercel.app
-commit    0d78379fe1688d6f821856af1dca400311d42e06   (both sides)
+commit    92ddaf94   (both sides)          ← the certified head
 unpaired  false
 ```
+
+First run was at `0d78379f`. The suite was **re-run in full at `92ddaf94`** — the head that ships —
+because the commits between them touched four product files, and "those changes look equivalent" is
+an argument, not a measurement. Both runs: 27/27.
 
 The harness **refuses to run** if `unpaired !== false` or the two SHAs differ. That guard exists
 because a preview frontend once silently borrowed the shared staging backend, so a UAT measured
