@@ -1096,6 +1096,20 @@
     "betaCapable": true
   },
   {
+    "id": "owner.garage-setup",
+    "domain": "service",
+    "route": "/dashboard/garage-setup",
+    "defaultLifecycle": "active",
+    "defaultRoles": [
+      "owner"
+    ],
+    "immutableRoles": [
+      "owner"
+    ],
+    "requiresAuth": true,
+    "betaCapable": true
+  },
+  {
     "id": "owner.import-detail",
     "domain": "diaspora",
     "route": "/diaspora/imports/:id",

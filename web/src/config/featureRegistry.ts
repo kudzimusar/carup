@@ -355,6 +355,18 @@ export const FEATURE_REGISTRY: FeatureRegistryItem[] = [
     icon: 'Wrench',
   },
   {
+    id: 'owner.garage-setup',
+    label: 'Set Up My Garage',
+    shortLabel: 'Garage',
+    route: '/dashboard/garage-setup',
+    domain: 'service',
+    roles: ['owner'],
+    placements: ['dashboard_sidebar'],
+    requiresAuth: true,
+    icon: 'Building2',
+    description: 'Apply to operate a garage on CarUp',
+  },
+  {
     id: 'owner.service-history',
     label: 'Service History',
     route: '/dashboard/service-history',

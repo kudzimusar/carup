@@ -2425,6 +2425,30 @@ export function useCarUpApi() {
     return request<ServiceCaseDetail>(`/service-cases/${encodeURIComponent(caseId)}`, { method: 'GET' })
   }, [request])
 
+  /* ── GMO-1: the Garage applicant's own application ───────────────────────────────────────────
+     Upstream of the workspace. These call the applicant's OWN application only; nothing here
+     grants anything. */
+
+  const fetchMyGarageApplication = useCallback(async (): Promise<any> => {
+    return request<any>('/garage-onboarding/application', { method: 'GET' })
+  }, [request])
+
+  const startGarageApplication = useCallback(async (body: { supersedes?: string } = {}): Promise<any> => {
+    return request<any>('/garage-onboarding/application', { method: 'POST', body: JSON.stringify(body) })
+  }, [request])
+
+  const saveGarageApplication = useCallback(async (id: string, patch: Record<string, unknown>): Promise<any> => {
+    return request<any>(`/garage-onboarding/application/${encodeURIComponent(id)}`, {
+      method: 'PATCH', body: JSON.stringify(patch),
+    })
+  }, [request])
+
+  const submitGarageApplication = useCallback(async (id: string): Promise<any> => {
+    return request<any>(`/garage-onboarding/application/${encodeURIComponent(id)}/submit`, {
+      method: 'POST', body: '{}',
+    })
+  }, [request])
+
   /* ── Garage operator workspace (R5) ──────────────────────────────────────────────────────────
      Every one of these endpoints was already certified and had no product surface: the garage's
      queue, its own members, and the case/work-order/record lifecycle. Nothing new is invented
@@ -3219,6 +3243,10 @@ export function useCarUpApi() {
     fetchServiceRequest,
     cancelServiceRequest,
     resolveServiceLink,
+    fetchMyGarageApplication,
+    startGarageApplication,
+    saveGarageApplication,
+    submitGarageApplication,
     fetchGarageQueue,
     fetchGarageMechanics,
     fetchGarageCustomers,

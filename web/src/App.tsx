@@ -111,6 +111,7 @@ import MechanicDashboard from './pages/dashboard/mechanic/MechanicDashboard'
 // Garage operator workspace (R5) — the queue, cases, job cards, assignment and service records
 // that were certified in Foundation 1.0 and had no product surface at all.
 import GarageWorkspace from './pages/dashboard/garage/GarageWorkspace'
+import GarageSetup from './pages/dashboard/garage/GarageSetup'
 import GarageCaseDetail from './pages/dashboard/garage/GarageCaseDetail'
 import GarageCustomers from './pages/dashboard/garage/GarageCustomers'
 import GarageProfileEditor from './pages/dashboard/garage/GarageProfileEditor'
@@ -358,6 +359,10 @@ export default function App() {
           {/* R3 — a successful service request must remain findable. This is a view of the
               canonical Service Cases the owner already owns, not a second request ledger. */}
           <Route path="/dashboard/service-requests" element={<ServiceRequests />} />
+          {/* GMO-1 — "Finish setting up your garage". It must be reachable BEFORE any garage
+              exists, so it lives in the owner shell: the applicant is a platform `owner` until an
+              approved decision activates them. */}
+          <Route path="/dashboard/garage-setup" element={<GarageSetup />} />
           <Route path="/dashboard/insurance" element={<InsuranceRecords />} />
           <Route path="/dashboard/partsentry" element={<PartSentry />} />
           <Route path="/dashboard/listings" element={<MyListings />} />
@@ -393,6 +398,8 @@ export default function App() {
           <Route path="/garage/cases/:caseId" element={<GarageCaseDetail />} />
           <Route path="/garage/customers" element={<GarageCustomers />} />
           <Route path="/garage/profile" element={<GarageProfileEditor />} />
+          {/* GMO-1 — the applicant surface. Reachable BEFORE any garage exists, so it lives in the
+              owner shell rather than the garage one. */}
         </Route>
 
         {/* Insurance Dashboard */}
