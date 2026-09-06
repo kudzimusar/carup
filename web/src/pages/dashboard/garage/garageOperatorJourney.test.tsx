@@ -178,6 +178,33 @@ describe('R5 — one job, request to service record', () => {
     await waitFor(() => expect(assignMechanicToWorkOrder).toHaveBeenCalledWith(WO_ID, 'm-1'))
   })
 
+  it('and the assignment then SHOWS — the call is not the outcome', async () => {
+    /**
+     * THE DEFECT THIS PINS. The test above asserted the API was CALLED and passed while the screen
+     * showed nothing: the assignment is keyed on the work-order id, which does not change when a
+     * mechanic is assigned, so the effect that reads it never re-ran. A real operator assigned
+     * someone, saw no change, assigned again, and got "this work order already has an assigned
+     * mechanic; unassign first". Round 2 found it in a browser; this suite could not, because it
+     * was asserting the wrong half of the interaction.
+     */
+    fetchServiceRequest.mockResolvedValue(caseAt('accepted'))
+    fetchGarageQueue.mockResolvedValue(queueWith('accepted', { id: WO_ID, status: 'In Progress' }))
+    // The server reports nobody assigned until the assignment happens, then reports Tendai.
+    fetchWorkOrderAssignment.mockResolvedValue({ assigned_mechanic_user_id: null, assigned: false, history: [] })
+    assignMechanicToWorkOrder.mockImplementation(async () => {
+      fetchWorkOrderAssignment.mockResolvedValue({ assigned_mechanic_user_id: 'm-1', assigned: true, history: [] })
+      return { success: true }
+    })
+    openCase()
+
+    fireEvent.change(await screen.findByTestId('mechanic-select'), { target: { value: 'm-1' } })
+    const assigned = await screen.findByTestId('assigned-mechanic')
+    expect(assigned).toHaveTextContent('Tendai')
+    // And the picker is replaced by the assignment, so nobody assigns twice.
+    expect(screen.queryByTestId('mechanic-select')).toBeNull()
+    expect(screen.getByTestId('unassign-mechanic')).toBeTruthy()
+  })
+
   it('a garage with nobody else on CarUp is told so, not shown an empty picker', async () => {
     fetchGarageMechanics.mockResolvedValue({ mechanics: [] })
     fetchServiceRequest.mockResolvedValue(caseAt('accepted'))

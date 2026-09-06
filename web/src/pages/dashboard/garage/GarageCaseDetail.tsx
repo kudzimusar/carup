@@ -63,6 +63,10 @@ export default function GarageCaseDetail() {
   const [assignedTo, setAssignedTo] = useState<string | null>(null)
   const [state, setState] = useState<'loading' | 'ready' | 'error'>('loading')
   const [busy, setBusy] = useState(false)
+  // Bumped after every mutation. Assignment is keyed on the work order id, which does NOT change
+  // when a mechanic is assigned — so without this the effect below never re-runs and the operator
+  // assigns someone and sees nothing happen. Round 2 caught exactly that in a browser.
+  const [mutations, setMutations] = useState(0)
   const [actionError, setActionError] = useState<string | null>(null)
   const [notice, setNotice] = useState<string | null>(null)
 
@@ -115,7 +119,7 @@ export default function GarageCaseDetail() {
       .then((res) => { if (mounted) setAssignedTo(res?.assigned_mechanic_user_id ?? null) })
       .catch(() => { if (mounted) setAssignedTo(null) })
     return () => { mounted = false }
-  }, [workOrderId, fetchWorkOrderAssignment])
+  }, [workOrderId, fetchWorkOrderAssignment, mutations])
 
   /** Every mutation goes through here so a refusal is always shown in the operator's words. */
   async function act(fn: () => Promise<unknown>, success: string) {
@@ -125,6 +129,9 @@ export default function GarageCaseDetail() {
     try {
       await fn()
       setNotice(success)
+      // Re-read the case AND the assignment. `load()` alone refreshes neither the assignment nor
+      // anything else keyed on an id that did not change.
+      setMutations((n) => n + 1)
       await load()
     } catch (e) {
       setActionError(e instanceof Error ? e.message : 'That did not go through. Nothing was changed.')
