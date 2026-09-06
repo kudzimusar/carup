@@ -67,7 +67,35 @@ transaction**, rolling back the tenant and membership. The function is therefore
 the lock were removed*: a loser rolls back completely rather than leaving an orphan. A guarantee
 that rests only on a lock is a guarantee that rests on timing.
 
-## GAP — true concurrent-session racing was NOT executed
+## ~~GAP~~ — CLOSED 2026-09-06: true concurrent-session racing EXECUTED
+
+Eight genuinely concurrent activations, fired together at the deployed governed endpoint. Each POST
+is its own serverless invocation and therefore its own database session, so this is a real race and
+not a simulation of one.
+
+```
+8 calls in 3694ms · ok 8 · created=true 1 · created=false 7 · other 0
+  ✅ all winners report exactly ONE tenant      distinct tenant_ids = 1
+  ✅ exactly ONE caller created it              created=true = 1
+  ✅ every call was answered                    8/8
+  ✅ no non-2xx call reported a tenant          0 non-2xx
+```
+
+Database readback afterwards, 5/5: the application names exactly the tenant every racer reported;
+**exactly one tenant exists**; exactly one founding membership; its role is the tenant-scoped
+`admin` (PO-1); and the fixture was cleaned up.
+
+Seven losers all returned `created=false` with the winner's tenant — the idempotent path — rather
+than erroring. No loser left an orphan.
+
+The approved application was created directly and is **labelled a concurrency fixture**: what is
+under test is whether the activation function serializes, not whether onboarding produced the row.
+The Golden Journey creates its applications through the product and does not use this.
+
+Harness: `scripts/uat/gmo-4-activation-race.mjs`.
+
+### The original gap, kept for the record
+
 
 I could not run two genuinely simultaneous database sessions. `dblink` is not installed and
 installing it needs a loopback credential; `postgres_fdw` likewise; no staging credentials exist in

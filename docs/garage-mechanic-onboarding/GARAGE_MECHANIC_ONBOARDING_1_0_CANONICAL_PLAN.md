@@ -465,11 +465,11 @@ exists.**
 | **GMO-1** | Garage Application: create, resume, submit | ✅ **PASS** — `GMO_1_RECEIPT.md` · 19+14 tests · 4 real-PostgreSQL constraints |
 | **GMO-2** | Business evidence + OCR assistance | ✅ **PASS** — `GMO_2_RECEIPT.md` · 25+24 tests · 11/11 real-PostgreSQL · no provider activated |
 | **GMO-3** | Review & decision | ✅ **PASS** — `GMO_3_RECEIPT.md` · 30+16 tests · 5/5 mutations red · approval creates nothing |
-| **GMO-4** | **Canonical Business Activation** | ✅ **PASS (one stated gap)** — `GMO_4_RECEIPT.md` · 19+21 tests · 25/25 real-PostgreSQL incl. fault-injected atomicity · 11/11 mutations red · **true concurrent-session racing NOT executed** |
+| **GMO-4** | **Canonical Business Activation** | ✅ **PASS** — `GMO_4_RECEIPT.md` · 19+21 tests · 25/25 real-PostgreSQL incl. fault-injected atomicity · 11/11 mutations red · **8-way concurrent race EXECUTED: 1 created, 7 idempotent, 1 tenant** |
 | **GMO-5** | Portal / context handoff | ✅ **PASS after a self-inflicted critical, found and fixed** — `GMO_5_RECEIPT.md` · 27+13 tests · adversarial review executed a working privilege-escalation exploit against the first fix; tenant gate is now opt-in per route; all four GMO tables given RLS |
 | **GMO-6** | Mechanic invitation & membership | ✅ **PASS** — `GMO_6_RECEIPT.md` · 34 backend tests · 10/10 mutations red · hashed single-use email-bound token · new enumerated tenancy-write invariant |
 | **GMO-7** | Membership revocation & lifecycle | ✅ **PASS** — `GMO_7_RECEIPT.md` · 27+20 tests · 7/7 mutations red · future authority ends, historical attribution survives |
-| **GMO-8** | Full physical Golden Journey | 🟡 **PARTIAL** — `GMO_8_RECEIPT.md` · Acts 1–2 **27/27 across desktop/tablet/mobile** on the paired preview at 0d78379f (`unpaired:false`, both sides one SHA); Acts 3–6 NOT RUN, needing a provisioned Operations reviewer and governed O2 identity approval |
+| **GMO-8** | Full physical Golden Journey | 🟡 **PARTIAL — blocked on a paid vision provider** — `GMO_8_RECEIPT.md` · Acts 1–2 **27/27 across desktop/tablet/mobile**; Acts 3–6 **10 PASS** incl. PO-2 enforced by the deployed product; step 12 (governed identity approval) is structurally impossible without a vision/OCR key, and steps 13–24 are written and waiting behind it |
 
 **GMO-8 rule:** no direct SQL fixture may stand in for any core onboarding step in the final
 certification. The whole point of this programme is that the journey exists in the product.
