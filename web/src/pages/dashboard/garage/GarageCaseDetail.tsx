@@ -19,6 +19,7 @@ import {
   whenLabel,
   type QueueCase,
 } from '@/lib/garageWorkspace'
+import { SN_PAGE, SN_DETAIL_COLUMN } from '@/lib/serviceNetworkLayout'
 
 /**
  * One job, start to finish (R5).
@@ -174,7 +175,7 @@ export default function GarageCaseDetail() {
 
   if (state === 'error' || !caseView) {
     return (
-      <Card className="border-0 card-shadow max-w-2xl mx-auto" data-testid="case-error">
+      <Card className={`border-0 card-shadow ${SN_DETAIL_COLUMN} mx-auto`} data-testid="case-error">
         <CardContent className="p-6 text-center">
           <p className="font-semibold text-gray-800">This job could not be opened</p>
           <p className="text-sm text-gray-500 mt-1">
@@ -192,7 +193,7 @@ export default function GarageCaseDetail() {
   const next = nextActionFor(caseView.status, Boolean(workOrderId))
 
   return (
-    <div className="space-y-5 max-w-3xl mx-auto">
+    <div className={`${SN_PAGE} ${SN_DETAIL_COLUMN}`}>
       <Link to="/garage" className="inline-flex items-center gap-2 text-sm text-gray-600 hover:text-gray-900">
         <ArrowLeft className="w-4 h-4" aria-hidden="true" /> Workshop
       </Link>

@@ -6,6 +6,7 @@ import { Button } from '@/components/ui/button'
 import { ArrowLeft, Loader2, Globe, EyeOff } from 'lucide-react'
 import { useCarUpApi } from '@/hooks/useCarUpApi'
 import { SERVICE_CATEGORIES } from '@/lib/serviceRequests'
+import { SN_PAGE, SN_FORM_COLUMN } from '@/lib/serviceNetworkLayout'
 
 /**
  * The garage's own public page (R5).
@@ -106,7 +107,7 @@ export default function GarageProfileEditor() {
 
   if (state === 'error') {
     return (
-      <Card className="border-0 card-shadow max-w-2xl mx-auto" data-testid="profile-error">
+      <Card className={`border-0 card-shadow ${SN_FORM_COLUMN} mx-auto`} data-testid="profile-error">
         <CardContent className="p-6 text-center">
           <p className="font-semibold text-gray-800">Your garage page could not be loaded</p>
           <p className="text-sm text-gray-500 mt-1">
@@ -124,7 +125,7 @@ export default function GarageProfileEditor() {
   const missing = missingForPublication(profile)
 
   return (
-    <div className="space-y-5 max-w-2xl mx-auto">
+    <div className={`${SN_PAGE} ${SN_FORM_COLUMN}`}>
       <Link to="/garage" className="inline-flex items-center gap-2 text-sm text-gray-600 hover:text-gray-900">
         <ArrowLeft className="w-4 h-4" aria-hidden="true" /> Workshop
       </Link>

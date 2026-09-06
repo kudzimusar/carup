@@ -16,6 +16,7 @@ import {
   whenLabel,
   type QueueCase,
 } from '@/lib/garageWorkspace'
+import { SN_PAGE } from '@/lib/serviceNetworkLayout'
 
 /**
  * The garage's work, in one place (R5).
@@ -57,7 +58,7 @@ export default function GarageWorkspace() {
   const visible = scope === 'mine' ? queue.filter((c) => assignedTo(c, user?.id)) : queue
 
   return (
-    <div className="space-y-6 max-w-5xl mx-auto">
+    <div className={SN_PAGE}>
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
           <h1 className="text-2xl font-bold">Workshop</h1>

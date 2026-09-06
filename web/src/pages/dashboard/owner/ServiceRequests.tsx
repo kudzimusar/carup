@@ -12,6 +12,7 @@ import {
   serviceCategoryLabel,
   statusPresentation,
 } from '@/lib/serviceRequests'
+import { SN_PAGE } from '@/lib/serviceNetworkLayout'
 
 /**
  * My Service Requests (R3).
@@ -87,7 +88,7 @@ export default function ServiceRequests() {
   }
 
   return (
-    <div className="space-y-6 max-w-5xl mx-auto">
+    <div className={SN_PAGE}>
       <div>
         <h1 className="text-2xl font-bold">My Service Requests</h1>
         <p className="text-gray-500">Requests you have sent to garages on CarUp</p>

@@ -5,6 +5,7 @@ import { Button } from '@/components/ui/button'
 import { ArrowLeft, Loader2, Users } from 'lucide-react'
 import { useCarUpApi } from '@/hooks/useCarUpApi'
 import { whenLabel } from '@/lib/garageWorkspace'
+import { SN_PAGE } from '@/lib/serviceNetworkLayout'
 
 /**
  * The garage's customers, counted from its own service cases (R5).
@@ -47,7 +48,7 @@ export default function GarageCustomers() {
   useEffect(() => { load() }, [load])
 
   return (
-    <div className="space-y-5 max-w-3xl mx-auto">
+    <div className={SN_PAGE}>
       <Link to="/garage" className="inline-flex items-center gap-2 text-sm text-gray-600 hover:text-gray-900">
         <ArrowLeft className="w-4 h-4" aria-hidden="true" /> Workshop
       </Link>

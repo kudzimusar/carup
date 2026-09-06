@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { toast } from 'sonner'
 import { Outlet, Link, useLocation, useNavigate, Navigate } from 'react-router-dom'
+import CompactBottomNav from './CompactBottomNav'
 import {
   Car,
   Bell,
@@ -345,13 +346,22 @@ export default function DashboardLayout({ role }: { role: string }) {
           </div>
         </header>
 
-        {/* Page Content — boundary shows a beta notice above beta features */}
-        <main className="p-4 lg:p-6">
+        {/* Page Content — boundary shows a beta notice above beta features.
+            The bottom padding on compact widths is the height of the compact nav plus the safe-area
+            inset: without it the bar covers the last control on the page, which DESIGN.md §10
+            ("primary CTA stays discoverable") forbids. */}
+        <main className="p-4 lg:p-6 pb-[calc(4.5rem+env(safe-area-inset-bottom))] lg:pb-6">
           <RegistryRouteBoundary>
             <Outlet />
           </RegistryRouteBoundary>
         </main>
       </div>
+
+      {/* The one compact navigation bar, in the AUTHENTICATED shell.
+          It was previously mounted only in MainLayout, so every signed-in workspace on a phone had
+          the hamburger drawer and nothing else — no persistent way to reach the work. "More" opens
+          that same drawer rather than adding a second secondary surface. */}
+      <CompactBottomNav onOpenMore={() => setSidebarOpen(true)} />
     </div>
   )
 }
