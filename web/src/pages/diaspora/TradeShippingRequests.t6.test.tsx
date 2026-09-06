@@ -23,6 +23,7 @@ const state = vi.hoisted(() => ({
   commercialsError: null as Error | null,
   comparison: null as unknown,
   readCalls: [] as unknown[],
+  compareCalls: [] as unknown[],
 }))
 
 vi.mock('@/context/AuthContext', () => ({ useAuth: () => ({ loading: false, user: { id: 'req-1' } }) }))
@@ -37,7 +38,7 @@ vi.mock('@/hooks/useTradeLogisticsApi', () => ({
       if (state.commercialsError) throw state.commercialsError
       return state.commercials
     }),
-    compareQuotes: vi.fn(async () => state.comparison),
+    compareQuotes: vi.fn(async (targets: unknown) => { state.compareCalls.push(targets); return state.comparison }),
     createRequest: vi.fn(), updateRequest: vi.fn(), publishRequest: vi.fn(),
     acceptQuote: vi.fn(), requestContainerSpace: vi.fn(), ensureConversation: vi.fn(),
   }),
@@ -99,6 +100,7 @@ beforeEach(() => {
   state.commercialsError = null
   state.comparison = null
   state.readCalls = []
+  state.compareCalls = []
 })
 
 describe('the requester sees what the offer actually covers', () => {
@@ -149,11 +151,15 @@ describe('the requester sees what the offer actually covers', () => {
     expect(screen.queryByTestId('landed-estimate')).toBeNull()
   })
 
-  it('shows no cross-offer verdict for a single offer', async () => {
+  it('shows no cross-offer verdict for a single offer, and does not even ask', async () => {
+    // Asking the server to compare one offer returned 400 on every single-offer request detail —
+    // a failed request the customer paid for and nobody could see.
     await openDetail()
     await waitFor(() => expect(screen.getByTestId('offer-commercials')).toBeInTheDocument())
     expect(screen.queryByTestId('offer-comparison')).toBeNull()
     expect(screen.queryByTestId('offer-comparison-loading')).toBeNull()
+    expect(screen.queryByTestId('offer-comparison-unreadable')).toBeNull()
+    expect(state.compareCalls).toEqual([])
   })
 
   it('refuses to name a cheapest when two offers are not the same purchase', async () => {

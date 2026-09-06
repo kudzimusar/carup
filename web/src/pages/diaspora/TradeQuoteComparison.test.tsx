@@ -66,6 +66,27 @@ describe('money is never misrepresented', () => {
     expect(document.body.textContent).not.toMatch(/0\.00|USD 0|\$0/)
   })
 
+  /**
+   * Found by reading the deployed buyer screen: an EXCLUDED customs line and a NOT_APPLICABLE
+   * inspection line both rendered "Not priced yet" — the same words as an included charge the
+   * provider had simply not quoted. Three different facts were being told as one, and the one they
+   * were told as is the one that makes a customer wait for a price that is never coming.
+   */
+  it('distinguishes not-yet-priced from does-not-apply from excluded-and-unstated', () => {
+    const { unmount } = render(<MoneyWithReference source={{ amount: null, currency: null }} inclusion="INCLUDED" />)
+    expect(screen.getByTestId('money-unpriced').textContent).toBe('Not priced yet')
+    unmount()
+
+    const notApplicable = render(<MoneyWithReference source={{ amount: null, currency: null }} inclusion="NOT_APPLICABLE" />)
+    expect(screen.getByTestId('money-not-applicable').textContent).toBe('Does not apply to this shipment')
+    expect(screen.queryByTestId('money-unpriced')).toBeNull()
+    notApplicable.unmount()
+
+    render(<MoneyWithReference source={{ amount: null, currency: null }} inclusion="EXCLUDED" />)
+    expect(screen.getByTestId('money-excluded-unstated').textContent).toBe('Amount not stated — you arrange this')
+    expect(screen.queryByTestId('money-unpriced')).toBeNull()
+  })
+
   it('formatMoney refuses to invent a figure', () => {
     expect(formatMoney({ amount: null, currency: 'USD' })).toBeNull()
     expect(formatMoney({ amount: 100, currency: null })).toBeNull()
@@ -171,6 +192,10 @@ describe('the breakdown shows scope beside every number', () => {
       components: [component({ id: 'x', inclusion: 'EXCLUDED', original: { amount: null, currency: null }, reference_usd: null, fx: fxNone })],
       estimate: estimate() }} />)
     expect(screen.getByTestId('inclusion-EXCLUDED').textContent).toContain('you arrange this separately')
-    expect(screen.getAllByTestId('money-unpriced').length).toBeGreaterThan(0)
+    // NOT "Not priced yet": the provider is not going to price this one, so saying a price is
+    // still coming would be the wrong promise.
+    expect(screen.getByTestId('money-excluded-unstated').textContent).toBe('Amount not stated — you arrange this')
+    expect(screen.queryByTestId('money-unpriced')).toBeNull()
+    expect(document.body.textContent).not.toMatch(/0\.00|USD 0|\$0/)
   })
 })

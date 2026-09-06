@@ -79,6 +79,13 @@ export function OfferCommercials({ read, offer }: { read: ReadFn; offer: OfferRe
  * is a statement about a set — and CarUp names a cheapest only when the set genuinely is one.
  */
 export function OfferComparison({ compare, offers }: { compare: CompareFn; offers: OfferRef[] }) {
+  // The guard is OUTSIDE the component that loads, not inside it: comparison needs two offers, and
+  // asking the server to compare one produced a 400 on every single-offer request detail.
+  if (offers.length < 2) return null
+  return <OfferComparisonPanel compare={compare} offers={offers} />
+}
+
+function OfferComparisonPanel({ compare, offers }: { compare: CompareFn; offers: OfferRef[] }) {
   const [result, setResult] = useState<{ quotes: ComparableQuote[]; comparison: ComparisonResult } | null>(null)
   const [state, setState] = useState<'loading' | 'ready' | 'unreadable'>('loading')
   const key = offers.map((o) => o.id).join('|')
@@ -99,7 +106,6 @@ export function OfferComparison({ compare, offers }: { compare: CompareFn; offer
   // eslint-disable-next-line react-hooks/set-state-in-effect
   useEffect(() => { void load() }, [load])
 
-  if (offers.length < 2) return null
   if (state === 'loading') {
     return (
       <p className="mt-4 flex items-center gap-2 text-xs text-slate-500" data-testid="offer-comparison-loading">

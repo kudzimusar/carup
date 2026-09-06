@@ -187,7 +187,15 @@ export function ChargeComponentReview({ components, total, currency }: {
               </span>
             </span>
             <span className="font-medium text-slate-900">
-              {c.amount === '' ? <span className="italic text-slate-500">not priced</span> : `${c.currency || currency} ${Number(c.amount).toLocaleString()}`}
+              {/* Same three-way distinction the customer's breakdown makes: a charge that does
+                  not apply is not a charge awaiting a price. */}
+              {c.amount === ''
+                ? <span className="italic text-slate-500" data-testid={`review-unpriced-${i}`}>
+                    {c.inclusion === 'NOT_APPLICABLE' ? 'does not apply'
+                      : c.inclusion === 'EXCLUDED' ? 'amount not stated'
+                        : 'not priced'}
+                  </span>
+                : `${c.currency || currency} ${Number(c.amount).toLocaleString()}`}
             </span>
           </li>
         ))}

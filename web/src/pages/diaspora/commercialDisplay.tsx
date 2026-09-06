@@ -21,12 +21,21 @@ import type { Money, FxInfo } from './commercialFormat'
  * labelled a reference and carries the rate, its source and its OWN date — so nobody can mistake a
  * Friday rate read on Sunday for today's.
  */
-export function MoneyWithReference({ source, reference, fx, compact = false }: {
-  source: Money; reference?: Money | null; fx?: FxInfo | null; compact?: boolean
+export function MoneyWithReference({ source, reference, fx, compact = false, inclusion }: {
+  source: Money; reference?: Money | null; fx?: FxInfo | null; compact?: boolean; inclusion?: string
 }) {
   const sourceText = formatMoney(source)
   if (!sourceText) {
-    return <span className="text-slate-500 italic" data-testid="money-unpriced">Not priced yet</span>
+    // WHY there is no figure is different in each case, and reading them as the same thing is how
+    // a customer comes to expect a price for something that will never have one. "Not priced yet"
+    // means a price is still owed; a charge that does not apply is never owed one, and an excluded
+    // charge is one the provider is not quoting — the customer pays it to someone else.
+    const [label, testId] = inclusion === 'NOT_APPLICABLE'
+      ? ['Does not apply to this shipment', 'money-not-applicable']
+      : inclusion === 'EXCLUDED'
+        ? ['Amount not stated — you arrange this', 'money-excluded-unstated']
+        : ['Not priced yet', 'money-unpriced']
+    return <span className="text-slate-500 italic" data-testid={testId}>{label}</span>
   }
   const referenceText = formatMoney(reference || null)
   return (

@@ -190,7 +190,7 @@ export function QuoteBreakdown({ quote }: { quote: ComparableQuote }) {
                   )}
                 </div>
                 <div className="shrink-0 text-right">
-                  <MoneyWithReference source={c.original} reference={c.reference_usd} fx={c.fx} compact />
+                  <MoneyWithReference source={c.original} reference={c.reference_usd} fx={c.fx} inclusion={c.inclusion} compact />
                   <p className="mt-0.5 text-[11px] text-slate-500">{provenanceLabel(c.provenance)}</p>
                 </div>
               </div>
