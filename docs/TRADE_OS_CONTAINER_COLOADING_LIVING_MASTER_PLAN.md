@@ -1602,17 +1602,18 @@ roll-calls live in the plan document and are mirrored here as the canonical exit
 **Governing correction:** a customer's FINAL DESTINATION is not the destination of the individual
 sailing they reserve capacity on. Harare stays Harare while the ocean leg ends at Beira or Durban.
 
-- [ ] T5.0 Governance reconciliation and frozen-baseline proof.
-- [ ] T5.1 Authority/schema audit (metadata classification; corridor-authority search; migration proposal).
-- [ ] T5.2 Corridor reference contract (route composition only; ordered legs; no preferred corridor).
-- [ ] T5.3 Sailing identity + lifecycle (DRAFT → BOOKING_OPEN → BOOKING_CLOSED / CANCELLED).
-- [ ] T5.4 Corridor-aware discovery (final-destination ≠ sailing endpoint; no auto-book; no invented inland leg).
-- [ ] T5.5 Mode compatibility (roro representable; marketplace books only what it governs).
-- [ ] T5.6 Booking workspace / service-scope composition (leg vs final destination legible; REQUESTED vs APPROVED).
-- [ ] T5.7 Capacity/manifest/exceptions (kernel preserved; release semantics; lifecycle-gap disposition).
-- [ ] T5.8 Privacy/anti-bypass (allow-lists; 12-case adversarial matrix).
-- [ ] T5.9 UI/UX + seven-width responsive certification.
-- [ ] T5.10 Deployed-staging certification (direct + gateway + both origins + capacity truth), then owner UAT.
+- [x] T5.0 Governance reconciliation and frozen-baseline proof. (§40, `b3654376`)
+- [x] T5.1 Authority/schema audit — recorded in the migration header; no corridor authority existed.
+- [x] T5.2 Corridor reference contract (`diaspora_trade_corridors` + `_legs`; ordered legs; no preferred corridor).
+- [x] T5.3 Sailing identity + lifecycle (DRAFT → BOOKING_OPEN → BOOKING_CLOSED / CANCELLED; ports promoted to columns).
+- [x] T5.4 Corridor-aware discovery (`sailingRouteMatch`; both matching sites; no auto-book; onward legs stated as required).
+- [x] T5.5 Mode compatibility (`roro` representable; a roro offer cannot attach a container sailing).
+- [x] T5.6 Booking workspace / service-scope composition (leg vs final destination legible; REQUESTED vs APPROVED unchanged).
+- [x] T5.7 Capacity kernel preserved + **the standing lifecycle gap CLOSED** (cancel/close, slot released).
+- [x] T5.8 Privacy/anti-bypass (DRAFT invisible and unconfirmable; allow-listed corridor projection).
+- [x] T5.9 UI/UX + seven-width responsive certification (21/21, visual review done).
+- [~] T5.10 Deployed-staging certification **COMPLETE** (37/37 API · 25/25 browser · 14/14 continuation);
+      **owner UAT is the only remaining row** — automation cannot close it (§29).
 
 **Exit gate (all 33 rows of the plan's §8, tracked verbatim in the plan document):** architecture
 5 rows · corridor 5 · mode 2 · commercial compatibility 5 · sailing/capacity 8 · truth/security 8.
@@ -3650,3 +3651,76 @@ it vanish.
 T5.0 (this entry) → T5.1 audit → T5.2 corridor → T5.3 sailing lifecycle → T5.4 discovery →
 T5.5 mode → T5.6 booking workspace → T5.7 capacity → T5.8 privacy → T5.9 UI/responsive →
 T5.10 staging certification → owner UAT. Stop at T5; T6 not authorized.
+
+---
+
+## §41 — T5 IMPLEMENTATION & TECHNICAL CERTIFICATION → **T5-PARTIAL**, OWNER UAT REQUIRED
+
+**Execution entry — 2026-09-06. Start `3c382bae` (authorization) / `d866e2ce` (actual). Code head
+`84b6de3a`. Staging schema activated. Production untouched. T6 not started.**
+
+### The correction, delivered
+
+Country-equality on both endpoints meant a real `Yokohama → Beira` sailing could **never** serve a
+Harare customer without lying about one side of the route. It now does, and the screen says so in
+the customer's own terms:
+
+```text
+Your destination: Harare, Zimbabwe
+This sailing covers: Yokohama → Beira — Japan → Beira → Zimbabwe corridor
+Then still required: Forbes/Machipanda → Harare — not part of this sailing, not yet arranged.
+```
+
+Rendered verbatim on deployed staging. The destination is never rewritten to Mozambique, the
+onward legs are stated as **required and unarranged**, and a match still books nothing.
+
+### What was built (T5.1 audit → T5.8)
+
+| Slice | Decision |
+|---|---|
+| T5.1 | **No corridor authority existed anywhere** — the only "corridor" was an Intelligence display label. Ports lived in container metadata. The container status CHECK *already* had DRAFT/BOOKING_OPEN/BOOKING_CLOSED/CANCELLED. `metadata.total_capacity_weight` is read by the hardened approval RPC and deliberately stays there. Intake could say `roro`; the offer CHECK could not. |
+| T5.2 | `diaspora_trade_corridors` + `diaspora_trade_corridor_legs`. Route composition **only**. JP-BEI-ZW / JP-DUR-ZW benchmark, **JP-DAR-ZW research_candidate**. Ordered by code; nothing ranks. RLS: authenticated read, service_role write. |
+| T5.3 | `origin_port`/`destination_port`/`corridor_id`/`corridor_leg_id` promoted to columns. `publish:false` → DRAFT; `openBooking` publishes deliberately; `cancelSailing` refused while any live reservation exists. Legacy LOADING/SHIPPED/ARRIVED remain unused as T5 truth. |
+| T5.4 | `sailingRouteMatch()` — direct equality still matches; otherwise an applicable corridor's **leg shape** does. Matching is by geography; an operator's declared leg cannot widen eligibility. |
+| T5.5 | `roro` added to service + DB CHECK. A roro offer **cannot** attach a shared-container sailing — the container does not carry it. No RoRo integration was built. |
+| T5.7 | **The standing §36.10 gap is closed.** `cancelMyLogisticsRequest` / `closeMyLogisticsRequest`, requester-only, audited, both refused while a live REQUESTED/APPROVED reservation is attached. Proven on staging: cancel → the T4 one-live-continuation slot is **freed** and a new continuation succeeds. |
+| T5.8 | `?status=DRAFT` returns only sailings the caller operates; a foreign DRAFT read by id is **404**, so existence is not confirmable. Corridor projection allow-listed despite being reference data. |
+
+### Evidence
+
+| Gate | Result |
+|---|---|
+| PGlite migration gate (`trade_os_t5_corridor_check.mjs`) | **16/16**, wired as its own CI step and **confirmed executed** in CI |
+| Backend suites | **1549 pass / 0 fail** (7 skipped) |
+| Web diaspora suites | **139 pass / 0 fail** |
+| New tests | 24 backend + 8 web, load-bearing guards **mutation-tested** (8 mutations, every one goes red) |
+| Deployed staging API certification | **37/37** on real Postgres |
+| Deployed staging browser certification | **25/25** |
+| Procurement-origin continuation (case D) | **14/14**, incl. idempotent replay and slot release |
+| Seven-width geometry × 3 routes | **21/21**, zero overflow, screenshots reviewed by eye |
+| Console errors on a settled page / 5xx | **0 / 0** |
+| CI | **7/7 green** at `84b6de3a` — including Vehicle Passport Foundation CI, red since `70f9a251`, fixed by T5.0's hygiene commit |
+| `tsc -b` / lint regression | clean / **zero net-new errors** |
+
+Staging identity: FE `carup-staging-git-feat-trade-os-client-demo-convergence-11-11.vercel.app`
+(bundle `index-Daou84Dg.js` at certification), BE `/api/health` `commit_sha_short` **`f0bcca2a`**
+paired, Supabase **staging** project only. Migration `20260907090000` applied to staging: 3
+corridors, 8 legs, 4 columns, roro CHECK, RLS enabled on both new tables.
+
+### Findings
+
+| # | Class | Finding |
+|---|---|---|
+| F1 | **UX-DESIGN** | Publishing a shipping request takes **~13–14s** to reach the detail, because `setView('detail')` fires only after sailing-matches and reservation reads complete. The customer sees the wizard the whole time. Pre-existing shape, now more visible because corridor discovery added work. |
+| F2 | **MISSING T5 CAPABILITY** (performance) | `findCompatibleSailings` is N+1: it lists corridors, then queries reservations per BOOKING_OPEN container (~5.6s on staging). Correct, not scalable. |
+| F3 | **UX-DESIGN** | Gateway sailings sort by departure date like any other, so a corridor option can sit behind "Show N more departures". Ordering is deliberately neutral (no ranking is permitted), so this is a disclosure question, not a ranking one. |
+| F4 | **PREFERENCE / fixture hygiene** | Legacy synthetic sailings carry raw fixture ids in `origin_city`, so one card reads "Sails to your destination: golden.t3.sailing.t3iso-… → Harare". Inherited test data, not product behaviour. |
+| F5 | *(fixed in-lane)* | The gateway card first read "This sailing covers: Japan → Beira — Japan → Beira → Zimbabwe corridor". Now uses the sailing's own ports per §T5.9. `84b6de3a`. |
+
+None of F1–F4 blocks the T5 exit gate; all are recorded rather than silently carried.
+
+### Verdict
+
+**T5-PARTIAL — owner UAT required.** Every technical row of the plan's §8 exit gate is proven;
+the owner's product/visual verdict is the only row automation cannot close (§29). **T6 not
+started. Production untouched.**
