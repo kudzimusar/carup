@@ -147,7 +147,54 @@ async function signIn(page, who) {
   await page.waitForTimeout(3500);
 }
 
-const TINY_JPEG_B64 = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==';
+/**
+ * Synthetic document images, generated per side.
+ *
+ * The product's quality gate refused two earlier attempts, correctly both times: a 1x1 pixel was
+ * DOCUMENT_TOO_SMALL, and the same image sent three times was FRONT_BACK_DUPLICATE. A synthetic
+ * fixture has to be plausible enough to pass the checks the product really applies — dodging them
+ * would certify a path no real document takes.
+ */
+import zlib from 'zlib';
+function docPng(seed) {
+  const W = 1024, H = 640;
+  const chunk = (tag, data) => {
+    const body = Buffer.concat([Buffer.from(tag), data]);
+    const len = Buffer.alloc(4); len.writeUInt32BE(data.length);
+    const crc = Buffer.alloc(4); crc.writeUInt32BE(zlib.crc32 ? zlib.crc32(body) : crc32(body));
+    return Buffer.concat([len, body, crc]);
+  };
+  // zlib.crc32 exists on modern Node; keep a fallback so this cannot silently emit a broken PNG.
+  function crc32(buf) {
+    let c, crc = 0xffffffff;
+    for (let i = 0; i < buf.length; i += 1) {
+      c = (crc ^ buf[i]) & 0xff;
+      for (let k = 0; k < 8; k += 1) c = c & 1 ? 0xedb88320 ^ (c >>> 1) : c >>> 1;
+      crc = c ^ (crc >>> 8);
+    }
+    return (crc ^ 0xffffffff) >>> 0;
+  }
+  const raw = Buffer.alloc(H * (1 + W * 3));
+  let o = 0;
+  for (let y = 0; y < H; y += 1) {
+    raw[o++] = 0;
+    for (let x = 0; x < W; x += 1) {
+      // Structure that differs per side, so no two uploads are duplicates.
+      let v = ((y + seed * 37) / 40 | 0) % 2 === 0 ? 205 : 165;
+      if (x > 60 + seed * 90 && x < 420 + seed * 90 && y > 70 && y < 250) v = 240;
+      if ((x + y * seed) % 211 === 0) v = 120;
+      raw[o++] = v; raw[o++] = v - 12; raw[o++] = v - 24;
+    }
+  }
+  const ihdr = Buffer.alloc(13);
+  ihdr.writeUInt32BE(W, 0); ihdr.writeUInt32BE(H, 4);
+  ihdr[8] = 8; ihdr[9] = 2; ihdr[10] = 0; ihdr[11] = 0; ihdr[12] = 0;
+  return Buffer.concat([
+    Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
+    chunk('IHDR', ihdr), chunk('IDAT', zlib.deflateSync(raw, { level: 6 })), chunk('IEND', Buffer.alloc(0)),
+  ]).toString('base64');
+}
+const SIDE_IMAGE = { front: docPng(1), back: docPng(2), selfie: docPng(3) };
 
 async function main() {
   if (!REVIEWER_EMAIL) throw new Error('--reviewer=<email> is required');
@@ -243,7 +290,7 @@ async function main() {
   await step('api', 'they attach business-presence evidence', async () => {
     const r = await api(`/api/garage-onboarding/application/${state.applicationId}/evidence`, {
       token: state.ownerToken, method: 'POST',
-      body: { evidence_type: 'signage_photo', mime_type: 'image/png', file_base64: TINY_JPEG_B64,
+      body: { evidence_type: 'signage_photo', mime_type: 'image/png', file_base64: SIDE_IMAGE.front,
         description: 'The sign over the workshop door' },
     });
     if (r.status !== 201) throw new Error(`${r.status} ${JSON.stringify(r.body).slice(0, 160)}`);
@@ -307,7 +354,7 @@ async function main() {
     for (const side of ['front', 'back', 'selfie']) {
       const u = await api(`/api/identity/verification-sessions/${sess.id}/upload/${side}`, {
         token: state.ownerToken, method: 'POST',
-        body: { image: `data:image/png;base64,${TINY_JPEG_B64}`, mimeType: 'image/png' },
+        body: { image: `data:image/png;base64,${SIDE_IMAGE[side]}`, mimeType: 'image/png' },
       });
       if (u.status !== 200) throw new Error(`upload ${side} failed: ${u.status} ${JSON.stringify(u.body).slice(0, 160)}`);
     }
@@ -316,15 +363,54 @@ async function main() {
     return `session ${sess.id}`;
   });
 
-  await step('api', 'the reviewer approves the identity (O2 governed)', async () => {
+  const identityApproved = await step('api', 'the reviewer approves the identity (O2 governed)', async () => {
     await stepUp(state.revToken);
     const r = await api(`/api/admin/identity/verification-sessions/${state.sessionId}/review`, {
       token: state.revToken, method: 'POST',
       body: { decision: 'approve', reason_code: 'DOCUMENT_VERIFIED', note: 'GMO-8 golden journey' },
     });
-    if (r.status !== 200) throw new Error(`${r.status} ${JSON.stringify(r.body).slice(0, 200)}`);
+    if (r.status !== 200) {
+      const msg = JSON.stringify(r.body);
+      // A provider-less deployment cannot classify a document, and EVERY document-quality reason
+      // code sets approveAllowed:false. That is a hard dependency on a paid vision provider, not a
+      // defect in anything GMO owns — and activating one is out of scope.
+      if (/DOCUMENT_NOT_VISIBLE|UNCERTAIN|not permitted when the primary reason/.test(msg)) {
+        throw new Error(`BLOCKED_ON_VISION_PROVIDER: ${msg.slice(0, 150)}`);
+      }
+      throw new Error(`${r.status} ${msg.slice(0, 200)}`);
+    }
     return 'identity minted by a governed approval, not set directly';
   });
+
+  if (!identityApproved) {
+    for (const s of [
+      'the garage application can NOW be approved',
+      'a real tenant and founding membership now exist',
+      'activation is IDEMPOTENT — a retry creates nothing',
+      'the founder can open the garage workspace',
+      'the applicant sees their garage and can enter it',
+      'the founder invites a mechanic',
+      'the invited mechanic sees who invited them, before registering',
+      'the mechanic registers and accepts',
+      'the invitation is SPENT — it cannot seat a second person',
+      'the mechanic can work in the garage',
+      'revoking ends FUTURE authority',
+      'the LAST administrator cannot be removed',
+    ]) rec('SKIP', 'n/a', s, 'blocked upstream: governed identity approval needs a vision provider');
+
+    await browser.close();
+    const pass = results.filter((r) => r.status === 'PASS').length;
+    const fail = results.filter((r) => r.status === 'FAIL').length;
+    const skipped = results.filter((r) => r.status === 'SKIP').length;
+    console.log(`\n${'─'.repeat(74)}`);
+    console.log(`GMO-8 ACTS 3-6: ${pass} PASS · ${fail} FAIL · ${skipped} BLOCKED`);
+    console.log('\nBLOCKED ON: a paid vision/OCR provider. documentClassifier returns UNCERTAIN when');
+    console.log('GEMINI_API_KEY is absent, every document-quality reason code has approveAllowed:false,');
+    console.log('and PO-2 makes governed identity approval a prerequisite for garage approval.');
+    writeFileSync(`${OUT}/report.json`, JSON.stringify({ viewport: VIEW, commit_sha: prov.commit_sha, unpaired: prov.unpaired, state, results, errors, pass, fail, skipped, blocked_on: 'vision_provider' }, null, 2));
+    console.log(`report ${OUT}/report.json`);
+    process.exit(fail > 0 ? 1 : 0);
+  }
 
   await step('api', 'the garage application can NOW be approved', async () => {
     await stepUp(state.revToken);

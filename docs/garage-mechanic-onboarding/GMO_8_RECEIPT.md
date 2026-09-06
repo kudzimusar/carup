@@ -105,3 +105,110 @@ node scripts/uat/gmo-8-golden-journey.mjs --viewport=desktop|tablet|mobile
 ```
 
 Fails closed on unpaired or mismatched SHAs. Artifacts and a `report.json` land in `/tmp/gmo8-*`.
+
+
+---
+
+# Acts 3–6 — governed review, activation, context, invitation, revocation
+
+**Status: 10 PASS · 1 BLOCKED · 12 blocked upstream.** Run at `37c96874`, paired, both sides one SHA.
+
+`scripts/uat/gmo-8-acts-3-to-6.mjs`. Each step records HOW it was driven — `[browser]` a person
+clicking the product, `[api]` a real governed endpoint with a real session and real step-up, `[db]` a
+readback only.
+
+## What is proven
+
+| # | how | step |
+|---|---|---|
+| 2 | browser | an unprovisioned person registers as a Garage |
+| 3 | api | they hold a real session |
+| 4 | browser | they fill in the application — **confirmed on the server**, not just on screen |
+| 5 | api | the application exists and names no tenant |
+| 6 | api | business-presence evidence attaches — a signage photo, no company papers |
+| 7 | browser | they send it; status becomes `submitted` |
+| 8 | api | the reviewer signs in and **steps up** |
+| 9 | api | the application appears in the reviewer's queue |
+| 10 | api | **approval is REFUSED while identity is unapproved — PO-2 enforced, not assumed** |
+| 11 | api | the applicant submits identity verification through the governed endpoints |
+
+Step 10 is the one worth pausing on. PO-2 says governed person-identity approval is a prerequisite
+for a garage workspace. That is not a claim in a document here — the deployed product refuses the
+approval, by name, and says why.
+
+## BLOCKED — and it is a stop condition, not a defect
+
+Step 12, the governed identity approval, cannot succeed on this deployment:
+
+```
+documentClassifier.js:121   if (!apiKey && !mockAllowed) return { classification: UNCERTAIN,
+                                            reason: 'Classification provider unavailable.' }
+verificationSessionService  UNCERTAIN → primary_reason_code = 'DOCUMENT_NOT_VISIBLE'
+reasonCodes.js              DOCUMENT_NOT_VISIBLE.approveAllowed = false
+decisionPolicy.js:92        'Approval is not permitted when the primary reason is "…"'
+```
+
+Every document-quality reason code has `approveAllowed: false`. The deterministic Layer-1 classifier
+is a **rejection-only** path — it can fail an image for blur, size or duplication, but it can never
+produce a passing classification. The only non-provider success path requires `NODE_ENV=test` with
+`ALLOW_OCR_MOCK`, which must never be set on a production-shaped deployment (a staging
+`NODE_ENV=test` once opened a credential-free admin bypass).
+
+**So governed identity approval has a hard dependency on a paid vision/OCR provider**, and PO-2 makes
+it a prerequisite for garage approval. Closing Acts 4b–6 therefore requires activating one — which
+the directive names as a stop condition. **I did not activate it.**
+
+This is not a defect in GMO, and not a defect in O2. It is a real dependency that was invisible until
+someone walked the whole journey.
+
+### What would close it
+
+Set a vision-provider key on the staging backend preview and re-run
+`node scripts/uat/gmo-8-acts-3-to-6.mjs --reviewer=<email>`. Steps 13–24 are written and waiting:
+approval → activation → idempotent retry → founder context → workshop entry → invitation → mechanic
+registration and acceptance → spent-invitation refusal → revocation → last-administrator refusal.
+
+## Three quality gates the product applied, correctly, to my synthetic evidence
+
+Worth recording because each one refused a shortcut:
+
+1. **`DOCUMENT_TOO_SMALL`** — a 1×1 pixel. Correct.
+2. **`FRONT_BACK_DUPLICATE`** — the same image for front, back and selfie. Correct.
+3. **`DOCUMENT_NOT_VISIBLE`** — a generated PNG is not an identity document, and with no classifier
+   available nothing can say otherwise. Also correct.
+
+A fixture that had slipped past these would have certified a path no real document takes.
+
+## What Acts 3–6 found in my own code
+
+**Autosave kept only the last field a person typed.** Proven on the deployed product by its own
+network log — three fields filled, one saved:
+
+```
+[patch requests] 2 · POST {} | PATCH {"attestation_accepted":true}
+```
+
+`queueSave` replaced the pending patch along with the timer. It hid because `send()` flushes
+everything, so submitting was always correct; the bug only bit someone who filled the form and left
+before finishing — while "Saved at 11:40 PM" sat on screen telling them it was fine. Fixed, with two
+mutation-proven tests, and re-verified on the deployed build:
+
+```
+[patch requests] 3 · POST {} | PATCH {"trading_name":…,"address_line":…} | PATCH {"service_categories":…}
+```
+
+## Four harness errors of mine, recorded
+
+1. **No CSRF token.** Every mutation returned a 403 that looked exactly like an authorization
+   refusal — and **two steps reported PASS on it**, "the invitation is spent" and "the last
+   administrator cannot be removed", neither of which had reached the logic it claimed to test. Both
+   now require the *specific* refusal, not any 403.
+2. **Wrong upload payload key** (`image_base64` for `image`) with unchecked responses, so three
+   uploads failed silently and only `submit` complained.
+3. **Category toggles awaited as checkboxes** — they are `aria-pressed` buttons, so `.check()`
+   waited on an element that does not exist.
+4. **A test that set each field to the value it already held**, so React fired no change and the
+   test drove a form it never altered.
+
+All four are one shape, and it is the shape this programme keeps producing: **a check that could not
+see what it claimed to see.**
