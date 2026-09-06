@@ -258,10 +258,15 @@ all steps executed.
 reported "clean" on code with real type errors; `tsc -b` is the gate, verified by deliberately
 breaking a file first. **A gate is not a gate until you have watched it fail.**
 
-**Two findings recorded, not fixed** — beyond this closure's scope, neither blocking:
+**Two findings, since CLOSED at `3c382bae`:**
 
-1. *(MISSING CAPABILITY)* The requester's own shipping list reads "Waiting for offers" while a
-   submitted offer waits; the list payload carries no `quote_count`. The supplier's equivalent list
-   *does* show "1 offer sent".
-2. *(UX-DESIGN)* The requester's read-only detail does not echo their own private answers (pickup
-   address and contact); they are visible only by editing.
+1. *(MISSING CAPABILITY → closed)* The requester's own list read "Waiting for offers" while a
+   submitted offer waited. `offer_count` is now returned and rendered ("1 offer to compare"),
+   counted with the same rule the detail uses so the badge cannot contradict it. An **unreadable**
+   count is absent rather than `0` — unknown is not zero.
+2. *(UX-DESIGN → closed)* The detail now echoes the customer their own answers, split into what
+   providers can see and what is kept private, with the privacy statement made honest: never shown
+   to providers browsing, shared with the provider they choose.
+
+Verified on deployed staging with the provider's screen re-checked in the same run — it still shows
+none of the private facts.

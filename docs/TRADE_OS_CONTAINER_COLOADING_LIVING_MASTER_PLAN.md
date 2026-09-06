@@ -3527,14 +3527,31 @@ project is `files: []` with references. It reported "clean" on code containing r
 `tsc -b` is the gate, and it was verified by deliberately breaking a file first. A gate is not a
 gate until you have watched it fail.
 
-**Two findings recorded, not fixed** (beyond this closure's scope, neither blocking):
+**Two findings, recorded then CLOSED at `3c382bae`** (owner asked for both to be fixed):
 
-1. *(MISSING CAPABILITY)* The requester's own shipping list shows "Waiting for offers · Logistics
-   providers can respond" while a submitted offer is waiting. The list payload carries no
-   `quote_count`, so the UI cannot signal it without a backend addition. The supplier's equivalent
-   list *does* show "1 offer sent". A customer may not learn an offer arrived until they open it.
-2. *(UX-DESIGN)* The requester's read-only detail does not echo their own private answers (pickup
-   address and contact). The data is theirs and the API returns it; it is visible only by editing.
+1. *(MISSING CAPABILITY → closed)* The requester's own shipping list showed "Waiting for offers ·
+   Logistics providers can respond" while a submitted offer waited — the same words a request
+   nobody had answered shows. `listMyLogisticsRequests()` now returns `offer_count`, counted with
+   **exactly** the rule the detail screen uses to build its offer list (neither DRAFT nor
+   WITHDRAWN), so the badge cannot contradict the page it opens. The row reads "1 offer to
+   compare".
+
+   An **unreadable** count is ABSENT, never `0`: `countVisibleOffers()` returns null on a failed
+   read and the field is omitted, so the row keeps its status note rather than announcing "no
+   offers" — a claim we would not have earned. (§8.1. The first draft of this code wrote `|| 0`;
+   it was caught on review, and a test now holds it.)
+
+2. *(UX-DESIGN → closed)* PRIVATE meant private **from providers**. It never meant private from
+   the person who typed it. The detail now echoes the customer's answers in two groups: what
+   providers can see ("Providers see these, so they can price the job") and what is kept private
+   ("Never shown to providers browsing your request. Shared with the provider you choose, once you
+   choose them") — the honest statement, since choosing a provider does share them.
+
+Both speak in the customer's own voice — "We collect it for you", "Delivered to your address" — and
+no raw enum reaches either screen. Verified on deployed staging (FE `index-DyESD1P8.js`, BE
+`3c382bae`): the badge reads "1 offer to compare"; the owner sees their own pickup address, phone
+and delivery address back; and the **provider's** screen still shows none of it. 15 tests, each
+mutation-tested.
 
 **Still deferred and named:** readiness has no upload (T8); managed import stays an intent; rates
 remain T6. The **logistics cancel/close gap** (§36.10) is unchanged — required before production
