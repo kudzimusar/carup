@@ -24,6 +24,24 @@ export interface LogisticsRequestItemInput {
   estimated_weight_kg?: number | null
   linked_vehicle_vin?: string | null
   notes?: string | null
+  /**
+   * Intake 2.0 cargo facts (contract §36). All optional: an unanswered question is absent, and the
+   * server writes null rather than a default. `content_declarations` is a customer DISCLOSURE — it
+   * tells a provider what is in the box so they can decide, and never means CarUp accepted it.
+   */
+  packaging_type?: string
+  goods_nature?: 'new' | 'used' | 'personal_effects' | 'commercial_goods' | 'unsure'
+  declared_value?: number | string
+  declared_value_currency?: string
+  handling_flags?: string[]
+  content_declarations?: string[]
+  vehicle_running_state?: 'runs_and_drives' | 'starts_only' | 'non_running' | 'unknown'
+  vehicle_keys_state?: 'available' | 'missing' | 'unknown'
+  export_clearance_state?: 'completed' | 'in_progress' | 'not_started' | 'unknown'
+  inspection_state?: 'completed' | 'booked' | 'not_arranged' | 'unknown'
+  accompanying_parts?: string
+  accompanying_personal_goods?: string
+  current_location?: string
 }
 
 export interface LogisticsRequestItem extends LogisticsRequestItemInput {
@@ -43,6 +61,33 @@ export interface LogisticsRequestInput {
   needed_by?: string | null
   service_preference?: 'flexible' | 'port_to_port' | 'door_to_port' | 'port_to_door' | 'door_to_door'
   items: LogisticsRequestItemInput[]
+  /** Intake 2.0 request-level facts. Private ones are collected and never projected. */
+  pickup_required?: string
+  origin_site_type?: string
+  pickup_address?: string
+  pickup_contact_name?: string
+  pickup_contact_phone?: string
+  pickup_available_from?: string
+  pickup_access_notes?: string
+  pickup_loading_equipment?: string
+  destination_outcome?: string
+  delivery_address?: string
+  delivery_contact_name?: string
+  delivery_contact_phone?: string
+  unloading_required?: string
+  shipping_objective?: string
+  service_mode_preference?: string
+  inspection_intent?: string
+  insurance_intent?: string
+  clearing_intent?: string
+  clearing_agent_name?: string
+  clearing_agent_contact?: string
+  available_from?: string
+  arrival_window_start?: string
+  arrival_window_end?: string
+  timing_flexibility?: string
+  preferred_language?: string
+  preferred_contact_channel?: string
 }
 
 export interface LogisticsProviderIdentity {
