@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useSearchParams } from 'react-router-dom'
 import { ArrowLeft, ArrowRight, Box, Check, Loader2, MessageSquare, Plus, Ruler, Ship, Trash2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -227,21 +228,47 @@ export default function TradeShippingRequests() {
   const [preferredLanguage, setPreferredLanguage] = useState('')
   const [preferredChannel, setPreferredChannel] = useState('')
 
+  /**
+   * T4's "Continue shipping request" links to `?request=<id>`. Without honouring it the link landed
+   * on the LIST with the draft merely visible somewhere in it, which is not what "continue this
+   * request" promises. The open happens at the end of `load()` rather than in its own effect: the
+   * list has to exist before a detail can sensibly replace it, and routing it through the existing
+   * load keeps a single owner for "what is on screen".
+   */
+  const [searchParams] = useSearchParams()
+  const requestedId = searchParams.get('request')
+  const urlOpenHandled = useRef<string | null>(null)
+
   const load = useCallback(async () => {
     setLoading(true)
     try {
       setRequests(await api.listMyRequests())
       setUnreadable(false)
+      // Honour `?request=<id>` once per id, after the list exists. Done here rather than in its own
+      // effect so there is a single owner for what is on screen, and so the detail never appears
+      // before the list it belongs to.
+      if (requestedId && urlOpenHandled.current !== requestedId) {
+        urlOpenHandled.current = requestedId
+        try {
+          const request = await api.getRequest(requestedId)
+          setSelected(request)
+          setView('detail')
+        } catch {
+          // A link to something the requester cannot open is not a page error: they simply stay on
+          // their list rather than seeing a broken screen.
+        }
+      }
     } catch {
       setRequests([])
       setUnreadable(true)
     } finally {
       setLoading(false)
     }
-  }, [api])
+  }, [api, requestedId])
 
   // eslint-disable-next-line react-hooks/set-state-in-effect -- canonical repo data-fetch pattern: load() flips the loading flag before awaiting so the panel never renders a false empty state.
   useEffect(() => { void load() }, [load])
+
 
   // The requester's own CarUp vehicles, read only once a vehicle cargo group actually exists.
   // setState happens in the async callbacks, so this effect needs no suppression.
@@ -471,6 +498,8 @@ export default function TradeShippingRequests() {
       if (generation === detailGeneration.current) setBusy(false)
     }
   }
+
+
 
   const chooseQuote = async (quote: LogisticsQuote) => {
     if (!selected || busy || quoteValidityEnded(quote)) return
