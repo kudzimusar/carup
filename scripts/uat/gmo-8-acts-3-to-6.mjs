@@ -409,21 +409,55 @@ async function main() {
     return 'a photo of the workshop signage — no company papers';
   });
 
+  // What the SUBMIT request itself answered. Without this the step could only report "status is
+  // draft" — true, unexplained, and pointing at the product when the cause may be that the click
+  // never produced a request at all. A check that cannot see the request it depends on is the
+  // failure mode this run keeps rediscovering.
+  const submitCalls = [];
+  owner.on('response', async (r) => {
+    if (!/garage-onboarding\/application\/[^/]+\/submit/.test(r.url())) return;
+    let body = ''; try { body = (await r.text()).slice(0, 220); } catch { body = '(unreadable)'; }
+    submitCalls.push(`${r.status()} ${body}`);
+  });
+
   await step('browser', 'they send it to CarUp', async () => {
     await owner.goto(`${FE}/dashboard/garage-setup`, { waitUntil: 'networkidle', timeout: 60000 });
     await owner.waitForTimeout(2500);
     const submit = owner.getByTestId('submit-application');
     await submit.waitFor({ timeout: 20000 });
-    if (await submit.isDisabled()) {
+    // The send button enables only once the gate is satisfied, and autosave debounces at 900ms — so
+    // a click fired the instant the page settles can land while the button is still disabled. Wait
+    // for it to become enabled rather than sampling it once, and say what is missing if it never does.
+    try {
+      await owner.waitForFunction(() => {
+        const el = document.querySelector('[data-testid=submit-application]');
+        return el && !el.disabled;
+      }, null, { timeout: 30000 });
+    } catch {
       const b = owner.getByTestId('submission-blockers');
-      throw new Error(`still blocked: ${(await b.count()) ? (await b.innerText()).replace(/\s+/g, ' ').slice(0, 140) : 'unknown'}`);
+      throw new Error(`still blocked after 30s: ${(await b.count()) ? (await b.innerText()).replace(/\s+/g, ' ').slice(0, 160) : 'no blocker text rendered'}`);
     }
     await submit.click();
-    await owner.waitForTimeout(3500);
+
+    // Poll for the state change instead of guessing a duration. A fixed wait turns a slow response
+    // into a false failure, and reports it as though the product refused.
+    const deadline = Date.now() + 30000;
+    let status = null;
+    for (;;) {
+      const r = await api('/api/garage-onboarding/application', { token: state.ownerToken });
+      status = r.body?.application?.status;
+      if (status === 'submitted') break;
+      if (Date.now() > deadline) break;
+      await owner.waitForTimeout(1500);
+    }
     await shot(owner, '02-submitted');
-    const r = await api('/api/garage-onboarding/application', { token: state.ownerToken });
-    if (r.body?.application?.status !== 'submitted') throw new Error(`status is ${r.body?.application?.status}`);
-    return 'status submitted';
+    if (status !== 'submitted') {
+      const seen = submitCalls.length ? submitCalls.join(' | ') : 'the click produced NO submit request at all';
+      const err = owner.getByTestId('setup-error');
+      const onScreen = (await err.count()) ? (await err.innerText()).replace(/\s+/g, ' ').slice(0, 160) : 'no on-screen error';
+      throw new Error(`status is ${status} after 30s · submit responses: ${seen} · page: ${onScreen}`);
+    }
+    return `status submitted${submitCalls.length ? ` (${submitCalls[0].split(' ')[0]})` : ''}`;
   });
 
   /* ═══ ACT 4 — governed review ═══════════════════════════════════════════════════════════════ */
