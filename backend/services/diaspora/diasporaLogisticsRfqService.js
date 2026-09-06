@@ -25,6 +25,7 @@ import {
 import { resolveClient, appendAudit, appendCriticalAudit, paging } from './diasporaServiceUtils.js';
 import { normalizeLogisticsIntake, normalizeCargoIntake } from './tradeIntakeNormalizer.js';
 import { MARKETPLACE_SAFE_CARGO_FIELDS, MARKETPLACE_SAFE_LOGISTICS_FIELDS } from './tradeIntakeContract.js';
+import { listActiveCorridors, sailingRouteMatch } from './tradeCorridorService.js';
 import { resolveVehicleObjectAuthority } from '../../middleware/vehicleObjectAuthority.js';
 import { requestReservation, computeCapacity } from './diasporaContainerMarketplaceService.js';
 // T3: best-effort canonical Communications events AFTER the audited mutation. Never authoritative.
@@ -47,7 +48,10 @@ const CARGO_CATEGORIES = new Set([
   'machinery_equipment', 'pallet_crate', 'general', 'other',
 ]);
 const SERVICE_PREFERENCES = new Set(['flexible', 'port_to_port', 'door_to_port', 'port_to_door', 'door_to_door']);
-const SERVICE_MODES = new Set(['shared_container', 'lcl', 'fcl', 'road', 'multimodal', 'other']);
+// T5.5 mode reconciliation: Intake could always SAY roro; the offer vocabulary now can too.
+// Adding the word is not building RoRo commercial integration — a roro offer simply cannot
+// attach a shared-container sailing (see assertProviderMayOfferContainer).
+const SERVICE_MODES = new Set(['shared_container', 'lcl', 'fcl', 'roro', 'road', 'multimodal', 'other']);
 
 function round3(value) {
   return Math.round((Number(value) + Number.EPSILON) * 1000) / 1000;
@@ -303,6 +307,75 @@ export async function updateLogisticsRequest(requestId, payload = {}, userContex
   return { ...data, items, reference: requestReference(data.id) };
 }
 
+/**
+ * T5.7 — the standing lifecycle gap (§36.10/§40.10), closed.
+ *
+ * A requester could publish a shipping request but never take it back: a procurement-linked live
+ * request permanently occupied the one-live-continuation slot, and an unwanted OPEN request kept
+ * soliciting offers forever. Cancel and Close are the requester's own controls over their own
+ * request — nothing here touches provider offers' history or the container authority.
+ *
+ * CANCEL — DRAFT or OPEN_FOR_QUOTES, before any offer is accepted. Withdraws the request.
+ * CLOSE  — AWARDED, after acceptance, to conclude the engagement from the customer's side.
+ *
+ * Both are REFUSED while a LIVE container reservation (REQUESTED or APPROVED) is linked: a
+ * lifecycle action on the request must never silently strand or discard capacity state that the
+ * container authority owns. The requester cancels the reservation first, through the container
+ * product that owns it — one authority per fact, even in teardown.
+ *
+ * Because the T4 continuation index treats CANCELLED/CLOSED as non-live, either transition frees
+ * the procurement order's continuation slot — which is the whole point.
+ */
+async function assertNoLiveReservation(client, request) {
+  const reservationId = typeof request.metadata?.reservation_id === 'string' ? request.metadata.reservation_id : null;
+  if (!reservationId) return;
+  const { data: reservation } = await client.from(RESERVATIONS)
+    .select('id, reservation_status').eq('id', reservationId).is('deleted_at', null).maybeSingle();
+  if (reservation && ['REQUESTED', 'APPROVED'].includes(reservation.reservation_status)) {
+    throw new ValidationError(
+      `A live container-space ${reservation.reservation_status === 'APPROVED' ? 'booking' : 'request'} is attached. Cancel it in Container space first — this request cannot discard capacity state it does not own.`,
+    );
+  }
+}
+
+async function transitionOwnRequest(requestId, nextStatus, allowedFrom, userContext, options, extraGuard) {
+  const context = requireUserContext(userContext);
+  const client = await resolveClient(options);
+  const previous = await loadRequest(client, requestId);
+  if (normalizeId(previous.requester_id) !== context.id && !isPrivileged(context)) {
+    throw new ForbiddenError('Only the requester can change the lifecycle of this shipping request');
+  }
+  if (previous.status === nextStatus) return { ...previous, reference: requestReference(previous.id) };
+  if (!allowedFrom.includes(previous.status)) {
+    throw new ValidationError(`A ${previous.status} shipping request cannot become ${nextStatus}`);
+  }
+  if (extraGuard) await extraGuard(client, previous);
+  await assertNoLiveReservation(client, previous);
+  const { data, error } = await client.from(REQUESTS).update({
+    status: nextStatus, updated_by: context.id, updated_at: new Date().toISOString(),
+  }).eq('id', requestId).select().single();
+  if (error) throw new ValidationError(`Could not update shipping request: ${error.message}`);
+  await appendCriticalAudit(client, {
+    actorId: context.id, tenantId: data.tenant_id, action: `LOGISTICS_REQUEST_${nextStatus}`,
+    resourceType: 'diaspora_logistics_request', resourceId: data.id,
+    previousState: previous, newState: data, req: options.req,
+  });
+  return { ...data, reference: requestReference(data.id) };
+}
+
+export async function cancelMyLogisticsRequest(requestId, userContext = {}, options = {}) {
+  return transitionOwnRequest(requestId, 'CANCELLED', ['DRAFT', 'OPEN_FOR_QUOTES'], userContext, options,
+    async (client, previous) => {
+      if (previous.accepted_quote_id) {
+        throw new ValidationError('An offer has been accepted — close the request instead of cancelling it');
+      }
+    });
+}
+
+export async function closeMyLogisticsRequest(requestId, userContext = {}, options = {}) {
+  return transitionOwnRequest(requestId, 'CLOSED', ['AWARDED'], userContext, options, null);
+}
+
 export async function publishLogisticsRequest(requestId, userContext = {}, options = {}) {
   const context = requireUserContext(userContext);
   const client = await resolveClient(options);
@@ -507,7 +580,7 @@ export async function getLogisticsOpportunity(requestId, userContext = {}, optio
   return projectLogisticsRequestForMarketplace(request, items);
 }
 
-async function assertProviderMayOfferContainer(client, containerId, request, context) {
+async function assertProviderMayOfferContainer(client, containerId, request, context, serviceMode = null) {
   if (!containerId) return null;
   const { data: container, error } = await client.from(CONTAINERS).select('*').eq('id', containerId).is('deleted_at', null).single();
   if (error || !container) throw new NotFoundError('Offered container sailing not found');
@@ -516,11 +589,21 @@ async function assertProviderMayOfferContainer(client, containerId, request, con
     || isTenantAdminForRecord(container, context);
   if (!mayOperate) throw new ForbiddenError('You cannot offer a container operated by another organisation');
   if (container.status !== 'BOOKING_OPEN') throw new ValidationError('The offered container is not accepting bookings');
-  if (String(container.origin_country || '').toLowerCase() !== String(request.origin_country || '').toLowerCase()
-    || String(container.destination_country || '').toLowerCase() !== String(request.destination_country || '').toLowerCase()) {
-    throw new ValidationError('The offered container route does not match this shipping request');
+  // T5.5: the Container Marketplace books only capacity it actually governs. A RoRo offer is a
+  // vehicle driven onto a vessel — it is definitionally not cargo in this shared container, so
+  // attaching one would promise capacity the sailing cannot provide.
+  if (String(serviceMode || '').toLowerCase() === 'roro') {
+    throw new ValidationError('A RoRo offer cannot attach a shared-container sailing — the container does not carry it');
   }
-  return container;
+  // T5.4: corridor-aware compatibility replaces final-destination equality. A Yokohama→Beira leg
+  // legitimately serves a Zimbabwe request when an applicable corridor continues the route; the
+  // match is the LEG, and the customer's final destination is never rewritten to the port country.
+  const corridors = await listActiveCorridors({ supabaseClient: client });
+  const match = sailingRouteMatch(container, request, corridors);
+  if (!match) {
+    throw new ValidationError('The offered container route does not serve this shipping request — neither directly nor via any active corridor');
+  }
+  return { ...container, route_match: match };
 }
 
 function normalizeQuotePayload(payload = {}, previous = {}) {
@@ -568,14 +651,15 @@ export async function createLogisticsQuote(requestId, payload = {}, userContext 
   if (request.status !== 'OPEN_FOR_QUOTES') throw new ValidationError('This shipping request is not open for offers');
   if (normalizeId(request.requester_id) === context.id) throw new ForbiddenError('You cannot quote your own shipping request');
   const containerId = payload.compatible_container_id ?? payload.compatibleContainerId ?? null;
-  await assertProviderMayOfferContainer(client, containerId, request, context);
+  const normalized = normalizeQuotePayload(payload);
+  await assertProviderMayOfferContainer(client, containerId, request, context, normalized.service_mode);
   const submit = payload.submit === true;
   const row = {
     logistics_request_id: requestId,
     provider_id: context.id,
     provider_tenant_id: context.tenantId || null,
     compatible_container_id: containerId,
-    ...normalizeQuotePayload(payload),
+    ...normalized,
     status: submit ? 'SUBMITTED' : 'DRAFT',
     metadata: {},
     created_by: context.id,
@@ -612,10 +696,11 @@ export async function updateLogisticsQuote(quoteId, payload = {}, userContext = 
   const request = await loadRequest(client, previous.logistics_request_id);
   if (request.status !== 'OPEN_FOR_QUOTES') throw new ValidationError('This shipping request is no longer open');
   const containerId = payload.compatible_container_id ?? payload.compatibleContainerId ?? previous.compatible_container_id ?? null;
-  await assertProviderMayOfferContainer(client, containerId, request, context);
+  const normalizedUpdate = normalizeQuotePayload(payload, previous);
+  await assertProviderMayOfferContainer(client, containerId, request, context, normalizedUpdate.service_mode);
   const { data, error } = await client.from(QUOTES).update({
     compatible_container_id: containerId,
-    ...normalizeQuotePayload(payload, previous),
+    ...normalizedUpdate,
     updated_by: context.id,
     updated_at: new Date().toISOString(),
   }).eq('id', quoteId).select().single();
@@ -814,19 +899,23 @@ export async function findCompatibleSailings(requestId, userContext = {}, option
   // passed is not bookable, so presenting it as a match would promise something the container
   // product itself refuses. A NULL deadline means "not recorded", which is not "closed".
   const nowMs = Date.now();
-  const routeMatches = (containers || []).filter((container) =>
-    String(container.origin_country || '').toLowerCase() === String(request.origin_country || '').toLowerCase()
-    && String(container.destination_country || '').toLowerCase() === String(request.destination_country || '').toLowerCase()
-    && (!container.booking_deadline || Date.parse(container.booking_deadline) >= nowMs));
+  // T5.4 — the correction this phase exists for. Country-equality said a real Yokohama→Beira
+  // sailing could never serve a Zimbabwe customer; corridor/leg compatibility says it covers ONE
+  // LEG of an applicable corridor while the customer's destination stays exactly what they said.
+  const corridors = await listActiveCorridors({ supabaseClient: client });
+  const routeMatches = (containers || [])
+    .map((container) => ({ container, match: sailingRouteMatch(container, request, corridors) }))
+    .filter(({ container, match }) => match
+      && (!container.booking_deadline || Date.parse(container.booking_deadline) >= nowMs));
   if (!routeMatches.length) return [];
 
-  const tenantIds = [...new Set(routeMatches.map((container) => container.tenant_id).filter(Boolean))];
+  const tenantIds = [...new Set(routeMatches.map(({ container }) => container.tenant_id).filter(Boolean))];
   const { data: tenants } = tenantIds.length
     ? await client.from('tenants').select('id, name').in('id', tenantIds)
     : { data: [] };
   const tenantName = new Map((tenants || []).map((tenant) => [normalizeId(tenant.id), tenant.name || null]));
   const results = [];
-  for (const container of routeMatches) {
+  for (const { container, match } of routeMatches) {
     const { data: reservations } = await client.from(RESERVATIONS).select('*').eq('container_id', container.id).is('deleted_at', null);
     const capacity = computeCapacity(container, reservations || []);
     const capacityMatch = requiredVolume === null ? null : capacity.availableVolume >= requiredVolume;
@@ -845,8 +934,21 @@ export async function findCompatibleSailings(requestId, userContext = {}, option
       available_capacity_cbm: capacity.availableVolume,
       requested_volume_cbm: requiredVolume,
       capacity_match: capacityMatch,
+      origin_port: container.origin_port || null,
+      destination_port: container.destination_port || null,
+      // T5.4 route truth. `route_kind: 'gateway'` says: this sailing covers ONE LEG; the
+      // customer's final destination is preserved verbatim; the onward legs are route knowledge
+      // that remains REQUIRED — they are not arranged, not booked and not priced by this match.
+      route_kind: match.route_kind,
+      corridor: match.route_kind === 'gateway' ? match.corridor : null,
+      sailing_leg: match.route_kind === 'gateway' ? match.sailing_leg : null,
+      onward_legs: match.route_kind === 'gateway' ? match.onward_legs : [],
+      final_destination: { country: request.destination_country, city: request.destination_city || null },
       match_reasons: [
-        'Origin and destination countries match',
+        match.route_kind === 'direct'
+          ? 'Origin and destination countries match'
+          : `Covers the ${[match.sailing_leg.origin_locality || match.sailing_leg.origin_country, match.sailing_leg.destination_locality || match.sailing_leg.destination_country].join(' → ')} leg of the ${match.corridor.display_name} corridor`,
+        ...(match.route_kind === 'gateway' ? ['Onward inland/transit legs are still required and are NOT part of this sailing'] : []),
         container.booking_deadline ? 'Booking is open until the recorded cut-off' : 'No booking cut-off is recorded',
         ...(capacityMatch === true ? ['Recorded available capacity covers the current cargo estimate'] : ['Cargo volume is not fully known yet, so capacity fit is not evaluated']),
       ],

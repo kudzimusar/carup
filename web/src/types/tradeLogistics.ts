@@ -225,6 +225,26 @@ export interface LogisticsMyQuote {
   request: LogisticsOpportunity | null
 }
 
+export interface CorridorLegSummary {
+  sequence: number
+  origin_country: string
+  origin_locality?: string | null
+  destination_country: string
+  destination_locality?: string | null
+  mode_options?: string[]
+}
+
+export interface TradeCorridor {
+  id: string
+  code: string
+  display_name: string
+  origin_country: string
+  destination_country: string
+  /** Provenance, never preference: benchmark_candidate | research_candidate. */
+  planning_status: string
+  legs: CorridorLegSummary[]
+}
+
 export interface LogisticsSailingMatch {
   id: string
   organiser_name?: string | null
@@ -232,6 +252,8 @@ export interface LogisticsSailingMatch {
   origin_city?: string | null
   destination_country: string
   destination_city?: string | null
+  origin_port?: string | null
+  destination_port?: string | null
   departure_date: string
   booking_deadline: string
   estimated_arrival_date?: string | null
@@ -239,6 +261,17 @@ export interface LogisticsSailingMatch {
   available_capacity_cbm: number
   requested_volume_cbm: number | null
   capacity_match: boolean | null
+  /**
+   * T5.4 route truth. 'direct' — the sailing reaches the request's own destination.
+   * 'gateway' — the sailing covers ONE LEG of `corridor`; `onward_legs` is the route that
+   * REMAINS (knowledge, not bookings), and `final_destination` is the customer's own outcome,
+   * never rewritten to the port country.
+   */
+  route_kind: 'direct' | 'gateway'
+  corridor: Pick<TradeCorridor, 'id' | 'code' | 'display_name' | 'planning_status'> | null
+  sailing_leg: CorridorLegSummary | null
+  onward_legs: CorridorLegSummary[]
+  final_destination: { country: string; city?: string | null }
   match_reasons: string[]
   requires_operator_confirmation: true
 }

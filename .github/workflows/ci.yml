@@ -138,6 +138,16 @@ jobs:
       #
       # It is listed explicitly rather than globbed because it must never be silently
       # dropped, and it exits non-zero on any failure.
+      # Trade OS T5 — corridor authority + sailing facts + mode reconciliation (20260907090000).
+      #
+      # Same rationale as the T4/Intake steps above: migration_pglite_check.mjs's NEW_MIGRATIONS
+      # list ends at 20260810120000, so this migration is executed by NO other gate. This step
+      # applies Up twice (idempotence), proves live-code uniqueness, the leg mode vocabulary, the
+      # widened roro offer CHECK, SET NULL corridor references, that Down fails loudly while roro
+      # offers exist, and Down/Up recovery.
+      - name: Trade OS T5 corridor authority verification (isolated PGlite Postgres)
+        run: node database/test/trade_os_t5_corridor_check.mjs
+
       - name: 'Issue #101 P0 hardening behavioural proof (real PostgreSQL via PGlite)'
         run: node database/test/issue101_p0_hardening_check.mjs
 

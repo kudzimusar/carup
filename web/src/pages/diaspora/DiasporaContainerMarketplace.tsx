@@ -178,6 +178,9 @@ export default function DiasporaContainerMarketplace() {
   const {
     fetchDiasporaMarketplaceContainers,
     createDiasporaMarketplaceContainer,
+    fetchDiasporaTradeCorridors,
+    openDiasporaContainerBooking,
+    cancelDiasporaContainerSailing,
     fetchDiasporaContainerCapacity,
     fetchDiasporaContainerReservations,
     requestDiasporaReservation,
@@ -223,6 +226,11 @@ export default function DiasporaContainerMarketplace() {
   const [createForm, setCreateForm] = useState({ ...EMPTY_CREATE })
   const [createError, setCreateError] = useState('')
   const [creating, setCreating] = useState(false)
+  const [corridors, setCorridors] = useState<Array<{ id: string; code: string; display_name: string; legs: Array<{ id: string; sequence: number; origin_country: string; origin_locality?: string | null; destination_country: string; destination_locality?: string | null }> }>>([])
+  const [corridorId, setCorridorId] = useState('')
+  const [corridorLegId, setCorridorLegId] = useState('')
+  const [drafts, setDrafts] = useState<DiasporaMarketplaceContainer[]>([])
+  const [lifecycleError, setLifecycleError] = useState('')
 
   const load = useCallback(async () => {
     if (!canView) return
@@ -230,12 +238,18 @@ export default function DiasporaContainerMarketplace() {
     setError('')
     try {
       setContainers(await fetchDiasporaMarketplaceContainers())
+      // T5.3 — an operator also sees their OWN unpublished drafts. The server scopes any
+      // non-open status to the caller's operated sailings, so this returns nothing for
+      // ordinary participants and never anyone else's plans.
+      if (isOperator) {
+        try { setDrafts(await fetchDiasporaMarketplaceContainers('DRAFT')) } catch { setDrafts([]) }
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Unable to load containers')
     } finally {
       setLoading(false)
     }
-  }, [fetchDiasporaMarketplaceContainers, canView])
+  }, [fetchDiasporaMarketplaceContainers, canView, isOperator])
 
   // eslint-disable-next-line react-hooks/set-state-in-effect
   useEffect(() => { if (!authLoading && canView) void load() }, [authLoading, canView, load])
@@ -332,7 +346,20 @@ export default function DiasporaContainerMarketplace() {
     }
   }
 
-  const handleCreate = async () => {
+  useEffect(() => {
+    if (!isOperator || !showCreate || corridors.length) return
+    let live = true
+    void (async () => {
+      try {
+        const rows = await fetchDiasporaTradeCorridors()
+        if (live) setCorridors(rows)
+      } catch { /* corridor declaration is optional — the form stays usable without it */ }
+    })()
+    return () => { live = false }
+  }, [isOperator, showCreate, corridors.length, fetchDiasporaTradeCorridors])
+
+  // T5.3 — creating is not publishing: the caller states which it is doing.
+  const handleCreate = async (publishMode: 'open' | 'draft') => {
     setCreateError('')
     const f = createForm
     const missing = [
@@ -345,8 +372,8 @@ export default function DiasporaContainerMarketplace() {
     if (missing.length) { setCreateError(`Required: ${missing.join(', ')}`); return }
     const metadata: Record<string, unknown> = {}
     if (f.participant_notes.trim()) metadata.participant_notes = f.participant_notes.trim()
-    if (f.origin_port.trim()) metadata.origin_port = f.origin_port.trim()
-    if (f.destination_port.trim()) metadata.destination_port = f.destination_port.trim()
+    // T5.3 — origin/destination port are COLUMNS now (corridor matching and display read them);
+    // the remaining facts are display-only and deliberately stay metadata (T5.1 audit).
     if (f.loading_window.trim()) metadata.loading_window = f.loading_window.trim()
     if (f.carrier_name.trim()) metadata.carrier_name = f.carrier_name.trim()
     if (f.booking_reference.trim()) metadata.booking_reference = f.booking_reference.trim()
@@ -360,6 +387,13 @@ export default function DiasporaContainerMarketplace() {
       booking_deadline: f.booking_deadline,
       container_type: f.container_type,
       total_capacity_volume: totalVol,
+      publish: publishMode === 'open',
+    }
+    if (f.origin_port.trim()) payload.origin_port = f.origin_port.trim()
+    if (f.destination_port.trim()) payload.destination_port = f.destination_port.trim()
+    if (corridorId) {
+      payload.corridor_id = corridorId
+      if (corridorLegId) payload.corridor_leg_id = corridorLegId
     }
     if (f.estimated_arrival_date) payload.estimated_arrival_date = f.estimated_arrival_date
     if (f.total_capacity_weight && Number(f.total_capacity_weight) > 0) payload.total_capacity_weight = Number(f.total_capacity_weight)
@@ -518,11 +552,44 @@ export default function DiasporaContainerMarketplace() {
                 <textarea className={selectClass} rows={2} value={createForm.participant_notes} onChange={setCF('participant_notes')} data-testid="create-participant-notes" />
               </label>
             </div>
+            {corridors.length > 0 && (
+              <div className="mt-5 border-t border-gray-200 pt-4" data-testid="create-corridor-block">
+                <p className="text-xs font-medium uppercase tracking-wide text-gray-600">Corridor this sailing serves (optional)</p>
+                <p className="mt-1 text-xs text-gray-500">
+                  Declaring the corridor tells customers which LEG of a longer journey this sailing covers — their final
+                  destination stays their own. The declared leg must match this sailing's route; the server checks.
+                </p>
+                <div className="mt-2 grid min-w-0 gap-4 sm:grid-cols-2">
+                  <label className={fieldLabel}>Corridor
+                    <select className={selectClass} value={corridorId} onChange={(e) => { setCorridorId(e.target.value); setCorridorLegId('') }} data-testid="create-corridor">
+                      <option value="">Not declared</option>
+                      {corridors.map((c) => <option key={c.id} value={c.id}>{c.display_name} ({c.code})</option>)}
+                    </select>
+                  </label>
+                  {corridorId && (
+                    <label className={fieldLabel}>Leg this sailing covers
+                      <select className={selectClass} value={corridorLegId} onChange={(e) => setCorridorLegId(e.target.value)} data-testid="create-corridor-leg">
+                        <option value="">Not declared</option>
+                        {(corridors.find((c) => c.id === corridorId)?.legs || []).map((leg) => (
+                          <option key={leg.id} value={leg.id}>
+                            {leg.sequence}. {leg.origin_locality || leg.origin_country} → {leg.destination_locality || leg.destination_country}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                  )}
+                </div>
+              </div>
+            )}
             {createError && <p className="mt-3 text-sm font-medium text-red-700" data-testid="diaspora-container-create-error">{createError}</p>}
-            <div className="mt-5">
-              <Button onClick={handleCreate} disabled={creating} className="bg-orange-500 text-white hover:bg-orange-600" data-testid="diaspora-container-create-submit">
-                {creating ? <Loader2 className="mr-1.5 h-4 w-4 animate-spin" /> : null} Create container
+            <div className="mt-5 flex flex-wrap items-center gap-3">
+              <Button onClick={() => void handleCreate('open')} disabled={creating} className="bg-orange-500 text-white hover:bg-orange-600" data-testid="diaspora-container-create-submit">
+                {creating ? <Loader2 className="mr-1.5 h-4 w-4 animate-spin" /> : null} Publish sailing
               </Button>
+              <Button variant="outline" onClick={() => void handleCreate('draft')} disabled={creating} className="rounded-none" data-testid="diaspora-container-create-draft">
+                Save as draft
+              </Button>
+              <p className="text-xs text-gray-500">A draft is visible only to your organisation until you open booking.</p>
             </div>
           </div>
         </section>
@@ -532,6 +599,46 @@ export default function DiasporaContainerMarketplace() {
       <div className="mx-auto w-full max-w-[1440px] min-w-0 px-4 py-8 sm:px-6 lg:px-10">
         <div className="grid min-w-0 gap-10 xl:grid-cols-[minmax(320px,2fr)_3fr]">
           <section className="min-w-0" aria-label="Open containers">
+            {/* T5.3 — the operator's own unpublished drafts. The server scopes DRAFT reads to the
+                operating organisation, so this section renders for no one else. Opening booking is
+                the deliberate act that publishes; cancelling is refused server-side while any live
+                reservation exists. */}
+            {isOperator && drafts.length > 0 && (
+              <div className="mb-8" data-testid="diaspora-container-drafts">
+                <div className="flex items-baseline justify-between border-b-2 border-gray-400 pb-2">
+                  <h2 className="text-lg font-bold text-gray-950">Your drafts</h2>
+                  <span className="text-xs uppercase tracking-wide text-gray-500">{drafts.length} unpublished</span>
+                </div>
+                {lifecycleError && <p className="mt-2 text-sm font-medium text-red-700" data-testid="diaspora-draft-error">{lifecycleError}</p>}
+                <div className="mt-3 space-y-2">
+                  {drafts.map((d) => (
+                    <div key={d.id} className="border border-dashed border-gray-400 bg-gray-50 p-4" data-testid="diaspora-draft-card">
+                      <div className="flex flex-wrap items-center justify-between gap-3">
+                        <div className="min-w-0">
+                          <p className="font-medium text-gray-950">
+                            {[d.origin_city, d.origin_country].filter(Boolean).join(', ')} → {[d.destination_city, d.destination_country].filter(Boolean).join(', ')}
+                          </p>
+                          <p className="mt-0.5 text-xs text-gray-600">
+                            {String(d.container_type || 'container')} · departs {String(d.departure_date || '').slice(0, 10) || 'not set'} ·
+                            {' '}<span className="font-semibold uppercase tracking-wide text-gray-700">Draft — not visible to participants</span>
+                          </p>
+                        </div>
+                        <div className="flex shrink-0 gap-2">
+                          <Button size="sm" className="rounded-none bg-orange-500 text-white hover:bg-orange-600" data-testid="diaspora-draft-open"
+                            onClick={() => { setLifecycleError(''); void openDiasporaContainerBooking(d.id).then(() => load()).catch((err) => setLifecycleError(err instanceof Error ? err.message : 'Could not open booking')) }}>
+                            Open booking
+                          </Button>
+                          <Button size="sm" variant="ghost" className="rounded-none text-gray-600" data-testid="diaspora-draft-cancel"
+                            onClick={() => { setLifecycleError(''); void cancelDiasporaContainerSailing(d.id).then(() => load()).catch((err) => setLifecycleError(err instanceof Error ? err.message : 'Could not cancel sailing')) }}>
+                            Cancel sailing
+                          </Button>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
             <div className="flex items-baseline justify-between border-b-2 border-gray-950 pb-2">
               <h2 className="text-lg font-bold text-gray-950">Open sailings</h2>
               <span className="text-xs uppercase tracking-wide text-gray-500">{containers.length} open</span>
@@ -610,8 +717,10 @@ export default function DiasporaContainerMarketplace() {
                   <Fact label="Organiser" value={typeof selected.organiser_name === 'string' ? selected.organiser_name : null} />
                   <Fact label="Container" value={selected.container_type || null} />
                   <Fact label="Capacity" value={selFill ? `${selFill.total} CBM${maxWeight ? ` · max ${maxWeight} kg` : ''}` : null} />
-                  <Fact label="Origin port / loading" value={metaText('origin_port')} />
-                  <Fact label="Destination port / terminal" value={metaText('destination_port')} />
+                  {/* T5.3 — ports are columns now; pre-T5 sailings recorded them in metadata,
+                      and those rows must keep displaying what the operator entered. */}
+                  <Fact label="Origin port / loading" value={selected.origin_port || metaText('origin_port')} />
+                  <Fact label="Destination port / terminal" value={selected.destination_port || metaText('destination_port')} />
                   <Fact label="Carrier / forwarder" value={metaText('carrier_name')} />
                   <Fact label="Booking cut-off" value={dateOf(selected.booking_deadline)} />
                   <Fact label="Loading window" value={metaText('loading_window')} />

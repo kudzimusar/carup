@@ -19,6 +19,8 @@ import {
   rejectReservation,
   cancelReservation,
   closeBooking,
+  openBooking,
+  cancelSailing,
 } from '../services/diaspora/diasporaContainerMarketplaceService.js';
 import {
   createLogisticsRequest,
@@ -37,8 +39,11 @@ import {
   confirmLogisticsItemMeasurements,
   findCompatibleSailings,
   requestSpaceForAward,
+  cancelMyLogisticsRequest,
+  closeMyLogisticsRequest,
 } from '../services/diaspora/diasporaLogisticsRfqService.js';
 import { ensureLogisticsConversation } from '../services/diaspora/diasporaLogisticsConversationService.js';
+import { listActiveCorridors } from '../services/diaspora/tradeCorridorService.js';
 import { getTransactionPassport, continueToLogistics } from '../services/diaspora/tradeTransactionPassportService.js';
 import { setReadiness, listReadiness, summarizeReadiness } from '../services/diaspora/tradeDocumentReadinessService.js';
 import { getTradeContext } from '../services/diaspora/tradeContextService.js';
@@ -222,6 +227,14 @@ router.patch('/logistics-requests/:id', participantAuth, asyncHandler(async (req
   await preauthorizeLogisticsVehicleLinks(req.body?.items, req.userContext);
   res.json({ data: await updateLogisticsRequest(req.params.id, req.body, req.userContext, { req }) });
 }));
+// T5.7 — the requester's own lifecycle controls (the standing §36.10 gap). Cancel before an
+// acceptance; close after one. Both refuse while a live container reservation is attached.
+router.post('/logistics-requests/:id/cancel', participantAuth, asyncHandler(async (req, res) => {
+  res.json({ data: await cancelMyLogisticsRequest(req.params.id, req.userContext, { req }) });
+}));
+router.post('/logistics-requests/:id/close', participantAuth, asyncHandler(async (req, res) => {
+  res.json({ data: await closeMyLogisticsRequest(req.params.id, req.userContext, { req }) });
+}));
 router.post('/logistics-requests/:id/publish', participantAuth, asyncHandler(async (req, res) => {
   res.json({ data: await publishLogisticsRequest(req.params.id, req.userContext, { req }) });
 }));
@@ -246,6 +259,12 @@ router.post('/logistics-requests/:id/conversation', participantAuth, asyncHandle
 }));
 
 // ── Existing hardened Container Co-Loading kernel ──────────────────────────
+// T5.2 — corridor reference data: route composition only, projected through an explicit
+// allow-list. Order is by code; nothing here ranks or prefers a corridor.
+router.get('/trade-corridors', participantAuth, asyncHandler(async (req, res) => {
+  res.json({ data: await listActiveCorridors({ req }) });
+}));
+
 router.get(`${base}/trade-context`, participantAuth, asyncHandler(async (req, res) => {
   res.json({ data: await getTradeContext(req.userContext, { req }) });
 }));
@@ -263,6 +282,14 @@ router.get(`${base}/containers/:id/reservations`, participantAuth, asyncHandler(
 }));
 router.post(`${base}/containers/:id/reservations`, participantAuth, asyncHandler(async (req, res) => {
   res.status(201).json({ data: await requestReservation(req.params.id, req.body, req.userContext, { req }) });
+}));
+// T5.3 — deliberate lifecycle: a DRAFT sailing is opened explicitly; a sailing with no live
+// reservations may be cancelled. Both operator-only, both audited in the service.
+router.post(`${base}/containers/:id/open-booking`, operatorAuth, asyncHandler(async (req, res) => {
+  res.json({ data: await openBooking(req.params.id, req.userContext, { req }) });
+}));
+router.post(`${base}/containers/:id/cancel`, operatorAuth, asyncHandler(async (req, res) => {
+  res.json({ data: await cancelSailing(req.params.id, req.userContext, { req }) });
 }));
 router.post(`${base}/containers/:id/close-booking`, operatorAuth, asyncHandler(async (req, res) => {
   res.json({ data: await closeBooking(req.params.id, req.userContext, { req }) });

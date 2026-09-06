@@ -11,6 +11,7 @@ import type {
   LogisticsRequestInput,
   LogisticsReservationResult,
   LogisticsSailingMatch,
+  TradeCorridor,
 } from '@/types/tradeLogistics'
 
 const BASE_URL = resolveApiBaseUrl(
@@ -70,6 +71,28 @@ export function useTradeLogisticsApi() {
       method: 'POST', body: JSON.stringify({}),
     })
     return response.data
+  }, [request])
+
+  // T5.7 — the requester's own lifecycle controls. Cancel before acceptance; close after.
+  // Both are refused server-side while a live container reservation is attached.
+  const cancelRequest = useCallback(async (id: string): Promise<LogisticsRequest> => {
+    const response = await request<{ data: LogisticsRequest }>(`/diaspora/logistics-requests/${encodeURIComponent(id)}/cancel`, {
+      method: 'POST', body: JSON.stringify({}),
+    })
+    return response.data
+  }, [request])
+
+  const closeRequest = useCallback(async (id: string): Promise<LogisticsRequest> => {
+    const response = await request<{ data: LogisticsRequest }>(`/diaspora/logistics-requests/${encodeURIComponent(id)}/close`, {
+      method: 'POST', body: JSON.stringify({}),
+    })
+    return response.data
+  }, [request])
+
+  // T5.2 — corridor reference data (route composition only; ordered by code, never preference).
+  const listTradeCorridors = useCallback(async (): Promise<TradeCorridor[]> => {
+    const response = await request<{ data: TradeCorridor[] }>('/diaspora/trade-corridors')
+    return response.data || []
   }, [request])
 
   const listOpportunities = useCallback(async (): Promise<LogisticsOpportunity[]> => {
@@ -190,6 +213,9 @@ export function useTradeLogisticsApi() {
     createRequest,
     updateRequest,
     publishRequest,
+    cancelRequest,
+    closeRequest,
+    listTradeCorridors,
     listOpportunities,
     getOpportunity,
     createQuote,
@@ -212,6 +238,9 @@ export function useTradeLogisticsApi() {
     createRequest,
     updateRequest,
     publishRequest,
+    cancelRequest,
+    closeRequest,
+    listTradeCorridors,
     listOpportunities,
     getOpportunity,
     createQuote,

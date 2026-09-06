@@ -186,6 +186,9 @@ export default function TradeShippingRequests() {
   const [sailings, setSailings] = useState<LogisticsSailingMatch[]>([])
   const [sailingsUnreadable, setSailingsUnreadable] = useState(false)
   const [showAllSailings, setShowAllSailings] = useState(false)
+  // T5.7 lifecycle controls: first click arms, second confirms — a destructive verb never fires
+  // from a single accidental tap, and no browser confirm() dialog interrupts the flow.
+  const [armedLifecycle, setArmedLifecycle] = useState<'cancel' | 'close' | null>(null)
   // The reservation's real state. `reservationState` holds the last CONFIRMED authoritative status
   // — from the request-space response itself, or from a successful read-back. `reservationStale`
   // says the most recent refresh failed, which is a statement about our knowledge, never about the
@@ -1112,6 +1115,53 @@ export default function TradeShippingRequests() {
             })()}
 
             {selected.status === 'DRAFT' && <Button className="mt-5 bg-orange-500 text-white hover:bg-orange-600" onClick={() => startEdit(selected)}>Edit request</Button>}
+
+            {(() => {
+              // T5.7 — the requester's own lifecycle controls (the standing §36.10 gap, closed).
+              // Cancel exists before an acceptance; Close after. The server refuses both while a
+              // live container reservation is attached, and that refusal surfaces in the error
+              // alert above with the instruction to release the space first.
+              const canCancel = (selected.status === 'DRAFT' || selected.status === 'OPEN_FOR_QUOTES') && !selected.accepted_quote_id
+              const canClose = selected.status === 'AWARDED'
+              if (!canCancel && !canClose) return null
+              const verb = canCancel ? 'cancel' : 'close'
+              const armed = armedLifecycle === verb
+              const run = async () => {
+                if (!armed) { setArmedLifecycle(verb); return }
+                setArmedLifecycle(null); setError('')
+                try {
+                  const next = canCancel ? await api.cancelRequest(selected.id) : await api.closeRequest(selected.id)
+                  setSelected((prev) => (prev ? { ...prev, status: next.status } : prev))
+                  await load()
+                } catch (err) {
+                  setError(err instanceof Error ? err.message : 'The request could not be updated')
+                }
+              }
+              return (
+                <div className="mt-6 border-t border-slate-200 pt-4" data-testid="logistics-lifecycle-controls">
+                  <p className="text-xs text-slate-500">
+                    {canCancel
+                      ? 'No longer shipping this? Cancelling withdraws the request — providers stop seeing it, and submitted offers simply lapse with it.'
+                      : 'Finished with this engagement? Closing concludes the request from your side. It does not undo work already agreed with your provider.'}
+                  </p>
+                  <div className="mt-2 flex items-center gap-3">
+                    <Button
+                      variant="outline"
+                      className={`rounded-none ${armed ? 'border-red-400 bg-red-50 text-red-900 hover:bg-red-100' : 'text-slate-700'}`}
+                      onClick={() => void run()}
+                      data-testid={`logistics-request-${verb}`}
+                    >
+                      {armed ? (canCancel ? 'Confirm — cancel this request' : 'Confirm — close this request') : (canCancel ? 'Cancel request' : 'Close request')}
+                    </Button>
+                    {armed && (
+                      <button type="button" className="text-xs text-slate-500 hover:underline" onClick={() => setArmedLifecycle(null)}>
+                        Keep it
+                      </button>
+                    )}
+                  </div>
+                </div>
+              )
+            })()}
             {selected.status === 'OPEN_FOR_QUOTES' && (
               <div className="mt-7" data-testid="logistics-sailing-matches-state">
                 <h2 className="text-sm font-bold text-slate-950">CarUp sailings that may fit</h2>
@@ -1132,11 +1182,19 @@ export default function TradeShippingRequests() {
                    * authority for that claim — and the list stays informational, which is what the
                    * current flow actually supports.
                    */
-                  const groups = new Map<string, { organiser: string; departure: string; deadline: string; type: string; count: number; bestCapacity: number; anyUnevaluated: boolean }>()
+                  // T5.4 — a group is one route TRUTH, not merely one departure: a direct
+                  // sailing and a gateway leg on the same day are different promises and must
+                  // never collapse into one card.
+                  const legLabelOf = (sailing: LogisticsSailingMatch) => sailing.sailing_leg
+                    ? `${sailing.sailing_leg.origin_locality || sailing.sailing_leg.origin_country} → ${sailing.sailing_leg.destination_locality || sailing.sailing_leg.destination_country}`
+                    : `${sailing.origin_port || sailing.origin_city || sailing.origin_country} → ${sailing.destination_port || sailing.destination_city || sailing.destination_country}`
+                  const groups = new Map<string, { organiser: string; departure: string; deadline: string; type: string; count: number; bestCapacity: number; anyUnevaluated: boolean; routeKind: 'direct' | 'gateway'; corridorName: string | null; legLabel: string; onward: string | null; finalPlace: string }>()
                   for (const sailing of sailings) {
                     const departure = String(sailing.departure_date || '').slice(0, 10)
                     const organiser = sailing.organiser_name || 'Organiser not recorded'
-                    const key = `${organiser}|${departure}|${sailing.container_type}`
+                    const routeKind = sailing.route_kind || 'direct'
+                    const legLabel = legLabelOf(sailing)
+                    const key = `${organiser}|${departure}|${sailing.container_type}|${routeKind}|${legLabel}`
                     const existing = groups.get(key)
                     if (existing) {
                       existing.count += 1
@@ -1149,6 +1207,14 @@ export default function TradeShippingRequests() {
                         count: 1,
                         bestCapacity: Number(sailing.available_capacity_cbm) || 0,
                         anyUnevaluated: sailing.capacity_match === null,
+                        routeKind,
+                        corridorName: sailing.corridor?.display_name || null,
+                        legLabel,
+                        onward: (sailing.onward_legs || []).length
+                          ? (sailing.onward_legs || []).map((leg) => leg.destination_locality || leg.destination_country).join(' → ')
+                          : null,
+                        finalPlace: [sailing.final_destination?.city, sailing.final_destination?.country].filter(Boolean).join(', ')
+                          || [selected.destination_city, selected.destination_country].filter(Boolean).join(', '),
                       })
                     }
                   }
@@ -1169,6 +1235,23 @@ export default function TradeShippingRequests() {
                               {group.deadline ? ` · book by ${group.deadline}` : ' · no booking cut-off recorded'}
                               {' · up to '}{group.bestCapacity} CBM recorded available
                             </p>
+                            {/* T5.9 — the critical UI truth. A gateway sailing never rewrites the
+                                customer's destination: their outcome stays Harare while the ocean
+                                leg honestly ends at the gateway, and the onward route is stated as
+                                REQUIRED — knowledge, not something this booking arranges. */}
+                            {group.routeKind === 'gateway' ? (
+                              <div className="mt-2 border-l-2 border-slate-400 pl-2.5" data-testid="logistics-sailing-route-truth">
+                                <p className="text-xs text-slate-800"><span className="font-semibold">Your destination:</span> {group.finalPlace}</p>
+                                <p className="mt-0.5 text-xs text-slate-800"><span className="font-semibold">This sailing covers:</span> {group.legLabel}{group.corridorName ? ` — ${group.corridorName} corridor` : ''}</p>
+                                {group.onward && (
+                                  <p className="mt-0.5 text-xs text-amber-900" data-testid="logistics-sailing-onward">
+                                    Then still required: {group.onward} — not part of this sailing, not yet arranged.
+                                  </p>
+                                )}
+                              </div>
+                            ) : (
+                              <p className="mt-1 text-[11px] text-slate-500" data-testid="logistics-sailing-direct">Sails to your destination: {group.legLabel}</p>
+                            )}
                             {group.count > 1 && <p className="mt-1 text-[11px] text-slate-500" data-testid="logistics-sailing-group-count">{group.count} sailings on this departure match equally on the facts CarUp records.</p>}
                             {group.anyUnevaluated && <p className="mt-1 text-[11px] text-amber-900">Capacity fit not evaluated — this request’s cargo volume is not fully known yet.</p>}
                           </div>

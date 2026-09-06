@@ -123,12 +123,42 @@ export async function createContainer(payload = {}, userContext = {}, options = 
     featureKey: FEATURE_KEYS.CONTAINER_MANAGE,
   });
 
+  // T5.3: creating a sailing no longer necessarily publishes it. `publish: false` records a
+  // DRAFT the operator can review and deliberately open later; the default remains immediate
+  // BOOKING_OPEN so every existing caller (UI, fixtures, certified specs) keeps its behaviour.
+  const publishNow = payload.publish !== false;
+
+  // T5.2: a sailing may declare which corridor/leg it covers. The declaration is validated —
+  // the leg must belong to the named corridor, and the leg's country pair must equal the
+  // sailing's own route. An operator label can describe a sailing; it cannot contradict it.
+  const corridorId = payload.corridor_id || null;
+  const corridorLegId = payload.corridor_leg_id || null;
+  if (corridorLegId && !corridorId) throw new ValidationError('corridor_leg_id requires corridor_id');
+  if (corridorId) {
+    const { data: corridor } = await client.from('diaspora_trade_corridors')
+      .select('*').eq('id', corridorId).eq('active', true).is('deleted_at', null).maybeSingle();
+    if (!corridor) throw new NotFoundError('Declared corridor not found or inactive');
+    if (corridorLegId) {
+      const { data: leg } = await client.from('diaspora_trade_corridor_legs')
+        .select('*').eq('id', corridorLegId).eq('corridor_id', corridorId).is('deleted_at', null).maybeSingle();
+      if (!leg) throw new NotFoundError('Declared corridor leg not found on that corridor');
+      const same = (a, b) => String(a || '').trim().toLowerCase() === String(b || '').trim().toLowerCase();
+      if (!same(leg.origin_country, payload.origin_country) || !same(leg.destination_country, payload.destination_country)) {
+        throw new ValidationError('The declared corridor leg does not cover this sailing\'s route');
+      }
+    }
+  }
+
   const row = {
     tenant_id: context.tenantId || payload.tenant_id || null,
     origin_country: payload.origin_country,
     origin_city: payload.origin_city,
     destination_country: payload.destination_country,
     destination_city: payload.destination_city,
+    origin_port: payload.origin_port || null,
+    destination_port: payload.destination_port || null,
+    corridor_id: corridorId,
+    corridor_leg_id: corridorLegId,
     departure_date: payload.departure_date,
     booking_deadline: payload.booking_deadline,
     estimated_arrival_date: payload.estimated_arrival_date || null,
@@ -136,7 +166,7 @@ export async function createContainer(payload = {}, userContext = {}, options = 
     total_capacity_volume: round3(totalVolume),
     used_capacity_volume: 0,
     available_capacity_volume: round3(totalVolume),
-    status: CONTAINER_STATUSES.BOOKING_OPEN,
+    status: publishNow ? CONTAINER_STATUSES.BOOKING_OPEN : CONTAINER_STATUSES.DRAFT,
     coordinator_id: context.id,
     metadata: { ...(payload.metadata || {}), total_capacity_weight: payload.total_capacity_weight ?? null },
     created_by: context.id,
@@ -144,19 +174,80 @@ export async function createContainer(payload = {}, userContext = {}, options = 
   };
   const { data, error } = await client.from(CONTAINERS).insert(row).select().single();
   if (error) throw new ValidationError(`Failed to create container: ${error.message}`);
-  await appendAudit(client, { actorId: context.id, tenantId: data.tenant_id, action: 'CONTAINER_CREATED', resourceType: 'diaspora_container_shipment', resourceId: data.id, newState: data, req });
+  await appendAudit(client, { actorId: context.id, tenantId: data.tenant_id, action: publishNow ? 'CONTAINER_CREATED' : 'CONTAINER_DRAFTED', resourceType: 'diaspora_container_shipment', resourceId: data.id, newState: data, req });
+  return data;
+}
+
+/**
+ * T5.3 — deliberately open a DRAFT sailing for bookings. Only the operator authority that could
+ * have created it may open it. Opening is the ONLY way a draft becomes discoverable/bookable.
+ */
+export async function openBooking(containerId, userContext = {}, options = {}) {
+  const context = requireUserContext(userContext);
+  const client = await resolveClient(options);
+  const { req = null } = options;
+  const container = await loadContainer(client, containerId);
+  if (!canReview(container, context)) throw new ForbiddenError('Only logistics reviewers/admins can open booking');
+  if (container.status !== CONTAINER_STATUSES.DRAFT) {
+    throw new ValidationError(`Only a DRAFT sailing can be opened (status: ${container.status})`);
+  }
+  const { data, error } = await client.from(CONTAINERS).update({
+    status: CONTAINER_STATUSES.BOOKING_OPEN,
+    updated_by: context.id,
+    updated_at: new Date().toISOString(),
+  }).eq('id', containerId).select().single();
+  if (error) throw new ValidationError(`Failed to open booking: ${error.message}`);
+  await appendAudit(client, { actorId: context.id, tenantId: data.tenant_id, action: 'CONTAINER_BOOKING_OPENED', resourceType: 'diaspora_container_shipment', resourceId: containerId, previousState: container, newState: data, req });
+  return data;
+}
+
+/**
+ * T5.3 — cancel a sailing that has not shipped anything. Refused while ANY live reservation
+ * (REQUESTED or APPROVED) exists: a cancellation must never silently strand a participant's
+ * booking. The operator releases/rejects those first through the existing governed controls,
+ * so capacity semantics keep exactly one authority.
+ */
+export async function cancelSailing(containerId, userContext = {}, options = {}) {
+  const context = requireUserContext(userContext);
+  const client = await resolveClient(options);
+  const { req = null } = options;
+  const container = await loadContainer(client, containerId);
+  if (!canReview(container, context)) throw new ForbiddenError('Only logistics reviewers/admins can cancel a sailing');
+  if (![CONTAINER_STATUSES.DRAFT, CONTAINER_STATUSES.BOOKING_OPEN].includes(container.status)) {
+    throw new ValidationError(`Only a DRAFT or BOOKING_OPEN sailing can be cancelled (status: ${container.status})`);
+  }
+  const reservations = await loadReservations(client, containerId);
+  const live = reservations.filter((r) => [RESERVATION_STATUSES.REQUESTED, RESERVATION_STATUSES.APPROVED].includes(r.reservation_status));
+  if (live.length) {
+    throw new ValidationError(`Cannot cancel: ${live.length} live reservation(s) exist. Release or reject them first.`);
+  }
+  const { data, error } = await client.from(CONTAINERS).update({
+    status: CONTAINER_STATUSES.CANCELLED,
+    updated_by: context.id,
+    updated_at: new Date().toISOString(),
+  }).eq('id', containerId).select().single();
+  if (error) throw new ValidationError(`Failed to cancel sailing: ${error.message}`);
+  await appendCriticalAudit(client, { actorId: context.id, tenantId: data.tenant_id, action: 'CONTAINER_SAILING_CANCELLED', resourceType: 'diaspora_container_shipment', resourceId: containerId, previousState: container, newState: data, req });
   return data;
 }
 
 export async function listOpenContainers(filters = {}, userContext = {}, options = {}) {
-  requireUserContext(userContext);
+  const context = requireUserContext(userContext);
   const client = await resolveClient(options);
   const { limit, offset } = paging(filters);
+  const status = filters.status || CONTAINER_STATUSES.BOOKING_OPEN;
   let query = client.from(CONTAINERS).select('*').is('deleted_at', null).order('created_at', { ascending: false }).range(offset, offset + limit - 1);
-  query = query.eq('status', filters.status || CONTAINER_STATUSES.BOOKING_OPEN);
+  query = query.eq('status', status);
   const { data, error } = await query;
   if (error) throw new ValidationError(`Failed to list containers: ${error.message}`);
-  return attachOrganiserNames(client, data || []);
+  let rows = data || [];
+  // T5.8 anti-bypass: BOOKING_OPEN is the marketplace. Every OTHER status — DRAFT above all — is
+  // operator working state, visible only to the authority that operates the sailing. Without this,
+  // ?status=DRAFT would let any participant browse competitors' unpublished plans.
+  if (status !== CONTAINER_STATUSES.BOOKING_OPEN) {
+    rows = rows.filter((container) => canReview(container, context) || normalizeId(container.coordinator_id) === context.id);
+  }
+  return attachOrganiserNames(client, rows);
 }
 
 /**
@@ -173,9 +264,16 @@ async function attachOrganiserNames(client, containers) {
 }
 
 export async function getContainerCapacity(id, userContext = {}, options = {}) {
-  requireUserContext(userContext);
+  const context = requireUserContext(userContext);
   const client = await resolveClient(options);
   const container = await loadContainer(client, id);
+  // T5.8: a DRAFT is operator working state. To anyone who is not that operator it does not
+  // exist — NotFound, indistinguishable from a wrong id, so the endpoint cannot be used to
+  // confirm that a competitor's unpublished sailing exists.
+  if (container.status === CONTAINER_STATUSES.DRAFT
+    && !(canReview(container, context) || normalizeId(container.coordinator_id) === context.id)) {
+    throw new NotFoundError('Container not found');
+  }
   const reservations = await loadReservations(client, id);
   const [enriched] = await attachOrganiserNames(client, [container]);
   return { container: enriched, capacity: computeCapacity(container, reservations) };

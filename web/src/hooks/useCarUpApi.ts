@@ -1631,8 +1631,11 @@ export function useCarUpApi() {
     return response.data
   }, [request])
 
-  const fetchDiasporaMarketplaceContainers = useCallback(async (): Promise<DiasporaMarketplaceContainer[]> => {
-    const response = await request<{ data: DiasporaMarketplaceContainer[] }>('/diaspora/container-marketplace/containers')
+  const fetchDiasporaMarketplaceContainers = useCallback(async (status?: string): Promise<DiasporaMarketplaceContainer[]> => {
+    // T5.3 — status is server-authorized: any non-open status returns only sailings the CALLER
+    // operates, so an operator can list their own DRAFTs and nobody can browse anyone else's.
+    const suffix = status ? `?status=${encodeURIComponent(status)}` : ''
+    const response = await request<{ data: DiasporaMarketplaceContainer[] }>(`/diaspora/container-marketplace/containers${suffix}`)
     return response.data || []
   }, [request])
 
@@ -1673,6 +1676,24 @@ export function useCarUpApi() {
 
   const closeDiasporaContainerBooking = useCallback(async (id: string): Promise<DiasporaMarketplaceContainer> => {
     const response = await request<{ data: DiasporaMarketplaceContainer }>(`/diaspora/container-marketplace/containers/${encodeURIComponent(id)}/close-booking`, { method: 'POST', body: JSON.stringify({}) })
+    return response.data
+  }, [request])
+
+  // T5.2 — corridor reference data for the operator's sailing form (route composition only).
+  const fetchDiasporaTradeCorridors = useCallback(async (): Promise<Array<{ id: string; code: string; display_name: string; origin_country: string; destination_country: string; planning_status: string; legs: Array<{ id: string; sequence: number; origin_country: string; origin_locality?: string | null; destination_country: string; destination_locality?: string | null; mode_options?: string[] }> }>> => {
+    const response = await request<{ data: Array<{ id: string; code: string; display_name: string; origin_country: string; destination_country: string; planning_status: string; legs: Array<{ id: string; sequence: number; origin_country: string; origin_locality?: string | null; destination_country: string; destination_locality?: string | null; mode_options?: string[] }> }> }>('/diaspora/trade-corridors')
+    return response.data || []
+  }, [request])
+
+  // T5.3 — deliberate sailing lifecycle: a DRAFT is opened explicitly; a sailing with no live
+  // reservations may be cancelled. Both operator-only server-side.
+  const openDiasporaContainerBooking = useCallback(async (id: string): Promise<DiasporaMarketplaceContainer> => {
+    const response = await request<{ data: DiasporaMarketplaceContainer }>(`/diaspora/container-marketplace/containers/${encodeURIComponent(id)}/open-booking`, { method: 'POST', body: JSON.stringify({}) })
+    return response.data
+  }, [request])
+
+  const cancelDiasporaContainerSailing = useCallback(async (id: string): Promise<DiasporaMarketplaceContainer> => {
+    const response = await request<{ data: DiasporaMarketplaceContainer }>(`/diaspora/container-marketplace/containers/${encodeURIComponent(id)}/cancel`, { method: 'POST', body: JSON.stringify({}) })
     return response.data
   }, [request])
 
@@ -3018,6 +3039,9 @@ export function useCarUpApi() {
     rejectDiasporaMarketplaceReservation,
     cancelDiasporaMarketplaceReservation,
     closeDiasporaContainerBooking,
+    openDiasporaContainerBooking,
+    fetchDiasporaTradeCorridors,
+    cancelDiasporaContainerSailing,
     fetchDiasporaDriveStatus,
     fetchDiasporaDriveAuthorizeUrl,
     fetchDiasporaDriveFiles,

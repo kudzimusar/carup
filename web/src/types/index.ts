@@ -1116,6 +1116,10 @@ export interface DiasporaMarketplaceContainer {
   origin_city?: string;
   destination_country?: string;
   destination_city?: string;
+  origin_port?: string | null;
+  destination_port?: string | null;
+  corridor_id?: string | null;
+  corridor_leg_id?: string | null;
   departure_date?: string;
   booking_deadline?: string;
   container_type?: string;
@@ -1155,6 +1159,16 @@ export interface DiasporaMarketplaceContainerPayload {
   origin_city: string;
   destination_country: string;
   destination_city: string;
+  /** T5.3 — promoted from metadata: the port/terminal facts corridor matching and display read. */
+  origin_port?: string;
+  destination_port?: string;
+  /** T5.2 — which corridor/leg this sailing covers. Validated server-side: the leg must belong to
+   *  the corridor, and its country pair must equal the sailing's own route. */
+  corridor_id?: string;
+  corridor_leg_id?: string;
+  /** T5.3 — `publish: false` records a DRAFT the operator opens deliberately later.
+   *  Default (absent/true) keeps the pre-T5 behaviour: immediately BOOKING_OPEN. */
+  publish?: boolean;
   departure_date: string;
   booking_deadline: string;
   /** Optional expected arrival (authoritative column on the container row). */
