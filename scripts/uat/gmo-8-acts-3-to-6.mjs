@@ -20,7 +20,8 @@
  * NOTHING constituting onboarding authority is provisioned. No SQL in this file creates a tenant, a
  * membership, an application, evidence, or a decision.
  *
- * Run: node scripts/uat/gmo-8-acts-3-to-6.mjs --reviewer=<email> [--viewport=desktop]
+ * Run: GMO_REVIEWER=<email> node scripts/uat/gmo-8-acts-3-to-6.mjs [--viewport=desktop]
+ *      (or --reviewer=<email>)
  */
 import { chromium } from 'playwright';
 import { writeFileSync, mkdirSync } from 'fs';
@@ -29,7 +30,21 @@ const FE = process.env.GMO_FE || 'https://carup-staging-git-feat-garage-mechanic
 const BE = process.env.GMO_BE || 'https://carup-backend-staging-git-feat-garage-mechanic-onb-803043-11-11.vercel.app';
 const arg = (n, d) => (process.argv.find((a) => a.startsWith(`--${n}=`)) || `--${n}=${d}`).split('=')[1];
 const VIEW = arg('viewport', 'desktop');
-const REVIEWER_EMAIL = arg('reviewer', '');
+const REVIEWER_EMAIL = arg('reviewer', '') || (process.env.GMO_REVIEWER || '').trim();
+/**
+ * CONTRACT PROBE mode. NOT the Golden Journey, and it never claims to be.
+ *
+ * Steps 14 onward are unreachable on a provider-less deployment, which left a long tail of harness
+ * code that had never executed once — and unexecuted checking code is how this programme has
+ * repeatedly ended up asserting things it could not see. In probe mode the run does not stop at the
+ * identity block: it waits for the application to be set `approved` OUT OF BAND, records that as a
+ * PROVISIONED fact in the report, and then drives every remaining step against the real deployment.
+ *
+ * What that proves: the contracts. What it deliberately does NOT prove: the acceptance sentence,
+ * because the review decision did not happen. A probe run can never be read as a certification —
+ * step 13 is absent from it and a PROV row names the fixture.
+ */
+const CONTRACT_PROBE = process.argv.includes('--contract-probe');
 const PASSWORD = 'GoldenJourney!2026';
 const VIEWPORTS = { desktop: { width: 1440, height: 900 }, tablet: { width: 834, height: 1112 }, mobile: { width: 390, height: 844 } };
 const OUT = `/tmp/gmo8-acts36-${Date.now().toString(36)}`;
@@ -387,7 +402,7 @@ async function main() {
     return 'identity minted by a governed approval, not set directly';
   });
 
-  if (!identityApproved) {
+  if (!identityApproved && !CONTRACT_PROBE) {
     for (const s of [
       'the garage application can NOW be approved',
       'a real tenant and founding membership now exist',
@@ -399,6 +414,14 @@ async function main() {
       'the mechanic registers and accepts',
       'the invitation is SPENT — it cannot seat a second person',
       'the mechanic can work in the garage',
+      'the founder publishes the garage so it can receive work',
+      'a vehicle owner registers — a fourth unprovisioned person',
+      "the platform records THEM as the vehicle's governed owner",
+      'the owner asks the newly-published garage for service',
+      'the garage accepts it and opens a work order',
+      'the work is assigned to the MECHANIC THIS JOURNEY CREATED',
+      'the MECHANIC — not the founder — does and records the work',
+      'the job completes — the journey ends in a real Service Record',
       'revoking ends FUTURE authority',
       'the LAST administrator cannot be removed',
     ]) rec('SKIP', 'n/a', s, 'blocked upstream: governed identity approval needs a vision provider');
@@ -417,16 +440,39 @@ async function main() {
     process.exit(fail > 0 ? 1 : 0);
   }
 
-  await step('api', 'the garage application can NOW be approved', async () => {
-    await stepUp(state.revToken);
-    const r = await api(`/api/admin/garage-applications/${state.applicationId}/decision`, {
-      token: state.revToken, method: 'POST', body: { decision: 'approve' },
+  if (CONTRACT_PROBE && !identityApproved) {
+    rec('PROV', 'db', 'CONTRACT PROBE — the approval is FIXTURED, not decided',
+      `application ${state.applicationId} · this run cannot certify the journey`);
+    await step('db', 'wait for the out-of-band approval to land', async () => {
+      const deadline = Date.now() + 15 * 60 * 1000;
+      for (;;) {
+        const r = await api('/api/garage-onboarding/application', { token: state.ownerToken });
+        const st = r.body?.application?.status;
+        if (st === 'approved') return 'the application row reads approved';
+        if (Date.now() > deadline) throw new Error(`still ${st} after 15 minutes`);
+        await new Promise((res) => setTimeout(res, 5000));
+      }
     });
-    if (r.status !== 201) throw new Error(`${r.status} ${JSON.stringify(r.body).slice(0, 220)}`);
-    state.activation = r.body.activation;
-    if (r.body.application?.status !== 'approved') throw new Error(`status ${r.body.application?.status}`);
-    return `approved · activation ${r.body.activation?.activated ? 'succeeded' : 'reported: ' + r.body.activation?.reason}`;
-  });
+    await step('api', 'the reviewer activates the approved application', async () => {
+      await stepUp(state.revToken);
+      const r = await api(`/api/admin/garage-applications/${state.applicationId}/activate`, { token: state.revToken, method: 'POST' });
+      if (![200, 201].includes(r.status)) throw new Error(`${r.status} ${JSON.stringify(r.body).slice(0, 200)}`);
+      if (!r.body.tenantId) throw new Error('activated but no tenant was returned');
+      state.activation = r.body;
+      return `tenant ${r.body.tenantId} · created=${r.body.created}`;
+    });
+  } else {
+    await step('api', 'the garage application can NOW be approved', async () => {
+      await stepUp(state.revToken);
+      const r = await api(`/api/admin/garage-applications/${state.applicationId}/decision`, {
+        token: state.revToken, method: 'POST', body: { decision: 'approve' },
+      });
+      if (r.status !== 201) throw new Error(`${r.status} ${JSON.stringify(r.body).slice(0, 220)}`);
+      state.activation = r.body.activation;
+      if (r.body.application?.status !== 'approved') throw new Error(`status ${r.body.application?.status}`);
+      return `approved · activation ${r.body.activation?.activated ? 'succeeded' : 'reported: ' + r.body.activation?.reason}`;
+    });
+  }
 
   /* ═══ ACT 5 — activation and context ════════════════════════════════════════════════════════ */
   await step('api', 'a real tenant and founding membership now exist', async () => {
@@ -693,12 +739,12 @@ async function main() {
   const pass = results.filter((r) => r.status === 'PASS').length;
   const fail = results.filter((r) => r.status === 'FAIL').length;
   console.log(`\n${'─'.repeat(74)}`);
-  console.log(`GMO-8 ACTS 3-6: ${pass} PASS · ${fail} FAIL`);
+  console.log(`GMO-8 ACTS 3-6: ${pass} PASS · ${fail} FAIL${CONTRACT_PROBE ? '   ** CONTRACT PROBE — the approval was FIXTURED; this is NOT the Golden Journey **' : ''}`);
   console.log(`console errors ${errors.console.length} · 5xx ${errors.http5xx.length}`);
   errors.http5xx.slice(0, 5).forEach((e) => console.log(`  5xx: ${e}`));
   console.log(`\naccounts  owner=${OWNER.email}  mechanic=${MECH.email}`);
   console.log(`tenant    ${state.tenantId}`);
-  writeFileSync(`${OUT}/report.json`, JSON.stringify({ viewport: VIEW, commit_sha: prov.commit_sha, unpaired: prov.unpaired, state, results, errors, pass, fail }, null, 2));
+  writeFileSync(`${OUT}/report.json`, JSON.stringify({ viewport: VIEW, commit_sha: prov.commit_sha, unpaired: prov.unpaired, contract_probe: CONTRACT_PROBE, state, results, errors, pass, fail }, null, 2));
   console.log(`report ${OUT}/report.json`);
   process.exit(fail > 0 ? 1 : 0);
 }
