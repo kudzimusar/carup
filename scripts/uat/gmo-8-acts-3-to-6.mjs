@@ -168,55 +168,142 @@ async function signIn(page, who) {
 }
 
 /**
- * Synthetic document images, generated per side.
+ * Synthetic evidence, rendered as real images.
  *
- * The product's quality gate refused two earlier attempts, correctly both times: a 1x1 pixel was
- * DOCUMENT_TOO_SMALL, and the same image sent three times was FRONT_BACK_DUPLICATE. A synthetic
- * fixture has to be plausible enough to pass the checks the product really applies — dodging them
- * would certify a path no real document takes.
+ * The first version emitted a procedurally-generated gradient. With no vision provider that was
+ * harmless — nothing could classify it either way. With a REAL classifier it is worse than useless:
+ * the classifier's only question is "does this image contain a visible identity document occupying
+ * most of the frame", and a gradient answers no, correctly, forever. A harness that fed it one would
+ * have measured its own fixture rather than the product.
+ *
+ * So the evidence is now rendered in a browser from HTML and screenshotted: a card-shaped identity
+ * document, legible, filling the frame. It is deliberately and visibly a SPECIMEN — a fictional
+ * person, a fictional issuing authority that is no real state, and "NOT VALID FOR IDENTIFICATION"
+ * across it. It is test evidence for a staging system, never a facsimile of any real document.
+ *
+ * The holder's name matches the applicant's account on purpose: identity binding compares them, and
+ * a mismatch is a legitimate refusal we do not want to trip over accidentally.
  */
-import zlib from 'zlib';
-function docPng(seed) {
-  const W = 1024, H = 640;
-  const chunk = (tag, data) => {
-    const body = Buffer.concat([Buffer.from(tag), data]);
-    const len = Buffer.alloc(4); len.writeUInt32BE(data.length);
-    const crc = Buffer.alloc(4); crc.writeUInt32BE(zlib.crc32 ? zlib.crc32(body) : crc32(body));
-    return Buffer.concat([len, body, crc]);
+const CARD_CSS = `
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{width:1024px;height:648px;font-family:"Helvetica Neue",Arial,sans-serif;background:#8d9aa6;
+       display:flex;align-items:center;justify-content:center}
+  .card{width:928px;height:568px;border-radius:22px;padding:30px 34px;position:relative;overflow:hidden;
+        background:linear-gradient(135deg,#eef3f7 0%,#dbe6ef 55%,#cfdce8 100%);
+        box-shadow:0 18px 40px rgba(0,0,0,.35);border:2px solid #b9c8d6}
+  .spec{position:absolute;top:150px;left:-40px;transform:rotate(-16deg);font-size:74px;font-weight:800;
+        letter-spacing:8px;color:rgba(190,40,40,.14)}
+  h1{font-size:27px;letter-spacing:2px;color:#123}
+  h2{font-size:17px;letter-spacing:5px;color:#3a5a72;margin-top:5px;font-weight:600}
+  .rule{height:4px;background:#2f5d7c;margin:14px 0 20px;border-radius:2px}
+  .row{display:flex;gap:28px}
+  .photo{width:210px;height:264px;border:3px solid #6d8296;border-radius:8px;background:#c3cfda;
+         display:flex;align-items:flex-end;justify-content:center;overflow:hidden}
+  .bust{width:150px;height:190px}
+  .fields{flex:1;display:grid;grid-template-columns:1fr 1fr;gap:16px 26px;align-content:start}
+  .f label{display:block;font-size:12px;letter-spacing:2px;color:#5b7386;font-weight:700}
+  .f div{font-size:24px;color:#0f2434;font-weight:650;margin-top:3px}
+  .foot{position:absolute;left:0;right:0;bottom:0;background:#2f5d7c;color:#eaf2f8;
+        font-size:14px;letter-spacing:3px;padding:11px 34px;font-weight:700}
+  .mrz{font-family:"Courier New",monospace;font-size:27px;letter-spacing:3px;color:#12222e;
+       background:#f4f8fb;border:2px solid #9fb3c4;border-radius:6px;padding:16px 14px;line-height:1.55}
+  .terms{font-size:18px;color:#24404f;line-height:1.6}
+  .stripe{height:74px;background:repeating-linear-gradient(90deg,#16202a 0 5px,#f0f5f9 5px 9px,#16202a 9px 12px,#f0f5f9 12px 20px);
+          border-radius:4px;margin:18px 0}
+`;
+const BUST = `<svg class="bust" viewBox="0 0 100 130"><circle cx="50" cy="38" r="26" fill="#7d93a6"/>
+  <path d="M4 130c0-28 20-46 46-46s46 18 46 46z" fill="#7d93a6"/></svg>`;
+
+const ID_FRONT = (who, idNo) => `<style>${CARD_CSS}</style><div class="card">
+  <div class="spec">SPECIMEN</div>
+  <h1>CARUP UAT TEST AUTHORITY</h1>
+  <h2>SYNTHETIC IDENTITY CARD</h2><div class="rule"></div>
+  <div class="row">
+    <div class="photo">${BUST}</div>
+    <div class="fields">
+      <div class="f"><label>SURNAME</label><div>${who.last.toUpperCase()}</div></div>
+      <div class="f"><label>GIVEN NAMES</label><div>${who.first.toUpperCase()}</div></div>
+      <div class="f"><label>IDENTITY NUMBER</label><div>${idNo}</div></div>
+      <div class="f"><label>DATE OF BIRTH</label><div>12 APR 1989</div></div>
+      <div class="f"><label>PLACE OF ISSUE</label><div>HARARE</div></div>
+      <div class="f"><label>DATE OF ISSUE</label><div>03 FEB 2024</div></div>
+      <div class="f"><label>EXPIRES</label><div>03 FEB 2034</div></div>
+      <div class="f"><label>DOCUMENT TYPE</label><div>NATIONAL ID</div></div>
+    </div>
+  </div>
+  <div class="foot">NOT VALID FOR IDENTIFICATION &nbsp;·&nbsp; GENERATED TEST DOCUMENT &nbsp;·&nbsp; CARUP STAGING</div>
+</div>`;
+
+const ID_BACK = (who, idNo) => `<style>${CARD_CSS}</style><div class="card">
+  <div class="spec">SPECIMEN</div>
+  <h1>CARUP UAT TEST AUTHORITY</h1>
+  <h2>SYNTHETIC IDENTITY CARD &nbsp;·&nbsp; REVERSE</h2><div class="rule"></div>
+  <div class="terms">This card is synthetic evidence generated for automated testing of the CarUp
+    Service Network onboarding journey. It identifies no real person, is issued by no real
+    authority, and carries no legal effect whatsoever.</div>
+  <div class="stripe"></div>
+  <div class="mrz">IDUAT${who.last.toUpperCase()}&lt;&lt;${who.first.toUpperCase()}&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;<br/>${idNo}&lt;8ZWE8904129F3402035&lt;&lt;&lt;&lt;&lt;&lt;06</div>
+  <div class="foot">NOT VALID FOR IDENTIFICATION &nbsp;·&nbsp; GENERATED TEST DOCUMENT &nbsp;·&nbsp; CARUP STAGING</div>
+</div>`;
+
+const SELFIE_HTML = (who) => `<style>
+  *{margin:0;box-sizing:border-box} body{width:720px;height:960px;background:linear-gradient(160deg,#cdd9e2,#9fb1c0);
+  font-family:Arial,sans-serif;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:26px}
+  svg{width:420px;height:540px} .cap{font-size:22px;letter-spacing:3px;color:#24404f;font-weight:700}
+  .sub{font-size:16px;color:#3d5b6e}
+</style>
+<svg viewBox="0 0 100 130"><circle cx="50" cy="40" r="28" fill="#6f8a9e"/>
+  <path d="M2 130c0-30 21-49 48-49s48 19 48 49z" fill="#6f8a9e"/></svg>
+<div class="cap">SYNTHETIC SELFIE — NOT A PHOTOGRAPH</div>
+<div class="sub">${who.first} ${who.last} · CarUp staging test subject</div>`;
+
+const SIGNAGE_HTML = (name) => `<style>
+  *{margin:0;box-sizing:border-box} body{width:1200px;height:800px;
+   background:repeating-linear-gradient(180deg,#8e9aa2 0 26px,#7d8a88 26px 28px);
+   font-family:Arial,sans-serif;display:flex;align-items:center;justify-content:center}
+  .sign{width:940px;padding:48px 40px;background:#14425f;border:12px solid #d9e2e8;border-radius:10px;
+        text-align:center;box-shadow:0 22px 50px rgba(0,0,0,.4)}
+  .sign h1{color:#fff;font-size:72px;letter-spacing:3px}
+  .sign p{color:#bcd7e8;font-size:30px;margin-top:18px;letter-spacing:6px}
+</style><div class="sign"><h1>${name}</h1><p>SERVICE &amp; REPAIRS · HARARE</p></div>`;
+
+/** Rendered once, in the browser the run already has. */
+let SIDE_IMAGE = {};
+async function renderEvidence(browser, who) {
+  const idNo = `63-UAT${stamp.toUpperCase()}-K47`;
+  const shotOf = async (html, w, h) => {
+    const ctx = await browser.newContext({ viewport: { width: w, height: h }, deviceScaleFactor: 2 });
+    const page = await ctx.newPage();
+    await page.setContent(html, { waitUntil: 'load' });
+    const buf = await page.screenshot({ type: 'png' });
+    await ctx.close();
+    return buf.toString('base64');
   };
-  // zlib.crc32 exists on modern Node; keep a fallback so this cannot silently emit a broken PNG.
-  function crc32(buf) {
-    let c, crc = 0xffffffff;
-    for (let i = 0; i < buf.length; i += 1) {
-      c = (crc ^ buf[i]) & 0xff;
-      for (let k = 0; k < 8; k += 1) c = c & 1 ? 0xedb88320 ^ (c >>> 1) : c >>> 1;
-      crc = c ^ (crc >>> 8);
-    }
-    return (crc ^ 0xffffffff) >>> 0;
+  SIDE_IMAGE = {
+    front: await shotOf(ID_FRONT(who, idNo), 1024, 648),
+    back: await shotOf(ID_BACK(who, idNo), 1024, 648),
+    selfie: await shotOf(SELFIE_HTML(who), 720, 960),
+    signage: await shotOf(SIGNAGE_HTML(who.garage), 1200, 800),
+  };
+  for (const [k, v] of Object.entries(SIDE_IMAGE)) {
+    const bytes = Buffer.from(v, 'base64').length;
+    if (bytes < 2048) throw new Error(`${k} rendered at ${bytes} bytes — below the evidence floor`);
   }
-  const raw = Buffer.alloc(H * (1 + W * 3));
-  let o = 0;
-  for (let y = 0; y < H; y += 1) {
-    raw[o++] = 0;
-    for (let x = 0; x < W; x += 1) {
-      // Structure that differs per side, so no two uploads are duplicates.
-      let v = ((y + seed * 37) / 40 | 0) % 2 === 0 ? 205 : 165;
-      if (x > 60 + seed * 90 && x < 420 + seed * 90 && y > 70 && y < 250) v = 240;
-      if ((x + y * seed) % 211 === 0) v = 120;
-      raw[o++] = v; raw[o++] = v - 12; raw[o++] = v - 24;
-    }
-  }
-  const ihdr = Buffer.alloc(13);
-  ihdr.writeUInt32BE(W, 0); ihdr.writeUInt32BE(H, 4);
-  ihdr[8] = 8; ihdr[9] = 2; ihdr[10] = 0; ihdr[11] = 0; ihdr[12] = 0;
-  return Buffer.concat([
-    Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
-    chunk('IHDR', ihdr), chunk('IDAT', zlib.deflateSync(raw, { level: 6 })), chunk('IEND', Buffer.alloc(0)),
-  ]).toString('base64');
+  return Object.fromEntries(Object.entries(SIDE_IMAGE).map(([k, v]) => [k, Buffer.from(v, 'base64').length]));
 }
-const SIDE_IMAGE = { front: docPng(1), back: docPng(2), selfie: docPng(3) };
 
 async function main() {
+  // Render the evidence and stop. Lets a change to the specimen be eyeballed without spending a
+  // single provider call, or touching the deployment at all.
+  if (process.argv.includes('--render-evidence-only')) {
+    const b = await chromium.launch({ headless: true });
+    const sizes = await renderEvidence(b, OWNER);
+    for (const [k, v] of Object.entries(SIDE_IMAGE)) writeFileSync(`${OUT}/evidence-${k}.png`, Buffer.from(v, 'base64'));
+    await b.close();
+    console.log(JSON.stringify(sizes, null, 2));
+    console.log(`written to ${OUT}`);
+    return;
+  }
   if (!REVIEWER_EMAIL) throw new Error('--reviewer=<email> is required');
   console.log(`\nGMO-8 ACTS 3-6 · ${VIEW}\nFE ${FE}\nBE ${BE}\nartifacts ${OUT}\n`);
 
@@ -232,6 +319,11 @@ async function main() {
   const open = async () => { const c = await browser.newContext({ viewport: VIEWPORTS[VIEW] }); const p = await c.newPage(); watch(p); return p; };
 
   const state = {};
+
+  await step('api', 'synthetic identity evidence is rendered, not procedurally faked', async () => {
+    const sizes = await renderEvidence(browser, OWNER);
+    return Object.entries(sizes).map(([k, v]) => `${k} ${(v / 1024).toFixed(0)}KB`).join(' · ');
+  });
 
   /* ═══ ACT 3 — the applicant completes and sends ═════════════════════════════════════════════ */
   const owner = await open();
@@ -310,7 +402,7 @@ async function main() {
   await step('api', 'they attach business-presence evidence', async () => {
     const r = await api(`/api/garage-onboarding/application/${state.applicationId}/evidence`, {
       token: state.ownerToken, method: 'POST',
-      body: { evidence_type: 'signage_photo', mime_type: 'image/png', file_base64: SIDE_IMAGE.front,
+      body: { evidence_type: 'signage_photo', mime_type: 'image/png', file_base64: SIDE_IMAGE.signage,
         description: 'The sign over the workshop door' },
     });
     if (r.status !== 201) throw new Error(`${r.status} ${JSON.stringify(r.body).slice(0, 160)}`);
