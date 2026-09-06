@@ -128,6 +128,55 @@ export const NOTIFICATION_POLICIES = Object.freeze({
     transactional: true,
   },
 
+  // Service Network O5 — governed service-case transitions, addressed to the customer who opened
+  // the case. Deliberately LOW NOISE: in_app only, with `policyChannelsOnly` so a user's default
+  // fallback channels cannot re-add email or push. A garage accepting a job is worth a badge in the
+  // app; it is not worth an email or an SMS, and no other channel is governed for this audience yet.
+  'service.case.accepted': {
+    notificationType: 'service_case',
+    threadType: 'service_case',
+    priority: 'normal',
+    channels: ['in_app'],
+    fallbackChannels: [],
+    policyChannelsOnly: true,
+    templateKey: 'service_case_status_v1',
+    classification: 'transactional',
+    transactional: true,
+  },
+  'service.case.declined': {
+    notificationType: 'service_case',
+    threadType: 'service_case',
+    priority: 'normal',
+    channels: ['in_app'],
+    fallbackChannels: [],
+    policyChannelsOnly: true,
+    templateKey: 'service_case_status_v1',
+    classification: 'transactional',
+    transactional: true,
+  },
+  'service.work.started': {
+    notificationType: 'service_case',
+    threadType: 'service_case',
+    priority: 'normal',
+    channels: ['in_app'],
+    fallbackChannels: [],
+    policyChannelsOnly: true,
+    templateKey: 'service_case_status_v1',
+    classification: 'transactional',
+    transactional: true,
+  },
+  'service.case.completed': {
+    notificationType: 'service_case',
+    threadType: 'service_case',
+    priority: 'normal',
+    channels: ['in_app'],
+    fallbackChannels: [],
+    policyChannelsOnly: true,
+    templateKey: 'service_case_status_v1',
+    classification: 'transactional',
+    transactional: true,
+  },
+
   // Operations M2 — governed Seller Authority review outcome for the seller.
   'seller.authority.decided': {
     notificationType: 'seller_authority',
@@ -137,6 +186,69 @@ export const NOTIFICATION_POLICIES = Object.freeze({
     fallbackChannels: [],
     policyChannelsOnly: true,
     templateKey: 'seller_authority_v1',
+    classification: 'transactional',
+    transactional: true,
+  },
+
+  // O2-X6 — identity lifecycle transitions (suspension/compromise/recovery/revocation/
+  // reverification). Safe state + reason codes only; the ledger keeps the detail.
+  'identity.lifecycle.changed': {
+    notificationType: 'identity_lifecycle',
+    threadType: 'account',
+    priority: 'high',
+    channels: ['in_app'],
+    fallbackChannels: [],
+    policyChannelsOnly: true,
+    templateKey: 'identity_lifecycle_v1',
+    classification: 'transactional',
+    transactional: true,
+  },
+  // O2-X6 — Dealer Compliance decisions finally reach the dealer (emitted since P5,
+  // subscribed now; payload privacy-corrected at the emitter).
+  'dealer.compliance.decided': {
+    notificationType: 'dealer_compliance',
+    threadType: 'trust_safety',
+    priority: 'normal',
+    channels: ['in_app'],
+    fallbackChannels: [],
+    policyChannelsOnly: true,
+    templateKey: 'dealer_compliance_decision_v1',
+    classification: 'transactional',
+    transactional: true,
+  },
+  // O2-X6 §15 — ONE batched "we still need" message instead of drip-fed rejections.
+  'dealer.compliance.evidence_required': {
+    notificationType: 'dealer_evidence_required',
+    threadType: 'trust_safety',
+    priority: 'normal',
+    channels: ['in_app'],
+    fallbackChannels: [],
+    policyChannelsOnly: true,
+    templateKey: 'dealer_evidence_required_v1',
+    classification: 'transactional',
+    transactional: true,
+  },
+  // O2-X6 — a completed ownership transfer ended this person's seller authority.
+  'seller.authority.superseded': {
+    notificationType: 'seller_authority',
+    threadType: 'trust_safety',
+    priority: 'normal',
+    channels: ['in_app'],
+    fallbackChannels: [],
+    policyChannelsOnly: true,
+    templateKey: 'seller_authority_superseded_v1',
+    classification: 'transactional',
+    transactional: true,
+  },
+  // O2-X6 — a vehicle workbook import finished (drafts + receipts ready to review).
+  'workbook.import.completed': {
+    notificationType: 'workbook_import',
+    threadType: 'import',
+    priority: 'normal',
+    channels: ['in_app'],
+    fallbackChannels: [],
+    policyChannelsOnly: true,
+    templateKey: 'workbook_import_result_v1',
     classification: 'transactional',
     transactional: true,
   },

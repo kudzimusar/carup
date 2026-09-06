@@ -254,6 +254,14 @@ export default function Register() {
               <Button type="button" variant="outline" onClick={resendVerification} disabled={resending}>
                 {resending ? 'Requesting…' : 'Resend verification email'}
               </Button>
+              <Button
+                type="button"
+                variant="ghost"
+                onClick={() => navigate('/onboarding')}
+                data-testid="registration-onboarding-link"
+              >
+                Finish setting up — verify your identity when you're ready
+              </Button>
             </div>
           </CardContent>
         </Card>

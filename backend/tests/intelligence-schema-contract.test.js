@@ -107,6 +107,11 @@ test('every table an Intelligence service reads is one that exists', () => {
     'vehicle_reservations', 'vehicles', 'verification_decisions',
     'intelligence_recommendation_state', 'intelligence_ingestion_stats',
     'intelligence_rollup_runs',
+    // Service Network obligation O3. Created by
+    // database/migrations/20260904130000_service_network_s2_service_cases.sql, whose Up/Down/re-Up
+    // is executed against real PostgreSQL by database/test/service_network_s2_check.mjs in CI — so
+    // this entry is verified by an applied migration, not by assertion.
+    'service_cases',
   ]);;
   const unknown = new Set();
   for (const [, source] of sources) {

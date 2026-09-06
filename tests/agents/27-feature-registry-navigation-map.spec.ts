@@ -155,12 +155,39 @@ test.describe('Feature Registry & Navigation Map', () => {
       // workspace registers with placements: [] on purpose (a parameterized
       // /admin/vehicles/:vin/review route cannot be a sidebar link) so it does
       // not move this count. No other role moves.
-      expect(result.roleItemCounts['owner']).toBe(21);
-      expect(result.roleItemCounts['dealer']).toBe(16);
-      expect(result.roleItemCounts['mechanic']).toBe(5);
+      // Recomputed 2026-09-06 (Service Network UAT remediation R3/R5). Four registry entries were
+      // added, and each role moves by exactly the ones that name it:
+      //   owner.service-requests   roles [owner]                     -> owner   21 -> 22
+      //   garage.workshop          roles [mechanic, dealer, admin]   -> dealer  16 -> 19
+      //   garage.customers         roles [mechanic, dealer, admin]   -> mechanic 5 -> 8
+      //   garage.profile           roles [mechanic, dealer, admin]   -> admin   32 -> 35
+      // The three garage entries carry the backend's GARAGE_ROLES exactly. insurance, government
+      // and bank name none of them and do not move — which is the check that these deltas are the
+      // ones intended and not a role set that grew by accident.
+      // Recomputed 2026-09-06 (Garage & Mechanic Onboarding). THREE registry entries were added,
+      // and each role moves by exactly the ones that name it:
+      //   owner.garage-setup        roles [owner]   -> owner  22 -> 23
+      //   admin.garage-applications roles [admin]   -> admin  35 -> 37
+      //   garage.team               roles [admin]   ->   ..with admin.garage-applications
+      //
+      // owner.garage-setup lives in the OWNER shell on purpose: a garage applicant is a platform
+      // `owner` until an approved decision activates them, so the surface has to be reachable
+      // before any garage exists.
+      //
+      // garage.team names 'admin' meaning "administrator OF THIS GARAGE", and lands in the platform
+      // admin's count because the registry has one role vocabulary — exactly as the existing
+      // garage.workshop / garage.customers / garage.profile entries already do. Deliberately left
+      // consistent with them rather than given a special case.
+      //
+      // dealer, mechanic, insurance, government and bank name none of the three and do not move,
+      // which is the check that these deltas are the intended ones and not a role set that grew by
+      // accident.
+      expect(result.roleItemCounts['owner']).toBe(23);
+      expect(result.roleItemCounts['dealer']).toBe(19);
+      expect(result.roleItemCounts['mechanic']).toBe(8);
       expect(result.roleItemCounts['insurance']).toBe(4);
       expect(result.roleItemCounts['government']).toBe(14);
-      expect(result.roleItemCounts['admin']).toBe(32);
+      expect(result.roleItemCounts['admin']).toBe(37);
       expect(result.roleItemCounts['bank']).toBe(4);
 
       // Dashboard routes are valid

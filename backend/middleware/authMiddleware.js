@@ -101,7 +101,7 @@ export function resolveEffectiveRole({ userRole, tenantRole = null, requestedRol
   throw error;
 }
 
-export function authorizeRole(allowedRoles = [], { allowUserIdFallback = true } = {}) {
+export function authorizeRole(allowedRoles = [], { allowUserIdFallback = true, allowTenantMembership = false } = {}) {
   return async (req, res, next) => {
     const sessionToken = req.headers['x-session-token'] || req.headers['authorization']?.replace('Bearer ', '');
     const tenantIdHeader = req.headers['x-tenant-id'];
@@ -186,7 +186,39 @@ export function authorizeRole(allowedRoles = [], { allowUserIdFallback = true } 
       const allowed = allowedRoles.map(normalizeRole);
 
       // 4. Enforce Route Role Permissions
-      if (allowed.length > 0 && !allowed.includes(effectiveRole) && !PLATFORM_ADMIN_ROLES.has(platformRole)) {
+      //
+      // `allowTenantMembership` lets a route accept a VERIFIED tenant membership in a role it
+      // already trusts, even when the person's effective role is their platform role. It is OFF by
+      // default and must be opted into per route, because `tenant_users.role` and `users.role` are
+      // two different namespaces that happen to share spellings.
+      //
+      // Why the option exists. A garage founder is platform `owner` with `tenant_users.role =
+      // 'admin'` (PO-1, GMO-4). Asserting that tenant role throws — `resolveEffectiveRole`
+      // deliberately refuses to let a tenant `admin` become a platform `admin` — and asserting
+      // nothing leaves them as `owner`, which no garage route lists. The founder was locked out of
+      // the garage they had just been given. A tenant `mechanic` never hit this because `mechanic`
+      // is assumable; `admin` is the one tenant role that is not.
+      //
+      // Why it is NOT global. An adversarial review proved, by executing the exploit, that applying
+      // this to every route collapses the two namespaces on the string 'admin': a garage founder
+      // could call `GET /api/users/management` with `x-tenant-id` set to their own garage and read
+      // every CarUp user, then `POST /api/users/:id/suspend` the real platform administrator.
+      // `adminRoutes.js` gates on `authorizeRole(['admin'])` alone, and 'admin' there means PLATFORM
+      // admin. 168 route registrations list 'admin' in that platform sense. So the tenant disjunct
+      // is available only where a route says its role list is tenant-scoped.
+      //
+      // Where it IS enabled, `tenantRole` is not a claim: it was read from `tenant_users` for this
+      // exact tenant a few lines above, and the request was already refused with 403 if no
+      // membership existed. `effectiveRole`, `role` and `platformRole` are all left unchanged, so a
+      // tenant admin still never becomes a CarUp admin.
+      const tenantMembershipSatisfiesRoute =
+        allowTenantMembership && Boolean(tenantRole) && allowed.includes(tenantRole);
+      if (
+        allowed.length > 0
+        && !allowed.includes(effectiveRole)
+        && !tenantMembershipSatisfiesRoute
+        && !PLATFORM_ADMIN_ROLES.has(platformRole)
+      ) {
         return res.status(403).json({ error: `Forbidden. Role '${effectiveRole}' cannot access this resource.` });
       }
 
@@ -220,6 +252,23 @@ export function authorizeRole(allowedRoles = [], { allowUserIdFallback = true } 
  */
 export function authorizeSessionRole(allowedRoles = []) {
   return authorizeRole(allowedRoles, { allowUserIdFallback: false });
+}
+
+/**
+ * A proven session, on a route whose role list is TENANT-scoped.
+ *
+ * Use this only where the listed roles name positions inside an organization — a garage's mechanic,
+ * dealer or admin — rather than platform authority. It additionally accepts a verified
+ * `tenant_users` membership in one of those roles, which is what lets a garage founder (platform
+ * `owner`, tenant `admin`) open the garage they were just given.
+ *
+ * Do NOT use it on a route where 'admin' means a CarUp administrator. `tenant_users.role` is an
+ * unconstrained TEXT column that any garage founder holds as 'admin', and an adversarial review
+ * demonstrated a working exploit — full user-table disclosure and suspension of the real platform
+ * administrator — when this behaviour was applied globally instead of per route.
+ */
+export function authorizeTenantRole(allowedRoles = []) {
+  return authorizeRole(allowedRoles, { allowUserIdFallback: false, allowTenantMembership: true });
 }
 
 /**

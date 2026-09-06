@@ -110,6 +110,20 @@ export interface RouteAccessInput {
   isBootstrapping: boolean
   isAuthenticated: boolean
   role: UserRole | null
+  /**
+   * The role this person holds in their active tenant, when they have one.
+   *
+   * Round 2 owner UAT: a real garage tenant-member could not open the garage workspace. Public
+   * registration only ever creates an `owner`, so a garage employee who signed up through the
+   * product carries the owner PLATFORM role while their `tenant_users` record says `mechanic`.
+   * Gating navigation on the platform role alone bounced them to the owner dashboard — a screen
+   * about selling their own car — while the backend was perfectly willing to serve them.
+   *
+   * This mirrors the backend rule exactly (`resolveEffectiveRole`): the platform role OR the
+   * verified tenant role may satisfy a requirement. It widens no authority — the server re-derives
+   * the same decision from `tenant_users` on every request and remains the authority.
+   */
+  tenantRole?: string | null
   /** Backend-derived effective states keyed by feature id (optional; static defaults otherwise). */
   effectiveStates?: Record<string, EffectiveFeatureState>
   /**
@@ -140,6 +154,10 @@ export function evaluateRouteAccess(input: RouteAccessInput): RouteDecision {
   // shared UserRole cannot represent them, and bouncing a platform authority
   // to the owner dashboard was the standing defect (manual §5.2).
   const role = normalizeFrontendRole(input.role)
+  // Only a tenant role that is a real UserRole can satisfy a feature's role list; anything else
+  // (a tenant-specific label the registry has never heard of) simply does not match, which is the
+  // fail-closed direction.
+  const tenantRole = normalizeFrontendRole(input.tenantRole as UserRole | null | undefined)
   const enforceAuth = input.enforceAuth ?? true
 
   // 1. Never decide an AUTH outcome while the session is bootstrapping. Public
@@ -191,7 +209,10 @@ export function evaluateRouteAccess(input: RouteAccessInput): RouteDecision {
     if (!isAuthenticated || !role) {
       return { kind: 'redirect', to: loginWithReturnTo(route), reason: 'auth' }
     }
-    if (!feature.roles.includes(role)) {
+    // Either role may satisfy the requirement — the same rule the backend applies.
+    const satisfied = feature.roles.includes(role)
+      || Boolean(tenantRole && feature.roles.includes(tenantRole))
+    if (!satisfied) {
       return { kind: 'redirect', to: getDashboardRoute(role), reason: 'role' }
     }
   }

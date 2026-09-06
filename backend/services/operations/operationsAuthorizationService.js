@@ -31,6 +31,20 @@ export const OPERATIONS_CAPABILITIES = Object.freeze({
   VEHICLE_EVIDENCE_REVIEW: 'operations.vehicle_evidence.review',
   VEHICLE_EVIDENCE_CLASSIFY: 'operations.vehicle_evidence.classify',
   SELLER_AUTHORITY_REVIEW: 'operations.seller_authority.review',
+  // O2 — People & Compliance. Same static-map discipline: these wrap role gates the owning
+  // domains already enforce (identity admin routes, dealer compliance decisions); the capability
+  // names exist so O2 paths authorize against named authority instead of more raw role checks.
+  PERSON_READ_PRIVATE: 'operations.person.read_private',
+  IDENTITY_REVIEW: 'operations.identity.review',
+  DEALER_COMPLIANCE_REVIEW: 'operations.dealer_compliance.review',
+  // O2-X3 — current identity lifecycle + account security. Same static-map discipline; both
+  // demand a PROVEN session at the route AND a fresh step-up (the assurance guard) on top.
+  IDENTITY_LIFECYCLE: 'operations.identity.lifecycle',
+  ACCOUNT_SECURITY: 'operations.account.security',
+  // GMO-3 — deciding whether a garage application becomes a real workspace. Same static-map
+  // discipline as the rest: the capability names the authority so the garage review path
+  // authorizes against it rather than adding another raw role check.
+  GARAGE_ONBOARDING_REVIEW: 'operations.garage_onboarding.review',
 });
 
 const ALL_VEHICLE_OPERATIONS = Object.freeze([
@@ -40,12 +54,23 @@ const ALL_VEHICLE_OPERATIONS = Object.freeze([
   OPERATIONS_CAPABILITIES.SELLER_AUTHORITY_REVIEW,
 ]);
 
+const ALL_PEOPLE_OPERATIONS = Object.freeze([
+  OPERATIONS_CAPABILITIES.PERSON_READ_PRIVATE,
+  OPERATIONS_CAPABILITIES.IDENTITY_REVIEW,
+  OPERATIONS_CAPABILITIES.DEALER_COMPLIANCE_REVIEW,
+  OPERATIONS_CAPABILITIES.IDENTITY_LIFECYCLE,
+  OPERATIONS_CAPABILITIES.ACCOUNT_SECURITY,
+  OPERATIONS_CAPABILITIES.GARAGE_ONBOARDING_REVIEW,
+]);
+
+const ALL_OPERATIONS = Object.freeze([...ALL_VEHICLE_OPERATIONS, ...ALL_PEOPLE_OPERATIONS]);
+
 /** Compatibility mapping: server-derived platform/base role → capability set. */
 const ROLE_CAPABILITY_MAP = Object.freeze({
-  admin: ALL_VEHICLE_OPERATIONS,
-  platform_admin: ALL_VEHICLE_OPERATIONS,
-  super_admin: ALL_VEHICLE_OPERATIONS,
-  government: ALL_VEHICLE_OPERATIONS,
+  admin: ALL_OPERATIONS,
+  platform_admin: ALL_OPERATIONS,
+  super_admin: ALL_OPERATIONS,
+  government: ALL_OPERATIONS,
 });
 
 /**
@@ -118,6 +143,26 @@ export function allowedVehicleOperationsActions(userContext = {}) {
   return actions;
 }
 
+/**
+ * Server-derived allowed actions for the People & Compliance workspace DTO (O2). Same G2 rule:
+ * the UI renders what the server says and never grants. There is deliberately NO action for
+ * editing a person's identity facts, forcing verification, or granting authority — every action
+ * is a governed decision the owning domain service already exposes.
+ */
+export function allowedPeopleOperationsActions(userContext = {}) {
+  const actions = [];
+  if (hasOperationsCapability(userContext, OPERATIONS_CAPABILITIES.IDENTITY_REVIEW)) {
+    actions.push('identity.review');
+  }
+  if (hasOperationsCapability(userContext, OPERATIONS_CAPABILITIES.SELLER_AUTHORITY_REVIEW)) {
+    actions.push('seller_authority.review');
+  }
+  if (hasOperationsCapability(userContext, OPERATIONS_CAPABILITIES.DEALER_COMPLIANCE_REVIEW)) {
+    actions.push('dealer_compliance.decide');
+  }
+  return actions;
+}
+
 export default {
   OPERATIONS_CAPABILITIES,
   operationsGrantingRole,
@@ -126,4 +171,5 @@ export default {
   isProvenSession,
   requireOperationsCapability,
   allowedVehicleOperationsActions,
+  allowedPeopleOperationsActions,
 };

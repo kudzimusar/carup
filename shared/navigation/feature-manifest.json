@@ -98,6 +98,20 @@
     "betaCapable": true
   },
   {
+    "id": "admin.garage-applications",
+    "domain": "admin",
+    "route": "/admin/garage-applications",
+    "defaultLifecycle": "active",
+    "defaultRoles": [
+      "admin"
+    ],
+    "immutableRoles": [
+      "admin"
+    ],
+    "requiresAuth": true,
+    "betaCapable": true
+  },
+  {
     "id": "admin.governance-review",
     "domain": "trust",
     "route": "/admin/governance-review",
@@ -129,6 +143,20 @@
     "id": "admin.overview",
     "domain": "admin",
     "route": "/admin",
+    "defaultLifecycle": "active",
+    "defaultRoles": [
+      "admin"
+    ],
+    "immutableRoles": [
+      "admin"
+    ],
+    "requiresAuth": true,
+    "betaCapable": true
+  },
+  {
+    "id": "admin.people-operations",
+    "domain": "admin",
+    "route": "/admin/people/:userId/review",
     "defaultLifecycle": "active",
     "defaultRoles": [
       "admin"
@@ -748,6 +776,74 @@
     "betaCapable": true
   },
   {
+    "id": "garage.customers",
+    "domain": "service",
+    "route": "/garage/customers",
+    "defaultLifecycle": "active",
+    "defaultRoles": [
+      "admin",
+      "dealer",
+      "mechanic"
+    ],
+    "immutableRoles": [
+      "admin",
+      "dealer",
+      "mechanic"
+    ],
+    "requiresAuth": true,
+    "betaCapable": true
+  },
+  {
+    "id": "garage.profile",
+    "domain": "service",
+    "route": "/garage/profile",
+    "defaultLifecycle": "active",
+    "defaultRoles": [
+      "admin",
+      "dealer",
+      "mechanic"
+    ],
+    "immutableRoles": [
+      "admin",
+      "dealer",
+      "mechanic"
+    ],
+    "requiresAuth": true,
+    "betaCapable": true
+  },
+  {
+    "id": "garage.team",
+    "domain": "service",
+    "route": "/garage/team",
+    "defaultLifecycle": "active",
+    "defaultRoles": [
+      "admin"
+    ],
+    "immutableRoles": [
+      "admin"
+    ],
+    "requiresAuth": true,
+    "betaCapable": true
+  },
+  {
+    "id": "garage.workshop",
+    "domain": "service",
+    "route": "/garage",
+    "defaultLifecycle": "active",
+    "defaultRoles": [
+      "admin",
+      "dealer",
+      "mechanic"
+    ],
+    "immutableRoles": [
+      "admin",
+      "dealer",
+      "mechanic"
+    ],
+    "requiresAuth": true,
+    "betaCapable": true
+  },
+  {
     "id": "government.compliance",
     "domain": "government",
     "route": "/government/compliance",
@@ -1028,6 +1124,20 @@
     "betaCapable": true
   },
   {
+    "id": "owner.garage-setup",
+    "domain": "service",
+    "route": "/dashboard/garage-setup",
+    "defaultLifecycle": "active",
+    "defaultRoles": [
+      "owner"
+    ],
+    "immutableRoles": [
+      "owner"
+    ],
+    "requiresAuth": true,
+    "betaCapable": true
+  },
+  {
     "id": "owner.import-detail",
     "domain": "diaspora",
     "route": "/diaspora/imports/:id",
@@ -1201,6 +1311,20 @@
     "id": "owner.service-history",
     "domain": "service",
     "route": "/dashboard/service-history",
+    "defaultLifecycle": "active",
+    "defaultRoles": [
+      "owner"
+    ],
+    "immutableRoles": [
+      "owner"
+    ],
+    "requiresAuth": true,
+    "betaCapable": true
+  },
+  {
+    "id": "owner.service-requests",
+    "domain": "service",
+    "route": "/dashboard/service-requests",
     "defaultLifecycle": "active",
     "defaultRoles": [
       "owner"

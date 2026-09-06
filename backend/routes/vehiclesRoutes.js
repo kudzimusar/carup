@@ -12,6 +12,8 @@ import { logAuditEvent } from '../services/auditLogger.js';
 // `isPrivateEvidenceFallbackAllowed` (not the looser `isUserIdFallbackAllowed`) is retained: an
 // environment inference must not authorise a private-document capability.
 import { authorizeRole, isPrivateEvidenceFallbackAllowed } from '../middleware/authMiddleware.js';
+import { requireAuthenticationAssurance } from '../middleware/stepUpMiddleware.js';
+import { ACTION_CLASSES } from '../services/auth/authenticationAssuranceService.js';
 import {
   toPublicEvidence,
   toPublicTimelineEvent,
@@ -498,6 +500,9 @@ router.post(
   '/api/vehicles/:vin/seller-authority/review',
   authorizeRole(['admin', 'government'], { allowUserIdFallback: false }),
   requireOperationsCapability(OPERATIONS_CAPABILITIES.SELLER_AUTHORITY_REVIEW),
+  // O2-X3: an authority-changing reviewer decision — recent step-up required on top of the
+  // capability; neither substitutes for the other.
+  requireAuthenticationAssurance(ACTION_CLASSES.SENSITIVE),
   asyncHandler(async (req, res) => {
   const vin = String(req.params.vin || '').trim().toUpperCase();
   const sellerUserId = String(req.body?.seller_user_id || '').trim();
