@@ -1620,15 +1620,29 @@ sailing they reserve capacity on. Harare stays Harare while the ocean leg ends a
 5 rows · corridor 5 · mode 2 · commercial compatibility 5 · sailing/capacity 8 · truth/security 8.
 T5 verdicts: `T5-PARTIAL` / `T5-USABLE` (owner-recorded only; never production-ready by itself).
 
-## T6 — Rates, pricing and charge allocation
+## T6 — Rates, commercial transparency, FX, landed cost and corridor economics
 
-- [ ] Rate source/provenance model.
-- [ ] Charge components.
-- [ ] Markup/discount governance.
-- [ ] Per-participant freight allocation.
-- [ ] Quote validity.
-- [ ] Accepted quote → charges without re-entry.
-- [ ] Do not hardcode undecided commercial economics.
+**Approved implementation plan:** `docs/trade-os/T6_RATES_PRICING_LANDED_COST_IMPLEMENTATION_PLAN.md`
+(authorized 2026-09-06 at head `9baf6466`). §44 of this file carries the reconciled commercial
+contract; the slice roll-call lives in the plan document.
+
+**Objective:** make avoidable trade cost visible and competitively removable — without
+manufacturing certainty.
+
+- [ ] T6.0 Commercial authority audit (money/rate/FX/landed authorities; hardcoded values; schema decision).
+- [ ] T6.1 FX authority — official reference source behind `FxRateProvider`, immutable snapshots, AVAILABLE/STALE/UNAVAILABLE.
+- [ ] T6.2 Canonical cost taxonomy (GOODS … EXCEPTIONS); unknown ≠ not-applicable.
+- [ ] T6.3 Structured charge components (stage, provider, scope, source money, inclusion, status, provenance, revenue class).
+- [ ] T6.4 Quote normalization + deterministic comparability (never a false cheapest).
+- [ ] T6.5 Rate sources/observations, classified and kept separate from provider quotes.
+- [ ] T6.6 Landed-cost estimate that exposes unpriced stages; customs firewall held.
+- [ ] T6.7 Corridor economics over the frozen T5 corridor authority; uncertainty penalised.
+- [ ] T6.8 Deterministic, explainable advisor — no AI authority.
+- [ ] T6.9 Shared-capacity allocation, explicit bases only, exact reconciliation.
+- [ ] T6.10 Security, UI, migration gate, staging journeys A–F, seven widths, owner-UAT proxy.
+
+**Exit gate:** the 28-row acceptance list in §44. Verdicts: `T6-PARTIAL` / `T6-USABLE`
+(owner-recorded only; never production-ready by itself).
 
 ## T7 — Full Communications lifecycle
 
@@ -3897,3 +3911,101 @@ readiness remains a separate, explicitly-authorized gate (T18), and production r
 AUTHORIZED**.
 
 **T5 IS FROZEN at `5079b0b3`. STOP T5.**
+
+---
+
+## §44 — T6 COMMERCIAL TRANSPARENCY CONTRACT (reconciled before runtime)
+
+**Execution entry — 2026-09-06 · T6.0. T6 authorized at head `9baf6466`. T5 remains
+`T5-USABLE`, frozen at runtime `5079b0b3`. Production untouched. T7+ not authorized.**
+
+Reconciled into the canonical authority **before** any T6 runtime change, per §0 rule 13.
+Plan: `docs/trade-os/T6_RATES_PRICING_LANDED_COST_IMPLEMENTATION_PLAN.md`.
+
+### The audit that shapes the design
+
+Nothing commercial is being replaced, because **almost none of it exists**. There is no FX
+authority anywhere in the repository; no charge-component authority; no rate authority; no
+landed-cost authority; no allocation authority. Logistics offers carry **five fixed numeric
+columns** (freight, handling, origin, destination, documentation) — a sixth charge cannot be
+expressed at all, and none of the five carries its own currency, inclusion state, provenance or
+revenue classification. Procurement offers carry no components whatsoever. `inclusions` and
+`exclusions` are free-text arrays: readable by a human, not classifiable by a comparator.
+
+`tradeIntelligenceService` already states this gap honestly — *"there is no structured duty,
+freight, handling or tax breakdown to build a landed cost from"* — and its `amountsByCurrency`
+deliberately refuses to add currencies together because no conversion was performed. **That is the
+contract T6 must satisfy before any USD comparison may appear on a screen.**
+
+Two hazards recorded:
+
+1. Every money column is `NOT NULL DEFAULT 'USD'`. A provider quoting JPY who omits the field
+   silently produces a USD row. Staging shows the risk is *unexercised, not absent*: every existing
+   amount is USD (42 import quotes, 71 logistics quotes, 115 order budgets). Multi-currency is
+   entirely unproven in practice.
+2. One pre-existing fabricated financial value lives **outside** Trade OS —
+   `documentIntelligenceService` writes `exchange_rate_used: 13.5` and a defaulted
+   `duty_calculated_zig` into `zimra_declarations` during admin OCR approval. That is a **customs**
+   FX and a **duty**: T12 territory, in a separately certified subsystem. It is recorded and
+   deliberately **not** changed by T6 — T12 owns the engine that must replace it — and named so it
+   cannot be mistaken for a precedent.
+
+### The permanent money model
+
+Four concepts that must never collapse into one another:
+
+```text
+SOURCE MONEY      original_amount + original_currency — permanent commercial truth
+REFERENCE USD     comparison/presentation only, always shown beside its source
+SETTLEMENT MONEY  what is actually transferred — T13
+CUSTOMS MONEY     the valuation/exchange basis a customs authority legally applies — T12
+```
+
+Reference FX may **never** silently become settlement FX or customs FX. The original is the
+commercial fact; the USD figure is a reproducible derived presentation, carrying its rate, source
+and rate date. If reference FX is unavailable the source money still shows and the comparison
+degrades on its own — never 0, never 1:1, never a silent last-known rate.
+
+### Schema decision — four additive tables
+
+`diaspora_fx_rate_snapshots` · `diaspora_trade_charge_components` ·
+`diaspora_trade_rate_observations` · `diaspora_shared_charge_allocations`.
+
+No JSON charge blob. No universal shadow transaction. No existing authority replaced.
+
+**One charge table, not two.** A component attaches to either a procurement offer or a logistics
+offer. A polymorphic `(owner_type, owner_id)` pair would abandon referential integrity; two
+near-identical tables would duplicate every rule. The table therefore carries **two nullable
+foreign keys** with a CHECK that exactly one is set — real FK integrity into both domains, one
+service path. The same shape T4 used for the continuation edge, for the same reason.
+
+**Landed cost gets no table.** An estimate is a composition of charge components and FX snapshots,
+both immutable, so it is reproducible by construction and a later rate change cannot rewrite an
+earlier one. A table would store a derivable fact.
+
+### Truth rules T6 adds to the programme
+
+1. **Unknown is never zero** — not freight, not customs, not FX, not an unreadable rate source.
+2. **An exclusion is not a zero.** "Destination clearing: EXCLUDED" must never render as `$0`.
+3. **Different scopes are not comparable numbers.** $1,700 port-to-port is not "$400 cheaper" than
+   $2,100 door-to-door until the scope difference is stated.
+4. **Uncertainty is penalised, never rewarded.** A corridor with three unpriced stages must not
+   appear cheaper than a fully priced one.
+5. **No corridor is BEST/CHEAPEST/PREFERRED.** T5's neutrality survives T6.
+6. **CarUp revenue is never labelled as a third party's charge.**
+7. **Provider-stated is not verified** merely because a provider typed it.
+8. **A research observation is not a provider quote**, an official fee is not a CarUp estimate, and
+   a historical actual is not a current market rate.
+9. **No savings claim.** Arithmetic differences between comparable options are allowed; "you saved
+   $X with CarUp" needs a governed baseline and journey history (T15/T17).
+10. **An estimate is not an invoice.** T6 never manufactures INVOICED/PAID/RECONCILED — T13 owns
+    settlement.
+
+### Firewalls held
+
+Customs/tax/eligibility (T12) · settlement/escrow (T13) · documents & verification (T8) ·
+warehouse (T9) · loading (T10) · tracking (T11) · reputation (T14) · Intelligence/Savings (T15) ·
+AI authority (T16) · fee & subscription policy (T17) · production (T18).
+
+Sale Incoterm ≠ CarUp service scope: T6 only prevents double-counting where a recorded scope
+explicitly says a cost is already included, and infers nothing where the treatment is unknown.
