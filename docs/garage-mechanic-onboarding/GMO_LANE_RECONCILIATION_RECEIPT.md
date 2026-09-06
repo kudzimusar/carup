@@ -211,3 +211,48 @@ creates the business.**
 - Production untouched.
 - No migrations added by this reconciliation.
 - No provider activation, no credentials, no spend.
+
+
+---
+
+## 6. The CI consequence of the X7-4 disposition — a DECISION FOR THE OWNER
+
+`o2-x7-integrated-certification` X7-4 was recorded above as a lane-scoped expected failure and
+deliberately **not modified**. Now that PR #209 is open, that decision has a visible cost worth
+stating rather than leaving for someone to discover.
+
+**`Lint · Types · Build · Tests` cannot go green on this branch.** The backend suite runs
+6,425 tests and reports **1 failure — X7-4, every time**. Its final assertion is:
+
+```js
+assert.equal(fs.existsSync('backend/services/serviceNetwork'), false,
+  'PR #197 code must NOT be present or modified on this branch');
+```
+
+That is a correct guard **for the O2 branch**, keeping O2 out of Service Network's lane. On a branch
+whose entire purpose is to converge #197 and #208 it is **false by construction** — the Service
+Network directory is present because it is supposed to be.
+
+The rest of X7-4 still passes and is the substantive part: roll-call rows 9 and 10 still defer with
+`SERVICE_NETWORK_RECONCILIATION_REQUIRED` and still name #197.
+
+### Why I did not simply fix it
+
+Editing another lane's certified test to make my branch green is the move that turns a real
+protection into a formality. The guard protects O2, not this branch, and I am not the right party to
+weaken it unilaterally.
+
+### The three options, so the owner can choose
+
+| option | effect | cost |
+|---|---|---|
+| **A — leave it** (current) | one permanently-red required check on #209 | a red check people learn to ignore is worse than no check |
+| **B — scope the assertion** | it holds unless the branch declares itself a convergence lane, via a committed, auditable marker | edits an O2-certified test; needs O2's owner to agree |
+| **C — merge the parents first** | #197 and #208 land, the guard becomes true again on main | reorders three programmes' merge sequence |
+
+**Nothing else is red.** Every other gate passes: exact-head + staging certification, backend-and-build,
+playwright, navigation-gates, navigation-accessibility, navigation-e2e, staging-integration,
+referral-ci, communication-unit, communication-postgres, secret scan, passport contracts, dependency
+audit, and all four Vercel deployments.
+
+I recommend **A until the owner decides**, and I have not touched the guard.
