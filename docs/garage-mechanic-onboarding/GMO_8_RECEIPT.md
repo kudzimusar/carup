@@ -161,6 +161,26 @@ the directive names as a stop condition. **I did not activate it.**
 This is not a defect in GMO, and not a defect in O2. It is a real dependency that was invisible until
 someone walked the whole journey.
 
+### There is no human fallback — and that is worth the owner's attention
+
+I looked for a legitimate manual path before accepting the block, because "a reviewer looks at the
+document themselves" is exactly what should happen when automation is unavailable. There isn't one:
+
+```js
+decisionPolicy.buildAssessmentSummary()
+  const primaryReasonCode = session.primary_reason_code || classificationResult?.reasonCode || null;
+```
+
+The policy input is the reason code **stored on the session row**. A reviewer's own `reason_code` is
+recorded on their decision but never reaches this check, so it cannot clear a blocking one. With no
+classifier the row is permanently `DOCUMENT_NOT_VISIBLE`, `approveAllowed:false`, and **no reviewer
+can approve any identity, ever** — regardless of what they can see with their own eyes.
+
+That is a design observation about O2, not a GMO defect, and closing it would be a new authority
+decision rather than something this lane should quietly add. But the consequence is worth stating:
+**a vision-provider outage is a total identity-verification outage**, with no manual degradation
+path. Every downstream journey that PO-2 gates on identity — this one included — stops with it.
+
 ### What would close it
 
 Set a vision-provider key on the staging backend preview and re-run
