@@ -42,7 +42,10 @@ const NEEDS_REASON = new Set(['request_more_info', 'reject'])
  * otherwise.
  */
 export default function GarageApplications() {
-  const { fetchGarageApplicationsForReview, fetchGarageApplicationForReview, decideGarageApplication, previewGarageEvidenceForReview } = useCarUpApi()
+  const {
+    fetchGarageApplicationsForReview, fetchGarageApplicationForReview,
+    decideGarageApplication, activateGarageApplication, previewGarageEvidenceForReview,
+  } = useCarUpApi()
 
   const [queue, setQueue] = useState<GarageApplication[] | null>(null)
   const [queueState, setQueueState] = useState<'loading' | 'ready' | 'error'>('loading')
@@ -52,6 +55,9 @@ export default function GarageApplications() {
   const [reason, setReason] = useState('')
   const [busy, setBusy] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
+  // GMO-4: the outcome of building the workspace, reported separately from the decision. `null`
+  // means no activation has been attempted in this session — not that it failed.
+  const [activation, setActivation] = useState<{ activated: boolean; reason?: string } | null>(null)
 
   const loadQueue = useCallback(() => {
     fetchGarageApplicationsForReview()
@@ -76,12 +82,27 @@ export default function GarageApplications() {
     if (!selected) return
     setBusy(decision); setError(null)
     try {
-      await decideGarageApplication(selected, { decision, reason: reason.trim() || undefined })
+      const res = await decideGarageApplication(selected, { decision, reason: reason.trim() || undefined })
+      // An approval reports two outcomes: the judgment, and whether the workspace got built.
+      if (res?.activation) setActivation(res.activation)
       setReason('')
       loadDetail(selected)
       loadQueue()
     } catch (e) {
       setError(e instanceof Error ? e.message : 'That decision was not recorded.')
+    } finally { setBusy(null) }
+  }
+
+  /** Retry building the workspace. Idempotent server-side, so pressing it twice is harmless. */
+  async function retryActivation() {
+    if (!selected) return
+    setBusy('activate'); setError(null)
+    try {
+      await activateGarageApplication(selected)
+      setActivation({ activated: true })
+      loadDetail(selected)
+    } catch (e) {
+      setActivation({ activated: false, reason: e instanceof Error ? e.message : 'The workspace was not created.' })
     } finally { setBusy(null) }
   }
 
@@ -266,6 +287,29 @@ export default function GarageApplications() {
               </ul>
             </div>
           )}
+
+          {/* GMO-4 — what actually happened to the workspace, said plainly either way. */}
+          {detail.application.activated_tenant_id ? (
+            <p className="rounded-xl border border-green-200 bg-green-50 p-4 text-sm text-green-900" data-testid="workspace-activated">
+              The garage workspace exists. The applicant is its administrator and can open it from
+              their account.
+            </p>
+          ) : activation && !activation.activated ? (
+            <div className="rounded-xl border border-amber-200 bg-amber-50 p-4" data-testid="activation-failed">
+              <p className="font-medium text-amber-900">
+                Your decision was recorded, but the workspace was not created.
+              </p>
+              <p className="text-sm text-amber-900 mt-1">
+                The approval stands — you do not need to decide again. {activation.reason}
+              </p>
+              <Button
+                variant="outline" className="min-h-11 mt-3" data-testid="retry-activation"
+                onClick={retryActivation} disabled={busy === 'activate'}
+              >
+                {busy === 'activate' ? 'Creating…' : 'Create the workspace'}
+              </Button>
+            </div>
+          ) : null}
 
           {detail.allowed_decisions.length > 0 ? (
             <div className="rounded-xl border border-gray-200 bg-white p-5 space-y-3" data-testid="decision-panel">

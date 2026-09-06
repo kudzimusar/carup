@@ -13,11 +13,12 @@ const fetchGarageApplicationsForReview = vi.fn()
 const fetchGarageApplicationForReview = vi.fn()
 const decideGarageApplication = vi.fn()
 const previewGarageEvidenceForReview = vi.fn()
+const activateGarageApplication = vi.fn()
 
 vi.mock('@/hooks/useCarUpApi', () => ({
   useCarUpApi: () => ({
     fetchGarageApplicationsForReview, fetchGarageApplicationForReview,
-    decideGarageApplication, previewGarageEvidenceForReview,
+    decideGarageApplication, activateGarageApplication, previewGarageEvidenceForReview,
   }),
 }))
 
@@ -187,5 +188,62 @@ describe('approving is not verifying, and does not build', () => {
     for (const forbidden of [/create tenant/i, /add member/i, /grant role/i, /assign admin/i]) {
       expect(text, `the reviewer must not be offered: ${forbidden}`).not.toMatch(forbidden)
     }
+  })
+})
+
+describe('GMO-4 — what happened to the workspace, said plainly', () => {
+  it('an activated application says the workspace exists', async () => {
+    fetchGarageApplicationForReview.mockResolvedValue({
+      ...DETAIL,
+      application: { ...APP, status: 'approved', decided_at: 'x', activated_tenant_id: 't-1' },
+      allowed_decisions: [],
+    })
+    await open()
+    expect(screen.getByTestId('workspace-activated'))
+      .toHaveTextContent(/applicant is its administrator/i)
+  })
+
+  it('a failed activation keeps the decision and offers a retry', async () => {
+    decideGarageApplication.mockResolvedValue({
+      application: { ...APP, status: 'approved' },
+      activation: { activated: false, reason: 'connection reset', retryable: true },
+    })
+    await open()
+    fireEvent.click(screen.getByTestId('decision-approve'))
+    const panel = await screen.findByTestId('activation-failed')
+    // The reviewer must not be asked to make the same judgment twice.
+    expect(panel).toHaveTextContent(/approval stands — you do not need to decide again/i)
+    expect(panel).toHaveTextContent(/connection reset/)
+    expect(screen.getByTestId('retry-activation')).toBeTruthy()
+  })
+
+  it('the retry calls the idempotent activate endpoint', async () => {
+    decideGarageApplication.mockResolvedValue({
+      application: { ...APP, status: 'approved' },
+      activation: { activated: false, reason: 'timeout', retryable: true },
+    })
+    activateGarageApplication.mockResolvedValue({ tenantId: 't-1', created: true })
+    await open()
+    fireEvent.click(screen.getByTestId('decision-approve'))
+    fireEvent.click(await screen.findByTestId('retry-activation'))
+    await waitFor(() => expect(activateGarageApplication).toHaveBeenCalledWith('app-1'))
+  })
+
+  it('no activation attempt is NOT rendered as a failed one', async () => {
+    await open()
+    // A pending application has attempted nothing; showing a failure banner would be a lie.
+    expect(screen.queryByTestId('activation-failed')).toBeNull()
+    expect(screen.queryByTestId('workspace-activated')).toBeNull()
+  })
+
+  it('a successful approval shows no failure banner', async () => {
+    decideGarageApplication.mockResolvedValue({
+      application: { ...APP, status: 'approved' },
+      activation: { activated: true, tenantId: 't-1', created: true },
+    })
+    await open()
+    fireEvent.click(screen.getByTestId('decision-approve'))
+    await waitFor(() => expect(decideGarageApplication).toHaveBeenCalled())
+    expect(screen.queryByTestId('activation-failed')).toBeNull()
   })
 })

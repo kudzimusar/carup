@@ -13,6 +13,10 @@ import {
   listApplicationsForReview,
   recordDecision,
 } from '../services/garageOnboarding/garageReviewService.js';
+import {
+  activateAfterApproval,
+  activateApprovedApplication,
+} from '../services/garageOnboarding/garageActivationService.js';
 import { emitDomainEvent } from '../services/eventBus/eventBusService.js';
 
 const router = express.Router();
@@ -64,7 +68,36 @@ router.post(
     const result = await recordDecision(supabase, req.userContext, req.params.applicationId, req.body || {}, {
       req, emitDomainEvent,
     });
+
+    // An approval that stops at "approved" leaves a person with a decision and no workspace. So
+    // the workspace is built here — but as a SEPARATE step whose outcome is reported separately.
+    // If it fails the decision still stands and `POST .../activate` retries it idempotently; the
+    // reviewer is never asked to make the same judgment twice.
+    if (result.application?.status === 'approved') {
+      result.activation = await activateAfterApproval(
+        supabase, req.userContext, req.params.applicationId, { req, emitDomainEvent },
+      );
+    }
+
     res.status(201).json(result);
+  }),
+);
+
+/**
+ * Build the workspace for an application that is already approved.
+ *
+ * Idempotent, so this is both the retry path for a failed activation and safe to press twice.
+ * It cannot activate anything that is not approved — the database refuses.
+ */
+router.post(
+  '/api/admin/garage-applications/:applicationId/activate',
+  ...reviewer,
+  requireAuthenticationAssurance(ACTION_CLASSES.SENSITIVE),
+  asyncHandler(async (req, res) => {
+    const result = await activateApprovedApplication(
+      supabase, req.userContext, req.params.applicationId, { req, emitDomainEvent },
+    );
+    res.status(result.created ? 201 : 200).json(result);
   }),
 );
 

@@ -112,9 +112,22 @@ test('GMO-3: the reviewer routes compose role, capability and step-up', () => {
   const src = readFileSync(path.join(here, '../routes/garageReviewRoutes.js'), 'utf8');
   assert.match(src, /authorizeRole\(ADMIN_ROLES\)/);
   assert.match(src, /requireOperationsCapability\(OPERATIONS_CAPABILITIES\.GARAGE_ONBOARDING_REVIEW\)/);
-  // Deciding and viewing private evidence are both sensitive.
-  const stepUps = src.match(/requireAuthenticationAssurance\(ACTION_CLASSES\.SENSITIVE\)/g) || [];
-  assert.equal(stepUps.length, 2, 'the decision route and the evidence preview both need step-up');
+  // Every route that changes what happens to a person's business, or exposes their private
+  // documents, sits behind step-up. Named individually rather than counted, so adding a route
+  // without step-up fails here instead of quietly moving a number.
+  const SENSITIVE_ROUTES = [
+    "'/api/admin/garage-applications/:applicationId/decision'",
+    "'/api/admin/garage-applications/:applicationId/activate'",
+    "'/api/admin/garage-applications/:applicationId/evidence/:documentId/preview'",
+  ];
+  for (const route of SENSITIVE_ROUTES) {
+    const at = src.indexOf(route);
+    assert.ok(at > 0, `${route} must exist`);
+    const block = src.slice(at, at + 400);
+    assert.match(block, /requireAuthenticationAssurance\(ACTION_CLASSES\.SENSITIVE\)/,
+      `${route} must require step-up`);
+    assert.match(block, /\.\.\.reviewer/, `${route} must require role + capability`);
+  }
 });
 
 test('GMO-3: a reviewer cannot decide their own application', async () => {

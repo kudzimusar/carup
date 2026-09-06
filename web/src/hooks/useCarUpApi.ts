@@ -2504,6 +2504,13 @@ export function useCarUpApi() {
     })
   }, [request])
 
+  /** GMO-4 — build the workspace for an already-approved application. Idempotent: safe to retry. */
+  const activateGarageApplication = useCallback(async (id: string): Promise<any> => {
+    return request<any>(`/admin/garage-applications/${encodeURIComponent(id)}/activate`, {
+      method: 'POST', body: '{}',
+    })
+  }, [request])
+
   const previewGarageEvidenceForReview = useCallback(async (id: string, docId: string): Promise<any> => {
     return request<any>(
       `/admin/garage-applications/${encodeURIComponent(id)}/evidence/${encodeURIComponent(docId)}/preview`,
@@ -3318,6 +3325,7 @@ export function useCarUpApi() {
     fetchGarageApplicationsForReview,
     fetchGarageApplicationForReview,
     decideGarageApplication,
+    activateGarageApplication,
     previewGarageEvidenceForReview,
     fetchGarageQueue,
     fetchGarageMechanics,
