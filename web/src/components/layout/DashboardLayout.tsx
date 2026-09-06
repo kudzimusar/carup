@@ -57,7 +57,16 @@ export default function DashboardLayout({ role }: { role: string }) {
     }
   }
 
-  const registryItems = getDashboardItems(role as UserRole)
+  // Sidebar visibility must agree with direct access (the invariant this layout already keeps for
+  // effective states). A garage tenant-member can now REACH the garage surfaces, so they must also
+  // be able to SEE them: their items are merged in from the tenant role.
+  const tenantRole = normalizeFrontendRole(user?.active_tenant_role as UserRole | undefined)
+  const registryItems = (() => {
+    const base = getDashboardItems(role as UserRole)
+    if (!tenantRole || tenantRole === role) return base
+    const seen = new Set(base.map((i) => i.id))
+    return [...base, ...getDashboardItems(tenantRole).filter((i) => !seen.has(i.id))]
+  })()
   const roleInfo = getRoleMetadata(role as UserRole)
   const effectiveStates = useFeatureEffectiveStates()
 
@@ -68,6 +77,7 @@ export default function DashboardLayout({ role }: { role: string }) {
     isAuthenticated: !!user,
     // Operations M6: platform_admin/super_admin present as admin in the UI.
     role: normalizeFrontendRole(user?.role) ?? null,
+    tenantRole,
     environment: import.meta.env.MODE,
     effectiveStates,
   }
@@ -94,6 +104,10 @@ export default function DashboardLayout({ role }: { role: string }) {
     isBootstrapping: loading,
     isAuthenticated: !!user,
     role: (user?.role as UserRole) ?? null,
+    // A garage employee is an `owner` platform-wide and a `mechanic` inside their garage; both
+    // facts are true and the route gate needs both, exactly as the backend does. Without this a
+    // real garage tenant-member was redirected off every garage surface.
+    tenantRole: user?.active_tenant_role ?? null,
     effectiveStates,
   })
   if (decision.kind === 'loading') return <AuthBootstrapLoading />

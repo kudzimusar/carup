@@ -566,6 +566,22 @@ export function useCarUpApi() {
     if (user?.role) authHeaders['x-stakeholder-role'] = user.role
     if (user?.active_tenant_id) authHeaders['x-tenant-id'] = user.active_tenant_id
 
+    // Act for the tenant on tenant-scoped routes.
+    //
+    // Round 2 owner UAT: a real garage tenant-member got 403 on every garage route. Public
+    // registration makes a self-registered garage employee an `owner`, so this header carried
+    // `owner` and the garage routes — which allow mechanic/dealer/admin — refused. The person's
+    // membership genuinely says `mechanic`; the browser just never said so.
+    //
+    // The tenant role is asserted ONLY on `/garage/*`, and it is not a privilege escalation:
+    // `resolveEffectiveRole` honours a requested role solely when it equals the platform role or
+    // the VERIFIED `tenant_users` role, so a claim the membership does not support is still
+    // refused, exactly as it was before this line existed. Every other route keeps the platform
+    // role, so nothing outside the garage surfaces changes behaviour.
+    if (user?.active_tenant_role && path.startsWith('/garage/')) {
+      authHeaders['x-stakeholder-role'] = user.active_tenant_role
+    }
+
     try {
       const data = await apiRequest<T>({ baseUrl: BASE_URL, path, options, authHeaders })
       setLoading(false)

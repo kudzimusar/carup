@@ -286,3 +286,53 @@ test('R6: a case with no job card is nobody\'s — it is the garage\'s to triage
   assert.equal(result.queue[0].work_order, null);
   assert.equal(result.queue[0].next_action, 'accept_or_decline');
 });
+
+/* ── Round 2 — the session must be able to say which tenant it acts for ──────────────────────────
+ *
+ * Round 2 owner UAT signed in as a REAL garage tenant-member (`tenant_users.role = 'mechanic'` on a
+ * `garage` tenant with a published profile) and got 403 from every garage route. The authority was
+ * never missing: `x-stakeholder-role: mechanic` with `x-tenant-id` returns 200 on all of them. The
+ * browser could not send either header, because `/api/auth/me` answered with the platform role
+ * alone — and public registration makes every self-registered garage employee an `owner`.
+ *
+ * `resolveEffectiveRole` is the authority for whether a claimed role is honoured, and it is
+ * unchanged. These tests pin that it still refuses everything it refused before.
+ */
+const { resolveEffectiveRole } = await import('../middleware/authMiddleware.js');
+
+test('Round 2: a VERIFIED tenant role is honoured — this is what the browser could not ask for', () => {
+  const effective = resolveEffectiveRole({
+    userRole: 'owner', tenantRole: 'mechanic', requestedRole: 'mechanic',
+  });
+  assert.equal(effective, 'mechanic');
+});
+
+test('Round 2: an UNVERIFIED role is still refused — reporting membership grants nothing', () => {
+  // The exact refusal Round 2 observed before the tenant was known. It must still happen for a
+  // role the membership does not support.
+  assert.throws(
+    () => resolveEffectiveRole({ userRole: 'owner', tenantRole: null, requestedRole: 'mechanic' }),
+    /not verified for this user context/,
+  );
+  assert.throws(
+    () => resolveEffectiveRole({ userRole: 'owner', tenantRole: 'mechanic', requestedRole: 'dealer' }),
+    /not verified for this user context/,
+    'a membership as mechanic must not confer dealer',
+  );
+});
+
+test('Round 2: a tenant role can never confer ADMIN', () => {
+  // The one role tenant membership must never be able to grant, however the tenant records it.
+  assert.throws(
+    () => resolveEffectiveRole({ userRole: 'owner', tenantRole: 'admin', requestedRole: 'admin' }),
+    /not verified for this user context/,
+  );
+});
+
+test('Round 2: with no requested role the PLATFORM role still governs', () => {
+  assert.equal(
+    resolveEffectiveRole({ userRole: 'owner', tenantRole: 'mechanic', requestedRole: null }),
+    'owner',
+    'knowing about a tenant must not silently change what a plain request acts as',
+  );
+});

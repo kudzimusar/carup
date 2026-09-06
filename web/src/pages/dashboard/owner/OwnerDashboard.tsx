@@ -187,7 +187,12 @@ export default function OwnerDashboard() {
           <h1 className="text-2xl font-bold">Owner Dashboard</h1>
           <p className="text-gray-500">Welcome back{user?.name ? `, ${user.name}` : ''}! Monitor your vehicles, escrows, and insurance logs.</p>
         </div>
-        <div className="flex items-center gap-3">
+        {/* R11, corrected after Round 2. The exploratory UAT attributed the 27px overflow at 393px
+            to the metrics table; measuring every box against the viewport showed the real source is
+            THIS row — three controls totalling 404px that could not wrap. The table fix was not
+            wrong, but it was not the whole cause, and the overflow survived it. Wrapping is the fix:
+            no control is hidden and nothing is truncated. */}
+        <div className="flex flex-wrap items-center gap-3 min-w-0" data-testid="dashboard-header-actions">
           {/* Low Bandwidth mode toggle */}
           <div className="flex items-center gap-2 bg-white px-3 py-1.5 rounded-lg border text-xs text-gray-600">
             <WifiOff className={`w-4 h-4 ${lowBandwidth ? 'text-orange-500 animate-pulse' : 'text-gray-400'}`} />

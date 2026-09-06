@@ -139,8 +139,16 @@ export type NavigationSurface =
 export interface NavigationContext {
   /** Whether a user is authenticated */
   isAuthenticated?: boolean
-  /** Authenticated role, if any */
+  /** Authenticated PLATFORM role, if any */
   role?: UserRole | null
+  /**
+   * The role held in the active tenant, when there is one.
+   *
+   * Either role may make a feature eligible — the same rule the backend applies. A garage employee
+   * who signed up through the product is an `owner` platform-wide and a `mechanic` in their garage;
+   * gating on the platform role alone hid every garage surface from them.
+   */
+  tenantRole?: UserRole | null
   /** Tenant id, when multi-tenant scoping applies */
   tenantId?: string | null
   /** Deployment environment */
@@ -1710,6 +1718,7 @@ export function resolveFeatureVisibility(
     roleEligible = false
   } else {
     roleEligible = feature.roles.includes(ctx.role)
+      || Boolean(ctx.tenantRole && feature.roles.includes(ctx.tenantRole))
   }
 
   const lifecycleVisible = isLifecycleVisible(state)
