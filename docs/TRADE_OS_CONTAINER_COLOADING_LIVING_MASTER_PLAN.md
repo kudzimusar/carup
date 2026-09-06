@@ -3238,3 +3238,153 @@ rather than assigned blindly to T5 or T7.
 
 **T4-PARTIAL → T4-USABLE. T4 IS FROZEN at `736f06c5`.**
 Production untouched. **T5 NOT STARTED — it requires separate owner authorization.** PR #207 Draft.
+
+---
+
+## §36 — TRADE OS TRANSACTION INTAKE CONTRACT
+
+**Governing section for T2–T17 intake. Not a new master plan.** Any phase that needs a customer
+fact asks this contract for it first; a phase that discovers a missing fact adds it HERE rather
+than building a second form.
+
+### 36.1 The rule the contract exists to enforce
+
+> **CAPTURE ONCE → RECORD PROVENANCE → VERIFY WHEN AN AUTHORITY EXISTS → REUSE EVERYWHERE.**
+
+A customer saying *"about 400 kg"* and a warehouse scale saying *"437 kg"* are two different facts
+about the same thing. The second must never silently overwrite the first, because the difference
+between them is exactly what a dispute, a re-quote, or a capacity refusal later turns on.
+
+And the corollary that governs the UI: **unknown is a legitimate answer.** A customer who knows they
+have twelve boxes but not their dimensions must be able to say so. Forcing a number to satisfy a
+column is how a database gets full of confident lies.
+
+### 36.2 Audit findings — what already exists (measured before designing)
+
+| Concern | Authority today | Verdict |
+|---|---|---|
+| Procurement header | `diaspora_import_orders` — route, make/model/year, budget, taxonomy | **Reuse.** |
+| Procurement detail | `diaspora_import_order_request_lines` — `item_kind`, quantity, vehicle make/model/year, `part_number` + `part_number_known`, `condition_preference` | **Reuse and extend.** Already a proper line structure, not a blob. |
+| RFQ-level intent | `diaspora_import_orders.metadata.rfq` — `discloseBudget`, `neededBy`, `urgency`, `buyerNotes`, `quoteDeadline` | Metadata already carries intake intent; **migrate the queryable/privacy-bearing ones to columns**. |
+| Logistics header | `diaspora_logistics_requests` — origin/destination country·city·location, `needed_by`, `service_preference` | **Reuse and extend.** |
+| Logistics cargo | `diaspora_logistics_request_items` — category, quantity, L·W·H + unit, CBM, weight, **`measurement_basis`** | **Reuse.** `measurement_basis` (CALCULATED / PROVIDED / UNKNOWN) is the existing provenance seed. |
+| Supplier visibility | `projectRfqForMarketplace` / `projectRequestLineForMarketplace` / `projectLogisticsRequestForMarketplace` | **Explicit allow-lists with documented exclusions. Extend the same way — never return a raw row.** |
+| Vehicle identity | canonical Vehicle Passport + `resolveVehicleObjectAuthority` | **Reuse.** A VIN is linked through authority, never from free text. |
+| Documents | `diaspora_trade_documents` (+ Drive) | **Readiness only** at intake. Presence ≠ verification. |
+| Conversation | canonical Communications `ensureReferenceFlow` | **Reuse.** No second inbox. |
+
+**No new transaction authority is created.** T4 already proved the shape of that decision: an edge,
+not an entity.
+
+### 36.3 Where a fact is allowed to live
+
+A field's home is decided by what must be *done* with it, not by what is convenient to write:
+
+1. **Structured column on an existing authority** — required when the fact is validated, matched
+   against supply, queried, or privacy-gated. Steering, drivetrain, mileage ceiling, budget meaning,
+   budget disclosure, destination outcome, shipping objective, consignee kind, clearing/insurance/
+   inspection/payment intent all qualify: each one either filters supply or decides what a supplier
+   may see.
+2. **Line/item row** — anything that repeats. Parts, cargo groups and vehicles are lines, never a
+   comma-separated string in a notes field.
+3. **Provenance ledger** (§36.5) — any fact that a later authority can supersede: weight, volume,
+   dimensions, value, condition, inspection state.
+4. **Metadata** — only genuinely open-ended, non-queryable, non-privacy-bearing extras. Free-text
+   notes and the existing `metadata.rfq` display fields qualify. **A field that needs validation,
+   matching, querying or a privacy decision does not.**
+
+> **The anti-pattern this forbids:** dropping the whole expanded intake into one JSON object because
+> it ships faster. That object cannot be validated, cannot be matched against supply, cannot be
+> partially projected to a supplier, and cannot be migrated. Every later phase would then re-read a
+> blob and re-implement its own interpretation of it.
+
+### 36.4 Field classification
+
+Every field carries one of four states, and the UI must show which:
+
+| Class | Meaning | UI obligation |
+|---|---|---|
+| **REQUIRED NOW** | Without it the request is not meaningful | Blocks publish, and says why |
+| **RECOMMENDED** | Improves quote accuracy | *"Adding these may help providers quote more accurately"* — never "incomplete" |
+| **CONDITIONAL** | Only exists because of another answer | Appears only when triggered |
+| **LATER** | Useful downstream, not needed to publish | Offered, never demanded |
+
+**"Form incomplete" is forbidden for information that is legitimately unknown or optional.**
+
+### 36.5 Provenance model
+
+Facts that an authority can later supersede are recorded as **observations**, not as overwritten
+values:
+
+```
+CUSTOMER_STATED · CUSTOMER_ESTIMATED · CARUP_CALCULATED · PROVIDER_STATED
+WAREHOUSE_MEASURED · CARRIER_STATED · DOCUMENT_DERIVED · VERIFIED
+```
+
+Rules:
+- **`VERIFIED` requires an authority.** No customer selection may produce it.
+- An estimate and a measurement are never collapsed; the newest observation is what surfaces, and
+  the earlier one remains readable.
+- The existing `measurement_basis` on logistics items is the in-row summary of the newest
+  observation, kept for compatibility and for cheap matching.
+
+### 36.6 Privacy classification
+
+Every field is assigned a visibility class, **defaulting to PRIVATE when uncertain**:
+
+| Class | Who sees it |
+|---|---|
+| `PRIVATE` | The requester (and platform admins) only |
+| `MARKETPLACE_SAFE` | Any qualified supplier/provider browsing opportunities |
+| `COUNTERPARTY_AFTER_ENGAGEMENT` | Only a counterparty who has engaged (submitted an offer / been awarded) |
+| `INTERNAL` | CarUp operations; never in a customer or supplier payload |
+| `LATER_OPERATIONAL` | Released to an operational participant only when that stage exists |
+
+**Permanently PRIVATE at intake:** pickup address and site contacts, consignee contact details,
+personal phone/email, internal user and tenant ids, storage paths and document URLs, undisclosed
+budget, payment intent, clearing-agent contact details, and any VIN not authorised for the viewer.
+
+**A richer intake must not widen the marketplace projection.** Supplier visibility stays an explicit
+allow-list; a new field is invisible to suppliers until it is deliberately added to that list and
+covered by an adversarial test.
+
+### 36.7 Customer-declaration boundary
+
+A customer declaration records an **intention or a belief**, never an operational fact:
+
+- ticking *"batteries"* does not make hazardous carriage eligible;
+- ticking *"inspection completed"* does not produce an inspection certificate;
+- naming a budget meaning does not compute a landed cost (**T6** owns rates);
+- expressing insurance or clearing interest does not create a policy or a broker relationship.
+
+Each is stored as customer-stated and requires the relevant authority before it means anything.
+
+### 36.8 Downstream consumers
+
+| Phase | What it reads from intake |
+|---|---|
+| **T2** | requirement + supplier matching |
+| **T3** | cargo, route, service preference |
+| **T4** | the Passport projects it; the continuation **inherits** destination outcome and item identity |
+| **T5** | sailing eligibility inputs |
+| **T6** | requested quote scope and charge components |
+| **T8** | document-readiness seed |
+| **T9** | replaces estimates with measurements — **via a new observation, not an overwrite** |
+| **T11/T12** | destination outcome, consignee, clearing intent |
+| **T13** | payment and insurance intent |
+| **T15** | funnel completeness and demand signals |
+
+### 36.9 Revision semantics
+
+A DRAFT is freely editable. Once published, a change that alters what a supplier already quoted
+against is **commercially material** and may not be applied silently — it requires a governed
+revision and re-confirmation. Non-material additions (a clarifying note, a later-class fact) may be
+added without invalidating offers. T2/T3's existing edit rules stand; this contract does not loosen
+them.
+
+### 36.10 Standing gap carried into this contract
+
+**A procurement-linked live logistics request still cannot be cancelled or closed through the
+product**, so the one-live-continuation slot cannot be intentionally released (see §35). It is
+**not** Intake 2.0's to fix, and it must not disappear: **required before production readiness**,
+owned by logistics request-lifecycle work.

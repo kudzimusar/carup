@@ -115,6 +115,17 @@ jobs:
       - name: Trade OS T4 continuation edge verification (isolated PGlite Postgres)
         run: node database/test/trade_os_t4_continuation_check.mjs
 
+      # Trade OS Intake 2.0 — the intake contract's persistence (20260906120000).
+      #
+      # Same NEW_MIGRATIONS gap as the two steps above. What only real Postgres shows here: every
+      # enumerated intake choice is CHECK-constrained (an invented "budget basis" is refused rather
+      # than stored and later believed), unstated preferences stay NULL instead of being silently
+      # defaulted, and the observation ledger keeps a customer's 400 kg estimate ALONGSIDE a
+      # warehouse's 437 kg measurement — the whole capture-once/verify-later guarantee, which a
+      # (value, provenance) column pair could not express.
+      - name: Trade OS Intake 2.0 contract verification (isolated PGlite Postgres)
+        run: node database/test/trade_os_intake_2_0_check.mjs
+
       # Issue #101 P0 hardening — BLOCKING behavioural proof, not a shape check.
       #
       # This is load-bearing security evidence: it runs the migration against real
