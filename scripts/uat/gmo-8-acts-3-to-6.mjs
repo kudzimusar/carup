@@ -51,6 +51,11 @@ async function step(how, name, fn) {
 const stamp = Date.now().toString(36);
 const OWNER = { first: 'Rutendo', last: 'Chikafu', email: `gmo8.owner.${stamp}@carup-uat.invalid`, password: PASSWORD, garage: `Mbare Motors ${stamp.slice(-4).toUpperCase()}` };
 const MECH = { first: 'Thabo', last: 'Ncube', email: `gmo8.mech.${stamp}@carup-uat.invalid`, password: PASSWORD };
+// Act 6b needs a fourth real person: someone who owns a car and wants it serviced. Without them the
+// act can only prove the mechanic is *assignable*, which is not what the acceptance sentence says.
+const CUSTOMER = { first: 'Nyasha', last: 'Mutasa', email: `gmo8.cust.${stamp}@carup-uat.invalid`, password: PASSWORD };
+// 12-17 chars, and no I/O/Q at 17 - the seller identifier rule refuses those by name.
+const CUSTOMER_VIN = `GMO8UAT${stamp.toUpperCase()}`.slice(0, 17).replace(/[IOQ]/g, 'X');
 
 /* ── a thin governed-API client, carrying a REAL session AND a real CSRF token ────────────────
    The backend uses double-submit CSRF: a token from /api/security/csrf-token, echoed back as
@@ -531,6 +536,125 @@ async function main() {
     return 'queue readable and the mechanic is assignable';
   });
 
+  /* ═══ ACT 6b — the last clause of the acceptance sentence: a REAL Service Network job ════════
+     Everything above proves the new mechanic is *assignable* and the garage queue *readable*. That
+     is a proxy for the sentence, not the sentence, which says the new relationship is used "to
+     complete a real Service Network job". These steps do the job: publish the garage, let a real
+     vehicle owner ask it for work, open and assign a work order to the NEW mechanic, and have that
+     mechanic — not the founder — move and record it.
+
+     WRITTEN BUT NEVER EXECUTED: they sit behind the identity-approval block with steps 13–24, so no
+     run has reached them. They are first-class steps rather than optional ones precisely so a future
+     run either proves the sentence or fails loudly, instead of reporting a pass it never earned. */
+  await step('api', 'the founder publishes the garage so it can receive work', async () => {
+    const put = await api('/api/garage/profile', {
+      token: state.ownerToken, tenantId: state.tenantId, method: 'PUT',
+      body: {
+        display_name: OWNER.garage, location_city: 'Harare', location_province: 'Harare',
+        service_categories: ['general_service'], contact_policy: 'in_app_only',
+      },
+    });
+    if (![200, 201].includes(put.status)) throw new Error(`profile ${put.status} ${JSON.stringify(put.body).slice(0, 160)}`);
+    const pub = await api('/api/garage/profile/publish', { token: state.ownerToken, tenantId: state.tenantId, method: 'POST' });
+    if (pub.status !== 200) throw new Error(`publish ${pub.status} ${JSON.stringify(pub.body).slice(0, 160)}`);
+    state.slug = pub.body?.profile?.slug || put.body?.profile?.slug;
+    if (!state.slug) throw new Error('published, but the response carried no slug to address the garage by');
+    return `published as /${state.slug}`;
+  });
+
+  const customer = await open();
+  await step('browser', 'a vehicle owner registers — a fourth unprovisioned person', async () => {
+    await register(customer, CUSTOMER);
+    await signIn(customer, CUSTOMER);
+    const { token, user } = await login(CUSTOMER.email, PASSWORD);
+    state.custToken = token; state.custId = user?.id;
+    if (!state.custId) throw new Error('registered but the session carries no user id');
+    await shot(customer, 'customer-dashboard');
+    return `${CUSTOMER.email} role=${user?.role || '?'}`;
+  });
+
+  await step('api', 'the platform records THEM as the vehicle\'s governed owner', async () => {
+    const r = await api('/api/vehicles/add', {
+      token: state.custToken, method: 'POST',
+      body: {
+        vin: CUSTOMER_VIN, make: 'Toyota', model: 'Hilux', year: 2016,
+        price: 14500, currency: 'USD', mileage: 128000, location: 'Harare', province: 'Harare',
+      },
+    });
+    if (![200, 201].includes(r.status)) throw new Error(`${r.status} ${JSON.stringify(r.body).slice(0, 200)}`);
+    state.vin = CUSTOMER_VIN;
+    // Governed vehicle authority is owner_id ALONE: current_seller_id is explicitly not accepted,
+    // so a case opened below proves ownership, not merely that they listed something.
+    return `${CUSTOMER_VIN} added`;
+  });
+
+  await step('api', 'the owner asks the newly-published garage for service', async () => {
+    const r = await api('/api/service-cases', {
+      token: state.custToken, method: 'POST',
+      body: {
+        vin: state.vin, garage_slug: state.slug, service_category: 'general_service',
+        request_summary: 'Brake noise at low speed and an overdue service.',
+      },
+    });
+    if (![200, 201].includes(r.status)) throw new Error(`${r.status} ${JSON.stringify(r.body).slice(0, 200)}`);
+    state.caseId = r.body?.case?.id;
+    if (!state.caseId) throw new Error('no case id returned');
+    return `case ${String(state.caseId).slice(0, 8)} (${r.body?.case?.status})`;
+  });
+
+  await step('api', 'the garage accepts it and opens a work order', async () => {
+    const acc = await api(`/api/service-cases/${state.caseId}/accept`, { token: state.ownerToken, tenantId: state.tenantId, method: 'POST' });
+    if (acc.status !== 200) throw new Error(`accept ${acc.status} ${JSON.stringify(acc.body).slice(0, 160)}`);
+    const wo = await api(`/api/service-cases/${state.caseId}/work-order`, {
+      token: state.ownerToken, tenantId: state.tenantId, method: 'POST', body: { service_category: 'general_service' },
+    });
+    if (![200, 201].includes(wo.status)) throw new Error(`work-order ${wo.status} ${JSON.stringify(wo.body).slice(0, 160)}`);
+    state.workOrderId = wo.body?.workOrder?.id;
+    if (!state.workOrderId) throw new Error('no work order id returned');
+    return `work order ${String(state.workOrderId).slice(0, 8)}`;
+  });
+
+  await step('api', 'the work is assigned to the MECHANIC THIS JOURNEY CREATED', async () => {
+    const r = await api(`/api/service-work-orders/${state.workOrderId}/assign`, {
+      token: state.ownerToken, tenantId: state.tenantId, method: 'POST', body: { mechanic_user_id: state.mechId },
+    });
+    if (![200, 201].includes(r.status)) throw new Error(`${r.status} ${JSON.stringify(r.body).slice(0, 200)}`);
+    const check = await api(`/api/service-work-orders/${state.workOrderId}/assignment`, { token: state.ownerToken, tenantId: state.tenantId });
+    const assignee = check.body?.assignment?.mechanic_user_id;
+    if (assignee !== state.mechId) throw new Error(`assigned, but the durable assignment names ${assignee || 'nobody'}`);
+    return 'assignment is durable and names the invited mechanic';
+  });
+
+  await step('api', 'the MECHANIC — not the founder — does and records the work', async () => {
+    const start = await api(`/api/service-cases/${state.caseId}/start`, { token: state.mechToken, tenantId: state.tenantId, method: 'POST' });
+    if (start.status !== 200) throw new Error(`start ${start.status} ${JSON.stringify(start.body).slice(0, 160)}`);
+    const prog = await api(`/api/service-work-orders/${state.workOrderId}/status`, {
+      token: state.mechToken, tenantId: state.tenantId, method: 'PATCH', body: { status: 'In Progress' },
+    });
+    if (prog.status !== 200) throw new Error(`in-progress ${prog.status} ${JSON.stringify(prog.body).slice(0, 160)}`);
+    const rec = await api(`/api/service-work-orders/${state.workOrderId}/records`, {
+      token: state.mechToken, tenantId: state.tenantId, method: 'POST',
+      body: { service_category: 'general_service', work_performed: 'Front brake pads replaced; full service completed.' },
+    });
+    if (rec.status !== 201) throw new Error(`record ${rec.status} ${JSON.stringify(rec.body).slice(0, 200)}`);
+    state.recordId = rec.body?.record?.id;
+    if (!state.recordId) throw new Error('recorded, but no service record id came back');
+    return `service record ${String(state.recordId).slice(0, 8)}`;
+  });
+
+  await step('api', 'the job completes — the journey ends in a real Service Record', async () => {
+    const done = await api(`/api/service-work-orders/${state.workOrderId}/status`, {
+      token: state.mechToken, tenantId: state.tenantId, method: 'PATCH',
+      body: { status: 'Completed', total_cost: 180, currency: 'USD' },
+    });
+    if (done.status !== 200) throw new Error(`complete work order ${done.status} ${JSON.stringify(done.body).slice(0, 160)}`);
+    const closed = await api(`/api/service-cases/${state.caseId}/complete`, { token: state.ownerToken, tenantId: state.tenantId, method: 'POST' });
+    if (closed.status !== 200) throw new Error(`complete case ${closed.status} ${JSON.stringify(closed.body).slice(0, 160)}`);
+    const view = await api(`/api/service-cases/${state.caseId}`, { token: state.custToken });
+    if (view.body?.case?.status !== 'completed') throw new Error(`the customer still sees ${view.body?.case?.status}`);
+    return 'completed, and the customer can see it';
+  });
+
   await step('api', 'revoking ends FUTURE authority', async () => {
     const r = await api(`/api/garage/members/${encodeURIComponent(state.mechId)}`, {
       token: state.ownerToken, tenantId: state.tenantId, method: 'DELETE',
@@ -541,7 +665,15 @@ async function main() {
     if (![401, 403].includes(after.status)) throw new Error(`refused with an unexpected ${after.status}`);
     const m = await api('/api/garage/mechanics', { token: state.ownerToken, tenantId: state.tenantId });
     if ((m.body?.mechanics || []).some((x) => x.user_id === state.mechId)) throw new Error('still assignable after removal');
-    return `removed; their next request is refused (${after.status})`;
+    // GMO-7's other half, and plan negative test 12: ending authority must not erase history. The
+    // work they really did stays theirs. Only assertable because Act 6b produced a real record.
+    if (state.recordId) {
+      const rec = await api(`/api/service-records/${state.recordId}`, { token: state.ownerToken, tenantId: state.tenantId });
+      if (rec.status !== 200) throw new Error(`the service record vanished with their membership (${rec.status})`);
+      const attributed = JSON.stringify(rec.body).includes(String(state.mechId));
+      if (!attributed) throw new Error('the record survived but no longer attributes the work to them');
+    }
+    return `removed; their next request is refused (${after.status})${state.recordId ? '; their service record survives, still attributed' : ''}`;
   });
 
   await step('api', 'the LAST administrator cannot be removed', async () => {

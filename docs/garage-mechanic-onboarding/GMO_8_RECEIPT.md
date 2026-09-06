@@ -220,6 +220,63 @@ Set a vision-provider key on the staging backend preview and re-run
 approval → activation → idempotent retry → founder context → workshop entry → invitation → mechanic
 registration and acceptance → spent-invitation refusal → revocation → last-administrator refusal.
 
+## Act 6b — my own harness was measuring a proxy, and I only noticed by re-reading it
+
+The acceptance sentence ends *"…and use that newly-created relationship to **complete a real Service
+Network job**"*. My Act 6 step for that read:
+
+```
+[api] the mechanic can work in the garage
+      → GET /api/garage/queue is 200, and GET /api/garage/mechanics lists them
+```
+
+That proves the mechanic is *assignable* and the queue is *readable*. It is not a job. Had the
+provider been switched on and this harness reported 24/24, it would have certified the acceptance
+sentence without ever having done the thing the sentence is about — the same defect shape this
+programme keeps producing, in the step that matters most.
+
+Act 6b now does the job, through the governed endpoints: publish the garage → a **fourth**
+unprovisioned person registers, owns a car, and asks that garage for service → the garage accepts and
+opens a work order → the work is assigned to **the mechanic this journey created** → that mechanic,
+not the founder, starts it, records the service and completes it → the customer sees a completed
+case. Revocation then gained the half it was missing: with a real Service Record in existence, ending
+the mechanic's authority is now asserted to leave **their record intact and still attributed to
+them** — plan negative test 12, which until now had nothing to assert against.
+
+**These steps have never run.** They sit behind the same identity block as steps 13–24. They are
+first-class steps, not optional ones, so a future run either proves the sentence or fails loudly.
+
+### What I could execute, I did — the riskiest assumption is measured, not assumed
+
+Act 6b's load-bearing assumption is that a newly-registered person can hold **governed vehicle
+authority**. `assertVehicleAuthority` accepts `vehicles.owner_id` and, pointedly, *not*
+`current_seller_id` — and `/api/vehicles/add` is written in the seller's language throughout. Reading
+it I first concluded there was no product path to ownership at all, which would have been a gap of
+the same shape as the missing garage membership. That conclusion was wrong, and a probe against the
+deployed preview at `29890498` settled it:
+
+| # | probe | result |
+|---|---|---|
+| 1 | a non-business person registers through the product | account created and signs in (`role=owner`) |
+| 2 | they hold a real session | `u_31a9c9…` |
+| 3 | `POST /api/vehicles/add` accepts the exact body Act 6b sends | **201** |
+| 4 | an unknown garage slug is refused by name | 400 *"That garage is not accepting service requests"* |
+| 5 | database readback | `owner_id = u_31a9c9…`, `current_seller_id = u_31a9c9…` |
+
+`buildVehicleListingCandidate` sets `owner_id = userId` when the caller's role is `owner`. So a real
+new person does become the governed owner, and Act 6b rests on a measured fact rather than my reading
+of one. Every row the probe created — user, vehicle, ownership history, taxonomy observations,
+notification queue — was deleted afterwards and verified at 0.
+
+(The probe's own check 1 reported a miss: its response listener never saw the register POST even
+though the account was plainly created. That is a bug in the throwaway probe, not a product fact; the
+Golden Journey harness's own `/auth/register` guard has observed that POST on every run.)
+
+The remaining Act 6b steps — publish, request, accept, assign, record, complete — need an activated
+garage, so they wait with everything else behind the provider.
+
+---
+
 ## Three quality gates the product applied, correctly, to my synthetic evidence
 
 Worth recording because each one refused a shortcut:
