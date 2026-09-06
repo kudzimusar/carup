@@ -2,6 +2,22 @@
 
 **Executive verdict: `OWNER UAT — PASS WITH REQUIRED IMPROVEMENTS`**
 
+> **Status update — the required improvements are done, and re-verified in a browser.**
+> The R1–R15 remediation tranche closed every acceptance blocker (F1–F6, F8) and the P2/P3 items
+> recorded below. Round 2 confirmed them against the deployed candidate `390beca9` — both sides on
+> the same commit, preview paired to its own branch backend — at **34 PASS · 0 FAIL · 0 findings**.
+>
+> Round 2 also overturned two claims: **F5 was NOT closed** by the first attempt (the garage
+> workspace was built and unreachable; it took six fixes across six layers), and **F11 was fixed at
+> the wrong cause**. Both are closed now and measured, not argued.
+>
+> See `UAT_REMEDIATION_TRANCHE_R1_R15.md` for what changed and what was deliberately left, and
+> `ROUND_2_OWNER_UAT.md` for the evidence — including three defects I introduced and six wrong
+> readings from my own harness.
+>
+> **The findings below are preserved exactly as first written.** They are the record of what was
+> true on `996da42b`, and the reason the tranche happened.
+
 The engineering certification is sound and I am not relitigating it. But engineering green did not
 decide this verdict, and it should not: the backend is genuinely well-built and unusually honest,
 while the **product a real user can reach is a public garage directory plus an owner service-history

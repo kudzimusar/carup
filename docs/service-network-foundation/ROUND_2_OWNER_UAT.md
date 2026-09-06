@@ -325,3 +325,56 @@ same shape as the other four — a check that could not see its subject reported
 
 Recorded rather than quietly corrected, because a run that reports a defect the database contradicts
 is a run whose other numbers deserve less trust, and the reader should be able to weigh that.
+
+
+---
+
+## Round 2 — final pass
+
+`390beca9`, both sides, `unpaired: false`, paired from the registry.
+
+**34 PASS · 0 FAIL · 0 findings.**
+
+Every acceptance blocker closed, and closed by clicking the product rather than by reading a test
+report:
+
+| | evidence |
+|---|---|
+| **F1** the request reaches a real garage | `POST /api/service-cases` → **201**, addressed by public slug, carrying a vehicle |
+| **F2** it does not vanish | reference `SR-15B31C8E`, listed afterwards as *"Sent — waiting for the garage"* against **SN Cert Garage snz020359** |
+| **F3** the two owner surfaces agree | provider on both; `history ZIG 250, USD 180 all present on the Passport`; **no fabricated `$0`** |
+| **F4** the dead end is gone | *"Request service from this garage"* |
+| **F5** the garage has a product | queue of 7 with real counts, then **accept → job card → assign → start → record → complete**, and a finished job read-only |
+| **F6** a foreign VIN is bounded | boundary state, `edit-listing=0`, `upload=0` |
+| **F8** a scan reaches a page | a real surface, and no capability/grant/token/resource language |
+| F7, F11, F12, F14 | claims removed · **0px** overflow · dead control replaced · demo identities behind a fail-closed build flag |
+
+Two lines are worth reading twice, because they are the tranche's whole argument:
+
+> `24. F5 the mechanic is assigned — SN garage snz020359`
+
+The last defect found: assigning succeeded in the database and showed the operator nothing. Fixed,
+and the unit test that had passed while the screen stayed blank now asserts what the operator SEES.
+
+> `12. Recorded Service Spend = Multiple currencies`
+
+Not a defect — the correct answer. The vehicle carries a ZIG record and a USD record, and
+`summariseSpend` refuses to add them. The original F3 was a fabricated `$0` stamped over a real ZIG
+amount; this is the opposite habit, working.
+
+---
+
+## Verdict
+
+**`ROUND 2 — PASS`**, against `390beca9`, with the frontend and backend proven to be the same commit
+and the preview proven paired to its own branch backend.
+
+The distance travelled is not the finding count. Round 1 said Service Network was *"a technical
+foundation with two working product surfaces, not yet a usable MVP"* — a governed backend nobody
+could reach. A person can now find a garage, ask it to look at their car, and see what happened; and
+a garage can see the request, take it, put a mechanic on it, record what was done and close it. That
+is the journey the Foundation was built for, and it now exists.
+
+What it cost to get there is the part worth keeping: **six layers, six of my own wrong readings, and
+three defects I introduced** — none of which any test suite reported, and all of which one real
+account in one real browser found in an afternoon.
