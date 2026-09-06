@@ -3838,3 +3838,62 @@ web-only-parent `f0bcca2a`) no longer applies.
 
 **T5-PARTIAL — all technical and product-proxy gates closed; owner acceptance only.**
 Recommended owner action: **freeze as T5-USABLE**. T6 not started. Production untouched.
+
+---
+
+## §43 — T5 OWNER ACCEPTANCE → **T5-USABLE**, FROZEN at `5079b0b3`
+
+**Owner decision — 2026-09-06. T5 IS ACCEPTED.**
+
+The owner accepted the final T5 closure return (§42). No additional T5 runtime changes are
+required before T6.
+
+| | |
+|---|---|
+| **Owner verdict** | **`T5-USABLE`** |
+| **Frozen runtime code SHA** | `5079b0b3b531a9cb03b852682cb426158b730d7d` |
+| **Certification/docs descendant** | `4f7529eb094e6a3df418a3fb8235204d3dcc8291` |
+| **Ancestry** | `5079b0b3` is an ancestor of `4f7529eb`; the two differ by **three documentation files only** (`TRADE_OS_CONTAINER_COLOADING_LIVING_MASTER_PLAN.md`, the T5 plan, the T5 receipt). No runtime code changed after the frozen SHA. |
+| **FE / BE pairing** | Both deploy from **`5079b0b3`** — FE `dpl_BpSJA8HXAYLfQiMUhVrs9QUaeunr` (bundle `index-BrN5lNNZ.js`), BE `dpl_BTcyPeiQjWzcvSajx49AQ444fAFn`, `/api/health` reporting the same SHA. Pairing was read out of the served bundle, never inferred. |
+| **PR #207** | remains **Draft** |
+| **Production** | **untouched** — `origin/main` still `bb9d9900`; no production deploy, no production migration |
+| **T6** | may now be planned/implemented under its own canonical phase contract |
+
+### What was accepted
+
+**T5 technical and product-proxy gates passed.** PGlite migration gate 15/15 · backend 1553/0
+(7 skipped) · web diaspora 151/151 · full web unit suite green in CI · adversarial matrix 37/37 ·
+owner-UAT proxy journeys A–F (13/13 + 27/27 + 7/7) · seven-width geometry 14/14 across requester
+**and** operator · 0 console errors on settled pages · 0 5xx · `tsc -b` clean · zero net-new lint ·
+CI 7/7 green.
+
+### F1–F5 disposition at freeze
+
+| # | Disposition |
+|---|---|
+| **F1** — publish blocked on discovery (~13–14 s) | **CLOSED.** `openDetail` split into two phases; discovery and the reservation read are background under the same generation guard. Pending discovery is its own state, never "none found"; failure stays UNREADABLE with **Try again**. **13–14 s → 6.1 s** to a usable page, discovery +3.0 s after. |
+| **F2** — `findCompatibleSailings` N+1 (~5.6 s) | **CLOSED.** One batched reservations read replaces one-per-sailing: **7 queries at 1, 10 and 50 sailings** (asserted, not timed). Staging warm median **2344 ms** against a **1380 ms** plain-read floor. Capacity truth and the atomic approval RPC untouched; an unreadable capacity read refuses loudly. |
+| **F3** — gateway option buried behind "Show more" | **CLOSED by disclosure, not ranking.** Two named categories — *Direct sailings* / *Gateway corridor sailings* — each ordered by departure date, each expanding independently, under "CarUp does not rank them — the choice is yours." `planning_status` never reaches the screen. |
+| **F4** — legacy fixtures held raw ids in `origin_city` | **CLOSED as certification data only.** No product logic changed; one staging row repaired with its original value preserved in metadata. |
+| **F5** — gateway card named the leg's country, not the ports | **PRESERVED.** "This sailing covers: Port of Yokohama → Port of Beira", still mutation-guarded (reverting turns 2 tests red). |
+
+### Accepted residual — non-blocking platform/performance debt
+
+The remaining **~6.1 s** staging publish→detail transition is **accepted as non-blocking
+platform/performance debt**, because:
+
+- sailing discovery no longer blocks the detail page;
+- matching is asynchronous;
+- the N+1 was removed;
+- query count is bounded;
+- **no T5 invariant depends on the latency.**
+
+### Standing boundary
+
+> **T5 is NOT production-ready merely because it is `T5-USABLE`.**
+
+`T5-USABLE` records that the T5 exit gate is proven and the owner accepts the phase. Production
+readiness remains a separate, explicitly-authorized gate (T18), and production remains **NOT
+AUTHORIZED**.
+
+**T5 IS FROZEN at `5079b0b3`. STOP T5.**

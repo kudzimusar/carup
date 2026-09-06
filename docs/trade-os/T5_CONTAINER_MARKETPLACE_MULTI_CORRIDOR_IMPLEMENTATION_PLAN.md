@@ -1,12 +1,13 @@
 # CarUp Trade OS — T5 Container Marketplace & Multi-Corridor Compatibility Implementation Plan
 
-**Status:** IMPLEMENTED — `T5-PARTIAL`, owner acceptance only (see §12 below and master plan §40–§42)
+**Status:** **`T5-USABLE` — OWNER ACCEPTED, FROZEN at `5079b0b3`** (see §18 below and master plan §40–§43)
 **Date:** 2026-09-06
 **Repository:** `kudzimusar/carup`
 **Branch:** `feat/trade-os-client-demo-convergence`
 **Draft PR:** `#207`
 **Plan baseline:** branch head `53f3c7004ea5a48f6e245af9c1db03122eaaa3d1`
-**Final code head:** `5079b0b3b531a9cb03b852682cb426158b730d7d`
+**Frozen runtime code SHA:** `5079b0b3b531a9cb03b852682cb426158b730d7d`
+**Certification/docs descendant:** `4f7529eb094e6a3df418a3fb8235204d3dcc8291`
 **Production:** NOT AUTHORIZED / MUST REMAIN UNTOUCHED
 **Parent authority:** `docs/TRADE_OS_CONTAINER_COLOADING_LIVING_MASTER_PLAN.md`
 **Global design authority:** root `DESIGN.md`
@@ -1139,3 +1140,36 @@ commercial integration. `LOADING`/`SHIPPED`/`ARRIVED` are not used as T5 truth.
 
 **Verdict:** `T5-PARTIAL` — recommended owner action **freeze as T5-USABLE**. T6 NOT started.
 Production NOT touched. PR #207 remains Draft.
+
+---
+
+# 18. Owner acceptance and freeze — 2026-09-06
+
+**T5 IS ACCEPTED. Owner verdict: `T5-USABLE`. T5 is FROZEN at `5079b0b3`.**
+
+§17 above records the implementation closure and remains the chronological account of the
+`T5-PARTIAL` state that preceded this decision. It is deliberately not rewritten.
+
+| | |
+|---|---|
+| Frozen runtime code SHA | `5079b0b3b531a9cb03b852682cb426158b730d7d` |
+| Certification/docs descendant | `4f7529eb094e6a3df418a3fb8235204d3dcc8291` (docs-only descendant; three documentation files, no runtime code) |
+| FE / BE | both paired on **`5079b0b3`** |
+| PR #207 | remains **Draft** |
+| Production | **untouched**, and **NOT AUTHORIZED** |
+| T6 | may now be planned/implemented under its own canonical phase contract |
+
+**Technical and product-proxy gates passed** — the full matrix is in master plan §43.
+
+**F1–F5 disposition:** F1 closed (publish no longer blocks discovery; 13–14 s → 6.1 s), F2 closed
+(N+1 removed; 7 queries at 1/10/50 sailings), F3 closed by disclosure without ranking, F4 closed as
+certification data only, F5 preserved and still mutation-guarded.
+
+**Accepted residual:** the ~6.1 s staging transition is accepted as non-blocking
+platform/performance debt — discovery no longer blocks the page, matching is asynchronous, the N+1
+is gone, query count is bounded, and **no T5 invariant depends on the latency**.
+
+**Boundary that still stands:** *T5 is NOT production-ready merely because it is `T5-USABLE`.*
+Production readiness is a separate, explicitly-authorized gate (T18).
+
+**STOP T5.**

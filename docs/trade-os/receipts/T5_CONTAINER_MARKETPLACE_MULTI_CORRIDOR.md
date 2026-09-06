@@ -1,9 +1,10 @@
 # Trade OS T5 — Container Marketplace & Multi-Corridor Compatibility · Implementation Receipt
 
-**Status:** `T5-PARTIAL` — all technical + product-proxy gates closed; **owner acceptance only**
+**Status:** **`T5-USABLE` — OWNER ACCEPTED, FROZEN at `5079b0b3`** (see §12)
 **Date:** 2026-09-06
-**Authorization head:** `3c382bae` · **Actual start:** `d866e2ce` · **Final code head:** `5079b0b3`
-**Recommended owner action:** freeze as `T5-USABLE`
+**Authorization head:** `3c382bae` · **Actual start:** `d866e2ce`
+**Frozen runtime code SHA:** `5079b0b3b531a9cb03b852682cb426158b730d7d`
+**Certification/docs descendant:** `4f7529eb094e6a3df418a3fb8235204d3dcc8291`
 **Plan:** `docs/trade-os/T5_CONTAINER_MARKETPLACE_MULTI_CORRIDOR_IMPLEMENTATION_PLAN.md`
 **Canonical authority:** `docs/TRADE_OS_CONTAINER_COLOADING_LIVING_MASTER_PLAN.md` §40, §41
 **Production:** UNTOUCHED · **T6:** NOT STARTED · **PR #207:** Draft
@@ -202,9 +203,60 @@ FE `dpl_BpSJA8HXAYLfQiMUhVrs9QUaeunr`, bundle `index-BrN5lNNZ.js`; BE
 out of the served bundle, not inferred. Supabase **staging** only. The §41 split-lineage note no
 longer applies.
 
-## 11. Status
+## 11. Status at the close of implementation
 
 **`T5-PARTIAL` — ALL TECHNICAL + PRODUCT PROXY GATES CLOSED; OWNER ACCEPTANCE ONLY.**
 Recommended owner action: **freeze as `T5-USABLE`**.
+
+*(This section is the chronological record of the state in which T5 was submitted for acceptance.
+It is preserved unchanged; §12 records the owner's decision.)*
+
+---
+
+## 12. Owner acceptance and freeze — 2026-09-06
+
+**T5 IS ACCEPTED. Owner verdict: `T5-USABLE`. T5 is FROZEN at `5079b0b3`.**
+
+The owner accepted the final closure return. No additional T5 runtime changes are required
+before T6.
+
+| | |
+|---|---|
+| Owner verdict | **`T5-USABLE`** |
+| Frozen runtime code SHA | `5079b0b3b531a9cb03b852682cb426158b730d7d` |
+| Certification/docs descendant | `4f7529eb094e6a3df418a3fb8235204d3dcc8291` |
+| Ancestry | `5079b0b3` is an ancestor of `4f7529eb`; they differ by **three documentation files only**. No runtime code changed after the frozen SHA. |
+| FE / BE pairing | both from **`5079b0b3`** — FE `dpl_BpSJA8HXAYLfQiMUhVrs9QUaeunr` (`index-BrN5lNNZ.js`), BE `dpl_BTcyPeiQjWzcvSajx49AQ444fAFn`; pairing read out of the served bundle |
+| PR #207 | remains **Draft** |
+| Production | **untouched** (`origin/main` = `bb9d9900`) and **NOT AUTHORIZED** |
+| T6 | may now be planned/implemented under its own canonical phase contract |
+
+### Gates passed at acceptance
+
+PGlite migration gate **15/15** · backend **1553/0** (7 skipped) · web diaspora **151/151** · full
+web unit suite green in CI · adversarial matrix **37/37** · owner-UAT proxy journeys A–F
+(**13/13 + 27/27 + 7/7**) · seven-width geometry **14/14** (requester and operator) · **0** console
+errors on settled pages · **0** 5xx · `tsc -b` clean · zero net-new lint · CI **7/7**.
+
+### F1–F5 disposition at freeze
+
+- **F1 CLOSED** — publish no longer blocks on discovery; 13–14 s → **6.1 s** to a usable page.
+- **F2 CLOSED** — N+1 removed; **7 queries at 1, 10 and 50 sailings**; 2344 ms warm median against a 1380 ms plain-read floor.
+- **F3 CLOSED** — disclosure without ranking: two departure-ordered categories, "CarUp does not rank them".
+- **F4 CLOSED** — certification data only; no product logic changed.
+- **F5 PRESERVED** — the sailing's own ports are named; mutation guard intact.
+
+### Accepted residual
+
+The remaining **~6.1 s** staging publish→detail transition is accepted as **non-blocking
+platform/performance debt**: discovery no longer blocks the detail page, matching is asynchronous,
+the N+1 was removed, query count is bounded, and **no T5 invariant depends on the latency**.
+
+### Standing boundary
+
+> **T5 is NOT production-ready merely because it is `T5-USABLE`.**
+
+Production readiness remains a separate, explicitly-authorized gate (T18).
+
 T3 frozen. T4 frozen. Intake 2.0 still awaiting its own owner UAT.
-**T6 not started. Production untouched. PR #207 remains Draft.**
+**T5 FROZEN at `5079b0b3`. T6 not started. Production untouched. PR #207 remains Draft.**
