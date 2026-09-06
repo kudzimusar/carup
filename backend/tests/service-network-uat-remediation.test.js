@@ -336,3 +336,58 @@ test('Round 2: with no requested role the PLATFORM role still governs', () => {
     'knowing about a tenant must not silently change what a plain request acts as',
   );
 });
+
+/* ── Round 2c — the membership query must name columns that exist ────────────────────────────────
+ *
+ * The first version of `resolveActiveMembership` selected and ordered by `tenant_users.created_at`.
+ * That column does not exist — the table is (id, tenant_id, user_id, role, joined_at). PostgREST
+ * returned an error, `data` came back null, and a bare `catch` turned a broken query into a
+ * confident "this person belongs to no tenant". It passed review, deployed, and locked a real
+ * garage member out for a second time behind a fix that looked correct.
+ *
+ * A stub cannot catch that: it answers whatever it is asked for. So this reads the query out of
+ * `server.js` and checks every column it names against the CANONICAL schema in the repo.
+ */
+import { readFileSync } from 'node:fs';
+
+test('Round 2c: the membership query only names columns tenant_users actually has', () => {
+  const schema = readFileSync(new URL('../../database/migrations/002_multi_tenant_and_auth_schema.sql', import.meta.url), 'utf8');
+  const create = schema.match(/CREATE TABLE IF NOT EXISTS tenant_users \(([\s\S]*?)\n\);/);
+  assert.ok(create, 'the canonical tenant_users definition must be findable');
+  const columns = new Set(
+    create[1].split('\n')
+      .map((l) => l.trim())
+      .filter((l) => l && !l.startsWith('--') && !/^(UNIQUE|PRIMARY|FOREIGN|CONSTRAINT|CHECK)\b/i.test(l))
+      .map((l) => l.split(/\s+/)[0].toLowerCase()),
+  );
+  assert.ok(columns.has('joined_at'), 'sanity: the parser found the real columns');
+  assert.ok(!columns.has('created_at'), 'sanity: created_at is exactly the column that does NOT exist');
+
+  const server = readFileSync(new URL('../server.js', import.meta.url), 'utf8');
+  const fn = server.match(/async function resolveActiveMembership[\s\S]*?\n}/);
+  assert.ok(fn, 'resolveActiveMembership must exist');
+
+  const selected = fn[0].match(/\.select\('([^']+)'\)/);
+  assert.ok(selected, 'the membership read must have a select');
+  // Bare column names only — the embedded `tenants!inner(...)` resource is a different table.
+  const named = selected[1]
+    .replace(/\w+!inner\([^)]*\)/g, '')
+    .split(',').map((c) => c.trim().toLowerCase()).filter(Boolean);
+  for (const col of named) {
+    assert.ok(columns.has(col), `resolveActiveMembership selects tenant_users.${col}, which does not exist`);
+  }
+
+  const ordered = fn[0].match(/\.order\('([^']+)'/);
+  if (ordered) {
+    assert.ok(columns.has(ordered[1].toLowerCase()),
+      `resolveActiveMembership orders by tenant_users.${ordered[1]}, which does not exist`);
+  }
+});
+
+test('Round 2c: a failed membership read is LOGGED, never silently answered as "no tenant"', () => {
+  const server = readFileSync(new URL('../server.js', import.meta.url), 'utf8');
+  const fn = server.match(/async function resolveActiveMembership[\s\S]*?\n}/)[0];
+  // The whole defect was a broken read presenting as a confident answer. It must be visible.
+  assert.match(fn, /if \(error\)/, 'the supabase error must be inspected, not just `data` destructured');
+  assert.match(fn, /console\.error/, 'a failed membership read must be logged');
+});

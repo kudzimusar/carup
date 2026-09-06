@@ -2378,12 +2378,22 @@ app.post('/api/organizations/:id/audit-logs', authorizeRole(), async (req, res, 
  */
 async function resolveActiveMembership(userId) {
   try {
-    const { data } = await supabase
+    // `tenant_users` is (id, tenant_id, user_id, role, joined_at). The first version of this
+    // selected and ordered by `created_at`, which does not exist — PostgREST returned an error,
+    // `data` came back null, and the catch below turned a broken query into a confident "this
+    // person belongs to no tenant". It deployed, and a real garage member was locked out again by
+    // a fix that looked correct. Hence both changes here: the right column, and an error that is
+    // LOGGED rather than silently becoming an answer.
+    const { data, error } = await supabase
       .from('tenant_users')
-      .select('tenant_id, role, created_at, tenants!inner(id, name, type)')
+      .select('tenant_id, role, joined_at, tenants!inner(id, name, type)')
       .eq('user_id', userId)
-      .order('created_at', { ascending: true })
+      .order('joined_at', { ascending: true })
       .limit(1);
+    if (error) {
+      console.error('resolveActiveMembership: membership read failed:', error.message);
+      return {};
+    }
     const row = (data || [])[0];
     if (!row) return {};
     return {
@@ -2394,7 +2404,8 @@ async function resolveActiveMembership(userId) {
       active_tenant_name: row.tenants?.name || null,
       active_tenant_type: row.tenants?.type || null,
     };
-  } catch {
+  } catch (e) {
+    console.error('resolveActiveMembership: unexpected failure:', e?.message || e);
     return {};
   }
 }

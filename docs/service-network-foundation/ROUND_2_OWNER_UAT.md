@@ -122,6 +122,65 @@ still wrap.
 
 ---
 
-## Round 2 — second pass
+## Round 2 — second pass (`e2c920dc`)
 
-*(Filled in below from the re-run against the corrected candidate.)*
+**17 PASS · 5 FAIL.** Two of the five were the same defect seen more honestly, one was a harness
+flaw, and two were newly-visible truths.
+
+**Fixed and confirmed by measurement:**
+
+- **F11** — `scrollWidth 393` against `clientWidth 393`. Zero overflow, down from 27px. The fix was
+  at the real cause this time.
+- **F6** — measured for the FIRST time (it had silently skipped in the first pass for want of a
+  VIN): a foreign VIN renders the boundary state with `edit-listing=0, upload=0`. No management
+  control is offered on a vehicle the viewer does not own.
+- **F1/F2/F4** against the correct garage — the harness had been requesting service from whichever
+  garage was first in the directory rather than the one under test. Corrected, the request reaches
+  **SN Cert Garage snz020359**, `POST 201`, reference `SR-5D66E987`, and is listed afterwards.
+
+**Still failing — F5, and the reason is worth recording:**
+
+The garage tenant-member was *still* redirected off `/garage`, on a candidate that contained the
+membership fix. The backend was reporting the membership correctly. Nothing consumed it.
+
+`AuthContext` restores the user from `localStorage` and calls `validateStoredSession`, which has
+always returned the authoritative user from `/auth/me` — and threw it away. The app ran on whatever
+`localStorage` happened to hold. **A server that is asked and ignored is the same as one that was
+never asked**, and this is the failure mode where every unit test is green because the calculation
+is right and the wire does not exist.
+
+Fixed by adopting the validated user (and persisting it, so a stale stored identity cannot outlive
+its session), and by having `/auth/login` carry the membership too — otherwise the first navigation
+after signing in has no tenant and only a full page load would fix it. Login and `/auth/me` share
+**one** projection, because two copies is how they would start disagreeing about who someone is.
+Four tests pin the WIRE rather than the calculation.
+
+**A harness flaw reported as a product defect — corrected:**
+
+F3 parity was reported FAIL (`history=true profile=false`). It was not. The provider name lives
+inside a Radix tab, and Radix **unmounts inactive tab content**, so reading the document text
+without opening the tab measured a tab that was not on screen. The API returns exactly the right
+data for this owner:
+
+```
+provider: { known: true, display_name: "SN Cert Garage snz020359", slug: "sn-cert-snz020359" }
+cost:     { recorded: true, amount: 250, currency: "ZIG" }
+mileage_observation: { observed_mileage: 91000, source: "garage_stated" }
+```
+
+The measurement now opens the tab, additionally compares the always-rendered Vehicle Summary, and
+compares the recorded **cost** across both surfaces — which is what F3 was actually about, since the
+original defect was a `$0` shown against a real ZIG amount.
+
+### Three measurement flaws of my own, in one round
+
+Worth stating plainly, because they all had the same shape — **a check that could not see its
+subject reported something other than "I could not see it"**:
+
+1. Three garage steps reported PASS on "no error element", while the browser was showing the Owner
+   Dashboard after a redirect.
+2. F3 and F6 silently did not run when a VIN scrape came back empty.
+3. F3 read a tab that was unmounted and called the absence a product defect.
+
+Each is now either an explicit assertion that the surface rendered, or an explicit finding that the
+check could not be performed.
