@@ -356,7 +356,10 @@ export const FEATURE_REGISTRY: FeatureRegistryItem[] = [
   },
   {
     id: 'owner.garage-setup',
-    label: 'Set Up My Garage',
+    // Deliberately NOT "Set Up My Garage": the owner sidebar already carries "My Garage", and a
+    // label containing another label's full text makes every by-text locator in the navigation
+    // suite ambiguous. Named for what the page itself says — "Finish setting up your garage".
+    label: 'Finish Garage Setup',
     shortLabel: 'Garage',
     route: '/dashboard/garage-setup',
     domain: 'service',

@@ -570,6 +570,14 @@ export function isGarageSideRoute(path: string): boolean {
   return /^\/service-cases\/[^/]+\/(accept|decline|start|complete|work-order)$/.test(p)
 }
 
+/**
+ * A JSON object returned by the API.
+ *
+ * Not `any`: `any` disables checking at every call site and the lint baseline counts each one. This
+ * stays permissive enough for `res?.application` to read, while keeping the value a real type.
+ */
+type ApiJson = Record<string, any> // eslint-disable-line @typescript-eslint/no-explicit-any
+
 export function useCarUpApi() {
   const { user, token } = useAuth()
   const [loading, setLoading] = useState(false)
@@ -2429,22 +2437,22 @@ export function useCarUpApi() {
      Upstream of the workspace. These call the applicant's OWN application only; nothing here
      grants anything. */
 
-  const fetchMyGarageApplication = useCallback(async (): Promise<any> => {
-    return request<any>('/garage-onboarding/application', { method: 'GET' })
+  const fetchMyGarageApplication = useCallback(async (): Promise<ApiJson> => {
+    return request<ApiJson>('/garage-onboarding/application', { method: 'GET' })
   }, [request])
 
-  const startGarageApplication = useCallback(async (body: { supersedes?: string } = {}): Promise<any> => {
-    return request<any>('/garage-onboarding/application', { method: 'POST', body: JSON.stringify(body) })
+  const startGarageApplication = useCallback(async (body: { supersedes?: string } = {}): Promise<ApiJson> => {
+    return request<ApiJson>('/garage-onboarding/application', { method: 'POST', body: JSON.stringify(body) })
   }, [request])
 
-  const saveGarageApplication = useCallback(async (id: string, patch: Record<string, unknown>): Promise<any> => {
-    return request<any>(`/garage-onboarding/application/${encodeURIComponent(id)}`, {
+  const saveGarageApplication = useCallback(async (id: string, patch: Record<string, unknown>): Promise<ApiJson> => {
+    return request<ApiJson>(`/garage-onboarding/application/${encodeURIComponent(id)}`, {
       method: 'PATCH', body: JSON.stringify(patch),
     })
   }, [request])
 
-  const submitGarageApplication = useCallback(async (id: string): Promise<any> => {
-    return request<any>(`/garage-onboarding/application/${encodeURIComponent(id)}/submit`, {
+  const submitGarageApplication = useCallback(async (id: string): Promise<ApiJson> => {
+    return request<ApiJson>(`/garage-onboarding/application/${encodeURIComponent(id)}/submit`, {
       method: 'POST', body: '{}',
     })
   }, [request])
@@ -2457,62 +2465,62 @@ export function useCarUpApi() {
   const evidenceBase = (appId: string) =>
     `/garage-onboarding/application/${encodeURIComponent(appId)}/evidence`
 
-  const listGarageEvidence = useCallback(async (appId: string): Promise<any> => {
-    return request<any>(evidenceBase(appId), { method: 'GET' })
+  const listGarageEvidence = useCallback(async (appId: string): Promise<ApiJson> => {
+    return request<ApiJson>(evidenceBase(appId), { method: 'GET' })
   }, [request])
 
-  const uploadGarageEvidence = useCallback(async (appId: string, body: Record<string, unknown>): Promise<any> => {
-    return request<any>(evidenceBase(appId), { method: 'POST', body: JSON.stringify(body) })
+  const uploadGarageEvidence = useCallback(async (appId: string, body: Record<string, unknown>): Promise<ApiJson> => {
+    return request<ApiJson>(evidenceBase(appId), { method: 'POST', body: JSON.stringify(body) })
   }, [request])
 
-  const removeGarageEvidence = useCallback(async (appId: string, docId: string): Promise<any> => {
-    return request<any>(`${evidenceBase(appId)}/${encodeURIComponent(docId)}`, { method: 'DELETE' })
+  const removeGarageEvidence = useCallback(async (appId: string, docId: string): Promise<ApiJson> => {
+    return request<ApiJson>(`${evidenceBase(appId)}/${encodeURIComponent(docId)}`, { method: 'DELETE' })
   }, [request])
 
-  const previewGarageEvidence = useCallback(async (appId: string, docId: string): Promise<any> => {
-    return request<any>(`${evidenceBase(appId)}/${encodeURIComponent(docId)}/preview`, { method: 'GET' })
+  const previewGarageEvidence = useCallback(async (appId: string, docId: string): Promise<ApiJson> => {
+    return request<ApiJson>(`${evidenceBase(appId)}/${encodeURIComponent(docId)}/preview`, { method: 'GET' })
   }, [request])
 
-  const extractGarageEvidence = useCallback(async (appId: string, docId: string): Promise<any> => {
-    return request<any>(`${evidenceBase(appId)}/${encodeURIComponent(docId)}/extract`, {
+  const extractGarageEvidence = useCallback(async (appId: string, docId: string): Promise<ApiJson> => {
+    return request<ApiJson>(`${evidenceBase(appId)}/${encodeURIComponent(docId)}/extract`, {
       method: 'POST', body: '{}',
     })
   }, [request])
 
-  const acknowledgeGarageEvidence = useCallback(async (appId: string, docId: string): Promise<any> => {
-    return request<any>(`${evidenceBase(appId)}/${encodeURIComponent(docId)}/acknowledge`, {
+  const acknowledgeGarageEvidence = useCallback(async (appId: string, docId: string): Promise<ApiJson> => {
+    return request<ApiJson>(`${evidenceBase(appId)}/${encodeURIComponent(docId)}/acknowledge`, {
       method: 'POST', body: '{}',
     })
   }, [request])
 
   /** GMO-5 — every organization this person belongs to. Grants nothing; says what exists. */
-  const fetchMyMemberships = useCallback(async (): Promise<any> => {
-    return request<any>('/auth/my-memberships', { method: 'GET' })
+  const fetchMyMemberships = useCallback(async (): Promise<ApiJson> => {
+    return request<ApiJson>('/auth/my-memberships', { method: 'GET' })
   }, [request])
 
   /* ── GMO-6: garage team + invitations ─────────────────────────────────────────────────────────
      The raw token comes back from `createGarageInvitation` exactly once. It is never stored and
      never readable again — which is what allows it to be stored hashed. */
 
-  const listGarageInvitations = useCallback(async (): Promise<any> => {
-    return request<any>('/garage/invitations', { method: 'GET' })
+  const listGarageInvitations = useCallback(async (): Promise<ApiJson> => {
+    return request<ApiJson>('/garage/invitations', { method: 'GET' })
   }, [request])
 
-  const createGarageInvitation = useCallback(async (body: Record<string, unknown>): Promise<any> => {
-    return request<any>('/garage/invitations', { method: 'POST', body: JSON.stringify(body) })
+  const createGarageInvitation = useCallback(async (body: Record<string, unknown>): Promise<ApiJson> => {
+    return request<ApiJson>('/garage/invitations', { method: 'POST', body: JSON.stringify(body) })
   }, [request])
 
-  const revokeGarageInvitation = useCallback(async (id: string): Promise<any> => {
-    return request<any>(`/garage/invitations/${encodeURIComponent(id)}`, { method: 'DELETE' })
+  const revokeGarageInvitation = useCallback(async (id: string): Promise<ApiJson> => {
+    return request<ApiJson>(`/garage/invitations/${encodeURIComponent(id)}`, { method: 'DELETE' })
   }, [request])
 
   /** Unauthenticated: what the invitation says, before the invitee has an account. */
-  const peekGarageInvitation = useCallback(async (token: string): Promise<any> => {
-    return request<any>(`/garage/invitations/peek/${encodeURIComponent(token)}`, { method: 'GET' })
+  const peekGarageInvitation = useCallback(async (token: string): Promise<ApiJson> => {
+    return request<ApiJson>(`/garage/invitations/peek/${encodeURIComponent(token)}`, { method: 'GET' })
   }, [request])
 
-  const acceptGarageInvitation = useCallback(async (token: string): Promise<any> => {
-    return request<any>('/garage/invitations/accept', { method: 'POST', body: JSON.stringify({ token }) })
+  const acceptGarageInvitation = useCallback(async (token: string): Promise<ApiJson> => {
+    return request<ApiJson>('/garage/invitations/accept', { method: 'POST', body: JSON.stringify({ token }) })
   }, [request])
 
   /**
@@ -2522,22 +2530,22 @@ export function useCarUpApi() {
    * a decision page, press Approve, and receive `STEP_UP_REQUIRED` with nothing in the product able
    * to satisfy it — the route was governed and unreachable at the same time.
    */
-  const stepUp = useCallback(async (password: string): Promise<any> => {
-    return request<any>('/auth/step-up', { method: 'POST', body: JSON.stringify({ password }) })
+  const stepUp = useCallback(async (password: string): Promise<ApiJson> => {
+    return request<ApiJson>('/auth/step-up', { method: 'POST', body: JSON.stringify({ password }) })
   }, [request])
 
   /* ── GMO-7: who works here, and who no longer does ─────────────────────────────────────────── */
 
-  const listGarageMembers = useCallback(async (): Promise<any> => {
-    return request<any>('/garage/members', { method: 'GET' })
+  const listGarageMembers = useCallback(async (): Promise<ApiJson> => {
+    return request<ApiJson>('/garage/members', { method: 'GET' })
   }, [request])
 
-  const removeGarageMember = useCallback(async (userId: string): Promise<any> => {
-    return request<any>(`/garage/members/${encodeURIComponent(userId)}`, { method: 'DELETE' })
+  const removeGarageMember = useCallback(async (userId: string): Promise<ApiJson> => {
+    return request<ApiJson>(`/garage/members/${encodeURIComponent(userId)}`, { method: 'DELETE' })
   }, [request])
 
-  const changeGarageMemberRole = useCallback(async (userId: string, role: string): Promise<any> => {
-    return request<any>(`/garage/members/${encodeURIComponent(userId)}/role`, {
+  const changeGarageMemberRole = useCallback(async (userId: string, role: string): Promise<ApiJson> => {
+    return request<ApiJson>(`/garage/members/${encodeURIComponent(userId)}/role`, {
       method: 'PATCH', body: JSON.stringify({ role }),
     })
   }, [request])
@@ -2546,30 +2554,30 @@ export function useCarUpApi() {
      Every one of these sits behind role + the named review capability + X3 step-up on the server.
      The browser calls them; it never decides who may. */
 
-  const fetchGarageApplicationsForReview = useCallback(async (status?: string): Promise<any> => {
+  const fetchGarageApplicationsForReview = useCallback(async (status?: string): Promise<ApiJson> => {
     const q = status ? `?status=${encodeURIComponent(status)}` : ''
-    return request<any>(`/admin/garage-applications${q}`, { method: 'GET' })
+    return request<ApiJson>(`/admin/garage-applications${q}`, { method: 'GET' })
   }, [request])
 
-  const fetchGarageApplicationForReview = useCallback(async (id: string): Promise<any> => {
-    return request<any>(`/admin/garage-applications/${encodeURIComponent(id)}`, { method: 'GET' })
+  const fetchGarageApplicationForReview = useCallback(async (id: string): Promise<ApiJson> => {
+    return request<ApiJson>(`/admin/garage-applications/${encodeURIComponent(id)}`, { method: 'GET' })
   }, [request])
 
-  const decideGarageApplication = useCallback(async (id: string, body: Record<string, unknown>): Promise<any> => {
-    return request<any>(`/admin/garage-applications/${encodeURIComponent(id)}/decision`, {
+  const decideGarageApplication = useCallback(async (id: string, body: Record<string, unknown>): Promise<ApiJson> => {
+    return request<ApiJson>(`/admin/garage-applications/${encodeURIComponent(id)}/decision`, {
       method: 'POST', body: JSON.stringify(body),
     })
   }, [request])
 
   /** GMO-4 — build the workspace for an already-approved application. Idempotent: safe to retry. */
-  const activateGarageApplication = useCallback(async (id: string): Promise<any> => {
-    return request<any>(`/admin/garage-applications/${encodeURIComponent(id)}/activate`, {
+  const activateGarageApplication = useCallback(async (id: string): Promise<ApiJson> => {
+    return request<ApiJson>(`/admin/garage-applications/${encodeURIComponent(id)}/activate`, {
       method: 'POST', body: '{}',
     })
   }, [request])
 
-  const previewGarageEvidenceForReview = useCallback(async (id: string, docId: string): Promise<any> => {
-    return request<any>(
+  const previewGarageEvidenceForReview = useCallback(async (id: string, docId: string): Promise<ApiJson> => {
+    return request<ApiJson>(
       `/admin/garage-applications/${encodeURIComponent(id)}/evidence/${encodeURIComponent(docId)}/preview`,
       { method: 'GET' },
     )

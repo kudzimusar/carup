@@ -164,7 +164,14 @@ test.describe('Feature Registry & Navigation Map', () => {
       // The three garage entries carry the backend's GARAGE_ROLES exactly. insurance, government
       // and bank name none of them and do not move — which is the check that these deltas are the
       // ones intended and not a role set that grew by accident.
-      expect(result.roleItemCounts['owner']).toBe(22);
+      // Recomputed 2026-09-06 (Garage & Mechanic Onboarding GMO-1). ONE registry entry was added,
+      // and exactly one role moves by it:
+      //   owner.garage-setup      roles [owner]                     -> owner   22 -> 23
+      // It lives in the OWNER shell on purpose: a garage applicant is a platform `owner` until an
+      // approved decision activates them, so the surface has to be reachable before any garage
+      // exists. dealer, mechanic, insurance, government, admin and bank do not name it and do not
+      // move — which is the check that this delta is the intended one.
+      expect(result.roleItemCounts['owner']).toBe(23);
       expect(result.roleItemCounts['dealer']).toBe(19);
       expect(result.roleItemCounts['mechanic']).toBe(8);
       expect(result.roleItemCounts['insurance']).toBe(4);

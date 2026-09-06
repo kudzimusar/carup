@@ -92,9 +92,3 @@ export default function StepUpPrompt({
     </form>
   )
 }
-
-/** Does this failure mean "prove it is you again"? */
-export function isStepUpRequired(err: unknown): boolean {
-  const message = err instanceof Error ? err.message : String(err ?? '')
-  return /STEP_UP_REQUIRED|Recent re-authentication is required/i.test(message)
-}

@@ -35,14 +35,18 @@ export default function JoinGarage() {
   const navigate = useNavigate()
 
   const [peek, setPeek] = useState<Peek | null>(null)
-  const [state, setState] = useState<'loading' | 'ready' | 'invalid' | 'error'>('loading')
+  // A missing token is knowable at render time, so it is the INITIAL state rather than something an
+  // effect discovers and then sets — which was both a redundant render and a lint error.
+  const [state, setState] = useState<'loading' | 'ready' | 'invalid' | 'error'>(
+    token ? 'loading' : 'invalid',
+  )
   const [accepting, setAccepting] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
   const load = useCallback(() => {
-    if (!token) { setState('invalid'); return }
+    if (!token) return
     peekGarageInvitation(token)
-      .then((res: Peek) => { setPeek(res); setState('ready') })
+      .then((res) => { setPeek(res as unknown as Peek); setState('ready') })
       .catch((e: unknown) => {
         const msg = e instanceof Error ? e.message : ''
         // "This link is not valid" and "we could not check the link" are different facts, and a

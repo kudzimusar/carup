@@ -4,7 +4,8 @@ import { Badge } from '@/components/ui/badge'
 import { Loader2, ArrowLeft, ShieldAlert, Eye } from 'lucide-react'
 import { useCarUpApi } from '@/hooks/useCarUpApi'
 import { SN_PAGE, SN_DETAIL_COLUMN } from '@/lib/serviceNetworkLayout'
-import StepUpPrompt, { isStepUpRequired } from '@/components/auth/StepUpPrompt'
+import StepUpPrompt from '@/components/auth/StepUpPrompt'
+import { isStepUpRequired } from '@/lib/stepUp'
 import {
   statusPresentation, STATUS_TONE_CLASS, evidenceTypeLabel,
   type GarageApplication, type EvidenceDocument,
@@ -75,9 +76,11 @@ export default function GarageApplications() {
   useEffect(() => { loadQueue() }, [loadQueue])
 
   const loadDetail = useCallback((id: string) => {
-    setDetailState('loading')
+    // No synchronous setState here: this runs from an effect, and setting state synchronously
+    // inside one is both a lint error and an extra render nobody asked for. The 'loading' state is
+    // set by whatever causes the load — opening an application, or pressing Try again.
     fetchGarageApplicationForReview(id)
-      .then((res: Detail) => { setDetail(res); setDetailState('ready') })
+      .then((res) => { setDetail(res as unknown as Detail); setDetailState('ready') })
       .catch(() => setDetailState('error'))
   }, [fetchGarageApplicationForReview])
 
@@ -177,7 +180,7 @@ export default function GarageApplications() {
               return (
                 <li key={app.id}>
                   <button
-                    onClick={() => setSelected(app.id)} data-testid="queue-item"
+                    onClick={() => { setDetailState('loading'); setSelected(app.id) }} data-testid="queue-item"
                     className="w-full text-left rounded-xl border border-gray-200 bg-white p-4 hover:border-orange-300 min-h-11"
                   >
                     <div className="flex flex-wrap items-center justify-between gap-2">
