@@ -16,6 +16,7 @@ import type {
 import { toComponentPayload } from '@/pages/diaspora/commercialFormat'
 import type { DraftComponent } from '@/pages/diaspora/commercialFormat'
 import type { QuoteCommercials, ComparableQuote, ComparisonResult, AdviceResult } from '@/pages/diaspora/TradeQuoteComparison'
+import type { CorridorBenchmark } from '@/pages/diaspora/TradeRateResearch'
 
 const BASE_URL = resolveApiBaseUrl(
   import.meta.env.VITE_API_URL,
@@ -118,6 +119,11 @@ export function useTradeLogisticsApi() {
   ): Promise<QuoteCommercials> => {
     const response = await request<{ data: QuoteCommercials }>(
       `/diaspora/${kind}/${encodeURIComponent(quoteId)}/charge-components`)
+    return response.data
+  }, [request])
+
+  const corridorBenchmark = useCallback(async (): Promise<CorridorBenchmark> => {
+    const response = await request<{ data: CorridorBenchmark }>('/diaspora/trade-rate-observations/corridor-benchmark')
     return response.data
   }, [request])
 
@@ -278,6 +284,7 @@ export function useTradeLogisticsApi() {
     compareQuotes,
     listRateObservations,
     recordRateObservation,
+    corridorBenchmark,
     listOpportunities,
     getOpportunity,
     createQuote,
@@ -308,6 +315,7 @@ export function useTradeLogisticsApi() {
     compareQuotes,
     listRateObservations,
     recordRateObservation,
+    corridorBenchmark,
     listOpportunities,
     getOpportunity,
     createQuote,

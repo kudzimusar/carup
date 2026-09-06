@@ -31,6 +31,19 @@ const control = 'mt-1 block w-full min-w-0 border border-slate-300 bg-white px-3
 
 const RESEARCH_ROLES = new Set(['admin', 'reviewer', 'super_admin', 'platform_admin'])
 
+export interface CorridorBenchmark {
+  corridors: Array<{
+    corridor_id: string
+    observations: Array<{ id: string; label: string; cost_stage: string; stage_label: string; is_synthetic: boolean }>
+    synthetic_only: boolean
+    real_observations: number
+    stages_covered: string[]
+  }>
+  research_status: string
+  comparable: boolean
+  note: string
+}
+
 interface Observation {
   id: string; classification: string; is_synthetic: boolean; cost_stage: string; stage_label: string
   label: string; amount: number; currency: string; basis: string | null; unit: string | null
@@ -48,6 +61,8 @@ export default function TradeRateResearch() {
   const { user, loading: authLoading } = useAuth()
   const api = useTradeLogisticsApi()
   const [rows, setRows] = useState<Observation[]>([])
+  const [benchmark, setBenchmark] = useState<CorridorBenchmark | null>(null)
+  const [benchmarkUnreadable, setBenchmarkUnreadable] = useState(false)
   const [corridors, setCorridors] = useState<Array<{ id: string; code: string; display_name: string }>>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
@@ -62,12 +77,15 @@ export default function TradeRateResearch() {
     if (!mayResearch) { setLoading(false); return }
     setLoading(true); setError('')
     try {
-      const [observations, corridorRows] = await Promise.all([
+      const [observations, corridorRows, bench] = await Promise.all([
         api.listRateObservations(),
         api.listTradeCorridors().catch(() => []),
+        api.corridorBenchmark().then((b) => { setBenchmarkUnreadable(false); return b })
+          .catch(() => { setBenchmarkUnreadable(true); return null }),
       ])
       setRows(observations as Observation[])
       setCorridors(corridorRows.map((c) => ({ id: c.id, code: c.code, display_name: c.display_name })))
+      setBenchmark(bench)
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Rate observations could not be loaded')
     } finally { setLoading(false) }
@@ -213,6 +231,51 @@ export default function TradeRateResearch() {
           </div>
         </div>
       )}
+
+      {/* Corridor economics, from the operations side. It groups what has been observed per
+          corridor and names no cheapest — a customer's corridor economics is computed from actual
+          quotes, never from research notes, and conflating the two is how a note becomes a price. */}
+      <section className="mt-7 border-t border-slate-300 pt-5" data-testid="corridor-benchmark">
+        <h2 className="text-sm font-bold uppercase tracking-wide text-slate-700">Corridor coverage</h2>
+        {benchmarkUnreadable ? (
+          <p className="mt-2 border-l-2 border-amber-400 pl-3 text-xs text-amber-900" data-testid="corridor-benchmark-unreadable">
+            Corridor coverage could not be read just now. That is not a report that none exists.
+          </p>
+        ) : !benchmark ? null : (
+          <>
+            <p className="mt-2 max-w-3xl text-sm text-slate-700" data-testid="corridor-benchmark-status">
+              {benchmark.research_status}
+            </p>
+            {benchmark.corridors.length === 0 ? (
+              <p className="mt-2 text-xs italic text-slate-500" data-testid="corridor-benchmark-empty">
+                No observation is recorded against any corridor yet.
+              </p>
+            ) : (
+              <ul className="mt-3 space-y-2" data-testid="corridor-benchmark-rows">
+                {benchmark.corridors.map((c) => {
+                  const corridor = corridors.find((x) => x.id === c.corridor_id)
+                  return (
+                    <li key={c.corridor_id} className="border border-slate-200 bg-white p-3" data-testid="corridor-benchmark-row">
+                      <p className="text-sm font-semibold text-slate-950">
+                        {corridor ? `${corridor.display_name} (${corridor.code})` : c.corridor_id}
+                      </p>
+                      <p className="mt-0.5 text-xs text-slate-600">
+                        {c.observations.length} observation{c.observations.length === 1 ? '' : 's'}
+                        {' · '}
+                        {c.real_observations === 0
+                          ? <span className="font-semibold text-amber-900">no real market data</span>
+                          : `${c.real_observations} real`}
+                        {c.stages_covered.length ? ` · covers ${c.stages_covered.length} cost type${c.stages_covered.length === 1 ? '' : 's'}` : ''}
+                      </p>
+                    </li>
+                  )
+                })}
+              </ul>
+            )}
+            <p className="mt-3 text-[11px] text-slate-500" data-testid="corridor-benchmark-note">{benchmark.note}</p>
+          </>
+        )}
+      </section>
 
       <div className="mt-6">
         {rows.length === 0 ? (
