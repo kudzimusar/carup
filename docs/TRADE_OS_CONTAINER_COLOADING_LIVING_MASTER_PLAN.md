@@ -3464,3 +3464,78 @@ correct is not the same as a module being wired.
 screens were walked through the API rather than the browser; readiness has no upload (T8); managed
 import stays an intent; rates remain T6. The **logistics cancel/close gap** (§36.10) is unchanged —
 required before production readiness.
+
+---
+
+## §39 — INTAKE 2.0 LAST TECHNICAL CLOSURE (BROWSER-PROVEN)
+
+**Candidate `c84ac9b5`. INTAKE-2.0-PARTIAL — owner UAT is all that remains.**
+T3 frozen. T4 frozen at `736f06c5`. Production untouched. **T5 not started.**
+
+**§38 said the supplier screens were walked "through the API rather than the browser". Walking them
+in a browser is what found the defect the API could never have shown.**
+
+The API was right the whole time. `projectRfqForMarketplace()` allow-listed and published every
+richer answer the buyer gave — steering, transmission, drivetrain, mileage cap, seats, accident and
+rust tolerance, intended use, alternatives, delivery outcome, priority, shipping mode, timing, and
+which costs to price. Asserting on that payload passed. Then the supplier's screen rendered a title,
+a route, a needed-by and a budget line, and dropped the rest. **Intake 2.0's entire premise was dead
+on the surface it existed to serve**, and no API assertion could have told us.
+
+The provider side was worse, because there the missing facts are operational. The logistics card
+showed route, volume and weight — but not whether the vehicle runs, whether the keys exist, what the
+customer declared is inside it, or whether an inland collection leg is part of the job at all. A
+provider cannot price winching they cannot see, and "batteries" is a dangerous-goods disclosure that
+was reaching nobody.
+
+**What changed.**
+
+- The supplier card renders the allow-listed brief. The TS types that had never declared those
+  fields now carry them, mirroring `MARKETPLACE_SAFE_ORDER_FIELDS` / `_LINE_FIELDS` exactly.
+- The logistics projection was widened through a **named** allow-list,
+  `MARKETPLACE_SAFE_LOGISTICS_FIELDS`: `pickup_required`, `origin_site_type`,
+  `destination_outcome`, `shipping_objective`, availability and timing. The **shape** of the job
+  crosses so it can be priced; the **address it happens at** does not. Every contact, consignee and
+  clearing agent stays in `NEVER_MARKETPLACE_VISIBLE`.
+- Both briefs speak in the **reader's** voice. The buyer chose "Deliver it to my address"; printing
+  that verbatim on a supplier's screen reads as if the supplier said it. Same fact, correct speaker.
+- A declaration renders as a customer statement — "customer-stated, confirm before carriage" — never
+  as CarUp having accepted the cargo.
+- Absent stays absent: an unanswered question omits the brief rather than printing a "Not provided"
+  wall. A vehicle request no longer tells suppliers "buyer does not know the part number".
+
+**The privacy guards were themselves the fourth wiring gap.** They enumerated the allow-lists by
+hand, so a *new* allow-list was covered by nothing — which is exactly what adding the logistics one
+would have done. They now **discover** every `MARKETPLACE_SAFE_*` export, and a test asserts the
+discovery finds something, because a guard that silently covers nothing is worse than no guard.
+
+**Browser-proven, both directions.**
+
+| Walk | Result |
+|---|---|
+| Supplier: login → list → brief → compose → review → submit | all pass |
+| Buyer: sees offer → compares → **awards** (`Supplier selected` / `Accepted`) | pass |
+| Provider: list → brief → compose → review → submit | all pass |
+| Requester: opens detail → compares the provider offer (2,600 / 35 days) | pass |
+| Private facts on counterparty screens (4 supplier + 4 provider sentinels) | **0 leaked** |
+| Raw enums / raw UUIDs / internal field names on either screen | **0** |
+| Seven-width geometry across 4 surfaces (393 → 1536) | **28/28, no overflow** |
+| Console errors on a settled page; 5xx across every walk | **0 / 0** |
+
+**Method note worth keeping.** `npx tsc --noEmit -p web/tsconfig.json` checks **nothing** — that
+project is `files: []` with references. It reported "clean" on code containing real type errors.
+`tsc -b` is the gate, and it was verified by deliberately breaking a file first. A gate is not a
+gate until you have watched it fail.
+
+**Two findings recorded, not fixed** (beyond this closure's scope, neither blocking):
+
+1. *(MISSING CAPABILITY)* The requester's own shipping list shows "Waiting for offers · Logistics
+   providers can respond" while a submitted offer is waiting. The list payload carries no
+   `quote_count`, so the UI cannot signal it without a backend addition. The supplier's equivalent
+   list *does* show "1 offer sent". A customer may not learn an offer arrived until they open it.
+2. *(UX-DESIGN)* The requester's read-only detail does not echo their own private answers (pickup
+   address and contact). The data is theirs and the API returns it; it is visible only by editing.
+
+**Still deferred and named:** readiness has no upload (T8); managed import stays an intent; rates
+remain T6. The **logistics cancel/close gap** (§36.10) is unchanged — required before production
+readiness.

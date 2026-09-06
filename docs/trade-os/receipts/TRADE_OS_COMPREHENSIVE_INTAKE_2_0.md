@@ -205,10 +205,10 @@ module being wired** — route mounting is now verified by enumerating the live 
 
 ## 8. Known limitations
 
-- **Logistics intake UI**: the fields are persisted, projected and certified through the API, but
-  the T3 wizard surfaces only part of them. The procurement wizard's adaptive sections are complete.
-- **Supplier UI walked through the API, not the browser.** The governed fixture exists and the
-  supplier surfaces authorize it correctly; a browser walk of the supplier screens remains.
+- ~~**Logistics intake UI** surfaces only part of the fields~~ — **CLOSED** (`fb3acc16`). The T3
+  wizard now carries the full adaptive intake, proven across nine scenarios.
+- ~~**Supplier UI walked through the API, not the browser**~~ — **CLOSED** (`c84ac9b5`), and the
+  browser walk immediately found what the API walk structurally could not: see §11.
 - **Document readiness has no upload.** Deliberate — T8 owns files.
 - **Managed import** is a usable intent with its facts carried; decomposition stays later-phase.
 - **Provenance ledger is written by services, not yet by a customer-facing screen.**
@@ -223,3 +223,45 @@ module being wired** — route mounting is now verified by enumerating the live 
 
 **INTAKE-2.0-PARTIAL — remaining for OWNER PRODUCT / VISUAL UAT**, plus the limitations named in §8.
 T3 frozen. T4 frozen at `736f06c5`. Production untouched. T5 not started.
+
+## 11. Last technical closure — what the browser found that the API could not
+
+Candidate **`c84ac9b5`**. Master plan §39 carries the full account.
+
+§7.8 recorded three wiring gaps and drew the lesson that *a module being correct is not the same as
+a module being wired*. Walking the counterparty screens in a browser — which §8 had listed as
+outstanding — found the fourth and largest instance of exactly that.
+
+**The payload was right; the screen was empty.** Every richer answer the buyer gave was allow-listed
+and published by `projectRfqForMarketplace()`. Asserting on that payload passed, and had passed all
+along. The supplier's card rendered a title, a route, a needed-by and a budget line, and dropped the
+rest. The provider's card showed route, volume and weight but not whether the vehicle runs, whether
+the keys exist, or what was declared inside it — the facts that decide a logistics price.
+
+Both briefs now render, in the **reader's** voice rather than the customer's, with declarations
+shown as customer statements ("confirm before carriage") and unanswered questions omitted rather
+than printed as a wall. The logistics projection was widened through a **named** allow-list so the
+*shape* of the job crosses while the *address it happens at* does not.
+
+**The guards were the fourth gap too.** They enumerated the allow-lists by hand, so a new allow-list
+was covered by nothing. They now discover every `MARKETPLACE_SAFE_*` export, and a test asserts the
+discovery actually finds something.
+
+**Proven in the browser** (staging FE `index-B1QVphEW.js`, BE `c84ac9b5`): supplier and provider
+walks complete through submit; buyer **awards** (`Supplier selected` / `Accepted`); requester
+compares the provider offer; **0** private sentinels leaked on either counterparty screen; **0** raw
+enums, UUIDs or internal field names; **28/28** seven-width geometry checks with no overflow; **0**
+console errors on a settled page and **0** 5xx across every walk. CI green at `c84ac9b5` — 7 gates,
+all steps executed.
+
+**Method note.** `tsc -p web/tsconfig.json` checks nothing (`files: []` with references) and
+reported "clean" on code with real type errors; `tsc -b` is the gate, verified by deliberately
+breaking a file first. **A gate is not a gate until you have watched it fail.**
+
+**Two findings recorded, not fixed** — beyond this closure's scope, neither blocking:
+
+1. *(MISSING CAPABILITY)* The requester's own shipping list reads "Waiting for offers" while a
+   submitted offer waits; the list payload carries no `quote_count`. The supplier's equivalent list
+   *does* show "1 offer sent".
+2. *(UX-DESIGN)* The requester's read-only detail does not echo their own private answers (pickup
+   address and contact); they are visible only by editing.
