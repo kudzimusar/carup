@@ -723,22 +723,39 @@ share the same cause. Total **188 objects / 29 MB / 118 prefixes**. There is **n
 the repository at all** — that is the durable gap: every run of this journey deposits synthetic
 identity images nothing can remove.
 
-## What would close GMO-8 — one thing
+## What would close GMO-8 — and why "top it up again" is not it
 
-Fund **the AI Studio project that owns key `XvKMBHNf0KbeHvRr`** (created 2026-09-04). The
-discriminating question for the owner: was the top-up applied to *that* project, or to a different
-one? The key's value has not changed since 2026-09-04, so if the funded project is a different one,
-a new key value is needed — which is the owner's action, not mine, and is not a rotation "because
-the balance was depleted".
+The obvious next instruction is "fund the AI Studio project behind key `XvKMBHNf0KbeHvRr`". That
+instruction **cannot be carried out by anyone**, and it is worth being precise about why:
 
-Then, in order: rebind `GEMINI_API_KEY` to `feat/garage-mechanic-onboarding-1-0`, redeploy, and
+> The Vercel variable is `type: sensitive`. Vercel returns its value to **nobody** — not to me, not
+> to the owner's tooling, not through `vercel env pull`. Nothing anywhere can read the key and
+> therefore nothing can tell you **which Google project it belongs to**.
+
+So "top up the project behind this key" asks someone to fund a project they cannot identify. A
+top-up has now been applied twice and the same `429` persists across three deployments, which is
+exactly what you would expect if the money and the key are in different projects.
+
+**The unambiguous fix, which needs no one to identify anything:**
+
+1. Mint a **NEW** API key *inside the AI Studio project that was actually funded*.
+2. Add it as a **second** Preview variable `GEMINI_API_KEY` on `carup-backend-staging`, scoped to
+   `feat/garage-mechanic-onboarding-1-0`.
+3. Redeploy the branch until `ocrProviders.gemini: true` at a paired head.
+
+That is unambiguous because the key is created from inside the funded project — the association is
+established by construction rather than inferred. It also leaves the O2 lane's existing key
+completely alone: nothing to move, nothing to restore, and no window in which O2 loses its provider.
+
+Then:
 
 ```
 GMO_REVIEWER=gmo8.reviewer.mtpwifxc@carup-uat.invalid \
   node scripts/uat/gmo-8-acts-3-to-6.mjs --viewport=desktop|tablet|mobile
 ```
 
-Steps 13–33 are written and waiting, Act 6b included.
+Steps 13–33 are written and waiting, Act 6b included. The provisioned reviewer was deliberately kept
+for this.
 
 **Provider binding restored** to its recorded original after this run and verified by an independent
 re-read: `id XvKMBHNf0KbeHvRr · type sensitive · target [preview] · gitBranch
