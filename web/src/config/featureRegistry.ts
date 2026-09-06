@@ -139,8 +139,16 @@ export type NavigationSurface =
 export interface NavigationContext {
   /** Whether a user is authenticated */
   isAuthenticated?: boolean
-  /** Authenticated role, if any */
+  /** Authenticated PLATFORM role, if any */
   role?: UserRole | null
+  /**
+   * The role held in the active tenant, when there is one.
+   *
+   * Either role may make a feature eligible — the same rule the backend applies. A garage employee
+   * who signed up through the product is an `owner` platform-wide and a `mechanic` in their garage;
+   * gating on the platform role alone hid every garage surface from them.
+   */
+  tenantRole?: UserRole | null
   /** Tenant id, when multi-tenant scoping applies */
   tenantId?: string | null
   /** Deployment environment */
@@ -231,6 +239,14 @@ export interface FeatureRegistryItem {
   id: string
   /** Display label in navigation */
   label: string
+  /**
+   * A shorter label for space-constrained navigation (the compact bottom bar).
+   *
+   * Optional, and it lives HERE rather than in the bar, because a second place deciding what a
+   * feature is called is how "Garage Customers" and "Customers" become two different features in
+   * someone's head. Absent means the full label is already short enough.
+   */
+  shortLabel?: string
   /** Route path */
   route: string
   /** Product domain this feature belongs to */
@@ -325,6 +341,18 @@ export const FEATURE_REGISTRY: FeatureRegistryItem[] = [
     badge: 'Upload',
     description: 'Upload and manage vehicle evidence photos and documents',
     lifecycle: 'active',
+  },
+  {
+    // R3 — the owner must be able to reach a request they made without a deep link.
+    id: 'owner.service-requests',
+    label: 'My Service Requests',
+    shortLabel: 'Requests',
+    route: '/dashboard/service-requests',
+    domain: 'service',
+    roles: ['owner'],
+    placements: ['dashboard_sidebar'],
+    requiresAuth: true,
+    icon: 'Wrench',
   },
   {
     id: 'owner.service-history',
@@ -434,6 +462,7 @@ export const FEATURE_REGISTRY: FeatureRegistryItem[] = [
   {
     id: 'owner.communications',
     label: 'Communications',
+    shortLabel: 'Messages',
     route: '/dashboard/communications',
     domain: 'info',
     roles: ['owner'],
@@ -458,6 +487,7 @@ export const FEATURE_REGISTRY: FeatureRegistryItem[] = [
   {
     id: 'dealer.inventory',
     label: 'Inventory',
+    shortLabel: 'Inventory',
     route: '/dealer/inventory',
     domain: 'commerce',
     roles: ['dealer'],
@@ -507,6 +537,45 @@ export const FEATURE_REGISTRY: FeatureRegistryItem[] = [
     icon: 'FileText',
   },
 
+  // ─── Garage operator workspace (R5) ────────────────────────────────────
+  // The queue, cases, job cards, assignment and service records were all certified in Service
+  // Network Foundation 1.0 and none had a screen: a garage tenant-member signed in and saw the
+  // OWNER dashboard. `roles` mirrors the backend's GARAGE_ROLES exactly.
+  {
+    id: 'garage.workshop',
+    label: 'Workshop',
+    route: '/garage',
+    domain: 'service',
+    roles: ['mechanic', 'dealer', 'admin'],
+    placements: ['dashboard_sidebar'],
+    requiresAuth: true,
+    icon: 'Wrench',
+    description: 'Service requests and jobs for your garage',
+  },
+  {
+    id: 'garage.customers',
+    label: 'Garage Customers',
+    shortLabel: 'Customers',
+    route: '/garage/customers',
+    domain: 'service',
+    roles: ['mechanic', 'dealer', 'admin'],
+    placements: ['dashboard_sidebar'],
+    requiresAuth: true,
+    icon: 'Users',
+    description: 'People whose cars you have worked on through CarUp',
+  },
+  {
+    id: 'garage.profile',
+    label: 'My Garage Page',
+    route: '/garage/profile',
+    domain: 'service',
+    roles: ['mechanic', 'dealer', 'admin'],
+    placements: ['dashboard_sidebar'],
+    requiresAuth: true,
+    icon: 'Building2',
+    description: 'What customers see when they find you on CarUp',
+  },
+
   // ─── Mechanic Dashboard ────────────────────────────────────────────────
   {
     id: 'mechanic.overview',
@@ -521,13 +590,16 @@ export const FEATURE_REGISTRY: FeatureRegistryItem[] = [
   {
     id: 'mechanic.work-orders',
     label: 'Work Orders',
+    shortLabel: 'Jobs',
     route: '/mechanic/work-orders',
     domain: 'service',
     roles: ['mechanic'],
     placements: ['dashboard_sidebar'],
     requiresAuth: true,
     icon: 'ClipboardList',
-    badge: 8,
+    // No badge. This read `badge: 8` — a constant shown to every mechanic on every account,
+    // including one with no work orders at all. Nothing counts work orders for the sidebar, so
+    // the honest number is no number.
   },
   {
     id: 'mechanic.service-logs',
@@ -1659,6 +1731,7 @@ export function resolveFeatureVisibility(
     roleEligible = false
   } else {
     roleEligible = feature.roles.includes(ctx.role)
+      || Boolean(ctx.tenantRole && feature.roles.includes(ctx.tenantRole))
   }
 
   const lifecycleVisible = isLifecycleVisible(state)

@@ -130,6 +130,18 @@ import identityVerificationAdminRouter from './routes/identityVerificationAdminR
 import partsentryReviewRouter from './routes/partsentryReviewRoutes.js';
 import passportOwnershipTransferRouter from './routes/passportOwnershipTransferRoutes.js';
 import vehicleFinanceObligationRouter from './routes/vehicleFinanceObligationRoutes.js';
+// Service Network Foundation 1.0. These imports and their mounts below were dropped when the
+// post-#194 reconciliation resolved this file by taking main's side wholesale. Both sides must be
+// UNIONED here: choosing either one silently unmounts the other's routers while the server still
+// boots, so the loss shows up only as 404s. See backend/tests/service-network-route-mounting.test.js,
+// which boots the real app and fails if any of these mounts goes missing again.
+import garageDirectoryRouter from './routes/garageDirectoryRoutes.js';
+import serviceCaseRouter from './routes/serviceCaseRoutes.js';
+import serviceWorkOrderRouter from './routes/serviceWorkOrderRoutes.js';
+import serviceRecordRouter from './routes/serviceRecordRoutes.js';
+import serviceLinkRouter from './routes/serviceLinkRoutes.js';
+import garageQueueRouter from './routes/garageQueueRoutes.js';
+import { getOwnerServiceHistory } from './services/serviceNetwork/ownerServiceHistoryService.js';
 import { sellerVehicleIdentifierProblem } from './utils/sellerVehicleIdentifier.js';
 import { normalizeVehicleStatus, publicVehicleStatusFilterValues, publiclyVisiblePublicationStatuses, isPublicVehicleStatus, isPubliclyVisiblePublication, PUBLIC_VEHICLE_COLUMNS } from './utils/vehicleStatus.js';
 import { attestedValue, CLAIM_VISIBILITY, LISTING_CLAIM_COLUMNS, PUBLIC_VEHICLE_SELECT, projectVehicle, toListingClaims, toPublicEvidence, toPublicPlateHistory, toPublicTimelineEvent, toVehicleHistoryDisclosures } from './utils/publicVehicleProjection.js';
@@ -405,6 +417,15 @@ app.use(identityVerificationAdminRouter);
 app.use(partsentryReviewRouter);
 app.use(passportOwnershipTransferRouter);
 app.use(vehicleFinanceObligationRouter);
+
+// Service Network Foundation 1.0 — see the import block above. Removing any line here unmounts a
+// whole router family silently; the runtime mounting test is the guard that makes that loud.
+app.use(garageDirectoryRouter);
+app.use(serviceCaseRouter);
+app.use(serviceWorkOrderRouter);
+app.use(serviceRecordRouter);
+app.use(serviceLinkRouter);
+app.use(garageQueueRouter);
 
 // Mount isolated Diaspora Trade bounded context
 app.use('/api/diaspora', diasporaRouter);
@@ -2336,6 +2357,59 @@ app.post('/api/organizations/:id/audit-logs', authorizeRole(), async (req, res, 
 // --- FINANCE APPLICATIONS MOVED TO MODULAR ROUTER ---
 
 // --- AUTH: Login ---
+/**
+ * The tenant this session acts for, if any.
+ *
+ * Round 2 owner UAT: a REAL garage tenant-member — `tenant_users.role = 'mechanic'` on a `garage`
+ * tenant with a published public profile — could not reach a single garage surface from a browser.
+ * Every garage route answered 403. Not because authority was missing: sending
+ * `x-stakeholder-role: mechanic` with `x-tenant-id` returns 200 on all of them. The browser never
+ * sent either header, because the session was told only its PLATFORM role — and public registration
+ * makes every self-registered garage employee an `owner`.
+ *
+ * This adds no authority. `resolveEffectiveRole` still refuses any requested role that is not the
+ * platform role or the VERIFIED `tenant_users` role, and every tenant route still scopes itself.
+ * What changes is that the session can say which tenant it is acting for.
+ *
+ * ONE membership is reported: the product has no tenant switcher, and inventing an "active" one
+ * where several exist would be a guess. The oldest is used so the answer is stable between
+ * requests rather than arbitrary. A read that fails reports none — the fail-closed direction, where
+ * the person keeps their platform role rather than being handed a tenant we could not confirm.
+ */
+async function resolveActiveMembership(userId) {
+  try {
+    // `tenant_users` is (id, tenant_id, user_id, role, joined_at). The first version of this
+    // selected and ordered by `created_at`, which does not exist — PostgREST returned an error,
+    // `data` came back null, and the catch below turned a broken query into a confident "this
+    // person belongs to no tenant". It deployed, and a real garage member was locked out again by
+    // a fix that looked correct. Hence both changes here: the right column, and an error that is
+    // LOGGED rather than silently becoming an answer.
+    const { data, error } = await supabase
+      .from('tenant_users')
+      .select('tenant_id, role, joined_at, tenants!inner(id, name, type)')
+      .eq('user_id', userId)
+      .order('joined_at', { ascending: true })
+      .limit(1);
+    if (error) {
+      console.error('resolveActiveMembership: membership read failed:', error.message);
+      return {};
+    }
+    const row = (data || [])[0];
+    if (!row) return {};
+    return {
+      active_tenant_id: row.tenant_id,
+      // The role held IN that tenant, as recorded. It is not a platform role and never becomes one:
+      // it is honoured only against this same verified record.
+      active_tenant_role: row.role || null,
+      active_tenant_name: row.tenants?.name || null,
+      active_tenant_type: row.tenants?.type || null,
+    };
+  } catch (e) {
+    console.error('resolveActiveMembership: unexpected failure:', e?.message || e);
+    return {};
+  }
+}
+
 app.post('/api/auth/login', async (req, res) => {
   const { email, password } = req.body;
   if (!email) return res.status(400).json({ error: 'Email is required' });
@@ -2375,7 +2449,7 @@ app.post('/api/auth/login', async (req, res) => {
 
     await supabase.from('login_attempts').insert({ user_id: user.id, success: true, method: 'password', ip_address: req.ip || '127.0.0.1' });
 
-    res.json({ user, token });
+    res.json({ user: { ...user, ...(await resolveActiveMembership(user.id)) }, token });
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
@@ -2395,7 +2469,26 @@ app.get('/api/auth/me', authorizeRole(), async (req, res) => {
     if (error || !user) {
       return res.status(401).json({ error: 'Unauthorized. User record not found.' });
     }
-    res.json({ user });
+
+    // Tell the session what it is a member of.
+    //
+    // Round 2 owner UAT: a REAL garage tenant-member — `tenant_users.role = 'mechanic'` on a
+    // `garage` tenant with a published public profile — could not reach a single garage surface
+    // from a browser. Every garage route answered 403. Not because authority was missing: sending
+    // `x-stakeholder-role: mechanic` with `x-tenant-id` returns 200 on all of them. The browser
+    // simply never sent either header, because this endpoint answered with the platform role alone
+    // and no membership at all, and public registration makes every self-registered garage employee
+    // an `owner`.
+    //
+    // So the session could not state what the server was perfectly willing to verify. This adds no
+    // authority: `resolveEffectiveRole` still refuses any requested role that is not the platform
+    // role or the VERIFIED `tenant_users` role, and every garage route still runs its own tenant
+    // scope. What changes is that the browser can now say which tenant it is acting for.
+    //
+    // One membership is reported — the product has no tenant switcher, and inventing an "active"
+    // one where several exist would be a guess. Where a person belongs to more than one tenant the
+    // oldest is used, so the answer is at least stable between requests rather than arbitrary.
+    res.json({ user: { ...user, ...(await resolveActiveMembership(user.id)) } });
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
@@ -3968,29 +4061,24 @@ app.delete('/api/vehicles/saved/:vin', authorizeRole(['owner', 'dealer', 'admin'
 })
 
 // GET /api/service-history/me - Get service history for owned vehicles
+//
+// Service Network S6: this used to return raw mechanic_work_orders rows, which left the owner
+// surface with no provider identity, no provenance and no currency — so the UI printed the literal
+// word "Garage" and rendered an unrecorded cost as $0. It now returns the governed owner
+// projection, which states a fact or reports it as absent. The original row fields are preserved so
+// existing consumers keep working.
+//
+// The raw implementation was reinstated once already by a merge that took main's side of this file
+// wholesale. It must not come back: an unreadable source is not an empty history, and an absent
+// cost is not zero. backend/tests/service-network-owner-history-route.test.js asserts the mounted
+// route delegates here.
 app.get('/api/service-history/me', authorizeRole(['owner', 'dealer', 'admin']), async (req, res) => {
   try {
-    // 1. Get user's vehicles
-    const { data: vehicles } = await supabase
-      .from('vehicles')
-      .select('vin')
-      .eq('owner_id', req.userContext.id)
-    
-    if (!vehicles || vehicles.length === 0) return res.json([])
-    
-    const vins = vehicles.map(v => v.vin)
-
-    // 2. Get work orders for these vehicles
-    const { data, error } = await supabase
-      .from('mechanic_work_orders')
-      .select('*')
-      .in('vin', vins)
-
-    if (error) throw error
-    res.json(data || [])
+    const result = await getOwnerServiceHistory(supabase, req.userContext)
+    res.json(result.entries)
   } catch (error) {
     console.error('Error fetching service history:', error)
-    res.status(500).json({ error: error.message })
+    res.status(error.statusCode || 500).json({ error: error.message })
   }
 })
 
