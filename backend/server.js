@@ -2357,6 +2357,48 @@ app.post('/api/organizations/:id/audit-logs', authorizeRole(), async (req, res, 
 // --- FINANCE APPLICATIONS MOVED TO MODULAR ROUTER ---
 
 // --- AUTH: Login ---
+/**
+ * The tenant this session acts for, if any.
+ *
+ * Round 2 owner UAT: a REAL garage tenant-member — `tenant_users.role = 'mechanic'` on a `garage`
+ * tenant with a published public profile — could not reach a single garage surface from a browser.
+ * Every garage route answered 403. Not because authority was missing: sending
+ * `x-stakeholder-role: mechanic` with `x-tenant-id` returns 200 on all of them. The browser never
+ * sent either header, because the session was told only its PLATFORM role — and public registration
+ * makes every self-registered garage employee an `owner`.
+ *
+ * This adds no authority. `resolveEffectiveRole` still refuses any requested role that is not the
+ * platform role or the VERIFIED `tenant_users` role, and every tenant route still scopes itself.
+ * What changes is that the session can say which tenant it is acting for.
+ *
+ * ONE membership is reported: the product has no tenant switcher, and inventing an "active" one
+ * where several exist would be a guess. The oldest is used so the answer is stable between
+ * requests rather than arbitrary. A read that fails reports none — the fail-closed direction, where
+ * the person keeps their platform role rather than being handed a tenant we could not confirm.
+ */
+async function resolveActiveMembership(userId) {
+  try {
+    const { data } = await supabase
+      .from('tenant_users')
+      .select('tenant_id, role, created_at, tenants!inner(id, name, type)')
+      .eq('user_id', userId)
+      .order('created_at', { ascending: true })
+      .limit(1);
+    const row = (data || [])[0];
+    if (!row) return {};
+    return {
+      active_tenant_id: row.tenant_id,
+      // The role held IN that tenant, as recorded. It is not a platform role and never becomes one:
+      // it is honoured only against this same verified record.
+      active_tenant_role: row.role || null,
+      active_tenant_name: row.tenants?.name || null,
+      active_tenant_type: row.tenants?.type || null,
+    };
+  } catch {
+    return {};
+  }
+}
+
 app.post('/api/auth/login', async (req, res) => {
   const { email, password } = req.body;
   if (!email) return res.status(400).json({ error: 'Email is required' });
@@ -2396,7 +2438,7 @@ app.post('/api/auth/login', async (req, res) => {
 
     await supabase.from('login_attempts').insert({ user_id: user.id, success: true, method: 'password', ip_address: req.ip || '127.0.0.1' });
 
-    res.json({ user, token });
+    res.json({ user: { ...user, ...(await resolveActiveMembership(user.id)) }, token });
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
@@ -2435,33 +2477,7 @@ app.get('/api/auth/me', authorizeRole(), async (req, res) => {
     // One membership is reported — the product has no tenant switcher, and inventing an "active"
     // one where several exist would be a guess. Where a person belongs to more than one tenant the
     // oldest is used, so the answer is at least stable between requests rather than arbitrary.
-    let membership = null;
-    try {
-      const { data: memberships } = await supabase
-        .from('tenant_users')
-        .select('tenant_id, role, created_at, tenants!inner(id, name, type)')
-        .eq('user_id', user.id)
-        .order('created_at', { ascending: true })
-        .limit(1);
-      const row = (memberships || [])[0];
-      if (row) {
-        membership = {
-          active_tenant_id: row.tenant_id,
-          // The role this person holds IN that tenant, as recorded. It is not a platform role and
-          // it does not become one: it is only ever honoured against this same verified record.
-          active_tenant_role: row.role || null,
-          active_tenant_name: row.tenants?.name || null,
-          active_tenant_type: row.tenants?.type || null,
-        };
-      }
-    } catch {
-      // A membership read that fails leaves the session with none. That is the fail-closed
-      // direction: the person keeps their platform role and sees no tenant surfaces, rather than
-      // being handed a tenant the server could not confirm.
-      membership = null;
-    }
-
-    res.json({ user: { ...user, ...(membership || {}) } });
+    res.json({ user: { ...user, ...(await resolveActiveMembership(user.id)) } });
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
