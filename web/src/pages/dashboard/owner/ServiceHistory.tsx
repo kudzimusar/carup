@@ -20,44 +20,12 @@ import type { Vehicle } from '@/types'
  * recorded — unknown is never displayed as zero, and never as a guess.
  */
 
-type Provider = { known: boolean; display_name: string | null; slug: string | null }
-type Cost = { recorded: boolean; amount: number | null; currency: string | null }
-type MileageObservation = { observed_mileage: number; observed_at: string; source: string } | null
-
-type ServiceHistoryEntry = {
-  id: string
-  vin: string
-  status: string
-  description: string | null
-  issue_description: string | null
-  service_category: string | null
-  work_performed: string | null
-  provenance: string
-  provider: Provider
-  cost: Cost
-  completed_at: string | null
-  performed_at: string | null
-  created_at: string
-  mileage_observation: MileageObservation
-}
-
-const PROVENANCE_LABELS: Record<string, string> = {
-  owner_declared: 'Owner declared',
-  garage_stated: 'Garage stated',
-  mechanic_attributed: 'Mechanic attributed',
-  professional_governed: 'Professionally governed',
-  evidence_backed: 'Evidence backed',
-  partner_record: 'Partner record',
-  unknown: 'Source not recorded',
-}
-
-function formatCost(cost: Cost): string {
-  // Money is shown only when both the amount and its currency are known. An
-  // unrecorded cost is stated as unrecorded — it is never rendered as zero, and
-  // no currency is assumed.
-  if (!cost.recorded || cost.amount === null || !cost.currency) return 'Cost not recorded'
-  return `${cost.currency} ${cost.amount.toLocaleString()}`
-}
+import {
+  type ServiceHistoryEntry,
+  describeService,
+  formatCost,
+  provenanceLabel,
+} from '@/lib/ownerServiceHistory'
 
 export default function ServiceHistory() {
   const { fetchOwnedVehicles, fetchServiceHistory } = useCarUpApi()
@@ -78,8 +46,7 @@ export default function ServiceHistory() {
       .catch(() => setLoadFailed(true))
   }, [fetchOwnedVehicles, fetchServiceHistory])
 
-  const describe = (s: ServiceHistoryEntry) =>
-    s.work_performed || s.description || s.issue_description || ''
+  const describe = describeService
 
   const services = allServices.filter(s =>
     s.vin === selectedVehicle &&
@@ -223,7 +190,7 @@ export default function ServiceHistory() {
                   </div>
 
                   <p className="text-xs text-gray-400 mt-2" data-testid="entry-provenance">
-                    {PROVENANCE_LABELS[service.provenance] || PROVENANCE_LABELS.unknown}
+                    {provenanceLabel(service.provenance)}
                   </p>
                 </div>
               </div>
