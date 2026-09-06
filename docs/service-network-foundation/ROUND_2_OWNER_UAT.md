@@ -378,3 +378,17 @@ is the journey the Foundation was built for, and it now exists.
 What it cost to get there is the part worth keeping: **six layers, six of my own wrong readings, and
 three defects I introduced** — none of which any test suite reported, and all of which one real
 account in one real browser found in an afternoon.
+
+
+---
+
+## A note on which head carries the CI evidence
+
+The browser evidence above was taken against **`390beca9`**, and that is the head both deployments
+served. Its `CI` run was **cancelled**, not passed — superseded by the concurrency group when the
+documentation commit was pushed moments later. A cancelled run is not a pass and is not reported as
+one.
+
+`543363fc` is the same code plus documentation, and it is the head whose full gate set is recorded
+as the certification. Anyone re-checking should look there, and should be able to see for themselves
+that `390beca9..543363fc` touches only `docs/`.
