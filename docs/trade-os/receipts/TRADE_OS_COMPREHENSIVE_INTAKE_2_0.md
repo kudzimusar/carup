@@ -113,31 +113,113 @@ the regression test drives the **real write path**, because a test that exercise
 normalizer would have stayed green through it. Same class as T4's cargo line: a module being correct
 is not the same as a module being wired.
 
-## 7. Known limitations and deferred work
+## 7. Final closure cycle (`be432647`)
 
-- **Supplier-side projection not walkable on staging.** `/diaspora/rfqs` needs governed `dealer`
-  authority; the available fixture is `owner` and public registration correctly refuses to grant it.
-  The allow-list is proven by the sentinel test instead. Needs a governed supplier tenant fixture.
-- **Pickup contact/address, consignee contact, clearing-agent contact and document upload** are
-  contracted (§36.6) but not yet surfaced in the form — they are PRIVATE-class fields whose UI
-  belongs with the pickup and documents work (**T8**).
-- **Logistics-side intake UI** (cargo declarations, running state, pickup) is persisted and
-  projected but the T3 wizard has not yet been expanded to collect it.
-- **Managed Import** is captured as an intent (`intake_intent`) and its facts are carried; the
-  decomposition into sub-journeys remains later-phase.
-- **No rates, no landed cost** — T6 owns pricing. Intake records only what the number *means*.
+### 7.1 The interpretation that was corrected
 
-## 8. Standing gap, carried not lost
+PRIVATE never meant *"do not collect until a later phase"*. It means **collect where the journey
+needs it, and do not expose it outside the authorized context**. A shipper who asks for pickup must
+be able to say where and who to call, or the request cannot be served.
 
-**A procurement-linked live logistics request still cannot be cancelled or closed through the
-product** (§35, §36.10). Not Intake 2.0's to fix. **Required before production readiness**, owned by
-logistics request-lifecycle work.
+Now collected, and every one named in `NEVER_MARKETPLACE_VISIBLE`: pickup address, contact name and
+phone, access notes, available-from, loading equipment; delivery address, contact name and phone,
+unloading requirement; consignee name and phone; clearing-agent name, country and contact; cargo
+current location and accompanying goods; preferred language and contact channel.
 
-## 9. Status
+**Certified on staging:** a logistics request carrying thirteen private sentinels was published, and
+the provider projection leaked **none** of them — while the five facts a provider needs to decide
+(`non_running`, `batteries`, `oversized`, `used`, destination) all crossed.
 
-**INTAKE-2.0-PARTIAL.** The contract, persistence, provenance, privacy, adaptive forms, review brief
-and T4 reuse are implemented and certified on a deployed pair. It is PARTIAL because the logistics
-intake UI and the PRIVATE-class contact/document fields are contracted but not yet surfaced, and
-because supplier-side projection lacks a governed fixture to walk.
+### 7.2 Logistics intake
 
-**Owner UAT required: YES.** T3 frozen. T4 frozen at `736f06c5`. Production untouched. T5 not started.
+Persisted and read back on staging: `pickup_required`, `origin_site_type`, loading equipment,
+`unloading_required`, `destination_outcome`, `shipping_objective`, `service_mode_preference`,
+inspection / insurance / clearing intent, contact channel, timing window — plus cargo
+`packaging_type`, `goods_nature`, `handling_flags`, `content_declarations`,
+`vehicle_running_state`, `vehicle_keys_state`, `export_clearance_state`, `inspection_state`,
+`accompanying_parts`, `current_location`, `declared_value`, with `measurement_basis` deriving
+`PROVIDED` from a stated volume.
+
+### 7.3 Document readiness — surfaced, and honest
+
+`POST/GET /diaspora/{import-orders|logistics-requests}/:id/document-readiness`.
+
+Staging: 201, every row `verified=false` / `source=CUSTOMER_STATED`; **no percentage and no
+completeness flag** because the required set is unknown and a denominator would invent a claim; the
+payload carries the sentence *"These are the customer's own answers. CarUp has not seen or checked
+any document."*; `verified` is refused as a readiness state; re-answering corrects rather than
+duplicating. **No T8 functionality was added** — no file is stored and nothing is classified.
+
+### 7.4 Governed supplier fixture
+
+`/diaspora/rfqs` requires the governed `dealer` role and public registration correctly refuses to
+grant it. **That control was not weakened.** The fixture is defined in the existing
+`scripts/provision-staging-qa-accounts.mjs`, which already refuses the production ref, reads
+passwords from the environment and hashes them with the real login scheme — run-scoped via
+`TRADEOS_SUPPLIER_RUN_TAG`, unmistakably synthetic, and pinned by a test asserting **exactly one**
+dealer so provisioning cannot quietly mint privileged accounts.
+
+The script's own pg path could not run here (the stored staging database password is stale — an
+operator credential issue, not a design one), so the account was provisioned through the approved
+staging authority with a hash generated by the same `hashPassword` the script uses. No credential
+was committed.
+
+### 7.5 Supplier journey, walked
+
+buyer publishes → **supplier sees the opportunity (200)** → opens detail (200) → submits an offer
+(201, `ISSUED`) → buyer compares (identity + amount) → **buyer awards (200)** → T4 continuation
+(201) inheriting `door_delivery`, `lowest_cost` and the cargo identity, with measurements still
+`UNKNOWN` and no private commercial fact crossing.
+
+Projection at that boundary: **0 of 12 private sentinels crossed** (delivery area and address,
+consignee name and phone, clearing agent and contact, undisclosed budget, budget maximum, payment
+intent, buyer id, language, channel) while **10 of 10** quote-relevant facts did.
+
+### 7.6 A real defect the supplier journey exposed
+
+**The buyer could see a supplier's DRAFT offer, including its amount.** `createQuote` already
+documented the intent — *"A DRAFT is private to the supplier — only a real submission is news for
+the buyer"* — and T3 already filtered drafts, but T2's read returned every row. Drafts are now
+withheld from the buyer entirely; a supplier still sees their own, and privileged readers see
+everything.
+
+The pre-existing assertion accepted the draft row as long as its identity was stripped. It has been
+**strengthened deliberately**, because the row still carried the price.
+
+### 7.7 Gates at closure
+
+Intake **25/25** · T4 **32/32** · T3 **12/12** · adversarial projections **27/27** ·
+provisioning **10/11** (the one failure connects to a real database and fails on the stale staging
+password; pre-existing and green in CI) · migration integrity **27/27** · real-Postgres intake
+**20/20** · real-Postgres T4 **11/11** · tsc clean · lint NET_NEW **0/0** · build ✓.
+
+Form UAT (earlier build, unchanged by this cycle): deep detail hidden until opened, Request Brief
+answered-only, privacy preview intact, **7/7 widths, 0 console errors, 0 5xx**.
+
+### 7.8 Three wiring gaps, one lesson
+
+This cycle found its third instance of the same class: `normalizeLineIntake` written but never
+called, and the readiness service implemented but unreachable (404 on staging). Both were found by
+walking the deployed product, not by a unit test. **A module being correct is not the same as a
+module being wired** — route mounting is now verified by enumerating the live Express stack.
+
+## 8. Known limitations
+
+- **Logistics intake UI**: the fields are persisted, projected and certified through the API, but
+  the T3 wizard surfaces only part of them. The procurement wizard's adaptive sections are complete.
+- **Supplier UI walked through the API, not the browser.** The governed fixture exists and the
+  supplier surfaces authorize it correctly; a browser walk of the supplier screens remains.
+- **Document readiness has no upload.** Deliberate — T8 owns files.
+- **Managed import** is a usable intent with its facts carried; decomposition stays later-phase.
+- **Provenance ledger is written by services, not yet by a customer-facing screen.**
+- Rates and landed cost remain **T6**.
+
+## 9. Standing gap, still carried
+
+**A procurement-linked live logistics request cannot be cancelled or closed through the product**
+(§35, §36.10). Not Intake 2.0's. **Required before production readiness.**
+
+## 10. Status
+
+**INTAKE-2.0-PARTIAL — remaining for OWNER PRODUCT / VISUAL UAT**, plus the limitations named in §8.
+T3 frozen. T4 frozen at `736f06c5`. Production untouched. T5 not started.

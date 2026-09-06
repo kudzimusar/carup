@@ -3425,3 +3425,42 @@ correct. Its regression test drives the real write path.
 **Deferred, and named:** the logistics intake UI, the PRIVATE-class contact/document fields (T8), a
 governed supplier fixture for projection UAT, and rates (T6). The logistics cancel/close gap remains
 recorded in §36.10 — required before production readiness.
+
+---
+
+## §38 — INTAKE 2.0 FINAL CLOSURE
+
+**Candidate `be432647`. INTAKE-2.0-PARTIAL, remaining for owner product/visual UAT.**
+Receipt §7–§10. T3 frozen. T4 frozen at `736f06c5`. Production untouched. **T5 not started.**
+
+**The interpretation corrected.** PRIVATE never meant "do not collect"; it means collect where the
+journey needs it and never expose it. Pickup and delivery addresses and contacts, consignee details,
+clearing-agent details, cargo location and contact preferences are now collected — and every one is
+named in `NEVER_MARKETPLACE_VISIBLE`. Certified: thirteen private sentinels published, **none**
+reached the provider projection, while the five facts a provider needs all did.
+
+**Document readiness is surfaced and honest.** Four states, `verified=false` on every row, no
+percentage and no completeness flag because the required set is unknown, `verified` refused as a
+state, and re-answering corrects rather than duplicating. No T8 functionality was added.
+
+**The supplier fixture is governed, not a loosened control.** `/diaspora/rfqs` still requires the
+`dealer` role and public registration still refuses to grant it. The fixture lives in the existing
+provisioning script that refuses production and hashes at runtime, is run-scoped and synthetic, and
+a test pins that exactly one dealer exists.
+
+**The supplier journey is walked end to end**: opportunity → detail → offer → comparison → award →
+T4 continuation, with 0 of 12 private facts crossing and 10 of 10 quote-relevant facts crossing.
+
+**A real defect it exposed:** the buyer could see a supplier's DRAFT offer and its amount. The
+intent was already documented in `createQuote` and already enforced in T3; T2's read returned every
+row. Drafts are now withheld, and the pre-existing assertion — which accepted the row as long as
+identity was stripped, while the price still crossed — was deliberately strengthened.
+
+**Three wiring gaps, one lesson.** `normalizeLineIntake` written but never called; the readiness
+service implemented but unreachable. Both were found by walking the deployed product. A module being
+correct is not the same as a module being wired.
+
+**Still deferred and named:** the T3 wizard surfaces only part of the logistics intake; the supplier
+screens were walked through the API rather than the browser; readiness has no upload (T8); managed
+import stays an intent; rates remain T6. The **logistics cancel/close gap** (§36.10) is unchanged —
+required before production readiness.
