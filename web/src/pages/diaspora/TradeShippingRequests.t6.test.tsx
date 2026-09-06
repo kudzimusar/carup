@@ -230,4 +230,12 @@ describe('the requester sees what the offer actually covers', () => {
     expect(context.cargo.estimated_volume_cbm).toBe(18)
     expect(context.objective).toBe('non_running')
   })
+
+  it('treats an unrecognised commercials payload as unreadable, not as no breakdown', async () => {
+    state.commercials = [] as unknown
+    await openDetail()
+    await waitFor(() => expect(screen.getByTestId('offer-commercials-unreadable')).toBeInTheDocument())
+    expect(screen.queryByTestId('offer-commercials-none')).toBeNull()
+    expect(screen.queryByTestId('landed-estimate')).toBeNull()
+  })
 })

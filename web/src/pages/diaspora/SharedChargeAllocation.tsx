@@ -51,7 +51,15 @@ export function SharedChargeAllocationPanel({ containerId, read, allocate }: {
   const [error, setError] = useState('')
 
   const load = useCallback(async () => {
-    try { setData(await read(containerId)); setState('ready') } catch { setState('unreadable') }
+    try {
+      const next = await read(containerId)
+      // A response that is not the shape we expect is UNREADABLE, not empty. Reading `.length` off
+      // whatever arrived took the whole operator screen down with a TypeError the first time an
+      // unmatched route answered with a bare array.
+      if (!next || !Array.isArray(next.charges)) { setState('unreadable'); return }
+      setData(next)
+      setState('ready')
+    } catch { setState('unreadable') }
   }, [read, containerId])
 
   // eslint-disable-next-line react-hooks/set-state-in-effect
@@ -87,13 +95,13 @@ export function SharedChargeAllocationPanel({ containerId, read, allocate }: {
       {/* One statement of the position, not two. The server's note is the specific one — it says
           whether there is nothing attached, or nothing approved — so the generic empty line only
           appears when the note is about something else. */}
-      <p className="mt-1 max-w-2xl text-sm text-gray-600" data-testid="shared-charges-note">{data.note}</p>
+      <p className="mt-1 max-w-2xl text-sm text-gray-600" data-testid="shared-charges-note">{data.note || ''}</p>
       {error && <p className="mt-2 text-xs font-medium text-red-700" data-testid="shared-charges-error">{error}</p>}
 
       {data.charges.length === 0 ? (
         <p className="mt-3 text-sm italic text-gray-500" data-testid="shared-charges-empty">
           {/* Never a second way of saying what the note already said. */}
-          {/No offer attached/i.test(data.note)
+          {/No offer attached/i.test(data.note || '')
             ? 'Nothing to divide on this sailing yet.'
             : 'No priced charge is recorded against an offer attached to this sailing.'}
         </p>
@@ -109,11 +117,11 @@ export function SharedChargeAllocationPanel({ containerId, read, allocate }: {
                 <p className="shrink-0 text-lg font-bold text-gray-950">{formatMoney(c.original)}</p>
               </div>
 
-              {c.allocation.allocated ? (
+              {c.allocation?.allocated ? (
                 <div className="mt-3 border-l-2 border-emerald-500 pl-3" data-testid="shared-charge-allocated">
                   <p className="text-xs font-semibold text-emerald-800">Already divided</p>
                   <ul className="mt-1 space-y-0.5">
-                    {c.allocation.allocations.map((a) => (
+                    {(c.allocation.allocations || []).map((a) => (
                       <li key={a.reservation_id} className="text-xs text-gray-700" data-testid="shared-charge-allocation-line">
                         RES-{String(a.reservation_id).replace(/-/g, '').slice(0, 8).toUpperCase()} —{' '}
                         {formatMoney({ amount: a.allocated_amount, currency: a.currency || c.original.currency })}

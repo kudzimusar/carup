@@ -78,4 +78,17 @@ describe('shared charge allocation', () => {
     expect(screen.getByTestId('shared-charge-allocation').textContent)
       .toContain('not an invoice, a payment or a settlement')
   })
+
+  /**
+   * Found by CI, not by reading: an unmatched route in the E2E harness answered `{data: []}`, the
+   * panel read `.length` off it, and the TypeError took the whole operator screen down — four
+   * unrelated Phase 6 tests went red. A payload we do not recognise is UNREADABLE, never empty.
+   */
+  it('treats an unrecognised payload as unreadable rather than crashing the screen', async () => {
+    const read = vi.fn(async () => ([] as unknown as SharedChargeSet))
+    render(<SharedChargeAllocationPanel containerId="sail-1" read={read} allocate={vi.fn()} />)
+    await waitFor(() => expect(screen.getByTestId('shared-charges-unreadable')).toBeInTheDocument())
+    expect(screen.queryByTestId('shared-charges-empty')).toBeNull()
+    expect(screen.queryByTestId('shared-charges-list')).toBeNull()
+  })
 })

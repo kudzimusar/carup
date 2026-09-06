@@ -33,7 +33,10 @@ export function OfferCommercials({ read, offer }: { read: ReadFn; offer: OfferRe
 
   const load = useCallback(async () => {
     try {
-      setData(await read(offer.kind, offer.id))
+      const next = await read(offer.kind, offer.id)
+      // Same rule as the allocation panel: an unexpected shape is unreadable, never empty.
+      if (!next || !Array.isArray(next.components)) { setState('unreadable'); return }
+      setData(next)
       setState('ready')
     } catch {
       // Deliberately NOT "no breakdown recorded" — a failed read is not evidence of absence.
@@ -98,9 +101,11 @@ function OfferComparisonPanel({ compare, offers, cargo, objective }: {
 
   const load = useCallback(async () => {
     try {
-      setResult(await compare(offers.map((o) => ({
+      const next = await compare(offers.map((o) => ({
         id: o.id, kind: o.kind === 'import-quotes' ? 'import' : 'logistics', label: o.label,
-      })), { cargo, objective }))
+      })), { cargo, objective })
+      if (!next || !next.comparison) { setState('unreadable'); return }
+      setResult(next)
       setState('ready')
     } catch {
       setState('unreadable')
@@ -129,7 +134,7 @@ function OfferComparisonPanel({ compare, offers, cargo, objective }: {
   return (
     <div className="mt-4" data-testid="offer-comparison">
       <ComparisonVerdict result={result.comparison} quotes={result.quotes} />
-      <AdvicePanel advice={result.advice} quotes={result.quotes} />
+      <AdvicePanel advice={result.advice} quotes={result.quotes || []} />
     </div>
   )
 }

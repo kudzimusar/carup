@@ -241,7 +241,7 @@ export function ComparisonVerdict({ result, quotes }: { result: ComparisonResult
             CarUp is not calling one of these cheaper.
           </p>
           <ul className="mt-2 space-y-1" data-testid="comparison-reasons">
-            {result.reasons.map((r, i) => <li key={i} className="text-xs text-slate-700">{r}</li>)}
+            {(result.reasons || []).map((r, i) => <li key={i} className="text-xs text-slate-700">{r}</li>)}
             {(result.pairs || []).flatMap((p) => p.reasons).slice(0, 5).map((r, i) => (
               <li key={`p-${i}`} className="text-xs text-slate-700">{r}</li>
             ))}
@@ -261,7 +261,7 @@ export function ComparisonVerdict({ result, quotes }: { result: ComparisonResult
  * offers or the recorded cargo.
  */
 export function AdvicePanel({ advice, quotes }: { advice: AdviceResult; quotes: ComparableQuote[] }) {
-  if (!advice?.findings?.length) return null
+  if (!Array.isArray(advice?.findings) || !advice.findings.length) return null
   const labelOf = (id?: string | null) => quotes.find((q) => q.id === id)?.label || null
   return (
     <div className="mt-3 border border-slate-300 bg-white p-4" data-testid="advice-panel">
@@ -274,7 +274,7 @@ export function AdvicePanel({ advice, quotes }: { advice: AdviceResult; quotes: 
               {labelOf(f.option_id) ? <span className="ml-1 font-normal text-slate-600">— {labelOf(f.option_id)}</span> : null}
             </p>
             <ul className="mt-0.5 space-y-0.5">
-              {f.because.map((b, j) => (
+              {(f.because || []).map((b, j) => (
                 <li key={j} className="text-xs text-slate-600" data-testid="advice-because">{b}</li>
               ))}
             </ul>

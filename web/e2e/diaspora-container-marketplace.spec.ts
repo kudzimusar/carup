@@ -119,6 +119,14 @@ async function mockApi(page: Page, state: CState, user: TestUser) {
       c.available_capacity_volume = c.total_capacity_volume - c.reservations_used
       await fulfillJson(route, { data: { reservation: r, capacity: capOf(c) } }); return
     }
+    // T6.8 — the operator's shared-charge panel. Answering the generic `{data: []}` here made the
+    // panel read `.length` off an array and take the whole screen down; it is now shape-guarded,
+    // and this mock serves the real contract so the panel is genuinely exercised.
+    if (method === 'GET' && /\/container-marketplace\/[^/]+\/shared-charges$/.test(path)) {
+      await fulfillJson(route, { data: { charges: [], approved_reservations: 0,
+        note: 'No offer attached to this sailing has recorded any charge.' } });
+      return
+    }
     await fulfillJson(route, { data: [] })
   })
 }

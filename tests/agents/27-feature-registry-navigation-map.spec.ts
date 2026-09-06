@@ -164,7 +164,12 @@ test.describe('Feature Registry & Navigation Map', () => {
       expect(result.roleItemCounts['mechanic']).toBe(5);
       expect(result.roleItemCounts['insurance']).toBe(4);
       expect(result.roleItemCounts['government']).toBe(14);
-      expect(result.roleItemCounts['admin']).toBe(33);
+      // Recomputed 2026-09-07 (Trade OS T6.5): `diaspora.rate-research` — CarUp's own market-rate
+      // research workspace — is a NEW sidebar destination registered with roles ['admin'] only, so
+      // it moves the admin count alone (33 -> 34). Registering it at all is the point: an
+      // unregistered path under /diaspora is PUBLIC by the isPublicRoute fallback, and this
+      // surface must never be.
+      expect(result.roleItemCounts['admin']).toBe(34);
       expect(result.roleItemCounts['bank']).toBe(4);
 
       // Dashboard routes are valid
