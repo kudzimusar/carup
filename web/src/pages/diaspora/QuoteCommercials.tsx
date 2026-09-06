@@ -13,16 +13,18 @@
 import { useCallback, useEffect, useState } from 'react'
 import { Loader2 } from 'lucide-react'
 import { BreakdownPositionNote } from './chargeComponentEditor'
-import { QuoteBreakdown, ComparisonVerdict, LandedEstimatePanel } from './TradeQuoteComparison'
-import type { QuoteCommercials, ComparisonResult, ComparableQuote } from './TradeQuoteComparison'
+import { QuoteBreakdown, ComparisonVerdict, AdvicePanel, LandedEstimatePanel } from './TradeQuoteComparison'
+import type { QuoteCommercials, ComparisonResult, ComparableQuote, AdviceResult } from './TradeQuoteComparison'
 import type { BreakdownPosition } from './commercialFormat'
 
 export type QuoteKind = 'import-quotes' | 'logistics-quotes'
 export interface OfferRef { id: string; kind: QuoteKind; label: string }
 
 type ReadFn = (kind: QuoteKind, quoteId: string) => Promise<QuoteCommercials>
-type CompareFn = (targets: Array<{ id: string; kind: 'import' | 'logistics'; label: string }>) =>
-  Promise<{ quotes: ComparableQuote[]; comparison: ComparisonResult }>
+type CompareFn = (
+  targets: Array<{ id: string; kind: 'import' | 'logistics'; label: string }>,
+  context?: { cargo?: Record<string, unknown>; objective?: string | null },
+) => Promise<{ quotes: ComparableQuote[]; comparison: ComparisonResult; advice: AdviceResult }>
 
 /** One offer's recorded cost breakdown, as the customer reads it. */
 export function OfferCommercials({ read, offer }: { read: ReadFn; offer: OfferRef }) {
@@ -78,15 +80,19 @@ export function OfferCommercials({ read, offer }: { read: ReadFn; offer: OfferRe
  * The cross-offer verdict. Rendered only when there are at least two offers, because "comparable"
  * is a statement about a set — and CarUp names a cheapest only when the set genuinely is one.
  */
-export function OfferComparison({ compare, offers }: { compare: CompareFn; offers: OfferRef[] }) {
+export function OfferComparison({ compare, offers, cargo, objective }: {
+  compare: CompareFn; offers: OfferRef[]; cargo?: Record<string, unknown>; objective?: string | null
+}) {
   // The guard is OUTSIDE the component that loads, not inside it: comparison needs two offers, and
   // asking the server to compare one produced a 400 on every single-offer request detail.
   if (offers.length < 2) return null
-  return <OfferComparisonPanel compare={compare} offers={offers} />
+  return <OfferComparisonPanel compare={compare} offers={offers} cargo={cargo} objective={objective} />
 }
 
-function OfferComparisonPanel({ compare, offers }: { compare: CompareFn; offers: OfferRef[] }) {
-  const [result, setResult] = useState<{ quotes: ComparableQuote[]; comparison: ComparisonResult } | null>(null)
+function OfferComparisonPanel({ compare, offers, cargo, objective }: {
+  compare: CompareFn; offers: OfferRef[]; cargo?: Record<string, unknown>; objective?: string | null
+}) {
+  const [result, setResult] = useState<{ quotes: ComparableQuote[]; comparison: ComparisonResult; advice: AdviceResult } | null>(null)
   const [state, setState] = useState<'loading' | 'ready' | 'unreadable'>('loading')
   const key = offers.map((o) => o.id).join('|')
 
@@ -94,14 +100,14 @@ function OfferComparisonPanel({ compare, offers }: { compare: CompareFn; offers:
     try {
       setResult(await compare(offers.map((o) => ({
         id: o.id, kind: o.kind === 'import-quotes' ? 'import' : 'logistics', label: o.label,
-      }))))
+      })), { cargo, objective }))
       setState('ready')
     } catch {
       setState('unreadable')
     }
     // `key` stands in for the offer identities: re-comparing on every array identity would loop.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [compare, key])
+  }, [compare, key, objective])
 
   // eslint-disable-next-line react-hooks/set-state-in-effect
   useEffect(() => { void load() }, [load])
@@ -123,6 +129,7 @@ function OfferComparisonPanel({ compare, offers }: { compare: CompareFn; offers:
   return (
     <div className="mt-4" data-testid="offer-comparison">
       <ComparisonVerdict result={result.comparison} quotes={result.quotes} />
+      <AdvicePanel advice={result.advice} quotes={result.quotes} />
     </div>
   )
 }

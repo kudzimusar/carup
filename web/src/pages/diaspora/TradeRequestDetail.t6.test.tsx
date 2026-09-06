@@ -128,11 +128,17 @@ describe('the buyer sees what the supplier price actually covers', () => {
     state.comparison = {
       quotes: [{ id: 'iq1', label: 'Kaizen Exports' }, { id: 'iq2', label: 'Sakura Motors' }],
       comparison: { comparable: true, verdict: 'COMPARABLE', cheapest: 'iq2', reasons: [] },
+      advice: { compared: true, findings: [{
+        code: 'LOWER_KNOWN_COST_SAME_SCOPE', headline: 'Lower known cost for the same scope',
+        because: ['Every option prices the same stages, so the totals compare like with like.'],
+        option_id: 'iq2',
+      }] },
     }
     await open()
     await waitFor(() => expect(screen.getByTestId('offer-comparison')).toBeInTheDocument())
     expect(screen.getByTestId('comparison-lowest').textContent).toContain('Sakura Motors')
     // Both offers are sent for comparison, each labelled by WHO is offering.
+    expect(screen.getByTestId('advice-panel').textContent).toContain('Lower known cost for the same scope')
     expect(state.compareCalls[0]).toEqual([
       { id: 'iq1', kind: 'import', label: 'Kaizen Exports' },
       { id: 'iq2', kind: 'import', label: 'Sakura Motors' },

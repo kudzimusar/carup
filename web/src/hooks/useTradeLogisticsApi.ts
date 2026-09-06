@@ -15,7 +15,7 @@ import type {
 } from '@/types/tradeLogistics'
 import { toComponentPayload } from '@/pages/diaspora/commercialFormat'
 import type { DraftComponent } from '@/pages/diaspora/commercialFormat'
-import type { QuoteCommercials, ComparableQuote, ComparisonResult } from '@/pages/diaspora/TradeQuoteComparison'
+import type { QuoteCommercials, ComparableQuote, ComparisonResult, AdviceResult } from '@/pages/diaspora/TradeQuoteComparison'
 
 const BASE_URL = resolveApiBaseUrl(
   import.meta.env.VITE_API_URL,
@@ -123,9 +123,13 @@ export function useTradeLogisticsApi() {
 
   const compareQuotes = useCallback(async (
     targets: Array<{ id: string; kind: 'import' | 'logistics'; label: string }>,
-  ): Promise<{ quotes: ComparableQuote[]; comparison: ComparisonResult }> => {
-    const response = await request<{ data: { quotes: ComparableQuote[]; comparison: ComparisonResult } }>(
-      '/diaspora/quote-comparison', { method: 'POST', body: JSON.stringify({ quotes: targets }) })
+    context: { cargo?: Record<string, unknown>; objective?: string | null } = {},
+  ): Promise<{ quotes: ComparableQuote[]; comparison: ComparisonResult; advice: AdviceResult }> => {
+    const response = await request<{ data: { quotes: ComparableQuote[]; comparison: ComparisonResult; advice: AdviceResult } }>(
+      '/diaspora/quote-comparison', {
+        method: 'POST',
+        body: JSON.stringify({ quotes: targets, cargo: context.cargo || {}, objective: context.objective ?? null }),
+      })
     return response.data
   }, [request])
 

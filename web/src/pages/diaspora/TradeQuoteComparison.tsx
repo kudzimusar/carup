@@ -66,6 +66,18 @@ export interface QuoteCommercials {
   breakdown: BreakdownPositionView
 }
 
+export interface AdviceFinding {
+  code: string
+  headline: string
+  because: string[]
+  option_id?: string | null
+}
+
+export interface AdviceResult {
+  findings: AdviceFinding[]
+  compared?: boolean
+}
+
 export interface ComparisonResult {
   comparable: boolean
   verdict: string
@@ -236,6 +248,42 @@ export function ComparisonVerdict({ result, quotes }: { result: ComparisonResult
           </ul>
         </>
       )}
+    </div>
+  )
+}
+
+/**
+ * Why the offers differ, in the customer's terms.
+ *
+ * Every finding shows its reasoning, because a conclusion the customer cannot argue with is a
+ * conclusion they have to take on trust — and CarUp has not earned trust it cannot show working
+ * for. Nothing here books, approves or recommends: each finding is a fact about the recorded
+ * offers or the recorded cargo.
+ */
+export function AdvicePanel({ advice, quotes }: { advice: AdviceResult; quotes: ComparableQuote[] }) {
+  if (!advice?.findings?.length) return null
+  const labelOf = (id?: string | null) => quotes.find((q) => q.id === id)?.label || null
+  return (
+    <div className="mt-3 border border-slate-300 bg-white p-4" data-testid="advice-panel">
+      <h3 className="text-sm font-bold text-slate-950">What actually differs</h3>
+      <ul className="mt-2 space-y-3">
+        {advice.findings.map((f, i) => (
+          <li key={`${f.code}-${i}`} data-testid="advice-finding">
+            <p className="text-sm font-medium text-slate-900">
+              {f.headline}
+              {labelOf(f.option_id) ? <span className="ml-1 font-normal text-slate-600">— {labelOf(f.option_id)}</span> : null}
+            </p>
+            <ul className="mt-0.5 space-y-0.5">
+              {f.because.map((b, j) => (
+                <li key={j} className="text-xs text-slate-600" data-testid="advice-because">{b}</li>
+              ))}
+            </ul>
+          </li>
+        ))}
+      </ul>
+      <p className="mt-3 text-[11px] text-slate-500">
+        These are facts about the offers and the cargo. CarUp does not book, approve or recommend.
+      </p>
     </div>
   )
 }
