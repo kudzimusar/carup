@@ -257,12 +257,53 @@ test('identical scopes ARE comparable, and the cheaper one may be named', () => 
   assert.equal(result.cheapest, 'b');
 });
 
-test('an INCOMPLETE offer is never the cheapest, even when its total is lowest', () => {
-  const a = q('a', 'Cheap but incomplete', [comp('MAIN_CARRIAGE', 900)], false);
-  const b = q('b', 'Complete', [comp('MAIN_CARRIAGE', 1800)], true);
+test('an offer is never cheapest when it simply priced FEWER stages', () => {
+  // The real-world shape of "incomplete": one offer left charges out, so its total is lower for a
+  // smaller purchase. Coverage differs, so no winner may be named.
+  const a = q('a', 'Freight only', [comp('MAIN_CARRIAGE', 900)]);
+  const b = q('b', 'Freight + clearing + inland', [comp('MAIN_CARRIAGE', 1000), comp('CLEARING', 400), comp('INLAND', 300)]);
   const result = compare.compareQuotes([a, b]);
-  assert.equal(result.cheapest, null);
-  assert.ok(result.reasons.some((r) => /not a lower price/i.test(r)));
+  assert.equal(result.cheapest, null, 'the cheaper headline covers less, so it is not cheaper');
+  assert.equal(result.comparable, false);
+});
+
+test('offers that price the SAME partial scope may be compared — with the caveat stated', () => {
+  // Two ocean-freight-only offers are genuinely comparable on the ocean leg. Refusing the
+  // arithmetic here would hide a real difference; the honest requirement is to say the journey is
+  // not fully priced, which is what covers_full_journey carries.
+  const a = q('a', 'RoRo', [comp('MAIN_CARRIAGE', 1600)], false);
+  const b = q('b', 'Shared container', [comp('MAIN_CARRIAGE', 1800)], false);
+  const result = compare.compareQuotes([a, b]);
+  assert.equal(result.comparable, true);
+  assert.equal(result.cheapest, 'a');
+  assert.equal(result.covers_full_journey, false, 'the partial coverage must be flagged');
+  assert.ok(result.reasons.some((r) => /not fully priced/i.test(r)), 'and stated in words');
+});
+
+test('a NOT_APPLICABLE stage is an ANSWER, not a gap', async () => {
+  // A logistics quote moves cargo the customer already owns, so GOODS genuinely does not apply.
+  // Reporting that journey as incomplete would punish a provider for answering honestly.
+  const p = await projected([
+    { id: '1', cost_stage: 'GOODS', label: 'Vehicle', original_amount: 0, original_currency: 'USD', inclusion: 'NOT_APPLICABLE', commercial_status: 'INDICATIVE', provenance: 'PROVIDER_STATED', revenue_class: 'PASS_THROUGH_COST' },
+    { id: '2', cost_stage: 'MAIN_CARRIAGE', label: 'Freight', original_amount: 1400, original_currency: 'USD', inclusion: 'INCLUDED', commercial_status: 'QUOTED', provenance: 'PROVIDER_STATED', revenue_class: 'PASS_THROUGH_COST' },
+    { id: '3', cost_stage: 'CLEARING', label: 'Clearing', original_amount: 400, original_currency: 'USD', inclusion: 'INCLUDED', commercial_status: 'QUOTED', provenance: 'PROVIDER_STATED', revenue_class: 'PASS_THROUGH_COST' },
+    { id: '4', cost_stage: 'INLAND', label: 'Inland', original_amount: 300, original_currency: 'USD', inclusion: 'INCLUDED', commercial_status: 'QUOTED', provenance: 'PROVIDER_STATED', revenue_class: 'PASS_THROUGH_COST' },
+    { id: '5', cost_stage: 'IMPORT_CUSTOMS', label: 'ZIMRA assessment', original_amount: 200, original_currency: 'USD', inclusion: 'INCLUDED', commercial_status: 'INDICATIVE', provenance: 'PROVIDER_STATED', revenue_class: 'GOVERNMENT_DUTY' },
+  ]);
+  const estimate = charges.composeLandedEstimate(p);
+  assert.deepEqual(estimate.missing_material_stages, [], 'nothing is missing — GOODS was answered "not applicable"');
+  assert.equal(estimate.is_complete, true);
+  assert.equal(estimate.known_included_by_currency.USD, 2300, 'the NOT_APPLICABLE zero is not added in');
+});
+
+test('an UNKNOWN stage is still a gap — the distinction is preserved', async () => {
+  const p = await projected([
+    { id: '1', cost_stage: 'MAIN_CARRIAGE', label: 'Freight', original_amount: 1400, original_currency: 'USD', inclusion: 'INCLUDED', commercial_status: 'QUOTED', provenance: 'PROVIDER_STATED', revenue_class: 'PASS_THROUGH_COST' },
+    { id: '2', cost_stage: 'CLEARING', label: 'Clearing', original_amount: null, original_currency: null, inclusion: 'UNKNOWN', commercial_status: 'INDICATIVE', provenance: 'PROVIDER_STATED', revenue_class: 'PASS_THROUGH_COST' },
+  ]);
+  const estimate = charges.composeLandedEstimate(p);
+  assert.ok(estimate.missing_material_stages.some((m) => m.stage === 'CLEARING'), 'UNKNOWN is a gap');
+  assert.equal(estimate.is_complete, false);
 });
 
 // ═══ 6. Corridor economics ═══════════════════════════════════════════════

@@ -99,16 +99,18 @@ export function compareQuotes(quotes = []) {
       reasons: ['These offers do not describe the same purchase, so CarUp shows no cheapest option.'],
     };
   }
-  if (!allComplete) {
-    return {
-      comparable: false, verdict: COMPARABILITY.PARTIALLY_COMPARABLE, cheapest: null, totals, pairs,
-      reasons: ['At least one offer still has unpriced stages. A lower total from an incomplete offer is not a lower price.'],
-    };
-  }
+  // Reaching here means every offer prices the SAME stages — assessComparability already refused
+  // anything else. Two offers that both price only the ocean leg are genuinely comparable on that
+  // leg, and blocking the arithmetic would hide a real, honest difference. What must never happen
+  // is ranking offers whose COVERAGE differs, and that case has already returned above.
   const cheapest = [...totals].sort((x, y) => x.reference_usd - y.reference_usd)[0];
   return {
     comparable: true, verdict: COMPARABILITY.COMPARABLE, cheapest: cheapest.id, totals, pairs,
-    reasons: ['Every offer prices the same stages and converts to a reference USD figure, so the totals are directly comparable.'],
+    reasons: allComplete
+      ? ['Every offer prices the same stages and converts to a reference USD figure, so the totals are directly comparable.']
+      : ['These offers price the same stages, so their totals compare directly — but the journey is not fully priced, and the remaining stages will add cost to whichever you choose.'],
+    // The caller must surface this: a lowest total across a partial scope is a lowest PARTIAL cost.
+    covers_full_journey: allComplete,
   };
 }
 

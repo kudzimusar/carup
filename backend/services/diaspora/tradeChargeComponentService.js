@@ -221,8 +221,16 @@ export function composeLandedEstimate(projected, { materialStages = MATERIAL_STA
     if (c.reference_usd) usdTotal += c.reference_usd.amount; else anyUnconvertible = true;
   }
 
-  const stagesPresent = new Set(projected.filter((c) => c.original.amount !== null && c.inclusion === 'INCLUDED').map((c) => c.cost_stage));
-  const missingMaterial = materialStages.filter((s) => !stagesPresent.has(s));
+  // A stage is ANSWERED when it is priced, or when it is explicitly excluded or not applicable.
+  // "This does not apply to your shipment" is a complete answer — a logistics quote moving cargo
+  // the customer already owns has no GOODS cost, and demanding one would report a fully priced
+  // journey as incomplete. Only genuine UNKNOWN counts as missing, which is the distinction the
+  // contract declares between unknown and not-applicable.
+  const answered = new Set(projected
+    .filter((c) => (c.original.amount !== null && c.inclusion === 'INCLUDED')
+      || c.inclusion === 'NOT_APPLICABLE' || c.inclusion === 'EXCLUDED')
+    .map((c) => c.cost_stage));
+  const missingMaterial = materialStages.filter((s) => !answered.has(s));
 
   return {
     // Grouped source money is always truthful, whatever FX does.
@@ -243,7 +251,9 @@ export function composeLandedEstimate(projected, { materialStages = MATERIAL_STA
     carup_charges: projected.filter((c) => c.is_carup_revenue)
       .map((c) => ({ label: c.label, original: c.original, revenue_class: c.revenue_class })),
     // Customs is never computed here. If nothing supplied a figure, say so in those words.
-    customs_note: stagesPresent.has('IMPORT_CUSTOMS')
+    // The customs line must reflect whether a figure was actually SUPPLIED, not merely whether the
+    // stage was answered — "not applicable" is not an assessment.
+    customs_note: projected.some((c) => c.cost_stage === 'IMPORT_CUSTOMS' && c.original.amount !== null && c.inclusion === 'INCLUDED')
       ? 'An import duty/tax figure has been recorded from an external authority or provider.'
       : 'Import taxes and duties: not calculated yet.',
   };
