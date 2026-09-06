@@ -407,3 +407,29 @@ test('GMO SECURITY: the activation function is not callable from a browser', () 
   // it composes role + capability + step-up. PostgREST's RPC endpoint would skip all three.
   assert.match(migration, /REVOKE ALL ON FUNCTION public\.activate_garage_application\(UUID, TEXT\) FROM PUBLIC, anon, authenticated/);
 });
+
+test('GMO SECURITY: the tenant-role namespace is bounded at the database', async () => {
+  const { readdirSync } = await import('fs');
+  const dir = path.join(path.dirname(fileURLToPath(import.meta.url)), '../../database/migrations');
+  const sql = readdirSync(dir).filter((f) => f.endsWith('.sql'))
+    .map((f) => readFileSync(path.join(dir, f), 'utf8')).join('\n')
+    .replace(/--[^\n]*/g, '');
+
+  assert.match(sql, /ADD CONSTRAINT tenant_users_role_catalogue/,
+    'tenant_users.role must be constrained to a catalogue');
+
+  // The overlap with the platform namespace must be exactly `admin` (PO-1 requires it), and the
+  // platform-only roles must be unwritable here. Convention became a vulnerability once.
+  //
+  // Anchor on THIS constraint. A bare /CHECK \(role IN/ matched the garage_invitations role check
+  // from an earlier-sorting migration file and asserted against the wrong constraint entirely —
+  // a green-looking test measuring something else.
+  const check = sql.match(/ADD CONSTRAINT tenant_users_role_catalogue\s+CHECK \(role IN \(([^)]*)\)\)/);
+  assert.ok(check, 'the catalogue must be expressed as ADD CONSTRAINT tenant_users_role_catalogue CHECK (role IN (...))');
+  const allowed = (check[1].match(/'(\w+)'/g) ?? []).map((v) => v.replace(/'/g, ''));
+  assert.deepEqual(allowed.sort(), ['admin', 'dealer', 'mechanic', 'member']);
+  for (const platformOnly of ['super_admin', 'platform_admin', 'government', 'owner']) {
+    assert.ok(!allowed.includes(platformOnly),
+      `${platformOnly} is a PLATFORM role and must never be writable into tenant_users`);
+  }
+});
