@@ -539,22 +539,21 @@ test('B7: the canonical vehicle trust column has exactly the known governed writ
   // Pinning the SET is what makes this discriminating: a new writer anywhere fails, which is the
   // "one trust authority" invariant the Seller Join Battery's B7 exists to hold.
   //
-  // THREE writers, and the set is pinned rather than asserted to be one. All three are governed by
-  // the same discipline — each owns the NUMBER and none of the provenance behind it, so each clears
+  // TWO writers, and the set is pinned rather than asserted to be one. Both are governed by the
+  // same discipline — each owns the NUMBER and none of the provenance behind it, so each clears
   // UNSTAMPED_TRUST_CACHE in the SAME update. Only refreshCanonicalTrust may STAMP a canonical
-  // score, and none of these does. A write that kept a previous refresh's calculation_version would
-  // be published as canonical with a band and confidence describing the score it replaced.
+  // score, and neither of these does. A write that kept a previous refresh's calculation_version
+  // would be published as canonical with a band and confidence describing the score it replaced.
   //
   //   trustGraphService              the deprecated graph writer
   //   trustEnforcementEngine         stakeholder-risk penalties (two multi-line chains)
-  //   documentIntelligenceService    the OCR approval write, now reachable only behind
-  //                                  authorizeSessionRole(['admin','government']) -- see the CLOSED
-  //                                  P0 in AUTHORITY_AUDIT_REGISTER.md. Its `(trust_score || 80) + 20`
-  //                                  arithmetic remains a recorded residual there: the finding's
-  //                                  authorization half is closed, its "route through
-  //                                  refreshCanonicalTrust" half is not.
+  //
+  // documentIntelligenceService's OCR-approval write — the `(trust_score || 80) + 20` residual
+  // this pin used to carry — was RETIRED OUTRIGHT by O2-X1 (the whole approval chain is gone,
+  // not rerouted). o2-x1-document-intelligence-authority.test.js and the retirement test in
+  // issue164-phase3-trust-authority.test.js hold that; this SET pin makes any comeback, or any
+  // brand-new writer anywhere in backend/, fail by name.
   assert.deepEqual(vehicleTrustWriters(), [
-    'services/document-intelligence/documentIntelligenceService.js',
     'services/trust-service/trustEnforcementEngine.js',
     'services/trustGraph/trustGraphService.js',
   ]);

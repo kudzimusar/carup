@@ -34,8 +34,10 @@ function resetDb() {
       { id: 'owner-2', role: 'owner', is_verified: true },
     ],
     user_sessions: [
-      { token: 'admin-token', user_id: 'admin-1', is_valid: true, expires_at: FUTURE },
-      { token: 'owner-token', user_id: 'owner-2', is_valid: true, expires_at: FUTURE },
+      // O2-X3: evidence preview now also requires a fresh step-up on the presenting session;
+      // the admin session mock carries one, exactly as a live reviewer's would after re-proof.
+      { token: 'admin-token', user_id: 'admin-1', is_valid: true, expires_at: FUTURE, auth_method: 'password', step_up_at: new Date().toISOString(), step_up_method: 'password_reauth' },
+      { token: 'owner-token', user_id: 'owner-2', is_valid: true, expires_at: FUTURE, auth_method: 'password', step_up_at: null, step_up_method: null },
     ],
     verification_sessions: [
       {

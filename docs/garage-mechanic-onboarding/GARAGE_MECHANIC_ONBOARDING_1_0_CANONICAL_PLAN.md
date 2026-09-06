@@ -349,6 +349,111 @@ Only items that genuinely cannot be resolved from existing contracts.
 
 ---
 
+## 12A. FROZEN Product Owner decisions (PO-1 … PO-6)
+
+Approved and binding. These close the questions §12 raised; §12 is retained as the record of what
+was asked.
+
+### PO-1 — Founding Garage operator role: tenant-scoped `admin`
+
+The founding operator's `tenant_users.role` is **`admin`** — the existing tenant-scoped role.
+
+- **Do not** introduce a new authorization role named `manager` merely because it is better UI
+  wording. User-facing copy may say *Garage Manager*, *Garage Operator* or *Garage Administrator*
+  as the surface warrants.
+- **Do not** change the person's base/platform `users.role`. It stays the safe personal account.
+  `active_tenant_role = admin` is authority **inside that Garage**, nothing wider.
+
+This deliberately avoids reopening #197's certified `GARAGE_ROLES` acceptance
+(`mechanic | dealer | admin`) to add a synonym — `admin` is already accepted.
+
+> Consequence to hold carefully: a tenant-scoped `admin` must never be read as platform admin.
+> `resolveEffectiveRole` already refuses to let a tenant role confer `admin` platform-wide, and
+> `resolveOwnTenantRole` in feature governance already excludes `admin` from tenant-role widening.
+> GMO must not weaken either.
+
+### PO-2 — Minimum Garage activation evidence
+
+**Workspace activation** requires all of:
+
+1. an authenticated CarUp person;
+2. governed O2 person-identity approval sufficient to establish who the applicant is — **no
+   biometric requirement, no live-OCR requirement**;
+3. Garage / trading name;
+4. a real operating location/address;
+5. contact details;
+6. the applicant's declared relationship: owner · manager · authorised representative;
+7. service categories;
+8. applicant attestation;
+9. **at least one credible business-presence evidence source** accepted by the governed
+   evidence/reviewer workflow.
+
+Eligible presence evidence, where genuinely available: company/business registration · local licence
+· proof of premises · lease · utility/business-address evidence · invoice/receipt/business
+stationery · premises or signage photographs · other reviewer-accepted evidence in the canonical
+vocabulary.
+
+**Formal company incorporation is NOT required** to let a legitimate Zimbabwe garage use Service
+Network, unless a legal or existing CarUp contract explicitly requires it.
+
+**Workspace activated ≠ Business verified.** An activated garage may still truthfully display
+*"CarUp has not independently verified this garage."* Stronger evidence may later support a
+`Business verified` state. That public truth rule may not be weakened.
+
+### PO-3 — Reviewer authority
+
+A Garage application is decided by an authorised **CarUp Operations / Compliance admin reviewer**
+using the canonical governed review/decision machinery. No Garage-specific reviewer model.
+
+Separation of duties is absolute:
+
+| actor | does | never does |
+|---|---|---|
+| **Reviewer** | reviews evidence; requests information; approves; rejects; records decision + reason | types a tenant row or a membership row |
+| **BusinessActivationService** | reacts to an eligible approved decision; creates/activates the tenant; creates the founding membership; records provenance, audit and events | decides the application |
+| **Browser** | submits an application; supplies evidence | chooses tenant id, founding user or founding role |
+
+### PO-4 — Independent / mobile mechanics: OUT of GMO 1.0
+
+GMO 1.0 supports **a mechanic attached to a governed Garage organisation** only.
+
+An independent or mobile mechanic must **not** be modelled as a fake one-person Garage to make the
+feature work — that would put an unapproved business model into production data and misrepresent the
+public directory. Recorded as a future product extension.
+
+### PO-5 — Reapplication after rejection
+
+`REJECTED` is a **terminal historical decision**. A rejected application is never rewritten back
+into Draft.
+
+- A rejected applicant may create a **new reapplication linked to the previous application and
+  decision**, preserving the complete prior audit history.
+- `INFORMATION_REQUIRED` is different: the **same** application stays active, the applicant supplies
+  what was requested, and review resumes.
+
+The distinction must survive into the data model, not just the copy.
+
+### PO-6 — Multi-Garage people
+
+A person may legitimately belong to **several** Garage tenants — mechanic at Garage A and Garage B;
+owner of A who also works at B; a garage operator who also owns personal vehicles.
+
+Rules:
+
+- memberships are **not** globally exclusive;
+- authorization is **tenant-scoped**;
+- exactly one active operating context at a time;
+- context switching uses the existing governed mechanism (`POST /api/auth/switch-role`);
+- **Garage A authority never leaks into Garage B**;
+- each membership is revocable independently;
+- historical service attribution survives revocation.
+
+`tenant_users` must not be artificially constrained to one Garage per person. Its existing
+constraint is `UNIQUE(tenant_id, user_id)` — one membership **per tenant per person**, which permits
+many tenants per person. That is compatible with PO-6; no schema conflict exists.
+
+---
+
 ## 13. Phased programme
 
 Each phase is independently UAT'd. **No phase may be declared complete because a backend API

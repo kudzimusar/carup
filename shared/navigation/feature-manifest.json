@@ -140,6 +140,20 @@
     "betaCapable": true
   },
   {
+    "id": "admin.people-operations",
+    "domain": "admin",
+    "route": "/admin/people/:userId/review",
+    "defaultLifecycle": "active",
+    "defaultRoles": [
+      "admin"
+    ],
+    "immutableRoles": [
+      "admin"
+    ],
+    "requiresAuth": true,
+    "betaCapable": true
+  },
+  {
     "id": "admin.referral-codes",
     "domain": "referral",
     "route": "/admin/referrals/codes",

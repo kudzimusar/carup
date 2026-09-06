@@ -40,36 +40,61 @@ function backendSources(dir = ROOT, acc = []) {
 
 const SOURCES = backendSources();
 
-test('SN-0: no authorization path consults a registration business_type claim', () => {
-  // `business_type` is an APPLICATION, recorded so a human review has something to review. If an
-  // authorization decision ever read it, anyone could self-declare into a garage.
+test('SN-0: a registration claim may open your OWN application, and nothing more', () => {
+  // `business_type` is an APPLICATION. Reconciled with O2 (PR #208), the real invariant is finer
+  // than "never mentioned in an access path":
   //
-  // The check is deliberately structural rather than file-level: server.js is a monolith holding
-  // both the registration endpoint (which legitimately echoes the claim back) and every route, so
-  // "this file mentions both" proves nothing. What matters is WHERE the claim may appear.
+  //   A claim MAY gate access to the applicant's own onboarding surfaces — "you said you are a
+  //   dealer, so you may work on your dealer application". O2's `assertDealerOnboardingContext`
+  //   does exactly this and says so: "onboarding capability only, never Dealer authority".
+  //
+  //   A claim may NEVER grant a professional capability, a tenant, a membership or a domain
+  //   authority. That is the escalation this file exists to prevent.
+  //
+  // So the test asks what a claim-reading module DOES, not merely whether it reads one.
 
-  // 1. The layers that decide access may not mention it at all.
-  const DECIDING_DIRS = ['middleware', 'routes', 'services/serviceNetwork', 'services/featureGovernance'];
   const offenders = [];
   for (const file of SOURCES) {
     const rel = file.replace(ROOT, '');
-    if (!DECIDING_DIRS.some((d) => rel.startsWith(d))) continue;
-    if (readFileSync(file, 'utf8').includes('business_type')) offenders.push(rel);
+    const text = readFileSync(file, 'utf8');
+    if (!text.includes('business_type')) continue;
+
+    // 1. A claim-reader must never WRITE tenancy or a platform role. Reading `tenant_users` is
+    //    ordinary and everywhere (server.js selects it in six places); creating a membership is
+    //    the escalation. File-level co-occurrence proves nothing in a 4,000-line monolith, so the
+    //    check is on the mutation, not the mention.
+    const tenancyWrites = text.match(/from\('(tenant_users|tenants)'\)[\s\S]{0,140}?\.(insert|update|upsert|delete)\(/g);
+    if (tenancyWrites) {
+      offenders.push(`${rel}: reads business_type AND writes tenancy — ${tenancyWrites.join(' | ')}`);
+    }
+
+    // 2. A claim must never reach a Service Network / domain-capability decision.
+    if (rel.startsWith('services/serviceNetwork') || rel.startsWith('services/featureGovernance')) {
+      offenders.push(`${rel}: a domain-capability module must not consult a self-declared claim`);
+    }
+
+    // 3. Wherever it is branched on, the refusal must be scoped to onboarding — never to a
+    //    professional capability. A module that both branches on the claim and mentions
+    //    GARAGE_ROLES / capability grants is conflating application access with authority.
+    if (/business_type\s*!==?|business_type\s*===?/.test(text) && /GARAGE_ROLES|grantCapability|activateTenant/.test(text)) {
+      offenders.push(`${rel}: branches on a claim in a module that also grants capability`);
+    }
   }
   assert.deepEqual(offenders, [],
-    `these access-deciding modules mention a self-declared business_type:\n${offenders.join('\n')}`);
+    `a self-declared claim is being treated as authority:\n${offenders.join('\n')}`);
+});
 
-  // 2. Everywhere else it may be stored or echoed, but never branched on.
-  for (const file of SOURCES) {
-    const lines = readFileSync(file, 'utf8').split('\n');
-    lines.forEach((line, i) => {
-      if (!line.includes('business_type')) return;
-      assert.ok(!/\b(if|switch|case|\?|&&|\|\|)\b/.test(line) || line.trim().startsWith('*') || line.trim().startsWith('//'),
-        `${file.replace(ROOT, '')}:${i + 1} branches on a self-declared business_type: ${line.trim()}`);
-      assert.ok(!/authorize|allowedRoles|effectiveRole|requireTenant/.test(line),
-        `${file.replace(ROOT, '')}:${i + 1} mixes business_type with an authorization decision`);
-    });
+test('SN-0: the dealer-onboarding claim gate grants onboarding access ONLY', () => {
+  // Pinning the reconciled O2 boundary directly, so a future edit that widens it is caught here
+  // rather than in production.
+  const svc = readFileSync(join(ROOT, 'services/dealer/dealerOnboardingService.js'), 'utf8');
+  for (const forbidden of ['tenant_users', "from('tenants')", 'active_tenant_role']) {
+    assert.ok(!svc.includes(forbidden),
+      `dealerOnboardingService must not touch ${forbidden} — a claim opens an application, not a business`);
   }
+  // And it must still fail closed for someone who never declared a dealer business.
+  assert.match(svc, /account_kind !== 'business'/);
+  assert.match(svc, /DEALER_ONBOARDING_CONTEXT_REQUIRED/);
 });
 
 test('SN-0: the registration profile module grants no role, tenant or membership', () => {

@@ -168,3 +168,30 @@ export default {
   transitionOwnershipTransfer,
   getOwnershipTransfer,
 };
+
+/**
+ * O2/P2 — normalized responsibility projection (M8 ADR §10.1) over the transfer state machine.
+ * Derived, never stored. `registry_pending` and `transaction_complete` project as
+ * external_authority because completion is gated on a REAL registry authority + completion
+ * reference — CarUp review alone cannot finish an ownership transfer, and an SLA clock must never
+ * run against that wait (ADR §6).
+ */
+const TRANSFER_STATE_TO_RESPONSIBILITY = Object.freeze({
+  initiated: 'subject_action',
+  awaiting_parties: 'subject_action',
+  evidence_required: 'subject_action',
+  under_review: 'carup_review',
+  transaction_complete: 'external_authority',
+  registry_pending: 'external_authority',
+  complete: 'none',
+  disputed: 'escalated',
+  cancelled: 'none',
+});
+
+export function toResponsibilityProjection(state) {
+  const mapped = TRANSFER_STATE_TO_RESPONSIBILITY[state];
+  if (!mapped) {
+    throw new ValidationError(`Ownership transfer state '${state}' has no responsibility mapping`);
+  }
+  return mapped;
+}

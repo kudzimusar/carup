@@ -812,6 +812,21 @@ export const FEATURE_REGISTRY: FeatureRegistryItem[] = [
     description: 'Composed reviewer workspace: evidence classification, seller authority, registration readiness, trust/governance/risk context and the publication requirement matrix for one vehicle.',
   },
   {
+    // O2/P3 — person-centered People & Compliance workspace. A parameterized
+    // route cannot be a sidebar link; it is reached from User Management and
+    // the Identity Verification queue (per-person "Open People Review" link).
+    id: 'admin.people-operations',
+    label: 'People & Compliance',
+    route: '/admin/people/:userId/review',
+    domain: 'admin',
+    roles: ['admin'],
+    placements: [],
+    requiresAuth: true,
+    icon: 'UserCog',
+    sidebarGroup: 'People & Compliance',
+    description: 'Composed reviewer workspace: identity verification state, per-vehicle seller authority, ownership and transfers, dealer compliance and the authority decision history for one person — separate facts, never one verified badge.',
+  },
+  {
     id: 'admin.verification',
     label: 'Verification Cases',
     route: '/admin/verification',

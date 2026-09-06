@@ -1,5 +1,7 @@
 import express from 'express';
 import { authorizeRole, requireProvenIdentity } from '../middleware/authMiddleware.js';
+import { requireAuthenticationAssurance } from '../middleware/stepUpMiddleware.js';
+import { ACTION_CLASSES } from '../services/auth/authenticationAssuranceService.js';
 import {
   getVerificationSessionForReview,
   getEvidencePreviewUrl,
@@ -61,6 +63,9 @@ router.get(
   // This signs an object in the SAME private ocr-documents bucket — passport, national ID and
   // selfie evidence. An admin id asserted by a spoofable header must not be able to mint it.
   requireProvenIdentity(),
+  // O2-X3: viewing raw identity evidence is a sensitive action — a fresh step-up is required
+  // even for a proven admin session.
+  requireAuthenticationAssurance(ACTION_CLASSES.SENSITIVE),
   asyncHandler(async (req, res) => {
     const preview = await getEvidencePreviewUrl(
       undefined,
