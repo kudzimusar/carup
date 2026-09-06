@@ -49,6 +49,7 @@ const SERVICE_NETWORK_SURFACES = [
   '/src/components/garage/GarageContextSwitcher.tsx',
   '/src/pages/dashboard/garage/GarageTeam.tsx',
   '/src/pages/JoinGarage.tsx',
+  '/src/components/auth/StepUpPrompt.tsx',
 ]
 
 /** The connected workspace routes of one workflow — §4.3 judges these together. */
@@ -174,6 +175,7 @@ describe('DESIGN.md §20 — the legacy-pattern budget does not grow', () => {
     '/src/components/garage/GarageContextSwitcher.tsx': 0,
     '/src/pages/dashboard/garage/GarageTeam.tsx': 0,
     '/src/pages/JoinGarage.tsx': 0,
+    '/src/components/auth/StepUpPrompt.tsx': 0,
   }
 
   it('no surface exceeds its recorded legacy-card budget', () => {

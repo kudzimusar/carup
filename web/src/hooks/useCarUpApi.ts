@@ -2515,6 +2515,17 @@ export function useCarUpApi() {
     return request<any>('/garage/invitations/accept', { method: 'POST', body: JSON.stringify({ token }) })
   }, [request])
 
+  /**
+   * Re-prove your password on THIS session, so a sensitive action can proceed.
+   *
+   * The backend has demanded this since O2-X3 and NO surface ever offered it. A reviewer could open
+   * a decision page, press Approve, and receive `STEP_UP_REQUIRED` with nothing in the product able
+   * to satisfy it — the route was governed and unreachable at the same time.
+   */
+  const stepUp = useCallback(async (password: string): Promise<any> => {
+    return request<any>('/auth/step-up', { method: 'POST', body: JSON.stringify({ password }) })
+  }, [request])
+
   /* ── GMO-7: who works here, and who no longer does ─────────────────────────────────────────── */
 
   const listGarageMembers = useCallback(async (): Promise<any> => {
@@ -3374,6 +3385,7 @@ export function useCarUpApi() {
     revokeGarageInvitation,
     peekGarageInvitation,
     acceptGarageInvitation,
+    stepUp,
     listGarageMembers,
     removeGarageMember,
     changeGarageMemberRole,

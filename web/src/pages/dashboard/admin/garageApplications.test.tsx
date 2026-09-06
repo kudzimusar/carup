@@ -14,11 +14,12 @@ const fetchGarageApplicationForReview = vi.fn()
 const decideGarageApplication = vi.fn()
 const previewGarageEvidenceForReview = vi.fn()
 const activateGarageApplication = vi.fn()
+const stepUp = vi.fn()
 
 vi.mock('@/hooks/useCarUpApi', () => ({
   useCarUpApi: () => ({
     fetchGarageApplicationsForReview, fetchGarageApplicationForReview,
-    decideGarageApplication, activateGarageApplication, previewGarageEvidenceForReview,
+    decideGarageApplication, activateGarageApplication, previewGarageEvidenceForReview, stepUp,
   }),
 }))
 
@@ -46,6 +47,7 @@ beforeEach(() => {
   fetchGarageApplicationsForReview.mockResolvedValue({ applications: [APP] })
   fetchGarageApplicationForReview.mockResolvedValue(DETAIL)
   decideGarageApplication.mockResolvedValue({ application: { ...APP, status: 'approved' } })
+  stepUp.mockResolvedValue({ success: true })
 })
 
 const open = async () => {
@@ -245,5 +247,87 @@ describe('GMO-4 — what happened to the workspace, said plainly', () => {
     fireEvent.click(screen.getByTestId('decision-approve'))
     await waitFor(() => expect(decideGarageApplication).toHaveBeenCalled())
     expect(screen.queryByTestId('activation-failed')).toBeNull()
+  })
+})
+
+describe('the step-up the product never offered', () => {
+  const STEP_UP = new Error('Recent re-authentication is required for this action. (STEP_UP_REQUIRED)')
+
+  it('a decision that needs re-authentication offers a way to give it', async () => {
+    // Before this, the backend answered STEP_UP_REQUIRED and NOTHING in the product could satisfy
+    // it — the route was governed and unreachable at the same time.
+    decideGarageApplication.mockRejectedValueOnce(STEP_UP)
+    await open()
+    fireEvent.click(screen.getByTestId('decision-start_review'))
+    expect(await screen.findByTestId('step-up-prompt')).toHaveTextContent(/confirm your password/i)
+    // It is not shown as a failed decision, because the decision was deferred, not refused.
+    expect(screen.queryByTestId('decision-error')).toBeNull()
+  })
+
+  it('confirming re-authenticates and RETRIES the decision', async () => {
+    decideGarageApplication.mockRejectedValueOnce(STEP_UP)
+    await open()
+    fireEvent.click(screen.getByTestId('decision-start_review'))
+    await screen.findByTestId('step-up-prompt')
+
+    fireEvent.change(screen.getByTestId('step-up-password'), { target: { value: 'correct horse' } })
+    fireEvent.click(screen.getByTestId('step-up-confirm'))
+
+    await waitFor(() => expect(stepUp).toHaveBeenCalledWith('correct horse'))
+    // The action the person actually asked for must happen, not just the re-authentication.
+    await waitFor(() => expect(decideGarageApplication).toHaveBeenCalledTimes(2))
+  })
+
+  it('preserves the reason the reviewer typed across the step-up', async () => {
+    decideGarageApplication.mockRejectedValueOnce(STEP_UP)
+    await open()
+    fireEvent.change(screen.getByTestId('decision-reason'), { target: { value: 'Premises unconfirmed.' } })
+    fireEvent.click(screen.getByTestId('decision-reject'))
+    await screen.findByTestId('step-up-prompt')
+    fireEvent.change(screen.getByTestId('step-up-password'), { target: { value: 'pw' } })
+    fireEvent.click(screen.getByTestId('step-up-confirm'))
+    await waitFor(() => expect(decideGarageApplication).toHaveBeenLastCalledWith('app-1', {
+      decision: 'reject', reason: 'Premises unconfirmed.',
+    }))
+  })
+
+  it('a wrong password says so; an outage does NOT', async () => {
+    decideGarageApplication.mockRejectedValue(STEP_UP)
+    stepUp.mockRejectedValueOnce(new Error('Password verification failed. (STEP_UP_CREDENTIAL_INVALID)'))
+    await open()
+    fireEvent.click(screen.getByTestId('decision-start_review'))
+    await screen.findByTestId('step-up-prompt')
+    fireEvent.change(screen.getByTestId('step-up-password'), { target: { value: 'wrong' } })
+    fireEvent.click(screen.getByTestId('step-up-confirm'))
+    expect(await screen.findByTestId('step-up-error')).toHaveTextContent(/was not correct/i)
+
+    // Telling someone their own password is wrong when it is not is how they reset an account
+    // needlessly.
+    stepUp.mockRejectedValueOnce(new Error('Too many requests'))
+    fireEvent.click(screen.getByTestId('step-up-confirm'))
+    await waitFor(() => expect(screen.getByTestId('step-up-error')).toHaveTextContent(/could not confirm it just now/i))
+    expect(screen.getByTestId('step-up-error').textContent).not.toMatch(/was not correct/i)
+  })
+
+  it('cancelling leaves the decision unmade and the page usable', async () => {
+    decideGarageApplication.mockRejectedValueOnce(STEP_UP)
+    await open()
+    fireEvent.click(screen.getByTestId('decision-start_review'))
+    await screen.findByTestId('step-up-prompt')
+    fireEvent.click(screen.getByTestId('step-up-cancel'))
+    await waitFor(() => expect(screen.queryByTestId('step-up-prompt')).toBeNull())
+    expect(screen.getByTestId('decision-panel')).toBeTruthy()
+    expect(decideGarageApplication).toHaveBeenCalledTimes(1)
+  })
+
+  it('viewing private evidence asks too, and retries the preview', async () => {
+    previewGarageEvidenceForReview.mockRejectedValueOnce(STEP_UP)
+    previewGarageEvidenceForReview.mockResolvedValueOnce({ url: 'https://signed.example/doc' })
+    await open()
+    fireEvent.click(screen.getByTestId('review-evidence-preview'))
+    await screen.findByTestId('step-up-prompt')
+    fireEvent.change(screen.getByTestId('step-up-password'), { target: { value: 'pw' } })
+    fireEvent.click(screen.getByTestId('step-up-confirm'))
+    await waitFor(() => expect(previewGarageEvidenceForReview).toHaveBeenCalledTimes(2))
   })
 })

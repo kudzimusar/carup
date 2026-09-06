@@ -4,6 +4,7 @@ import { Badge } from '@/components/ui/badge'
 import { Loader2, ArrowLeft, ShieldAlert, Eye } from 'lucide-react'
 import { useCarUpApi } from '@/hooks/useCarUpApi'
 import { SN_PAGE, SN_DETAIL_COLUMN } from '@/lib/serviceNetworkLayout'
+import StepUpPrompt, { isStepUpRequired } from '@/components/auth/StepUpPrompt'
 import {
   statusPresentation, STATUS_TONE_CLASS, evidenceTypeLabel,
   type GarageApplication, type EvidenceDocument,
@@ -58,6 +59,10 @@ export default function GarageApplications() {
   // GMO-4: the outcome of building the workspace, reported separately from the decision. `null`
   // means no activation has been attempted in this session — not that it failed.
   const [activation, setActivation] = useState<{ activated: boolean; reason?: string } | null>(null)
+  // The action the server asked us to re-authenticate for, held so it can be retried once the
+  // person has proved it is them. Without this the reviewer hits STEP_UP_REQUIRED and the product
+  // offers them nothing — the route was governed and unreachable at the same time.
+  const [pendingStepUp, setPendingStepUp] = useState<{ reason: string; retry: () => Promise<void> } | null>(null)
 
   const loadQueue = useCallback(() => {
     fetchGarageApplicationsForReview()
@@ -86,9 +91,19 @@ export default function GarageApplications() {
       // An approval reports two outcomes: the judgment, and whether the workspace got built.
       if (res?.activation) setActivation(res.activation)
       setReason('')
+      setPendingStepUp(null)
       loadDetail(selected)
       loadQueue()
     } catch (e) {
+      if (isStepUpRequired(e)) {
+        // Not an error to show as one: the decision was not refused, it was deferred until the
+        // reviewer proves it is them. The reason they typed is preserved for the retry.
+        setPendingStepUp({
+          reason: 'Deciding a garage application changes what happens to someone\'s business, so CarUp asks you to confirm your password first.',
+          retry: () => decide(decision),
+        })
+        return
+      }
       setError(e instanceof Error ? e.message : 'That decision was not recorded.')
     } finally { setBusy(null) }
   }
@@ -114,6 +129,13 @@ export default function GarageApplications() {
       if (res?.url) window.open(res.url, '_blank', 'noopener,noreferrer')
       else setError('That preview link could not be created.')
     } catch (e) {
+      if (isStepUpRequired(e)) {
+        setPendingStepUp({
+          reason: 'Opening someone\'s private document is a sensitive action, so CarUp asks you to confirm your password first.',
+          retry: () => preview(docId),
+        })
+        return
+      }
       setError(e instanceof Error ? e.message : 'That preview link could not be created.')
     } finally { setBusy(null) }
   }
@@ -310,6 +332,14 @@ export default function GarageApplications() {
               </Button>
             </div>
           ) : null}
+
+          {pendingStepUp && (
+            <StepUpPrompt
+              reason={pendingStepUp.reason}
+              onConfirmed={() => { const again = pendingStepUp.retry; setPendingStepUp(null); void again() }}
+              onCancel={() => setPendingStepUp(null)}
+            />
+          )}
 
           {detail.allowed_decisions.length > 0 ? (
             <div className="rounded-xl border border-gray-200 bg-white p-5 space-y-3" data-testid="decision-panel">
