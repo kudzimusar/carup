@@ -1,6 +1,6 @@
 import express from 'express';
 import { supabase } from '../db/supabase.js';
-import { authorizeSessionRole } from '../middleware/authMiddleware.js';
+import { authorizeSessionRole, authorizeTenantRole } from '../middleware/authMiddleware.js';
 import {
   acceptServiceCase,
   cancelServiceCase,
@@ -40,6 +40,11 @@ const asyncHandler = (fn) => (req, res, next) => {
 // requirement. The public directory reads and the anonymous service-link resolver deliberately keep
 // their weaker gates — see the comments at those routes.
 const REQUESTER_ROLES = ['owner', 'dealer', 'mechanic', 'admin'];
+// GMO-5: these routes are TENANT-scoped — `admin` here means "an administrator of this garage",
+// never a CarUp administrator. `authorizeTenantRole` therefore also accepts a verified
+// `tenant_users` membership in one of these roles, which is what lets a garage founder (platform
+// `owner`, tenant `admin`) open the garage they were just given. It is opt-in precisely because
+// applying it to routes where 'admin' means PLATFORM admin was demonstrated to be exploitable.
 const GARAGE_ROLES = ['mechanic', 'dealer', 'admin'];
 
 // ── requester side ──
@@ -53,23 +58,23 @@ router.get('/api/service-cases/mine', authorizeSessionRole(REQUESTER_ROLES), asy
 }));
 
 // ── garage side ──
-router.get('/api/garage/service-cases', authorizeSessionRole(GARAGE_ROLES), asyncHandler(async (req, res) => {
+router.get('/api/garage/service-cases', authorizeTenantRole(GARAGE_ROLES), asyncHandler(async (req, res) => {
   res.json(await listGarageServiceCases(supabase, req.userContext, req.query));
 }));
 
-router.post('/api/service-cases/:caseId/accept', authorizeSessionRole(GARAGE_ROLES), asyncHandler(async (req, res) => {
+router.post('/api/service-cases/:caseId/accept', authorizeTenantRole(GARAGE_ROLES), asyncHandler(async (req, res) => {
   res.json({ success: true, ...(await acceptServiceCase(supabase, req.userContext, req.params.caseId, req.body)) });
 }));
 
-router.post('/api/service-cases/:caseId/decline', authorizeSessionRole(GARAGE_ROLES), asyncHandler(async (req, res) => {
+router.post('/api/service-cases/:caseId/decline', authorizeTenantRole(GARAGE_ROLES), asyncHandler(async (req, res) => {
   res.json({ success: true, ...(await declineServiceCase(supabase, req.userContext, req.params.caseId, req.body)) });
 }));
 
-router.post('/api/service-cases/:caseId/start', authorizeSessionRole(GARAGE_ROLES), asyncHandler(async (req, res) => {
+router.post('/api/service-cases/:caseId/start', authorizeTenantRole(GARAGE_ROLES), asyncHandler(async (req, res) => {
   res.json({ success: true, ...(await startServiceCase(supabase, req.userContext, req.params.caseId)) });
 }));
 
-router.post('/api/service-cases/:caseId/complete', authorizeSessionRole(GARAGE_ROLES), asyncHandler(async (req, res) => {
+router.post('/api/service-cases/:caseId/complete', authorizeTenantRole(GARAGE_ROLES), asyncHandler(async (req, res) => {
   res.json({ success: true, ...(await completeServiceCase(supabase, req.userContext, req.params.caseId)) });
 }));
 

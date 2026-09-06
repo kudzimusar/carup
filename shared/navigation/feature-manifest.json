@@ -812,6 +812,20 @@
     "betaCapable": true
   },
   {
+    "id": "garage.team",
+    "domain": "service",
+    "route": "/garage/team",
+    "defaultLifecycle": "active",
+    "defaultRoles": [
+      "admin"
+    ],
+    "immutableRoles": [
+      "admin"
+    ],
+    "requiresAuth": true,
+    "betaCapable": true
+  },
+  {
     "id": "garage.workshop",
     "domain": "service",
     "route": "/garage",

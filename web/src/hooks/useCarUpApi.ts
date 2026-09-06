@@ -2485,6 +2485,52 @@ export function useCarUpApi() {
     })
   }, [request])
 
+  /** GMO-5 — every organization this person belongs to. Grants nothing; says what exists. */
+  const fetchMyMemberships = useCallback(async (): Promise<any> => {
+    return request<any>('/auth/my-memberships', { method: 'GET' })
+  }, [request])
+
+  /* ── GMO-6: garage team + invitations ─────────────────────────────────────────────────────────
+     The raw token comes back from `createGarageInvitation` exactly once. It is never stored and
+     never readable again — which is what allows it to be stored hashed. */
+
+  const listGarageInvitations = useCallback(async (): Promise<any> => {
+    return request<any>('/garage/invitations', { method: 'GET' })
+  }, [request])
+
+  const createGarageInvitation = useCallback(async (body: Record<string, unknown>): Promise<any> => {
+    return request<any>('/garage/invitations', { method: 'POST', body: JSON.stringify(body) })
+  }, [request])
+
+  const revokeGarageInvitation = useCallback(async (id: string): Promise<any> => {
+    return request<any>(`/garage/invitations/${encodeURIComponent(id)}`, { method: 'DELETE' })
+  }, [request])
+
+  /** Unauthenticated: what the invitation says, before the invitee has an account. */
+  const peekGarageInvitation = useCallback(async (token: string): Promise<any> => {
+    return request<any>(`/garage/invitations/peek/${encodeURIComponent(token)}`, { method: 'GET' })
+  }, [request])
+
+  const acceptGarageInvitation = useCallback(async (token: string): Promise<any> => {
+    return request<any>('/garage/invitations/accept', { method: 'POST', body: JSON.stringify({ token }) })
+  }, [request])
+
+  /* ── GMO-7: who works here, and who no longer does ─────────────────────────────────────────── */
+
+  const listGarageMembers = useCallback(async (): Promise<any> => {
+    return request<any>('/garage/members', { method: 'GET' })
+  }, [request])
+
+  const removeGarageMember = useCallback(async (userId: string): Promise<any> => {
+    return request<any>(`/garage/members/${encodeURIComponent(userId)}`, { method: 'DELETE' })
+  }, [request])
+
+  const changeGarageMemberRole = useCallback(async (userId: string, role: string): Promise<any> => {
+    return request<any>(`/garage/members/${encodeURIComponent(userId)}/role`, {
+      method: 'PATCH', body: JSON.stringify({ role }),
+    })
+  }, [request])
+
   /* ── GMO-3: the Operations / Compliance reviewer ───────────────────────────────────────────────
      Every one of these sits behind role + the named review capability + X3 step-up on the server.
      The browser calls them; it never decides who may. */
@@ -3322,6 +3368,15 @@ export function useCarUpApi() {
     previewGarageEvidence,
     extractGarageEvidence,
     acknowledgeGarageEvidence,
+    fetchMyMemberships,
+    listGarageInvitations,
+    createGarageInvitation,
+    revokeGarageInvitation,
+    peekGarageInvitation,
+    acceptGarageInvitation,
+    listGarageMembers,
+    removeGarageMember,
+    changeGarageMemberRole,
     fetchGarageApplicationsForReview,
     fetchGarageApplicationForReview,
     decideGarageApplication,

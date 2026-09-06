@@ -18,11 +18,22 @@ const ROUTE_SOURCES = import.meta.glob('/../backend/routes/*.js', {
   query: '?raw', import: 'default', eager: true,
 }) as Record<string, string>
 
-/** `router.post('/api/service-cases/:caseId/accept', authorizeSessionRole(GARAGE_ROLES), …` */
+/**
+ * `router.post('/api/service-cases/:caseId/accept', authorizeTenantRole(GARAGE_ROLES), …`
+ *
+ * GMO-5 renamed the gate on these routes from `authorizeSessionRole` to `authorizeTenantRole` — the
+ * opt-in variant that also accepts a verified tenant membership, so a garage founder (platform
+ * `owner`, tenant `admin`) can open the garage they were just given. The parser accepts BOTH, so
+ * this test measures the real set rather than one spelling of it.
+ *
+ * The sanity check below is why the rename surfaced here at all: it refuses to pass on an empty
+ * parse, so a parser that stopped matching reality fails loudly instead of silently agreeing with
+ * nothing. That is the difference between a test and a decoration.
+ */
 function garageRoutesFromBackend(): string[] {
   const found: string[] = []
   for (const raw of Object.values(ROUTE_SOURCES)) {
-    const re = /router\.(get|post|put|patch|delete)\(\s*'([^']+)'\s*,\s*authorizeSessionRole\(GARAGE_ROLES\)/g
+    const re = /router\.(get|post|put|patch|delete)\(\s*'([^']+)'\s*,\s*(?:authorizeSessionRole|authorizeTenantRole)\(GARAGE_ROLES\)/g
     let m: RegExpExecArray | null
     while ((m = re.exec(String(raw))) !== null) found.push(m[2])
   }

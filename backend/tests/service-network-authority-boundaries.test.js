@@ -165,3 +165,112 @@ test('SN-0: the ONLY roles a garage route accepts are the governed ones', () => 
       `${file} declares an unexpected GARAGE_ROLES set: ${roles.join(', ')}`);
   }
 });
+
+/**
+ * GMO — the COMPLETE set of product paths that may create a garage membership.
+ *
+ * The existing invariants above are scoped to `services/identity` and `services/serviceNetwork`, so
+ * a new service elsewhere could mint memberships and every suite would stay green. That gap was
+ * found by an adversarial review, and it matters more than it used to: the garage-side route gate
+ * now consults `tenant_users.role` directly (`authorizeTenantRole`), so whoever can write that table
+ * can hand out route access.
+ *
+ * Two paths are authorised, and they are named here rather than described:
+ *
+ *   1. `activate_garage_application` — the PostgreSQL function, called only after a governed
+ *      Operations approval. It creates the FOUNDING admin.
+ *   2. `garageInvitationService.acceptInvitation` — a person redeeming a single-use, expiring,
+ *      email-bound invitation issued by that garage's own admin.
+ *
+ * Anything else appearing in this list is a new way to become an operator, and must be a deliberate
+ * decision rather than a diff nobody noticed.
+ */
+test('GMO-0: only the two governed paths CREATE a garage membership', () => {
+  const servicesDir = join(ROOT, 'services');
+  const offenders = [];
+  const walk = (dir, rel = '') => {
+    for (const entry of readdirSync(dir, { withFileTypes: true })) {
+      const abs = join(dir, entry.name);
+      const path = rel ? `${rel}/${entry.name}` : entry.name;
+      if (entry.isDirectory()) { walk(abs, path); continue; }
+      if (!entry.name.endsWith('.js')) continue;
+      const text = readFileSync(abs, 'utf8');
+      // Creating is the dangerous verb: it GRANTS authority where there was none.
+      const creates = text.match(/from\('tenant_users'\)[\s\S]{0,140}?\.(insert|upsert)\(/g);
+      if (creates) offenders.push(path);
+    }
+  };
+  walk(servicesDir);
+
+  assert.deepEqual(offenders.sort(), ['garageOnboarding/garageInvitationService.js'],
+    `Only invitation acceptance may create a membership from application code (the founding admin comes from the database function). Found:\n${offenders.join('\n')}`);
+});
+
+/**
+ * Ending or changing a membership is a different verb from creating one, and a different risk.
+ * Removing someone cannot grant anything; promoting them to `admin` can, which is why the same
+ * enumeration covers both and why `garageMembershipService` is named here deliberately.
+ */
+test('GMO-0: only the membership service ENDS or CHANGES a garage membership', () => {
+  const servicesDir = join(ROOT, 'services');
+  const offenders = [];
+  const walk = (dir, rel = '') => {
+    for (const entry of readdirSync(dir, { withFileTypes: true })) {
+      const abs = join(dir, entry.name);
+      const path = rel ? `${rel}/${entry.name}` : entry.name;
+      if (entry.isDirectory()) { walk(abs, path); continue; }
+      if (!entry.name.endsWith('.js')) continue;
+      const text = readFileSync(abs, 'utf8');
+      const mutates = text.match(/from\('tenant_users'\)[\s\S]{0,140}?\.(update|delete)\(/g);
+      if (mutates) offenders.push(path);
+    }
+  };
+  walk(servicesDir);
+
+  assert.deepEqual(offenders.sort(), ['garageOnboarding/garageMembershipService.js'],
+    `Only the membership service may end or change a membership. Found:\n${offenders.join('\n')}`);
+});
+
+test('GMO-0: removing a member touches no record of work already done', () => {
+  const service = readFileSync(join(ROOT, 'services/garageOnboarding/garageMembershipService.js'), 'utf8');
+  // A garage that could erase who serviced a car by removing a mechanic would be a garage whose
+  // service history means nothing. The vehicle's record belongs to the vehicle.
+  for (const table of ['work_order_assignments', 'service_records', 'service_cases', 'service_work_orders']) {
+    assert.ok(!new RegExp(`from\\('${table}'\\)`).test(service),
+      `revocation must never touch ${table}`);
+  }
+});
+
+test('GMO-0: an invitation cannot mint a role outside the garage vocabulary', () => {
+  const service = readFileSync(join(ROOT, 'services/garageOnboarding/garageInvitationService.js'), 'utf8');
+  // The role written to `tenant_users` comes from the invitation row, and the invitation's role is
+  // constrained both here and by a database CHECK. A garage admin must not be able to invite
+  // someone as a role that satisfies a route their own garage does not own.
+  assert.match(service, /export const INVITABLE_ROLES = Object\.freeze\(\['mechanic', 'admin'\]\)/);
+  assert.match(service, /role: invitation\.role/,
+    'the membership role comes from the invitation row, never from the request');
+
+  const migration = readFileSync(
+    join(ROOT, '../database/migrations/20260906180000_garage_invitations.sql'), 'utf8');
+  assert.match(migration, /role TEXT NOT NULL CHECK \(role IN \('mechanic', 'admin'\)\)/,
+    'the database constrains the invitable roles too');
+});
+
+test('GMO-0: only garage-side, tenant-scoped routers accept a tenant role at the gate', () => {
+  const routesDir = join(ROOT, 'routes');
+  const optedIn = readdirSync(routesDir)
+    .filter((f) => f.endsWith('.js'))
+    .filter((f) => /authorizeTenantRole\(/.test(readFileSync(join(routesDir, f), 'utf8')))
+    .sort();
+  // `tenant_users.role` and `users.role` are different namespaces that share spellings. A route
+  // whose 'admin' means CarUp administrator must never appear here.
+  assert.deepEqual(optedIn, [
+    'garageDirectoryRoutes.js',
+    'garageInvitationRoutes.js',
+    'garageMembershipRoutes.js',
+    'garageQueueRoutes.js',
+    'serviceCaseRoutes.js',
+    'serviceRecordRoutes.js',
+    'serviceWorkOrderRoutes.js',
+  ]);
+});

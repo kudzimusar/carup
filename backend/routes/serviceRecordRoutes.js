@@ -1,6 +1,6 @@
 import express from 'express';
 import { supabase } from '../db/supabase.js';
-import { authorizeSessionRole } from '../middleware/authMiddleware.js';
+import { authorizeTenantRole } from '../middleware/authMiddleware.js';
 import {
   getServiceRecord,
   linkEvidence,
@@ -30,26 +30,31 @@ const asyncHandler = (fn) => (req, res, next) => {
 // garage workspace must not depend on one environment variable being right; the route states its own
 // requirement. The public directory reads and the anonymous service-link resolver deliberately keep
 // their weaker gates — see the comments at those routes.
+// GMO-5: these routes are TENANT-scoped — `admin` here means "an administrator of this garage",
+// never a CarUp administrator. `authorizeTenantRole` therefore also accepts a verified
+// `tenant_users` membership in one of these roles, which is what lets a garage founder (platform
+// `owner`, tenant `admin`) open the garage they were just given. It is opt-in precisely because
+// applying it to routes where 'admin' means PLATFORM admin was demonstrated to be exploitable.
 const GARAGE_ROLES = ['mechanic', 'dealer', 'admin'];
 
-router.post('/api/service-work-orders/:workOrderId/records', authorizeSessionRole(GARAGE_ROLES), asyncHandler(async (req, res) => {
+router.post('/api/service-work-orders/:workOrderId/records', authorizeTenantRole(GARAGE_ROLES), asyncHandler(async (req, res) => {
   res.status(201).json(await recordService(supabase, req.userContext, req.params.workOrderId, req.body));
 }));
 
-router.get('/api/service-records/:recordId', authorizeSessionRole(GARAGE_ROLES), asyncHandler(async (req, res) => {
+router.get('/api/service-records/:recordId', authorizeTenantRole(GARAGE_ROLES), asyncHandler(async (req, res) => {
   res.json(await getServiceRecord(supabase, req.userContext, req.params.recordId));
 }));
 
-router.post('/api/service-records/:recordId/mileage', authorizeSessionRole(GARAGE_ROLES), asyncHandler(async (req, res) => {
+router.post('/api/service-records/:recordId/mileage', authorizeTenantRole(GARAGE_ROLES), asyncHandler(async (req, res) => {
   res.status(201).json(await recordMileageObservation(supabase, req.userContext, req.params.recordId, req.body));
 }));
 
-router.post('/api/service-records/:recordId/parts', authorizeSessionRole(GARAGE_ROLES), asyncHandler(async (req, res) => {
+router.post('/api/service-records/:recordId/parts', authorizeTenantRole(GARAGE_ROLES), asyncHandler(async (req, res) => {
   const result = await linkPartRecord(supabase, req.userContext, req.params.recordId, req.body);
   res.status(result.created ? 201 : 200).json(result);
 }));
 
-router.post('/api/service-records/:recordId/evidence', authorizeSessionRole(GARAGE_ROLES), asyncHandler(async (req, res) => {
+router.post('/api/service-records/:recordId/evidence', authorizeTenantRole(GARAGE_ROLES), asyncHandler(async (req, res) => {
   const result = await linkEvidence(supabase, req.userContext, req.params.recordId, req.body);
   res.status(result.created ? 201 : 200).json(result);
 }));

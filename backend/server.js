@@ -148,6 +148,8 @@ import serviceRecordRouter from './routes/serviceRecordRoutes.js';
 import serviceLinkRouter from './routes/serviceLinkRoutes.js';
 import garageQueueRouter from './routes/garageQueueRoutes.js';
 import garageReviewRouter from './routes/garageReviewRoutes.js';
+import garageInvitationRouter from './routes/garageInvitationRoutes.js';
+import garageMembershipRouter from './routes/garageMembershipRoutes.js';
 import garageOnboardingRouter from './routes/garageOnboardingRoutes.js';
 import { getOwnerServiceHistory } from './services/serviceNetwork/ownerServiceHistoryService.js';
 import { sellerVehicleIdentifierProblem } from './utils/sellerVehicleIdentifier.js';
@@ -439,6 +441,8 @@ app.use(garageQueueRouter);
 // the application a reviewer decides and an activation service acts on. It grants nothing itself.
 app.use(garageOnboardingRouter);
 app.use(garageReviewRouter);
+app.use(garageInvitationRouter);
+app.use(garageMembershipRouter);
 
 // Mount isolated Diaspora Trade bounded context
 app.use('/api/diaspora', diasporaRouter);
@@ -508,19 +512,21 @@ app.post('/api/auth/switch-role', authorizeRole(), async (req, res, next) => {
     // Fetch organization/tenant context if tenantId provided
     let verifiedTenantId = null;
     let verifiedTenantRole = null;
+    let verifiedTenantName = null;
     if (tenantId) {
       const { data: tenantUser } = await supabase
         .from('tenant_users')
-        .select('tenant_id, role')
+        .select('tenant_id, role, tenants!inner(name)')
         .eq('user_id', userId)
         .eq('tenant_id', tenantId)
         .single();
-        
+
       if (!tenantUser) {
         throw new ForbiddenError('Forbidden. You do not belong to this organization.');
       }
       verifiedTenantId = tenantUser.tenant_id;
       verifiedTenantRole = tenantUser.role;
+      verifiedTenantName = tenantUser.tenants?.name || null;
     }
 
     const canAssumeRequestedRole = role === user.role || (verifiedTenantRole && role === verifiedTenantRole && role !== 'admin');
@@ -552,7 +558,20 @@ app.post('/api/auth/switch-role', authorizeRole(), async (req, res, next) => {
       success: true,
       message: `Role switched to ${role} successfully (session established).`,
       token,
-      user: { ...user, role, active_tenant_id: verifiedTenantId }
+      // GMO-5: the tenant role and name travel with the switch.
+      //
+      // Without them a founder whose garage was approved while they were signed in had to log out
+      // and back in before the workspace appeared, because `active_tenant_role` was only ever set by
+      // `resolveActiveMembership` at login. These come from the SAME membership row that was just
+      // verified a few lines above, so they are read facts, not client claims — and `role` above is
+      // unchanged, so a tenant admin still does not become a platform admin.
+      user: {
+        ...user,
+        role,
+        active_tenant_id: verifiedTenantId,
+        active_tenant_role: verifiedTenantRole,
+        active_tenant_name: verifiedTenantName,
+      }
     });
   } catch (error) {
     await logAuditEvent(supabase, {

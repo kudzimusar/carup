@@ -7,6 +7,7 @@ import { useCarUpApi } from '@/hooks/useCarUpApi'
 import { SERVICE_CATEGORIES } from '@/lib/serviceRequests'
 import { SN_PAGE, SN_FORM_COLUMN } from '@/lib/serviceNetworkLayout'
 import GarageEvidence from './GarageEvidence'
+import GarageContextSwitcher from '@/components/garage/GarageContextSwitcher'
 import {
   APPLICANT_RELATIONSHIPS,
   STATUS_TONE_CLASS,
@@ -447,11 +448,15 @@ export default function GarageSetup() {
           <p className="text-sm text-green-800 mt-1">
             You can now receive service requests from CarUp customers.
           </p>
-          <Link to="/garage">
-            <Button className="mt-4 min-h-11 bg-orange-500 hover:bg-orange-600" data-testid="open-workshop">
-              Open my workshop
-            </Button>
-          </Link>
+          {/*
+            GMO-5: opening the workshop has to ESTABLISH the garage context, not just navigate to
+            it. A plain link landed a founder on /garage with no tenant context and a 403, because
+            the active membership was only ever resolved at login — so a person approved while
+            signed in had to log out and back in to reach the garage they had just been given.
+          */}
+          <div className="mt-4">
+            <GarageContextSwitcher />
+          </div>
         </div>
       )}
     </div>

@@ -462,14 +462,14 @@ exists.**
 | phase | delivers | UAT boundary |
 |---|---|---|
 | **GMO-0** | authority & current-state reconciliation (read-only) | ✅ complete — `GMO_0_DISCOVERY_RECEIPT.md` |
-| **GMO-1** | Garage Application: create, resume, submit | applicant can submit; nothing is activated |
-| **GMO-2** | Business evidence + OCR assistance | evidence attaches with provenance; still nothing activated |
-| **GMO-3** | Review & decision | reviewer can approve, reject, request info; still nothing activated |
-| **GMO-4** | **Canonical Business Activation** | approved application idempotently creates tenant + founding membership; no manual SQL; heavily mutation-tested |
-| **GMO-5** | Portal / context handoff | approved applicant gains Garage context on desktop and mobile; pending does not; revoked loses it |
-| **GMO-6** | Mechanic invitation & membership | operator invites, mechanic accepts, governed membership created |
-| **GMO-7** | Membership revocation & lifecycle | future authority ends; historical attribution survives |
-| **GMO-8** | Full physical Golden Journey | register → apply → evidence → approve → activate → Garage context → invite mechanic → accept → Service Network request → work → completion, desktop and mobile |
+| **GMO-1** | Garage Application: create, resume, submit | ✅ **PASS** — `GMO_1_RECEIPT.md` · 19+14 tests · 4 real-PostgreSQL constraints |
+| **GMO-2** | Business evidence + OCR assistance | ✅ **PASS** — `GMO_2_RECEIPT.md` · 25+24 tests · 11/11 real-PostgreSQL · no provider activated |
+| **GMO-3** | Review & decision | ✅ **PASS** — `GMO_3_RECEIPT.md` · 30+16 tests · 5/5 mutations red · approval creates nothing |
+| **GMO-4** | **Canonical Business Activation** | ✅ **PASS (one stated gap)** — `GMO_4_RECEIPT.md` · 19+21 tests · 25/25 real-PostgreSQL incl. fault-injected atomicity · 11/11 mutations red · **true concurrent-session racing NOT executed** |
+| **GMO-5** | Portal / context handoff | ✅ **PASS after a self-inflicted critical, found and fixed** — `GMO_5_RECEIPT.md` · 27+13 tests · adversarial review executed a working privilege-escalation exploit against the first fix; tenant gate is now opt-in per route; all four GMO tables given RLS |
+| **GMO-6** | Mechanic invitation & membership | ✅ **PASS** — `GMO_6_RECEIPT.md` · 34 backend tests · 10/10 mutations red · hashed single-use email-bound token · new enumerated tenancy-write invariant |
+| **GMO-7** | Membership revocation & lifecycle | ⏳ in progress |
+| **GMO-8** | Full physical Golden Journey | ⏳ not started — **blocked on a working browser driver** (the Playwright MCP server failed to connect this session) |
 
 **GMO-8 rule:** no direct SQL fixture may stand in for any core onboarding step in the final
 certification. The whole point of this programme is that the journey exists in the product.

@@ -162,6 +162,8 @@ import PeopleComplianceReview from './pages/dashboard/admin/PeopleComplianceRevi
 import FraudQueue from './pages/dashboard/admin/FraudQueue'
 import DealerCompliance from './pages/dashboard/admin/DealerCompliance'
 import GarageApplications from './pages/dashboard/admin/GarageApplications'
+import GarageTeam from './pages/dashboard/garage/GarageTeam'
+import JoinGarage from './pages/JoinGarage'
 import IdentityVerificationCaseManagement from './pages/dashboard/admin/IdentityVerificationCaseManagement'
 import TrustReviewQueue from './pages/dashboard/shared/TrustReviewQueue'
 import GovernanceReviewQueue from './pages/dashboard/shared/GovernanceReviewQueue'
@@ -334,6 +336,10 @@ export default function App() {
         <Route element={<MainLayout hideNav />}>
           <Route path="/login" element={<Login />} />
           <Route path="/register" element={<Register />} />
+          {/* GMO-6 — an invited mechanic lands here, usually with no CarUp account at all. Public
+              by necessity: it must say which garage and which email address BEFORE asking them to
+              register, or they create the wrong account and give up. */}
+          <Route path="/join-garage" element={<JoinGarage />} />
           <Route path="/onboarding" element={<RegistrationJourney />} />
           <Route path="/dealer/onboarding" element={<DealerOnboarding />} />
           <Route path="/workbook-tools" element={<WorkbookTools />} />
@@ -399,6 +405,8 @@ export default function App() {
           <Route path="/garage/cases/:caseId" element={<GarageCaseDetail />} />
           <Route path="/garage/customers" element={<GarageCustomers />} />
           <Route path="/garage/profile" element={<GarageProfileEditor />} />
+          {/* GMO-6 — the garage's own people. Same garage-side shell as the rest of the workspace. */}
+          <Route path="/garage/team" element={<GarageTeam />} />
           {/* GMO-1 — the applicant surface. Reachable BEFORE any garage exists, so it lives in the
               owner shell rather than the garage one. */}
         </Route>

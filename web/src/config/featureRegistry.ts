@@ -587,6 +587,20 @@ export const FEATURE_REGISTRY: FeatureRegistryItem[] = [
     icon: 'Building2',
     description: 'What customers see when they find you on CarUp',
   },
+  {
+    // GMO-6 — only a garage ADMIN may invite, which is why this entry does not list 'mechanic'.
+    // The server enforces it regardless; the sidebar simply does not offer a mechanic a page they
+    // would be refused on.
+    id: 'garage.team',
+    label: 'My Team',
+    route: '/garage/team',
+    domain: 'service',
+    roles: ['admin'],
+    placements: ['dashboard_sidebar'],
+    requiresAuth: true,
+    icon: 'Users',
+    description: 'Invite the mechanics who work with you',
+  },
 
   // ─── Mechanic Dashboard ────────────────────────────────────────────────
   {

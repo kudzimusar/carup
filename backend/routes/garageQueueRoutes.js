@@ -1,6 +1,6 @@
 import express from 'express';
 import { supabase } from '../db/supabase.js';
-import { authorizeSessionRole } from '../middleware/authMiddleware.js';
+import { authorizeTenantRole } from '../middleware/authMiddleware.js';
 import { getGarageCustomers, getGarageMechanics, getGarageQueue } from '../services/serviceNetwork/garageQueueService.js';
 
 /**
@@ -23,19 +23,24 @@ const asyncHandler = (fn) => (req, res, next) => {
 // garage workspace must not depend on one environment variable being right; the route states its own
 // requirement. The public directory reads and the anonymous service-link resolver deliberately keep
 // their weaker gates — see the comments at those routes.
+// GMO-5: these routes are TENANT-scoped — `admin` here means "an administrator of this garage",
+// never a CarUp administrator. `authorizeTenantRole` therefore also accepts a verified
+// `tenant_users` membership in one of these roles, which is what lets a garage founder (platform
+// `owner`, tenant `admin`) open the garage they were just given. It is opt-in precisely because
+// applying it to routes where 'admin' means PLATFORM admin was demonstrated to be exploitable.
 const GARAGE_ROLES = ['mechanic', 'dealer', 'admin'];
 
-router.get('/api/garage/queue', authorizeSessionRole(GARAGE_ROLES), asyncHandler(async (req, res) => {
+router.get('/api/garage/queue', authorizeTenantRole(GARAGE_ROLES), asyncHandler(async (req, res) => {
   res.json(await getGarageQueue(supabase, req.userContext, req.query));
 }));
 
-router.get('/api/garage/customers', authorizeSessionRole(GARAGE_ROLES), asyncHandler(async (req, res) => {
+router.get('/api/garage/customers', authorizeTenantRole(GARAGE_ROLES), asyncHandler(async (req, res) => {
   res.json(await getGarageCustomers(supabase, req.userContext));
 }));
 
 // The garage's own members, so a mechanic can be picked rather than a UUID typed (R5). Same tenant
 // scope and same session gate as every other private garage read on this router.
-router.get('/api/garage/mechanics', authorizeSessionRole(GARAGE_ROLES), asyncHandler(async (req, res) => {
+router.get('/api/garage/mechanics', authorizeTenantRole(GARAGE_ROLES), asyncHandler(async (req, res) => {
   res.json(await getGarageMechanics(supabase, req.userContext));
 }));
 

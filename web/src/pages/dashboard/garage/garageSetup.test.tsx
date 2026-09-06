@@ -17,11 +17,13 @@ const saveGarageApplication = vi.fn()
 const submitGarageApplication = vi.fn()
 // GMO-2: the page now composes the evidence section, which loads on mount.
 const listGarageEvidence = vi.fn()
+// GMO-5: the activated panel renders the real context switcher, which loads memberships.
+const fetchMyMemberships = vi.fn()
 
 vi.mock('@/hooks/useCarUpApi', () => ({
   useCarUpApi: () => ({
     fetchMyGarageApplication, startGarageApplication, saveGarageApplication, submitGarageApplication,
-    listGarageEvidence,
+    listGarageEvidence, fetchMyMemberships,
     uploadGarageEvidence: vi.fn(), removeGarageEvidence: vi.fn(), previewGarageEvidence: vi.fn(),
     extractGarageEvidence: vi.fn(), acknowledgeGarageEvidence: vi.fn(),
   }),
@@ -41,6 +43,7 @@ beforeEach(() => {
   saveGarageApplication.mockResolvedValue({ application: COMPLETE, blockers: [] })
   submitGarageApplication.mockResolvedValue({ application: { ...COMPLETE, status: 'submitted' } })
   listGarageEvidence.mockResolvedValue({ documents: [] })
+  fetchMyMemberships.mockResolvedValue({ garages: [{ tenantId: 't-1', tenantName: 'Mbare Motors', tenantType: 'garage', tenantStatus: 'active', role: 'admin', canOperate: true }] })
 })
 
 const view = () => render(<MemoryRouter><GarageSetup /></MemoryRouter>)
@@ -143,14 +146,22 @@ describe('the states never collapse into each other', () => {
     await waitFor(() => expect(startGarageApplication).toHaveBeenCalledWith({ supersedes: 'app-1' }))
   })
 
-  it('an activated application routes into the workshop', async () => {
+  it('an activated application offers a way in that ESTABLISHES the garage context', async () => {
     fetchMyGarageApplication.mockResolvedValue({
       application: { ...COMPLETE, status: 'approved', decided_at: 'x', activated_tenant_id: 't-1' },
       blockers: [], editable: false,
     })
     view()
     expect(await screen.findByTestId('activated-panel')).toBeTruthy()
-    expect(screen.getByTestId('open-workshop').closest('a')?.getAttribute('href')).toBe('/garage')
+    // GMO-5 corrected this. It used to assert a plain <a href="/garage">, which is exactly the
+    // behaviour that 403s: the founder's active membership was only resolved at login, so someone
+    // approved while signed in landed on the garage with no tenant context. The panel now renders
+    // the context switcher, which switches first and navigates second.
+    // The switcher loads its memberships, so wait for the real thing rather than its spinner —
+    // asserting at scroll-top on an async surface is how a check ends up seeing a loading state and
+    // calling it a result.
+    expect(await screen.findByTestId('garage-context-switcher')).toBeTruthy()
+    expect(screen.queryByTestId('open-workshop'), 'a bare link would land on a 403').toBeNull()
   })
 })
 

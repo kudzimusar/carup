@@ -1,6 +1,6 @@
 import express from 'express';
 import { supabase } from '../db/supabase.js';
-import { authorizeSessionRole } from '../middleware/authMiddleware.js';
+import { authorizeTenantRole } from '../middleware/authMiddleware.js';
 import {
   assignMechanic,
   createWorkOrderForCase,
@@ -31,27 +31,32 @@ const asyncHandler = (fn) => (req, res, next) => {
 // garage workspace must not depend on one environment variable being right; the route states its own
 // requirement. The public directory reads and the anonymous service-link resolver deliberately keep
 // their weaker gates — see the comments at those routes.
+// GMO-5: these routes are TENANT-scoped — `admin` here means "an administrator of this garage",
+// never a CarUp administrator. `authorizeTenantRole` therefore also accepts a verified
+// `tenant_users` membership in one of these roles, which is what lets a garage founder (platform
+// `owner`, tenant `admin`) open the garage they were just given. It is opt-in precisely because
+// applying it to routes where 'admin' means PLATFORM admin was demonstrated to be exploitable.
 const GARAGE_ROLES = ['mechanic', 'dealer', 'admin'];
 
-router.post('/api/service-cases/:caseId/work-order', authorizeSessionRole(GARAGE_ROLES), asyncHandler(async (req, res) => {
+router.post('/api/service-cases/:caseId/work-order', authorizeTenantRole(GARAGE_ROLES), asyncHandler(async (req, res) => {
   const result = await createWorkOrderForCase(supabase, req.userContext, req.params.caseId, req.body);
   res.status(result.created ? 201 : 200).json(result);
 }));
 
-router.get('/api/service-work-orders/:workOrderId/assignment', authorizeSessionRole(GARAGE_ROLES), asyncHandler(async (req, res) => {
+router.get('/api/service-work-orders/:workOrderId/assignment', authorizeTenantRole(GARAGE_ROLES), asyncHandler(async (req, res) => {
   res.json(await getWorkOrderAssignment(supabase, req.userContext, req.params.workOrderId));
 }));
 
-router.post('/api/service-work-orders/:workOrderId/assign', authorizeSessionRole(GARAGE_ROLES), asyncHandler(async (req, res) => {
+router.post('/api/service-work-orders/:workOrderId/assign', authorizeTenantRole(GARAGE_ROLES), asyncHandler(async (req, res) => {
   const result = await assignMechanic(supabase, req.userContext, req.params.workOrderId, req.body);
   res.status(result.created ? 201 : 200).json({ success: true, ...result });
 }));
 
-router.post('/api/service-work-orders/:workOrderId/unassign', authorizeSessionRole(GARAGE_ROLES), asyncHandler(async (req, res) => {
+router.post('/api/service-work-orders/:workOrderId/unassign', authorizeTenantRole(GARAGE_ROLES), asyncHandler(async (req, res) => {
   res.json({ success: true, ...(await unassignMechanic(supabase, req.userContext, req.params.workOrderId, req.body)) });
 }));
 
-router.patch('/api/service-work-orders/:workOrderId/status', authorizeSessionRole(GARAGE_ROLES), asyncHandler(async (req, res) => {
+router.patch('/api/service-work-orders/:workOrderId/status', authorizeTenantRole(GARAGE_ROLES), asyncHandler(async (req, res) => {
   res.json({ success: true, ...(await updateWorkOrderStatus(supabase, req.userContext, req.params.workOrderId, req.body)) });
 }));
 

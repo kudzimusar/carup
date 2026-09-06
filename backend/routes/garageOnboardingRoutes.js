@@ -16,6 +16,7 @@ import {
   runEvidenceExtraction,
   uploadEvidence,
 } from '../services/garageOnboarding/garageEvidenceService.js';
+import { listMyMemberships } from '../services/garageOnboarding/garageContextService.js';
 import { emitDomainEvent } from '../services/eventBus/eventBusService.js';
 
 const router = express.Router();
@@ -108,6 +109,20 @@ router.post('/api/garage-onboarding/application/:applicationId/evidence/:documen
 /** "I have checked these suggestions." Records the decision; does not write the application. */
 router.post('/api/garage-onboarding/application/:applicationId/evidence/:documentId/acknowledge', ...applicant, asyncHandler(async (req, res) => {
   res.json(await acknowledgeExtraction(supabase, req.userContext, req.params.applicationId, req.params.documentId, { req }));
+}));
+
+/**
+ * GMO-5 — the organizations this person belongs to.
+ *
+ * Deliberately NOT behind `requireGarageOnboardingContext`: someone who was invited to a garage as a
+ * mechanic (GMO-6) never filed an application, and must still be able to find the garage they were
+ * invited into. The only gate is a proven session, and the answer is always scoped to the caller.
+ *
+ * This grants nothing. Switching context is still `POST /api/auth/switch-role`, which re-verifies
+ * membership server-side; this route only says what there is to choose from.
+ */
+router.get('/api/auth/my-memberships', authorizeSessionRole(), asyncHandler(async (req, res) => {
+  res.json(await listMyMemberships(supabase, req.userContext));
 }));
 
 export default router;
