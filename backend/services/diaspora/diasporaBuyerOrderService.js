@@ -292,7 +292,20 @@ export async function getBuyerOrder(id, userContext = {}, options = {}) {
   const order = await loadOrder(client, id, context);
 
   const { data: quotes } = await client.from(QUOTES).select('*').eq('import_order_id', id).is('deleted_at', null);
-  const visibleQuotes = await attachSupplierIdentity(client, quotes || []);
+
+  // A supplier's DRAFT offer is theirs until they submit it. `createQuote` already says so — "A
+  // DRAFT is private to the supplier — only a real submission is news for the buyer" — but this
+  // read returned every row, so a buyer could see an unsubmitted offer AND its amount. T3 filters
+  // the equivalent list at its route (REQUESTER_VISIBLE); T2 did not, and a richer intake made the
+  // omission easy to see. A supplier still sees their own draft here, and privileged readers see
+  // everything, so nothing legitimate is hidden.
+  const viewerIsPrivileged = isPlatformAdmin(context) || isPlatformReviewer(context);
+  const readable = (quotes || []).filter((quote) => (
+    String(quote.status || '').toUpperCase() !== 'DRAFT'
+    || viewerIsPrivileged
+    || normalizeId(quote.seller_id) === context.id
+  ));
+  const visibleQuotes = await attachSupplierIdentity(client, readable);
   return {
     ...order,
     quotes: visibleQuotes,

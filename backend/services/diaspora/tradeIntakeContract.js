@@ -46,6 +46,32 @@ export const GOODS_NATURES = set('new', 'used', 'personal_effects', 'commercial_
 export const VEHICLE_RUNNING_STATES = set('runs_and_drives', 'starts_only', 'non_running', 'unknown');
 export const VEHICLE_KEYS_STATES = set('available', 'missing', 'unknown');
 export const EXPORT_CLEARANCE_STATES = set('completed', 'in_progress', 'not_started', 'unknown');
+export const INSPECTION_STATES = set('completed', 'booked', 'not_arranged', 'unknown');
+export const LOADING_EQUIPMENT = set('available', 'not_available', 'unknown');
+export const UNLOADING_REQUIRED = set('yes', 'no', 'unsure');
+export const CONTACT_CHANNELS = set('carup_messages', 'email', 'phone', 'whatsapp');
+
+/**
+ * Document READINESS — what the customer says they have. Four honest states and nothing more.
+ *
+ * There is deliberately no `verified` or `approved` member: selecting "have it" is a customer
+ * telling us something, never CarUp confirming it, and nothing downstream may read this as
+ * customs-ready, export-ready or complete. T8 owns what actually happens to a file.
+ */
+export const DOCUMENT_READINESS = set('have_it', 'will_get_later', 'need_help', 'unsure_if_required');
+
+/** The document types intake asks about. Journey-dependent; the UI shows only what is relevant. */
+export const DOCUMENT_TYPES = Object.freeze([
+  ['purchase_invoice', 'Purchase invoice'],
+  ['auction_sheet', 'Auction sheet'],
+  ['export_certificate', 'Export / deregistration certificate'],
+  ['registration_document', 'Registration document'],
+  ['inspection_certificate', 'Inspection certificate'],
+  ['proof_of_ownership', 'Proof of ownership or payment'],
+  ['identity_document', 'ID / company documents'],
+  ['insurance_evidence', 'Insurance evidence'],
+  ['other_evidence', 'Other supporting evidence'],
+]);
 
 /** What a customer can ask supplier offers to ADDRESS. Requesting is not the same as receiving. */
 export const QUOTE_COMPONENTS = set(
@@ -138,6 +164,16 @@ export const NEVER_MARKETPLACE_VISIBLE = Object.freeze([
   'budget_max_amount', 'budget_basis', 'budget_flexibility',
   'linked_vehicle_vin', 'vin', 'chassis_number', 'auction_lot_number',
   'buyer_id', 'requester_id', 'tenant_id', 'created_by', 'updated_by', 'metadata',
+  // Conditional PRIVATE facts. Intake COLLECTS these — a shipper who asks for pickup must be able
+  // to say where and who to call, or the request cannot be served — and precisely because they are
+  // collected, they must be named here so no allow-list can ever quietly include them.
+  'pickup_address', 'pickup_contact_name', 'pickup_contact_phone', 'pickup_access_notes',
+  'pickup_available_from', 'pickup_loading_equipment',
+  'delivery_address', 'delivery_contact_name', 'delivery_contact_phone',
+  'consignee_name', 'consignee_phone',
+  'clearing_agent_name', 'clearing_agent_country', 'clearing_agent_contact',
+  'preferred_language', 'preferred_contact_channel',
+  'current_location', 'inspection_state', 'document_readiness',
 ]);
 
 // ── Validation helpers ─────────────────────────────────────────────────

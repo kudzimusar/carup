@@ -23,6 +23,8 @@ const contract = await import('../services/diaspora/tradeIntakeContract.js');
 const rfq = await import('../services/diaspora/diasporaRfqService.js');
 const logistics = await import('../services/diaspora/diasporaLogisticsRfqService.js');
 const buyerOrders = await import('../services/diaspora/diasporaBuyerOrderService.js');
+const readiness = await import('../services/diaspora/tradeDocumentReadinessService.js');
+const normalizer = await import('../services/diaspora/tradeIntakeNormalizer.js');
 const observations = await import('../services/diaspora/tradeFactObservationService.js');
 
 const repoRoot = join(dirname(fileURLToPath(import.meta.url)), '..', '..');
@@ -263,6 +265,149 @@ test('cargo value and export state stay private while handling facts cross', () 
   assert.ok(!projected.includes('in_progress'), 'export clearance state is operational, not for browsing');
   for (const shared of ['fragile', 'batteries', 'non_running', 'used']) {
     assert.ok(projected.includes(shared), `a provider needs to see "${shared}" to decide`);
+  }
+});
+
+// ── conditional PRIVATE facts: collected, never projected ──────────────
+
+test('pickup and delivery contact details are COLLECTED, not refused', () => {
+  // The earlier reading was too cautious: a shipper who asks for pickup must be able to say where
+  // and who to call, or the request cannot be served.
+  const out = normalizer.normalizeLogisticsIntake({
+    pickup_required: 'yes', pickup_address: '12 Auction Row, Yokohama',
+    pickup_contact_name: 'Site Manager', pickup_contact_phone: '+81 90 0000 0000',
+    pickup_available_from: '2026-10-04', pickup_loading_equipment: 'available',
+    delivery_address: '5 Borrowdale Lane, Harare', delivery_contact_name: 'Recipient',
+    delivery_contact_phone: '+263 77 000 0000', unloading_required: 'yes',
+    clearing_agent_name: 'Acme Clearing', clearing_agent_contact: 'acme@example.test',
+    preferred_language: 'English', preferred_contact_channel: 'whatsapp',
+  });
+  assert.equal(out.pickup_address, '12 Auction Row, Yokohama');
+  assert.equal(out.pickup_contact_phone, '+81 90 0000 0000');
+  assert.equal(out.delivery_contact_name, 'Recipient');
+  assert.equal(out.clearing_agent_name, 'Acme Clearing');
+  assert.equal(out.preferred_contact_channel, 'whatsapp');
+});
+
+test('every conditional private fact is named NEVER_MARKETPLACE_VISIBLE', () => {
+  for (const field of ['pickup_address', 'pickup_contact_name', 'pickup_contact_phone',
+                       'pickup_access_notes', 'delivery_address', 'delivery_contact_name',
+                       'delivery_contact_phone', 'consignee_name', 'consignee_phone',
+                       'clearing_agent_name', 'clearing_agent_contact', 'current_location',
+                       'preferred_contact_channel', 'preferred_language']) {
+    assert.ok(contract.NEVER_MARKETPLACE_VISIBLE.includes(field),
+      `"${field}" is collected by intake and must be explicitly named as never marketplace-visible`);
+  }
+});
+
+test('a fully populated PRIVATE logistics request leaks none of it to providers', () => {
+  const request = {
+    id: 'r1', origin_country: 'Japan', destination_country: 'Zimbabwe', destination_city: 'Harare',
+    pickup_address: 'LEAK_PICKUP_ADDR', pickup_contact_name: 'LEAK_PICKUP_NAME',
+    pickup_contact_phone: 'LEAK_PICKUP_PHONE', pickup_access_notes: 'LEAK_ACCESS',
+    delivery_address: 'LEAK_DELIVERY_ADDR', delivery_contact_name: 'LEAK_DELIVERY_NAME',
+    delivery_contact_phone: 'LEAK_DELIVERY_PHONE',
+    clearing_agent_name: 'LEAK_AGENT', clearing_agent_contact: 'LEAK_AGENT_CONTACT',
+    preferred_language: 'LEAK_LANG', preferred_contact_channel: 'whatsapp',
+    requester_id: 'LEAK_REQUESTER', tenant_id: 'LEAK_TENANT', metadata: { secret: 'LEAK_META' },
+  };
+  const item = {
+    id: 'i1', line_number: 1, cargo_category: 'vehicle', description: 'Alphard', quantity: 1,
+    measurement_basis: 'UNKNOWN', handling_flags: ['fragile'], content_declarations: ['batteries'],
+    current_location: 'LEAK_CARGO_LOCATION', inspection_state: 'booked',
+    accompanying_parts: 'LEAK_PARTS', linked_vehicle_vin: 'LEAK_VIN',
+    declared_value: 987654,
+  };
+  const projected = JSON.stringify(logistics.projectLogisticsRequestForMarketplace(request, [item]));
+  for (const sentinel of ['LEAK_PICKUP_ADDR', 'LEAK_PICKUP_NAME', 'LEAK_PICKUP_PHONE', 'LEAK_ACCESS',
+                          'LEAK_DELIVERY_ADDR', 'LEAK_DELIVERY_NAME', 'LEAK_DELIVERY_PHONE',
+                          'LEAK_AGENT', 'LEAK_AGENT_CONTACT', 'LEAK_LANG', 'LEAK_REQUESTER',
+                          'LEAK_TENANT', 'LEAK_META', 'LEAK_CARGO_LOCATION', 'LEAK_PARTS',
+                          'LEAK_VIN', '987654']) {
+    assert.ok(!projected.includes(sentinel), `the provider projection leaked ${sentinel}`);
+  }
+  // …while the facts a provider needs to decide DID cross.
+  for (const shared of ['fragile', 'batteries', 'Alphard']) {
+    assert.ok(projected.includes(shared), `a provider needs "${shared}"`);
+  }
+});
+
+test("a supplier's DRAFT offer is not visible to the buyer", async () => {
+  // The intent was already documented in createQuote ("A DRAFT is private to the supplier — only a
+  // real submission is news for the buyer"), but the buyer's read returned every row, so a buyer
+  // could see an unsubmitted offer and its amount. Walking the governed supplier journey exposed it.
+  const ORDER = '66666666-6666-4666-8666-666666666666';
+  const client = createMockSupabase({
+    diaspora_import_orders: [{ id: ORDER, buyer_id: 'buyer-a', tenant_id: null, status: 'QUOTED', deleted_at: null, metadata: {} }],
+    diaspora_import_quotes: [
+      { id: 'q-draft', import_order_id: ORDER, seller_id: 'supplier-s', status: 'DRAFT', quote_amount: 11111, deleted_at: null },
+      { id: 'q-issued', import_order_id: ORDER, seller_id: 'supplier-s', status: 'ISSUED', quote_amount: 23800, deleted_at: null },
+    ],
+    diaspora_import_order_request_lines: [],
+    diaspora_import_order_participants: [{ id: 'p1', import_order_id: ORDER, user_id: 'buyer-a', participant_role: 'buyer' }],
+  });
+
+  const asBuyer = await buyerOrders.getBuyerOrder(ORDER, customer, { supabaseClient: client });
+  const buyerSees = asBuyer.quotes.map((q) => q.status);
+  assert.ok(!buyerSees.includes('DRAFT'), `the buyer saw a DRAFT offer: ${buyerSees.join(',')}`);
+  assert.ok(!JSON.stringify(asBuyer.quotes).includes('11111'), "the draft's amount must not reach the buyer");
+  assert.equal(asBuyer.quotes.length, 1);
+
+  // …and the supplier still sees their own draft.
+  const supplier = { id: 'supplier-s', userId: 'supplier-s', role: 'dealer', platformRole: 'dealer', tenantId: null };
+  const asSupplier = await buyerOrders.getBuyerOrder(ORDER, supplier, { supabaseClient: client }).catch(() => null);
+  if (asSupplier) {
+    assert.ok(asSupplier.quotes.some((q) => q.status === 'DRAFT'),
+      'a supplier must still see their own unsubmitted offer');
+  }
+});
+
+// ── document readiness: a statement, never a verification ──────────────
+
+test('document readiness records a statement and refuses to imply verification', async () => {
+  const client = createMockSupabase({ diaspora_trade_document_readiness: [] });
+  const subject = '44444444-4444-4444-8444-444444444444';
+  await readiness.setReadiness('import_order', subject, [
+    { document_type: 'purchase_invoice', readiness: 'have_it' },
+    { document_type: 'export_certificate', readiness: 'will_get_later' },
+    { document_type: 'inspection_certificate', readiness: 'need_help' },
+  ], customer, { supabaseClient: client });
+
+  const rows = await readiness.listReadiness('import_order', subject, { supabaseClient: client });
+  assert.equal(rows.length, 3);
+  for (const row of rows) {
+    assert.equal(row.verified, false, 'a customer answer is never verified');
+    assert.equal(row.source, 'CUSTOMER_STATED');
+  }
+  const summary = readiness.summarizeReadiness(rows);
+  assert.equal(summary.customer_says_they_have, 1);
+  assert.equal(summary.completeness_known, false, 'no completeness may be claimed');
+  assert.ok(!('percent' in summary) && !('complete' in summary),
+    'no percentage or completion flag may exist — the required set is unknown');
+  assert.match(summary.note, /has not seen or checked/i);
+});
+
+test('re-answering readiness corrects it rather than stacking duplicates', async () => {
+  const client = createMockSupabase({ diaspora_trade_document_readiness: [] });
+  const subject = '55555555-5555-4555-8555-555555555555';
+  const opts = { supabaseClient: client };
+  await readiness.setReadiness('import_order', subject, [{ document_type: 'purchase_invoice', readiness: 'will_get_later' }], customer, opts);
+  await readiness.setReadiness('import_order', subject, [{ document_type: 'purchase_invoice', readiness: 'have_it' }], customer, opts);
+  const rows = await readiness.listReadiness('import_order', subject, opts);
+  assert.equal(rows.length, 1, 'a corrected intention replaces the previous answer');
+  assert.equal(rows[0].readiness, 'have_it');
+});
+
+test('an unknown document type or readiness state is refused', async () => {
+  const client = createMockSupabase({ diaspora_trade_document_readiness: [] });
+  await assert.rejects(() => readiness.setReadiness('import_order', 'x', [{ document_type: 'magic_permit', readiness: 'have_it' }], customer, { supabaseClient: client }), /Unknown document type/i);
+  await assert.rejects(() => readiness.setReadiness('import_order', 'x', [{ document_type: 'purchase_invoice', readiness: 'verified' }], customer, { supabaseClient: client }), /Unknown readiness state/i);
+});
+
+test('the readiness vocabulary contains no verified-like state', () => {
+  for (const forbidden of ['verified', 'approved', 'complete', 'customs_ready', 'export_ready']) {
+    assert.ok(!contract.DOCUMENT_READINESS.has(forbidden),
+      `"${forbidden}" must not be a readiness state — intake records intention, not confirmation`);
   }
 });
 

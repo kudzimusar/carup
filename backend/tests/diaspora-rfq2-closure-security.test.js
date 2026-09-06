@@ -218,7 +218,14 @@ test('the buyer sees safe supplier identity on offers — and no contact details
   assert.ok(!serialized.includes('+81000000'), 'supplier phone leaked');
   assert.ok(!/score|rating|reputation/i.test(serialized), 'invented reputation leaked');
 
-  // A DRAFT quote is private to its supplier and is not an offer — no identity is attached.
+  // A DRAFT quote is private to its supplier and is not an offer.
+  //
+  // This assertion was strengthened deliberately. It used to accept the draft ROW being returned as
+  // long as no supplier identity was attached — but the row still carried the draft's amount, so a
+  // buyer could read a competitor's unsubmitted price. T3 already excluded drafts outright, and
+  // walking the governed supplier journey showed a buyer seeing "DRAFT USD 23800". The row is now
+  // withheld entirely, which is what "private to its supplier" has to mean.
   const draft = order.quotes.find((q) => q.id === 'q-draft');
-  assert.equal(draft.supplier, undefined);
+  assert.equal(draft, undefined, 'a DRAFT offer must not reach the buyer at all');
+  assert.ok(!JSON.stringify(order.quotes).includes('500'), "the draft's amount must not reach the buyer");
 });

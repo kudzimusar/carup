@@ -16,6 +16,7 @@ import {
   TRANSMISSIONS, DRIVETRAINS, STEERING, TOLERANCES, INTENDED_USES, PART_ORIGINS,
   PICKUP_REQUIRED, ORIGIN_SITE_TYPES, GOODS_NATURES, HANDLING_FLAGS, CONTENT_DECLARATIONS,
   VEHICLE_RUNNING_STATES, VEHICLE_KEYS_STATES, EXPORT_CLEARANCE_STATES,
+  INSPECTION_STATES, LOADING_EQUIPMENT, UNLOADING_REQUIRED, CONTACT_CHANNELS,
   optionalChoice, optionalChoiceList, optionalPositiveNumber, optionalDate,
 } from './tradeIntakeContract.js';
 import { ValidationError } from '../../utils/errors.js';
@@ -69,6 +70,15 @@ export function normalizeOrderIntake(payload = {}, previous = {}) {
     timing_flexibility: keep('timing_flexibility', optionalChoice(pick(payload, 'timing_flexibility', 'timingFlexibility'), TIMING_FLEXIBILITY, 'Timing flexibility')),
     requested_quote_components: keep('requested_quote_components', optionalChoiceList(pick(payload, 'requested_quote_components', 'requestedQuoteComponents'), QUOTE_COMPONENTS, 'Requested quote components')),
     alternatives_policy: keep('alternatives_policy', optionalChoice(pick(payload, 'alternatives_policy', 'alternativesPolicy'), ALTERNATIVES_POLICIES, 'Alternatives')),
+    preferred_contact_channel: keep('preferred_contact_channel', optionalChoice(pick(payload, 'preferred_contact_channel', 'preferredContactChannel'), CONTACT_CHANNELS, 'Contact channel')),
+    // ── conditional PRIVATE facts ───────────────────────────────────────
+    consignee_name: keep('consignee_name', text(pick(payload, 'consignee_name', 'consigneeName'), 150)),
+    consignee_phone: keep('consignee_phone', text(pick(payload, 'consignee_phone', 'consigneePhone'), 60)),
+    delivery_address: keep('delivery_address', text(pick(payload, 'delivery_address', 'deliveryAddress'), 400)),
+    clearing_agent_name: keep('clearing_agent_name', text(pick(payload, 'clearing_agent_name', 'clearingAgentName'), 200)),
+    clearing_agent_country: keep('clearing_agent_country', text(pick(payload, 'clearing_agent_country', 'clearingAgentCountry'), 100)),
+    clearing_agent_contact: keep('clearing_agent_contact', text(pick(payload, 'clearing_agent_contact', 'clearingAgentContact'), 200)),
+    preferred_language: keep('preferred_language', text(pick(payload, 'preferred_language', 'preferredLanguage'), 60)),
   }));
 }
 
@@ -121,6 +131,27 @@ export function normalizeLogisticsIntake(payload = {}, previous = {}) {
     arrival_window_start: keep('arrival_window_start', optionalDate(pick(payload, 'arrival_window_start', 'arrivalWindowStart'), 'Arrival window start')),
     arrival_window_end: keep('arrival_window_end', optionalDate(pick(payload, 'arrival_window_end', 'arrivalWindowEnd'), 'Arrival window end')),
     timing_flexibility: keep('timing_flexibility', optionalChoice(pick(payload, 'timing_flexibility', 'timingFlexibility'), TIMING_FLEXIBILITY, 'Timing flexibility')),
+    service_mode_preference: keep('service_mode_preference', optionalChoice(pick(payload, 'service_mode_preference', 'serviceModePreference'), SHIPPING_MODE_PREFERENCES, 'Shipping mode')),
+    inspection_intent: keep('inspection_intent', optionalChoice(pick(payload, 'inspection_intent', 'inspectionIntent'), INSPECTION_INTENTS, 'Inspection')),
+    insurance_intent: keep('insurance_intent', optionalChoice(pick(payload, 'insurance_intent', 'insuranceIntent'), INSURANCE_INTENTS, 'Insurance')),
+    clearing_intent: keep('clearing_intent', optionalChoice(pick(payload, 'clearing_intent', 'clearingIntent'), CLEARING_INTENTS, 'Clearing')),
+    unloading_required: keep('unloading_required', optionalChoice(pick(payload, 'unloading_required', 'unloadingRequired'), UNLOADING_REQUIRED, 'Unloading')),
+    pickup_loading_equipment: keep('pickup_loading_equipment', optionalChoice(pick(payload, 'pickup_loading_equipment', 'pickupLoadingEquipment'), LOADING_EQUIPMENT, 'Loading equipment')),
+    preferred_contact_channel: keep('preferred_contact_channel', optionalChoice(pick(payload, 'preferred_contact_channel', 'preferredContactChannel'), CONTACT_CHANNELS, 'Contact channel')),
+    // ── conditional PRIVATE facts ───────────────────────────────────────
+    // Collected because a pickup or a delivery cannot be served without them, and named in
+    // NEVER_MARKETPLACE_VISIBLE so no projection can ever include them.
+    pickup_address: keep('pickup_address', text(pick(payload, 'pickup_address', 'pickupAddress'), 400)),
+    pickup_contact_name: keep('pickup_contact_name', text(pick(payload, 'pickup_contact_name', 'pickupContactName'), 150)),
+    pickup_contact_phone: keep('pickup_contact_phone', text(pick(payload, 'pickup_contact_phone', 'pickupContactPhone'), 60)),
+    pickup_available_from: keep('pickup_available_from', optionalDate(pick(payload, 'pickup_available_from', 'pickupAvailableFrom'), 'Pickup available from')),
+    pickup_access_notes: keep('pickup_access_notes', text(pick(payload, 'pickup_access_notes', 'pickupAccessNotes'), 600)),
+    delivery_address: keep('delivery_address', text(pick(payload, 'delivery_address', 'deliveryAddress'), 400)),
+    delivery_contact_name: keep('delivery_contact_name', text(pick(payload, 'delivery_contact_name', 'deliveryContactName'), 150)),
+    delivery_contact_phone: keep('delivery_contact_phone', text(pick(payload, 'delivery_contact_phone', 'deliveryContactPhone'), 60)),
+    clearing_agent_name: keep('clearing_agent_name', text(pick(payload, 'clearing_agent_name', 'clearingAgentName'), 200)),
+    clearing_agent_contact: keep('clearing_agent_contact', text(pick(payload, 'clearing_agent_contact', 'clearingAgentContact'), 200)),
+    preferred_language: keep('preferred_language', text(pick(payload, 'preferred_language', 'preferredLanguage'), 60)),
   }));
 }
 
@@ -141,5 +172,11 @@ export function normalizeCargoIntake(payload = {}) {
     vehicle_running_state: optionalChoice(pick(payload, 'vehicle_running_state', 'vehicleRunningState'), VEHICLE_RUNNING_STATES, 'Running condition'),
     vehicle_keys_state: optionalChoice(pick(payload, 'vehicle_keys_state', 'vehicleKeysState'), VEHICLE_KEYS_STATES, 'Keys'),
     export_clearance_state: optionalChoice(pick(payload, 'export_clearance_state', 'exportClearanceState'), EXPORT_CLEARANCE_STATES, 'Export status'),
+    inspection_state: optionalChoice(pick(payload, 'inspection_state', 'inspectionState'), INSPECTION_STATES, 'Inspection status'),
+    // Goods travelling WITH a vehicle, captured as their own facts rather than buried in free text.
+    accompanying_parts: text(pick(payload, 'accompanying_parts', 'accompanyingParts'), 600),
+    accompanying_personal_goods: text(pick(payload, 'accompanying_personal_goods', 'accompanyingPersonalGoods'), 600),
+    // PRIVATE: where the cargo physically is.
+    current_location: text(pick(payload, 'current_location', 'currentLocation'), 300),
   }));
 }
