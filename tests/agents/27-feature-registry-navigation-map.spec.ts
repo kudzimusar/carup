@@ -156,11 +156,20 @@ test.describe('Feature Registry & Navigation Map', () => {
       // /admin/vehicles/:vin/review route cannot be a sidebar link) so it does
       // not move this count. No other role moves.
       expect(result.roleItemCounts['owner']).toBe(21);
-      expect(result.roleItemCounts['dealer']).toBe(16);
+      // Recomputed 2026-09-05 (Trade OS T2): `diaspora.buyer-requests` — the supplier's opportunity
+      // marketplace — is a NEW sidebar destination registered with roles ['dealer', 'admin'], so it
+      // moves BOTH of those counts (dealer 16 -> 17, admin 32 -> 33) and no others. The relabelled
+      // `diaspora.reverse-rfq` ("Request Quotes") kept its id, roles and placement, so it moves none.
+      expect(result.roleItemCounts['dealer']).toBe(17);
       expect(result.roleItemCounts['mechanic']).toBe(5);
       expect(result.roleItemCounts['insurance']).toBe(4);
       expect(result.roleItemCounts['government']).toBe(14);
-      expect(result.roleItemCounts['admin']).toBe(32);
+      // Recomputed 2026-09-07 (Trade OS T6.5): `diaspora.rate-research` — CarUp's own market-rate
+      // research workspace — is a NEW sidebar destination registered with roles ['admin'] only, so
+      // it moves the admin count alone (33 -> 34). Registering it at all is the point: an
+      // unregistered path under /diaspora is PUBLIC by the isPublicRoute fallback, and this
+      // surface must never be.
+      expect(result.roleItemCounts['admin']).toBe(34);
       expect(result.roleItemCounts['bank']).toBe(4);
 
       // Dashboard routes are valid

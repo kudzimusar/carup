@@ -44,6 +44,27 @@ export const COMMUNICATION_EVENT_TYPES = [
   'vehicle.ownership.transfer_action_required',
   'vehicle.ownership.transfer_state_changed',
   'vehicle.ownership.transfer_completed',
+  // Trade OS T2 — sourcing (Request Quotes) lifecycle. Emitted best-effort by
+  // services/diaspora/rfqLifecycleNotifier.js AFTER the audited authoritative mutation.
+  'diaspora.rfq.quote_submitted',
+  'diaspora.rfq.quote_accepted',
+  'diaspora.rfq.quote_not_selected',
+  // Trade OS T3 — shipping-request (logistics) lifecycle. Emitted best-effort by
+  // services/diaspora/logisticsLifecycleNotifier.js AFTER the audited authoritative mutation.
+  'diaspora.logistics.quote_submitted',
+  'diaspora.logistics.quote_accepted',
+  'diaspora.logistics.quote_not_selected',
+  // Trade OS D7 — container co-loading booking lifecycle. Emitted best-effort by
+  // services/diaspora/containerBookingNotifier.js AFTER the audited authoritative mutation.
+  // Payloads carry `buyerId` (addressable) plus reference/status/route for the governed
+  // `container_booking_update` template. Booking state itself stays in diaspora tables.
+  'diaspora.container_booking.reservation_requested',
+  'diaspora.container_booking.reservation_received', // organiser-directed: recipient is the coordinator
+
+  'diaspora.container_booking.reservation_approved',
+  'diaspora.container_booking.reservation_rejected',
+  'diaspora.container_booking.reservation_cancelled',
+  'diaspora.container_booking.booking_closed',
   // R1 — the durable post-verification work item. The Leadership Welcome used to be produced
   // inline in the verification route and its failure swallowed, which permanently lost the welcome
   // for that account because the verification token is single-use and already consumed.

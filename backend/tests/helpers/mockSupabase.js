@@ -49,6 +49,23 @@ export const UNIQUE_INDEXES = Object.freeze({
   // collides. A mock that accepted the insert would let the broken read-then-insert path pass its
   // tests forever while the capability was, in production, ungrantable for the rest of time.
   diaspora_user_entitlement_overrides: [['tenant_id', 'user_id', 'feature_key']],
+  // T4 — diaspora_logistics_requests: uq_diaspora_logistics_request_live_import_order.
+  //
+  // The continuation edge's idempotency IS this index: two concurrent "arrange shipping" clicks on
+  // one purchase must produce ONE shipping request, and the loser must be handed the winner rather
+  // than an error.
+  //
+  // The real index is PARTIAL (… WHERE deleted_at IS NULL AND import_order_id IS NOT NULL AND
+  // status NOT IN ('CANCELLED','CLOSED')). The mock cannot express a predicate, so this entry is
+  // STRICTER than Postgres in exactly one direction: after a continuation is cancelled or closed,
+  // the real database frees the slot and the mock does not. That divergence is safe for the
+  // concurrency path it exists to test, but it means a "re-arrange shipping after cancelling"
+  // test must NOT be written against the mock — the partial predicate is proven against real
+  // Postgres in database/test/trade_os_t4_continuation_check.mjs instead.
+  //
+  // NULL import_order_id never collides (Postgres NULLS DISTINCT), so logistics-origin requests —
+  // the common case — are entirely unaffected.
+  diaspora_logistics_requests: [['import_order_id']],
 });
 
 export function createMockSupabase(seed = {}, options = {}) {

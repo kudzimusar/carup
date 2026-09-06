@@ -63,16 +63,26 @@ test('missing password env vars cause a safe failure that leaks no values', () =
   assert.throws(() => readQaPasswords(weakEnv), /below the .* minimum/i);
 });
 
-test('all three accounts receive valid roles and runtime-generated valid hashes', async () => {
+test('every account receives a valid role and a runtime-generated valid hash', async () => {
   const env = Object.fromEntries(QA_ACCOUNTS.map((a) => [a.passwordEnv, `${TEST_PW}-${a.id}`]));
   const rows = await buildQaAccountRows(readQaPasswords(env));
-  assert.equal(rows.length, 3);
+  assert.equal(rows.length, QA_ACCOUNTS.length);
 
   const byId = Object.fromEntries(rows.map((r) => [r.id, r]));
   // Buyer is an `owner` (no distinct buyer/member role exists; 'member' violates users_role_check).
   assert.equal(byId['qa-staging-buyer-73'].role, 'owner');
   assert.equal(byId['qa-staging-seller-73'].role, 'owner');
   assert.equal(byId['qa-staging-admin-73'].role, 'admin');
+
+  // The Trade OS supplier is the one governed `dealer`. It exists because the supplier surfaces
+  // require that role and public registration correctly refuses to grant it — the fixture is
+  // provisioned by an operator here rather than by weakening that refusal.
+  const supplier = rows.find((r) => r.role === 'dealer');
+  assert.ok(supplier, 'a governed dealer fixture must exist for Trade OS supplier certification');
+  assert.match(supplier.id, /^qa-tradeos-supplier-/, 'the supplier fixture is unmistakably synthetic');
+  assert.match(supplier.email, /^synthetic\.tradeos\.supplier\./, 'and unmistakably synthetic by email');
+  assert.equal(rows.filter((r) => r.role === 'dealer').length, 1,
+    'exactly one dealer fixture — provisioning must not quietly mint privileged accounts');
 
   for (const acct of QA_ACCOUNTS) {
     const row = byId[acct.id];

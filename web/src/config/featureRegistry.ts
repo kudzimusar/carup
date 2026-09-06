@@ -224,6 +224,7 @@ export type LucideIconName =
   | 'ScrollText'
   | 'Lock'
   | 'Share2'
+  | 'Container'
 
 // ── Core registry item ─────────────────────────────────────────────────────
 export interface FeatureRegistryItem {
@@ -962,13 +963,91 @@ export const FEATURE_REGISTRY: FeatureRegistryItem[] = [
   },
   {
     id: 'diaspora.reverse-rfq',
-    label: 'Reverse RFQ',
-    route: '/diaspora/rfq',
+    // Buyer-facing language (T2 §10): ordinary users do not know the term "Reverse RFQ".
+    // The internal id stays stable; only what a human reads changes.
+    label: 'Request Quotes',
+    route: '/diaspora/request-quotes',
     domain: 'diaspora',
     roles: ['owner', 'dealer', 'admin'],
     placements: ['dashboard_sidebar'],
     requiresAuth: true,
     icon: 'MessageSquare',
+    sidebarGroup: 'Growth & Diaspora',
+    description: 'Tell suppliers what you need and compare their offers',
+  },
+  {
+    id: 'diaspora.my-requests',
+    label: 'My Requests',
+    // Was unregistered, which made it PUBLIC by the unregistered-path fallback (/diaspora is not a
+    // protected prefix) — any role could load the buyer's request surfaces. The API still authorizes
+    // per buyer, so this is defence in depth, not the only control. Dealers are included because a
+    // dealer can also be a buyer: diaspora.reverse-rfq lets them raise requests.
+    route: '/diaspora/requests',
+    domain: 'diaspora',
+    roles: ['owner', 'dealer', 'admin'],
+    placements: [],
+    requiresAuth: true,
+    icon: 'MessageSquare',
+    description: 'Requests you have raised, and the offers suppliers have made on them',
+  },
+  {
+    id: 'diaspora.my-request-detail',
+    label: 'Request Detail',
+    // Distinct from the list above: matchRoutePattern compares segment counts, so a 3-segment
+    // pattern never shadows the 2-segment list route.
+    route: '/diaspora/requests/:id',
+    domain: 'diaspora',
+    roles: ['owner', 'dealer', 'admin'],
+    placements: [],
+    requiresAuth: true,
+    icon: 'MessageSquare',
+    description: 'Compare supplier offers on one request and choose one',
+  },
+  {
+    id: 'diaspora.messages',
+    label: 'Messages',
+    // The canonical Communications surface, reachable from inside the Trade OS shell.
+    // `/dashboard/communications` renders the same component but sits in the OWNER-ONLY
+    // dashboard layout, so a supplier sent there was bounced to /dealer and could never
+    // open the thread they had just created. This route is the participant-neutral entry;
+    // thread visibility is still decided server-side per participant, not by this route.
+    route: '/diaspora/messages',
+    domain: 'diaspora',
+    // Government operates containers (registry admits it to /diaspora/containers, and the
+    // container product treats it as a reviewer). Operating a sailing entails its conversations.
+    roles: ['owner', 'dealer', 'admin', 'government'],
+    // No sidebar placement: the Trade OS shell renders its own local navigation, and adding
+    // a second "Messages" to the owner dashboard sidebar would duplicate owner.communications.
+    placements: [],
+    requiresAuth: true,
+    icon: 'MessageSquare',
+    description: 'Questions and answers on your trade requests, offers and containers',
+  },
+  {
+    id: 'diaspora.buyer-requests',
+    label: 'Buyer Requests',
+    route: '/diaspora/buyer-requests',
+    domain: 'diaspora',
+    roles: ['dealer', 'admin'],
+    placements: ['dashboard_sidebar'],
+    requiresAuth: true,
+    icon: 'Store',
+    sidebarGroup: 'Growth & Diaspora',
+    description: 'Customers looking for products you can supply',
+  },
+  {
+    // T6.5 — CarUp's own market-rate research. NOT a marketplace surface and never a customer
+    // price: registered so the unregistered-path fallback can never make it public.
+    id: 'diaspora.rate-research',
+    label: 'Rate Research',
+    route: '/diaspora/rate-research',
+    domain: 'diaspora',
+    roles: ['admin'],
+    placements: ['dashboard_sidebar'],
+    requiresAuth: true,
+    icon: 'BarChart3',
+    sidebarGroup: 'Growth & Diaspora',
+    description: 'What CarUp has learned about market rates, with its source',
   },
   {
     id: 'diaspora.ai-command-center',
@@ -988,7 +1067,9 @@ export const FEATURE_REGISTRY: FeatureRegistryItem[] = [
     roles: ['owner', 'dealer', 'admin', 'government'],
     placements: ['dashboard_sidebar'],
     requiresAuth: true,
-    icon: 'Gauge',
+    icon: 'Container',
+    sidebarGroup: 'Growth & Diaspora',
+    description: 'Shared container space: create containers, request cargo space, approve bookings',
   },
   {
     id: 'diaspora.drive-connections',
@@ -1434,6 +1515,33 @@ export const FEATURE_REGISTRY: FeatureRegistryItem[] = [
     id: 'owner.import-shipment',
     label: 'Import Shipment',
     route: '/diaspora/imports/:id/shipment',
+    domain: 'diaspora',
+    roles: ['owner'],
+    placements: [],
+    requiresAuth: true,
+    icon: 'FileText',
+  },
+  {
+    // Was UNREGISTERED. `/diaspora` is not a protected prefix, so isPublicRoute()'s fallback
+    // classified this PUBLIC and the Order Passport for a specific import order rendered for
+    // anyone who typed the URL. Registered with the same owner-only scope as every sibling
+    // /diaspora/imports/:id/* surface. The API authorizes independently; this is the SPA agreeing.
+    id: 'owner.import-passport',
+    label: 'Order Passport',
+    route: '/diaspora/imports/:id/passport',
+    domain: 'diaspora',
+    roles: ['owner'],
+    placements: [],
+    requiresAuth: true,
+    icon: 'FileText',
+  },
+  {
+    // T4 — the operating transaction passport. Registered so that typed-URL access and navigation
+    // eligibility are the same rule: an unregistered route falls through isPublicRoute()'s default
+    // and renders for anyone, which is exactly the hole T3 found on the order passport.
+    id: 'owner.trade-transaction-passport',
+    label: 'Transaction',
+    route: '/diaspora/transactions/:kind/:id',
     domain: 'diaspora',
     roles: ['owner'],
     placements: [],

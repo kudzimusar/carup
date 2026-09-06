@@ -1,4 +1,8 @@
 import { useState, useCallback, useMemo } from 'react'
+import { toComponentPayload } from '@/pages/diaspora/commercialFormat'
+import type { DraftComponent } from '@/pages/diaspora/commercialFormat'
+import type { QuoteCommercials, ComparableQuote, ComparisonResult, AdviceResult } from '@/pages/diaspora/TradeQuoteComparison'
+import type { SharedChargeSet } from '@/pages/diaspora/SharedChargeAllocation'
 import { useAuth } from '@/context/AuthContext'
 import { apiRequest, resolveApiBaseUrl, DEFAULT_PRODUCTION_API_BASE_URL, extractApiErrorMessage, fetchCsrfToken, type AuthHeaders } from '@/lib/apiClient'
 import type { AccidentDisclosure, FinanceDisclosure, InsuranceDisclosure } from '@/lib/vehicleHistoryDisclosures'
@@ -103,6 +107,9 @@ import type {
   DiasporaAiExecuteResult,
   DiasporaMarketplaceContainer,
   DiasporaMarketplaceContainerPayload,
+  DiasporaRfqOpportunity,
+  DiasporaMyQuote,
+  DiasporaTradeContext,
   DiasporaContainerCapacityResult,
   DiasporaMarketplaceReservation,
   DiasporaReservationRequestPayload,
@@ -1540,13 +1547,93 @@ export function useCarUpApi() {
     return response.data
   }, [request])
 
-  const fetchDiasporaRfqs = useCallback(async (): Promise<DiasporaBuyerOrder[]> => {
-    const response = await request<{ data: DiasporaBuyerOrder[] }>('/diaspora/rfqs')
+  // Supplier-facing: the SANITIZED cross-tenant marketplace projection, never the buyer's row.
+  const fetchDiasporaRfqs = useCallback(async (filters: Record<string, string> = {}): Promise<DiasporaRfqOpportunity[]> => {
+    const qs = new URLSearchParams(Object.entries(filters).filter(([, v]) => v)).toString()
+    const response = await request<{ data: DiasporaRfqOpportunity[] }>(`/diaspora/rfqs${qs ? `?${qs}` : ''}`)
     return response.data || []
+  }, [request])
+
+  const fetchDiasporaRfqOpportunity = useCallback(async (id: string): Promise<DiasporaRfqOpportunity> => {
+    const response = await request<{ data: DiasporaRfqOpportunity }>(`/diaspora/rfqs/${encodeURIComponent(id)}`)
+    return response.data
+  }, [request])
+
+  /** Open (or reuse) the canonical clarification thread for a request. Returns a thread id. */
+  const ensureDiasporaRfqConversation = useCallback(async (orderId: string, sellerId?: string): Promise<{ threadId: string | null; role: string }> => {
+    const response = await request<{ data: { threadId: string | null; role: string } }>(
+      `/diaspora/buyer-orders/${encodeURIComponent(orderId)}/conversation`,
+      { method: 'POST', body: JSON.stringify(sellerId ? { sellerId } : {}) },
+    )
+    return response.data
+  }, [request])
+
+  const fetchDiasporaMyQuotes = useCallback(async (): Promise<DiasporaMyQuote[]> => {
+    const response = await request<{ data: DiasporaMyQuote[] }>('/diaspora/my-quotes')
+    return response.data || []
+  }, [request])
+
+  /**
+   * T6 — a supplier's structured cost breakdown on their own procurement offer.
+   *
+   * Same shared mapper as the logistics hook, so an empty amount reaches the server as null
+   * (UNPRICED) rather than as zero. `breakdownComplete` is a declaration the server enforces.
+   */
+  const saveChargeComponents = useCallback(async (
+    kind: 'import-quotes' | 'logistics-quotes',
+    quoteId: string,
+    components: DraftComponent[],
+    breakdownComplete = false,
+  ): Promise<unknown[]> => {
+    const response = await request<{ data: unknown[] }>(
+      `/diaspora/${kind}/${encodeURIComponent(quoteId)}/charge-components`,
+      { method: 'POST', body: JSON.stringify({ components: toComponentPayload(components), breakdown_complete: breakdownComplete }) },
+    )
+    return response.data || []
+  }, [request])
+
+  const readChargeComponents = useCallback(async (
+    kind: 'import-quotes' | 'logistics-quotes', quoteId: string,
+  ): Promise<QuoteCommercials> => {
+    const response = await request<{ data: QuoteCommercials }>(
+      `/diaspora/${kind}/${encodeURIComponent(quoteId)}/charge-components`)
+    return response.data
+  }, [request])
+
+  const readContainerSharedCharges = useCallback(async (containerId: string): Promise<SharedChargeSet> => {
+    const response = await request<{ data: SharedChargeSet }>(
+      `/diaspora/container-marketplace/${encodeURIComponent(containerId)}/shared-charges`)
+    return response.data
+  }, [request])
+
+  const allocateSharedCharge = useCallback(async (
+    componentId: string, containerId: string, basis: string,
+  ): Promise<unknown> => {
+    const response = await request<{ data: unknown }>(
+      `/diaspora/container-marketplace/charge-components/${encodeURIComponent(componentId)}/allocate`,
+      { method: 'POST', body: JSON.stringify({ container_id: containerId, basis }) })
+    return response.data
+  }, [request])
+
+  const compareQuotes = useCallback(async (
+    targets: Array<{ id: string; kind: 'import' | 'logistics'; label: string }>,
+    context: { cargo?: Record<string, unknown>; objective?: string | null } = {},
+  ): Promise<{ quotes: ComparableQuote[]; comparison: ComparisonResult; advice: AdviceResult }> => {
+    const response = await request<{ data: { quotes: ComparableQuote[]; comparison: ComparisonResult; advice: AdviceResult } }>(
+      '/diaspora/quote-comparison', {
+        method: 'POST',
+        body: JSON.stringify({ quotes: targets, cargo: context.cargo || {}, objective: context.objective ?? null }),
+      })
+    return response.data
   }, [request])
 
   const createDiasporaQuote = useCallback(async (orderId: string, payload: DiasporaQuotePayload): Promise<{ quote: DiasporaQuote; idempotentReplay?: boolean }> => {
     const response = await request<{ data: { quote: DiasporaQuote; idempotentReplay?: boolean } }>(`/diaspora/buyer-orders/${encodeURIComponent(orderId)}/quotes`, { method: 'POST', body: JSON.stringify(payload) })
+    return response.data
+  }, [request])
+
+  const updateDiasporaQuote = useCallback(async (quoteId: string, payload: Partial<DiasporaQuotePayload>): Promise<DiasporaQuote> => {
+    const response = await request<{ data: DiasporaQuote }>(`/diaspora/quotes/${encodeURIComponent(quoteId)}`, { method: 'PATCH', body: JSON.stringify(payload) })
     return response.data
   }, [request])
 
@@ -1597,8 +1684,16 @@ export function useCarUpApi() {
   }, [request])
 
   // ── Phase 6: Container Co-Loading Marketplace ──
-  const fetchDiasporaMarketplaceContainers = useCallback(async (): Promise<DiasporaMarketplaceContainer[]> => {
-    const response = await request<{ data: DiasporaMarketplaceContainer[] }>('/diaspora/container-marketplace/containers')
+  const fetchDiasporaTradeContext = useCallback(async (): Promise<DiasporaTradeContext> => {
+    const response = await request<{ data: DiasporaTradeContext }>('/diaspora/container-marketplace/trade-context')
+    return response.data
+  }, [request])
+
+  const fetchDiasporaMarketplaceContainers = useCallback(async (status?: string): Promise<DiasporaMarketplaceContainer[]> => {
+    // T5.3 — status is server-authorized: any non-open status returns only sailings the CALLER
+    // operates, so an operator can list their own DRAFTs and nobody can browse anyone else's.
+    const suffix = status ? `?status=${encodeURIComponent(status)}` : ''
+    const response = await request<{ data: DiasporaMarketplaceContainer[] }>(`/diaspora/container-marketplace/containers${suffix}`)
     return response.data || []
   }, [request])
 
@@ -1639,6 +1734,24 @@ export function useCarUpApi() {
 
   const closeDiasporaContainerBooking = useCallback(async (id: string): Promise<DiasporaMarketplaceContainer> => {
     const response = await request<{ data: DiasporaMarketplaceContainer }>(`/diaspora/container-marketplace/containers/${encodeURIComponent(id)}/close-booking`, { method: 'POST', body: JSON.stringify({}) })
+    return response.data
+  }, [request])
+
+  // T5.2 — corridor reference data for the operator's sailing form (route composition only).
+  const fetchDiasporaTradeCorridors = useCallback(async (): Promise<Array<{ id: string; code: string; display_name: string; origin_country: string; destination_country: string; planning_status: string; legs: Array<{ id: string; sequence: number; origin_country: string; origin_locality?: string | null; destination_country: string; destination_locality?: string | null; mode_options?: string[] }> }>> => {
+    const response = await request<{ data: Array<{ id: string; code: string; display_name: string; origin_country: string; destination_country: string; planning_status: string; legs: Array<{ id: string; sequence: number; origin_country: string; origin_locality?: string | null; destination_country: string; destination_locality?: string | null; mode_options?: string[] }> }> }>('/diaspora/trade-corridors')
+    return response.data || []
+  }, [request])
+
+  // T5.3 — deliberate sailing lifecycle: a DRAFT is opened explicitly; a sailing with no live
+  // reservations may be cancelled. Both operator-only server-side.
+  const openDiasporaContainerBooking = useCallback(async (id: string): Promise<DiasporaMarketplaceContainer> => {
+    const response = await request<{ data: DiasporaMarketplaceContainer }>(`/diaspora/container-marketplace/containers/${encodeURIComponent(id)}/open-booking`, { method: 'POST', body: JSON.stringify({}) })
+    return response.data
+  }, [request])
+
+  const cancelDiasporaContainerSailing = useCallback(async (id: string): Promise<DiasporaMarketplaceContainer> => {
+    const response = await request<{ data: DiasporaMarketplaceContainer }>(`/diaspora/container-marketplace/containers/${encodeURIComponent(id)}/cancel`, { method: 'POST', body: JSON.stringify({}) })
     return response.data
   }, [request])
 
@@ -2960,7 +3073,16 @@ export function useCarUpApi() {
     fetchDiasporaOrderMatches,
     acceptDiasporaQuote,
     fetchDiasporaRfqs,
+    fetchDiasporaRfqOpportunity,
+    fetchDiasporaMyQuotes,
+    ensureDiasporaRfqConversation,
     createDiasporaQuote,
+    saveChargeComponents,
+    readChargeComponents,
+    compareQuotes,
+    readContainerSharedCharges,
+    allocateSharedCharge,
+    updateDiasporaQuote,
     submitDiasporaQuote,
     withdrawDiasporaQuote,
     parseDiasporaAiCommand,
@@ -2970,6 +3092,7 @@ export function useCarUpApi() {
     approveDiasporaAiCommand,
     rejectDiasporaAiCommand,
     executeDiasporaAiCommand,
+    fetchDiasporaTradeContext,
     fetchDiasporaMarketplaceContainers,
     createDiasporaMarketplaceContainer,
     fetchDiasporaContainerCapacity,
@@ -2979,6 +3102,9 @@ export function useCarUpApi() {
     rejectDiasporaMarketplaceReservation,
     cancelDiasporaMarketplaceReservation,
     closeDiasporaContainerBooking,
+    openDiasporaContainerBooking,
+    fetchDiasporaTradeCorridors,
+    cancelDiasporaContainerSailing,
     fetchDiasporaDriveStatus,
     fetchDiasporaDriveAuthorizeUrl,
     fetchDiasporaDriveFiles,

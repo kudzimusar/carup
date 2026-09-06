@@ -518,6 +518,22 @@
     "betaCapable": true
   },
   {
+    "id": "diaspora.buyer-requests",
+    "domain": "diaspora",
+    "route": "/diaspora/buyer-requests",
+    "defaultLifecycle": "active",
+    "defaultRoles": [
+      "admin",
+      "dealer"
+    ],
+    "immutableRoles": [
+      "admin",
+      "dealer"
+    ],
+    "requiresAuth": true,
+    "betaCapable": true
+  },
+  {
     "id": "diaspora.compliance",
     "domain": "diaspora",
     "route": "/admin/diaspora/compliance",
@@ -572,9 +588,79 @@
     "betaCapable": true
   },
   {
+    "id": "diaspora.messages",
+    "domain": "diaspora",
+    "route": "/diaspora/messages",
+    "defaultLifecycle": "active",
+    "defaultRoles": [
+      "admin",
+      "dealer",
+      "government",
+      "owner"
+    ],
+    "immutableRoles": [
+      "admin",
+      "dealer",
+      "government",
+      "owner"
+    ],
+    "requiresAuth": true,
+    "betaCapable": true
+  },
+  {
+    "id": "diaspora.my-request-detail",
+    "domain": "diaspora",
+    "route": "/diaspora/requests/:id",
+    "defaultLifecycle": "active",
+    "defaultRoles": [
+      "admin",
+      "dealer",
+      "owner"
+    ],
+    "immutableRoles": [
+      "admin",
+      "dealer",
+      "owner"
+    ],
+    "requiresAuth": true,
+    "betaCapable": true
+  },
+  {
+    "id": "diaspora.my-requests",
+    "domain": "diaspora",
+    "route": "/diaspora/requests",
+    "defaultLifecycle": "active",
+    "defaultRoles": [
+      "admin",
+      "dealer",
+      "owner"
+    ],
+    "immutableRoles": [
+      "admin",
+      "dealer",
+      "owner"
+    ],
+    "requiresAuth": true,
+    "betaCapable": true
+  },
+  {
+    "id": "diaspora.rate-research",
+    "domain": "diaspora",
+    "route": "/diaspora/rate-research",
+    "defaultLifecycle": "active",
+    "defaultRoles": [
+      "admin"
+    ],
+    "immutableRoles": [
+      "admin"
+    ],
+    "requiresAuth": true,
+    "betaCapable": true
+  },
+  {
     "id": "diaspora.reverse-rfq",
     "domain": "diaspora",
-    "route": "/diaspora/rfq",
+    "route": "/diaspora/request-quotes",
     "defaultLifecycle": "active",
     "defaultRoles": [
       "admin",
@@ -1070,6 +1156,20 @@
     "betaCapable": true
   },
   {
+    "id": "owner.import-passport",
+    "domain": "diaspora",
+    "route": "/diaspora/imports/:id/passport",
+    "defaultLifecycle": "active",
+    "defaultRoles": [
+      "owner"
+    ],
+    "immutableRoles": [
+      "owner"
+    ],
+    "requiresAuth": true,
+    "betaCapable": true
+  },
+  {
     "id": "owner.import-shipment",
     "domain": "diaspora",
     "route": "/diaspora/imports/:id/shipment",
@@ -1215,6 +1315,20 @@
     "id": "owner.start-import",
     "domain": "diaspora",
     "route": "/diaspora/imports/new",
+    "defaultLifecycle": "active",
+    "defaultRoles": [
+      "owner"
+    ],
+    "immutableRoles": [
+      "owner"
+    ],
+    "requiresAuth": true,
+    "betaCapable": true
+  },
+  {
+    "id": "owner.trade-transaction-passport",
+    "domain": "diaspora",
+    "route": "/diaspora/transactions/:kind/:id",
     "defaultLifecycle": "active",
     "defaultRoles": [
       "owner"

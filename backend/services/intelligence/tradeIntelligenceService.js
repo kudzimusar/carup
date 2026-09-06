@@ -43,6 +43,7 @@ import {
   AVAILABILITY,
   metric,
   rate,
+  unavailable,
   AuthorizationError,
   windowDates,
 } from './intelligenceProjectionService.js';
@@ -288,12 +289,72 @@ async function readOrders(client, scope) {
   return readAllPages(() => {
     let query = client
       .from('diaspora_import_orders')
-      .select('id, tenant_id, buyer_id, created_by, order_type, origin_country, destination_country, budget_amount, budget_currency, status, vin, linked_vehicle_vin, created_at')
+      .select('id, tenant_id, buyer_id, created_by, order_type, origin_country, destination_country, budget_amount, budget_currency, status, vin, linked_vehicle_vin, created_at, metadata')
       .is('deleted_at', null);
     if (scope.platformScope) return query;
     if (scope.tenantId) return query.eq('tenant_id', scope.tenantId);
     return query.or(`buyer_id.eq.${scope.actorId},created_by.eq.${scope.actorId}`);
   });
+}
+
+/**
+ * Sourcing request funnel (T2.17). Reads ONLY what the rows prove:
+ *   draft            = published flag absent
+ *   open             = published, not yet awarded
+ *   awarded          = an accepted quote is recorded on the order
+ *   offers_received  = SUBMITTED (ISSUED) quotes, never drafts (a draft is private to its supplier)
+ *
+ * `time_to_first_offer_hours` is computed only from orders that actually received an offer, so it
+ * can never be depressed by requests nobody answered — that would be a flattering artefact.
+ */
+export function sourcingRequestActivity(orders = [], quotes = []) {
+  const submitted = quotes.filter((q) => q.status === 'ISSUED' || q.status === 'ACCEPTED');
+  const byOrder = new Map();
+  for (const q of submitted) {
+    if (!byOrder.has(q.import_order_id)) byOrder.set(q.import_order_id, []);
+    byOrder.get(q.import_order_id).push(q);
+  }
+
+  const drafts = orders.filter((o) => !o.metadata?.rfq?.published);
+  const published = orders.filter((o) => o.metadata?.rfq?.published);
+  const awarded = orders.filter((o) => o.metadata?.rfq?.acceptedQuoteId);
+  const open = published.filter((o) => !o.metadata?.rfq?.acceptedQuoteId);
+  const quotedOrders = published.filter((o) => (byOrder.get(o.id) || []).length > 0);
+
+  // Hours from publication to the first submitted offer, for orders that received one.
+  const latencies = [];
+  for (const order of quotedOrders) {
+    const publishedAt = Date.parse(order.metadata?.rfq?.publishedAt || order.created_at || '');
+    const first = (byOrder.get(order.id) || [])
+      .map((q) => Date.parse(q.created_at || ''))
+      .filter((t) => Number.isFinite(t))
+      .sort((a, b) => a - b)[0];
+    if (Number.isFinite(publishedAt) && Number.isFinite(first) && first >= publishedAt) {
+      latencies.push((first - publishedAt) / 3_600_000);
+    }
+  }
+  const medianHours = latencies.length
+    ? latencies.sort((a, b) => a - b)[Math.floor(latencies.length / 2)]
+    : null;
+
+  return {
+    requests_created: metric(orders.length),
+    drafts: metric(drafts.length),
+    open_for_offers: metric(open.length),
+    awarded: metric(awarded.length),
+    requests_with_an_offer: metric(quotedOrders.length),
+    offers_received: metric(submitted.length),
+    offers_per_quoted_request: quotedOrders.length
+      ? metric(Math.round((submitted.length / quotedOrders.length) * 10) / 10, { unit: 'ratio' })
+      : unavailable('no_request_has_received_an_offer'),
+    // Explicit denominators: of everything PUBLISHED, how much attracted an offer / was awarded.
+    published_to_offer_rate: rate(quotedOrders.length, published.length),
+    offer_to_award_rate: rate(awarded.length, quotedOrders.length),
+    time_to_first_offer_hours: medianHours === null
+      ? unavailable('no_measurable_publish_to_offer_interval')
+      : metric(Math.round(medianHours * 10) / 10, { unit: 'hours' }),
+    basis: 'Counts of authoritative request and quote rows in the window. Not market demand, not revenue, not supplier quality.',
+  };
 }
 
 export async function getTradeIntelligence(client = defaultClient, actor = null, { windowDays = 30 } = {}) {
@@ -367,6 +428,15 @@ export async function getTradeIntelligence(client = defaultClient, actor = null,
       acceptance_rate: rate(acceptedQuotes.length, windowQuotes.length, { min: 10 }),
       quoted_amounts: amountsByCurrency(windowQuotes, 'quote_amount', 'quote_currency'),
     },
+
+    /**
+     * T2.17 — sourcing (Request Quotes) operations, measured from the authoritative order/quote
+     * rows already read above. Every figure is a count of records that exist; there is no market
+     * demand, no revenue, no savings and no supplier quality here, because CarUp holds no
+     * authority for any of those. Conversions state their denominator and go INSUFFICIENT_DATA
+     * below the shared minimum rather than reporting a percentage of three rows.
+     */
+    sourcing_requests: sourcingRequestActivity(windowOrders, windowQuotes),
 
     /** What buyers asked to spend. Explicitly a request, not a transaction. */
     requested_budgets: amountsByCurrency(windowOrders, 'budget_amount', 'budget_currency'),

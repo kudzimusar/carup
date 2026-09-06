@@ -340,3 +340,53 @@ test('C1 GATE: an event adapted by the SafeTrade adapter must actually BE subscr
   const orphaned = [...SAFETRADE_ADAPTED_EVENT_TYPES].filter((e) => !subscribed.has(e));
   assert.deepEqual(orphaned, [], `adapted but not subscribed — the adapter would never run: ${orphaned.join(', ')}`);
 });
+
+/**
+ * A policy's templateKey must be REGISTERED BY A MIGRATION, not merely mirrored in
+ * communicationTemplateService.js. The governed registry fails closed for an unregistered key —
+ * deliberately — so a key that exists only in the in-code compatibility map renders fine in unit
+ * tests and then dead-letters every notification on any environment where the Communications 2.0
+ * schema is applied. That is precisely what happened to rfq_update_v1 and logistics_update_v1:
+ * three T2 and three T3 policies bound them, no migration inserted them, and staging accumulated
+ * 60 undeliverable lifecycle events while every local suite stayed green.
+ */
+test('every notification-policy templateKey is inserted into communication_templates by a migration', () => {
+  const migrationsDir = fileURLToPath(new URL('../../database/migrations/', import.meta.url));
+  const registered = new Set();
+  for (const file of fs.readdirSync(migrationsDir).filter((f) => f.endsWith('.sql'))) {
+    const sql = fs.readFileSync(path.join(migrationsDir, file), 'utf8');
+    if (!/INSERT\s+INTO\s+communication_templates/i.test(sql)) continue;
+    for (const m of sql.matchAll(/\(\s*'([a-z0-9_]+)'\s*,/gi)) registered.add(m[1]);
+    for (const m of sql.matchAll(/template_key\s*=\s*'([a-z0-9_]+)'/gi)) registered.add(m[1]);
+  }
+
+  const policySource = fs.readFileSync(
+    fileURLToPath(new URL('../services/communication/communicationNotificationService.js', import.meta.url)), 'utf8');
+  const bound = new Set([...policySource.matchAll(/templateKey:\s*'([a-z0-9_]+)'/g)].map((m) => m[1]));
+
+  // KNOWN debt owned by OTHER slices, listed rather than silently skipped so it stays visible and
+  // countable. Each of these is bound by a live policy and exists only as an in-code mirror, so its
+  // notifications dead-letter wherever the governed registry is applied. Registering a governed
+  // template fixes its wording under governance, which belongs to the owning lane — authoring
+  // verification/moderation/trust/SafeTrade copy from the Trade OS slice would be a second
+  // authority. Remove an entry here in the commit that registers it.
+  const KNOWN_UNREGISTERED = new Set([
+    'evidence_review_v1',       // evidence review lane
+    'listing_moderation_v1',    // marketplace moderation lane
+    'safetrade_transaction_v1', // SafeTrade lane
+    'seller_authority_v1',      // Operations M2 lane
+    'vehicle_trust_update_v1',  // Trust presentation lane
+    'verification_decision_v1', // identity verification lane
+  ]);
+
+  const unregistered = [...bound]
+    .filter((key) => !registered.has(key) && !KNOWN_UNREGISTERED.has(key))
+    .sort();
+  assert.deepEqual(
+    unregistered,
+    [],
+    'These templateKeys are bound by NOTIFICATION_POLICIES but never inserted into the governed '
+    + 'communication_templates registry by any migration — they will fail closed and dead-letter '
+    + 'wherever the registry exists:\n  ' + unregistered.join('\n  '),
+  );
+});

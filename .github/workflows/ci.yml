@@ -101,6 +101,31 @@ jobs:
       - name: Operations Serena slice migrations verification (isolated PGlite Postgres)
         run: node database/test/operations_serena_slice_pglite_check.mjs
 
+      # Trade OS T4 — the procurement→logistics continuation edge (20260906090000).
+      #
+      # Same rationale as the two steps above: migration_pglite_check.mjs's NEW_MIGRATIONS list
+      # ends at 20260810120000, so this migration is executed by NO other gate, and
+      # migration-integrity.test.js only parses its markers.
+      #
+      # What only real Postgres can show: the PARTIAL unique index rejects a second LIVE
+      # continuation for one order, and — the half the in-memory mock deliberately gets wrong —
+      # FREES the slot once a continuation is CANCELLED, CLOSED or soft-deleted. Getting that
+      # second half wrong in production would leave a buyer whose shipping request was cancelled
+      # permanently unable to arrange shipping for that purchase again.
+      - name: Trade OS T4 continuation edge verification (isolated PGlite Postgres)
+        run: node database/test/trade_os_t4_continuation_check.mjs
+
+      # Trade OS Intake 2.0 — the intake contract's persistence (20260906120000).
+      #
+      # Same NEW_MIGRATIONS gap as the two steps above. What only real Postgres shows here: every
+      # enumerated intake choice is CHECK-constrained (an invented "budget basis" is refused rather
+      # than stored and later believed), unstated preferences stay NULL instead of being silently
+      # defaulted, and the observation ledger keeps a customer's 400 kg estimate ALONGSIDE a
+      # warehouse's 437 kg measurement — the whole capture-once/verify-later guarantee, which a
+      # (value, provenance) column pair could not express.
+      - name: Trade OS Intake 2.0 contract verification (isolated PGlite Postgres)
+        run: node database/test/trade_os_intake_2_0_check.mjs
+
       # Issue #101 P0 hardening — BLOCKING behavioural proof, not a shape check.
       #
       # This is load-bearing security evidence: it runs the migration against real
@@ -113,6 +138,26 @@ jobs:
       #
       # It is listed explicitly rather than globbed because it must never be silently
       # dropped, and it exits non-zero on any failure.
+      # Trade OS T5 — corridor authority + sailing facts + mode reconciliation (20260907090000).
+      #
+      # Same rationale as the T4/Intake steps above: migration_pglite_check.mjs's NEW_MIGRATIONS
+      # list ends at 20260810120000, so this migration is executed by NO other gate. This step
+      # applies Up twice (idempotence), proves live-code uniqueness, the leg mode vocabulary, the
+      # widened roro offer CHECK, SET NULL corridor references, that Down fails loudly while roro
+      # offers exist, and Down/Up recovery.
+      - name: Trade OS T5 corridor authority verification (isolated PGlite Postgres)
+        run: node database/test/trade_os_t5_corridor_check.mjs
+
+      # Trade OS T6 — commercial transparency schema (20260908090000).
+      #
+      # Same rationale as the T4/T5/Intake steps: migration_pglite_check.mjs's NEW_MIGRATIONS list
+      # ends at 20260810120000, so this migration is executed by NO other gate. This step proves
+      # FX snapshot immutability, that money cannot be stored without its currency, that UNKNOWN is
+      # representable and is not zero, exactly-one-quote-domain ownership, exact allocation
+      # reconciliation with replay safety, and Down/Up recovery.
+      - name: Trade OS T6 commercial transparency verification (isolated PGlite Postgres)
+        run: node database/test/trade_os_t6_commercial_check.mjs
+
       - name: 'Issue #101 P0 hardening behavioural proof (real PostgreSQL via PGlite)'
         run: node database/test/issue101_p0_hardening_check.mjs
 

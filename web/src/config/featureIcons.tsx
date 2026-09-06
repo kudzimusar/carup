@@ -47,6 +47,7 @@ import {
   Store,
   ScrollText,
   Lock,
+  Container,
 } from 'lucide-react'
 import type { ComponentType } from 'react'
 import type { LucideIconName } from './featureRegistry'
@@ -94,6 +95,7 @@ export const ICON_MAP: Record<LucideIconName, IconComponent> = {
   Store,
   ScrollText,
   Lock,
+  Container,
 }
 
 /** Resolve an icon name to a component, falling back to FileText. */

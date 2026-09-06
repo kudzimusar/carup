@@ -128,6 +128,146 @@ export const NOTIFICATION_POLICIES = Object.freeze({
     transactional: true,
   },
 
+  // Trade OS T2 — sourcing lifecycle (Request Quotes). One-way, in-app only.
+  'diaspora.rfq.quote_submitted': {
+    notificationType: 'rfq_update',
+    threadType: 'marketplace_inquiry',
+    priority: 'normal',
+    channels: ['in_app'],
+    fallbackChannels: [],
+    policyChannelsOnly: true,
+    templateKey: 'rfq_update_v1',
+    classification: 'transactional',
+    transactional: true,
+  },
+  'diaspora.rfq.quote_accepted': {
+    notificationType: 'rfq_update',
+    threadType: 'marketplace_inquiry',
+    priority: 'normal',
+    channels: ['in_app'],
+    fallbackChannels: [],
+    policyChannelsOnly: true,
+    templateKey: 'rfq_update_v1',
+    classification: 'transactional',
+    transactional: true,
+  },
+  'diaspora.rfq.quote_not_selected': {
+    notificationType: 'rfq_update',
+    threadType: 'marketplace_inquiry',
+    priority: 'normal',
+    channels: ['in_app'],
+    fallbackChannels: [],
+    policyChannelsOnly: true,
+    templateKey: 'rfq_update_v1',
+    classification: 'transactional',
+    transactional: true,
+  },
+
+  // Trade OS T3 — shipping-request (logistics) lifecycle. One-way, in-app only, on the same
+  // marketplace_inquiry thread type the T3 requester↔provider conversation already uses.
+  'diaspora.logistics.quote_submitted': {
+    notificationType: 'rfq_update',
+    threadType: 'marketplace_inquiry',
+    priority: 'normal',
+    channels: ['in_app'],
+    fallbackChannels: [],
+    policyChannelsOnly: true,
+    templateKey: 'logistics_update_v1',
+    classification: 'transactional',
+    transactional: true,
+  },
+  'diaspora.logistics.quote_accepted': {
+    notificationType: 'rfq_update',
+    threadType: 'marketplace_inquiry',
+    priority: 'normal',
+    channels: ['in_app'],
+    fallbackChannels: [],
+    policyChannelsOnly: true,
+    templateKey: 'logistics_update_v1',
+    classification: 'transactional',
+    transactional: true,
+  },
+  'diaspora.logistics.quote_not_selected': {
+    notificationType: 'rfq_update',
+    threadType: 'marketplace_inquiry',
+    priority: 'normal',
+    channels: ['in_app'],
+    fallbackChannels: [],
+    policyChannelsOnly: true,
+    templateKey: 'logistics_update_v1',
+    classification: 'transactional',
+    transactional: true,
+  },
+
+  // Trade OS D7 — container co-loading booking lifecycle (one-way, in-app only; the governed
+  // template says only what CarUp records prove: booking status, never shipment/customs/payment).
+  'diaspora.container_booking.reservation_requested': {
+    notificationType: 'container_booking',
+    threadType: 'container',
+    priority: 'normal',
+    channels: ['in_app'],
+    fallbackChannels: [],
+    policyChannelsOnly: true,
+    templateKey: 'container_booking_update',
+    classification: 'transactional',
+    transactional: true,
+  },
+  'diaspora.container_booking.reservation_received': {
+    notificationType: 'container_booking',
+    threadType: 'container',
+    priority: 'normal',
+    channels: ['in_app'],
+    fallbackChannels: [],
+    policyChannelsOnly: true,
+    templateKey: 'container_booking_update',
+    classification: 'transactional',
+    transactional: true,
+  },
+  'diaspora.container_booking.reservation_approved': {
+    notificationType: 'container_booking',
+    threadType: 'container',
+    priority: 'normal',
+    channels: ['in_app'],
+    fallbackChannels: [],
+    policyChannelsOnly: true,
+    templateKey: 'container_booking_update',
+    classification: 'transactional',
+    transactional: true,
+  },
+  'diaspora.container_booking.reservation_rejected': {
+    notificationType: 'container_booking',
+    threadType: 'container',
+    priority: 'normal',
+    channels: ['in_app'],
+    fallbackChannels: [],
+    policyChannelsOnly: true,
+    templateKey: 'container_booking_update',
+    classification: 'transactional',
+    transactional: true,
+  },
+  'diaspora.container_booking.reservation_cancelled': {
+    notificationType: 'container_booking',
+    threadType: 'container',
+    priority: 'normal',
+    channels: ['in_app'],
+    fallbackChannels: [],
+    policyChannelsOnly: true,
+    templateKey: 'container_booking_update',
+    classification: 'transactional',
+    transactional: true,
+  },
+  'diaspora.container_booking.booking_closed': {
+    notificationType: 'container_booking',
+    threadType: 'container',
+    priority: 'normal',
+    channels: ['in_app'],
+    fallbackChannels: [],
+    policyChannelsOnly: true,
+    templateKey: 'container_booking_update',
+    classification: 'transactional',
+    transactional: true,
+  },
+
   // Operations M2 — governed Seller Authority review outcome for the seller.
   'seller.authority.decided': {
     notificationType: 'seller_authority',
@@ -380,6 +520,9 @@ export class CommunicationNotificationService {
       share_text: payload.shareText || payload.share_text || 'View this CarUp listing:',
       share_url: payload.shareUrl || payload.share_url || '',
       failed_channel: payload.failedChannel || '',
+      // Trade OS D7 — required by the governed container_booking_update template. Container
+      // booking emitters always supply it; other events simply carry an unused empty string.
+      route: payload.route || '',
     };
   }
 
@@ -394,7 +537,7 @@ export class CommunicationNotificationService {
       tenant_id: event.tenant_id || payload.tenant_id || null,
       thread_type: policy.threadType,
       subject_type: payload.subject_type || policy.threadType,
-      subject_id: payload.inquiryId || payload.inquiry_id || payload.escrowId || payload.applicationId || payload.vin || payload.sessionId || payload.evidenceId || null,
+      subject_id: payload.inquiryId || payload.inquiry_id || payload.escrowId || payload.applicationId || payload.vin || payload.sessionId || payload.evidenceId || payload.reservationId || payload.containerId || payload.rfqId || null,
       primary_user_id: recipientUserId,
       primary_channel: 'in_app',
       priority: policy.priority,
@@ -432,7 +575,7 @@ export class CommunicationNotificationService {
         // fallbacks cover every emitter's subject id (incl. sessionId/evidenceId/vin for
         // verification, evidence-review, and listing-moderation events) so distinct events
         // for the same user never collapse into one dedupe key.
-        dedupeParts: [eventType, event.id || event.dedupe_key || event.event_id || payload.id || payload.inquiryId || payload.escrowId || payload.applicationId || payload.sessionId || payload.evidenceId || payload.vin, recipientUserId, policy.templateKey, channel],
+        dedupeParts: [eventType, event.id || event.dedupe_key || event.event_id || payload.id || payload.inquiryId || payload.escrowId || payload.applicationId || payload.sessionId || payload.evidenceId || payload.vin || payload.reservationId || payload.containerId || payload.quoteId || payload.rfqId, recipientUserId, policy.templateKey, channel],
         payload: {
           event_type: eventType,
           safe_payload: payload,
