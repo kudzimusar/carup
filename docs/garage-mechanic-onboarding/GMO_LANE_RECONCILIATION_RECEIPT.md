@@ -256,3 +256,21 @@ referral-ci, communication-unit, communication-postgres, secret scan, passport c
 audit, and all four Vercel deployments.
 
 I recommend **A until the owner decides**, and I have not touched the guard.
+
+### The measured state, at head `476c7b08`
+
+```
+GitHub Actions:  18 SUCCESS · 4 SKIPPED · 1 FAILURE
+backend suite :  6,425 tests · 6,403 pass · 1 fail · 21 skipped
+the 1 fail    :  not ok 4796 - X7-4
+failing job   :  Lint · Types · Build · Tests   (that job, and only because of that one test)
+```
+
+Green: exact-head reference + staging certification · backend-and-build · playwright ·
+navigation-gates · navigation-accessibility · **navigation-e2e** · staging-integration · referral-ci ·
+communication-unit · communication-postgres · secret scan · passport foundation contracts ·
+dependency audit · all four Vercel deployments.
+
+Every other red this branch produced was mine and is fixed: a lint regression (53 net-new → 0), a
+registry label that contained an existing label and made a certified locator ambiguous, and two
+pinned sidebar counts that legitimately moved. X7-4 is the only one that is not mine to fix.
