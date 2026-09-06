@@ -1,8 +1,11 @@
 import { Card, CardContent } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
+import { Button } from '@/components/ui/button'
 import { MapPin, Phone, Wrench, AlertCircle, ArrowLeft } from 'lucide-react'
 import { useEffect, useState } from 'react'
-import { Link, useParams } from 'react-router-dom'
+import { Link, useParams, useNavigate, useLocation } from 'react-router-dom'
+import { useAuth } from '@/context/AuthContext'
+import RequestServiceModal from '@/components/serviceNetwork/RequestServiceModal'
 import { resolveApiBaseUrl } from '@/lib/apiClient'
 import type { DirectoryGarage } from './GarageDirectory'
 
@@ -50,8 +53,12 @@ type GarageDetailPayload = {
 
 export default function GarageDetail() {
   const { slug } = useParams<{ slug: string }>()
+  const { user } = useAuth()
+  const navigate = useNavigate()
+  const location = useLocation()
   const [data, setData] = useState<GarageDetailPayload | null>(null)
   const [status, setStatus] = useState<'loading' | 'ok' | 'not_found' | 'error'>('loading')
+  const [requestOpen, setRequestOpen] = useState(false)
 
   useEffect(() => {
     if (!slug) return
@@ -109,6 +116,14 @@ export default function GarageDetail() {
 
         {status === 'ok' && data && (
           <div className="space-y-6" data-testid="garage-detail">
+            {requestOpen && (
+              <RequestServiceModal
+                garageSlug={String(slug)}
+                garageName={data.garage.display_name}
+                offeredCategories={data.garage.service_categories}
+                onClose={() => setRequestOpen(false)}
+              />
+            )}
             <Card className="border-0 card-shadow">
               <CardContent className="p-6">
                 <h1 className="text-2xl font-bold text-gray-900">{data.garage.display_name}</h1>
@@ -128,6 +143,32 @@ export default function GarageDetail() {
                 {data.garage.contact_policy === 'in_app_only' && (
                   <p className="text-sm text-gray-500 mt-4">This garage takes contact through CarUp only.</p>
                 )}
+
+                {/* R1/R4 — the page used to state that contact happens through CarUp and then offer
+                    no way to make contact. This is that way: the garage is already known, so the
+                    request is addressed to it by slug and carries a vehicle and a category. */}
+                <div className="mt-5">
+                  <Button
+                    className="min-h-11 bg-orange-500 hover:bg-orange-600 w-full sm:w-auto"
+                    data-testid="request-service-cta"
+                    onClick={() => {
+                      if (!user) {
+                        // Come back to this exact garage after signing in, so intent is not lost.
+                        navigate(`/login?returnTo=${encodeURIComponent(location.pathname)}`)
+                        return
+                      }
+                      setRequestOpen(true)
+                    }}
+                  >
+                    <Wrench className="w-4 h-4 mr-2" aria-hidden="true" />
+                    Request service from this garage
+                  </Button>
+                  {!user && (
+                    <p className="text-xs text-gray-500 mt-2" data-testid="request-service-signin-hint">
+                      You will be asked to sign in first, then brought straight back here.
+                    </p>
+                  )}
+                </div>
               </CardContent>
             </Card>
 

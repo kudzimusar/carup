@@ -367,15 +367,20 @@ export default function OwnerDashboard() {
           <Card className="border-0 card-shadow bg-white">
             <CardHeader className="pb-3 flex flex-row items-center justify-between">
               <CardTitle className="text-lg">Digital Document Vault</CardTitle>
+              {/* R12 — this was a permanently disabled control with no visible reason, and the only
+                  action on the page. Uploading is genuinely unavailable HERE, but it works in the
+                  Evidence Vault, so the honest answer is to say where rather than to offer a dead
+                  button. */}
               <Button
                 size="sm"
-                disabled
+                asChild
                 data-testid="ocr-upload-btn"
-                title="Document upload is not available from this dashboard yet"
                 className="gap-1 text-xs font-semibold"
               >
-                <Upload className="w-3.5 h-3.5" />
-                Upload unavailable
+                <Link to="/dashboard/evidence">
+                  <Upload className="w-3.5 h-3.5" />
+                  Upload in Evidence Vault
+                </Link>
               </Button>
             </CardHeader>
             <CardContent className="space-y-3" data-testid="document-vault-list">

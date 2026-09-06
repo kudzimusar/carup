@@ -83,6 +83,7 @@ import MyGarage from './pages/dashboard/owner/MyGarage'
 import EvidenceVault from './pages/dashboard/owner/EvidenceVault'
 import VehicleProfile from './pages/dashboard/owner/VehicleProfile'
 import ServiceHistory from './pages/dashboard/owner/ServiceHistory'
+import ServiceRequests from './pages/dashboard/owner/ServiceRequests'
 import InsuranceRecords from './pages/dashboard/owner/InsuranceRecords'
 import PartSentry from './pages/dashboard/owner/PartSentry'
 import MyListings from './pages/dashboard/owner/MyListings'
@@ -335,6 +336,9 @@ export default function App() {
           <Route path="/dashboard/evidence" element={<EvidenceVault />} />
           <Route path="/dashboard/garage/:id" element={<VehicleProfile />} />
           <Route path="/dashboard/service-history" element={<ServiceHistory />} />
+          {/* R3 — a successful service request must remain findable. This is a view of the
+              canonical Service Cases the owner already owns, not a second request ledger. */}
+          <Route path="/dashboard/service-requests" element={<ServiceRequests />} />
           <Route path="/dashboard/insurance" element={<InsuranceRecords />} />
           <Route path="/dashboard/partsentry" element={<PartSentry />} />
           <Route path="/dashboard/listings" element={<MyListings />} />

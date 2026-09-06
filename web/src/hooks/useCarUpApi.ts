@@ -2227,6 +2227,49 @@ export function useCarUpApi() {
     return request('/vehicles/saved/add', { method: 'POST', body: JSON.stringify({ vin }) })
   }, [request])
 
+  // ── Service Network (S2) — the owner's own service requests ────────────────
+  /**
+   * Open a governed Service Case against a PUBLISHED garage.
+   *
+   * The garage is named by its public slug: the public garage payload withholds `tenant_id`, so the
+   * browser never handles one, and the server resolves the slug against the same publication check.
+   */
+  const createServiceRequest = useCallback(async (input: {
+    garage_slug: string
+    vin: string
+    service_category?: string | null
+    request_summary?: string | null
+    source_channel?: string
+  }): Promise<any> => {
+    return request<any>('/service-cases', {
+      method: 'POST',
+      body: JSON.stringify({
+        garage_slug: input.garage_slug,
+        vin: input.vin,
+        service_category: input.service_category || null,
+        request_summary: input.request_summary || null,
+        source_channel: input.source_channel || 'directory',
+      }),
+    })
+  }, [request])
+
+  /** The requester's own Service Cases — the canonical ledger, not a second list. */
+  const fetchMyServiceRequests = useCallback(async (): Promise<any[]> => {
+    const res = await request<any>('/service-cases/mine', { method: 'GET' })
+    return Array.isArray(res) ? res : (res?.cases ?? [])
+  }, [request])
+
+  const fetchServiceRequest = useCallback(async (caseId: string): Promise<any> => {
+    return request<any>(`/service-cases/${encodeURIComponent(caseId)}`, { method: 'GET' })
+  }, [request])
+
+  const cancelServiceRequest = useCallback(async (caseId: string, reasonCode?: string): Promise<any> => {
+    return request<any>(`/service-cases/${encodeURIComponent(caseId)}/cancel`, {
+      method: 'POST',
+      body: JSON.stringify({ reason_code: reasonCode || 'requester_withdrew' }),
+    })
+  }, [request])
+
   const fetchServiceHistory = useCallback(async (): Promise<any[]> => {
     return request<any[]>('/service-history/me', { method: 'GET' })
   }, [request])
@@ -2785,6 +2828,10 @@ export function useCarUpApi() {
     reopenCommunicationThread,
     pauseCommunicationThreadSla,
     resumeCommunicationThreadSla,
+    createServiceRequest,
+    fetchMyServiceRequests,
+    fetchServiceRequest,
+    cancelServiceRequest,
     fetchCommunicationDeadLetters,
     retryCommunicationDeadLetter,
     cancelCommunicationDeadLetter,

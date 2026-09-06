@@ -327,8 +327,31 @@ export async function requestServiceCase(supabaseClient, userContext, body = {},
   const requester = actorId(userContext);
   const vin = String(body.vin || '').trim();
   if (!vin) throw new ValidationError('vin is required');
-  const garageTenantId = String(body.garage_tenant_id || '').trim();
-  if (!garageTenantId) throw new ValidationError('garage_tenant_id is required');
+  /**
+   * The garage may be named by its PUBLIC SLUG instead of a tenant id.
+   *
+   * The public garage payload deliberately withholds `tenant_id` (see `toPublicGarage`), so a
+   * browser on the Garage Detail page has no tenant id to send — and should not be handed one.
+   * Accepting the slug lets the product address a garage by the identity it actually publishes,
+   * while the resolution happens here, server-side, against the same governed publication check
+   * that a tenant id goes through below. Either form ends at one place: a PUBLISHED garage.
+   */
+  const garageSlug = String(body.garage_slug || '').trim().toLowerCase();
+  let garageTenantId = String(body.garage_tenant_id || '').trim();
+  if (!garageTenantId && garageSlug) {
+    const { data: bySlug, error: slugError } = await supabaseClient
+      .from('garage_public_profiles')
+      .select('tenant_id')
+      .eq('slug', garageSlug)
+      .eq('publication_status', 'published')
+      .maybeSingle();
+    if (slugError) throw new DatabaseError(`Failed to resolve garage: ${slugError.message}`);
+    // Same wording as an unpublished tenant id: the caller learns no more from a slug than from
+    // an id, so this cannot be used to discover which garages exist.
+    if (!bySlug?.tenant_id) throw new ValidationError('That garage is not accepting service requests');
+    garageTenantId = bySlug.tenant_id;
+  }
+  if (!garageTenantId) throw new ValidationError('garage_tenant_id or garage_slug is required');
 
   // HARDENING: authenticating the caller is not enough. Opening a service engagement
   // against a vehicle is a consequential act, so the caller must hold canonical authority
@@ -611,6 +634,40 @@ export async function listGarageServiceCases(supabaseClient, userContext, query 
 }
 
 /** Requester's own cases. */
+/**
+ * Attach the governed garage identity to cases for the requester's own list.
+ *
+ * A case row carries `garage_tenant_id`, which is meaningless to the person who made the request —
+ * "who is looking at my car?" is answered by a name, not a UUID. The name comes from the governed
+ * publication projection and nowhere else: a tenant with no published profile is reported as not
+ * recorded rather than given a placeholder, and only a PUBLISHED garage gets a public link, since
+ * an unpublished one has no page to open. Identical rules to the owner service-history projection.
+ */
+async function attachGarageIdentity(supabaseClient, cases) {
+  const tenantIds = [...new Set(cases.map((c) => c.garage_tenant_id).filter(Boolean))];
+  if (!tenantIds.length) return cases.map((c) => ({ ...c, garage_display_name: null, garage_slug: null }));
+
+  const { data, error } = await supabaseClient
+    .from('garage_public_profiles')
+    .select('tenant_id, display_name, slug, publication_status')
+    .in('tenant_id', tenantIds);
+  // A failed identity read must not fail the whole list: the requester still needs to see that
+  // their requests exist. The garage is reported as not recorded for this read.
+  const byTenant = new Map();
+  if (!error) {
+    for (const row of data || []) {
+      byTenant.set(row.tenant_id, {
+        display_name: row.display_name || null,
+        slug: row.publication_status === 'published' ? (row.slug || null) : null,
+      });
+    }
+  }
+  return cases.map((c) => {
+    const identity = byTenant.get(c.garage_tenant_id) || null;
+    return { ...c, garage_display_name: identity?.display_name ?? null, garage_slug: identity?.slug ?? null };
+  });
+}
+
 export async function listMyServiceCases(supabaseClient, userContext) {
   const requester = actorId(userContext);
   const { data, error } = await supabaseClient
@@ -620,5 +677,6 @@ export async function listMyServiceCases(supabaseClient, userContext) {
     .order('requested_at', { ascending: false })
     .limit(200);
   if (error) throw new DatabaseError(`Failed to list service cases: ${error.message}`);
-  return { cases: (data || []).map(toCaseView), total: (data || []).length };
+  const cases = await attachGarageIdentity(supabaseClient, (data || []).map(toCaseView));
+  return { cases, total: cases.length };
 }

@@ -327,6 +327,17 @@ export const FEATURE_REGISTRY: FeatureRegistryItem[] = [
     lifecycle: 'active',
   },
   {
+    // R3 — the owner must be able to reach a request they made without a deep link.
+    id: 'owner.service-requests',
+    label: 'My Service Requests',
+    route: '/dashboard/service-requests',
+    domain: 'service',
+    roles: ['owner'],
+    placements: ['dashboard_sidebar'],
+    requiresAuth: true,
+    icon: 'Wrench',
+  },
+  {
     id: 'owner.service-history',
     label: 'Service History',
     route: '/dashboard/service-history',
