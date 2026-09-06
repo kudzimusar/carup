@@ -97,3 +97,44 @@ describe('what is reachable is also visible', () => {
     }
   })
 })
+
+describe('every gate must be told about the tenant role', () => {
+  /**
+   * THE DEFECT THIS PINS. `DashboardLayout` was given the tenant role and `RegistryRouteBoundary`
+   * was not. The result was an infinite `/garage` ↔ `/dashboard` loop, observed in a browser
+   * oscillating hundreds of times: the boundary redirected a garage member to the owner dashboard
+   * on their platform role, and the owner dashboard sent a confirmed garage member straight back.
+   *
+   * Four separate layers judged this person by the wrong one of their two true roles before this,
+   * so the risk is not that the rule is wrong — it is that a NEW gate forgets to ask. A source-level
+   * check is the only kind that notices a call site nobody thought to update.
+   */
+  it('no call site of evaluateRouteAccess omits tenantRole', async () => {
+    const sources = import.meta.glob('/src/**/*.{ts,tsx}', { query: '?raw', import: 'default', eager: true })
+    const offenders: string[] = []
+    for (const [path, raw] of Object.entries(sources)) {
+      if (path.includes('.test.')) continue
+      const text = String(raw)
+      if (path.endsWith('routeAccess.ts')) continue // the definition itself
+      let idx = text.indexOf('evaluateRouteAccess({')
+      while (idx !== -1) {
+        // The call object ends at the first `})` after it — enough to see its keys.
+        const call = text.slice(idx, text.indexOf('})', idx) + 2)
+        if (!call.includes('tenantRole')) offenders.push(`${path}: ${call.slice(0, 60).replace(/\s+/g, ' ')}…`)
+        idx = text.indexOf('evaluateRouteAccess({', idx + 1)
+      }
+    }
+    expect(offenders, `these gates would judge a garage member by their platform role alone:\n${offenders.join('\n')}`)
+      .toEqual([])
+  })
+
+  it('the loop itself cannot form: both sides agree a garage member belongs on /garage', () => {
+    // The owner dashboard sends a confirmed garage member to /garage. If the route gate disagrees,
+    // the two bounce forever — so they must agree for the SAME user.
+    const garageMember = { role: 'owner' as const, tenantRole: 'mechanic' }
+    expect(evaluateRouteAccess({ ...base, route: '/garage', ...garageMember }).kind).toBe('render')
+    // And an ordinary owner is not sent to /garage in the first place, so no loop there either.
+    expect(evaluateRouteAccess({ ...base, route: '/dashboard', role: 'owner', tenantRole: null }).kind)
+      .toBe('render')
+  })
+})

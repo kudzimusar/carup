@@ -184,3 +184,56 @@ subject reported something other than "I could not see it"**:
 
 Each is now either an explicit assertion that the surface rendered, or an explicit finding that the
 check could not be performed.
+
+
+---
+
+## Round 2 — third and fourth passes, and what they were really about
+
+F5 took **four** attempts. Each fix was correct in the layer I was looking at and did not reach the
+layer that mattered. Recording the sequence, because the sequence is the finding:
+
+| pass | candidate | what happened |
+|---|---|---|
+| 2b | `e2c920dc` | The backend was extended to report the membership. The **session never read it** — `AuthContext` called `/auth/me` and discarded the answer. |
+| 2c | `f9721691` | The session adopted it. The **backend could no longer produce it**: `resolveActiveMembership` selected `tenant_users.created_at`, a column that does not exist, and a bare `catch` turned the PostgREST error into a confident *"this person belongs to no tenant."* |
+| 2d | `f649b679` | The membership arrived. The garage member reached `/garage` — and was shown **"Feature unavailable. This feature is currently turned off."** Feature governance computed eligibility from the platform role alone. |
+| 2e | `1a8efc1b` | Eligibility accepts the verified tenant role, as `resolveEffectiveRole` already did. |
+
+**The shape of it.** A garage employee holds two true roles: `owner` platform-wide, `mechanic`
+inside their garage. **Four separate layers** judged them by the wrong one — the API role check,
+route access, sidebar visibility, and feature governance. Each was written independently, each
+looked right on its own, and each was a complete block on its own. The rule was already settled in
+`resolveEffectiveRole`: *the platform role **or** the verified tenant role*. Three layers had simply
+never been told.
+
+None of this was visible from the test suites, which were green throughout. It was visible the
+moment a real account opened a real browser.
+
+**A defect I introduced and the tests could not have caught.** `resolveActiveMembership` guessed a
+column name, and the `catch` around it converted a broken query into an answer. A stub-based test
+cannot catch either: a stub returns whatever it is asked for. The test that now guards it reads the
+query out of `server.js` and checks every column it names against the canonical schema in
+`database/migrations/002`, and asserts the error is inspected and logged rather than swallowed.
+Mutation-tested: putting `created_at` back turns it red.
+
+### The measurement discipline this round forced
+
+Four readings in this harness were wrong, all with one shape — **a check that could not see its
+subject reported something other than "I could not see it."**
+
+| what I did | what it reported | what was true |
+|---|---|---|
+| Checked for an error element | PASS | the browser was on the Owner Dashboard after a redirect |
+| Scraped a VIN from prose | (silently skipped F3 and F6) | the checks never ran |
+| Read a Radix tab without opening it | "the two surfaces disagree" | the tab was unmounted |
+| Waited 6s for a page that renders at ~10s | "the two surfaces disagree" | it was a screenshot of a spinner |
+
+Every fixed wait is now a wait on a real signal, and every surface check now distinguishes
+**rendered**, **redirected** and **never-rendered** rather than collapsing them. The Workshop step
+in pass 2d reported *"redirected away — landed on /garage"* — a sentence that cannot be true, and
+the clearest evidence that the harness, not the product, was confused.
+
+**An observation, not a defect:** the Vehicle Profile renders at ~10s, gated on
+`/vehicles/:vin/passport` taking ~9.4s on staging. Nothing in this tranche caused it and nothing
+here fixes it, but a ten-second wait for a core owner surface is worth someone's attention.
