@@ -44,6 +44,10 @@ import {
 } from '../services/diaspora/diasporaLogisticsRfqService.js';
 import { ensureLogisticsConversation } from '../services/diaspora/diasporaLogisticsConversationService.js';
 import { listActiveCorridors } from '../services/diaspora/tradeCorridorService.js';
+import { addChargeComponents, listChargeComponents, projectComponentsForDisplay, composeLandedEstimate } from '../services/diaspora/tradeChargeComponentService.js';
+import { compareQuotes, compareCorridorEconomics, adviseOptions } from '../services/diaspora/tradeQuoteComparisonService.js';
+import { allocateSharedCharge, listAllocations } from '../services/diaspora/tradeChargeAllocationService.js';
+import { getReferenceRate } from '../services/diaspora/tradeFxRateService.js';
 import { getTransactionPassport, continueToLogistics } from '../services/diaspora/tradeTransactionPassportService.js';
 import { setReadiness, listReadiness, summarizeReadiness } from '../services/diaspora/tradeDocumentReadinessService.js';
 import { getTradeContext } from '../services/diaspora/tradeContextService.js';
@@ -261,6 +265,72 @@ router.post('/logistics-requests/:id/conversation', participantAuth, asyncHandle
 // ── Existing hardened Container Co-Loading kernel ──────────────────────────
 // T5.2 — corridor reference data: route composition only, projected through an explicit
 // allow-list. Order is by code; nothing here ranks or prefers a corridor.
+// ── T6 commercial transparency ──────────────────────────────────────────
+//
+// A provider records the components of their OWN offer; the server derives who they are from the
+// quote row, never from the request body. Reference USD is computed server-side too — a client
+// that could send `normalized_usd` could manufacture a price comparison.
+
+const quoteTarget = (req) => (req.params.kind === 'import-quotes'
+  ? { importQuoteId: req.params.id }
+  : { logisticsQuoteId: req.params.id });
+
+router.get('/:kind(import-quotes|logistics-quotes)/:id/charge-components', participantAuth, asyncHandler(async (req, res) => {
+  const components = await listChargeComponents(quoteTarget(req), { req });
+  const projected = await projectComponentsForDisplay(components, { req });
+  res.json({ data: { components: projected, estimate: composeLandedEstimate(projected) } });
+}));
+
+router.post('/:kind(import-quotes|logistics-quotes)/:id/charge-components', participantAuth, asyncHandler(async (req, res) => {
+  const saved = await addChargeComponents(quoteTarget(req), req.body?.components, req.userContext, { req });
+  res.status(201).json({ data: saved });
+}));
+
+// Compare two or more offers. The response deliberately carries `comparable` and the reasons, so
+// a caller cannot render a winner CarUp did not name.
+router.post('/quote-comparison', participantAuth, asyncHandler(async (req, res) => {
+  const targets = Array.isArray(req.body?.quotes) ? req.body.quotes : [];
+  if (targets.length < 2) throw new ValidationError('At least two offers are needed for a comparison');
+  const quotes = [];
+  for (const t of targets) {
+    const target = t.kind === 'import' ? { importQuoteId: t.id } : { logisticsQuoteId: t.id };
+    const components = await projectComponentsForDisplay(await listChargeComponents(target, { req }), { req });
+    quotes.push({ id: t.id, label: t.label || null, components, estimate: composeLandedEstimate(components) });
+  }
+  res.json({ data: { quotes, comparison: compareQuotes(quotes), advice: adviseOptions({ options: quotes, cargo: req.body?.cargo || {}, objective: req.body?.objective || null }) } });
+}));
+
+// Corridor economics over the FROZEN T5 corridor authority — route truth is read, never changed.
+router.post('/corridor-economics', participantAuth, asyncHandler(async (req, res) => {
+  const options = Array.isArray(req.body?.corridors) ? req.body.corridors : [];
+  const enriched = [];
+  for (const o of options) {
+    const target = o.quote_kind === 'import' ? { importQuoteId: o.quote_id } : { logisticsQuoteId: o.quote_id };
+    const components = o.quote_id ? await projectComponentsForDisplay(await listChargeComponents(target, { req }), { req }) : [];
+    enriched.push({ corridor_code: o.corridor_code, corridor_name: o.corridor_name || null, planning_status: o.planning_status || null, components });
+  }
+  res.json({ data: compareCorridorEconomics(enriched) });
+}));
+
+// Reference FX for display. Reference ONLY — settlement is T13 and customs valuation is T12.
+router.get('/fx/reference', participantAuth, asyncHandler(async (req, res) => {
+  // Named `from`/`to` deliberately: `base` is the module-level route prefix, and shadowing it
+  // here would be a trap for the next person adding a route below.
+  const from = String(req.query.base || '').toUpperCase();
+  const to = String(req.query.quote || 'USD').toUpperCase();
+  res.json({ data: { ...await getReferenceRate(from, to, { req }), purpose: 'REFERENCE_DISPLAY_ONLY' } });
+}));
+
+router.post(`${base}/charge-components/:id/allocate`, operatorAuth, asyncHandler(async (req, res) => {
+  res.json({ data: await allocateSharedCharge(req.params.id, {
+    containerId: req.body?.container_id, basis: req.body?.basis, explicit: req.body?.explicit || null,
+  }, req.userContext, { req }) });
+}));
+
+router.get(`${base}/charge-components/:id/allocations`, participantAuth, asyncHandler(async (req, res) => {
+  res.json({ data: await listAllocations(req.params.id, { req }) });
+}));
+
 router.get('/trade-corridors', participantAuth, asyncHandler(async (req, res) => {
   res.json({ data: await listActiveCorridors({ req }) });
 }));
