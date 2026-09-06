@@ -148,6 +148,16 @@ jobs:
       - name: Trade OS T5 corridor authority verification (isolated PGlite Postgres)
         run: node database/test/trade_os_t5_corridor_check.mjs
 
+      # Trade OS T6 — commercial transparency schema (20260908090000).
+      #
+      # Same rationale as the T4/T5/Intake steps: migration_pglite_check.mjs's NEW_MIGRATIONS list
+      # ends at 20260810120000, so this migration is executed by NO other gate. This step proves
+      # FX snapshot immutability, that money cannot be stored without its currency, that UNKNOWN is
+      # representable and is not zero, exactly-one-quote-domain ownership, exact allocation
+      # reconciliation with replay safety, and Down/Up recovery.
+      - name: Trade OS T6 commercial transparency verification (isolated PGlite Postgres)
+        run: node database/test/trade_os_t6_commercial_check.mjs
+
       - name: 'Issue #101 P0 hardening behavioural proof (real PostgreSQL via PGlite)'
         run: node database/test/issue101_p0_hardening_check.mjs
 
