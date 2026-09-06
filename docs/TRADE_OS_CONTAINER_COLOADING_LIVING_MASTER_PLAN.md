@@ -1612,8 +1612,9 @@ sailing they reserve capacity on. Harare stays Harare while the ocean leg ends a
 - [x] T5.7 Capacity kernel preserved + **the standing lifecycle gap CLOSED** (cancel/close, slot released).
 - [x] T5.8 Privacy/anti-bypass (DRAFT invisible and unconfirmable; allow-listed corridor projection).
 - [x] T5.9 UI/UX + seven-width responsive certification (21/21, visual review done).
-- [~] T5.10 Deployed-staging certification **COMPLETE** (37/37 API · 25/25 browser · 14/14 continuation);
-      **owner UAT is the only remaining row** — automation cannot close it (§29).
+- [x] T5.10 Deployed-staging certification **COMPLETE**, then re-certified after the F1/F2/F3
+      closure on the exact paired candidate `5079b0b3` (§42). **Owner acceptance is the only
+      remaining row** — automation cannot close it (§29).
 
 **Exit gate (all 33 rows of the plan's §8, tracked verbatim in the plan document):** architecture
 5 rows · corridor 5 · mode 2 · commercial compatibility 5 · sailing/capacity 8 · truth/security 8.
@@ -3724,3 +3725,116 @@ None of F1–F4 blocks the T5 exit gate; all are recorded rather than silently c
 **T5-PARTIAL — owner UAT required.** Every technical row of the plan's §8 exit gate is proven;
 the owner's product/visual verdict is the only row automation cannot close (§29). **T6 not
 started. Production untouched.**
+
+---
+
+## §42 — T5 FINAL PRODUCT, PERFORMANCE & OWNER-UAT CLOSURE
+
+**Execution entry — 2026-09-06. Start `5a077c7c` (docs) / `84b6de3a` (certified runtime).
+Final code head `5079b0b3`. Production untouched. T6 not started. PR #207 Draft.**
+
+The T5 architecture was accepted and is unchanged. This cycle closed the four product/performance
+weaknesses recorded in §41 that were unsuitable to carry into T6, then re-ran the whole owner-UAT
+proxy on a single paired candidate.
+
+### F1 — publish no longer blocks on discovery
+
+`openDetail` did everything before `setView('detail')`: the request row, the whole-marketplace
+sailing match, and the reservation refresh — and `save()` additionally awaited a refresh of the
+LIST the user was leaving. A publish that had already **succeeded** left the customer looking at
+the wizard for ~13–14s.
+
+It is now two phases. Phase 1 is the single row the page needs, and the page renders. Phase 2 —
+discovery and the reservation read — runs beside it under the same generation guard, so a newer
+open still supersedes a stale response. The list refresh no longer blocks either.
+
+A pending discovery is **its own state** ("Looking for compatible sailings…"), never rendered as
+"no sailings found": one is *we are still looking*, the other is a claim about the marketplace. A
+failed read stays UNREADABLE and offers **Try again**. Double-submit protection is untouched.
+
+| | Before | After (staging, `5079b0b3`) |
+|---|---|---|
+| Publish → usable detail | ~13–14 s, frozen wizard | **6.1 s**, page interactive with discovery pending |
+| Discovery fills in | (blocking) | **+3.0 s**, same page |
+
+### F2 — discovery is no longer N+1
+
+`findCompatibleSailings` issued one reservations query **per candidate sailing**. Every
+candidate's reservations now come from ONE batched read grouped in memory.
+
+| Sailings | Reservation reads | Total queries |
+|---|---|---|
+| 1 | 1 | 7 |
+| 10 | 1 | 7 |
+| 50 | 1 | 7 |
+
+Proven by assertion, not by timing. Measured on staging, warm, `n=6`:
+
+| | Median | Note |
+|---|---|---|
+| Plain list read (control) | 1380 ms | the platform floor for any authenticated read here |
+| `sailing-matches` (discovery) | **2344 ms** | ~964 ms above the floor, and **flat** |
+| Before the fix | ~5600 ms | with *fewer* sailings than the run above |
+
+Capacity **truth** is unchanged: the same `computeCapacity()` over the same APPROVED rows, and
+approval remains the atomic container-serialized RPC — the only thing that may consume capacity.
+An unreadable capacity read now **refuses loudly** rather than presenting zero as "no space".
+
+### F3 — the multi-corridor option is no longer buried
+
+Departure ordering is neutral and correct, but a gateway sailing is a different route **strategy**,
+not a worse departure — behind five earlier direct departures it landed sixth, where a customer
+had to guess a different kind of journey was hidden under "Show more".
+
+The fix is **disclosure, not ranking**. When both kinds exist the screen shows two named
+categories — *Direct sailings* and *Gateway corridor sailings* — each ordered by departure date,
+each expanding independently, under one line: **"Two kinds of route can carry this shipment. CarUp
+does not rank them — the choice is yours."** No corridor is best, cheapest, fastest or
+recommended; `planning_status` never reaches the screen; JP-DAR-ZW stays `research_candidate`. The
+economics that would justify a recommendation remain T6's.
+
+### F4 — certification data only
+
+No product logic was changed to prettify synthetic rows. New T5 fixtures use readable place and
+business names, and one legacy staging row whose `origin_city` held a raw fixture id was repaired
+**as data** (the original value is preserved in its metadata for attribution).
+
+### F5 — preserved
+
+The gateway card still names the sailing's own ports: *"This sailing covers: Port of Yokohama →
+Port of Beira"*. Its mutation test still fails when reverted to the leg's country label.
+
+### Owner-UAT proxy — all journeys, fresh data, exact paired candidate
+
+| Journey | Result |
+|---|---|
+| A — gateway customer (Harare final, Yokohama→Beira leg) | **13/13** |
+| B — direct route unbroken | pass (within A's run) |
+| C — space lifecycle REQUESTED → APPROVED | pass (within C/D/E's 27/27) |
+| D — reject / cancel / release + continuation slot | pass |
+| D2 — request cancel/close guard via the real `request-space` path | **7/7** |
+| E — operator draft → open → manifest → approve/reject → close | pass |
+| F — corridor neutrality across two corridors | pass |
+| Adversarial matrix (13 authority + 11 batched-discovery + 12 privacy + 1 truth) | **37/37** |
+| Seven-width geometry, requester **and** operator | **14/14** |
+| Console errors on settled pages / 5xx | **0 / 0** |
+
+### Exact deployment provenance
+
+| | |
+|---|---|
+| Code SHA (FE **and** BE) | `5079b0b3b531a9cb03b852682cb426158b730d7d` |
+| FE deployment | `dpl_BpSJA8HXAYLfQiMUhVrs9QUaeunr` · `carup-staging-git-feat-trade-os-client-demo-convergence-11-11.vercel.app` |
+| Served bundle | `index-BrN5lNNZ.js` |
+| BE deployment | `dpl_BTcyPeiQjWzcvSajx49AQ444fAFn` · `carup-backend-staging-git-feat-trade-os-client-dem-dbf311-11-11.vercel.app` |
+| BE `/api/health` | `commit_sha 5079b0b3…`, branch `feat/trade-os-client-demo-convergence`, preview |
+| FE→BE pairing | the branch backend origin was read **out of the served bundle**, not inferred |
+| Staging DB | Supabase **staging** project, `supabase: healthy`. Production untouched. |
+
+Both sides deploy from **one commit**; the §41 lineage note (FE at `84b6de3a`, BE at its
+web-only-parent `f0bcca2a`) no longer applies.
+
+### Verdict
+
+**T5-PARTIAL — all technical and product-proxy gates closed; owner acceptance only.**
+Recommended owner action: **freeze as T5-USABLE**. T6 not started. Production untouched.

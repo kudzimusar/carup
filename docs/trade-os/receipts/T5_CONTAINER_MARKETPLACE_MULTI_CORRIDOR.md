@@ -1,8 +1,9 @@
 # Trade OS T5 — Container Marketplace & Multi-Corridor Compatibility · Implementation Receipt
 
-**Status:** `T5-PARTIAL` — owner UAT required
+**Status:** `T5-PARTIAL` — all technical + product-proxy gates closed; **owner acceptance only**
 **Date:** 2026-09-06
-**Authorization head:** `3c382bae` · **Actual start:** `d866e2ce` · **Code head:** `84b6de3a`
+**Authorization head:** `3c382bae` · **Actual start:** `d866e2ce` · **Final code head:** `5079b0b3`
+**Recommended owner action:** freeze as `T5-USABLE`
 **Plan:** `docs/trade-os/T5_CONTAINER_MARKETPLACE_MULTI_CORRIDOR_IMPLEMENTATION_PLAN.md`
 **Canonical authority:** `docs/TRADE_OS_CONTAINER_COLOADING_LIVING_MASTER_PLAN.md` §40, §41
 **Production:** UNTOUCHED · **T6:** NOT STARTED · **PR #207:** Draft
@@ -147,8 +148,63 @@ tax (T12). No shipment tracker or event ingestion (T11). No warehouse or loading
 settlement (T13). No reputation (T14). No RoRo commercial integration. `LOADING`/`SHIPPED`/`ARRIVED`
 are **not** used as T5 truth.
 
-## 10. Status
+## 10. Final closure — F1–F4 closed, re-certified on one paired candidate
 
-**`T5-PARTIAL` — OWNER UAT REQUIRED.** Every technical row of the plan's §8 exit gate is proven.
-The owner's product/visual verdict is the only row automation cannot close (§29).
-T3 frozen. T4 frozen. Intake 2.0 still awaiting its own owner UAT. **T6 not started. Production untouched.**
+Master plan **§42** carries the full account. Summary:
+
+**F1 — publish no longer blocks on discovery.** `openDetail` is two phases: the request row renders
+the page, then discovery and the reservation read run beside it under the same generation guard.
+`save()` no longer awaits a refresh of the list the user is leaving. A pending discovery is its own
+state ("Looking for compatible sailings…"), never "none found"; a failed one stays UNREADABLE with
+**Try again**. Staging: **13–14 s frozen → 6.1 s to a usable page**, discovery +3.0 s after.
+
+**F2 — discovery is bounded.** One batched reservations read replaces one-per-sailing.
+
+| Sailings | Reservation reads | Total queries |
+|---|---|---|
+| 1 / 10 / 50 | 1 / 1 / 1 | 7 / 7 / 7 |
+
+Staging warm median **2344 ms** against a **1380 ms** plain-read floor (≈964 ms of own cost, flat),
+down from ~5600 ms with fewer sailings. Capacity truth and the approval RPC are untouched; an
+unreadable capacity read now refuses loudly instead of implying "no space".
+
+**F3 — disclosure, not ranking.** Two named categories — *Direct sailings* and *Gateway corridor
+sailings* — each ordered by departure date, each expanding independently, under "Two kinds of route
+can carry this shipment. CarUp does not rank them — the choice is yours." No preference language;
+`planning_status` never reaches the screen.
+
+**F4 — data only.** New fixtures use readable names; one legacy staging row holding a raw fixture
+id in `origin_city` was repaired as data, original preserved in its metadata.
+
+**F5 — preserved**, still mutation-guarded.
+
+### Final evidence
+
+| Gate | Result |
+|---|---|
+| PGlite migration gate | **15/15** |
+| Backend suites (T3 · T4 · Intake · T5 · migration integrity) | **1553 / 0** (7 skipped) |
+| Web diaspora | **151 / 151** |
+| New tests this cycle | 12, all load-bearing guards mutation-tested (11 mutations, all caught) |
+| Owner-UAT proxy — A/B/F + responsive | **20/20**, then **13/13** on the final candidate |
+| Owner-UAT proxy — C/D/E | **27/27** |
+| Request cancel/close guard via the real path | **7/7** |
+| Adversarial matrix | **37/37** |
+| Seven-width geometry (requester + operator) | **14/14** |
+| Settled-page console errors / 5xx | **0 / 0** |
+| `tsc -b` | clean |
+
+### Exact provenance
+
+FE **and** BE both from `5079b0b3b531a9cb03b852682cb426158b730d7d`.
+FE `dpl_BpSJA8HXAYLfQiMUhVrs9QUaeunr`, bundle `index-BrN5lNNZ.js`; BE
+`dpl_BTcyPeiQjWzcvSajx49AQ444fAFn`, `/api/health` reports the same SHA. The FE→BE pairing was read
+out of the served bundle, not inferred. Supabase **staging** only. The §41 split-lineage note no
+longer applies.
+
+## 11. Status
+
+**`T5-PARTIAL` — ALL TECHNICAL + PRODUCT PROXY GATES CLOSED; OWNER ACCEPTANCE ONLY.**
+Recommended owner action: **freeze as `T5-USABLE`**.
+T3 frozen. T4 frozen. Intake 2.0 still awaiting its own owner UAT.
+**T6 not started. Production untouched. PR #207 remains Draft.**

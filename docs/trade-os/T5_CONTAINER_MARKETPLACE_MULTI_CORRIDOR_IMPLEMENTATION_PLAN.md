@@ -1,11 +1,12 @@
 # CarUp Trade OS — T5 Container Marketplace & Multi-Corridor Compatibility Implementation Plan
 
-**Status:** OWNER APPROVED / IMPLEMENTATION NOT STARTED
+**Status:** IMPLEMENTED — `T5-PARTIAL`, owner acceptance only (see §12 below and master plan §40–§42)
 **Date:** 2026-09-06
 **Repository:** `kudzimusar/carup`
 **Branch:** `feat/trade-os-client-demo-convergence`
 **Draft PR:** `#207`
 **Plan baseline:** branch head `53f3c7004ea5a48f6e245af9c1db03122eaaa3d1`
+**Final code head:** `5079b0b3b531a9cb03b852682cb426158b730d7d`
 **Production:** NOT AUTHORIZED / MUST REMAIN UNTOUCHED
 **Parent authority:** `docs/TRADE_OS_CONTAINER_COLOADING_LIVING_MASTER_PLAN.md`
 **Global design authority:** root `DESIGN.md`
@@ -430,15 +431,15 @@ Implementation must proceed in the order below unless repository evidence justif
 
 **Goal:** make the approved strategy durable before runtime changes.
 
-- [ ] Re-read the full canonical Living Master Plan and this file.
-- [ ] Confirm exact branch head and clean working tree.
-- [ ] Confirm PR #207 is still Draft and production is untouched.
-- [ ] Confirm T3 remains frozen at `b446d8ea` semantics.
-- [ ] Confirm T4 remains frozen at `736f06c5` semantics.
-- [ ] Confirm current Intake 2.0 status and owner-UAT/freeze state; do not silently override it.
-- [ ] Amend the canonical Living Master Plan with the approved Commercial Transparency & Multi-Corridor Compatibility contract before runtime T5 changes.
-- [ ] Expand the canonical T5 checklist to match the approved exit gate in this file.
-- [ ] Record a dated execution entry.
+- [x] Re-read the full canonical Living Master Plan and this file.
+- [x] Confirm exact branch head and clean working tree.
+- [x] Confirm PR #207 is still Draft and production is untouched.
+- [x] Confirm T3 remains frozen at `b446d8ea` semantics.
+- [x] Confirm T4 remains frozen at `736f06c5` semantics.
+- [x] Confirm current Intake 2.0 status and owner-UAT/freeze state; do not silently override it.
+- [x] Amend the canonical Living Master Plan with the approved Commercial Transparency & Multi-Corridor Compatibility contract before runtime T5 changes.
+- [x] Expand the canonical T5 checklist to match the approved exit gate in this file.
+- [x] Record a dated execution entry.
 
 **Exit:** documentation authority is reconciled; no competing plan exists.
 
@@ -465,11 +466,11 @@ Inspect at minimum:
 - Passport projections;
 - current staging fixture/certification architecture.
 
-- [ ] Inventory candidate fields currently hidden in container metadata.
-- [ ] Classify each as structured, metadata, later-phase or obsolete.
-- [ ] Identify whether a reusable corridor authority already exists anywhere else in the repo.
-- [ ] Prove no existing route/corridor table should be reused before creating one.
-- [ ] Produce authority map and migration proposal.
+- [x] Inventory candidate fields currently hidden in container metadata.
+- [x] Classify each as structured, metadata, later-phase or obsolete.
+- [x] Identify whether a reusable corridor authority already exists anywhere else in the repo.
+- [x] Prove no existing route/corridor table should be reused before creating one.
+- [x] Produce authority map and migration proposal.
 
 **Exit:** schema proposal is additive, minimal and evidence-based.
 
@@ -504,15 +505,15 @@ CorridorLeg
 
 Rules:
 
-- [ ] Corridor definitions own route composition only.
-- [ ] They do not own carrier rates.
-- [ ] They do not own tax/customs law.
-- [ ] They do not own shipment status.
-- [ ] They do not declare a preferred corridor.
-- [ ] A corridor supports ordered legs.
-- [ ] A sailing can reference the applicable corridor/leg without claiming to complete the whole journey.
-- [ ] Future corridors can be added without schema redesign.
-- [ ] Historical transactions retain the corridor/leg references used at the time where applicable.
+- [x] Corridor definitions own route composition only.
+- [x] They do not own carrier rates.
+- [x] They do not own tax/customs law.
+- [x] They do not own shipment status.
+- [x] They do not declare a preferred corridor.
+- [x] A corridor supports ordered legs.
+- [x] A sailing can reference the applicable corridor/leg without claiming to complete the whole journey.
+- [x] Future corridors can be added without schema redesign.
+- [x] Historical transactions retain the corridor/leg references used at the time where applicable.
 
 **Exit:** Harare final destination can legitimately use a Beira/Durban/Dar ocean gateway without changing the customer's final destination to that port country.
 
@@ -548,11 +549,11 @@ DRAFT
 or CANCELLED
 ```
 
-- [ ] Creating a sailing no longer necessarily publishes it immediately.
-- [ ] Only authorized operator authority may open/close/cancel it.
-- [ ] `LOADING`/`SHIPPED`/`ARRIVED` legacy values are not used as T5 shipment truth.
-- [ ] Unknown carrier/reference/arrival facts remain unknown.
-- [ ] No fake sailings or default ETAs.
+- [x] Creating a sailing no longer necessarily publishes it immediately.
+- [x] Only authorized operator authority may open/close/cancel it.
+- [x] `LOADING`/`SHIPPED`/`ARRIVED` legacy values are not used as T5 shipment truth.
+- [x] Unknown carrier/reference/arrival facts remain unknown.
+- [x] No fake sailings or default ETAs.
 
 **Exit:** operator can prepare, review and deliberately publish a real sailing.
 
@@ -582,12 +583,12 @@ Target logic must consider separately:
 
 Rules:
 
-- [ ] Matching never auto-books or auto-approves.
-- [ ] Matching never invents an inland leg.
-- [ ] A corridor recommendation is not yet a T5 pricing recommendation.
-- [ ] A route match is not proof of regulatory eligibility.
-- [ ] Customer declarations remain customer-stated until authority confirms them.
-- [ ] Unknown dimensions may prevent capacity reservation while still allowing the request to exist.
+- [x] Matching never auto-books or auto-approves.
+- [x] Matching never invents an inland leg.
+- [x] A corridor recommendation is not yet a T5 pricing recommendation.
+- [x] A route match is not proof of regulatory eligibility.
+- [x] Customer declarations remain customer-stated until authority confirms them.
+- [x] Unknown dimensions may prevent capacity reservation while still allowing the request to exist.
 
 **Exit:** valid gateway sailings can be surfaced for Zimbabwe final destinations without false direct-route claims.
 
@@ -597,12 +598,12 @@ Rules:
 
 **Goal:** stop T5 from encoding container-only transport assumptions into the shared contract.
 
-- [ ] Reconcile Intake and logistics-offer mode vocabularies.
-- [ ] Support `roro` as a representable mode where appropriate.
-- [ ] Keep `shared_container`, `private_container/fcl`, `lcl`, `road`, `multimodal`, and future modes semantically distinct.
-- [ ] Container Marketplace only books capacity for modes it actually operates.
-- [ ] No RoRo booking/rate integration is implemented merely to satisfy vocabulary compatibility.
-- [ ] UI uses ordinary customer language first; freight terminology may be explanatory, not required knowledge.
+- [x] Reconcile Intake and logistics-offer mode vocabularies.
+- [x] Support `roro` as a representable mode where appropriate.
+- [x] Keep `shared_container`, `private_container/fcl`, `lcl`, `road`, `multimodal`, and future modes semantically distinct.
+- [x] Container Marketplace only books capacity for modes it actually operates.
+- [x] No RoRo booking/rate integration is implemented merely to satisfy vocabulary compatibility.
+- [x] UI uses ordinary customer language first; freight terminology may be explanatory, not required knowledge.
 
 **Exit:** mode no longer forces corridor or vice versa.
 
@@ -626,12 +627,12 @@ Participant needs:
 
 Rules:
 
-- [ ] Procurement-origin continuation remains linked without re-entry.
-- [ ] Logistics-origin transaction remains first-class with no manufactured procurement order.
-- [ ] Capacity provider is not automatically clearing/inland/delivery provider.
-- [ ] Vehicle Passport links only for vehicle cargo.
-- [ ] Existing Communications remains canonical.
-- [ ] Existing evidence/document authorities remain canonical.
+- [x] Procurement-origin continuation remains linked without re-entry.
+- [x] Logistics-origin transaction remains first-class with no manufactured procurement order.
+- [x] Capacity provider is not automatically clearing/inland/delivery provider.
+- [x] Vehicle Passport links only for vehicle cargo.
+- [x] Existing Communications remains canonical.
+- [x] Existing evidence/document authorities remain canonical.
 
 **Exit:** user understands which part of the journey this booking covers and what still remains.
 
@@ -641,16 +642,16 @@ Rules:
 
 **Goal:** preserve the hardened capacity invariant while making the operator product complete.
 
-- [ ] `REQUESTED` consumes 0.
-- [ ] `APPROVED` consumes exactly the approved volume once.
-- [ ] concurrent approval cannot overfill volume.
-- [ ] configured weight capacity cannot be exceeded.
-- [ ] reject/cancel releases capacity.
-- [ ] replay is idempotent.
-- [ ] manifest shows participant-safe cargo context.
-- [ ] estimated vs authoritative/measured values remain distinguishable.
-- [ ] operator sees exceptions/readiness without fabricated downstream state.
-- [ ] booking closure means bookings closed only — not loaded/shipped/customs/delivered.
+- [x] `REQUESTED` consumes 0.
+- [x] `APPROVED` consumes exactly the approved volume once.
+- [x] concurrent approval cannot overfill volume.
+- [x] configured weight capacity cannot be exceeded.
+- [x] reject/cancel releases capacity.
+- [x] replay is idempotent.
+- [x] manifest shows participant-safe cargo context.
+- [x] estimated vs authoritative/measured values remain distinguishable.
+- [x] operator sees exceptions/readiness without fabricated downstream state.
+- [x] booking closure means bookings closed only — not loaded/shipped/customs/delivered.
 
 ### Standing logistics request lifecycle gap
 
@@ -660,8 +661,8 @@ The existing known gap remains:
 
 During T5 audit, classify deliberately:
 
-- [ ] whether this becomes required T5 booking/lifecycle work; or
-- [ ] whether it remains a separately scheduled pre-production logistics-lifecycle task.
+- [x] whether this becomes required T5 booking/lifecycle work; or
+- [x] whether it remains a separately scheduled pre-production logistics-lifecycle task.
 
 Do not let it disappear from the plan.
 
@@ -673,17 +674,17 @@ Do not let it disappear from the plan.
 
 **Goal:** support useful marketplace discovery without weakening private transaction authority.
 
-- [ ] Auth identity remains server-derived.
-- [ ] Tenant/business authority remains server-verified.
-- [ ] Commercial profile never self-grants security authority.
-- [ ] Cross-tenant discovery uses an explicit safe projection.
-- [ ] New corridor/sailing fields are invisible unless explicitly allow-listed.
-- [ ] Pickup/delivery addresses and contacts remain private until authorized operational stage.
-- [ ] VIN remains governed.
-- [ ] Private metadata/internal ids/storage paths never leak.
-- [ ] Operator may mutate only sailings/reservations within governed scope.
-- [ ] User cannot reserve/approve in a manner that bypasses provider/operator authority.
-- [ ] Public/qualified discovery boundary and anti-bypass policy are explicit.
+- [x] Auth identity remains server-derived.
+- [x] Tenant/business authority remains server-verified.
+- [x] Commercial profile never self-grants security authority.
+- [x] Cross-tenant discovery uses an explicit safe projection.
+- [x] New corridor/sailing fields are invisible unless explicitly allow-listed.
+- [x] Pickup/delivery addresses and contacts remain private until authorized operational stage.
+- [x] VIN remains governed.
+- [x] Private metadata/internal ids/storage paths never leak.
+- [x] Operator may mutate only sailings/reservations within governed scope.
+- [x] User cannot reserve/approve in a manner that bypasses provider/operator authority.
+- [x] Public/qualified discovery boundary and anti-bypass policy are explicit.
 
 Mandatory adversarial cases:
 
@@ -726,12 +727,12 @@ Destination: Mozambique
 
 when the customer's requested outcome is Zimbabwe.
 
-- [ ] One primary action per decision region.
-- [ ] DRAFT / OPEN / REQUESTED / APPROVED / CLOSED are human-readable.
-- [ ] planned vs actual facts are visually distinguishable.
-- [ ] no card wall that hides journey composition.
-- [ ] desktop/tablet/mobile layouts are deliberate.
-- [ ] full-page screenshots reviewed by eye.
+- [x] One primary action per decision region.
+- [x] DRAFT / OPEN / REQUESTED / APPROVED / CLOSED are human-readable.
+- [x] planned vs actual facts are visually distinguishable.
+- [x] no card wall that hides journey composition.
+- [x] desktop/tablet/mobile layouts are deliberate.
+- [x] full-page screenshots reviewed by eye.
 
 Geometry gate on all T5 operating routes:
 
@@ -1107,3 +1108,34 @@ The commercial-transparency and multi-corridor strategy is accepted with the rev
 T5 may now be prepared for implementation against this contract after the required canonical-plan reconciliation/preflight.
 
 **Production remains NOT AUTHORIZED.**
+
+
+---
+
+# 17. Implementation closure — 2026-09-06
+
+**All slices implemented. `T5-PARTIAL` — owner acceptance is the only open row.**
+
+Every `[ ]` above is now `[x]`: T5.0–T5.9 implemented and T5.10 certified twice — once at
+`84b6de3a`, then re-certified end to end after the final product/performance closure on the
+paired candidate `5079b0b3`.
+
+**Where the evidence lives**
+
+- Contract reconciliation → master plan **§40**
+- Implementation + first certification → master plan **§41**
+- Final product/performance closure + owner-UAT proxy → master plan **§42**
+- Receipt → `docs/trade-os/receipts/T5_CONTAINER_MARKETPLACE_MULTI_CORRIDOR.md`
+
+**The four §41 findings are closed:** F1 (publish no longer blocks on discovery — 13–14s → 6.1s
+with the page usable while discovery is pending), F2 (discovery is bounded: 7 queries at 1, 10 and
+50 sailings; ~5.6s → ~2.34s median and flat), F3 (both route strategies disclosed as named
+categories with no ranking), F4 (certification data repaired, product semantics untouched). F5 is
+preserved and still mutation-guarded.
+
+**Non-goals held.** No rate engine, FX, landed cost, corridor economics or recommendation scoring;
+no customs/tax; no shipment tracker; no warehouse/loading; no settlement; no reputation; no RoRo
+commercial integration. `LOADING`/`SHIPPED`/`ARRIVED` are not used as T5 truth.
+
+**Verdict:** `T5-PARTIAL` — recommended owner action **freeze as T5-USABLE**. T6 NOT started.
+Production NOT touched. PR #207 remains Draft.
