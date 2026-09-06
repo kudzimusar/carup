@@ -85,10 +85,17 @@ export async function askGemini(systemPrompt, userPrompt, jsonMode = false) {
     });
 
     const data = await response.json();
-    if (data.candidates && data.candidates[0].content.parts[0].text) {
-      return data.candidates[0].content.parts[0].text;
+    if (!response.ok) {
+      throw new Error(`Gemini API ${response.status}: ${data?.error?.message || JSON.stringify(data).slice(0, 200)}`);
     }
-    throw new Error('Malformed API response');
+    // Same list-of-parts reality as the vision path: the first part is not guaranteed to be the
+    // text one, and `parts[0].text` throws on a response that is perfectly valid.
+    const replyParts = data?.candidates?.[0]?.content?.parts;
+    const text = Array.isArray(replyParts)
+      ? replyParts.map((part) => part?.text).find((value) => typeof value === 'string' && value.trim() !== '')
+      : undefined;
+    if (text) return text;
+    throw new Error(`Gemini API returned no text part (finishReason: ${data?.candidates?.[0]?.finishReason || 'none'})`);
   } catch (error) {
     console.error('Gemini API call failed, falling back to simulation:', error.message);
     return JSON.stringify({ error: true, message: error.message });
@@ -142,9 +149,32 @@ export async function askGeminiVision(systemPrompt, textPrompt, images = [], jso
   });
 
   const data = await response.json();
-  const text = data?.candidates?.[0]?.content?.parts?.[0]?.text;
+
+  // The provider's OWN words, when it is the provider that failed. The first version threw
+  // "Malformed Gemini vision API response" and discarded `data`, so a live run recorded a session
+  // that said only "malformed" — no status, no provider message, no finish reason. That is
+  // indistinguishable from a bug in this file, and it is what a real identity case was left holding.
+  if (!response.ok) {
+    const detail = data?.error?.message || JSON.stringify(data).slice(0, 200);
+    throw new Error(`Gemini vision API ${response.status}: ${detail}`);
+  }
+
+  // A candidate's `parts` is a LIST, and only some of its entries carry text — a 2.5-series model
+  // may put a non-text part first. Reading `parts[0].text` therefore fails on a perfectly good
+  // response. Take the first part that actually has text.
+  const candidate = data?.candidates?.[0];
+  const replyParts = candidate?.content?.parts;
+  const text = Array.isArray(replyParts)
+    ? replyParts.map((part) => part?.text).find((value) => typeof value === 'string' && value.trim() !== '')
+    : undefined;
+
   if (!text) {
-    throw new Error('Malformed Gemini vision API response');
+    const finish = candidate?.finishReason || 'no finishReason';
+    const blocked = data?.promptFeedback?.blockReason;
+    throw new Error(
+      `Gemini vision API returned no text part (finishReason: ${finish}`
+      + `${blocked ? `, blockReason: ${blocked}` : ''}, parts: ${Array.isArray(replyParts) ? replyParts.length : 'none'})`,
+    );
   }
   return text;
 }
