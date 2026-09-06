@@ -53,9 +53,13 @@ router.get('/api/features/effective', asyncHandler(async (req, res) => {
   // role + tenantId are trusted/server-derived; userId + cohortId only feed the
   // deterministic percentage bucket (cohortId is opaque, NON-AUTH). The response
   // stays subject-free (sanitized) — no bucket or subject is ever leaked.
-  const { role, tenantId, userId, cohortId } = await resolveRequestContext(req);
+  // `tenantRole` is the caller's VERIFIED tenant_users role, read server-side like the others. It
+  // widens eligibility only for features whose own allow-list already names it — a garage employee
+  // is an `owner` platform-wide and a `mechanic` in their garage, and judging on the platform role
+  // alone showed them "Feature unavailable" on their own workspace.
+  const { role, tenantId, tenantRole, userId, cohortId } = await resolveRequestContext(req);
   const states = await getEffectiveStates(
-    { environment: serverEnvironment(), role, tenantId, userId, cohortId },
+    { environment: serverEnvironment(), role, tenantId, tenantRole, userId, cohortId },
     { sanitize: true },
   );
   res.json({ environment: serverEnvironment(), features: states });

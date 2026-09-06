@@ -391,3 +391,71 @@ test('Round 2c: a failed membership read is LOGGED, never silently answered as "
   assert.match(fn, /if \(error\)/, 'the supabase error must be inspected, not just `data` destructured');
   assert.match(fn, /console\.error/, 'a failed membership read must be logged');
 });
+
+/* ── Round 2d — feature eligibility must accept the verified tenant role ────────────────────────
+ *
+ * Round 2d: a real garage tenant-member finally REACHED /garage — and was shown
+ * "Feature unavailable. This feature is currently turned off." The static lifecycle was `active`
+ * and `enabled` was true. The feature was reported `accessible: false`, because eligibility was
+ * computed from the PLATFORM role alone, and public registration makes every self-registered garage
+ * employee an `owner`.
+ *
+ * This is the FOURTH layer that judged the same person by the wrong one of their two true roles.
+ * The rule is the backend's own: the platform role OR the verified tenant role.
+ */
+const { evaluateEffectiveState } = await import('../services/featureGovernance/featureGovernanceService.js');
+
+const GARAGE_FEATURE = {
+  id: 'garage.workshop',
+  defaultLifecycle: 'active',
+  defaultRoles: ['mechanic', 'dealer', 'admin'],
+  immutableRoles: ['mechanic', 'dealer', 'admin'],
+  requiresAuth: true,
+};
+
+test('Round 2d: a garage employee may use the garage feature on their TENANT role', () => {
+  const state = evaluateEffectiveState(GARAGE_FEATURE, null, { role: 'owner', tenantRole: 'mechanic' });
+  assert.equal(state.accessible, true, 'a real garage member must not be told the feature is off');
+  assert.equal(state.visible, true, 'and it must not be hidden from their navigation');
+});
+
+test('Round 2d: an ordinary owner still may not — the control case', () => {
+  // If this ever passes, the test above proves nothing.
+  const state = evaluateEffectiveState(GARAGE_FEATURE, null, { role: 'owner', tenantRole: null });
+  assert.equal(state.accessible, false);
+  assert.equal(state.visible, false);
+});
+
+test('Round 2d: a tenant role does not open a feature that never allowed it', () => {
+  const adminOnly = {
+    id: 'admin.console', defaultLifecycle: 'active',
+    defaultRoles: ['admin'], immutableRoles: ['admin'], requiresAuth: true,
+  };
+  const state = evaluateEffectiveState(adminOnly, null, { role: 'owner', tenantRole: 'mechanic' });
+  assert.equal(state.accessible, false, 'tenant membership must never reach a platform-admin surface');
+});
+
+test('Round 2d: a DISABLED feature stays disabled for a tenant member', () => {
+  // Eligibility is one factor among several. Widening it must not override a kill switch.
+  const state = evaluateEffectiveState(
+    GARAGE_FEATURE,
+    { feature_id: 'garage.workshop', environment: 'production', enabled: false },
+    { environment: 'production', role: 'owner', tenantRole: 'mechanic' },
+  );
+  assert.equal(state.accessible, false, 'an override that turns a feature off must still win');
+});
+
+test('Round 2d: an override cannot broaden to a role the feature never named', () => {
+  const state = evaluateEffectiveState(
+    GARAGE_FEATURE,
+    { feature_id: 'garage.workshop', environment: 'production', allowed_roles: ['owner', 'mechanic'] },
+    { environment: 'production', role: 'owner', tenantRole: null },
+  );
+  assert.equal(state.accessible, false,
+    'immutableRoles still bound the override — "owner" is filtered out, so a plain owner stays out');
+});
+
+test('Round 2d: anonymous callers are unaffected', () => {
+  const state = evaluateEffectiveState(GARAGE_FEATURE, null, { role: null, tenantRole: null });
+  assert.equal(state.accessible, false);
+});
