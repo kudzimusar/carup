@@ -161,6 +161,7 @@ import VehicleOperationsReview from './pages/dashboard/admin/VehicleOperationsRe
 import PeopleComplianceReview from './pages/dashboard/admin/PeopleComplianceReview'
 import FraudQueue from './pages/dashboard/admin/FraudQueue'
 import DealerCompliance from './pages/dashboard/admin/DealerCompliance'
+import GarageApplications from './pages/dashboard/admin/GarageApplications'
 import IdentityVerificationCaseManagement from './pages/dashboard/admin/IdentityVerificationCaseManagement'
 import TrustReviewQueue from './pages/dashboard/shared/TrustReviewQueue'
 import GovernanceReviewQueue from './pages/dashboard/shared/GovernanceReviewQueue'
@@ -458,6 +459,7 @@ export default function App() {
           <Route path="/admin/people/:userId/review" element={<PeopleComplianceReview />} />
           <Route path="/admin/fraud-queue" element={<FraudQueue />} />
           <Route path="/admin/dealer-compliance" element={<DealerCompliance />} />
+          <Route path="/admin/garage-applications" element={<GarageApplications />} />
           <Route path="/admin/verification" element={<IdentityVerificationCaseManagement />} />
           <Route path="/admin/trust-review" element={<TrustReviewQueue />} />
           <Route path="/admin/governance-review" element={<GovernanceReviewQueue />} />

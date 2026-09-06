@@ -2485,6 +2485,32 @@ export function useCarUpApi() {
     })
   }, [request])
 
+  /* ── GMO-3: the Operations / Compliance reviewer ───────────────────────────────────────────────
+     Every one of these sits behind role + the named review capability + X3 step-up on the server.
+     The browser calls them; it never decides who may. */
+
+  const fetchGarageApplicationsForReview = useCallback(async (status?: string): Promise<any> => {
+    const q = status ? `?status=${encodeURIComponent(status)}` : ''
+    return request<any>(`/admin/garage-applications${q}`, { method: 'GET' })
+  }, [request])
+
+  const fetchGarageApplicationForReview = useCallback(async (id: string): Promise<any> => {
+    return request<any>(`/admin/garage-applications/${encodeURIComponent(id)}`, { method: 'GET' })
+  }, [request])
+
+  const decideGarageApplication = useCallback(async (id: string, body: Record<string, unknown>): Promise<any> => {
+    return request<any>(`/admin/garage-applications/${encodeURIComponent(id)}/decision`, {
+      method: 'POST', body: JSON.stringify(body),
+    })
+  }, [request])
+
+  const previewGarageEvidenceForReview = useCallback(async (id: string, docId: string): Promise<any> => {
+    return request<any>(
+      `/admin/garage-applications/${encodeURIComponent(id)}/evidence/${encodeURIComponent(docId)}/preview`,
+      { method: 'GET' },
+    )
+  }, [request])
+
   /* ── Garage operator workspace (R5) ──────────────────────────────────────────────────────────
      Every one of these endpoints was already certified and had no product surface: the garage's
      queue, its own members, and the case/work-order/record lifecycle. Nothing new is invented
@@ -3289,6 +3315,10 @@ export function useCarUpApi() {
     previewGarageEvidence,
     extractGarageEvidence,
     acknowledgeGarageEvidence,
+    fetchGarageApplicationsForReview,
+    fetchGarageApplicationForReview,
+    decideGarageApplication,
+    previewGarageEvidenceForReview,
     fetchGarageQueue,
     fetchGarageMechanics,
     fetchGarageCustomers,

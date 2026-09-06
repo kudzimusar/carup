@@ -891,6 +891,18 @@ export const FEATURE_REGISTRY: FeatureRegistryItem[] = [
     description: 'Dealer verification and compliance decisions',
   },
   {
+    id: 'admin.garage-applications',
+    label: 'Garage Applications',
+    route: '/admin/garage-applications',
+    domain: 'admin',
+    roles: ['admin'],
+    placements: ['dashboard_sidebar'],
+    requiresAuth: true,
+    icon: 'Wrench',
+    sidebarGroup: 'People',
+    description: 'Review businesses applying to operate a garage',
+  },
+  {
     id: 'admin.governance-review',
     label: 'Governance Review',
     route: '/admin/governance-review',

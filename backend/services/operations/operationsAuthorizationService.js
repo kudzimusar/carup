@@ -41,6 +41,10 @@ export const OPERATIONS_CAPABILITIES = Object.freeze({
   // demand a PROVEN session at the route AND a fresh step-up (the assurance guard) on top.
   IDENTITY_LIFECYCLE: 'operations.identity.lifecycle',
   ACCOUNT_SECURITY: 'operations.account.security',
+  // GMO-3 — deciding whether a garage application becomes a real workspace. Same static-map
+  // discipline as the rest: the capability names the authority so the garage review path
+  // authorizes against it rather than adding another raw role check.
+  GARAGE_ONBOARDING_REVIEW: 'operations.garage_onboarding.review',
 });
 
 const ALL_VEHICLE_OPERATIONS = Object.freeze([
@@ -56,6 +60,7 @@ const ALL_PEOPLE_OPERATIONS = Object.freeze([
   OPERATIONS_CAPABILITIES.DEALER_COMPLIANCE_REVIEW,
   OPERATIONS_CAPABILITIES.IDENTITY_LIFECYCLE,
   OPERATIONS_CAPABILITIES.ACCOUNT_SECURITY,
+  OPERATIONS_CAPABILITIES.GARAGE_ONBOARDING_REVIEW,
 ]);
 
 const ALL_OPERATIONS = Object.freeze([...ALL_VEHICLE_OPERATIONS, ...ALL_PEOPLE_OPERATIONS]);
