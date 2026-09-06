@@ -549,6 +549,27 @@ export type ResolvedServiceLink = {
   practitioner?: { affiliation: { display_name: string; slug: string } | null; credential_review_state: string | null } | null
 }
 
+/**
+ * The routes the backend gates on GARAGE_ROLES.
+ *
+ * Round 2f: this began as `path.startsWith('/garage/')`, which covered the queue, the members list
+ * and the profile — and missed the entire case lifecycle, because accept/decline/start/complete
+ * live under `/service-cases/:id/...`. The Workshop listed five real jobs and Accept came back
+ * "Forbidden. Role 'owner' cannot access this resource."
+ *
+ * So the list is derived from the backend rather than guessed: it mirrors every route carrying
+ * `authorizeSessionRole(GARAGE_ROLES)`. Note what is deliberately NOT here — `POST /service-cases`
+ * and `/service-cases/:id/cancel` are the REQUESTER's own actions and must keep the platform role,
+ * and `/service-cases/:id` is readable by both sides.
+ */
+export function isGarageSideRoute(path: string): boolean {
+  const p = path.split('?')[0]
+  if (p.startsWith('/garage/')) return true
+  if (p.startsWith('/service-work-orders/')) return true
+  if (p.startsWith('/service-records/')) return true
+  return /^\/service-cases\/[^/]+\/(accept|decline|start|complete|work-order)$/.test(p)
+}
+
 export function useCarUpApi() {
   const { user, token } = useAuth()
   const [loading, setLoading] = useState(false)
@@ -566,19 +587,18 @@ export function useCarUpApi() {
     if (user?.role) authHeaders['x-stakeholder-role'] = user.role
     if (user?.active_tenant_id) authHeaders['x-tenant-id'] = user.active_tenant_id
 
-    // Act for the tenant on tenant-scoped routes.
+    // Act for the tenant on the garage-side routes.
     //
     // Round 2 owner UAT: a real garage tenant-member got 403 on every garage route. Public
     // registration makes a self-registered garage employee an `owner`, so this header carried
     // `owner` and the garage routes — which allow mechanic/dealer/admin — refused. The person's
     // membership genuinely says `mechanic`; the browser just never said so.
     //
-    // The tenant role is asserted ONLY on `/garage/*`, and it is not a privilege escalation:
-    // `resolveEffectiveRole` honours a requested role solely when it equals the platform role or
-    // the VERIFIED `tenant_users` role, so a claim the membership does not support is still
-    // refused, exactly as it was before this line existed. Every other route keeps the platform
-    // role, so nothing outside the garage surfaces changes behaviour.
-    if (user?.active_tenant_role && path.startsWith('/garage/')) {
+    // This is not a privilege escalation: `resolveEffectiveRole` honours a requested role solely
+    // when it equals the platform role or the VERIFIED `tenant_users` role, so a claim the
+    // membership does not support is refused exactly as it was before. Every other route keeps the
+    // platform role — including the requester's own actions on a case, which are the OWNER's.
+    if (user?.active_tenant_role && isGarageSideRoute(path)) {
       authHeaders['x-stakeholder-role'] = user.active_tenant_role
     }
 
