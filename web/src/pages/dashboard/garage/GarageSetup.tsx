@@ -6,6 +6,7 @@ import { Loader2, CheckCircle2, Clock, AlertCircle, XCircle } from 'lucide-react
 import { useCarUpApi } from '@/hooks/useCarUpApi'
 import { SERVICE_CATEGORIES } from '@/lib/serviceRequests'
 import { SN_PAGE, SN_FORM_COLUMN } from '@/lib/serviceNetworkLayout'
+import GarageEvidence from './GarageEvidence'
 import {
   APPLICANT_RELATIONSHIPS,
   STATUS_TONE_CLASS,
@@ -58,6 +59,9 @@ export default function GarageSetup() {
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [savedAt, setSavedAt] = useState<string | null>(null)
+  // `null` means "not measured yet" and renders as such. A 0 here would tell a person who uploaded
+  // three documents that they have none.
+  const [evidenceCount, setEvidenceCount] = useState<number | null>(null)
 
   // Local form state so typing stays responsive; autosave reconciles it with the server.
   const [form, setForm] = useState<Partial<GarageApplication> & { attestation_accepted?: boolean }>({})
@@ -93,6 +97,21 @@ export default function GarageSetup() {
   }, [fetchMyGarageApplication, adopt])
 
   useEffect(() => { load() }, [load])
+
+  /**
+   * Evidence changed, so the server's blocker list changed with it.
+   *
+   * This refreshes the blockers WITHOUT calling `load()`, which would re-adopt the server row into
+   * the form — and a person who typed their garage name and then uploaded a photo before the
+   * 900ms autosave landed would watch their typing disappear. A failed refresh keeps the last
+   * known blockers rather than inventing an empty list.
+   */
+  const handleEvidenceChanged = useCallback((count: number) => {
+    setEvidenceCount(count)
+    fetchMyGarageApplication()
+      .then((res) => setBlockers(res?.blockers ?? null))
+      .catch(() => { /* the previous blockers remain the best thing we know */ })
+  }, [fetchMyGarageApplication])
 
   /** Autosave at a meaningful boundary, not on every keystroke. */
   const queueSave = useCallback((patch: Record<string, unknown>) => {
@@ -197,7 +216,7 @@ export default function GarageSetup() {
   }
 
   const presentation = statusPresentation(application?.status ?? 'draft')
-  const steps = setupSteps(application, blockers)
+  const steps = setupSteps(application, blockers, evidenceCount)
   const canSend = editable && Array.isArray(blockers) && blockers.length === 0
 
   return (
@@ -365,6 +384,15 @@ export default function GarageSetup() {
               I confirm these details are true, and that I am allowed to act for this business.
             </span>
           </label>
+
+          <div className="border-t pt-4">
+            <GarageEvidence
+              applicationId={application!.id}
+              editable={editable}
+              onChanged={handleEvidenceChanged}
+              onUseValue={setField}
+            />
+          </div>
 
           <div className="border-t pt-4">
             {blockers && blockers.length > 0 && (

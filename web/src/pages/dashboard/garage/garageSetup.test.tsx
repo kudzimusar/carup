@@ -15,9 +15,16 @@ const fetchMyGarageApplication = vi.fn()
 const startGarageApplication = vi.fn()
 const saveGarageApplication = vi.fn()
 const submitGarageApplication = vi.fn()
+// GMO-2: the page now composes the evidence section, which loads on mount.
+const listGarageEvidence = vi.fn()
 
 vi.mock('@/hooks/useCarUpApi', () => ({
-  useCarUpApi: () => ({ fetchMyGarageApplication, startGarageApplication, saveGarageApplication, submitGarageApplication }),
+  useCarUpApi: () => ({
+    fetchMyGarageApplication, startGarageApplication, saveGarageApplication, submitGarageApplication,
+    listGarageEvidence,
+    uploadGarageEvidence: vi.fn(), removeGarageEvidence: vi.fn(), previewGarageEvidence: vi.fn(),
+    extractGarageEvidence: vi.fn(), acknowledgeGarageEvidence: vi.fn(),
+  }),
 }))
 
 const COMPLETE = {
@@ -33,6 +40,7 @@ beforeEach(() => {
   vi.clearAllMocks()
   saveGarageApplication.mockResolvedValue({ application: COMPLETE, blockers: [] })
   submitGarageApplication.mockResolvedValue({ application: { ...COMPLETE, status: 'submitted' } })
+  listGarageEvidence.mockResolvedValue({ documents: [] })
 })
 
 const view = () => render(<MemoryRouter><GarageSetup /></MemoryRouter>)

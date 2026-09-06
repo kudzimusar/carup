@@ -2449,6 +2449,42 @@ export function useCarUpApi() {
     })
   }, [request])
 
+  /* ── GMO-2: business-presence evidence ─────────────────────────────────────────────────────────
+     Extraction is offered as assistance. `extractGarageEvidence` resolves rather than rejects when
+     reading is unavailable — the truthful state comes back in the body, because "we cannot read
+     this" is an answer, not a failure. */
+
+  const evidenceBase = (appId: string) =>
+    `/garage-onboarding/application/${encodeURIComponent(appId)}/evidence`
+
+  const listGarageEvidence = useCallback(async (appId: string): Promise<any> => {
+    return request<any>(evidenceBase(appId), { method: 'GET' })
+  }, [request])
+
+  const uploadGarageEvidence = useCallback(async (appId: string, body: Record<string, unknown>): Promise<any> => {
+    return request<any>(evidenceBase(appId), { method: 'POST', body: JSON.stringify(body) })
+  }, [request])
+
+  const removeGarageEvidence = useCallback(async (appId: string, docId: string): Promise<any> => {
+    return request<any>(`${evidenceBase(appId)}/${encodeURIComponent(docId)}`, { method: 'DELETE' })
+  }, [request])
+
+  const previewGarageEvidence = useCallback(async (appId: string, docId: string): Promise<any> => {
+    return request<any>(`${evidenceBase(appId)}/${encodeURIComponent(docId)}/preview`, { method: 'GET' })
+  }, [request])
+
+  const extractGarageEvidence = useCallback(async (appId: string, docId: string): Promise<any> => {
+    return request<any>(`${evidenceBase(appId)}/${encodeURIComponent(docId)}/extract`, {
+      method: 'POST', body: '{}',
+    })
+  }, [request])
+
+  const acknowledgeGarageEvidence = useCallback(async (appId: string, docId: string): Promise<any> => {
+    return request<any>(`${evidenceBase(appId)}/${encodeURIComponent(docId)}/acknowledge`, {
+      method: 'POST', body: '{}',
+    })
+  }, [request])
+
   /* ── Garage operator workspace (R5) ──────────────────────────────────────────────────────────
      Every one of these endpoints was already certified and had no product surface: the garage's
      queue, its own members, and the case/work-order/record lifecycle. Nothing new is invented
@@ -3247,6 +3283,12 @@ export function useCarUpApi() {
     startGarageApplication,
     saveGarageApplication,
     submitGarageApplication,
+    listGarageEvidence,
+    uploadGarageEvidence,
+    removeGarageEvidence,
+    previewGarageEvidence,
+    extractGarageEvidence,
+    acknowledgeGarageEvidence,
     fetchGarageQueue,
     fetchGarageMechanics,
     fetchGarageCustomers,

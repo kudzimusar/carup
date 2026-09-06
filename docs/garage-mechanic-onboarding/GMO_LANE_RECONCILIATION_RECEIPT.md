@@ -90,6 +90,36 @@ total mounted routes : 754
 Both parents' surfaces are live in the same process. A declared-but-unmounted router — the exact
 post-#194 failure — would show here.
 
+> **CORRECTION (GMO-2, 2026-09-06) — the three numbers above are superseded.**
+>
+> Re-measuring during GMO-2 gave a different total, so the enumeration was redone with a method
+> stated in full below. The earlier figures came from a script that is no longer reproducible and
+> should not be cited.
+>
+> **Method.** Boot `backend/server.js`, walk `app._router.stack` recursively, and emit one entry per
+> `METHOD path` pair (a path serving GET and POST counts twice). Attribute a route to a programme by
+> its first path segment after `/api/`, using the segment lists printed below rather than a
+> free-text guess.
+>
+> ```
+> total mounted routes (method+path)     : 760   before GMO      770   after GMO
+> GMO contribution, proven by ablation   :  10   (mount removed, re-measured, delta = 10)
+>
+> Service Network (#197)                 :  35
+>   /api/garage 11 · /api/service-cases 9 · /api/service-work-orders 5
+>   /api/service-records 4 · /api/mechanic 6
+>
+> O2 People & Compliance (#208)          : 104
+>   /api/workbook 45 · /api/verification 15 · /api/identity 9 · /api/dealer-onboarding 9
+>   /api/dealer 6 · /api/compliance 8 · /api/evidence 5 · /api/documents 7
+> ```
+>
+> The **conclusion is unchanged and is now better supported**: both parents' surfaces are live in
+> one process, and a declared-but-unmounted router would still show. What changed is that the
+> numbers are now reproducible from a stated method. The correction is recorded rather than quietly
+> swapped, because a committed figure that cannot be re-derived is how a measurement artifact
+> becomes an architectural claim.
+
 ---
 
 ## 4. Parent regression gates

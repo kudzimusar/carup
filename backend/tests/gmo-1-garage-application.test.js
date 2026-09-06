@@ -30,24 +30,39 @@ const {
 const APPLICANT = 'u_garage_applicant_1';
 const OTHER = 'u_someone_else';
 
-/** Supabase-shaped stub. Tables may be arrays, objects or functions of the filters. */
+/**
+ * Supabase-shaped stub. Tables may be arrays, objects or functions of the filters.
+ *
+ * GMO-2 added a second read to the submission path — the live-evidence count that PO-2 item 9
+ * requires — so the stub answers `garage_application_documents` with one live document by default.
+ * Tests that care about the evidence gate override it explicitly; every other test here is about
+ * the application itself and should not have to restate that evidence exists.
+ */
 function client(tables, log = []) {
+  const withDefaults = { garage_application_documents: [{ id: 'ev-1' }], ...tables };
   const from = (table) => {
     const filters = {};
     let inFilter = null;
     let payload = null;
     let op = 'select';
+    let head = false;
     const result = () => {
       log.push({ table, op, filters: { ...filters }, in: inFilter, payload });
-      const entry = tables[table];
-      if (typeof entry === 'function') return entry(filters, { op, payload, inFilter });
-      return { data: entry === undefined ? null : entry, error: null };
+      const entry = withDefaults[table];
+      const out = typeof entry === 'function'
+        ? entry(filters, { op, payload, inFilter })
+        : { data: entry === undefined ? null : entry, error: null };
+      if (head && out.count === undefined) {
+        out.count = Array.isArray(out.data) ? out.data.length : (out.data ? 1 : 0);
+      }
+      return out;
     };
     const chain = {
-      select() { return chain; },
+      select(_cols, opts) { if (opts?.head) head = true; return chain; },
       insert(p) { op = 'insert'; payload = p; return chain; },
       update(p) { op = 'update'; payload = p; return chain; },
       eq(k, v) { filters[k] = v; return chain; },
+      is(k, v) { filters[`is:${k}`] = v; return chain; },
       in(k, v) { inFilter = { key: k, values: v }; return chain; },
       order() { return chain; },
       limit() { return chain; },

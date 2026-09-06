@@ -21,7 +21,7 @@ export const APPLICATION_STATUSES = Object.freeze([
 ]);
 
 /** Statuses where the applicant still owns the form. */
-const APPLICANT_EDITABLE = Object.freeze(['draft', 'information_required']);
+export const APPLICANT_EDITABLE = Object.freeze(['draft', 'information_required']);
 
 /** Statuses that are not yet history — one live application per person. */
 const LIVE_STATUSES = Object.freeze(['draft', 'submitted', 'information_required', 'under_review']);
@@ -130,7 +130,14 @@ function normaliseInput(body = {}) {
  * These mirror PO-2's minimum activation evidence, minus the pieces that belong to other phases:
  * person-identity approval is O2's, and business-presence evidence arrives in GMO-2.
  */
-export function submissionBlockers(application = {}) {
+/**
+ * GMO-2 — PO-2 item 9: at least one credible business-presence evidence source.
+ *
+ * `evidenceCount` is passed in rather than read here so this stays a pure function of what the
+ * caller measured. `null` means "not measured" and cannot manufacture a blocker: a caller that
+ * forgot to count must not silently tell an applicant their evidence is missing.
+ */
+export function submissionBlockers(application = {}, evidenceCount = null) {
   const blockers = [];
   if (!application.trading_name) blockers.push('a garage name');
   if (!application.location_city) blockers.push('the city you operate in');
@@ -141,7 +148,27 @@ export function submissionBlockers(application = {}) {
     blockers.push('at least one kind of work you do');
   }
   if (!application.attestation_accepted_at) blockers.push('your confirmation that the details are true');
+  if (evidenceCount !== null && evidenceCount < 1) {
+    blockers.push('at least one document or photo that shows your garage is real');
+  }
   return blockers;
+}
+
+/**
+ * How many live evidence documents an application carries.
+ *
+ * A failed count raises. It must never return 0, because 0 here becomes "your evidence is missing"
+ * in front of an applicant who uploaded it — the same class of lie as a broken membership lookup
+ * presenting as "no membership".
+ */
+export async function countLiveEvidence(client = defaultClient, applicationId) {
+  const { count, error } = await client
+    .from('garage_application_documents')
+    .select('id', { count: 'exact', head: true })
+    .eq('application_id', applicationId)
+    .is('removed_at', null);
+  if (error) throw new DatabaseError(`Could not check the evidence on your application: ${error.message}`);
+  return count || 0;
 }
 
 /** The applicant's own live application, or the most recent terminal one. */
@@ -165,7 +192,7 @@ export async function getMyApplication(client = defaultClient, actor = {}) {
       id: r.id, status: r.status, decided_at: r.decided_at,
       decision_reason_code: r.decision_reason_code, created_at: r.created_at,
     })),
-    blockers: latest ? submissionBlockers(latest) : null,
+    blockers: latest ? submissionBlockers(latest, latest ? await countLiveEvidence(client, latest.id) : null) : null,
     editable: Boolean(latest && APPLICANT_EDITABLE.includes(latest.status)),
   };
 }
@@ -267,7 +294,7 @@ export async function submitApplication(client = defaultClient, actor = {}, appl
     throw new ConflictError(`This application is already ${current.status.replace(/_/g, ' ')}.`);
   }
 
-  const blockers = submissionBlockers(current);
+  const blockers = submissionBlockers(current, await countLiveEvidence(client, applicationId));
   if (blockers.length) {
     throw new ValidationError(`Before you can submit, add: ${blockers.join(', ')}.`);
   }
