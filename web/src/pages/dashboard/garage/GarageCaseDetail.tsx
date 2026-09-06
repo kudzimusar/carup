@@ -4,7 +4,7 @@ import { Card, CardContent } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { ArrowLeft, Loader2, Car, ClipboardList, UserCog, CheckCircle2 } from 'lucide-react'
-import { useCarUpApi } from '@/hooks/useCarUpApi'
+import { useCarUpApi, type ServiceCaseView } from '@/hooks/useCarUpApi'
 import {
   caseStatusLabel,
   categoryLabel,
@@ -37,20 +37,13 @@ import {
  * the vehicle's odometer, and the screen says so where it is typed.
  */
 
-type CaseView = {
-  id: string
-  vin: string
-  status: string
-  service_category: string | null
-  request_summary: string | null
-  requested_at: string | null
-  accepted_at: string | null
-  started_at: string | null
-  completed_at: string | null
-  declined_at: string | null
-  cancelled_at: string | null
-  conversation_thread_id: string | null
-}
+/**
+ * The case projection, as the route returns it.
+ *
+ * Imported rather than re-declared: a local copy is how the two drift, and CI caught exactly that —
+ * a locally-declared `conversation_thread_id: string | null` against the hook's optional field.
+ */
+type CaseView = ServiceCaseView
 
 type Mechanic = { user_id: string; display_name: string | null; role: string | null }
 
@@ -83,8 +76,8 @@ export default function GarageCaseDetail() {
   const load = useCallback(() => {
     if (!caseId) return Promise.resolve()
     return fetchServiceRequest(caseId)
-      .then((detail: { case?: CaseView } | CaseView) => {
-        const view = ((detail as { case?: CaseView })?.case ?? detail) as CaseView
+      .then((detail) => {
+        const view = (detail?.case ?? detail) as CaseView
         setCaseView(view)
         // The case projection carries no work-order id, so the queue — filtered to this case's own
         // status so a finished job is found too — is where the job card is discovered. Reading it
