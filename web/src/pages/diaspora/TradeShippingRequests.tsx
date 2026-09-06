@@ -185,7 +185,12 @@ export default function TradeShippingRequests() {
   const [selected, setSelected] = useState<LogisticsRequest | null>(null)
   const [sailings, setSailings] = useState<LogisticsSailingMatch[]>([])
   const [sailingsUnreadable, setSailingsUnreadable] = useState(false)
-  const [showAllSailings, setShowAllSailings] = useState(false)
+  // F1 — sailing discovery is a SEPARATE read from the request itself. 'pending' is a real state
+  // and must never be rendered as "no sailings found": one is "we are still looking", the other
+  // is a claim about the marketplace.
+  const [sailingsLoading, setSailingsLoading] = useState(false)
+  // F3 — each route CATEGORY expands independently, so opening one never hides the other.
+  const [showAllSailings, setShowAllSailings] = useState<{ direct: boolean; gateway: boolean }>({ direct: false, gateway: false })
   // T5.7 lifecycle controls: first click arms, second confirms — a destructive verb never fires
   // from a single accidental tap, and no browser confirm() dialog interrupts the flow.
   const [armedLifecycle, setArmedLifecycle] = useState<'cancel' | 'close' | null>(null)
@@ -476,6 +481,49 @@ export default function TradeShippingRequests() {
     } finally { setBusy(false) }
   }
 
+  /**
+   * F1 — sailing discovery, run INDEPENDENTLY of opening the page.
+   *
+   * Discovery reads the whole open marketplace; the request itself is one row. Making the page
+   * wait for the former meant a ~13–14s stare at the wizard after a publish that had already
+   * succeeded. It is now a background refresh against the same generation guard, so a newer open
+   * supersedes it and a stale response can never overwrite a newer page.
+   */
+  const loadSailings = useCallback(async (id: string, generation: number) => {
+    setSailingsLoading(true); setSailingsUnreadable(false); setSailings([])
+    try {
+      const matches = await api.findSailingMatches(id)
+      if (generation !== detailGeneration.current) return
+      setSailings(matches); setSailingsUnreadable(false)
+    } catch {
+      if (generation !== detailGeneration.current) return
+      // Unreadable is NOT empty. Saying "none found" here would be a claim about the marketplace
+      // that a failed read cannot support.
+      setSailings([]); setSailingsUnreadable(true)
+    } finally {
+      if (generation === detailGeneration.current) setSailingsLoading(false)
+    }
+  }, [api])
+
+  /** #29 — read the live reservation state back from the container authority. Also background. */
+  const refreshReservationState = useCallback(async (request: LogisticsRequest, generation: number) => {
+    const reservationId = typeof request.metadata?.reservation_id === 'string' ? request.metadata.reservation_id : null
+    const acceptedQuote = (request.quotes || []).find((quote) => quote.id === request.accepted_quote_id)
+    if (!reservationId || !acceptedQuote?.compatible_container_id) return
+    try {
+      const rows = await fetchContainerReservations(String(acceptedQuote.compatible_container_id))
+      if (generation !== detailGeneration.current) return
+      const row = rows.find((entry) => String(entry.id) === reservationId)
+      const status = row ? String(row.reservation_status || '') : ''
+      if (status) { setReservationState(status); setReservationStale(false) }
+      // Not finding the row is a failure to REFRESH, not evidence about the reservation.
+      else setReservationStale(true)
+    } catch {
+      if (generation !== detailGeneration.current) return
+      setReservationStale(true)
+    }
+  }, [fetchContainerReservations])
+
   const openDetail = async (id: string) => {
     if (busy) return
     const generation = ++detailGeneration.current
@@ -485,46 +533,24 @@ export default function TradeShippingRequests() {
       reservationForRequest.current = id
       setReservationState(null); setReservationStale(false)
     }
+    let request: LogisticsRequest | null = null
     try {
-      const request = await api.getRequest(id)
+      // PHASE 1 — everything the page needs to BE the page. One row, one round trip.
+      request = await api.getRequest(id)
       if (generation !== detailGeneration.current) return // a newer open superseded this one
       setSelected(request)
-      try {
-        const matches = await api.findSailingMatches(id)
-        if (generation !== detailGeneration.current) return
-        setSailings(matches)
-        setSailingsUnreadable(false)
-      } catch {
-        if (generation !== detailGeneration.current) return
-        setSailings([])
-        setSailingsUnreadable(true)
-      }
-      // #29: a recorded space request is a live thing with a real state — read it back from the
-      // container product instead of narrating a frozen "pending". A failed read is UNREADABLE,
-      // never a claimed state.
-      const reservationId = typeof request.metadata?.reservation_id === 'string' ? request.metadata.reservation_id : null
-      const acceptedQuote = (request.quotes || []).find((quote) => quote.id === request.accepted_quote_id)
-      if (reservationId && acceptedQuote?.compatible_container_id) {
-        try {
-          const rows = await fetchContainerReservations(String(acceptedQuote.compatible_container_id))
-          if (generation !== detailGeneration.current) return
-          const row = rows.find((entry) => String(entry.id) === reservationId)
-          const status = row ? String(row.reservation_status || '') : ''
-          if (status) { setReservationState(status); setReservationStale(false) }
-          // Not finding the row is a failure to REFRESH, not evidence about the reservation.
-          else setReservationStale(true)
-        } catch {
-          if (generation !== detailGeneration.current) return
-          setReservationStale(true)
-        }
-      }
       setView('detail')
     } catch (err) {
       if (generation !== detailGeneration.current) return
       setError(err instanceof Error ? err.message : 'Shipping request could not be loaded')
+      return
     } finally {
       if (generation === detailGeneration.current) setBusy(false)
     }
+    // PHASE 2 — the slow, marketplace-wide reads. Deliberately NOT awaited: the page is already
+    // usable and these fill in beside it. Both honour the same generation guard.
+    void loadSailings(id, generation)
+    void refreshReservationState(request, generation)
   }
 
 
@@ -1165,8 +1191,25 @@ export default function TradeShippingRequests() {
             {selected.status === 'OPEN_FOR_QUOTES' && (
               <div className="mt-7" data-testid="logistics-sailing-matches-state">
                 <h2 className="text-sm font-bold text-slate-950">CarUp sailings that may fit</h2>
-                {sailingsUnreadable ? (
-                  <p className="mt-2 border-l-2 border-amber-400 pl-3 text-xs text-amber-900" data-testid="logistics-sailings-unreadable">Compatible sailings could not be checked. This is not a report that none are available; you can still compare provider offers.</p>
+                {sailingsLoading ? (
+                  /* F1 — a pending read is its OWN state. Rendering "none found" while the query
+                     is still running would be a claim about the marketplace we have not earned. */
+                  <p className="mt-2 flex items-center gap-2 text-xs text-slate-600" data-testid="logistics-sailings-loading">
+                    <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden="true" />
+                    Looking for compatible sailings…
+                  </p>
+                ) : sailingsUnreadable ? (
+                  <div className="mt-2 border-l-2 border-amber-400 pl-3" data-testid="logistics-sailings-unreadable">
+                    <p className="text-xs text-amber-900">Compatible sailings could not be checked. This is not a report that none are available; you can still compare provider offers.</p>
+                    <button
+                      type="button"
+                      className="mt-1 text-xs font-semibold text-orange-700 hover:underline"
+                      data-testid="logistics-sailings-retry"
+                      onClick={() => void loadSailings(selected.id, detailGeneration.current)}
+                    >
+                      Try again
+                    </button>
+                  </div>
                 ) : sailings.length === 0 ? (
                   <p className="mt-2 text-xs text-slate-500" data-testid="logistics-sailings-empty">No compatible open CarUp sailings were found from the recorded route and capacity facts.</p>
                 ) : (() => {
@@ -1227,12 +1270,57 @@ export default function TradeShippingRequests() {
                     }
                   }
                   const ordered = [...groups.values()].sort((a, b) => a.departure.localeCompare(b.departure))
-                  const shown = showAllSailings ? ordered : ordered.slice(0, 3)
-                  return (
-                    <>
-                      <p className="mt-1 text-xs text-slate-500">Route and recorded-capacity matches only — they do not mean the cargo is accepted or space is approved. Your provider attaches the sailing when they offer.</p>
-                      <div className="mt-3 space-y-2" data-testid="logistics-sailing-groups">
-                        {shown.map((group) => (
+                  /*
+                   * F3 — a gateway sailing is a different ROUTE STRATEGY, not a worse departure.
+                   * Ranking every option on one departure-ordered list meant a corridor option
+                   * could sit behind "Show more", where a customer would have to guess that a
+                   * different kind of journey was hidden there.
+                   *
+                   * The fix is DISCLOSURE, not ranking. When both kinds exist they are shown as
+                   * two named categories, each ordered by departure date — an objective,
+                   * non-commercial field — and each expandable on its own. CarUp still expresses
+                   * no preference: no corridor is "best", "cheapest" or "recommended", and the
+                   * order within a category is the same neutral rule it always was. Choosing
+                   * between the strategies is the customer's decision on current facts; the
+                   * economics that would inform a recommendation belong to T6.
+                   */
+                  const directGroups = ordered.filter((g) => g.routeKind === 'direct')
+                  const gatewayGroups = ordered.filter((g) => g.routeKind === 'gateway')
+                  const bothKinds = directGroups.length > 0 && gatewayGroups.length > 0
+                  const section = (
+                    key: 'direct' | 'gateway',
+                    heading: string,
+                    blurb: string,
+                    list: typeof ordered,
+                  ) => {
+                    if (!list.length) return null
+                    const expanded = showAllSailings[key]
+                    const shown = expanded ? list : list.slice(0, 3)
+                    return (
+                      <div className={bothKinds ? 'mt-4' : 'mt-3'} data-testid={`logistics-sailing-section-${key}`}>
+                        {bothKinds && (
+                          <>
+                            <h3 className="text-xs font-bold uppercase tracking-wide text-slate-700">{heading} <span className="font-normal normal-case tracking-normal text-slate-500">({list.length})</span></h3>
+                            <p className="mt-0.5 text-[11px] text-slate-500">{blurb}</p>
+                          </>
+                        )}
+                        <div className="mt-2 space-y-2" data-testid="logistics-sailing-groups">
+                          {shown.map((group) => renderGroup(group))}
+                        </div>
+                        {list.length > 3 && (
+                          <button
+                            type="button"
+                            onClick={() => setShowAllSailings((v) => ({ ...v, [key]: !v[key] }))}
+                            className="mt-2 text-xs font-semibold text-orange-700 hover:underline"
+                            data-testid={`logistics-sailing-toggle-${key}`}
+                          >
+                            {expanded ? 'Show fewer departures' : `Show ${list.length - 3} more departure${list.length - 3 === 1 ? '' : 's'}`}
+                          </button>
+                        )}
+                      </div>
+                    )
+                  }
+                  const renderGroup = (group: typeof ordered[number]) => (
                           <div key={`${group.organiser}|${group.departure}|${group.type}`} className="border border-slate-200 p-3">
                             <div className="flex flex-wrap items-baseline justify-between gap-2">
                               <p className="font-medium text-slate-900">{group.organiser}</p>
@@ -1263,13 +1351,17 @@ export default function TradeShippingRequests() {
                             {group.count > 1 && <p className="mt-1 text-[11px] text-slate-500" data-testid="logistics-sailing-group-count">{group.count} sailings on this departure match equally on the facts CarUp records.</p>}
                             {group.anyUnevaluated && <p className="mt-1 text-[11px] text-amber-900">Capacity fit not evaluated — this request’s cargo volume is not fully known yet.</p>}
                           </div>
-                        ))}
-                      </div>
-                      {ordered.length > 3 && (
-                        <button type="button" onClick={() => setShowAllSailings((value) => !value)} className="mt-2 text-xs font-semibold text-orange-700 hover:underline" data-testid="logistics-sailing-toggle">
-                          {showAllSailings ? 'Show fewer departures' : `Show ${ordered.length - 3} more departure${ordered.length - 3 === 1 ? '' : 's'}`}
-                        </button>
+                  )
+                  return (
+                    <>
+                      <p className="mt-1 text-xs text-slate-500">Route and recorded-capacity matches only — they do not mean the cargo is accepted or space is approved. Your provider attaches the sailing when they offer.</p>
+                      {bothKinds && (
+                        <p className="mt-2 text-xs text-slate-600" data-testid="logistics-sailing-disclosure">
+                          Two kinds of route can carry this shipment. CarUp does not rank them — the choice is yours.
+                        </p>
                       )}
+                      {section('direct', 'Direct sailings', 'These sail to your destination.', directGroups)}
+                      {section('gateway', 'Gateway corridor sailings', 'These cover one leg to a gateway port; onward movement is still required.', gatewayGroups)}
                     </>
                   )
                 })()}

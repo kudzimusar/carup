@@ -369,3 +369,131 @@ test('a CANCELLED request no longer solicits offers', async () => {
     () => logistics.createLogisticsQuote('ship-zw', { service_mode: 'shared_container', total_amount: 100 }, provider, { supabaseClient: c }),
     /not open for offers/i);
 });
+
+// ═══ 5. F2 — discovery reads must be BOUNDED, not one per sailing ═════════
+//
+// The N+1 was real and measured: ~5.6s on staging, one reservations round trip per open sailing.
+// A count assertion is the only guard that actually holds — a latency assertion would be flaky and
+// a code-shape assertion would pass the moment someone reintroduces the loop differently.
+
+/** Wrap a mock client so every .from(table) is counted. */
+function countingClient(base) {
+  const counts = new Map();
+  return {
+    counts,
+    client: {
+      ...base,
+      from(table) { counts.set(table, (counts.get(table) || 0) + 1); return base.from(table); },
+    },
+    total: () => [...counts.values()].reduce((a, b) => a + b, 0),
+  };
+}
+
+function manySailings(n) {
+  return Array.from({ length: n }, (_, i) => beiraSailing({
+    id: `sail-${i}`,
+    departure_date: `2027-0${(i % 9) + 1}-18T00:00:00Z`,
+  }));
+}
+
+test('F2: discovery query count is BOUNDED — identical at 1, 10 and 50 sailings', async () => {
+  const measure = async (n) => {
+    const base = client({
+      diaspora_container_shipments: manySailings(n),
+      diaspora_logistics_requests: [zwRequest()],
+      diaspora_logistics_request_items: [zwItem()],
+    });
+    const counted = countingClient(base);
+    const matches = await logistics.findCompatibleSailings('ship-zw', requester, { supabaseClient: counted.client });
+    return { total: counted.total(), reservations: counted.counts.get('diaspora_cargo_reservations') || 0, matches: matches.length };
+  };
+  const one = await measure(1);
+  const ten = await measure(10);
+  const fifty = await measure(50);
+
+  assert.equal(one.matches, 1);
+  assert.equal(ten.matches, 10, 'all ten sailings still match');
+  assert.equal(fifty.matches, 50, 'all fifty sailings still match');
+
+  // The reservations table is read exactly ONCE regardless of how many sailings are candidates.
+  assert.equal(one.reservations, 1);
+  assert.equal(ten.reservations, 1, `10 sailings caused ${ten.reservations} reservation reads`);
+  assert.equal(fifty.reservations, 1, `50 sailings caused ${fifty.reservations} reservation reads`);
+
+  // And the TOTAL query count does not grow with the candidate set at all.
+  assert.equal(one.total, ten.total, `1 sailing = ${one.total} queries, 10 = ${ten.total}`);
+  assert.equal(ten.total, fifty.total, `10 sailings = ${ten.total} queries, 50 = ${fifty.total}`);
+  assert.ok(fifty.total <= 8, `discovery should cost a handful of queries, saw ${fifty.total}`);
+});
+
+test('F2: batching preserves capacity truth per sailing — rows are not pooled', async () => {
+  // The danger of a batched read is attributing one sailing's reservations to another. Two
+  // sailings, different approved volumes: each must see only its own.
+  const c = client({
+    diaspora_container_shipments: [beiraSailing({ id: 'sail-a' }), beiraSailing({ id: 'sail-b' })],
+    diaspora_logistics_requests: [zwRequest()],
+    diaspora_logistics_request_items: [zwItem()],
+    diaspora_cargo_reservations: [
+      { id: 'r1', container_id: 'sail-a', reservation_status: 'APPROVED', estimated_volume: 40, deleted_at: null },
+      { id: 'r2', container_id: 'sail-b', reservation_status: 'APPROVED', estimated_volume: 10, deleted_at: null },
+      { id: 'r3', container_id: 'sail-b', reservation_status: 'REQUESTED', estimated_volume: 25, deleted_at: null },
+    ],
+  });
+  const matches = await logistics.findCompatibleSailings('ship-zw', requester, { supabaseClient: c });
+  const byId = new Map(matches.map((m) => [m.id, m]));
+  assert.equal(byId.get('sail-a').available_capacity_cbm, 20, 'sail-a: 60 total − 40 approved');
+  assert.equal(byId.get('sail-b').available_capacity_cbm, 50, 'sail-b: 60 total − 10 approved (REQUESTED consumes 0)');
+});
+
+test('F2: an UNREADABLE capacity read refuses loudly — it never becomes "no space"', async () => {
+  const base = client({
+    diaspora_container_shipments: [beiraSailing()],
+    diaspora_logistics_requests: [zwRequest()],
+    diaspora_logistics_request_items: [zwItem()],
+  });
+  const broken = {
+    ...base,
+    from(table) {
+      if (table === 'diaspora_cargo_reservations') {
+        const q = { select: () => q, in: () => q, eq: () => q,
+          is: () => Promise.resolve({ data: null, error: { message: 'capacity unreadable' } }) };
+        return q;
+      }
+      return base.from(table);
+    },
+  };
+  await assert.rejects(
+    () => logistics.findCompatibleSailings('ship-zw', requester, { supabaseClient: broken }),
+    /Could not read sailing capacity/i);
+});
+
+test('F2: the batched path returns the SAME shape it always did', async () => {
+  const c = client({
+    diaspora_container_shipments: [
+      beiraSailing({ id: 'gw' }),
+      beiraSailing({ id: 'direct', destination_country: 'Zimbabwe', destination_city: 'Harare', destination_port: null }),
+    ],
+    diaspora_logistics_requests: [zwRequest()],
+    diaspora_logistics_request_items: [zwItem()],
+  });
+  const matches = await logistics.findCompatibleSailings('ship-zw', requester, { supabaseClient: c });
+  const gw = matches.find((m) => m.id === 'gw');
+  const direct = matches.find((m) => m.id === 'direct');
+  // gateway semantics
+  assert.equal(gw.route_kind, 'gateway');
+  assert.equal(gw.corridor.code, 'JP-BEI-ZW');
+  assert.equal(gw.sailing_leg.destination_locality, 'Beira');
+  assert.deepEqual(gw.onward_legs.map((l) => l.destination_locality), ['Forbes/Machipanda', 'Harare']);
+  assert.equal(gw.final_destination.country, 'Zimbabwe');
+  assert.equal(gw.requires_operator_confirmation, true);
+  assert.equal(gw.available_capacity_cbm, 60);
+  // direct semantics
+  assert.equal(direct.route_kind, 'direct');
+  assert.equal(direct.corridor, null);
+  assert.deepEqual(direct.onward_legs, []);
+  // privacy: discovery never exposes operator/tenant internals
+  const text = JSON.stringify(matches);
+  for (const forbidden of ['tenant_id', 'coordinator_id', 'created_by', 'updated_by', 'metadata']) {
+    assert.ok(!text.includes(forbidden), `discovery leaked ${forbidden}`);
+  }
+});

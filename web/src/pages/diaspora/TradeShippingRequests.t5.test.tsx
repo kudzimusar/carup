@@ -16,8 +16,11 @@ const state = vi.hoisted(() => ({
   requests: [] as unknown[],
   detail: null as unknown,
   matches: [] as unknown[],
-  calls: { cancel: 0, close: 0 },
+  calls: { cancel: 0, close: 0, matches: 0 },
   lifecycleError: null as string | null,
+  // F1: when set, findSailingMatches hangs on this promise so a test can prove the page is
+  // usable BEFORE discovery resolves. resolveMatches()/rejectMatches() release it.
+  gate: null as null | { promise: Promise<unknown>; resolve: (v: unknown) => void; reject: (e: unknown) => void },
 }))
 
 vi.mock('@/context/AuthContext', () => ({ useAuth: () => ({ loading: false, user: { id: 'req-1' } }) }))
@@ -26,7 +29,11 @@ vi.mock('@/hooks/useTradeLogisticsApi', () => ({
   useTradeLogisticsApi: () => ({
     listMyRequests: vi.fn(async () => state.requests),
     getRequest: vi.fn(async () => state.detail),
-    findSailingMatches: vi.fn(async () => state.matches),
+    findSailingMatches: vi.fn(async () => {
+      state.calls.matches += 1
+      if (state.gate) return state.gate.promise
+      return state.matches
+    }),
     cancelRequest: vi.fn(async (id: string) => {
       state.calls.cancel += 1
       if (state.lifecycleError) throw new Error(state.lifecycleError)
@@ -85,9 +92,17 @@ beforeEach(() => {
   state.requests = [structuredClone(REQUEST)]
   state.detail = structuredClone(REQUEST)
   state.matches = []
-  state.calls = { cancel: 0, close: 0 }
+  state.calls = { cancel: 0, close: 0, matches: 0 }
   state.lifecycleError = null
+  state.gate = null
 })
+
+const openGate = () => {
+  let resolve!: (v: unknown) => void
+  let reject!: (e: unknown) => void
+  const promise = new Promise<unknown>((res, rej) => { resolve = res; reject = rej })
+  state.gate = { promise, resolve, reject }
+}
 
 describe('T5.9 — the critical UI truth on gateway sailings', () => {
   it('keeps the customer destination and names the leg, the corridor and the onward route', async () => {
@@ -174,5 +189,178 @@ describe('T5.7 — the lifecycle controls', () => {
     await waitFor(() => expect(screen.getByTestId('logistics-request-cancel').textContent).toContain('Confirm'))
     screen.getByTestId('logistics-request-cancel').click()
     await waitFor(() => expect((document.body.textContent || '')).toContain('Cancel it in Container space first'))
+  })
+})
+
+describe('F1 — publishing must not wait on sailing discovery', () => {
+  it('renders the request detail while matching is still running', async () => {
+    openGate()                                   // discovery will not resolve until we say so
+    render(<MemoryRouter><TradeShippingRequests /></MemoryRouter>)
+    await waitFor(() => expect(screen.getByText('SHIP-T5')).toBeInTheDocument())
+    screen.getByRole('button', { name: /Toyota Alphard/ }).click()
+
+    // The page is fully usable with discovery still in flight.
+    await waitFor(() => expect(screen.getByTestId('logistics-request-detail')).toBeInTheDocument())
+    expect(screen.getByTestId('logistics-sailings-loading')).toBeInTheDocument()
+    expect(screen.getByTestId('logistics-lifecycle-controls')).toBeInTheDocument()
+    expect(document.body.textContent).toContain('Looking for compatible sailings')
+  })
+
+  it('never claims "none found" while the read is still pending', async () => {
+    openGate()
+    render(<MemoryRouter><TradeShippingRequests /></MemoryRouter>)
+    await waitFor(() => expect(screen.getByText('SHIP-T5')).toBeInTheDocument())
+    screen.getByRole('button', { name: /Toyota Alphard/ }).click()
+    await waitFor(() => expect(screen.getByTestId('logistics-sailings-loading')).toBeInTheDocument())
+    expect(screen.queryByTestId('logistics-sailings-empty')).toBeNull()
+    expect(screen.queryByTestId('logistics-sailings-unreadable')).toBeNull()
+    expect(document.body.textContent).not.toMatch(/No compatible open CarUp sailings/i)
+  })
+
+  it('later fills the SAME page in when matching succeeds', async () => {
+    openGate()
+    render(<MemoryRouter><TradeShippingRequests /></MemoryRouter>)
+    await waitFor(() => expect(screen.getByText('SHIP-T5')).toBeInTheDocument())
+    screen.getByRole('button', { name: /Toyota Alphard/ }).click()
+    await waitFor(() => expect(screen.getByTestId('logistics-sailings-loading')).toBeInTheDocument())
+
+    state.gate!.resolve([structuredClone(GATEWAY_MATCH)])
+    await waitFor(() => expect(screen.getByTestId('logistics-sailing-route-truth')).toBeInTheDocument())
+    // Same page — not a navigation.
+    expect(screen.getByTestId('logistics-request-detail')).toBeInTheDocument()
+    expect(screen.queryByTestId('logistics-sailings-loading')).toBeNull()
+  })
+
+  it('a FAILED discovery is unreadable-with-retry, never "no sailings"', async () => {
+    openGate()
+    render(<MemoryRouter><TradeShippingRequests /></MemoryRouter>)
+    await waitFor(() => expect(screen.getByText('SHIP-T5')).toBeInTheDocument())
+    screen.getByRole('button', { name: /Toyota Alphard/ }).click()
+    await waitFor(() => expect(screen.getByTestId('logistics-sailings-loading')).toBeInTheDocument())
+
+    state.gate!.reject(new Error('discovery unavailable'))
+    await waitFor(() => expect(screen.getByTestId('logistics-sailings-unreadable')).toBeInTheDocument())
+    expect(screen.queryByTestId('logistics-sailings-empty')).toBeNull()
+    expect(document.body.textContent).toContain('not a report that none are available')
+    expect(screen.getByTestId('logistics-sailings-retry')).toBeInTheDocument()
+  })
+
+  it('the retry re-runs discovery and can succeed', async () => {
+    openGate()
+    render(<MemoryRouter><TradeShippingRequests /></MemoryRouter>)
+    await waitFor(() => expect(screen.getByText('SHIP-T5')).toBeInTheDocument())
+    screen.getByRole('button', { name: /Toyota Alphard/ }).click()
+    await waitFor(() => expect(screen.getByTestId('logistics-sailings-loading')).toBeInTheDocument())
+    state.gate!.reject(new Error('discovery unavailable'))
+    await waitFor(() => expect(screen.getByTestId('logistics-sailings-retry')).toBeInTheDocument())
+
+    const before = state.calls.matches
+    state.gate = null                                  // next call resolves normally
+    state.matches = [structuredClone(GATEWAY_MATCH)]
+    screen.getByTestId('logistics-sailings-retry').click()
+    await waitFor(() => expect(screen.getByTestId('logistics-sailing-route-truth')).toBeInTheDocument())
+    expect(state.calls.matches).toBe(before + 1)
+  })
+
+  it('an empty result really is empty — the honest states stay distinct', async () => {
+    state.matches = []
+    render(<MemoryRouter><TradeShippingRequests /></MemoryRouter>)
+    await waitFor(() => expect(screen.getByText('SHIP-T5')).toBeInTheDocument())
+    screen.getByRole('button', { name: /Toyota Alphard/ }).click()
+    await waitFor(() => expect(screen.getByTestId('logistics-sailings-empty')).toBeInTheDocument())
+    expect(screen.queryByTestId('logistics-sailings-loading')).toBeNull()
+    expect(screen.queryByTestId('logistics-sailings-unreadable')).toBeNull()
+  })
+})
+
+describe('F3 — both route strategies discoverable, with no ranking', () => {
+  const departures = (n: number, kind: 'direct' | 'gateway') =>
+    Array.from({ length: n }, (_, i) => kind === 'gateway'
+      ? { ...structuredClone(GATEWAY_MATCH), id: `gw-${i}`, departure_date: `2027-0${(i % 9) + 1}-18T00:00:00Z`, origin_port: `Yokohama${i}` }
+      : { ...structuredClone(GATEWAY_MATCH), id: `d-${i}`, departure_date: `2026-0${(i % 9) + 1}-18T00:00:00Z`,
+          destination_country: 'Zimbabwe', destination_city: 'Harare', destination_port: `Harare${i}`, origin_port: `Yokohama${i}`,
+          route_kind: 'direct', corridor: null, sailing_leg: null, onward_legs: [] })
+
+  const open = async () => {
+    render(<MemoryRouter><TradeShippingRequests /></MemoryRouter>)
+    await waitFor(() => expect(screen.getByText('SHIP-T5')).toBeInTheDocument())
+    screen.getByRole('button', { name: /Toyota Alphard/ }).click()
+    await waitFor(() => expect(screen.getByTestId('logistics-request-detail')).toBeInTheDocument())
+  }
+
+  it('shows BOTH sections up front when the gateway option would have been buried', async () => {
+    // Five direct sailings all departing before the gateway one: on a single departure-ordered
+    // list the gateway option lands 6th, behind "Show more". That is what F3 fixes.
+    state.matches = [...departures(5, 'direct'), ...departures(1, 'gateway')]
+    await open()
+    await waitFor(() => expect(screen.getByTestId('logistics-sailing-section-gateway')).toBeInTheDocument())
+    expect(screen.getByTestId('logistics-sailing-section-direct')).toBeInTheDocument()
+    // The gateway card itself is visible without expanding anything.
+    expect(screen.getByTestId('logistics-sailing-route-truth')).toBeInTheDocument()
+    expect(screen.getByTestId('logistics-sailing-disclosure')).toBeInTheDocument()
+  })
+
+  it('each category expands independently — opening one never hides the other', async () => {
+    state.matches = [...departures(5, 'direct'), ...departures(5, 'gateway')]
+    await open()
+    await waitFor(() => expect(screen.getByTestId('logistics-sailing-toggle-direct')).toBeInTheDocument())
+    expect(screen.getByTestId('logistics-sailing-toggle-gateway')).toBeInTheDocument()
+    screen.getByTestId('logistics-sailing-toggle-direct').click()
+    await waitFor(() => expect(screen.getByTestId('logistics-sailing-toggle-direct').textContent).toContain('Show fewer'))
+    // the gateway section is untouched and still collapsed
+    expect(screen.getByTestId('logistics-sailing-toggle-gateway').textContent).toContain('Show 2 more')
+  })
+
+  it('adds NO ranking language anywhere', async () => {
+    state.matches = [...departures(3, 'direct'), ...departures(3, 'gateway')]
+    await open()
+    await waitFor(() => expect(screen.getByTestId('logistics-sailing-section-gateway')).toBeInTheDocument())
+    const text = (document.body.textContent || '')
+    for (const banned of ['Recommended', 'recommended', 'Best', 'Cheapest', 'cheapest', 'Fastest', 'fastest', 'Preferred', 'preferred', 'Top pick']) {
+      expect(text).not.toContain(banned)
+    }
+    expect(text).toContain('CarUp does not rank them')
+  })
+
+  it('stays neutral across MULTIPLE gateway corridors — no corridor is elevated', async () => {
+    const beira = { ...structuredClone(GATEWAY_MATCH), id: 'gw-bei', departure_date: '2027-03-01T00:00:00Z' }
+    const durban = { ...structuredClone(GATEWAY_MATCH), id: 'gw-dur', departure_date: '2027-02-01T00:00:00Z',
+      corridor: { id: 'c2', code: 'JP-DUR-ZW', display_name: 'Japan → Durban → Zimbabwe', planning_status: 'benchmark_candidate' },
+      sailing_leg: { sequence: 1, origin_country: 'Japan', origin_locality: 'Yokohama', destination_country: 'South Africa', destination_locality: 'Durban' },
+      destination_country: 'South Africa', destination_city: 'Durban', destination_port: 'Durban' }
+    state.matches = [beira, durban]
+    await open()
+    await waitFor(() => expect(screen.getByTestId('logistics-sailing-section-gateway')).toBeInTheDocument())
+    const section = screen.getByTestId('logistics-sailing-section-gateway').textContent || ''
+    expect(section).toContain('Japan → Beira → Zimbabwe corridor')
+    expect(section).toContain('Japan → Durban → Zimbabwe corridor')
+    // Ordered by DEPARTURE DATE only — Durban (Feb) precedes Beira (Mar) because it sails first,
+    // not because any corridor is favoured.
+    expect(section.indexOf('Durban')).toBeLessThan(section.indexOf('Beira'))
+    // planning_status must never become a display ordering or a badge
+    expect(section).not.toContain('benchmark')
+    expect(section).not.toContain('research_candidate')
+  })
+
+  it('departure ordering inside a category is deterministic', async () => {
+    state.matches = [
+      { ...structuredClone(GATEWAY_MATCH), id: 'g3', departure_date: '2027-05-01T00:00:00Z', origin_port: 'PortC' },
+      { ...structuredClone(GATEWAY_MATCH), id: 'g1', departure_date: '2027-01-01T00:00:00Z', origin_port: 'PortA' },
+      { ...structuredClone(GATEWAY_MATCH), id: 'g2', departure_date: '2027-03-01T00:00:00Z', origin_port: 'PortB' },
+    ]
+    await open()
+    await waitFor(() => expect(screen.getByTestId('logistics-sailing-section-gateway')).toBeInTheDocument())
+    const t = screen.getByTestId('logistics-sailing-section-gateway').textContent || ''
+    expect(t.indexOf('PortA')).toBeLessThan(t.indexOf('PortB'))
+    expect(t.indexOf('PortB')).toBeLessThan(t.indexOf('PortC'))
+  })
+
+  it('a single-category result needs no headings at all', async () => {
+    state.matches = departures(2, 'direct')
+    await open()
+    await waitFor(() => expect(screen.getByTestId('logistics-sailing-section-direct')).toBeInTheDocument())
+    expect(screen.queryByTestId('logistics-sailing-section-gateway')).toBeNull()
+    expect(screen.queryByTestId('logistics-sailing-disclosure')).toBeNull()
+    expect(document.body.textContent).not.toContain('Gateway corridor sailings')
   })
 })

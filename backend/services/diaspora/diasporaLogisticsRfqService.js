@@ -914,10 +914,34 @@ export async function findCompatibleSailings(requestId, userContext = {}, option
     ? await client.from('tenants').select('id, name').in('id', tenantIds)
     : { data: [] };
   const tenantName = new Map((tenants || []).map((tenant) => [normalizeId(tenant.id), tenant.name || null]));
+
+  // F2 — discovery reads must be BOUNDED, not one round trip per candidate sailing. This loop
+  // previously issued a reservations query per sailing, so a marketplace with fifty open sailings
+  // cost fifty queries and ~5.6s on staging. The reservation rows for every candidate are now
+  // fetched in ONE batched read and grouped in memory.
+  //
+  // This changes only how capacity is READ for discovery. Capacity TRUTH is unchanged: the same
+  // computeCapacity() runs over the same APPROVED rows, and booking approval remains the atomic
+  // container-serialized RPC, which is the only thing that may consume capacity.
+  const candidateIds = routeMatches.map(({ container }) => container.id);
+  const { data: allReservations, error: reservationError } = candidateIds.length
+    ? await client.from(RESERVATIONS).select('*').in('container_id', candidateIds).is('deleted_at', null)
+    : { data: [], error: null };
+  if (reservationError) {
+    // Unknown is not "no capacity". Refusing loudly is honest; silently treating an unreadable
+    // capacity read as zero would hide every sailing behind a false "no space".
+    throw new ValidationError(`Could not read sailing capacity: ${reservationError.message}`);
+  }
+  const reservationsByContainer = new Map();
+  for (const reservation of allReservations || []) {
+    const list = reservationsByContainer.get(reservation.container_id) || [];
+    list.push(reservation);
+    reservationsByContainer.set(reservation.container_id, list);
+  }
+
   const results = [];
   for (const { container, match } of routeMatches) {
-    const { data: reservations } = await client.from(RESERVATIONS).select('*').eq('container_id', container.id).is('deleted_at', null);
-    const capacity = computeCapacity(container, reservations || []);
+    const capacity = computeCapacity(container, reservationsByContainer.get(container.id) || []);
     const capacityMatch = requiredVolume === null ? null : capacity.availableVolume >= requiredVolume;
     if (capacityMatch === false) continue;
     results.push({
