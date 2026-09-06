@@ -158,6 +158,25 @@ test that knows the difference is one that mounts the real screen.
 Staging: Supabase **staging** only; migration `20260908090000` applied there — 4 tables, FX
 immutability trigger, RLS on all four, components and allocations service_role-only.
 
+## 8a. What a trader actually sees at the research URL — a correction
+
+An earlier walk recorded "told plainly why, not shown a blank page". That was a loose regex match
+against the dashboard, and the record is corrected here rather than left standing.
+
+What actually happens when a trader types `/diaspora/rate-research`: the **route boundary**
+redirects them to their own dashboard. The workspace never mounts, so the page's own refusal copy
+is not what an `owner` sees — it is defence in depth for a role the registry admits but the server
+does not. The redirect is the stronger outcome, and it is the registry entry that produces it.
+
+Measured at the final head, for both a trader (`owner`) and a logistics provider (`dealer`), with a
+real CSRF token so the refusal observed is the AUTHORITY refusal and not the transport one:
+
+| Call | Status | Body |
+|---|---|---|
+| `GET /diaspora/trade-rate-observations` | **403** | authority |
+| `GET …/corridor-benchmark` | **403** | authority |
+| `POST /diaspora/trade-rate-observations` | **403** | `INSUFFICIENT_PERMISSIONS — The rate research workspace is restricted to CarUp platform reviewers and administrators` |
+
 ## 8b. Recorded for T12 — a fabricated customs exchange rate, deliberately left alone
 
 `backend/services/document-intelligence/documentIntelligenceService.js:375` writes a
