@@ -96,8 +96,11 @@ describe('T5.9 — the critical UI truth on gateway sailings', () => {
     const truth = await waitFor(() => screen.getByTestId('logistics-sailing-route-truth'))
     const text = (truth.textContent || '').replace(/\s+/g, ' ')
     expect(text).toContain('Your destination: Harare, Zimbabwe')
+    // The sailing's own ports, not the corridor leg's country pair — §T5.9's "Ocean leg:
+    // Yokohama → Beira", and it avoids stuttering against the corridor name beside it.
     expect(text).toContain('This sailing covers: Yokohama → Beira')
     expect(text).toContain('Japan → Beira → Zimbabwe corridor')
+    expect(text).not.toContain('This sailing covers: Japan → Beira —')
     const onward = screen.getByTestId('logistics-sailing-onward').textContent || ''
     expect(onward).toContain('Then still required: Forbes/Machipanda → Harare')
     expect(onward).toContain('not part of this sailing, not yet arranged')

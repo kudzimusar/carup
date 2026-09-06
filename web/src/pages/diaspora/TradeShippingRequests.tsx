@@ -1185,9 +1185,17 @@ export default function TradeShippingRequests() {
                   // T5.4 — a group is one route TRUTH, not merely one departure: a direct
                   // sailing and a gateway leg on the same day are different promises and must
                   // never collapse into one card.
-                  const legLabelOf = (sailing: LogisticsSailingMatch) => sailing.sailing_leg
-                    ? `${sailing.sailing_leg.origin_locality || sailing.sailing_leg.origin_country} → ${sailing.sailing_leg.destination_locality || sailing.sailing_leg.destination_country}`
-                    : `${sailing.origin_port || sailing.origin_city || sailing.origin_country} → ${sailing.destination_port || sailing.destination_city || sailing.destination_country}`
+                  // The sailing's OWN ports are the concrete truth about the leg being booked
+                  // ("Yokohama → Beira"), which is what the plan's §T5.9 asks the screen to say.
+                  // The corridor leg's country pair is the fallback, because "Japan → Beira"
+                  // beside "Japan → Beira → Zimbabwe corridor" reads as a stutter, not a fact.
+                  const legLabelOf = (sailing: LogisticsSailingMatch) => {
+                    const from = sailing.origin_port || sailing.origin_city
+                      || sailing.sailing_leg?.origin_locality || sailing.origin_country
+                    const to = sailing.destination_port || sailing.destination_city
+                      || sailing.sailing_leg?.destination_locality || sailing.destination_country
+                    return `${from} → ${to}`
+                  }
                   const groups = new Map<string, { organiser: string; departure: string; deadline: string; type: string; count: number; bestCapacity: number; anyUnevaluated: boolean; routeKind: 'direct' | 'gateway'; corridorName: string | null; legLabel: string; onward: string | null; finalPlace: string }>()
                   for (const sailing of sailings) {
                     const departure = String(sailing.departure_date || '').slice(0, 10)
