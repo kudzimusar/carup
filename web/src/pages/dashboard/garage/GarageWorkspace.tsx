@@ -108,20 +108,28 @@ export default function GarageWorkspace() {
             ))}
           </div>
 
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4" data-testid="queue-counts">
+          {/* KPI band (DESIGN.md §9.1). It stays a BAND on every width: three tall stacked cards
+              is the desktop grid stretched down a phone, which §10 calls out as mobile being
+              treated as a shrunk desktop. Compact on small screens, roomier from `sm` up.
+              A count the server did not return reads "Not available" — §8.1, unknown is not zero,
+              while a real 0 is a measured value and shown as one. */}
+          <div className="grid grid-cols-3 gap-2 sm:gap-4" data-testid="queue-counts">
             {([
-              ['New requests', counts?.requested, 'requested'],
-              ['Accepted', counts?.accepted, 'accepted'],
-              ['In progress', counts?.active, 'active'],
-            ] as const).map(([label, value, key]) => (
-              <Card key={key} className="border-0 card-shadow">
-                <CardContent className="p-5">
-                  <p className="text-sm text-gray-500">{label}</p>
-                  <p className="text-2xl font-bold mt-1" data-testid={`count-${key}`}>
-                    {value === undefined || value === null ? 'Not available' : value}
-                  </p>
-                </CardContent>
-              </Card>
+              ['New requests', 'New', counts?.requested, 'requested'],
+              ['Accepted', 'Accepted', counts?.accepted, 'accepted'],
+              ['In progress', 'Active', counts?.active, 'active'],
+            ] as const).map(([label, shortLabel, value, key]) => (
+              <div key={key} className="rounded-xl border border-gray-200 bg-white p-3 sm:p-5">
+                <p className="text-xs sm:text-sm text-gray-500">
+                  <span className="sm:hidden">{shortLabel}</span>
+                  <span className="hidden sm:inline">{label}</span>
+                </p>
+                <p className="text-xl sm:text-2xl font-bold mt-1 tabular-nums" data-testid={`count-${key}`}>
+                  {value === undefined || value === null
+                    ? <span className="text-sm font-normal text-gray-500">Not available</span>
+                    : value}
+                </p>
+              </div>
             ))}
           </div>
 

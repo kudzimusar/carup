@@ -157,7 +157,7 @@ describe('DESIGN.md §20 — the legacy-pattern budget does not grow', () => {
     '/src/pages/ServiceLink.tsx': 1,
     '/src/pages/dashboard/owner/ServiceRequests.tsx': 3,
     '/src/pages/dashboard/owner/ServiceHistory.tsx': 5,
-    '/src/pages/dashboard/garage/GarageWorkspace.tsx': 4,
+    '/src/pages/dashboard/garage/GarageWorkspace.tsx': 3,
     '/src/pages/dashboard/garage/GarageCaseDetail.tsx': 8,
     '/src/pages/dashboard/garage/GarageCustomers.tsx': 3,
     '/src/pages/dashboard/garage/GarageProfileEditor.tsx': 3,

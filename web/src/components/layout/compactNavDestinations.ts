@@ -23,6 +23,7 @@ import type { UserRole } from '@shared/types'
 
 export type CompactDestination = {
   id: string
+  /** Already the short form where the registry declares one — the bar never re-decides a name. */
   label: string
   href: string
   icon: string
@@ -77,7 +78,7 @@ export function resolveCompactDestinations(ctx: NavigationContext): CompactDesti
   const chosen: CompactDestination[] = []
   for (const id of priority) {
     const item = available.get(id)
-    if (item) chosen.push({ id: item.id, label: item.label, href: item.route, icon: item.icon })
+    if (item) chosen.push({ id: item.id, label: item.shortLabel ?? item.label, href: item.route, icon: item.icon })
     if (chosen.length >= COMPACT_NAV_MAX - 1) break
   }
 
@@ -85,7 +86,7 @@ export function resolveCompactDestinations(ctx: NavigationContext): CompactDesti
   // back to whatever the registry gives that role, in its own order.
   if (chosen.length === 0) {
     for (const item of available.values()) {
-      chosen.push({ id: item.id, label: item.label, href: item.route, icon: item.icon })
+      chosen.push({ id: item.id, label: item.shortLabel ?? item.label, href: item.route, icon: item.icon })
       if (chosen.length >= COMPACT_NAV_MAX - 1) break
     }
   }

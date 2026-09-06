@@ -239,6 +239,14 @@ export interface FeatureRegistryItem {
   id: string
   /** Display label in navigation */
   label: string
+  /**
+   * A shorter label for space-constrained navigation (the compact bottom bar).
+   *
+   * Optional, and it lives HERE rather than in the bar, because a second place deciding what a
+   * feature is called is how "Garage Customers" and "Customers" become two different features in
+   * someone's head. Absent means the full label is already short enough.
+   */
+  shortLabel?: string
   /** Route path */
   route: string
   /** Product domain this feature belongs to */
@@ -338,6 +346,7 @@ export const FEATURE_REGISTRY: FeatureRegistryItem[] = [
     // R3 — the owner must be able to reach a request they made without a deep link.
     id: 'owner.service-requests',
     label: 'My Service Requests',
+    shortLabel: 'Requests',
     route: '/dashboard/service-requests',
     domain: 'service',
     roles: ['owner'],
@@ -453,6 +462,7 @@ export const FEATURE_REGISTRY: FeatureRegistryItem[] = [
   {
     id: 'owner.communications',
     label: 'Communications',
+    shortLabel: 'Messages',
     route: '/dashboard/communications',
     domain: 'info',
     roles: ['owner'],
@@ -477,6 +487,7 @@ export const FEATURE_REGISTRY: FeatureRegistryItem[] = [
   {
     id: 'dealer.inventory',
     label: 'Inventory',
+    shortLabel: 'Inventory',
     route: '/dealer/inventory',
     domain: 'commerce',
     roles: ['dealer'],
@@ -544,6 +555,7 @@ export const FEATURE_REGISTRY: FeatureRegistryItem[] = [
   {
     id: 'garage.customers',
     label: 'Garage Customers',
+    shortLabel: 'Customers',
     route: '/garage/customers',
     domain: 'service',
     roles: ['mechanic', 'dealer', 'admin'],
@@ -578,6 +590,7 @@ export const FEATURE_REGISTRY: FeatureRegistryItem[] = [
   {
     id: 'mechanic.work-orders',
     label: 'Work Orders',
+    shortLabel: 'Jobs',
     route: '/mechanic/work-orders',
     domain: 'service',
     roles: ['mechanic'],
