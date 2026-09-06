@@ -39,7 +39,7 @@ export function MoneyWithReference({ source, reference, fx, compact = false, inc
   }
   const referenceText = formatMoney(reference || null)
   return (
-    <span className="inline-flex flex-col" data-testid="money-with-reference">
+    <span className="inline-flex min-w-0 max-w-full flex-col break-words" data-testid="money-with-reference">
       <span className="font-semibold text-slate-950" data-testid="money-source">{sourceText}</span>
       {referenceText ? (
         <span className="text-xs text-slate-600" data-testid="money-reference">
@@ -53,8 +53,10 @@ export function MoneyWithReference({ source, reference, fx, compact = false, inc
           ) : null}
         </span>
       ) : (
-        // No rate means no number. Saying "USD 0" or reusing the source figure would both be lies.
-        <span className="text-xs text-slate-500 italic" data-testid="money-reference-unavailable">
+        // No rate means no number: saying "USD 0" or reusing the source figure would both be lies.
+        // The REASON wraps rather than widening the row — it is the longest string on the line, and
+        // left unwrapped it pushed the whole breakdown off a 393px screen.
+        <span className="block max-w-full whitespace-normal break-words text-xs italic text-slate-500" data-testid="money-reference-unavailable">
           USD comparison unavailable{fx?.reason ? ` — ${fx.reason}` : ''}
         </span>
       )}

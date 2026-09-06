@@ -201,7 +201,7 @@ export function QuoteBreakdown({ quote }: { quote: ComparableQuote }) {
                     <span className="ml-2 text-xs font-semibold text-orange-800" data-testid="component-carup-revenue">CarUp charge</span>
                   )}
                 </div>
-                <div className="shrink-0 text-right">
+                <div className="min-w-0 max-w-full text-right sm:shrink-0">
                   <MoneyWithReference source={c.original} reference={c.reference_usd} fx={c.fx} inclusion={c.inclusion} compact />
                   <p className="mt-0.5 text-[11px] text-slate-500">{provenanceLabel(c.provenance)}</p>
                 </div>

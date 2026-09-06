@@ -84,12 +84,18 @@ export function SharedChargeAllocationPanel({ containerId, read, allocate }: {
   return (
     <div className="mt-8 border-t border-gray-200 pt-5" data-testid="shared-charge-allocation">
       <h3 className="text-lg font-bold text-gray-950">Shared charges</h3>
+      {/* One statement of the position, not two. The server's note is the specific one — it says
+          whether there is nothing attached, or nothing approved — so the generic empty line only
+          appears when the note is about something else. */}
       <p className="mt-1 max-w-2xl text-sm text-gray-600" data-testid="shared-charges-note">{data.note}</p>
       {error && <p className="mt-2 text-xs font-medium text-red-700" data-testid="shared-charges-error">{error}</p>}
 
       {data.charges.length === 0 ? (
         <p className="mt-3 text-sm italic text-gray-500" data-testid="shared-charges-empty">
-          No priced charge is recorded against an offer attached to this sailing.
+          {/* Never a second way of saying what the note already said. */}
+          {/No offer attached/i.test(data.note)
+            ? 'Nothing to divide on this sailing yet.'
+            : 'No priced charge is recorded against an offer attached to this sailing.'}
         </p>
       ) : (
         <ul className="mt-4 space-y-3" data-testid="shared-charges-list">
