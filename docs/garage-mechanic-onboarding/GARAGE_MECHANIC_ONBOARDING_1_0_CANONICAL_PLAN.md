@@ -1,7 +1,10 @@
 # Garage & Mechanic Onboarding 1.0 — Canonical Plan
 
-**Status:** canonical, planning frozen at GMO-0. **No runtime implementation is authorized by this
-document.**
+**Status:** canonical, and now **executed**. Planning was frozen at GMO-0; implementation was
+subsequently authorized and delivered on `feat/garage-mechanic-onboarding-1-0` (PR #209, Draft).
+**GMO-0 … GMO-7 are certified PASS. GMO-8 is PARTIAL and blocked on a paid vision provider** — see
+the phase table in §13. This document remains the authority over the implementation, not a record
+of it; where the two disagree, this document is right and the code is a defect.
 **Owns:** how a real automotive business becomes a CarUp organisation, and how real people become
 its members.
 **Does not own:** anything a member then does inside a service workflow — that is Service Network.
