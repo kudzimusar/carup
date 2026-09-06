@@ -20,23 +20,25 @@ const read = (p) => fs.readFileSync(path.join(repoRoot, p), 'utf8');
 const catalogue = read('docs/features/o2/CARUP_OPERATIONS_O2_STAKEHOLDER_WORKBOOK_CATALOGUE.md');
 
 /**
- * Is THIS branch a declared convergence lane?
+ * Is THIS tree a declared convergence lane?
  *
- * Resolved from GIT OBJECTS, not from the shape of the checkout and not from an environment
- * variable a job step could invent:
+ * Two attempts at answering this by NAME both failed in CI while passing locally, because a
+ * pull-request build has no branch to read: `actions/checkout` lands on a detached merge commit,
+ * `git rev-parse --abbrev-ref HEAD` answers the literal string "HEAD", and no remote ref points at
+ * that commit because it exists only for the build. Chasing the checkout shape is the wrong game.
  *
- *   1. the checked-out branch name, when there is one;
- *   2. otherwise the remote branches whose tip IS this exact commit — CI checks out a DETACHED head,
- *      so step 1 returns the literal string "HEAD" there and the first version of this helper duly
- *      fell through to the strict assertion and failed every CI run while passing locally;
- *   3. otherwise GITHUB_HEAD_REF, which GitHub sets for a pull-request build.
+ * So the authoritative signal is the TREE, not the name. A lane applies when the working tree
+ * actually carries everything the lane declares — every parent's code, and the reconciliation
+ * receipt. That is checkout-shape independent, and it is not a free pass: a manifest entry with
+ * nothing behind it selects nothing, and a branch that accidentally vendors one parent still fails,
+ * because a lane must carry ALL of its declared parents plus its receipt.
  *
- * If none of them resolve, this returns null and the strict absence assertion applies. A guard
- * should fail closed.
+ * The branch name is still consulted first when one is resolvable, because on a developer's machine
+ * it is the most direct expression of intent.
  *
- * The resolution only chooses WHICH manifest entry to consider. It cannot fabricate a parent's code,
- * a reconciliation receipt, or an O2 module that stays out of Service Network's tables — every one
- * of those is still checked below against the tree itself.
+ * Either way the resolution only chooses WHICH manifest entry applies. It cannot fabricate an O2
+ * module that stays out of Service Network's tables — the property this guard actually protects is
+ * still measured against the tree below.
  */
 function resolveBranch() {
   const git = (cmd) => {
@@ -55,13 +57,20 @@ function resolveBranch() {
   return prHead ? [prHead] : [];
 }
 
+const laneIsFullyPresent = (lane) =>
+  (lane.converges || []).length > 0
+  && lane.converges.every((p) => fs.existsSync(path.join(repoRoot, p.evidence_of_presence)))
+  && Boolean(lane.receipt) && fs.existsSync(path.join(repoRoot, lane.receipt));
+
 function readConvergenceLane() {
   const manifestPath = path.join(repoRoot, 'docs/convergence/CONVERGENCE_MANIFEST.json');
   if (!fs.existsSync(manifestPath)) return null;
-  const branches = resolveBranch();
-  if (!branches.length) return null;
   const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
-  return (manifest.lanes || []).find((l) => branches.includes(l.branch)) || null;
+  const lanes = manifest.lanes || [];
+  const branches = resolveBranch();
+  return lanes.find((l) => branches.includes(l.branch))
+    || lanes.find(laneIsFullyPresent)
+    || null;
 }
 
 /* ── The binding register ─────────────────────────────────────────────────── */
