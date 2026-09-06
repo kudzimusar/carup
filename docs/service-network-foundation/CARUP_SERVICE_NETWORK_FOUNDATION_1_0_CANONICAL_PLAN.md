@@ -2125,6 +2125,34 @@ Agents may refine implementation details during S0, but may not silently change:
 
 ---
 
+# 38.5 SN-0 — cross-cutting completion gate (added post-Foundation)
+
+S0–S10 define Service Network vertically. They do **not** state the horizontal dependencies every
+Service Network journey actually rests on, so those were never gated — and two of them were broken
+in ways no Service Network test could see.
+
+`SN_0_CROSS_CUTTING_INTEGRATION.md` is canonical and binding on all future Service Network work.
+A change is **not** complete when its own tests pass. It is complete when:
+
+1. `web/src/__tests__/designContract.test.ts` passes and any new surface is declared to it —
+   root `DESIGN.md` governs Service Network, and did not exist when S0–S10 were written;
+2. every new gate consuming a role accepts the platform role **OR** the verified tenant role
+   (a garage employee is `owner` platform-wide and `mechanic` in their garage — both are true);
+3. navigation visibility and route admission are proven to agree for the same actor;
+4. no authority is derived from a registration claim, OCR output or a QR scan;
+5. desktop, tablet and mobile are each exercised in a **browser**, not reasoned about;
+6. the PR states which `DESIGN.md` sections it implements (`DESIGN.md` §24).
+
+Item 5 is not ceremony. Eight separate defects in this area were invisible to a green suite and
+obvious to one real account in one real browser.
+
+**Known open dependency (Product Owner):** nothing in the product creates a `tenants` row or a
+`tenant_users` row, and nothing advances `onboarding_status` past `requested`. Service Network's
+garage side is therefore reachable only for memberships provisioned out of band. See
+`GLOBAL_DESIGN_NAV_ONBOARDING_CONVERGENCE.md` §5.
+
+---
+
 # 39. Final implementation instruction
 
 The implementation programme begins only after the post-#194 canonical `main` is known.
