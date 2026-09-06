@@ -1,7 +1,7 @@
 import express from 'express';
 import { supabase } from '../db/supabase.js';
 import { authorizeSessionRole } from '../middleware/authMiddleware.js';
-import { getGarageCustomers, getGarageQueue } from '../services/serviceNetwork/garageQueueService.js';
+import { getGarageCustomers, getGarageMechanics, getGarageQueue } from '../services/serviceNetwork/garageQueueService.js';
 
 /**
  * Service Network S9 routes — garage queue and customer records.
@@ -31,6 +31,12 @@ router.get('/api/garage/queue', authorizeSessionRole(GARAGE_ROLES), asyncHandler
 
 router.get('/api/garage/customers', authorizeSessionRole(GARAGE_ROLES), asyncHandler(async (req, res) => {
   res.json(await getGarageCustomers(supabase, req.userContext));
+}));
+
+// The garage's own members, so a mechanic can be picked rather than a UUID typed (R5). Same tenant
+// scope and same session gate as every other private garage read on this router.
+router.get('/api/garage/mechanics', authorizeSessionRole(GARAGE_ROLES), asyncHandler(async (req, res) => {
+  res.json(await getGarageMechanics(supabase, req.userContext));
 }));
 
 export default router;

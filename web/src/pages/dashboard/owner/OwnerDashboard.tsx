@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { Link } from 'react-router-dom'
+import { Link, Navigate } from 'react-router-dom'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import MarketplacePulse from '@/components/intelligence/MarketplacePulse'
 import NextBestActions from '@/components/intelligence/NextBestActions'
@@ -25,6 +25,7 @@ import {
 import { OwnerListingMedia } from '@/components/listing/OwnerListingMedia'
 import { useCarUpApi } from '@/hooks/useCarUpApi'
 import { useAuth } from '@/context/AuthContext'
+import { useGarageOperator } from '@/hooks/useGarageOperator'
 import type { Vehicle, Escrow } from '@/types'
 import { readOwnerTrustClaim, statedMileage } from './ownerStatedValues'
 
@@ -61,6 +62,18 @@ type OwnerActivityNotification = {
 export default function OwnerDashboard() {
   const { fetchSafePayEscrows, fetchOwnedVehicles, fetchNotifications } = useCarUpApi()
   const { user } = useAuth()
+
+  /**
+   * Garage staff do not belong here (R5).
+   *
+   * Owner UAT: a garage tenant-member signing in landed on this page — "sell your car", "your
+   * listings", "saved cars" — while their actual work sat in a queue no screen exposed. Public
+   * registration always creates an `owner`, so garage staff who signed up through the product carry
+   * the owner platform role and cannot be told apart by role alone. The server can tell, and this
+   * moves them once it has said so. `unknown` deliberately moves nobody: an unreachable probe must
+   * not strand an owner on a garage screen.
+   */
+  const { state: operatorState } = useGarageOperator()
 
   const [vehicles, setVehicles] = useState<Vehicle[]>([])
   const [liveNotifications, setLiveNotifications] = useState<OwnerActivityNotification[]>([])
@@ -161,6 +174,10 @@ export default function OwnerDashboard() {
       to: '/dashboard/communications', cta: 'Open communications',
     })
   }
+
+  // Garage staff belong in the workshop, not on a page about selling their own car. Only a
+  // SERVER-confirmed garage moves anyone: 'checking' and 'unknown' both render the dashboard.
+  if (operatorState === 'garage') return <Navigate to="/garage" replace />
 
   return (
     <div className="space-y-6 max-w-7xl mx-auto">

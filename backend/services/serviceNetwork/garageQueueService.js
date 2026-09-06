@@ -58,6 +58,27 @@ export async function getGarageQueue(supabaseClient, userContext, query = {}) {
     .from('mechanic_work_orders').select('id, service_case_id, status').in('service_case_id', caseIds);
   const workOrderByCase = new Map((workOrders || []).map((w) => [w.service_case_id, w]));
 
+  // WHO is on each job (R6).
+  //
+  // A mechanic and a garage manager look at the same queue and need different things from it: the
+  // manager needs everything, the mechanic needs their own work. Without this the two are the same
+  // screen, and a mechanic must open every job to find out which are theirs.
+  //
+  // `work_order_assignments` is the authority for assignment — not the legacy `mechanic_id` column
+  // — and a live assignment is one that has not been unassigned. Read failure leaves every job
+  // unattributed rather than silently attributing them to nobody-in-particular: `null` here means
+  // "not known from this read", and the surfaces treat it as unknown, never as unassigned.
+  const workOrderIds = (workOrders || []).map((w) => w.id);
+  const assigneeByWorkOrder = new Map();
+  if (workOrderIds.length) {
+    const { data: assignments } = await supabaseClient
+      .from('work_order_assignments')
+      .select('work_order_id, mechanic_user_id, unassigned_at')
+      .in('work_order_id', workOrderIds)
+      .is('unassigned_at', null);
+    for (const a of assignments || []) assigneeByWorkOrder.set(a.work_order_id, a.mechanic_user_id);
+  }
+
   const queue = cases
     .map((c) => {
       const vehicle = vehicleByVin.get(c.vin) || null;
@@ -75,7 +96,15 @@ export async function getGarageQueue(supabaseClient, userContext, query = {}) {
         requested_at: c.requested_at,
         accepted_at: c.accepted_at || null,
         branch_id: c.branch_id || null,
-        work_order: workOrder ? { id: workOrder.id, status: workOrder.status } : null,
+        work_order: workOrder
+          ? {
+            id: workOrder.id,
+            status: workOrder.status,
+            // null = nobody is assigned, or the assignment could not be read. Either way the UI
+            // must not claim a name it does not have.
+            assigned_mechanic_user_id: assigneeByWorkOrder.get(workOrder.id) || null,
+          }
+          : null,
         // What this case is actually waiting for — derived from state, never guessed.
         next_action: c.status === 'requested'
           ? 'accept_or_decline'
@@ -95,6 +124,46 @@ export async function getGarageQueue(supabaseClient, userContext, query = {}) {
     if (counts[c.status] !== undefined) counts[c.status] += 1;
   }
   return { queue, total: queue.length, counts };
+}
+
+/**
+ * The garage's own people, so a mechanic can be CHOSEN (R5).
+ *
+ * `assignMechanic` takes a `mechanic_user_id` and refuses any id that is not a member of the
+ * caller's tenant. Nothing in the product could tell an operator what those ids are, so a certified
+ * assignment capability was reachable only by typing a UUID — which is the same as not having it.
+ *
+ * This adds no authority and no table. It reads the SAME `tenant_users` membership that
+ * `assignMechanic` already validates against, for the caller's own tenant only, and returns the
+ * minimum needed to pick a person. A member whose name cannot be resolved is reported as unnamed
+ * rather than given an invented one, and no other tenant's membership is readable through here.
+ */
+export async function getGarageMechanics(supabaseClient, userContext) {
+  const tenantId = requireTenantContext(userContext);
+
+  const { data: members, error } = await supabaseClient
+    .from('tenant_users')
+    .select('user_id, role')
+    .eq('tenant_id', tenantId);
+  if (error) throw new DatabaseError(`Failed to load garage members: ${error.message}`);
+
+  const rows = members || [];
+  if (!rows.length) return { mechanics: [], total: 0 };
+
+  const userIds = [...new Set(rows.map((m) => m.user_id).filter(Boolean))];
+  const { data: users } = await supabaseClient.from('users').select('id, name').in('id', userIds);
+  const nameById = new Map((users || []).map((u) => [u.id, u.name || null]));
+
+  const mechanics = rows
+    .map((m) => ({
+      user_id: m.user_id,
+      display_name: nameById.get(m.user_id) || null,
+      // The membership role, stated as recorded. It is not a qualification and not a rating.
+      role: m.role || null,
+    }))
+    .sort((a, b) => String(a.display_name || '￿').localeCompare(String(b.display_name || '￿')));
+
+  return { mechanics, total: mechanics.length };
 }
 
 /**

@@ -2263,6 +2263,116 @@ export function useCarUpApi() {
     return request<any>(`/service-cases/${encodeURIComponent(caseId)}`, { method: 'GET' })
   }, [request])
 
+  /* ── Garage operator workspace (R5) ──────────────────────────────────────────────────────────
+     Every one of these endpoints was already certified and had no product surface: the garage's
+     queue, its own members, and the case/work-order/record lifecycle. Nothing new is invented
+     here — these are the canonical Service Network routes, called from a screen at last. */
+
+  const fetchGarageQueue = useCallback(async (status?: string): Promise<any> => {
+    const q = status ? `?status=${encodeURIComponent(status)}` : ''
+    return request<any>(`/garage/queue${q}`, { method: 'GET' })
+  }, [request])
+
+  const fetchGarageMechanics = useCallback(async (): Promise<any> => {
+    return request<any>('/garage/mechanics', { method: 'GET' })
+  }, [request])
+
+  const fetchGarageCustomers = useCallback(async (): Promise<any> => {
+    return request<any>('/garage/customers', { method: 'GET' })
+  }, [request])
+
+  /* The garage's own public page. Certified since S1 and never reachable from the product, which
+     left the directory with no way to gain a garage — and so the owner journey with no supply. */
+  const fetchMyGarageProfile = useCallback(async (): Promise<any> => {
+    return request<any>('/garage/profile', { method: 'GET' })
+  }, [request])
+
+  const saveMyGarageProfile = useCallback(async (body: Record<string, unknown>): Promise<any> => {
+    return request<any>('/garage/profile', { method: 'PUT', body: JSON.stringify(body) })
+  }, [request])
+
+  const publishMyGarageProfile = useCallback(async (): Promise<any> => {
+    return request<any>('/garage/profile/publish', { method: 'POST', body: '{}' })
+  }, [request])
+
+  const unpublishMyGarageProfile = useCallback(async (): Promise<any> => {
+    return request<any>('/garage/profile/unpublish', { method: 'POST', body: '{}' })
+  }, [request])
+
+  const acceptServiceCase = useCallback(async (caseId: string): Promise<any> => {
+    return request<any>(`/service-cases/${encodeURIComponent(caseId)}/accept`, { method: 'POST', body: '{}' })
+  }, [request])
+
+  const declineServiceCase = useCallback(async (caseId: string, reasonCode?: string): Promise<any> => {
+    return request<any>(`/service-cases/${encodeURIComponent(caseId)}/decline`, {
+      method: 'POST',
+      body: JSON.stringify({ reason_code: reasonCode || 'garage_declined' }),
+    })
+  }, [request])
+
+  const startServiceCase = useCallback(async (caseId: string): Promise<any> => {
+    return request<any>(`/service-cases/${encodeURIComponent(caseId)}/start`, { method: 'POST', body: '{}' })
+  }, [request])
+
+  const completeServiceCase = useCallback(async (caseId: string): Promise<any> => {
+    return request<any>(`/service-cases/${encodeURIComponent(caseId)}/complete`, { method: 'POST', body: '{}' })
+  }, [request])
+
+  const openWorkOrderForCase = useCallback(async (caseId: string, body: Record<string, unknown> = {}): Promise<any> => {
+    return request<any>(`/service-cases/${encodeURIComponent(caseId)}/work-order`, {
+      method: 'POST',
+      body: JSON.stringify(body),
+    })
+  }, [request])
+
+  const fetchWorkOrderAssignment = useCallback(async (workOrderId: string): Promise<any> => {
+    return request<any>(`/service-work-orders/${encodeURIComponent(workOrderId)}/assignment`, { method: 'GET' })
+  }, [request])
+
+  const assignMechanicToWorkOrder = useCallback(async (workOrderId: string, mechanicUserId: string): Promise<any> => {
+    return request<any>(`/service-work-orders/${encodeURIComponent(workOrderId)}/assign`, {
+      method: 'POST',
+      body: JSON.stringify({ mechanic_user_id: mechanicUserId }),
+    })
+  }, [request])
+
+  const unassignMechanicFromWorkOrder = useCallback(async (workOrderId: string): Promise<any> => {
+    return request<any>(`/service-work-orders/${encodeURIComponent(workOrderId)}/unassign`, {
+      method: 'POST',
+      body: '{}',
+    })
+  }, [request])
+
+  /** Record what was actually done. Cost is optional, but it never travels without its currency. */
+  const recordServiceOnWorkOrder = useCallback(async (workOrderId: string, body: {
+    work_performed?: string | null
+    service_category?: string | null
+    total_cost?: number | null
+    currency?: string | null
+  }): Promise<any> => {
+    return request<any>(`/service-work-orders/${encodeURIComponent(workOrderId)}/records`, {
+      method: 'POST',
+      body: JSON.stringify(body),
+    })
+  }, [request])
+
+  /** An OBSERVATION of the odometer. It does not write the vehicle's canonical mileage. */
+  const recordMileageObservation = useCallback(async (recordId: string, observedMileage: number): Promise<any> => {
+    return request<any>(`/service-records/${encodeURIComponent(recordId)}/mileage`, {
+      method: 'POST',
+      body: JSON.stringify({ observed_mileage: observedMileage, observation_source: 'garage_stated' }),
+    })
+  }, [request])
+
+  /**
+   * Resolve a scanned CarUp link (R8). The route is `optionalAuth`, so this is called both signed
+   * out and signed in — the identity headers `request` attaches when they exist are exactly what
+   * decides whether the answer is `authentication_required` or the real one.
+   */
+  const resolveServiceLink = useCallback(async (publicToken: string): Promise<any> => {
+    return request<any>(`/service-links/${encodeURIComponent(publicToken)}`, { method: 'GET' })
+  }, [request])
+
   const cancelServiceRequest = useCallback(async (caseId: string, reasonCode?: string): Promise<any> => {
     return request<any>(`/service-cases/${encodeURIComponent(caseId)}/cancel`, {
       method: 'POST',
@@ -2832,6 +2942,24 @@ export function useCarUpApi() {
     fetchMyServiceRequests,
     fetchServiceRequest,
     cancelServiceRequest,
+    resolveServiceLink,
+    fetchGarageQueue,
+    fetchGarageMechanics,
+    fetchGarageCustomers,
+    fetchMyGarageProfile,
+    saveMyGarageProfile,
+    publishMyGarageProfile,
+    unpublishMyGarageProfile,
+    acceptServiceCase,
+    declineServiceCase,
+    startServiceCase,
+    completeServiceCase,
+    openWorkOrderForCase,
+    fetchWorkOrderAssignment,
+    assignMechanicToWorkOrder,
+    unassignMechanicFromWorkOrder,
+    recordServiceOnWorkOrder,
+    recordMileageObservation,
     fetchCommunicationDeadLetters,
     retryCommunicationDeadLetter,
     cancelCommunicationDeadLetter,

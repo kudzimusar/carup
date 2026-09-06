@@ -59,6 +59,14 @@ describe('App route convergence after the post-#194 reconciliation', () => {
     expect(resolves('/garages/msasa-motors')).toBe(true)
   })
 
+  it('registers the surfaces the owner UAT found missing', () => {
+    // Every CarUp QR code points at /s/:token. The resolver worked; the route did not exist, so
+    // every scan in the product opened the 404 page this control case detects.
+    expect(resolves('/s/some-public-token')).toBe(true)
+    // A request the owner sends must be findable afterwards.
+    expect(resolves('/dashboard/service-requests')).toBe(true)
+  })
+
   it('keeps GarageDetail wired to a route rather than orphaned on disk', async () => {
     // The specific failure: the page file survived the merge, its route did not.
     const app = await import('./App?raw')

@@ -101,6 +101,7 @@ test('runtime: every Service Network router family is represented in the live st
     'garage profile (private)': 'PUT /api/garage/profile',
     'garage queue': 'GET /api/garage/queue',
     'garage customers': 'GET /api/garage/customers',
+    'garage members': 'GET /api/garage/mechanics',
     'service case': 'POST /api/service-cases',
     'service case lifecycle': 'POST /api/service-cases/:caseId/accept',
     'service work order': 'POST /api/service-work-orders/:workOrderId/assign',

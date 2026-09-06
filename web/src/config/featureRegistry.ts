@@ -518,6 +518,44 @@ export const FEATURE_REGISTRY: FeatureRegistryItem[] = [
     icon: 'FileText',
   },
 
+  // ─── Garage operator workspace (R5) ────────────────────────────────────
+  // The queue, cases, job cards, assignment and service records were all certified in Service
+  // Network Foundation 1.0 and none had a screen: a garage tenant-member signed in and saw the
+  // OWNER dashboard. `roles` mirrors the backend's GARAGE_ROLES exactly.
+  {
+    id: 'garage.workshop',
+    label: 'Workshop',
+    route: '/garage',
+    domain: 'service',
+    roles: ['mechanic', 'dealer', 'admin'],
+    placements: ['dashboard_sidebar'],
+    requiresAuth: true,
+    icon: 'Wrench',
+    description: 'Service requests and jobs for your garage',
+  },
+  {
+    id: 'garage.customers',
+    label: 'Garage Customers',
+    route: '/garage/customers',
+    domain: 'service',
+    roles: ['mechanic', 'dealer', 'admin'],
+    placements: ['dashboard_sidebar'],
+    requiresAuth: true,
+    icon: 'Users',
+    description: 'People whose cars you have worked on through CarUp',
+  },
+  {
+    id: 'garage.profile',
+    label: 'My Garage Page',
+    route: '/garage/profile',
+    domain: 'service',
+    roles: ['mechanic', 'dealer', 'admin'],
+    placements: ['dashboard_sidebar'],
+    requiresAuth: true,
+    icon: 'Building2',
+    description: 'What customers see when they find you on CarUp',
+  },
+
   // ─── Mechanic Dashboard ────────────────────────────────────────────────
   {
     id: 'mechanic.overview',
@@ -538,7 +576,9 @@ export const FEATURE_REGISTRY: FeatureRegistryItem[] = [
     placements: ['dashboard_sidebar'],
     requiresAuth: true,
     icon: 'ClipboardList',
-    badge: 8,
+    // No badge. This read `badge: 8` — a constant shown to every mechanic on every account,
+    // including one with no work orders at all. Nothing counts work orders for the sidebar, so
+    // the honest number is no number.
   },
   {
     id: 'mechanic.service-logs',

@@ -39,6 +39,7 @@ const CONSEQUENTIAL = [
   // garage private queue and customer records
   ['get', '/api/garage/queue'],
   ['get', '/api/garage/customers'],
+  ['get', '/api/garage/mechanics'],
   ['get', '/api/garage/service-cases'],
   // mechanic assignment and work-order status
   ['post', '/api/service-cases/:caseId/work-order'],

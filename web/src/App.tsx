@@ -25,6 +25,7 @@ import SharedReport from './pages/SharedReport'
 import DealerDirectory from './pages/DealerDirectory'
 import GarageDirectory from './pages/GarageDirectory'
 import GarageDetail from './pages/GarageDetail'
+import ServiceLink from './pages/ServiceLink'
 import InsuranceDirectory from './pages/InsuranceDirectory'
 import Pricing from './pages/Pricing'
 import About from './pages/About'
@@ -104,6 +105,12 @@ import SalesAnalytics from './pages/dashboard/dealer/SalesAnalytics'
 
 // Mechanic Dashboard
 import MechanicDashboard from './pages/dashboard/mechanic/MechanicDashboard'
+// Garage operator workspace (R5) — the queue, cases, job cards, assignment and service records
+// that were certified in Foundation 1.0 and had no product surface at all.
+import GarageWorkspace from './pages/dashboard/garage/GarageWorkspace'
+import GarageCaseDetail from './pages/dashboard/garage/GarageCaseDetail'
+import GarageCustomers from './pages/dashboard/garage/GarageCustomers'
+import GarageProfileEditor from './pages/dashboard/garage/GarageProfileEditor'
 import WorkOrders from './pages/dashboard/mechanic/WorkOrders'
 import ServiceLogs from './pages/dashboard/mechanic/ServiceLogs'
 import PartsTracking from './pages/dashboard/mechanic/PartsTracking'
@@ -263,6 +270,11 @@ export default function App() {
               file wholesale, which left GarageDetail on disk with zero importers. Guarded by
               web/src/__tests__/app-route-convergence.test.tsx. */}
           <Route path="/garages/:slug" element={<GarageDetail />} />
+          {/* Where every CarUp QR code lands (R8). The backend resolved service links from the
+              start; this route did not exist, so every scan opened the 404 page. Public by
+              design: the resolver — not this route — decides what a scanner may see, and shows an
+              anonymous scanner only that the link is real. */}
+          <Route path="/s/:token" element={<ServiceLink />} />
           <Route path="/insurance" element={<InsuranceDirectory />} />
           <Route path="/pricing" element={<Pricing />} />
           <Route path="/about" element={<About />} />
@@ -367,6 +379,13 @@ export default function App() {
           <Route path="/mechanic/service-logs" element={<ServiceLogs />} />
           <Route path="/mechanic/parts" element={<PartsTracking />} />
           <Route path="/mechanic/customers" element={<CustomerRecords />} />
+          {/* The garage's own work. Mounted in the garage-side portal because GARAGE_ROLES on the
+              backend is exactly ['mechanic','dealer','admin'] — the surface's role set mirrors the
+              API's rather than inventing a second answer to who may act for a garage. */}
+          <Route path="/garage" element={<GarageWorkspace />} />
+          <Route path="/garage/cases/:caseId" element={<GarageCaseDetail />} />
+          <Route path="/garage/customers" element={<GarageCustomers />} />
+          <Route path="/garage/profile" element={<GarageProfileEditor />} />
         </Route>
 
         {/* Insurance Dashboard */}
