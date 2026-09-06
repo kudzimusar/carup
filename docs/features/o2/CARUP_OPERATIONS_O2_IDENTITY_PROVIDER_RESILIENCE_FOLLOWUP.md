@@ -93,6 +93,23 @@ identity-verification unavailability this document predicts. Every subject, inde
 human path back. **A depleted prepay balance is currently indistinguishable, in effect, from
 switching identity verification off.**
 
+### It survived a funding attempt, which sharpens the requirement
+
+The project was reported funded and the journey was resumed. Eleven independent classification
+attempts across three separate deployments — including one built fresh after re-binding the key —
+returned the identical `429 "Your prepayment credits are depleted"`. Not a cached failure, not a
+stale build, not a rate limit.
+
+Nobody could confirm which Google project the key belongs to, because the Vercel variable is
+`type: sensitive` and its value is unreadable to every party, including the tooling of the account
+that created it. So a credential can be **valid, correctly wired, reaching the provider, and
+attached to an account nobody present can identify** — and the only way to be sure which project is
+paying is to mint a fresh key inside the project you funded.
+
+That is an operational property worth designing for, not a one-off: **a provider credential should
+carry enough non-secret provenance (project id / label) that an outage can be traced to an account
+without reading the secret.** Add it to the decisions below.
+
 ### And a second finding: the reviewer could not see why
 
 Before the run, the same case recorded only this:
@@ -134,6 +151,9 @@ depleted balance is an ops page, not a finding against the applicant.
    pending cases queue or fail, and which classes page operations instead of sitting on a case.
 5. **Production failover.** Whether a second provider, a queue-and-retry, or an explicit
    maintenance state is the answer. **Unresolved.**
+6. **Credential provenance.** Whether a provider credential records enough non-secret identity
+   (project id or label) that an account-side outage can be traced without reading the secret —
+   observed as a real obstacle while diagnosing the depleted-balance case above.
 
 ---
 

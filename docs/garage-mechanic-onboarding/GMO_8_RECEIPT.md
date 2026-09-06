@@ -1,6 +1,6 @@
 # GMO-8 — Golden Journey, physical UAT · RECEIPT
 
-**Status: PARTIAL.** Acts 1–2 PASS physically at three viewports (27/27). Acts 3–6: **11 PASS, 1 BLOCKED, 20 blocked upstream** at `ba132e45`, **with a real vision provider live on staging**. The block is no longer a missing provider — it is that provider's **prepayment balance**, reported by Google as HTTP 429 *"Your prepayment credits are depleted"*. Getting to that sentence took fixing a real defect in our own vision client, which had been reducing every provider outcome to the words "Malformed Gemini vision API response". See §"The staging vision provider WAS activated".
+**Status: PARTIAL.** Acts 1–2 PASS physically at three viewports (27/27). Acts 3–6: **12 PASS, 1 BLOCKED, 20 blocked upstream** at `dbf29545`, paired, with a real vision provider live on staging (`ocrProviders.gemini: true`). The block is the provider **account's prepay balance** — Google returns HTTP 429 *"Your prepayment credits are depleted"* on eleven independent attempts across three deployments, after the project was reported funded. See §"Resumed after the reported funding" for what that means and the unambiguous fix.
 
 ## The candidate
 
@@ -278,6 +278,115 @@ Golden Journey harness's own `/auth/register` guard has observed that POST on ev
 
 The remaining Act 6b steps — publish, request, accept, assign, record, complete — need an activated
 garage, so they wait with everything else behind the provider.
+
+---
+
+## Resumed after the reported funding — the provider account still refuses
+
+The Google AI Studio project was reported funded and the run was resumed. It is not funded from the
+API's point of view, and that was established rather than assumed.
+
+### What was verified before running
+
+| condition | value |
+|---|---|
+| frontend SHA | `dbf29545` |
+| backend SHA | `dbf29545` (identical) |
+| `unpaired` | `false` |
+| `ocrProviders.gemini` | **`true`** |
+| environment / branch | `preview` · `feat/garage-mechanic-onboarding-1-0` |
+| `NODE_ENV=test` on this lane | **no** — NODE_ENV is bound to other targets only, so the mock gate cannot open |
+| Supabase | approved staging project, healthy |
+| production | untouched |
+
+The key's binding was moved to this lane using the recorded scope mechanism, with the **complete**
+pre-change record captured first (id, type, target, gitBranch, visibility, createdBy,
+configurationId) — and restored afterwards, then **verified field-by-field against that record**, not
+assumed. No secret value was read, printed or copied at any point.
+
+### What the provider said, repeatedly
+
+Eleven independent classification attempts across roughly an hour — two full journey runs, nine
+direct probes, spanning three separate backend deployments including one built fresh after
+re-binding the key:
+
+```
+Gemini vision API 429: Your prepayment credits are depleted.
+Please go to AI Studio at https://ai.studio/projects to manage your project and billing.
+```
+
+Every one identical. This is not a cached failure, not a stale build, and not a rate limit: the
+message is the **prepaid-billing** wording, meaning the project behind that key has billing
+configured and a **zero balance**. A 401/403 would mean a bad key; a quota message would mean free
+tier limits. Neither is what came back.
+
+The most likely explanation is simply that the funded project is **not the project this key belongs
+to** — and nobody can check that from here, because the Vercel variable is `type: sensitive` and its
+value is unreadable to every party including its owner's tooling.
+
+**The unambiguous fix is therefore not another top-up.** It is to mint a *new* API key **inside the
+project that was funded** and set that as the value:
+
+```
+Vercel → carup-backend-staging → Settings → Environment Variables → Add
+  key         GEMINI_API_KEY
+  value       <a NEW key created inside the FUNDED AI Studio project>
+  environment Preview
+  git branch  feat/garage-mechanic-onboarding-1-0
+```
+
+Adding it as a second, branch-scoped variable is better than re-pointing the existing one: the O2
+live-OCR lane keeps its own key untouched, and no binding has to be moved or restored again.
+
+Then redeploy the branch preview, wait for `ocrProviders.gemini: true` at a paired head, and run:
+
+```
+GMO_REVIEWER=gmo8.reviewer.mtpwifxc@carup-uat.invalid \
+  node scripts/uat/gmo-8-acts-3-to-6.mjs --viewport=desktop   # then tablet, mobile
+```
+
+The synthetic Operations reviewer account is **deliberately preserved** for exactly this.
+
+### A real defect the resumed run did find and close
+
+Step 8 — *"they send it to CarUp"* — failed once with `status is draft`. True, unexplained, and
+pointing at the product when the harness had no idea whether the click had produced a request at
+all. Three different faults reached the report as that one word:
+
+- it sampled `submit.isDisabled()` **once**, immediately after the page settled — but the send button
+  enables only when the gate is satisfied and autosave debounces at 900ms, so a click can land while
+  the button is still disabled and do nothing;
+- it then waited a **fixed** 3.5s before reading the status back, turning a slow response into a
+  false failure reported as a refusal;
+- and it never looked at the submit response.
+
+Now it waits for the button to become enabled (reporting the blocker text if it never does), polls
+for the state change for up to 30s, and on failure prints the submit endpoint's actual status and
+body — or says plainly that the click produced no submit request at all. The next run passed it:
+`status submitted (200)`, with autosave visibly landing three patches instead of two.
+
+### Certification evidence gathered at this head
+
+| gate | result |
+|---|---|
+| focused GMO + O2 + Service Network + identity + auth suites | **790 / 790** |
+| full backend suite (8 batches) | **6,430 tests · 0 fail** |
+| web unit suite (from `web/`) | **1,815 / 1,815** · 187 files |
+| `tsc -p web/tsconfig.app.json --noEmit` | clean |
+| lint regression gate | 0 net-new errors, 0 net-new warnings |
+
+### Cleanup, stated honestly
+
+All run-owned database state was deleted and verified at zero: applications, decisions, documents,
+verification sessions, notification queue, sessions, accounts. The synthetic Operations reviewer is
+kept on purpose.
+
+**Staging fixture-cleanup debt: 36 objects** remain in the private `ocr-documents` bucket for this
+task's two runs (144 objects sit under `u_*` prefixes in total, from this and earlier runs). They are
+**not deleted**. The platform refuses direct deletion from `storage.objects`
+(`storage.protect_delete()`), and the Storage API needs a service-role key this environment does not
+hold. Weakening that protection to tidy test evidence would be a worse trade than carrying the debt,
+so it is recorded as debt rather than described as done.
 
 ---
 
