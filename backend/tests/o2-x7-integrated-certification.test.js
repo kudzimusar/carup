@@ -22,23 +22,46 @@ const catalogue = read('docs/features/o2/CARUP_OPERATIONS_O2_STAKEHOLDER_WORKBOO
 /**
  * Is THIS branch a declared convergence lane?
  *
- * Read from the committed manifest and matched against the branch git actually has checked out —
- * not an environment variable a CI job could set, and not a filename. If git cannot be consulted
- * (a shallow archive, a detached export), this returns null and the strict absence assertion
- * applies. Failing closed is the right default for a guard.
+ * Resolved from GIT OBJECTS, not from the shape of the checkout and not from an environment
+ * variable a job step could invent:
+ *
+ *   1. the checked-out branch name, when there is one;
+ *   2. otherwise the remote branches whose tip IS this exact commit — CI checks out a DETACHED head,
+ *      so step 1 returns the literal string "HEAD" there and the first version of this helper duly
+ *      fell through to the strict assertion and failed every CI run while passing locally;
+ *   3. otherwise GITHUB_HEAD_REF, which GitHub sets for a pull-request build.
+ *
+ * If none of them resolve, this returns null and the strict absence assertion applies. A guard
+ * should fail closed.
+ *
+ * The resolution only chooses WHICH manifest entry to consider. It cannot fabricate a parent's code,
+ * a reconciliation receipt, or an O2 module that stays out of Service Network's tables — every one
+ * of those is still checked below against the tree itself.
  */
+function resolveBranch() {
+  const git = (cmd) => {
+    try { return execSync(cmd, { cwd: repoRoot, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }).trim(); }
+    catch { return ''; }
+  };
+  const checkedOut = git('git rev-parse --abbrev-ref HEAD');
+  if (checkedOut && checkedOut !== 'HEAD') return [checkedOut];
+
+  // Detached: every remote branch whose tip is exactly this commit.
+  const pointing = git("git for-each-ref --points-at HEAD --format='%(refname:short)' refs/remotes")
+    .split('\n').map((r) => r.replace(/^'|'$/g, '').replace(/^origin\//, '')).filter(Boolean);
+  if (pointing.length) return pointing;
+
+  const prHead = (process.env.GITHUB_HEAD_REF || '').trim();
+  return prHead ? [prHead] : [];
+}
+
 function readConvergenceLane() {
   const manifestPath = path.join(repoRoot, 'docs/convergence/CONVERGENCE_MANIFEST.json');
   if (!fs.existsSync(manifestPath)) return null;
-  let branch = null;
-  try {
-    branch = execSync('git rev-parse --abbrev-ref HEAD', { cwd: repoRoot, encoding: 'utf8' }).trim();
-  } catch {
-    return null;
-  }
-  if (!branch || branch === 'HEAD') return null;
+  const branches = resolveBranch();
+  if (!branches.length) return null;
   const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
-  return (manifest.lanes || []).find((l) => l.branch === branch) || null;
+  return (manifest.lanes || []).find((l) => branches.includes(l.branch)) || null;
 }
 
 /* ── The binding register ─────────────────────────────────────────────────── */
