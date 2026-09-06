@@ -910,6 +910,31 @@ export interface DiasporaRequestLinePayload {
 export interface DiasporaRequestLine extends DiasporaRequestLinePayload {
   id: string;
   line_number: number;
+  /**
+   * Intake 2.0 line preferences that projectRequestLineForMarketplace() publishes.
+   * Exactly MARKETPLACE_SAFE_LINE_FIELDS — nothing here may be added without adding it
+   * there first, and NEVER_MARKETPLACE_VISIBLE fields must never appear.
+   */
+  vehicle_body_type?: string | null;
+  vehicle_fuel_type?: string | null;
+  vehicle_transmission?: string | null;
+  vehicle_drivetrain?: string | null;
+  vehicle_steering?: string | null;
+  vehicle_seats_min?: number | null;
+  vehicle_mileage_max_km?: number | null;
+  vehicle_colour_preference?: string | null;
+  vehicle_trim_preference?: string | null;
+  vehicle_generation_code?: string | null;
+  vehicle_engine_cc_min?: number | null;
+  vehicle_engine_cc_max?: number | null;
+  vehicle_auction_grade?: string | null;
+  accident_repair_tolerance?: string | null;
+  rust_tolerance?: string | null;
+  intended_use?: string | null;
+  alternative_models?: string[] | null;
+  part_side?: string | null;
+  part_origin_preference?: string | null;
+  brand_preference?: string | null;
 }
 
 /**
@@ -939,6 +964,22 @@ export interface DiasporaRfqOpportunity {
   /** No buyer verification signal is published — see projectRfqForMarketplace(). */
   lines: DiasporaRequestLine[];
   quote_count?: number;
+  /**
+   * Intake 2.0 order-level facts that projectRfqForMarketplace() publishes — exactly
+   * MARKETPLACE_SAFE_ORDER_FIELDS. Budget still crosses only through budget_disclosed.
+   */
+  intake_intent?: string | null;
+  destination_outcome?: string | null;
+  preferred_port?: string | null;
+  shipping_objective?: string | null;
+  shipping_mode_preference?: string | null;
+  requested_quote_components?: string[] | null;
+  alternatives_policy?: string | null;
+  available_from?: string | null;
+  arrival_window_start?: string | null;
+  arrival_window_end?: string | null;
+  timing_flexibility?: string | null;
+  deadline_is_hard?: boolean | null;
   /**
    * Genuine, supplier-specific match evidence from the caller's OWN published stock, or null when
    * nothing matches. Never another supplier's stock, never an opaque score.

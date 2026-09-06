@@ -165,6 +165,19 @@ export interface LogisticsOpportunity {
   service_preference: string
   items: LogisticsRequestItem[]
   quote_count?: number
+  /**
+   * Intake 2.0 request-level facts published by projectLogisticsRequestForMarketplace() — exactly
+   * MARKETPLACE_SAFE_LOGISTICS_FIELDS. Nothing may be added here without adding it there first;
+   * every address, contact, consignee and clearing agent stays in NEVER_MARKETPLACE_VISIBLE.
+   */
+  pickup_required?: string | null
+  origin_site_type?: string | null
+  destination_outcome?: string | null
+  shipping_objective?: string | null
+  available_from?: string | null
+  arrival_window_start?: string | null
+  arrival_window_end?: string | null
+  timing_flexibility?: string | null
 }
 
 export interface LogisticsMyQuote {

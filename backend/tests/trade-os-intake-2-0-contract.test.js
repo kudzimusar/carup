@@ -175,23 +175,32 @@ test('line preferences are actually WRITTEN, not merely normalizable', async () 
 
 // ── 3. the richer intake must not widen supplier visibility ────────────
 
+/**
+ * DISCOVERED, not enumerated. Listing the allow-lists by hand is how a NEW allow-list gets added
+ * without any guard noticing it — which is exactly what happened when the logistics request-level
+ * list was introduced. Every MARKETPLACE_SAFE_* export is now covered the moment it exists.
+ */
+const allowListNames = Object.keys(contract).filter((k) => /^MARKETPLACE_SAFE_/.test(k));
+const everyAllowedField = () => new Set(allowListNames.flatMap((name) => contract[name]));
+
+test('every marketplace allow-list is discovered by the privacy guards', () => {
+  // A guard that silently covers nothing is worse than no guard.
+  assert.ok(allowListNames.length >= 4, `expected the allow-lists to be found, saw ${allowListNames}`);
+  for (const required of ['MARKETPLACE_SAFE_ORDER_FIELDS', 'MARKETPLACE_SAFE_LINE_FIELDS',
+                          'MARKETPLACE_SAFE_CARGO_FIELDS', 'MARKETPLACE_SAFE_LOGISTICS_FIELDS']) {
+    assert.ok(allowListNames.includes(required), `${required} is not being guarded`);
+  }
+});
+
 test('the marketplace allow-lists never name a private field', () => {
-  const allowed = new Set([
-    ...contract.MARKETPLACE_SAFE_ORDER_FIELDS,
-    ...contract.MARKETPLACE_SAFE_LINE_FIELDS,
-    ...contract.MARKETPLACE_SAFE_CARGO_FIELDS,
-  ]);
+  const allowed = everyAllowedField();
   for (const forbidden of contract.NEVER_MARKETPLACE_VISIBLE) {
     assert.ok(!allowed.has(forbidden), `"${forbidden}" must never be marketplace-visible`);
   }
 });
 
 test('commercially sensitive and locating intake fields are not marketplace-safe', () => {
-  const allowed = new Set([
-    ...contract.MARKETPLACE_SAFE_ORDER_FIELDS,
-    ...contract.MARKETPLACE_SAFE_LINE_FIELDS,
-    ...contract.MARKETPLACE_SAFE_CARGO_FIELDS,
-  ]);
+  const allowed = everyAllowedField();
   for (const field of ['budget_max_amount', 'budget_basis', 'payment_intent', 'consignee_kind',
                        'destination_area', 'origin_location', 'declared_value', 'export_clearance_state']) {
     assert.ok(!allowed.has(field), `"${field}" leaked into the marketplace allow-list`);
@@ -297,6 +306,38 @@ test('every conditional private fact is named NEVER_MARKETPLACE_VISIBLE', () => 
                        'preferred_contact_channel', 'preferred_language']) {
     assert.ok(contract.NEVER_MARKETPLACE_VISIBLE.includes(field),
       `"${field}" is collected by intake and must be explicitly named as never marketplace-visible`);
+  }
+});
+
+test('the logistics projection publishes the job shape a provider must price', () => {
+  // These decide the price: whether an inland collection leg exists, what kind of site it is
+  // collected from, and what the quote must cover at the far end. Withholding them does not
+  // protect the customer — it produces a wrong quote.
+  const projected = logistics.projectLogisticsRequestForMarketplace({
+    id: 'r1', origin_country: 'Japan', destination_country: 'Zimbabwe',
+    pickup_required: 'yes', origin_site_type: 'auction', destination_outcome: 'door_delivery',
+    shipping_objective: 'non_running', timing_flexibility: 'somewhat_flexible',
+    available_from: '2026-10-04',
+    // …while the address that collection happens AT stays private.
+    pickup_address: 'LEAK_ADDR', pickup_contact_phone: 'LEAK_PHONE',
+  }, []);
+  assert.equal(projected.pickup_required, 'yes');
+  assert.equal(projected.origin_site_type, 'auction');
+  assert.equal(projected.destination_outcome, 'door_delivery');
+  assert.equal(projected.shipping_objective, 'non_running');
+  assert.equal(projected.timing_flexibility, 'somewhat_flexible');
+  assert.equal(projected.available_from, '2026-10-04');
+  assert.ok(!Object.hasOwn(projected, 'pickup_address'), 'the pickup ADDRESS must stay private');
+  assert.ok(!Object.hasOwn(projected, 'pickup_contact_phone'), 'the pickup CONTACT must stay private');
+  assert.ok(!JSON.stringify(projected).includes('LEAK_'));
+});
+
+test('an unanswered logistics question is absent, never defaulted', () => {
+  const projected = logistics.projectLogisticsRequestForMarketplace(
+    { id: 'r1', origin_country: 'Japan', destination_country: 'Zimbabwe' }, []);
+  for (const field of contract.MARKETPLACE_SAFE_LOGISTICS_FIELDS) {
+    assert.ok(!Object.hasOwn(projected, field),
+      `"${field}" was never answered, so it must be absent rather than published as a default`);
   }
 });
 

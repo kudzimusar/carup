@@ -147,6 +147,24 @@ export const MARKETPLACE_SAFE_LINE_FIELDS = Object.freeze([
   'alternative_models', 'part_side', 'part_origin_preference', 'brand_preference',
 ]);
 
+/**
+ * Logistics REQUEST-level facts a provider needs in order to price the job at all.
+ *
+ * Each of these changes the price or the feasibility of the movement:
+ *   - pickup_required / origin_site_type — whether an inland collection leg exists, and what kind
+ *     of site it must be collected from (auction access differs from a private driveway). The
+ *     ADDRESS and the contact remain in NEVER_MARKETPLACE_VISIBLE: a provider prices the shape of
+ *     the job at browse time, and learns where to physically go once engaged.
+ *   - destination_outcome — whether the quote must include clearing, inland transport or delivery.
+ *   - shipping_objective / timing — what the customer is optimising for, so the offer answers it.
+ * Deliberately absent: every contact, address, consignee, clearing agent and insurance/payment
+ * intent. Those are in NEVER_MARKETPLACE_VISIBLE and no allow-list may reintroduce them.
+ */
+export const MARKETPLACE_SAFE_LOGISTICS_FIELDS = Object.freeze([
+  'pickup_required', 'origin_site_type', 'destination_outcome', 'shipping_objective',
+  'available_from', 'arrival_window_start', 'arrival_window_end', 'timing_flexibility',
+]);
+
 export const MARKETPLACE_SAFE_CARGO_FIELDS = Object.freeze([
   'packaging_type', 'goods_nature', 'handling_flags', 'content_declarations',
   'vehicle_running_state', 'vehicle_keys_state',

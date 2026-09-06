@@ -24,7 +24,7 @@ import {
 } from './diasporaAuthorization.js';
 import { resolveClient, appendAudit, appendCriticalAudit, paging } from './diasporaServiceUtils.js';
 import { normalizeLogisticsIntake, normalizeCargoIntake } from './tradeIntakeNormalizer.js';
-import { MARKETPLACE_SAFE_CARGO_FIELDS } from './tradeIntakeContract.js';
+import { MARKETPLACE_SAFE_CARGO_FIELDS, MARKETPLACE_SAFE_LOGISTICS_FIELDS } from './tradeIntakeContract.js';
 import { resolveVehicleObjectAuthority } from '../../middleware/vehicleObjectAuthority.js';
 import { requestReservation, computeCapacity } from './diasporaContainerMarketplaceService.js';
 // T3: best-effort canonical Communications events AFTER the audited mutation. Never authoritative.
@@ -403,6 +403,11 @@ export function projectLogisticsRequestForMarketplace(request = {}, items = [], 
     destination_city: request.destination_city || null,
     needed_by: request.needed_by || null,
     service_preference: request.service_preference || 'flexible',
+    // Intake 2.0 — the request-level facts that decide what the quote must cover. Allow-listed
+    // for the same reason as the cargo rows: a new column stays invisible until it is named here.
+    ...Object.fromEntries(MARKETPLACE_SAFE_LOGISTICS_FIELDS
+      .map((field) => [field, request[field]])
+      .filter(([, value]) => value !== undefined && value !== null)),
     items: (items || []).map((item) => ({
       id: item.id,
       line_number: item.line_number,

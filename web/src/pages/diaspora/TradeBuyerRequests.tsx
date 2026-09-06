@@ -6,6 +6,7 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { useAuth } from '@/context/AuthContext'
 import { useCarUpApi } from '@/hooks/useCarUpApi'
+import { supplierVoice } from './intakeVocabularies'
 import type { DiasporaMyQuote, DiasporaQuotePayload, DiasporaRfqOpportunity } from '@/types'
 
 /**
@@ -320,10 +321,16 @@ export default function TradeBuyerRequests() {
                         <span className="font-medium">{line.quantity && line.quantity > 1 ? `${line.quantity} × ` : ''}{line.item_description}</span>
                         <span className="block text-xs text-gray-600">
                           {[line.vehicle_make, line.vehicle_model].filter(Boolean).join(' ') || 'Vehicle not specified'}
-                          {' · '}
-                          {line.part_number_known && line.part_number
-                            ? `part ${line.part_number}`
-                            : 'buyer does not know the part number'}
+                          {/* Part-number copy is meaningful for a part and nonsense for a vehicle —
+                              a car request must never read "buyer does not know the part number". */}
+                          {line.item_kind === 'part' && (
+                            <>
+                              {' · '}
+                              {line.part_number_known && line.part_number
+                                ? `part ${line.part_number}`
+                                : 'buyer does not know the part number'}
+                            </>
+                          )}
                           {line.condition_preference && line.condition_preference !== 'any' ? ` · wants ${line.condition_preference}` : ''}
                         </span>
                       </li>
@@ -343,6 +350,68 @@ export default function TradeBuyerRequests() {
                       </div>
                     ))}
                   </dl>
+
+                  {(() => {
+                    // Intake 2.0: the buyer answered these, projectRfqForMarketplace() published
+                    // them, and until now the supplier UI dropped them on the floor. Render only
+                    // what the projection carries — a field absent from the payload is a field the
+                    // allow-list withheld, so nothing here can widen what suppliers see.
+                    const line = rfq.lines[0]
+                    const facts: Array<[string, string]> = []
+                    const add = (label: string, field: string, value: unknown) => {
+                      if (value === null || value === undefined || value === '') return
+                      if (Array.isArray(value)) {
+                        if (!value.length) return
+                        facts.push([label, value.map((v) => supplierVoice(field, String(v))).join(', ')])
+                        return
+                      }
+                      facts.push([label, typeof value === 'string' ? supplierVoice(field, value) : String(value)])
+                    }
+                    add('Steering', 'vehicle_steering', line?.vehicle_steering)
+                    add('Transmission', 'vehicle_transmission', line?.vehicle_transmission)
+                    add('Drivetrain', 'vehicle_drivetrain', line?.vehicle_drivetrain)
+                    add('Fuel', 'vehicle_fuel_type', line?.vehicle_fuel_type)
+                    add('Body', 'vehicle_body_type', line?.vehicle_body_type)
+                    if (line?.vehicle_mileage_max_km) facts.push(['Max mileage', `${Number(line.vehicle_mileage_max_km).toLocaleString()} km`])
+                    if (line?.vehicle_seats_min) facts.push(['Seats', `${line.vehicle_seats_min}+`])
+                    add('Colour', 'vehicle_colour_preference', line?.vehicle_colour_preference)
+                    add('Grade', 'vehicle_auction_grade', line?.vehicle_auction_grade)
+                    add('Accident history', 'accident_repair_tolerance', line?.accident_repair_tolerance)
+                    add('Rust', 'rust_tolerance', line?.rust_tolerance)
+                    add('Purpose', 'intended_use', line?.intended_use)
+                    add('Also considering', 'alternative_models', line?.alternative_models)
+                    add('Brand', 'brand_preference', line?.brand_preference)
+                    add('Side', 'part_side', line?.part_side)
+                    add('Part origin', 'part_origin_preference', line?.part_origin_preference)
+                    add('Delivery outcome', 'destination_outcome', rfq.destination_outcome)
+                    add('Port', 'preferred_port', rfq.preferred_port)
+                    add('Priority', 'shipping_objective', rfq.shipping_objective)
+                    add('Shipping mode', 'shipping_mode_preference', rfq.shipping_mode_preference)
+                    add('Alternatives', 'alternatives_policy', rfq.alternatives_policy)
+                    add('Timing', 'timing_flexibility', rfq.timing_flexibility)
+                    if (!facts.length) return null
+                    return (
+                      <div className="mt-4 border-t border-gray-200 pt-4" data-testid="trade-opportunity-brief">
+                        <p className="text-[10px] font-semibold uppercase tracking-wide text-gray-500">What the buyer asked for</p>
+                        <dl className="mt-2 grid grid-cols-2 gap-x-5 gap-y-2 sm:grid-cols-3">
+                          {facts.map(([label, value]) => (
+                            <div key={label} className="min-w-0">
+                              <dt className="text-[11px] text-gray-500">{label}</dt>
+                              <dd className="break-words text-sm text-gray-900">{value}</dd>
+                            </div>
+                          ))}
+                        </dl>
+                        {rfq.requested_quote_components?.length ? (
+                          <p className="mt-3 text-xs text-gray-700" data-testid="trade-opportunity-quote-components">
+                            Buyer wants your price to cover:{' '}
+                            <span className="font-medium">
+                              {rfq.requested_quote_components.map((c) => supplierVoice('requested_quote_components', c)).join(', ')}
+                            </span>
+                          </p>
+                        ) : null}
+                      </div>
+                    )
+                  })()}
 
                   {rfq.supplier_match ? (
                     <div className="mt-3 border-l-2 border-emerald-500 pl-3" data-testid="trade-match-reasons">

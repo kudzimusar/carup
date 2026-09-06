@@ -9,6 +9,47 @@ import { formatRoute } from './tradeRoute'
 import type { DiasporaTradeContext } from '@/types'
 import type { LogisticsMyQuote, LogisticsOpportunity, LogisticsQuoteInput } from '@/types/tradeLogistics'
 
+
+// Provider-voice renderings. The customer answered these in their own words ("Deliver it to my
+// address"); a provider needs the same fact stated as the job they are being asked to price.
+const PICKUP_REQUIRED_LABELS: Record<string, string> = {
+  yes: 'Inland collection required', no: 'Customer delivers to origin port/yard',
+  unsure: 'Customer is unsure — confirm before pricing',
+}
+const ORIGIN_SITE_LABELS: Record<string, string> = {
+  auction: 'Auction house', dealer: 'Dealer', exporter: 'Exporter', private_seller: 'Private seller',
+  warehouse_yard: 'Warehouse / yard', carup_partner_yard: 'CarUp partner yard',
+  customer_location: 'Customer location', other: 'Other site',
+}
+const PROVIDER_OUTCOME_LABELS: Record<string, string> = {
+  port_only: 'Customer collects at destination port', port_plus_clearing: 'Port + clearing help wanted',
+  cross_border_transit: 'Port, then across the border', port_to_city: "Deliver to customer's city",
+  door_delivery: "Deliver to customer's address", unsure: 'Customer unsure — propose options',
+}
+const PROVIDER_OBJECTIVE_LABELS: Record<string, string> = {
+  lowest_cost: 'Lowest reasonable cost', faster_arrival: 'Faster arrival',
+  better_protection: 'Protection / security', extra_goods: 'Extra goods travelling with it',
+  non_running: 'Vehicle does not run', multiple_vehicles: 'Multiple vehicles',
+  private_container: 'Wants a private container', flexible: 'Flexible — propose options',
+}
+const PROVIDER_TIMING_LABELS: Record<string, string> = {
+  fixed: 'Fixed', somewhat_flexible: 'Somewhat flexible', flexible: 'Flexible',
+}
+const RUNNING_LABELS: Record<string, string> = {
+  runs_and_drives: 'Runs and drives', starts_only: 'Starts but does not drive',
+  non_running: 'Non-running — needs winching', unknown: 'Unknown',
+}
+const KEYS_LABELS: Record<string, string> = { available: 'Available', missing: 'Missing', unknown: 'Unknown' }
+const HANDLING_LABELS: Record<string, string> = {
+  fragile: 'Fragile', stackable: 'Stackable', oversized: 'Oversized', heavy_lift: 'Heavy lift',
+  temperature_sensitive: 'Temperature sensitive', hazardous: 'Hazardous',
+}
+const DECLARATION_LABELS: Record<string, string> = {
+  batteries: 'Batteries', fluids: 'Fluids', aerosols: 'Aerosols', personal_effects: 'Personal effects',
+  food: 'Food', electronics: 'Electronics', none_of_these: 'None of these',
+}
+const humaniseCargo = (v: string) => v.replace(/_/g, ' ').replace(/^./, (c) => c.toUpperCase())
+
 type Tab = 'opportunities' | 'offers'
 type Stage = 'edit' | 'review'
 
@@ -191,7 +232,42 @@ export default function TradeLogisticsProviderPanel({ context }: { context: Dias
         const unknownVolume = !hasItems || items.some((item) => !(Number(item.estimated_volume_cbm) > 0))
         const totalVolume = hasItems ? items.reduce((sum, item) => sum + Number(item.estimated_volume_cbm || 0), 0) : 0
         const cargoTitle = items[0]?.description || (hasItems ? 'Cargo described without a title' : 'Cargo details not recorded')
-        return <article key={request.id} className="border border-slate-300 bg-white p-5" data-testid="logistics-opportunity"><div className="flex flex-wrap items-start justify-between gap-3"><div><p className="font-mono text-xs text-slate-500">{request.reference}</p><h2 className="mt-1 text-lg font-bold text-slate-950">{cargoTitle}</h2><p className="mt-1 text-sm text-slate-600">{formatRoute({ city: request.origin_city, country: request.origin_country }, { city: request.destination_city, country: request.destination_country })}</p><p className="mt-1 text-xs font-medium text-slate-700" data-testid="logistics-opportunity-service-preference">{SERVICE_PREFERENCE_LABELS[String(request.service_preference || 'flexible')] || 'Flexible — provider proposes the service'}</p></div><div className="text-right text-xs text-slate-500"><p>{request.quote_count || 0} submitted offer{request.quote_count === 1 ? '' : 's'}</p>{request.needed_by && <p>Needed by {String(request.needed_by).slice(0, 10)}</p>}</div></div>{hasItems ? <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">{items.map((item) => <div key={item.id} className="border-l-2 border-orange-500 pl-3"><p className="font-medium text-slate-900">{item.quantity} × {item.description}</p><p className="text-xs text-slate-600">{labelCategory(item.cargo_category)} · {item.estimated_volume_cbm ? `${item.estimated_volume_cbm} CBM est.` : 'Volume unknown'} · {item.estimated_weight_kg ? `${item.estimated_weight_kg} kg est.` : 'Weight unknown'}</p></div>)}</div> : <p className="mt-4 border-l-2 border-amber-400 pl-3 text-sm text-slate-600" data-testid="logistics-opportunity-no-cargo">No cargo rows are recorded on this request. Ask the requester what needs moving before pricing it.</p>}<div className="mt-4 border-l-2 border-emerald-500 pl-3 text-xs text-slate-600"><strong>What CarUp can establish:</strong> route {formatRoute({ city: request.origin_city, country: request.origin_country }, { city: request.destination_city, country: request.destination_country })}; {!hasItems ? 'no cargo has been described yet, so no volume is recorded' : unknownVolume ? 'one or more cargo volumes are still unknown' : `${totalVolume.toFixed(3)} CBM estimated across the request`}. Cargo suitability and final measurements still require provider/carrier assessment.</div><div className="mt-4 flex flex-wrap gap-2"><Button className="bg-orange-500 text-white hover:bg-orange-600" onClick={() => openComposer(request.id)}>Prepare offer</Button><Button variant="outline" className="rounded-none" onClick={() => void askQuestion(request.id)} disabled={busy}><MessageSquare className="mr-1.5 h-4 w-4" /> Ask a question</Button></div></article>
+        return <article key={request.id} className="border border-slate-300 bg-white p-5" data-testid="logistics-opportunity"><div className="flex flex-wrap items-start justify-between gap-3"><div><p className="font-mono text-xs text-slate-500">{request.reference}</p><h2 className="mt-1 text-lg font-bold text-slate-950">{cargoTitle}</h2><p className="mt-1 text-sm text-slate-600">{formatRoute({ city: request.origin_city, country: request.origin_country }, { city: request.destination_city, country: request.destination_country })}</p><p className="mt-1 text-xs font-medium text-slate-700" data-testid="logistics-opportunity-service-preference">{SERVICE_PREFERENCE_LABELS[String(request.service_preference || 'flexible')] || 'Flexible — provider proposes the service'}</p></div><div className="text-right text-xs text-slate-500"><p>{request.quote_count || 0} submitted offer{request.quote_count === 1 ? '' : 's'}</p>{request.needed_by && <p>Needed by {String(request.needed_by).slice(0, 10)}</p>}</div></div>{hasItems ? <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">{items.map((item) => <div key={item.id} className="border-l-2 border-orange-500 pl-3"><p className="font-medium text-slate-900">{item.quantity} × {item.description}</p><p className="text-xs text-slate-600">{labelCategory(item.cargo_category)} · {item.estimated_volume_cbm ? `${item.estimated_volume_cbm} CBM est.` : 'Volume unknown'} · {item.estimated_weight_kg ? `${item.estimated_weight_kg} kg est.` : 'Weight unknown'}</p></div>)}</div> : <p className="mt-4 border-l-2 border-amber-400 pl-3 text-sm text-slate-600" data-testid="logistics-opportunity-no-cargo">No cargo rows are recorded on this request. Ask the requester what needs moving before pricing it.</p>}{(() => {
+          // Intake 2.0 — the facts that actually change a logistics price: whether there is an
+          // inland collection leg, what kind of site it comes from, whether the vehicle runs (a
+          // non-runner needs winching and cannot go RoRo), and what the customer declared is
+          // inside. All of it is allow-listed by the projection; a field the projection withheld
+          // is simply absent here, so this panel can never widen what providers see.
+          const facts: Array<[string, string]> = []
+          const push = (label: string, value?: string | null) => { if (value) facts.push([label, value]) }
+          push('Collection', PICKUP_REQUIRED_LABELS[String(request.pickup_required || '')])
+          push('Origin site', ORIGIN_SITE_LABELS[String(request.origin_site_type || '')])
+          push('At destination', PROVIDER_OUTCOME_LABELS[String(request.destination_outcome || '')])
+          push('Customer priority', PROVIDER_OBJECTIVE_LABELS[String(request.shipping_objective || '')])
+          push('Timing', PROVIDER_TIMING_LABELS[String(request.timing_flexibility || '')])
+          if (request.available_from) push('Cargo ready from', String(request.available_from).slice(0, 10))
+          const handling = [...new Set(items.flatMap((i) => i.handling_flags || []))]
+          const declared = [...new Set(items.flatMap((i) => i.content_declarations || []))]
+          const running = items.map((i) => i.vehicle_running_state).filter(Boolean)
+          const keys = items.map((i) => i.vehicle_keys_state).filter(Boolean)
+          if (running.length) push('Vehicle state', [...new Set(running)].map((r) => RUNNING_LABELS[String(r)] || String(r)).join(', '))
+          if (keys.length) push('Keys', [...new Set(keys)].map((k) => KEYS_LABELS[String(k)] || String(k)).join(', '))
+          const packaging = [...new Set(items.map((i) => i.packaging_type).filter(Boolean))]
+          if (packaging.length) push('Packaging', packaging.map((x) => humaniseCargo(String(x))).join(', '))
+          const nature = [...new Set(items.map((i) => i.goods_nature).filter(Boolean))]
+          if (nature.length) push('Goods', nature.map((x) => humaniseCargo(String(x))).join(', '))
+          if (!facts.length && !handling.length && !declared.length) return null
+          return <div className="mt-4 border-t border-slate-200 pt-4" data-testid="logistics-opportunity-brief">
+            <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">What the customer told us</p>
+            {facts.length > 0 && <dl className="mt-2 grid grid-cols-2 gap-x-5 gap-y-2 sm:grid-cols-3">{facts.map(([label, value]) =>
+              <div key={label} className="min-w-0"><dt className="text-[11px] text-slate-500">{label}</dt><dd className="break-words text-sm text-slate-900">{value}</dd></div>)}</dl>}
+            {handling.length > 0 && <p className="mt-3 text-xs text-slate-700" data-testid="logistics-opportunity-handling">
+              <span className="font-semibold">Handling:</span> {handling.map((f) => HANDLING_LABELS[String(f)] || humaniseCargo(String(f))).join(', ')}</p>}
+            {declared.length > 0 && <p className="mt-1.5 text-xs text-slate-700" data-testid="logistics-opportunity-declarations">
+              <span className="font-semibold">Customer declares inside:</span> {declared.map((f) => DECLARATION_LABELS[String(f)] || humaniseCargo(String(f))).join(', ')}
+              {' '}<span className="italic text-slate-500">— customer-stated, confirm before carriage.</span></p>}
+          </div>
+        })()}<div className="mt-4 border-l-2 border-emerald-500 pl-3 text-xs text-slate-600"><strong>What CarUp can establish:</strong> route {formatRoute({ city: request.origin_city, country: request.origin_country }, { city: request.destination_city, country: request.destination_country })}; {!hasItems ? 'no cargo has been described yet, so no volume is recorded' : unknownVolume ? 'one or more cargo volumes are still unknown' : `${totalVolume.toFixed(3)} CBM estimated across the request`}. Cargo suitability and final measurements still require provider/carrier assessment.</div><div className="mt-4 flex flex-wrap gap-2"><Button className="bg-orange-500 text-white hover:bg-orange-600" onClick={() => openComposer(request.id)}>Prepare offer</Button><Button variant="outline" className="rounded-none" onClick={() => void askQuestion(request.id)} disabled={busy}><MessageSquare className="mr-1.5 h-4 w-4" /> Ask a question</Button></div></article>
       })}</div>}
 
       {tab === 'offers' && <div className="mt-5 space-y-4">{!unreadable && myQuotes.length === 0 && <div className="border border-dashed border-slate-300 p-7"><h2 className="font-bold text-slate-950">No logistics offers yet</h2><p className="mt-1 text-sm text-slate-600">Prepare an offer from an open request. Drafts remain private until submitted.</p></div>}{myQuotes.map((entry) => <article key={entry.quote.id} className="border border-slate-300 bg-white p-5"><div className="flex flex-wrap justify-between gap-3"><div><p className="font-semibold text-slate-950">{entry.request?.items?.[0]?.description || entry.request?.reference || 'Shipping request'}</p><p className="text-xs text-slate-500">{entry.quote.reference}</p><p className="mt-2 text-lg font-bold text-slate-950">{Number(entry.quote.total_amount).toLocaleString()} {entry.quote.currency}</p></div><span className="text-xs font-semibold uppercase tracking-wide text-slate-600">{entry.quote.status.replace(/_/g, ' ')}</span></div><p className="mt-2 text-xs text-slate-600">{entry.quote.service_mode.replace(/_/g, ' ')} · freight {entry.quote.freight_amount == null ? 'not provided' : `${entry.quote.freight_amount} ${entry.quote.currency}`} · destination charges {entry.quote.destination_charges == null ? 'not provided' : `${entry.quote.destination_charges} ${entry.quote.currency}`}</p>{entry.quote.status === 'DRAFT' && <div className="mt-4 flex gap-2"><Button className="bg-orange-500 text-white hover:bg-orange-600" onClick={() => editDraft(entry)} disabled={busy}>Edit offer</Button><Button variant="outline" className="rounded-none" disabled={busy} onClick={() => { if (busy) return; setBusy(true); setError(''); void api.submitQuote(entry.quote.id).then(load).catch((err) => setError(err instanceof Error ? err.message : 'Offer could not be submitted')).finally(() => setBusy(false)) }}>Submit</Button></div>}{entry.quote.status === 'SUBMITTED' && <Button variant="outline" className="mt-4 rounded-none" disabled={busy} onClick={() => { if (busy) return; setBusy(true); setError(''); void api.withdrawQuote(entry.quote.id).then(load).catch((err) => setError(err instanceof Error ? err.message : 'Offer could not be withdrawn')).finally(() => setBusy(false)) }}>Withdraw offer</Button>}</article>)}</div>}

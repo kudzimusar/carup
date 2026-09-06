@@ -72,3 +72,86 @@ export const TIMING_FLEXIBILITY_OPTIONS: Array<[string, string]> = [
   ['somewhat_flexible', 'Somewhat flexible'],
   ['flexible', 'Flexible'],
 ]
+
+/**
+ * Supplier-voice renderings of the SAME intake answers.
+ *
+ * The buyer's own option labels are written in the buyer's voice ("Deliver it to my address",
+ * "I'm not sure — recommend options"). Printing those verbatim on a supplier's screen reads as
+ * if the supplier said them. The fact is identical; only the speaker changes. Anything absent
+ * here falls back to the generic humaniser, so a new vocabulary value degrades to readable
+ * text rather than disappearing from the brief.
+ */
+const SUPPLIER_VOICE: Record<string, Record<string, string>> = {
+  destination_outcome: {
+    port_only: 'Buyer collects at the port',
+    port_plus_clearing: 'Port, buyer wants clearing help',
+    cross_border_transit: 'Port, then across the border',
+    port_to_city: "Deliver to the buyer's city",
+    door_delivery: "Deliver to the buyer's address",
+    unsure: 'Buyer is unsure — open to your recommendation',
+  },
+  shipping_objective: {
+    lowest_cost: 'Prioritises lowest reasonable cost',
+    faster_arrival: 'Prioritises faster arrival',
+    better_protection: 'Prioritises protection / security',
+    extra_goods: 'Has other goods to ship with it',
+    non_running: 'Vehicle does not run',
+    multiple_vehicles: 'Has multiple vehicles',
+    private_container: 'Wants a private container',
+    flexible: 'Flexible — open to your recommendation',
+  },
+  shipping_mode_preference: {
+    no_preference: 'No preference',
+    roro: 'RoRo',
+    shared_container: 'Shared container',
+    private_container: 'Private container',
+    provider_recommendation: 'Open to your recommendation',
+  },
+  alternatives_policy: {
+    exact_only: 'Exact match only — do not propose alternatives',
+    supplier_may_propose: 'You may propose alternatives',
+    open_to_similar: 'Open to similar options',
+  },
+  timing_flexibility: {
+    firm: 'Timing is firm',
+    somewhat_flexible: 'Somewhat flexible on timing',
+    very_flexible: 'Very flexible on timing',
+  },
+  intake_intent: {
+    managed_import: 'Wants a managed end-to-end import',
+    source_only: 'Wants sourcing only',
+    compare_options: 'Comparing options',
+    unsure: 'Unsure — open to your recommendation',
+  },
+  vehicle_steering: { rhd: 'Right-hand drive', lhd: 'Left-hand drive', either: 'Either' },
+  vehicle_drivetrain: { '2wd': '2WD', '4wd_awd': '4WD / AWD', either: 'Either' },
+  vehicle_transmission: { automatic: 'Automatic', manual: 'Manual', either: 'Either' },
+  accident_repair_tolerance: {
+    none: 'No accident repairs', minor_acceptable: 'Minor repairs acceptable',
+    flexible: 'Flexible', unsure: 'Buyer is unsure',
+  },
+  rust_tolerance: {
+    none: 'No rust', minor_acceptable: 'Minor rust acceptable',
+    flexible: 'Flexible', unsure: 'Buyer is unsure',
+  },
+  intended_use: {
+    personal_family: 'Personal / family', company: 'Company use',
+    taxi_ride_hailing: 'Taxi / ride-hailing', dealer_resale: 'Dealer stock / resale',
+    commercial_transport: 'Commercial transport', farm: 'Farm',
+    mining_industrial: 'Mining / industrial', restoration_project: 'Restoration project',
+    donor_parts: 'Parts / donor vehicle', other: 'Something else',
+  },
+  requested_quote_components: {
+    item_price: 'item price', ocean_freight: 'ocean freight', inland_transport: 'inland transport',
+    inspection: 'inspection', insurance: 'insurance', destination_clearing: 'destination clearing',
+    duties_taxes: 'duties & taxes', delivery: 'delivery', storage: 'storage',
+  },
+}
+
+/** snake_case → readable text, for any value the map above does not name. */
+const humanise = (value: string) => value.replace(/_/g, ' ').replace(/^./, (c) => c.toUpperCase())
+
+export function supplierVoice(field: string, value: string): string {
+  return SUPPLIER_VOICE[field]?.[value] ?? humanise(value)
+}
