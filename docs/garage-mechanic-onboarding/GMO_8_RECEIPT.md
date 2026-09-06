@@ -1,6 +1,6 @@
 # GMO-8 — Golden Journey, physical UAT · RECEIPT
 
-**Status: PARTIAL — Acts 1–2 PASS physically at three viewports; Acts 3–6 NOT RUN.**
+**Status: PARTIAL.** Acts 1–2 PASS physically at three viewports (27/27). Acts 3–6 were subsequently run: **10 PASS, 1 BLOCKED, 12 blocked upstream** — see the second half of this receipt. The block is a paid vision provider, and §"There is no human fallback" below explains why no reviewer can work around it.
 
 ## The candidate
 
@@ -57,10 +57,11 @@ preflight and simple requests.
 The backend preview additionally answers **401, not 404**, on all five GMO route families — deployed
 proof they are mounted and gated — with every OCR provider `false`.
 
-## NOT RUN — and exactly what it needs
+## What Acts 1–2 did NOT cover — and exactly what it needed
 
 Acts 3–6 (governed review → activation → context handoff → mechanic invitation → a real Service
-Network job → revocation) were **not executed**. They need two things this run did not set up:
+Network job → revocation) were **not part of this first run**. They needed two things it did not set
+up — both were resolved before the Acts 3–6 run recorded below:
 
 1. **A CarUp Operations reviewer.** There is no self-service path to becoming one, correctly. It
    requires registering an account through the product and then setting its `users.role`
@@ -180,6 +181,37 @@ That is a design observation about O2, not a GMO defect, and closing it would be
 decision rather than something this lane should quietly add. But the consequence is worth stating:
 **a vision-provider outage is a total identity-verification outage**, with no manual degradation
 path. Every downstream journey that PO-2 gates on identity — this one included — stops with it.
+
+### And the ledger refuses it a second time, on purpose
+
+Reading the decision policy told me a reviewer's own reason code never reaches the approve check. I
+then went one layer further, to the thing a reviewer would have to reach even if it did — the
+identity lifecycle ledger, which is what `usable_for_identity_gated_actions` is actually derived
+from. It refuses independently, and in so many words:
+
+```js
+identityLifecycleService.js
+  const APPROVAL_ONLY_STATES = new Set([LIFECYCLE_STATES.VERIFIED, LIFECYCLE_STATES.RECOVERED]);
+  //  "States only the identity domain itself may enter, via the governed approval hook —
+  //   a human transition endpoint cannot mint them, and the SUBJECT can never reach them at all."
+
+  transitionIdentityLifecycle(...)
+    if (APPROVAL_ONLY_STATES.has(nextState))
+      throw new ForbiddenError(`'${nextState}' is minted only by a governed verification approval
+                                — it cannot be set directly.`)
+```
+
+The only writer of a capability-bearing state is `onVerificationApproved`, reached from
+`decisionRecorder` **after** the decision policy has allowed APPROVE. So the two refusals are the
+same law stated twice: *no human hand-verifies an identity without evidence.*
+
+That changes what this block IS. It is not a missing key that happens to leave a gap — it is a
+deliberate, defended platform law, and a vision provider is the only thing the platform accepts as
+the evidence that satisfies it. **This also settles what I must not do:** I considered writing the
+approved lifecycle state directly on staging so that Acts 4b–6 could at least be measured, and
+rejected it. Minting `verified` by SQL is precisely the act these two guards exist to prevent, it
+would sit in a shared ledger indefinitely, and a journey certified on top of it would be certifying
+the one thing the platform says is impossible. Acts 4b–6 stay unmeasured.
 
 ### What would close it
 

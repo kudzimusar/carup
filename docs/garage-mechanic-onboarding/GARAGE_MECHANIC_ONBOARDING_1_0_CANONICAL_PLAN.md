@@ -457,6 +457,36 @@ many tenants per person. That is compatible with PO-6; no schema conflict exists
 
 ---
 
+## 12B. Raised DURING execution — one open decision, and it is not GMO's to take
+
+Nothing here blocks GMO-1…GMO-7. It blocks the last third of the Golden Journey, and it belongs to
+O2, so this plan records it rather than resolving it.
+
+### The identity-verification outage question
+
+PO-2 makes governed person-identity approval a prerequisite for a garage workspace. Walking the whole
+journey showed that this prerequisite **cannot be satisfied at all without a paid vision provider** —
+and that this is deliberate, defended twice:
+
+- `decisionPolicy._checkApprove` refuses APPROVE while the session's stored `primary_reason_code` is
+  a blocking one. With no classifier, that code is permanently `DOCUMENT_NOT_VISIBLE`. A reviewer's
+  own reason code is recorded on their decision but never reaches this check.
+- `identityLifecycleService` puts `verified` and `recovered` in `APPROVAL_ONLY_STATES`: *"minted only
+  by a governed verification approval — it cannot be set directly."* The human transition endpoint
+  refuses them by name.
+
+Both refusals are correct: they stop a reviewer hand-verifying a person without evidence. The
+consequence, stated plainly, is that **a vision-provider outage is a total identity-verification
+outage with no manual degradation path**, and every journey PO-2 gates on identity stops with it —
+garage onboarding included.
+
+The decision is O2's, and it is genuinely a Product Owner question, not an engineering one: *is a
+governed, evidenced, audited human approval route acceptable when the provider is unavailable, and
+under what evidence?* GMO must not answer it by quietly adding one, and must never answer it by
+writing a `verified` lifecycle row directly — that is the exact act both guards exist to prevent.
+
+---
+
 ## 13. Phased programme
 
 Each phase is independently UAT'd. **No phase may be declared complete because a backend API
