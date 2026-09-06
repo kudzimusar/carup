@@ -818,3 +818,81 @@ test('the same components produce different gap lists for the two purchases', ()
   assert.equal(asLogistics.is_complete, false);
   assert.equal(asProcurement.is_complete, false);
 });
+
+// ── T6.8 — the shared charges an operator can actually reach ────────────────────────────────
+//
+// The allocation engine was reachable only if the caller already knew a charge-component id.
+// Nothing told an operator which charges exist on a sailing they operate, so the capability was
+// unreachable from the product — correct code nobody could run.
+
+const OPERATOR = { id: 'rev', userId: 'rev', role: 'reviewer', platformRole: 'reviewer', tenantId: null };
+const sailingSeed = (extra = {}) => ({
+  diaspora_container_shipments: [{ id: 'sail-1', tenant_id: null, coordinator_id: 'rev', deleted_at: null }],
+  diaspora_logistics_quotes: [{ id: 'lq-1', compatible_container_id: 'sail-1', provider_id: 'provider-b', status: 'SUBMITTED', deleted_at: null }],
+  diaspora_cargo_reservations: [
+    { id: 'res-approved', container_id: 'sail-1', reservation_status: 'APPROVED', estimated_volume: 10, deleted_at: null },
+    { id: 'res-requested', container_id: 'sail-1', reservation_status: 'REQUESTED', estimated_volume: 10, deleted_at: null },
+  ],
+  ...extra,
+});
+
+test('an operator can see the shared charges recorded on a sailing they operate', async () => {
+  const c = client(sailingSeed({
+    diaspora_trade_charge_components: [
+      { id: 'comp-1', logistics_quote_id: 'lq-1', cost_stage: 'ORIGIN_TERMINAL', label: 'Terminal handling', original_amount: 900, original_currency: 'USD', inclusion: 'INCLUDED', deleted_at: null },
+    ],
+  }));
+  const result = await alloc.listContainerSharedCharges('sail-1', OPERATOR, { supabaseClient: c });
+  assert.equal(result.charges.length, 1);
+  assert.equal(result.charges[0].id, 'comp-1');
+  assert.equal(result.charges[0].stage_label, 'Origin port / terminal', 'the stage is named in words, not its code');
+  assert.deepEqual(result.charges[0].original, { amount: 900, currency: 'USD' });
+  assert.equal(result.charges[0].allocation.allocated, false);
+  // Only committed capacity counts, and the screen is told so rather than left to imply it.
+  assert.equal(result.approved_reservations, 1);
+  assert.match(result.note, /APPROVED/);
+});
+
+test('an UNPRICED charge is never offered for allocation — it is not a charge awaiting division', async () => {
+  const c = client(sailingSeed({
+    diaspora_trade_charge_components: [
+      { id: 'comp-priced', logistics_quote_id: 'lq-1', cost_stage: 'MAIN_CARRIAGE', label: 'Ocean freight', original_amount: 1000, original_currency: 'USD', inclusion: 'INCLUDED', deleted_at: null },
+      { id: 'comp-unpriced', logistics_quote_id: 'lq-1', cost_stage: 'INLAND', label: 'Harare delivery', original_amount: null, original_currency: null, inclusion: 'INCLUDED', deleted_at: null },
+    ],
+  }));
+  const result = await alloc.listContainerSharedCharges('sail-1', OPERATOR, { supabaseClient: c });
+  assert.deepEqual(result.charges.map((x) => x.id), ['comp-priced']);
+});
+
+test('with no APPROVED reservation the operator is told WHY nothing can be split', async () => {
+  const c = client(sailingSeed({
+    diaspora_cargo_reservations: [{ id: 'res-requested', container_id: 'sail-1', reservation_status: 'REQUESTED', estimated_volume: 10, deleted_at: null }],
+    diaspora_trade_charge_components: [
+      { id: 'comp-1', logistics_quote_id: 'lq-1', cost_stage: 'MAIN_CARRIAGE', label: 'Ocean freight', original_amount: 1000, original_currency: 'USD', inclusion: 'INCLUDED', deleted_at: null },
+    ],
+  }));
+  const result = await alloc.listContainerSharedCharges('sail-1', OPERATOR, { supabaseClient: c });
+  assert.equal(result.approved_reservations, 0);
+  assert.match(result.note, /requested booking is not committed capacity/i);
+});
+
+test('a sailing with no attached offer says so instead of returning a bare empty list', async () => {
+  const c = client({
+    diaspora_container_shipments: [{ id: 'sail-1', tenant_id: null, coordinator_id: 'rev', deleted_at: null }],
+  });
+  const result = await alloc.listContainerSharedCharges('sail-1', OPERATOR, { supabaseClient: c });
+  assert.deepEqual(result.charges, []);
+  assert.match(result.note, /No offer attached to this sailing/i);
+});
+
+test('a participant cannot read the shared charges of a sailing they do not operate', async () => {
+  const c = client(sailingSeed({
+    diaspora_trade_charge_components: [
+      { id: 'comp-1', logistics_quote_id: 'lq-1', cost_stage: 'MAIN_CARRIAGE', label: 'Ocean freight', original_amount: 1000, original_currency: 'USD', inclusion: 'INCLUDED', deleted_at: null },
+    ],
+  }));
+  const outsider = { id: 'provider-b', userId: 'provider-b', role: 'dealer', platformRole: 'dealer', tenantId: 'other-tenant' };
+  await assert.rejects(
+    () => alloc.listContainerSharedCharges('sail-1', outsider, { supabaseClient: c }),
+    /Only the operating organisation/i);
+});

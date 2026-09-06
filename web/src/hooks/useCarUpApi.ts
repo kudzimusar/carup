@@ -2,6 +2,7 @@ import { useState, useCallback, useMemo } from 'react'
 import { toComponentPayload } from '@/pages/diaspora/commercialFormat'
 import type { DraftComponent } from '@/pages/diaspora/commercialFormat'
 import type { QuoteCommercials, ComparableQuote, ComparisonResult, AdviceResult } from '@/pages/diaspora/TradeQuoteComparison'
+import type { SharedChargeSet } from '@/pages/diaspora/SharedChargeAllocation'
 import { useAuth } from '@/context/AuthContext'
 import { apiRequest, resolveApiBaseUrl, DEFAULT_PRODUCTION_API_BASE_URL, extractApiErrorMessage, fetchCsrfToken, type AuthHeaders } from '@/lib/apiClient'
 import type { AccidentDisclosure, FinanceDisclosure, InsuranceDisclosure } from '@/lib/vehicleHistoryDisclosures'
@@ -1599,6 +1600,21 @@ export function useCarUpApi() {
     return response.data
   }, [request])
 
+  const readContainerSharedCharges = useCallback(async (containerId: string): Promise<SharedChargeSet> => {
+    const response = await request<{ data: SharedChargeSet }>(
+      `/diaspora/container-marketplace/${encodeURIComponent(containerId)}/shared-charges`)
+    return response.data
+  }, [request])
+
+  const allocateSharedCharge = useCallback(async (
+    componentId: string, containerId: string, basis: string,
+  ): Promise<unknown> => {
+    const response = await request<{ data: unknown }>(
+      `/diaspora/container-marketplace/charge-components/${encodeURIComponent(componentId)}/allocate`,
+      { method: 'POST', body: JSON.stringify({ container_id: containerId, basis }) })
+    return response.data
+  }, [request])
+
   const compareQuotes = useCallback(async (
     targets: Array<{ id: string; kind: 'import' | 'logistics'; label: string }>,
     context: { cargo?: Record<string, unknown>; objective?: string | null } = {},
@@ -3064,6 +3080,8 @@ export function useCarUpApi() {
     saveChargeComponents,
     readChargeComponents,
     compareQuotes,
+    readContainerSharedCharges,
+    allocateSharedCharge,
     updateDiasporaQuote,
     submitDiasporaQuote,
     withdrawDiasporaQuote,

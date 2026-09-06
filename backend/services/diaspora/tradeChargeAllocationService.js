@@ -18,7 +18,7 @@
 import { ValidationError, ForbiddenError, NotFoundError } from '../../utils/errors.js';
 import { resolveClient, appendCriticalAudit } from './diasporaServiceUtils.js';
 import { requireUserContext, isPlatformAdmin, isPlatformReviewer, isTenantAdminForRecord } from './diasporaAuthorization.js';
-import { ALLOCATION_BASIS_SET } from './tradeCommercialContract.js';
+import { ALLOCATION_BASIS_SET, COST_STAGE_LABELS } from './tradeCommercialContract.js';
 
 const COMPONENTS = 'diaspora_trade_charge_components';
 const ALLOCATIONS = 'diaspora_shared_charge_allocations';
@@ -168,6 +168,61 @@ export async function allocateSharedCharge(componentId, { containerId, basis, ex
 }
 
 /** Read allocations. Absence is "not allocated yet" — never a zero charge. */
+/**
+ * The shared charges an operator can actually allocate on one sailing.
+ *
+ * A charge component always belongs to a QUOTE — the table has exactly one owner by CHECK — so a
+ * "container-level" shared charge is a priced component on a logistics offer attached to that
+ * sailing. This reads them rather than inventing a container-owned charge the schema cannot
+ * express, and it carries each charge's existing allocation state so the operator is never asked
+ * to re-split something already split.
+ *
+ * Unpriced components are excluded here rather than listed and refused later: an unknown amount is
+ * not a charge awaiting division, and offering it would suggest CarUp could divide it.
+ */
+export async function listContainerSharedCharges(containerId, userContext = {}, options = {}) {
+  const context = requireUserContext(userContext);
+  const client = await resolveClient(options);
+
+  const { data: container } = await client.from(CONTAINERS).select('*').eq('id', containerId).is('deleted_at', null).maybeSingle();
+  if (!container) throw new NotFoundError('Sailing not found');
+  const mayOperate = isPlatformAdmin(context) || isPlatformReviewer(context) || isTenantAdminForRecord(container, context);
+  if (!mayOperate) throw new ForbiddenError('Only the operating organisation can read this sailing\'s shared charges');
+
+  const { data: quotes } = await client.from('diaspora_logistics_quotes').select('id, provider_id, status')
+    .eq('compatible_container_id', containerId).is('deleted_at', null);
+  const quoteIds = (quotes || []).map((q) => q.id);
+  if (!quoteIds.length) return { charges: [], approved_reservations: 0, note: 'No offer attached to this sailing has recorded any charge.' };
+
+  const { data: components } = await client.from(COMPONENTS).select('*')
+    .in('logistics_quote_id', quoteIds).is('deleted_at', null);
+  const priced = (components || []).filter((c) => c.original_amount !== null);
+
+  const { data: reservations } = await client.from(RESERVATIONS).select('id, reservation_status')
+    .eq('container_id', containerId).is('deleted_at', null);
+  const approved = (reservations || []).filter((r) => r.reservation_status === 'APPROVED').length;
+
+  const charges = [];
+  for (const c of priced) {
+    charges.push({
+      id: c.id,
+      cost_stage: c.cost_stage,
+      stage_label: COST_STAGE_LABELS[c.cost_stage] || c.cost_stage,
+      label: c.label,
+      original: { amount: Number(c.original_amount), currency: c.original_currency },
+      allocation: await listAllocations(c.id, options),
+    });
+  }
+  return {
+    charges,
+    approved_reservations: approved,
+    // Stated, never implied by an empty control: T5's invariant carried into money.
+    note: approved
+      ? 'Only APPROVED reservations are charged. A requested booking is not committed capacity.'
+      : 'No APPROVED reservation on this sailing yet, so nothing can be split. A requested booking is not committed capacity and is never charged.',
+  };
+}
+
 export async function listAllocations(componentId, options = {}) {
   const client = await resolveClient(options);
   const { data } = await client.from(ALLOCATIONS).select('*')

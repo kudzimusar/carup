@@ -7,6 +7,7 @@ import { Input } from '@/components/ui/input'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { useAuth } from '@/context/AuthContext'
 import { useCarUpApi } from '@/hooks/useCarUpApi'
+import { SharedChargeAllocationPanel } from './SharedChargeAllocation'
 import type {
   DiasporaImportOrder,
   DiasporaMarketplaceContainer,
@@ -189,6 +190,8 @@ export default function DiasporaContainerMarketplace() {
     cancelDiasporaMarketplaceReservation,
     closeDiasporaContainerBooking,
     fetchDiasporaImportOrders,
+    readContainerSharedCharges,
+    allocateSharedCharge,
   } = useCarUpApi()
 
   const role = (user?.role || '').toLowerCase()
@@ -984,6 +987,15 @@ export default function DiasporaContainerMarketplace() {
                     </div>
                   )}
                 </div>
+
+                {/* T6.8 — the operator half of the allocation engine, which had no screen at all. */}
+                {isOperator && (
+                  <SharedChargeAllocationPanel
+                    containerId={String(selected.id)}
+                    read={readContainerSharedCharges}
+                    allocate={allocateSharedCharge}
+                  />
+                )}
 
                 {isOperator && selected.status === 'BOOKING_OPEN' && (
                   <div className="mt-8 border-t border-gray-200 pt-5">

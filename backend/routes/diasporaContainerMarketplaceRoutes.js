@@ -57,7 +57,7 @@ async function loadQuoteHeader(target, options = {}) {
   return data || null;
 }
 import { compareQuotes, compareCorridorEconomics, adviseOptions } from '../services/diaspora/tradeQuoteComparisonService.js';
-import { allocateSharedCharge, listAllocations } from '../services/diaspora/tradeChargeAllocationService.js';
+import { allocateSharedCharge, listAllocations, listContainerSharedCharges } from '../services/diaspora/tradeChargeAllocationService.js';
 import { getReferenceRate } from '../services/diaspora/tradeFxRateService.js';
 import { recordObservation, listObservations, corridorBenchmark } from '../services/diaspora/tradeRateObservationService.js';
 import { getTransactionPassport, continueToLogistics } from '../services/diaspora/tradeTransactionPassportService.js';
@@ -361,6 +361,11 @@ router.post(`${base}/charge-components/:id/allocate`, operatorAuth, asyncHandler
   res.json({ data: await allocateSharedCharge(req.params.id, {
     containerId: req.body?.container_id, basis: req.body?.basis, explicit: req.body?.explicit || null,
   }, req.userContext, { req }) });
+}));
+
+// The shared charges an operator can allocate on one sailing, with each charge's current split.
+router.get(`${base}/:id/shared-charges`, operatorAuth, asyncHandler(async (req, res) => {
+  res.json({ data: await listContainerSharedCharges(req.params.id, req.userContext, { req }) });
 }));
 
 router.get(`${base}/charge-components/:id/allocations`, participantAuth, asyncHandler(async (req, res) => {
