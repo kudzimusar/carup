@@ -14,7 +14,7 @@ const isPrivileged = (context) => isPlatformAdmin(context) || isPlatformReviewer
 import {
   COST_STAGE_SET, INCLUSION_SET, COMMERCIAL_STATUS_SET, PROVENANCE_SET, REVENUE_CLASS_SET,
   CHARGE_BASIS_SET, CLIENT_ASSERTABLE_PROVENANCE, CARUP_REVENUE_CLASSES, COST_STAGE_LABELS,
-  T6_MUST_NOT_CALCULATE, MATERIAL_STAGES, isStageAnswered, isUnpricedGap, reconcileBreakdown,
+  T6_MUST_NOT_CALCULATE, MATERIAL_STAGES, materialStagesFor, isStageAnswered, isUnpricedGap, reconcileBreakdown,
 } from './tradeCommercialContract.js';
 import { toReferenceUsd, FX_STATUS } from './tradeFxRateService.js';
 
@@ -173,9 +173,11 @@ export async function addChargeComponents(target, components, userContext = {}, 
 export async function readQuoteCommercials(target, quote, options = {}) {
   const components = await listChargeComponents(target, options);
   const projected = await projectComponentsForDisplay(components, options);
+  // The target itself says which purchase this is; it is never read from the request body.
+  const domain = target?.logisticsQuoteId ? 'logistics' : 'procurement';
   return {
     components: projected,
-    estimate: composeLandedEstimate(projected),
+    estimate: composeLandedEstimate(projected, { materialStages: materialStagesFor(domain) }),
     breakdown: reconcileBreakdown({
       total: quote?.quote_amount ?? quote?.total_amount ?? null,
       currency: quote?.quote_currency ?? quote?.currency ?? null,

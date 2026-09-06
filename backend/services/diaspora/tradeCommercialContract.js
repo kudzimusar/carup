@@ -100,6 +100,30 @@ export const T6_MUST_NOT_CALCULATE = set('IMPORT_CUSTOMS', 'REGULATORY');
 export const MATERIAL_STAGES = Object.freeze(['GOODS', 'MAIN_CARRIAGE', 'CLEARING', 'INLAND', 'IMPORT_CUSTOMS']);
 
 /**
+ * What "materially unpriced" means depends on what is being bought.
+ *
+ * A procurement offer is for the goods AND getting them there, so GOODS is material. A logistics
+ * offer is for a SERVICE moving cargo the customer already owns — a freight provider will never
+ * price "the goods themselves", and reporting it as a gap on every shipping offer (found on the
+ * deployed requester screen) trains customers to ignore the gap list, which is the one list that
+ * has to keep meaning something.
+ *
+ * The distinction is about the PURCHASE, never about who is nicer to the reader: no stage is
+ * dropped because it is awkward, only because the offer genuinely does not cover it.
+ */
+export const MATERIAL_STAGES_BY_DOMAIN = Object.freeze({
+  procurement: MATERIAL_STAGES,
+  logistics: Object.freeze(['MAIN_CARRIAGE', 'CLEARING', 'INLAND', 'IMPORT_CUSTOMS']),
+});
+
+/** `import-quotes` / `import` → procurement; anything logistics → logistics. Unknown stays strict. */
+export function materialStagesFor(domain) {
+  const key = String(domain || '').toLowerCase();
+  if (key.startsWith('logistics')) return MATERIAL_STAGES_BY_DOMAIN.logistics;
+  return MATERIAL_STAGES_BY_DOMAIN.procurement;
+}
+
+/**
  * Is this component's stage ANSWERED?
  *
  * Answered means the provider told us something usable: a price, or an explicit "excluded" or

@@ -45,6 +45,7 @@ import {
 import { ensureLogisticsConversation } from '../services/diaspora/diasporaLogisticsConversationService.js';
 import { listActiveCorridors } from '../services/diaspora/tradeCorridorService.js';
 import { addChargeComponents, listChargeComponents, projectComponentsForDisplay, composeLandedEstimate, readQuoteCommercials } from '../services/diaspora/tradeChargeComponentService.js';
+import { materialStagesFor } from '../services/diaspora/tradeCommercialContract.js';
 import { supabase as sharedSupabase } from '../db/supabase.js';
 
 /** Read the quote header a breakdown belongs to, so totals come from the SERVER's row. */
@@ -327,7 +328,10 @@ router.post('/quote-comparison', participantAuth, asyncHandler(async (req, res) 
   for (const t of targets) {
     const target = t.kind === 'import' ? { importQuoteId: t.id } : { logisticsQuoteId: t.id };
     const components = await projectComponentsForDisplay(await listChargeComponents(target, { req }), { req });
-    quotes.push({ id: t.id, label: t.label || null, components, estimate: composeLandedEstimate(components) });
+    quotes.push({
+      id: t.id, label: t.label || null, components,
+      estimate: composeLandedEstimate(components, { materialStages: materialStagesFor(t.kind === 'import' ? 'procurement' : 'logistics') }),
+    });
   }
   res.json({ data: { quotes, comparison: compareQuotes(quotes), advice: adviseOptions({ options: quotes, cargo: req.body?.cargo || {}, objective: req.body?.objective || null }) } });
 }));

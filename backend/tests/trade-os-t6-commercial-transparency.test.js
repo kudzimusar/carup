@@ -777,3 +777,44 @@ test('the benchmark acknowledges real data the moment any exists', async () => {
   // Even with real data it draws no conclusion — that is the customer path's job, from real quotes.
   assert.equal(result.comparable, false);
 });
+
+// ── T6 material coverage is about the PURCHASE, not a single global list ────────────────────
+//
+// Found on the deployed shipping-requester screen: a freight offer that priced the whole ocean
+// leg was reported as still missing "The goods themselves". A logistics provider never prices the
+// customer's own cargo, so the gap list — the one list whose whole job is to be believed — was
+// carrying a permanent false entry on every shipping offer.
+
+test('a logistics offer is not asked to price the goods the customer already owns', () => {
+  const logistics = contract.materialStagesFor('logistics');
+  assert.ok(!logistics.includes('GOODS'), 'GOODS must not be material for a freight service');
+  // Everything that IS the freight provider's business stays material.
+  for (const stage of ['MAIN_CARRIAGE', 'CLEARING', 'INLAND', 'IMPORT_CUSTOMS']) {
+    assert.ok(logistics.includes(stage), `${stage} must stay material for a logistics offer`);
+  }
+});
+
+test('a procurement offer still has to account for the goods', () => {
+  assert.ok(contract.materialStagesFor('procurement').includes('GOODS'));
+  // An unrecognised domain gets the STRICTER list — a mislabelled quote must not lose a check.
+  assert.ok(contract.materialStagesFor('').includes('GOODS'));
+  assert.ok(contract.materialStagesFor(undefined).includes('GOODS'));
+  assert.ok(contract.materialStagesFor('import-quotes').includes('GOODS'));
+});
+
+test('the same components produce different gap lists for the two purchases', () => {
+  const projected = [{
+    cost_stage: 'MAIN_CARRIAGE', stage_label: 'Main transport', label: 'Ocean freight',
+    inclusion: 'INCLUDED', original: { amount: 480000, currency: 'JPY' },
+    reference_usd: { amount: 3072.06, currency: 'USD' }, is_carup_revenue: false,
+  }];
+  const asLogistics = charges.composeLandedEstimate(projected, { materialStages: contract.materialStagesFor('logistics') });
+  const asProcurement = charges.composeLandedEstimate(projected, { materialStages: contract.materialStagesFor('procurement') });
+  const stages = (e) => e.missing_material_stages.map((s) => s.stage);
+  assert.ok(!stages(asLogistics).includes('GOODS'));
+  assert.ok(stages(asProcurement).includes('GOODS'));
+  // Neither becomes "complete" on the strength of a narrower list — dropping GOODS must not
+  // silently turn a partly-priced freight offer into a full landed cost.
+  assert.equal(asLogistics.is_complete, false);
+  assert.equal(asProcurement.is_complete, false);
+});
