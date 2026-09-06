@@ -13,6 +13,9 @@ import type {
   LogisticsSailingMatch,
   TradeCorridor,
 } from '@/types/tradeLogistics'
+import { toComponentPayload } from '@/pages/diaspora/commercialFormat'
+import type { DraftComponent } from '@/pages/diaspora/commercialFormat'
+import type { QuoteCommercials } from '@/pages/diaspora/TradeQuoteComparison'
 
 const BASE_URL = resolveApiBaseUrl(
   import.meta.env.VITE_API_URL,
@@ -90,6 +93,48 @@ export function useTradeLogisticsApi() {
   }, [request])
 
   // T5.2 — corridor reference data (route composition only; ordered by code, never preference).
+  /**
+   * T6 — save a provider's structured cost breakdown against their own quote.
+   *
+   * `breakdownComplete` is a DECLARATION: the server refuses it when the lines do not reconcile
+   * against the provider's own stated total, which is why it is passed rather than inferred.
+   */
+  const saveChargeComponents = useCallback(async (
+    kind: 'import-quotes' | 'logistics-quotes',
+    quoteId: string,
+    components: DraftComponent[],
+    breakdownComplete = false,
+  ): Promise<unknown[]> => {
+    const payload = toComponentPayload(components)
+    const response = await request<{ data: unknown[] }>(
+      `/diaspora/${kind}/${encodeURIComponent(quoteId)}/charge-components`,
+      { method: 'POST', body: JSON.stringify({ components: payload, breakdown_complete: breakdownComplete }) },
+    )
+    return response.data || []
+  }, [request])
+
+  const readChargeComponents = useCallback(async (
+    kind: 'import-quotes' | 'logistics-quotes', quoteId: string,
+  ): Promise<QuoteCommercials> => {
+    const response = await request<{ data: QuoteCommercials }>(
+      `/diaspora/${kind}/${encodeURIComponent(quoteId)}/charge-components`)
+    return response.data
+  }, [request])
+
+  // T6.5 — research workspace. Platform authority is enforced server-side; these simply call it.
+  const listRateObservations = useCallback(async (filters: Record<string, string> = {}): Promise<unknown[]> => {
+    const qs = new URLSearchParams(filters).toString()
+    const response = await request<{ data: unknown[] }>(`/diaspora/trade-rate-observations${qs ? `?${qs}` : ''}`)
+    return response.data || []
+  }, [request])
+
+  const recordRateObservation = useCallback(async (payload: Record<string, unknown>): Promise<unknown> => {
+    const response = await request<{ data: unknown }>('/diaspora/trade-rate-observations', {
+      method: 'POST', body: JSON.stringify(payload),
+    })
+    return response.data
+  }, [request])
+
   const listTradeCorridors = useCallback(async (): Promise<TradeCorridor[]> => {
     const response = await request<{ data: TradeCorridor[] }>('/diaspora/trade-corridors')
     return response.data || []
@@ -216,6 +261,10 @@ export function useTradeLogisticsApi() {
     cancelRequest,
     closeRequest,
     listTradeCorridors,
+    saveChargeComponents,
+    readChargeComponents,
+    listRateObservations,
+    recordRateObservation,
     listOpportunities,
     getOpportunity,
     createQuote,
@@ -241,6 +290,10 @@ export function useTradeLogisticsApi() {
     cancelRequest,
     closeRequest,
     listTradeCorridors,
+    saveChargeComponents,
+    readChargeComponents,
+    listRateObservations,
+    recordRateObservation,
     listOpportunities,
     getOpportunity,
     createQuote,

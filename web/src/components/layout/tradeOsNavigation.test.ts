@@ -28,6 +28,7 @@ const NAV_ROUTES = [
   '/diaspora/containers',
   '/diaspora/imports',
   '/diaspora/messages',
+  '/diaspora/rate-research',
 ] as const
 
 /** The roles that actually operate inside the Trade OS shell. */
@@ -192,5 +193,16 @@ describe('Trade OS direct-route eligibility', () => {
       }
     }
     expect(leaked, 'commercial context leaked into the registry role model').toEqual([])
+  })
+
+  // T6.5 — the rate research workspace is CarUp's own operations surface. A trader who is shown it
+  // would be denied at the boundary, and worse, would read research notes as provider prices.
+  it('hides the rate research workspace from every trading role', () => {
+    for (const role of TRADE_ROLES) {
+      expect(visibleTo(role)).not.toContain('/diaspora/rate-research')
+      expect(decide(role, '/diaspora/rate-research').kind).not.toBe('render')
+    }
+    expect(canRoleAccessRoute('admin', '/diaspora/rate-research')).toBe(true)
+    expect(decide('admin', '/diaspora/rate-research').kind).toBe('render')
   })
 })

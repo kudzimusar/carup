@@ -590,3 +590,190 @@ test('a genuinely unknown stage is a gap in BOTH views', () => {
   assert.equal(corridor.coverage_complete, false);
   assert.ok(estimate.unpriced.some((u) => u.stage === 'CLEARING'));
 });
+
+// ═══ 11. Quote TOTAL vs structured BREAKDOWN ═════════════════════════════
+//
+// The headline total predates T6 and is the provider's stated commercial figure. The breakdown is
+// new and may be partial. Treating "sum of components" as "the total" would let a breakdown that
+// explains 2,250,000 of a 2,400,000 offer read as if the whole price were accounted for.
+
+const brk = (over = {}) => ({ inclusion: 'INCLUDED', ...over });
+
+test('a PARTIAL breakdown names the amount that is not itemised', () => {
+  const r = contract.reconcileBreakdown({
+    total: 2400000, currency: 'JPY',
+    components: [brk({ original_amount: 2250000, original_currency: 'JPY' })],
+  });
+  assert.equal(r.computable, true);
+  assert.equal(r.itemised, 2250000);
+  assert.equal(r.not_itemised, 150000);
+  assert.equal(r.complete, false);
+  assert.match(r.note, /150000 JPY of this total is not itemised/);
+});
+
+test('an empty breakdown explains NONE of the total — it is not "complete"', () => {
+  const r = contract.reconcileBreakdown({ total: 2400000, currency: 'JPY', components: [] });
+  assert.equal(r.complete, false);
+  assert.equal(r.itemised, null);
+  assert.equal(r.not_itemised, 2400000);
+  assert.match(r.note, /none of this total is explained/i);
+});
+
+test('a breakdown that adds up exactly is complete', () => {
+  const r = contract.reconcileBreakdown({
+    total: 2400000, currency: 'JPY',
+    components: [brk({ original_amount: 2200000, original_currency: 'JPY' }), brk({ original_amount: 200000, original_currency: 'JPY' })],
+  });
+  assert.equal(r.complete, true);
+  assert.equal(r.not_itemised, 0);
+});
+
+test('components exceeding the total are reported, not clamped to zero', () => {
+  const r = contract.reconcileBreakdown({
+    total: 1000, currency: 'USD', components: [brk({ original_amount: 1200, original_currency: 'USD' })],
+  });
+  assert.equal(r.complete, false);
+  assert.equal(r.not_itemised, -200);
+  assert.match(r.note, /exceed the stated total by 200 USD/);
+});
+
+test('MIXED currencies are never summed to force reconciliation', () => {
+  const r = contract.reconcileBreakdown({
+    total: 2400000, currency: 'JPY',
+    components: [brk({ original_amount: 2200000, original_currency: 'JPY' }), brk({ original_amount: 1800, original_currency: 'USD' })],
+  });
+  assert.equal(r.computable, false);
+  assert.equal(r.mixed_currency, true);
+  assert.deepEqual(r.foreign_currencies, ['USD']);
+  assert.match(r.reason, /conversion nobody has authorised/i);
+  // both currencies are still reported, separately
+  assert.equal(r.itemised_by_currency.JPY, 2200000);
+  assert.equal(r.itemised_by_currency.USD, 1800);
+});
+
+test('EXCLUDED components are not counted toward the total', () => {
+  const r = contract.reconcileBreakdown({
+    total: 1800, currency: 'USD',
+    components: [brk({ original_amount: 1800, original_currency: 'USD' }),
+                 { inclusion: 'EXCLUDED', original_amount: 400, original_currency: 'USD' }],
+  });
+  assert.equal(r.itemised, 1800, 'an excluded charge is not part of what the customer pays this provider');
+  assert.equal(r.complete, true);
+});
+
+test('a provider declaring a COMPLETE breakdown that does not reconcile is refused', async () => {
+  const c = client({
+    diaspora_logistics_quotes: [{ id: 'lq-1', provider_id: 'provider-b', total_amount: 2000, currency: 'USD', deleted_at: null }],
+  });
+  const provider = { id: 'provider-b', userId: 'provider-b', role: 'owner', platformRole: 'owner', tenantId: null };
+  await assert.rejects(
+    () => charges.addChargeComponents({ logisticsQuoteId: 'lq-1' },
+      [{ cost_stage: 'MAIN_CARRIAGE', label: 'Freight', original_amount: 1500, original_currency: 'USD', inclusion: 'INCLUDED' }],
+      provider, { supabaseClient: c, breakdownComplete: true }),
+    /must account for the whole offer total/i);
+});
+
+test('…while the same components submitted as PARTIAL are accepted', async () => {
+  const c = client({
+    diaspora_logistics_quotes: [{ id: 'lq-1', provider_id: 'provider-b', total_amount: 2000, currency: 'USD', deleted_at: null }],
+  });
+  const provider = { id: 'provider-b', userId: 'provider-b', role: 'owner', platformRole: 'owner', tenantId: null };
+  const saved = await charges.addChargeComponents({ logisticsQuoteId: 'lq-1' },
+    [{ cost_stage: 'MAIN_CARRIAGE', label: 'Freight', original_amount: 1500, original_currency: 'USD', inclusion: 'INCLUDED' }],
+    provider, { supabaseClient: c });
+  assert.equal(saved.length, 1);
+});
+
+// ═══ 12. Research / operations rate workspace ════════════════════════════
+//
+// The separation this defends: a research note is not something a provider offered a customer, and
+// synthetic certification data must never read as market economics.
+
+const rates = await import('../services/diaspora/tradeRateObservationService.js');
+
+const opsClient = (seed = {}) => createMockSupabase({
+  diaspora_trade_rate_observations: [], diaspora_import_audit_log: [],
+  users: [{ id: 'rev' }], ...seed,
+});
+const reviewer = { id: 'rev', userId: 'rev', role: 'reviewer', platformRole: 'reviewer', tenantId: null };
+const admin = { id: 'adm', userId: 'adm', role: 'admin', platformRole: 'admin', tenantId: null };
+const buyerCtx = { id: 'buyer', userId: 'buyer', role: 'owner', platformRole: 'owner', tenantId: null };
+const dealerCtx = { id: 'dealer', userId: 'dealer', role: 'owner', platformRole: 'owner', tenantId: 'tenant-a', tenantRole: 'admin' };
+
+const observation = (over = {}) => ({
+  classification: 'RESEARCH_OBSERVATION', cost_stage: 'MAIN_CARRIAGE',
+  label: 'Yokohama → Beira 40HC', amount: 1800, currency: 'USD',
+  effective_from: '2026-09-01', source_name: 'SYNTHETIC certification fixture',
+  is_synthetic: true, ...over,
+});
+
+test('research authority is PLATFORM authority — a commercial profile grants nothing', async () => {
+  const c = opsClient();
+  for (const [who, ctx] of [['a buyer', buyerCtx], ['a dealer/tenant admin', dealerCtx]]) {
+    await assert.rejects(() => rates.recordObservation(observation(), ctx, { supabaseClient: c }),
+      /restricted to CarUp platform reviewers/i, `${who} must be refused`);
+    await assert.rejects(() => rates.listObservations({}, ctx, { supabaseClient: c }),
+      /restricted to CarUp platform reviewers/i, `${who} must not read the workspace`);
+  }
+  const saved = await rates.recordObservation(observation(), reviewer, { supabaseClient: c });
+  assert.ok(saved.id, 'a platform reviewer may record');
+  assert.ok((await rates.listObservations({}, admin, { supabaseClient: c })).length === 1, 'and an admin may read');
+});
+
+test('a synthetic observation stays flagged, and says so in its provenance', async () => {
+  const c = opsClient();
+  await rates.recordObservation(observation(), reviewer, { supabaseClient: c });
+  const [row] = await rates.listObservations({}, reviewer, { supabaseClient: c });
+  assert.equal(row.is_synthetic, true);
+  assert.match(row.source_name, /SYNTHETIC/);
+  // The projection is explicit for every consumer, so no screen can present it as a customer quote.
+  assert.equal(row.is_provider_quote_to_customer, false);
+});
+
+test('an observation must NAME its source — an unattributed rate is not evidence', () => {
+  assert.throws(() => rates.normalizeObservation(observation({ source_name: '' })), /must name its source/i);
+});
+
+test('classification and stage vocabularies are enforced', () => {
+  assert.throws(() => rates.normalizeObservation(observation({ classification: 'HEARSAY' })), /Unsupported rate classification/i);
+  assert.throws(() => rates.normalizeObservation(observation({ cost_stage: 'VIBES' })), /Unsupported cost stage/i);
+});
+
+test('an observation needs an effective date and a valid currency', () => {
+  assert.throws(() => rates.normalizeObservation(observation({ effective_from: null })), /effective date/i);
+  assert.throws(() => rates.normalizeObservation(observation({ currency: 'dollars' })), /ISO 4217/i);
+  assert.throws(() => rates.normalizeObservation(observation({ effective_from: '2026-09-10', effective_to: '2026-09-01' })), /expire before it takes effect/i);
+});
+
+test('an OFFICIAL_FEE is not a CarUp estimate, and neither is a provider rate card', () => {
+  for (const classification of ['OFFICIAL_FEE', 'PROVIDER_RATE_CARD', 'CARUP_ESTIMATE', 'HISTORICAL_ACTUAL']) {
+    const row = rates.normalizeObservation(observation({ classification }));
+    assert.equal(row.classification, classification, 'the distinction is preserved verbatim');
+  }
+});
+
+test('the corridor benchmark reports the RESEARCH GAP rather than implying data exists', async () => {
+  const c = opsClient({ diaspora_trade_rate_observations: [
+    { ...rates.normalizeObservation(observation({ corridor_id: 'cor-bei' })), id: 'o1', deleted_at: null, observed_at: '2026-09-01' },
+    { ...rates.normalizeObservation(observation({ corridor_id: 'cor-dur', amount: 2100 })), id: 'o2', deleted_at: null, observed_at: '2026-09-01' },
+  ] });
+  const result = await rates.corridorBenchmark({}, reviewer, { supabaseClient: c });
+  assert.equal(result.corridors.length, 2);
+  assert.ok(result.corridors.every((x) => x.synthetic_only), 'both corridors hold synthetic data only');
+  assert.match(result.research_status, /No real market observations/i);
+  assert.match(result.research_status, /must not be read as market economics/i);
+  assert.equal(result.comparable, false);
+  assert.match(result.note, /names no cheapest corridor/i);
+});
+
+test('the benchmark acknowledges real data the moment any exists', async () => {
+  const c = opsClient({ diaspora_trade_rate_observations: [
+    { ...rates.normalizeObservation(observation({ corridor_id: 'cor-bei', is_synthetic: false, classification: 'PROVIDER_RATE_CARD', source_name: 'Hikari Co-Load rate card' })), id: 'o1', deleted_at: null, observed_at: '2026-09-01' },
+  ] });
+  const result = await rates.corridorBenchmark({}, reviewer, { supabaseClient: c });
+  assert.equal(result.corridors[0].real_observations, 1);
+  assert.equal(result.corridors[0].synthetic_only, false);
+  assert.match(result.research_status, /Real observations are recorded/i);
+  // Even with real data it draws no conclusion — that is the customer path's job, from real quotes.
+  assert.equal(result.comparable, false);
+});

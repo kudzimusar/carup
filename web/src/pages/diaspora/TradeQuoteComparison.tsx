@@ -46,6 +46,26 @@ export interface ComparableQuote {
   estimate: LandedEstimate
 }
 
+
+/** What the charge-components endpoint returns for one quote. */
+export interface BreakdownPositionView {
+  computable: boolean
+  mixed_currency?: boolean
+  total?: number | null
+  currency?: string | null
+  itemised?: number | null
+  not_itemised?: number
+  complete?: boolean
+  note?: string
+  reason?: string
+}
+
+export interface QuoteCommercials {
+  components: ChargeComponent[]
+  estimate: LandedEstimate
+  breakdown: BreakdownPositionView
+}
+
 export interface ComparisonResult {
   comparable: boolean
   verdict: string

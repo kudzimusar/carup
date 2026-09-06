@@ -14,7 +14,7 @@ const isPrivileged = (context) => isPlatformAdmin(context) || isPlatformReviewer
 import {
   COST_STAGE_SET, INCLUSION_SET, COMMERCIAL_STATUS_SET, PROVENANCE_SET, REVENUE_CLASS_SET,
   CHARGE_BASIS_SET, CLIENT_ASSERTABLE_PROVENANCE, CARUP_REVENUE_CLASSES, COST_STAGE_LABELS,
-  T6_MUST_NOT_CALCULATE, MATERIAL_STAGES, isStageAnswered, isUnpricedGap,
+  T6_MUST_NOT_CALCULATE, MATERIAL_STAGES, isStageAnswered, isUnpricedGap, reconcileBreakdown,
 } from './tradeCommercialContract.js';
 import { toReferenceUsd, FX_STATUS } from './tradeFxRateService.js';
 
@@ -127,8 +127,32 @@ export async function addChargeComponents(target, components, userContext = {}, 
   assertOwnsQuote(quote, context);
   if (!Array.isArray(components) || !components.length) throw new ValidationError('No charge components supplied');
 
-  const rows = components.map((c) => ({
-    ...normalizeComponent(c, { actorMayAssertProvenance: isPrivileged(context) ? PROVENANCE_SET : CLIENT_ASSERTABLE_PROVENANCE }),
+  const normalized = components.map((c) => normalizeComponent(c, {
+    actorMayAssertProvenance: isPrivileged(context) ? PROVENANCE_SET : CLIENT_ASSERTABLE_PROVENANCE,
+  }));
+
+  // If the provider DECLARES the breakdown complete, it must actually reconcile against their own
+  // stated total. A "complete" breakdown that does not add up is worse than an admitted partial
+  // one, because the customer would believe the whole price had been explained.
+  if (options.breakdownComplete) {
+    const quoteTotal = quote.quote_amount ?? quote.total_amount;
+    const quoteCurrency = quote.quote_currency ?? quote.currency;
+    const existing = await listChargeComponents(target, options);
+    const check = reconcileBreakdown({
+      total: quoteTotal, currency: quoteCurrency,
+      components: [...existing, ...normalized],
+    });
+    if (check.mixed_currency) throw new ValidationError(check.reason);
+    if (!check.computable) throw new ValidationError(check.reason || 'This breakdown cannot be reconciled against the offer total.');
+    if (!check.complete) {
+      throw new ValidationError(
+        `A complete breakdown must account for the whole offer total. ${check.note} Either itemise the remainder or submit the breakdown as partial.`,
+      );
+    }
+  }
+
+  const rows = normalized.map((c) => ({
+    ...c,
     import_quote_id: target.importQuoteId || null,
     logistics_quote_id: target.logisticsQuoteId || null,
     created_by: context.id,
@@ -143,6 +167,21 @@ export async function addChargeComponents(target, components, userContext = {}, 
     newState: { count: (data || []).length, quote: target }, req: options.req,
   });
   return data || [];
+}
+
+/** Components plus the honest total-vs-breakdown position for a quote. */
+export async function readQuoteCommercials(target, quote, options = {}) {
+  const components = await listChargeComponents(target, options);
+  const projected = await projectComponentsForDisplay(components, options);
+  return {
+    components: projected,
+    estimate: composeLandedEstimate(projected),
+    breakdown: reconcileBreakdown({
+      total: quote?.quote_amount ?? quote?.total_amount ?? null,
+      currency: quote?.quote_currency ?? quote?.currency ?? null,
+      components: projected,
+    }),
+  };
 }
 
 export async function listChargeComponents(target, options = {}) {

@@ -644,6 +644,20 @@
     "betaCapable": true
   },
   {
+    "id": "diaspora.rate-research",
+    "domain": "diaspora",
+    "route": "/diaspora/rate-research",
+    "defaultLifecycle": "active",
+    "defaultRoles": [
+      "admin"
+    ],
+    "immutableRoles": [
+      "admin"
+    ],
+    "requiresAuth": true,
+    "betaCapable": true
+  },
+  {
     "id": "diaspora.reverse-rfq",
     "domain": "diaspora",
     "route": "/diaspora/request-quotes",

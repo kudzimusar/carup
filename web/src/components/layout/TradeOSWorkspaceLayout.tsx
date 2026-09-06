@@ -23,6 +23,7 @@ const NAV_ITEMS: Array<[string, string]> = [
   ['/diaspora/containers', 'Shipping'],
   ['/diaspora/imports', 'Orders'],
   ['/diaspora/messages', 'Messages'],
+  ['/diaspora/rate-research', 'Rate research'],
 ]
 
 function corridorOf(context: DiasporaTradeContext | null): string | null {

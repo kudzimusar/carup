@@ -122,3 +122,68 @@ export function isUnpricedGap(component) {
   const amount = component.original ? component.original.amount : component.original_amount;
   return amount === null || amount === undefined;
 }
+
+/**
+ * T6 — quote TOTAL versus structured BREAKDOWN.
+ *
+ * The provider's headline total already existed before T6 and is their stated commercial figure.
+ * The component breakdown is new and may legitimately be partial. Conflating the two would let a
+ * breakdown that itemises 2,250,000 of a 2,400,000 offer read as if the whole offer were explained.
+ *
+ * So: never assume sum(components) == total. Compute the difference, name it, and refuse a
+ * "complete" declaration that does not actually reconcile.
+ *
+ * Mixed currencies are never summed to force agreement — if components are quoted in a currency
+ * other than the total's, reconciliation is simply not computable and says so.
+ */
+export function reconcileBreakdown({ total, currency, components = [] }) {
+  const totalAmount = total === null || total === undefined || total === '' ? null : Number(total);
+  const priced = components.filter((c) => {
+    const amount = c.original ? c.original.amount : c.original_amount;
+    return amount !== null && amount !== undefined && c.inclusion === 'INCLUDED';
+  });
+
+  const byCurrency = {};
+  for (const c of priced) {
+    const cur = (c.original ? c.original.currency : c.original_currency) || null;
+    const amount = Number(c.original ? c.original.amount : c.original_amount);
+    if (!cur) continue;
+    byCurrency[cur] = Number(((byCurrency[cur] || 0) + amount).toFixed(2));
+  }
+  const currencies = Object.keys(byCurrency);
+  const itemised = currency && byCurrency[currency] !== undefined ? byCurrency[currency] : null;
+  const foreignCurrencies = currencies.filter((c) => c !== currency);
+
+  if (totalAmount === null || !currency) {
+    return { computable: false, reason: 'The offer total or its currency is not recorded.', itemised_by_currency: byCurrency };
+  }
+  if (!priced.length) {
+    return {
+      computable: true, total: totalAmount, currency, itemised: null,
+      not_itemised: totalAmount, complete: false, mixed_currency: false,
+      itemised_by_currency: byCurrency,
+      note: 'No components are itemised yet, so none of this total is explained.',
+    };
+  }
+  if (foreignCurrencies.length) {
+    // Adding JPY to USD to make the numbers agree would be a conversion nobody performed.
+    return {
+      computable: false, mixed_currency: true, total: totalAmount, currency,
+      itemised_by_currency: byCurrency, foreign_currencies: foreignCurrencies,
+      reason: `Components are quoted in ${foreignCurrencies.join(', ')} as well as ${currency}, so they cannot be reconciled against a single total without a conversion nobody has authorised.`,
+    };
+  }
+  const difference = Number((totalAmount - (itemised || 0)).toFixed(2));
+  return {
+    computable: true, mixed_currency: false,
+    total: totalAmount, currency, itemised: itemised || 0,
+    not_itemised: difference,
+    complete: Math.abs(difference) < 0.005,
+    itemised_by_currency: byCurrency,
+    note: Math.abs(difference) < 0.005
+      ? 'Every part of this total is itemised.'
+      : difference > 0
+        ? `${difference} ${currency} of this total is not itemised.`
+        : `The itemised components exceed the stated total by ${Math.abs(difference)} ${currency}.`,
+  };
+}

@@ -1036,6 +1036,20 @@ export const FEATURE_REGISTRY: FeatureRegistryItem[] = [
     description: 'Customers looking for products you can supply',
   },
   {
+    // T6.5 — CarUp's own market-rate research. NOT a marketplace surface and never a customer
+    // price: registered so the unregistered-path fallback can never make it public.
+    id: 'diaspora.rate-research',
+    label: 'Rate Research',
+    route: '/diaspora/rate-research',
+    domain: 'diaspora',
+    roles: ['admin'],
+    placements: ['dashboard_sidebar'],
+    requiresAuth: true,
+    icon: 'BarChart3',
+    sidebarGroup: 'Growth & Diaspora',
+    description: 'What CarUp has learned about market rates, with its source',
+  },
+  {
     id: 'diaspora.ai-command-center',
     label: 'AI Command Center',
     route: '/diaspora/ai-commands',

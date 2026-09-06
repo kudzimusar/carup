@@ -44,10 +44,21 @@ import {
 } from '../services/diaspora/diasporaLogisticsRfqService.js';
 import { ensureLogisticsConversation } from '../services/diaspora/diasporaLogisticsConversationService.js';
 import { listActiveCorridors } from '../services/diaspora/tradeCorridorService.js';
-import { addChargeComponents, listChargeComponents, projectComponentsForDisplay, composeLandedEstimate } from '../services/diaspora/tradeChargeComponentService.js';
+import { addChargeComponents, listChargeComponents, projectComponentsForDisplay, composeLandedEstimate, readQuoteCommercials } from '../services/diaspora/tradeChargeComponentService.js';
+import { supabase as sharedSupabase } from '../db/supabase.js';
+
+/** Read the quote header a breakdown belongs to, so totals come from the SERVER's row. */
+async function loadQuoteHeader(target, options = {}) {
+  const client = options.supabaseClient || sharedSupabase;
+  const table = target.importQuoteId ? 'diaspora_import_quotes' : 'diaspora_logistics_quotes';
+  const id = target.importQuoteId || target.logisticsQuoteId;
+  const { data } = await client.from(table).select('*').eq('id', id).is('deleted_at', null).maybeSingle();
+  return data || null;
+}
 import { compareQuotes, compareCorridorEconomics, adviseOptions } from '../services/diaspora/tradeQuoteComparisonService.js';
 import { allocateSharedCharge, listAllocations } from '../services/diaspora/tradeChargeAllocationService.js';
 import { getReferenceRate } from '../services/diaspora/tradeFxRateService.js';
+import { recordObservation, listObservations, corridorBenchmark } from '../services/diaspora/tradeRateObservationService.js';
 import { getTransactionPassport, continueToLogistics } from '../services/diaspora/tradeTransactionPassportService.js';
 import { setReadiness, listReadiness, summarizeReadiness } from '../services/diaspora/tradeDocumentReadinessService.js';
 import { getTradeContext } from '../services/diaspora/tradeContextService.js';
@@ -265,6 +276,23 @@ router.post('/logistics-requests/:id/conversation', participantAuth, asyncHandle
 // ── Existing hardened Container Co-Loading kernel ──────────────────────────
 // T5.2 — corridor reference data: route composition only, projected through an explicit
 // allow-list. Order is by code; nothing here ranks or prefers a corridor.
+// ── T6.5 research / operations rate workspace ───────────────────────────
+//
+// PLATFORM authority only, enforced in the service — a commercial profile grants nothing here.
+// Deliberately NOT under the customer marketplace prefix: a research observation must never be
+// reachable as though it were an offer a provider made to a customer.
+router.get('/trade-rate-observations', participantAuth, asyncHandler(async (req, res) => {
+  res.json({ data: await listObservations(req.query, req.userContext, { req }) });
+}));
+
+router.post('/trade-rate-observations', participantAuth, asyncHandler(async (req, res) => {
+  res.status(201).json({ data: await recordObservation(req.body, req.userContext, { req }) });
+}));
+
+router.get('/trade-rate-observations/corridor-benchmark', participantAuth, asyncHandler(async (req, res) => {
+  res.json({ data: await corridorBenchmark(req.query, req.userContext, { req }) });
+}));
+
 // ── T6 commercial transparency ──────────────────────────────────────────
 //
 // A provider records the components of their OWN offer; the server derives who they are from the
@@ -276,13 +304,17 @@ const quoteTarget = (req) => (req.params.kind === 'import-quotes'
   : { logisticsQuoteId: req.params.id });
 
 router.get('/:kind(import-quotes|logistics-quotes)/:id/charge-components', participantAuth, asyncHandler(async (req, res) => {
-  const components = await listChargeComponents(quoteTarget(req), { req });
-  const projected = await projectComponentsForDisplay(components, { req });
-  res.json({ data: { components: projected, estimate: composeLandedEstimate(projected) } });
+  const target = quoteTarget(req);
+  const quote = await loadQuoteHeader(target, { req });
+  res.json({ data: await readQuoteCommercials(target, quote, { req }) });
 }));
 
 router.post('/:kind(import-quotes|logistics-quotes)/:id/charge-components', participantAuth, asyncHandler(async (req, res) => {
-  const saved = await addChargeComponents(quoteTarget(req), req.body?.components, req.userContext, { req });
+  // `breakdown_complete` is a DECLARATION by the provider, enforced server-side: a complete
+  // breakdown must reconcile against their own stated total or the write is refused.
+  const saved = await addChargeComponents(quoteTarget(req), req.body?.components, req.userContext, {
+    req, breakdownComplete: req.body?.breakdown_complete === true,
+  });
   res.status(201).json({ data: saved });
 }));
 

@@ -7,6 +7,8 @@ import { Input } from '@/components/ui/input'
 import { useAuth } from '@/context/AuthContext'
 import { useCarUpApi } from '@/hooks/useCarUpApi'
 import { supplierVoice } from './intakeVocabularies'
+import { ChargeComponentEditor, ChargeComponentReview } from './chargeComponentEditor'
+import type { DraftComponent } from './commercialFormat'
 import type { DiasporaMyQuote, DiasporaQuotePayload, DiasporaRfqOpportunity } from '@/types'
 
 /**
@@ -59,7 +61,7 @@ export default function TradeBuyerRequests() {
   const { loading: authLoading } = useAuth()
   const {
     fetchDiasporaRfqs, fetchDiasporaMyQuotes, createDiasporaQuote, updateDiasporaQuote,
-    submitDiasporaQuote, withdrawDiasporaQuote, ensureDiasporaRfqConversation,
+    submitDiasporaQuote, withdrawDiasporaQuote, ensureDiasporaRfqConversation, saveChargeComponents,
   } = useCarUpApi()
   const navigate = useNavigate()
 
@@ -73,6 +75,9 @@ export default function TradeBuyerRequests() {
   const [composerFor, setComposerFor] = useState<string | null>(null)
   // A commercial offer must not jump from typing to irrevocable submission (audit item 7).
   const [composerStage, setComposerStage] = useState<'edit' | 'review'>('edit')
+  // T6 — the structured cost breakdown. The headline amount below is unchanged.
+  const [components, setComponents] = useState<DraftComponent[]>([])
+  const [breakdownComplete, setBreakdownComplete] = useState(false)
   // Set when editing an EXISTING draft rather than creating a new offer (audit item 6).
   const [editingQuoteId, setEditingQuoteId] = useState<string | null>(null)
   const [makeFilter, setMakeFilter] = useState('')
@@ -126,6 +131,7 @@ export default function TradeBuyerRequests() {
     setAmount(''); setCurrency('USD'); setQuantity(''); setUnitPrice(''); setDescription('')
     setConditionOffered(''); setLeadTime(''); setShipping('unstated'); setValidUntil('')
     setInclusions(''); setExclusions('')
+    setComponents([]); setBreakdownComplete(false)
   }
 
   const openComposer = (rfq: DiasporaRfqOpportunity) => {
@@ -186,13 +192,21 @@ export default function TradeBuyerRequests() {
     if (!(Number(amount) > 0)) { setError('Enter the total price you are offering.'); return }
     setBusy(true)
     try {
+      // The quote header saves first, then its components attach. A rejected breakdown surfaces
+      // here — which is exactly when a "complete" declaration that does not add up is refused.
+      let quoteId = editingQuoteId
       if (editingQuoteId) {
         // Governed: only a DRAFT is editable, and the backend re-checks that.
         await updateDiasporaQuote(editingQuoteId, buildQuotePayload(false))
-        if (submit) await submitDiasporaQuote(editingQuoteId)
       } else {
-        await createDiasporaQuote(rfqId, buildQuotePayload(submit))
+        const created = await createDiasporaQuote(rfqId, buildQuotePayload(false))
+        quoteId = created.quote?.id || null
       }
+      const usable = components.filter((c) => c.label.trim() || c.amount !== '')
+      if (quoteId && usable.length) {
+        await saveChargeComponents('import-quotes', quoteId, usable, breakdownComplete)
+      }
+      if (submit && quoteId) await submitDiasporaQuote(quoteId)
       setComposerFor(null)
       setEditingQuoteId(null)
       setComposerStage('edit')
@@ -508,6 +522,7 @@ export default function TradeBuyerRequests() {
                                 </div>
                               ))}
                             </dl>
+                            <ChargeComponentReview components={components} total={amount} currency={currency} />
                           </div>
                           <div className="mt-5 flex flex-wrap items-center gap-3">
                             <Button className="bg-orange-500 text-white hover:bg-orange-600" onClick={() => sendOffer(rfq.id, true)} disabled={busy} data-testid="trade-offer-submit">
@@ -583,6 +598,7 @@ export default function TradeBuyerRequests() {
                       </div>
 
                       <div className="mt-5 flex flex-wrap items-center gap-3">
+                        <ChargeComponentEditor components={components} onChange={setComponents} total={amount} currency={currency} breakdownComplete={breakdownComplete} onBreakdownCompleteChange={setBreakdownComplete} />
                         <Button className="bg-orange-500 text-white hover:bg-orange-600" onClick={() => { setError(''); setComposerStage('review') }} disabled={busy} data-testid="trade-offer-review">
                           Review offer
                         </Button>
