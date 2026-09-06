@@ -12,6 +12,8 @@ happened next.
 |---|---|
 | Branch / PR | `feat/service-network-foundation-1-0` · PR #197 (**Draft**, unchanged) |
 | Tranche base | `104c2954` (the certified deployed-provenance head) |
+| Certified head | `2395b672` — CI green on all eight gates, matching the pre-tranche baseline |
+| Round 2 evidence | `docs/service-network-foundation/ROUND_2_OWNER_UAT.md` |
 | Migrations added | **none** |
 | Production / `main` | untouched |
 
@@ -252,6 +254,25 @@ assertion.
   warranty, towing, labour rates, VAT, bay utilisation, inventory, ratings, mobile mechanic
   marketplace, full chat, advanced search, map routing — was not built and is not implied by any
   screen added here.
+
+---
+
+## What Round 2 changed about this document
+
+Everything above was written before the second exploratory pass. Round 2 ran the same journeys in a
+real browser against the deployed candidate, and it **overturned two claims made here**:
+
+- **F5 was not closed.** The garage workspace was built and unreachable. It took six separate fixes
+  — six independent layers each judging a garage employee by the wrong one of their two true roles.
+- **F11 was fixed at the wrong cause.** The overflow survived the fix and needed measuring, not
+  reasoning about.
+
+Both are now closed and confirmed by measurement, and the full operator journey — accept, job card,
+assign, start, record, complete — runs end to end in a browser. The account is in the Round 2
+report, including three defects of my own and five wrong readings from my own harness.
+
+The lesson is worth carrying past this tranche: **every suite was green through all six failures.**
+Each layer was correct alone and blocking alone. Only a real account in a real browser found them.
 
 ---
 
