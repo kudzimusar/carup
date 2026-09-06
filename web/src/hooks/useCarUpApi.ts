@@ -1,6 +1,7 @@
 import { useState, useCallback, useMemo } from 'react'
 import { toComponentPayload } from '@/pages/diaspora/commercialFormat'
 import type { DraftComponent } from '@/pages/diaspora/commercialFormat'
+import type { QuoteCommercials, ComparableQuote, ComparisonResult } from '@/pages/diaspora/TradeQuoteComparison'
 import { useAuth } from '@/context/AuthContext'
 import { apiRequest, resolveApiBaseUrl, DEFAULT_PRODUCTION_API_BASE_URL, extractApiErrorMessage, fetchCsrfToken, type AuthHeaders } from '@/lib/apiClient'
 import type { AccidentDisclosure, FinanceDisclosure, InsuranceDisclosure } from '@/lib/vehicleHistoryDisclosures'
@@ -1590,6 +1591,22 @@ export function useCarUpApi() {
     return response.data || []
   }, [request])
 
+  const readChargeComponents = useCallback(async (
+    kind: 'import-quotes' | 'logistics-quotes', quoteId: string,
+  ): Promise<QuoteCommercials> => {
+    const response = await request<{ data: QuoteCommercials }>(
+      `/diaspora/${kind}/${encodeURIComponent(quoteId)}/charge-components`)
+    return response.data
+  }, [request])
+
+  const compareQuotes = useCallback(async (
+    targets: Array<{ id: string; kind: 'import' | 'logistics'; label: string }>,
+  ): Promise<{ quotes: ComparableQuote[]; comparison: ComparisonResult }> => {
+    const response = await request<{ data: { quotes: ComparableQuote[]; comparison: ComparisonResult } }>(
+      '/diaspora/quote-comparison', { method: 'POST', body: JSON.stringify({ quotes: targets }) })
+    return response.data
+  }, [request])
+
   const createDiasporaQuote = useCallback(async (orderId: string, payload: DiasporaQuotePayload): Promise<{ quote: DiasporaQuote; idempotentReplay?: boolean }> => {
     const response = await request<{ data: { quote: DiasporaQuote; idempotentReplay?: boolean } }>(`/diaspora/buyer-orders/${encodeURIComponent(orderId)}/quotes`, { method: 'POST', body: JSON.stringify(payload) })
     return response.data
@@ -3041,6 +3058,8 @@ export function useCarUpApi() {
     ensureDiasporaRfqConversation,
     createDiasporaQuote,
     saveChargeComponents,
+    readChargeComponents,
+    compareQuotes,
     updateDiasporaQuote,
     submitDiasporaQuote,
     withdrawDiasporaQuote,

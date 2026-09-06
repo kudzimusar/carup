@@ -15,7 +15,7 @@ import type {
 } from '@/types/tradeLogistics'
 import { toComponentPayload } from '@/pages/diaspora/commercialFormat'
 import type { DraftComponent } from '@/pages/diaspora/commercialFormat'
-import type { QuoteCommercials } from '@/pages/diaspora/TradeQuoteComparison'
+import type { QuoteCommercials, ComparableQuote, ComparisonResult } from '@/pages/diaspora/TradeQuoteComparison'
 
 const BASE_URL = resolveApiBaseUrl(
   import.meta.env.VITE_API_URL,
@@ -118,6 +118,14 @@ export function useTradeLogisticsApi() {
   ): Promise<QuoteCommercials> => {
     const response = await request<{ data: QuoteCommercials }>(
       `/diaspora/${kind}/${encodeURIComponent(quoteId)}/charge-components`)
+    return response.data
+  }, [request])
+
+  const compareQuotes = useCallback(async (
+    targets: Array<{ id: string; kind: 'import' | 'logistics'; label: string }>,
+  ): Promise<{ quotes: ComparableQuote[]; comparison: ComparisonResult }> => {
+    const response = await request<{ data: { quotes: ComparableQuote[]; comparison: ComparisonResult } }>(
+      '/diaspora/quote-comparison', { method: 'POST', body: JSON.stringify({ quotes: targets }) })
     return response.data
   }, [request])
 
@@ -263,6 +271,7 @@ export function useTradeLogisticsApi() {
     listTradeCorridors,
     saveChargeComponents,
     readChargeComponents,
+    compareQuotes,
     listRateObservations,
     recordRateObservation,
     listOpportunities,
@@ -292,6 +301,7 @@ export function useTradeLogisticsApi() {
     listTradeCorridors,
     saveChargeComponents,
     readChargeComponents,
+    compareQuotes,
     listRateObservations,
     recordRateObservation,
     listOpportunities,

@@ -6,6 +6,8 @@ import { Button } from '@/components/ui/button'
 import { useAuth } from '@/context/AuthContext'
 import { useCarUpApi } from '@/hooks/useCarUpApi'
 import type { DiasporaBuyerOrder, DiasporaQuote, DiasporaRequestLine } from '@/types'
+import { OfferCommercials, OfferComparison } from './QuoteCommercials'
+import type { OfferRef } from './QuoteCommercials'
 
 /**
  * One sourcing request, from the buyer's side (Trade OS T2 §9.9/§9.10).
@@ -51,7 +53,7 @@ function leadTimeLabel(q: DiasporaQuote) {
 export default function TradeRequestDetail() {
   const { id = '' } = useParams()
   const { loading: authLoading } = useAuth()
-  const { fetchDiasporaBuyerOrder, publishDiasporaRfq, acceptDiasporaQuote } = useCarUpApi()
+  const { fetchDiasporaBuyerOrder, publishDiasporaRfq, acceptDiasporaQuote, readChargeComponents, compareQuotes } = useCarUpApi()
 
   const [order, setOrder] = useState<DiasporaBuyerOrder | null>(null)
   const [loading, setLoading] = useState(true)
@@ -109,6 +111,11 @@ export default function TradeRequestDetail() {
   }, [offers])
 
   const mixedCurrency = new Set(offers.map((q) => q.quote_currency || 'USD')).size > 1
+
+  const comparisonTargets = useMemo<OfferRef[]>(
+    () => offers.map((q) => ({ id: q.id, kind: 'import-quotes' as const, label: q.supplier?.display_name || 'This offer' })),
+    [offers],
+  )
 
   const act = async (fn: () => Promise<unknown>) => {
     setBusy(true)
@@ -252,6 +259,9 @@ export default function TradeRequestDetail() {
                   are not directly comparable.
                 </p>
               )}
+              {/* T6 — CarUp names a cheapest only when the offers are genuinely the same purchase. */}
+              <OfferComparison compare={compareQuotes} offers={comparisonTargets} />
+
               <div className="mt-4 space-y-4" data-testid="trade-offer-list">
                 {offers.map((q) => {
                   const isAccepted = q.id === acceptedQuoteId
@@ -326,6 +336,9 @@ export default function TradeRequestDetail() {
                       {Array.isArray(q.exclusions) && q.exclusions.length > 0 && (
                         <p className="text-xs text-gray-600"><span className="font-semibold">Excludes:</span> {(q.exclusions as string[]).join(', ')}</p>
                       )}
+
+                      {/* T6 — what this price actually covers, before the button that commits to it. */}
+                      <OfferCommercials read={readChargeComponents} offer={{ id: q.id, kind: 'import-quotes', label: q.supplier?.display_name || 'This offer' }} />
 
                       {!acceptedQuoteId && q.status === 'ISSUED' && (
                         <div className="mt-4">
