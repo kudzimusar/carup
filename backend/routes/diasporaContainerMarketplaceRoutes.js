@@ -40,6 +40,7 @@ import {
 } from '../services/diaspora/diasporaLogisticsRfqService.js';
 import { ensureLogisticsConversation } from '../services/diaspora/diasporaLogisticsConversationService.js';
 import { getTransactionPassport, continueToLogistics } from '../services/diaspora/tradeTransactionPassportService.js';
+import { setReadiness, listReadiness, summarizeReadiness } from '../services/diaspora/tradeDocumentReadinessService.js';
 import { getTradeContext } from '../services/diaspora/tradeContextService.js';
 
 const router = express.Router();
@@ -274,6 +275,24 @@ router.post(`${base}/reservations/:id/reject`, operatorAuth, asyncHandler(async 
 }));
 router.post(`${base}/reservations/:id/cancel`, participantAuth, asyncHandler(async (req, res) => {
   res.json({ data: await cancelReservation(req.params.id, req.userContext, { req }) });
+}));
+
+// ── Intake 2.0 — document READINESS ───────────────────────────────────────
+//
+// What the customer says they have, for either anchor. It is not the document lifecycle: no file
+// is stored, nothing is verified, and the payload states that in the response rather than leaving
+// a consumer to infer it. T8 owns actual documents.
+router.get('/:kind(import-orders|logistics-requests)/:id/document-readiness', participantAuth, asyncHandler(async (req, res) => {
+  const subject = req.params.kind === 'import-orders' ? 'import_order' : 'logistics_request';
+  const rows = await listReadiness(subject, req.params.id, { req });
+  res.json({ data: { documents: rows, summary: summarizeReadiness(rows) } });
+}));
+
+router.post('/:kind(import-orders|logistics-requests)/:id/document-readiness', participantAuth, asyncHandler(async (req, res) => {
+  const subject = req.params.kind === 'import-orders' ? 'import_order' : 'logistics_request';
+  await setReadiness(subject, req.params.id, req.body?.entries || req.body, req.userContext, { req });
+  const rows = await listReadiness(subject, req.params.id, { req });
+  res.status(201).json({ data: { documents: rows, summary: summarizeReadiness(rows) } });
 }));
 
 // ── Trade OS T4 — Order & Booking Passport ────────────────────────────────
