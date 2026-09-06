@@ -188,3 +188,54 @@ describe('the checklist reports what is known, never a guess', () => {
     expect(p.editable).toBe(false)
   })
 })
+
+describe('autosave keeps every edit, not just the last one', () => {
+  // Real timers against the real 900ms debounce. Fake timers stalled the component's initial load,
+  // so `application` was still null and autosave short-circuited — the test would have been
+  // measuring a component that had not finished mounting.
+  const settle = (ms: number) => new Promise((r) => setTimeout(r, ms))
+
+  it('a burst of edits saves ALL of them', async () => {
+    fetchMyGarageApplication.mockResolvedValue({ application: COMPLETE, blockers: [], editable: true })
+    view()
+    await screen.findByTestId('application-form')
+
+    // Faster than the debounce — exactly the case that used to lose everything but the last field.
+    // Values that DIFFER from the loaded application. Setting a field to the value it already holds
+    // fires no onChange, so the first version of this test was driving a form it never changed.
+    fireEvent.change(screen.getByTestId('field-trading-name'), { target: { value: 'Highfield Auto' } })
+    fireEvent.change(screen.getByTestId('field-city'), { target: { value: 'Bulawayo' } })
+    fireEvent.change(screen.getByTestId('field-address'), { target: { value: '9 Leopold Takawira' } })
+    await settle(1400)
+
+    await waitFor(() => expect(saveGarageApplication).toHaveBeenCalled())
+    const patches = saveGarageApplication.mock.calls.map((c) => c[1])
+    const merged = Object.assign({}, ...patches)
+    // Before the fix this was { address_line } alone: the timer AND the patch were replaced.
+    expect(merged).toMatchObject({
+      trading_name: 'Highfield Auto',
+      location_city: 'Bulawayo',
+      address_line: '9 Leopold Takawira',
+    })
+  }, 20000)
+
+  it('a failed save keeps the edits pending rather than dropping them', async () => {
+    fetchMyGarageApplication.mockResolvedValue({ application: COMPLETE, blockers: [], editable: true })
+    saveGarageApplication.mockRejectedValueOnce(new Error('network'))
+    view()
+    await screen.findByTestId('application-form')
+
+    fireEvent.change(screen.getByTestId('field-city'), { target: { value: 'Mutare' } })
+    await settle(1400)
+    await waitFor(() => expect(saveGarageApplication).toHaveBeenCalledTimes(1))
+
+    // The next edit carries the failed one with it — one bad request must not lose an edit.
+    fireEvent.change(screen.getByTestId('field-phone'), { target: { value: '+263779999999' } })
+    await settle(1400)
+    await waitFor(() => expect(saveGarageApplication).toHaveBeenCalledTimes(2))
+    expect(saveGarageApplication.mock.calls[1][1]).toMatchObject({
+      location_city: 'Mutare',
+      contact_phone: '+263779999999',
+    })
+  }, 20000)
+})

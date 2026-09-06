@@ -67,6 +67,8 @@ export default function GarageSetup() {
   // Local form state so typing stays responsive; autosave reconciles it with the server.
   const [form, setForm] = useState<Partial<GarageApplication> & { attestation_accepted?: boolean }>({})
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  // Everything edited since the last successful save, so a burst of edits is not reduced to its last.
+  const pendingPatch = useRef<Record<string, unknown>>({})
 
   const adopt = useCallback((res: { application?: GarageApplication | null; blockers?: string[] | null; editable?: boolean }) => {
     const app = res?.application ?? null
@@ -114,18 +116,33 @@ export default function GarageSetup() {
       .catch(() => { /* the previous blockers remain the best thing we know */ })
   }, [fetchMyGarageApplication])
 
-  /** Autosave at a meaningful boundary, not on every keystroke. */
+  /**
+   * Autosave at a meaningful boundary, not on every keystroke.
+   *
+   * The pending patch ACCUMULATES. The first version replaced it along with the timer, so filling
+   * several fields faster than the debounce saved only the last one — a person who completed the
+   * form and left before pressing send would come back to find one field kept and the rest gone.
+   * Submitting was always safe because `send()` flushes every field, which is exactly why this hid:
+   * the bug only bit someone who did NOT finish.
+   */
   const queueSave = useCallback((patch: Record<string, unknown>) => {
     if (!application || !editable) return
+    pendingPatch.current = { ...pendingPatch.current, ...patch }
     if (saveTimer.current) clearTimeout(saveTimer.current)
     saveTimer.current = setTimeout(() => {
-      saveGarageApplication(application.id, patch)
+      const toSave = pendingPatch.current
+      pendingPatch.current = {}
+      saveGarageApplication(application.id, toSave)
         .then((res) => {
           setBlockers(res?.blockers ?? null)
           setSavedAt(new Date().toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' }))
           setError(null)
         })
-        .catch((e: unknown) => setError(e instanceof Error ? e.message : 'That did not save.'))
+        .catch((e: unknown) => {
+          // Put it back: an unsaved edit must not be silently dropped because one request failed.
+          pendingPatch.current = { ...toSave, ...pendingPatch.current }
+          setError(e instanceof Error ? e.message : 'That did not save.')
+        })
     }, 900)
   }, [application, editable, saveGarageApplication])
 
