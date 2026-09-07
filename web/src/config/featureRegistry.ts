@@ -1054,9 +1054,14 @@ export const FEATURE_REGISTRY: FeatureRegistryItem[] = [
   {
     // T9.3 — a participant's own cargo. Not a sidebar destination: it is reached from the
     // transaction it belongs to, and the server authorizes it from the cargo's owner.
+    //
+    // The route is the FULL parameterised path, matching App.tsx exactly. A prefix here passes a
+    // casual reading and fails the dead-link gate, which compares against the declared `<Route
+    // path=...>` verbatim — and a registry that names a route the app does not serve is a dead link
+    // by construction.
     id: 'diaspora.my-cargo',
     label: 'Your Cargo',
-    route: '/diaspora/cargo',
+    route: '/diaspora/cargo/:subjectType/:subjectId',
     domain: 'diaspora',
     roles: ['owner', 'dealer', 'admin', 'government'],
     placements: [],

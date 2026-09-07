@@ -1725,7 +1725,8 @@ AUTHORIZED and untouched. **T8 may now begin.**
 
 **Plan:** `docs/trade-os/T8_DOCUMENTS_EVIDENCE_WORKSPACE_IMPLEMENTATION_PLAN.md` ·
 **Receipt:** `docs/trade-os/receipts/T8_DOCUMENTS_EVIDENCE_WORKSPACE.md`
-(authorized 2026-09-07 after the T7 freeze). T9+ NOT authorized.
+(authorized 2026-09-07 after the T7 freeze). T9 authorized and closed the same day; **T10
+authorized after the T9 freeze. T11+ NOT authorized.**
 
 **T8.0 found T8 is not greenfield** — record, storage, extraction, verification, type/rule
 vocabulary and readiness all already had owners, and no competing authority was created.
@@ -1758,30 +1759,57 @@ web diaspora 204/204 · CI 7/7 green · seven widths clean · **ten mutations pr
 **Open, and stated:** upload byte-path failure/recovery is not certified against a real storage
 failure, and live OCR is unavailable on staging so the extraction boundary is certified by contract.
 
-**`T8-USABLE` is NOT production-ready** — T18 owns that. **T9 may now begin.**
+**`T8-USABLE` is NOT production-ready** — T18 owns that. **T9 is closed; T10 may now begin.**
 - [ ] Participant/privacy boundaries.
 
 ## T9 — Warehouse intake and measurement
 
-**`T9-PARTIAL`.** Authority created (migration `20260911090000`, staging only, FORCE RLS, gate
-20/20); ESTIMATED ≠ ACTUAL proven; services, surfaces and staging journeys open.
+**`T9-USABLE` — owner acceptance remains. Runtime `ee747940`.** Authority (`20260911090000`) plus
+evidence binding (`20260912090000`), staging only, FORCE RLS. Certified on the deployed product at a
+proven FE/BE pairing: journeys **34/34**, responsive **14/14** across seven widths and two surfaces,
+PGlite gate **29/29**, **14 mutations** (12 required + 2 extra). Receipt
+`docs/trade-os/receipts/T9_WAREHOUSE_INTAKE_MEASUREMENT.md`.
 
+**ESTIMATED ≠ ACTUAL holds end to end.** 3.0 booked → 3.8 measured → +0.8 stated, the booking's
+`estimated_volume` still 3.000, and T5's ledger still summing the estimates (`used 5.5`, not 6.3).
+A discrepancy is a fact: no branch of it produces money.
 
-- [ ] Intake appointment/reference.
-- [ ] Receive cargo.
-- [ ] Photos/condition.
-- [ ] Actual measurement.
-- [ ] Discrepancy workflow.
-- [ ] Storage/readiness state.
+- [x] Intake appointment/reference — an appointment sets no receiver and no arrival time.
+- [x] Receive cargo — the customer cannot do it; `received_by` is the authenticated actor.
+- [x] Photos/condition — through **T8**, one added subject value, no second store.
+- [x] Actual measurement — volume derived server-side; a client CBM is never stored.
+- [x] Discrepancy workflow — complete / partial / equal / smaller / weight / missing, each said in
+      words; `NOT_COMPARABLE` rather than an invented difference.
+- [x] Storage — unknown stays unknown until an operator assigns a position.
+- [ ] **Readiness state is NOT T9's.** Whether received cargo is ready to load is T10's derived
+      projection; T9 deliberately cannot express it.
+
+**Stated limitation:** the outbox drain was not exercised — on staging it is secret-guarded and its
+cron points at the stable host (142 events unprocessed across ALL types in 24h). T9's producer half
+is proven (18/18 addressable on the deployed system); the drain is T7's frozen machinery.
 
 ## T10 — Consolidation and loading
 
-- [ ] Load readiness.
-- [ ] Load plan.
-- [ ] Loaded evidence.
-- [ ] Actual loaded CBM/weight.
-- [ ] Seal/container reference.
-- [ ] Left-behind/exception handling.
+**`T10.0` audit complete; runtime not started.** Plan
+`docs/trade-os/T10_CONSOLIDATION_LOADING_IMPLEMENTATION_PLAN.md`.
+
+**The audit's finding: the word "loaded" already exists in five places and the fact exists in none.**
+`diaspora_import_orders.status` (`READY_FOR_LOADING`/`LOADED`), `diaspora_container_shipments.status`
+(`LOADING`), `diaspora_shipments.status` (`LOADING`), the intelligence service's
+`LOADING_IN_PROGRESS`, and the passport slot already reserved as `owner: 'T10'`. None records what
+was loaded, who confirmed it, or when.
+
+**Hazard, recorded:** `POST /containers/:id/mark-loading` already works with no manifest, no check
+that anything was received, and no seal — and `mark-shipped` sits immediately after it, so the same
+unmanifested path reaches a T11 fact. T10 must gate or derive it.
+
+- [ ] Load readiness — a derived projection with reasons, never a stored boolean.
+- [ ] Load plan — editable, provisional, distinct from the loaded fact.
+- [ ] Loaded evidence — through T8.
+- [ ] Actual loaded CBM/weight — the **third** measure; booked 3.0, warehouse 3.8, loaded 3.6 must
+      all stay representable.
+- [ ] Seal/container reference — none exists anywhere today; unknown until observed.
+- [ ] Left-behind/exception handling — visible, reasoned, and it triggers no refund or re-sailing.
 
 ## T11 — Shipment and tracking
 
