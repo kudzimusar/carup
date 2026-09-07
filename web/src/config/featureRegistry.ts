@@ -225,6 +225,7 @@ export type LucideIconName =
   | 'Lock'
   | 'Share2'
   | 'Container'
+  | 'Warehouse'
 
 // ── Core registry item ─────────────────────────────────────────────────────
 export interface FeatureRegistryItem {
@@ -1034,6 +1035,34 @@ export const FEATURE_REGISTRY: FeatureRegistryItem[] = [
     icon: 'Store',
     sidebarGroup: 'Growth & Diaspora',
     description: 'Customers looking for products you can supply',
+  },
+  {
+    // T9.3 — the warehouse intake workspace. Registered so the unregistered-path fallback can never
+    // make it public. The role list is the OUTER gate only: receiving authority is derived
+    // server-side from the warehouse, so a dealer with no warehouse gets an empty queue, not data.
+    id: 'diaspora.warehouse-intake',
+    label: 'Warehouse Intake',
+    route: '/diaspora/warehouse',
+    domain: 'diaspora',
+    roles: ['dealer', 'admin'],
+    placements: ['dashboard_sidebar'],
+    requiresAuth: true,
+    icon: 'Warehouse',
+    sidebarGroup: 'Growth & Diaspora',
+    description: 'Receive cargo, record its condition and measure it',
+  },
+  {
+    // T9.3 — a participant's own cargo. Not a sidebar destination: it is reached from the
+    // transaction it belongs to, and the server authorizes it from the cargo's owner.
+    id: 'diaspora.my-cargo',
+    label: 'Your Cargo',
+    route: '/diaspora/cargo',
+    domain: 'diaspora',
+    roles: ['owner', 'dealer', 'admin', 'government'],
+    placements: [],
+    requiresAuth: true,
+    icon: 'Package',
+    description: 'What the warehouse recorded about your cargo',
   },
   {
     // T6.5 — CarUp's own market-rate research. NOT a marketplace surface and never a customer

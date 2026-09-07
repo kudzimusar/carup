@@ -64,6 +64,17 @@ import { recordObservation, listObservations, corridorBenchmark } from '../servi
 import { getTransactionPassport, continueToLogistics } from '../services/diaspora/tradeTransactionPassportService.js';
 import { setReadiness, listReadiness, summarizeReadiness } from '../services/diaspora/tradeDocumentReadinessService.js';
 import { getTradeContext } from '../services/diaspora/tradeContextService.js';
+import {
+  createWarehouse,
+  listWarehouses,
+  scheduleIntake,
+  receiveIntake,
+  recordMeasurement,
+  assignStorageLocation,
+  getIntake,
+  listIntakeQueue,
+  getMyCargoIntake,
+} from '../services/diaspora/warehouseIntakeService.js';
 
 const router = express.Router();
 const asyncHandler = (fn) => (req, res, next) => Promise.resolve(fn(req, res, next)).catch(next);
@@ -459,6 +470,57 @@ router.get('/trade-transactions/:kind/:id', participantAuth, asyncHandler(async 
 router.post('/import-orders/:id/continue-to-logistics', participantAuth, asyncHandler(async (req, res) => {
   const result = await continueToLogistics(req.params.id, req.userContext, { req });
   res.status(result.idempotentReplay ? 200 : 201).json({ data: result });
+}));
+
+// ── Trade OS T9 — warehouse intake and measurement ────────────────────────
+//
+// Route middleware only establishes that there IS an identity. Receiving authority is derived
+// server-side from the WAREHOUSE — its operator, or a tenant admin of the tenant running it — and
+// never from a header, a body field or the fact that somebody owns the cargo. That last one is the
+// point: a customer who could reach this router still cannot receive their own goods.
+
+router.get('/warehouses', participantAuth, asyncHandler(async (req, res) => {
+  res.json({ data: await listWarehouses(req.userContext, { req }) });
+}));
+
+router.post('/warehouses', operatorAuth, asyncHandler(async (req, res) => {
+  res.status(201).json({ data: await createWarehouse(req.body || {}, req.userContext, { req }) });
+}));
+
+// The operator's queue. Scoped to warehouses the caller may receive at, so a caller with none gets
+// an empty queue rather than a refusal — there is nothing here that is theirs to be refused.
+router.get('/warehouse-intakes', participantAuth, asyncHandler(async (req, res) => {
+  res.json({ data: await listIntakeQueue(req.query || {}, req.userContext, { req }) });
+}));
+
+// An appointment. Expecting cargo is not having it: this sets no receiver and no arrival time.
+router.post('/warehouse-intakes', operatorAuth, asyncHandler(async (req, res) => {
+  const result = await scheduleIntake(req.body || {}, req.userContext, { req });
+  res.status(result.already_existed ? 200 : 201).json({ data: result });
+}));
+
+router.get('/warehouse-intakes/:id', participantAuth, asyncHandler(async (req, res) => {
+  res.json({ data: await getIntake(req.params.id, req.userContext, { req }) });
+}));
+
+// THE central T9 act. Idempotent: a retried request is one arrival, and sends one notification.
+router.post('/warehouse-intakes/:id/receive', operatorAuth, asyncHandler(async (req, res) => {
+  const result = await receiveIntake(req.params.id, req.body || {}, req.userContext, { req });
+  res.status(result.already_received ? 200 : 201).json({ data: result });
+}));
+
+router.post('/warehouse-intakes/:id/measurements', operatorAuth, asyncHandler(async (req, res) => {
+  res.status(201).json({ data: await recordMeasurement(req.params.id, req.body || {}, req.userContext, { req }) });
+}));
+
+router.post('/warehouse-intakes/:id/storage-location', operatorAuth, asyncHandler(async (req, res) => {
+  res.json({ data: await assignStorageLocation(req.params.id, req.body?.storageLocation ?? req.body?.storage_location, req.userContext, { req }) });
+}));
+
+// The customer's own cargo. Authorized from the SUBJECT, not the warehouse: you may read the intake
+// for cargo you own, and a co-loader on the same sailing owns a different booking.
+router.get('/my-cargo/:subjectType/:subjectId', participantAuth, asyncHandler(async (req, res) => {
+  res.json({ data: await getMyCargoIntake(req.params.subjectType, req.params.subjectId, req.userContext, { req }) });
 }));
 
 export default router;

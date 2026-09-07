@@ -57,6 +57,13 @@ export const COMMUNICATION_EVENT_TYPES = [
   'diaspora.logistics.quote_withdrawn',
   // T7.5 — the shipment authority already emitted exceptions and nobody was listening.
   'diaspora.shipment.exception',
+  // Trade OS T9.4 — warehouse intake. Emitted best-effort by
+  // services/diaspora/warehouseIntakeNotifier.js AFTER the audited authoritative receipt. The
+  // direction is one-way: a notification never receives cargo, and none of these payloads carries a
+  // price, an adjustment or another participant's consignment.
+  'diaspora.warehouse.cargo_received',
+  'diaspora.warehouse.condition_issue',
+  'diaspora.warehouse.measurement_discrepancy',
   // Trade OS D7 — container co-loading booking lifecycle. Emitted best-effort by
   // services/diaspora/containerBookingNotifier.js AFTER the audited authoritative mutation.
   // Payloads carry `buyerId` (addressable) plus reference/status/route for the governed

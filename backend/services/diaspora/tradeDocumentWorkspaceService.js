@@ -18,13 +18,14 @@
  */
 import { ForbiddenError, NotFoundError, ValidationError } from '../../utils/errors.js';
 import { requireUserContext, isPlatformAdmin, isPlatformReviewer, isTenantAdminForRecord, normalizeId } from './diasporaAuthorization.js';
+import { canReceiveAtWarehouse } from './warehouseAuthority.js';
 import { resolveClient } from './diasporaServiceUtils.js';
 
 const DOCUMENTS = 'diaspora_trade_documents';
 const TYPES = 'trade_document_types';
 const READINESS = 'diaspora_trade_document_readiness';
 
-export const WORKSPACE_SUBJECTS = Object.freeze(['import_order', 'logistics_request', 'container_booking', 'trade_order']);
+export const WORKSPACE_SUBJECTS = Object.freeze(['import_order', 'logistics_request', 'container_booking', 'trade_order', 'warehouse_intake']);
 
 /**
  * What a checklist row may say. Deliberately small: every value is established by a layer that
@@ -88,6 +89,29 @@ async function authorizeSubject(client, subjectType, subjectId, context) {
     const mine = (reservations || []).find((r) => normalizeId(r.buyer_id) === context.id || normalizeId(r.created_by) === context.id);
     if (mine) return { role: 'participant' };
     throw new ForbiddenError('You have no booking on this sailing');
+  }
+
+  // T9.5 — a warehouse intake's evidence is a document like any other, so it comes through here
+  // rather than through a second store. Two parties may legitimately see it: the warehouse that
+  // recorded the observation, and the customer whose cargo it is. Nobody else, ever — a co-loader
+  // sharing a sailing does not share a consignment.
+  if (subjectType === 'warehouse_intake') {
+    const { data: intake } = await client.from('diaspora_warehouse_intakes').select('*')
+      .eq('id', subjectId).is('deleted_at', null).maybeSingle();
+    if (!intake) throw new NotFoundError('Intake not found');
+    const { data: warehouse } = await client.from('diaspora_warehouses').select('*')
+      .eq('id', intake.warehouse_id).is('deleted_at', null).maybeSingle();
+    if (warehouse && canReceiveAtWarehouse(warehouse, context)) return { role: 'warehouse' };
+
+    const owners = intake.subject_type === 'cargo_reservation'
+      ? await client.from('diaspora_cargo_reservations').select('buyer_id, created_by')
+        .eq('id', intake.subject_id).is('deleted_at', null).maybeSingle()
+      : await client.from('diaspora_logistics_requests').select('requester_id, created_by')
+        .eq('id', intake.subject_id).is('deleted_at', null).maybeSingle();
+    const ownerIds = [owners?.data?.buyer_id, owners?.data?.requester_id, owners?.data?.created_by]
+      .map(normalizeId).filter(Boolean);
+    if (ownerIds.includes(context.id)) return { role: 'cargo_owner' };
+    throw new ForbiddenError('This is not your cargo');
   }
 
   throw new ValidationError(`Unknown document workspace subject "${subjectType}"`);

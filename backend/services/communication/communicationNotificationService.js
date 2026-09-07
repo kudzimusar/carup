@@ -213,6 +213,45 @@ export const NOTIFICATION_POLICIES = Object.freeze({
     classification: 'transactional',
     transactional: true,
   },
+  // T9.4 — the warehouse has your cargo. Transactional and in-app: a person who shipped goods needs
+  // to be told they arrived, and it is not marketing.
+  'diaspora.warehouse.cargo_received': {
+    notificationType: 'rfq_update',
+    threadType: 'marketplace_inquiry',
+    priority: 'normal',
+    channels: ['in_app'],
+    fallbackChannels: [],
+    policyChannelsOnly: true,
+    templateKey: 'logistics_update_v1',
+    classification: 'transactional',
+    transactional: true,
+  },
+  // Something was found wrong with the cargo. High priority because the customer may need to act,
+  // and the payload deliberately carries an observation rather than a verdict.
+  'diaspora.warehouse.condition_issue': {
+    notificationType: 'rfq_update',
+    threadType: 'marketplace_inquiry',
+    priority: 'high',
+    channels: ['in_app'],
+    fallbackChannels: [],
+    policyChannelsOnly: true,
+    templateKey: 'logistics_update_v1',
+    classification: 'transactional',
+    transactional: true,
+  },
+  // The cargo is not the size it was booked as. Normal priority: it is a fact to know, not an
+  // emergency, and T9 attaches no charge to it.
+  'diaspora.warehouse.measurement_discrepancy': {
+    notificationType: 'rfq_update',
+    threadType: 'marketplace_inquiry',
+    priority: 'normal',
+    channels: ['in_app'],
+    fallbackChannels: [],
+    policyChannelsOnly: true,
+    templateKey: 'logistics_update_v1',
+    classification: 'transactional',
+    transactional: true,
+  },
   'diaspora.logistics.quote_withdrawn': {
     notificationType: 'rfq_update',
     threadType: 'marketplace_inquiry',
@@ -601,7 +640,7 @@ export class CommunicationNotificationService {
         // fallbacks cover every emitter's subject id (incl. sessionId/evidenceId/vin for
         // verification, evidence-review, and listing-moderation events) so distinct events
         // for the same user never collapse into one dedupe key.
-        dedupeParts: [eventType, event.id || event.dedupe_key || event.event_id || payload.id || payload.inquiryId || payload.escrowId || payload.applicationId || payload.sessionId || payload.evidenceId || payload.vin || payload.reservationId || payload.containerId || payload.quoteId || payload.rfqId || payload.shipmentId, recipientUserId, policy.templateKey, channel],
+        dedupeParts: [eventType, event.id || event.dedupe_key || event.event_id || payload.id || payload.inquiryId || payload.escrowId || payload.applicationId || payload.sessionId || payload.evidenceId || payload.vin || payload.reservationId || payload.containerId || payload.quoteId || payload.rfqId || payload.shipmentId || payload.intakeId, recipientUserId, policy.templateKey, channel],
         payload: {
           event_type: eventType,
           safe_payload: payload,

@@ -270,6 +270,63 @@ export function useTradeLogisticsApi() {
   // Consumers use these callbacks inside useEffect/useCallback dependencies. Returning a fresh
   // object every render would make those dependencies change forever and trigger a fetch loop, so
   // the facade itself is memoized just like the individual operations.
+  // ── T9 — warehouse intake ──────────────────────────────────────────────
+  // Every one of these is a call into the governed service. There is no browser path to the
+  // warehouse tables at all, so nothing below can be re-implemented client-side.
+
+  const listIntakeQueue = useCallback(async (params: { status?: string; warehouseId?: string } = {}): Promise<IntakeQueue> => {
+    const query = new URLSearchParams()
+    if (params.status) query.set('status', params.status)
+    if (params.warehouseId) query.set('warehouseId', params.warehouseId)
+    const suffix = query.toString() ? `?${query.toString()}` : ''
+    const response = await request<{ data: IntakeQueue }>(`/diaspora/warehouse-intakes${suffix}`)
+    return response.data
+  }, [request])
+
+  const getIntake = useCallback(async (id: string): Promise<WarehouseIntake> => {
+    const response = await request<{ data: WarehouseIntake }>(`/diaspora/warehouse-intakes/${encodeURIComponent(id)}`)
+    return response.data
+  }, [request])
+
+  const scheduleIntake = useCallback(async (payload: { warehouseId: string; subjectType: string; subjectId: string; notes?: string }): Promise<WarehouseIntake> => {
+    const response = await request<{ data: WarehouseIntake }>('/diaspora/warehouse-intakes', {
+      method: 'POST', body: JSON.stringify(payload),
+    })
+    return response.data
+  }, [request])
+
+  const receiveIntake = useCallback(async (id: string, payload: ReceiveIntakeInput): Promise<WarehouseIntake> => {
+    const response = await request<{ data: WarehouseIntake }>(`/diaspora/warehouse-intakes/${encodeURIComponent(id)}/receive`, {
+      method: 'POST', body: JSON.stringify(payload),
+    })
+    return response.data
+  }, [request])
+
+  const recordMeasurement = useCallback(async (id: string, payload: MeasurementInput): Promise<MeasurementResult> => {
+    const response = await request<{ data: MeasurementResult }>(`/diaspora/warehouse-intakes/${encodeURIComponent(id)}/measurements`, {
+      method: 'POST', body: JSON.stringify(payload),
+    })
+    return response.data
+  }, [request])
+
+  const assignStorageLocation = useCallback(async (id: string, storageLocation: string): Promise<WarehouseIntake> => {
+    const response = await request<{ data: WarehouseIntake }>(`/diaspora/warehouse-intakes/${encodeURIComponent(id)}/storage-location`, {
+      method: 'POST', body: JSON.stringify({ storageLocation }),
+    })
+    return response.data
+  }, [request])
+
+  const listWarehouses = useCallback(async (): Promise<WarehouseSummary[]> => {
+    const response = await request<{ data: WarehouseSummary[] }>('/diaspora/warehouses')
+    return response.data || []
+  }, [request])
+
+  const getMyCargo = useCallback(async (subjectType: string, subjectId: string): Promise<MyCargoView> => {
+    const response = await request<{ data: MyCargoView }>(
+      `/diaspora/my-cargo/${encodeURIComponent(subjectType)}/${encodeURIComponent(subjectId)}`)
+    return response.data
+  }, [request])
+
   return useMemo(() => ({
     listMyRequests,
     getRequest,
@@ -301,6 +358,14 @@ export function useTradeLogisticsApi() {
     listOpenContainers,
     getTransactionPassport,
     continueToLogistics,
+    listIntakeQueue,
+    getIntake,
+    scheduleIntake,
+    receiveIntake,
+    recordMeasurement,
+    assignStorageLocation,
+    listWarehouses,
+    getMyCargo,
   }), [
     listMyRequests,
     getRequest,
@@ -332,7 +397,99 @@ export function useTradeLogisticsApi() {
     listOpenContainers,
     getTransactionPassport,
     continueToLogistics,
+    listIntakeQueue,
+    getIntake,
+    scheduleIntake,
+    receiveIntake,
+    recordMeasurement,
+    assignStorageLocation,
+    listWarehouses,
+    getMyCargo,
   ])
+}
+
+// ── T9 — warehouse intake & measurement ──────────────────────────────────
+// Mirrors warehouseIntakeService's projection. `null` means the warehouse does not know: an
+// unmeasured volume, an unassigned bay. It is NEVER a zero, and no screen may render it as one.
+
+export interface WarehouseEstimate {
+  volume_cbm: number | null
+  weight_kg: number | null
+  completeness: 'COMPLETE' | 'PARTIAL' | 'UNKNOWN'
+  items_total: number
+  items_with_volume: number
+  source: string
+}
+export interface WarehouseActual {
+  id: string
+  length_value: number | null; width_value: number | null; height_value: number | null
+  dimension_unit: 'cm' | 'm' | null
+  weight_value: number | null; weight_unit: 'kg' | 't' | null
+  package_count: number | null
+  volume_cbm: number | null
+  measured_at: string | null
+  method: string
+}
+export interface WarehouseDiscrepancy {
+  status: 'NOT_MEASURED' | 'NOT_COMPARABLE' | 'MATCHES' | 'DIFFERS'
+  reason?: string
+  volume: { estimated_cbm: number; actual_cbm: number; difference_cbm: number; direction: 'LARGER' | 'SMALLER' | 'SAME' } | null
+  weight: { estimated_kg: number; actual_kg: number; difference_kg: number; direction: 'HEAVIER' | 'LIGHTER' | 'SAME' } | null
+  commercial_effect: 'none'
+  note: string
+}
+export interface WarehouseIntake {
+  id: string
+  reference: string
+  warehouse_id: string
+  subject: { type: string; id: string }
+  status: 'EXPECTED' | 'RECEIVED' | 'CONDITIONALLY_RECEIVED' | 'REFUSED'
+  status_sentence: string
+  received_at: string | null
+  received_at_source: string | null
+  condition: string | null
+  outcome_reason: string | null
+  observed_package_count: number | null
+  storage_location: string | null
+  estimate: WarehouseEstimate
+  actual: WarehouseActual | null
+  earlier_measurements: number
+  discrepancy: WarehouseDiscrepancy
+  received_by?: string | null
+  notes?: string | null
+  warehouse?: { id: string; name: string; country: string; city: string | null }
+}
+export interface WarehouseSummary { id: string; name: string; country: string; city: string | null }
+export interface IntakeQueue { warehouses: WarehouseSummary[]; intakes: WarehouseIntake[] }
+export interface MyCargoView {
+  subject: { type: string; id: string }
+  intake: WarehouseIntake | null
+  estimate: WarehouseEstimate
+  status_sentence: string
+  eligible_for_intake: boolean
+  eligibility_note: string | null
+}
+export interface ReceiveIntakeInput {
+  outcome?: 'RECEIVED' | 'CONDITIONALLY_RECEIVED' | 'REFUSED'
+  condition?: string | null
+  outcomeReason?: string | null
+  observedPackageCount?: number | null
+  storageLocation?: string | null
+  receivedAt?: string | null
+  notes?: string | null
+}
+export interface MeasurementInput {
+  lengthValue?: number | null; widthValue?: number | null; heightValue?: number | null
+  dimensionUnit?: 'cm' | 'm' | null
+  weightValue?: number | null; weightUnit?: 'kg' | 't' | null
+  packageCount?: number | null
+  method?: string
+  notes?: string | null
+}
+export interface MeasurementResult {
+  measurement: Record<string, unknown>
+  estimate: WarehouseEstimate
+  discrepancy: WarehouseDiscrepancy
 }
 
 // ── T4 — Order & Booking Passport ────────────────────────────────────────

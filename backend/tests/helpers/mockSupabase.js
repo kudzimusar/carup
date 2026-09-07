@@ -66,6 +66,16 @@ export const UNIQUE_INDEXES = Object.freeze({
   // NULL import_order_id never collides (Postgres NULLS DISTINCT), so logistics-origin requests —
   // the common case — are entirely unaffected.
   diaspora_logistics_requests: [['import_order_id']],
+  // T9 — diaspora_warehouse_intakes: uq_warehouse_intake_subject.
+  //
+  // One live intake per cargo. This IS the idempotency of physical receipt: two operators clicking
+  // "book in" for the same booking must produce ONE intake, and a retried receive must find that one
+  // rather than manufacture a second arrival for goods that only turned up once.
+  //
+  // The real index is PARTIAL (… WHERE deleted_at IS NULL). The mock cannot express a predicate, so
+  // a soft-deleted intake keeps its slot here and does not in Postgres. The partial behaviour is
+  // proven against real Postgres in database/test/trade_os_t9_warehouse_check.mjs.
+  diaspora_warehouse_intakes: [['subject_type', 'subject_id']],
 });
 
 export function createMockSupabase(seed = {}, options = {}) {

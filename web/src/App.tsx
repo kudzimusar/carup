@@ -67,6 +67,8 @@ import DiasporaAiCommandCenter from './pages/diaspora/DiasporaAiCommandCenter'
 import DiasporaContainerMarketplace from './pages/diaspora/DiasporaContainerMarketplace'
 import TradeRateResearch from './pages/diaspora/TradeRateResearch'
 import TradeDocumentsWorkspace from './pages/diaspora/TradeDocumentsWorkspace'
+import WarehouseIntakeWorkspace from './pages/diaspora/WarehouseIntakeWorkspace'
+import MyCargoIntake from './pages/diaspora/MyCargoIntake'
 import DiasporaDriveConnections from './pages/diaspora/DiasporaDriveConnections'
 import DiasporaSubscription from './pages/diaspora/DiasporaSubscription'
 import DiasporaSafeTrade from './pages/diaspora/DiasporaSafeTrade'
@@ -331,6 +333,12 @@ export default function App() {
               Access is derived from the transaction server-side; the page shows an honest refusal
               rather than an empty list when it cannot be read. */}
           <Route path="/diaspora/documents/:subjectType/:subjectId" element={<TradeDocumentsWorkspace />} />
+          {/* T9.3 — warehouse intake. Receiving authority is derived from the WAREHOUSE server-side,
+              so a customer reaching this route sees an empty queue rather than a locked door: there
+              is nothing here that is theirs to be refused. */}
+          <Route path="/diaspora/warehouse" element={<WarehouseIntakeWorkspace />} />
+          {/* T9.3 — the customer's own cargo. Authorized from the SUBJECT, not the warehouse. */}
+          <Route path="/diaspora/cargo/:subjectType/:subjectId" element={<MyCargoIntake />} />
           <Route path="/diaspora/imports" element={<DiasporaImportList />} />
           <Route path="/diaspora/imports/new" element={<NewDiasporaImportOrder />} />
           <Route path="/diaspora/imports/:id" element={<DiasporaImportDetail />} />
