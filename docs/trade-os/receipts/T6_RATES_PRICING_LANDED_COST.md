@@ -205,3 +205,157 @@ No savings claim is made. No settlement state is manufactured. An estimate is no
 ## 10. Status
 
 **`T6-PARTIAL` — OWNER ACCEPTANCE REMAINS.** T7 not started. Production untouched. PR #207 Draft.
+
+---
+
+# Owner acceptance — 2026-09-07
+
+**`T6-USABLE` — OWNER ACCEPTED.** Runtime frozen at **`2d0a0bc0`**.
+
+## Chronology — preserved, not rewritten
+
+| stage | SHA | verdict |
+|---|---|---|
+| initial implementation | `b6ba1ccd` | `T6-PARTIAL` |
+| technical/product closure | `209e491b` | `T6-PARTIAL` — owner acceptance outstanding |
+| **acceptance-cycle correction** | `2d0a0bc0` | one T6-blocking defect found and closed |
+| **owner acceptance / runtime freeze** | **`2d0a0bc0`** | **`T6-USABLE`** |
+
+T6 was never green from the start, and this record does not pretend otherwise.
+
+## Why `209e491b` was superseded
+
+The acceptance walk was not a formality: it found a **twelfth defect, and a blocking one.**
+
+Two suppliers were put on the same requirement. Supplier A disclosed three things — the goods
+(priced), Zimbabwe duty (**EXCLUDED**), pre-shipment inspection (**NOT_APPLICABLE**). Supplier B
+disclosed one — the goods — and said nothing whatever about customs. The buyer's screen said:
+
+> These offers cover the same scope, so the totals compare directly.
+> Lowest recorded total: **SYNTHETIC Sakura Motors Export**
+
+It named the supplier who had disclosed **less** as cheapest. Two linked causes:
+
+1. `assessComparability` scored scope on **INCLUDED stages alone**, so a disclosed exclusion and
+   total silence were indistinguishable. That inverts the module's own governing rule —
+   *uncertainty is penalised, never rewarded* — and made saying nothing the winning strategy.
+2. The server already returned `covers_full_journey` with a comment instructing the caller to
+   surface it, *because a lowest total across a partial scope is a lowest PARTIAL cost*. The panel
+   ignored the field and printed a flat "Lowest recorded total".
+
+Both fixed at `2d0a0bc0`. Scope now also accounts for the **material stages each side has ANSWERED**
+(priced, excluded, or not-applicable), and the difference is named in the customer's words. The
+verdict reads "Lowest known cost so far" and states that the unpriced stages will still be paid by
+somebody. The honest ocean-leg case — two offers pricing only the main carriage, both silent on the
+rest — is preserved and pinned by its own test. Mutation-proven both ways.
+
+Re-measured on the deployed product afterwards:
+
+> CarUp is not calling one of these cheaper. These offers do not describe the same purchase, so
+> CarUp shows no cheapest option. SYNTHETIC Trade OS Supplier uat says where it stands on Import
+> duty and taxes; SYNTHETIC Sakura Motors Export does not mention it.
+
+## Product acceptance — walked in the browser at `2d0a0bc0`
+
+**B1 · procurement — 27/28**, publish → two competing structured offers → comparison → award →
+carry-forward. JPY 2,400,000 survived compose, review, persistence, refresh and relogin, and was
+never redenominated. Reference USD appeared separately and labelled "for comparison". INCLUDED,
+EXCLUDED and NOT_APPLICABLE stayed semantically distinct on screen. After the award the compliance
+record carries both offers forward without re-entry:
+
+```
+Quotations   JPY 2,400,000  Seller qa-trade…  Accepted
+             USD 14,500     Seller qa-trade…  Rejected
+```
+
+**B2 · logistics — clean.** Stated total and itemised parts never conflated; excluded customs reads
+"Amount not stated — you arrange this", never `$0`; an UNKNOWN charge stays "Not priced yet"; the
+estimate says "Known estimated costs so far / NOT A FULL LANDED COST"; and "Still unpriced" lists
+*Customs clearing* and *Inland transport* — **not** "The goods themselves", proving the
+domain-aware materiality rule holds for a freight provider.
+
+**B3 · research — clean.** Authorized operator enters, records, and inspects corridor benchmark
+data; every row leads with classification and source; synthetic rows are badged *SYNTHETIC — not
+market data*; no corridor is called best or preferred. A trader typing the route never mounts the
+workspace — the route boundary redirects first — and both a trader and a logistics provider are
+refused **403 `INSUFFICIENT_PERMISSIONS`** on read, corridor benchmark and write, measured with a
+real CSRF token so the refusal observed is the authorization one and not the transport one.
+
+**B4 · allocation — clean.** Only APPROVED reservations participate and the screen says so; the
+existing division reads back exactly (`RES-5648C1C0 — USD 900`, zero remainder); **replay offers no
+second division**, so nothing can be double-charged; and it is never called an invoice, a payment
+or a settlement.
+
+## Truth contract — inspected in the real UI
+
+| rule | result |
+|---|---|
+| source money ≠ reference USD | ✅ source leads, USD labelled "for comparison" |
+| reference USD retains rate, source, date | ✅ ECB, with its own rate date |
+| ZWG / MZN / TZS | ✅ `UNAVAILABLE` with a reason — never 0, never 1:1, never a guess |
+| every FX answer | ✅ `purpose: REFERENCE_DISPLAY_ONLY` |
+| unknown never becomes zero | ✅ no `$0.00` anywhere; nothing-priced returns null, not 0 |
+| INCLUDED / EXCLUDED / NOT_APPLICABLE / unknown | ✅ four distinct sentences on screen |
+| landed-cost wording | ✅ "Known estimated costs so far" + the unresolved stages, named |
+| comparability | ✅ scope mismatch blocks a headline winner — **and now disclosure mismatch does too** |
+| corridors | ✅ no BEST / PREFERRED / CHEAPEST |
+
+## Responsive — seven widths × seven surfaces, no overflow
+
+393×852 · 820×1180 · 1024×768 · 1280×800 · 1366×768 · 1440×900 · 1536×864, all
+`scrollWidth <= innerWidth + 1`, across procurement detail, procurement comparison, logistics
+detail, structured provider entry, shared-charge allocation, rate research, and the research entry
+form. The 393px regression is specifically re-guarded **with the offending sentence on screen** —
+"USD comparison unavailable — ZWG/USD is not published by ECB" — at 393/393.
+
+## Gates at the freeze candidate `2d0a0bc0`
+
+| gate | result |
+|---|---|
+| full backend suite (ci.yml env) | **6009 passed / 0 failed** (21 skipped, 6030 total) |
+| T6/T5/T4/T3/Intake phase suites | **264/264** |
+| T6 backend | **78/78** |
+| PGlite gates — T6 · T5 · migration integrity | all **ok** |
+| web suite (full) | **1660/1660**, 169 files |
+| `tsc -b` · build · lint regression | PASS · PASS · NET_NEW_ERRORS=0 |
+| CI | **7 workflows green**, 1 skipped by design; every step confirmed executed |
+
+## Provenance
+
+```
+runtime SHA        2d0a0bc0
+FE served bundle   commit_sha 2d0a0bc0 · unpaired false
+FE baked backend   carup-backend-staging-git-feat-trade-os-client-dem-dbf311-11-11.vercel.app
+BE /api/health     2d0a0bc0 · preview · UP
+DB                 Supabase STAGING only
+migration ledger   20260906115540 trade_os_t6_commercial_transparency
+                   (applied-at version; the repo file is 20260908090000_*.sql — same content,
+                    different key because it was applied through the MCP rather than the CLI)
+console            no unexpected errors; the recurring "Failed to fetch" entries are unrelated
+                   dashboard widgets (/notifications/me, /marketplace/*, /vehicles/me)
+5xx                0
+```
+
+**Production untouched.** Production serves `78303ed6` from `main`, deployed 12 days ago, and that
+commit contains **none** of the T6 files — not the migration, not the services, not the pages.
+`main` is unchanged at `bb9d9900` and this branch is not merged into it. The only CI reference to
+the T6 migration is an isolated PGlite verification step; no workflow applies it to production.
+
+## What `T6-USABLE` does not mean
+
+It does **not** mean production-ready. Production readiness remains a separate, explicitly
+authorized gate — **T18** — and production remains NOT AUTHORIZED.
+
+## Carried forward
+
+- **Research-data limitation.** No real market rate observations exist. Everything in the research
+  workspace is synthetic certification data, badged as such, and none of it may be read as a real
+  Beira/Durban/Dar price.
+- **T12-BLOCKER** (§8b) stands, deliberately unfixed: `documentIntelligenceService.js:375` writes a
+  `zimra_declarations` row with an invented `exchange_rate_used: 13.5` and
+  `duty_calculated_zig: 50000`. T6 does not read it. Before a real customs engine can rely on that
+  table, **T12** must remove the fabricated rate/duty and establish the governed
+  jurisdiction/effective-date customs authority. This is not grounds for reopening T6, which owns
+  reference and commercial pricing — not customs valuation.
+- **Non-blocking (UX):** the order compliance record identifies a supplier by truncated user id
+  (`Seller qa-trade…`) rather than organisation name.

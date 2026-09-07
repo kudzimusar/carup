@@ -1,6 +1,8 @@
 # CarUp Trade OS — T6 Rates, Commercial Transparency, FX & Landed-Cost Implementation Plan
 
-**Status:** IMPLEMENTED — OWNER ACCEPTANCE OUTSTANDING (`T6-PARTIAL`)
+**Status:** **`T6-USABLE` — OWNER ACCEPTED 2026-09-07. Runtime frozen at `2d0a0bc0`.**
+(Chronology: `T6-PARTIAL` implementation `b6ba1ccd` → `T6-PARTIAL` product closure `209e491b`
+→ one blocking defect found in the acceptance walk and closed → freeze `2d0a0bc0`.)
 **Date:** 2026-09-06
 **Repository:** `kudzimusar/carup`
 **Branch:** `feat/trade-os-client-demo-convergence`
@@ -182,6 +184,22 @@ because the pattern matters more than the individual fixes.
   already knew a charge-component id. A sailing-scoped read plus a panel closes it.
 - [x] **The truth broke the layout.** At 393px the buyer's breakdown scrolled to 765px, because the
   unavailable-FX explanation could not wrap. The fuller the truth, the more broken the page.
+
+### T6.12 — Found in the owner-acceptance walk (a twelfth defect, and a blocking one)
+
+- [x] **A supplier who disclosed LESS was named cheapest.** With two real suppliers on one
+  requirement, the screen said "These offers cover the same scope" and named the offer that had said
+  nothing about customs, over the one that had explicitly excluded it. `assessComparability` scored
+  scope on INCLUDED stages only, so silence and a disclosed exclusion were identical — inverting
+  this module's own rule that uncertainty is penalised, never rewarded. Scope now also accounts for
+  the material stages each side has ANSWERED, and the difference is named in the customer's words.
+- [x] **`covers_full_journey` reached no screen.** The server returned it with a comment telling the
+  caller to surface it; the panel printed a flat "Lowest recorded total" anyway. It now reads
+  "Lowest known cost so far" and says the unpriced stages will still be paid by somebody.
+- [x] The honest ocean-leg case (two offers pricing only the main carriage, both silent on the rest)
+  is preserved and pinned by its own test, so the fix did not destroy the case it was not aimed at.
+
+Both mutation-proven. This is why the freeze SHA is `2d0a0bc0` and not `209e491b`.
 
 ---
 

@@ -1650,9 +1650,26 @@ source and appeared only by using the deployed product. The largest: `QuoteBreak
 legacy columns; and `allocateSharedCharge` was reachable only by a caller who already knew a
 charge-component id. **A module being correct is not the same as a module being wired.**
 
-**Exit gate:** the 28-row acceptance list in §44. Verdicts: `T6-PARTIAL` / `T6-USABLE`
-(owner-recorded only; never production-ready by itself). **Status: `T6-PARTIAL`; owner acceptance
-outstanding. This agent does not mark `T6-USABLE`.**
+- [x] T6.12 Owner-acceptance walk — a twelfth, BLOCKING defect found and closed.
+
+**OWNER ACCEPTED 2026-09-07 → `T6-USABLE`. Runtime frozen at `2d0a0bc0`.**
+
+Chronology preserved: `T6-PARTIAL` implementation (`b6ba1ccd`) → `T6-PARTIAL` product closure
+(`209e491b`) → acceptance-cycle correction → freeze (`2d0a0bc0`). T6 was not green from the start.
+
+`209e491b` was superseded because the acceptance walk found a real blocking defect: with two
+suppliers on one requirement, the offer that disclosed **less** was named cheapest, because
+comparability scored scope on INCLUDED stages alone and could not tell a disclosed exclusion from
+silence. Scope now accounts for ANSWERED material stages, and the verdict no longer prints a bare
+"lowest total" across a partly-priced journey.
+
+Gates at the freeze: backend 6009/0 (21 skipped) · phase suites 264/264 · T6 78/78 · web 1660/1660 ·
+three PGlite gates · tsc -b · build · lint NET_NEW_ERRORS=0 · CI 7/7 green with every step confirmed
+executed · seven widths × seven surfaces with no overflow · four browser journeys at a paired head.
+
+**`T6-USABLE` is NOT production-ready.** Production readiness remains T18's separate, explicitly
+authorized gate; production remains NOT AUTHORIZED and untouched (serving `78303ed6`, which contains
+no T6 file). **T7 may now begin.**
 
 ## T7 — Full Communications lifecycle
 
