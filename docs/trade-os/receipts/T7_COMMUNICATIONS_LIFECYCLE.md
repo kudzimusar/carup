@@ -122,3 +122,162 @@ T7 path.
 - Shipment exceptions remain T7 scope and are not started.
 
 **This agent does not mark `T7-USABLE`.**
+
+---
+
+# T7 closure and owner acceptance — 2026-09-07
+
+**Status: `T7-USABLE` — OWNER ACCEPTED. Runtime frozen at `3f062fc0`.**
+
+## Chronology — preserved, not tidied
+
+| stage | SHA | verdict |
+|---|---|---|
+| T7.0–T7.4 first pass | `5ccac408` | `T7-PARTIAL` — the receipt named what was missing |
+| closure: shipment exceptions, read/unread, logistics certification | `65447286` | |
+| closure: channel routing, action-request boundary | **`3f062fc0`** | **`T7-USABLE`** |
+
+T7 was PARTIAL and said so. That record stands.
+
+## §2 · T7.3 logistics conversations — certified against the ACTUAL policy
+
+Previously "inspected and believed working" with no coverage. Believed working is not certified.
+
+Two of the first tests written asserted refusals that **do not happen**, and the product was right:
+while a request is `OPEN_FOR_QUOTES` **any eligible provider may ask before quoting** — deliberate,
+and symmetric with the procurement supplier — and a withdrawn offer only bites once the request
+closes. The real policy is now documented and pinned:
+
+- one canonical thread per (request, provider); both sides reach the same `subject_id`;
+- **competitors never share a thread**, and neither participant list contains the other;
+- a **DRAFT** offer is not an engagement, and cannot be used as an existence oracle by the requester;
+- once the request is closed, only a provider with an **active** offer may continue;
+- reopening returns the same thread — refresh and relogin do not fork the conversation;
+- **no conversation service ever deletes a thread**: cancelling a request does not delete what was
+  said, because the record of a conversation is evidence and evidence is not tidied away when a deal
+  falls through.
+
+## §3 · T7.6 read/unread — certified
+
+It turned out to be **derived correctly by design**: per participant, from
+`message_participants.last_read_at`, own messages excluded, internal notes excluded, recomputed on
+every read rather than cached, and already batched. What was missing was proof. 13 tests now pin the
+whole matrix, including: a person is never unread on their own message; one participant reading does
+not clear another's; two Trade OS threads keep independent counts; **muting silences the alert, not
+the fact**; a client-supplied `unread_count` is ignored; and a stranger cannot move anybody's read
+marker.
+
+**§13 query shape** is pinned in the same suite: 26 threads cost **4 round trips, not 26**.
+
+## §4 · Inbox truth
+
+Measured against the full payload — an earlier helper truncated the body to 300 characters and then
+only parsed short ones, so it could never return a thread. A helper that cannot see is not evidence.
+
+Four threads, all three Trade OS kinds present, each with its own subject binding, its own
+participant role, an honest preview, ordered newest-first, and no generic label. On screen:
+**Sourcing Request RFQ-…**, **Shipping Request SHIP-…**, **Container Sailing SAIL-…** — still legible
+at 393px.
+
+## §5 · Shipment-exception communication
+
+**The canonical producer already existed and nobody was listening.** `updateShipmentStage` records
+an authoritative `EXCEPTION` stage event, audits it and emits on the domain bus; Communications
+subscribed to none of it, so the one stage a customer most needs to hear about was the one nobody
+told them. T7 added **the consumer half only**.
+
+`CUSTOMS_HOLD` counts as an exception deliberately: a stop is a stop, and treating it as ordinary
+progress because it has its own enum value would follow the vocabulary against its meaning. It makes
+no customs claim — **T12 owns customs truth**; this says only that the shipment authority reported a
+hold.
+
+**A notice never creates shipment state.** A test asserts the module writes to no table at all.
+
+## §6 · Provider-channel routing
+
+Not a new subsystem — canonical Communications already owns delivery. Certified:
+
+- every Trade OS notification is **subscribed AND has a policy**;
+- all route **in-app only**, with `policyChannelsOnly` so a preference cannot widen them into an
+  external send — a governed decision, not an accident of unconfigured providers, which is what
+  makes "nothing was sent externally" truthful rather than a silent failure;
+- the canonical record provably **precedes** the channel decision (thread → message → queue row),
+  and delivery **drains** that queue rather than originating sends;
+- staging reports `communications: BLOCKED, ready=false` with named missing credentials — the
+  truthful unavailable state, not a faked delivery.
+
+**A real gap found while proving idempotency:** the dedupe discriminator chain listed `quoteId`,
+`rfqId`, `reservationId` and `containerId` but **not `shipmentId`**, so two different shipments
+raising an exception for the same person could have collapsed into one notification. Added.
+
+## §7 · Warehouse / action-request boundary
+
+No new entity was needed: a "please provide X" is a **message on a thread already bound to an
+authoritative Trade OS object**. The boundary is now asserted rather than assumed —
+**no Trade OS communication module writes to any table at all.** A conversation may READ authority to
+decide membership; it may never write it. A second test names the six T9 facts
+(`received, measured, stored, ready, damaged, loaded`) and fails if any becomes settable from the
+communication layer, so a later phase cannot quietly turn a request into a fact.
+
+## §9/§10 · Regression and anti-bypass — green, with positive controls
+
+Anonymous refused · forged order id refused · a rival with no booking refused · a supplier sees no
+booking thread of the buyer's · **POSITIVE CONTROL: a genuine participant is allowed** ·
+**POSITIVE CONTROL: the sailing coordinator is allowed on their own sailing**. Both controls exist so
+an authorization result cannot pass merely because everything is denied. No 404 was accepted as
+authorization evidence.
+
+## §14 · Mutation testing — every load-bearing guard
+
+| broken guard | result |
+|---|---|
+| buyer↔supplier relationship proof | red |
+| booking participant isolation (shared subject) | red |
+| coordinator authority | red |
+| draft existence-oracle guard | red |
+| DRAFT-silence on withdrawal | red |
+| exception stage set (CUSTOMS_HOLD dropped) | red |
+| unread: own messages counted | red |
+| unread: read marker ignored | red |
+| unread: internal messages counted | red |
+| unread: unbatched per-thread queries | red |
+| channel policy widened | red |
+| a conversation module writing a domain fact | red |
+| `shipmentId` dropped from the dedupe chain | red |
+
+**One mutation initially SURVIVED** and is worth recording: my DRAFT-silence test asserted the return
+value was `null`, which is *also* null when the outbox is merely unavailable — so it stayed green
+after the guard was deleted. The emitter is now injectable and the test observes that nothing was
+**sent**. A check that cannot see what it claims is the failure this programme keeps producing.
+
+**A second self-inflicted catch:** renaming that emitter to a bare `emit(...)` made
+`quote_withdrawn` look emitter-less to `communication-event-coverage`, which scans for an `…Event(`
+shape to prove every subscribed event has a real, addressable emitter. The gate was right; the name
+is restored and the reason is written down beside it.
+
+## Gates at `3f062fc0`
+
+| gate | result |
+|---|---|
+| full backend suite (ci.yml env) | **6061 passed / 0 failed** (21 skipped) |
+| Communications + Trade OS phase suites | **627/627** |
+| T7 suites (conversations · read/unread · channel/action) | **31 + 13 + 8** |
+| web suite | **1667/1667** (frontend byte-identical to the certified head) |
+| `tsc -b` · build · lint regression | PASS · PASS · NET_NEW_ERRORS=0 |
+| CI | **7 workflows green**, 1 skipped by design |
+| responsive, seven widths | inbox clean; trade references legible at 393px |
+| FE/BE provenance | both `3f062fc0`, `unpaired:false`, paired backend only |
+
+Production untouched. `main` unchanged.
+
+## `T7-USABLE` does not mean production-ready
+
+Production readiness remains **T18**, and production is NOT AUTHORIZED.
+
+## Carried forward
+
+- **Shipment-exception PRODUCER** stays with **T11**. T7 owns the communications consumer; the
+  master plan records that split explicitly.
+- **Warehouse facts** stay with **T9**. T7 carries the request and the reply, never the receipt.
+- **T12-BLOCKER** unchanged: `documentIntelligenceService.js` still writes a fabricated customs
+  exchange rate and duty. T7 does not read it.

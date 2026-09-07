@@ -1,7 +1,8 @@
 # Trade OS T7 — Communications lifecycle · Implementation plan
 
-**Status:** IN IMPLEMENTATION. Authorized 2026-09-07 at head `d3bbd249`, immediately after the T6
-freeze (`T6-USABLE`, runtime `2d0a0bc0`). T8+ NOT authorized.
+**Status:** **`T7-USABLE` — OWNER ACCEPTED 2026-09-07. Runtime frozen at `3f062fc0`.**
+Chronology: first pass `5ccac408` (`T7-PARTIAL`) → closure `65447286` → `3f062fc0`.
+T8 authorized; T9+ NOT authorized.
 
 **Objective:** let human conversation follow the authoritative Trade OS objects — without letting
 conversation become authority.
@@ -91,6 +92,34 @@ plan assumed.
 - **T7.7** Privacy and adversarial: Intake PRIVATE facts stay private; membership is server-derived.
 - **T7.8** Responsive UX across the seven certified widths.
 - **T7.9** Staging certification + owner-UAT proxy.
+
+### Closure — every slice, and where the boundary landed
+
+- [x] **T7.0** authority audit.
+- [x] **T7.1** conversation-context model — `subject_type`/`subject_id`, no new table.
+- [x] **T7.2** procurement conversations, both directions + the anti-bypass fix.
+- [x] **T7.3** logistics conversations **certified against the actual policy** (two of the first
+      tests asserted refusals that do not happen; the product was right and the policy is now
+      written down).
+- [x] **T7.4** booking/operator conversations + the coordinator-authority fix.
+- [x] **T7.5** notification convergence — `quote_withdrawn` disposed of, **shipment-exception
+      consumer added**, `shipmentId` added to the dedupe discriminator chain.
+- [x] **T7.6** read/unread certified (13 tests) — and §13 query shape pinned at 4 round trips for
+      26 threads.
+- [x] **T7.7** privacy/adversarial, with **positive controls** so a refusal matrix cannot pass by
+      denying everything.
+- [x] **T7.8** responsive, seven widths.
+- [x] **T7.9** staging certification at a paired head.
+
+**Boundaries recorded deliberately, not left ambiguous:**
+
+| responsibility | phase |
+|---|---|
+| shipment-exception **producer** (the authoritative fact) | **T11** |
+| shipment-exception **communications consumer** | **T7 — done** |
+| warehouse facts (`received/measured/stored/ready/damaged/loaded`) | **T9** |
+| carrying "please provide / confirm / respond to X" | **T7 — done** |
+| customs truth (incl. the fabricated-rate T12-BLOCKER) | **T12** |
 
 ---
 

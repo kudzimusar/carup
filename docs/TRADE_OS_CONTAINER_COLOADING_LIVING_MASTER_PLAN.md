@@ -1685,10 +1685,16 @@ so **no new table was created** for any T7 conversation.
 - [x] Procurement conversations — the BUYER could not start one at all; only the supplier could.
 - [x] Logistics request conversations — already working; verified, unchanged.
 - [x] Container booking conversations — booking had one-way notifications and nobody to answer.
-- [~] Warehouse/action requests — authority designed for, deliberately NOT built: T9 owns those
-      facts and T7 must not invent them.
-- [ ] Shipment exceptions.
-- [ ] Provider-channel routing only after canonical web record works.
+- [x] Warehouse/action requests — the COMMUNICATION side closed: a "please provide X" is a message
+      on a thread already bound to an authoritative object, and no communication module writes to
+      any table. **T9 owns the facts** (`received/measured/stored/ready/damaged/loaded`) and a test
+      names them so a later phase cannot quietly make one true from a conversation.
+- [x] Shipment exceptions — **the canonical producer already existed and nobody was listening.**
+      T7 added the communications CONSUMER only. **T11 remains the authoritative exception
+      producer**; this split is deliberate, not an unchecked item.
+- [x] Provider-channel routing — canonical Communications already owns delivery. Certified: in-app
+      only by governed policy, canonical record before any channel decision, delivery drains the
+      queue, replay deduped, and an unconfigured provider reported as BLOCKED rather than faked.
 - [x] T7.5 `quote_withdrawn` — the T3 deferral taken, not carried forward again.
 
 **Five defects, all found by using the product:** the buyer had no conversation; a buyer could seat
@@ -1701,7 +1707,19 @@ Gates at `5ccac408`: backend 6025/0 (21 skipped) · Communications + Trade OS ph
 T7 authority suite 16/16 · web 1667/1667 · tsc -b · build · lint NET_NEW_ERRORS=0 · CI 7/7 green ·
 seven widths clean · staging anti-bypass matrix green at a paired head.
 
-**Status: `T7-PARTIAL` — owner acceptance remains. This agent does not mark `T7-USABLE`.**
+**OWNER ACCEPTED 2026-09-07 → `T7-USABLE`. Runtime frozen at `3f062fc0`.**
+
+Chronology preserved: first pass `5ccac408` (`T7-PARTIAL`, which said so) → closure `65447286` →
+freeze `3f062fc0`.
+
+Closure gates: backend **6061/0** (21 skipped) · Communications + Trade OS phases 627/627 · three T7
+suites 52 tests · web 1667/1667 · CI 7/7 green · seven widths clean with trade references legible at
+393px · anti-bypass green **with positive controls** · **thirteen mutations proven**, one of which
+initially survived and exposed a test that asserted a null return where a real emit also returns
+null.
+
+**`T7-USABLE` is NOT production-ready.** T18 owns production readiness; production remains NOT
+AUTHORIZED and untouched. **T8 may now begin.**
 
 ## T8 — Documents & Evidence workspace
 
