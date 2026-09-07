@@ -348,6 +348,13 @@ describe('the T11 firewall', () => {
     }
   })
 
+  it('marks its disclaimers AS disclaimers, so a scanner can tell stating from crossing', async () => {
+    state.view = view({ plan: plan({ status: 'CONFIRMED' }), load: load() })
+    await open()
+    await waitFor(() => expect(screen.getByTestId('seal-loaded-disclaimer')).toBeInTheDocument())
+    expect(screen.getByTestId('seal-loaded-disclaimer')).toHaveTextContent('does not mean the container has sailed')
+  })
+
   it('says loading is not departure, in words', async () => {
     await open()
     await waitFor(() => expect(screen.getByTestId('loading-disclaimer')).toBeInTheDocument())

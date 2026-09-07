@@ -473,7 +473,9 @@ function SealForm({ busy, onRecord }: {
       <Button type="submit" size="sm" variant="outline" className="mt-3" disabled={busy || (!containerNumber.trim() && !sealNumber.trim()) || (replacing && !note.trim())} data-testid="seal-submit">
         Record
       </Button>
-      <p className="mt-2 min-w-0 break-words text-xs text-slate-500">{LOADED_IS_NOT_SAILED}</p>
+      {/* Marked as a disclaimer so certification can tell a page STATING the boundary from a page
+          CROSSING it. Without the marker a scanner sees the word "sailed" and cannot tell which. */}
+      <p className="mt-2 min-w-0 break-words text-xs text-slate-500" data-testid="seal-loaded-disclaimer">{LOADED_IS_NOT_SAILED}</p>
     </form>
   )
 }
