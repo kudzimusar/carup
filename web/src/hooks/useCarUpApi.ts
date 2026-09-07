@@ -922,14 +922,34 @@ export function useCarUpApi() {
   }, [request])
 
   // O2/P4 — identity session decision through the OWNING identity service route.
+  // O2 post-Ready review C2 — the governed decision shape, not a free-text `notes` field.
+  // `reviewVerificationSession` reads reasonCode / internalNote / applicantMessage and reads
+  // NOTHING called `notes`; a rejection without a reason code, or a resubmission request
+  // without an applicant message, is refused by the decision recorder. The type now says so,
+  // so a caller cannot send the shape that always failed.
   const reviewIdentitySession = useCallback(async (
     sessionId: string,
-    payload: { action: string; reason_code?: string; notes?: string },
+    payload: {
+      action: 'approve' | 'reject' | 'request_resubmission' | 'escalate' | 'add_internal_note'
+      reasonCode?: string | null
+      internalNote?: string | null
+      applicantMessage?: string | null
+    },
   ): Promise<{ success: boolean }> => {
     return request<{ success: boolean }>(`/admin/identity/verification-sessions/${sessionId}/review`, {
       method: 'POST',
       body: JSON.stringify(payload),
     })
+  }, [request])
+
+  // O2 post-Ready review C1 — re-prove the account credential on THIS session so a
+  // step-up-gated action becomes reachable. The server is the only writer of step-up state;
+  // this call carries the password to the one endpoint that verifies it against the stored
+  // hash. It grants no role and no capability — only recency of authentication.
+  const stepUpSession = useCallback(async (password: string): Promise<{
+    success: boolean; step_up_at: string; method: string
+  }> => {
+    return request('/auth/step-up', { method: 'POST', body: JSON.stringify({ password }) })
   }, [request])
 
   // O2/P4 — dealer compliance decision through the OWNING dealer service route.
@@ -3015,6 +3035,7 @@ export function useCarUpApi() {
     fetchVehicleOperationsReview,
     fetchPersonComplianceReview,
     reviewIdentitySession,
+    stepUpSession,
     recordDealerComplianceDecision,
     correctEvidenceClassification,
     reviewSellerAuthority,

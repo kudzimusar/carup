@@ -17,6 +17,8 @@ import { Card, CardContent } from '@/components/ui/card'
 import { Textarea } from '@/components/ui/textarea'
 import { CheckCircle, XCircle, RotateCcw, ArrowUpRight, ShieldQuestion } from 'lucide-react'
 import { useCarUpApi } from '@/hooks/useCarUpApi'
+import { StepUpDialog } from '@/components/security/StepUpDialog'
+import { REASON_CODE_LABELS } from '@shared/types'
 import { toast } from 'sonner'
 
 interface IdentitySession {
@@ -83,17 +85,59 @@ function Fact({ label, value }: { label: string; value: React.ReactNode }) {
 
 const IDENTITY_DECIDABLE = new Set(['reviewer_action_required', 'escalated'])
 
+/**
+ * O2 post-Ready review C2 — what each identity action actually requires.
+ *
+ * `VerificationDecisionRecorder` refuses a rejection with no reason code, and refuses a
+ * resubmission request with no reason code AND no applicant message. This screen previously
+ * sent one free-text `notes` field, which the service reads under no name at all: reject and
+ * request-resubmission failed validation every time, and the reviewer's words for approve and
+ * escalate were dropped on the floor. The form now asks for exactly what the decision needs.
+ */
+const IDENTITY_ACTION_REQUIREMENTS: Record<string, { reasonCode: boolean; applicantMessage: boolean; label: string }> = {
+  approve: { reasonCode: false, applicantMessage: false, label: 'Approve identity' },
+  request_resubmission: { reasonCode: true, applicantMessage: true, label: 'Request resubmission' },
+  reject: { reasonCode: true, applicantMessage: false, label: 'Reject identity' },
+  escalate: { reasonCode: false, applicantMessage: false, label: 'Escalate identity case' },
+}
+
+/**
+ * O2 post-Ready review C3 — the governed dealer decision vocabulary, verbatim.
+ *
+ * `dealerComplianceService.recordDecision` accepts approve_requirement / reject_requirement /
+ * request_more_info (each requiring a requirement_key) and restrict / suspend / reinstate /
+ * set_expiry (profile-level). It has never accepted `pass_review`, which is what the primary
+ * positive button sent, so that button could only ever fail. No new verb is invented here: a
+ * positive dealer decision is the approval of a NAMED requirement, which is the grain the
+ * ledger and the requirement rows already use.
+ */
+const DEALER_REQUIREMENT_DECISIONS = [
+  { decision: 'approve_requirement', label: 'Approve', tone: '' },
+  { decision: 'request_more_info', label: 'Request more info', tone: '' },
+  { decision: 'reject_requirement', label: 'Reject', tone: 'text-red-600 border-red-200' },
+] as const
+
+const DEALER_PROFILE_DECISIONS = [
+  { decision: 'restrict', label: 'Restrict', tone: '' },
+  { decision: 'suspend', label: 'Suspend', tone: 'text-red-600 border-red-200' },
+  { decision: 'reinstate', label: 'Reinstate', tone: '' },
+] as const
+
 export default function PeopleComplianceReview() {
   const { userId = '' } = useParams()
-  const { fetchPersonComplianceReview, reviewIdentitySession, recordDealerComplianceDecision } = useCarUpApi()
+  const { fetchPersonComplianceReview, reviewIdentitySession, recordDealerComplianceDecision, stepUpSession } = useCarUpApi()
 
   const [review, setReview] = useState<PersonReview | null>(null)
   const [loading, setLoading] = useState(true)
   const [loadError, setLoadError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
+  const [identityReasonCode, setIdentityReasonCode] = useState('')
   const [identityNote, setIdentityNote] = useState('')
+  const [applicantMessage, setApplicantMessage] = useState('')
   const [dealerReason, setDealerReason] = useState('')
   const [reloadNonce, setReloadNonce] = useState(0)
+  // The action a STEP_UP_REQUIRED refusal interrupted, held so it can be retried verbatim.
+  const [pendingStepUp, setPendingStepUp] = useState<{ label: string; run: () => Promise<void> } | null>(null)
 
   useEffect(() => {
     let cancelled = false
@@ -118,42 +162,91 @@ export default function PeopleComplianceReview() {
   const reload = useCallback(() => setReloadNonce((n) => n + 1), [])
   const can = new Set(review?.allowed_actions ?? [])
 
-  const decideIdentity = async (action: 'approve' | 'request_resubmission' | 'reject' | 'escalate') => {
-    if (!review?.identity.latest) return
-    if (action !== 'approve' && !identityNote.trim()) {
-      toast.error('A written reason is required for this identity decision.')
-      return
-    }
+  /**
+   * O2 post-Ready review C1 — run a step-up-gated action, and let the human satisfy the guard.
+   *
+   * Every consequential action on this screen sits behind
+   * `requireAuthenticationAssurance(ACTION_CLASSES.SENSITIVE)`, which fires BEFORE the resource
+   * is looked up and answers 403 STEP_UP_REQUIRED on a session that has only logged in. The
+   * guard is not weakened or bypassed here: the refusal is caught, the reviewer is asked to
+   * re-prove their password, and the SAME action is then retried. If the retry is refused
+   * again, the refusal is what the reviewer sees.
+   */
+  const runGuarded = async (label: string, action: () => Promise<void>) => {
     setBusy(true)
     try {
-      await reviewIdentitySession(review.identity.latest.id, { action, notes: identityNote.trim() || undefined })
-      toast.success('Identity decision recorded through the identity service')
-      setIdentityNote('')
-      reload()
+      await action()
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : 'Identity decision failed')
+      const code = (error as { code?: string })?.code
+      if (code === 'STEP_UP_REQUIRED') {
+        setPendingStepUp({ label, run: action })
+        setBusy(false)
+        return
+      }
+      toast.error(error instanceof Error ? error.message : `${label} failed`)
     } finally {
       setBusy(false)
     }
   }
 
-  const decideDealer = async (decision: string) => {
-    if (!review?.dealer_compliance.profile) return
+  const confirmStepUp = async (password: string) => {
+    const pending = pendingStepUp
+    if (!pending) return
+    await stepUpSession(password)
+    setPendingStepUp(null)
+    // Retry exactly what the guard interrupted. A second refusal is surfaced, never hidden.
+    await runGuarded(pending.label, pending.run)
+  }
+
+  const decideIdentity = async (action: 'approve' | 'request_resubmission' | 'reject' | 'escalate') => {
+    const session = review?.identity.latest
+    if (!session) return
+    const requirements = IDENTITY_ACTION_REQUIREMENTS[action]
+    // Ask for what the decision recorder actually requires, before sending it.
+    if (requirements.reasonCode && !identityReasonCode) {
+      toast.error('A reason code is required for this action.')
+      return
+    }
+    if (requirements.applicantMessage && !applicantMessage.trim()) {
+      toast.error('An applicant message is required when requesting resubmission.')
+      return
+    }
+    await runGuarded(requirements.label, async () => {
+      await reviewIdentitySession(session.id, {
+        action,
+        reasonCode: identityReasonCode || null,
+        internalNote: identityNote.trim() || null,
+        applicantMessage: applicantMessage.trim() || null,
+      })
+      toast.success('Identity decision recorded through the identity service')
+      setIdentityReasonCode('')
+      setIdentityNote('')
+      setApplicantMessage('')
+      reload()
+    })
+  }
+
+  const decideDealer = async (decision: string, requirementKey?: string) => {
+    const profile = review?.dealer_compliance.profile
+    if (!profile) return
     if (!dealerReason.trim()) {
       toast.error('A written reason is required for a dealer compliance decision.')
       return
     }
-    setBusy(true)
-    try {
-      await recordDealerComplianceDecision(review.dealer_compliance.profile.id, { decision, reason: dealerReason.trim() })
+    const label = requirementKey ? `${decision.replace(/_/g, ' ')} · ${requirementKey}` : decision.replace(/_/g, ' ')
+    await runGuarded(label, async () => {
+      await recordDealerComplianceDecision(profile.id, {
+        decision,
+        // The requirement-level verbs are refused without their subject; the profile-level
+        // ones take none. Sending the key only where the service expects it keeps the
+        // request truthful about which grain the decision applies to.
+        ...(requirementKey ? { requirement_key: requirementKey } : {}),
+        reason: dealerReason.trim(),
+      })
       toast.success('Dealer compliance decision recorded through the dealer service')
       setDealerReason('')
       reload()
-    } catch (error) {
-      toast.error(error instanceof Error ? error.message : 'Dealer decision failed')
-    } finally {
-      setBusy(false)
-    }
+    })
   }
 
   if (loading) {
@@ -172,6 +265,12 @@ export default function PeopleComplianceReview() {
 
   return (
     <div className="p-4 sm:p-6 space-y-6" data-testid="people-compliance-review">
+      <StepUpDialog
+        open={pendingStepUp !== null}
+        actionLabel={pendingStepUp?.label ?? null}
+        onCancel={() => setPendingStepUp(null)}
+        onConfirm={confirmStepUp}
+      />
       {/* ── Person (account facts — email verification is an ACCOUNT fact, nothing more) ── */}
       <Card>
         <CardContent className="pt-6">
@@ -218,24 +317,48 @@ export default function PeopleComplianceReview() {
               </div>
               {can.has('identity.review') && IDENTITY_DECIDABLE.has(identity.latest.workflow_phase) && (
                 <div className="space-y-2 border-t pt-3">
+                  <div>
+                    <label htmlFor="identity-reason-code" className="block text-xs font-medium text-gray-700">
+                      Reason code <span className="text-gray-500">(required to reject or request resubmission)</span>
+                    </label>
+                    <select
+                      id="identity-reason-code"
+                      data-testid="identity-reason-code"
+                      value={identityReasonCode}
+                      onChange={(e) => setIdentityReasonCode(e.target.value)}
+                      className="mt-1 w-full rounded-md border border-gray-300 bg-white px-2 py-1.5 text-sm"
+                    >
+                      <option value="">Select a reason code…</option>
+                      {Object.entries(REASON_CODE_LABELS).map(([code, label]) => (
+                        <option key={code} value={code}>{label}</option>
+                      ))}
+                    </select>
+                  </div>
+                  <Textarea
+                    data-testid="identity-applicant-message"
+                    placeholder="Message to the applicant (required when requesting resubmission — they will read this)"
+                    value={applicantMessage}
+                    onChange={(e) => setApplicantMessage(e.target.value)}
+                    className="min-h-[56px] text-sm"
+                  />
                   <Textarea
                     data-testid="identity-decision-note"
-                    placeholder="Reviewer note / reason (required for every decision except approve)"
+                    placeholder="Internal reviewer note (kept in the identity domain; never shown to the applicant)"
                     value={identityNote}
                     onChange={(e) => setIdentityNote(e.target.value)}
                     className="min-h-[56px] text-sm"
                   />
                   <div className="flex flex-wrap gap-2">
-                    <Button size="sm" className="bg-green-700 hover:bg-green-800 text-white gap-1" disabled={busy} onClick={() => decideIdentity('approve')}>
+                    <Button size="sm" className="bg-green-700 hover:bg-green-800 text-white gap-1" disabled={busy} data-testid="identity-approve" onClick={() => decideIdentity('approve')}>
                       <CheckCircle className="w-3.5 h-3.5" /> Approve
                     </Button>
-                    <Button size="sm" variant="outline" className="gap-1" disabled={busy} onClick={() => decideIdentity('request_resubmission')}>
+                    <Button size="sm" variant="outline" className="gap-1" disabled={busy} data-testid="identity-request_resubmission" onClick={() => decideIdentity('request_resubmission')}>
                       <RotateCcw className="w-3.5 h-3.5" /> Request resubmission
                     </Button>
-                    <Button size="sm" variant="outline" className="text-red-600 border-red-200 gap-1" disabled={busy} onClick={() => decideIdentity('reject')}>
+                    <Button size="sm" variant="outline" className="text-red-600 border-red-200 gap-1" disabled={busy} data-testid="identity-reject" onClick={() => decideIdentity('reject')}>
                       <XCircle className="w-3.5 h-3.5" /> Reject
                     </Button>
-                    <Button size="sm" variant="outline" className="gap-1" disabled={busy} onClick={() => decideIdentity('escalate')}>
+                    <Button size="sm" variant="outline" className="gap-1" disabled={busy} data-testid="identity-escalate" onClick={() => decideIdentity('escalate')}>
                       <ArrowUpRight className="w-3.5 h-3.5" /> Escalate
                     </Button>
                   </div>
@@ -316,11 +439,30 @@ export default function PeopleComplianceReview() {
                 <Fact label="Document expiry" value={dealer_compliance.profile.expiry_state} />
               </div>
               {(dealer_compliance.requirements?.length ?? 0) > 0 && (
-                <div className="space-y-1">
+                <div className="space-y-2">
                   {dealer_compliance.requirements!.map((r) => (
-                    <p key={r.requirement_key} className="text-xs text-gray-600">
-                      {r.requirement_key}: {r.status}{r.still_blocking ? ' · blocking' : ''}
-                    </p>
+                    <div key={r.requirement_key} className="flex flex-wrap items-center justify-between gap-2 border-b pb-2 last:border-b-0">
+                      <p className="text-xs text-gray-600">
+                        {r.requirement_key}: {r.status}{r.still_blocking ? ' · blocking' : ''}
+                      </p>
+                      {can.has('dealer_compliance.decide') && (
+                        <div className="flex flex-wrap gap-1">
+                          {DEALER_REQUIREMENT_DECISIONS.map((action) => (
+                            <Button
+                              key={action.decision}
+                              size="sm"
+                              variant="outline"
+                              className={action.tone}
+                              disabled={busy}
+                              data-testid={`dealer-${action.decision}-${r.requirement_key}`}
+                              onClick={() => decideDealer(action.decision, r.requirement_key)}
+                            >
+                              {action.label}
+                            </Button>
+                          ))}
+                        </div>
+                      )}
+                    </div>
                   ))}
                 </div>
               )}
@@ -333,11 +475,24 @@ export default function PeopleComplianceReview() {
                     onChange={(e) => setDealerReason(e.target.value)}
                     className="min-h-[56px] text-sm"
                   />
+                  <p className="text-[11px] text-gray-500">
+                    A dealer passes review by approving each named requirement above. These
+                    buttons act on the dealer&apos;s standing as a whole.
+                  </p>
                   <div className="flex flex-wrap gap-2">
-                    <Button size="sm" variant="outline" disabled={busy} onClick={() => decideDealer('pass_review')}>Pass review</Button>
-                    <Button size="sm" variant="outline" disabled={busy} onClick={() => decideDealer('restrict')}>Restrict</Button>
-                    <Button size="sm" variant="outline" className="text-red-600 border-red-200" disabled={busy} onClick={() => decideDealer('suspend')}>Suspend</Button>
-                    <Button size="sm" variant="outline" disabled={busy} onClick={() => decideDealer('reinstate')}>Reinstate</Button>
+                    {DEALER_PROFILE_DECISIONS.map((action) => (
+                      <Button
+                        key={action.decision}
+                        size="sm"
+                        variant="outline"
+                        className={action.tone}
+                        disabled={busy}
+                        data-testid={`dealer-${action.decision}`}
+                        onClick={() => decideDealer(action.decision)}
+                      >
+                        {action.label}
+                      </Button>
+                    ))}
                   </div>
                 </div>
               )}

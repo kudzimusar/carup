@@ -45,6 +45,16 @@ router.get(
       if (error?.status === 400) {
         return res.status(400).json({ error: error.message, code: 'PEOPLE_OPERATIONS_INVALID' });
       }
+      // O2 post-Ready review C8 — a constituent authority read failed. The reviewer is told
+      // WHICH part is unavailable, because the alternative (a 200 with that section empty)
+      // reads as "this person holds nothing there" and is acted on as if it were a finding.
+      if (error?.code === 'PEOPLE_REVIEW_SECTION_UNAVAILABLE') {
+        return res.status(503).json({
+          error: error.message,
+          code: 'PEOPLE_REVIEW_SECTION_UNAVAILABLE',
+          section: error.section || null,
+        });
+      }
       throw error;
     }
   })

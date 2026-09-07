@@ -32,8 +32,51 @@ const AUTHORITY_LIMIT = 25;
 const TRANSFER_LIMIT = 25;
 const AUDIT_EVENT_LIMIT = 40;
 
-function rows(result) {
-  return Array.isArray(result?.data) ? result.data : [];
+/**
+ * O2 post-Ready review C8 — a failed query is NOT an empty section.
+ *
+ * This helper used to return `[]` for any result whose `data` was not an array, which is
+ * exactly the shape Supabase returns on failure (`{ data: null, error }`). A transient or
+ * schema fault in seller authority, ownership, transfers, sessions or tenant membership
+ * therefore produced HTTP 200 and a section reading "no records" — the one answer a reviewer
+ * must never be given wrongly, because "this person holds no seller authority" and "we could
+ * not find out" lead to opposite decisions.
+ *
+ * Every constituent of this aggregate carries authority or the absence of it, so every one
+ * fails CLOSED: the read raises, naming the section, and the caller gets an error instead of
+ * a confident falsehood. There is no section here whose emptiness is decoration.
+ */
+function rows(result, section) {
+  if (result?.error) {
+    const err = new Error(`People & Compliance review is unavailable: the ${section} record could not be read.`);
+    err.status = 503;
+    err.code = 'PEOPLE_REVIEW_SECTION_UNAVAILABLE';
+    err.section = section;
+    err.cause = result.error;
+    throw err;
+  }
+  if (!Array.isArray(result?.data)) {
+    // No error and no array is a contract breach by the client, not an empty result.
+    const err = new Error(`People & Compliance review is unavailable: the ${section} record returned no readable rows.`);
+    err.status = 503;
+    err.code = 'PEOPLE_REVIEW_SECTION_UNAVAILABLE';
+    err.section = section;
+    throw err;
+  }
+  return result.data;
+}
+
+/** A single-row read (maybeSingle) fails closed the same way — absence must not be inferred. */
+function singleRow(result, section) {
+  if (result?.error) {
+    const err = new Error(`People & Compliance review is unavailable: the ${section} record could not be read.`);
+    err.status = 503;
+    err.code = 'PEOPLE_REVIEW_SECTION_UNAVAILABLE';
+    err.section = section;
+    err.cause = result.error;
+    throw err;
+  }
+  return result?.data ?? null;
 }
 
 export async function buildPersonComplianceReview(client, { userId, userContext }) {
@@ -91,7 +134,7 @@ export async function buildPersonComplianceReview(client, { userId, userContext 
   ]);
 
   // ── Identity (identity service owns the truth; statuses only, artifacts never) ─────────
-  const sessions = rows(sessionRows).map((session) => {
+  const sessions = rows(sessionRows, 'identity verification').map((session) => {
     const phase = session.workflow_phase || legacyStatusToPhase(session.status);
     return {
       id: session.id,
@@ -110,7 +153,7 @@ export async function buildPersonComplianceReview(client, { userId, userContext 
   const latestSession = sessions[0] ?? null;
 
   // ── Seller Authority (per vehicle — the grain is vehicle × seller and stays that way) ──
-  const authority = rows(authorityRows).map((row) => ({
+  const authority = rows(authorityRows, 'seller authority').map((row) => ({
     vin: row.vin,
     claim_type: row.claim_type,
     status: row.status,
@@ -124,8 +167,8 @@ export async function buildPersonComplianceReview(client, { userId, userContext 
 
   // ── Ownership (canonical via the governed transfer lifecycle) ──────────────────────────
   const transfers = [
-    ...rows(prevTransfers).map((t) => ({ ...t, relationship: 'previous_owner' })),
-    ...rows(incomingTransfers).map((t) => ({ ...t, relationship: 'incoming_owner' })),
+    ...rows(prevTransfers, 'outgoing ownership transfer').map((t) => ({ ...t, relationship: 'previous_owner' })),
+    ...rows(incomingTransfers, 'incoming ownership transfer').map((t) => ({ ...t, relationship: 'incoming_owner' })),
   ]
     .sort((a, b) => String(b.created_at).localeCompare(String(a.created_at)))
     .map((t) => ({
@@ -140,13 +183,15 @@ export async function buildPersonComplianceReview(client, { userId, userContext 
     }));
 
   // ── Dealer compliance (domain statuses VERBATIM; the projection sits beside them) ──────
-  const dealerProfile = dealerProfileRow?.data ?? null;
+  // A dealer_profiles fault previously became `is_dealer: false` — not an empty section but a
+  // positive claim that the person is not a dealer. That is the sharpest form of this defect.
+  const dealerProfile = singleRow(dealerProfileRow, 'dealer profile');
   let dealer = { is_dealer: false };
   if (dealerProfile) {
     const requirements = rows(await client
       .from('dealer_compliance_requirements')
       .select('requirement_key, status, is_blocking, updated_at')
-      .eq('dealer_id', dealerProfile.id));
+      .eq('dealer_id', dealerProfile.id), 'dealer compliance requirements');
     dealer = {
       is_dealer: true,
       profile: {
@@ -176,7 +221,7 @@ export async function buildPersonComplianceReview(client, { userId, userContext 
     .eq('target_type', 'vehicle_seller_authority')
     .order('created_at', { ascending: false })
     .limit(AUDIT_EVENT_LIMIT);
-  const audit = rows(authorityAudit)
+  const audit = rows(authorityAudit, 'authority decision history')
     .filter((event) => String(event.target_id || '').endsWith(`:${id}`))
     .map((event) => ({
       id: event.id,
@@ -197,7 +242,7 @@ export async function buildPersonComplianceReview(client, { userId, userContext 
       // The account-email flag — deliberately labelled for what it is, and NOT identity.
       email_verified: Boolean(person.is_verified),
       joined_at: person.join_date ?? person.created_at ?? null,
-      tenant_memberships: rows(tenantRows).map((t) => ({ tenant_id: t.tenant_id, role: t.role })),
+      tenant_memberships: rows(tenantRows, 'tenant membership').map((t) => ({ tenant_id: t.tenant_id, role: t.role })),
     },
     identity: {
       evaluated: sessions.length > 0,
@@ -213,7 +258,7 @@ export async function buildPersonComplianceReview(client, { userId, userContext 
       records: authority,
     },
     ownership: {
-      vehicles_owned: rows(ownedRows).map((v) => ({
+      vehicles_owned: rows(ownedRows, 'vehicle ownership').map((v) => ({
         vin: v.vin,
         publication_status: v.publication_status ?? null,
         label: [v.year, v.make, v.model].filter(Boolean).join(' ') || null,

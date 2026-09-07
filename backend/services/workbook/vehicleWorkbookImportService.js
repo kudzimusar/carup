@@ -292,6 +292,21 @@ export async function validateVehicleWorkbookPayload({ templateKey, sheetRows },
       resolveRowValues(sheetName, row, index + 1, errors, warnings));
   }
 
+  // O2 post-Ready review C6 — the dealer template ACCEPTS and validates BUSINESS and BRANCHES,
+  // but this chain persists vehicles only. Every data row on such a sheet is named here, in the
+  // dry run the user reads BEFORE confirming, so a dealer is never told their business and
+  // branch claims were imported when nothing read them. They are not errors: the vehicles in
+  // the same file are still importable, and the correct destination is stated in the message.
+  const notImported = [];
+  for (const sheetName of nonPersistentSheetsFor(templateKey)) {
+    const sheetRowCount = rowsOf(sheetName).length;
+    if (!sheetRowCount) continue;
+    notImported.push({ sheet_name: sheetName, row_count: sheetRowCount, reason: NON_PERSISTENT_SHEETS[sheetName] });
+    for (let index = 0; index < sheetRowCount; index += 1) {
+      warnings.push(finding(sheetName, index + 1, null, 'SHEET_NOT_IMPORTED', NON_PERSISTENT_SHEETS[sheetName]));
+    }
+  }
+
   // VIN grouping.
   const vehicles = new Map();
   const duplicateVins = new Set();
@@ -416,12 +431,16 @@ export async function validateVehicleWorkbookPayload({ templateKey, sheetRows },
     duplicateVins: [...duplicateVins],
     errors,
     warnings,
+    notImported,
     totals: {
       vehicleCount: groups.length,
       acceptedVehicles: acceptedGroups.length,
       blockedVehicles: groups.length - acceptedGroups.length,
       errorCount: errors.length,
       warningCount: warnings.length,
+      // Rows the user supplied that this import will not persist — a count that cannot be
+      // mistaken for a successful import.
+      notImportedRows: notImported.reduce((sum, entry) => sum + entry.row_count, 0),
     },
     canImport: acceptedGroups.length > 0 && groups.length > 0,
     _errorKeys: errorKeys,
@@ -570,6 +589,7 @@ export async function runVehicleWorkbookDryRun({ file, templateKey } = {}, actor
       warnings: validation.warnings,
       schemaVersion: stamp.schemaVersion,
       mappingConfirmations: confirmationIds,
+      notImported: validation.notImported,
     },
     total_rows: validation.vehicles.length,
     accepted_rows: validation.acceptedGroups.length,
@@ -625,6 +645,8 @@ export async function runVehicleWorkbookDryRun({ file, templateKey } = {}, actor
     totals: validation.totals,
     errors: validation.errors,
     warnings: validation.warnings,
+    // Stated before the user confirms, not discovered afterwards.
+    notImported: validation.notImported,
     persistence: { batchId: batch.id, importStatus: batchRow.import_status },
   };
 }
@@ -657,6 +679,68 @@ function loopbackDispatch(req) {
 function sanitizeErrorMessage(body) {
   const message = body?.error || body?.message || 'The vehicle could not be created.';
   return String(message).slice(0, 400);
+}
+
+const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+function isUuid(value) {
+  return typeof value === 'string' && UUID_PATTERN.test(value.trim());
+}
+
+/**
+ * Allocate the receipt `attempt` for each workbook row of this execution pass.
+ *
+ * `attempt` means "which pass over this row produced this receipt" — the same meaning the
+ * diaspora confirmed-import service already gives it (its compensation pass writes attempt 2).
+ * Reading the batch's existing receipts once keeps a retry deterministic and additive: the
+ * first pass writes 1, a retry of a PARTIALLY_IMPORTED batch writes 2, and every earlier
+ * receipt is retained rather than overwritten.
+ */
+async function buildAttemptAllocator(client, batchId) {
+  const { data, error } = await client
+    .from('diaspora_workbook_import_receipts')
+    .select('row_number, attempt')
+    .eq('batch_id', batchId);
+  // A read failure must not silently restart numbering at 1 — that is the collision this
+  // allocator exists to prevent. Fail loudly BEFORE any mutation runs.
+  if (error) throw new Error(`Could not read existing import receipts: ${error.message}`);
+  const highest = new Map();
+  for (const receipt of data || []) {
+    const row = Number(receipt.row_number);
+    const attempt = Number(receipt.attempt) || 0;
+    if (!highest.has(row) || attempt > highest.get(row)) highest.set(row, attempt);
+  }
+  const issued = new Map();
+  return function nextAttempt(rowNumber) {
+    const row = Number(rowNumber);
+    if (!issued.has(row)) issued.set(row, (highest.get(row) || 0) + 1);
+    return issued.get(row);
+  };
+}
+
+/**
+ * Sheets a template accepts and validates but this import chain does NOT persist.
+ *
+ * BUSINESS and BRANCHES describe the DEALER, not a vehicle. Writing them here would let a
+ * spreadsheet edit a dealer's own application, which is the governed dealer-onboarding
+ * authority's job and nobody else's (X5: workbook claims never create authority). They are
+ * therefore declared non-persistent and SAID SO — before the user confirms, in the dry run,
+ * and again in the execution result. What is not allowed to happen must not look like it did.
+ */
+const NON_PERSISTENT_SHEETS = Object.freeze({
+  BUSINESS: 'Business details are part of your dealer application — submit them through dealer onboarding, not a workbook.',
+  BRANCHES: 'Branch details are part of your dealer application — submit them through dealer onboarding, not a workbook.',
+});
+
+function nonPersistentSheetsFor(templateKey) {
+  return (VEHICLE_TEMPLATE_SHEETS[templateKey] || []).filter((sheet) => sheet in NON_PERSISTENT_SHEETS);
+}
+
+function notImportedSheetSummary(templateKey) {
+  return nonPersistentSheetsFor(templateKey).map((sheet) => ({
+    sheet_name: sheet,
+    persisted: false,
+    reason: NON_PERSISTENT_SHEETS[sheet],
+  }));
 }
 
 export async function executeVehicleWorkbookImport({ batchId, confirm } = {}, actor = {}, options = {}) {
@@ -695,8 +779,17 @@ export async function executeVehicleWorkbookImport({ batchId, confirm } = {}, ac
 
   const dispatch = options.dispatch || loopbackDispatch(options.req);
   const receipts = [];
+  const evidenceOutcomes = [];
   let accepted = 0;
   let rejected = 0;
+
+  // O2 post-Ready review C5 — every execution pass over a row gets its OWN attempt number.
+  // `uq_diaspora_workbook_receipt_row` is (batch_id, row_number, attempt), so a retry of a
+  // PARTIALLY_IMPORTED batch that wrote `attempt: 1` again collided with its own first pass:
+  // the receipt insert failed AFTER the mutations had run and the batch could never leave the
+  // partial state. Attempts are allocated from what the batch already recorded, so the history
+  // grows (pass 1, pass 2, …) instead of fighting itself.
+  const nextAttemptByRow = await buildAttemptAllocator(client, batch.id);
 
   for (const row of rows || []) {
     const payload = row.normalized_payload;
@@ -705,14 +798,25 @@ export async function executeVehicleWorkbookImport({ batchId, confirm } = {}, ac
     let entityRef = null;
     let errorCode = null;
     let errorMessage = null;
+    const rowEvidence = [];
     try {
       const response = await dispatch('/api/vehicles/add', 'POST', payload);
       if (response.status >= 200 && response.status < 300) {
         outcome = 'accepted';
-        entityRef = response.body?.vehicle?.id || response.body?.vehicle?.vin || row.workbook_record_id;
+        // O2 post-Ready review C7 — the REAL POST /api/vehicles/add returns a top-level `vin`
+        // and no `vehicle` object (`vehicles.vin` is the primary key; a vehicle has no uuid at
+        // all). The previous expression therefore always fell through to the VIN, which was
+        // then written into the uuid column `diaspora_workbook_import_rows.target_record_id`
+        // and refused by PostgreSQL with 22P02 — an error nothing checked. The row's link to
+        // its vehicle is, and always was, `workbook_record_id` (text VIN).
+        entityRef = response.body?.vehicle?.vin || response.body?.vin || row.workbook_record_id;
         accepted += 1;
-        // Evidence references replay through the canonical evidence endpoint; a
-        // failure never voids the created draft — it lands as its own receipt row.
+        // Evidence references replay through the canonical evidence endpoint; a failure never
+        // voids the created draft. O2 post-Ready review C4 — evidence no longer claims a
+        // receipt of its own: the unique key is (batch, row, attempt) and excludes sheet_name,
+        // so an evidence receipt and its vehicle receipt were the SAME key. The workbook row is
+        // the receipt grain (evidence is carried in that row's metadata, and is not an import
+        // row), so the evidence outcome is recorded ON the row's receipt and returned in full.
         for (const evidence of row.metadata?.evidence || []) {
           const evidenceResponse = await dispatch(
             `/api/vehicles/${encodeURIComponent(row.workbook_record_id)}/evidence/upload`, 'POST', {
@@ -723,17 +827,15 @@ export async function executeVehicleWorkbookImport({ batchId, confirm } = {}, ac
               event_date_precision: evidence.event_date_precision,
               metadata: evidence.evidence_label ? { workbook_label: evidence.evidence_label } : undefined,
             });
-          receipts.push({
-            tenant_id: null,
-            batch_id: batch.id,
+          const evidenceOk = evidenceResponse.status >= 200 && evidenceResponse.status < 300;
+          rowEvidence.push({
             row_number: row.workbook_row_number,
-            sheet_name: 'EVIDENCE_NOTES',
-            outcome: evidenceResponse.status >= 200 && evidenceResponse.status < 300 ? 'accepted' : 'rejected',
-            entity_type: 'vehicle_evidence',
-            entity_ref: null,
-            error_code: evidenceResponse.status >= 300 ? `HTTP_${evidenceResponse.status}` : null,
-            error_message: evidenceResponse.status >= 300 ? sanitizeErrorMessage(evidenceResponse.body) : null,
-            attempt: 1,
+            vin: row.workbook_record_id,
+            evidence_class: evidence.evidence_class ?? null,
+            evidence_subtype: evidence.evidence_subtype ?? null,
+            outcome: evidenceOk ? 'accepted' : 'rejected',
+            error_code: evidenceOk ? null : `HTTP_${evidenceResponse.status}`,
+            error_message: evidenceOk ? null : sanitizeErrorMessage(evidenceResponse.body),
           });
         }
       } else {
@@ -746,6 +848,13 @@ export async function executeVehicleWorkbookImport({ batchId, confirm } = {}, ac
       errorCode = 'DISPATCH_FAILED';
       errorMessage = String(dispatchError.message || dispatchError).slice(0, 400);
     }
+    evidenceOutcomes.push(...rowEvidence);
+    const evidenceFailed = rowEvidence.filter((e) => e.outcome === 'rejected');
+    if (outcome === 'accepted' && evidenceFailed.length) {
+      // The draft stands; say plainly that part of its evidence did not.
+      errorCode = 'EVIDENCE_PARTIAL';
+      errorMessage = `${evidenceFailed.length} of ${rowEvidence.length} evidence references were not recorded for this vehicle.`;
+    }
     receipts.push({
       tenant_id: null,
       batch_id: batch.id,
@@ -756,18 +865,37 @@ export async function executeVehicleWorkbookImport({ batchId, confirm } = {}, ac
       entity_ref: entityRef,
       error_code: errorCode,
       error_message: errorMessage,
-      attempt: 1,
+      attempt: nextAttemptByRow(row.workbook_row_number),
     });
     if (outcome === 'accepted') {
-      await client.from('diaspora_workbook_import_rows')
-        .update({ target_record_id: entityRef })
-        .eq('id', row.id);
+      // Only a real uuid may be written to a uuid column. A VIN is not one, and the row is
+      // already linked to its vehicle by workbook_record_id, so the link stays null rather
+      // than becoming a swallowed 22P02.
+      const targetRecordId = isUuid(entityRef) ? entityRef : null;
+      if (targetRecordId) {
+        const { error: linkError } = await client.from('diaspora_workbook_import_rows')
+          .update({ target_record_id: targetRecordId })
+          .eq('id', row.id);
+        // Never ignored: an unlinkable row is reported, not silently left dangling.
+        if (linkError) {
+          const last = receipts[receipts.length - 1];
+          last.error_code = last.error_code || 'TARGET_LINK_FAILED';
+          last.error_message = last.error_message || sanitizeErrorMessage({ error: linkError.message });
+        }
+      }
     }
   }
 
+  // The mutations above have already happened. A receipt-write failure must therefore never
+  // leave the batch claiming a status that is no longer true — it is reported, not thrown.
+  let receiptsRecorded = true;
+  let receiptError = null;
   if (receipts.length) {
-    const { error: receiptError } = await client.from('diaspora_workbook_import_receipts').insert(receipts);
-    if (receiptError) throw new Error(receiptError.message);
+    const { error } = await client.from('diaspora_workbook_import_receipts').insert(receipts);
+    if (error) {
+      receiptsRecorded = false;
+      receiptError = error.message;
+    }
   }
 
   const importStatus = rejected === 0
@@ -801,8 +929,15 @@ export async function executeVehicleWorkbookImport({ batchId, confirm } = {}, ac
     failed: rejected,
     receipts: receipts.filter((r) => r.sheet_name === 'VEHICLES').map((r) => ({
       row_number: r.row_number, outcome: r.outcome, entity_ref: r.entity_ref,
-      error_code: r.error_code, error_message: r.error_message,
+      error_code: r.error_code, error_message: r.error_message, attempt: r.attempt,
     })),
+    // Per-evidence detail is no longer discarded just because it cannot own a receipt row.
+    evidence: evidenceOutcomes,
+    // Whether the audit trail for THIS pass actually reached the store.
+    receipts_recorded: receiptsRecorded,
+    receipts_error: receiptError,
+    // C6 — sheets this template accepts but this import does not persist, stated as a fact.
+    not_imported_sheets: notImportedSheetSummary(batch.template_type),
   };
 }
 

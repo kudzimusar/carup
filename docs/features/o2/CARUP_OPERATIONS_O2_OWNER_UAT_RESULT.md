@@ -247,6 +247,14 @@ mutation-tested before being cited: five deliberate reversions, five red.
 
 **O2-USABLE — OWNER ACCEPTED.** Ready for parent-first merge authorization.
 
+> **Superseded as a merge candidate (2026-09-08).** This verdict stands as the record of the
+> Product Owner UAT and is not amended. A separate, later event — an automated review triggered
+> when PR #208 was marked Ready — found eight further defects (five P1) on the approved head
+> `7fe1f821`. They are closed in
+> `CARUP_OPERATIONS_O2_POST_READY_REVIEW_CLOSURE.md`. **`7fe1f821` is therefore historical and is
+> no longer the merge candidate**, and the independent approval recorded against it predates the
+> runtime now being offered.
+
 O2 passed on its own authority. Nothing was imported from Service Network (#197) or from
 garage/mechanic onboarding (#209) to make it pass; no SQL stood in for an O2 decision; no biometric
 provider was activated; production was not touched and nothing was merged.
