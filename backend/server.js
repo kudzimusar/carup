@@ -152,6 +152,7 @@ import garageInvitationRouter from './routes/garageInvitationRoutes.js';
 import garageMembershipRouter from './routes/garageMembershipRoutes.js';
 import garageOnboardingRouter from './routes/garageOnboardingRoutes.js';
 import { getOwnerServiceHistory } from './services/serviceNetwork/ownerServiceHistoryService.js';
+import { resolveVisionProvider as documentVisionProvider } from './services/ai/ocrVisionProvider.js';
 import { sellerVehicleIdentifierProblem } from './utils/sellerVehicleIdentifier.js';
 import { normalizeVehicleStatus, publicVehicleStatusFilterValues, publiclyVisiblePublicationStatuses, isPublicVehicleStatus, isPubliclyVisiblePublication, PUBLIC_VEHICLE_COLUMNS } from './utils/vehicleStatus.js';
 import { attestedValue, CLAIM_VISIBILITY, LISTING_CLAIM_COLUMNS, PUBLIC_VEHICLE_SELECT, projectVehicle, toListingClaims, toPublicEvidence, toPublicPlateHistory, toPublicTimelineEvent, toVehicleHistoryDisclosures } from './utils/publicVehicleProjection.js';
@@ -334,6 +335,31 @@ app.get('/api/health', async (req, res) => {
     sentry: {
       enabled: !!process.env.SENTRY_DSN
     },
+    // CANONICAL document-vision readiness. Which provider CarUp is configured to use for
+    // identity/document OCR, and whether it can actually run — resolved through the same boundary
+    // the classifier uses, so readiness cannot drift from behaviour. This, not any single vendor's
+    // key, is what a certification asks about: GMO-8 previously accepted `ocrProviders.gemini` as
+    // readiness, which made a governed decision depend on a vendor CarUp had not selected.
+    documentVision: (() => {
+      try {
+        const provider = documentVisionProvider();
+        let model = null;
+        try { model = provider.model; } catch (error) { model = `unavailable: ${error.message}`; }
+        return {
+          provider: provider.id,
+          model,
+          configured: provider.isConfigured(),
+          requires: provider.requiredEnv,
+          mockPermitted: process.env.NODE_ENV === 'test' && process.env.ALLOW_OCR_MOCK === 'true',
+        };
+      } catch (error) {
+        return { provider: null, model: null, configured: false, error: error.message };
+      }
+    })(),
+    // Vendor key INVENTORY only — not readiness, and not an acceptance condition for any
+    // certification. A key being present here says nothing about which provider is selected.
+    // The NAME is kept because an unrelated seller-autofill surface reads it; renaming it to make
+    // a point about GMO would have broken a feature that has nothing to do with this lane.
     ocrProviders: {
       gemini: !!process.env.GEMINI_API_KEY,
       groq: !!process.env.CARUP_KIMI_GROQ_API_KEY || !!process.env.GROQ_API_KEY,

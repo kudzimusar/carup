@@ -114,7 +114,9 @@ export async function askGemini(systemPrompt, userPrompt, jsonMode = false) {
  * and returns the same generic simulated payload, so test-mode behaviour of
  * callers is identical to the text path.
  */
-export async function askGeminiVision(systemPrompt, textPrompt, images = [], jsonMode = false) {
+export const GEMINI_VISION_MODEL = 'gemini-2.5-flash';
+
+export async function askGeminiVision(systemPrompt, textPrompt, images = [], jsonMode = false, options = {}) {
   const apiKey = process.env.GEMINI_API_KEY;
 
   if (!apiKey) {
@@ -132,21 +134,38 @@ export async function askGeminiVision(systemPrompt, textPrompt, images = [], jso
     return 'This is a simulated high-fidelity response from the CarUp OS AI Orchestration engine.';
   }
 
-  const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`;
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_VISION_MODEL}:generateContent?key=${apiKey}`;
   const parts = [{ text: `${systemPrompt}\n\n${textPrompt}` }];
   for (const image of images) {
     if (!image?.base64) continue;
     parts.push({ inline_data: { mime_type: image.mimeType || 'image/jpeg', data: image.base64 } });
   }
 
-  const response = await fetch(url, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      contents: [{ role: 'user', parts }],
-      generationConfig: jsonMode ? { responseMimeType: 'application/json' } : undefined
-    })
-  });
+  const generationConfig = {
+    ...(jsonMode ? { responseMimeType: 'application/json' } : {}),
+    ...(options.generationConfig || {}),
+  };
+
+  // A hung provider must not hold a user's upload open indefinitely.
+  const timeoutMs = Number(options.timeoutMs) > 0 ? Number(options.timeoutMs) : 90_000;
+
+  let response;
+  try {
+    response = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        contents: [{ role: 'user', parts }],
+        ...(Object.keys(generationConfig).length ? { generationConfig } : {}),
+      }),
+      signal: AbortSignal.timeout(timeoutMs),
+    });
+  } catch (error) {
+    if (error.name === 'TimeoutError' || error.name === 'AbortError') {
+      throw new Error(`Gemini vision request timed out after ${timeoutMs}ms`);
+    }
+    throw new Error(`Gemini vision request failed: ${error.message}`);
+  }
 
   const data = await response.json();
 

@@ -239,25 +239,42 @@ test('HALLUCINATION QUARANTINE: non-document with hallucinated high-confidence O
 });
 
 // ---------------------------------------------------------------------------
-// 9. Gemini unavailable (no API key, mock=false) — returns UNCERTAIN
+// 9. The CONFIGURED vision provider cannot run (mock=false) — returns UNCERTAIN
+//
+// This test used to name Gemini and assert the word "unavailable". CarUp's selected OCR provider
+// is Cloudflare/Qwen, and the classifier now asks the governed boundary rather than any vendor,
+// so the intent is preserved — fail CLOSED, attributed to the provider that was actually
+// configured — while the vendor assumption is gone. A Gemini key present must change nothing.
 // ---------------------------------------------------------------------------
-test('classifier returns UNCERTAIN when Gemini unavailable and mock disabled', async () => {
-  // Temporarily disable mock mode and clear API key
-  const origMock = process.env.ALLOW_OCR_MOCK;
-  const origKey = process.env.GEMINI_API_KEY;
+test('classifier returns UNCERTAIN when the configured provider cannot run and mock is disabled', async () => {
+  const saved = {
+    mock: process.env.ALLOW_OCR_MOCK,
+    provider: process.env.CARUP_OCR_PROVIDER,
+    account: process.env.CLOUDFLARE_ACCOUNT_ID,
+    token: process.env.CLOUDFLARE_API_TOKEN,
+    gemini: process.env.GEMINI_API_KEY,
+  };
   process.env.ALLOW_OCR_MOCK = 'false';
-  delete process.env.GEMINI_API_KEY;
+  process.env.CARUP_OCR_PROVIDER = 'cloudflare';
+  delete process.env.CLOUDFLARE_ACCOUNT_ID;
+  delete process.env.CLOUDFLARE_API_TOKEN;
+  process.env.GEMINI_API_KEY = 'present-and-must-not-be-used';
 
   try {
-    // Call classifyDocument directly (bypasses the classsify shortcut)
-    const result = await DocumentClassifier.classifyDocument(
-      jpegFixture(), null, null, 'passport',
-    );
+    const result = await DocumentClassifier.classifyDocument(jpegFixture(), null, null, 'passport');
     assert.equal(result.classification, EVIDENCE_CLASSIFICATION.UNCERTAIN);
-    assert.ok(result.reason.includes('unavailable'));
+    assert.equal(result.provider, 'cloudflare', 'attributed to the configured provider');
+    assert.match(result.reason, /not configured/i);
+    assert.match(result.reason, /CLOUDFLARE_API_TOKEN/, 'says exactly what is missing');
+    assert.doesNotMatch(result.reason, /gemini/i, 'no silent fallback to another vendor');
   } finally {
-    process.env.ALLOW_OCR_MOCK = origMock;
-    if (origKey) process.env.GEMINI_API_KEY = origKey;
+    for (const [key, value] of Object.entries({
+      ALLOW_OCR_MOCK: saved.mock, CARUP_OCR_PROVIDER: saved.provider,
+      CLOUDFLARE_ACCOUNT_ID: saved.account, CLOUDFLARE_API_TOKEN: saved.token,
+      GEMINI_API_KEY: saved.gemini,
+    })) {
+      if (value === undefined) delete process.env[key]; else process.env[key] = value;
+    }
   }
 });
 

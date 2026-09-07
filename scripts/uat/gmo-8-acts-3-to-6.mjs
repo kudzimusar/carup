@@ -25,6 +25,7 @@
  */
 import { chromium } from 'playwright';
 import { writeFileSync, mkdirSync } from 'fs';
+import { assertDocumentVisionReady } from './lib/documentVisionReadiness.mjs';
 
 const FE = process.env.GMO_FE || 'https://carup-staging-git-feat-garage-mechanic-onboarding-1-0-11-11.vercel.app';
 const BE = process.env.GMO_BE || 'https://carup-backend-staging-git-feat-garage-mechanic-onb-803043-11-11.vercel.app';
@@ -311,14 +312,23 @@ async function main() {
   const health = await (await fetch(`${BE}/api/health`)).json();
   if (prov.unpaired !== false) throw new Error('preview is UNPAIRED');
   if (prov.commit_sha !== health.build.commit_sha) throw new Error(`sha mismatch FE=${prov.commit_sha.slice(0,8)} BE=${health.build.commit_sha.slice(0,8)}`);
-  console.log(`paired at ${prov.commit_sha.slice(0, 8)} · unpaired=false\n`);
+
+  /* Readiness is about the provider CarUp SELECTED, not about any one vendor's key being present.
+     This gate used to accept `ocrProviders.gemini`, which made a governed identity decision depend
+     on a vendor the owner had not selected — the certification would have gone green on the wrong
+     provider. It now asks the deployment which document-vision provider it is configured to run and
+     whether that provider can actually run, and refuses a mock-permitting deployment outright. */
+  const selected = assertDocumentVisionReady(health);
+  console.log(`paired at ${prov.commit_sha.slice(0, 8)} · unpaired=false`);
+  console.log(`document vision: provider=${selected.id} model=${selected.model} configured=true mock=false\n`);
+  state.provider = selected;
+
+  const state = {};
 
   rec('PROV', 'db', 'the synthetic Operations reviewer', `${REVIEWER_EMAIL} — users.role only; no tenancy, no decision`);
 
   const browser = await chromium.launch({ headless: true });
   const open = async () => { const c = await browser.newContext({ viewport: VIEWPORTS[VIEW] }); const p = await c.newPage(); watch(p); return p; };
-
-  const state = {};
 
   await step('api', 'synthetic identity evidence is rendered, not procedurally faked', async () => {
     const sizes = await renderEvidence(browser, OWNER);
@@ -518,8 +528,8 @@ async function main() {
     if (r.status !== 200) {
       const msg = JSON.stringify(r.body);
       // A provider-less deployment cannot classify a document, and EVERY document-quality reason
-      // code sets approveAllowed:false. That is a hard dependency on a paid vision provider, not a
-      // defect in anything GMO owns — and activating one is out of scope.
+      // code sets approveAllowed:false. That is a dependency on the CONFIGURED provider answering,
+      // not on any particular vendor — and there is no fallback to a different one.
       if (/DOCUMENT_NOT_VISIBLE|UNCERTAIN|not permitted when the primary reason/.test(msg)) {
         throw new Error(`BLOCKED_ON_VISION_PROVIDER: ${msg.slice(0, 150)}`);
       }
@@ -550,7 +560,7 @@ async function main() {
       'the job completes — the journey ends in a real Service Record',
       'revoking ends FUTURE authority',
       'the LAST administrator cannot be removed',
-    ]) rec('SKIP', 'n/a', s, 'blocked upstream: governed identity approval needs a vision provider');
+    ]) rec('SKIP', 'n/a', s, 'blocked upstream: governed identity approval needs the configured vision provider');
 
     await browser.close();
     const pass = results.filter((r) => r.status === 'PASS').length;
@@ -558,10 +568,11 @@ async function main() {
     const skipped = results.filter((r) => r.status === 'SKIP').length;
     console.log(`\n${'─'.repeat(74)}`);
     console.log(`GMO-8 ACTS 3-6: ${pass} PASS · ${fail} FAIL · ${skipped} BLOCKED`);
-    console.log('\nBLOCKED ON: a paid vision/OCR provider. documentClassifier returns UNCERTAIN when');
-    console.log('GEMINI_API_KEY is absent, every document-quality reason code has approveAllowed:false,');
-    console.log('and PO-2 makes governed identity approval a prerequisite for garage approval.');
-    writeFileSync(`${OUT}/report.json`, JSON.stringify({ viewport: VIEW, commit_sha: prov.commit_sha, unpaired: prov.unpaired, state, results, errors, pass, fail, skipped, blocked_on: 'vision_provider' }, null, 2));
+    console.log(`\nBLOCKED ON: the configured document-vision provider (${state.provider?.id || '?'} / ${state.provider?.model || '?'}).`);
+    console.log('The classifier returns UNCERTAIN when the provider cannot answer, every document-quality');
+    console.log('reason code has approveAllowed:false, and PO-2 makes governed identity approval a');
+    console.log('prerequisite for garage approval. There is deliberately no fallback to another vendor.');
+    writeFileSync(`${OUT}/report.json`, JSON.stringify({ viewport: VIEW, commit_sha: prov.commit_sha, unpaired: prov.unpaired, state, results, errors, pass, fail, skipped, blocked_on: 'configured_vision_provider' }, null, 2));
     console.log(`report ${OUT}/report.json`);
     process.exit(fail > 0 ? 1 : 0);
   }
