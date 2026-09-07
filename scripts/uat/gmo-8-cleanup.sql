@@ -19,7 +19,7 @@
 --
 -- Storage objects are deliberately NOT addressed here: `storage.protect_delete()` refuses direct
 -- deletion and weakening it to tidy test files is the worse trade. See
--- docs/garage-mechanic-onboarding/evidence/GMO_8_STORAGE_CLEANUP_DEBT.md.
+-- docs/garage-mechanic-onboarding/evidence/GMO_8_FIXTURE_CLEANUP_DEBT.md.
 
 BEGIN;
 
@@ -47,11 +47,20 @@ FROM public.garage_applications a
 WHERE a.applicant_user_id IN (SELECT id FROM gmo8_run_users)
   AND a.activated_tenant_id IS NOT NULL;
 
+-- APPEND-ONLY AUDIT IS NOT CLEANABLE, AND MUST NOT BE MADE SO.
+--
+-- `service_case_events` carries `service_case_events_append_only()`, which raises on DELETE. It is a
+-- governed audit trail, and the correct response to "my fixture cleanup is inconvenienced by an
+-- audit trail" is to leave the audit trail alone. Consequently a run's `service_cases` — and the
+-- users, tenants and vehicles those events reference — SURVIVE cleanup by design. That residue is
+-- recorded in evidence/GMO_8_FIXTURE_CLEANUP_DEBT.md rather than forced away here.
+--
 -- Service Network state produced by this run's garage, most dependent first.
 DELETE FROM public.service_records        WHERE tenant_id IN (SELECT id FROM gmo8_run_tenants);
 DELETE FROM public.work_order_assignments WHERE tenant_id IN (SELECT id FROM gmo8_run_tenants);
 DELETE FROM public.service_work_orders    WHERE tenant_id IN (SELECT id FROM gmo8_run_tenants);
-DELETE FROM public.service_cases          WHERE garage_tenant_id IN (SELECT id FROM gmo8_run_tenants);
+-- service_cases deliberately NOT deleted: its append-only event trail references it.
+-- DELETE FROM public.service_cases       WHERE garage_tenant_id IN (SELECT id FROM gmo8_run_tenants);
 DELETE FROM public.garage_public_profiles WHERE tenant_id IN (SELECT id FROM gmo8_run_tenants);
 DELETE FROM public.garage_branches        WHERE tenant_id IN (SELECT id FROM gmo8_run_tenants);
 
@@ -65,7 +74,8 @@ DELETE FROM public.garage_application_decisions WHERE application_id IN
 DELETE FROM public.garage_application_documents WHERE application_id IN
   (SELECT id FROM public.garage_applications WHERE applicant_user_id IN (SELECT id FROM gmo8_run_users));
 DELETE FROM public.garage_applications WHERE applicant_user_id IN (SELECT id FROM gmo8_run_users);
-DELETE FROM public.tenants              WHERE id IN (SELECT id FROM gmo8_run_tenants);
+-- tenants deliberately NOT deleted: the surviving append-only service_cases reference them.
+-- DELETE FROM public.tenants           WHERE id IN (SELECT id FROM gmo8_run_tenants);
 
 -- Vehicles this run's customer created, and the identity/session trail.
 DELETE FROM public.vehicle_ownership_history WHERE vin IN
@@ -88,6 +98,10 @@ DELETE FROM public.ocr_registration_books WHERE ocr_document_id IN
 DELETE FROM public.ocr_documents          WHERE user_id IN (SELECT id FROM gmo8_run_users);
 DELETE FROM public.notification_queue    WHERE recipient_id IN (SELECT id FROM gmo8_run_users);
 DELETE FROM public.user_sessions         WHERE user_id IN (SELECT id FROM gmo8_run_users);
-DELETE FROM public.users                 WHERE id IN (SELECT id FROM gmo8_run_users);
+-- users deliberately NOT deleted for a run that completed a service job: the append-only event
+-- trail attributes work to them. A run that never reached Act 6b has no such trail and its accounts
+-- delete cleanly, which is why this stays a DELETE rather than being removed.
+DELETE FROM public.users                 WHERE id IN (SELECT id FROM gmo8_run_users)
+  AND id NOT IN (SELECT requester_user_id FROM public.service_cases WHERE requester_user_id IS NOT NULL);
 
 COMMIT;

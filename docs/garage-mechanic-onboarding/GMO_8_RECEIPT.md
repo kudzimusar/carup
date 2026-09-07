@@ -1,10 +1,6 @@
 # GMO-8 — Golden Journey, physical UAT · RECEIPT
 
-**Status: PARTIAL.** Acts 1–2 PASS at three viewports (27/27). **Qwen is live on the staging candidate** — `cloudflare` / `@cf/qwen/qwen3.8-27b`, `configured:true`, `mockPermitted:false`, `ocrProviders.gemini:false` — and the real model reads the specimen card, both sides, with the measured `contentPart` transport. Acts 3–6 still stop at step 13, but for a NEW and much more specific reason: `likely_identity_document` is permitted by `decisionPolicy._checkApprove` and simultaneously blocked by the `OCR_RESULT_UNTRUSTED` reason code. That contradiction is an O2 authority decision — see §7b.
-there. The blocker is no longer a vendor's billing balance: CarUp's governed OCR provider is
-**Cloudflare Workers AI running `@cf/qwen/qwen3.8-27b`**, GMO has been converged onto that boundary,
-and the remaining gap is that the staging preview holds no Workers AI token. The deployment says so
-itself, fail-closed, and the harness refuses to certify against it.
+**Status: GMO-8 PASS — GARAGE & MECHANIC ONBOARDING TECHNICALLY COMPLETE; OWNER ACCEPTANCE REMAINS.** Acts 1–2 27/27 and Acts 3–6 **32/32 at all three viewports**, against a live Cloudflare/Qwen provider, with no mock, no Gemini and no SQL standing in for any authority transition. Owner acceptance is the Product Owner's to give; it is not claimed here.
 
 > **One chronology.** Two Claude sessions wrote this lane concurrently and each recorded the same
 > investigation, so this document was reconciled into a single account. Duplicated *narrative* was
@@ -454,6 +450,89 @@ Extraction actually running meant it began writing `ocr_documents` and its per-t
 
 ---
 
+## 7c · The Product Owner's ruling, and the journey completing
+
+**Ruling.** `likely_identity_document` is REVIEWABLE evidence — never auto-verified, but approvable
+by a capable, stepped-up reviewer when the extraction facts stand on their own.
+`OCR_RESULT_UNTRUSTED` stays approval-blocking; the defect to repair was the **coupling**.
+
+**What was repaired.** `verificationSessionService` granted `PARTIALLY_TRUSTED` only when the
+classifier had chosen exactly `valid_identity_document`. Extraction trust is now derived from
+extraction facts alone — the provider succeeded, it actually carried the submitted bytes, and the
+core identity fields are present. What the document *is* remains the classifier's answer, gated in
+the decision policy's evidence-class list. Classification and extraction trust are independent axes.
+
+**Two real gaps surfaced while proving the twelve invariants:**
+
+- The identity **decision** route was reachable on role alone. Viewing the evidence already required
+  a sensitive-action step-up; approving an identity — the most consequential decision O2 makes — did
+  not. Now it does, matching the dealer and garage decisions.
+- The classification-rejected path stored a reason code and **no** `evidence_classification`, so the
+  decision policy's class gate had nothing to read: a non-document was blocked by one guard where
+  two should apply.
+
+**Eleven contract tests, seven mutations red** — reverting the coupling, dropping the image-delivery
+requirement, making `OCR_RESULT_UNTRUSTED` approvable, letting `non_document` through the class
+gate, letting `unreadable`/`uncertain` through, removing the mismatch blocker, and removing step-up
+from the decision route.
+
+### The journey, at three viewports · 32 / 32 each · 0 failures · 0 5xx
+
+Three **independent** runs, each with its own run id, its own four people, and its own garage — not
+one desktop journey read three times.
+
+| | desktop | tablet 834 | mobile 390 |
+|---|---|---|---|
+| run id | `mtqqgr0m` | `mtqqmmwv` | `mtqqs274` |
+| tenant | `dbbbe32c…` | `7b1c02e2…` | `6bcf4321…` |
+| result | **32 PASS · 0 FAIL** | **32 PASS · 0 FAIL** | **32 PASS · 0 FAIL** |
+| console errors / 5xx | 8 / 0 | 6 / 0 | 6 / 0 |
+
+Acts, in order: a new person registers → garage application → **real Qwen classification and
+extraction** → reviewer signs in and steps up → **governed identity approval** → garage approval →
+canonical activation → one tenant, one founding `admin` membership → idempotent retry creates
+nothing → founder opens the workspace in the browser → invites a brand-new mechanic → mechanic
+registers, sees who invited them before an account exists, accepts → the invitation is **spent** →
+garage published → a **fourth** new person registers, owns a vehicle, requests service → garage
+accepts → work order → **assigned to the mechanic this journey created** → that mechanic starts,
+records and completes the work → real Service Record → the customer sees it completed → membership
+revoked → future authority gone, record intact and still attributed → the **last administrator
+cannot be removed**.
+
+### Database readback — product-created authority, no SQL substitute
+
+| run | garage tenants | founding admins | live mechanics after revocation | approved apps | governed decisions | completed cases | service records | record author |
+|---|---|---|---|---|---|---|---|---|
+| `mtqqgr0m` | 1 | 1 | 0 | 1 | 1 | 1 | 1 | that run's mechanic |
+| `mtqqmmwv` | 1 | 1 | 0 | 1 | 1 | 1 | 1 | that run's mechanic |
+| `mtqqs274` | 1 | 1 | 0 | 1 | 1 | 1 | 1 | that run's mechanic |
+
+**Exactly one** tenant and **exactly one** founding admin per run. Revocation leaves zero live
+mechanic memberships while the `work_order_assignments` row survives unmodified — future authority
+ends, historical attribution does not.
+
+### One failure on the way, and it was mine
+
+Step 29 reported *"the durable assignment names nobody"* while the database held exactly the right
+answer. The route returns `{ work_order_id, assigned_mechanic_user_id, assigned, history }`; the
+check looked for `assignment.mechanic_user_id`, got `undefined`, and blamed the product for its own
+mistake. Fixed, and it now asserts more than it did.
+
+### What the SPECIMEN approval does and does not mean
+
+The GMO-8 specimen is **explicit staging synthetic evidence**, and its "NOT VALID FOR
+IDENTIFICATION" marking is intact and must stay. Qwen read it correctly and said so: *"a national ID
+layout … fully readable … but explicitly marked as a synthetic specimen/test document, so it
+represents an identity document format rather than a valid one."*
+
+**Approving it proves the governed workflow, and nothing more.** It is not provider authentication
+of a real person's identity, and no part of this receipt should be read as saying a real identity
+was verified. What is certified is that the *path* works: real provider, real bytes, real
+extraction, real reviewer capability, real step-up, real governed decision, real lifecycle
+transition — with a document everyone can see is synthetic.
+
+---
+
 ## 8 · Security and adversarial re-proof — GREEN
 
 Re-executed against the **deployed** backend with the product's real transport (`x-session-token` +
@@ -522,18 +601,26 @@ nothing (a mistyped id must not read as a successful cleanup of zero rows), and 
 
 ## 9 · Fixture cleanup, stated honestly
 
-Run-owned **database** state deleted and verified at **zero** after every run: applications,
-decisions, documents, verification sessions, notification queue, user sessions, tenant memberships,
-accounts. The synthetic Operations reviewer is kept on purpose.
+Run-owned state removed and verified at **zero**: garage applications, decisions, documents,
+invitations, `tenant_users` memberships, garage profiles and branches, work-order assignments,
+mechanic work orders, service records and their evidence/parts/mileage children, verification
+sessions/assessments/provenance/decisions, OCR documents and their per-type children, notification
+queue, user sessions, ownership history. The synthetic Operations reviewer is kept on purpose.
 
-**Storage is DEBT, not cleanup.** 45 objects across five GMO-8 run prefixes remain in the private
-`ocr-documents` bucket (277 objects in total, most predating this programme). The platform refuses
-`DELETE FROM storage.objects` (`storage.protect_delete()`) and the Storage API needs a service-role
-key this environment does not hold. **Weakening that protection to tidy synthetic test files would
-be the worse trade.** Exact counts, prefixes, run ids and what an authorised cleanup needs:
-`evidence/GMO_8_STORAGE_CLEANUP_DEBT.md`. Nothing here claims an object was deleted.
+**Two governed guards refuse deletion, and both are right.**
 
----
+`service_case_events` is **append-only** (`service_case_events_append_only()` raises on DELETE). A
+run that actually completes Act 6b therefore leaves a permanent audit trace — and the case, tenant,
+customer and vehicle it references survive with it. That is the *same* property that makes
+revocation safe: history outlives authority. Residue after the PASS run: 3 service cases, 12 events,
+3 tenants, 13 accounts, 4 vehicles — and **zero** memberships, applications or service records.
+
+`storage.protect_delete()` refuses direct deletion of the private `ocr-documents` bucket, and the
+Storage API needs a service-role key this environment does not hold: **171** objects under `u_*`
+prefixes, **309** in the bucket.
+
+Neither guard was weakened to tidy a test. Exact counts, prefixes and what an authorised cleanup
+would need: `evidence/GMO_8_FIXTURE_CLEANUP_DEBT.md`.
 
 ## 10 · Verdict
 

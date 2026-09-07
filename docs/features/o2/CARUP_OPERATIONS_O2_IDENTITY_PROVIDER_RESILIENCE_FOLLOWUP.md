@@ -136,6 +136,24 @@ Add to the decisions below: **what a reviewer and a subject are each told when t
 per failure class** — and which of those classes is an operational alert rather than a case note. A
 depleted balance is an ops page, not a finding against the applicant.
 
+## RESOLVED by Product Owner ruling — `likely_identity_document` is REVIEWABLE
+
+The contradiction below was ruled on and repaired. `likely_identity_document` is reviewable
+evidence: never auto-verified, approvable by a capable, stepped-up reviewer when the extraction
+facts stand on their own. `OCR_RESULT_UNTRUSTED` was **not** weakened — the coupling in
+`verificationSessionService` was the defect, and classification and extraction trust are now
+independent axes. Twelve invariants are pinned by contract tests and mutation-proven; see the
+canonical GMO plan §12D and `GMO_8_RECEIPT.md` §7c.
+
+Two related gaps were closed at the same time: the identity **decision** route required no step-up
+(viewing the evidence did), and the classification-rejected path stored no `evidence_classification`
+for the decision policy's class gate to read.
+
+**The availability finding above is NOT resolved by this ruling** and remains open: a provider
+outage is still a total identity-verification outage with no manual degradation path.
+
+### The original finding, for the record
+
 ## A second, sharper finding: `likely_identity_document` is both permitted and forbidden
 
 Found with a **live, working** provider — Cloudflare Workers AI running `@cf/qwen/qwen3.8-27b` — so

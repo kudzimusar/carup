@@ -514,6 +514,41 @@ Two rules this programme must not lose:
 
 ---
 
+## 12D. PO ruling — `likely_identity_document` is REVIEWABLE evidence
+
+Frozen. It resolves the contradiction §12C's execution uncovered.
+
+`likely_identity_document` is **reviewable**, never verified and never auto-granted. An authorised
+O2 reviewer who has satisfied the required authentication assurance may approve such a case when the
+provider actually processed the submitted bytes, extraction trust is independently
+partial/trusted, the required fields are present, identity binding is MATCH, and no blocking
+evidence, fraud, tampering, system or biometric reason exists.
+
+**`OCR_RESULT_UNTRUSTED` remains approval-blocking.** The defect was the coupling in
+`verificationSessionService`, where core identity fields became `partially_trusted` only if
+classification was exactly `valid_identity_document`. **Classification and extraction trust are
+independent axes**; extraction trust is derived from extraction facts and provenance.
+
+Twelve invariants hold, each pinned by a contract test and mutation-proven:
+
+1. VALID + partial/trusted + MATCH → reviewer-approvable.
+2. LIKELY + partial/trusted + MATCH → reviewer-approvable.
+3. LIKELY + UNTRUSTED → blocked.
+4. NON_DOCUMENT → blocked even if text was extracted.
+5. UNSUPPORTED_DOCUMENT → blocked.
+6. UNREADABLE and UNCERTAIN → blocked.
+7. ACCOUNT_DOCUMENT_MISMATCH → blocked.
+8. Provider failure or unavailability can never produce trusted extraction.
+9. Fraud, tampering and hard biometric blockers remain blockers.
+10. LIKELY can never auto-verify.
+11. Qwen can never itself grant identity authority.
+12. Reviewer capability **and** sensitive-action step-up are mandatory.
+
+The synthetic fixture keeps its **"NOT VALID FOR IDENTIFICATION"** marking. Approving it proves the
+governed workflow only — it is not provider authentication of a real person's identity.
+
+---
+
 ## 13. Phased programme
 
 Each phase is independently UAT'd. **No phase may be declared complete because a backend API
@@ -529,7 +564,7 @@ exists.**
 | **GMO-5** | Portal / context handoff | ✅ **PASS after a self-inflicted critical, found and fixed** — `GMO_5_RECEIPT.md` · 27+13 tests · adversarial review executed a working privilege-escalation exploit against the first fix; tenant gate is now opt-in per route; all four GMO tables given RLS |
 | **GMO-6** | Mechanic invitation & membership | ✅ **PASS** — `GMO_6_RECEIPT.md` · 34 backend tests · 10/10 mutations red · hashed single-use email-bound token · new enumerated tenancy-write invariant |
 | **GMO-7** | Membership revocation & lifecycle | ✅ **PASS** — `GMO_7_RECEIPT.md` · 27+20 tests · 7/7 mutations red · future authority ends, historical attribution survives |
-| **GMO-8** | Full physical Golden Journey | 🟡 **PARTIAL — a credential placement, not a defect** — `GMO_8_RECEIPT.md` · Acts 1–2 **27/27** across three viewports; Acts 3–6 reach step 13 with PO-2 enforced by the deployed product. GMO identity classification is now **converged onto CarUp's governed OCR boundary** (`resolveVisionProvider`, default `cloudflare` / `@cf/qwen/qwen3.8-27b`, no fallback); the stale direct-Gemini dependency is gone. The staging preview holds `CLOUDFLARE_ACCOUNT_ID` but not `CLOUDFLARE_API_TOKEN`, so the deployment reports `documentVision.configured:false` and the harness **fails closed** rather than certifying. |
+| **GMO-8** | Full physical Golden Journey | ✅ **PASS — technically complete; owner acceptance remains** — `GMO_8_RECEIPT.md` · Acts 1–2 **27/27**; Acts 3–6 **32/32 at desktop, tablet 834 and mobile 390** — three independent journeys, three tenants — against a live **Cloudflare/Qwen** provider. Identity approved through the governed reviewer path with step-up; canonical activation; mechanic onboarded; a **real Service Network job** completed by that mechanic; revocation ends future authority while the Service Record survives, still attributed. Database readback: exactly one tenant and one founding `admin` per run, zero live mechanics after revocation. No mock, no Gemini, no SQL substitute. |
 
 **GMO-8 rule:** no direct SQL fixture may stand in for any core onboarding step in the final
 certification. The whole point of this programme is that the journey exists in the product.
