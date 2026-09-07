@@ -1790,7 +1790,7 @@ is proven (18/18 addressable on the deployed system); the drain is T7's frozen m
 
 ## T10 — Consolidation and loading
 
-**`T10-PARTIAL` — owner acceptance remains. Candidate `0f902893`.** Authority
+**`T10-PARTIAL` — owner acceptance remains. Candidate `353fc38f`.** Authority
 (`20260913090000`, five tables, staging only, FORCE RLS) plus readiness/plan/load services.
 PGlite gate **34/34** as its own CI step, **14 mutations** red, service suite **39/39**.
 Plan `docs/trade-os/T10_CONSOLIDATION_LOADING_IMPLEMENTATION_PLAN.md`, receipt
@@ -1811,12 +1811,13 @@ unmanifested path reaches a T11 fact. T10 must gate or derive it.
 
 - [x] Load readiness — derived on read, never stored, and always naming its blockers.
 - [x] Load plan — provisional and editable; a confirmed plan is superseded, not edited.
-- [ ] **Loaded evidence — NOT built.** T8 has no `container_load` subject value yet.
+- [x] Loaded evidence — through **T8**, one added subject value `container_load`; no second store.
 - [x] Actual loaded CBM/weight — stated only when every loaded line has a figure.
 - [x] Seal/container reference — append-only with history; a replacement says why.
 - [x] Left-behind handling — stays on the manifest with a bounded reason and no volume.
 - [ ] **Surfaces — NOT built.** No operator workspace, no participant projection on any screen.
-- [ ] **T7 convergence — NOT built.** A customer whose cargo was left behind is not told.
+- [x] T7 convergence — two events in BOTH halves; **left-behind is HIGH priority** and carries the
+      bounded reason in plain words, because that customer is waiting for goods that are not coming.
 - [ ] **T10.6 — NOT run.** Privacy matrix, responsive, staging journeys A–F.
 
 **Open hazard, recorded not closed:** `POST /containers/:id/mark-loading` still works with no
