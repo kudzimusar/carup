@@ -376,6 +376,39 @@ garage_applications · garage_application_documents · garage_application_decisi
 
 ---
 
+## 8b · Two writers, one lane — what actually went wrong, and what did not
+
+Two Claude sessions wrote this branch and this staging database concurrently. Three consequences,
+and only two of them are faults:
+
+**A cancelled CI run.** `ci.yml` uses `concurrency: { group: ci-${{ github.ref }},
+cancel-in-progress: true }`. On a pull request every run shares one group, so a new push cancels the
+older run. **That is correct and must not be disabled**: the older commit really is obsolete, and
+cancelling it is how the repository avoids certifying a head nobody will ship. What went wrong was
+not the rule — it was that a second writer pushed a *different* commit while the first was being
+certified. The repository already has the right defence for that (`Exact-head reference + staging
+certification`); the missing one was single-writer discipline, and disabling `cancel-in-progress`
+would have replaced a visible cancellation with a silent race between two green runs on two heads.
+
+**A shared sensitive credential moved twice.** Both sessions rebound the same
+`GEMINI_API_KEY` preview binding. It resolved correctly only because each recorded the pre-change
+state and restored it. That is luck dressed as process.
+
+**Overlapping fixture ownership — the real hazard.** Both sessions created `gmo8.owner.*` accounts
+in one staging database. A cleanup written as `DELETE … WHERE email LIKE 'gmo8.owner.%'` would have
+deleted the other run's live accounts, tenant and membership **mid-journey**, and that run would
+have reported a product failure that was really this cleanup.
+
+Closed: every run now has a **run id** (printed at startup, written to `report.json` as `run_id`)
+which every persona it creates embeds, and `scripts/uat/gmo-8-cleanup.sql` may address only
+resources carrying it. It covers the consequential tables — `tenant_users` explicitly, scoped by
+*this run's tenant*, never by role or email pattern — refuses to run when the run id matches
+nothing (a mistyped id must not read as a successful cleanup of zero rows), and does not touch
+`storage.objects`. Two tests pin it, and three mutations turn them red: a pattern sweep,
+`tenant_users` dropped from the cleanup, and the empty-match guard removed.
+
+---
+
 ## 9 · Fixture cleanup, stated honestly
 
 Run-owned **database** state deleted and verified at **zero** after every run: applications,

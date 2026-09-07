@@ -273,3 +273,49 @@ test('GMO-QWEN-13: readiness describes the CONFIGURED provider, and the gate is 
     /NOT configured.*CLOUDFLARE_API_TOKEN/s,
   );
 });
+
+/* ── run-scoped fixture ownership ──────────────────────────────────────────
+   Two certification runs shared this lane and this staging database at once. A cleanup written as
+   a pattern sweep would have deleted the other run's live state mid-journey, and that run would
+   have reported a product failure that was really the cleanup. */
+
+test('GMO-QWEN-14: every persona a run creates carries the SAME run id', () => {
+  const harness = read('scripts/uat/gmo-8-acts-3-to-6.mjs');
+  for (const persona of ['owner', 'mech', 'cust']) {
+    assert.match(
+      harness,
+      new RegExp(`gmo8\\.${persona}\\.\\$\\{stamp\\}@carup-uat\\.invalid`),
+      `the ${persona} account must embed the run id`,
+    );
+  }
+  assert.match(harness, /run_id: stamp/, 'the run id must reach report.json');
+  assert.match(harness, /RUN ID \$\{stamp\}/, 'and be printed where an operator will see it');
+});
+
+test('GMO-QWEN-15: the cleanup owns what it deletes — no pattern sweep, and tenant_users is scoped', () => {
+  const raw = read('scripts/uat/gmo-8-cleanup.sql');
+  // Assert on the STATEMENTS, not the prose. The file quotes the dangerous pattern in a comment to
+  // explain why it is forbidden — matching that would have failed the file for documenting itself.
+  const sql = raw.split('\n').filter((line) => !line.trim().startsWith('--')).join('\n');
+
+  // The failure this prevents: `LIKE 'gmo8.owner.%'` matches EVERY run, not this one.
+  assert.doesNotMatch(sql, /LIKE\s+'gmo8[^']*%'/i, 'no wildcard match on the persona emails');
+  assert.doesNotMatch(sql, /DELETE FROM public\.users\s+WHERE email/i, 'accounts are addressed by id, resolved from exact emails');
+
+  // Every delete must be scoped to this run's users or this run's tenant.
+  const deletes = [...sql.matchAll(/DELETE FROM ([\w.]+)([\s\S]*?);/g)];
+  assert.ok(deletes.length >= 15, 'the cleanup must cover the consequential tables');
+  for (const [, table, body] of deletes) {
+    assert.ok(
+      /gmo8_run_users|gmo8_run_tenants/.test(body),
+      `DELETE FROM ${table} is not scoped to this run`,
+    );
+  }
+
+  // tenant_users is the consequential membership table and is named explicitly.
+  assert.match(sql, /DELETE FROM public\.tenant_users[\s\S]*?gmo8_run_tenants/, 'tenant_users must be covered and scoped');
+  // A mistyped run id must not read as a successful cleanup of nothing.
+  assert.match(raw, /refusing to run a cleanup that owns nothing/i);
+  // And it must not try to defeat the storage protection.
+  assert.doesNotMatch(sql, /storage\.objects/, 'storage deletion is debt, not something to force here');
+});

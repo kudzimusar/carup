@@ -64,7 +64,13 @@ async function step(how, name, fn) {
   catch (e) { rec('FAIL', how, name, String(e.message).split('\n')[0].slice(0, 200)); return false; }
 }
 
-const stamp = Date.now().toString(36);
+/**
+ * THE RUN ID. Every account this run creates embeds it, and cleanup may address only resources
+ * carrying it. Two certification runs against one staging database is not hypothetical — it
+ * happened on this lane — and a sweep by `gmo8.owner.%` would delete the other run's live state
+ * mid-journey. See scripts/uat/gmo-8-cleanup.sql.
+ */
+const stamp = (process.env.GMO_RUN_ID || Date.now().toString(36)).replace(/[^a-z0-9]/gi, '');
 const OWNER = { first: 'Rutendo', last: 'Chikafu', email: `gmo8.owner.${stamp}@carup-uat.invalid`, password: PASSWORD, garage: `Mbare Motors ${stamp.slice(-4).toUpperCase()}` };
 const MECH = { first: 'Thabo', last: 'Ncube', email: `gmo8.mech.${stamp}@carup-uat.invalid`, password: PASSWORD };
 // Act 6b needs a fourth real person: someone who owns a car and wants it serviced. Without them the
@@ -306,7 +312,7 @@ async function main() {
     return;
   }
   if (!REVIEWER_EMAIL) throw new Error('--reviewer=<email> is required');
-  console.log(`\nGMO-8 ACTS 3-6 · ${VIEW}\nFE ${FE}\nBE ${BE}\nartifacts ${OUT}\n`);
+  console.log(`\nGMO-8 ACTS 3-6 · ${VIEW}\nRUN ID ${stamp}   (every account this run creates carries it; cleanup is scoped to it)\nFE ${FE}\nBE ${BE}\nartifacts ${OUT}\n`);
 
   const prov = await (await fetch(`${FE}/carup-provenance.json`)).json();
   const health = await (await fetch(`${BE}/api/health`)).json();
@@ -572,7 +578,7 @@ async function main() {
     console.log('The classifier returns UNCERTAIN when the provider cannot answer, every document-quality');
     console.log('reason code has approveAllowed:false, and PO-2 makes governed identity approval a');
     console.log('prerequisite for garage approval. There is deliberately no fallback to another vendor.');
-    writeFileSync(`${OUT}/report.json`, JSON.stringify({ viewport: VIEW, commit_sha: prov.commit_sha, unpaired: prov.unpaired, state, results, errors, pass, fail, skipped, blocked_on: 'configured_vision_provider' }, null, 2));
+    writeFileSync(`${OUT}/report.json`, JSON.stringify({ run_id: stamp, viewport: VIEW, commit_sha: prov.commit_sha, unpaired: prov.unpaired, state, results, errors, pass, fail, skipped, blocked_on: 'configured_vision_provider' }, null, 2));
     console.log(`report ${OUT}/report.json`);
     process.exit(fail > 0 ? 1 : 0);
   }
@@ -881,7 +887,7 @@ async function main() {
   errors.http5xx.slice(0, 5).forEach((e) => console.log(`  5xx: ${e}`));
   console.log(`\naccounts  owner=${OWNER.email}  mechanic=${MECH.email}`);
   console.log(`tenant    ${state.tenantId}`);
-  writeFileSync(`${OUT}/report.json`, JSON.stringify({ viewport: VIEW, commit_sha: prov.commit_sha, unpaired: prov.unpaired, contract_probe: CONTRACT_PROBE, state, results, errors, pass, fail }, null, 2));
+  writeFileSync(`${OUT}/report.json`, JSON.stringify({ run_id: stamp, viewport: VIEW, commit_sha: prov.commit_sha, unpaired: prov.unpaired, contract_probe: CONTRACT_PROBE, state, results, errors, pass, fail }, null, 2));
   console.log(`report ${OUT}/report.json`);
   process.exit(fail > 0 ? 1 : 0);
 }
