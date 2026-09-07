@@ -66,6 +66,30 @@ export async function notifyLogisticsQuoteSubmitted({ request, quote, tenantId =
 }
 
 /**
+ * T7.5 — the deferred `quote_withdrawn` decision, taken rather than carried forward again.
+ *
+ * The requester was told when this offer arrived. If it then vanishes they are comparing something
+ * that no longer exists, and may be about to award it — finding out by failure is the opposite of
+ * what the rest of this lifecycle promises. So a SUBMITTED offer being withdrawn is a fact about
+ * their own request, and they are told.
+ *
+ * Two silences are deliberate:
+ *   · a DRAFT withdrawal emits NOTHING. A draft was never visible to the requester, and announcing
+ *     it would leak that a provider had been considering an offer at all.
+ *   · the withdrawing provider is not notified. They did it.
+ */
+export async function notifyLogisticsQuoteWithdrawn({ request, quote, previousStatus, tenantId = null }) {
+  if (previousStatus !== 'SUBMITTED') return null;
+  const recipientUserId = request.requester_id || request.created_by || null;
+  if (!recipientUserId) return null;
+  return emitLogisticsEvent('diaspora.logistics.quote_withdrawn', {
+    ...base(request, 'OFFER_WITHDRAWN'),
+    recipientUserId,
+    quoteId: quote.id,
+  }, tenantId);
+}
+
+/**
  * The requester chose this provider. Deliberately says the offer was selected and nothing more:
  * an award is not approved container space, carrier acceptance, customs or payment.
  */

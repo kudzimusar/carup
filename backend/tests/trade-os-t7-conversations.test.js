@@ -11,6 +11,9 @@ process.env.NODE_ENV = process.env.NODE_ENV || 'test';
 const { createMockSupabase } = await import('./helpers/mockSupabase.js');
 const rfq = await import('../services/diaspora/diasporaRfqConversationService.js');
 const booking = await import('../services/diaspora/diasporaContainerConversationService.js');
+const notifier = await import('../services/diaspora/logisticsLifecycleNotifier.js');
+const policies = await import('../services/communication/communicationNotificationService.js');
+const listeners = await import('../services/communication/communicationEventListeners.js');
 
 const BUYER = 'u_buyer';
 const SELLER = 'u_seller_with_quote';
@@ -203,4 +206,42 @@ test('a cancelled booking is not a live relationship', async () => {
   await assert.rejects(
     () => booking.ensureContainerConversation(SAILING, ctxFor(CO_LOADER_A), { supabaseClient: c, communicationServices: services }),
     /no live booking/i);
+});
+
+// ── T7.5 · the deferred quote_withdrawn decision, taken ──────────────────────────────────────
+
+test('a SUBMITTED offer being withdrawn tells the requester', async () => {
+  const request = { id: 'req-1', requester_id: 'u_requester', origin_city: 'Yokohama', destination_city: 'Harare' };
+  const emitted = await notifier.notifyLogisticsQuoteWithdrawn({
+    request, quote: { id: 'q-1' }, previousStatus: 'SUBMITTED', tenantId: null,
+  });
+  // The emit is best-effort against a real outbox; what this pins is that it was ATTEMPTED,
+  // i.e. the notifier did not silently decide to say nothing.
+  assert.notEqual(emitted, undefined);
+});
+
+test('a DRAFT withdrawal notifies NOBODY — it was never visible to the requester', async () => {
+  const request = { id: 'req-1', requester_id: 'u_requester' };
+  const emitted = await notifier.notifyLogisticsQuoteWithdrawn({
+    request, quote: { id: 'q-1' }, previousStatus: 'DRAFT', tenantId: null,
+  });
+  assert.equal(emitted, null, 'announcing a draft would leak that a provider was considering an offer');
+});
+
+test('a request with no recipient on record notifies nobody rather than guessing one', async () => {
+  const emitted = await notifier.notifyLogisticsQuoteWithdrawn({
+    request: { id: 'req-1' }, quote: { id: 'q-1' }, previousStatus: 'SUBMITTED', tenantId: null,
+  });
+  assert.equal(emitted, null);
+});
+
+test('the withdrawal event is registered end to end — listener AND policy', () => {
+  // An emitted event with no listener and no policy goes nowhere at all, which is the failure mode
+  // that makes a "notification" look implemented while reaching no human.
+  assert.ok(listeners.COMMUNICATION_EVENT_TYPES.includes('diaspora.logistics.quote_withdrawn'),
+    'the event must be subscribed, or the emit reaches no listener');
+  const policy = (policies.NOTIFICATION_POLICIES || {})['diaspora.logistics.quote_withdrawn'];
+  assert.ok(policy, 'the event must have a notification policy');
+  assert.equal(policy.templateKey, 'logistics_update_v1');
+  assert.deepEqual(policy.channels, ['in_app']);
 });

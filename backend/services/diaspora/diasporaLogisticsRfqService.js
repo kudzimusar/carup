@@ -33,8 +33,7 @@ import { requestReservation, computeCapacity } from './diasporaContainerMarketpl
 import {
   notifyLogisticsQuoteSubmitted,
   notifyLogisticsQuoteAccepted,
-  notifyLogisticsQuoteNotSelected,
-} from './logisticsLifecycleNotifier.js';
+  notifyLogisticsQuoteNotSelected, notifyLogisticsQuoteWithdrawn } from './logisticsLifecycleNotifier.js';
 
 const REQUESTS = 'diaspora_logistics_requests';
 const ITEMS = 'diaspora_logistics_request_items';
@@ -744,6 +743,13 @@ export async function withdrawLogisticsQuote(quoteId, userContext = {}, options 
     resourceType: 'diaspora_logistics_quote', resourceId: data.id,
     previousState: previous, newState: data, metadata: { logisticsRequestId: data.logistics_request_id }, req: options.req,
   });
+  // After the audited authoritative mutation, never before it. A DRAFT withdrawal notifies nobody.
+  const withdrawnRequest = await loadRequest(client, data.logistics_request_id).catch(() => null);
+  if (withdrawnRequest) {
+    await notifyLogisticsQuoteWithdrawn({
+      request: withdrawnRequest, quote: data, previousStatus: previous.status, tenantId: withdrawnRequest.tenant_id,
+    });
+  }
   return data;
 }
 

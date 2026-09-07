@@ -198,6 +198,19 @@ export const NOTIFICATION_POLICIES = Object.freeze({
     classification: 'transactional',
     transactional: true,
   },
+  // T7.5 — a submitted offer was withdrawn. The requester is told because they were told when it
+  // arrived; a DRAFT withdrawal never reaches here (the notifier refuses it at source).
+  'diaspora.logistics.quote_withdrawn': {
+    notificationType: 'rfq_update',
+    threadType: 'marketplace_inquiry',
+    priority: 'normal',
+    channels: ['in_app'],
+    fallbackChannels: [],
+    policyChannelsOnly: true,
+    templateKey: 'logistics_update_v1',
+    classification: 'transactional',
+    transactional: true,
+  },
 
   // Trade OS D7 — container co-loading booking lifecycle (one-way, in-app only; the governed
   // template says only what CarUp records prove: booking status, never shipment/customs/payment).
