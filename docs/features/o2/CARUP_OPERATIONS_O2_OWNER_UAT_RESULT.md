@@ -1,6 +1,8 @@
 # O2 — Product Owner UAT RESULT
 
-**Candidate under test:** `71b81d74` (PR #208 head).
+**Candidate walked:** `71b81d74` (the PR head at the time of the walk).
+**Candidate certified:** `4002dbea` — the same tree plus the bounded closure of the three defects
+this walk found. Nothing else changed between them.
 **Verified before testing:** the runtime tree at the PR head is **byte-identical** to the certified
 candidate `7eba353f` — `git diff --quiet 7eba353f 71b81d74 -- backend web database shared` is clean,
 and the three commits between them are docs and UAT assets only. The pack's claim was checked, not
@@ -21,7 +23,13 @@ actor was created through the real signup flow; no SQL stood in for an O2 decisi
 
 ---
 
-## Result: 32 PASS · 1 FAIL (the FAIL is the blocking defect below), plus B and J measured separately
+## Result
+
+**First walk (`71b81d74`): 32 PASS · 1 FAIL** — the FAIL is the blocking step-up defect below, plus
+the ownership-transfer error-vocabulary defect observed during B and the 393px overflow measured in J.
+
+**Re-walk after the closure (`4002dbea`): 33 PASS · 0 FAIL**, 0 5xx, and 393px clean on all three
+surfaces. Evidence at the end of this document.
 
 | area | verdict |
 |---|---|
@@ -181,3 +189,69 @@ matched a **comment** and reported the code as doing the thing the comment warns
 
 In every case the product's error message said exactly what was wrong. None of these was reported
 as a product defect.
+
+---
+
+## Post-fix re-verification — the fixed candidate, re-walked
+
+The three fixes were pushed as one bounded closure (`4002dbea`), the preview pair redeployed, and the
+**same** harness re-run against it with **fresh** accounts — not replayed from the first walk's state.
+
+```
+FE  carup-staging-git-feat-operations-o2-people-compliance-11-11.vercel.app
+BE  carup-backend-staging-git-feat-operations-o2-peopl-b8a9c6-11-11.vercel.app
+    both at 4002dbea · unpaired:false · environment preview · approved staging Supabase · healthy
+```
+
+**Fix 1 re-measured live, with its positive control:**
+
+```
+POST  /api/admin/identity/verification-sessions/<ghost-id>/review  → 403 STEP_UP_REQUIRED   (was 404)
+PATCH /api/admin/dealers/<ghost-id>/decision                       → 403 STEP_UP_REQUIRED
+```
+
+The ghost id still matters: 403 before a lookup that would have 404'd proves the guard fires ahead of
+the resource, which is where it has to fire.
+
+**Full re-walk:** `O2 OWNER UAT (desktop): 33 PASS · 0 FAIL`, `5xx 0`, one transient cold-start
+console error on an unrelated widget.
+
+**Fix 3 re-measured** — the surface that overflowed, at the width it overflowed at:
+
+| width | surface | scrollWidth | innerWidth |
+|---|---|---|---|
+| 393×852 | `/onboarding` | 393 | 393 |
+| 393×852 | `/workbook-tools` | **393** *(was 481)* | 393 |
+| 393×852 | `/dealer/onboarding` | 393 | 393 |
+
+---
+
+## Certification at `4002dbea`
+
+| gate | result |
+|---|---|
+| exact-head CI on #208 | **15 success · 4 skipped · 0 failure** |
+| `Lint · Types · Build · Tests` | **success** — lint regression gate, web typecheck, web build, backend tests, migration verification |
+| Backend suite (in CI) | **`# tests 5955 · # pass 5934 · # fail 0 · # skipped 21`** |
+| `Passport foundation contracts` (carries `migration-integrity.test.js`) | **success** |
+| Web unit suite (local, settled machine) | **1,585 / 1,585 across 164 files** |
+| `tsc -b` | **exit 0** — the project-reference build, not `tsc -p web/tsconfig.json`, which checks nothing |
+| Vercel builds | `carup`, `carup-staging`, `carup-backend`, `carup-backend-staging` — all success |
+
+The three fixes are held by `backend/tests/o2-owner-uat-closure.test.js` (10 tests). Each guard was
+mutation-tested before being cited: five deliberate reversions, five red.
+
+---
+
+## Verdict
+
+**O2-USABLE — OWNER ACCEPTED.** Ready for parent-first merge authorization.
+
+O2 passed on its own authority. Nothing was imported from Service Network (#197) or from
+garage/mechanic onboarding (#209) to make it pass; no SQL stood in for an O2 decision; no biometric
+provider was activated; production was not touched and nothing was merged.
+
+Two boundaries are recorded rather than closed, because in both cases **the product does not claim
+the capability it lacks**: LIVE OCR is not ready on this preview (no provider configured — closed by
+#209's governed provider boundary, which is downstream in the parent-first order), and dealer
+activation has no governed path and the UI says so plainly.
