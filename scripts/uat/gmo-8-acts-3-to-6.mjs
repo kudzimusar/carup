@@ -809,10 +809,20 @@ async function main() {
       token: state.ownerToken, tenantId: state.tenantId, method: 'POST', body: { mechanic_user_id: state.mechId },
     });
     if (![200, 201].includes(r.status)) throw new Error(`${r.status} ${JSON.stringify(r.body).slice(0, 200)}`);
+    // Read the route's ACTUAL contract: `{ work_order_id, assigned_mechanic_user_id, assigned,
+    // history }` at the top level. The first version looked for `assignment.mechanic_user_id`,
+    // which does not exist — so it read undefined and reported "the durable assignment names
+    // nobody" while the database held the correct mechanic all along. A check that could not see
+    // what it claimed to see, blaming the product for its own mistake.
     const check = await api(`/api/service-work-orders/${state.workOrderId}/assignment`, { token: state.ownerToken, tenantId: state.tenantId });
-    const assignee = check.body?.assignment?.mechanic_user_id;
+    if (check.status !== 200) throw new Error(`assignment read ${check.status} ${JSON.stringify(check.body).slice(0, 160)}`);
+    const assignee = check.body?.assigned_mechanic_user_id;
+    if (check.body?.assigned !== true) throw new Error(`the work order does not report itself assigned: ${JSON.stringify(check.body).slice(0, 160)}`);
     if (assignee !== state.mechId) throw new Error(`assigned, but the durable assignment names ${assignee || 'nobody'}`);
-    return 'assignment is durable and names the invited mechanic';
+    if (!(check.body?.history || []).some((h) => h.mechanic_user_id === state.mechId)) {
+      throw new Error('the assignment history does not record this mechanic');
+    }
+    return 'assignment is durable, live, and names the invited mechanic';
   });
 
   await step('api', 'the MECHANIC — not the founder — does and records the work', async () => {
