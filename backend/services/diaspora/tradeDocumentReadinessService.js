@@ -17,7 +17,10 @@ import { resolveClient } from './diasporaServiceUtils.js';
 import { DOCUMENT_READINESS, DOCUMENT_TYPES } from './tradeIntakeContract.js';
 
 const TABLE = 'diaspora_trade_document_readiness';
-const SUBJECTS = new Set(['import_order', 'logistics_request']);
+// T8.1 — a container booking is a real transaction a participant can be asked for a document
+// about, and excluding it meant an organiser could not record what they still needed. Kept in step
+// with the trade_document_subject_vocabulary CHECK, which is the authority for this list.
+const SUBJECTS = new Set(['import_order', 'logistics_request', 'container_booking', 'trade_order']);
 const KNOWN_TYPES = new Set(DOCUMENT_TYPES.map(([value]) => value));
 
 /**

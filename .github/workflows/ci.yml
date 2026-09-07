@@ -158,6 +158,12 @@ jobs:
       - name: Trade OS T6 commercial transparency verification (isolated PGlite Postgres)
         run: node database/test/trade_os_t6_commercial_check.mjs
 
+      # Trade OS T8 — the document subject binding (20260909090000). Same rationale as the T4/T5/T6
+      # steps: migration_pglite_check.mjs's NEW_MIGRATIONS list ends earlier, so this schema would
+      # otherwise reach staging without a real-Postgres gate ever having refused anything.
+      - name: Trade OS T8 document binding verification (isolated PGlite Postgres)
+        run: node database/test/trade_os_t8_document_check.mjs
+
       - name: 'Issue #101 P0 hardening behavioural proof (real PostgreSQL via PGlite)'
         run: node database/test/issue101_p0_hardening_check.mjs
 

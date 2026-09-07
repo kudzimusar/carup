@@ -1,6 +1,6 @@
 import { supabase } from '../../db/supabase.js';
 import { DOCUMENT_STATUSES, IMPORT_ORDER_STATUSES } from '../../constants/diaspora/diasporaStatuses.js';
-import { DatabaseError, NotFoundError } from '../../utils/errors.js';
+import { DatabaseError, NotFoundError, ValidationError } from '../../utils/errors.js';
 import { validateTradeDocumentPayload } from '../../validators/diaspora/diasporaSchemas.js';
 import { writeDiasporaAudit } from './diasporaAuditService.js';
 import { transitionImportOrder } from './diasporaWorkflowService.js';
@@ -46,19 +46,55 @@ async function getOrderAccess(importOrderId, userContext) {
   };
 }
 
+/**
+ * T8.1 — the governed subject vocabulary a document may belong to.
+ *
+ * Kept in step with the `trade_document_subject_vocabulary` CHECK, which is the authority. A
+ * free-text subject is how a shadow entity gets invented later without anybody deciding to.
+ */
+export const DOCUMENT_SUBJECT_TYPES = Object.freeze([
+  'import_order', 'logistics_request', 'container_booking', 'trade_order',
+]);
+
 export async function createTradeDocument(payload, userContext = {}, req = null) {
   validateTradeDocumentPayload(payload);
+
+  // T8.1 — a document may belong to any authoritative Trade OS object, and to exactly one.
+  // Checked BEFORE the order lookup: an obviously malformed owner should be refused for what it is,
+  // not for a missing order it was never going to have.
+  const subjectType = payload.subject_type ? String(payload.subject_type) : null;
+  const subjectId = payload.subject_id ? String(payload.subject_id).trim() : null;
+  if (subjectType && !DOCUMENT_SUBJECT_TYPES.includes(subjectType)) {
+    throw new ValidationError(`Unknown document subject "${subjectType}"`);
+  }
+  if (Boolean(subjectType) !== Boolean(subjectId)) {
+    throw new ValidationError('A document subject needs both a type and an id — a type alone points at every object of that kind');
+  }
+  if (Boolean(payload.import_order_id) === Boolean(subjectType)) {
+    throw new ValidationError('A document belongs to exactly one transaction — give either an import order or a subject, not both and not neither');
+  }
+
   const order = payload.import_order_id ? await getOrder(payload.import_order_id) : null;
+
   const { data, error } = await supabase
     .from('diaspora_trade_documents')
     .insert({
       tenant_id: userContext?.tenantId || order?.tenant_id || payload.tenant_id || null,
       import_order_id: payload.import_order_id || null,
+      subject_type: subjectType,
+      subject_id: subjectId,
       uploaded_by: userContext?.id || payload.uploaded_by || null,
       document_type: payload.document_type,
       document_url: payload.document_url || null,
       storage_path: payload.storage_path || null,
-      verification_status: payload.verification_status || DOCUMENT_STATUSES.UPLOADED,
+      // PRESENCE IS NOT VERIFICATION.
+      //
+      // This previously read `payload.verification_status || UPLOADED`, so a client could post
+      // `verification_status: 'VERIFIED'` at upload time and skip the reviewer route entirely — the
+      // exact collapse the phase contract forbids ("a customer cannot submit verified: true"). An
+      // uploaded document is UPLOADED, always, and only the governed reviewer endpoints
+      // (verifyTradeDocument / rejectTradeDocument, both reviewerAuth-guarded) may move it.
+      verification_status: DOCUMENT_STATUSES.UPLOADED,
       ocr_document_id: payload.ocr_document_id || null,
       metadata: payload.metadata || {},
       created_by: userContext?.id,
