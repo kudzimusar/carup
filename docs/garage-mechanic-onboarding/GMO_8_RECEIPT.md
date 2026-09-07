@@ -330,6 +330,33 @@ consumer of the Workers AI daily allocation). It could not be dispatched: GitHub
 `workflow_dispatch` workflow that exists on the **default branch**, and this lane must not modify
 `main`.
 
+### Why this session cannot place the token itself — measured, not assumed
+
+The obvious move is "transfer the token that already exists". It cannot be done from here, and the
+reason is worth recording because it looks solvable until you check both halves.
+
+| where | Cloudflare Workers AI token | Vercel write credential |
+|---|---|---|
+| GitHub Actions | **present** (`CLOUDFLARE_API_TOKEN`, repo secret, added 2026-09-04) | **absent** — no `VERCEL_TOKEN`, no `VERCEL_ACCESS_TOKEN` |
+| this machine | **absent** — no wrangler config, no `~/.cloudflared`, not in the environment | present (authenticated CLI) |
+
+**Neither side holds both halves.** A GitHub Actions workflow could read the Cloudflare secret
+without ever exposing it — that is exactly how the OCR lane runs live Qwen — but it has no way to
+write a Vercel environment variable. `communication-command-center-ci.yml` already anticipates this
+and says so in its own log line: *"No repository Vercel CLI token is available."* Environment-scoped
+secrets were checked too: only `Production` holds any, and they are database/project references.
+
+A GitHub Actions secret is write-only by design, so the value is unreadable to every party including
+the owning account's tooling — the same property that made the Gemini project impossible to identify
+earlier in this receipt.
+
+**What was deliberately NOT done.** Minting a new GitHub secret containing this session's Vercel
+OAuth token would bridge the gap — and would create a new long-lived credential with team-wide Vercel
+write access, production included, in a location nobody authorized. That is credential
+proliferation, not "an existing authorized mechanism", and the smaller ask below is the right trade.
+The production `CLOUDFLARE_TOKEN` was likewise left alone: it is `type: sensitive` (unreadable),
+production-scoped, and appears to be a zone token rather than a Workers AI one.
+
 ### What closes GMO-8
 
 1. Add **`CLOUDFLARE_API_TOKEN`** (the Workers AI token already in GitHub Actions secrets) to Vercel
