@@ -79,7 +79,7 @@ const okChoice = (content, usage) => okResponse({ choices: [{ message: { content
  *   - test('cloudflare: a synonym for the same printed field is accepted; a DIFFERENT field is never subst
  *   - test('cloudflare: the requested response schema is derived from CarUp\'s schema and requires no docu
  *   - test('cloudflare: a Cloudflare reading is still a CANDIDATE — confined writes, no verification', asy
- *   - test('cloudflare: missing still stays missing, and nothing is invented for the new provider', async 
+ *   - test('cloudflare: missing still stays missing, and nothing is invented for the new provider', async
  */
 
 test('cloudflare: Cloudflare is the configured OCR provider, on the qualified model', () => {
