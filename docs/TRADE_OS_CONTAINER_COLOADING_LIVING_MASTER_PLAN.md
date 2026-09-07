@@ -1828,8 +1828,9 @@ load is never refused (an observation of the past). Nothing is repriced, refunde
 
 ## T11 — Shipment and tracking
 
-**`T11-PARTIAL` — owner acceptance remains.** T11.0 audit + T11.1 hardening. Plan
-`docs/trade-os/T11_SHIPMENT_TRACKING_IMPLEMENTATION_PLAN.md`.
+**`T11-PARTIAL` — owner acceptance remains. Candidate `bf52a6d9`.** T11.0 audit + T11.1 hardening.
+Plan `docs/trade-os/T11_SHIPMENT_TRACKING_IMPLEMENTATION_PLAN.md`, receipt
+`docs/trade-os/receipts/T11_SHIPMENT_TRACKING.md`.
 
 **The audit's finding is the opposite of T9's and T10's: a substantial shipment authority ALREADY
 EXISTS and is largely sound.** `diaspora_shipments`, `diaspora_shipment_stage_events`,
@@ -1847,8 +1848,10 @@ either way, so T11 takes the conservative reading and says so rather than guessi
 - [x] Carrier/reference facts — a departure date given at CREATION is kept as a **plan**; the
       observed column stays NULL until a real `IN_TRANSIT` transition stamps it, and never in the
       future.
-- [x] Transition legality — `PLANNED → ARRIVED` was accepted before; a timeline that can be written
-      out of order is not a record of movement.
+- [x] Transition legality — **forward or lateral, never backward.** The first version was stricter
+      and wrong: it refused `PLANNED → IN_TRANSIT`, which would force an operator to invent BOOKED
+      and LOADING to record the sailing they actually observed. A stage nobody recorded is a stage
+      nobody OBSERVED. The existing authorization suite caught it.
 - [x] Idempotency — re-reporting the current stage is `unchanged`, not a second journey.
 - [x] Exception handling — the T7.5 consumer already owns it; T11 did not duplicate it.
 - [ ] **Operator timeline surface — NOT built.**

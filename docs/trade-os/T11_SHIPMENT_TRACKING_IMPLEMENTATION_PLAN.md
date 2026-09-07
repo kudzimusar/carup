@@ -1,6 +1,6 @@
 # Trade OS T11 — Shipment & tracking
 
-**Status: T11.0 authority audit complete. Schema decision recorded; no new table.**
+**Status: `T11-PARTIAL` — owner acceptance remains. T11.0 audit + T11.1 hardening. No new table.**
 Branch `feat/trade-os-client-demo-convergence` · PR #207 (Draft).
 
 Prior phases frozen: T3 `b446d8ea` · T4 `736f06c5` · T5 `5079b0b3` · T6 `2d0a0bc0` · T7 `3f062fc0`
@@ -105,11 +105,11 @@ destination; T13 owns settlement.** Gap #5 above is the live risk and is recorde
 | slice | scope | state |
 |---|---|---|
 | **T11.0** | authority audit + master reconciliation | **complete** (this document) |
-| T11.1 | container → shipment gate; planned vs observed departure; transition legality; stage idempotency | **specified, not implemented** |
+| **T11.1** | container → shipment gate; planned vs observed departure; transition legality; stage idempotency | **complete** — 16 tests |
 | T11.2 | operator timeline surface | not started |
 | T11.3 | participant-scoped tracking surface | not started |
 | T11.4 | T7 convergence beyond the existing exception path | not started |
 | T11.5 | privacy matrix, responsive, staging journeys | not started |
 
-`T11-PARTIAL` is the only status this cycle can reach, and only if T11.1 lands. Owner acceptance
-remains either way.
+`T11-PARTIAL` is the status this cycle reaches. **No T11 surface exists** — the same gap that kept
+T9 and T10 from acceptance at their first candidates. Owner acceptance remains.
