@@ -50,6 +50,9 @@ const check = async (name, fn) => {
   catch (e) { results.push({ journey, name, ok: false, error: String(e.message || e).slice(0, 400) }); }
 };
 const assert = (c, m) => { if (!c) throw new Error(m); };
+// The same instant, spelled two ways. Postgres returns `+00:00` where the caller sent `Z`, so
+// comparing the strings would report a discrepancy that does not exist.
+const sameInstant = (a, b) => a != null && b != null && Date.parse(a) === Date.parse(b);
 
 async function csrf(headers = {}) {
   const r = await fetch(`${API}/api/security/csrf-token`, { headers });
@@ -143,8 +146,8 @@ await check('recording IN_TRANSIT stamps an OBSERVED departure that is not the p
   const v = await asOp(`/shipment-tracking/${shipmentId}`);
   observedDeparture = v.data.dates.observed_departure;
   assert(observedDeparture, 'no observed departure was stamped');
-  assert(observedDeparture !== v.data.dates.planned_departure, 'the plan was copied into the observation');
-  assert(v.data.dates.planned_departure === PLANNED_DEPARTURE, 'the plan was overwritten by the observation');
+  assert(!sameInstant(observedDeparture, v.data.dates.planned_departure), 'the plan was copied into the observation');
+  assert(sameInstant(v.data.dates.planned_departure, PLANNED_DEPARTURE), 'the plan was overwritten by the observation');
   return `observed ${observedDeparture} ≠ planned ${v.data.dates.planned_departure}`;
 });
 
@@ -155,22 +158,24 @@ await check('the shipment and its own timeline agree about when it sailed', asyn
   assert(t.status === 200, `status ${t.status}`);
   const sailed = (t.data || []).filter((e) => e.stage === 'IN_TRANSIT');
   assert(sailed.length === 1, `${sailed.length} departure events`);
-  assert(sailed[0].event_time === observedDeparture,
+  assert(sameInstant(sailed[0].event_time, observedDeparture),
     `timeline says ${sailed[0].event_time}, the shipment says ${observedDeparture}`);
   return `both say ${observedDeparture}`;
 });
 
 await check('a stated observed time is honoured, on the column and the timeline together', async () => {
-  const stated = new Date(Date.now() - 3 * 3600_000).toISOString();
+  // Later than the departure just recorded, because a shipment may not arrive before it left — but
+  // stated rather than defaulted, which is the thing under test.
+  const stated = new Date(Date.now() + 30_000).toISOString();
   const r = await api(operator, `/shipments/${shipmentId}/stage`, {
     method: 'PATCH', tenantId: OP_TENANT, body: { stage: 'ARRIVED', event_time: stated, notes: 'Berthed at Beira' },
   });
   assert(r.status === 200, `status ${r.status} ${JSON.stringify(r.body).slice(0, 250)}`);
   const v = await asOp(`/shipment-tracking/${shipmentId}`);
-  assert(v.data.dates.observed_arrival === stated, `column ${v.data.dates.observed_arrival} ≠ stated ${stated}`);
+  assert(sameInstant(v.data.dates.observed_arrival, stated), `column ${v.data.dates.observed_arrival} ≠ stated ${stated}`);
   const t = await asOp(`/shipments/${shipmentId}/timeline`);
   const arrived = (t.data || []).filter((e) => e.stage === 'ARRIVED');
-  assert(arrived.length === 1 && arrived[0].event_time === stated,
+  assert(arrived.length === 1 && sameInstant(arrived[0].event_time, stated),
     `timeline ${arrived.map((e) => e.event_time).join(',')} ≠ stated ${stated}`);
   return `both say ${stated}`;
 });
@@ -193,7 +198,8 @@ await check('a shipment that jumped PLANNED → IN_TRANSIT has no invented BOOKE
   for (const invented of ['BOOKED', 'LOADING']) {
     assert(!stages.includes(invented), `a ${invented} event nobody recorded appears in the timeline`);
   }
-  assert(stages[0] === 'PLANNED', `the timeline opens at ${stages[0]}`);
+  const inWriteOrder = [...(t.data || [])].sort((a, b) => Date.parse(a.created_at) - Date.parse(b.created_at)).map((e) => e.stage);
+  assert(inWriteOrder[0] === 'PLANNED', `the timeline opens at ${inWriteOrder[0]}`);
   assert(stages.includes('IN_TRANSIT'), 'the departure that WAS observed is missing');
   return stages.join(' → ');
 });
@@ -210,8 +216,8 @@ journey = 'C — ETA vs arrival';
 
 await check('the ETA that already passed never became an arrival', async () => {
   const v = await asOp(`/shipment-tracking/${shipmentId}`);
-  assert(v.data.dates.estimated_arrival === ETA_ALREADY_PASSED, `estimate ${v.data.dates.estimated_arrival}`);
-  assert(v.data.dates.observed_arrival !== ETA_ALREADY_PASSED, 'the estimate was promoted into the observed arrival');
+  assert(sameInstant(v.data.dates.estimated_arrival, ETA_ALREADY_PASSED), `estimate ${v.data.dates.estimated_arrival}`);
+  assert(!sameInstant(v.data.dates.observed_arrival, ETA_ALREADY_PASSED), 'the estimate was promoted into the observed arrival');
   return `estimate ${ETA_ALREADY_PASSED} · observed ${v.data.dates.observed_arrival}`;
 });
 
@@ -408,7 +414,10 @@ await check('a container whose load is NOT COMPLETED cannot get a shipment', asy
     body: { import_order_id: ORDER_B, container_id: UNLOADED_SAILING, carrier_name: 'Maersk' },
   });
   assert(r.status >= 400, `a shipment was created for an unloaded container: ${r.status}`);
-  assert(/SHIPMENT_WITHOUT_COMPLETED_LOAD|loaded/i.test(JSON.stringify(r.body)), JSON.stringify(r.body).slice(0, 250));
+  const said = JSON.stringify(r.body);
+  assert(/SHIPMENT_WITHOUT_COMPLETED_LOAD|no completed load/i.test(said), said.slice(0, 250));
+  // …and it must be the LOAD gate that refused, not a permission check that would refuse anyone.
+  assert(!/INSUFFICIENT_PERMISSIONS/.test(said), 'refused for lack of permission, which proves nothing about the load gate');
   return `refused ${r.status}`;
 });
 

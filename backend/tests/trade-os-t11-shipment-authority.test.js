@@ -15,7 +15,7 @@
  */
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { assertShipmentTransition, assertMayMoveShipment, resolveObservedTime, STAGES_HANDED_TO_T12 } from '../services/diaspora/diasporaShipmentService.js';
+import { assertShipmentTransition, assertMayMoveShipment, assertObservationIsNotBackdated, resolveObservedTime, STAGES_HANDED_TO_T12 } from '../services/diaspora/diasporaShipmentService.js';
 import { isSailingOperator } from '../services/diaspora/diasporaAuthorization.js';
 
 // ── 3. The timeline cannot be written BACKWARDS ────────────────────────────
@@ -345,4 +345,53 @@ test('T11: sailing-operator authority has ONE definition, shared with T10', () =
   assert.equal(isSailingOperator(CONTAINER, OTHER_OPERATOR), false, 'another tenant runs this sailing');
   assert.equal(isSailingOperator(CONTAINER, BUYER), false, 'a buyer runs this sailing');
   assert.equal(isSailingOperator(CONTAINER, ADMIN), true, 'a platform admin was locked out');
+});
+
+// ── 7. The timeline cannot be written backwards in TIME either ────────────
+//
+// Found on the deployed product. The stage rule stopped ARRIVED → IN_TRANSIT. Nothing stopped
+// IN_TRANSIT at 18:24 followed by ARRIVED stated at 15:24 — a ship that arrived three hours before
+// it left. Both were accepted, and because the timeline is ordered by when things happened, the
+// customer's journey showed the arrival first.
+
+test('T11: an observation before the previous movement is refused', () => {
+  assert.throws(
+    () => assertObservationIsNotBackdated('2026-09-07T15:24:00.000Z', { stage: 'IN_TRANSIT', event_time: '2026-09-07T18:24:00.000Z' }),
+    /cannot arrive before it left/,
+  );
+});
+
+test('T11: the refusal names both times and both stages', () => {
+  try {
+    assertObservationIsNotBackdated('2026-09-07T15:24:00.000Z', { stage: 'IN_TRANSIT', event_time: '2026-09-07T18:24:00.000Z' });
+    assert.fail('accepted');
+  } catch (err) {
+    assert.equal(err.details?.code || err.code, 'OBSERVATION_BEFORE_PREVIOUS');
+    assert.match(err.message, /15:24/);
+    assert.match(err.message, /IN_TRANSIT/);
+    assert.match(err.message, /18:24/);
+  }
+});
+
+test('T11: an observation AFTER the previous one is accepted — the positive control', () => {
+  assertObservationIsNotBackdated('2026-09-08T09:00:00.000Z', { stage: 'IN_TRANSIT', event_time: '2026-09-07T18:24:00.000Z' });
+  // Equal is accepted too: two things can be reported as observed at the same moment.
+  assertObservationIsNotBackdated('2026-09-07T18:24:00.000Z', { stage: 'IN_TRANSIT', event_time: '2026-09-07T18:24:00.000Z' });
+});
+
+test('T11: the FIRST movement may be back-dated freely — a shipment is often written up after it sailed', () => {
+  // Nothing to be earlier than. The creation record is excluded on purpose: "Shipment created" is a
+  // record-keeping act, not an observation of movement.
+  assertObservationIsNotBackdated('2020-01-01T00:00:00.000Z', null);
+  assertObservationIsNotBackdated('2020-01-01T00:00:00.000Z', { stage: 'IN_TRANSIT', event_time: null });
+});
+
+test('T11: the creation record is excluded by metadata, not by stage name', async () => {
+  const source = await import('node:fs').then((fs) => fs.promises.readFile('backend/services/diaspora/diasporaShipmentService.js', 'utf8'));
+  const code = source.replace(/^\s*(\/\/|\*|\/\*).*$/gm, '');
+  // Excluding by stage === 'PLANNED' would also discard a real PLANNED observation. The creation
+  // record is the row that was written with { created: true }.
+  assert.match(code, /find\(\(e\) => !e\?\.metadata\?\.created\)/, 'the creation record is not excluded by its own marker');
+  assert.match(code, /assertObservationIsNotBackdated\(observedAt, await lastObservedMovement\(id\)\)/,
+    'the rule is defined but never applied to a stage change');
 });

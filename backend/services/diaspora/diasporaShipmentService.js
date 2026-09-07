@@ -336,6 +336,37 @@ export function resolveObservedTime(payload = {}, now = new Date().toISOString()
   return observedTime(stated, now);
 }
 
+/**
+ * An observation may not precede the observation before it.
+ *
+ * `assertShipmentTransition` stops the timeline being written backwards in STAGE. Nothing stopped it
+ * being written backwards in TIME. Found on the deployed product: a departure was recorded, then an
+ * arrival was stated three hours earlier, and both were accepted — a ship that arrived before it
+ * left, presented to a customer as their journey, in that order, because the timeline is sorted by
+ * when things happened.
+ *
+ * The creation record is excluded deliberately. "Shipment created" is a record-keeping act, not an
+ * observation of movement, and a shipment is often written up after the ship has already sailed — so
+ * the FIRST movement may be back-dated freely. Only movements are held against each other.
+ */
+export function assertObservationIsNotBackdated(observedAt, previous) {
+  if (!previous || !previous.event_time) return;
+  if (Date.parse(observedAt) >= Date.parse(previous.event_time)) return;
+  throw new ValidationError(
+    `This would be recorded as happening at ${observedAt}, before the ${previous.stage} already recorded at ${previous.event_time}. A shipment cannot arrive before it left.`,
+    { code: 'OBSERVATION_BEFORE_PREVIOUS', observedAt, previousStage: previous.stage, previousObservedAt: previous.event_time },
+  );
+}
+
+/** The last movement recorded for a shipment, ignoring the creation record. */
+async function lastObservedMovement(shipmentId, client = supabase) {
+  const { data } = await client
+    .from('diaspora_shipment_stage_events').select('*')
+    .eq('shipment_id', shipmentId).is('deleted_at', null)
+    .order('event_time', { ascending: false }).limit(10);
+  return (data || []).find((e) => !e?.metadata?.created) || null;
+}
+
 export async function updateShipmentStage(id, payload, userContext = {}, req = null) {
   const context = requireUserContext(userContext);
   const nextStage = payload.stage || payload.status;
@@ -365,6 +396,7 @@ export async function updateShipmentStage(id, payload, userContext = {}, req = n
   // hold, an exception — reached the timeline through the other path, which validated nothing, so a
   // movement could be recorded in the future after all.
   const observedAt = resolveObservedTime(payload, now);
+  assertObservationIsNotBackdated(observedAt, await lastObservedMovement(id));
 
   const { data, error } = await supabase
     .from('diaspora_shipments')
