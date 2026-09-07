@@ -128,13 +128,45 @@ async function assertContainerWasLoaded(containerId, client) {
   }
 }
 
+/**
+ * Which shipment stages may move the purchase's own status — **movement facts only**.
+ *
+ * T11.1's audit flagged this map as a T11/T12 boundary leak and left it alone. Looking at the import
+ * order's own ladder makes it worse than "shaped like customs":
+ *
+ *     ARRIVED_AT_BORDER → CUSTOMS_IN_PROGRESS → DUTY_PENDING → DUTY_PAID → RELEASED
+ *
+ * `RELEASED` sits **after DUTY_PAID**. So a shipment stage transition was writing a purchase status
+ * meaning duty had been paid and the goods released by an authority — from a movement action, with
+ * no assessment, no payment evidence and no authority anywhere in the picture. `CUSTOMS_HOLD →
+ * CUSTOMS_IN_PROGRESS` was the same error one step earlier: a hold is where the goods ARE, not proof
+ * that a declaration is being processed.
+ *
+ * That is precisely "a T11 movement action manufacturing a T12 customs fact", so the three customs
+ * and completion entries are removed. What remains is only what movement can honestly establish:
+ *
+ *     the goods are being loaded · the goods departed · the goods reached the border
+ *
+ * **`CUSTOMS_HOLD` still records the exception** on the shipment and still reaches the customer
+ * through T7 — T11 may say "your shipment is held", which is an observation of where the cargo is.
+ * It may not say a declaration is in progress. **T12 owns everything from CUSTOMS_IN_PROGRESS
+ * onward**, and the existing rows are untouched: this changes what is written from now on, not
+ * history.
+ */
 const SHIPMENT_TO_IMPORT_STATUS = Object.freeze({
   LOADING: IMPORT_ORDER_STATUSES.READY_FOR_LOADING,
   IN_TRANSIT: IMPORT_ORDER_STATUSES.SHIPPED,
   ARRIVED: IMPORT_ORDER_STATUSES.ARRIVED_AT_BORDER,
-  CUSTOMS_HOLD: IMPORT_ORDER_STATUSES.CUSTOMS_IN_PROGRESS,
-  RELEASED: IMPORT_ORDER_STATUSES.RELEASED,
-  COMPLETED: IMPORT_ORDER_STATUSES.COMPLETED,
+});
+
+/**
+ * The stages T11 deliberately no longer projects onto the purchase, and who owns them instead.
+ * Exported so the boundary is testable rather than a comment somebody can quietly delete.
+ */
+export const STAGES_HANDED_TO_T12 = Object.freeze({
+  CUSTOMS_HOLD: 'T12 — a hold is where the goods are; a declaration being processed is a customs fact',
+  RELEASED: 'T12 — the purchase ladder puts RELEASED after DUTY_PAID, so this asserted duty was paid',
+  COMPLETED: 'T12 — a finished shipment is not a finished import; customs, registration and delivery follow',
 });
 
 export async function createShipment(payload, userContext = {}, req = null) {

@@ -15,7 +15,7 @@
  */
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { assertShipmentTransition } from '../services/diaspora/diasporaShipmentService.js';
+import { assertShipmentTransition, STAGES_HANDED_TO_T12 } from '../services/diaspora/diasporaShipmentService.js';
 
 // ── 3. The timeline cannot be written BACKWARDS ────────────────────────────
 //
@@ -100,6 +100,51 @@ test('T11: the refusal carries an actionable code and both stages', () => {
     assert.equal(err.details.currentStage, 'ARRIVED');
     assert.equal(err.details.nextStage, 'IN_TRANSIT');
   }
+});
+
+// ── The T11/T12 coupling, closed ───────────────────────────────────────────
+//
+// The T11.0 audit flagged SHIPMENT_TO_IMPORT_STATUS as a boundary leak and left it. Reading the
+// import order's OWN ladder makes it worse than "shaped like customs":
+//
+//     ARRIVED_AT_BORDER → CUSTOMS_IN_PROGRESS → DUTY_PENDING → DUTY_PAID → RELEASED
+//
+// `RELEASED` sits AFTER `DUTY_PAID`. A shipment stage transition was therefore writing a purchase
+// status meaning duty had been paid and an authority had released the goods — from a movement
+// action, with no assessment, no payment evidence and no authority anywhere in the picture.
+
+test('T11: a movement action can no longer write a CUSTOMS-shaped purchase status', async () => {
+  const source = await import('node:fs').then((fs) => fs.promises.readFile('backend/services/diaspora/diasporaShipmentService.js', 'utf8'));
+  const map = source.slice(source.indexOf('const SHIPMENT_TO_IMPORT_STATUS'), source.indexOf('export const STAGES_HANDED_TO_T12'));
+  for (const gone of ['CUSTOMS_HOLD', 'RELEASED', 'COMPLETED']) {
+    assert.ok(!new RegExp(`^\\s*${gone}:`, 'm').test(map), `${gone} still projects onto the purchase status`);
+  }
+});
+
+test('T11: only movement facts remain in the projection', async () => {
+  const source = await import('node:fs').then((fs) => fs.promises.readFile('backend/services/diaspora/diasporaShipmentService.js', 'utf8'));
+  const map = source.slice(source.indexOf('const SHIPMENT_TO_IMPORT_STATUS'), source.indexOf('export const STAGES_HANDED_TO_T12'));
+  // being loaded · departed · reached the border. Each is something movement can honestly establish.
+  for (const kept of ['LOADING', 'IN_TRANSIT', 'ARRIVED']) {
+    assert.ok(new RegExp(`^\\s*${kept}:`, 'm').test(map), `${kept} should still project — it is a movement fact`);
+  }
+});
+
+test('T11: what was handed to T12 is named, not merely deleted', () => {
+  // A removal with no record is indistinguishable from an oversight. Each entry says WHY.
+  assert.deepEqual(Object.keys(STAGES_HANDED_TO_T12).sort(), ['COMPLETED', 'CUSTOMS_HOLD', 'RELEASED']);
+  for (const [stage, why] of Object.entries(STAGES_HANDED_TO_T12)) {
+    assert.match(why, /^T12 — /, `${stage} does not name its new owner`);
+    assert.ok(why.length > 40, `${stage} does not say why`);
+  }
+  assert.match(STAGES_HANDED_TO_T12.RELEASED, /after DUTY_PAID/, 'the RELEASED entry does not record the actual hazard');
+});
+
+test('T11: a CUSTOMS_HOLD is still recordable as movement context', () => {
+  // T11 may say "your shipment is held" — an observation of where the cargo is. What it may no
+  // longer do is project that onto the purchase as "a declaration is being processed".
+  assert.deepEqual(assertShipmentTransition('IN_TRANSIT', 'CUSTOMS_HOLD'), { unchanged: false });
+  assert.deepEqual(assertShipmentTransition('ARRIVED', 'CUSTOMS_HOLD'), { unchanged: false });
 });
 
 // ── The T12 firewall ───────────────────────────────────────────────────────
