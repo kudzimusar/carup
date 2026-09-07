@@ -111,6 +111,30 @@ describe('a customs rate is never borrowed', () => {
     await open()
     expect(screen.getByTestId('my-customs-rate')).toHaveTextContent('not recorded')
     expect(screen.getByTestId('my-customs-rate').textContent).not.toContain('13.5')
+    expect(screen.getByTestId('my-customs-rate-detail')).toHaveTextContent('only shown when its source and effective date come with it')
+  })
+
+  it('a rate that IS shown carries its source and its period', async () => {
+    // Found on the deployed page at 393px: the participant saw the number and nothing about where
+    // it came from, while the operator saw both.
+    state.view = view({
+      assessment: {
+        assessed: true, amount: 1420.5, currency: 'USD', headline: 'Assessment amount',
+        detail: 'Taken from an assessment document attached to this case. CarUp did not calculate it.',
+        source: null, source_strength: 'AUTHORITY_EVIDENCE', assessment_date: '2026-09-20T10:00:00Z',
+        customs_rate: {
+          value: 26.4312, basis: 'USD/ZWG',
+          source: 'ZIMRA rates of exchange for customs purposes, week commencing 2026-09-07',
+          effective_from: '2026-09-07', effective_to: '2026-09-13',
+          note: 'The customs exchange rate as stated by its source. It is never a market rate and never a reference rate.',
+        },
+      },
+    })
+    await open()
+    expect(screen.getByTestId('my-customs-rate')).toHaveTextContent('26.4312')
+    expect(screen.getByTestId('my-customs-rate-detail')).toHaveTextContent('ZIMRA')
+    expect(screen.getByTestId('my-customs-rate-detail')).toHaveTextContent('effective')
+    expect(screen.getByTestId('my-customs-rate-detail')).toHaveTextContent('never a market rate')
   })
 })
 

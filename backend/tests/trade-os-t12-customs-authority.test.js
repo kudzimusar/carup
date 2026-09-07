@@ -419,6 +419,39 @@ test('T12: a step nobody recorded is NOT_RECORDED, and says what would satisfy i
   assert.equal(view.open_actions.length, CUSTOMS_STEPS.length);
 });
 
+// §I — presence remains presence. Uploading "release.pdf" does not release goods, and this is the
+// mutation that SURVIVED the first matrix run: adding DOCUMENT_PROVIDED to the RELEASE step's
+// satisfying list broke nothing, because nothing asserted the two were different facts.
+test('T12: a document being PROVIDED satisfies no other step', async () => {
+  const client = world();
+  const kase = await openCaseFor(client);
+  await withAgent(client, kase);
+  await recordEvent(kase.id, { event_type: 'DOCUMENT_PROVIDED', source_kind: 'IMPORTER_DOCUMENT', evidence_document_id: 'doc-release' }, AGENT, opts(client));
+
+  const view = await getCustomsCaseWorkspace(kase.id, OPERATOR, opts(client));
+  const byKey = Object.fromEntries(view.checklist.map((s) => [s.key, s]));
+  // The document step IS satisfied — that is what happened.
+  assert.equal(byKey.DOCUMENTS.state, 'EVIDENCED', 'the document that was provided is not recorded');
+  // Nothing else is.
+  for (const key of ['LODGEMENT', 'ASSESSMENT', 'PAYMENT', 'RELEASE', 'PORT_RELEASE', 'COLLECTION', 'DELIVERY']) {
+    assert.equal(byKey[key].state, 'NOT_RECORDED', `providing a document satisfied ${key}`);
+  }
+  assert.equal(view.release.evidence_received, false, 'uploading a file released the goods');
+  assert.equal(view.payment.evidence_received, false, 'uploading a file paid the duty');
+  assert.equal(view.assessment.assessed, false, 'uploading a file assessed the duty');
+});
+
+test('T12: each step is satisfied by ITS OWN event type and no other', () => {
+  // Structural, so a future step cannot quietly borrow another's evidence.
+  const seen = new Map();
+  for (const step of CUSTOMS_STEPS) {
+    for (const type of step.satisfiedBy) {
+      assert.ok(!seen.has(type), `${type} satisfies both ${seen.get(type)} and ${step.key}`);
+      seen.set(type, step.key);
+    }
+  }
+});
+
 test('T12: a REPORTED step is not an EVIDENCED one', async () => {
   const client = world();
   const kase = await openCaseFor(client);

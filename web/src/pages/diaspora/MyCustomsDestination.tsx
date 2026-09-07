@@ -112,7 +112,12 @@ export default function MyCustomsDestination() {
         <Panel title="Duty and tax" icon={ShieldCheck} testId="my-customs-assessment">
           <p className="min-w-0 break-words text-2xl font-semibold text-slate-900" data-testid="my-customs-amount">{assessment.amount}</p>
           <p className="mt-1 min-w-0 break-words text-sm text-slate-600" data-testid="my-customs-assessment-detail">{assessment.detail}</p>
+          {/* The rate NEVER travels without its provenance. Found by looking at the deployed page at
+              393px: the participant was shown "Customs exchange rate 26.4312 (USD/ZWG)" and nothing
+              about where it came from or when it applies — while the operator saw both. A rate
+              without its source is the thing this phase removed. */}
           <p className="mt-2 min-w-0 break-words text-xs text-slate-600" data-testid="my-customs-rate">{rate.headline}</p>
+          <p className="mt-1 min-w-0 break-words text-xs text-slate-500" data-testid="my-customs-rate-detail">{rate.detail}</p>
         </Panel>
 
         {data.payment ? (

@@ -60,10 +60,23 @@ async function api(session, path, { method = 'GET', body, tenantId } = {}) {
   if (session.role) headers['x-stakeholder-role'] = session.role;
   if (tenantId) headers['x-tenant-id'] = tenantId;
   if (method !== 'GET') { headers['x-csrf-token'] = session.csrf; headers.cookie = session.cookie; }
-  const r = await fetch(`${API}/api/diaspora${path}`, { method, headers, body: body ? JSON.stringify(body) : undefined });
-  const t = await r.text();
-  let p; try { p = JSON.parse(t); } catch { p = { raw: t.slice(0, 200) }; }
-  return { status: r.status, body: p, data: p?.data };
+
+  // A preview deployment cold-starts, and the connection is dropped rather than answered. Retrying
+  // the TRANSPORT is not retrying the assertion: a refusal still refuses and a 500 is still a 500 —
+  // only "no answer at all" is tried again, and the last transport error is reported if it persists.
+  let lastTransportError = null;
+  for (let attempt = 1; attempt <= 3; attempt += 1) {
+    try {
+      const r = await fetch(`${API}/api/diaspora${path}`, { method, headers, body: body ? JSON.stringify(body) : undefined });
+      const t = await r.text();
+      let p; try { p = JSON.parse(t); } catch { p = { raw: t.slice(0, 200) }; }
+      return { status: r.status, body: p, data: p?.data };
+    } catch (e) {
+      lastTransportError = e;
+      await new Promise((res) => setTimeout(res, 1500 * attempt));
+    }
+  }
+  throw new Error(`transport failed after 3 attempts: ${lastTransportError?.message || lastTransportError}`);
 }
 
 const operator = await signIn('t9uat-operator@carup-staging.test');
@@ -351,8 +364,10 @@ await check('general cargo completes T12 with NO vehicle authority anywhere', as
   assert(view.data.case.cargo_kind === 'GENERAL', view.data.case.cargo_kind);
   assert(view.data.vehicle === null, 'general cargo was given a vehicle projection');
   const text = JSON.stringify(view.data).toLowerCase();
-  for (const forbidden of ['vin', 'chassis', 'zinara', 'registration']) {
-    assert(!text.includes(forbidden), `general cargo was asked for "${forbidden}"`);
+  // WHOLE WORDS. A bare substring ban is the defect T10 hit when `eta` matched `metadata`: here
+  // `vin` matches "leaving" and "moving", so the check would fail on the phase working correctly.
+  for (const forbidden of ['vin', 'chassis', 'zinara', 'registration', 'cvr']) {
+    assert(!new RegExp(`\\b${forbidden}\\b`).test(text), `general cargo was asked for "${forbidden}"`);
   }
   return 'completed with no VIN, no CVR, no VID, no ZINARA';
 });

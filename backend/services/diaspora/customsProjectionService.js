@@ -241,7 +241,15 @@ export function projectChecklist(events) {
       key: step.key,
       label: step.label,
       // Three states, never two. "Not evidenced" is not "no".
-      state: latest ? (strengthOf(latest) === 'AUTHORITY_EVIDENCE' || latest.assertion_class === 'CARUP_OBSERVED' ? 'EVIDENCED' : 'REPORTED') : 'NOT_RECORDED',
+      //
+      // EVIDENCED means there is something behind it: a physical observation somebody made, or a
+      // document attached to the claim. REPORTED means exactly what the label says — somebody told
+      // us, and nothing is attached. Keying this on the SOURCE being the authority was wrong: it
+      // made the documents step itself read "Reported, no document" for a document that had been
+      // supplied and attached.
+      state: latest
+        ? (latest.assertion_class === 'CARUP_OBSERVED' || latest.evidence_document_id ? 'EVIDENCED' : 'REPORTED')
+        : 'NOT_RECORDED',
       at: latest ? latest.event_time : null,
       source_strength: latest ? strengthOf(latest) : null,
       needed: latest ? null : step.needed,
