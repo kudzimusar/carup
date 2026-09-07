@@ -319,3 +319,73 @@ test('GMO-QWEN-15: the cleanup owns what it deletes — no pattern sweep, and te
   // And it must not try to defeat the storage protection.
   assert.doesNotMatch(sql, /storage\.objects/, 'storage deletion is debt, not something to force here');
 });
+
+/* ── Layer 3: extraction goes through the same boundary ────────────────────
+   Converging classification alone left the journey blocked one step later, and for a worse reason
+   than a missing key: the extraction prompt carried `base64Data.slice(0, 150)` — the first 150
+   characters of the base64 string, as TEXT. No model ever saw the document, and whatever came back
+   was being written into `ocr_national_ids` as an extracted identity. */
+
+test('GMO-QWEN-16: extraction imports the boundary and sends the ACTUAL image bytes', async () => {
+  const raw = read('backend/services/document-intelligence/documentIntelligenceService.js');
+  // Assert on the CODE, not the prose: the file documents the old truncation bug by name, and
+  // matching that would fail the file for explaining itself.
+  const source = raw.replace(/\/\*[\s\S]*?\*\//g, '').split('\n').filter((l) => !l.trim().startsWith('//')).join('\n');
+  assert.match(source, /from '\.\.\/ai\/ocrVisionProvider\.js'/, 'must ask the boundary');
+  assert.doesNotMatch(source, /GeminiClient|askGemini/, 'no vendor client on the extraction path');
+  assert.doesNotMatch(source, /base64Data\s*\.\s*slice\(/, 'the image must never be truncated into the prompt');
+
+  const { DocumentIntelligenceService } = await import('../services/document-intelligence/documentIntelligenceService.js');
+  const bytes = Buffer.alloc(4096, 7).toString('base64');
+  // Capture only the PROVIDER call. Supabase's evidence write also goes through fetch, and reading
+  // the first request that happens to arrive would inspect the wrong one.
+  let sent = null;
+  await withEnv({ ...CLOUDFLARE_ENV, ALLOW_OCR_MOCK: 'false' }, () => withFetch(
+    async (url, init) => {
+      if (/api\.cloudflare\.com/.test(String(url))) {
+        sent = JSON.parse(init.body);
+        return { ok: true, status: 200, json: async () => ({ success: true, result: { choices: [{ message: { content: JSON.stringify({ confidenceScore: 0.9, first_name: 'A', last_name: 'B', national_id_number: '63-1-A-42' }) }, finish_reason: 'stop' }] } }) };
+      }
+      return { ok: true, status: 200, json: async () => ({ data: null, error: null }), text: async () => '{}' };
+    },
+    () => DocumentIntelligenceService.extractDocumentData('national_id', `data:image/png;base64,${bytes}`, 'user-conv'),
+  ));
+  assert.ok(sent, 'the provider was called, and it was the CLOUDFLARE endpoint');
+  const parts = sent.messages.at(-1).content;
+  const image = parts.find((p) => p.type === 'image_url');
+  assert.ok(image, 'the image travels as a content part');
+  assert.equal(image.image_url.url.split(',')[1], bytes, 'the COMPLETE image bytes are sent, not a prefix');
+});
+
+test('GMO-QWEN-17: an unconfigured extraction provider fails honestly, with no invented fields', async () => {
+  const { DocumentIntelligenceService } = await import('../services/document-intelligence/documentIntelligenceService.js');
+  // Count only AI-PROVIDER calls. The failure path legitimately writes an evidence row through
+  // Supabase, which also uses fetch — an earlier version of this test counted that and "proved" a
+  // provider call that never happened.
+  const providerCalls = [];
+  const isProvider = (url) => /generativelanguage\.googleapis\.com|api\.cloudflare\.com/.test(String(url));
+  const result = await withEnv(
+    { ...CLOUDFLARE_ENV, CLOUDFLARE_API_TOKEN: undefined, ALLOW_OCR_MOCK: 'false', GEMINI_API_KEY: 'must-not-be-used' },
+    () => withFetch(async (url) => {
+      if (isProvider(url)) { providerCalls.push(String(url)); throw new Error('no provider call expected'); }
+      return { ok: true, status: 200, json: async () => ({ data: null, error: null }), text: async () => '{}' };
+    },
+    () => DocumentIntelligenceService.extractDocumentData('national_id', 'data:image/png;base64,QUJD', 'user-conv')),
+  );
+  assert.equal(result.success, false);
+  assert.equal(result.extractedData, undefined, 'a failed extraction surfaces NO identity fields');
+  assert.equal(result.provider, 'cloudflare', 'attributed to the configured provider');
+  assert.equal(result.provider_execution, null, 'no execution, so no execution evidence');
+  assert.deepEqual(providerCalls, [], 'a Gemini key present must not cause any provider call');
+});
+
+test('GMO-QWEN-18: the extraction mock stays sealed to NODE_ENV=test AND the explicit flag', async () => {
+  const { DocumentIntelligenceService } = await import('../services/document-intelligence/documentIntelligenceService.js');
+  // Production-shaped runtime with the flag set: the seal must still hold.
+  const result = await withEnv(
+    { ...CLOUDFLARE_ENV, CLOUDFLARE_API_TOKEN: undefined, NODE_ENV: 'production', ALLOW_OCR_MOCK: 'true' },
+    () => withFetch(async () => { throw new Error('no call expected'); },
+      () => DocumentIntelligenceService.extractDocumentData('national_id', 'data:image/png;base64,QUJD', 'user-conv')),
+  );
+  assert.equal(result.success, false, 'production must never take the simulated path');
+});

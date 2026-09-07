@@ -1,4 +1,4 @@
-import { askGemini } from '../ai/GeminiClient.js';
+import { resolveVisionProvider } from '../ai/ocrVisionProvider.js';
 import { supabase } from '../../db/supabase.js';
 import crypto from 'crypto';
 import { dispatchAutomationWebhook } from '../eventBus/automationWebhookService.js';
@@ -17,6 +17,21 @@ import { metricsHub } from '../metrics.js';
  * path. The retired approval/promotion chain must not return; the boundary is pinned by
  * backend/tests/o2-x1-document-intelligence-authority.test.js.
  */
+
+/**
+ * The simulated extraction used ONLY under the sealed test-mode gate. It is deliberately a fixed,
+ * obviously-synthetic object rather than anything a model produced, so a value from here can never
+ * be mistaken for something read off a document.
+ */
+const SIMULATED_EXTRACTION = Object.freeze({
+  confidenceScore: 0.94,
+  first_name: 'Tendai',
+  last_name: 'Moyo',
+  national_id_number: '63-1234567-A-42',
+  date_of_birth: '1990-01-01',
+  country: 'Zimbabwe',
+  additional_fields: { simulated: true },
+});
 
 export class DocumentIntelligenceService {
   /**
@@ -55,6 +70,32 @@ export class DocumentIntelligenceService {
   /**
    * Runs OCR extraction and Zimbabwe document parsing
    */
+  /**
+   * Provider output must be a JSON OBJECT; anything else is a provider fault, not a reading.
+   * Nothing is inferred from prose: a string must parse, or yield ONE balanced JSON object that
+   * itself parses to a plain object. Anything else fails closed.
+   */
+  static parseProviderResponse(rawResponse) {
+    let parsed = rawResponse;
+    if (typeof rawResponse === 'string') {
+      try {
+        parsed = JSON.parse(rawResponse);
+      } catch {
+        const opened = rawResponse.indexOf('{');
+        const closed = rawResponse.lastIndexOf('}');
+        let recovered;
+        if (opened > -1 && closed > opened) {
+          try { recovered = JSON.parse(rawResponse.slice(opened, closed + 1)); } catch { recovered = undefined; }
+        }
+        parsed = recovered;
+      }
+    }
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+      throw new Error('The extraction provider returned output that is not a JSON object.');
+    }
+    return parsed;
+  }
+
   static async extractDocumentData(docType, base64Data, userId) {
     if (!userId) {
       // Evidence rows are attribution: outside the test suite a caller must say WHO the
@@ -93,13 +134,72 @@ export class DocumentIntelligenceService {
     }`;
 
     const userPrompt = `Document Type: ${docType}
-    Image payload base64: ${base64Data ? base64Data.slice(0, 150) : 'Mock Base64 data'}`;
+    The document image is attached. Read the fields printed on it.
+    Reply with a single JSON object and nothing else — no prose, no markdown, no code fences.
+    Leave a field out entirely if it is not legible on the document. Never guess a value.`;
+
+    /**
+     * THE IMAGE IS SENT, NOT DESCRIBED.
+     *
+     * This prompt used to carry `base64Data.slice(0, 150)` — the first 150 characters of the base64
+     * string, as TEXT. No model ever saw the document. Whatever came back was invention, and it was
+     * being written into `ocr_national_ids` as an extracted identity. That is the exact text-only
+     * failure the OCR provider boundary exists to eliminate, and it survived on the extraction path
+     * after classification had already been converged.
+     *
+     * Extraction now goes through the same governed boundary as classification —
+     * CARUP_OCR_PROVIDER, default cloudflare/@cf/qwen/qwen3.8-27b, no automatic fallback — and
+     * carries the real bytes in the transport measured to deliver that model's pixels.
+     */
+    const provider = resolveVisionProvider();
+    const providerModel = (() => { try { return provider.model; } catch { return null; } })();
+    // The mock seal is UNCHANGED and stays exactly where the vendor client had it: NODE_ENV=test
+    // AND an explicit flag, never in a production-shaped runtime. It exists so the offline suites
+    // can exercise this service's ordinary success path without a provider.
+    const mockAllowed = process.env.NODE_ENV === 'test' && process.env.ALLOW_OCR_MOCK === 'true';
+    const inlineMatch = /^data:([^;]+);base64,(.*)$/s.exec(String(base64Data || ''));
+    const image = {
+      mimeType: inlineMatch ? inlineMatch[1] : 'image/jpeg',
+      base64: inlineMatch ? inlineMatch[2] : String(base64Data || ''),
+    };
+    if (!image.base64) throw new Error('Document extraction requires the document image; none was supplied.');
 
     try {
-      const response = await askGemini(systemPrompt, userPrompt, true);
-      const parsedData = JSON.parse(response);
-      const confidence = parsedData.confidenceScore || 0.9;
+      // An unconfigured provider is a FAILURE, recorded honestly by the catch below as
+      // OCR_Provider_Unavailable — not a throw that escapes and leaves no evidence row.
+      if (!mockAllowed && !provider.isConfigured()) {
+        throw new Error(
+          `Document extraction provider "${provider.id}" is unavailable: not configured`
+          + ` (requires ${provider.requiredEnv.join(', ')}).`,
+        );
+      }
+      const { content, usage } = mockAllowed && !provider.isConfigured()
+        ? { content: JSON.stringify(SIMULATED_EXTRACTION), usage: null }
+        : await provider.extract({
+        systemPrompt,
+        textPrompt: userPrompt,
+        images: [image],
+        jsonSchema: {
+          name: 'carup_identity_document',
+          schema: {
+            type: 'object',
+            properties: {
+              confidenceScore: { type: 'number' },
+              first_name: { type: 'string' },
+              last_name: { type: 'string' },
+              national_id_number: { type: 'string' },
+              date_of_birth: { type: 'string' },
+              country: { type: 'string' },
+              additional_fields: { type: 'object' },
+            },
+          },
+        },
+          timeoutMs: 90_000,
+        });
+      const parsedData = DocumentIntelligenceService.parseProviderResponse(content);
+      const confidence = typeof parsedData.confidenceScore === 'number' ? parsedData.confidenceScore : 0.9;
       const elapsedMs = Date.now() - startTime;
+      const providerExecution = { provider: provider.id, model: providerModel, usage: usage || null };
       
       // Emit internal DOCUMENT_OCR_EXTRACTED event
       dispatchAutomationWebhook('DOCUMENT_OCR_EXTRACTED', { docType, userId, confidence });
@@ -129,7 +229,7 @@ export class DocumentIntelligenceService {
 
       // Record telemetry metrics
       metricsHub.recordOcrRequest(
-        'gemini',
+        provider.id,
         true,
         elapsedMs,
         confidence,
@@ -212,7 +312,7 @@ export class DocumentIntelligenceService {
           qualityIssues
         },
         ocrDocumentId: id,
-        provider: 'gemini'
+        provider: provider.id, provider_model: providerModel, provider_execution: providerExecution
       };
     } catch (error) {
       const elapsedMs = Date.now() - startTime;
@@ -228,7 +328,12 @@ export class DocumentIntelligenceService {
       }
 
       let status = 'Poor_Image_Quality';
-      if (error.message.includes('missing') || error.message.includes('API key') || error.message.includes('timeout') || error.message.includes('rate limit') || error.message.includes('Unavailable') || error.message.includes('FATAL')) {
+      // Classifying a fault by grepping its message is fragile, so at least do it case-insensitively
+      // and name every phrase a provider actually uses. Matching only 'Unavailable' meant a message
+      // saying "provider unavailable" in lower case was filed as POOR IMAGE QUALITY — blaming the
+      // applicant's photograph for an outage on our side.
+      const PROVIDER_FAULT = /missing|api key|timeout|timed out|rate limit|unavailable|not configured|refused the request|fatal/i;
+      if (PROVIDER_FAULT.test(error.message)) {
         status = 'OCR_Provider_Unavailable';
       } else if (!quality.qualityPassed) {
         if (quality.tamperSuspicionScore >= 0.3) {
@@ -250,7 +355,7 @@ export class DocumentIntelligenceService {
       });
 
       metricsHub.recordOcrRequest(
-        'gemini',
+        provider.id,
         false,
         elapsedMs,
         0.0,
@@ -296,7 +401,9 @@ export class DocumentIntelligenceService {
           qualityIssues
         },
         ocrDocumentId: id,
-        provider: 'gemini'
+        // A failed extraction reports WHICH provider failed, and no execution evidence, because
+        // there was no execution to evidence.
+        provider: provider.id, provider_model: providerModel, provider_execution: null
       };
     }
   }
