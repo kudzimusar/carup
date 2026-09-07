@@ -24,6 +24,7 @@ import {
   completeLoad,
   recordSeal,
   getMyLoadStatus,
+  projectPlanPressure,
   READINESS_BLOCKERS,
 } from '../services/diaspora/containerLoadService.js';
 
@@ -245,6 +246,92 @@ test('T10: opening a plan twice yields ONE plan', async () => {
   assert.equal(second.already_existed, true);
 });
 
+// ── 3b. Capacity pressure — a plan may be refused, an observation may not ──
+
+test('T10: an impossible PLAN is refused, and the refusal says by how much', () => {
+  const p = projectPlanPressure({ total_capacity_volume: 5 }, [
+    { disposition: 'PLANNED_IN', planned_volume_cbm: 3.8 },
+    { disposition: 'PLANNED_IN', planned_volume_cbm: 2.5 },
+  ]);
+  assert.equal(p.over_capacity, true);
+  assert.equal(p.planned_in_cbm, 6.3);
+  assert.equal(p.over_by_cbm, 1.3);
+  assert.equal(p.headroom_cbm, 0);
+});
+
+test('T10: an excluded line does not count against capacity', () => {
+  const p = projectPlanPressure({ total_capacity_volume: 5 }, [
+    { disposition: 'PLANNED_IN', planned_volume_cbm: 3.8 },
+    { disposition: 'PLANNED_OUT', planned_volume_cbm: null },
+  ]);
+  assert.equal(p.over_capacity, false);
+  assert.equal(p.headroom_cbm, 1.2);
+});
+
+test('T10: unmeasured planned lines are COUNTED, not treated as zero', () => {
+  const p = projectPlanPressure({ total_capacity_volume: 33 }, [
+    { disposition: 'PLANNED_IN', planned_volume_cbm: 3.8 },
+    { disposition: 'PLANNED_IN', planned_volume_cbm: null },
+  ]);
+  assert.equal(p.planned_in_cbm, 3.8);
+  assert.equal(p.lines_without_volume, 1);
+  assert.match(p.note, /floor rather than the whole plan/i);
+});
+
+test('T10: confirming an over-capacity plan is REFUSED with the overage named', async () => {
+  const client = createMockSupabase({
+    diaspora_container_shipments: [
+      { id: 'small', tenant_id: 'tenant-op', coordinator_id: 'user-operator', total_capacity_volume: 4, used_capacity_volume: 0, available_capacity_volume: 4, status: 'BOOKING_CLOSED', deleted_at: null },
+    ],
+    diaspora_cargo_reservations: [
+      { id: 'r1', tenant_id: 'tenant-op', container_id: 'small', import_order_id: 'o1', buyer_id: 'user-customer', created_by: 'user-customer', cargo_type: 'parts', estimated_volume: 3.0, reservation_status: 'APPROVED', deleted_at: null },
+      { id: 'r2', tenant_id: 'tenant-op', container_id: 'small', import_order_id: 'o2', buyer_id: 'user-coloader', created_by: 'user-coloader', cargo_type: 'other', estimated_volume: 2.0, reservation_status: 'APPROVED', deleted_at: null },
+    ],
+    diaspora_warehouse_intakes: [
+      { id: 'i1', tenant_id: 'tenant-op', warehouse_id: 'wh', subject_type: 'cargo_reservation', subject_id: 'r1', reference: 'W1', status: 'RECEIVED', condition: 'good', deleted_at: null },
+      { id: 'i2', tenant_id: 'tenant-op', warehouse_id: 'wh', subject_type: 'cargo_reservation', subject_id: 'r2', reference: 'W2', status: 'RECEIVED', condition: 'good', deleted_at: null },
+    ],
+    diaspora_warehouse_measurements: [
+      { id: 'm1', intake_id: 'i1', actual_volume_cbm: 3.8, measured_at: '2026-09-10T10:00:00Z', deleted_at: null },
+      { id: 'm2', intake_id: 'i2', actual_volume_cbm: 2.5, measured_at: '2026-09-10T10:00:00Z', deleted_at: null },
+    ],
+    diaspora_trade_documents: [],
+    diaspora_container_load_plans: [], diaspora_container_load_plan_items: [],
+    diaspora_container_loads: [], diaspora_container_load_items: [], diaspora_container_seal_records: [],
+    diaspora_import_audit_log: [],
+  });
+  const o = opts(client);
+  const plan = await createLoadPlan('small', {}, OPERATOR, o);
+  await setPlanItem(plan.id, { subjectId: 'r1', disposition: 'PLANNED_IN' }, OPERATOR, o);
+  await setPlanItem(plan.id, { subjectId: 'r2', disposition: 'PLANNED_IN' }, OPERATOR, o);
+
+  // 3.8 + 2.5 = 6.3 into a 4.0 CBM container.
+  await assert.rejects(
+    () => confirmLoadPlan(plan.id, OPERATOR, o),
+    /1.3 CBM too much|too much/i,
+  );
+  const { data: after } = await client.from('diaspora_container_load_plans').select('*').eq('id', plan.id).maybeSingle();
+  assert.equal(after.status, 'DRAFT', 'the plan was confirmed anyway');
+
+  // T5's ledger is untouched by the refusal — the system did not "make room".
+  const { data: c } = await client.from('diaspora_container_shipments').select('*').eq('id', 'small').maybeSingle();
+  assert.equal(Number(c.available_capacity_volume), 4);
+  assert.equal(Number(c.total_capacity_volume), 4);
+
+  // The governed resolution: take something out, with a reason. Then it confirms.
+  await setPlanItem(plan.id, { subjectId: 'r2', disposition: 'PLANNED_OUT', exclusionReason: 'DOES_NOT_FIT' }, OPERATOR, o);
+  const confirmed = await confirmLoadPlan(plan.id, OPERATOR, o);
+  assert.equal(confirmed.status, 'CONFIRMED');
+});
+
+test('T10: the refusal invents no commercial consequence', async () => {
+  const p = projectPlanPressure({ total_capacity_volume: 4 }, [{ disposition: 'PLANNED_IN', planned_volume_cbm: 6.3 }]);
+  const text = JSON.stringify(p).toLowerCase();
+  for (const forbidden of ['refund', 'charge', 'price', 'surcharge', 'next sailing', 'rebook', 'settle']) {
+    assert.ok(!text.includes(forbidden), `capacity pressure must not mention "${forbidden}"`);
+  }
+});
+
 // ── 4. Loading is an attributed act ────────────────────────────────────────
 
 async function loadedWorld() {
@@ -295,6 +382,18 @@ test('T10: leaving cargo behind needs a bounded reason and keeps it on the manif
   assert.equal(left.loaded_volume_cbm, null, 'left-behind cargo has no loaded volume');
   const { data } = await client.from('diaspora_container_load_items').select('*').eq('load_id', load.id);
   assert.equal(data.length, 1, 'the line is on the manifest, not deleted from it');
+});
+
+test('T10: an ACTUAL load is NOT refused on capacity — an observation is not a claim', async () => {
+  const { client, load } = await loadedWorld();
+  // The container is 33 CBM and this says 40 went in. That is almost certainly a typo — and it is
+  // still not the system's call. If a person watched it happen, the system records what they saw;
+  // refusing would make them write the truth down somewhere the system cannot see.
+  const item = await recordLoadItem(load.id, { subjectId: RES_A, outcome: 'LOADED', loadedVolumeCbm: 40 }, OPERATOR, opts(client));
+  assert.equal(Number(item.loaded_volume_cbm), 40);
+  // …and T5's ledger is still untouched by it.
+  const { data: c } = await client.from('diaspora_container_shipments').select('*').eq('id', CONTAINER).maybeSingle();
+  assert.equal(Number(c.used_capacity_volume), 5.5);
 });
 
 test('T10: completing a load derives the total from what was LOADED', async () => {

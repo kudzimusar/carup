@@ -1052,6 +1052,35 @@ export const FEATURE_REGISTRY: FeatureRegistryItem[] = [
     description: 'Receive cargo, record its condition and measure it',
   },
   {
+    // T10.3 — the container loading workspace. Registered so the unregistered-path fallback can
+    // never make it public. The role list is the OUTER gate only: sailing authority is resolved
+    // server-side, so a dealer who runs no sailing can open the page and load nothing.
+    id: 'diaspora.container-loading',
+    label: 'Container Loading',
+    route: '/diaspora/loading',
+    domain: 'diaspora',
+    roles: ['dealer', 'admin'],
+    placements: ['dashboard_sidebar'],
+    requiresAuth: true,
+    icon: 'Container',
+    sidebarGroup: 'Growth & Diaspora',
+    description: 'Plan a container load, and record what actually went in',
+  },
+  {
+    // T10.3 — a participant's own cargo against the container. Parameterized and reached from the
+    // transaction, so placements is empty on purpose; the FULL path is declared because the
+    // dead-link gate compares against App.tsx verbatim.
+    id: 'diaspora.my-cargo-loading',
+    label: 'Your Cargo And The Container',
+    route: '/diaspora/cargo-loading/:subjectType/:subjectId',
+    domain: 'diaspora',
+    roles: ['owner', 'dealer', 'admin', 'government'],
+    placements: [],
+    requiresAuth: true,
+    icon: 'Package',
+    description: 'Whether your cargo was loaded into the container',
+  },
+  {
     // T9.3 — a participant's own cargo. Not a sidebar destination: it is reached from the
     // transaction it belongs to, and the server authorizes it from the cargo's owner.
     //

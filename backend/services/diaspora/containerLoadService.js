@@ -270,6 +270,45 @@ export async function getLoadReadiness(containerId, userContext = {}, options = 
   };
 }
 
+/**
+ * Does the plan physically fit?
+ *
+ * The asymmetry here is deliberate and is the whole of §7:
+ *
+ *   a PLAN is a claim about the future — it can be wrong, and an impossible one is refused;
+ *   an ACTUAL LOAD is an observation of the past — if a person says it went in, it went in.
+ *
+ * So this gates `confirmLoadPlan` and never `recordLoadItem`. A system that refused to record what
+ * somebody watched happen, because its arithmetic disagreed, would be choosing its model over
+ * reality — and the operator would write the truth down somewhere the system cannot see.
+ *
+ * It compares against the container's TOTAL capacity, not T5's `available_capacity_volume`. Booked
+ * space is an entitlement ledger; this is about whether the boxes fit in the box. And nothing here
+ * writes either number.
+ */
+export function projectPlanPressure(container, planItems = []) {
+  const total = Number(container?.total_capacity_volume ?? 0);
+  const included = (planItems || []).filter((i) => i.disposition === 'PLANNED_IN' && !i.deleted_at);
+  const withVolume = included.filter((i) => i.planned_volume_cbm !== null && i.planned_volume_cbm !== undefined);
+  const planned = Math.round(withVolume.reduce((t, i) => t + Number(i.planned_volume_cbm), 0) * 1000) / 1000;
+  const unpriced = included.length - withVolume.length;
+  const overBy = Math.round((planned - total) * 1000) / 1000;
+  return {
+    container_total_cbm: total,
+    planned_in_cbm: planned,
+    planned_in_lines: included.length,
+    // Lines with no figure contribute nothing rather than zero, and are COUNTED so the total is
+    // never read as complete.
+    lines_without_volume: unpriced,
+    over_capacity: overBy > 0,
+    over_by_cbm: overBy > 0 ? overBy : 0,
+    headroom_cbm: overBy > 0 ? 0 : Math.round((total - planned) * 1000) / 1000,
+    note: unpriced > 0
+      ? `${unpriced} planned line(s) have no measured volume, so this total is a floor rather than the whole plan.`
+      : null,
+  };
+}
+
 // ── The plan ───────────────────────────────────────────────────────────────
 
 async function liveePlan(client, containerId) {
@@ -416,6 +455,18 @@ export async function confirmLoadPlan(planId, userContext = {}, options = {}) {
   const { data: items } = await client.from(PLAN_ITEMS).select('*').eq('load_plan_id', plan.id).is('deleted_at', null);
   if (!(items || []).some((i) => i.disposition === 'PLANNED_IN')) {
     throw new ValidationError('A plan with nothing planned in is not a plan');
+  }
+
+  // §7 — an impossible plan is refused, and the refusal says by how much and what to do about it.
+  // The operator resolves it with a governed T10 action (revise the plan, or exclude cargo with a
+  // reason). Nothing is repriced, refunded, re-sailed or settled here — none of that is T10's.
+  const pressure = projectPlanPressure(container, items);
+  if (pressure.over_capacity) {
+    throw new ValidationError(
+      `This plan puts ${pressure.planned_in_cbm} CBM into a ${pressure.container_total_cbm} CBM container — `
+      + `${pressure.over_by_cbm} CBM too much. Take something out of the plan, with a reason, before confirming it.`,
+      { code: 'LOAD_PLAN_EXCEEDS_CONTAINER', overBy: pressure.over_by_cbm, plannedCbm: pressure.planned_in_cbm, containerCbm: pressure.container_total_cbm },
+    );
   }
 
   const { data, error } = await client.from(PLANS)
@@ -694,6 +745,9 @@ export async function getContainerLoadState(containerId, userContext = {}, optio
     plan: plan ? {
       id: plan.id, reference: plan.reference, status: plan.status,
       confirmed_at: plan.confirmed_at || null,
+      // Shown BEFORE confirming, so an operator can see the pressure building rather than meeting
+      // it as a refusal at the end.
+      pressure: projectPlanPressure(container, planItems || []),
       items: (planItems || []).map((i) => ({
         subject: { type: i.subject_type, id: i.subject_id },
         disposition: i.disposition,

@@ -327,6 +327,73 @@ export function useTradeLogisticsApi() {
     return response.data
   }, [request])
 
+  // ── T10 — consolidation & loading ──────────────────────────────────────
+
+  const getContainerLoadState = useCallback(async (containerId: string): Promise<ContainerLoadState> => {
+    const response = await request<{ data: ContainerLoadState }>(
+      `/diaspora/container-marketplace/${encodeURIComponent(containerId)}/load-state`)
+    return response.data
+  }, [request])
+
+  const createLoadPlan = useCallback(async (containerId: string): Promise<{ id: string; reference: string; status: string }> => {
+    const response = await request<{ data: { id: string; reference: string; status: string } }>(
+      `/diaspora/container-marketplace/${encodeURIComponent(containerId)}/load-plan`, { method: 'POST', body: '{}' })
+    return response.data
+  }, [request])
+
+  const setLoadPlanItem = useCallback(async (planId: string, payload: {
+    subjectId: string; disposition: 'PLANNED_IN' | 'PLANNED_OUT'; exclusionReason?: string | null
+  }): Promise<LoadPlanItem> => {
+    const response = await request<{ data: LoadPlanItem }>(
+      `/diaspora/load-plans/${encodeURIComponent(planId)}/items`, { method: 'POST', body: JSON.stringify(payload) })
+    return response.data
+  }, [request])
+
+  const confirmLoadPlan = useCallback(async (planId: string): Promise<{ status: string }> => {
+    const response = await request<{ data: { status: string } }>(
+      `/diaspora/load-plans/${encodeURIComponent(planId)}/confirm`, { method: 'POST', body: '{}' })
+    return response.data
+  }, [request])
+
+  const openLoad = useCallback(async (containerId: string): Promise<{ id: string; reference: string; status: string }> => {
+    const response = await request<{ data: { id: string; reference: string; status: string } }>(
+      `/diaspora/container-marketplace/${encodeURIComponent(containerId)}/loads`, { method: 'POST', body: '{}' })
+    return response.data
+  }, [request])
+
+  const recordLoadItem = useCallback(async (loadId: string, payload: {
+    subjectId: string
+    outcome: 'LOADED' | 'LEFT_BEHIND'
+    loadedVolumeCbm?: number | null
+    loadedWeightKg?: number | null
+    leftBehindReason?: string | null
+  }): Promise<LoadManifestItem> => {
+    const response = await request<{ data: LoadManifestItem }>(
+      `/diaspora/loads/${encodeURIComponent(loadId)}/items`, { method: 'POST', body: JSON.stringify(payload) })
+    return response.data
+  }, [request])
+
+  const completeLoad = useCallback(async (loadId: string): Promise<{ status: string; actual_loaded_volume_cbm: number | null }> => {
+    const response = await request<{ data: { status: string; actual_loaded_volume_cbm: number | null } }>(
+      `/diaspora/loads/${encodeURIComponent(loadId)}/complete`, { method: 'POST', body: '{}' })
+    return response.data
+  }, [request])
+
+  const recordSeal = useCallback(async (loadId: string, payload: {
+    containerNumber?: string | null; sealNumber?: string | null
+    recordReason?: 'OBSERVED' | 'CORRECTED' | 'SEAL_REPLACED'; reasonNote?: string | null
+  }): Promise<Record<string, unknown>> => {
+    const response = await request<{ data: Record<string, unknown> }>(
+      `/diaspora/loads/${encodeURIComponent(loadId)}/seal-records`, { method: 'POST', body: JSON.stringify(payload) })
+    return response.data
+  }, [request])
+
+  const getMyLoadStatus = useCallback(async (subjectType: string, subjectId: string): Promise<MyLoadStatus> => {
+    const response = await request<{ data: MyLoadStatus }>(
+      `/diaspora/my-load-status/${encodeURIComponent(subjectType)}/${encodeURIComponent(subjectId)}`)
+    return response.data
+  }, [request])
+
   return useMemo(() => ({
     listMyRequests,
     getRequest,
@@ -366,6 +433,15 @@ export function useTradeLogisticsApi() {
     assignStorageLocation,
     listWarehouses,
     getMyCargo,
+    getContainerLoadState,
+    createLoadPlan,
+    setLoadPlanItem,
+    confirmLoadPlan,
+    openLoad,
+    recordLoadItem,
+    completeLoad,
+    recordSeal,
+    getMyLoadStatus,
   }), [
     listMyRequests,
     getRequest,
@@ -405,7 +481,100 @@ export function useTradeLogisticsApi() {
     assignStorageLocation,
     listWarehouses,
     getMyCargo,
+    getContainerLoadState,
+    createLoadPlan,
+    setLoadPlanItem,
+    confirmLoadPlan,
+    openLoad,
+    recordLoadItem,
+    completeLoad,
+    recordSeal,
+    getMyLoadStatus,
   ])
+}
+
+// ── T10 — consolidation & loading ────────────────────────────────────────
+// Mirrors containerLoadService's projection. `null` means nobody recorded it — an unmeasured
+// volume, an unassigned seal. Never a zero, and no screen may render it as one.
+
+export interface ReadinessBlocker { code: string; reason: string }
+export interface LoadReadiness {
+  ready: boolean
+  blockers: ReadinessBlocker[]
+  facts: {
+    booking_approved: boolean
+    received: boolean
+    measured_volume_cbm: number | null
+    condition: string | null
+    documents_present: number
+  }
+  disclaimer: string
+}
+export interface LoadCandidate {
+  subject: { type: string; id: string }
+  reference: string
+  booked_volume_cbm: number | null
+  warehouse_volume_cbm: number | null
+  intake_status: string | null
+  condition: string | null
+  readiness: LoadReadiness
+}
+export interface PlanPressure {
+  container_total_cbm: number
+  planned_in_cbm: number
+  planned_in_lines: number
+  lines_without_volume: number
+  over_capacity: boolean
+  over_by_cbm: number
+  headroom_cbm: number
+  note: string | null
+}
+export interface LoadPlanItem {
+  subject: { type: string; id: string }
+  disposition: 'PLANNED_IN' | 'PLANNED_OUT'
+  exclusion_reason: string | null
+  planned_volume_cbm: number | null
+  planned_source: 'WAREHOUSE_ACTUAL' | 'BOOKED_ESTIMATE' | 'UNKNOWN'
+}
+export interface LoadManifestItem {
+  subject: { type: string; id: string }
+  outcome: 'LOADED' | 'LEFT_BEHIND'
+  left_behind_reason: string | null
+  loaded_volume_cbm: number | null
+  loaded_at: string | null
+}
+export interface ContainerLoadState {
+  container: {
+    id: string
+    reference: string
+    status: string
+    booked_capacity: { total_cbm: number; used_cbm: number; available_cbm: number; basis: string }
+  }
+  candidates: LoadCandidate[]
+  summary: { total: number; ready: number; not_ready: number; measured_ready_cbm: number; unmeasured: number }
+  plan: {
+    id: string; reference: string; status: string; confirmed_at: string | null
+    pressure: PlanPressure
+    items: LoadPlanItem[]
+  } | null
+  load: {
+    id: string; reference: string; status: string; confirmed_at: string | null
+    actual_loaded_volume_cbm: number | null
+    items: LoadManifestItem[]
+    container_number: string | null
+    seal_number: string | null
+    seal_history: number
+  } | null
+  note: string
+}
+export interface MyLoadStatus {
+  subject: { type: string; id: string }
+  state: 'NOT_STARTED' | 'NOT_RECORDED' | 'LOADED' | 'LEFT_BEHIND'
+  sentence: string
+  left_behind_reason: string | null
+  loaded_volume_cbm?: number | null
+  loaded_at: string | null
+  note?: string
 }
 
 // ── T9 — warehouse intake & measurement ──────────────────────────────────

@@ -550,6 +550,22 @@
     "betaCapable": true
   },
   {
+    "id": "diaspora.container-loading",
+    "domain": "diaspora",
+    "route": "/diaspora/loading",
+    "defaultLifecycle": "active",
+    "defaultRoles": [
+      "admin",
+      "dealer"
+    ],
+    "immutableRoles": [
+      "admin",
+      "dealer"
+    ],
+    "requiresAuth": true,
+    "betaCapable": true
+  },
+  {
     "id": "diaspora.container-marketplace",
     "domain": "diaspora",
     "route": "/diaspora/containers",
@@ -611,6 +627,26 @@
     "id": "diaspora.my-cargo",
     "domain": "diaspora",
     "route": "/diaspora/cargo/:subjectType/:subjectId",
+    "defaultLifecycle": "active",
+    "defaultRoles": [
+      "admin",
+      "dealer",
+      "government",
+      "owner"
+    ],
+    "immutableRoles": [
+      "admin",
+      "dealer",
+      "government",
+      "owner"
+    ],
+    "requiresAuth": true,
+    "betaCapable": true
+  },
+  {
+    "id": "diaspora.my-cargo-loading",
+    "domain": "diaspora",
+    "route": "/diaspora/cargo-loading/:subjectType/:subjectId",
     "defaultLifecycle": "active",
     "defaultRoles": [
       "admin",

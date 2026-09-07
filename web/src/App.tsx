@@ -69,6 +69,8 @@ import TradeRateResearch from './pages/diaspora/TradeRateResearch'
 import TradeDocumentsWorkspace from './pages/diaspora/TradeDocumentsWorkspace'
 import WarehouseIntakeWorkspace from './pages/diaspora/WarehouseIntakeWorkspace'
 import MyCargoIntake from './pages/diaspora/MyCargoIntake'
+import ContainerLoadingWorkspace from './pages/diaspora/ContainerLoadingWorkspace'
+import MyCargoLoading from './pages/diaspora/MyCargoLoading'
 import DiasporaDriveConnections from './pages/diaspora/DiasporaDriveConnections'
 import DiasporaSubscription from './pages/diaspora/DiasporaSubscription'
 import DiasporaSafeTrade from './pages/diaspora/DiasporaSafeTrade'
@@ -339,6 +341,12 @@ export default function App() {
           <Route path="/diaspora/warehouse" element={<WarehouseIntakeWorkspace />} />
           {/* T9.3 — the customer's own cargo. Authorized from the SUBJECT, not the warehouse. */}
           <Route path="/diaspora/cargo/:subjectType/:subjectId" element={<MyCargoIntake />} />
+          {/* T10.3 — the operator's loading workspace. Sailing authority is resolved server-side
+              (coordinator, tenant admin, platform admin), so a caller without it is refused there
+              rather than hidden here. */}
+          <Route path="/diaspora/loading" element={<ContainerLoadingWorkspace />} />
+          {/* T10.3 — a participant's own cargo against the container. Authorized from the CARGO. */}
+          <Route path="/diaspora/cargo-loading/:subjectType/:subjectId" element={<MyCargoLoading />} />
           <Route path="/diaspora/imports" element={<DiasporaImportList />} />
           <Route path="/diaspora/imports/new" element={<NewDiasporaImportOrder />} />
           <Route path="/diaspora/imports/:id" element={<DiasporaImportDetail />} />
