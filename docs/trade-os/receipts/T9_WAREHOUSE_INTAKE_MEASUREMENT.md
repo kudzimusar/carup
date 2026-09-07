@@ -1,6 +1,6 @@
 # Trade OS T9 — Warehouse intake & measurement · Receipt
 
-**Status: `T9-USABLE` — OWNER ACCEPTANCE REMAINS.** Runtime candidate `ee747940`.
+**Status: `T9-USABLE` — OWNER ACCEPTED / FROZEN.** Runtime `ee747940`.
 Certified against the deployed staging product at a proven FE/BE pairing. T10.0 audit complete,
 T10 runtime not started. Production untouched. PR #207 Draft.
 
@@ -77,7 +77,9 @@ Applied to **staging only**; verified `FORCE` RLS and no `anon` SELECT on all th
 - **T9.6** privacy/adversarial matrix, responsive certification, staging journeys A–E.
 
 The authority and its truth boundaries are in place and proven; the product on top of them is not
-built. **This agent does not mark `T9-USABLE`.**
+built. **At `27a2a558` this was `T9-PARTIAL`, and that was the correct verdict** — the slices above
+were still open. They were closed in the same cycle and certified at `ee747940`; §3 onward records
+how. This paragraph is kept as the chronology, not as the current status.
 
 ## 5. Carried forward
 

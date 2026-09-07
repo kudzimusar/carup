@@ -20,11 +20,16 @@ export async function writeDiasporaAudit({
   newState = null,
   metadata = {},
   req = null,
+  // Optional injected client, so a caller that already resolved one (or a test) writes its audit
+  // through the SAME client as the mutation it is auditing. Defaults to the singleton, so every
+  // existing call site is unchanged.
+  supabaseClient = null,
 }) {
   const timestamp = new Date().toISOString();
   const cryptographicSeal = buildAuditSeal({ actorId, action, resourceType, resourceId, timestamp, payload: { previousState, newState, metadata } });
 
-  const { data, error } = await supabase
+  const client = supabaseClient || supabase;
+  const { data, error } = await client
     .from('diaspora_import_audit_log')
     .insert({
       import_order_id: importOrderId,

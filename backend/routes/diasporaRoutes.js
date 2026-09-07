@@ -301,6 +301,9 @@ router.post('/containers', auth, asyncHandler(async (req, res) => res.status(201
 router.get('/containers/:id', auth, asyncHandler(async (req, res) => res.json(await getContainerShipment(req.params.id))));
 router.post('/containers/:id/open-booking', auth, asyncHandler(async (req, res) => res.json(await transitionContainer(req.params.id, CONTAINER_STATUSES.BOOKING_OPEN, req.userContext, req))));
 router.post('/containers/:id/close-booking', auth, asyncHandler(async (req, res) => res.json(await transitionContainer(req.params.id, CONTAINER_STATUSES.BOOKING_CLOSED, req.userContext, req))));
+// T10: these two no longer accept a free claim. `mark-loading` requires a live T10 load record and
+// `mark-shipped` a completed one, enforced in transitionContainer — the sailing's status REFLECTS the
+// canonical loading authority rather than competing with it. See assertLoadingIsBackedByT10.
 router.post('/containers/:id/mark-loading', auth, asyncHandler(async (req, res) => res.json(await transitionContainer(req.params.id, CONTAINER_STATUSES.LOADING, req.userContext, req))));
 router.post('/containers/:id/mark-shipped', auth, asyncHandler(async (req, res) => res.json(await transitionContainer(req.params.id, CONTAINER_STATUSES.SHIPPED, req.userContext, req))));
 router.post('/containers/:id/mark-arrived', auth, asyncHandler(async (req, res) => res.json(await transitionContainer(req.params.id, CONTAINER_STATUSES.ARRIVED, req.userContext, req))));

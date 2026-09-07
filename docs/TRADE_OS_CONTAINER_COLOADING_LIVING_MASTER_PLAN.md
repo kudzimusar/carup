@@ -1764,7 +1764,7 @@ failure, and live OCR is unavailable on staging so the extraction boundary is ce
 
 ## T9 — Warehouse intake and measurement
 
-**`T9-USABLE` — owner acceptance remains. Runtime `ee747940`.** Authority (`20260911090000`) plus
+**`T9-USABLE` — OWNER ACCEPTED / FROZEN. Runtime `ee747940`.** Authority (`20260911090000`) plus
 evidence binding (`20260912090000`), staging only, FORCE RLS. Certified on the deployed product at a
 proven FE/BE pairing: journeys **34/34**, responsive **14/14** across seven widths and two surfaces,
 PGlite gate **29/29**, **14 mutations** (12 required + 2 extra). Receipt
