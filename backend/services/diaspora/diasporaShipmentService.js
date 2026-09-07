@@ -21,23 +21,43 @@ async function assertOrderReadAccess(importOrderId, userContext) {
 /**
  * T11.1 — which stage may follow which.
  *
- * Before this, any stage could follow any stage: `PLANNED → ARRIVED` was accepted, and history could
- * be asserted out of order. A timeline that can be written backwards is not a record of movement.
+ * Before this, any stage could follow any stage, so a timeline could be written backwards and assert
+ * that goods went back to sea after arriving.
  *
- * `EXCEPTION` is reachable from anywhere in transit and returns to the stage the goods are actually
- * at, because an exception is a thing that happens TO a shipment rather than a place in its journey.
+ * The rule is **forward or lateral, never backward** — and the first version of it was wrong in a way
+ * worth recording. It demanded the ordinary sequence, refusing `PLANNED → IN_TRANSIT`. But a stage
+ * that was never recorded is a stage nobody observed, not one that did not happen: an operator who
+ * learns a ship sailed, having never logged BOOKED or LOADING, would have had to invent two facts to
+ * record the one they had. **Forcing invented intermediate states is exactly the failure this
+ * programme exists to prevent**, and the existing authorization suite caught it.
+ *
+ * So skipping forward is allowed. Rewinding is not.
  */
-const SHIPMENT_TRANSITIONS = Object.freeze({
-  PLANNED: ['BOOKED', 'LOADING', 'EXCEPTION'],
-  BOOKED: ['LOADING', 'IN_TRANSIT', 'EXCEPTION'],
-  LOADING: ['IN_TRANSIT', 'EXCEPTION'],
-  IN_TRANSIT: ['ARRIVED', 'CUSTOMS_HOLD', 'EXCEPTION'],
-  ARRIVED: ['CUSTOMS_HOLD', 'RELEASED', 'COMPLETED', 'EXCEPTION'],
-  CUSTOMS_HOLD: ['RELEASED', 'ARRIVED', 'EXCEPTION'],
-  RELEASED: ['COMPLETED', 'EXCEPTION'],
-  COMPLETED: [],
-  EXCEPTION: ['IN_TRANSIT', 'ARRIVED', 'CUSTOMS_HOLD', 'RELEASED', 'COMPLETED'],
+const STAGE_RANK = Object.freeze({
+  PLANNED: 0,
+  BOOKED: 1,
+  LOADING: 2,
+  IN_TRANSIT: 3,
+  ARRIVED: 4,
+  CUSTOMS_HOLD: 5,
+  RELEASED: 6,
+  COMPLETED: 7,
 });
+
+/**
+ * `EXCEPTION` has no rank on purpose. It is something that happens TO a shipment rather than a place
+ * in its journey, so it is reachable from anywhere still moving, and leaving it returns to wherever
+ * the goods actually are — which the operator knows and this map does not.
+ */
+const EXCEPTION_STAGE = 'EXCEPTION';
+
+/**
+ * The one legitimate backward step: a customs hold being LIFTED.
+ *
+ * The goods did not move; a hold was placed and then released, and they are still arrived. Every
+ * other backward transition is refused.
+ */
+const ALLOWED_REVERSALS = Object.freeze([['CUSTOMS_HOLD', 'ARRIVED']]);
 
 export function assertShipmentTransition(currentStage, nextStage) {
   if (currentStage === nextStage) {
@@ -45,12 +65,31 @@ export function assertShipmentTransition(currentStage, nextStage) {
     // retried request looks like. The caller is told nothing changed.
     return { unchanged: true };
   }
-  const allowed = SHIPMENT_TRANSITIONS[currentStage] || [];
-  if (!allowed.includes(nextStage)) {
+
+  const refuse = (why) => {
     throw new ValidationError(
-      `A shipment at ${currentStage} cannot move to ${nextStage}. A timeline that can be written out of order is not a record of movement.`,
-      { code: 'ILLEGAL_SHIPMENT_TRANSITION', currentStage, nextStage, allowed },
+      `A shipment at ${currentStage} cannot move to ${nextStage}. ${why}`,
+      { code: 'ILLEGAL_SHIPMENT_TRANSITION', currentStage, nextStage },
     );
+  };
+
+  if (currentStage === 'COMPLETED') refuse('A completed shipment is finished.');
+  if (nextStage === EXCEPTION_STAGE) return { unchanged: false };
+  if (currentStage === EXCEPTION_STAGE) {
+    if (!(nextStage in STAGE_RANK)) refuse('That is not a stage a shipment can be at.');
+    return { unchanged: false };
+  }
+
+  const from = STAGE_RANK[currentStage];
+  const to = STAGE_RANK[nextStage];
+  if (from === undefined) refuse('That is not a stage a shipment can be at.');
+  if (to === undefined) refuse('That is not a stage a shipment can be at.');
+  if (ALLOWED_REVERSALS.some(([a, b]) => a === currentStage && b === nextStage)) return { unchanged: false };
+  if (to < from) {
+    // A stage that was skipped is a stage nobody recorded. A stage that is REVISITED would be a
+    // claim that the goods went back, and a timeline that can be written backwards is not a record
+    // of movement.
+    refuse('A shipment cannot go backwards — that would say the goods moved back.');
   }
   return { unchanged: false };
 }

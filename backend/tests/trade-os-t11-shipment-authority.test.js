@@ -17,27 +17,47 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { assertShipmentTransition } from '../services/diaspora/diasporaShipmentService.js';
 
-// ── 3. The timeline cannot be written out of order ─────────────────────────
+// ── 3. The timeline cannot be written BACKWARDS ────────────────────────────
+//
+// The rule is forward-or-lateral, never backward — and the first version of it was stricter and
+// wrong. It demanded the ordinary sequence, refusing PLANNED → IN_TRANSIT, which would have forced
+// an operator who learns a ship sailed to invent BOOKED and LOADING first. A stage nobody recorded
+// is a stage nobody OBSERVED, not one that did not happen. The existing authorization suite caught
+// it, and these tests now assert the smaller, truer claim.
 
-test('T11: PLANNED cannot jump straight to ARRIVED', () => {
-  assert.throws(() => assertShipmentTransition('PLANNED', 'ARRIVED'), /cannot move to ARRIVED/);
-});
-
-test('T11: a shipment cannot depart before it is booked or loading', () => {
-  assert.throws(() => assertShipmentTransition('PLANNED', 'IN_TRANSIT'), /cannot move to IN_TRANSIT/);
-});
-
-test('T11: arrival cannot precede transit', () => {
-  assert.throws(() => assertShipmentTransition('BOOKED', 'ARRIVED'), /cannot move to ARRIVED/);
+test('T11: a stage may be SKIPPED — an unrecorded stage is one nobody observed', () => {
+  // The case that caught the over-strict version: a shipment logged as PLANNED, then reported at
+  // sea. Refusing this would make the operator manufacture two facts to record the one they had.
+  assert.deepEqual(assertShipmentTransition('PLANNED', 'IN_TRANSIT'), { unchanged: false });
+  assert.deepEqual(assertShipmentTransition('PLANNED', 'ARRIVED'), { unchanged: false });
+  assert.deepEqual(assertShipmentTransition('BOOKED', 'ARRIVED'), { unchanged: false });
 });
 
 test('T11: history cannot be rewound — ARRIVED does not go back to IN_TRANSIT', () => {
-  assert.throws(() => assertShipmentTransition('ARRIVED', 'IN_TRANSIT'), /cannot move to IN_TRANSIT/);
+  assert.throws(() => assertShipmentTransition('ARRIVED', 'IN_TRANSIT'), /cannot go backwards/);
+  assert.throws(() => assertShipmentTransition('IN_TRANSIT', 'BOOKED'), /cannot go backwards/);
+  assert.throws(() => assertShipmentTransition('RELEASED', 'ARRIVED'), /cannot go backwards/);
+});
+
+test('T11: the refusal says WHY, in terms of what it would assert', () => {
+  try {
+    assertShipmentTransition('ARRIVED', 'IN_TRANSIT');
+    assert.fail('accepted');
+  } catch (err) {
+    assert.match(err.message, /that would say the goods moved back/i);
+  }
+});
+
+test('T11: a customs hold being LIFTED is the one legitimate backward step', () => {
+  // The goods did not move. A hold was placed and released, and they are still arrived.
+  assert.deepEqual(assertShipmentTransition('CUSTOMS_HOLD', 'ARRIVED'), { unchanged: false });
+  // …and it is the ONLY one.
+  assert.throws(() => assertShipmentTransition('CUSTOMS_HOLD', 'IN_TRANSIT'), /cannot go backwards/);
 });
 
 test('T11: a COMPLETED shipment is final — nothing follows it', () => {
   for (const next of ['IN_TRANSIT', 'ARRIVED', 'RELEASED', 'EXCEPTION', 'PLANNED']) {
-    assert.throws(() => assertShipmentTransition('COMPLETED', next), /cannot move to/);
+    assert.throws(() => assertShipmentTransition('COMPLETED', next), /completed shipment is finished/);
   }
 });
 
@@ -49,20 +69,17 @@ test('T11: POSITIVE CONTROL — the ordinary journey is allowed at every step', 
   }
 });
 
-test('T11: an EXCEPTION is reachable from anywhere in transit, and returns to where the goods are', () => {
-  // An exception is something that happens TO a shipment, not a place in its journey.
+test('T11: an EXCEPTION is reachable from anywhere still moving, and returns to where the goods are', () => {
+  // An exception happens TO a shipment; it is not a place in its journey, so it has no rank.
   for (const from of ['PLANNED', 'BOOKED', 'LOADING', 'IN_TRANSIT', 'ARRIVED', 'CUSTOMS_HOLD', 'RELEASED']) {
     assert.deepEqual(assertShipmentTransition(from, 'EXCEPTION'), { unchanged: false }, `${from} → EXCEPTION was refused`);
   }
+  // Leaving it returns to wherever the operator says the goods are — including backwards, because
+  // this map does not know and they do.
   assert.deepEqual(assertShipmentTransition('EXCEPTION', 'IN_TRANSIT'), { unchanged: false });
-});
-
-test('T11: a customs hold is reachable only once the goods are somewhere customs can hold them', () => {
-  assert.deepEqual(assertShipmentTransition('IN_TRANSIT', 'CUSTOMS_HOLD'), { unchanged: false });
-  assert.deepEqual(assertShipmentTransition('ARRIVED', 'CUSTOMS_HOLD'), { unchanged: false });
-  // …and not before it has gone anywhere.
-  assert.throws(() => assertShipmentTransition('PLANNED', 'CUSTOMS_HOLD'), /cannot move to CUSTOMS_HOLD/);
-  assert.throws(() => assertShipmentTransition('BOOKED', 'CUSTOMS_HOLD'), /cannot move to CUSTOMS_HOLD/);
+  assert.deepEqual(assertShipmentTransition('EXCEPTION', 'ARRIVED'), { unchanged: false });
+  // …but not out of the vocabulary.
+  assert.throws(() => assertShipmentTransition('EXCEPTION', 'TELEPORTED'), /not a stage a shipment can be at/);
 });
 
 // ── 4. A retry is not a second journey ─────────────────────────────────────
@@ -74,14 +91,14 @@ test('T11: re-reporting the CURRENT stage is not an error and not a second event
   }
 });
 
-test('T11: the refusal carries a code and the allowed set, so a caller can act on it', () => {
+test('T11: the refusal carries an actionable code and both stages', () => {
   try {
-    assertShipmentTransition('PLANNED', 'ARRIVED');
+    assertShipmentTransition('ARRIVED', 'IN_TRANSIT');
     assert.fail('accepted');
   } catch (err) {
     assert.equal(err.details?.code || err.code, 'ILLEGAL_SHIPMENT_TRANSITION');
-    assert.ok(Array.isArray(err.details?.allowed), 'the allowed set is not reported');
-    assert.ok(err.details.allowed.includes('BOOKED'));
+    assert.equal(err.details.currentStage, 'ARRIVED');
+    assert.equal(err.details.nextStage, 'IN_TRANSIT');
   }
 });
 
@@ -90,16 +107,16 @@ test('T11: the refusal carries a code and the allowed set, so a caller can act o
 test('T11: the transition map contains no customs CLEARANCE, delivery or settlement stage', () => {
   // T11 may record that customs are HOLDING goods — that is an observation of where the cargo is.
   // It may not record that customs cleared them, which is a decision T12 owns.
-  const source = assertShipmentTransition.toString();
-  for (const forbidden of ['CLEARED', 'DELIVERED', 'SETTLED', 'PAID', 'DUTY']) {
-    assert.ok(!source.includes(forbidden), `the transition map mentions ${forbidden}`);
+  // Every stage the map knows about, probed rather than read off the source.
+  for (const stage of ['CLEARED', 'DELIVERED', 'SETTLED', 'PAID', 'DUTY_ASSESSED']) {
+    assert.throws(() => assertShipmentTransition('ARRIVED', stage), /not a stage a shipment can be at/,
+      `${stage} is reachable — T11 may record that customs are HOLDING goods, never that they cleared them`);
   }
 });
 
 test('T11: an unknown stage is refused rather than silently allowed', () => {
-  assert.throws(() => assertShipmentTransition('PLANNED', 'TELEPORTED'), /cannot move to TELEPORTED/);
-  // An unknown CURRENT stage has no allowed set, so everything from it is refused.
-  assert.throws(() => assertShipmentTransition('WHATEVER', 'IN_TRANSIT'), /cannot move to IN_TRANSIT/);
+  assert.throws(() => assertShipmentTransition('PLANNED', 'TELEPORTED'), /not a stage a shipment can be at/);
+  assert.throws(() => assertShipmentTransition('WHATEVER', 'IN_TRANSIT'), /not a stage a shipment can be at/);
 });
 
 // ── The service's structure ────────────────────────────────────────────────

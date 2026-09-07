@@ -40,7 +40,7 @@ should be made structural rather than incidental.
 |---|---|---|
 | **1** | **`createShipment` accepts `container_id` as a free optional field.** Nothing checks that the container was ever loaded. | A shipment can be created for a container with no manifest, no cargo, and no T10 load — the same free-claim shape T10 just closed on `mark-loading`. |
 | **2** | **`departure_date` is a free field on create.** | Planned and observed departure are the same column. A booking's intended sail date and the fact that it sailed are different facts (§25), and a customer reading "departed" deserves the second. |
-| **3** | **No transition legality map.** Unlike containers, any stage may follow any stage. | `PLANNED → ARRIVED` is accepted today. History can be asserted out of order. |
+| **3** | **No transition legality map.** Unlike containers, any stage may follow any stage. | History can be asserted out of order — `ARRIVED → IN_TRANSIT` would say the goods went back to sea. |
 | **4** | **No idempotency on `updateShipmentStage`.** | A retried request appends a second identical stage event, and the timeline says the ship arrived twice. |
 | **5** | **`SHIPMENT_TO_IMPORT_STATUS` maps `CUSTOMS_HOLD → CUSTOMS_IN_PROGRESS` and `RELEASED → RELEASED`.** | The shipment service is already writing customs-shaped order statuses. **T12 owns customs.** T11 must not deepen this, and should record it as a T12 boundary question rather than extend it. |
 | **6** | Stage-event append-only is convention, not constraint. | See above. |
@@ -62,6 +62,23 @@ This does not need an owner ruling — it is derivable from T10's schema and its
 What *would* need one, and is **not** decided here, is whether a shipment may be created for a
 container whose load was `ABANDONED`. That is an operational policy question with no repository
 evidence either way, and T11 refuses it by default (the conservative reading) rather than guessing.
+
+### The rule, and the version of it that was wrong
+
+**Forward or lateral, never backward.**
+
+The first implementation was stricter: it demanded the ordinary sequence and refused
+`PLANNED → IN_TRANSIT`. The existing authorization suite caught it, and the failure was the right
+one to have. **A stage nobody recorded is a stage nobody OBSERVED, not one that did not happen** — an
+operator who learns a ship sailed, having never logged BOOKED or LOADING, would have had to invent
+two facts in order to record the one they had. Forcing invented intermediate states is precisely the
+failure this programme exists to prevent, and the over-strict map committed it.
+
+So skipping forward is allowed; rewinding is refused. The one legitimate backward step is a customs
+hold being **lifted** — the goods did not move, a hold was placed and released, and they are still
+arrived. `EXCEPTION` has no rank at all, because it happens *to* a shipment rather than being a place
+in its journey; leaving it returns to wherever the operator says the goods are, which they know and
+the map does not.
 
 ### Truth model T11 must hold
 
