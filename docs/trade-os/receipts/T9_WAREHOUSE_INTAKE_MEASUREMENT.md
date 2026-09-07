@@ -294,7 +294,32 @@ saying which is which, so a later reader does not delete the one that matters.
 - **T12-BLOCKER carried forward unchanged.** T8's residuals (live OCR unavailable on staging; no
   destructive storage-failure test) are also carried forward, untouched by T9.
 
-## 12. Still open
+## 12. Staging fixtures — accounted for, and deliberately kept
+
+The certification created run-scoped synthetic fixtures on **staging only**. They are listed here
+rather than left for somebody to find:
+
+| what | ids |
+|---|---|
+| users | `t9uat-operator`, `t9uat-customer`, `t9uat-coloader`, `t9uat-foreign` |
+| tenants + memberships | `99990000-…-0001` / `-0002` |
+| warehouses | `99991111-…-0001` / `-0002` |
+| import orders | `99992222-…` |
+| sailing | `99993333-…-0001` |
+| cargo reservations | `99994444-…-0001` … `-0005` |
+| logistics request + items | `99995555-…`, `99996666-…` |
+
+Every one is prefixed `t9uat-` or `9999`, so they are exactly enumerable and cannot be confused with
+real data. **They are kept on purpose:** both journey harnesses need them, and re-running the
+certification is the point of committing the harnesses at all. The credential behind those four
+accounts was generated for this run, exists only in a mode-0600 scratch file outside the repository,
+and belongs to accounts created minutes earlier — **no real account's password was read, written or
+reset.**
+
+What the harnesses do delete before a re-run is the *previous run's* intakes and measurements. That
+removes facts so the product has to create them again; it never asserts one into existence.
+
+## 13. Still open
 
 T9 records that cargo arrived and how big it actually is. It does **not** decide what happens next:
 no loading, no planning, no re-pricing. The schema cannot express `LOADED`, `SHIPPED`, `DEPARTED` or
