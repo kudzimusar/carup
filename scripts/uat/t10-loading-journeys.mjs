@@ -393,7 +393,12 @@ await check('the participant projection leaks no other cargo, operator, tenant o
   assert(!text.includes(BIG_B), 'another participant\'s booking appears');
   assert(!text.includes(operator.id), 'the operator is named to the participant');
   assert(!text.includes(OP_TENANT), 'the tenant is exposed');
-  assert(!text.includes('33'), 'the sailing capacity is exposed');
+  // By FIELD, not substring: `loaded_at` is an ISO timestamp, so a bare "33" check fails whenever
+  // the clock's minute or second is 33. A leak check that depends on the time of day gets rerun
+  // until it passes, which is how a real leak eventually gets waved through.
+  for (const f of ['total_capacity_volume', 'booked_capacity', 'capacity', 'container_total_cbm']) {
+    assert(!(f in r.data), `the participant projection exposes ${f}`);
+  }
   return 'clean';
 });
 

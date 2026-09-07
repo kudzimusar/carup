@@ -610,7 +610,20 @@ test('T10: the participant projection carries no other cargo, operator or sailin
   assert.ok(!text.includes(RES_B), 'another participant\'s cargo appears');
   assert.ok(!text.includes('user-operator'), 'the operator is named to the customer');
   assert.ok(!text.includes('tenant-op'), 'the tenant is exposed');
-  assert.ok(!text.includes('33'), 'the sailing\'s capacity is exposed');
+  // Capacity is checked by FIELD, not by substring.
+  //
+  // The first version asserted the payload did not contain "33" — and `loaded_at` is an ISO
+  // timestamp, so the test failed whenever the clock's minute or second happened to be 33. A leak
+  // check that depends on the time of day is worse than none: it fails at random and gets rerun
+  // until it passes, which is how a real leak would eventually be waved through.
+  for (const field of ['total_capacity_volume', 'used_capacity_volume', 'available_capacity_volume', 'container_total_cbm', 'booked_capacity', 'capacity']) {
+    assert.ok(!(field in mine), `the participant projection exposes ${field}`);
+  }
+  assert.deepEqual(
+    Object.keys(mine).sort(),
+    ['left_behind_reason', 'loaded_at', 'loaded_volume_cbm', 'note', 'sentence', 'state', 'subject'],
+    'the participant projection grew a field — check it is theirs to see',
+  );
 });
 
 // ── 9. Truthful absence ────────────────────────────────────────────────────
