@@ -9,8 +9,10 @@
  * Two design decisions carry most of the weight:
  *
  *  1. **Receiving is confirmed, not clicked.** It is the row that says somebody else's goods are in
- *     your building, and the wrong booking is one mis-tap away — so the panel names the customer's
- *     own reference back at the operator before it will submit.
+ *     your building, and the wrong booking is one mis-tap away — so the panel will not submit until
+ *     the operator types the consignment's own reference back. That reference has to be UNIQUE for
+ *     the check to mean anything: the first version keyed on the subject's short id, and at 393px on
+ *     staging four different consignments rendered the same eight characters.
  *
  *  2. **The estimate is shown beside the measurement form, not replaced by it.** The operator is the
  *     person best placed to notice that 3.0 booked and 3.8 measured is a real difference, and the
@@ -165,6 +167,9 @@ export default function WarehouseIntakeWorkspace() {
                 <p className="mt-1 min-w-0 break-words text-sm text-slate-800">
                   {SUBJECT_LABEL[intake.subject.type]} {shortRef(intake.subject.id)}
                 </p>
+                {intake.storage_location ? (
+                  <p className="mt-0.5 min-w-0 break-words text-xs text-slate-500">at {intake.storage_location}</p>
+                ) : null}
                 <p className="mt-0.5 text-xs text-slate-500">
                   Booked as {formatVolume(intake.estimate.volume_cbm)}
                   {intake.actual ? ` · measured ${formatVolume(intake.actual.volume_cbm)}` : ' · not measured'}
@@ -215,9 +220,12 @@ function IntakeDetail({ intake, busy, onReceive, onMeasure, onAssign }: {
   const estimate = describeEstimate(intake.estimate)
   const expected = intake.status === 'EXPECTED'
   const held = intake.status === 'RECEIVED' || intake.status === 'CONDITIONALLY_RECEIVED'
-  // Confirmation is against the CUSTOMER's own reference, so receiving the wrong consignment takes a
-  // deliberate act rather than a mis-tap.
-  const requiredRef = shortRef(intake.subject.id)
+  // Confirmation is against the INTAKE's own reference, which is unique per consignment.
+  //
+  // It used to be the subject's short reference, and that was a check that could not do its job: two
+  // consignments whose subject ids share a hex prefix render the same eight characters, so typing
+  // them would confirm either one. The queue at 393px showed four rows reading alike.
+  const requiredRef = intake.reference.replace(/^WHIN-/, '')
   const confirmed = confirmRef.trim().toUpperCase() === requiredRef
 
   return (
@@ -227,8 +235,13 @@ function IntakeDetail({ intake, busy, onReceive, onMeasure, onAssign }: {
           <div className="min-w-0">
             <p className="min-w-0 break-all font-mono text-xs text-slate-500">{intake.reference}</p>
             <h2 className="mt-0.5 min-w-0 break-words text-lg font-bold text-slate-950">
-              {SUBJECT_LABEL[intake.subject.type]} {requiredRef}
+              {SUBJECT_LABEL[intake.subject.type]} {shortRef(intake.subject.id)}
             </h2>
+            {/* The customer's own reference, so the operator can check it against their paperwork
+                rather than against another line on this same screen. */}
+            <p className="mt-0.5 min-w-0 break-all font-mono text-[11px] text-slate-500" data-testid="intake-subject-id">
+              {intake.subject.id}
+            </p>
           </div>
           <span className={`shrink-0 rounded-full border px-2.5 py-1 text-xs font-semibold ${INTAKE_STATUS_UI[intake.status]?.tone}`} data-testid="intake-detail-status">
             {INTAKE_STATUS_UI[intake.status]?.label}
@@ -347,7 +360,7 @@ function IntakeDetail({ intake, busy, onReceive, onMeasure, onAssign }: {
 
           <div className="mt-4 min-w-0 rounded-lg border border-amber-200 bg-amber-50 p-3">
             <Label htmlFor="confirm" className="min-w-0 break-words text-xs font-semibold text-amber-900">
-              This records that somebody else&apos;s goods are in your building. Type <span className="font-mono">{requiredRef}</span> to confirm it is the right consignment.
+              This records that somebody else&apos;s goods are in your building. Check the reference above against your paperwork, then type <span className="font-mono">{requiredRef}</span> to confirm.
             </Label>
             <Input id="confirm" value={confirmRef} onChange={(e) => setConfirmRef(e.target.value)} className="mt-1.5 bg-white font-mono" data-testid="intake-confirm" />
           </div>

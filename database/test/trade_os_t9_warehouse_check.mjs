@@ -11,6 +11,11 @@ const sql = readFileSync(new URL('../migrations/20260911090000_trade_os_t9_wareh
 const up = sql.split('-- +migrate Down')[0].replace('-- +migrate Up', '');
 const down = sql.split('-- +migrate Down')[1];
 
+// T9.5 — intake evidence rides the frozen T8 binding rather than a store of its own.
+const evidenceSql = readFileSync(new URL('../migrations/20260912090000_trade_os_t9_intake_evidence_binding.sql', import.meta.url), 'utf-8');
+const evidenceUp = evidenceSql.split('-- +migrate Down')[0].replace('-- +migrate Up', '');
+const evidenceDown = evidenceSql.split('-- +migrate Down')[1];
+
 const db = new PGlite();
 const results = [];
 const check = async (name, fn) => {
@@ -150,6 +155,78 @@ await check('all three tables are ENABLE + FORCE RLS with no anon/authenticated 
   const g = await db.query(`SELECT has_table_privilege('anon','public.diaspora_warehouse_intakes','SELECT') AS anon_sel,
                                    has_table_privilege('authenticated','public.diaspora_warehouse_intakes','INSERT') AS auth_ins;`);
   if (g.rows[0].anon_sel || g.rows[0].auth_ins) throw new Error('anon/authenticated still hold privileges');
+});
+
+// ── T9.5 — evidence goes through T8, and T8's rules survive the extension ──
+//
+// The whole point of adding one value to a governed vocabulary rather than creating
+// `warehouse_photos` is that everything T8 enforces keeps applying. So the gate proves the
+// vocabulary really is still bounded, and that the T8 constraints a warehouse photo has to obey are
+// the same ones a commercial invoice obeys.
+await check('a T8-shaped documents table exists to extend', async () => {
+  await db.exec(`
+    CREATE TABLE public.diaspora_trade_documents (
+      id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+      import_order_id uuid NULL,
+      subject_type text NULL,
+      subject_id text NULL,
+      verification_status text NOT NULL DEFAULT 'UPLOADED',
+      CONSTRAINT trade_document_subject_pairing CHECK (
+        (subject_type IS NULL AND subject_id IS NULL)
+        OR (subject_type IS NOT NULL AND subject_id IS NOT NULL AND length(btrim(subject_id)) > 0)
+      ),
+      CONSTRAINT trade_document_exactly_one_owner CHECK (num_nonnulls(import_order_id, subject_type) = 1),
+      CONSTRAINT trade_document_subject_vocabulary CHECK (
+        subject_type IS NULL OR subject_type IN ('import_order','logistics_request','container_booking','trade_order')
+      )
+    );`);
+});
+
+await refuses('BEFORE the extension, an intake photo has nowhere to live — which is why T9.5 exists',
+  `INSERT INTO public.diaspora_trade_documents (subject_type, subject_id) VALUES ('warehouse_intake','cccccccc-0000-0000-0000-000000000001');`,
+  /trade_document_subject_vocabulary/);
+
+await check('the evidence-binding migration applies', async () => { await db.exec(evidenceUp); });
+
+await check('AFTER it, an intake photo is an ordinary T8 document', async () => {
+  await db.exec(`INSERT INTO public.diaspora_trade_documents (subject_type, subject_id)
+    VALUES ('warehouse_intake','cccccccc-0000-0000-0000-000000000001');`);
+  const r = await db.query(`SELECT verification_status FROM public.diaspora_trade_documents WHERE subject_type='warehouse_intake';`);
+  // Presence is not verification — T8's rule, inherited whole rather than re-implemented.
+  if (r.rows[0].verification_status !== 'UPLOADED') throw new Error('an uploaded photo arrived with a verdict');
+});
+
+await check('T9 created no evidence table of its own', async () => {
+  if (/CREATE\s+TABLE/i.test(evidenceUp)) throw new Error('the evidence migration created a table');
+  const r = await db.query(`SELECT count(*)::int AS n FROM information_schema.tables
+    WHERE table_name IN ('warehouse_photos','warehouse_files','diaspora_warehouse_documents','diaspora_warehouse_evidence');`);
+  if (r.rows[0].n !== 0) throw new Error('a second evidence store exists');
+});
+
+await refuses('the vocabulary is still BOUNDED — a free-text subject is still refused',
+  `INSERT INTO public.diaspora_trade_documents (subject_type, subject_id) VALUES ('whatever_i_like','x');`,
+  /trade_document_subject_vocabulary/);
+
+await refuses('a document still cannot belong to two things at once',
+  `INSERT INTO public.diaspora_trade_documents (import_order_id, subject_type, subject_id)
+     VALUES ('aaaaaaaa-0000-0000-0000-000000000009','warehouse_intake','cccccccc-0000-0000-0000-000000000001');`,
+  /trade_document_exactly_one_owner/);
+
+await check('the frozen T8 subjects still work after the extension', async () => {
+  for (const s of ['import_order', 'logistics_request', 'container_booking', 'trade_order']) {
+    await db.exec(`INSERT INTO public.diaspora_trade_documents (subject_type, subject_id) VALUES ('${s}','subj-${s}');`);
+  }
+});
+
+await check('the evidence binding is reversible, and reverts to exactly the frozen T8 vocabulary', async () => {
+  await db.exec(`DELETE FROM public.diaspora_trade_documents WHERE subject_type='warehouse_intake';`);
+  await db.exec(evidenceDown);
+  let threw = null;
+  try {
+    await db.exec(`INSERT INTO public.diaspora_trade_documents (subject_type, subject_id) VALUES ('warehouse_intake','x');`);
+  } catch (e) { threw = e; }
+  if (!threw) throw new Error('warehouse_intake is still accepted after Down');
+  await db.exec(`DROP TABLE public.diaspora_trade_documents;`);
 });
 
 await check('Down is reversible', async () => {

@@ -166,6 +166,34 @@ test('T9: an APPROVED booking is not received cargo', async () => {
   assert.match(view.status_sentence, /no warehouse has booked this cargo in/i);
 });
 
+test('T9: two consignments whose subject ids share a prefix get DIFFERENT references', async () => {
+  // Found on the deployed queue at 393px: four rows all read "WHIN-99994444". The reference was the
+  // subject id's first eight hex characters, and the receive confirmation asked the operator to type
+  // exactly that string — so a check meant to prevent receiving the wrong consignment could not tell
+  // two consignments apart. A disambiguator that does not disambiguate is worse than none, because
+  // it looks like a check.
+  const client = world({
+    reservations: [
+      { id: 'aaaaaaaa-0000-0000-0000-000000000001', tenant_id: 'tenant-wh', container_id: 'cont-1', import_order_id: 'ord-a', buyer_id: 'user-customer', created_by: 'user-customer', cargo_type: 'parts', estimated_volume: 1, reservation_status: 'APPROVED', deleted_at: null },
+      { id: 'aaaaaaaa-0000-0000-0000-000000000002', tenant_id: 'tenant-wh', container_id: 'cont-1', import_order_id: 'ord-b', buyer_id: 'user-customer', created_by: 'user-customer', cargo_type: 'parts', estimated_volume: 1, reservation_status: 'APPROVED', deleted_at: null },
+    ],
+  });
+  const first = await scheduleIntake({ warehouseId: 'wh-1', subjectType: 'cargo_reservation', subjectId: 'aaaaaaaa-0000-0000-0000-000000000001' }, OPERATOR, opts(client));
+  const second = await scheduleIntake({ warehouseId: 'wh-1', subjectType: 'cargo_reservation', subjectId: 'aaaaaaaa-0000-0000-0000-000000000002' }, OPERATOR, opts(client));
+  assert.notEqual(first.reference, second.reference, 'two consignments present the same reference to the operator');
+  assert.match(first.reference, /^WHIN-[0-9A-F]{8}$/);
+});
+
+test('T9: a replay still returns the SAME intake, reference included', async () => {
+  // The unique reference must not cost idempotency: the one-live-intake index keys on the subject,
+  // so a repeated appointment hands back the winner rather than minting a new reference.
+  const client = world();
+  const first = await bookedIn(client);
+  const again = await bookedIn(client);
+  assert.equal(again.id, first.id);
+  assert.equal(again.reference, first.reference);
+});
+
 test('T9: an un-approved booking cannot be booked in at all', async () => {
   const client = world();
   await assert.rejects(

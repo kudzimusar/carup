@@ -31,13 +31,15 @@ vi.mock('@/hooks/useTradeLogisticsApi', () => ({
 import WarehouseIntakeWorkspace from './WarehouseIntakeWorkspace'
 
 const SUBJECT_ID = 'a1b2c3d4-e5f6-7890-abcd-ef1234567890'
-const REQUIRED_REF = 'A1B2C3D4'
+// The confirmation keys on the INTAKE's reference, which is unique per consignment — not on the
+// subject's short id, which two consignments can share.
+const REQUIRED_REF = 'AB12CD34'
 
 const estimate = (over = {}) => ({
   volume_cbm: 3, weight_kg: 800, completeness: 'COMPLETE', items_total: 1, items_with_volume: 1, source: 'x', ...over,
 })
 const intake = (over = {}) => ({
-  id: 'in-1', reference: 'WHIN-A1B2C3D4', warehouse_id: 'wh-1',
+  id: 'in-1', reference: 'WHIN-AB12CD34', warehouse_id: 'wh-1',
   subject: { type: 'cargo_reservation', id: SUBJECT_ID },
   status: 'EXPECTED', status_sentence: 'The warehouse is expecting your cargo. Nothing has arrived yet.',
   received_at: null, received_at_source: null, condition: null, outcome_reason: null,
@@ -67,7 +69,7 @@ describe('the queue', () => {
   it('lists what is expected, with what it was booked as', async () => {
     await open()
     const row = screen.getByTestId('intake-row-in-1')
-    expect(row).toHaveTextContent('WHIN-A1B2C3D4')
+    expect(row).toHaveTextContent('WHIN-AB12CD34')
     expect(row).toHaveTextContent('Booked as 3.000 CBM')
     expect(row).toHaveTextContent('not measured')
   })
@@ -92,6 +94,24 @@ describe('the queue', () => {
 })
 
 describe('receiving is confirmed, not clicked', () => {
+  it('will not accept the SUBJECT short id — two consignments can share it', async () => {
+    const user = userEvent.setup()
+    await open()
+    await select(user)
+    // The defect this guards: subject ids that share a hex prefix render the same eight characters,
+    // so a confirmation keyed on them confirms either consignment equally well.
+    await user.type(screen.getByTestId('intake-confirm'), 'A1B2C3D4')
+    expect(screen.getByTestId('intake-receive-submit')).toBeDisabled()
+    expect(state.received).toHaveLength(0)
+  })
+
+  it('shows the customer\'s full reference so it can be checked against paperwork', async () => {
+    const user = userEvent.setup()
+    await open()
+    await select(user)
+    expect(screen.getByTestId('intake-subject-id')).toHaveTextContent(SUBJECT_ID)
+  })
+
   it('will not submit until the operator names the right consignment', async () => {
     const user = userEvent.setup()
     await open()

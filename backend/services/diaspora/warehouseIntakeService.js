@@ -23,6 +23,7 @@
  *   2. `received_by` and `received_at` are never taken from the request body's claim of who acted.
  *   3. Nothing here writes the T5 capacity ledger or the customer's estimate.
  */
+import { randomUUID } from 'node:crypto';
 import { ForbiddenError, NotFoundError, ValidationError } from '../../utils/errors.js';
 import {
   requireUserContext,
@@ -390,13 +391,25 @@ export async function scheduleIntake(payload = {}, userContext = {}, options = {
   const existing = await findIntakeBySubject(client, subject.type, subject.id);
   if (existing) return { ...existing, already_existed: true };
 
+  // The reference is derived from the INTAKE's own id, not the subject's.
+  //
+  // Deriving it from the subject looked tidy and was wrong: a short reference is the first 8 hex
+  // characters of an id, so two consignments whose ids share a prefix present the SAME reference to
+  // the operator — and the receive confirmation asks them to type exactly that string. A
+  // disambiguator that does not disambiguate makes the confirmation worse than none, because it
+  // looks like a check. Found by reading the deployed queue at 393px, where four rows read alike.
+  //
+  // Idempotency does not depend on this: `uq_warehouse_intake_subject` is what makes a repeat call
+  // return the existing appointment, and it keys on the subject, not the reference.
+  const id = randomUUID();
   const row = {
+    id,
     // Derived from the warehouse, never from the body: the tenant here decides who may later act.
     tenant_id: warehouse.tenant_id,
     warehouse_id: warehouse.id,
     subject_type: subject.type,
     subject_id: subject.id,
-    reference: shortRef('WHIN', subject.id),
+    reference: shortRef('WHIN', id),
     status: INTAKE_STATUSES.EXPECTED,
     notes: optionalText(payload.notes, 'Notes'),
     // An expected arrival the operator was told about. Recorded as what it is — an expectation —
