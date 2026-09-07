@@ -5,6 +5,7 @@ import { validateShipmentPayload } from '../../validators/diaspora/diasporaSchem
 import { writeDiasporaAudit } from './diasporaAuditService.js';
 import { transitionImportOrder } from './diasporaWorkflowService.js';
 import { emitDiasporaEvent } from './diasporaNotificationService.js';
+import { notifyShipmentException, isExceptionStage } from './shipmentExceptionNotifier.js';
 import { requireUserContext, assertCanManageLogistics, assertCanReadImportOrder, isPlatformReviewer, isPlatformAdmin, isTenantAdminForRecord } from './diasporaAuthorization.js';
 
 // Authorize a read against the import order this shipment belongs to (buyer owns it, or reviewer/admin).
@@ -135,6 +136,15 @@ export async function updateShipmentStage(id, payload, userContext = {}, req = n
   const stageEvent = await writeShipmentStageEvent(id, nextStage, payload.notes || `Shipment moved to ${nextStage}`, userContext, req, payload.metadata || {});
   await writeDiasporaAudit({ importOrderId: data.import_order_id, tenantId: data.tenant_id, actorId: userContext?.id, action: 'SHIPMENT_STAGE_CHANGED', resourceType: 'diaspora_shipment', resourceId: id, previousState: { status: previous.status }, newState: { status: nextStage }, metadata: { stageEventId: stageEvent.id }, req });
   await emitDiasporaEvent(`DIASPORA_SHIPMENT_${nextStage}`, { shipmentId: id, importOrderId: data.import_order_id, stage: nextStage }, data.tenant_id);
+
+  // T7.5 — the customer-facing half. After the audited authoritative change, never before it, and
+  // never in a way that can alter it: an exception the customer is not told about is the one stage
+  // that most needs saying.
+  if (isExceptionStage(nextStage)) {
+    await notifyShipmentException({
+      shipment: data, stage: nextStage, notes: payload.notes || null, tenantId: data.tenant_id,
+    });
+  }
 
   const importStatus = SHIPMENT_TO_IMPORT_STATUS[nextStage];
   if (importStatus) {

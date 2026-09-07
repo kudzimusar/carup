@@ -55,6 +55,8 @@ export const COMMUNICATION_EVENT_TYPES = [
   'diaspora.logistics.quote_accepted',
   'diaspora.logistics.quote_not_selected',
   'diaspora.logistics.quote_withdrawn',
+  // T7.5 — the shipment authority already emitted exceptions and nobody was listening.
+  'diaspora.shipment.exception',
   // Trade OS D7 — container co-loading booking lifecycle. Emitted best-effort by
   // services/diaspora/containerBookingNotifier.js AFTER the audited authoritative mutation.
   // Payloads carry `buyerId` (addressable) plus reference/status/route for the governed

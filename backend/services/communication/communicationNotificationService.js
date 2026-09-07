@@ -200,6 +200,19 @@ export const NOTIFICATION_POLICIES = Object.freeze({
   },
   // T7.5 — a submitted offer was withdrawn. The requester is told because they were told when it
   // arrived; a DRAFT withdrawal never reaches here (the notifier refuses it at source).
+  // T7.5 — a shipment exception or customs hold. One-way and advisory: the notice reports what the
+  // shipment authority recorded and creates no shipment state of its own.
+  'diaspora.shipment.exception': {
+    notificationType: 'rfq_update',
+    threadType: 'marketplace_inquiry',
+    priority: 'high',
+    channels: ['in_app'],
+    fallbackChannels: [],
+    policyChannelsOnly: true,
+    templateKey: 'logistics_update_v1',
+    classification: 'transactional',
+    transactional: true,
+  },
   'diaspora.logistics.quote_withdrawn': {
     notificationType: 'rfq_update',
     threadType: 'marketplace_inquiry',

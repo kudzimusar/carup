@@ -6,12 +6,15 @@
  */
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 
 process.env.NODE_ENV = process.env.NODE_ENV || 'test';
 const { createMockSupabase } = await import('./helpers/mockSupabase.js');
 const rfq = await import('../services/diaspora/diasporaRfqConversationService.js');
 const booking = await import('../services/diaspora/diasporaContainerConversationService.js');
+const logi = await import('../services/diaspora/diasporaLogisticsConversationService.js');
 const notifier = await import('../services/diaspora/logisticsLifecycleNotifier.js');
+const shipEx = await import('../services/diaspora/shipmentExceptionNotifier.js');
 const policies = await import('../services/communication/communicationNotificationService.js');
 const listeners = await import('../services/communication/communicationEventListeners.js');
 
@@ -214,28 +217,35 @@ test('a cancelled booking is not a live relationship', async () => {
 // ── T7.5 · the deferred quote_withdrawn decision, taken ──────────────────────────────────────
 
 test('a SUBMITTED offer being withdrawn tells the requester', async () => {
-  const request = { id: 'req-1', requester_id: 'u_requester', origin_city: 'Yokohama', destination_city: 'Harare' };
-  const emitted = await notifier.notifyLogisticsQuoteWithdrawn({
-    request, quote: { id: 'q-1' }, previousStatus: 'SUBMITTED', tenantId: null,
+  const sent = [];
+  await notifier.notifyLogisticsQuoteWithdrawn({
+    request: { id: 'req-1', requester_id: 'u_requester', origin_city: 'Yokohama', destination_city: 'Harare' },
+    quote: { id: 'q-1' }, previousStatus: 'SUBMITTED', emitEvent: (type, payload) => { sent.push({ type, payload }); return 'emitted'; },
   });
-  // The emit is best-effort against a real outbox; what this pins is that it was ATTEMPTED,
-  // i.e. the notifier did not silently decide to say nothing.
-  assert.notEqual(emitted, undefined);
+  assert.equal(sent.length, 1);
+  assert.equal(sent[0].type, 'diaspora.logistics.quote_withdrawn');
+  assert.equal(sent[0].payload.recipientUserId, 'u_requester', 'the requester, and only the requester');
+  assert.equal(sent[0].payload.status, 'OFFER_WITHDRAWN');
 });
 
 test('a DRAFT withdrawal notifies NOBODY — it was never visible to the requester', async () => {
-  const request = { id: 'req-1', requester_id: 'u_requester' };
-  const emitted = await notifier.notifyLogisticsQuoteWithdrawn({
-    request, quote: { id: 'q-1' }, previousStatus: 'DRAFT', tenantId: null,
+  const sent = [];
+  const r = await notifier.notifyLogisticsQuoteWithdrawn({
+    request: { id: 'req-1', requester_id: 'u_requester' }, quote: { id: 'q-1' },
+    previousStatus: 'DRAFT', emitEvent: (t, p) => { sent.push({ t, p }); return 'emitted'; },
   });
-  assert.equal(emitted, null, 'announcing a draft would leak that a provider was considering an offer');
+  assert.equal(r, null);
+  assert.equal(sent.length, 0, 'announcing a draft would leak that a provider was considering an offer');
 });
 
 test('a request with no recipient on record notifies nobody rather than guessing one', async () => {
-  const emitted = await notifier.notifyLogisticsQuoteWithdrawn({
-    request: { id: 'req-1' }, quote: { id: 'q-1' }, previousStatus: 'SUBMITTED', tenantId: null,
+  const sent = [];
+  const r = await notifier.notifyLogisticsQuoteWithdrawn({
+    request: { id: 'req-1' }, quote: { id: 'q-1' }, previousStatus: 'SUBMITTED',
+    emitEvent: (t, p) => { sent.push({ t, p }); return 'emitted'; },
   });
-  assert.equal(emitted, null);
+  assert.equal(r, null);
+  assert.equal(sent.length, 0);
 });
 
 test('the withdrawal event is registered end to end — listener AND policy', () => {
@@ -256,4 +266,208 @@ test('the sailing coordinator IS its organiser, even with no tenant and no platf
     { supabaseClient: c, participantId: CO_LOADER_A, communicationServices: services });
   assert.equal(r.role, 'organiser', 'the person who organises the sailing must not be told they have no booking on it');
   assert.equal(calls[0].subject_id, `${SAILING}:${CO_LOADER_A}`);
+});
+
+// ── T7.5 · shipment EXCEPTION communication ──────────────────────────────────────────────────
+//
+// The canonical producer already existed — updateShipmentStage records an authoritative EXCEPTION
+// stage event, audits it, and emits on the domain bus — and Communications subscribed to none of
+// it. The stage a customer most needs to hear about was the one nobody told them.
+
+test('an EXCEPTION stage is a customer-facing exception', () => {
+  assert.equal(shipEx.isExceptionStage('EXCEPTION'), true);
+  // A stop is a stop. Treating CUSTOMS_HOLD as ordinary progress because it has its own enum value
+  // would follow the vocabulary against its meaning.
+  assert.equal(shipEx.isExceptionStage('CUSTOMS_HOLD'), true);
+  assert.equal(shipEx.isExceptionStage('customs_hold'), true);
+});
+
+test('ordinary progress is NOT an exception — no alarm on a healthy shipment', () => {
+  for (const stage of ['PLANNED', 'BOOKED', 'LOADING', 'IN_TRANSIT', 'ARRIVED', 'RELEASED', 'COMPLETED']) {
+    assert.equal(shipEx.isExceptionStage(stage), false, `${stage} must not raise an exception notice`);
+  }
+});
+
+test('a non-exception stage emits nothing at all', async () => {
+  const r = await shipEx.notifyShipmentException({
+    shipment: { id: 'ship-1', buyer_id: 'u_buyer' }, stage: 'IN_TRANSIT',
+  });
+  assert.equal(r, null);
+});
+
+test('an exception with nobody to address notifies nobody rather than guessing', async () => {
+  const r = await shipEx.notifyShipmentException({ shipment: { id: 'ship-1' }, stage: 'EXCEPTION' });
+  assert.equal(r, null, 'an event nobody can be addressed with is not a notification');
+});
+
+test('the shipment exception is registered end to end — listener AND policy', () => {
+  assert.ok(listeners.COMMUNICATION_EVENT_TYPES.includes('diaspora.shipment.exception'),
+    'without a subscribed listener the emit reaches nothing');
+  const policy = (policies.NOTIFICATION_POLICIES || {})['diaspora.shipment.exception'];
+  assert.ok(policy, 'without a policy the event renders no notification');
+  assert.equal(policy.priority, 'high', 'a stopped shipment is not routine');
+  assert.deepEqual(policy.channels, ['in_app']);
+});
+
+test('the notice never carries authority over the shipment', async () => {
+  // Whatever the payload says, it is advisory. Nothing in this module writes a stage.
+  const src = readFileSync(new URL('../services/diaspora/shipmentExceptionNotifier.js', import.meta.url), 'utf-8');
+  assert.ok(!/\.update\(|\.insert\(|\.upsert\(/.test(src),
+    'the consumer must not write to any table — it reports, it does not decide');
+  assert.ok(/advisory_only: true/.test(src));
+});
+
+// ── T7.3 · logistics conversations, certified ────────────────────────────────────────────────
+//
+// The implementation was inspected and believed working, and had no dedicated coverage. Believed
+// working is not certified.
+
+const REQUESTER = 'u_requester';
+const PROVIDER_A = 'u_provider_a';
+const PROVIDER_B = 'u_provider_b';
+const SHIP_REQ = 'ship-1';
+
+// Provider eligibility is EARNED from the canonical business profile, not from users.role — so the
+// fixture must give it, and STRANGER deliberately has none.
+const providerProfile = (id) => ({ user_id: id, account_kind: 'business', business_type: 'logistics_provider', organization_name: `Freight ${id}`, country_of_residence: 'Japan', city: 'Yokohama' });
+const shipDb = (quotes) => createMockSupabase({
+  diaspora_logistics_requests: [{
+    id: SHIP_REQ, requester_id: REQUESTER, created_by: REQUESTER, tenant_id: null,
+    status: 'OPEN_FOR_QUOTES', deleted_at: null,
+  }],
+  diaspora_logistics_quotes: quotes,
+  user_registration_profiles: [providerProfile(PROVIDER_A), providerProfile(PROVIDER_B)],
+  users: [{ id: REQUESTER }, { id: PROVIDER_A }, { id: PROVIDER_B }, { id: STRANGER }],
+});
+const submitted = [{ id: 'lq-a', logistics_request_id: SHIP_REQ, provider_id: PROVIDER_A, status: 'SUBMITTED', deleted_at: null }];
+
+test('requester and provider reach ONE canonical thread, not two', async () => {
+  const c = shipDb(submitted);
+  const { services, calls } = recordingServices();
+  const a = await logi.ensureLogisticsConversation(SHIP_REQ, ctxFor(REQUESTER),
+    { supabaseClient: c, providerId: PROVIDER_A, communicationServices: services });
+  const b = await logi.ensureLogisticsConversation(SHIP_REQ, ctxFor(PROVIDER_A),
+    { supabaseClient: c, communicationServices: services });
+  assert.equal(a.role, 'requester');
+  assert.equal(b.role, 'provider');
+  assert.equal(calls[0].subject_type, 'diaspora_logistics_request');
+  assert.equal(calls[0].subject_id, calls[1].subject_id, 'both sides must land on the same thread key');
+  assert.deepEqual(calls[0].participants.map((p) => p.user_id).sort(), [PROVIDER_A, REQUESTER].sort());
+  assert.match(calls[0].metadata.shipping_reference, /^SHIP-/);
+});
+
+test('a DRAFT offer is not an engagement — and cannot be used as an existence oracle', async () => {
+  const c = shipDb([{ id: 'lq-d', logistics_request_id: SHIP_REQ, provider_id: PROVIDER_A, status: 'DRAFT', deleted_at: null }]);
+  const { services, calls } = recordingServices();
+  await assert.rejects(
+    () => logi.ensureLogisticsConversation(SHIP_REQ, ctxFor(REQUESTER),
+      { supabaseClient: c, providerId: PROVIDER_A, communicationServices: services }),
+    /must submit an offer before/i);
+  assert.equal(calls.length, 0, "the requester must not learn a private draft exists");
+});
+
+/**
+ * The ACTUAL policy, documented rather than assumed.
+ *
+ * While a request is OPEN_FOR_QUOTES any ELIGIBLE logistics provider may open a conversation —
+ * asking one question before quoting is the point, and it is symmetric with the procurement
+ * supplier. Eligibility is a commercial business profile, never users.role. Once the request is no
+ * longer open, a provider needs an ACTIVE (non-withdrawn) offer to keep talking.
+ */
+test('while the request is OPEN, an eligible provider may ask before quoting', async () => {
+  const c = shipDb(submitted);
+  const { services, calls } = recordingServices();
+  const r = await logi.ensureLogisticsConversation(SHIP_REQ, ctxFor(PROVIDER_B), { supabaseClient: c, communicationServices: services });
+  assert.equal(r.role, 'provider');
+  // …but in their OWN thread. Competitors never share one.
+  assert.equal(calls[0].subject_id, `${SHIP_REQ}:${PROVIDER_B}`);
+});
+
+test('competitors never share a thread', async () => {
+  const c = shipDb(submitted);
+  const { services, calls } = recordingServices();
+  await logi.ensureLogisticsConversation(SHIP_REQ, ctxFor(PROVIDER_A), { supabaseClient: c, communicationServices: services });
+  await logi.ensureLogisticsConversation(SHIP_REQ, ctxFor(PROVIDER_B), { supabaseClient: c, communicationServices: services });
+  assert.notEqual(calls[0].subject_id, calls[1].subject_id);
+  assert.ok(!calls[0].participants.some((p) => p.user_id === PROVIDER_B));
+  assert.ok(!calls[1].participants.some((p) => p.user_id === PROVIDER_A));
+});
+
+test('once the request is CLOSED, only a provider with an ACTIVE offer may still talk', async () => {
+  const closed = (quotes) => createMockSupabase({
+    diaspora_logistics_requests: [{ id: SHIP_REQ, requester_id: REQUESTER, created_by: REQUESTER, tenant_id: null, status: 'CANCELLED', deleted_at: null }],
+    diaspora_logistics_quotes: quotes,
+    user_registration_profiles: [providerProfile(PROVIDER_A), providerProfile(PROVIDER_B)],
+    users: [{ id: REQUESTER }, { id: PROVIDER_A }, { id: PROVIDER_B }],
+  });
+  const { services } = recordingServices();
+  // An active offer keeps the conversation reachable — history does not become unreachable because
+  // the deal ended.
+  const still = await logi.ensureLogisticsConversation(SHIP_REQ, ctxFor(PROVIDER_A),
+    { supabaseClient: closed(submitted), communicationServices: services });
+  assert.equal(still.role, 'provider');
+  // A WITHDRAWN offer is not an active engagement once the request is closed.
+  await assert.rejects(
+    () => logi.ensureLogisticsConversation(SHIP_REQ, ctxFor(PROVIDER_A), {
+      supabaseClient: closed([{ id: 'lq-w', logistics_request_id: SHIP_REQ, provider_id: PROVIDER_A, status: 'WITHDRAWN', deleted_at: null }]),
+      communicationServices: services,
+    }),
+    /not open for provider questions/i);
+  // A provider who never offered has nothing to continue.
+  await assert.rejects(
+    () => logi.ensureLogisticsConversation(SHIP_REQ, ctxFor(PROVIDER_B), { supabaseClient: closed(submitted), communicationServices: services }),
+    /not open for provider questions/i);
+});
+
+test('the requester cannot name a provider who never offered', async () => {
+  const c = shipDb(submitted);
+  const { services, calls } = recordingServices();
+  await assert.rejects(
+    () => logi.ensureLogisticsConversation(SHIP_REQ, ctxFor(REQUESTER),
+      { supabaseClient: c, providerId: PROVIDER_B, communicationServices: services }),
+    /must submit an offer before/i);
+  assert.equal(calls.length, 0);
+});
+
+test('an unrelated person cannot enter at all', async () => {
+  const c = shipDb(submitted);
+  const { services, calls } = recordingServices();
+  await assert.rejects(
+    () => logi.ensureLogisticsConversation(SHIP_REQ, ctxFor(STRANGER), { supabaseClient: c, communicationServices: services }),
+    /.+/);
+  assert.equal(calls.length, 0);
+});
+
+test('reopening returns the SAME thread — refresh and relogin do not fork the conversation', async () => {
+  const c = shipDb(submitted);
+  const { services, calls } = recordingServices();
+  for (let i = 0; i < 3; i += 1) {
+    await logi.ensureLogisticsConversation(SHIP_REQ, ctxFor(PROVIDER_A), { supabaseClient: c, communicationServices: services });
+  }
+  assert.equal(new Set(calls.map((x) => x.subject_id)).size, 1, 'one canonical thread, however often it is opened');
+});
+
+/**
+ * Communication history outlives the transaction. A cancelled request must not delete what was
+ * said — the record of the conversation is evidence, and evidence is not tidied away when a deal
+ * falls through. This pins the ACTUAL policy: the bootstrap refuses on a closed request, and
+ * nothing anywhere deletes the thread.
+ */
+test('cancelling a request does not delete its communication history', async () => {
+  const c = createMockSupabase({
+    diaspora_logistics_requests: [{
+      id: SHIP_REQ, requester_id: REQUESTER, created_by: REQUESTER, tenant_id: null,
+      status: 'CANCELLED', deleted_at: null,
+    }],
+    diaspora_logistics_quotes: submitted,
+    user_registration_profiles: [providerProfile(PROVIDER_A)],
+    users: [{ id: REQUESTER }, { id: PROVIDER_A }],
+  });
+  const { services } = recordingServices();
+  const src = readFileSync(new URL('../services/diaspora/diasporaLogisticsConversationService.js', import.meta.url), 'utf-8');
+  assert.ok(!/delete\(|deleted_at:\s*(new Date|nowIso)/.test(src),
+    'the conversation service must never delete a thread');
+  // Whatever the bootstrap decides for a cancelled request, it must not be a deletion.
+  await logi.ensureLogisticsConversation(SHIP_REQ, ctxFor(REQUESTER),
+    { supabaseClient: c, providerId: PROVIDER_A, communicationServices: services }).catch(() => {});
 });

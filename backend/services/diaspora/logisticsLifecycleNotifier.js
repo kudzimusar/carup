@@ -78,11 +78,19 @@ export async function notifyLogisticsQuoteSubmitted({ request, quote, tenantId =
  *     it would leak that a provider had been considering an offer at all.
  *   · the withdrawing provider is not notified. They did it.
  */
-export async function notifyLogisticsQuoteWithdrawn({ request, quote, previousStatus, tenantId = null }) {
+export async function notifyLogisticsQuoteWithdrawn({ request, quote, previousStatus, tenantId = null, emitEvent = emitLogisticsEvent }) {
+  // `emitEvent` is injectable so the SILENCES above can be observed rather than inferred. Asserting
+  // that the return value is null proves nothing — a real emit also returns null when the outbox is
+  // unavailable, so a test written that way stays green after the guard is deleted. (It did.)
+  //
+  // The name must keep matching `…Event(` : communication-event-coverage scans for that shape to
+  // prove every subscribed event has a real, ADDRESSABLE emitter. Renaming this to a bare `emit`
+  // made quote_withdrawn look emitter-less to that gate — which is exactly what it is there to
+  // notice, and it did.
   if (previousStatus !== 'SUBMITTED') return null;
   const recipientUserId = request.requester_id || request.created_by || null;
   if (!recipientUserId) return null;
-  return emitLogisticsEvent('diaspora.logistics.quote_withdrawn', {
+  return emitEvent('diaspora.logistics.quote_withdrawn', {
     ...base(request, 'OFFER_WITHDRAWN'),
     recipientUserId,
     quoteId: quote.id,
