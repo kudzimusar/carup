@@ -168,7 +168,36 @@ And the sentence a customer most needs at the moment they start assuming their g
 Plus a trap client in the service suite proving no T10 call writes `diaspora_cargo_reservations`,
 `diaspora_container_shipments`, `diaspora_warehouse_intakes` or `diaspora_warehouse_measurements`.
 
-## 5. Open — and it is most of the product
+## 5. Deployed reachability — the services ARE wired
+
+The recurring defect of this programme is a module that is correct and unreachable: T6's whole
+commercial layer, T6.8's allocation engine, T7's advisor and T7's exception consumer all shipped with
+passing tests and no path to them. So the T10 services were walked over HTTP as four real signed-in
+people at a proven pairing — `scripts/uat/t10-loading-smoke.mjs`, **19/19**.
+
+| what it proved | result |
+|---|---|
+| readiness reachable, blockers derived, unmeasured reported as `null` | booked 3 vs warehouse 4; 1 ready of 5, 4 unmeasured |
+| readiness never claims customs or clearance | documents counted, never interpreted |
+| a plan line takes the WAREHOUSE figure and says so | `4 CBM from WAREHOUSE_ACTUAL` |
+| **planning is not loading** | the customer still reads *"Loading this container has not started."* |
+| the loader is the authenticated actor | a forged `loaded_by` did not land |
+| **all three measurements distinct** | booked 3 · warehouse 4 · loaded 3.6 |
+| **T5 capacity still computed from the estimates** | `used 5.5` |
+| left behind needs a reason, keeps its line, tells the participant | refused without one, kept with one |
+| a seal replacement keeps the first | current SEAL-0002, 2 records |
+| **completing says nothing about departure** | no `departed`/`shipped`/`sailed` in the data |
+| privacy, **with positive controls** | operator 200; customer 403×4; co-loader 403; foreign 403; anon 401/403 |
+
+Note the warehouse figure is **4.0, not 3.8** — the T9 journeys legitimately left a later correction
+as the current measurement. The first version of this harness asserted a magic 3.8 and failed on the
+data being *correct*; it now asserts the **invariant** (three distinct values, none overwriting
+another), which is what the phase actually guarantees.
+
+**This is not the T10.6 journey suite,** and the harness says so in its own output: no T10 surface
+exists, so nothing here walks a person through anything.
+
+## 6. Open — and it is most of the product
 
 `T10-PARTIAL` means the authority and its services exist and are proven; **the product on top of them
 is not built.**
