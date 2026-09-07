@@ -42,6 +42,12 @@ router.get(
 router.post(
   '/api/admin/identity/verification-sessions/:sessionId/review',
   authorizeRole(['admin']),
+  // An identity decision is a SENSITIVE action and must be re-authenticated, exactly as the dealer
+  // and garage decisions are. This route was reachable on role alone: a stolen or borrowed session
+  // could approve an identity, which is the most consequential decision O2 makes. The Product
+  // Owner's ruling makes reviewer capability AND step-up mandatory; the capability was here and the
+  // step-up was not.
+  requireAuthenticationAssurance(ACTION_CLASSES.SENSITIVE),
   asyncHandler(async (req, res) => {
     const result = await reviewVerificationSession(
       undefined,
