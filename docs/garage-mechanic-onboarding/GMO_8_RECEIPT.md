@@ -1,6 +1,6 @@
 # GMO-8 — Golden Journey, physical UAT · RECEIPT
 
-**Status: GMO-8 PASS — OWNER ACCEPTED.** Garage & Mechanic Onboarding is technically complete and the Product Owner has accepted it. Technical candidate **`5bc3c96eaba410d98478ec2f8208d378029d0b2f`**. Acts 1–2 27/27 and Acts 3–6 **32/32 at all three viewports**, against a live Cloudflare/Qwen provider, with no mock, no Gemini and no SQL standing in for any authority transition. PR #209 remains **Draft and unmerged**: acceptance is not merge authorization, and integration follows the parent-first order #208 → #197 → #209.
+**Status: GMO-8 PASS — GARAGE & MECHANIC ONBOARDING TECHNICALLY COMPLETE; OWNER ACCEPTANCE REMAINS.** Acts 1–2 27/27 and Acts 3–6 **32/32 at all three viewports**, against a live Cloudflare/Qwen provider, with no mock, no Gemini and no SQL standing in for any authority transition. Owner acceptance is the Product Owner's to give; it is not claimed here.
 
 > **One chronology.** Two Claude sessions wrote this lane concurrently and each recorded the same
 > investigation, so this document was reconciled into a single account. Duplicated *narrative* was

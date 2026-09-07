@@ -1,10 +1,8 @@
 # Garage & Mechanic Onboarding 1.0 — Canonical Plan
 
-**Status:** canonical, **executed, and OWNER ACCEPTED at `5bc3c96e`**. Planning was frozen at GMO-0; implementation was
-subsequently authorized and delivered on `feat/garage-mechanic-onboarding-1-0` (PR #209, Draft).
-**GMO-0 … GMO-7 are certified PASS. GMO-8 is PARTIAL and blocked on a paid vision provider** — see
-the phase table in §13. This document remains the authority over the implementation, not a record
-of it; where the two disagree, this document is right and the code is a defect.
+**Current authority status:** canonical and **executed**. **GMO-0 … GMO-8 are technically certified PASS. Product Owner final acceptance is PENDING, and no merge is authorised.** The technically certified product tree is `5bc3c96eaba410d98478ec2f8208d378029d0b2f`; later documentation-only governance commits do not alter that runtime/schema/harness tree. PR #209 remains Draft and unmerged.
+
+Planning was frozen at GMO-0 and subsequently implemented on `feat/garage-mechanic-onboarding-1-0`. Historical provider-blocked/PARTIAL statements retained below describe the chronology at the time they were written; they are **not** the current GMO status. This document remains the authority over the implementation, not a record of it; where the two disagree, this document is right and the code is a defect.
 **Owns:** how a real automotive business becomes a CarUp organisation, and how real people become
 its members.
 **Does not own:** anything a member then does inside a service workflow — that is Service Network.
@@ -323,18 +321,17 @@ document → extraction candidate → provenance → user confirmation/correctio
 OCR must never directly create: tenant · membership · Garage role · Mechanic role · Dealer role ·
 Trust · approval · activation.
 
-**Live OCR remains NOT ACTIVATED.** No provider credentials, no paid invocation, no neuron spend.
-Future provider certification is a separate, separately-authorized programme.
+**Historical planning constraint:** GMO-1 … GMO-7 were deliberately certified without live OCR/provider spend. GMO-8 later used the governed Cloudflare Workers AI/Qwen provider under the separately governed provider decision in §12C. This paragraph is retained to preserve that chronology; it is not a current claim that the GMO-8 provider proof never ran.
 
 Behaviour to specify for: success · unavailable · failure · low confidence · forged or
-provider-invalid provenance · user correction · fully manual completion where allowed. An applicant
-must always be able to finish without OCR.
+provider-invalid provenance · user correction · fully manual completion where allowed. A provider
+failure must remain distinguishable from applicant rejection, and OCR output never grants authority.
 
 ---
 
-## 12. Product Owner decisions still required
+## 12. Product Owner questions raised during planning — resolved by §12A unless explicitly kept open below
 
-Only items that genuinely cannot be resolved from existing contracts.
+This list is retained as the historical record of the decisions that implementation required. **§12A is the binding resolution of PO-1 … PO-6; these are not current unanswered GMO decisions.**
 
 1. **Minimum activation evidence for a Zimbabwe garage.** What must be present before a Garage may
    *operate a workspace*? The candidate list in §3 is a starting point, not a decision. Getting this
@@ -457,15 +454,14 @@ many tenants per person. That is compatible with PO-6; no schema conflict exists
 
 ---
 
-## 12B. Raised DURING execution — one open decision, and it is not GMO's to take
+## 12B. Raised DURING execution — broader O2 resilience debt remains open
 
-Nothing here blocks GMO-1…GMO-7. It blocks the last third of the Golden Journey, and it belongs to
-O2, so this plan records it rather than resolving it.
+This section records the provider-resilience problem found while GMO-8 was still blocked. **It no longer describes GMO-8 as blocked:** the Golden Journey subsequently completed through the governed live Cloudflare/Qwen path. The broader resilience question remains owned by O2 and is not solved by GMO.
 
 ### The identity-verification outage question
 
 PO-2 makes governed person-identity approval a prerequisite for a garage workspace. Walking the whole
-journey showed that this prerequisite **cannot be satisfied at all without a paid vision provider** —
+journey showed that this prerequisite **cannot be satisfied at all when the selected vision provider is unavailable** —
 and that this is deliberate, defended twice:
 
 - `decisionPolicy._checkApprove` refuses APPROVE while the session's stored `primary_reason_code` is
@@ -477,13 +473,9 @@ and that this is deliberate, defended twice:
 
 Both refusals are correct: they stop a reviewer hand-verifying a person without evidence. The
 consequence, stated plainly, is that **a vision-provider outage is a total identity-verification
-outage with no manual degradation path**, and every journey PO-2 gates on identity stops with it —
-garage onboarding included.
+outage with no manual degradation path**, and every journey PO-2 gates on identity stops with it.
 
-The decision is O2's, and it is genuinely a Product Owner question, not an engineering one: *is a
-governed, evidenced, audited human approval route acceptable when the provider is unavailable, and
-under what evidence?* GMO must not answer it by quietly adding one, and must never answer it by
-writing a `verified` lifecycle row directly — that is the exact act both guards exist to prevent.
+The resilience decision is O2's: *is a governed, evidenced, audited human degradation route acceptable when the provider is unavailable, and under what evidence?* GMO must not answer it by quietly adding one, and must never answer it by writing a `verified` lifecycle row directly — that is the exact act both guards exist to prevent. See `docs/features/o2/CARUP_OPERATIONS_O2_IDENTITY_PROVIDER_RESILIENCE_FOLLOWUP.md`.
 
 ---
 
@@ -564,7 +556,7 @@ exists.**
 | **GMO-5** | Portal / context handoff | ✅ **PASS after a self-inflicted critical, found and fixed** — `GMO_5_RECEIPT.md` · 27+13 tests · adversarial review executed a working privilege-escalation exploit against the first fix; tenant gate is now opt-in per route; all four GMO tables given RLS |
 | **GMO-6** | Mechanic invitation & membership | ✅ **PASS** — `GMO_6_RECEIPT.md` · 34 backend tests · 10/10 mutations red · hashed single-use email-bound token · new enumerated tenancy-write invariant |
 | **GMO-7** | Membership revocation & lifecycle | ✅ **PASS** — `GMO_7_RECEIPT.md` · 27+20 tests · 7/7 mutations red · future authority ends, historical attribution survives |
-| **GMO-8** | Full physical Golden Journey | ✅ **PASS — OWNER ACCEPTED** at candidate `5bc3c96e` · `GMO_8_RECEIPT.md` · Acts 1–2 **27/27**; Acts 3–6 **32/32 at desktop, tablet 834 and mobile 390** — three independent journeys, three tenants — against a live **Cloudflare/Qwen** provider. Governed identity approval with step-up; canonical activation; mechanic onboarded; a **real Service Network job** completed by that mechanic; revocation ends future authority while the Service Record survives, still attributed. Readback: exactly one tenant and one founding `admin` per run. No mock, no Gemini, no SQL substitute. **Acceptance is not merge authorization** — #209 stays Draft behind #208 → #197. |
+| **GMO-8** | Full physical Golden Journey | ✅ **PASS — technically complete; owner acceptance remains** — `GMO_8_RECEIPT.md` · Acts 1–2 **27/27**; Acts 3–6 **32/32 at desktop, tablet 834 and mobile 390** — three independent journeys, three tenants — against a live **Cloudflare/Qwen** provider. Identity approved through the governed reviewer path with step-up; canonical activation; mechanic onboarded; a **real Service Network job** completed by that mechanic; revocation ends future authority while the Service Record survives, still attributed. Database readback: exactly one tenant and one founding `admin` per run, zero live mechanics after revocation. No mock, no Gemini, no SQL substitute. |
 
 **GMO-8 rule:** no direct SQL fixture may stand in for any core onboarding step in the final
 certification. The whole point of this programme is that the journey exists in the product.

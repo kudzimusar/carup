@@ -1,172 +1,170 @@
 # Parent-first integration manifest — #208 O2, #197 Service Network, #209 GMO
 
-**Inspection only. No merge is authorised by this document, and none was performed.**
+**CURRENT INSPECTION — READ ONLY. No merge, retarget, parent-branch write, `main` write or production action is authorised by this document, and none was performed.**
 
-Measured at:
+This refresh supersedes the **current-readiness conclusions** of the earlier snapshot while preserving that snapshot as historical evidence in Git at `5bc3c96eaba410d98478ec2f8208d378029d0b2f`. The earlier measurement was correct for the heads it named. The important change since then is that **#208 advanced by two commits; #209 did not absorb them.**
 
-| lane | PR | branch | exact head | base | files | diff |
-|---|---|---|---|---|---|---|
-| O2 People & Compliance | **#208** | `feat/operations-o2-people-compliance` | `71b81d74dc55d36a15f74b4e77170e3438991f85` | `main` | 138 | +20 387 / −713 |
-| Service Network Foundation | **#197** | `feat/service-network-foundation-1-0` | `c23f012c4399f472eb6a9cae89b67fcc15a4ed40` | `main` | 165 | +27 636 / −340 |
-| Garage & Mechanic Onboarding | **#209** | `feat/garage-mechanic-onboarding-1-0` | `cfecc9eaae55cd83a402d595de1d6e9b8b70724b` | `main` | 368 | +64 256 / −1 154 |
+## 0. Exact current inspection heads
 
-`main` = `bb9d9900c700873ca57df0ac18a1a5c01f77711a`. All three share that exact merge-base.
+| lane | PR | branch | exact inspected head | base | PR commits | files | diff |
+|---|---|---|---|---|---:|---:|---:|
+| O2 People & Compliance | **#208** | `feat/operations-o2-people-compliance` | `7fe1f821b3ccc07c7c356c76de0c821674406635` | `main` | 41 | 140 | +20,806 / −717 |
+| Service Network Foundation | **#197** | `feat/service-network-foundation-1-0` | `c23f012c4399f472eb6a9cae89b67fcc15a4ed40` | `main` | 45 | 165 | +27,636 / −340 |
+| Garage & Mechanic Onboarding | **#209** | `feat/garage-mechanic-onboarding-1-0` | `a563fc156519903f40a32ed8c4532013a06bb9d7` | `main` | 135 | 369 | +64,428 / −1,154 |
 
----
+`main` is still `bb9d9900c700873ca57df0ac18a1a5c01f77711a` and is the merge-base of #208 and #197. All three PRs remain **OPEN, DRAFT, UNMERGED and mergeable** at inspection time.
 
-## 1. The finding that changes the shape of the work
-
-**#209 already contains both parents in full, by ancestry — not by copying.**
-
-```
-git merge-base --is-ancestor 71b81d74 cfecc9ea   → true   (#208 tip is an ancestor of #209)
-git merge-base --is-ancestor c23f012c cfecc9ea   → true   (#197 tip is an ancestor of #209)
-
-commits beyond main:   O2 1991   SN 1471   GMO 2085
-O2 ∪ SN                                    2036
-GMO-only (in #209, in neither parent)        49
-                                          -----
-                                     2036 + 49 = 2085  ✔ exact
-```
-
-Every one of O2's 1 991 commits and every one of SN's 1 471 commits is *literally* in #209.
-**#209 is precisely `O2 ∪ SN ∪ 49 GMO commits`**, with nothing else and nothing missing.
-
-Consequence: there is **no textual reconciliation to do between #209 and its parents**. Once both
-land in `main`, `main…#209` collapses to those 49 commits. The 368-file diff is not GMO's work; it
-is the two parents being counted against a `main` that does not yet contain them.
+> **Self-reference note.** The commit that updates this manifest is documentation-only, so the branch head after this file is written will necessarily be one commit newer than the inspected `a563fc15`. The ancestry/product findings below are measured against `a563fc15`; the governance correction changes no runtime, schema, harness, migration or workflow file.
 
 ---
 
-## 2. Dependency matrix — proven from code, not assumed
+## 1. What changed since the previous parent-first snapshot
 
-| programme | head | base | depends on | owns | overlaps | must land |
-|---|---|---|---|---|---|---|
-| **O2 #208** | `71b81d74` | `main` | **nothing in these lanes** | identity lifecycle & assurance, authentication assurance/step-up, operations authorization, dealer onboarding, biometrics (ARCH), workbook | 9 registration files with SN | **first or second — free** |
-| **SN #197** | `c23f012c` | `main` | **nothing in these lanes** | garage directory/profile, Service Case, Work Order + assignment, Service Record, service links, tenant garage identity | the same 9 registration files with O2 | **first or second — free** |
-| **GMO #209** | `cfecc9ea` | `main` | **BOTH** (proven below) | garage application, evidence, review, activation, founding membership, invitation, revocation, OCR provider boundary | 25 files with one or both parents | **last, necessarily** |
+The previous snapshot measured O2 at `71b81d74dc55d36a15f74b4e77170e3438991f85`, Service Network at `c23f012c…`, and GMO before the final documentation-only commits. At those heads, both parent tips were literal ancestors of #209.
 
-### The parents are mutually independent
+That statement is **no longer true for current #208**.
 
-`git grep` across #197 for any import of `identity|operations|auth/authentication` → **none**.
-`git grep` across #208 for any import of `serviceNetwork` → **none**.
+Current graph facts:
 
-So **O2-before-SN is not forced by dependency.** The governance expectation of O2 → SN → GMO is
-correct for GMO, but between the two parents the order is free; whoever merges *second* simply
-reconciles the nine shared registration files. Choosing O2 first remains sensible (it is the smaller
-diff and owns the identity primitives everything else eventually reads), but it should be recorded
-as a **preference, not a constraint**.
-
-### GMO depends on both — from imports, not from narrative
-
-```
-GMO → O2   garageReviewService.js    → services/identity/identityAssuranceService.js
-           garageReviewRoutes.js     → services/operations/operationsAuthorizationService.js
-           garageReviewRoutes.js     → services/auth/authenticationAssuranceService.js
-GMO → SN   garageApplicationService  → services/serviceNetwork/garageDirectoryService.js
-           garageInvitationService   → services/serviceNetwork/serviceLinkService.js
+```text
+#197 c23f012c  → #209 a563fc15     ancestor: YES
+#208 7fe1f821  → #209 a563fc15     ancestor: NO
+merge-base(current #208, #209)     71b81d74dc55d36a15f74b4e77170e3438991f85
+#209 vs current #208               ahead 96, behind 2
+current #208 vs current #197       merge-base = main; 41 O2 commits vs 45 SN commits
 ```
 
-and Act 6b drives SN's own routes end to end: `/api/service-cases`, `/api/service-cases/:id/accept`,
-`/api/service-cases/:id/work-order`, `/api/service-work-orders/:id/assign|status|records`,
-`/api/garage/queue|mechanics|profile|profile/publish`.
+So #209 still contains **all current Service Network** and the **39-commit O2 snapshot** that ended at `71b81d74`, but it does **not** contain O2's newest two commits.
+
+Using the current PR commit counts and proven ancestry:
+
+```text
+current SN commits beyond main                      45
+O2 snapshot already inside #209                    39
+#209-only history at inspected a563fc15             51
+                                                   ---
+current #209 PR commits                            135
+
+current O2 commits beyond main                     41
+current SN commits beyond main                     45
+                                                   ---
+current parent union                               86
+```
+
+The original product-focused GMO delta at the earlier convergence point was **49 commits**. Two later #209-only commits were documentation: the parent-first inspection receipt and the invalid owner-acceptance status commit. This governance correction adds one more documentation-only commit. Do not confuse the resulting history count with additional product implementation.
+
+**Current integration consequence:** after current #208 and #197 are present in `main`, #209 cannot simply be treated as already containing both exact parent tips. The two newer O2 commits must be semantically reconciled into the GMO integration candidate first, then the affected gates must be re-certified at that exact post-parent head.
 
 ---
 
-## 3. Migrations — the schema states the order by itself
+## 2. The two new O2 commits and their exact surface
 
-No filename collisions between any two lanes. Migrations apply in filename order, and the three
-lanes are chronologically disjoint:
+Compared with the O2 snapshot already inside #209 (`71b81d74`), current #208 adds exactly **two commits** touching six files:
+
+1. `backend/routes/identityVerificationAdminRoutes.js` — owner-UAT closure of the identity decision step-up requirement. #209 already independently carries the same **SENSITIVE** step-up behaviour through GMO convergence; preserve the semantic gate and reconcile comments/provenance rather than blindly choosing a side.
+2. `backend/services/passport/passportOwnershipTransferService.js` — governed RPC refusals translated to truthful 4xx outcomes instead of generic database 500s. This later O2 correction is not in #209's old O2 snapshot and must be carried forward.
+3. `backend/tests/o2-owner-uat-closure.test.js` — ten owner-UAT closure guards; carry forward.
+4. `docs/features/o2/CARUP_OPERATIONS_O2_OWNER_UAT_RESULT.md` — owner-UAT receipt; carry forward as parent evidence.
+5. `docs/features/o2/CARUP_OPERATIONS_O2_PROGRESS.md` — current O2 status; carry forward as parent evidence.
+6. `web/src/components/workbook/WorkbookWorkspace.tsx` — mobile overflow fix at the owner-UAT boundary; carry forward.
+
+These additions do **not** reopen GMO's frozen authority decisions. They are parent-lane advancement that the eventual GMO integration candidate must inherit.
+
+---
+
+## 3. Dependency matrix — unchanged in authority, changed in exact heads
+
+| programme | current head | depends on sibling lane? | owns | integration requirement |
+|---|---|---|---|---|
+| **O2 #208** | `7fe1f821` | no Service Network dependency proven | identity lifecycle/assurance, operations authorization, dealer onboarding, workbook, O2 owner-UAT closures | parent; may land before SN by governance preference |
+| **SN #197** | `c23f012c` | no O2 dependency proven | garage directory/profile, Service Case, Work Order/assignment, Service Record, Service Link, service projections | parent; current tip is already an ancestor of #209 |
+| **GMO #209** | inspected `a563fc15` + docs-only governance correction | **BOTH** | garage application/evidence/review/activation, founding membership, invitation/revocation, OCR provider convergence | **must land last**; must first inherit current #208's two newer commits |
+
+The earlier dependency proof remains valid: O2 and Service Network are mutually independent at the programme boundary; GMO imports authority from both. Thus **O2 → SN → GMO remains the preferred parent-first order**, while O2-vs-SN ordering is a governance preference rather than a runtime dependency. GMO last is the hard requirement.
+
+---
+
+## 4. Migrations — no new collision introduced
+
+The migration picture is unchanged by #208's two owner-UAT closure commits: they add **no migrations**.
 
 | lane | migrations | range |
-|---|---|---|
+|---|---:|---|
 | O2 #208 | 6 | `20260903200000_identity_lifecycle_events` … `20260904090000_workbook_store_scope_loosening` |
 | SN #197 | 8 | `20260904120000_service_network_s1_garage_identity` … `20260904190000_service_network_o5_thread_type` |
 | GMO #209 | 6 | `20260906090000_garage_applications` … `20260906220000_tenant_users_role_catalogue` |
 
-**GMO's six migrations are the whole of its schema:**
-`garage_applications`, `garage_application_evidence`, `garage_business_activation` (the
-`activate_garage_application` function), `garage_invitations`, `garage_onboarding_rls`,
-`tenant_users_role_catalogue`.
-
-Worth stating precisely: GMO's migrations reference only `tenants`, `tenant_users`, `users` and its
-own tables — **all pre-existing in `main`**. So GMO's *schema* is independent of both parents even
-though its *runtime* is not. Migration order is therefore safe in any sequence; only the code needs
-the parents.
+No filename collision was introduced. GMO's six migrations remain `garage_applications`, `garage_application_evidence`, `garage_business_activation`, `garage_invitations`, `garage_onboarding_rls`, and `tenant_users_role_catalogue`.
 
 ---
 
-## 4. The genuine #209 delta — 49 commits, 100 files
+## 5. Semantic reconciliation register
 
-75 files are touched **only** by GMO and by neither parent. 25 are shared and need semantic
-reconciliation (§5).
+The prior register remains load-bearing. Never resolve these with blind `ours` / `theirs`:
 
-| area | count | what |
-|---|---|---|
-| backend services | 7 | `services/garageOnboarding/*` — application, evidence, review, activation, membership, invitation, context |
-| backend routes | 4 | garage onboarding, review, invitation, membership |
-| OCR provider boundary | 5 | `ai/ocrVisionProvider.js`, `ai/CloudflareVisionClient.js`, `ai/GeminiClient.js`, `identity/documentClassifier.js`, `middleware/authMiddleware.js` |
-| migrations | 6 | as above |
-| backend tests | 12 | `gmo-1…7`, Qwen convergence, identity review contract, Cloudflare boundary, classifier, Gemini parser |
-| web | 17 | GarageSetup/Evidence/Team, GarageApplications, JoinGarage, GarageContextSwitcher, StepUpPrompt, DealerCompliance step-up, libs + tests |
-| UAT harnesses | 8 | `gmo-4-activation-race`, `gmo-8-*`, `lib/documentVisionReadiness` |
-| docs | 15 | GMO receipts 1–8, lane reconciliation, evidence, convergence manifest, O2 resilience follow-up |
-| workflows | 1 | `gmo-8-qwen-classification.yml` (manual dispatch only) |
+| surface | reconciliation rule |
+|---|---|
+| `backend/server.js` | union of all route mounts; keep GMO `documentVision` health provenance |
+| `web/src/App.tsx` | union of routes |
+| `web/src/config/featureRegistry.ts` + `shared/navigation/feature-manifest.json` | union entries; re-derive count/shape assertions |
+| `web/src/hooks/useCarUpApi.ts` | union hooks; preserve destructured consumption pattern |
+| Communications listeners/notification service | union event registrations; drop neither parent |
+| preview frontend/backend pairing maps | keep one branch-specific entry per lane; fail closed if absent |
+| SN-owned service/garage route files | take current SN behaviour and preserve GMO's **opt-in tenant-membership authorization**; never globally widen tenant role into platform role |
+| `backend/services/identity/verificationSessionService.js` | preserve O2 authority plus GMO extraction/classification independence and classifier seam |
+| `backend/services/document-intelligence/documentIntelligenceService.js` | preserve O2 authority and GMO OCR-provider boundary convergence |
+| `backend/routes/identityVerificationAdminRoutes.js` | preserve current O2 owner-UAT step-up and GMO's same SENSITIVE decision gate; reconcile semantically |
+| `backend/services/operations/operationsAuthorizationService.js` | O2 owns; GMO consumes |
+| `backend/tests/service-network-authority-boundaries.test.js` | preserve SN tenancy-writer invariant and GMO `activate_garage_application` permitted writer |
+| navigation/design/count gates | re-derive against the actual post-parent tree; do not pin stale counts |
 
-**That is what #209 becomes once its parents land: ~49 commits over ~100 files, of which 75 are new
-files nobody else touches.**
-
----
-
-## 5. Semantic reconciliation register — the 25 shared files
-
-Nine of these are shared by **all three** lanes and are the real integration surface. None may be
-resolved with a blind `ours`/`theirs`; each is an append-a-registration file where every lane adds
-its own entries.
-
-| file | O2 | SN | GMO | reconciliation rule |
-|---|---|---|---|---|
-| `backend/server.js` | ✓ | ✓ | ✓ | **union of route mounts.** Each lane imports its own routers and mounts them; keep every import and every `app.use`. GMO additionally adds the `documentVision` health block. |
-| `web/src/App.tsx` | ✓ | ✓ | ✓ | union of routes |
-| `web/src/config/featureRegistry.ts` | ✓ | ✓ | ✓ | union of feature entries; the navigation-gate test counts them, so the count assertions must be re-derived after merge |
-| `shared/navigation/feature-manifest.json` | ✓ | ✓ | ✓ | union of manifest entries |
-| `web/src/hooks/useCarUpApi.ts` | ✓ | ✓ | ✓ | union of hooks — **destructure, never take the aggregate** (known render-loop hazard) |
-| `backend/services/communication/communicationEventListeners.js` | ✓ | ✓ | ✓ | union of listeners |
-| `backend/services/communication/communicationNotificationService.js` | ✓ | ✓ | ✓ | union of notification types |
-| `web/preview-backend-pairing.json` · `preview-frontend-pairing.json` | ✓ | ✓ | ✓ | **one entry per branch.** Keep all; they are per-branch keys, not a shared value |
-| `backend/routes/serviceCaseRoutes.js`, `serviceRecordRoutes.js`, `serviceWorkOrderRoutes.js`, `garageDirectoryRoutes.js`, `garageQueueRoutes.js` | | ✓ | ✓ | SN owns the files; GMO's only change is `authorizeTenantRole` (the opt-in tenant gate). **Take SN's file and re-apply the opt-in gate**, which is GMO-5's security closure |
-| `backend/services/identity/verificationSessionService.js` | ✓ | | ✓ | O2 owns it; GMO adds the extraction-trust decoupling and the classifier injection seam |
-| `backend/services/document-intelligence/documentIntelligenceService.js` | ✓ | | ✓ | O2 owns it; GMO converges extraction onto the OCR boundary |
-| `backend/routes/identityVerificationAdminRoutes.js` | ✓ | | ✓ | O2 owns it; GMO adds the sensitive-action step-up on the decision route |
-| `backend/services/operations/operationsAuthorizationService.js` | ✓ | | ✓ | O2 owns it; GMO consumes it |
-| `backend/tests/o2-x7-integrated-certification.test.js` | ✓ | | ✓ | **X7-4 lane guard.** Its convergence-manifest resolution is now tree-derived; once both parents are in `main` the lane declaration becomes unnecessary and the guard should be re-pointed at the post-merge reality |
-| `backend/tests/service-network-authority-boundaries.test.js` | | ✓ | ✓ | SN's enumerated tenancy-write invariant; GMO adds `activate_garage_application` as a permitted writer |
-| `backend/tests/o2-x4-biometric-consent.test.js` | ✓ | | ✓ | O2 owns it |
-| `tests/agents/27-feature-registry-navigation-map.spec.ts`, `web/src/__tests__/designContract.test.ts`, `web/src/hooks/garageSideRoutes.test.ts` | | ✓ | ✓ | count/shape assertions that must be re-derived after each merge |
-| `docs/garage-mechanic-onboarding/…CANONICAL_PLAN.md` | | ✓ | ✓ | GMO owns it; SN created the stub |
+**Late-O2 carry-forward surface:** additionally preserve the new ownership-transfer error semantics, owner-UAT closure test/receipts, and workbook mobile fix listed in §2.
 
 ---
 
-## 6. Canonical integration order
+## 6. Certification after parent-first reconciliation
 
-1. **#208 O2** — no dependency on either sibling; smallest surface; owns the identity primitives.
-2. **#197 Service Network** — no dependency on O2 either, so this is a *preference*. Reconcile the
-   nine shared registration files against a `main` that now contains O2; re-derive the
-   feature-registry and navigation count assertions; re-run SN's certification at that exact head.
-3. **#209 GMO** — after both. Its `main…HEAD` collapses to the 49 commits above; re-apply the two
-   GMO edits to SN-owned route files (the `authorizeTenantRole` opt-in) and the three to O2-owned
-   identity files; re-derive counts; re-certify at the post-parent exact head.
-4. Only then request Product Owner merge authorisation for #209.
+Current exact-head CI being green is necessary but is not a substitute for post-parent certification. Once #208 and #197 are integrated and #209 has reconciled the two late O2 commits, rerun at the **new exact candidate head**:
 
-### Gates that must be re-run after each step
+- O2 integrated/owner-UAT closure guards affected by the parent update;
+- Service Network authority-boundary guards;
+- GMO-1 … GMO-7 focused tests;
+- `gmo-qwen-ocr-convergence` and `o2-identity-review-contract` without spending another live-provider call unless separately necessary/authorised;
+- navigation/feature-registry/design count gates;
+- real-PostgreSQL migration/integrity harnesses;
+- full backend and web suites, typecheck, lint and build;
+- exact-head GitHub CI and paired staging provenance;
+- physical browser / database readback only for journey portions invalidated by an actual runtime change.
 
-`o2-x7-integrated-certification` (X7-4 lane guard — see §5), `service-network-authority-boundaries`,
-`gmo-1…7`, `gmo-qwen-ocr-convergence`, `o2-identity-review-contract`, the navigation/feature-registry
-count gates, the migration-integrity gate, and the full backend + web suites at each exact head.
+The **8-way activation race was executed and remains immutable GMO-4 evidence**. The standalone race harness is retained at `scripts/uat/gmo-4-activation-race.mjs`; it is not currently an automatically invoked step in the generic PR `ci.yml`, so do not claim that every PR CI reruns it. If activation authority is touched during reconciliation, rerun the real race before recertifying activation.
+
+The live Qwen provider proof is also immutable evidence for the certified product tree. The provider-consumption workflow is manual-dispatch only by design. Do not repeat it merely because documentation or parent ancestry moved.
 
 ---
 
-## 7. What this inspection did not do
+## 7. Current integration decision
 
-No merge, no PR retarget, no push to `main`, no production action. #197, #208 and #209 are untouched
-and remain Draft.
+**Not ready to merge #209 merely because GMO is technically complete.** The next integration action, once the Product Owner separately authorises merges, is still parent-first:
+
+1. integrate current **#208 O2**;
+2. integrate current **#197 Service Network**, semantically reconciling shared registration surfaces and re-certifying that exact head;
+3. reconcile **#209 GMO** on top of both, including #208's two late commits;
+4. re-certify the affected GMO/O2/SN boundary at the exact post-parent head;
+5. only then seek explicit Product Owner merge authorisation for #209.
+
+This document **does not grant** owner acceptance of GMO, merge authorisation for any PR, production promotion, or live-provider spend.
+
+---
+
+## 8. Historical snapshot provenance
+
+The earlier full parent-first inspection remains available verbatim in Git at commit `5bc3c96eaba410d98478ec2f8208d378029d0b2f`. Its key historical measurement was:
+
+- O2 head `71b81d74` — literal ancestor of the then-current #209 tree;
+- Service Network head `c23f012c` — literal ancestor;
+- parent union + original GMO implementation delta = full #209 history at that time;
+- original GMO product-focused delta: 49 commits / roughly 100 files / 75 files unique to GMO;
+- O2 and SN mutually independent; GMO depends on both;
+- no merge performed.
+
+Those statements are retained as chronology. **The only conclusion superseded by this refresh is the claim that #209 contains the exact current #208 tip in full. It does not.**
