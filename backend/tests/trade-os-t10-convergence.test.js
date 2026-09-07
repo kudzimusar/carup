@@ -148,10 +148,16 @@ test('T10/T7: a loading notice carries no other participant, operator or capacit
     load: { id: 'l-1', reference: 'LOAD-1', tenant_id: 'tenant-op', confirmed_by: 'user-operator' },
     recipients: ['user-customer'], emitEvent: rec.emit,
   });
-  const text = JSON.stringify(rec.sent[0].payload);
+  const payload = rec.sent[0].payload;
+  const text = JSON.stringify(payload);
   assert.ok(!text.includes(RES_B), 'another participant appears');
   assert.ok(!text.includes('user-operator'), 'the operator is named to the customer');
-  assert.ok(!text.includes('33'), 'the sailing capacity is exposed');
+  // By FIELD, not substring. The sibling assertion here used to be `!text.includes('33')`, which
+  // this payload happens to survive only because it carries no timestamp — the same check on the
+  // participant projection failed whenever the clock's minute was 33. Pin the shape instead.
+  for (const field of ['capacity', 'booked_capacity', 'total_capacity_volume', 'container_total_cbm', 'tenant_id']) {
+    assert.ok(!(field in payload), `the notice exposes ${field}`);
+  }
 });
 
 test('T10/T7: a notification failure does not unload the container', async () => {
