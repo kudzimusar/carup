@@ -280,6 +280,50 @@ test('offers that price the SAME partial scope may be compared — with the cave
   assert.ok(result.reasons.some((r) => /not fully priced/i.test(r)), 'and stated in words');
 });
 
+/**
+ * Found in the owner-acceptance walk on the DEPLOYED product, with two real suppliers.
+ *
+ * Supplier A disclosed three things: the goods (priced), Zimbabwe duty (EXCLUDED), inspection
+ * (NOT_APPLICABLE). Supplier B disclosed one: the goods, and said nothing whatever about customs.
+ * The screen told the buyer "These offers cover the same scope, so the totals compare directly"
+ * and named B — the one that had disclosed LESS — as cheapest.
+ *
+ * The cause: comparability was assessed on INCLUDED stages alone, so silence looked identical to a
+ * disclosed exclusion. That inverts this module's own stated law — uncertainty is penalised, never
+ * rewarded — and makes saying nothing the winning strategy, which is the exact behaviour T6 exists
+ * to prevent.
+ */
+test('a disclosed EXCLUSION is not the same scope as silence', () => {
+  const a = q('a', 'Supplier A', [comp('GOODS', 15360), comp('IMPORT_CUSTOMS', null, 'EXCLUDED')], false);
+  const b = q('b', 'Supplier B', [comp('GOODS', 14500)], false);
+  const assessment = compare.assessComparability(a, b);
+  assert.notEqual(assessment.verdict, compare.COMPARABILITY.COMPARABLE,
+    'A answered import duty and B did not — that is not the same purchase');
+  assert.ok(assessment.reasons.some((r) => /Import duty and taxes/i.test(r)),
+    'and the customer is told which stage the difference is about');
+  const result = compare.compareQuotes([a, b]);
+  assert.equal(result.cheapest, null, 'the less forthcoming offer must not be named cheapest');
+  assert.equal(result.comparable, false);
+});
+
+test('a NOT_APPLICABLE answer also counts as scope the other side did not give', () => {
+  const a = q('a', 'A', [comp('MAIN_CARRIAGE', 1000), comp('IMPORT_CUSTOMS', null, 'NOT_APPLICABLE')], false);
+  const b = q('b', 'B', [comp('MAIN_CARRIAGE', 900)], false);
+  assert.equal(compare.compareQuotes([a, b]).cheapest, null);
+});
+
+test('silence on the SAME stages stays comparable — the ocean-leg case is preserved', () => {
+  // Both offers price only the ocean leg and neither claims anything about the rest. That is a
+  // genuine like-for-like difference and must still be rankable, or the fix would have destroyed
+  // the honest case it was not aimed at.
+  const a = q('a', 'RoRo', [comp('MAIN_CARRIAGE', 1600)], false);
+  const b = q('b', 'Shared container', [comp('MAIN_CARRIAGE', 1800)], false);
+  const result = compare.compareQuotes([a, b]);
+  assert.equal(result.comparable, true);
+  assert.equal(result.cheapest, 'a');
+  assert.equal(result.covers_full_journey, false);
+});
+
 test('a NOT_APPLICABLE stage is an ANSWER, not a gap', async () => {
   // A logistics quote moves cargo the customer already owns, so GOODS genuinely does not apply.
   // Reporting that journey as incomplete would punish a provider for answering honestly.

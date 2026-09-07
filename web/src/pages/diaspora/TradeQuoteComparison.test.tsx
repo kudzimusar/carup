@@ -198,4 +198,35 @@ describe('the breakdown shows scope beside every number', () => {
     expect(screen.queryByTestId('money-unpriced')).toBeNull()
     expect(document.body.textContent).not.toMatch(/0\.00|USD 0|\$0/)
   })
+
+  /**
+   * The server sends `covers_full_journey` with an explicit instruction in its own comment: the
+   * caller must surface it, because a lowest total across a partial scope is a lowest PARTIAL cost.
+   * The panel ignored it and printed a flat "Lowest recorded total", which is the overclaim the
+   * flag exists to prevent. Found on the deployed product during owner acceptance.
+   */
+  it('will not call a partly-priced winner the lowest TOTAL', () => {
+    render(<ComparisonVerdict
+      result={{ comparable: true, verdict: 'COMPARABLE', cheapest: 'b', reasons: [], covers_full_journey: false }}
+      quotes={[
+        { id: 'a', label: 'Kaizen', components: [], estimate: estimate() },
+        { id: 'b', label: 'Sakura', components: [], estimate: estimate() },
+      ]} />)
+    const text = screen.getByTestId('comparison-verdict').textContent || ''
+    expect(screen.getByTestId('comparison-lowest').textContent).toContain('Lowest known cost so far')
+    expect(text).not.toContain('Lowest recorded total')
+    expect(screen.getByTestId('comparison-partial-scope').textContent)
+      .toContain('not the lowest total price')
+  })
+
+  it('still says "lowest recorded total" when the journey IS fully priced', () => {
+    render(<ComparisonVerdict
+      result={{ comparable: true, verdict: 'COMPARABLE', cheapest: 'b', reasons: [], covers_full_journey: true }}
+      quotes={[
+        { id: 'a', label: 'Kaizen', components: [], estimate: estimate() },
+        { id: 'b', label: 'Sakura', components: [], estimate: estimate() },
+      ]} />)
+    expect(screen.getByTestId('comparison-lowest').textContent).toContain('Lowest recorded total')
+    expect(screen.queryByTestId('comparison-partial-scope')).toBeNull()
+  })
 })

@@ -83,6 +83,8 @@ export interface ComparisonResult {
   verdict: string
   cheapest: string | null
   reasons: string[]
+  /** False when the ranked offers price the same stages but not the WHOLE journey. */
+  covers_full_journey?: boolean
   totals?: Array<{ id: string; label: string | null; reference_usd: number | null; complete: boolean }>
   pairs?: Array<{ a: string; b: string; verdict: string; reasons: string[] }>
 }
@@ -232,8 +234,18 @@ export function ComparisonVerdict({ result, quotes }: { result: ComparisonResult
             These offers cover the same scope, so the totals compare directly.
           </p>
           <p className="mt-1 text-sm text-slate-800" data-testid="comparison-lowest">
-            Lowest recorded total: <span className="font-semibold">{labelOf(result.cheapest)}</span>
+            {/* Never a bare "lowest": across a partly-priced journey this is the lowest KNOWN cost
+                so far, and the stages nobody has priced will still be paid by somebody. The server
+                sends covers_full_journey precisely so this line cannot overclaim. */}
+            {result.covers_full_journey === false ? 'Lowest known cost so far: ' : 'Lowest recorded total: '}
+            <span className="font-semibold">{labelOf(result.cheapest)}</span>
           </p>
+          {result.covers_full_journey === false && (
+            <p className="mt-1 text-xs font-medium text-amber-900" data-testid="comparison-partial-scope">
+              This is not the lowest total price. Neither offer prices the whole journey, and the
+              stages still unpriced will add cost to whichever you choose.
+            </p>
+          )}
         </>
       ) : (
         <>

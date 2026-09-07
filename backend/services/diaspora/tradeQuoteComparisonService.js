@@ -27,6 +27,24 @@ const excludedStages = (q) => new Set((q.components || [])
   .filter((c) => c.inclusion === 'EXCLUDED').map((c) => c.cost_stage));
 
 /**
+ * The MATERIAL stages a quote has actually ANSWERED — priced, excluded, or declared not applicable.
+ *
+ * This is the axis that separates a disclosed exclusion from silence. Two offers can price exactly
+ * the same stages while one has told the customer "duty is excluded, inspection does not apply" and
+ * the other has said nothing at all. Those are not the same purchase: with the first the buyer
+ * knows what they will owe elsewhere, with the second they do not know whether the charge is
+ * included, excluded, or simply forgotten.
+ *
+ * Scoring only INCLUDED stages made silence indistinguishable from disclosure, which rewarded the
+ * less forthcoming offer — the precise inversion of this file's governing rule. Found on the
+ * deployed product during owner acceptance, with two real suppliers.
+ */
+const answeredMaterialStages = (q) => new Set((q.components || [])
+  .filter(isStageAnswered)
+  .map((c) => c.cost_stage)
+  .filter((s) => MATERIAL_STAGES.includes(s)));
+
+/**
  * Compare the commercial SCOPE of two quotes before any number is compared.
  *
  * $1,700 port-to-port is not "$400 cheaper" than $2,100 door-to-door; it is a different purchase.
@@ -51,13 +69,33 @@ export function assessComparability(a, b) {
   for (const s of onlyA) reasons.push(`${a.label || 'Offer A'} prices ${COST_STAGE_LABELS[s] || s}; ${b.label || 'Offer B'} does not.`);
   for (const s of onlyB) reasons.push(`${b.label || 'Offer B'} prices ${COST_STAGE_LABELS[s] || s}; ${a.label || 'Offer A'} does not.`);
 
+  // Disclosure is part of scope. A material stage one side has ANSWERED — priced, excluded or
+  // declared not applicable — and the other has left unmentioned is a real difference in what the
+  // customer knows they are buying, even when both price identical stages.
+  const aAns = answeredMaterialStages(a);
+  const bAns = answeredMaterialStages(b);
+  const answeredOnlyA = [...aAns].filter((s) => !bAns.has(s));
+  const answeredOnlyB = [...bAns].filter((s) => !aAns.has(s));
+  for (const s of answeredOnlyA) {
+    reasons.push(`${a.label || 'Offer A'} says where it stands on ${COST_STAGE_LABELS[s] || s}; ${b.label || 'Offer B'} does not mention it.`);
+  }
+  for (const s of answeredOnlyB) {
+    reasons.push(`${b.label || 'Offer B'} says where it stands on ${COST_STAGE_LABELS[s] || s}; ${a.label || 'Offer A'} does not mention it.`);
+  }
+  const disclosureDiffers = answeredOnlyA.length > 0 || answeredOnlyB.length > 0;
+
   // A currency neither side can convert makes the totals unaddable, whatever the scopes say.
   const unconvertible = [a, b].some((q) => (q.components || []).some((c) => c.original.amount !== null && !c.reference_usd));
   if (unconvertible) reasons.push('At least one amount has no reference USD conversion, so totals cannot be placed side by side.');
 
   let verdict;
-  if (!onlyA.length && !onlyB.length) verdict = unconvertible ? COMPARABILITY.PARTIALLY_COMPARABLE : COMPARABILITY.COMPARABLE;
-  else if (shared.length === 0) verdict = COMPARABILITY.NOT_COMPARABLE;
+  if (!onlyA.length && !onlyB.length) {
+    // Identical priced stages is necessary but not sufficient: unequal disclosure is still a
+    // difference in scope, and the offer that disclosed less must not win by having said less.
+    verdict = (unconvertible || disclosureDiffers)
+      ? COMPARABILITY.PARTIALLY_COMPARABLE
+      : COMPARABILITY.COMPARABLE;
+  } else if (shared.length === 0) verdict = COMPARABILITY.NOT_COMPARABLE;
   else verdict = COMPARABILITY.PARTIALLY_COMPARABLE;
 
   if (verdict === COMPARABILITY.COMPARABLE) reasons.push('Both offers price the same stages, so the totals describe the same purchase.');
