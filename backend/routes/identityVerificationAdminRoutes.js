@@ -42,6 +42,12 @@ router.get(
 router.post(
   '/api/admin/identity/verification-sessions/:sessionId/review',
   authorizeRole(['admin']),
+  // Deciding an identity is the most consequential action O2 takes, and it was reachable on role
+  // alone: a borrowed or stolen admin session could approve a person. Owner UAT measured it against
+  // a positive control — a ghost session id returned 404 (the handler ran) while the DEALER decision
+  // two files away returned 403 STEP_UP_REQUIRED before any lookup. Viewing the evidence below was
+  // already step-up gated, so the LESS consequential action was the better protected one.
+  requireAuthenticationAssurance(ACTION_CLASSES.SENSITIVE),
   asyncHandler(async (req, res) => {
     const result = await reviewVerificationSession(
       undefined,

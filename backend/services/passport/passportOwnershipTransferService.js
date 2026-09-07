@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { ValidationError, ForbiddenError, ConflictError, DatabaseError } from '../../utils/errors.js';
+import { ValidationError, ForbiddenError, ConflictError, DatabaseError, NotFoundError } from '../../utils/errors.js';
 import { getGovernedEncumbrance } from '../finance/vehicleFinanceObligationService.js';
 import { supersedeSellerAuthorityOnOwnershipTransfer } from '../seller/sellerAuthorityService.js';
 
@@ -17,6 +17,30 @@ function assertActor(actor) {
   const id = actorId(actor);
   if (!id) throw new ForbiddenError('Authentication required for ownership transfer.');
   return { id, role: actorRole(actor) };
+}
+
+/**
+ * The RPC refuses in a deliberate vocabulary — it raises a specific message with a specific
+ * PostgreSQL SQLSTATE for every governed refusal. Flattening all of them into
+ * `DatabaseError('Failed to …')` told the caller that CarUp had broken when in fact CarUp had
+ * REFUSED, and hid the reason it had just been given. Owner UAT saw a governance refusal
+ * ("only current owner or governance may initiate transfer") and a conflict ("an active ownership
+ * transfer already exists for this vehicle") both arrive as HTTP 500 DATABASE_ERROR.
+ *
+ * Translate the refusal back into what it is; a genuinely unexpected failure still reaches
+ * DatabaseError untouched.
+ */
+function translateTransferError(error, fallbackMessage) {
+  const code = error?.code || '';
+  const message = String(error?.message || '').trim();
+  switch (code) {
+    case '42501': return new ForbiddenError(message || 'You may not perform this ownership transfer action.');
+    case 'P0002': return new NotFoundError(message || 'Ownership transfer not found.');
+    case '23505': return new ConflictError(message || 'This ownership transfer conflicts with one already in progress.');
+    case '23514': return new ConflictError(message || 'This ownership transfer is not permitted in the current state.');
+    case '22023': return new ValidationError(message || 'The ownership transfer request is incomplete.');
+    default: return new DatabaseError(fallbackMessage, { reason: message });
+  }
 }
 
 export async function beginOwnershipTransfer(client, {
@@ -37,7 +61,7 @@ export async function beginOwnershipTransfer(client, {
     p_actor_role: identity.role || null,
     p_idempotency_key: key,
   });
-  if (error) throw new DatabaseError('Failed to begin ownership transfer.', { reason: error.message });
+  if (error) throw translateTransferError(error, 'Failed to begin ownership transfer.');
 
   return {
     transfer: data,
@@ -102,7 +126,7 @@ export async function transitionOwnershipTransfer(client, {
     p_registry_authority: registryAuthority,
     p_completion_reference: completionReference,
   });
-  if (error) throw new DatabaseError('Failed to transition ownership transfer.', { reason: error.message });
+  if (error) throw translateTransferError(error, 'Failed to transition ownership transfer.');
 
   // O2/P1 — once ownership is canonical, the PREVIOUS owner's Seller Authority is superseded.
   // Ordering is deliberate: the registry-backed owner_id change (atomic in the RPC above) is the
@@ -141,7 +165,7 @@ export async function getOwnershipTransfer(client, transferId, actor = {}) {
     .select('id,vin,previous_owner_id,incoming_owner_id,tenant_id,state,registry_authority,completed_at,version,created_at,updated_at')
     .eq('id', transferId)
     .maybeSingle();
-  if (error) throw new DatabaseError('Failed to read ownership transfer.', { reason: error.message });
+  if (error) throw translateTransferError(error, 'Failed to read ownership transfer.');
   if (!data) return null;
 
   const privileged = GOVERNANCE_ROLES.has(identity.role);

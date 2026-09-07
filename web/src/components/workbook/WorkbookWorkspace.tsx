@@ -188,9 +188,11 @@ export default function WorkbookWorkspace({ templateKey, title }: { templateKey:
   return (
     <Card className="bg-gray-900 border-gray-800" data-testid="workbook-workspace">
       <CardContent className="p-4 space-y-4">
-        <div className="flex items-center justify-between">
+        {/* Wraps on purpose: at 393px the heading plus four tabs measured 481px of content in a
+            393px viewport, so the page scrolled sideways and "Recent Imports" fell off the screen. */}
+        <div className="flex flex-wrap items-center justify-between gap-2">
           <h2 className="font-medium flex items-center gap-2"><FileSpreadsheet className="h-4 w-4" aria-hidden />{title || 'Workbook tools'}</h2>
-          <div className="flex gap-1">
+          <div className="flex flex-wrap gap-1">
             {(['template', 'export', 'import', 'recent'] as const).map((name) => (
               <Button key={name} size="sm" variant={tab === name ? 'default' : 'outline'} data-testid={`tab-${name}`} onClick={() => setTab(name)}>
                 {name === 'template' ? 'Template' : name === 'export' ? 'Export' : name === 'import' ? 'Import' : 'Recent Imports'}
