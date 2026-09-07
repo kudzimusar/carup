@@ -186,6 +186,83 @@ export async function recordDocumentExtraction(documentId, payload, userContext 
   return data;
 }
 
+/**
+ * T8.4 — replace a document without destroying the one it replaces.
+ *
+ * A replacement is a NEW row pointing back at its predecessor. The superseded row is never edited
+ * beyond being marked no longer current: it keeps its verification status, its reviewer, its
+ * timestamps and its attribution, so an audit can still answer "what did we hold at the time?".
+ *
+ * The replacement starts UPLOADED even when the document it replaces was VERIFIED. A new file is a
+ * new claim, and inheriting the verdict on a document nobody has looked at is the presence→verified
+ * collapse wearing a different hat.
+ */
+export async function replaceTradeDocument(id, payload = {}, userContext = {}, req = null) {
+  const previous = await getTradeDocument(id, userContext);
+  if (previous.superseded_at) {
+    throw new ValidationError('That version has already been replaced — replace the current one instead');
+  }
+  validateTradeDocumentPayload({ document_type: payload.document_type || previous.document_type });
+
+  const { data: next, error } = await supabase
+    .from('diaspora_trade_documents')
+    .insert({
+      tenant_id: previous.tenant_id,
+      // The owner is INHERITED, never re-supplied: a replacement that could move to a different
+      // transaction would be a way to smuggle evidence between trades.
+      import_order_id: previous.import_order_id,
+      subject_type: previous.subject_type,
+      subject_id: previous.subject_id,
+      uploaded_by: userContext?.id || null,
+      document_type: payload.document_type || previous.document_type,
+      document_url: payload.document_url || null,
+      storage_path: payload.storage_path || null,
+      verification_status: DOCUMENT_STATUSES.UPLOADED,
+      ocr_document_id: payload.ocr_document_id || null,
+      metadata: payload.metadata || {},
+      version: Number(previous.version || 1) + 1,
+      supersedes_document_id: previous.id,
+      created_by: userContext?.id,
+      updated_by: userContext?.id,
+    })
+    .select()
+    .single();
+  if (error) throw new DatabaseError(error.message);
+
+  // Only now is the predecessor marked no longer current. If the insert above had failed, nothing
+  // would have been superseded — the old version stays current rather than the transaction being
+  // left with no current document at all.
+  const { error: markError } = await supabase
+    .from('diaspora_trade_documents')
+    .update({ superseded_at: new Date().toISOString(), superseded_by: userContext?.id || null })
+    .eq('id', previous.id)
+    .is('superseded_at', null);
+  if (markError) throw new DatabaseError(markError.message);
+
+  await writeDiasporaAudit({
+    importOrderId: next.import_order_id, tenantId: next.tenant_id, actorId: userContext?.id,
+    action: 'TRADE_DOCUMENT_REPLACED', resourceType: 'diaspora_trade_document', resourceId: next.id,
+    previousState: previous, newState: next, metadata: { supersedes: previous.id, version: next.version }, req,
+  });
+  return next;
+}
+
+/** The lineage of one document, oldest first — what was held, and when it stopped being current. */
+export async function getTradeDocumentLineage(id, userContext = {}) {
+  const current = await getTradeDocument(id, userContext);
+  const chain = [current];
+  let cursor = current;
+  // Walk backwards through predecessors. Bounded so a corrupt cycle cannot spin forever.
+  for (let i = 0; i < 50 && cursor?.supersedes_document_id; i += 1) {
+    const { data } = await supabase.from('diaspora_trade_documents').select('*')
+      .eq('id', cursor.supersedes_document_id).maybeSingle();
+    if (!data) break;
+    chain.unshift(data);
+    cursor = data;
+  }
+  return chain;
+}
+
 export async function verifyTradeDocument(id, payload = {}, userContext = {}, req = null) {
   const previous = await getTradeDocument(id, userContext);
   const { data, error } = await supabase

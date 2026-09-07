@@ -18,6 +18,7 @@ const readiness = await import('../services/diaspora/tradeDocumentReadinessServi
 const SRC = readFileSync(new URL('../services/diaspora/diasporaDocumentService.js', import.meta.url), 'utf-8');
 const ROUTES = readFileSync(new URL('../routes/diasporaRoutes.js', import.meta.url), 'utf-8');
 const MIGRATION = readFileSync(new URL('../../database/migrations/20260909090000_trade_os_t8_document_subject_binding.sql', import.meta.url), 'utf-8');
+const VERSIONING = readFileSync(new URL('../../database/migrations/20260910090000_trade_os_t8_document_versioning.sql', import.meta.url), 'utf-8');
 
 // ── the truth model ──────────────────────────────────────────────────────────────────────────
 
@@ -115,4 +116,66 @@ test('the migration is additive and reversible, and destroys no history', () => 
   assert.ok(!/DROP TABLE|TRUNCATE|DELETE FROM/i.test(up), 'the up migration must destroy nothing');
   assert.ok(/ADD COLUMN IF NOT EXISTS subject_type/.test(up) && /ADD COLUMN IF NOT EXISTS subject_id/.test(up));
   assert.ok(/num_nonnulls\(import_order_id, subject_type\) = 1/.test(up), 'exactly one owner');
+});
+
+// ── T8.4 · versioning and replacement ────────────────────────────────────────────────────────
+
+test('a replacement is a NEW row, and never edits the one it replaces', () => {
+  const fn = SRC.slice(SRC.indexOf('export async function replaceTradeDocument'));
+  const body = fn.slice(0, fn.indexOf('\nexport '));
+  assert.ok(/\.insert\(/.test(body), 'a replacement must INSERT a new version');
+  assert.ok(!/\.delete\(/.test(body), 'a replacement must never delete its predecessor');
+  // The only write to the predecessor is the supersession marker — never its verdict or reviewer.
+  assert.ok(/superseded_at/.test(body) && /superseded_by/.test(body));
+  assert.ok(!/verification_status:\s*previous\.verification_status/.test(body),
+    'a replacement must not carry the predecessor verdict forward');
+  assert.ok(!/reviewed_by:\s*previous/.test(body), 'a replacement must not inherit a reviewer');
+});
+
+test('a replacement starts UPLOADED even when it replaces a VERIFIED document', () => {
+  const fn = SRC.slice(SRC.indexOf('export async function replaceTradeDocument'));
+  const body = fn.slice(0, fn.indexOf('\nexport '));
+  assert.ok(/verification_status:\s*DOCUMENT_STATUSES\.UPLOADED/.test(body),
+    'inheriting a verdict on a file nobody has looked at is the presence-verified collapse again');
+});
+
+test('a replacement cannot move a document to a different transaction', () => {
+  const fn = SRC.slice(SRC.indexOf('export async function replaceTradeDocument'));
+  const body = fn.slice(0, fn.indexOf('\nexport '));
+  for (const field of ['import_order_id', 'subject_type', 'subject_id']) {
+    assert.ok(new RegExp(`${field}:\\s*previous\\.${field}`).test(body),
+      `${field} must be INHERITED, not re-supplied — otherwise a replacement smuggles evidence between trades`);
+  }
+});
+
+test('an already-superseded version cannot be replaced again', () => {
+  const fn = SRC.slice(SRC.indexOf('export async function replaceTradeDocument'));
+  const body = fn.slice(0, fn.indexOf('\nexport '));
+  assert.ok(/previous\.superseded_at/.test(body) && /already been replaced/.test(body));
+});
+
+test('the predecessor is marked superseded only AFTER the new version exists', () => {
+  const fn = SRC.slice(SRC.indexOf('export async function replaceTradeDocument'));
+  const body = fn.slice(0, fn.indexOf('\nexport '));
+  const insertIdx = body.indexOf('.insert(');
+  const markIdx = body.indexOf('superseded_at: new Date()');
+  assert.ok(insertIdx > -1 && markIdx > insertIdx,
+    'marking first would leave the transaction with no current document if the insert failed');
+});
+
+test('the versioning migration is additive, reversible and destroys nothing', () => {
+  const up = VERSIONING.split('-- +migrate Down')[0];
+  assert.ok(!/DROP TABLE|TRUNCATE|DELETE FROM/i.test(up));
+  assert.ok(/uq_trade_document_single_successor/.test(up), 'concurrent replacement must be refused by the database');
+  assert.ok(/no_self_supersede/.test(up));
+  assert.ok(/-- \+migrate Down/.test(VERSIONING));
+});
+
+test('replacement is an upload-authority action, and can never verify', () => {
+  for (const line of ROUTES.split('\n')) {
+    if (/replaceTradeDocument/.test(line) && /router\.post/.test(line)) {
+      assert.ok(!/reviewerAuth/.test(line), 'replacing is not a review action');
+    }
+  }
+  assert.ok(/getTradeDocumentLineage/.test(ROUTES), 'the lineage must be readable, or history is unauditable');
 });

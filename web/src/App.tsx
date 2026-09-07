@@ -66,6 +66,7 @@ import DiasporaTradeProfile from './pages/diaspora/DiasporaTradeProfile'
 import DiasporaAiCommandCenter from './pages/diaspora/DiasporaAiCommandCenter'
 import DiasporaContainerMarketplace from './pages/diaspora/DiasporaContainerMarketplace'
 import TradeRateResearch from './pages/diaspora/TradeRateResearch'
+import TradeDocumentsWorkspace from './pages/diaspora/TradeDocumentsWorkspace'
 import DiasporaDriveConnections from './pages/diaspora/DiasporaDriveConnections'
 import DiasporaSubscription from './pages/diaspora/DiasporaSubscription'
 import DiasporaSafeTrade from './pages/diaspora/DiasporaSafeTrade'
@@ -326,6 +327,10 @@ export default function App() {
           {/* T6.5 — CarUp's own rate research. Platform authority only, enforced server-side; the
               page renders an honest refusal rather than a blank screen for anyone else. */}
           <Route path="/diaspora/rate-research" element={<TradeRateResearch />} />
+          {/* T8.3 — one Documents & Evidence workspace for any authoritative Trade OS object.
+              Access is derived from the transaction server-side; the page shows an honest refusal
+              rather than an empty list when it cannot be read. */}
+          <Route path="/diaspora/documents/:subjectType/:subjectId" element={<TradeDocumentsWorkspace />} />
           <Route path="/diaspora/imports" element={<DiasporaImportList />} />
           <Route path="/diaspora/imports/new" element={<NewDiasporaImportOrder />} />
           <Route path="/diaspora/imports/:id" element={<DiasporaImportDetail />} />

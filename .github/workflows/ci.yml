@@ -164,6 +164,11 @@ jobs:
       - name: Trade OS T8 document binding verification (isolated PGlite Postgres)
         run: node database/test/trade_os_t8_document_check.mjs
 
+      # Trade OS T8.4 — document versioning (20260910090000). Replacement must never destroy the
+      # version it replaces, and a replacement must never inherit a verdict nobody gave it.
+      - name: Trade OS T8 document versioning verification (isolated PGlite Postgres)
+        run: node database/test/trade_os_t8_versioning_check.mjs
+
       - name: 'Issue #101 P0 hardening behavioural proof (real PostgreSQL via PGlite)'
         run: node database/test/issue101_p0_hardening_check.mjs
 

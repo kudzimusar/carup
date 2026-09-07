@@ -3,6 +3,7 @@ import { toComponentPayload } from '@/pages/diaspora/commercialFormat'
 import type { DraftComponent } from '@/pages/diaspora/commercialFormat'
 import type { QuoteCommercials, ComparableQuote, ComparisonResult, AdviceResult } from '@/pages/diaspora/TradeQuoteComparison'
 import type { SharedChargeSet } from '@/pages/diaspora/SharedChargeAllocation'
+import type { DocumentWorkspace } from '@/pages/diaspora/TradeDocumentsWorkspace'
 import { useAuth } from '@/context/AuthContext'
 import { apiRequest, resolveApiBaseUrl, DEFAULT_PRODUCTION_API_BASE_URL, extractApiErrorMessage, fetchCsrfToken, type AuthHeaders } from '@/lib/apiClient'
 import type { AccidentDisclosure, FinanceDisclosure, InsuranceDisclosure } from '@/lib/vehicleHistoryDisclosures'
@@ -1601,6 +1602,15 @@ export function useCarUpApi() {
   }, [request])
 
   /** T7.4 — open (or reuse) the sailing conversation. The server derives who the caller is. */
+  /** T8.3 — the Documents & Evidence workspace projection for one transaction. */
+  const fetchDocumentWorkspace = useCallback(async (
+    subjectType: string, subjectId: string,
+  ): Promise<DocumentWorkspace> => {
+    const response = await request<{ data: DocumentWorkspace }>(
+      `/diaspora/document-workspace/${encodeURIComponent(subjectType)}/${encodeURIComponent(subjectId)}`)
+    return response.data
+  }, [request])
+
   const ensureDiasporaContainerConversation = useCallback(async (
     containerId: string, participantId?: string,
   ): Promise<{ threadId: string | null; role: string }> => {
@@ -3094,6 +3104,7 @@ export function useCarUpApi() {
     readContainerSharedCharges,
     allocateSharedCharge,
     ensureDiasporaContainerConversation,
+    fetchDocumentWorkspace,
     updateDiasporaQuote,
     submitDiasporaQuote,
     withdrawDiasporaQuote,
