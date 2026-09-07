@@ -1,6 +1,6 @@
 # Garage & Mechanic Onboarding 1.0 — Canonical Plan
 
-**Status:** canonical, and now **executed**. Planning was frozen at GMO-0; implementation was
+**Status:** canonical, **executed, and OWNER ACCEPTED at `5bc3c96e`**. Planning was frozen at GMO-0; implementation was
 subsequently authorized and delivered on `feat/garage-mechanic-onboarding-1-0` (PR #209, Draft).
 **GMO-0 … GMO-7 are certified PASS. GMO-8 is PARTIAL and blocked on a paid vision provider** — see
 the phase table in §13. This document remains the authority over the implementation, not a record
@@ -564,7 +564,7 @@ exists.**
 | **GMO-5** | Portal / context handoff | ✅ **PASS after a self-inflicted critical, found and fixed** — `GMO_5_RECEIPT.md` · 27+13 tests · adversarial review executed a working privilege-escalation exploit against the first fix; tenant gate is now opt-in per route; all four GMO tables given RLS |
 | **GMO-6** | Mechanic invitation & membership | ✅ **PASS** — `GMO_6_RECEIPT.md` · 34 backend tests · 10/10 mutations red · hashed single-use email-bound token · new enumerated tenancy-write invariant |
 | **GMO-7** | Membership revocation & lifecycle | ✅ **PASS** — `GMO_7_RECEIPT.md` · 27+20 tests · 7/7 mutations red · future authority ends, historical attribution survives |
-| **GMO-8** | Full physical Golden Journey | ✅ **PASS — technically complete; owner acceptance remains** — `GMO_8_RECEIPT.md` · Acts 1–2 **27/27**; Acts 3–6 **32/32 at desktop, tablet 834 and mobile 390** — three independent journeys, three tenants — against a live **Cloudflare/Qwen** provider. Identity approved through the governed reviewer path with step-up; canonical activation; mechanic onboarded; a **real Service Network job** completed by that mechanic; revocation ends future authority while the Service Record survives, still attributed. Database readback: exactly one tenant and one founding `admin` per run, zero live mechanics after revocation. No mock, no Gemini, no SQL substitute. |
+| **GMO-8** | Full physical Golden Journey | ✅ **PASS — OWNER ACCEPTED** at candidate `5bc3c96e` · `GMO_8_RECEIPT.md` · Acts 1–2 **27/27**; Acts 3–6 **32/32 at desktop, tablet 834 and mobile 390** — three independent journeys, three tenants — against a live **Cloudflare/Qwen** provider. Governed identity approval with step-up; canonical activation; mechanic onboarded; a **real Service Network job** completed by that mechanic; revocation ends future authority while the Service Record survives, still attributed. Readback: exactly one tenant and one founding `admin` per run. No mock, no Gemini, no SQL substitute. **Acceptance is not merge authorization** — #209 stays Draft behind #208 → #197. |
 
 **GMO-8 rule:** no direct SQL fixture may stand in for any core onboarding step in the final
 certification. The whole point of this programme is that the journey exists in the product.
