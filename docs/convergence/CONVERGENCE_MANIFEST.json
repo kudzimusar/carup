@@ -1,0 +1,46 @@
+{
+  "$comment": [
+    "THE CONVERGENCE MANIFEST — which lanes deliberately contain more than one programme.",
+    "",
+    "Several lane-isolation guards assert that another programme's code is ABSENT from the branch.",
+    "Those guards are correct on a single-programme lane: they stop programme A quietly implementing",
+    "programme B's surface. On a lane whose declared purpose is to CONVERGE two parents, the same",
+    "assertion is false by construction — the other programme's code is present because it is",
+    "supposed to be.",
+    "",
+    "Rather than delete such a guard (which removes the protection everywhere) or leave it",
+    "permanently red (which teaches people to ignore a required check), a convergence lane DECLARES",
+    "itself here. A guard consults this file, and on a declared lane it inverts to the STRONGER",
+    "property: both parents are present AND neither has reached into the other's authority.",
+    "",
+    "This file is the audit trail. Adding an entry is a visible, reviewable act in a pull request —",
+    "which is exactly what silencing a guard in place is not."
+  ],
+  "lanes": [
+    {
+      "branch": "feat/garage-mechanic-onboarding-1-0",
+      "programme": "Garage & Mechanic Onboarding 1.0",
+      "why": "GMO depends on capabilities living in two separate Draft lanes: Service Network Foundation 1.0 (#197) supplies the garage workspace, and O2 People & Compliance (#208) supplies governed identity and the Operations reviewer machinery. Neither parent alone can carry the onboarding journey, so this lane converges both. Neither parent PR was modified.",
+      "converges": [
+        {
+          "programme": "Service Network Foundation 1.0",
+          "pr": 197,
+          "branch": "feat/service-network-foundation-1-0",
+          "head_at_reconciliation": "c23f012c",
+          "evidence_of_presence": "backend/services/serviceNetwork"
+        },
+        {
+          "programme": "O2 People & Compliance",
+          "pr": 208,
+          "branch": "feat/operations-o2-people-compliance",
+          "head_at_reconciliation": "71b81d74",
+          "evidence_of_presence": "backend/services/operations"
+        }
+      ],
+      "receipt": "docs/garage-mechanic-onboarding/GMO_LANE_RECONCILIATION_RECEIPT.md",
+      "guards_scoped_by_this_declaration": [
+        "backend/tests/o2-x7-integrated-certification.test.js :: X7-4 lane-isolation assertion"
+      ]
+    }
+  ]
+}

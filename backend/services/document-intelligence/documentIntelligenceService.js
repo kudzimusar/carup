@@ -1,4 +1,4 @@
-import { askGemini } from '../ai/GeminiClient.js';
+import { resolveVisionProvider } from '../ai/ocrVisionProvider.js';
 import { supabase } from '../../db/supabase.js';
 import crypto from 'crypto';
 import { dispatchAutomationWebhook } from '../eventBus/automationWebhookService.js';
@@ -6,23 +6,31 @@ import { logger } from '../../utils/logger.js';
 import { metricsHub } from '../metrics.js';
 
 /**
- * The stamp columns on `vehicles` that ONLY canonicalTrustService.refreshCanonicalTrust() may set
- * (INV-TRUST-2). Any other writer that touches `trust_score` must clear all six in the SAME update.
+ * O2-X1 BOUNDARY: Document Intelligence OBSERVES; domain authorities DECIDE.
  *
- * Why nulling them is load-bearing rather than tidy: the stamp is what makes a cached score
- * publishable. A write that changes the number and leaves the stamp alone inherits the version,
- * band, confidence and evidence basis of the score it just replaced, so the canonical read path
- * classifies the row `fresh` and publishes the new number as `evaluated` — attributed to rules
- * that never saw it. Cleared, the row classifies `unversioned` and is refused, which is the honest
- * state for a score no versioned calculation produced.
+ * This module may write ONLY the ocr evidence tables (the master record plus the structured
+ * per-document-type candidate rows). Its output is candidate data + provenance + confidence +
+ * quality flags — never verified truth. Approving, registering, licensing, trusting or
+ * publishing anything on the strength of an extraction is the exclusive business of the owning
+ * domain services — Phase 7C identity review, Dealer Compliance, Seller Authority, the vehicle
+ * passport/evidence lanes and canonical Trust — each through its own governed, audited decision
+ * path. The retired approval/promotion chain must not return; the boundary is pinned by
+ * backend/tests/o2-x1-document-intelligence-authority.test.js.
  */
-const UNSTAMPED_TRUST_CACHE = Object.freeze({
-  trust_calculation_version: null,
-  trust_evaluated_at: null,
-  trust_band: null,
-  trust_confidence: null,
-  trust_known_limitations: null,
-  trust_evidence_basis: null,
+
+/**
+ * The simulated extraction used ONLY under the sealed test-mode gate. It is deliberately a fixed,
+ * obviously-synthetic object rather than anything a model produced, so a value from here can never
+ * be mistaken for something read off a document.
+ */
+const SIMULATED_EXTRACTION = Object.freeze({
+  confidenceScore: 0.94,
+  first_name: 'Tendai',
+  last_name: 'Moyo',
+  national_id_number: '63-1234567-A-42',
+  date_of_birth: '1990-01-01',
+  country: 'Zimbabwe',
+  additional_fields: { simulated: true },
 });
 
 export class DocumentIntelligenceService {
@@ -62,7 +70,41 @@ export class DocumentIntelligenceService {
   /**
    * Runs OCR extraction and Zimbabwe document parsing
    */
-  static async extractDocumentData(docType, base64Data, userId = 'u1') {
+  /**
+   * Provider output must be a JSON OBJECT; anything else is a provider fault, not a reading.
+   * Nothing is inferred from prose: a string must parse, or yield ONE balanced JSON object that
+   * itself parses to a plain object. Anything else fails closed.
+   */
+  static parseProviderResponse(rawResponse) {
+    let parsed = rawResponse;
+    if (typeof rawResponse === 'string') {
+      try {
+        parsed = JSON.parse(rawResponse);
+      } catch {
+        const opened = rawResponse.indexOf('{');
+        const closed = rawResponse.lastIndexOf('}');
+        let recovered;
+        if (opened > -1 && closed > opened) {
+          try { recovered = JSON.parse(rawResponse.slice(opened, closed + 1)); } catch { recovered = undefined; }
+        }
+        parsed = recovered;
+      }
+    }
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+      throw new Error('The extraction provider returned output that is not a JSON object.');
+    }
+    return parsed;
+  }
+
+  static async extractDocumentData(docType, base64Data, userId) {
+    if (!userId) {
+      // Evidence rows are attribution: outside the test suite a caller must say WHO the
+      // extraction belongs to, or the candidate row would be pinned on a phantom user.
+      if (process.env.NODE_ENV !== 'test') {
+        throw new Error('OCR extraction requires the authenticated user id it is being run for.');
+      }
+      userId = 'u1';
+    }
     const startTime = Date.now();
     logger.info('OCR_SERVICE', `OCR extraction started for type: ${docType} by user: ${userId}`);
 
@@ -92,13 +134,72 @@ export class DocumentIntelligenceService {
     }`;
 
     const userPrompt = `Document Type: ${docType}
-    Image payload base64: ${base64Data ? base64Data.slice(0, 150) : 'Mock Base64 data'}`;
+    The document image is attached. Read the fields printed on it.
+    Reply with a single JSON object and nothing else — no prose, no markdown, no code fences.
+    Leave a field out entirely if it is not legible on the document. Never guess a value.`;
+
+    /**
+     * THE IMAGE IS SENT, NOT DESCRIBED.
+     *
+     * This prompt used to carry `base64Data.slice(0, 150)` — the first 150 characters of the base64
+     * string, as TEXT. No model ever saw the document. Whatever came back was invention, and it was
+     * being written into `ocr_national_ids` as an extracted identity. That is the exact text-only
+     * failure the OCR provider boundary exists to eliminate, and it survived on the extraction path
+     * after classification had already been converged.
+     *
+     * Extraction now goes through the same governed boundary as classification —
+     * CARUP_OCR_PROVIDER, default cloudflare/@cf/qwen/qwen3.8-27b, no automatic fallback — and
+     * carries the real bytes in the transport measured to deliver that model's pixels.
+     */
+    const provider = resolveVisionProvider();
+    const providerModel = (() => { try { return provider.model; } catch { return null; } })();
+    // The mock seal is UNCHANGED and stays exactly where the vendor client had it: NODE_ENV=test
+    // AND an explicit flag, never in a production-shaped runtime. It exists so the offline suites
+    // can exercise this service's ordinary success path without a provider.
+    const mockAllowed = process.env.NODE_ENV === 'test' && process.env.ALLOW_OCR_MOCK === 'true';
+    const inlineMatch = /^data:([^;]+);base64,(.*)$/s.exec(String(base64Data || ''));
+    const image = {
+      mimeType: inlineMatch ? inlineMatch[1] : 'image/jpeg',
+      base64: inlineMatch ? inlineMatch[2] : String(base64Data || ''),
+    };
+    if (!image.base64) throw new Error('Document extraction requires the document image; none was supplied.');
 
     try {
-      const response = await askGemini(systemPrompt, userPrompt, true);
-      const parsedData = JSON.parse(response);
-      const confidence = parsedData.confidenceScore || 0.9;
+      // An unconfigured provider is a FAILURE, recorded honestly by the catch below as
+      // OCR_Provider_Unavailable — not a throw that escapes and leaves no evidence row.
+      if (!mockAllowed && !provider.isConfigured()) {
+        throw new Error(
+          `Document extraction provider "${provider.id}" is unavailable: not configured`
+          + ` (requires ${provider.requiredEnv.join(', ')}).`,
+        );
+      }
+      const { content, usage } = mockAllowed && !provider.isConfigured()
+        ? { content: JSON.stringify(SIMULATED_EXTRACTION), usage: null }
+        : await provider.extract({
+        systemPrompt,
+        textPrompt: userPrompt,
+        images: [image],
+        jsonSchema: {
+          name: 'carup_identity_document',
+          schema: {
+            type: 'object',
+            properties: {
+              confidenceScore: { type: 'number' },
+              first_name: { type: 'string' },
+              last_name: { type: 'string' },
+              national_id_number: { type: 'string' },
+              date_of_birth: { type: 'string' },
+              country: { type: 'string' },
+              additional_fields: { type: 'object' },
+            },
+          },
+        },
+          timeoutMs: 90_000,
+        });
+      const parsedData = DocumentIntelligenceService.parseProviderResponse(content);
+      const confidence = typeof parsedData.confidenceScore === 'number' ? parsedData.confidenceScore : 0.9;
       const elapsedMs = Date.now() - startTime;
+      const providerExecution = { provider: provider.id, model: providerModel, usage: usage || null };
       
       // Emit internal DOCUMENT_OCR_EXTRACTED event
       dispatchAutomationWebhook('DOCUMENT_OCR_EXTRACTED', { docType, userId, confidence });
@@ -128,7 +229,7 @@ export class DocumentIntelligenceService {
 
       // Record telemetry metrics
       metricsHub.recordOcrRequest(
-        'gemini',
+        provider.id,
         true,
         elapsedMs,
         confidence,
@@ -211,7 +312,7 @@ export class DocumentIntelligenceService {
           qualityIssues
         },
         ocrDocumentId: id,
-        provider: 'gemini'
+        provider: provider.id, provider_model: providerModel, provider_execution: providerExecution
       };
     } catch (error) {
       const elapsedMs = Date.now() - startTime;
@@ -227,7 +328,12 @@ export class DocumentIntelligenceService {
       }
 
       let status = 'Poor_Image_Quality';
-      if (error.message.includes('missing') || error.message.includes('API key') || error.message.includes('timeout') || error.message.includes('rate limit') || error.message.includes('Unavailable') || error.message.includes('FATAL')) {
+      // Classifying a fault by grepping its message is fragile, so at least do it case-insensitively
+      // and name every phrase a provider actually uses. Matching only 'Unavailable' meant a message
+      // saying "provider unavailable" in lower case was filed as POOR IMAGE QUALITY — blaming the
+      // applicant's photograph for an outage on our side.
+      const PROVIDER_FAULT = /missing|api key|timeout|timed out|rate limit|unavailable|not configured|refused the request|fatal/i;
+      if (PROVIDER_FAULT.test(error.message)) {
         status = 'OCR_Provider_Unavailable';
       } else if (!quality.qualityPassed) {
         if (quality.tamperSuspicionScore >= 0.3) {
@@ -249,7 +355,7 @@ export class DocumentIntelligenceService {
       });
 
       metricsHub.recordOcrRequest(
-        'gemini',
+        provider.id,
         false,
         elapsedMs,
         0.0,
@@ -295,148 +401,10 @@ export class DocumentIntelligenceService {
           qualityIssues
         },
         ocrDocumentId: id,
-        provider: 'gemini'
+        // A failed extraction reports WHICH provider failed, and no execution evidence, because
+        // there was no execution to evidence.
+        provider: provider.id, provider_model: providerModel, provider_execution: null
       };
-    }
-  }
-
-  /**
-   * Admin/Government approval flow triggering a full validation chain
-   */
-  static async approveDocumentVerification(ocrDocumentId, actorId, vin, overrideJustification = 'Admin document review approval') {
-    console.log(`👤 [Verification] Admin ${actorId} approving OCR document ${ocrDocumentId} for VIN ${vin}`);
-    
-    try {
-      // 1. Fetch the master OCR document
-      const { data: ocrDoc, error: ocrErr } = await supabase
-        .from('ocr_documents')
-        .select('*')
-        .eq('id', ocrDocumentId)
-        .single();
-
-      if (ocrErr || !ocrDoc) {
-        throw new Error(`OCR document not found: ${ocrDocumentId}`);
-      }
-
-      const parsedData = JSON.parse(ocrDoc.extracted_json);
-      const confidence = ocrDoc.confidence_score;
-
-      // A. Verify OCR confidence
-      if (confidence < 0.80) {
-        throw new Error('VERIFICATION_FAILED: Document OCR confidence is too low (< 0.80).');
-      }
-
-      // B. Verify document quality (Passed check based on metrics)
-      const quality = this.analyzeImageQuality(ocrDoc.file_path === 'inline_b64' ? 'mock' : ocrDoc.extracted_json);
-      if (!quality.qualityPassed) {
-        throw new Error('VERIFICATION_FAILED: Image quality metrics failed (blur, glare, or tampering detected).');
-      }
-
-      // Import lazily to avoid circular dependencies
-      const { TrustEnforcementEngine } = await import('../trust-service/trustEnforcementEngine.js');
-
-      // C. Verify VIN/chassis/engine/owner match using TrustEnforcementEngine
-      const matchCheck = await TrustEnforcementEngine.verifyDocumentDataMatch(vin, ocrDoc.document_type, {
-        vin: parsedData.additional_fields?.vin || parsedData.vin,
-        owner_name: parsedData.additional_fields?.owner || `${parsedData.first_name || ''} ${parsedData.last_name || ''}`.trim()
-      });
-
-      if (!matchCheck.match) {
-        throw new Error(`VERIFICATION_FAILED: Metadata mismatch detected. Details: ${JSON.stringify(matchCheck.penalties)}`);
-      }
-
-      // D. Fetch vehicle previous state for audit logging
-      const { data: vehicle } = await supabase.from('vehicles').select('*').eq('vin', vin).single();
-      if (!vehicle) {
-        throw new Error(`Vehicle not found for VIN: ${vin}`);
-      }
-
-      // E. Write approved registry records
-      const timestamp = new Date().toISOString();
-      if (ocrDoc.document_type === 'registration_book') {
-        await supabase.from('cvr_ownership_records').insert({
-          vin,
-          registration_number: parsedData.additional_fields?.plate_number || 'REG_' + crypto.randomUUID().substring(0, 8).toUpperCase(),
-          owner_id_type: 'National_ID',
-          owner_id_number: parsedData.national_id_number || '29-198427-G-45',
-          owner_full_name: `${parsedData.first_name} ${parsedData.last_name}`,
-          issue_date: new Date().toISOString().split('T')[0],
-          logbook_serial_number: 'LB_' + crypto.randomUUID().substring(0, 10).toUpperCase(),
-          status: 'Current'
-        });
-      } else if (ocrDoc.document_type === 'customs_declaration') {
-        await supabase.from('zimra_declarations').insert({
-          vin,
-          customs_ref_number: 'CUS_' + crypto.randomUUID().substring(0, 8).toUpperCase(),
-          importer_name: `${parsedData.first_name} ${parsedData.last_name}`,
-          port_of_entry: parsedData.additional_fields?.importSource || 'Beitbridge',
-          duty_calculated_zig: parsedData.additional_fields?.duty_value_zig || 50000,
-          duty_paid_zig: parsedData.additional_fields?.duty_value_zig || 50000,
-          exchange_rate_used: 13.5,
-          customs_stamp_date: new Date().toISOString().split('T')[0],
-          officer_signature_hash: crypto.createHash('sha256').update(ocrDocumentId).digest('hex')
-        });
-      }
-
-      // F. Write immutable administrative audit log
-      const sealData = `${actorId}-${vin}-${ocrDoc.document_type}-${timestamp}`;
-      const seal = crypto.createHash('sha512').update(sealData).digest('hex');
-      await supabase.from('administrative_overrides').insert({
-        actor_id: actorId,
-        target_vin: vin,
-        override_action: 'ADMIN_APPROVE_OCR_DOCUMENT',
-        justification: overrideJustification,
-        previous_state: { trust_score: vehicle.trust_score, status: vehicle.status },
-        new_state: { trust_score: Math.min(100, (vehicle.trust_score || 80) + 20), status: 'Available' },
-        cryptographic_seal: seal,
-        ip_address: '127.0.0.1',
-        user_agent: 'Console'
-      });
-
-      // G. Mark document verified
-      await supabase.from('ocr_documents').update({ status: 'Verified' }).eq('id', ocrDocumentId);
-
-      // H. Recalculate dynamic trust score (+20 for verified documentation)
-      const baseScore = vehicle.trust_score || 80.0;
-      const finalScore = Math.min(100.0, baseScore + 20.0);
-      // Only refreshCanonicalTrust() may STAMP a score. This write owns the number and none of the
-      // provenance behind it, so it clears the stamp in the same update — otherwise a write landing
-      // after a legitimate refresh would keep that refresh's calculation_version and be published as
-      // canonical, with a band and confidence still describing the score it replaced.
-      await supabase.from('vehicles').update({
-        trust_score: finalScore,
-        status: 'Available',
-        ...UNSTAMPED_TRUST_CACHE,
-      }).eq('vin', vin);
-
-      // Emit internal DOCUMENT_VERIFICATION_APPROVED event
-      dispatchAutomationWebhook('DOCUMENT_VERIFICATION_APPROVED', { ocrDocumentId, actorId, vin, newTrustScore: finalScore });
-
-      // Write trust history log
-      try {
-        await supabase.from('trust_score_history').insert({
-          entity_type: 'VEHICLE',
-          entity_id: vin,
-          previous_score: baseScore,
-          new_score: finalScore,
-          trigger_event: `ADMIN_DOCUMENT_APPROVAL|${ocrDoc.document_type}`,
-          timestamp
-        });
-      } catch (e) {
-        console.warn('Skipping score history persistence:', e.message);
-      }
-
-      return {
-        success: true,
-        ocrDocumentId,
-        newTrustScore: finalScore,
-        status: 'Verified'
-      };
-    } catch (err) {
-      console.error('Document approval failed:', err.message);
-      // Emit internal DOCUMENT_VERIFICATION_REJECTED event
-      dispatchAutomationWebhook('DOCUMENT_VERIFICATION_REJECTED', { ocrDocumentId, actorId, vin, reason: err.message });
-      throw err;
     }
   }
 

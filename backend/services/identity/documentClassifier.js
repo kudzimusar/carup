@@ -3,7 +3,9 @@
  *
  * Two-pass strategy:
  *   Pass 1: Deterministic checks (MIME, size, entropy, hashes)
- *   Pass 2: Constrained vision classification (is this an identity document?)
+ *   Pass 2: Constrained vision classification through the GOVERNED PROVIDER BOUNDARY
+ *           (CARUP_OCR_PROVIDER, default cloudflare/@cf/qwen/qwen3.8-27b) — never a vendor
+ *           imported directly here, and never an automatic fallback to another vendor.
  *   Pass 3: Extraction only if Pass 2 qualifies
  *
  * Hallucinated identity fields from non-documents are NEVER persisted as
@@ -12,7 +14,7 @@
 
 import crypto from 'crypto';
 import { validateEvidenceImages } from './evidenceValidation.js';
-import { askGemini, askGeminiVision } from '../ai/GeminiClient.js';
+import { resolveVisionProvider } from '../ai/ocrVisionProvider.js';
 import { supabase } from '../../db/supabase.js';
 
 /** Detect the image MIME type from magic bytes; defaults to JPEG. */
@@ -80,14 +82,27 @@ export class DocumentClassifier {
   }
 
   /**
-   * Layer 2 — Constrained vision classification via Gemini.
+   * Layer 2 — constrained vision classification through the GOVERNED PROVIDER BOUNDARY.
    *
-   * This call ONLY determines whether the image contains a visible identity
-   * document. It does NOT extract personal fields. The prompt is designed to
-   * return a strict enum value and nothing more.
+   * This asks one question — "is a readable identity document present?" — and nothing else. It
+   * does NOT extract personal fields, and its answer is a PROVIDER OBSERVATION, never an identity
+   * decision. Approval remains the reviewer's and the identity authority's alone.
+   *
+   * The provider comes from `resolveVisionProvider()` (CARUP_OCR_PROVIDER, default `cloudflare`
+   * running `@cf/qwen/qwen3.8-27b`). There is deliberately NO automatic fallback: an unconfigured
+   * or failing provider produces an honest unavailable/error reading attributed to the provider
+   * that was actually configured, never a silent switch to another vendor whose output would then
+   * carry the wrong provenance.
+   *
+   * ONE IMAGE PER CALL. The Workers AI vision models accept a single image per request and REFUSE
+   * a second rather than silently dropping it, so each side is classified in its own call and the
+   * results are combined by the rule below. The front is the document face and governs; the back
+   * is genuinely classified and recorded, never discarded, and can only make the combined answer
+   * weaker — a back that reads as a non-document downgrades the pair to `uncertain` rather than
+   * letting a good front carry an unrelated image through.
    */
   static async classifyDocument(frontBuffer, backBuffer, selfieBuffer, declaredDocType) {
-    const systemPrompt = `You are a document presence classifier. Your ONLY task is to determine whether the uploaded image(s) contain a visible identity document.
+    const systemPrompt = `You are a document presence classifier. Your ONLY task is to determine whether the uploaded image contains a visible identity document.
 
 Rules:
 1. Identity documents include: national ID cards, passports, driver's licenses, vehicle registration books.
@@ -97,71 +112,156 @@ Rules:
 5. If you are unsure, return "uncertain".
 6. Do NOT extract names, ID numbers, dates, or any personal fields.
 
-Respond with a JSON object ONLY:
+OUTPUT FORMAT — ABSOLUTE. Reply with a single JSON object and nothing else. No prose, no markdown, no code fences:
 {
   "classification": "valid_identity_document" | "likely_identity_document" | "unsupported_document" | "non_document" | "unreadable" | "uncertain",
   "classification_confidence": 0.0-1.0,
   "reason": "Brief reason for the classification"
 }`;
 
-    // Send the REAL image bytes as vision parts — a text prompt carrying
-    // truncated base64 cannot be classified visually, which blocked every
-    // valid document at the pre-OCR gate in production. The selfie is
-    // intentionally excluded: it must never influence document presence.
-    const images = [];
-    if (frontBuffer) images.push({ mimeType: sniffImageMime(frontBuffer), base64: frontBuffer.toString('base64') });
-    if (backBuffer) images.push({ mimeType: sniffImageMime(backBuffer), base64: backBuffer.toString('base64') });
+    // Declared for providers that accept one; Qwen's measured transport suppresses fields when a
+    // schema is sent, so the boundary decides per model whether to forward it.
+    const jsonSchema = {
+      name: 'document_presence',
+      schema: {
+        type: 'object',
+        properties: {
+          classification: { type: 'string' },
+          classification_confidence: { type: 'number' },
+          reason: { type: 'string' },
+        },
+        required: ['classification'],
+      },
+    };
 
-    const userPrompt = `Declared document type: ${declaredDocType || 'unknown'}
-The attached image(s) are the document front${backBuffer ? ' and back' : ''}.
-
-Classify the FIRST attached image for identity document presence.`;
-
+    let provider;
     try {
-      const mockAllowed = process.env.NODE_ENV === 'test' && process.env.ALLOW_OCR_MOCK === 'true';
-      const apiKey = process.env.GEMINI_API_KEY;
-
-      if (!apiKey && !mockAllowed) {
-        return {
-          classification: EVIDENCE_CLASSIFICATION.UNCERTAIN,
-          classificationConfidence: 0,
-          reason: 'Classification provider unavailable.',
-          provider: 'unavailable',
-          model: null,
-        };
-      }
-
-      const response = await askGeminiVision(systemPrompt, userPrompt, images, true);
-
-      let parsed;
-      if (typeof response === 'string') {
-        parsed = JSON.parse(response);
-      } else {
-        parsed = response;
-      }
-
-      const validClassifications = Object.values(EVIDENCE_CLASSIFICATION);
-      const classification = validClassifications.includes(parsed.classification)
-        ? parsed.classification
-        : EVIDENCE_CLASSIFICATION.UNCERTAIN;
-
+      provider = resolveVisionProvider();
+    } catch (error) {
+      // A misconfigured provider is a configuration fault, not a verdict about the document.
       return {
-        classification,
-        classificationConfidence: parsed.classification_confidence || 0.5,
-        reason: parsed.reason || 'Classification completed.',
-        provider: 'gemini',
-        model: 'gemini-classifier-v1',
+        classification: EVIDENCE_CLASSIFICATION.UNCERTAIN,
+        classificationConfidence: 0,
+        reason: `Classification provider misconfigured: ${error.message}`,
+        provider: String(process.env.CARUP_OCR_PROVIDER || 'unresolved'),
+        model: null,
+        execution: null,
       };
+    }
+
+    const providerModel = (() => { try { return provider.model; } catch { return null; } })();
+
+    if (!provider.isConfigured()) {
+      return {
+        classification: EVIDENCE_CLASSIFICATION.UNCERTAIN,
+        classificationConfidence: 0,
+        reason: `Classification provider "${provider.id}" is not configured (requires ${provider.requiredEnv.join(', ')}).`,
+        provider: provider.id,
+        model: providerModel,
+        execution: null,
+      };
+    }
+
+    const sides = [['front', frontBuffer], ['back', backBuffer]].filter(([, buffer]) => buffer);
+    if (sides.length === 0) {
+      return {
+        classification: EVIDENCE_CLASSIFICATION.NON_DOCUMENT,
+        classificationConfidence: 1,
+        reason: 'No document image was supplied.',
+        provider: provider.id,
+        model: providerModel,
+        execution: null,
+      };
+    }
+
+    const readings = [];
+    try {
+      for (const [side, buffer] of sides) {
+        const { content, usage } = await provider.extract({
+          systemPrompt,
+          textPrompt: `Declared document type: ${declaredDocType || 'unknown'}\nThe attached image is the document ${side}.\n\nClassify the attached image for identity document presence.`,
+          images: [{ mimeType: sniffImageMime(buffer), base64: buffer.toString('base64') }],
+          jsonSchema,
+          timeoutMs: 90_000,
+        });
+        readings.push({ side, ...DocumentClassifier.parseClassification(content), usage: usage || null });
+      }
     } catch (error) {
       console.warn('Document classification failed:', error.message);
       return {
         classification: EVIDENCE_CLASSIFICATION.UNCERTAIN,
         classificationConfidence: 0,
         reason: `Classification provider error: ${error.message}`,
-        provider: 'gemini',
-        model: null,
+        provider: provider.id,
+        model: providerModel,
+        execution: readings.length ? { sides: readings.map(({ side, usage }) => ({ side, usage })) } : null,
       };
     }
+
+    const front = readings.find((reading) => reading.side === 'front') || readings[0];
+    const back = readings.find((reading) => reading.side === 'back') || null;
+
+    let classification = front.classification;
+    let reason = front.reason;
+    if (back && back.classification === EVIDENCE_CLASSIFICATION.NON_DOCUMENT
+      && classification !== EVIDENCE_CLASSIFICATION.NON_DOCUMENT) {
+      classification = EVIDENCE_CLASSIFICATION.UNCERTAIN;
+      reason = `Front read as "${front.classification}" but the back is not a document (${back.reason}).`;
+    }
+
+    return {
+      classification,
+      classificationConfidence: front.classificationConfidence,
+      reason,
+      provider: provider.id,
+      model: providerModel,
+      // EXECUTION EVIDENCE, not telemetry: it is how a later reader tells a real reading from a
+      // request whose image may never have reached the model.
+      execution: {
+        sides: readings.map(({ side, classification: sideClass, usage }) => ({ side, classification: sideClass, usage })),
+      },
+    };
+  }
+
+  /**
+   * Provider output must be a JSON object carrying one of the known classifications.
+   *
+   * Nothing is inferred from prose: a string must either parse, or yield ONE balanced JSON object
+   * that itself parses to a plain object. Anything else, and any unrecognised classification value,
+   * falls closed to `uncertain` — never to a positive class.
+   */
+  static parseClassification(rawResponse) {
+    let parsed = rawResponse;
+    if (typeof rawResponse === 'string') {
+      try {
+        parsed = JSON.parse(rawResponse);
+      } catch {
+        const opened = rawResponse.indexOf('{');
+        const closed = rawResponse.lastIndexOf('}');
+        let recovered;
+        if (opened > -1 && closed > opened) {
+          try { recovered = JSON.parse(rawResponse.slice(opened, closed + 1)); } catch { recovered = undefined; }
+        }
+        parsed = recovered;
+      }
+    }
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+      return {
+        classification: EVIDENCE_CLASSIFICATION.UNCERTAIN,
+        classificationConfidence: 0,
+        reason: 'The classification provider returned output in an unrecognised shape.',
+      };
+    }
+    const known = Object.values(EVIDENCE_CLASSIFICATION);
+    const classification = known.includes(parsed.classification)
+      ? parsed.classification
+      : EVIDENCE_CLASSIFICATION.UNCERTAIN;
+    const confidence = Number(parsed.classification_confidence);
+    return {
+      classification,
+      classificationConfidence: Number.isFinite(confidence) ? confidence : 0.5,
+      reason: typeof parsed.reason === 'string' && parsed.reason.trim() ? parsed.reason.trim() : 'Classification completed.',
+    };
   }
 
   /**
@@ -252,6 +352,7 @@ Classify the FIRST attached image for identity document presence.`;
       extractionTrust,
       provider: layer2.provider,
       model: layer2.model,
+      execution: layer2.execution || null,
     };
   }
 
@@ -272,7 +373,16 @@ Classify the FIRST attached image for identity document presence.`;
           provider: classificationResult.provider,
           provider_model: classificationResult.model,
           risk_level: classificationResult.reasonCode === 'NON_DOCUMENT' ? 'error' : 'warn',
-          risk_flags: classificationResult.reasons ? { reasons: classificationResult.reasons } : null,
+          // Provider EXECUTION EVIDENCE travels with the reading: which transport form carried the
+          // image, how many prompt tokens the provider counted, how many image bytes were sent.
+          // Without it "the model said non_document" and "the model never saw the image" are the
+          // same row — the exact failure the measured Qwen transport exists to prevent.
+          risk_flags: (classificationResult.reasons?.length || classificationResult.execution)
+            ? {
+              ...(classificationResult.reasons?.length ? { reasons: classificationResult.reasons } : {}),
+              ...(classificationResult.execution ? { provider_execution: classificationResult.execution } : {}),
+            }
+            : null,
         });
 
       if (error) {

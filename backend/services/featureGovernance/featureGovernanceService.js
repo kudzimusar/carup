@@ -37,6 +37,31 @@ async function verifyTenantMembership(client, userId, organizationId) {
 }
 
 /**
+ * The role this user holds in their own tenant, read from `tenant_users`.
+ *
+ * Round 2 owner UAT: a real garage tenant-member reached `/garage` and was shown "Feature
+ * unavailable". Static lifecycle was `active` and `enabled` was true; the feature was reported
+ * `accessible: false`, because eligibility was computed from the PLATFORM role alone and public
+ * registration makes every self-registered garage employee an `owner`.
+ *
+ * This is read server-side from the membership record — never from a client header — and it is used
+ * ONLY to answer "may this subject use this feature", exactly as `resolveEffectiveRole` answers "may
+ * this subject act in this role". It deliberately does NOT set `tenantId`: tenant-scoped overrides
+ * still apply only to a genuinely switched context, so no override starts applying to anyone who
+ * was not already in its scope.
+ *
+ * `admin` is excluded for the same reason the switch-role path excludes it: a tenant must never be
+ * able to mint platform administration.
+ */
+async function resolveOwnTenantRole(client, userId) {
+  if (!userId) return null;
+  const { data } = await client
+    .from('tenant_users').select('role').eq('user_id', userId).limit(1);
+  const role = normalizeRole((data || [])[0]?.role);
+  return role && role !== 'admin' ? role : null;
+}
+
+/**
  * Resolve a TRUSTED, server-derived request context for the public effective
  * endpoint, following the SAME contract as /api/auth/switch-role + authorizeRole:
  *
@@ -80,7 +105,7 @@ export async function resolveRequestContext(req, { client = defaultClient } = {}
     if (!userId && fallbackUserId && isUserIdFallbackAllowed()) {
       userId = fallbackUserId; // dev/test fallback: no session row → base role only
     }
-    if (!userId) return { role: null, tenantId: null, userId: null, cohortId }; // anonymous
+    if (!userId) return { role: null, tenantId: null, tenantRole: null, userId: null, cohortId }; // anonymous
 
     // Trusted base platform role.
     const { data: users } = await client.from('users').select('role').eq('id', userId);
@@ -88,26 +113,28 @@ export async function resolveRequestContext(req, { client = defaultClient } = {}
 
     const activeRole = normalizeRole(session?.active_role);
     const activeOrg = session?.active_organization_id || null;
+    // Carried alongside the platform role, never in place of it.
+    const tenantRole = await resolveOwnTenantRole(client, userId);
 
     // No switched context recorded → base role.
-    if (!activeRole) return { role: baseRole, tenantId: null, userId, cohortId };
+    if (!activeRole) return { role: baseRole, tenantId: null, tenantRole, userId, cohortId };
 
     // Acting as the base role: tenant applies only if the org membership verifies.
     if (activeRole === baseRole) {
       const membership = await verifyTenantMembership(client, userId, activeOrg);
-      return { role: baseRole, tenantId: membership ? activeOrg : null, userId, cohortId };
+      return { role: baseRole, tenantId: membership ? activeOrg : null, tenantRole, userId, cohortId };
     }
 
     // Switched (tenant) role: must be backed by a verified, matching, non-admin
     // tenant_users membership — mirrors switch-role's canAssumeRequestedRole.
     const membership = await verifyTenantMembership(client, userId, activeOrg);
     if (activeOrg && membership && normalizeRole(membership.role) === activeRole && activeRole !== 'admin') {
-      return { role: activeRole, tenantId: activeOrg, userId, cohortId };
+      return { role: activeRole, tenantId: activeOrg, tenantRole, userId, cohortId };
     }
     // Stale / unverifiable switched context → least privilege.
-    return { role: baseRole, tenantId: null, userId, cohortId };
+    return { role: baseRole, tenantId: null, tenantRole, userId, cohortId };
   } catch {
-    return { role: null, tenantId: null, userId: null, cohortId: null }; // fail closed
+    return { role: null, tenantId: null, tenantRole: null, userId: null, cohortId: null }; // fail closed
   }
 }
 
@@ -292,7 +319,14 @@ export function evaluateEffectiveState(entry, override, ctx = {}) {
   }
 
   const requiresAuth = entry.requiresAuth;
-  const roleEligible = !requiresAuth ? true : (ctx.role ? allowedRoles.includes(ctx.role) : false);
+  // Either the platform role or the VERIFIED tenant role may satisfy the allow-list. A garage
+  // employee is an `owner` platform-wide and a `mechanic` in their garage; both are true, and
+  // judging on the platform role alone showed them "Feature unavailable" on their own workspace.
+  // The allow-list itself is unchanged, so an override still cannot broaden anything.
+  const roleEligible = !requiresAuth
+    ? true
+    : Boolean((ctx.role && allowedRoles.includes(ctx.role))
+      || (ctx.tenantRole && allowedRoles.includes(ctx.tenantRole)));
   const tenantOk = applies ? tenantAllowed(override, ctx.tenantId) : true;
 
   // Percentage gate — inserted AFTER role + tenant allow/deny, BEFORE the final

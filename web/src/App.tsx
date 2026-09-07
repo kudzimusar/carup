@@ -24,6 +24,8 @@ import VehicleSearch from './pages/VehicleSearch'
 import SharedReport from './pages/SharedReport'
 import DealerDirectory from './pages/DealerDirectory'
 import GarageDirectory from './pages/GarageDirectory'
+import GarageDetail from './pages/GarageDetail'
+import ServiceLink from './pages/ServiceLink'
 import InsuranceDirectory from './pages/InsuranceDirectory'
 import Pricing from './pages/Pricing'
 import About from './pages/About'
@@ -74,6 +76,9 @@ import Register from './pages/auth/Register'
 import ForgotPassword from './pages/auth/ForgotPassword'
 import ResetPassword from './pages/auth/ResetPassword'
 import VerifyEmail from './pages/auth/VerifyEmail'
+import RegistrationJourney from './pages/onboarding/RegistrationJourney'
+import DealerOnboarding from './pages/dealer/DealerOnboarding'
+import WorkbookTools from './pages/workbook/WorkbookTools'
 import KYCVerification from './pages/auth/KYCVerification'
 
 // Owner Dashboard
@@ -82,6 +87,7 @@ import MyGarage from './pages/dashboard/owner/MyGarage'
 import EvidenceVault from './pages/dashboard/owner/EvidenceVault'
 import VehicleProfile from './pages/dashboard/owner/VehicleProfile'
 import ServiceHistory from './pages/dashboard/owner/ServiceHistory'
+import ServiceRequests from './pages/dashboard/owner/ServiceRequests'
 import InsuranceRecords from './pages/dashboard/owner/InsuranceRecords'
 import PartSentry from './pages/dashboard/owner/PartSentry'
 import MyListings from './pages/dashboard/owner/MyListings'
@@ -102,6 +108,13 @@ import SalesAnalytics from './pages/dashboard/dealer/SalesAnalytics'
 
 // Mechanic Dashboard
 import MechanicDashboard from './pages/dashboard/mechanic/MechanicDashboard'
+// Garage operator workspace (R5) — the queue, cases, job cards, assignment and service records
+// that were certified in Foundation 1.0 and had no product surface at all.
+import GarageWorkspace from './pages/dashboard/garage/GarageWorkspace'
+import GarageSetup from './pages/dashboard/garage/GarageSetup'
+import GarageCaseDetail from './pages/dashboard/garage/GarageCaseDetail'
+import GarageCustomers from './pages/dashboard/garage/GarageCustomers'
+import GarageProfileEditor from './pages/dashboard/garage/GarageProfileEditor'
 import WorkOrders from './pages/dashboard/mechanic/WorkOrders'
 import ServiceLogs from './pages/dashboard/mechanic/ServiceLogs'
 import PartsTracking from './pages/dashboard/mechanic/PartsTracking'
@@ -145,8 +158,12 @@ import AIMonitoring from './pages/dashboard/admin/AIMonitoring'
 import MarketplaceModeration from './pages/dashboard/admin/MarketplaceModeration'
 import EvidenceReview from './pages/dashboard/admin/EvidenceReview'
 import VehicleOperationsReview from './pages/dashboard/admin/VehicleOperationsReview'
+import PeopleComplianceReview from './pages/dashboard/admin/PeopleComplianceReview'
 import FraudQueue from './pages/dashboard/admin/FraudQueue'
 import DealerCompliance from './pages/dashboard/admin/DealerCompliance'
+import GarageApplications from './pages/dashboard/admin/GarageApplications'
+import GarageTeam from './pages/dashboard/garage/GarageTeam'
+import JoinGarage from './pages/JoinGarage'
 import IdentityVerificationCaseManagement from './pages/dashboard/admin/IdentityVerificationCaseManagement'
 import TrustReviewQueue from './pages/dashboard/shared/TrustReviewQueue'
 import GovernanceReviewQueue from './pages/dashboard/shared/GovernanceReviewQueue'
@@ -257,6 +274,15 @@ export default function App() {
           <Route path="/reports/shared/:token" element={<SharedReport />} />
           <Route path="/dealers" element={<DealerDirectory />} />
           <Route path="/garages" element={<GarageDirectory />} />
+          {/* Public garage profile. Lost when the post-#194 reconciliation took main's side of this
+              file wholesale, which left GarageDetail on disk with zero importers. Guarded by
+              web/src/__tests__/app-route-convergence.test.tsx. */}
+          <Route path="/garages/:slug" element={<GarageDetail />} />
+          {/* Where every CarUp QR code lands (R8). The backend resolved service links from the
+              start; this route did not exist, so every scan opened the 404 page. Public by
+              design: the resolver — not this route — decides what a scanner may see, and shows an
+              anonymous scanner only that the link is real. */}
+          <Route path="/s/:token" element={<ServiceLink />} />
           <Route path="/insurance" element={<InsuranceDirectory />} />
           <Route path="/pricing" element={<Pricing />} />
           <Route path="/about" element={<About />} />
@@ -310,6 +336,13 @@ export default function App() {
         <Route element={<MainLayout hideNav />}>
           <Route path="/login" element={<Login />} />
           <Route path="/register" element={<Register />} />
+          {/* GMO-6 — an invited mechanic lands here, usually with no CarUp account at all. Public
+              by necessity: it must say which garage and which email address BEFORE asking them to
+              register, or they create the wrong account and give up. */}
+          <Route path="/join-garage" element={<JoinGarage />} />
+          <Route path="/onboarding" element={<RegistrationJourney />} />
+          <Route path="/dealer/onboarding" element={<DealerOnboarding />} />
+          <Route path="/workbook-tools" element={<WorkbookTools />} />
           {/*
             SA1G: /verify-otp used to render a client-side placebo that accepted ANY six digits
             with no server verification. No backend OTP flow exists and nothing linked to it, so
@@ -330,6 +363,13 @@ export default function App() {
           <Route path="/dashboard/evidence" element={<EvidenceVault />} />
           <Route path="/dashboard/garage/:id" element={<VehicleProfile />} />
           <Route path="/dashboard/service-history" element={<ServiceHistory />} />
+          {/* R3 — a successful service request must remain findable. This is a view of the
+              canonical Service Cases the owner already owns, not a second request ledger. */}
+          <Route path="/dashboard/service-requests" element={<ServiceRequests />} />
+          {/* GMO-1 — "Finish setting up your garage". It must be reachable BEFORE any garage
+              exists, so it lives in the owner shell: the applicant is a platform `owner` until an
+              approved decision activates them. */}
+          <Route path="/dashboard/garage-setup" element={<GarageSetup />} />
           <Route path="/dashboard/insurance" element={<InsuranceRecords />} />
           <Route path="/dashboard/partsentry" element={<PartSentry />} />
           <Route path="/dashboard/listings" element={<MyListings />} />
@@ -358,6 +398,17 @@ export default function App() {
           <Route path="/mechanic/service-logs" element={<ServiceLogs />} />
           <Route path="/mechanic/parts" element={<PartsTracking />} />
           <Route path="/mechanic/customers" element={<CustomerRecords />} />
+          {/* The garage's own work. Mounted in the garage-side portal because GARAGE_ROLES on the
+              backend is exactly ['mechanic','dealer','admin'] — the surface's role set mirrors the
+              API's rather than inventing a second answer to who may act for a garage. */}
+          <Route path="/garage" element={<GarageWorkspace />} />
+          <Route path="/garage/cases/:caseId" element={<GarageCaseDetail />} />
+          <Route path="/garage/customers" element={<GarageCustomers />} />
+          <Route path="/garage/profile" element={<GarageProfileEditor />} />
+          {/* GMO-6 — the garage's own people. Same garage-side shell as the rest of the workspace. */}
+          <Route path="/garage/team" element={<GarageTeam />} />
+          {/* GMO-1 — the applicant surface. Reachable BEFORE any garage exists, so it lives in the
+              owner shell rather than the garage one. */}
         </Route>
 
         {/* Insurance Dashboard */}
@@ -413,8 +464,10 @@ export default function App() {
           <Route path="/admin/moderation" element={<MarketplaceModeration />} />
           <Route path="/admin/evidence" element={<EvidenceReview />} />
           <Route path="/admin/vehicles/:vin/review" element={<VehicleOperationsReview />} />
+          <Route path="/admin/people/:userId/review" element={<PeopleComplianceReview />} />
           <Route path="/admin/fraud-queue" element={<FraudQueue />} />
           <Route path="/admin/dealer-compliance" element={<DealerCompliance />} />
+          <Route path="/admin/garage-applications" element={<GarageApplications />} />
           <Route path="/admin/verification" element={<IdentityVerificationCaseManagement />} />
           <Route path="/admin/trust-review" element={<TrustReviewQueue />} />
           <Route path="/admin/governance-review" element={<GovernanceReviewQueue />} />

@@ -1,0 +1,256 @@
+name: O2 P7 Staging UAT
+
+# O2 P7 — People & Compliance staging certification on the exact-head candidate pair.
+#
+# A SIBLING gate: it never mutates the certified Operations Serena workflow. It owns
+# its own governed idempotent apply-list (the SIX O2 expansion migrations, authorized
+# by the Product Owner for P7 DDL parity) and its own per-run synthetic identities, so
+# it can run beside any other staging gate without touching another gate's fixture.
+#
+# Triggering is deliberately narrow: an explicit push of this workflow or its spec on
+# the O2 candidate branch, plus workflow_dispatch once this file reaches the default
+# branch — the same discipline as the Serena gate.
+on:
+  workflow_dispatch: {}
+  push:
+    branches:
+      - feat/operations-o2-people-compliance
+    paths:
+      - '.github/workflows/o2-p7-staging-uat.yml'
+      - 'tests/agents/44-o2-p7-staging.spec.ts'
+
+concurrency:
+  group: o2-p7-staging-uat
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  o2-p7-uat:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    env:
+      EXPECTED_HEAD_SHA: ${{ github.sha }}
+      CANDIDATE_BRANCH: ${{ github.ref_name }}
+      STAGING_RUN_ID: o2-p7-${{ github.run_id }}-${{ github.run_attempt }}
+      DIASPORA_STAGING_DATABASE_URL: ${{ secrets.DIASPORA_STAGING_DATABASE_URL }}
+      EXPECTED_STAGING_PROJECT_REF: eoyenigwevnxwwhyhaer
+
+    steps:
+      - name: Checkout exact candidate head
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ env.EXPECTED_HEAD_SHA }}
+
+      - name: Assert exact candidate checkout
+        run: test "$(git rev-parse HEAD)" = "$EXPECTED_HEAD_SHA"
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Require staging operator secret (fail closed on the wrong project)
+        run: |
+          if [ -z "$DIASPORA_STAGING_DATABASE_URL" ]; then
+            echo '::error::DIASPORA_STAGING_DATABASE_URL is not configured.'
+            exit 1
+          fi
+          case "$DIASPORA_STAGING_DATABASE_URL" in
+            *"$EXPECTED_STAGING_PROJECT_REF"*) ;;
+            *)
+              echo '::error::Refusing P7: database URL is not the approved carup-staging project.'
+              exit 1
+              ;;
+          esac
+
+      - name: Resolve governed exact-head preview pair
+        run: |
+          node <<'NODE'
+          const fs = require('fs');
+          const branch = process.env.CANDIDATE_BRANCH;
+          const frontendPairs = JSON.parse(fs.readFileSync('web/preview-frontend-pairing.json', 'utf8')).branches || {};
+          const backendPairs = JSON.parse(fs.readFileSync('web/preview-backend-pairing.json', 'utf8')).branches || {};
+          const frontend = frontendPairs[branch];
+          const backend = backendPairs[branch];
+          if (!frontend || !backend) {
+            console.error(JSON.stringify({ error: 'O2 candidate preview pair is not governed', branch, frontend: Boolean(frontend), backend: Boolean(backend) }));
+            process.exit(1);
+          }
+          fs.appendFileSync(process.env.GITHUB_ENV, `STAGING_WEB_URL=${frontend}\n`);
+          fs.appendFileSync(process.env.GITHUB_ENV, `STAGING_API_URL=${backend}/api\n`);
+          console.log(JSON.stringify({ branch, frontend, backend }));
+          NODE
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Apply the six O2 expansion migrations (PO-authorized P7 DDL parity)
+        run: |
+          node --input-type=module <<'NODE'
+          import fs from 'node:fs'
+          import pg from 'pg'
+
+          const dbUrl = process.env.DIASPORA_STAGING_DATABASE_URL || ''
+          if (!dbUrl.includes(process.env.EXPECTED_STAGING_PROJECT_REF)) {
+            throw new Error('Refusing O2 migration outside the approved staging project.')
+          }
+          // The SIX genuinely-unapplied O2 migrations, timestamp order. Idempotent by
+          // construction (IF NOT EXISTS / CREATE OR REPLACE / DO blocks). 20260903120000 and
+          // 20260828203000 are deliberately ABSENT: both are already LIVE on staging via the
+          // Serena gate's apply-list, and re-running DDL that is already correct is not parity.
+          const migrationPaths = [
+            'database/migrations/20260903200000_identity_lifecycle_events.sql',
+            'database/migrations/20260903201000_user_sessions_authentication_assurance.sql',
+            'database/migrations/20260903210000_identity_biometric_consents.sql',
+            'database/migrations/20260903211000_verification_assessments_biometrics.sql',
+            'database/migrations/20260903220000_dealer_onboarding_extensions.sql',
+            'database/migrations/20260904090000_workbook_store_scope_loosening.sql',
+          ]
+          const cleaned = dbUrl.replace(/([?&])sslmode=[^&]*&?/i, '$1').replace(/[?&]$/, '')
+          const client = new pg.Client({ connectionString: cleaned, ssl: { rejectUnauthorized: false } })
+          await client.connect()
+          try {
+            for (const path of migrationPaths) {
+              const raw = fs.readFileSync(path, 'utf8')
+              const up = raw.split('-- +migrate Down')[0].replace('-- +migrate Up', '')
+              await client.query(up)
+              console.log(`applied ${path}`)
+            }
+            // Independent post-verification — never infer success from exit codes alone.
+            const checks = await client.query(`
+              select
+                to_regclass('public.identity_lifecycle_events') is not null as x3_lifecycle,
+                (select count(*) from information_schema.columns where table_name='user_sessions' and column_name in ('auth_method','step_up_at','step_up_method')) as x3_assurance_cols,
+                to_regclass('public.identity_biometric_consents') is not null as x4_consents,
+                (select count(*) from information_schema.columns where table_name='verification_assessments' and column_name in ('face_match_status','liveness_status','provider_state','consent_id')) as x4_assessment_cols,
+                (select count(*) from information_schema.columns where table_name='dealer_compliance_documents' and column_name in ('extraction_candidates','extraction_provider','extraction_confidence','extracted_at')) as x5_doc_cols,
+                to_regclass('public.dealer_workbook_mapping_confirmations') is not null as x5_mapping,
+                (select is_nullable from information_schema.columns where table_name='diaspora_workbook_import_receipts' and column_name='tenant_id') as x5a_receipts_nullable
+            `)
+            const r = checks.rows[0]
+            console.log(JSON.stringify(r))
+            const ok = r.x3_lifecycle && Number(r.x3_assurance_cols) === 3 && r.x4_consents
+              && Number(r.x4_assessment_cols) === 4 && Number(r.x5_doc_cols) === 4 && r.x5_mapping
+              && r.x5a_receipts_nullable === 'YES'
+            if (!ok) throw new Error(`Post-apply verification FAILED: ${JSON.stringify(r)}`)
+            console.log('O2 DDL parity verified on staging.')
+          } finally {
+            await client.end()
+          }
+          NODE
+
+      - name: Wait for exact-head frontend and backend provenance
+        run: |
+          node --input-type=module <<'NODE'
+          const expected = process.env.EXPECTED_HEAD_SHA;
+          const web = process.env.STAGING_WEB_URL;
+          const api = process.env.STAGING_API_URL;
+          const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
+          for (let attempt = 1; attempt <= 90; attempt += 1) {
+            try {
+              const [provRes, healthRes] = await Promise.all([
+                fetch(`${web}/carup-provenance.json?attempt=${attempt}`, { cache: 'no-store' }),
+                fetch(`${api}/health?attempt=${attempt}`, { cache: 'no-store' }),
+              ]);
+              const provenance = provRes.ok ? await provRes.json() : null;
+              const health = healthRes.ok ? await healthRes.json() : null;
+              const frontendOk = provenance?.commit_sha === expected && provenance?.unpaired === false;
+              const backendOk = health?.status === 'UP' && health?.build?.commit_sha === expected;
+              if (frontendOk && backendOk) {
+                console.log(JSON.stringify({ frontend_sha: provenance.commit_sha, backend_sha: health.build.commit_sha, unpaired: provenance.unpaired }));
+                process.exit(0);
+              }
+              console.log(JSON.stringify({ attempt, frontend: provenance?.commit_sha, backend: health?.build?.commit_sha, unpaired: provenance?.unpaired }));
+            } catch (error) {
+              console.log(JSON.stringify({ attempt, error: String(error) }));
+            }
+            await sleep(10_000);
+          }
+          console.error('exact-head O2 candidate pair never became ready');
+          process.exit(1);
+          NODE
+
+      - name: Install Chromium
+        run: npx playwright install --with-deps chromium
+
+      - name: Mint per-run synthetic P7 identities (staging only, unmistakably synthetic)
+        run: |
+          node --input-type=module <<'NODE'
+          import crypto from 'node:crypto';
+          import fs from 'node:fs';
+          import pg from 'pg';
+
+          const dbUrl = process.env.DIASPORA_STAGING_DATABASE_URL || '';
+          if (!dbUrl.includes(process.env.EXPECTED_STAGING_PROJECT_REF)) {
+            throw new Error('Refusing identity provisioning outside the approved staging project.');
+          }
+          const runId = process.env.GITHUB_RUN_ID;
+          const password = crypto.randomBytes(30).toString('base64url');
+          const salt = crypto.randomBytes(16).toString('hex');
+          const derived = await new Promise((resolve, reject) => {
+            crypto.scrypt(password, salt, 64, (error, key) => error ? reject(error) : resolve(key));
+          });
+          const passwordHash = `scrypt:${salt}:${derived.toString('hex')}`;
+
+          // PER-RUN identities: a run's data attaches to that run's own accounts, so nothing
+          // accumulates and no other gate's fixture is touched (the Golden per-run pattern).
+          const applicant = { id: `u_p7_applicant_${runId}`, email: `p7.applicant.${runId}@carup-staging.test`, name: 'P7 SYNTHETIC Applicant' };
+          const dealer = { id: `u_p7_dealer_${runId}`, email: `p7.dealer.${runId}@carup-staging.test`, name: 'P7 SYNTHETIC Dealer Applicant' };
+          const outsider = { id: `u_p7_outsider_${runId}`, email: `p7.outsider.${runId}@carup-staging.test`, name: 'P7 SYNTHETIC Outsider' };
+          // The reviewer is gate-OWNED (not per-run): it holds no inventory, so it cannot
+          // accumulate state, and owning it avoids the shared-reviewer rotation collisions.
+          const reviewer = { id: 'u_p7_reviewer', email: 'p7.reviewer@carup-staging.test', name: 'P7 Operations Reviewer' };
+
+          const cleaned = dbUrl.replace(/([?&])sslmode=[^&]*&?/i, '$1').replace(/[?&]$/, '');
+          const client = new pg.Client({ connectionString: cleaned, ssl: { rejectUnauthorized: false } });
+          await client.connect();
+          try {
+            for (const [person, role] of [[applicant, 'owner'], [dealer, 'owner'], [outsider, 'owner'], [reviewer, 'admin']]) {
+              await client.query(
+                `insert into public.users (id, name, email, role, join_date, is_verified, password_hash)
+                 values ($1, $2, $3, $4, to_char(now(), 'YYYY-MM-DD'), true, $5)
+                 on conflict (email) do update set password_hash = excluded.password_hash, role = excluded.role
+                 returning id`,
+                [person.id, person.name, person.email, role, passwordHash],
+              );
+            }
+            // The dealer applicant's BUSINESS context is server truth (the X5 gate reads it).
+            await client.query(
+              `insert into public.user_registration_profiles
+                 (user_id, account_kind, market_relationship, country_of_residence, city, intended_use, business_type, organization_name, onboarding_status, terms_acknowledged_at, privacy_acknowledged_at)
+               values ($1, 'business', 'zimbabwe_local', 'Zimbabwe', 'Harare', 'sell', 'dealer', $2, 'requested', now(), now())
+               on conflict (user_id) do update set account_kind='business', business_type='dealer', organization_name=excluded.organization_name`,
+              [dealer.id, `P7 SYNTHETIC Motors ${runId}`],
+            );
+          } finally {
+            await client.end();
+          }
+
+          console.log(`::add-mask::${password}`);
+          const env = [
+            `P7_FIXTURE_PASSWORD=${password}`,
+            `P7_APPLICANT_EMAIL=${applicant.email}`,
+            `P7_DEALER_EMAIL=${dealer.email}`,
+            `P7_OUTSIDER_EMAIL=${outsider.email}`,
+            `STAGING_UAT_REVIEWER_EMAIL=${reviewer.email}`,
+            `STAGING_UAT_REVIEWER_PASSWORD=${password}`,
+          ].join('\n');
+          fs.appendFileSync(process.env.GITHUB_ENV, `${env}\n`, { mode: 0o600 });
+          console.log('P7 per-run synthetic identities minted (credentials not printed).');
+          NODE
+
+      - name: Run the O2 P7 staging matrix (desktop + tablet + mobile)
+        run: npx playwright test --config playwright.staging.config.ts tests/agents/44-o2-p7-staging.spec.ts
+
+      - name: Upload P7 evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: o2-p7-evidence-${{ github.run_id }}
+          path: |
+            test-results/
+            playwright-report/
+          retention-days: 30
+          if-no-files-found: ignore

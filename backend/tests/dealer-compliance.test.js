@@ -236,8 +236,14 @@ test('buyer-safe summary maps a suspended dealer to status=suspended', async () 
 // ── cross-tenant denial (admin query scoping) ─────────────────────────────────────────
 test('admin listing is tenant-scoped: a t1 admin does not see a t2 dealer', async () => {
   installMock();
-  await onboard('dealer-1', { tenant_id: 't1' });
-  await onboard('dealer-2', { tenant_id: 't2' });
+  // O2-X5 §4: tenant_id is NOT client-assignable — a tenant_id in the profile payload must be dropped.
+  const p1 = await onboard('dealer-1', { tenant_id: 't1' });
+  const p2 = await onboard('dealer-2', { tenant_id: 't2' });
+  assert.equal(p1.tenant_id ?? null, null);
+  assert.equal(p2.tenant_id ?? null, null);
+  // Tenant membership is a server-side fact (governed assignment), so seed it directly on the rows.
+  db.dealer_profiles.find((r) => r.user_id === 'dealer-1').tenant_id = 't1';
+  db.dealer_profiles.find((r) => r.user_id === 'dealer-2').tenant_id = 't2';
   const t1 = await svc.listProfiles({ tenantId: 't1' });
   assert.equal(t1.length, 1);
   assert.equal(t1[0].tenant_id, 't1');

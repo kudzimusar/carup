@@ -1,0 +1,66 @@
+name: GMO-8 Qwen classification probe
+
+# MANUAL DISPATCH ONLY, and it must stay that way.
+#
+# This runs the converged GMO identity classifier against the live Cloudflare Workers AI model.
+# A `push:` trigger on this repository once turned an equivalent workflow into an unintended
+# automatic consumer of the Workers AI daily allocation. Do not add `push:`, `pull_request:` or
+# `schedule:` here. One dispatch classifies three images.
+on:
+  workflow_dispatch:
+    inputs:
+      model:
+        description: Workers AI model id (leave blank for the qualified default)
+        required: false
+        default: ''
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    name: classify the SPECIMEN card through the governed boundary
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      CARUP_OCR_PROVIDER: cloudflare
+      # Deliberately NOT NODE_ENV=test and NOT ALLOW_OCR_MOCK: this must exercise the real provider.
+      SUPABASE_URL: http://localhost:54321
+      SUPABASE_SERVICE_ROLE_KEY: probe-only-not-a-real-key
+      SUPABASE_ANON_KEY: probe-only-not-a-real-key
+      JWT_SECRET: probe-only-not-a-real-key
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      - run: npx playwright install --with-deps chromium
+
+      - name: Confirm Cloudflare credentials are present (values never printed)
+        env:
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+        run: |
+          missing=""
+          [ -z "$CLOUDFLARE_ACCOUNT_ID" ] && missing="$missing CLOUDFLARE_ACCOUNT_ID"
+          [ -z "$CLOUDFLARE_API_TOKEN" ] && missing="$missing CLOUDFLARE_API_TOKEN"
+          if [ -n "$missing" ]; then echo "Missing:$missing"; exit 1; fi
+          echo "Cloudflare credentials present (account ${#CLOUDFLARE_ACCOUNT_ID} chars, token ${#CLOUDFLARE_API_TOKEN} chars)."
+
+      - name: Render the synthetic SPECIMEN evidence
+        id: render
+        run: |
+          out=$(node scripts/uat/gmo-8-acts-3-to-6.mjs --render-evidence-only | tail -1)
+          echo "dir=${out##* }" >> "$GITHUB_OUTPUT"
+
+      - name: Classify it through the converged path
+        env:
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CARUP_OCR_MODEL: ${{ github.event.inputs.model }}
+          PROBE_IMAGES: ${{ steps.render.outputs.dir }}
+        run: |
+          [ -z "$CARUP_OCR_MODEL" ] && unset CARUP_OCR_MODEL
+          node scripts/uat/gmo-8-qwen-classification-probe.mjs

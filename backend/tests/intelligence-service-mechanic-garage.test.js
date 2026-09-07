@@ -182,36 +182,42 @@ test('garage intelligence is reached by tenant membership, not by a garage role'
 
 // ── What CarUp cannot measure is declared, not invented ────────────────────
 
+// ── Service Network reconciliation (O3) ────────────────────────────────────
+//
+// These four tests previously pinned eight not-measurable capabilities. Service Network S2/S4/S5
+// made six of them genuinely measurable, so the pins are FLIPPED rather than deleted: continuing
+// to publish "no booking model" would be a false statement about CarUp's own schema, and
+// understating what is known is the same class of error as overstating it.
+
 test('every unmeasurable garage capability is declared with a reason', async () => {
   const client = createClient({ orders: [] });
   const result = await getGarageIntelligence(client, MECHANIC);
   const keys = result.not_measurable.map((n) => n.key).sort();
-  assert.deepEqual(keys, [
-    'booking_conversion', 'bookings', 'branch_performance', 'cancellation_rate',
-    'capacity_utilisation', 'service_category_demand', 'team_performance', 'turnaround_time',
-  ]);
+  assert.deepEqual(keys, ['capacity_utilisation', 'team_performance'],
+    'only capacity and staffing remain genuinely unsupported after Service Network');
   for (const entry of result.not_measurable) {
     assert.ok(entry.reason, `${entry.key} must state a reason`);
     assert.ok(entry.detail && entry.detail.length > 20, `${entry.key} must explain itself`);
   }
 });
 
-test('bookings and capacity are absent because no such record exists', () => {
-  const bookings = NOT_MEASURABLE.find((n) => n.key === 'bookings');
-  assert.equal(bookings.reason, 'no_booking_model');
+test('capacity and team performance are still absent, for the right reasons', () => {
   const capacity = NOT_MEASURABLE.find((n) => n.key === 'capacity_utilisation');
   assert.equal(capacity.reason, 'no_capacity_model');
+  const team = NOT_MEASURABLE.find((n) => n.key === 'team_performance');
+  assert.equal(team.reason, 'no_staffing_data');
+  // Assignment now exists; the reason must say why that still is not performance.
+  assert.match(team.detail, /work_order_assignments/);
+  assert.match(team.detail, /not performance/i);
 });
 
-test('turnaround is absent because a work order records no completion time', () => {
-  const turnaround = NOT_MEASURABLE.find((n) => n.key === 'turnaround_time');
-  assert.equal(turnaround.reason, 'no_completion_timestamp');
-});
-
-test('service-category demand is refused rather than inferred from free text', () => {
-  const category = NOT_MEASURABLE.find((n) => n.key === 'service_category_demand');
-  assert.equal(category.reason, 'no_service_type_field');
-  assert.match(category.detail, /inference presented as measurement/i);
+test('the six capabilities Service Network made measurable are no longer declared absent', () => {
+  const stale = NOT_MEASURABLE.map((n) => n.key).filter((key) => [
+    'bookings', 'booking_conversion', 'branch_performance',
+    'turnaround_time', 'cancellation_rate', 'service_category_demand',
+  ].includes(key));
+  assert.deepEqual(stale, [],
+    'these are computed from governed service_cases columns and must not also be declared missing');
 });
 
 test('a practitioner is not asked about branch or team performance', async () => {
@@ -220,9 +226,19 @@ test('a practitioner is not asked about branch or team performance', async () =>
   const keys = result.not_measurable.map((n) => n.key);
   assert.ok(!keys.includes('branch_performance'));
   assert.ok(!keys.includes('team_performance'));
-  // But the ones that DO apply to a person are still declared.
-  assert.ok(keys.includes('turnaround_time'));
-  assert.ok(keys.includes('bookings'));
+  // Capacity still applies to a person's own view.
+  assert.ok(keys.includes('capacity_utilisation'));
+});
+
+test('the mechanic projection never reads the tenant-wide service case ledger', async () => {
+  const read = [];
+  const client = createClient({ orders: [] });
+  const wrapped = {
+    from(table) { read.push(table); return client.from(table); },
+  };
+  await getMechanicIntelligence(wrapped, MECHANIC);
+  assert.ok(!read.includes('service_cases'),
+    'a practitioner scope must stay person-wide; service_cases is organization data');
 });
 
 // ── Measured behaviour ─────────────────────────────────────────────────────

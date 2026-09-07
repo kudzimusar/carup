@@ -46,7 +46,10 @@ const CATEGORY_SOURCES = Object.freeze({
   auction: ['evidence'],
   accident: ['evidence'],
   repair: ['evidence', 'partsentry'],
-  service: ['partsentry', 'mechanic_work_orders'],
+  // O7: Service Network records are a third source of service truth. Listing it here means the
+  // coverage state tells the truth about what could be read — a 'service' count assembled while
+  // service_records was unreadable is now reported as partial rather than presented as complete.
+  service: ['partsentry', 'mechanic_work_orders', 'service_records'],
   inspection: ['evidence', 'vid_inspections'],
   ownership_transfer: ['evidence', 'ownership_ledger'],
   registration: ['evidence'],
@@ -176,6 +179,7 @@ export async function buildCanonicalVehicleLifecycle(client, vin, {
     insuranceRead,
     inspectionRead,
     listingRead,
+    serviceRecordRead,
   ] = await Promise.all([
     readRows(client, 'vehicle_evidence', vin),
     readRows(client, 'vehicle_ownership_history', vin, 'id, transfer_date'),
@@ -192,6 +196,9 @@ export async function buildCanonicalVehicleLifecycle(client, vin, {
     listings !== null && listings !== undefined
       ? Promise.resolve(readStateEnvelope(listings, 'available'))
       : readRows(client, 'listing_snapshots', vin),
+    // O7: governed Service Network records. `work_performed` is deliberately NOT selected — a
+    // column that is never read cannot leak, which is a stronger guarantee than filtering it later.
+    readRows(client, 'service_records', vin, 'id, performed_at, service_category, service_authority, tenant_id'),
   ]);
 
   const evidenceRows = evidenceRead.rows;
@@ -201,6 +208,7 @@ export async function buildCanonicalVehicleLifecycle(client, vin, {
   const insuranceRows = insuranceRead.rows;
   const inspectionRows = inspectionRead.rows;
   const listingRows = listingRead.rows;
+  const serviceRecordRows = serviceRecordRead.rows;
 
   const sourceStates = {
     evidence: evidenceRead.state,
@@ -210,6 +218,7 @@ export async function buildCanonicalVehicleLifecycle(client, vin, {
     insurance_registry: insuranceRead.state,
     vid_inspections: inspectionRead.state,
     listing_snapshots: listingRead.state,
+    service_records: serviceRecordRead.state,
     // The caller already read the vehicle identity before invoking this projection. A missing
     // mileage value is a legitimate empty observation, not an unavailable source.
     current_listing: 'available',
@@ -280,6 +289,31 @@ export async function buildCanonicalVehicleLifecycle(client, vin, {
       sourceKind: 'mechanic_work_order',
       sourceId: row.id,
       verificationStatus: row.status || 'recorded',
+    }));
+  }
+
+  // Service Network O7 — completed governed service activity.
+  //
+  // These join the ONE canonical timeline rather than getting a Service Network timeline of their
+  // own; a vehicle with two histories has no history. Three constraints hold here:
+  //
+  //   - `work_performed` is a garage's private free text and is NEVER read, at any audience. The
+  //     label is built from the controlled `service_category` column instead, so nothing a mechanic
+  //     typed about a customer can reach a public projection.
+  //   - the provenance value is the same `service_authority` vocabulary Passport projects, so the
+  //     lifecycle and the Passport cannot tell contradictory stories about the same record.
+  //   - only a record with a `performed_at` stamp appears. An in-flight case is not a service event.
+  for (const row of serviceRecordRows) {
+    if (!row.performed_at) continue;
+    events.push(event({
+      id: `servicerecord:${row.id}`,
+      category: 'service',
+      date: row.performed_at,
+      label: row.service_category ? `Service — ${row.service_category}` : 'Service record',
+      sourceKind: 'service_record',
+      sourceId: row.id,
+      // Provenance strength, not a verification decision. Service Network never verifies anything.
+      verificationStatus: row.service_authority || 'unknown',
     }));
   }
 

@@ -17,9 +17,11 @@
  *     work or it is refused, and it is refused when no verified tenant exists
  *     rather than quietly falling back to the individual.
  *
- * Everything the schema cannot support — bookings, capacity, staffing, branch
- * performance, turnaround, cancellations, service-category demand — is returned
- * as an explicit not-measurable entry with its reason. None of it is estimated.
+ * Everything the schema cannot support is returned as an explicit not-measurable
+ * entry with its reason. None of it is estimated. Service Network (S2/S4/S5) made
+ * bookings, booking conversion, branch performance, turnaround, cancellations and
+ * service-category demand genuinely measurable; capacity and team performance
+ * remain unsupported. See NOT_MEASURABLE and buildServiceNetworkMetrics.
  */
 import { supabase as defaultClient } from '../../db/supabase.js';
 import { readAllPages } from './rollupService.js';
@@ -31,7 +33,10 @@ import {
   windowDates,
 } from './intelligenceProjectionService.js';
 
-export const SERVICE_INTELLIGENCE_VERSION = 'service@1';
+// service@2: Service Network reconciliation (O3). Six capabilities moved from not-measurable to
+// measured from governed case columns. The version is bumped because the calculation changed —
+// a stored 'service@1' figure is not comparable with one produced here.
+export const SERVICE_INTELLIGENCE_VERSION = 'service@2';
 
 /** Inquiry types that are a request for service work. */
 const SERVICE_INQUIRY_TYPES = new Set(['garage_service_request', 'mechanic_service_request']);
@@ -40,55 +45,34 @@ const SERVICE_INQUIRY_TYPES = new Set(['garage_service_request', 'mechanic_servi
  * Capabilities the canonical plan names for garages that CarUp genuinely cannot
  * measure. Returned to the surface so the absence is stated with its reason,
  * rather than omitted (which invites someone to fill it back in) or estimated.
+ *
+ * SERVICE NETWORK RECONCILIATION (O3). Six entries were removed from this list
+ * because the absences they asserted stopped being true. Service Network S2/S4/S5
+ * introduced a governed case lifecycle (`service_cases`) with `requested_at`,
+ * `accepted_at`, `started_at`, `completed_at`, `cancelled_at`, a
+ * tenant-constrained `branch_id`, and a CONTROLLED `service_category` column on
+ * cases, work orders and service records.
+ *
+ * Continuing to publish "no booking model" or "no completion timestamp" would be
+ * a false statement about CarUp's own schema, and understating what is known is
+ * the same class of error as overstating it. The six are now computed from those
+ * governed columns — see `buildServiceNetworkMetrics` — and nothing is inferred
+ * from free text.
+ *
+ * The two that remain are still genuinely unsupported.
  */
 export const NOT_MEASURABLE = Object.freeze([
-  {
-    key: 'bookings',
-    label: 'Bookings',
-    reason: 'no_booking_model',
-    detail: 'CarUp has no booking, appointment or scheduling record. A work order is created after the work is taken on, so there is no booking preceding it to count.',
-  },
-  {
-    key: 'booking_conversion',
-    label: 'Enquiry → booking conversion',
-    reason: 'no_booking_model',
-    detail: 'Without a booking record there is no numerator for this rate.',
-  },
   {
     key: 'capacity_utilisation',
     label: 'Capacity utilisation',
     reason: 'no_capacity_model',
-    detail: 'CarUp records no service bays, slots, shifts or opening hours, so there is no capacity to measure against.',
+    detail: 'CarUp records no service bays, slots, shifts or opening hours, so there is no capacity to measure against. Service Network added a case lifecycle, not a scheduling model.',
   },
   {
     key: 'team_performance',
     label: 'Team performance',
     reason: 'no_staffing_data',
-    detail: 'Branch records carry a name, location and phone only — no staff, headcount or assignment.',
-  },
-  {
-    key: 'branch_performance',
-    label: 'Branch performance',
-    reason: 'work_not_attributed_to_branch',
-    detail: 'Work orders carry no branch reference, so work cannot be attributed to a branch.',
-  },
-  {
-    key: 'turnaround_time',
-    label: 'Turnaround time',
-    reason: 'no_completion_timestamp',
-    detail: 'A work order records when it was created but not when it was completed, so elapsed time cannot be computed.',
-  },
-  {
-    key: 'cancellation_rate',
-    label: 'Cancellations',
-    reason: 'no_cancellation_state',
-    detail: 'No cancellation state or reason is recorded on a work order.',
-  },
-  {
-    key: 'service_category_demand',
-    label: 'Demand by service type',
-    reason: 'no_service_type_field',
-    detail: 'Work orders describe the issue in free text with no service category, and classifying free text into categories would be inference presented as measurement.',
+    detail: 'Service Network records WHO a work order was assigned to (work_order_assignments), but a garage still has no roster, headcount, role or working-hours record, so assignment counts are not performance. Publishing per-person output as a performance measure is a staffing judgement CarUp has no mandate or source for.',
   },
 ]);
 
@@ -179,6 +163,120 @@ async function readWorkOrders(client, { mechanicId = null, tenantId = null }) {
     if (tenantId) query = query.eq('tenant_id', tenantId);
     return query;
   });
+}
+
+/**
+ * Governed Service Network cases for ONE garage tenant.
+ *
+ * Garage scope is tenant-wide by definition, so this is filtered by
+ * `garage_tenant_id` and never by the calling user. It is deliberately not read
+ * for the mechanic projection: a case belongs to the organization, and widening
+ * a practitioner's view to the tenant is exactly the impersonation this module
+ * exists to prevent.
+ */
+async function readServiceCases(client, { tenantId }) {
+  return readAllPages(() => client
+    .from('service_cases')
+    .select('id, status, service_category, branch_id, requested_at, accepted_at, declined_at, started_at, completed_at, cancelled_at, created_at, garage_tenant_id')
+    .eq('garage_tenant_id', tenantId));
+}
+
+const CASE_CLOSED_NEGATIVE = new Set(['cancelled', 'declined']);
+
+/** Elapsed hours between two stamps, or null when either is missing. */
+function elapsedHours(fromIso, toIso) {
+  if (!fromIso || !toIso) return null;
+  const from = Date.parse(fromIso);
+  const to = Date.parse(toIso);
+  if (!Number.isFinite(from) || !Number.isFinite(to) || to < from) return null;
+  return (to - from) / (1000 * 60 * 60);
+}
+
+function median(values) {
+  if (!values.length) return null;
+  const sorted = [...values].sort((a, b) => a - b);
+  const mid = Math.floor(sorted.length / 2);
+  return sorted.length % 2 ? sorted[mid] : (sorted[mid - 1] + sorted[mid]) / 2;
+}
+
+/**
+ * The six metrics Service Network made measurable, computed ONLY from governed
+ * columns. Every one of them reports absence honestly:
+ *
+ *   - a case with no `service_category` is counted as `unspecified`, never
+ *     classified from its free-text summary;
+ *   - a case with no `branch_id` is `unattributed`, never assigned to the
+ *     tenant's only branch as a convenience;
+ *   - turnaround uses cases that carry BOTH `started_at` and `completed_at`, and
+ *     says how many cases it could not measure.
+ */
+export function buildServiceNetworkMetrics(cases) {
+  const requested = cases.length;
+  const accepted = cases.filter((c) => c.accepted_at || String(c.status) === 'accepted'
+    || ['active', 'completed'].includes(String(c.status))).length;
+  const negative = cases.filter((c) => CASE_CLOSED_NEGATIVE.has(String(c.status))).length;
+
+  const turnarounds = cases
+    .map((c) => elapsedHours(c.started_at, c.completed_at))
+    .filter((hours) => hours !== null);
+
+  const categories = new Map();
+  let unspecifiedCategory = 0;
+  for (const serviceCase of cases) {
+    const category = serviceCase.service_category;
+    if (!category) { unspecifiedCategory += 1; continue; }
+    categories.set(category, (categories.get(category) || 0) + 1);
+  }
+
+  const branches = new Map();
+  let unattributedBranch = 0;
+  for (const serviceCase of cases) {
+    const branch = serviceCase.branch_id;
+    if (!branch) { unattributedBranch += 1; continue; }
+    branches.set(branch, (branches.get(branch) || 0) + 1);
+  }
+
+  return {
+    metrics: {
+      service_requests: metric(requested),
+      accepted_requests: metric(accepted),
+      declined_or_cancelled: metric(negative),
+    },
+    // A booking in CarUp is an ACCEPTED service case: the garage has taken the
+    // work on. The denominator is every request the garage received.
+    booking_conversion: rate(accepted, requested, { min: 5 }),
+    cancellation_rate: rate(negative, requested, { min: 5 }),
+    turnaround_hours: turnarounds.length
+      ? {
+        availability: AVAILABILITY.VALUE,
+        unit: 'hours',
+        median: median(turnarounds),
+        measured_cases: turnarounds.length,
+        unmeasured_cases: requested - turnarounds.length,
+      }
+      : {
+        availability: AVAILABILITY.INSUFFICIENT_DATA,
+        reason: 'no_case_carries_both_started_and_completed',
+        unit: 'hours',
+        median: null,
+        measured_cases: 0,
+        unmeasured_cases: requested,
+      },
+    service_category_demand: {
+      top: [...categories.entries()]
+        .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
+        .slice(0, 5)
+        .map(([label, count]) => ({ label, count })),
+      // Stated, never classified from `request_summary`.
+      unspecified: unspecifiedCategory,
+    },
+    branch_performance: {
+      by_branch: [...branches.entries()]
+        .sort((a, b) => b[1] - a[1] || String(a[0]).localeCompare(String(b[0])))
+        .map(([branch_id, cases_count]) => ({ branch_id, cases: cases_count })),
+      unattributed: unattributedBranch,
+    },
+  };
 }
 
 async function readServiceInquiries(client, { sellerId = null, tenantId = null }) {
@@ -316,6 +414,26 @@ export async function getGarageIntelligence(client = defaultClient, actor = null
   const repeat = repeatCustomers(windowOrders);
   const practitioners = new Set(windowOrders.map((o) => o.mechanic_id).filter(Boolean));
 
+  // Governed Service Network facts (O3). Read separately and degraded separately: if the case
+  // ledger cannot be read, the work-order metrics above are still true and are still reported,
+  // while the case-derived block says UNAVAILABLE. It must never report zero requests for a garage
+  // whose cases simply could not be loaded.
+  let serviceNetwork;
+  try {
+    const cases = await readServiceCases(client, { tenantId });
+    const windowCases = cases.filter((row) => {
+      const at = row.requested_at || row.created_at;
+      return at && at >= start && at < end;
+    });
+    serviceNetwork = { availability: AVAILABILITY.VALUE, ...buildServiceNetworkMetrics(windowCases) };
+  } catch (error) {
+    serviceNetwork = {
+      availability: AVAILABILITY.UNAVAILABLE,
+      reason: String(error?.message || 'service_case_read_failed'),
+      message: 'Service Network case figures could not be read. These are NOT zero.',
+    };
+  }
+
   return {
     scope: 'garage',
     window_days: windowDays,
@@ -339,6 +457,8 @@ export async function getGarageIntelligence(client = defaultClient, actor = null
       ),
     },
     demand_by_vehicle: demandByVehicle(windowOrders, vehicleByVin),
+    // Service Network's governed case ledger. Tenant-wide, like everything else in this scope.
+    service_network: serviceNetwork,
     not_measurable: NOT_MEASURABLE.map((entry) => ({ ...entry })),
   };
 }

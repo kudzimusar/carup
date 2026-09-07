@@ -1,5 +1,7 @@
 import express from 'express';
 import { authorizeRole, requireProvenIdentity } from '../middleware/authMiddleware.js';
+import { requireAuthenticationAssurance } from '../middleware/stepUpMiddleware.js';
+import { ACTION_CLASSES } from '../services/auth/authenticationAssuranceService.js';
 import {
   getVerificationSessionForReview,
   getEvidencePreviewUrl,
@@ -40,6 +42,12 @@ router.get(
 router.post(
   '/api/admin/identity/verification-sessions/:sessionId/review',
   authorizeRole(['admin']),
+  // An identity decision is a SENSITIVE action and must be re-authenticated, exactly as the dealer
+  // and garage decisions are. This route was reachable on role alone: a stolen or borrowed session
+  // could approve an identity, which is the most consequential decision O2 makes. The Product
+  // Owner's ruling makes reviewer capability AND step-up mandatory; the capability was here and the
+  // step-up was not.
+  requireAuthenticationAssurance(ACTION_CLASSES.SENSITIVE),
   asyncHandler(async (req, res) => {
     const result = await reviewVerificationSession(
       undefined,
@@ -61,6 +69,9 @@ router.get(
   // This signs an object in the SAME private ocr-documents bucket — passport, national ID and
   // selfie evidence. An admin id asserted by a spoofable header must not be able to mint it.
   requireProvenIdentity(),
+  // O2-X3: viewing raw identity evidence is a sensitive action — a fresh step-up is required
+  // even for a proven admin session.
+  requireAuthenticationAssurance(ACTION_CLASSES.SENSITIVE),
   asyncHandler(async (req, res) => {
     const preview = await getEvidencePreviewUrl(
       undefined,

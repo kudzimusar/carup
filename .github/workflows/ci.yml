@@ -189,6 +189,41 @@ jobs:
           fi
           echo "All ${#harnesses[@]} ledger harnesses passed."
 
+      # Service Network migrations (S1–S5, S8) against real PostgreSQL via PGlite.
+      #
+      # These harnesses existed and were referenced by ZERO workflows, so six migrations were never
+      # executed by any gate — `migration-integrity.test.js` only parses a file and checks its
+      # markers, and `migration_pglite_check.mjs`'s NEW_MIGRATIONS list stops well before them. A
+      # migration that no gate applies is a migration whose Up, Down and re-Up are unverified until
+      # staging finds out.
+      #
+      # Globbed rather than listed, so a harness added alongside the next slice is picked up instead
+      # of forgotten; zero matches is an explicit failure so the step cannot pass vacuously.
+      - name: Service Network migration harnesses (real PostgreSQL via PGlite)
+        shell: bash
+        run: |
+          set -uo pipefail
+          shopt -s nullglob
+          harnesses=(database/test/service_network_*_check.mjs)
+          if [ ${#harnesses[@]} -eq 0 ]; then
+            echo '::error::no database/test/service_network_*_check.mjs harnesses matched; refusing to pass vacuously'
+            exit 1
+          fi
+          echo "Running ${#harnesses[@]} Service Network harnesses."
+          failed=0
+          for h in "${harnesses[@]}"; do
+            echo "── $h ──"
+            if ! node "$h"; then
+              echo "::error file=$h::Service Network migration harness FAILED"
+              failed=$((failed + 1))
+            fi
+          done
+          if [ "$failed" -ne 0 ]; then
+            echo "::error::$failed of ${#harnesses[@]} Service Network harnesses failed"
+            exit 1
+          fi
+          echo "All ${#harnesses[@]} Service Network harnesses passed."
+
       - name: git diff --check (whitespace / conflict markers)
         run: git diff --check HEAD~1 HEAD || true
 

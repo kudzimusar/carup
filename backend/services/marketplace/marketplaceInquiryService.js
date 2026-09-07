@@ -143,6 +143,36 @@ export async function resolveListingSeller(client, vin) {
   }
 }
 
+/**
+ * Resolve the target garage for a service request against the governed directory.
+ *
+ * Returns the PUBLISHED garage's tenant id, or null when the caller named no garage. Throws when a
+ * garage was named but does not resolve to a published profile — a named-but-invalid target is a
+ * caller error, not a reason to quietly record NULL and let the request look routable.
+ */
+async function resolveTargetProviderTenant(client, payload = {}) {
+  const slug = clampStr(payload.target_garage_slug, 160);
+  const assertedTenantId = clampStr(payload.target_provider_tenant_id, 64);
+  if (!slug && !assertedTenantId) return null;
+
+  let query = client
+    .from('garage_public_profiles')
+    .select('tenant_id, publication_status')
+    .eq('publication_status', 'published');
+  query = slug
+    ? query.eq('slug', String(slug).trim().toLowerCase())
+    : query.eq('tenant_id', assertedTenantId);
+
+  const { data, error } = await query.maybeSingle();
+  if (error) throw new DatabaseError(`Failed to resolve target garage: ${error.message}`);
+  if (!data?.tenant_id) {
+    throw new ValidationError('The requested garage is not a published garage on CarUp.', {
+      target_garage: slug || assertedTenantId,
+    });
+  }
+  return data.tenant_id;
+}
+
 export async function createInquiry(client, payload = {}, actor = null, deps = {}) {
   const referralBridge = deps.referralBridge || marketplaceReferralBridge;
   const persistDomainEvent = deps.emitDomainEvent || emitDomainEvent;
@@ -177,6 +207,22 @@ export async function createInquiry(client, payload = {}, actor = null, deps = {
     contactPhone = contactPhone || profile?.phone || null;
   }
 
+  // Service Network S3 (O2): which garage was this service request directed to?
+  //
+  // The answer is resolved from the governed publication projection, never taken from the request.
+  // A caller may name a garage by its public slug or by tenant id, but either way the tenant that
+  // gets persisted is the one `garage_public_profiles` returns for a PUBLISHED garage. A tenant id
+  // the client simply asserts is not evidence of anything, and an unpublished or unknown garage is
+  // refused rather than silently recorded.
+  //
+  // It is deliberately NOT derived from seller ownership: seller_id/seller_tenant_id keep
+  // marketplace SELLER semantics and are never overloaded to fake a routing relationship (plan
+  // §10.2). A request with no target stays NULL — the S3 bridge already refuses to open a Service
+  // Case without one, so nothing is ever routed on a guess.
+  const targetProviderTenantId = inquiryType === 'garage_service_request'
+    ? await resolveTargetProviderTenant(client, payload)
+    : null;
+
   let sellerId = null;
   let sellerTenantId = null;
   if (listingId && VEHICLE_BOUND_TYPES.has(inquiryType)) {
@@ -201,6 +247,8 @@ export async function createInquiry(client, payload = {}, actor = null, deps = {
     guest_phone: contactPhone,
     seller_id: sellerId,
     seller_tenant_id: sellerTenantId,
+    // Distinct from the two seller columns above, and only ever set for a service request.
+    target_provider_tenant_id: targetProviderTenantId,
     inquiry_type: inquiryType,
     message,
     referral_code: clampStr(payload.referral_code, 64),

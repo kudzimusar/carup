@@ -8,6 +8,20 @@ export interface AuthUser {
   role: UserRole;
   avatar?: string;
   active_tenant_id?: string | null;
+  /**
+   * The role this person holds IN `active_tenant_id`, as recorded in `tenant_users`.
+   *
+   * Distinct from `role`, which is the PLATFORM role. Public registration only ever creates an
+   * `owner`, so a garage employee who signed up through the product is an owner platform-wide and
+   * a mechanic inside their garage. Both facts are true and the product needs both: without this
+   * one, a real garage tenant-member was refused by every garage route.
+   *
+   * It confers nothing on its own. The server honours it only against the same verified
+   * `tenant_users` record it came from.
+   */
+  active_tenant_role?: string | null;
+  active_tenant_name?: string | null;
+  active_tenant_type?: string | null;
 }
 
 export interface Vehicle {

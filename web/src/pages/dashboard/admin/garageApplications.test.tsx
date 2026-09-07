@@ -1,0 +1,333 @@
+/**
+ * GMO-3 — the reviewer's workspace.
+ *
+ * The browser never decides what is possible: `allowed_decisions` and `blocking` come from the
+ * server, so a reviewer cannot reach an action the server would refuse. And nothing on this page
+ * builds anything — approving records a judgment; GMO-4 creates the workspace.
+ */
+import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { render, screen, waitFor, fireEvent } from '@testing-library/react'
+import GarageApplications from './GarageApplications'
+
+const fetchGarageApplicationsForReview = vi.fn()
+const fetchGarageApplicationForReview = vi.fn()
+const decideGarageApplication = vi.fn()
+const previewGarageEvidenceForReview = vi.fn()
+const activateGarageApplication = vi.fn()
+const stepUp = vi.fn()
+
+vi.mock('@/hooks/useCarUpApi', () => ({
+  useCarUpApi: () => ({
+    fetchGarageApplicationsForReview, fetchGarageApplicationForReview,
+    decideGarageApplication, activateGarageApplication, previewGarageEvidenceForReview, stepUp,
+  }),
+}))
+
+const APP = {
+  id: 'app-1', status: 'submitted', trading_name: 'Mbare Motors', address_line: '12 Chaminuka Rd',
+  location_city: 'Harare', location_province: null, contact_phone: '+263771234567',
+  contact_email: null, service_categories: ['brakes'], applicant_relationship: 'owner',
+  attestation_accepted_at: 'x', submitted_at: '2026-09-06T10:00:00Z', decided_at: null,
+  decision_reason: null, decision_reason_code: null, supersedes_application_id: null,
+  activated_tenant_id: null,
+}
+
+const DETAIL = {
+  application: APP,
+  decisions: [],
+  documents: [{ id: 'doc-1', evidence_type: 'signage_photo', removed_at: null, has_file: true }],
+  identity: { identity_state: 'approved', usable_for_identity_gated_actions: true },
+  identity_error: null,
+  allowed_decisions: ['start_review', 'request_more_info', 'approve', 'reject'],
+  blocking: [],
+}
+
+beforeEach(() => {
+  vi.clearAllMocks()
+  fetchGarageApplicationsForReview.mockResolvedValue({ applications: [APP] })
+  fetchGarageApplicationForReview.mockResolvedValue(DETAIL)
+  decideGarageApplication.mockResolvedValue({ application: { ...APP, status: 'approved' } })
+  stepUp.mockResolvedValue({ success: true })
+})
+
+const open = async () => {
+  render(<GarageApplications />)
+  fireEvent.click(await screen.findByTestId('queue-item'))
+  await screen.findByTestId('application-detail')
+}
+
+describe('the queue', () => {
+  it('lists what is waiting', async () => {
+    render(<GarageApplications />)
+    expect(await screen.findByTestId('review-queue')).toHaveTextContent('Mbare Motors')
+  })
+
+  it('a broken queue is a loading problem, not "nothing is waiting"', async () => {
+    fetchGarageApplicationsForReview.mockRejectedValue(new Error('network'))
+    render(<GarageApplications />)
+    expect(await screen.findByTestId('queue-error'))
+      .toHaveTextContent(/does not mean there is nothing waiting/i)
+    expect(screen.queryByTestId('queue-empty')).toBeNull()
+  })
+
+  it('a genuinely empty queue says so plainly', async () => {
+    fetchGarageApplicationsForReview.mockResolvedValue({ applications: [] })
+    render(<GarageApplications />)
+    expect(await screen.findByTestId('queue-empty')).toHaveTextContent(/Nothing is waiting/i)
+  })
+})
+
+describe('the browser renders authority, it never computes it', () => {
+  it('offers exactly the decisions the server allowed', async () => {
+    await open()
+    for (const d of ['start_review', 'request_more_info', 'approve', 'reject']) {
+      expect(screen.getByTestId(`decision-${d}`)).toBeTruthy()
+    }
+  })
+
+  it('offers no decisions when the server allows none', async () => {
+    fetchGarageApplicationForReview.mockResolvedValue({
+      ...DETAIL, application: { ...APP, status: 'information_required' }, allowed_decisions: [],
+    })
+    await open()
+    expect(screen.queryByTestId('decision-panel')).toBeNull()
+    expect(screen.getByTestId('no-decisions')).toHaveTextContent(/comes back to you when they send it again/i)
+  })
+
+  it('a closed application offers nothing further', async () => {
+    fetchGarageApplicationForReview.mockResolvedValue({
+      ...DETAIL, application: { ...APP, status: 'rejected', decided_at: 'x' }, allowed_decisions: [],
+    })
+    await open()
+    expect(screen.getByTestId('no-decisions')).toHaveTextContent(/closed/i)
+  })
+
+  it('approve is unreachable while the server reports blockers', async () => {
+    fetchGarageApplicationForReview.mockResolvedValue({
+      ...DETAIL,
+      identity: { identity_state: 'pending', usable_for_identity_gated_actions: false },
+      blocking: ['The applicant\'s identity is not approved (pending).'],
+    })
+    await open()
+    expect(screen.getByTestId('approval-blockers')).toHaveTextContent(/identity is not approved/i)
+    expect((screen.getByTestId('decision-approve') as HTMLButtonElement).disabled).toBe(true)
+  })
+})
+
+describe('a decision that closes or pauses must say why', () => {
+  it('reject and ask-for-more stay disabled until a reason is written', async () => {
+    await open()
+    expect((screen.getByTestId('decision-reject') as HTMLButtonElement).disabled).toBe(true)
+    expect((screen.getByTestId('decision-request_more_info') as HTMLButtonElement).disabled).toBe(true)
+    // Starting a review changes nothing for the applicant, so it needs no justification.
+    expect((screen.getByTestId('decision-start_review') as HTMLButtonElement).disabled).toBe(false)
+
+    fireEvent.change(screen.getByTestId('decision-reason'), { target: { value: 'Please add a photo.' } })
+    expect((screen.getByTestId('decision-reject') as HTMLButtonElement).disabled).toBe(false)
+  })
+
+  it('sends the reason with the decision', async () => {
+    await open()
+    fireEvent.change(screen.getByTestId('decision-reason'), { target: { value: 'Premises unconfirmed.' } })
+    fireEvent.click(screen.getByTestId('decision-reject'))
+    await waitFor(() => expect(decideGarageApplication).toHaveBeenCalledWith('app-1', {
+      decision: 'reject', reason: 'Premises unconfirmed.',
+    }))
+  })
+
+  it('a refused decision is reported, not swallowed', async () => {
+    decideGarageApplication.mockRejectedValue(new Error('This application changed while you were deciding.'))
+    await open()
+    fireEvent.click(screen.getByTestId('decision-start_review'))
+    expect(await screen.findByTestId('decision-error')).toHaveTextContent(/changed while you were deciding/i)
+  })
+})
+
+describe('what the reviewer is told about the applicant', () => {
+  it('an unreadable identity is a system problem, never a finding against them', async () => {
+    fetchGarageApplicationForReview.mockResolvedValue({
+      ...DETAIL, identity: null, identity_error: 'identity service unreachable',
+      blocking: ['The applicant\'s identity status could not be read just now. This is a system problem, not a finding against them — try again before deciding.'],
+    })
+    await open()
+    const panel = screen.getByTestId('identity-unreadable')
+    expect(panel).toHaveTextContent(/system problem, not a finding against them/i)
+    expect(panel.textContent).not.toMatch(/not approved|rejected|failed/i)
+  })
+
+  it('an approved identity says so', async () => {
+    await open()
+    expect(screen.getByTestId('identity-state')).toHaveTextContent(/Approved and usable/i)
+  })
+
+  it('withdrawn evidence is still shown, marked as withdrawn', async () => {
+    fetchGarageApplicationForReview.mockResolvedValue({
+      ...DETAIL,
+      documents: [{ id: 'doc-1', evidence_type: 'utility_bill', removed_at: '2026-09-06T11:00:00Z', has_file: true }],
+    })
+    await open()
+    // A reviewer must not find a gap where their reasoning used to be.
+    expect(screen.getByTestId('review-evidence-item')).toHaveTextContent(/withdrawn by the applicant/i)
+  })
+
+  it('a field with no value reads as "Not recorded", never as an empty cell', async () => {
+    await open()
+    expect(screen.getByTestId('application-detail')).toHaveTextContent('Not recorded')
+  })
+})
+
+describe('approving is not verifying, and does not build', () => {
+  it('says plainly that approval neither verifies nor creates the workspace', async () => {
+    await open()
+    const panel = screen.getByTestId('decision-panel')
+    expect(panel).toHaveTextContent(/does not verify the business/i)
+    expect(panel).toHaveTextContent(/workspace is\s+created separately/i)
+  })
+
+  it('the page offers no control that creates a tenant, membership or role', async () => {
+    await open()
+    const text = document.body.textContent ?? ''
+    for (const forbidden of [/create tenant/i, /add member/i, /grant role/i, /assign admin/i]) {
+      expect(text, `the reviewer must not be offered: ${forbidden}`).not.toMatch(forbidden)
+    }
+  })
+})
+
+describe('GMO-4 — what happened to the workspace, said plainly', () => {
+  it('an activated application says the workspace exists', async () => {
+    fetchGarageApplicationForReview.mockResolvedValue({
+      ...DETAIL,
+      application: { ...APP, status: 'approved', decided_at: 'x', activated_tenant_id: 't-1' },
+      allowed_decisions: [],
+    })
+    await open()
+    expect(screen.getByTestId('workspace-activated'))
+      .toHaveTextContent(/applicant is its administrator/i)
+  })
+
+  it('a failed activation keeps the decision and offers a retry', async () => {
+    decideGarageApplication.mockResolvedValue({
+      application: { ...APP, status: 'approved' },
+      activation: { activated: false, reason: 'connection reset', retryable: true },
+    })
+    await open()
+    fireEvent.click(screen.getByTestId('decision-approve'))
+    const panel = await screen.findByTestId('activation-failed')
+    // The reviewer must not be asked to make the same judgment twice.
+    expect(panel).toHaveTextContent(/approval stands — you do not need to decide again/i)
+    expect(panel).toHaveTextContent(/connection reset/)
+    expect(screen.getByTestId('retry-activation')).toBeTruthy()
+  })
+
+  it('the retry calls the idempotent activate endpoint', async () => {
+    decideGarageApplication.mockResolvedValue({
+      application: { ...APP, status: 'approved' },
+      activation: { activated: false, reason: 'timeout', retryable: true },
+    })
+    activateGarageApplication.mockResolvedValue({ tenantId: 't-1', created: true })
+    await open()
+    fireEvent.click(screen.getByTestId('decision-approve'))
+    fireEvent.click(await screen.findByTestId('retry-activation'))
+    await waitFor(() => expect(activateGarageApplication).toHaveBeenCalledWith('app-1'))
+  })
+
+  it('no activation attempt is NOT rendered as a failed one', async () => {
+    await open()
+    // A pending application has attempted nothing; showing a failure banner would be a lie.
+    expect(screen.queryByTestId('activation-failed')).toBeNull()
+    expect(screen.queryByTestId('workspace-activated')).toBeNull()
+  })
+
+  it('a successful approval shows no failure banner', async () => {
+    decideGarageApplication.mockResolvedValue({
+      application: { ...APP, status: 'approved' },
+      activation: { activated: true, tenantId: 't-1', created: true },
+    })
+    await open()
+    fireEvent.click(screen.getByTestId('decision-approve'))
+    await waitFor(() => expect(decideGarageApplication).toHaveBeenCalled())
+    expect(screen.queryByTestId('activation-failed')).toBeNull()
+  })
+})
+
+describe('the step-up the product never offered', () => {
+  const STEP_UP = new Error('Recent re-authentication is required for this action. (STEP_UP_REQUIRED)')
+
+  it('a decision that needs re-authentication offers a way to give it', async () => {
+    // Before this, the backend answered STEP_UP_REQUIRED and NOTHING in the product could satisfy
+    // it — the route was governed and unreachable at the same time.
+    decideGarageApplication.mockRejectedValueOnce(STEP_UP)
+    await open()
+    fireEvent.click(screen.getByTestId('decision-start_review'))
+    expect(await screen.findByTestId('step-up-prompt')).toHaveTextContent(/confirm your password/i)
+    // It is not shown as a failed decision, because the decision was deferred, not refused.
+    expect(screen.queryByTestId('decision-error')).toBeNull()
+  })
+
+  it('confirming re-authenticates and RETRIES the decision', async () => {
+    decideGarageApplication.mockRejectedValueOnce(STEP_UP)
+    await open()
+    fireEvent.click(screen.getByTestId('decision-start_review'))
+    await screen.findByTestId('step-up-prompt')
+
+    fireEvent.change(screen.getByTestId('step-up-password'), { target: { value: 'correct horse' } })
+    fireEvent.click(screen.getByTestId('step-up-confirm'))
+
+    await waitFor(() => expect(stepUp).toHaveBeenCalledWith('correct horse'))
+    // The action the person actually asked for must happen, not just the re-authentication.
+    await waitFor(() => expect(decideGarageApplication).toHaveBeenCalledTimes(2))
+  })
+
+  it('preserves the reason the reviewer typed across the step-up', async () => {
+    decideGarageApplication.mockRejectedValueOnce(STEP_UP)
+    await open()
+    fireEvent.change(screen.getByTestId('decision-reason'), { target: { value: 'Premises unconfirmed.' } })
+    fireEvent.click(screen.getByTestId('decision-reject'))
+    await screen.findByTestId('step-up-prompt')
+    fireEvent.change(screen.getByTestId('step-up-password'), { target: { value: 'pw' } })
+    fireEvent.click(screen.getByTestId('step-up-confirm'))
+    await waitFor(() => expect(decideGarageApplication).toHaveBeenLastCalledWith('app-1', {
+      decision: 'reject', reason: 'Premises unconfirmed.',
+    }))
+  })
+
+  it('a wrong password says so; an outage does NOT', async () => {
+    decideGarageApplication.mockRejectedValue(STEP_UP)
+    stepUp.mockRejectedValueOnce(new Error('Password verification failed. (STEP_UP_CREDENTIAL_INVALID)'))
+    await open()
+    fireEvent.click(screen.getByTestId('decision-start_review'))
+    await screen.findByTestId('step-up-prompt')
+    fireEvent.change(screen.getByTestId('step-up-password'), { target: { value: 'wrong' } })
+    fireEvent.click(screen.getByTestId('step-up-confirm'))
+    expect(await screen.findByTestId('step-up-error')).toHaveTextContent(/was not correct/i)
+
+    // Telling someone their own password is wrong when it is not is how they reset an account
+    // needlessly.
+    stepUp.mockRejectedValueOnce(new Error('Too many requests'))
+    fireEvent.click(screen.getByTestId('step-up-confirm'))
+    await waitFor(() => expect(screen.getByTestId('step-up-error')).toHaveTextContent(/could not confirm it just now/i))
+    expect(screen.getByTestId('step-up-error').textContent).not.toMatch(/was not correct/i)
+  })
+
+  it('cancelling leaves the decision unmade and the page usable', async () => {
+    decideGarageApplication.mockRejectedValueOnce(STEP_UP)
+    await open()
+    fireEvent.click(screen.getByTestId('decision-start_review'))
+    await screen.findByTestId('step-up-prompt')
+    fireEvent.click(screen.getByTestId('step-up-cancel'))
+    await waitFor(() => expect(screen.queryByTestId('step-up-prompt')).toBeNull())
+    expect(screen.getByTestId('decision-panel')).toBeTruthy()
+    expect(decideGarageApplication).toHaveBeenCalledTimes(1)
+  })
+
+  it('viewing private evidence asks too, and retries the preview', async () => {
+    previewGarageEvidenceForReview.mockRejectedValueOnce(STEP_UP)
+    previewGarageEvidenceForReview.mockResolvedValueOnce({ url: 'https://signed.example/doc' })
+    await open()
+    fireEvent.click(screen.getByTestId('review-evidence-preview'))
+    await screen.findByTestId('step-up-prompt')
+    fireEvent.change(screen.getByTestId('step-up-password'), { target: { value: 'pw' } })
+    fireEvent.click(screen.getByTestId('step-up-confirm'))
+    await waitFor(() => expect(previewGarageEvidenceForReview).toHaveBeenCalledTimes(2))
+  })
+})

@@ -1,0 +1,26 @@
+{
+  "recorded_at_utc": "2026-09-07T (this session, before any change by me)",
+  "project": "carup-backend-staging",
+  "team": "team_InL2Jmsg4dbG0rFY8nxriTha (11-11)",
+  "entries_matching_GEMINI_API_KEY": 1,
+  "pre_state_observed_by_me": {
+    "id": "XvKMBHNf0KbeHvRr",
+    "key": "GEMINI_API_KEY",
+    "type": "sensitive",
+    "target": ["preview"],
+    "gitBranch": "feat/garage-mechanic-onboarding-1-0",
+    "createdAt": 1788528321942,
+    "createdAt_utc": "2026-09-04T13:25:21.942Z",
+    "updatedAt": 1788731267273,
+    "updatedAt_utc": "2026-09-06T21:47:47.273Z",
+    "decrypted": false
+  },
+  "canonical_original_to_restore": {
+    "source": "docs/garage-mechanic-onboarding/GMO_8_RECEIPT.md lines 302-303 (prior session's recorded before/after)",
+    "gitBranch": "fix/o2-live-ocr-operationalization",
+    "target": ["preview"],
+    "type": "sensitive"
+  },
+  "reading": "The owner moved the binding to the GMO lane at 2026-09-06T21:47:47Z when funding the AI Studio project. Step A's rebind is therefore ALREADY IN PLACE and I changed nothing to achieve it. Step E restores gitBranch to 'fix/o2-live-ocr-operationalization', which is both the recorded original AND satisfies 'do not leave the credential scoped to the GMO branch'.",
+  "value_handling": "type=sensitive — Vercel returns the value to nobody, including me. Only the gitBranch binding is mutable. The key is NOT rotated."
+}

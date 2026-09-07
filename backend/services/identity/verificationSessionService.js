@@ -8,6 +8,8 @@ import { compareAccountToDocument, documentHolderName } from './identityBinding.
 import { DocumentClassifier, EVIDENCE_CLASSIFICATION, EXTRACTION_TRUST_STATUS } from './documentClassifier.js';
 import { DecisionPolicyEngine } from './decisionPolicy.js';
 import { VerificationDecisionRecorder } from './decisionRecorder.js';
+import { fetchLatestBiometricAssessment } from './biometrics/biometricAssessmentService.js';
+import { getBiometricConsentStateForUser } from './biometrics/biometricConsentService.js';
 import {
   DECISION_ACTION,
   WORKFLOW_PHASE,
@@ -378,6 +380,10 @@ export async function submitVerificationSession(client = supabase, actor = {}, s
   const timestamp = now();
   const storage = options.storage || { downloadFromStorage };
   const ocr = options.ocr || DocumentIntelligenceService;
+  // The classifier is injectable for the SAME reason the OCR service is: the approval contract has
+  // to be provable for each classification the product can actually produce, and a test cannot
+  // reach `likely_identity_document` by asking a real model nicely.
+  const classifier = options.classifier || DocumentClassifier;
 
   const { data: pendingSession, error: pendingError } = await client
     .from('verification_sessions')
@@ -428,7 +434,7 @@ export async function submitVerificationSession(client = supabase, actor = {}, s
     // -------------------------------------------------------
     // STAGE 1: Document classification (Layer 1 + Layer 2)
     // -------------------------------------------------------
-    let classificationResult = await DocumentClassifier.classify(
+    let classificationResult = await classifier.classify(
       { front: frontDocument.buffer, back: backBuffer, selfie: selfieBuffer },
       session.document_type
     );
@@ -436,7 +442,7 @@ export async function submitVerificationSession(client = supabase, actor = {}, s
     evidenceHashes = classificationResult.hashes;
 
     // Persist classification assessment
-    await DocumentClassifier.persistClassification(client, session.id, classificationResult);
+    await classifier.persistClassification(client, session.id, classificationResult);
 
     const completedAt = now();
 
@@ -455,6 +461,11 @@ export async function submitVerificationSession(client = supabase, actor = {}, s
           status: 'pending_manual_review',
           workflow_phase: WORKFLOW_PHASE.REVIEWER_ACTION_REQUIRED,
           primary_reason_code: reasonCode,
+          // Record WHAT it was classified as, not only why it was refused. Without this the stored
+          // row carries a reason code and no classification, so the decision policy's evidence-class
+          // gate has nothing to read and the case is blocked by one guard where two should apply.
+          evidence_classification: classificationResult.classification,
+          extraction_trust_status: EXTRACTION_TRUST_STATUS.NOT_RUN,
           failure_reason: reasonText,
           review_notes: `Evidence classified as "${classificationResult.classification}". ${reasonText}. Manual review required.`,
           ocr_result: null,
@@ -504,16 +515,42 @@ export async function submitVerificationSession(client = supabase, actor = {}, s
     let extractionTrust = EXTRACTION_TRUST_STATUS.UNTRUSTED;
     let extractionReasonCode = 'OCR_RESULT_UNTRUSTED';
 
+    /**
+     * CLASSIFICATION AND EXTRACTION TRUST ARE INDEPENDENT AXES (Product Owner ruling).
+     *
+     * This used to grant PARTIALLY_TRUSTED only when the classifier had chosen exactly
+     * VALID_IDENTITY_DOCUMENT, and stamped OCR_RESULT_UNTRUSTED on everything else — which made
+     * `likely_identity_document` permanently unapprovable even though `decisionPolicy._checkApprove`
+     * explicitly permits "a valid OR LIKELY identity document". Two layers disagreed about the same
+     * case, and the coupling here was the defect.
+     *
+     * Extraction trust is now derived from EXTRACTION FACTS ALONE: did the provider succeed, did it
+     * actually process the submitted bytes, and are the core identity fields present. What the
+     * document IS remains the classifier's answer, and it is gated where it belongs — in the
+     * decision policy's evidence-class list, which still blocks non_document, unsupported_document,
+     * unreadable and uncertain.
+     *
+     * LIKELY still never auto-verifies. Nothing here approves anything: the session always lands in
+     * pending_manual_review, and only a capable reviewer who has stepped up can decide.
+     */
     if (result.success) {
       const hasText = (v) => typeof v === 'string' && v.trim().length > 0;
       const hasCoreIdentityFields =
         hasText(sanitizedResult.national_id_number) ||
         (hasText(sanitizedResult.first_name) && hasText(sanitizedResult.last_name));
       const hasFields = Object.keys(sanitizedResult).length > 0;
-      if (hasCoreIdentityFields && classificationResult.classification === EVIDENCE_CLASSIFICATION.VALID_IDENTITY_DOCUMENT) {
+
+      // The ruling's first condition: the provider must actually have PROCESSED the submitted image
+      // bytes. When the provider reports its own accounting, it must show bytes delivered — a
+      // reading produced from a request that carried no image is not a reading.
+      const providerUsage = result.provider_execution?.usage || null;
+      const providerProcessedTheImage = !providerUsage || Number(providerUsage.imageBytesSent) > 0;
+
+      if (hasCoreIdentityFields && providerProcessedTheImage) {
         extractionTrust = EXTRACTION_TRUST_STATUS.PARTIALLY_TRUSTED;
         extractionReasonCode = null;
       } else if (hasCoreIdentityFields) {
+        // Fields, but no evidence the image ever reached the model.
         extractionTrust = EXTRACTION_TRUST_STATUS.UNTRUSTED;
         extractionReasonCode = 'OCR_RESULT_UNTRUSTED';
       } else if (hasFields) {
@@ -524,6 +561,7 @@ export async function submitVerificationSession(client = supabase, actor = {}, s
         extractionReasonCode = 'REQUIRED_FIELDS_MISSING';
       }
     } else {
+      // A provider failure or outage can never produce trusted extraction.
       extractionTrust = EXTRACTION_TRUST_STATUS.NO_FIELDS;
       extractionReasonCode = 'OCR_PROVIDER_FAILED';
     }
@@ -829,11 +867,24 @@ export async function getVerificationSessionForReview(client = supabase, actor =
     reason: binding.reason,
   };
 
-  // Build policy assessment summary
-  const assessment = DecisionPolicyEngine.buildAssessmentSummary(session, null, null, binding);
+  // Build policy assessment summary — with the latest biometric evidence (O2-X4), a separate
+  // dimension from the name-binding above.
+  const biometricAssessment = await fetchLatestBiometricAssessment(client, sessionId);
+  const assessment = DecisionPolicyEngine.buildAssessmentSummary(session, null, null, binding, biometricAssessment);
 
   const reviewSession = sanitizeReviewSession(session, identity);
   reviewSession.assessment = assessment;
+  // Reviewer-facing biometric evidence: consent state + full provenance/flags. The disposition
+  // still travels ONLY through the existing decision controls/policy.
+  reviewSession.biometric = biometricAssessment
+    ? {
+      ...assessment.biometric,
+      provider_reference: biometricAssessment.provider_reference || null,
+      risk_flags: biometricAssessment.risk_flags || [],
+      consent_id: biometricAssessment.consent_id || null,
+    }
+    : null;
+  reviewSession.biometric_consent = await getBiometricConsentStateForUser(client, session.user_id);
 
   // Fetch decisions
   const { data: decisions } = await client
@@ -887,6 +938,15 @@ export async function reviewVerificationSession(client = supabase, actor = {}, s
   const applicantMessage = payload.applicantMessage || payload.applicant_message || payload.retryReason || payload.retry_reason || '';
 
   const session = await fetchSessionForReview(client, sessionId);
+
+  // O2/P6 — the actor may not decide on their own submission. The governed-decision law every
+  // other reviewer surface already enforces (CLASSIFICATION_CORRECTION_SELF on evidence,
+  // SELLER_AUTHORITY_SELF_REVIEW on authority) was missing here: an admin whose OWN identity
+  // session was under review could approve their own identity. Role alone is not independence.
+  if (session.user_id && String(session.user_id) === String(reviewerId)) {
+    throw new ForbiddenError('A reviewer cannot decide their own identity verification session.');
+  }
+
   const currentWorkflowPhase = session.workflow_phase || legacyStatusToPhase(session.status);
 
   return VerificationDecisionRecorder.recordDecision(client, {

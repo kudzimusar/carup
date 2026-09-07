@@ -10,7 +10,7 @@
  */
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
+import { readFileSync, existsSync } from 'node:fs';
 import crypto from 'node:crypto';
 
 process.env.NODE_ENV = 'test';
@@ -63,27 +63,24 @@ test('hardening: NODE_ENV alone cannot open the x-user-id fallback in a producti
 });
 
 // ═══════════════════════════════════════════════════════════════════════════════════
-// 2. The document-intelligence router is no longer a second, unauthenticated authority
-//    over vehicle trust, registry records and identity verification level.
+// 2. The document-intelligence router is RETIRED (O2-X1): there is no second authority
+//    over vehicle trust, registry records or identity verification level left to gate.
 // ═══════════════════════════════════════════════════════════════════════════════════
 
-test('hardening: /api/verification is gated at the mount, with the fallback disabled', () => {
+test('hardening: the /api/verification authority surface is retired — no mount, no router, no import', () => {
   const server = read('../server.js');
 
-  // Gated AT THE MOUNT, so a route added to this router later is closed by default rather
-  // than inheriting the original omission.
-  assert.match(
-    server,
-    /app\.use\('\/api\/verification',\s*authorizeSessionRole\(\['admin',\s*'government'\]\),\s*documentIntelligenceRouter\)/,
-    'the verification router must be mounted behind an admin/government session gate',
-  );
-  assert.doesNotMatch(
-    server, /app\.use\('\/api\/verification',\s*documentIntelligenceRouter\)/,
-    'the bare, unauthenticated mount must not return',
+  // O2-X1 went past the V16 gate: gating proved WHO could call the second authority; the
+  // retirement removed what there was to call. Neither a bare nor a gated mount may return.
+  assert.doesNotMatch(server, /app\.use\(\s*['"]\/api\/verification['"]/, 'no /api/verification mount of any kind may exist');
+  assert.doesNotMatch(server, /documentIntelligenceRouter/, 'the retired router must not be imported');
+  assert.equal(
+    existsSync(new URL('../services/document-intelligence/documentIntelligenceRouter.js', import.meta.url)), false,
+    'the retired router file must not exist',
   );
 
-  // authorizeSessionRole, not authorizeRole: a registry/trust decision requires a PROVEN
-  // session. authorizeRole would still admit the asserted x-user-id header.
+  // authorizeSessionRole, not authorizeRole, stays the mount-gate idiom elsewhere: a
+  // registry/trust decision requires a PROVEN session. Pinned because many mounts rely on it.
   const middleware = read('../middleware/authMiddleware.js');
   assert.match(
     middleware,
@@ -92,19 +89,14 @@ test('hardening: /api/verification is gated at the mount, with the fallback disa
   );
 });
 
-test('hardening: the OCR approval reviewer is the caller, never the request body', () => {
-  const router = read('../services/document-intelligence/documentIntelligenceRouter.js');
-  const approve = router.slice(router.indexOf("router.post('/ocr/:id/approve'"), router.indexOf("router.post('/fraud-scan'"));
-
-  assert.match(approve, /const actorId = req\.userContext\?\.id;/, 'the actor must come from the session');
-  assert.doesNotMatch(
-    approve, /const \{[^}]*\bactorId\b[^}]*\} = req\.body/,
-    'actorId must not be destructured from the request body',
-  );
-  // The override is written to administrative_overrides with this id as its accountable
-  // reviewer, so a body-supplied actor let any caller attribute their override to someone else.
+test('hardening: the OCR approval authority chain is gone from document intelligence', () => {
+  // The V16 fix made the approval audit row attribute the REAL caller. O2-X1 removed the
+  // approval outright: no override writes, no registry writes, no vehicle writes remain.
   const service = read('../services/document-intelligence/documentIntelligenceService.js');
-  assert.match(service, /administrative_overrides/, 'the override table is still the audit sink');
+  assert.doesNotMatch(service, /approveDocumentVerification/, 'the approval writer must not return');
+  assert.doesNotMatch(service, /administrative_overrides/, 'document intelligence writes no override audit rows');
+  assert.doesNotMatch(service, /cvr_ownership_records|zimra_declarations/, 'document intelligence writes no registry rows');
+  assert.doesNotMatch(service, /from\(['"]vehicles['"]\)/, 'document intelligence does not touch vehicles');
 });
 
 // ═══════════════════════════════════════════════════════════════════════════════════
