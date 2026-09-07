@@ -66,6 +66,26 @@ export const UNIQUE_INDEXES = Object.freeze({
   // NULL import_order_id never collides (Postgres NULLS DISTINCT), so logistics-origin requests —
   // the common case — are entirely unaffected.
   diaspora_logistics_requests: [['import_order_id']],
+  // T12 — diaspora_customs_cases: uq_customs_case_live_subject.
+  //
+  // PARTIAL: … WHERE deleted_at IS NULL AND status <> 'ABANDONED'. Two live customs cases for one
+  // consignment is two answers to "where is my cargo", and the participant surface reads whichever
+  // it finds first.
+  diaspora_customs_cases: [{
+    name: 'uq_customs_case_live_subject',
+    cols: ['subject_type', 'subject_id'],
+    where: (row) => !row.deleted_at && row.status !== 'ABANDONED',
+  }],
+  // T12 — diaspora_customs_agent_appointments: uq_customs_case_one_active_agent.
+  //
+  // PARTIAL: … WHERE deleted_at IS NULL AND status = 'ACTIVE'. Two live agents on one case is two
+  // people each believing they are clearing it — and, because authority is derived from the
+  // appointment, two people who can both record customs claims on somebody's goods.
+  diaspora_customs_agent_appointments: [{
+    name: 'uq_customs_case_one_active_agent',
+    cols: ['case_id'],
+    where: (row) => !row.deleted_at && row.status === 'ACTIVE',
+  }],
   // T9 — diaspora_warehouse_intakes: uq_warehouse_intake_subject.
   //
   // One live intake per cargo. This IS the idempotency of physical receipt: two operators clicking
@@ -131,14 +151,27 @@ export function createMockSupabase(seed = {}, options = {}) {
         const uniques = UNIQUE_INDEXES[table];
         if (uniques) {
           for (const p of items) {
-            for (const cols of uniques) {
+            for (const entry of uniques) {
+              // An entry is either a bare column list (a TOTAL unique index) or
+              // `{ cols, where }` for a PARTIAL one. Partial indexes are everywhere in this schema —
+              // "one LIVE case per subject", "one ACTIVE appointment per case" — and registering
+              // them as total makes the fake STRICTER than the database, which fails legitimate
+              // flows (ending an appointment and making another) while looking like a real
+              // constraint. The predicate runs over both the candidate row and the existing ones,
+              // exactly as Postgres evaluates a partial index.
+              const cols = Array.isArray(entry) ? entry : entry.cols;
+              const where = Array.isArray(entry) ? null : entry.where;
+              const name = Array.isArray(entry) ? null : entry.name;
               if (cols.some((c) => p[c] === undefined || p[c] === null)) continue; // NULLs never collide
-              if (rows.some((existing) => cols.every((c) => existing[c] === p[c]))) {
+              if (where && !where(p)) continue;
+              if (rows.some((existing) => (!where || where(existing)) && cols.every((c) => existing[c] === p[c]))) {
                 return {
                   data: null,
                   error: {
                     code: '23505',
-                    message: `duplicate key value violates unique constraint on ${table} (${cols.join(', ')})`,
+                    // Postgres names the constraint, and services branch on that name. A message
+                    // without it makes a friendly-refusal path untestable.
+                    message: `duplicate key value violates unique constraint ${name ? `"${name}"` : `on ${table}`} (${cols.join(', ')})`,
                   },
                 };
               }

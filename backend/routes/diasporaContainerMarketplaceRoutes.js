@@ -87,6 +87,8 @@ import {
   recordSeal,
   getMyLoadStatus,
 } from '../services/diaspora/containerLoadService.js';
+import { openCase, appointAgent, endAppointment, recordEvent } from '../services/diaspora/customsCaseService.js';
+import { getCustomsCaseWorkspace, getMyCustomsStatus } from '../services/diaspora/customsProjectionService.js';
 import { getShipmentOperatorView, getMyShipmentTracking } from '../services/diaspora/shipmentTrackingService.js';
 
 const router = express.Router();
@@ -602,6 +604,40 @@ router.get('/shipment-tracking/:id', operatorAuth, asyncHandler(async (req, res)
 // A participant's own cargo. Authorized from the CARGO, not the sailing.
 router.get('/my-tracking/:subjectType/:subjectId', participantAuth, asyncHandler(async (req, res) => {
   res.json({ data: await getMyShipmentTracking(req.params.subjectType, req.params.subjectId, req.userContext, { req }) });
+}));
+
+// ── Trade OS T12 — attributed customs coordination and Zimbabwe destination ─
+//
+// Authority is derived per case inside the service: `deriveRelationship` reads the appointment row,
+// the container and the reservation. No route here trusts a claimed role, and none of them writes to
+// a government registry table.
+
+router.post('/customs-cases', operatorAuth, asyncHandler(async (req, res) => {
+  res.status(201).json({ data: await openCase(req.body, req.userContext, { req }) });
+}));
+
+router.get('/customs-cases/:id', participantAuth, asyncHandler(async (req, res) => {
+  res.json({ data: await getCustomsCaseWorkspace(req.params.id, req.userContext, { req }) });
+}));
+
+router.post('/customs-cases/:id/agent', operatorAuth, asyncHandler(async (req, res) => {
+  res.status(201).json({ data: await appointAgent(req.params.id, req.body, req.userContext, { req }) });
+}));
+
+router.post('/customs-appointments/:id/end', operatorAuth, asyncHandler(async (req, res) => {
+  res.json({ data: await endAppointment(req.params.id, req.body, req.userContext, { req }) });
+}));
+
+// Recording is open to every party to the case; WHO may assert WHAT is decided in the service, from
+// the relationship the server derives — not from which route was called.
+router.post('/customs-cases/:id/events', participantAuth, asyncHandler(async (req, res) => {
+  res.status(201).json({ data: await recordEvent(req.params.id, req.body, req.userContext, { req }) });
+}));
+
+// A participant's own consignment. Authorized from the CARGO, and deliberately not the workspace
+// with fields stripped: this projection never loads another participant's documents or amounts.
+router.get('/my-customs/:subjectType/:subjectId', participantAuth, asyncHandler(async (req, res) => {
+  res.json({ data: await getMyCustomsStatus(req.params.subjectType, req.params.subjectId, req.userContext, { req }) });
 }));
 
 export default router;

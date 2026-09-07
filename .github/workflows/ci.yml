@@ -181,6 +181,9 @@ jobs:
       - name: Trade OS T11 movement timeline append-only verification (isolated PGlite Postgres)
         run: node database/test/trade_os_t11_timeline_check.mjs
 
+      - name: Trade OS T12 attributed customs schema verification (isolated PGlite Postgres)
+        run: node database/test/trade_os_t12_customs_check.mjs
+
       - name: 'Issue #101 P0 hardening behavioural proof (real PostgreSQL via PGlite)'
         run: node database/test/issue101_p0_hardening_check.mjs
 
