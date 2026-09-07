@@ -77,18 +77,28 @@ await check('POSITIVE CONTROL: once the first is ABANDONED, the slot is free aga
 
 await check('an agent can be appointed', () => db.exec(`
   INSERT INTO public.diaspora_customs_agent_appointments (id, case_id, agent_kind, agent_user_id, agent_display_name, appointed_by, status)
-  VALUES ('${APPT}', '${CASE}', 'PERSON', 'aaaa1111-0000-0000-0000-000000000001', 'Nyati Clearing', 'user-operator', 'ACTIVE');
+  VALUES ('${APPT}', '${CASE}', 'PERSON', 'user-agent-1', 'Nyati Clearing', 'user-operator', 'ACTIVE');
 `));
 
 await refuses('a SECOND active agent on one case is refused',
   `INSERT INTO public.diaspora_customs_agent_appointments (case_id, agent_kind, agent_user_id, agent_display_name, appointed_by, status)
-   VALUES ('${CASE}', 'PERSON', 'aaaa1111-0000-0000-0000-000000000002', 'Second Agent', 'user-operator', 'ACTIVE');`,
+   VALUES ('${CASE}', 'PERSON', 'user-agent-2', 'Second Agent', 'user-operator', 'ACTIVE');`,
   /uq_customs_case_one_active_agent|duplicate key/);
 
 await check('POSITIVE CONTROL: after the first ends, another may be appointed', async () => {
   await db.exec(`UPDATE public.diaspora_customs_agent_appointments SET status = 'ENDED' WHERE id = '${APPT}';`);
   await db.exec(`INSERT INTO public.diaspora_customs_agent_appointments (case_id, agent_kind, agent_user_id, agent_display_name, appointed_by, status)
-                 VALUES ('${CASE}', 'PERSON', 'aaaa1111-0000-0000-0000-000000000002', 'Second Agent', 'user-operator', 'ACTIVE');`);
+                 VALUES ('${CASE}', 'PERSON', 'user-agent-2', 'Second Agent', 'user-operator', 'ACTIVE');`);
+});
+
+await check('an agent id is TEXT — real user ids in this schema are not uuids', async () => {
+  // The defect a governed staging fixture found: `users.id` is TEXT here, so a uuid column made the
+  // appointment path unusable against real identities. A uuid-shaped fixture would have hidden it,
+  // which is exactly what the in-memory client did.
+  const { rows } = await db.query(`
+    SELECT data_type FROM information_schema.columns
+    WHERE table_name = 'diaspora_customs_agent_appointments' AND column_name = 'agent_user_id';`);
+  if (rows[0]?.data_type !== 'text') throw new Error(`agent_user_id is ${rows[0]?.data_type}, not text`);
 });
 
 await refuses('an appointment naming nobody is refused',

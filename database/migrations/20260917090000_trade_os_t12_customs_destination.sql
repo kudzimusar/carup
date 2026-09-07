@@ -88,8 +88,12 @@ CREATE TABLE IF NOT EXISTS public.diaspora_customs_agent_appointments (
   case_id                   uuid NOT NULL REFERENCES public.diaspora_customs_cases(id) ON DELETE CASCADE,
 
   agent_kind                text NOT NULL CHECK (agent_kind IN ('ORGANISATION','PERSON')),
-  agent_organisation_id     uuid,
-  agent_user_id             uuid,
+  -- TEXT, not uuid. `users.id` and `organizations.id` are both TEXT in this schema, and declaring
+  -- these as uuid made the whole appointment path unusable against real identities. Nothing caught
+  -- it until a governed staging fixture was created: the in-memory test client has no column types,
+  -- so `'user-agent'` inserted happily into a column Postgres would have rejected.
+  agent_organisation_id     text,
+  agent_user_id             text,
   agent_display_name        text NOT NULL,
   licence_reference_claimed text,
 
