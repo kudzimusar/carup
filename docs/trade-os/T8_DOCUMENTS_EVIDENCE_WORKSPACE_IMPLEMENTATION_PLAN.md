@@ -1,7 +1,7 @@
 # Trade OS T8 — Documents & Evidence workspace · Implementation plan
 
-**Status:** IN IMPLEMENTATION. Authorized 2026-09-07 at head `0e929d63`, immediately after the T7
-freeze (`T7-USABLE`, runtime `3f062fc0`). T9+ NOT authorized.
+**Status:** **`T8-USABLE` — OWNER ACCEPTED 2026-09-07. Runtime frozen at `00f164e4`.**
+Chronology: `e4283fe1` (`T8-PARTIAL`) → product closure → `00f164e4`. T9 authorized; T10+ NOT.
 
 **Objective:** one coherent Documents & Evidence workspace over the authorities that already exist —
 without letting a file's existence become a business fact.
@@ -75,11 +75,16 @@ never *Verified*.
   extend readiness to container bookings. Additive and nullable; no rewrite of existing rows.
 - **T8.2** presence-vs-verification certification: a client cannot assert `verified`, an uploader
   cannot verify their own document, and OCR alone never verifies.
-- **T8.3** the workspace: one checklist-driven surface per transaction.
-- **T8.4** replacement/versioning: history is never destroyed.
-- **T8.5** privacy: co-loader isolation, cross-tenant refusal, no raw credentials or internal paths.
-- **T8.6** responsive across the seven certified widths.
-- **T8.7** staging certification + owner-UAT proxy.
+- [x] **T8.3** the workspace — one checklist-driven surface for all four governed subjects, driven
+      by the governed type vocabulary rather than a second list in React.
+- [x] **T8.4** replacement/versioning — a replacement is a new row; the predecessor keeps its verdict,
+      reviewer, timestamps and attribution. V2 never inherits V1's verdict.
+- [x] **T8.5** privacy — access derived from the transaction, with positive controls so the matrix
+      cannot pass by denying everybody.
+- [x] **T8.6** responsive — seven widths, no overflow.
+- [x] **T8.7** staging certification — 0 findings at a paired head.
+- [ ] **Open:** upload byte-path failure/recovery (§E2) not certified against a real storage failure;
+      live OCR unavailable on staging, so the extraction boundary is certified by contract.
 
 ## 4. Phase firewall
 

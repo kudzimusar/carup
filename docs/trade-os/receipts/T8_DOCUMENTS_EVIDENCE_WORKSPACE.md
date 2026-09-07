@@ -108,3 +108,119 @@ customs exchange rate (13.5) and duty (50000). T8 does not read it and must neve
 verified customs evidence.
 
 **This agent does not mark `T8-USABLE`.**
+
+---
+
+# T8 closure and owner acceptance — 2026-09-07
+
+**Status: `T8-USABLE` — OWNER ACCEPTED. Runtime frozen at `00f164e4`.**
+
+## Chronology — preserved
+
+| stage | SHA | verdict |
+|---|---|---|
+| T8.0–T8.2 first pass | `e4283fe1` | `T8-PARTIAL` — the receipt named what was missing |
+| product closure: workspace + versioning | **`00f164e4`** | **`T8-USABLE`** |
+
+### Why the runtime moved from `e4283fe1`
+
+Because the two things the PARTIAL receipt named as missing were real product gaps, not paperwork:
+**there was no workspace** (documents lived on a procurement-only page, so a logistics request or
+container booking could own a document that no screen could show) and **there was no versioning at
+all**.
+
+## §F · T8.4 versioning — replacement destroys nothing
+
+There was none. A corrected invoice could only be added as an unrelated second row, or the first
+overwritten — neither answers the question an audit actually asks, *"what did we hold at the
+time?"*, and the second destroys evidence.
+
+A replacement is now a **new row pointing back at its predecessor**. The superseded row keeps its
+verdict, its reviewer, its timestamps and its attribution, and is simply no longer current.
+
+- **V2 starts UPLOADED even when V1 was VERIFIED.** Inheriting a verdict on a file nobody has looked
+  at is the presence→verified collapse wearing a different hat.
+- The owner is **inherited, never re-supplied** — a replacement cannot smuggle evidence between
+  transactions.
+- The predecessor is marked superseded **only after** the new version exists; marking first would
+  leave a transaction with no current document if the insert failed.
+- The database refuses a **second concurrent replacement** of the same version, self-supersession,
+  version zero, and "replaced by somebody at no particular time".
+- `GET /trade-documents/:id/lineage` walks the chain, so history is auditable rather than implied.
+
+Migration `20260910090000`, additive and reversible, gated by `trade_os_t8_versioning_check.mjs`
+(**11/11**) as its own CI step.
+
+## §C · T8.3 the workspace
+
+One surface for one transaction, whichever of the four governed subjects it is. Access is derived
+**entirely from the transaction**: a competing supplier who never offered is refused, and a
+co-loader is a participant only through their own booking.
+
+It refuses to collapse seven truths into one tick:
+
+| what happened | what the row says |
+|---|---|
+| nothing supplied | **Not supplied** — never "required"; nothing here establishes a legal requirement |
+| supplied, type needs a verdict | **Supplied — awaiting review** ("Nobody has checked it yet") |
+| supplied, type needs no verdict | **Supplied** ("This kind of document is not checked by CarUp") |
+| a reviewer verified it | **Verified** |
+| a reviewer rejected it | **Rejected** ("A corrected version can be supplied") |
+| the participant said it does not apply | **Does not apply** |
+
+Extraction having run is reported as **provenance** ("text was read automatically") and never as a
+status. The page states the contract in words — *"A document being present does not mean it has been
+checked, and a document being checked does not make what it describes true"* — rather than leaving
+it to colour, and adds that CarUp decides no duty, tax or customs outcome from these documents.
+
+The checklist is driven by the **governed `trade_document_types` vocabulary** (16 types on staging),
+not a second list hardcoded in React.
+
+## §N/§I/§L · staging certification at `00f164e4` — 0 findings
+
+Paired FE/BE, every `/api/` call to the branch backend only.
+
+| check | result |
+|---|---|
+| requester opens their shipping-request workspace | 200, 16 governed items |
+| nothing claimed verified without a verdict | ✅ |
+| anonymous · rival who never offered · forged subject **kind** · forged subject **id** | all refused |
+| **POSITIVE CONTROL:** genuine sailing participant allowed | ✅ (`participant`) |
+| **POSITIVE CONTROL:** sailing operator allowed | ✅ (`operator`) |
+| non-participant refused the sailing workspace | ✅ |
+| phase firewall — `customs_cleared`, `cargo_received`, `shipment_departed`, `payment_reconciled`, `warehouse_receipt` | never asserted |
+| no internal table/column names on screen | ✅ |
+| seven widths (393→1536) | no overflow |
+
+## §P · Gates at `00f164e4`
+
+| gate | result |
+|---|---|
+| full backend suite (ci.yml env) | **6091 passed / 0 failed** (21 skipped) |
+| T8 documents + workspace suites | 16 + 14 |
+| T8 PGlite gates (binding · versioning), own CI steps | **12/12 · 11/11** |
+| web diaspora | **204/204** |
+| `tsc -b` · lint regression | PASS · NET_NEW_ERRORS=0 |
+| CI | **7 workflows green**, 1 skipped by design |
+
+**Ten mutations proven** across three layers: a supplied document rendering as Verified · OCR
+advancing the state · superseded versions shown as current · co-loader isolation removed · supplier
+relationship proof removed · replacement inheriting VERIFIED · replacement deleting its predecessor ·
+replacement re-supplying the owner · marking superseded before the insert · the database concurrency
+index downgraded (caught by the PGlite gate, which is the right gate for a database guarantee).
+
+## `T8-USABLE` does not mean production-ready
+
+Production readiness remains **T18**. Production is NOT AUTHORIZED and untouched; migrations are
+staging-only.
+
+## Carried forward
+
+- **T12-BLOCKER unchanged.** `documentIntelligenceService` still writes a fabricated customs
+  exchange rate (13.5) and duty (50000). T8 does not read it, and the workspace never says
+  "customs verified" — the firewall test names `customs_cleared` explicitly.
+- **Upload byte-path failure/recovery (§E2)** is not certified: the governed upload lifecycle and
+  its two-phase reconciliation were not exercised end to end against a real storage failure. Recorded
+  as open rather than claimed.
+- Live OCR remains unavailable on staging (the O2 provider billing block); the extraction boundary is
+  certified by contract, not by a live provider run.

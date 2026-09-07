@@ -1742,9 +1742,23 @@ vocabulary and readiness all already had owners, and no competing authority was 
 - [x] **T8.1** the record generalised to `subject_type`/`subject_id` (migration `20260909090000`,
       additive and reversible, three database CHECKs, own CI gate confirmed executed). It was the
       only layer still bound to a purchase alone.
-- [ ] T8.3 workspace UI · T8.4 versioning · T8.5 privacy walk · T8.6 responsive · T8.7 staging.
+- [x] **T8.3** workspace UI · **T8.4** versioning · **T8.5** privacy · **T8.6** responsive ·
+      **T8.7** staging certification (0 findings at a paired head).
 
-**Status: `T8-PARTIAL` — owner acceptance remains. This agent does not mark `T8-USABLE`.**
+**OWNER ACCEPTED 2026-09-07 → `T8-USABLE`. Runtime frozen at `00f164e4`.**
+
+`e4283fe1` was superseded because the two things the PARTIAL receipt named were real product gaps:
+there was **no workspace** (a logistics request or sailing could own a document no screen could show)
+and **no versioning at all** — a corrected document could only be added unrelated, or the original
+overwritten, and the second destroys evidence.
+
+Gates: backend **6091/0** (21 skipped) · two PGlite gates 12/12 and 11/11 as their own CI steps ·
+web diaspora 204/204 · CI 7/7 green · seven widths clean · **ten mutations proven**.
+
+**Open, and stated:** upload byte-path failure/recovery is not certified against a real storage
+failure, and live OCR is unavailable on staging so the extraction boundary is certified by contract.
+
+**`T8-USABLE` is NOT production-ready** — T18 owns that. **T9 may now begin.**
 - [ ] Participant/privacy boundaries.
 
 ## T9 — Warehouse intake and measurement
