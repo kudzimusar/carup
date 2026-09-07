@@ -171,6 +171,28 @@ export function createMockSupabase(seed = {}, options = {}) {
         return { data: copies, error: null };
       }
 
+      // DELETE actually deletes.
+      //
+      // It used to be accepted and silently ignored, which meant every "this service never deletes
+      // X" test was unfalsifiable: mutating a service to wipe a table left the suite green. Found by
+      // mutation-testing T10's seal history — the mutation deleted every prior seal record and no
+      // gate noticed. A mock that quietly drops a destructive operation is worse than one that
+      // refuses it, because the tests keep reporting success.
+      if (state.op === 'delete') {
+        const matched = rows.filter(matches);
+        const removed = matched.map((r) => ({ ...r }));
+        for (const row of matched) {
+          const index = rows.indexOf(row);
+          if (index >= 0) rows.splice(index, 1);
+        }
+        if (state.single) {
+          if (!removed.length) return { data: null, error: { message: 'no rows', code: 'PGRST116' } };
+          return { data: removed[0], error: null };
+        }
+        if (state.maybeSingle) return { data: removed[0] || null, error: null };
+        return { data: removed, error: null };
+      }
+
       // select
       let data = rows.filter(matches).map((r) => ({ ...r }));
       if (state.orderBy) {

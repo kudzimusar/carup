@@ -182,6 +182,42 @@ test('T10: planning cargo in does NOT load it', async () => {
   assert.equal(mine.state, 'NOT_STARTED', 'the customer was told their cargo was loaded because it was planned');
 });
 
+test('T10: planning a line WHILE a load is open still creates no manifest line', async () => {
+  // The earlier "planning is not loading" test runs before any load exists, so a mutation that
+  // loaded planned cargo could only fire once one was open — and survived. This is that case: a
+  // live load, and a plan line added on top of it.
+  const { client, load } = await loadedWorld();
+  const before = (await client.from('diaspora_container_load_items').select('*').eq('load_id', load.id)).data || [];
+  const { data: plans } = await client.from('diaspora_container_load_plans').select('*');
+  const draft = await createLoadPlan(CONTAINER, {}, OPERATOR, opts(client));
+  // The confirmed plan is still live, so this hands it back rather than opening a second.
+  assert.equal(draft.id, plans[0].id);
+  const after = (await client.from('diaspora_container_load_items').select('*').eq('load_id', load.id)).data || [];
+  assert.equal(after.length, before.length, 'opening/reading a plan created a manifest line');
+
+  // And a fresh plan line on a NEW draft, with a load open, still loads nothing.
+  await client.from('diaspora_container_load_plans').update({ status: 'SUPERSEDED' }).eq('id', plans[0].id);
+  const revision = await createLoadPlan(CONTAINER, {}, OPERATOR, opts(client));
+  await setPlanItem(revision.id, { subjectId: RES_B, disposition: 'PLANNED_IN' }, OPERATOR, opts(client));
+  const final = (await client.from('diaspora_container_load_items').select('*').eq('load_id', load.id)).data || [];
+  assert.equal(final.length, before.length, 'a plan line became a manifest line while a load was open');
+  const mine = await getMyLoadStatus('cargo_reservation', RES_B, COLOADER, opts(client));
+  assert.notEqual(mine.state, 'LOADED', 'the co-loader was told their planned cargo was loaded');
+});
+
+test('T10: a left-behind line cannot carry a loaded volume even if one is supplied', async () => {
+  const { client, load } = await loadedWorld();
+  const left = await recordLoadItem(load.id, {
+    subjectId: RES_B, outcome: 'LEFT_BEHIND', leftBehindReason: 'NO_SPACE',
+    // Deliberately supplied. A figure here would say it went in.
+    loadedVolumeCbm: 1.5, loadedWeightKg: 200,
+  }, OPERATOR, opts(client));
+  assert.equal(left.loaded_volume_cbm, null, 'a left-behind line carries a loaded volume');
+  assert.equal(left.loaded_weight_kg, null, 'a left-behind line carries a loaded weight');
+  assert.equal(left.loaded_by, null, 'a left-behind line names a loader');
+  assert.equal(left.loaded_at, null, 'a left-behind line carries a loading time');
+});
+
 test('T10: a plan line records WHICH number it was planned against', async () => {
   const client = world();
   const plan = await createLoadPlan(CONTAINER, {}, OPERATOR, opts(client));
