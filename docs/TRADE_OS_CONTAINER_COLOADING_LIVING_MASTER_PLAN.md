@@ -1790,8 +1790,14 @@ is proven (18/18 addressable on the deployed system); the drain is T7's frozen m
 
 ## T10 — Consolidation and loading
 
-**`T10.0` audit complete; runtime not started.** Plan
-`docs/trade-os/T10_CONSOLIDATION_LOADING_IMPLEMENTATION_PLAN.md`.
+**`T10-PARTIAL` — owner acceptance remains. Candidate `0f902893`.** Authority
+(`20260913090000`, five tables, staging only, FORCE RLS) plus readiness/plan/load services.
+PGlite gate **34/34** as its own CI step, **14 mutations** red, service suite **39/39**.
+Plan `docs/trade-os/T10_CONSOLIDATION_LOADING_IMPLEMENTATION_PLAN.md`, receipt
+`docs/trade-os/receipts/T10_CONSOLIDATION_LOADING.md`.
+
+**Three measurements now coexist:** booked 3.0 (T5) · warehouse 3.8 (T9) · loaded 3.6 (T10),
+proven together by a join across all three authorities.
 
 **The audit's finding: the word "loaded" already exists in five places and the fact exists in none.**
 `diaspora_import_orders.status` (`READY_FOR_LOADING`/`LOADED`), `diaspora_container_shipments.status`
@@ -1803,13 +1809,18 @@ was loaded, who confirmed it, or when.
 that anything was received, and no seal — and `mark-shipped` sits immediately after it, so the same
 unmanifested path reaches a T11 fact. T10 must gate or derive it.
 
-- [ ] Load readiness — a derived projection with reasons, never a stored boolean.
-- [ ] Load plan — editable, provisional, distinct from the loaded fact.
-- [ ] Loaded evidence — through T8.
-- [ ] Actual loaded CBM/weight — the **third** measure; booked 3.0, warehouse 3.8, loaded 3.6 must
-      all stay representable.
-- [ ] Seal/container reference — none exists anywhere today; unknown until observed.
-- [ ] Left-behind/exception handling — visible, reasoned, and it triggers no refund or re-sailing.
+- [x] Load readiness — derived on read, never stored, and always naming its blockers.
+- [x] Load plan — provisional and editable; a confirmed plan is superseded, not edited.
+- [ ] **Loaded evidence — NOT built.** T8 has no `container_load` subject value yet.
+- [x] Actual loaded CBM/weight — stated only when every loaded line has a figure.
+- [x] Seal/container reference — append-only with history; a replacement says why.
+- [x] Left-behind handling — stays on the manifest with a bounded reason and no volume.
+- [ ] **Surfaces — NOT built.** No operator workspace, no participant projection on any screen.
+- [ ] **T7 convergence — NOT built.** A customer whose cargo was left behind is not told.
+- [ ] **T10.6 — NOT run.** Privacy matrix, responsive, staging journeys A–F.
+
+**Open hazard, recorded not closed:** `POST /containers/:id/mark-loading` still works with no
+manifest, and `mark-shipped` follows it into a T11 fact.
 
 ## T11 — Shipment and tracking
 
