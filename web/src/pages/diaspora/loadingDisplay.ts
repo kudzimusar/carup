@@ -135,5 +135,28 @@ export function describePressure(p: PlanPressure | null | undefined): { headline
 
 export const shortRef = (id: string): string => String(id).replace(/-/g, '').slice(0, 8).toUpperCase()
 
+/**
+ * A label that actually distinguishes one consignment from another.
+ *
+ * The reference alone does not. It is the first eight hex characters of an id, so consignments whose
+ * ids share a prefix render identically — and on the deployed operator queue at 393px, five did. On
+ * a card that is confusing; in the "what went in" dropdown it is dangerous, because an operator
+ * picks from that list and would be choosing between five identical options.
+ *
+ * T9 hit the same shape and fixed it by making the underlying reference unique. That is not
+ * available here: these are cargo reservations owned by T5, and their ids are not T10's to change.
+ * So the label carries something real instead — the figures, which differ per consignment because
+ * they describe different cargo.
+ */
+export function candidateLabel(c: { reference: string; booked_volume_cbm: number | null; warehouse_volume_cbm: number | null }): string {
+  const measured = c.warehouse_volume_cbm !== null && c.warehouse_volume_cbm !== undefined
+    ? `measured ${c.warehouse_volume_cbm.toFixed(3)}`
+    : 'not measured'
+  const booked = c.booked_volume_cbm !== null && c.booked_volume_cbm !== undefined
+    ? `booked ${c.booked_volume_cbm.toFixed(3)}`
+    : 'no booked figure'
+  return `${c.reference} — ${booked}, ${measured}`
+}
+
 export const shortDate = (iso: string | null | undefined): string =>
   (iso ? new Date(iso).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' }) : 'Not recorded')

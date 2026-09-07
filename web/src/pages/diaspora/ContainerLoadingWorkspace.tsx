@@ -33,6 +33,7 @@ import { useAuth } from '@/context/AuthContext'
 import { useTradeLogisticsApi, type ContainerLoadState, type LoadCandidate } from '@/hooks/useTradeLogisticsApi'
 import {
   EXCLUSION_UI,
+  candidateLabel,
   LEFT_BEHIND_UI,
   LOADED_IS_NOT_SAILED,
   LOAD_STATUS_UI,
@@ -185,6 +186,9 @@ export default function ContainerLoadingWorkspace() {
                         <span className="min-w-0 break-all font-mono text-xs text-slate-700">{c.reference}</span>
                         <span className={`shrink-0 rounded-full border px-2 py-0.5 text-[11px] font-semibold ${r.tone}`}>{r.label}</span>
                       </div>
+                      {/* The customer's FULL reference. Two consignments can share a short one, and
+                          an operator needs something to check against their paperwork. */}
+                      <p className="min-w-0 break-all font-mono text-[10px] text-slate-400" data-testid={`candidate-full-${c.subject.id}`}>{c.subject.id}</p>
                       {/* Booked and measured side by side — the operator is the person best placed
                           to notice they differ. */}
                       <p className="mt-1 min-w-0 break-words text-xs text-slate-600" data-testid={`candidate-figures-${c.subject.id}`}>
@@ -398,7 +402,7 @@ function LoadItemForm({ candidates, busy, onRecord }: {
           <Label htmlFor="load-subject" className="text-xs font-semibold uppercase tracking-wide text-slate-500">Consignment</Label>
           <select id="load-subject" value={subjectId} onChange={(e) => setSubjectId(e.target.value)} className="mt-1 h-10 w-full min-w-0 rounded-md border border-slate-300 bg-white px-3 text-sm" data-testid="load-item-subject">
             <option value="">Choose…</option>
-            {candidates.map((c) => <option key={c.subject.id} value={c.subject.id}>{c.reference}</option>)}
+            {candidates.map((c) => <option key={c.subject.id} value={c.subject.id}>{candidateLabel(c)}</option>)}
           </select>
         </div>
         <div className="min-w-0">

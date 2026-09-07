@@ -237,6 +237,35 @@ describe('recording what actually went in', () => {
     expect(screen.getByTestId('loading-actual')).toBeInTheDocument()
   })
 
+  it('offers DISTINGUISHABLE options, even when two references render alike', async () => {
+    // Found on the deployed queue at 393px: five candidates all read RES-99994444, because a short
+    // reference is the first eight hex characters of an id. On a card that is confusing; in the
+    // dropdown an operator picks from, it is dangerous.
+    state.view = view({
+      candidates: [
+        candidate(RES_A, { reference: 'RES-SAME0000', booked_volume_cbm: 3, warehouse_volume_cbm: 3.8 }),
+        candidate(RES_B, { reference: 'RES-SAME0000', booked_volume_cbm: 1.5, warehouse_volume_cbm: 1.2 }),
+      ],
+      plan: plan({ status: 'CONFIRMED' }), load: load(),
+    })
+    await open()
+    await waitFor(() => expect(screen.getByTestId('load-item-subject')).toBeInTheDocument())
+    const options = [...(screen.getByTestId('load-item-subject') as HTMLSelectElement).options]
+      .filter((o) => o.value)
+      .map((o) => o.textContent || '')
+    expect(options).toHaveLength(2)
+    expect(new Set(options).size).toBe(2)
+    expect(options[0]).toContain('measured 3.800')
+    expect(options[1]).toContain('measured 1.200')
+  })
+
+  it('shows each candidate\'s FULL reference so it can be checked against paperwork', async () => {
+    state.view = view({ plan: plan({ status: 'CONFIRMED' }), load: load() })
+    await open()
+    await waitFor(() => expect(screen.getByTestId(`candidate-full-${RES_A}`)).toBeInTheDocument())
+    expect(screen.getByTestId(`candidate-full-${RES_A}`)).toHaveTextContent(RES_A)
+  })
+
   it('sends the loaded volume and never a client-named loader', async () => {
     state.view = view({ plan: plan({ status: 'CONFIRMED' }), load: load() })
     const user = await open()
