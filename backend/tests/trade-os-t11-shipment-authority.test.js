@@ -15,7 +15,8 @@
  */
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { assertShipmentTransition, resolveObservedTime, STAGES_HANDED_TO_T12 } from '../services/diaspora/diasporaShipmentService.js';
+import { assertShipmentTransition, assertMayMoveShipment, resolveObservedTime, STAGES_HANDED_TO_T12 } from '../services/diaspora/diasporaShipmentService.js';
+import { isSailingOperator } from '../services/diaspora/diasporaAuthorization.js';
 
 // ── 3. The timeline cannot be written BACKWARDS ────────────────────────────
 //
@@ -247,4 +248,101 @@ test('T11: T10 remains the loading authority — T11 reads it and never writes i
       `the shipment service writes ${table}`);
   }
   assert.match(code, /from\('diaspora_container_loads'\)\s*\.select/, 'the gate does not read the load authority at all');
+});
+
+// ── 6. Who may create or move a shipment ──────────────────────────────────
+//
+// Found on the DEPLOYED product, as the very first act of the T11 journey: a 403 for the person the
+// phase is for. Shipment authority was read off the affected record's tenant, and a diaspora buyer's
+// import order has NO tenant — it is a consumer purchase. So on every co-loaded sailing the check
+// fell through to platform admins and reviewers, and the container's own operator — who had just
+// planned the load, loaded it and sealed it under T10, and who could READ the T11 shipment view of
+// that same container — could not create or move its shipment.
+//
+// Nothing in the unit suite could see it: the fixtures gave their orders a tenant.
+
+const SAILING = 'cont-1';
+const OPERATOR = { id: 'user-operator', platformRole: 'member', tenantRole: 'admin', tenantId: 'tenant-op' };
+const OTHER_OPERATOR = { id: 'user-other-op', platformRole: 'member', tenantRole: 'admin', tenantId: 'tenant-other' };
+const BUYER = { id: 'user-buyer', platformRole: 'member' };
+const ADMIN = { id: 'user-admin', platformRole: 'admin' };
+const CONTAINER = { id: SAILING, tenant_id: 'tenant-op', coordinator_id: 'user-operator', deleted_at: null };
+// The shape that caused it: a consumer purchase, with no tenant to derive authority from.
+const TENANTLESS_ORDER = { id: 'ord-a', tenant_id: null };
+
+const clientFor = (container) => ({
+  from: () => ({
+    select: () => ({ eq: () => ({ is: () => ({ maybeSingle: async () => ({ data: container }) }) }) }),
+  }),
+});
+
+test('T11: the CONTAINER operator may move a shipment on a tenantless purchase', async () => {
+  await assertMayMoveShipment(TENANTLESS_ORDER, SAILING, OPERATOR, clientFor(CONTAINER));
+});
+
+test('T11: a platform admin may still move one — the original rule is intact', async () => {
+  await assertMayMoveShipment(TENANTLESS_ORDER, SAILING, ADMIN, clientFor(CONTAINER));
+  // …and without any container at all, which is the path that never changed.
+  await assertMayMoveShipment(TENANTLESS_ORDER, null, ADMIN, clientFor(null));
+});
+
+test('T11: ANOTHER sailing\'s operator is still refused — the widening is bounded', async () => {
+  await assert.rejects(
+    () => assertMayMoveShipment(TENANTLESS_ORDER, SAILING, OTHER_OPERATOR, clientFor(CONTAINER)),
+    /not authorized to manage/,
+  );
+});
+
+test('T11: the buyer whose purchase it is still cannot move their own shipment', async () => {
+  await assert.rejects(
+    () => assertMayMoveShipment({ id: 'ord-a', tenant_id: null, buyer_id: 'user-buyer' }, SAILING, BUYER, clientFor(CONTAINER)),
+    /not authorized to manage/,
+  );
+});
+
+test('T11: with NO container, an operator gets nothing extra', async () => {
+  // The widening is the container. Take it away and the original rule is all that is left.
+  await assert.rejects(
+    () => assertMayMoveShipment(TENANTLESS_ORDER, null, OPERATOR, clientFor(CONTAINER)),
+    /not authorized to manage/,
+  );
+});
+
+test('T11: a container that does not exist grants nothing', async () => {
+  await assert.rejects(
+    () => assertMayMoveShipment(TENANTLESS_ORDER, 'cont-missing', OPERATOR, clientFor(null)),
+    /not authorized to manage/,
+  );
+});
+
+// An organiser who runs a sailing WITHOUT belonging to a tenant. T5's co-loading model is a person
+// organising a container, so this is the ordinary case, not an edge one — and it is the case where
+// the coordinator test is the ONLY thing standing between them and a 403. Without this fixture the
+// tenant-admin branch covered for it, and removing the coordinator test broke nothing.
+const LONE_ORGANISER = { id: 'user-lone', platformRole: 'member' };
+const LONE_SAILING = { id: 'cont-2', tenant_id: null, coordinator_id: 'user-lone', deleted_at: null };
+
+test('T11: an organiser with no tenant may still move their own sailing\'s shipment', async () => {
+  assert.equal(isSailingOperator(LONE_SAILING, LONE_ORGANISER), true);
+  await assertMayMoveShipment(TENANTLESS_ORDER, 'cont-2', LONE_ORGANISER, clientFor(LONE_SAILING));
+});
+
+test('T11: …and only their own — a lone organiser gets nothing on someone else\'s sailing', async () => {
+  assert.equal(isSailingOperator(CONTAINER, LONE_ORGANISER), false);
+  await assert.rejects(
+    () => assertMayMoveShipment(TENANTLESS_ORDER, SAILING, LONE_ORGANISER, clientFor(CONTAINER)),
+    /not authorized to manage/,
+  );
+});
+
+test('T11: sailing-operator authority has ONE definition, shared with T10', () => {
+  // T5, T7, T8, T10 and T11's read surface each grew their own copy of this predicate, and T11's
+  // write surface had none — which is how the operator of a sailing could read its shipment and not
+  // move it. This is the canonical one.
+  assert.equal(isSailingOperator(CONTAINER, OPERATOR), true, 'the coordinator is not the operator');
+  assert.equal(isSailingOperator({ ...CONTAINER, coordinator_id: null, created_by: 'user-operator' }, OPERATOR), true,
+    'the person who created the sailing is not treated as running it');
+  assert.equal(isSailingOperator(CONTAINER, OTHER_OPERATOR), false, 'another tenant runs this sailing');
+  assert.equal(isSailingOperator(CONTAINER, BUYER), false, 'a buyer runs this sailing');
+  assert.equal(isSailingOperator(CONTAINER, ADMIN), true, 'a platform admin was locked out');
 });

@@ -1,12 +1,12 @@
 import { supabase } from '../../db/supabase.js';
 import { SHIPMENT_STATUSES, IMPORT_ORDER_STATUSES } from '../../constants/diaspora/diasporaStatuses.js';
-import { DatabaseError, NotFoundError, ValidationError } from '../../utils/errors.js';
+import { DatabaseError, ForbiddenError, NotFoundError, ValidationError } from '../../utils/errors.js';
 import { validateShipmentPayload } from '../../validators/diaspora/diasporaSchemas.js';
 import { writeDiasporaAudit } from './diasporaAuditService.js';
 import { transitionImportOrder } from './diasporaWorkflowService.js';
 import { emitDiasporaEvent } from './diasporaNotificationService.js';
 import { notifyShipmentException, isExceptionStage } from './shipmentExceptionNotifier.js';
-import { requireUserContext, assertCanManageLogistics, assertCanReadImportOrder, isPlatformReviewer, isPlatformAdmin, isTenantAdminForRecord } from './diasporaAuthorization.js';
+import { requireUserContext, canManageLogistics, assertCanReadImportOrder, isPlatformReviewer, isPlatformAdmin, isTenantAdminForRecord, isSailingOperator } from './diasporaAuthorization.js';
 
 // Authorize a read against the import order this shipment belongs to (buyer owns it, or reviewer/admin).
 async function assertOrderReadAccess(importOrderId, userContext) {
@@ -16,6 +16,31 @@ async function assertOrderReadAccess(importOrderId, userContext) {
   const { data: participants } = await supabase.from('diaspora_import_order_participants').select('*').eq('import_order_id', importOrderId).is('deleted_at', null);
   assertCanReadImportOrder(order, participants || [], userContext);
   return order;
+}
+
+/**
+ * Who may create or move a shipment.
+ *
+ * `canManageLogistics` reads authority off the affected record's tenant. For a shipment that is not
+ * on a co-loaded container that is the whole answer. For one that IS, it was the wrong question: a
+ * diaspora buyer's import order carries no tenant at all, so on every co-loaded sailing the check
+ * fell through to platform admins and reviewers only — and the container's own operator, who had
+ * just planned the load, loaded it and sealed it under T10, was refused. Found on the deployed
+ * product, where the first act of the T11 journey was a 403 for the person the phase is for.
+ *
+ * So a container-bound shipment additionally accepts the operator OF THAT CONTAINER — the same test
+ * T10 applies before it will let anyone complete its load, read off the container row rather than
+ * from a header. It widens nothing else: another sailing's operator, a buyer, and a foreign tenant
+ * are refused exactly as before, and a shipment with no container keeps the original rule.
+ */
+export async function assertMayMoveShipment(order, containerId, context, client = supabase) {
+  if (canManageLogistics(order, context)) return;
+  if (containerId) {
+    const { data: container } = await client
+      .from('diaspora_container_shipments').select('*').eq('id', containerId).is('deleted_at', null).maybeSingle();
+    if (container && isSailingOperator(container, context)) return;
+  }
+  throw new ForbiddenError('You are not authorized to manage Diaspora shipment logistics');
 }
 
 /**
@@ -174,8 +199,9 @@ export async function createShipment(payload, userContext = {}, req = null) {
   validateShipmentPayload(payload);
   const { data: order, error: orderError } = await supabase.from('diaspora_import_orders').select('*').eq('id', payload.import_order_id).single();
   if (orderError || !order) throw new NotFoundError('Diaspora import order not found');
-  // Creating an official shipment is a logistics action (admin/reviewer/tenant-admin of the order).
-  assertCanManageLogistics(order, context);
+  // Creating an official shipment is a logistics action — for the order's tenant, or for the
+  // operator of the container it sails on.
+  await assertMayMoveShipment(order, payload.container_id || null, context);
   // …and for a co-loaded container, it also requires that something was actually loaded into it.
   await assertContainerWasLoaded(payload.container_id || null, supabase);
 
@@ -315,8 +341,9 @@ export async function updateShipmentStage(id, payload, userContext = {}, req = n
   const nextStage = payload.stage || payload.status;
   if (!Object.values(SHIPMENT_STATUSES).includes(nextStage)) throw new ValidationError(`Invalid shipment stage: ${nextStage}`);
   const previous = await getShipment(id);
-  // Advancing official shipment stage is a logistics action (admin/reviewer/tenant-admin).
-  assertCanManageLogistics(previous, context);
+  // Advancing official shipment stage is a logistics action — same authority as creating it, so an
+  // operator who could create a shipment cannot then be locked out of recording that it sailed.
+  await assertMayMoveShipment(previous, previous.container_id || null, context);
 
   // T11.1 — the timeline cannot be written out of order, and a retry is not a second journey.
   const { unchanged } = assertShipmentTransition(previous.status, nextStage);
