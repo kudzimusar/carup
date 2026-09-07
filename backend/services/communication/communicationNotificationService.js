@@ -601,7 +601,7 @@ export class CommunicationNotificationService {
         // fallbacks cover every emitter's subject id (incl. sessionId/evidenceId/vin for
         // verification, evidence-review, and listing-moderation events) so distinct events
         // for the same user never collapse into one dedupe key.
-        dedupeParts: [eventType, event.id || event.dedupe_key || event.event_id || payload.id || payload.inquiryId || payload.escrowId || payload.applicationId || payload.sessionId || payload.evidenceId || payload.vin || payload.reservationId || payload.containerId || payload.quoteId || payload.rfqId, recipientUserId, policy.templateKey, channel],
+        dedupeParts: [eventType, event.id || event.dedupe_key || event.event_id || payload.id || payload.inquiryId || payload.escrowId || payload.applicationId || payload.sessionId || payload.evidenceId || payload.vin || payload.reservationId || payload.containerId || payload.quoteId || payload.rfqId || payload.shipmentId, recipientUserId, policy.templateKey, channel],
         payload: {
           event_type: eventType,
           safe_payload: payload,
