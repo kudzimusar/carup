@@ -105,11 +105,18 @@ destination; T13 owns settlement.** Gap #5 above is the live risk and is recorde
 | slice | scope | state |
 |---|---|---|
 | **T11.0** | authority audit + master reconciliation | **complete** (this document) |
-| **T11.1** | container → shipment gate; planned vs observed departure; transition legality; stage idempotency | **complete** — 16 tests |
-| T11.2 | operator timeline surface | not started |
-| T11.3 | participant-scoped tracking surface | not started |
-| T11.4 | T7 convergence beyond the existing exception path | not started |
-| T11.5 | privacy matrix, responsive, staging journeys | not started |
+| **T11.1** | container → shipment gate; planned vs observed departure; transition legality; stage idempotency | **complete** |
+| **T11.1b** | one validated observed time; no arrival before departure; container-operator authority | **complete** — all found on the DEPLOYED product |
+| **T11.2** | operator shipment timeline surface | **complete** |
+| **T11.3** | participant-scoped tracking surface | **complete** |
+| **T11.4** | structural append-only timeline; T7 convergence; the T11/T12 coupling closed | **complete** |
+| **T11.5** | staging journeys A–G, responsive at 7 widths, security matrix, mutation matrix | **complete** — 33/33, 14/14, 19/19 red |
 
-`T11-PARTIAL` is the status this cycle reaches. **No T11 surface exists** — the same gap that kept
-T9 and T10 from acceptance at their first candidates. Owner acceptance remains.
+`T11-USABLE` is the status this cycle reaches: **conditional freeze, owner acceptance remains.**
+
+Full evidence, including the four defects the deployed product showed that no unit test could, is in
+`docs/trade-os/receipts/T11_SHIPMENT_TRACKING.md`.
+
+T12.0 (audit) and T12.1 (removing the fabricated customs values, and the registry forgery behind
+them) opened separately — see `docs/trade-os/T12_CUSTOMS_ZIMBABWE_DESTINATION_IMPLEMENTATION_PLAN.md`.
+**T13 not started.**

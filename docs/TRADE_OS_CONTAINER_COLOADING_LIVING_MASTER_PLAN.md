@@ -1828,7 +1828,9 @@ load is never refused (an observation of the past). Nothing is repriced, refunde
 
 ## T11 — Shipment and tracking
 
-**`T11-PARTIAL` — owner acceptance remains. Candidate `bf52a6d9`.** T11.0 audit + T11.1 hardening.
+**`T11-USABLE` — CONDITIONAL FREEZE. Owner acceptance remains.** Runtime frozen; SHA in the PR.
+T11.0 audit, T11.1 hardening, T11.2 operator surface, T11.3 participant surface, T11.4 structural
+append-only + coupling closure, T11.5 full deployed certification.
 Plan `docs/trade-os/T11_SHIPMENT_TRACKING_IMPLEMENTATION_PLAN.md`, receipt
 `docs/trade-os/receipts/T11_SHIPMENT_TRACKING.md`.
 
@@ -1854,21 +1856,69 @@ either way, so T11 takes the conservative reading and says so rather than guessi
       nobody OBSERVED. The existing authorization suite caught it.
 - [x] Idempotency — re-reporting the current stage is `unchanged`, not a second journey.
 - [x] Exception handling — the T7.5 consumer already owns it; T11 did not duplicate it.
-- [ ] **Operator timeline surface — NOT built.**
-- [ ] **Participant-specific tracking surface — NOT built.**
-- [ ] T11.5 privacy matrix, responsive, staging journeys — NOT run.
+- [x] **Operator shipment timeline surface** — `/diaspora/shipments`.
+- [x] **Participant-specific tracking surface** — `/diaspora/tracking/:subjectType/:subjectId`.
+- [x] T11.5 — staging journeys A–G **33/33**, responsive 7 widths × 2 surfaces **14/14**, security
+      matrix with positive controls on both sides, mutation matrix **19 named, 19 red**.
+- [x] **The timeline is append-only STRUCTURALLY** (`20260915090000`): a `BEFORE UPDATE` guard, a
+      `BEFORE DELETE` guard, FORCE RLS and a REVOKE. Exercised against the LIVE staging database as
+      the most privileged direct caller: 5 rewrites refused, hard delete refused, and the positive
+      control (soft-delete, the one column meant to stay mutable) accepted.
 
-**Recorded T12 boundary risk:** `SHIPMENT_TO_IMPORT_STATUS` already maps `CUSTOMS_HOLD →
-CUSTOMS_IN_PROGRESS` and `RELEASED → RELEASED`, so the shipment service writes customs-shaped order
-statuses today. T11 did not extend this. **T12 owns customs.**
+**Four defects the DEPLOYED product showed that no unit test could:**
+
+1. **The operator who loaded the container could not ship it.** Shipment authority was read off the
+   affected record's tenant, and a diaspora buyer's import order has NO tenant — it is a consumer
+   purchase. So on every co-loaded sailing the check fell through to platform admins only, and the
+   container's own operator, who could READ the T11 shipment view of that same container, could not
+   create or move its shipment. The read surface knew who ran the sailing; the write surface did not.
+   Authority is now read off the CONTAINER, via a canonical `isSailingOperator` that T5, T7, T8, T10
+   and T11's read surface had each grown a private copy of. **Invisible to the unit suite because
+   every fixture gave its order a tenant.**
+2. **A shipment could disagree with its own history about when it sailed** — the column and the
+   timeline read the observed time from two different fields, and the second path validated nothing,
+   so any stage writing no column could still be dated into the future.
+3. **A ship could arrive before it left.** The stage rule stopped rewinding; nothing stopped an
+   observation dated before the previous one. The creation record is excluded deliberately, so a
+   first movement may still be back-dated — a shipment is often written up after it sailed.
+4. **A timeline read back as an object.** A fake returned a bare row where Postgres returns a list.
+
+**The T11/T12 coupling is CLOSED, and was worse than the audit recorded.** Because the purchase
+ladder puts `RELEASED` after `DUTY_PAID`, a movement action was asserting that duty had been paid.
+`SHIPMENT_TO_IMPORT_STATUS` is reduced to movement facts only; the three removed stages are named
+with their reason in `STAGES_HANDED_TO_T12`.
 
 ## T12 — Customs and Zimbabwe destination operations
 
+**T12.0 audit COMPLETE. T12.1 COMPLETE. T12.2+ NOT STARTED, and the calculation boundary is BLOCKED.**
+Plan `docs/trade-os/T12_CUSTOMS_ZIMBABWE_DESTINATION_IMPLEMENTATION_PLAN.md`.
+
+**The audit's first result is not a gap. It is a forgery.** Approving an OCR document INSERTed a row
+into `zimra_declarations` — a table modelling an act by the Zimbabwe Revenue Authority — with a
+random `CUS_` reference, `'Beitbridge'` defaulted as the port, `50000` defaulted as both duty
+*calculated* and duty **paid**, a hardcoded exchange rate of `13.5`, today as the customs stamp date,
+and an **officer signature hash** that was a SHA-256 of CarUp's own document id. `cvr_ownership_records`
+the same, down to one real-looking national ID defaulted onto every registration book.
+
+`vehicleFactResolver` already refused those rows — **but it was not the only reader.**
+`trustGraphService` scored the mere EXISTENCE of a row, so a declaration this codebase synthesised
+itself was worth **+10 trust** there while being refused there.
+
+- [x] **T12.1 — the registry write is REMOVED, not disabled**, and both readers now ask one question
+      through one exported predicate. What CarUp actually observed is untouched and still recorded.
+      Staging blast radius: **0 rows**. **Production: UNMEASURED — out of scope, owner decision.**
 - [ ] Document checkpoints.
-- [ ] Broker/agent relationship.
-- [ ] Clearance/release evidence.
+- [ ] Broker/agent relationship — **and whether CarUp lodges declarations itself or only coordinates
+      a licensed clearing agent is an operating-model and licensing question, not a code question.**
+- [ ] Clearance/release evidence — as ATTRIBUTED claims, never as CarUp's own assertion.
 - [ ] Collection/delivery.
 - [ ] Vehicle Zimbabwe-readiness handoff.
+- [ ] **BLOCKED — no duty rate, VAT rate, surtax, age rule, exchange-rate source, valuation formula,
+      import ban, rebate, broker fee or port charge exists in this repository with a jurisdiction, an
+      effective date and a provenance. None has been invented. Nine specific questions are listed in
+      the T12 plan §4 for owner decision.**
+
+> **CarUp may coordinate customs. CarUp is not ZIMRA.**
 
 ## T13 — SafeTrade / payment milestones / disputes
 
