@@ -197,6 +197,22 @@ another), which is what the phase actually guarantees.
 **This is not the T10.6 journey suite,** and the harness says so in its own output: no T10 surface
 exists, so nothing here walks a person through anything.
 
+### Journey F, at the database level
+
+The payload check above proves T10's *output* never says "departed". The stronger question is whether
+a completed load moved anything a later phase owns. Read from staging after the completed load:
+
+| | |
+|---|---|
+| completed loads on the sailing | **1** |
+| `diaspora_shipments` for the container | **0** |
+| `diaspora_shipment_stage_events` for the orders | **0** |
+| the sailing's own status (T5's) | `BOOKING_OPEN` — untouched |
+| the import orders' status (T4's) | `CONTAINER_BOOKED` — untouched |
+
+A container was loaded and **no shipment came into existence**. That is the T11 firewall holding on
+a real database rather than in a JSON string.
+
 ## 6. T10.4 / T10.5 — convergence, following the pattern rather than inventing one
 
 **T10.5 — evidence through T8.** Migration `20260914090000` adds one value, `container_load`. No
