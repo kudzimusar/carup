@@ -75,6 +75,18 @@ import {
   listIntakeQueue,
   getMyCargoIntake,
 } from '../services/diaspora/warehouseIntakeService.js';
+import {
+  getLoadReadiness,
+  getContainerLoadState,
+  createLoadPlan,
+  setPlanItem,
+  confirmLoadPlan,
+  openLoad,
+  recordLoadItem,
+  completeLoad,
+  recordSeal,
+  getMyLoadStatus,
+} from '../services/diaspora/containerLoadService.js';
 
 const router = express.Router();
 const asyncHandler = (fn) => (req, res, next) => Promise.resolve(fn(req, res, next)).catch(next);
@@ -521,6 +533,60 @@ router.post('/warehouse-intakes/:id/storage-location', operatorAuth, asyncHandle
 // for cargo you own, and a co-loader on the same sailing owns a different booking.
 router.get('/my-cargo/:subjectType/:subjectId', participantAuth, asyncHandler(async (req, res) => {
   res.json({ data: await getMyCargoIntake(req.params.subjectType, req.params.subjectId, req.userContext, { req }) });
+}));
+
+// ── Trade OS T10 — consolidation and loading ──────────────────────────────
+//
+// Operator authority is the sailing's, resolved server-side (coordinator, tenant admin, or platform
+// admin) — the same predicate T5 and T7 use, so one sailing has one idea of who runs it. The route
+// middleware only establishes that there IS an identity.
+
+router.get(`${base}/:id/load-readiness`, operatorAuth, asyncHandler(async (req, res) => {
+  res.json({ data: await getLoadReadiness(req.params.id, req.userContext, { req }) });
+}));
+
+router.get(`${base}/:id/load-state`, operatorAuth, asyncHandler(async (req, res) => {
+  res.json({ data: await getContainerLoadState(req.params.id, req.userContext, { req }) });
+}));
+
+router.post(`${base}/:id/load-plan`, operatorAuth, asyncHandler(async (req, res) => {
+  const result = await createLoadPlan(req.params.id, req.body || {}, req.userContext, { req });
+  res.status(result.already_existed ? 200 : 201).json({ data: result });
+}));
+
+router.post('/load-plans/:id/items', operatorAuth, asyncHandler(async (req, res) => {
+  res.status(201).json({ data: await setPlanItem(req.params.id, req.body || {}, req.userContext, { req }) });
+}));
+
+router.post('/load-plans/:id/confirm', operatorAuth, asyncHandler(async (req, res) => {
+  const result = await confirmLoadPlan(req.params.id, req.userContext, { req });
+  res.status(result.already_confirmed ? 200 : 201).json({ data: result });
+}));
+
+// Opening a load is starting to put cargo in. It is NOT a departure, and no route here can produce
+// one — the container→shipment transition remains T11's.
+router.post(`${base}/:id/loads`, operatorAuth, asyncHandler(async (req, res) => {
+  const result = await openLoad(req.params.id, req.userContext, { req });
+  res.status(result.already_existed ? 200 : 201).json({ data: result });
+}));
+
+router.post('/loads/:id/items', operatorAuth, asyncHandler(async (req, res) => {
+  res.status(201).json({ data: await recordLoadItem(req.params.id, req.body || {}, req.userContext, { req }) });
+}));
+
+router.post('/loads/:id/complete', operatorAuth, asyncHandler(async (req, res) => {
+  const result = await completeLoad(req.params.id, req.body || {}, req.userContext, { req });
+  res.status(result.already_completed ? 200 : 201).json({ data: result });
+}));
+
+router.post('/loads/:id/seal-records', operatorAuth, asyncHandler(async (req, res) => {
+  res.status(201).json({ data: await recordSeal(req.params.id, req.body || {}, req.userContext, { req }) });
+}));
+
+// A participant's own cargo. Authorized from the CARGO, not the sailing — a co-loader owns a
+// different booking and learns nothing about this one.
+router.get('/my-load-status/:subjectType/:subjectId', participantAuth, asyncHandler(async (req, res) => {
+  res.json({ data: await getMyLoadStatus(req.params.subjectType, req.params.subjectId, req.userContext, { req }) });
 }));
 
 export default router;
