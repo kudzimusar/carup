@@ -19,6 +19,7 @@ const state = vi.hoisted(() => ({
   comparison: null as unknown,
   readCalls: [] as unknown[],
   compareCalls: [] as unknown[],
+  conversationCalls: [] as Array<{ orderId: string; sellerId: string }>,
 }))
 
 vi.mock('@/context/AuthContext', () => ({ useAuth: () => ({ loading: false, user: { id: 'buyer-1' } }) }))
@@ -27,6 +28,9 @@ vi.mock('@/hooks/useCarUpApi', () => ({
     fetchDiasporaBuyerOrder: vi.fn(async () => state.order),
     publishDiasporaRfq: vi.fn(),
     acceptDiasporaQuote: vi.fn(),
+    ensureDiasporaRfqConversation: vi.fn(async (orderId: string, sellerId: string) => {
+      state.conversationCalls.push({ orderId, sellerId }); return { threadId: 't1', role: 'buyer' }
+    }),
     readChargeComponents: vi.fn(async (kind: string, id: string) => {
       state.readCalls.push({ kind, id })
       if (state.commercialsError) throw state.commercialsError
@@ -39,7 +43,7 @@ vi.mock('@/hooks/useCarUpApi', () => ({
 import TradeRequestDetail from './TradeRequestDetail'
 
 const QUOTE = (id: string, supplier: string) => ({
-  id, status: 'ISSUED', quote_amount: 2400000, quote_currency: 'JPY',
+  id, seller_id: `seller-${id}`, status: 'ISSUED', quote_amount: 2400000, quote_currency: 'JPY',
   lead_time_days: 21, shipping_included: false, valid_until: null,
   offered_condition: 'used', offered_quantity: 1, unit_price: 2400000,
   inclusions: [], exclusions: [],
@@ -89,6 +93,7 @@ beforeEach(() => {
   state.comparison = null
   state.readCalls = []
   state.compareCalls = []
+  state.conversationCalls = []
 })
 
 describe('the buyer sees what the supplier price actually covers', () => {
@@ -143,5 +148,28 @@ describe('the buyer sees what the supplier price actually covers', () => {
       { id: 'iq1', kind: 'import', label: 'Kaizen Exports' },
       { id: 'iq2', kind: 'import', label: 'Sakura Motors' },
     ])
+  })
+
+  /**
+   * T7.2 — the buyer could not start a conversation from their own request. Only the supplier
+   * could, which left a buyer holding competing offers with no way to ask about any of them.
+   */
+  it('lets the buyer ask a specific supplier, named by the offer they are reading', async () => {
+    const two = structuredClone(ORDER)
+    two.quotes = [QUOTE('iq1', 'Kaizen Exports'), QUOTE('iq2', 'Sakura Motors')]
+    state.order = two
+    await open()
+    const buttons = screen.getAllByTestId('trade-ask-supplier')
+    expect(buttons).toHaveLength(2)
+    buttons[1].click()
+    await waitFor(() => expect(state.conversationCalls.length).toBe(1))
+    // The supplier is identified from the offer, never chosen for the buyer.
+    expect(state.conversationCalls[0]).toEqual({ orderId: 'o1', sellerId: 'seller-iq2' })
+  })
+
+  it('says plainly that asking a question is not accepting the offer', async () => {
+    await open()
+    expect(screen.getByTestId('trade-ask-supplier').closest('div')?.textContent)
+      .toContain('does not accept the offer')
   })
 })

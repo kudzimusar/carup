@@ -46,6 +46,7 @@ import { ensureLogisticsConversation } from '../services/diaspora/diasporaLogist
 import { listActiveCorridors } from '../services/diaspora/tradeCorridorService.js';
 import { addChargeComponents, listChargeComponents, projectComponentsForDisplay, composeLandedEstimate, readQuoteCommercials } from '../services/diaspora/tradeChargeComponentService.js';
 import { materialStagesFor } from '../services/diaspora/tradeCommercialContract.js';
+import { ensureContainerConversation } from '../services/diaspora/diasporaContainerConversationService.js';
 import { supabase as sharedSupabase } from '../db/supabase.js';
 
 /** Read the quote header a breakdown belongs to, so totals come from the SERVER's row. */
@@ -370,6 +371,14 @@ router.get(`${base}/:id/shared-charges`, operatorAuth, asyncHandler(async (req, 
 
 router.get(`${base}/charge-components/:id/allocations`, participantAuth, asyncHandler(async (req, res) => {
   res.json({ data: await listAllocations(req.params.id, { req }) });
+}));
+
+// T7.4 — the participant/organiser conversation on a sailing. Membership is derived from a live
+// reservation (or operating authority); the body may only NAME a counterparty, never assert one.
+router.post(`${base}/:id/conversation`, participantAuth, asyncHandler(async (req, res) => {
+  res.json({ data: await ensureContainerConversation(req.params.id, req.userContext, {
+    req, participantId: req.body?.participantId,
+  }) });
 }));
 
 router.get('/trade-corridors', participantAuth, asyncHandler(async (req, res) => {

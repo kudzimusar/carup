@@ -1600,6 +1600,17 @@ export function useCarUpApi() {
     return response.data
   }, [request])
 
+  /** T7.4 — open (or reuse) the sailing conversation. The server derives who the caller is. */
+  const ensureDiasporaContainerConversation = useCallback(async (
+    containerId: string, participantId?: string,
+  ): Promise<{ threadId: string | null; role: string }> => {
+    const response = await request<{ data: { threadId: string | null; role: string } }>(
+      `/diaspora/container-marketplace/${encodeURIComponent(containerId)}/conversation`,
+      { method: 'POST', body: JSON.stringify(participantId ? { participantId } : {}) },
+    )
+    return response.data
+  }, [request])
+
   const readContainerSharedCharges = useCallback(async (containerId: string): Promise<SharedChargeSet> => {
     const response = await request<{ data: SharedChargeSet }>(
       `/diaspora/container-marketplace/${encodeURIComponent(containerId)}/shared-charges`)
@@ -3082,6 +3093,7 @@ export function useCarUpApi() {
     compareQuotes,
     readContainerSharedCharges,
     allocateSharedCharge,
+    ensureDiasporaContainerConversation,
     updateDiasporaQuote,
     submitDiasporaQuote,
     withdrawDiasporaQuote,

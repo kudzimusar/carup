@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState, type ChangeEvent } from 'react'
-import { Link } from 'react-router-dom'
+import { Link, useNavigate } from 'react-router-dom'
 import { AlertTriangle, ArrowRight, Container, Loader2, Plus, ShieldCheck, X } from 'lucide-react'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Button } from '@/components/ui/button'
@@ -192,6 +192,7 @@ export default function DiasporaContainerMarketplace() {
     fetchDiasporaImportOrders,
     readContainerSharedCharges,
     allocateSharedCharge,
+    ensureDiasporaContainerConversation,
   } = useCarUpApi()
 
   const role = (user?.role || '').toLowerCase()
@@ -233,7 +234,25 @@ export default function DiasporaContainerMarketplace() {
   const [corridorId, setCorridorId] = useState('')
   const [corridorLegId, setCorridorLegId] = useState('')
   const [drafts, setDrafts] = useState<DiasporaMarketplaceContainer[]>([])
+  const navigate = useNavigate()
   const [lifecycleError, setLifecycleError] = useState('')
+
+  /**
+   * T7.4 — the sailing conversation.
+   *
+   * Booking had one-way notifications and nobody to reply to. A participant asks the organiser; the
+   * organiser answers one participant at a time. Asking is not booking: nothing here changes a
+   * reservation's status.
+   */
+  const talkAboutSailing = async (containerId: string, participantId?: string) => {
+    try {
+      await ensureDiasporaContainerConversation(containerId, participantId)
+      navigate('/diaspora/messages')
+    } catch (err) {
+      setLifecycleError(err instanceof Error ? err.message : 'The conversation could not be opened')
+    }
+  }
+
 
   const load = useCallback(async () => {
     if (!canView) return
@@ -945,6 +964,13 @@ export default function DiasporaContainerMarketplace() {
                               {ownsReservation(r) && ['REQUESTED', 'APPROVED'].includes(r.reservation_status) && (
                                 <Button size="sm" variant="ghost" className="rounded-none text-gray-600" onClick={() => act(() => cancelDiasporaMarketplaceReservation(r.id))} data-testid="diaspora-container-cancel">Cancel</Button>
                               )}
+                              {isOperator && (
+                                <Button size="sm" variant="ghost" className="rounded-none px-2 text-gray-600"
+                                  onClick={() => void talkAboutSailing(String(selected.id), String(r.buyer_id || ''))}
+                                  data-testid="diaspora-container-ask-participant">
+                                  Ask
+                                </Button>
+                              )}
                               <Button size="sm" variant="ghost" className="rounded-none px-2 text-gray-600" onClick={() => setOpenBookingId((prev) => (prev === r.id ? null : r.id))} data-testid="diaspora-container-open-booking">
                                 {openBookingId === r.id ? 'Hide' : 'Details'}
                               </Button>
@@ -987,6 +1013,23 @@ export default function DiasporaContainerMarketplace() {
                     </div>
                   )}
                 </div>
+
+                {/* T7.4 — the participant's half of the sailing conversation. Booking used to talk
+                    at them and give them nobody to answer. Shown only when they hold a live
+                    booking, because that is what earns the conversation. */}
+                {!isOperator && reservations.some((r) => ownsReservation(r) && ['REQUESTED', 'APPROVED'].includes(String(r.reservation_status))) && (
+                  <div className="mt-8 border-t border-gray-200 pt-5">
+                    <Button variant="outline" className="rounded-none border-gray-400 text-gray-800"
+                      onClick={() => void talkAboutSailing(String(selected.id))}
+                      data-testid="diaspora-container-ask-organiser">
+                      Ask the organiser
+                    </Button>
+                    <p className="mt-2 max-w-xl text-[11px] leading-snug text-gray-500">
+                      Opens a private conversation with the organiser about this sailing. Other
+                      participants cannot see it. Asking a question does not change your booking.
+                    </p>
+                  </div>
+                )}
 
                 {/* T6.8 — the operator half of the allocation engine, which had no screen at all. */}
                 {isOperator && (

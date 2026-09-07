@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { Link, useParams } from 'react-router-dom'
-import { AlertTriangle, ArrowLeft, Check, Loader2, Send } from 'lucide-react'
+import { Link, useParams, useNavigate } from 'react-router-dom'
+import { AlertTriangle, ArrowLeft, Check, Loader2, MessageSquare, Send } from 'lucide-react'
 import { Alert, AlertDescription } from '@/components/ui/alert'
 import { Button } from '@/components/ui/button'
 import { useAuth } from '@/context/AuthContext'
@@ -53,13 +53,34 @@ function leadTimeLabel(q: DiasporaQuote) {
 export default function TradeRequestDetail() {
   const { id = '' } = useParams()
   const { loading: authLoading } = useAuth()
-  const { fetchDiasporaBuyerOrder, publishDiasporaRfq, acceptDiasporaQuote, readChargeComponents, compareQuotes } = useCarUpApi()
+  const { fetchDiasporaBuyerOrder, publishDiasporaRfq, acceptDiasporaQuote, readChargeComponents, compareQuotes, ensureDiasporaRfqConversation } = useCarUpApi()
 
   const [order, setOrder] = useState<DiasporaBuyerOrder | null>(null)
   const [loading, setLoading] = useState(true)
   const [unreadable, setUnreadable] = useState(false)
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
+  const navigate = useNavigate()
+
+  /**
+   * T7.2 — the buyer's half of the clarification thread.
+   *
+   * Only the SUPPLIER could open one, so a buyer holding competing offers had no way to ask about
+   * any of them. The thread is per (request, supplier) so competitors never read each other's
+   * questions, and the supplier is named by the offer the buyer is looking at — the server then
+   * re-checks that they really did offer on this request.
+   */
+  const askSupplier = async (sellerId: string) => {
+    if (busy || !sellerId) return
+    setBusy(true); setError('')
+    try {
+      await ensureDiasporaRfqConversation(id, sellerId)
+      navigate('/diaspora/messages')
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'The conversation could not be opened')
+      setBusy(false)
+    }
+  }
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -335,6 +356,24 @@ export default function TradeRequestDetail() {
                       )}
                       {Array.isArray(q.exclusions) && q.exclusions.length > 0 && (
                         <p className="text-xs text-gray-600"><span className="font-semibold">Excludes:</span> {(q.exclusions as string[]).join(', ')}</p>
+                      )}
+
+                      {typeof q.seller_id === 'string' && q.seller_id && (
+                        <div className="mt-3">
+                          <Button
+                            variant="outline" size="sm" className="rounded-none"
+                            onClick={() => void askSupplier(q.seller_id as string)}
+                            disabled={busy}
+                            data-testid="trade-ask-supplier"
+                          >
+                            <MessageSquare className="mr-1.5 h-4 w-4" aria-hidden="true" />
+                            Ask this supplier
+                          </Button>
+                          <p className="mt-1 text-[11px] leading-snug text-gray-500">
+                            Opens a private conversation with this supplier about this request. Asking
+                            a question does not accept the offer.
+                          </p>
+                        </div>
                       )}
 
                       {/* T6 — what this price actually covers, before the button that commits to it. */}

@@ -23,6 +23,7 @@ import { resolveClient } from './diasporaServiceUtils.js';
 import { createCommunicationServices } from '../communication/communicationServiceFactory.js';
 
 const ORDERS = 'diaspora_import_orders';
+const QUOTES = 'diaspora_import_quotes';
 
 /** The canonical subject vocabulary for a sourcing request conversation. */
 export const RFQ_SUBJECT_TYPE = 'diaspora_rfq';
@@ -68,6 +69,21 @@ export async function ensureRfqConversation(orderId, userContext = {}, options =
   // they are answering, because the buyer may hold several separate conversations on one request.
   const sellerId = role === 'seller' ? context.id : normalizeId(options.sellerId || userContext.sellerId);
   if (!sellerId) throw new ValidationError('sellerId is required to open the conversation with a specific supplier');
+
+  // `sellerId` arrives in the REQUEST BODY when the buyer opens the thread, so it is a
+  // client-supplied participant and may not be believed. Without this check a buyer could pair
+  // themselves with an arbitrary user — creating a canonical thread, seating a stranger as the
+  // "seller", and putting the request's reference into its metadata. A supplier earns their place
+  // in this conversation by having made an offer on this request; the caller's own id is used when
+  // the SELLER opens it, so a hostile seller cannot name someone else either.
+  if (role === 'buyer') {
+    const { data: offer } = await client.from(QUOTES).select('id')
+      .eq('import_order_id', orderId).eq('seller_id', sellerId).is('deleted_at', null)
+      .limit(1).maybeSingle();
+    if (!offer) {
+      throw new ForbiddenError('That supplier has no offer on this request, so there is no conversation to open with them');
+    }
+  }
 
   const buyerId = normalizeId(order.buyer_id || order.created_by);
   if (!buyerId) throw new ValidationError('This request has no buyer on record');
