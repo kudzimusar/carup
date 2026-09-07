@@ -1828,7 +1828,7 @@ load is never refused (an observation of the past). Nothing is repriced, refunde
 
 ## T11 — Shipment and tracking
 
-**`T11-USABLE` — CONDITIONAL FREEZE. Owner acceptance remains.** Runtime frozen; SHA in the PR.
+**`T11-USABLE` — OWNER ACCEPTED / FROZEN at `9ce19115`.**
 T11.0 audit, T11.1 hardening, T11.2 operator surface, T11.3 participant surface, T11.4 structural
 append-only + coupling closure, T11.5 full deployed certification.
 Plan `docs/trade-os/T11_SHIPMENT_TRACKING_IMPLEMENTATION_PLAN.md`, receipt

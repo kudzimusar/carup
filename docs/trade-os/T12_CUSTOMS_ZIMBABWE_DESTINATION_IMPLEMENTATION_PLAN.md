@@ -3,7 +3,7 @@
 **Status: T12.0 audit COMPLETE. T12.1 (remove the fabricated customs values) COMPLETE.
 T12.2 onward NOT STARTED — and one part of it is BLOCKED on an owner decision.**
 
-Predecessor: `docs/trade-os/receipts/T11_SHIPMENT_TRACKING.md` (`T11-USABLE`, conditional freeze).
+Predecessor: `docs/trade-os/receipts/T11_SHIPMENT_TRACKING.md` — **`T11-USABLE`, OWNER ACCEPTED / FROZEN at `9ce19115`.**
 
 ---
 

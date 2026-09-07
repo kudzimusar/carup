@@ -1,7 +1,8 @@
 # Trade OS T11 — Shipment & tracking · Receipt
 
-**Status: `T11-USABLE` — CONDITIONAL FREEZE. OWNER ACCEPTANCE REMAINS.**
-Runtime frozen at the SHA recorded in §9.
+**Status: `T11-USABLE` — OWNER ACCEPTED / FROZEN at `9ce19115`.**
+
+The runtime is frozen. It is not to be reopened unless T12 exposes a genuine T11 defect.
 
 T11.0 audit, T11.1 authority hardening, T11.2 operator timeline surface, T11.3 participant tracking
 surface, the structural append-only timeline, the T11/T12 coupling closed, and full deployed
@@ -296,7 +297,6 @@ Recorded at freeze; see the PR for the exact SHA and CI run.
 
 ## 10. Open, carried forward
 
-- **Owner acceptance of T11 remains.** This is a conditional freeze.
 - **The production blast radius of the registry forgery is UNMEASURED**, because production is out of
   scope. **Owner decision required** on authorising a read-only count of `zimra_declarations` and
   `cvr_ownership_records` rows carrying `CUS_`/`REG_`/`LB_` identifiers, `exchange_rate_used = 13.5`,

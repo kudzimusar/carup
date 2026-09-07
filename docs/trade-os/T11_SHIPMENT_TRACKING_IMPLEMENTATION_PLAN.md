@@ -1,6 +1,6 @@
 # Trade OS T11 — Shipment & tracking
 
-**Status: `T11-PARTIAL` — owner acceptance remains. T11.0 audit + T11.1 hardening. No new table.**
+**Status: `T11-USABLE` — OWNER ACCEPTED / FROZEN at `9ce19115`.** No new shipment table.
 Branch `feat/trade-os-client-demo-convergence` · PR #207 (Draft).
 
 Prior phases frozen: T3 `b446d8ea` · T4 `736f06c5` · T5 `5079b0b3` · T6 `2d0a0bc0` · T7 `3f062fc0`
@@ -112,7 +112,7 @@ destination; T13 owns settlement.** Gap #5 above is the live risk and is recorde
 | **T11.4** | structural append-only timeline; T7 convergence; the T11/T12 coupling closed | **complete** |
 | **T11.5** | staging journeys A–G, responsive at 7 widths, security matrix, mutation matrix | **complete** — 33/33, 14/14, 19/19 red |
 
-`T11-USABLE` is the status this cycle reaches: **conditional freeze, owner acceptance remains.**
+`T11-USABLE` is the status this cycle reaches, and the owner has **ACCEPTED and FROZEN** it at `9ce19115`.
 
 Full evidence, including the four defects the deployed product showed that no unit test could, is in
 `docs/trade-os/receipts/T11_SHIPMENT_TRACKING.md`.
