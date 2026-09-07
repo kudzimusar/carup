@@ -68,7 +68,7 @@ await check('a container booking may now own a document', async () => {
   await db.exec(`INSERT INTO public.diaspora_trade_documents (subject_type, subject_id, document_type) VALUES ('container_booking', 'sail-1', 'bill_of_lading');`);
 });
 
-await refuses('a subject TYPE without an id is refused', 
+await refuses('a subject TYPE without an id is refused',
   `INSERT INTO public.diaspora_trade_documents (subject_type, document_type) VALUES ('logistics_request', 'x');`,
   /subject_pairing|one_owner/);
 await refuses('a subject ID without a type is refused',
