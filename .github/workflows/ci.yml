@@ -169,6 +169,12 @@ jobs:
       - name: Trade OS T8 document versioning verification (isolated PGlite Postgres)
         run: node database/test/trade_os_t8_versioning_check.mjs
 
+      # Trade OS T9 — warehouse intake and measurement (20260911090000). The boundary under test is
+      # ESTIMATED vs ACTUAL: the customer's estimate must survive a warehouse measurement untouched,
+      # and a receipt must be an attributed act rather than a status somebody set.
+      - name: Trade OS T9 warehouse intake verification (isolated PGlite Postgres)
+        run: node database/test/trade_os_t9_warehouse_check.mjs
+
       - name: 'Issue #101 P0 hardening behavioural proof (real PostgreSQL via PGlite)'
         run: node database/test/issue101_p0_hardening_check.mjs
 
