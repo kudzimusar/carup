@@ -364,7 +364,11 @@ async function lastObservedMovement(shipmentId, client = supabase) {
     .from('diaspora_shipment_stage_events').select('*')
     .eq('shipment_id', shipmentId).is('deleted_at', null)
     .order('event_time', { ascending: false }).limit(10);
-  return (data || []).find((e) => !e?.metadata?.created) || null;
+  // Normalise the shape rather than assuming a list. A single-row shape is still a previous
+  // movement, and quietly treating an unexpected shape as "there is none" would leave the rule
+  // silently unenforced — which is the failure mode this whole phase is about.
+  const rows = Array.isArray(data) ? data : (data ? [data] : []);
+  return rows.find((e) => !e?.metadata?.created) || null;
 }
 
 export async function updateShipmentStage(id, payload, userContext = {}, req = null) {

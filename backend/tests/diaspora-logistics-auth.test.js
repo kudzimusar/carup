@@ -69,7 +69,12 @@ function resolve_(state) {
       if (op === 'update') return ok({ ...(db.shipments[filters.id] || {}), ...(payload || {}) });
       if (single) return db.shipments[filters.id] ? ok(db.shipments[filters.id]) : missing('shipment not found');
       return ok(Object.values(db.shipments).filter((s) => !filters.import_order_id || s.import_order_id === filters.import_order_id));
-    case 'diaspora_shipment_stage_events': return ok({ id: 'evt-1', ...(payload || {}) });
+    case 'diaspora_shipment_stage_events':
+      // A non-single SELECT returns a LIST, the way Postgres does. Returning a bare object here made
+      // the timeline readable as something it never is, and the first service to read its own
+      // history back got a 500.
+      if (op === 'insert' || single) return ok({ id: 'evt-1', ...(payload || {}) });
+      return ok(db.stageEvents ? db.stageEvents[filters.shipment_id] || [] : []);
     default:
       if (single) return ok({});
       if (op === 'insert') return ok({ id: 'mock', ...(payload || {}) });
