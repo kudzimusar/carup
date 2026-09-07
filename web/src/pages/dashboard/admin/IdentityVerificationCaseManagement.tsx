@@ -41,6 +41,7 @@ import type {
   ExtendedAdminVerificationSession,
 } from '@shared/types'
 import { useCarUpApi } from '@/hooks/useCarUpApi'
+import { useStepUpGuard } from '@/hooks/useStepUpGuard'
 import {
   EVIDENCE_CLASSIFICATION_LABELS,
   EXTRACTION_TRUST_LABELS,
@@ -140,6 +141,9 @@ export default function IdentityVerificationCaseManagement() {
     fetchEvidencePreview,
     reviewVerificationCase,
   } = useCarUpApi()
+  // Both routes this console calls — the decision and the evidence preview — are step-up gated.
+  // Without this the primary identity console could open a case and never decide it.
+  const { runGuarded, stepUpDialog } = useStepUpGuard()
   const [activeTab, setActiveTab] = useState('reviewer_action_required')
   const [sessions, setSessions] = useState<ExtendedAdminVerificationSession[]>([])
   const [loading, setLoading] = useState(true)
@@ -219,10 +223,11 @@ export default function IdentityVerificationCaseManagement() {
     if (previews[side]) return
     setPreviewsLoading(prev => ({ ...prev, [side]: true }))
     try {
-      const preview = await fetchEvidencePreview(selectedSession.id, side)
-      setPreviews(prev => ({ ...prev, [side]: preview }))
-    } catch {
-      toast.error(`Failed to load ${side} preview`)
+      // Viewing raw identity evidence is a SENSITIVE action; the refusal is recoverable.
+      await runGuarded(`View ${side} evidence`, async () => {
+        const preview = await fetchEvidencePreview(selectedSession.id, side)
+        setPreviews(prev => ({ ...prev, [side]: preview }))
+      })
     } finally {
       setPreviewsLoading(prev => ({ ...prev, [side]: false }))
     }
@@ -244,25 +249,27 @@ export default function IdentityVerificationCaseManagement() {
   const submitDecision = async () => {
     if (!selectedSession || !disposition) return
     setSubmitting(true)
+    // One idempotency key for the whole attempt, so the step-up retry replays the SAME decision
+    // rather than minting a second one.
+    const idempotencyKey = crypto.randomUUID()
     try {
-      const result = await reviewVerificationCase(
-        selectedSession.id,
-        {
-          action: disposition,
-          reasonCode: reasonCode || null,
-          internalNote: internalNote || null,
-          applicantMessage: applicantMessage || null,
-        },
-        { idempotencyKey: crypto.randomUUID() },
-      )
-      setSuccessPanel(result)
-      setShowConfirm(false)
-      toast.success('Decision saved')
-      // Refetch sessions list
-      fetchSessions(activeTab)
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : 'Failed to submit decision'
-      toast.error(msg)
+      await runGuarded('Submit identity decision', async () => {
+        const result = await reviewVerificationCase(
+          selectedSession.id,
+          {
+            action: disposition,
+            reasonCode: reasonCode || null,
+            internalNote: internalNote || null,
+            applicantMessage: applicantMessage || null,
+          },
+          { idempotencyKey },
+        )
+        setSuccessPanel(result)
+        setShowConfirm(false)
+        toast.success('Decision saved')
+        // Refetch sessions list
+        fetchSessions(activeTab)
+      })
     } finally {
       setSubmitting(false)
     }
@@ -285,6 +292,7 @@ export default function IdentityVerificationCaseManagement() {
 
   return (
     <div className="space-y-6">
+      {stepUpDialog}
       <div>
         <h1 className="text-2xl font-bold">Identity Verification</h1>
         <p className="text-gray-500">Case management and review queue</p>

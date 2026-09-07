@@ -17,7 +17,7 @@ import { Card, CardContent } from '@/components/ui/card'
 import { Textarea } from '@/components/ui/textarea'
 import { CheckCircle, XCircle, RotateCcw, ArrowUpRight, ShieldQuestion } from 'lucide-react'
 import { useCarUpApi } from '@/hooks/useCarUpApi'
-import { StepUpDialog } from '@/components/security/StepUpDialog'
+import { useStepUpGuard } from '@/hooks/useStepUpGuard'
 import { REASON_CODE_LABELS } from '@shared/types'
 import { toast } from 'sonner'
 
@@ -125,7 +125,9 @@ const DEALER_PROFILE_DECISIONS = [
 
 export default function PeopleComplianceReview() {
   const { userId = '' } = useParams()
-  const { fetchPersonComplianceReview, reviewIdentitySession, recordDealerComplianceDecision, stepUpSession } = useCarUpApi()
+  const { fetchPersonComplianceReview, reviewIdentitySession, recordDealerComplianceDecision } = useCarUpApi()
+  // The shared recovery, so this screen and the identity console cannot drift apart.
+  const { runGuarded: runStepUpGuarded, stepUpDialog } = useStepUpGuard()
 
   const [review, setReview] = useState<PersonReview | null>(null)
   const [loading, setLoading] = useState(true)
@@ -136,8 +138,6 @@ export default function PeopleComplianceReview() {
   const [applicantMessage, setApplicantMessage] = useState('')
   const [dealerReason, setDealerReason] = useState('')
   const [reloadNonce, setReloadNonce] = useState(0)
-  // The action a STEP_UP_REQUIRED refusal interrupted, held so it can be retried verbatim.
-  const [pendingStepUp, setPendingStepUp] = useState<{ label: string; run: () => Promise<void> } | null>(null)
 
   useEffect(() => {
     let cancelled = false
@@ -162,40 +162,16 @@ export default function PeopleComplianceReview() {
   const reload = useCallback(() => setReloadNonce((n) => n + 1), [])
   const can = new Set(review?.allowed_actions ?? [])
 
-  /**
-   * O2 post-Ready review C1 — run a step-up-gated action, and let the human satisfy the guard.
-   *
-   * Every consequential action on this screen sits behind
-   * `requireAuthenticationAssurance(ACTION_CLASSES.SENSITIVE)`, which fires BEFORE the resource
-   * is looked up and answers 403 STEP_UP_REQUIRED on a session that has only logged in. The
-   * guard is not weakened or bypassed here: the refusal is caught, the reviewer is asked to
-   * re-prove their password, and the SAME action is then retried. If the retry is refused
-   * again, the refusal is what the reviewer sees.
-   */
+  // Guarded actions run through the shared step-up guard, which recovers from STEP_UP_REQUIRED
+  // by re-proving the password and retrying the same call. `busy` is managed here so the
+  // controls disable for the whole attempt, including the prompt.
   const runGuarded = async (label: string, action: () => Promise<void>) => {
     setBusy(true)
     try {
-      await action()
-    } catch (error) {
-      const code = (error as { code?: string })?.code
-      if (code === 'STEP_UP_REQUIRED') {
-        setPendingStepUp({ label, run: action })
-        setBusy(false)
-        return
-      }
-      toast.error(error instanceof Error ? error.message : `${label} failed`)
+      await runStepUpGuarded(label, action)
     } finally {
       setBusy(false)
     }
-  }
-
-  const confirmStepUp = async (password: string) => {
-    const pending = pendingStepUp
-    if (!pending) return
-    await stepUpSession(password)
-    setPendingStepUp(null)
-    // Retry exactly what the guard interrupted. A second refusal is surfaced, never hidden.
-    await runGuarded(pending.label, pending.run)
   }
 
   const decideIdentity = async (action: 'approve' | 'request_resubmission' | 'reject' | 'escalate') => {
@@ -265,12 +241,7 @@ export default function PeopleComplianceReview() {
 
   return (
     <div className="p-4 sm:p-6 space-y-6" data-testid="people-compliance-review">
-      <StepUpDialog
-        open={pendingStepUp !== null}
-        actionLabel={pendingStepUp?.label ?? null}
-        onCancel={() => setPendingStepUp(null)}
-        onConfirm={confirmStepUp}
-      />
+      {stepUpDialog}
       {/* ── Person (account facts — email verification is an ACCOUNT fact, nothing more) ── */}
       <Card>
         <CardContent className="pt-6">

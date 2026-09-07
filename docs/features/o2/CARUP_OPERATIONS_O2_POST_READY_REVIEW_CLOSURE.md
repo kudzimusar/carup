@@ -181,3 +181,78 @@ still builds the review, so the guard is not a blanket refusal.
 * Production untouched; `main`, #197 and #209 untouched; nothing merged.
 * No backend validation weakened, no unique constraint dropped, no guard removed.
 * No GMO/#209 or Service Network/#197 code imported.
+
+---
+
+# Round 2 — fresh automated re-review of `87684c6a` (2026-09-08)
+
+A **fresh** Codex review was requested on the closure head and reviewed `87684c6ae6` at
+2026-09-07T20:04:10Z. It opened **six new P1 threads**. All six reproduced. This is the fourth
+event in the sequence, and it does not amend the three above.
+
+**`87684c6a` is now historical.** Two of the six show that the round-1 C1 fix, while correct in
+its own terms, was **not wired to reality** — a recurring failure mode in this repo, and the
+reason both a mechanism test and a *wiring* pin now exist.
+
+### D1 · P1 · CONFIRMED — FIXED · the step-up code never reached the caller
+
+`apiClient` treats **every** unsafe 403 as a possibly-stale CSRF token and retries once. A genuine
+403 therefore arrives through the RETRY path — and that path copied `status` and `data` but **not
+`code`**. So `error.code === 'STEP_UP_REQUIRED'` was `undefined` for every real API call: the
+prompt could never open and both identity and dealer decisions still dead-ended.
+
+The round-1 tests passed because they reject with a hand-made error that carries `code`, never
+touching `apiRequest`. **Fix:** one `buildApiFailure()` used by both failure paths, so they cannot
+drift again. **Guard:** `apiClient.stepUpCode.test.ts` drives the real retry path. **Mutation:** 1 red.
+
+### D2 · P1 · CONFIRMED — FIXED · the recovery existed on one screen only
+
+`StepUpDialog` was used solely by `PeopleComplianceReview`. The **primary** identity console
+(`IdentityVerificationCaseManagement`) called the guarded review and evidence-preview routes
+directly. Checking the same class across the codebase found **two more**: `DealerCompliance`
+(dealer decision) and `VehicleOperationsReview` (seller-authority review).
+
+**Fix:** the recovery became a shared `useStepUpGuard()` hook, adopted by all four screens; the
+decision retry reuses one idempotency key so a step-up retry replays the same decision rather than
+minting a second. **Guards:** four behavioural tests plus a **wiring pin** that fails by name when a
+screen calls a guarded client function without the guard. **Mutation:** un-wiring the console → 1 red.
+
+### D3 · P1 · CONFIRMED — FIXED · imports could not reach the routes they replay
+
+`server.js` skips `app.listen` when `process.env.VERCEL` is set, so the deployed backend has **no
+listener on 127.0.0.1** and the loopback dispatch could reach nothing. In an ordinary Node
+deployment the request also omitted `x-csrf-token`, which the globally mounted `csrfMiddleware`
+refuses before routing. The injected test dispatcher hid both.
+
+**Fix:** `resolveDispatchBaseUrl()` returns an explicitly configured base URL
+(`CARUP_INTERNAL_API_BASE_URL` / `CARUP_PUBLIC_API_URL`), a loopback URL only where a listener
+really exists, and **null** on Vercel; the dispatcher now mints and sends a real CSRF pair. When no
+base is reachable the execution **refuses up front** — nothing mutated, batch untouched — instead
+of marking every vehicle `DISPATCH_FAILED` and finalising. **Mutation:** 2 red.
+
+### D4 · P1 · CONFIRMED — FIXED · an evidence failure still reported a finished import
+
+`IMPORTED` is terminal: `alreadyImported` short-circuits every later execution. A failed evidence
+upload only annotated the receipt, so the batch was finalised, the UI reported zero failures, and
+the missing evidence became permanent and invisible. **Fix:** an evidence failure keeps the batch
+`PARTIALLY_IMPORTED` — which *is* accepted for retry — and the result carries `evidence_failed`,
+`retryable` and `incomplete_reason`. **Mutation:** 1 red.
+
+### D5 · P1 · CONFIRMED — FIXED · a batch was finalised after its receipts were lost
+
+Round 1 stopped a receipt failure from throwing, but still wrote `IMPORTED` from mutation outcomes
+alone, so the missing per-row audit could never be repaired — and `WorkbookWorkspace` never showed
+`receipts_recorded=false`. **Fix:** unsaved receipts keep the batch retryable, and the workspace now
+states the shortfall and re-enables the run. **Mutation:** 1 red.
+
+### D6 · P1 · CONFIRMED — FIXED · retries duplicated already-recorded evidence
+
+A retry replays every accepted row, including rows whose evidence already succeeded.
+`withUploadIdempotency` **fails open** without a key, and the evidence payload supplied none.
+**Fix:** a deterministic `workbook-evidence:<batch>:<row>:<index>` key — stable across retries,
+distinct between items. **Mutation:** 1 red.
+
+### Still unchanged
+
+No migration, no DDL, no schema change. No provider or config change beyond *reading* an optional
+base-URL variable. Biometrics not activated. `main`, #197 and #209 untouched. Nothing merged.

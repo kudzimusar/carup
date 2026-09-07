@@ -74,7 +74,10 @@ export default function WorkbookWorkspace({ templateKey, title }: { templateKey:
   const [dryRun, setDryRun] = useState<DryRun | null>(null)
   const [running, setRunning] = useState(false)
   const [executing, setExecuting] = useState(false)
-  const [executed, setExecuted] = useState<{ created: number; failed: number; importStatus: string } | null>(null)
+  const [executed, setExecuted] = useState<{
+    created: number; failed: number; importStatus: string
+    evidence_failed?: number; receipts_recorded?: boolean; retryable?: boolean; incomplete_reason?: string | null
+  } | null>(null)
   const [recent, setRecent] = useState<RecentImport[]>([])
   const [explain, setExplain] = useState<{ header: string; explanation: string; allowed?: Array<{ label: string }> } | null>(null)
 
@@ -166,9 +169,21 @@ export default function WorkbookWorkspace({ templateKey, title }: { templateKey:
     if (!dryRun) return
     setExecuting(true)
     try {
-      const result = await executeVehicleWorkbookBatch(dryRun.batchId) as unknown as { created: number; failed: number; importStatus: string }
+      const result = await executeVehicleWorkbookBatch(dryRun.batchId) as unknown as {
+        created: number; failed: number; importStatus: string
+        evidence_failed?: number; receipts_recorded?: boolean; retryable?: boolean; incomplete_reason?: string | null
+      }
       setExecuted(result)
-      toast.success(`Import complete — ${result.created} vehicle${result.created === 1 ? '' : 's'} created as drafts.`)
+      // An import that did not fully happen must not be announced as if it had. A failed
+      // evidence upload or an unsaved receipt leaves the batch retryable, and the user is the
+      // one who has to decide whether to retry — so they are told, in the same breath.
+      if (result.retryable) {
+        toast.warning(
+          `Import incomplete — ${result.created} vehicle${result.created === 1 ? '' : 's'} created as drafts, but ${result.incomplete_reason || 'part of the import did not complete'}. You can run it again.`,
+        )
+      } else {
+        toast.success(`Import complete — ${result.created} vehicle${result.created === 1 ? '' : 's'} created as drafts.`)
+      }
     } catch (error) {
       toast.error(error instanceof Error ? error.message : 'The import could not be executed.')
     } finally {
@@ -306,12 +321,22 @@ export default function WorkbookWorkspace({ templateKey, title }: { templateKey:
                     <p className="mt-1 text-xs text-gray-400">Fix these in your file and upload it again — CarUp never edits your workbook for you.</p>
                   </div>
                 )}
-                <Button size="sm" disabled={!dryRun.canImport || executing || Boolean(executed)} onClick={() => void execute()} data-testid="wb-execute">
+                <Button size="sm" disabled={!dryRun.canImport || executing || (Boolean(executed) && !executed?.retryable)} onClick={() => void execute()} data-testid="wb-execute">
                   {executing ? 'Importing…' : `Confirm import (${dryRun.totals.acceptedVehicles} vehicle${dryRun.totals.acceptedVehicles === 1 ? '' : 's'})`}
                 </Button>
                 {executed && (
                   <div className="text-xs text-gray-300" data-testid="wb-executed">
-                    {executed.created} created as private drafts · {executed.failed} failed · status {executed.importStatus}. Open My Vehicles to review — nothing is published by an import.
+                    {executed.created} created as private drafts · {executed.failed} failed
+                    {typeof executed.evidence_failed === 'number' && executed.evidence_failed > 0
+                      ? ` · ${executed.evidence_failed} evidence reference${executed.evidence_failed === 1 ? '' : 's'} not recorded`
+                      : ''}
+                    {executed.receipts_recorded === false ? ' · import receipts not saved' : ''}
+                    {' '}· status {executed.importStatus}. Open My Vehicles to review — nothing is published by an import.
+                    {executed.retryable && (
+                      <span className="block mt-1 text-amber-300" data-testid="wb-executed-incomplete">
+                        This import is not finished{executed.incomplete_reason ? `: ${executed.incomplete_reason}` : ''}. Run it again — anything already imported will not be duplicated.
+                      </span>
+                    )}
                   </div>
                 )}
               </div>

@@ -17,6 +17,7 @@
  * retry replays idempotently instead of duplicating.
  */
 import http from 'http';
+import https from 'https';
 import ExcelJS from 'exceljs';
 import { randomUUID } from 'crypto';
 import { supabase } from '../../db/supabase.js';
@@ -655,30 +656,110 @@ export async function runVehicleWorkbookDryRun({ file, templateKey } = {}, actor
  * EXECUTE — replay accepted vehicles through the canonical create route.
  * ------------------------------------------------------------------ */
 
-function loopbackDispatch(req) {
-  const port = Number(process.env.PORT || 3001);
-  return (path, method, body) => new Promise((resolve, reject) => {
-    const headers = { 'content-type': 'application/json' };
-    for (const name of ['authorization', 'x-session-token', 'cookie']) {
-      if (req?.headers?.[name]) headers[name] = req.headers[name];
+/**
+ * Where the canonical routes can actually be reached from inside this process.
+ *
+ * `backend/server.js` deliberately skips `app.listen` when `process.env.VERCEL` is set, so on the
+ * deployed backend there is NO listener on 127.0.0.1 and a loopback dispatch cannot reach any
+ * route. An explicit base URL is therefore required in that environment; guessing one would only
+ * move the failure later. Returns null when no reachable base exists.
+ */
+export function resolveDispatchBaseUrl(env = process.env) {
+  const configured = env.CARUP_INTERNAL_API_BASE_URL || env.CARUP_PUBLIC_API_URL;
+  if (configured) return String(configured).replace(/\/+$/, '');
+  // A loopback listener exists only where server.js actually called app.listen.
+  if (env.VERCEL) return null;
+  if (env.NODE_ENV === 'test') return `http://127.0.0.1:${Number(env.PORT || 3001)}`;
+  return `http://127.0.0.1:${Number(env.PORT || 3001)}`;
+}
+
+/**
+ * The workbook replays each accepted vehicle through the canonical create route AS THE USER —
+ * that single-writer law is not negotiable, so this dispatcher exists to carry a real request,
+ * not to bypass one.
+ *
+ * Two things it must get right and previously did not:
+ *   - CSRF. `csrfMiddleware` is mounted globally (server.js), so an unsafe request without a
+ *     matching `x-csrf-token` + cookie pair is refused before routing. The reviewer's own token
+ *     is minted here exactly as the browser client mints it.
+ *   - Reachability. See resolveDispatchBaseUrl: on Vercel there is no local listener at all.
+ *     The caller checks that BEFORE mutating anything, so an unreachable environment is a
+ *     refusal up front rather than every row landing as DISPATCH_FAILED.
+ */
+function httpDispatch(req, baseUrl) {
+  const base = new URL(baseUrl);
+  const isHttps = base.protocol === 'https:';
+  const transport = isHttps ? https : http;
+  const forwarded = {};
+  for (const name of ['authorization', 'x-session-token', 'cookie']) {
+    if (req?.headers?.[name]) forwarded[name] = req.headers[name];
+  }
+
+  const send = (path, method, body, extraHeaders = {}) => new Promise((resolve, reject) => {
+    const payload = body === undefined ? null : JSON.stringify(body);
+    const headers = { ...forwarded, ...extraHeaders };
+    if (payload !== null) {
+      headers['content-type'] = 'application/json';
+      headers['content-length'] = Buffer.byteLength(payload);
     }
-    const request = http.request({ host: '127.0.0.1', port, path, method, headers }, (response) => {
+    const request = transport.request({
+      protocol: base.protocol,
+      host: base.hostname,
+      port: base.port || (isHttps ? 443 : 80),
+      path,
+      method,
+      headers,
+    }, (response) => {
       let raw = '';
       response.on('data', (chunk) => { raw += chunk; });
       response.on('end', () => {
         let parsed = null;
         try { parsed = raw ? JSON.parse(raw) : null; } catch { parsed = { raw }; }
-        resolve({ status: response.statusCode, body: parsed });
+        resolve({ status: response.statusCode, body: parsed, headers: response.headers });
       });
     });
     request.on('error', reject);
-    request.end(JSON.stringify(body));
+    request.end(payload === null ? undefined : payload);
   });
+
+  // Mint one CSRF pair for this execution and reuse it, the way a browser session would.
+  let csrf = null;
+  const ensureCsrf = async () => {
+    if (csrf) return csrf;
+    const token = await send('/api/security/csrf-token', 'GET', undefined);
+    const setCookie = token.headers?.['set-cookie'] || [];
+    const cookie = (Array.isArray(setCookie) ? setCookie : [setCookie])
+      .map((entry) => String(entry).split(';')[0]).filter(Boolean).join('; ');
+    csrf = { token: token.body?.csrfToken || null, cookie };
+    return csrf;
+  };
+
+  return async (path, method, body) => {
+    const headers = {};
+    if (!['GET', 'HEAD', 'OPTIONS'].includes(String(method).toUpperCase())) {
+      const pair = await ensureCsrf();
+      if (pair.token) headers['x-csrf-token'] = pair.token;
+      if (pair.cookie) {
+        headers.cookie = forwarded.cookie ? `${forwarded.cookie}; ${pair.cookie}` : pair.cookie;
+      }
+    }
+    return send(path, method, body, headers);
+  };
 }
 
 function sanitizeErrorMessage(body) {
   const message = body?.error || body?.message || 'The vehicle could not be created.';
   return String(message).slice(0, 400);
+}
+
+/**
+ * A stable identity for one evidence reference within one workbook batch.
+ *
+ * Stable across retries (so a replay dedupes) and distinct between items (so two references on
+ * the same row do not collapse into one).
+ */
+export function evidenceIdempotencyKey(batchId, rowNumber, index) {
+  return `workbook-evidence:${batchId}:${rowNumber}:${index}`;
 }
 
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -777,7 +858,21 @@ export async function executeVehicleWorkbookImport({ batchId, confirm } = {}, ac
     .eq('validation_status', 'ACCEPTED');
   if (rowsError) throw new Error(rowsError.message);
 
-  const dispatch = options.dispatch || loopbackDispatch(options.req);
+  // D3 — decide reachability BEFORE the first mutation. An unreachable environment used to
+  // present as "every vehicle rejected (DISPATCH_FAILED)" and then finalise the batch, which
+  // reads as "your file was bad" when the truth is "this deployment cannot run imports".
+  let dispatch = options.dispatch;
+  if (!dispatch) {
+    const baseUrl = resolveDispatchBaseUrl();
+    if (!baseUrl) {
+      throw new ValidationError(
+        'Workbook import cannot run in this deployment: the canonical vehicle routes are not '
+        + 'reachable from the server process. Set CARUP_INTERNAL_API_BASE_URL (or '
+        + 'CARUP_PUBLIC_API_URL) to this backend\'s own base URL and retry. Nothing was imported.',
+      );
+    }
+    dispatch = httpDispatch(options.req, baseUrl);
+  }
   const receipts = [];
   const evidenceOutcomes = [];
   let accepted = 0;
@@ -817,7 +912,9 @@ export async function executeVehicleWorkbookImport({ batchId, confirm } = {}, ac
         // so an evidence receipt and its vehicle receipt were the SAME key. The workbook row is
         // the receipt grain (evidence is carried in that row's metadata, and is not an import
         // row), so the evidence outcome is recorded ON the row's receipt and returned in full.
-        for (const evidence of row.metadata?.evidence || []) {
+        const rowEvidenceItems = row.metadata?.evidence || [];
+        for (let evidenceIndex = 0; evidenceIndex < rowEvidenceItems.length; evidenceIndex += 1) {
+          const evidence = rowEvidenceItems[evidenceIndex];
           const evidenceResponse = await dispatch(
             `/api/vehicles/${encodeURIComponent(row.workbook_record_id)}/evidence/upload`, 'POST', {
               evidence_class: evidence.evidence_class,
@@ -826,6 +923,13 @@ export async function executeVehicleWorkbookImport({ batchId, confirm } = {}, ac
               event_date: evidence.event_date,
               event_date_precision: evidence.event_date_precision,
               metadata: evidence.evidence_label ? { workbook_label: evidence.evidence_label } : undefined,
+              // D6 — retrying a partial batch replays EVERY accepted row, including rows whose
+              // evidence already landed. `withUploadIdempotency` fails open without a key, so
+              // those rows duplicated their evidence on every retry. This key is derived from
+              // the batch, the workbook row and the item's position, so it is identical across
+              // retries and distinct between items — the same discipline the vehicle create
+              // already had through its stable client_submission_id.
+              idempotency_key: evidenceIdempotencyKey(batch.id, row.workbook_row_number, evidenceIndex),
             });
           const evidenceOk = evidenceResponse.status >= 200 && evidenceResponse.status < 300;
           rowEvidence.push({
@@ -898,7 +1002,18 @@ export async function executeVehicleWorkbookImport({ batchId, confirm } = {}, ac
     }
   }
 
-  const importStatus = rejected === 0
+  // IMPORTED is a TERMINAL claim: `alreadyImported` short-circuits every later execution, so it
+  // may only be written when the whole requested import actually happened and was recorded.
+  //   D4 — an evidence upload that failed means the reviewer's requested evidence is NOT on the
+  //        vehicle. Marking the batch IMPORTED reported zero failures and removed the only
+  //        retry path, so a partial result became permanent and invisible.
+  //   D5 — receipts that never reached the store leave the per-row audit trail missing, and a
+  //        terminal status makes it unrepairable. The batch stays retryable so it can be.
+  // Both keep the batch PARTIALLY_IMPORTED, which IS accepted for retry, and the evidence
+  // idempotency key above stops a retry duplicating what already succeeded.
+  const evidenceFailures = evidenceOutcomes.filter((entry) => entry.outcome === 'rejected').length;
+  const complete = rejected === 0 && evidenceFailures === 0 && receiptsRecorded;
+  const importStatus = complete
     ? VEHICLE_IMPORT_BATCH_STATUSES.IMPORTED
     : VEHICLE_IMPORT_BATCH_STATUSES.PARTIALLY_IMPORTED;
   const { error: updateError } = await client
@@ -933,9 +1048,17 @@ export async function executeVehicleWorkbookImport({ batchId, confirm } = {}, ac
     })),
     // Per-evidence detail is no longer discarded just because it cannot own a receipt row.
     evidence: evidenceOutcomes,
+    evidence_failed: evidenceFailures,
     // Whether the audit trail for THIS pass actually reached the store.
     receipts_recorded: receiptsRecorded,
     receipts_error: receiptError,
+    // Why the batch is still retryable, in words the workspace can show verbatim.
+    incomplete_reason: complete ? null : [
+      rejected ? `${rejected} vehicle${rejected === 1 ? '' : 's'} could not be created` : null,
+      evidenceFailures ? `${evidenceFailures} evidence reference${evidenceFailures === 1 ? '' : 's'} were not recorded` : null,
+      receiptsRecorded ? null : 'the import receipts for this pass were not saved',
+    ].filter(Boolean).join('; '),
+    retryable: !complete,
     // C6 — sheets this template accepts but this import does not persist, stated as a fact.
     not_imported_sheets: notImportedSheetSummary(batch.template_type),
   };
