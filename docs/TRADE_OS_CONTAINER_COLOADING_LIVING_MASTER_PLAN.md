@@ -1723,10 +1723,28 @@ AUTHORIZED and untouched. **T8 may now begin.**
 
 ## T8 — Documents & Evidence workspace
 
-- [ ] Transaction-specific checklists.
-- [ ] Governed upload/classification/status.
-- [ ] Google Drive provider reuse.
-- [ ] Verification vs presence semantics.
+**Plan:** `docs/trade-os/T8_DOCUMENTS_EVIDENCE_WORKSPACE_IMPLEMENTATION_PLAN.md` ·
+**Receipt:** `docs/trade-os/receipts/T8_DOCUMENTS_EVIDENCE_WORKSPACE.md`
+(authorized 2026-09-07 after the T7 freeze). T9+ NOT authorized.
+
+**T8.0 found T8 is not greenfield** — record, storage, extraction, verification, type/rule
+vocabulary and readiness all already had owners, and no competing authority was created.
+
+- [~] Transaction-specific checklists — the type/rule vocabulary and readiness authority exist and
+      now accept all four subjects; the workspace UI is NOT built.
+- [x] Governed upload/classification/status — **and the defect this phase exists to prevent was
+      real**: a client could post `verification_status: 'VERIFIED'` at upload, skipping the
+      reviewer-guarded routes entirely. An uploaded document is now UPLOADED, always.
+- [x] Google Drive provider reuse — storage stays a provider; `diaspora_drive_files` already carries
+      the generic linked-entity binding and is not the business record.
+- [x] Verification vs presence semantics — asserted, not assumed: OCR never verifies, verification
+      is its own audited row with who and when, and no later-phase fact is writable from T8.
+- [x] **T8.1** the record generalised to `subject_type`/`subject_id` (migration `20260909090000`,
+      additive and reversible, three database CHECKs, own CI gate confirmed executed). It was the
+      only layer still bound to a purchase alone.
+- [ ] T8.3 workspace UI · T8.4 versioning · T8.5 privacy walk · T8.6 responsive · T8.7 staging.
+
+**Status: `T8-PARTIAL` — owner acceptance remains. This agent does not mark `T8-USABLE`.**
 - [ ] Participant/privacy boundaries.
 
 ## T9 — Warehouse intake and measurement
