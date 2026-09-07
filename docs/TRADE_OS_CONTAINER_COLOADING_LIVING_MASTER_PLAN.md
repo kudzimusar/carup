@@ -1763,6 +1763,10 @@ failure, and live OCR is unavailable on staging so the extraction boundary is ce
 
 ## T9 — Warehouse intake and measurement
 
+**`T9-PARTIAL`.** Authority created (migration `20260911090000`, staging only, FORCE RLS, gate
+20/20); ESTIMATED ≠ ACTUAL proven; services, surfaces and staging journeys open.
+
+
 - [ ] Intake appointment/reference.
 - [ ] Receive cargo.
 - [ ] Photos/condition.
