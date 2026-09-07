@@ -33,6 +33,7 @@ import {
   normalizeId,
 } from './diasporaAuthorization.js';
 import { resolveClient, appendCriticalAudit, appendBestEffortAudit } from './diasporaServiceUtils.js';
+import { notifyCargoLoaded, notifyCargoLeftBehind } from './loadingLifecycleNotifier.js';
 
 const CONTAINERS = 'diaspora_container_shipments';
 const RESERVATIONS = 'diaspora_cargo_reservations';
@@ -552,6 +553,14 @@ export async function recordLoadItem(loadId, payload = {}, userContext = {}, opt
     resourceType: 'diaspora_container_load_item', resourceId: data.id,
     newState: { subject_id: subjectId, outcome, loaded_volume_cbm: row.loaded_volume_cbm }, req: options.req,
   });
+
+  // AFTER the authoritative row and its audit. Only on a first record, never on an edit: correcting
+  // a line is not a second event in the customer's life. The left-behind notice is the one that
+  // matters — somebody at the other end is expecting goods that are not coming.
+  const recipients = [candidate.reservation?.buyer_id, candidate.reservation?.created_by]
+    .map(normalizeId).filter(Boolean);
+  if (outcome === 'LOADED') await notifyCargoLoaded({ loadItem: data, load, recipients });
+  else await notifyCargoLeftBehind({ loadItem: data, load, recipients });
   return data;
 }
 

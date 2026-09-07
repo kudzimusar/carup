@@ -64,6 +64,12 @@ export const COMMUNICATION_EVENT_TYPES = [
   'diaspora.warehouse.cargo_received',
   'diaspora.warehouse.condition_issue',
   'diaspora.warehouse.measurement_discrepancy',
+  // Trade OS T10.4 — consolidation and loading. Emitted best-effort by
+  // services/diaspora/loadingLifecycleNotifier.js AFTER the audited manifest line. The left-behind
+  // event is the one that matters: a customer whose cargo did not travel is the person waiting for
+  // goods that are not coming, and the reason is the only thing they can act on.
+  'diaspora.loading.cargo_loaded',
+  'diaspora.loading.cargo_left_behind',
   // Trade OS D7 — container co-loading booking lifecycle. Emitted best-effort by
   // services/diaspora/containerBookingNotifier.js AFTER the audited authoritative mutation.
   // Payloads carry `buyerId` (addressable) plus reference/status/route for the governed

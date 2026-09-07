@@ -25,7 +25,7 @@ const DOCUMENTS = 'diaspora_trade_documents';
 const TYPES = 'trade_document_types';
 const READINESS = 'diaspora_trade_document_readiness';
 
-export const WORKSPACE_SUBJECTS = Object.freeze(['import_order', 'logistics_request', 'container_booking', 'trade_order', 'warehouse_intake']);
+export const WORKSPACE_SUBJECTS = Object.freeze(['import_order', 'logistics_request', 'container_booking', 'trade_order', 'warehouse_intake', 'container_load']);
 
 /**
  * What a checklist row may say. Deliberately small: every value is established by a layer that
@@ -112,6 +112,27 @@ async function authorizeSubject(client, subjectType, subjectId, context) {
       .map(normalizeId).filter(Boolean);
     if (ownerIds.includes(context.id)) return { role: 'cargo_owner' };
     throw new ForbiddenError('This is not your cargo');
+  }
+
+  // T10.5 — loading evidence, through the one evidence authority. Who may see it: whoever runs the
+  // sailing, and any participant with a line on its manifest. A participant sees the SAILING's
+  // loading documents, which are about the container as a whole — never another participant's
+  // consignment documents, which hang off that consignment and not off this load.
+  if (subjectType === 'container_load') {
+    const { data: load } = await client.from('diaspora_container_loads').select('*')
+      .eq('id', subjectId).is('deleted_at', null).maybeSingle();
+    if (!load) throw new NotFoundError('Load not found');
+    const { data: container } = await client.from('diaspora_container_shipments').select('*')
+      .eq('id', load.container_id).is('deleted_at', null).maybeSingle();
+    const coordinator = normalizeId(container?.coordinator_id || container?.created_by);
+    if ((coordinator && coordinator === context.id) || (container && isTenantAdminForRecord(container, context))) {
+      return { role: 'operator' };
+    }
+    const { data: reservations } = await client.from('diaspora_cargo_reservations')
+      .select('id, buyer_id, created_by').eq('container_id', load.container_id).is('deleted_at', null);
+    const mine = (reservations || []).find((r) => normalizeId(r.buyer_id) === context.id || normalizeId(r.created_by) === context.id);
+    if (mine) return { role: 'participant' };
+    throw new ForbiddenError('You have no cargo on this sailing');
   }
 
   throw new ValidationError(`Unknown document workspace subject "${subjectType}"`);

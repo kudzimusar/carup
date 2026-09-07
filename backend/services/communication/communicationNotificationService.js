@@ -252,6 +252,31 @@ export const NOTIFICATION_POLICIES = Object.freeze({
     classification: 'transactional',
     transactional: true,
   },
+  // T10.4 — your cargo is in the container. Normal priority: good news to have, not urgent.
+  'diaspora.loading.cargo_loaded': {
+    notificationType: 'rfq_update',
+    threadType: 'marketplace_inquiry',
+    priority: 'normal',
+    channels: ['in_app'],
+    fallbackChannels: [],
+    policyChannelsOnly: true,
+    templateKey: 'logistics_update_v1',
+    classification: 'transactional',
+    transactional: true,
+  },
+  // Your cargo did NOT travel. HIGH priority, because somebody at the other end is expecting goods
+  // that are not coming, and the reason is the only thing they can act on.
+  'diaspora.loading.cargo_left_behind': {
+    notificationType: 'rfq_update',
+    threadType: 'marketplace_inquiry',
+    priority: 'high',
+    channels: ['in_app'],
+    fallbackChannels: [],
+    policyChannelsOnly: true,
+    templateKey: 'logistics_update_v1',
+    classification: 'transactional',
+    transactional: true,
+  },
   'diaspora.logistics.quote_withdrawn': {
     notificationType: 'rfq_update',
     threadType: 'marketplace_inquiry',
@@ -640,7 +665,7 @@ export class CommunicationNotificationService {
         // fallbacks cover every emitter's subject id (incl. sessionId/evidenceId/vin for
         // verification, evidence-review, and listing-moderation events) so distinct events
         // for the same user never collapse into one dedupe key.
-        dedupeParts: [eventType, event.id || event.dedupe_key || event.event_id || payload.id || payload.inquiryId || payload.escrowId || payload.applicationId || payload.sessionId || payload.evidenceId || payload.vin || payload.reservationId || payload.containerId || payload.quoteId || payload.rfqId || payload.shipmentId || payload.intakeId, recipientUserId, policy.templateKey, channel],
+        dedupeParts: [eventType, event.id || event.dedupe_key || event.event_id || payload.id || payload.inquiryId || payload.escrowId || payload.applicationId || payload.sessionId || payload.evidenceId || payload.vin || payload.reservationId || payload.containerId || payload.quoteId || payload.rfqId || payload.shipmentId || payload.intakeId || payload.loadItemId, recipientUserId, policy.templateKey, channel],
         payload: {
           event_type: eventType,
           safe_payload: payload,
