@@ -136,6 +136,42 @@ Add to the decisions below: **what a reviewer and a subject are each told when t
 per failure class** — and which of those classes is an operational alert rather than a case note. A
 depleted balance is an ops page, not a finding against the applicant.
 
+## A second, sharper finding: `likely_identity_document` is both permitted and forbidden
+
+Found with a **live, working** provider — Cloudflare Workers AI running `@cf/qwen/qwen3.8-27b` — so
+this is not an availability problem. It is a contract contradiction between two layers:
+
+| layer | what it says about `likely_identity_document` |
+|---|---|
+| `decisionPolicy._checkApprove` | **approvable.** It enumerates the blocking classes — `non_document`, `unsupported_document`, `unreadable`, `uncertain` — and `likely` is deliberately absent. Its refusal text reads *"Approval requires a valid **or likely** identity document."* |
+| `verificationSessionService` | **not approvable.** Anything other than exactly `valid_identity_document` gets `OCR_RESULT_UNTRUSTED`, whose `approveAllowed` is `false`. |
+
+Both cannot be right. Whichever is intended, the other is a defect.
+
+**Why it matters beyond one test.** An honest vision model shown an honestly-marked specimen returns
+`likely_identity_document` — Qwen's own words: *"a national ID layout … fully readable … but it is
+explicitly marked as a synthetic specimen/test document, so it represents an identity document
+format rather than a valid one."* If the contract truly requires exactly `valid_identity_document`,
+then **no synthetic evidence can ever complete a governed identity approval**, and every downstream
+programme that gates on identity can only be certified with real people's real documents. That is a
+significant testability and privacy consequence, and it should be a decision rather than an
+accident.
+
+It also interacts with the outage finding above: `OCR_RESULT_UNTRUSTED` is `severity: warn`, yet it
+makes a case unapprovable by any reviewer, permanently — the same shape as the classifier-outage
+case, reached by a different route.
+
+### Decide, together
+
+- Is `likely_identity_document` + trusted extraction approvable **by a reviewer** (not automatically)?
+- If yes, `OCR_RESULT_UNTRUSTED` should stop being an absolute bar and become what its severity says
+  it is — a warning the reviewer weighs.
+- If no, `decisionPolicy`'s "valid or likely" wording and its class enumeration are wrong and should
+  say so, and the testability consequence above needs an answer.
+
+**Not changed here.** Altering either layer is an O2 identity-evidence authority decision, and a
+downstream programme must not make it in order to pass.
+
 ## What a design must decide (not decided here)
 
 1. **What evidence constitutes a valid human manual-review path** — and how a reviewer proves they

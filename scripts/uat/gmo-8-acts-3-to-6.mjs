@@ -314,6 +314,9 @@ async function main() {
   if (!REVIEWER_EMAIL) throw new Error('--reviewer=<email> is required');
   console.log(`\nGMO-8 ACTS 3-6 · ${VIEW}\nRUN ID ${stamp}   (every account this run creates carries it; cleanup is scoped to it)\nFE ${FE}\nBE ${BE}\nartifacts ${OUT}\n`);
 
+  // Declared before the readiness gate, which is the first thing that records into it.
+  const state = {};
+
   const prov = await (await fetch(`${FE}/carup-provenance.json`)).json();
   const health = await (await fetch(`${BE}/api/health`)).json();
   if (prov.unpaired !== false) throw new Error('preview is UNPAIRED');
@@ -328,8 +331,6 @@ async function main() {
   console.log(`paired at ${prov.commit_sha.slice(0, 8)} · unpaired=false`);
   console.log(`document vision: provider=${selected.id} model=${selected.model} configured=true mock=false\n`);
   state.provider = selected;
-
-  const state = {};
 
   rec('PROV', 'db', 'the synthetic Operations reviewer', `${REVIEWER_EMAIL} — users.role only; no tenancy, no decision`);
 

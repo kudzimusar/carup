@@ -71,7 +71,21 @@ DELETE FROM public.tenants              WHERE id IN (SELECT id FROM gmo8_run_ten
 DELETE FROM public.vehicle_ownership_history WHERE vin IN
   (SELECT vin FROM public.vehicles WHERE owner_id IN (SELECT id FROM gmo8_run_users));
 DELETE FROM public.vehicles             WHERE owner_id IN (SELECT id FROM gmo8_run_users);
+
+-- Identity evidence, in FK order. Once extraction actually ran against a live provider it began
+-- producing `ocr_documents` rows (and their per-type children) that this cleanup did not know
+-- about — the first live run failed on ocr_documents_user_id_fkey. `verification_sessions`
+-- REFERENCES `ocr_documents`, so the session rows must go first or the delete is refused.
+DELETE FROM public.verification_assessments    WHERE session_id IN
+  (SELECT id FROM public.verification_sessions WHERE user_id IN (SELECT id FROM gmo8_run_users));
+DELETE FROM public.verification_ocr_provenance WHERE session_id IN
+  (SELECT id FROM public.verification_sessions WHERE user_id IN (SELECT id FROM gmo8_run_users));
 DELETE FROM public.verification_sessions WHERE user_id IN (SELECT id FROM gmo8_run_users);
+DELETE FROM public.ocr_national_ids       WHERE ocr_document_id IN
+  (SELECT id FROM public.ocr_documents WHERE user_id IN (SELECT id FROM gmo8_run_users));
+DELETE FROM public.ocr_registration_books WHERE ocr_document_id IN
+  (SELECT id FROM public.ocr_documents WHERE user_id IN (SELECT id FROM gmo8_run_users));
+DELETE FROM public.ocr_documents          WHERE user_id IN (SELECT id FROM gmo8_run_users);
 DELETE FROM public.notification_queue    WHERE recipient_id IN (SELECT id FROM gmo8_run_users);
 DELETE FROM public.user_sessions         WHERE user_id IN (SELECT id FROM gmo8_run_users);
 DELETE FROM public.users                 WHERE id IN (SELECT id FROM gmo8_run_users);

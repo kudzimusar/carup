@@ -1,6 +1,6 @@
 # GMO-8 — Golden Journey, physical UAT · RECEIPT
 
-**Status: PARTIAL.** Acts 1–2 PASS at three viewports (27/27). Acts 3–6 reach step 13 and stop
+**Status: PARTIAL.** Acts 1–2 PASS at three viewports (27/27). **Qwen is live on the staging candidate** — `cloudflare` / `@cf/qwen/qwen3.8-27b`, `configured:true`, `mockPermitted:false`, `ocrProviders.gemini:false` — and the real model reads the specimen card, both sides, with the measured `contentPart` transport. Acts 3–6 still stop at step 13, but for a NEW and much more specific reason: `likely_identity_document` is permitted by `decisionPolicy._checkApprove` and simultaneously blocked by the `OCR_RESULT_UNTRUSTED` reason code. That contradiction is an O2 authority decision — see §7b.
 there. The blocker is no longer a vendor's billing balance: CarUp's governed OCR provider is
 **Cloudflare Workers AI running `@cf/qwen/qwen3.8-27b`**, GMO has been converged onto that boundary,
 and the remaining gap is that the staging preview holds no Workers AI token. The deployment says so
@@ -367,6 +367,90 @@ production-scoped, and appears to be a zone token rather than a Workers AI one.
    --viewport=desktop` — then `tablet`, then `mobile`.
 
 The synthetic Operations reviewer account is **deliberately preserved** for exactly this.
+
+---
+
+## 7b · Qwen went live — and found the real blocker, which is a contract contradiction
+
+The owner placed `CLOUDFLARE_API_TOKEN` on the staging Preview. The deployment then reported what it
+was asked to report, and the journey ran against the real model.
+
+```json
+"documentVision": { "provider":"cloudflare", "model":"@cf/qwen/qwen3.8-27b",
+                    "configured":true, "mockPermitted":false }
+```
+FE and BE both `d9e15d59`, `unpaired:false`, staging Supabase, no production endpoint, and
+`ocrProviders.gemini:false` — a fallback is impossible by construction, not merely by policy.
+
+### The image really reaches the model
+
+Recorded by the product itself in `verification_assessments.risk_flags.provider_execution`:
+
+| side | classification | transport | prompt tokens | image bytes sent | neurons | finish |
+|---|---|---|---|---|---|---|
+| front | `likely_identity_document` | `contentPart` | 2 886 | 888 564 | 422.6 | stop |
+| back | `unsupported_document` | `contentPart` | 2 886 | 704 604 | 232.7 | stop |
+
+Both sides classified, neither dropped, `provider: cloudflare`, `provider_model:
+@cf/qwen/qwen3.8-27b`. The negative control works: the workshop sign came back **`non_document`** at
+confidence 0.99 — *"The image shows a business sign for a car service shop, not an identity
+document."*
+
+### A second convergence gap, found only by running it
+
+Classification succeeded and the journey still stopped one step later at `OCR_PROVIDER_FAILED`.
+`DocumentIntelligenceService.extractDocumentData` built its prompt as
+`Image payload base64: ${base64Data.slice(0, 150)}` — **the first 150 characters of the base64
+string, as text**, to a text-only Gemini call. No model had ever seen the document, and whatever
+came back was being written into `ocr_national_ids` as an extracted identity. Converged onto the
+same boundary; extraction now sends the real bytes. Proof that it works: Qwen read
+**“RUTENDO CHIKAFU”** off the card, and identity binding correctly refused a differently-named proof
+account before matching cleanly for the real applicant.
+
+### The blocker: `likely` is approvable and unapprovable at the same time
+
+With a matching name, a live provider and a real extraction, the session settles at:
+
+```
+evidence_classification   likely_identity_document      (Qwen, confidence 0.90)
+extraction_trust_status   partially_trusted
+primary_reason_code       OCR_RESULT_UNTRUSTED          ← approveAllowed: false
+```
+
+Qwen's own words: *"Card shows a national ID layout … fully readable, occupying most of the frame,
+but it is explicitly marked as a synthetic specimen/test document ('NOT VALID FOR IDENTIFICATION'),
+so it represents an identity document format rather than a valid one."* **That reading is correct.**
+
+Two layers of the product now disagree about what that means:
+
+- `decisionPolicy._checkApprove` enumerates the classes that block — `non_document`,
+  `unsupported_document`, `unreadable`, `uncertain` — and `likely_identity_document` is
+  deliberately **not** among them. Its own refusal text says so: *"Approval requires a valid **or
+  likely** identity document."*
+- `verificationSessionService` assigns `OCR_RESULT_UNTRUSTED` to **every** classification that is not
+  exactly `valid_identity_document`, and that reason code carries `approveAllowed: false`.
+
+So a `likely_identity_document` is simultaneously permitted by the decision policy and blocked by the
+reason code. Only one of those can be the intended contract, and **this is not GMO's to choose.**
+
+### Why neither obvious workaround is taken
+
+- **Changing `OCR_RESULT_UNTRUSTED.approveAllowed`** would weaken identity verification and alter O2's
+  evidence authority to make GMO pass. Explicitly not authorised.
+- **Making the fixture classify as `valid`** means removing "NOT VALID FOR IDENTIFICATION" and the
+  SPECIMEN marking — i.e. producing a realistic counterfeit identity document. Not done, and not
+  something to do for a test.
+
+An honest model shown an honestly-marked specimen will always say *format, not valid*. A contract
+that requires exactly `valid_identity_document` therefore **cannot be certified with synthetic
+evidence at all** — which is worth knowing regardless of how the contradiction is resolved.
+
+### A cleanup gap the live run exposed
+
+Extraction actually running meant it began writing `ocr_documents` and its per-type children.
+`gmo-8-cleanup.sql` did not know about them and the first live cleanup was refused by
+`ocr_documents_user_id_fkey`. Now covered, in FK order — `verification_sessions` REFERENCES
+`ocr_documents`, so the session rows must be deleted first.
 
 ---
 
