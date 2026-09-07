@@ -164,9 +164,11 @@ await check('the shipment and its own timeline agree about when it sailed', asyn
 });
 
 await check('a stated observed time is honoured, on the column and the timeline together', async () => {
-  // Later than the departure just recorded, because a shipment may not arrive before it left — but
-  // stated rather than defaulted, which is the thing under test.
-  const stated = new Date(Date.now() + 30_000).toISOString();
+  // Stated rather than defaulted — that is the thing under test — and chosen to sit strictly
+  // between the departure just recorded and now. Not in the future: the ±60s the server allows for
+  // clock skew would accept it, and every later real-time observation would then legitimately be
+  // "before the arrival", which is the rule working, not a defect.
+  const stated = new Date(Date.parse(observedDeparture) + 1000).toISOString();
   const r = await api(operator, `/shipments/${shipmentId}/stage`, {
     method: 'PATCH', tenantId: OP_TENANT, body: { stage: 'ARRIVED', event_time: stated, notes: 'Berthed at Beira' },
   });
@@ -356,7 +358,8 @@ await check('re-reporting the CURRENT stage appends no second event', async () =
   for (let i = 0; i < 3; i += 1) {
     const r = await api(operator, `/shipments/${shipmentId}/stage`, { method: 'PATCH', tenantId: OP_TENANT, body: { stage: 'CUSTOMS_HOLD' } });
     assert(r.status === 200, `retry ${i} status ${r.status}`);
-    assert(r.body?.unchanged === true, `retry ${i} was not reported as unchanged`);
+    const unchanged = r.body?.unchanged ?? r.data?.unchanged;
+    assert(unchanged === true, `retry ${i} was not reported as unchanged: ${JSON.stringify(r.body).slice(0, 160)}`);
   }
   const after = await asOp(`/shipments/${shipmentId}/timeline`);
   assert((after.data || []).length === n, `three retries added ${(after.data || []).length - n} events`);
