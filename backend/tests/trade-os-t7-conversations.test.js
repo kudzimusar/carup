@@ -182,7 +182,10 @@ test('someone with no booking on the sailing is refused', async () => {
 test('the organiser must NAME a participant, and may not name a stranger', async () => {
   const c = sailingDb();
   const { services, calls } = recordingServices();
-  const operator = { id: ORGANISER, userId: ORGANISER, role: 'admin', platformRole: 'admin', tenantId: null };
+  // Deliberately an ORDINARY user who merely coordinates this sailing. Giving them platform
+  // authority here is what hid the staging defect: the coordinator of a sailing with a null
+  // tenant_id failed isTenantAdminForRecord and was refused on their own sailing.
+  const operator = ctxFor(ORGANISER);
   await assert.rejects(
     () => booking.ensureContainerConversation(SAILING, operator, { supabaseClient: c, communicationServices: services }),
     /participantId is required/i);
@@ -244,4 +247,13 @@ test('the withdrawal event is registered end to end — listener AND policy', ()
   assert.ok(policy, 'the event must have a notification policy');
   assert.equal(policy.templateKey, 'logistics_update_v1');
   assert.deepEqual(policy.channels, ['in_app']);
+});
+
+test('the sailing coordinator IS its organiser, even with no tenant and no platform role', async () => {
+  const c = sailingDb();
+  const { services, calls } = recordingServices();
+  const r = await booking.ensureContainerConversation(SAILING, ctxFor(ORGANISER),
+    { supabaseClient: c, participantId: CO_LOADER_A, communicationServices: services });
+  assert.equal(r.role, 'organiser', 'the person who organises the sailing must not be told they have no booking on it');
+  assert.equal(calls[0].subject_id, `${SAILING}:${CO_LOADER_A}`);
 });

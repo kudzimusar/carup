@@ -35,7 +35,18 @@ export const CONTAINER_WORKFLOW = 'marketplace';
 /** Reservation states that still represent a live relationship worth talking about. */
 const LIVE_RESERVATION_STATES = new Set(['REQUESTED', 'APPROVED']);
 
+/**
+ * Who operates this sailing.
+ *
+ * The coordinator is included explicitly. Tenant-admin authority alone was not enough: a sailing
+ * created by a logistics provider can carry a null `tenant_id`, so its OWN coordinator failed
+ * `isTenantAdminForRecord`, fell through to the participant branch, and was told they had no
+ * booking on the sailing they organise. Found on staging, not in review — the unit fixture happened
+ * to give the coordinator platform authority as well, which hid it.
+ */
 function isOperator(container, context) {
+  const coordinator = normalizeId(container.coordinator_id || container.created_by);
+  if (coordinator && coordinator === context.id) return true;
   return isPlatformAdmin(context) || isPlatformReviewer(context) || isTenantAdminForRecord(container, context);
 }
 
