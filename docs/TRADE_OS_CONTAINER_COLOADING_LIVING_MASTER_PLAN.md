@@ -1825,11 +1825,36 @@ manifest, and `mark-shipped` follows it into a T11 fact.
 
 ## T11 — Shipment and tracking
 
-- [ ] Container → shipment transition.
-- [ ] Operator timeline.
-- [ ] Participant-specific tracking.
-- [ ] Carrier/reference facts.
-- [ ] Exception/action handling.
+**`T11-PARTIAL` — owner acceptance remains.** T11.0 audit + T11.1 hardening. Plan
+`docs/trade-os/T11_SHIPMENT_TRACKING_IMPLEMENTATION_PLAN.md`.
+
+**The audit's finding is the opposite of T9's and T10's: a substantial shipment authority ALREADY
+EXISTS and is largely sound.** `diaspora_shipments`, `diaspora_shipment_stage_events`,
+`diasporaShipmentService`, audit, domain events, and a T7 exception consumer built in T7.5. **So T11
+creates no second shipment table** — its job is closing the ways the existing authority could assert
+things nobody observed.
+
+**§23 answered from repository evidence, not invented:** a **COMPLETED** T10 load is the requirement
+for a container→shipment. A completed load may legitimately carry `LEFT_BEHIND` lines, so demanding
+"all cargo loaded" would make T10's left-behind path unable to ever produce a shipment. An
+`ABANDONED` load is refused — whether it should ever produce a shipment has no repository evidence
+either way, so T11 takes the conservative reading and says so rather than guessing.
+
+- [x] Container → shipment transition — gated on a COMPLETED T10 load.
+- [x] Carrier/reference facts — a departure date given at CREATION is kept as a **plan**; the
+      observed column stays NULL until a real `IN_TRANSIT` transition stamps it, and never in the
+      future.
+- [x] Transition legality — `PLANNED → ARRIVED` was accepted before; a timeline that can be written
+      out of order is not a record of movement.
+- [x] Idempotency — re-reporting the current stage is `unchanged`, not a second journey.
+- [x] Exception handling — the T7.5 consumer already owns it; T11 did not duplicate it.
+- [ ] **Operator timeline surface — NOT built.**
+- [ ] **Participant-specific tracking surface — NOT built.**
+- [ ] T11.5 privacy matrix, responsive, staging journeys — NOT run.
+
+**Recorded T12 boundary risk:** `SHIPMENT_TO_IMPORT_STATUS` already maps `CUSTOMS_HOLD →
+CUSTOMS_IN_PROGRESS` and `RELEASED → RELEASED`, so the shipment service writes customs-shaped order
+statuses today. T11 did not extend this. **T12 owns customs.**
 
 ## T12 — Customs and Zimbabwe destination operations
 
