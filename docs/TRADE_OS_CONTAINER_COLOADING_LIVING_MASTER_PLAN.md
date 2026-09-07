@@ -1673,12 +1673,35 @@ no T6 file). **T7 may now begin.**
 
 ## T7 — Full Communications lifecycle
 
-- [ ] Procurement conversations.
-- [ ] Logistics request conversations.
-- [ ] Container booking conversations.
-- [ ] Warehouse/action requests.
+**Approved implementation plan:** `docs/trade-os/T7_COMMUNICATIONS_LIFECYCLE_IMPLEMENTATION_PLAN.md`
+(authorized 2026-09-07 at head `d3bbd249`, immediately after the T6 freeze). Receipt:
+`docs/trade-os/receipts/T7_COMMUNICATIONS_LIFECYCLE.md`.
+
+**T7.0 found there was nothing to build from scratch.** CarUp already has a complete Communications
+authority and Trade OS already produces into it, with **no duplicate message or notification store
+anywhere**. `message_threads.subject_type` + `subject_id` is exactly the transaction binding needed,
+so **no new table was created** for any T7 conversation.
+
+- [x] Procurement conversations — the BUYER could not start one at all; only the supplier could.
+- [x] Logistics request conversations — already working; verified, unchanged.
+- [x] Container booking conversations — booking had one-way notifications and nobody to answer.
+- [~] Warehouse/action requests — authority designed for, deliberately NOT built: T9 owns those
+      facts and T7 must not invent them.
 - [ ] Shipment exceptions.
 - [ ] Provider-channel routing only after canonical web record works.
+- [x] T7.5 `quote_withdrawn` — the T3 deferral taken, not carried forward again.
+
+**Five defects, all found by using the product:** the buyer had no conversation; a buyer could seat
+a stranger as "seller" (client-supplied participant, never verified); booking had no conversation;
+a sailing's own coordinator was refused on their own sailing (and the unit fixture had given that
+coordinator platform authority, which hid it); and every trade thread was labelled "Marketplace
+conversation", so three trades in flight looked identical in the inbox.
+
+Gates at `5ccac408`: backend 6025/0 (21 skipped) · Communications + Trade OS phases 588/588 · new
+T7 authority suite 16/16 · web 1667/1667 · tsc -b · build · lint NET_NEW_ERRORS=0 · CI 7/7 green ·
+seven widths clean · staging anti-bypass matrix green at a paired head.
+
+**Status: `T7-PARTIAL` — owner acceptance remains. This agent does not mark `T7-USABLE`.**
 
 ## T8 — Documents & Evidence workspace
 
