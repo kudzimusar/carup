@@ -1890,8 +1890,10 @@ with their reason in `STAGES_HANDED_TO_T12`.
 
 ## T12 — Customs and Zimbabwe destination operations
 
-**T12.0 audit COMPLETE. T12.1 COMPLETE. T12.2+ NOT STARTED, and the calculation boundary is BLOCKED.**
-Plan `docs/trade-os/T12_CUSTOMS_ZIMBABWE_DESTINATION_IMPLEMENTATION_PLAN.md`.
+**`T12-USABLE` — built and certified. Owner acceptance remains.**
+Plan `docs/trade-os/T12_CUSTOMS_ZIMBABWE_DESTINATION_IMPLEMENTATION_PLAN.md`, receipt
+`docs/trade-os/receipts/T12_CUSTOMS_ZIMBABWE_DESTINATION.md`, source register
+`docs/trade-os/T12_ZIMBABWE_CUSTOMS_AUTHORITY_SOURCE_REGISTER.md`.
 
 **The audit's first result is not a gap. It is a forgery.** Approving an OCR document INSERTed a row
 into `zimra_declarations` — a table modelling an act by the Zimbabwe Revenue Authority — with a
@@ -1905,18 +1907,30 @@ the same, down to one real-looking national ID defaulted onto every registration
 itself was worth **+10 trust** there while being refused there.
 
 - [x] **T12.1 — the registry write is REMOVED, not disabled**, and both readers now ask one question
-      through one exported predicate. What CarUp actually observed is untouched and still recorded.
-      Staging blast radius: **0 rows**. **Production: UNMEASURED — out of scope, owner decision.**
-- [ ] Document checkpoints.
-- [ ] Broker/agent relationship — **and whether CarUp lodges declarations itself or only coordinates
-      a licensed clearing agent is an operating-model and licensing question, not a code question.**
-- [ ] Clearance/release evidence — as ATTRIBUTED claims, never as CarUp's own assertion.
-- [ ] Collection/delivery.
-- [ ] Vehicle Zimbabwe-readiness handoff.
-- [ ] **BLOCKED — no duty rate, VAT rate, surtax, age rule, exchange-rate source, valuation formula,
-      import ban, rebate, broker fee or port charge exists in this repository with a jurisdiction, an
-      effective date and a provenance. None has been invented. Nine specific questions are listed in
-      the T12 plan §4 for owner decision.**
+      through one exported predicate. Staging blast radius **0 rows**; **PRODUCTION MEASURED under a
+      bounded read-only authorization and NIL — both tables are entirely EMPTY, so the fabricated
+      path never ran there.** `cid_clearance_records` / `vid_inspections` / `zinara_licensing_records`
+      were CODE-AUDITED only: no writer exists anywhere in history, so the conditional authorization
+      to count them was not exercised.
+- [x] **Document checkpoints** — an eight-step evidence checklist, each step its own fact. There is
+      no `cleared` boolean, and no event type satisfies two steps.
+- [x] **Broker/agent relationship** — a scoped APPOINTMENT per case, never a global platform role,
+      and never a licence: CarUp cannot verify a clearing-agent licence, so the column is
+      `licence_reference_claimed` and every surface says so.
+- [x] **Clearance/release evidence** — as ATTRIBUTED claims. The same USD 1,420.50 reads
+      "Assessment amount" from an authority document and "Agent-reported amount" from an agent
+      typing it. Two headings, not one heading with two badges.
+- [x] **Collection/delivery** — CarUp-originated physical observations, each its own handoff.
+- [x] **Vehicle Zimbabwe-readiness handoff** — a projection only. T12 creates no CVR ownership, no
+      VID inspection, no ZINARA licence, no registration and no Vehicle Trust, and general cargo
+      completes the whole phase without touching any of them.
+- [x] **NO CarUp duty/tax calculator** — an explicit MVP scope decision by the owner, not a gap.
+      Amounts are transcribed from evidence; unknown stays unknown; customs FX is external-source
+      only, with its own effective period, and is NEVER T6 reference FX.
+
+**Certification:** journeys A–I 36/36 · responsive 7 widths × 2 surfaces 14/14 (and the gate proved
+to fail on a case that does not exist) · mutation matrix 30 named, 30 red · PGlite gate 34/34 ·
+security matrix with positive controls on both sides.
 
 > **CarUp may coordinate customs. CarUp is not ZIMRA.**
 

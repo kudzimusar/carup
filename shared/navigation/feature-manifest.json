@@ -586,6 +586,22 @@
     "betaCapable": true
   },
   {
+    "id": "diaspora.customs-destination",
+    "domain": "diaspora",
+    "route": "/diaspora/customs",
+    "defaultLifecycle": "active",
+    "defaultRoles": [
+      "admin",
+      "dealer"
+    ],
+    "immutableRoles": [
+      "admin",
+      "dealer"
+    ],
+    "requiresAuth": true,
+    "betaCapable": true
+  },
+  {
     "id": "diaspora.drive-connections",
     "domain": "diaspora",
     "route": "/diaspora/drive",
@@ -647,6 +663,26 @@
     "id": "diaspora.my-cargo-loading",
     "domain": "diaspora",
     "route": "/diaspora/cargo-loading/:subjectType/:subjectId",
+    "defaultLifecycle": "active",
+    "defaultRoles": [
+      "admin",
+      "dealer",
+      "government",
+      "owner"
+    ],
+    "immutableRoles": [
+      "admin",
+      "dealer",
+      "government",
+      "owner"
+    ],
+    "requiresAuth": true,
+    "betaCapable": true
+  },
+  {
+    "id": "diaspora.my-customs",
+    "domain": "diaspora",
+    "route": "/diaspora/my-customs/:subjectType/:subjectId",
     "defaultLifecycle": "active",
     "defaultRoles": [
       "admin",

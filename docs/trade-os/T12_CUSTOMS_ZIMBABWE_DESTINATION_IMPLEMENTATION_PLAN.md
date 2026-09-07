@@ -1,7 +1,9 @@
 # Trade OS T12 — Customs & Zimbabwe destination operations · Implementation plan
 
-**Status: T12.0 audit COMPLETE. T12.1 (remove the fabricated customs values) COMPLETE.
-T12.2 onward NOT STARTED — and one part of it is BLOCKED on an owner decision.**
+**Status: `T12-USABLE` — attributed customs coordination and Zimbabwe destination operations are
+BUILT and certified. Owner acceptance remains.**
+
+Receipt: `docs/trade-os/receipts/T12_CUSTOMS_ZIMBABWE_DESTINATION.md`.
 
 Predecessor: `docs/trade-os/receipts/T11_SHIPMENT_TRACKING.md` — **`T11-USABLE`, OWNER ACCEPTED / FROZEN at `9ce19115`.**
 
@@ -93,17 +95,15 @@ never the bare fact.
 
 ---
 
-## 4. BLOCKED — owner decision required
+## 4. OUT OF SCOPE by owner ruling — the calculation boundary
 
-The directive is explicit: *do not hardcode duty percentages, VAT percentages, surtax, age rules,
-exchange rates, valuation formulae, vehicle import bans, rebates, broker fees or port charges* unless
-an authoritative source establishes jurisdiction, effective date, applicability and provenance.
+The owner has ruled: **there is no CarUp-owned duty/tax calculator in the T12 MVP.** This is now an
+explicit scope decision rather than a blockage, and it is not a gap in the phase.
 
-**No such source exists in this repository.** The only numbers that were ever present were the
-fabricated `13.5` and `50000` removed in T12.1.
-
-Therefore **the entire duty-and-tax calculation boundary is `BLOCKED`**, and is deliberately left
-unwritten rather than approximated. Specifically unresolved:
+Amounts become visible only when an external assessment, evidence or source supports them. Unknown
+and unassessed remain unknown and unassessed. The questions below stay listed because they are what
+would have to be answered *if* the boundary is ever opened — and because listing them is how nothing
+gets quietly invented against them in the meantime:
 
 | # | question | why it cannot be answered here |
 |---|---|---|
@@ -117,18 +117,19 @@ unwritten rather than approximated. Specifically unresolved:
 | 8 | whether CarUp lodges declarations itself or only coordinates a licensed clearing agent | **an operating-model and licensing question, not a code question** |
 | 9 | whether the `ZIMRA_ADAPTER` scaffolding points at a real ZIMRA interface, a sandbox, or nothing | unproven; must be established before any integration is claimed |
 
-**Recommendation, not a decision:** build T12 as an **attributed-evidence and coordination** phase —
-lodgement tracking, agent attribution, document binding, hold and release *observation*, and Zimbabwe
-delivery confirmation — and leave assessment and calculation entirely to the authority, integrating
-only once #8 and #9 are answered by the owner. That produces a genuinely useful product with no
-invented law in it.
+**#8 and #9 were answered by the owner:** CarUp coordinates and does NOT act as a licensed clearing
+agent, and `ZIMRA_ADAPTER` / `ZIMRA_API_KEY` remain unverified scaffolding that is not enabled and
+is not called. T12 was therefore built as an **attributed-evidence and coordination** phase — agent
+appointment, lodgement/assessment/payment/release *evidence*, and Zimbabwe destination handoff — with
+assessment and calculation left entirely to the authority. There is no invented law in it.
 
 ---
 
 ## 5. Also open
 
-- **Production blast radius of the registry forgery — UNMEASURED.** Owner decision on a read-only
-  count (T11 receipt §10).
+- **Production blast radius — MEASURED, and NIL.** The owner authorized one bounded read-only
+  investigation; both tables are entirely EMPTY in production, so the fabricated path never ran
+  there. Full evidence, including environment identity and every predicate, in the receipt §1.
 - `zinara_licensing_records`, `cid_clearance_records` and `vid_inspections` were audited but not
   touched. They carry the same shape and should be reviewed for the same class of write before any
   T12 surface reads them.
