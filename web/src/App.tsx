@@ -73,6 +73,8 @@ import ContainerLoadingWorkspace from './pages/diaspora/ContainerLoadingWorkspac
 import MyCargoLoading from './pages/diaspora/MyCargoLoading'
 import ShipmentTimelineWorkspace from './pages/diaspora/ShipmentTimelineWorkspace'
 import MyShipmentTracking from './pages/diaspora/MyShipmentTracking'
+import CustomsDestinationWorkspace from './pages/diaspora/CustomsDestinationWorkspace'
+import MyCustomsDestination from './pages/diaspora/MyCustomsDestination'
 import DiasporaDriveConnections from './pages/diaspora/DiasporaDriveConnections'
 import DiasporaSubscription from './pages/diaspora/DiasporaSubscription'
 import DiasporaSafeTrade from './pages/diaspora/DiasporaSafeTrade'
@@ -353,6 +355,8 @@ export default function App() {
           <Route path="/diaspora/shipments" element={<ShipmentTimelineWorkspace />} />
           {/* T11.3 — a participant's own cargo journey. Authorized from the CARGO. */}
           <Route path="/diaspora/tracking/:subjectType/:subjectId" element={<MyShipmentTracking />} />
+          <Route path="/diaspora/customs" element={<CustomsDestinationWorkspace />} />
+          <Route path="/diaspora/my-customs/:subjectType/:subjectId" element={<MyCustomsDestination />} />
           <Route path="/diaspora/imports" element={<DiasporaImportList />} />
           <Route path="/diaspora/imports/new" element={<NewDiasporaImportOrder />} />
           <Route path="/diaspora/imports/:id" element={<DiasporaImportDetail />} />

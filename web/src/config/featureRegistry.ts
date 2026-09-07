@@ -1082,6 +1082,34 @@ export const FEATURE_REGISTRY: FeatureRegistryItem[] = [
     description: 'Record and read what a shipment has actually done',
   },
   {
+    // T12 — the coordinator's customs and destination workspace. Registered so the
+    // unregistered-path fallback can never make it public; case authority is derived per case,
+    // server-side, from the appointment and the container.
+    id: 'diaspora.customs-destination',
+    label: 'Customs & Destination',
+    route: '/diaspora/customs',
+    domain: 'diaspora',
+    roles: ['dealer', 'admin'],
+    placements: ['dashboard_sidebar'],
+    requiresAuth: true,
+    icon: 'ShieldCheck',
+    sidebarGroup: 'Growth & Diaspora',
+    description: 'Coordinate clearance and destination handoff — CarUp is not ZIMRA',
+  },
+  {
+    // T12 — a participant's own customs status. Parameterized and reached from the transaction, so
+    // placements is empty; the FULL path is declared because the dead-link gate compares verbatim.
+    id: 'diaspora.my-customs',
+    label: 'Your Cargo & Customs',
+    route: '/diaspora/my-customs/:subjectType/:subjectId',
+    domain: 'diaspora',
+    roles: ['owner', 'dealer', 'admin', 'government'],
+    placements: [],
+    requiresAuth: true,
+    icon: 'ShieldCheck',
+    description: 'What has actually been evidenced about your cargo clearing customs',
+  },
+  {
     // T11.3 — a participant's own cargo journey. Parameterized and reached from the transaction, so
     // placements is empty; the FULL path is declared because the dead-link gate compares verbatim.
     id: 'diaspora.my-tracking',

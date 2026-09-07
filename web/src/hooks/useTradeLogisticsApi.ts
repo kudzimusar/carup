@@ -17,6 +17,7 @@ import { toComponentPayload } from '@/pages/diaspora/commercialFormat'
 import type { DraftComponent } from '@/pages/diaspora/commercialFormat'
 import type { QuoteCommercials, ComparableQuote, ComparisonResult, AdviceResult } from '@/pages/diaspora/TradeQuoteComparison'
 import type { CorridorBenchmark } from '@/pages/diaspora/TradeRateResearch'
+import type { CustomsCaseWorkspace, MyCustomsStatus } from '@/pages/diaspora/customsDisplay'
 
 const BASE_URL = resolveApiBaseUrl(
   import.meta.env.VITE_API_URL,
@@ -416,6 +417,41 @@ export function useTradeLogisticsApi() {
     return response.data
   }, [request])
 
+  // ── T12 — attributed customs coordination & Zimbabwe destination ───────
+
+  const getCustomsCase = useCallback(async (caseId: string): Promise<CustomsCaseWorkspace> => {
+    const response = await request<{ data: CustomsCaseWorkspace }>(
+      `/diaspora/customs-cases/${encodeURIComponent(caseId)}`)
+    return response.data
+  }, [request])
+
+  const appointClearingAgent = useCallback(async (caseId: string, payload: {
+    agent_kind?: string; agent_user_id?: string | null; agent_organisation_id?: string | null
+    agent_display_name: string; licence_reference_claimed?: string | null; scope?: string
+  }): Promise<Record<string, unknown>> => {
+    const response = await request<{ data: Record<string, unknown> }>(
+      `/diaspora/customs-cases/${encodeURIComponent(caseId)}/agent`, { method: 'POST', body: JSON.stringify(payload) })
+    return response.data
+  }, [request])
+
+  const recordCustomsEvent = useCallback(async (caseId: string, payload: {
+    event_type: string; source_kind?: string; evidence_document_id?: string | null
+    amount_value?: string | number | null; amount_currency?: string | null
+    customs_rate_value?: string | number | null; customs_rate_source?: string | null
+    customs_rate_effective_from?: string | null; customs_rate_basis?: string | null
+    location?: string | null; notes?: string | null; event_time?: string | null
+  }): Promise<Record<string, unknown>> => {
+    const response = await request<{ data: Record<string, unknown> }>(
+      `/diaspora/customs-cases/${encodeURIComponent(caseId)}/events`, { method: 'POST', body: JSON.stringify(payload) })
+    return response.data
+  }, [request])
+
+  const getMyCustoms = useCallback(async (subjectType: string, subjectId: string): Promise<MyCustomsStatus> => {
+    const response = await request<{ data: MyCustomsStatus }>(
+      `/diaspora/my-customs/${encodeURIComponent(subjectType)}/${encodeURIComponent(subjectId)}`)
+    return response.data
+  }, [request])
+
   return useMemo(() => ({
     listMyRequests,
     getRequest,
@@ -467,6 +503,10 @@ export function useTradeLogisticsApi() {
     getShipmentOperatorView,
     recordShipmentStage,
     getMyTracking,
+    getCustomsCase,
+    appointClearingAgent,
+    recordCustomsEvent,
+    getMyCustoms,
   }), [
     listMyRequests,
     getRequest,
@@ -518,6 +558,10 @@ export function useTradeLogisticsApi() {
     getShipmentOperatorView,
     recordShipmentStage,
     getMyTracking,
+    getCustomsCase,
+    appointClearingAgent,
+    recordCustomsEvent,
+    getMyCustoms,
   ])
 }
 

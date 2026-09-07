@@ -178,7 +178,14 @@ test.describe('Feature Registry & Navigation Map', () => {
       // shipment timeline — is a NEW sidebar destination with roles ['dealer', 'admin'], so it moves
       // BOTH counts again (dealer 19 -> 20, admin 36 -> 37). Its sibling `diaspora.my-tracking` is
       // parameterized with placements: [], so it moves none.
-      expect(result.roleItemCounts['dealer']).toBe(20);
+      // Recomputed 2026-09-08 (Trade OS T12): `diaspora.customs-destination` — the coordinator's
+      // customs and Zimbabwe destination workspace — is a NEW sidebar destination with roles
+      // ['dealer', 'admin'], so it moves BOTH counts once more (dealer 20 -> 21, admin 37 -> 38).
+      // Its sibling `diaspora.my-customs` is parameterized with placements: [], so it moves none —
+      // and registering it at all is the point: an unregistered path under /diaspora is PUBLIC by
+      // the isPublicRoute fallback, and a participant's own customs case must never be.
+      // Recomputed against the live registry, not hand-added.
+      expect(result.roleItemCounts['dealer']).toBe(21);
       expect(result.roleItemCounts['mechanic']).toBe(5);
       expect(result.roleItemCounts['insurance']).toBe(4);
       expect(result.roleItemCounts['government']).toBe(14);
@@ -187,7 +194,7 @@ test.describe('Feature Registry & Navigation Map', () => {
       // it moves the admin count alone (33 -> 34). Registering it at all is the point: an
       // unregistered path under /diaspora is PUBLIC by the isPublicRoute fallback, and this
       // surface must never be.
-      expect(result.roleItemCounts['admin']).toBe(37);
+      expect(result.roleItemCounts['admin']).toBe(38);
       expect(result.roleItemCounts['bank']).toBe(4);
 
       // Dashboard routes are valid
