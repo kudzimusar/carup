@@ -1790,7 +1790,7 @@ is proven (18/18 addressable on the deployed system); the drain is T7's frozen m
 
 ## T10 — Consolidation and loading
 
-**`T10-PARTIAL` — owner acceptance remains. Candidate `353fc38f`.** Authority
+**`T10-USABLE` — OWNER ACCEPTED / FROZEN. Runtime `d6918041`.** Authority
 (`20260913090000`, five tables, staging only, FORCE RLS) plus readiness/plan/load services.
 PGlite gate **34/34** as its own CI step, **14 mutations** red, service suite **39/39**.
 Plan `docs/trade-os/T10_CONSOLIDATION_LOADING_IMPLEMENTATION_PLAN.md`, receipt
@@ -1815,13 +1815,16 @@ unmanifested path reaches a T11 fact. T10 must gate or derive it.
 - [x] Actual loaded CBM/weight — stated only when every loaded line has a figure.
 - [x] Seal/container reference — append-only with history; a replacement says why.
 - [x] Left-behind handling — stays on the manifest with a bounded reason and no volume.
-- [ ] **Surfaces — NOT built.** No operator workspace, no participant projection on any screen.
+- [x] Surfaces — operator loading workspace + participant projection, certified at 7 widths.
 - [x] T7 convergence — two events in BOTH halves; **left-behind is HIGH priority** and carries the
       bounded reason in plain words, because that customer is waiting for goods that are not coming.
-- [ ] **T10.6 — NOT run.** Privacy matrix, responsive, staging journeys A–F.
+- [x] T10.6 — journeys A–F **33/33** deployed, privacy with positive controls, responsive **14/14**.
+- [x] **The legacy bypass is CLOSED.** `mark-loading` now requires a live T10 load and `mark-shipped`
+      a COMPLETED one; the sailing's status REFLECTS the canonical loading authority rather than
+      competing with it. 7 mutations red.
 
-**Open hazard, recorded not closed:** `POST /containers/:id/mark-loading` still works with no
-manifest, and `mark-shipped` follows it into a T11 fact.
+**§7 asymmetry, deliberate:** an impossible PLAN is refused (a claim about the future); an ACTUAL
+load is never refused (an observation of the past). Nothing is repriced, refunded or re-sailed.
 
 ## T11 — Shipment and tracking
 

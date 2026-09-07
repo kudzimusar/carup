@@ -1,8 +1,9 @@
 # Trade OS T10 — Consolidation & loading · Receipt
 
-**Status: `T10-PARTIAL` — OWNER ACCEPTANCE REMAINS.** Candidate `353fc38f`.
-Authority, services and both convergence slices. **Surfaces and staging journeys are open.**
-T11 NOT started. Production untouched. PR #207 Draft.
+**Status: `T10-USABLE` — OWNER ACCEPTED / FROZEN.** Runtime `d6918041`.
+Authority, services, both convergence slices, **both surfaces**, the legacy bypass closed, and full
+deployed certification at a proven FE/BE pairing. T11.0 audit + T11.1 hardening follow separately.
+Production untouched. PR #207 Draft.
 
 Plan: `docs/trade-os/T10_CONSOLIDATION_LOADING_IMPLEMENTATION_PLAN.md`.
 
@@ -253,7 +254,128 @@ proves the manifest line commits regardless.
 
 Gates: PGlite **42/42**, convergence suite **16/16**, `communication-event-coverage` green.
 
-## 7. Open — and it is most of the product
+## 7. Closure — what the PARTIAL was missing
+
+`353fc38f` was authority and services with no screen, which is the exact gap that kept T9 from
+acceptance at its first candidate. Four things closed it.
+
+### The legacy bypass, closed
+
+`POST /containers/:id/mark-loading` marked a sailing `LOADING` with **no manifest, no warehouse
+receipt, no attributed load and no seal** — and `mark-shipped` followed it into a T11 fact. A status
+is a claim, and that one was free.
+
+The fix creates no second loading truth. `diaspora_container_loads` stays the authority and the
+sailing's status now **reflects** it:
+
+| transition | now requires |
+|---|---|
+| `LOADING` | a live T10 load (`IN_PROGRESS` or `COMPLETED`) |
+| `SHIPPED` | a **COMPLETED** one — a container never finished being loaded has not sailed |
+
+Requiring a completed load for `SHIPPED` is the strongest precondition T10 can honestly impose,
+because it is about loading rather than movement. Whether `SHIPPED` should *also* require a governed
+T11 shipment record is T11.0's question and is deliberately left to it.
+
+**12 regression tests, 7 mutations red**, including both bypasses restored, an `ABANDONED` load
+accepted as backing, a soft-deleted one, and another container's load standing in for this one.
+Both positive controls present.
+
+The positive control also found something real: `transitionContainer` wrote the row, sealed the
+audit, and **then threw if the outbox was unreachable** — reporting failure for work that had already
+committed. Every sibling notifier is best-effort for exactly that reason; this one had drifted.
+
+### §7 capacity pressure — and the asymmetry that is the whole point
+
+> A **plan** is a claim about the future, and an impossible one is refused.
+> An **actual load** is an observation of the past, and is never refused.
+
+A system that declined to record what somebody watched happen, because its arithmetic disagreed,
+would be choosing its model over reality — and the operator would write the truth down somewhere the
+system cannot see. So `confirmLoadPlan` refuses an over-capacity plan naming the overage and the
+governed way out; `recordLoadItem` accepts 40 CBM into a 33 CBM container without argument.
+
+Nothing is repriced, refunded, re-sailed or settled. A test serializes the pressure object and fails
+on any of those words appearing.
+
+### The two surfaces
+
+**Operator** (`/diaspora/loading`) — readiness with reasons *and whose they are*, the plan and the
+manifest as two panels rather than one list with a checkbox, capacity pressure shown **while
+planning** rather than sprung at confirmation, actual loading, left-behind with a bounded reason,
+container and seal with history, and the T8 evidence link.
+
+**Participant** (`/diaspora/cargo-loading/:subjectType/:subjectId`) — one question answered honestly.
+The distinction it exists to protect: **nothing recorded yet ≠ left behind.** They look alike and
+mean opposite things — silence versus a decision somebody made about your goods.
+
+### The defect the deployed product found — again
+
+At 393px, **all five candidates rendered `RES-99994444`**. A short reference is the first eight hex
+characters of an id. On a card that is confusing; in the *"what actually went in"* dropdown it is
+dangerous, because that is a list an operator **picks from** before recording whose goods went into a
+container.
+
+T9 hit this exact shape and fixed it by making the reference unique. Not available here — these are
+cargo reservations owned by T5. So the label carries something real instead: the booked and measured
+figures, which differ because they describe different cargo. The card also shows the full reference.
+
+**Second time the deployed product has caught this class**, and both times every unit test passed
+against fixtures whose ids happened to differ.
+
+## 8. Certification
+
+**FE/BE pairing proven** — `carup-provenance.json` reports `unpaired: false` with both sides on the
+same SHA.
+
+| gate | result |
+|---|---|
+| staging journeys A–F | **33/33**, deployed, as four real signed-in people |
+| privacy matrix | included, **with positive controls** — operator 200, participant 200 on their own |
+| responsive, 7 widths × 2 surfaces | **14/14**, `scrollWidth <= innerWidth + 1`, per-element sweep, visual review |
+| PGlite `trade_os_t10_loading_check` | **42/42**, its own CI step |
+| mutations | **15/15 red** |
+| backend / web | 0 failures |
+| `tsc -b` · lint | clean · NET_NEW_ERRORS=0 |
+
+### Journeys
+
+- **A** — two bookings received and measured **through the T9 product**, readiness, plan on the
+  warehouse figure, confirm, load, seal, complete, participant sees the same truth.
+- **B** — booked 3.0 · warehouse 3.8 · loaded 3.6, all three distinct; T5 still `used 5.5`.
+- **C** — left-behind refused without a reason, kept with one, no volume, participant told.
+- **D** — a deliberately **6 CBM** sailing with 7.8 CBM measured: overage shown while planning,
+  confirmation refused by 1.8 CBM, T5 untouched, governed exclusion resolves it.
+- **E** — privacy, ten checks, positive controls first.
+- **F** — no departure claimed; the bypass refused on a sailing with no load and **accepted on the
+  same sailing once one exists**.
+
+**Journey F at the database level:** 1 completed load, **0 shipments, 0 stage events**, orders still
+`CONTAINER_BOOKED`. A container was loaded and no shipment came into existence.
+
+### Three checks that could not see what they claimed
+
+Recorded because the pattern keeps recurring:
+
+1. Journey F's bypass check first ran against sailings that by then **had** loads, so it could never
+   have failed. A third fixture sailing now never gets one, and the control is the same sailing
+   before and after.
+2. The responsive scan flagged both surfaces for "SPEAKS A LATER PHASE" — on the word *sailed* inside
+   the disclaimer saying the container has **not** sailed. It now strips marked disclaimers and
+   separately **requires** them to be present and still say it. An absent boundary is a silent page.
+3. `mockSupabase` accepted `.delete()` and silently ignored it, making every *"this never deletes X"*
+   test unfalsifiable — the seal-history mutation wiped every prior record and the suite stayed
+   green. Now implemented; the mutation goes red.
+
+## 9. Still open — stated, not hidden
+
+- **T10.6 responsive covers the two T10 surfaces only.** The T9 surfaces are certified separately.
+- **The `SHIPMENT_TO_IMPORT_STATUS` customs coupling is untouched** and recorded as a T12 boundary
+  question in the T11 plan.
+- **T12-BLOCKER carried forward unchanged**, along with T8's live-OCR and storage-failure residuals
+  and T9's outbox-drain residual.
+
+## 10. Superseded — the original open list
 
 `T10-PARTIAL` means the authority and its services exist and are proven; **the product on top of them
 is not built.**
