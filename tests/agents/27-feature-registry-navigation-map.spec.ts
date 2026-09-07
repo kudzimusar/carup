@@ -160,7 +160,15 @@ test.describe('Feature Registry & Navigation Map', () => {
       // marketplace — is a NEW sidebar destination registered with roles ['dealer', 'admin'], so it
       // moves BOTH of those counts (dealer 16 -> 17, admin 32 -> 33) and no others. The relabelled
       // `diaspora.reverse-rfq` ("Request Quotes") kept its id, roles and placement, so it moves none.
-      expect(result.roleItemCounts['dealer']).toBe(17);
+      // Recomputed 2026-09-07 (Trade OS T9.3): `diaspora.warehouse-intake` — the operator's
+      // receiving workspace — is a NEW sidebar destination registered with roles ['dealer', 'admin'],
+      // so it moves BOTH of those counts (dealer 17 -> 18, admin 34 -> 35) and no others. The
+      // sibling `diaspora.my-cargo` is registered with placements: [] on purpose — it is a
+      // parameterized /diaspora/cargo/:subjectType/:subjectId route reached from the transaction it
+      // belongs to, which cannot be a sidebar link — so it moves no count. Registering it at all is
+      // still the point: an unregistered path under /diaspora is PUBLIC by the isPublicRoute
+      // fallback, and a participant's own cargo must never be.
+      expect(result.roleItemCounts['dealer']).toBe(18);
       expect(result.roleItemCounts['mechanic']).toBe(5);
       expect(result.roleItemCounts['insurance']).toBe(4);
       expect(result.roleItemCounts['government']).toBe(14);
@@ -169,7 +177,7 @@ test.describe('Feature Registry & Navigation Map', () => {
       // it moves the admin count alone (33 -> 34). Registering it at all is the point: an
       // unregistered path under /diaspora is PUBLIC by the isPublicRoute fallback, and this
       // surface must never be.
-      expect(result.roleItemCounts['admin']).toBe(34);
+      expect(result.roleItemCounts['admin']).toBe(35);
       expect(result.roleItemCounts['bank']).toBe(4);
 
       // Dashboard routes are valid
