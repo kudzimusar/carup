@@ -700,6 +700,26 @@
     "betaCapable": true
   },
   {
+    "id": "diaspora.my-tracking",
+    "domain": "diaspora",
+    "route": "/diaspora/tracking/:subjectType/:subjectId",
+    "defaultLifecycle": "active",
+    "defaultRoles": [
+      "admin",
+      "dealer",
+      "government",
+      "owner"
+    ],
+    "immutableRoles": [
+      "admin",
+      "dealer",
+      "government",
+      "owner"
+    ],
+    "requiresAuth": true,
+    "betaCapable": true
+  },
+  {
     "id": "diaspora.rate-research",
     "domain": "diaspora",
     "route": "/diaspora/rate-research",
@@ -763,6 +783,22 @@
     "immutableRoles": [
       "admin",
       "government"
+    ],
+    "requiresAuth": true,
+    "betaCapable": true
+  },
+  {
+    "id": "diaspora.shipment-movement",
+    "domain": "diaspora",
+    "route": "/diaspora/shipments",
+    "defaultLifecycle": "active",
+    "defaultRoles": [
+      "admin",
+      "dealer"
+    ],
+    "immutableRoles": [
+      "admin",
+      "dealer"
     ],
     "requiresAuth": true,
     "betaCapable": true

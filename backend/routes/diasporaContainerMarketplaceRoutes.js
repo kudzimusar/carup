@@ -87,6 +87,7 @@ import {
   recordSeal,
   getMyLoadStatus,
 } from '../services/diaspora/containerLoadService.js';
+import { getShipmentOperatorView, getMyShipmentTracking } from '../services/diaspora/shipmentTrackingService.js';
 
 const router = express.Router();
 const asyncHandler = (fn) => (req, res, next) => Promise.resolve(fn(req, res, next)).catch(next);
@@ -587,6 +588,20 @@ router.post('/loads/:id/seal-records', operatorAuth, asyncHandler(async (req, re
 // different booking and learns nothing about this one.
 router.get('/my-load-status/:subjectType/:subjectId', participantAuth, asyncHandler(async (req, res) => {
   res.json({ data: await getMyLoadStatus(req.params.subjectType, req.params.subjectId, req.userContext, { req }) });
+}));
+
+// ── Trade OS T11 — shipment timeline and participant tracking ─────────────
+//
+// Read-only projections over the canonical shipment authority. Movement is still recorded through
+// `diasporaShipmentService`; nothing here creates or moves anything.
+
+router.get('/shipment-tracking/:id', operatorAuth, asyncHandler(async (req, res) => {
+  res.json({ data: await getShipmentOperatorView(req.params.id, req.userContext, { req }) });
+}));
+
+// A participant's own cargo. Authorized from the CARGO, not the sailing.
+router.get('/my-tracking/:subjectType/:subjectId', participantAuth, asyncHandler(async (req, res) => {
+  res.json({ data: await getMyShipmentTracking(req.params.subjectType, req.params.subjectId, req.userContext, { req }) });
 }));
 
 export default router;

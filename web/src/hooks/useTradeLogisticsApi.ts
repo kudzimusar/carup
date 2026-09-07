@@ -394,6 +394,28 @@ export function useTradeLogisticsApi() {
     return response.data
   }, [request])
 
+  // ── T11 — shipment movement & tracking ─────────────────────────────────
+
+  const getShipmentOperatorView = useCallback(async (shipmentId: string): Promise<ShipmentOperatorView> => {
+    const response = await request<{ data: ShipmentOperatorView }>(
+      `/diaspora/shipment-tracking/${encodeURIComponent(shipmentId)}`)
+    return response.data
+  }, [request])
+
+  const recordShipmentStage = useCallback(async (shipmentId: string, payload: {
+    stage: string; notes?: string | null; event_time?: string | null; metadata?: Record<string, unknown>
+  }): Promise<Record<string, unknown>> => {
+    const response = await request<Record<string, unknown>>(
+      `/diaspora/shipments/${encodeURIComponent(shipmentId)}/stage`, { method: 'PATCH', body: JSON.stringify(payload) })
+    return response
+  }, [request])
+
+  const getMyTracking = useCallback(async (subjectType: string, subjectId: string): Promise<MyTracking> => {
+    const response = await request<{ data: MyTracking }>(
+      `/diaspora/my-tracking/${encodeURIComponent(subjectType)}/${encodeURIComponent(subjectId)}`)
+    return response.data
+  }, [request])
+
   return useMemo(() => ({
     listMyRequests,
     getRequest,
@@ -442,6 +464,9 @@ export function useTradeLogisticsApi() {
     completeLoad,
     recordSeal,
     getMyLoadStatus,
+    getShipmentOperatorView,
+    recordShipmentStage,
+    getMyTracking,
   }), [
     listMyRequests,
     getRequest,
@@ -490,7 +515,64 @@ export function useTradeLogisticsApi() {
     completeLoad,
     recordSeal,
     getMyLoadStatus,
+    getShipmentOperatorView,
+    recordShipmentStage,
+    getMyTracking,
   ])
+}
+
+// ── T11 — shipment movement & tracking ───────────────────────────────────
+// A PLANNED date is an intention; an ETA is an estimate; only the observed dates are records of
+// something that happened. `null` means nobody recorded it.
+
+export interface ShipmentDates {
+  planned_departure: string | null
+  planned_departure_source: string | null
+  observed_departure: string | null
+  estimated_arrival: string | null
+  observed_arrival: string | null
+  note: string
+}
+export interface ShipmentReferences {
+  carrier: string | null
+  tracking_reference: string | null
+  origin_port: string | null
+  destination_port: string | null
+  container_number: string | null
+  seal_number: string | null
+  note: string
+}
+export interface TimelineEvent {
+  id: string
+  stage: string
+  event_time: string | null
+  location: string | null
+  notes: string | null
+  recorded_by: string | null
+  recorded_at: string | null
+  source: string | null
+}
+export interface ShipmentOperatorView {
+  shipment: { id: string; reference: string; stage: string; import_order_id: string; container_id: string | null }
+  dates: ShipmentDates
+  references: ShipmentReferences
+  load: {
+    id: string; reference: string; status: string; completed_at: string | null
+    loaded_lines: number; left_behind_lines: number; actual_loaded_volume_cbm: number | null
+  } | null
+  timeline: TimelineEvent[]
+  note: string
+}
+export interface MyTracking {
+  subject: { type: string; id: string }
+  state: 'NOT_LOADED' | 'LOADED' | 'SHIPMENT_CREATED' | 'IN_TRANSIT' | 'ARRIVED' | 'EXCEPTION' | 'LEFT_BEHIND'
+  sentence: string
+  left_behind_reason: string | null
+  dates: ShipmentDates | null
+  references: ShipmentReferences | null
+  timeline: Array<{ stage: string; event_time: string | null; location: string | null }>
+  exception?: { stage: string; recorded_at: string | null; note: string } | null
+  note: string
 }
 
 // ── T10 — consolidation & loading ────────────────────────────────────────

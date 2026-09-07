@@ -174,7 +174,11 @@ test.describe('Feature Registry & Navigation Map', () => {
       // `diaspora.my-cargo-loading` is parameterized and registered with placements: [], so it moves
       // none — registered only so the isPublicRoute fallback can never make a participant's own
       // cargo public.
-      expect(result.roleItemCounts['dealer']).toBe(19);
+      // Recomputed 2026-09-08 (Trade OS T11.2): `diaspora.shipment-movement` — the operator's
+      // shipment timeline — is a NEW sidebar destination with roles ['dealer', 'admin'], so it moves
+      // BOTH counts again (dealer 19 -> 20, admin 36 -> 37). Its sibling `diaspora.my-tracking` is
+      // parameterized with placements: [], so it moves none.
+      expect(result.roleItemCounts['dealer']).toBe(20);
       expect(result.roleItemCounts['mechanic']).toBe(5);
       expect(result.roleItemCounts['insurance']).toBe(4);
       expect(result.roleItemCounts['government']).toBe(14);
@@ -183,7 +187,7 @@ test.describe('Feature Registry & Navigation Map', () => {
       // it moves the admin count alone (33 -> 34). Registering it at all is the point: an
       // unregistered path under /diaspora is PUBLIC by the isPublicRoute fallback, and this
       // surface must never be.
-      expect(result.roleItemCounts['admin']).toBe(36);
+      expect(result.roleItemCounts['admin']).toBe(37);
       expect(result.roleItemCounts['bank']).toBe(4);
 
       // Dashboard routes are valid

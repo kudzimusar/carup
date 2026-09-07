@@ -226,6 +226,7 @@ export type LucideIconName =
   | 'Share2'
   | 'Container'
   | 'Warehouse'
+  | 'Ship'
 
 // ── Core registry item ─────────────────────────────────────────────────────
 export interface FeatureRegistryItem {
@@ -1065,6 +1066,33 @@ export const FEATURE_REGISTRY: FeatureRegistryItem[] = [
     icon: 'Container',
     sidebarGroup: 'Growth & Diaspora',
     description: 'Plan a container load, and record what actually went in',
+  },
+  {
+    // T11.2 — the operator's shipment movement timeline. Registered so the unregistered-path
+    // fallback can never make it public. Sailing authority is resolved server-side.
+    id: 'diaspora.shipment-movement',
+    label: 'Shipment Movement',
+    route: '/diaspora/shipments',
+    domain: 'diaspora',
+    roles: ['dealer', 'admin'],
+    placements: ['dashboard_sidebar'],
+    requiresAuth: true,
+    icon: 'Ship',
+    sidebarGroup: 'Growth & Diaspora',
+    description: 'Record and read what a shipment has actually done',
+  },
+  {
+    // T11.3 — a participant's own cargo journey. Parameterized and reached from the transaction, so
+    // placements is empty; the FULL path is declared because the dead-link gate compares verbatim.
+    id: 'diaspora.my-tracking',
+    label: 'Where Your Cargo Is',
+    route: '/diaspora/tracking/:subjectType/:subjectId',
+    domain: 'diaspora',
+    roles: ['owner', 'dealer', 'admin', 'government'],
+    placements: [],
+    requiresAuth: true,
+    icon: 'Ship',
+    description: 'What has actually been recorded about your cargo moving',
   },
   {
     // T10.3 — a participant's own cargo against the container. Parameterized and reached from the

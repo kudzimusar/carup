@@ -25,6 +25,7 @@ const NAV_ITEMS: Array<[string, string]> = [
   ['/diaspora/messages', 'Messages'],
   ['/diaspora/warehouse', 'Warehouse'],
   ['/diaspora/loading', 'Loading'],
+  ['/diaspora/shipments', 'Movement'],
   ['/diaspora/rate-research', 'Rate research'],
 ]
 

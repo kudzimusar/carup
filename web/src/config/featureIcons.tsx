@@ -47,6 +47,7 @@ import {
   Store,
   ScrollText,
   Lock,
+  Ship,
   Warehouse,
   Container,
 } from 'lucide-react'
@@ -96,6 +97,7 @@ export const ICON_MAP: Record<LucideIconName, IconComponent> = {
   Store,
   ScrollText,
   Lock,
+  Ship,
   Warehouse,
   Container,
 }
