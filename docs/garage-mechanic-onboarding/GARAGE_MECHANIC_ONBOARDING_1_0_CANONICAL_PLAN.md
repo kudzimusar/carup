@@ -487,6 +487,33 @@ writing a `verified` lifecycle row directly — that is the exact act both guard
 
 ---
 
+## 12C. The OCR provider is Qwen, and GMO no longer names a vendor
+
+Recorded because GMO briefly made a governed identity decision depend on a vendor CarUp had not
+selected, and it cost the programme a certification cycle.
+
+**CarUp's governed OCR/document-vision provider is Cloudflare Workers AI running
+`@cf/qwen/qwen3.8-27b`.** Llama is rejected — it fabricated eight identity fields from a landscape
+photograph at confidence 1 — Gemma is reserve, and there is **no automatic fallback**: an
+unconfigured or failing provider produces an honest failure attributed to the provider that was
+actually configured, never a silent switch whose readings would carry the wrong provenance.
+
+GMO's `documentClassifier` imported `askGeminiVision` directly. That was stale convergence drift
+from before the decision, and it is now removed: Layer 2 asks `resolveVisionProvider()` and the file
+names no vendor at all. Gemini remains implemented and selectable **by configuration** — this is a
+convergence, not a removal.
+
+Two rules this programme must not lose:
+
+1. **Readiness is about the selected provider, never a vendor key.** `/api/health` reports
+   `documentVision` (provider, model, configured, requires, mockPermitted) and the UAT gate reads
+   that. GMO-8 previously accepted `ocrProviders.gemini` as readiness, which is how it went looking
+   for the wrong thing.
+2. **A classification is a provider OBSERVATION.** It may permit the next observation and nothing
+   more. Approval stays with the reviewer and the identity authority; §12B's guards are unchanged.
+
+---
+
 ## 13. Phased programme
 
 Each phase is independently UAT'd. **No phase may be declared complete because a backend API
@@ -502,7 +529,7 @@ exists.**
 | **GMO-5** | Portal / context handoff | ✅ **PASS after a self-inflicted critical, found and fixed** — `GMO_5_RECEIPT.md` · 27+13 tests · adversarial review executed a working privilege-escalation exploit against the first fix; tenant gate is now opt-in per route; all four GMO tables given RLS |
 | **GMO-6** | Mechanic invitation & membership | ✅ **PASS** — `GMO_6_RECEIPT.md` · 34 backend tests · 10/10 mutations red · hashed single-use email-bound token · new enumerated tenancy-write invariant |
 | **GMO-7** | Membership revocation & lifecycle | ✅ **PASS** — `GMO_7_RECEIPT.md` · 27+20 tests · 7/7 mutations red · future authority ends, historical attribution survives |
-| **GMO-8** | Full physical Golden Journey | 🟡 **PARTIAL — the staging provider WAS activated; the block is now its BILLING BALANCE** (Google returns HTTP 429 *"prepayment credits are depleted"*). Getting to that sentence required fixing a real defect in our own vision client, which reduced every provider outcome to "Malformed Gemini vision API response". Previously blocked on a paid vision provider — `GMO_8_RECEIPT.md` · Acts 1–2 **27/27 across desktop/tablet/mobile**; Acts 3–6 **10 PASS** incl. PO-2 enforced by the deployed product; step 12 (governed identity approval) is structurally impossible without a vision/OCR key — see §12B — and steps 13–24 wait behind it. **Act 6b** was added after re-reading the harness: the old step proved the mechanic *assignable*, not a job *completed*, so the sentence's last clause is now a real Service Network job (publish → owner requests → accept → work order → assign the new mechanic → record → complete), with revocation asserting the record survives, still attributed (negative test 12). Its load-bearing assumption — that a newly-registered person becomes `vehicles.owner_id` — was probed on the deployed build and measured true; the probe's rows were reverted |
+| **GMO-8** | Full physical Golden Journey | 🟡 **PARTIAL — a credential placement, not a defect** — `GMO_8_RECEIPT.md` · Acts 1–2 **27/27** across three viewports; Acts 3–6 reach step 13 with PO-2 enforced by the deployed product. GMO identity classification is now **converged onto CarUp's governed OCR boundary** (`resolveVisionProvider`, default `cloudflare` / `@cf/qwen/qwen3.8-27b`, no fallback); the stale direct-Gemini dependency is gone. The staging preview holds `CLOUDFLARE_ACCOUNT_ID` but not `CLOUDFLARE_API_TOKEN`, so the deployment reports `documentVision.configured:false` and the harness **fails closed** rather than certifying. |
 
 **GMO-8 rule:** no direct SQL fixture may stand in for any core onboarding step in the final
 certification. The whole point of this programme is that the journey exists in the product.

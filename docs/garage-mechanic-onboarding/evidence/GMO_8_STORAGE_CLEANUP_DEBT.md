@@ -1,41 +1,64 @@
-# GMO-8 governed cleanup debt — Supabase Storage (staging)
+# Staging fixture-cleanup DEBT — private `ocr-documents` bucket
 
-Direct deletion is refused by design:
+**This is debt, not a completed cleanup.** Nothing in this file claims an object was deleted.
+
+Every GMO-8 certification run uploads three identity images (front, back, selfie) to the private
+Supabase Storage bucket `ocr-documents`, under the prefix `<user_id>/<session_id>/`. Database state
+is fully removable and *is* removed after every run. **The storage objects are not**, and this
+records exactly why, exactly how many, and what an authorised cleanup would need.
+
+## Why they are not deleted
 
 ```
-ERROR: 42501: Direct deletion from storage tables is not allowed. Use the Storage API instead.
+DELETE FROM storage.objects …
+ERROR 42501: Direct deletion from storage tables is not allowed. Use the Storage API instead.
 HINT:  This prevents accidental data loss from orphaned objects.
-CONTEXT: PL/pgSQL function storage.protect_delete() line 5 at RAISE
+CONTEXT: storage.protect_delete()
 ```
 
-Storage was **not weakened** to work around this, and the guard is correct.
+The platform refuses direct deletion, correctly. The Storage API path requires a service-role key
+that this environment does not hold. **Weakening `storage.protect_delete()` or RLS, or obtaining a
+broader key, to tidy synthetic test files would be a worse trade than carrying the debt** — so
+neither was done.
 
-## This session's run-owned objects
+## Measured, at the close of the Qwen convergence run
 
-| bucket | objects | size | kind |
-|---|---|---|---|
-| `ocr-documents` | 43 | 23 MB | 4 signage (`garage-onboarding/<application-id>/signage_photo-*.png`) + 39 identity (`<user-id>/<session-id>/{front,back,selfie}-*.png`) |
+| measure | value |
+|---|---|
+| bucket | `ocr-documents` (private) |
+| total objects in the bucket | **277** |
+| object prefix | `<user_id>/<verification_session_id>/<side>-<uuid>.png` |
+| earlier measurement, previous task | 144 objects under `u_*` prefixes |
 
-Window: `2026-09-06 21:50:44Z` → `2026-09-06 22:19:16Z`.
+### Objects owned by GMO-8 runs, by run id (all owner accounts since deleted)
 
-All 43 are now **orphaned**: their owning `users`, `garage_applications` and
-`verification_sessions` rows were deleted, so nothing in the database references them.
+| owner / run id | objects | which run |
+|---|---|---|
+| `u_f64b7d03419644bc` | 30 | Gemini-era journey run + repeated direct provider probes |
+| `u_181c65987d64460c` | 6 | Qwen-convergence-era journey run |
+| `u_1b2e5ebf6184471d` | 3 | contract-probe run |
+| `u_9703cfd8998a4dac` | 3 | provider-backed run 2 |
+| `u_54a4dde6d31c4ad1` | 3 | provider-backed run 1 |
+| **GMO-8 subtotal** | **45** | every owning account deleted and verified at zero |
 
-## Pre-existing backlog (not created by this session)
+The rest of the bucket predates this programme: `garage-onboarding/` (14), Golden-Reference vehicle
+fixtures (`CARUPGLDN*`, VIN-prefixed objects), and earlier O2 runs.
 
-145 further orphaned objects in the same bucket, 6,329 kB, oldest `2026-07-30 00:28:44Z`. Recorded
-because the same missing capability produced them, and because a cleanup routine that lands later
-should sweep the whole set rather than only this run's.
+## What an authorised cleanup needs
 
-**Total orphaned in `ocr-documents`: 188 objects, 29 MB, across 118 distinct prefixes.**
+1. A service-role credential, used from a controlled context, calling the **Storage API** (never
+   `DELETE FROM storage.objects`).
+2. A prefix allow-list restricted to `u_*` prefixes whose owning `public.users` row no longer
+   exists — orphaned synthetic evidence only. The query that produces that list is in this file's
+   history; it joins `storage.objects` to `public.users` on the leading path segment.
+3. A dry-run that prints the object list before deleting anything.
 
-## Classification
+Until that exists, **every GMO-8 run adds three objects per identity submission**, and that is the
+honest expected behaviour rather than a surprise.
 
-**GOVERNED CLEANUP DEBT.** Removing these needs the Storage API with service-role authority, which
-this environment does not hold — `vercel env pull` returns empty values for Sensitive variables, so
-there is no service-role key to be had that way. There is also **no cleanup script in the
-repository** (`scripts/` contains none), which is the more durable gap: every UAT run of this
-journey deposits synthetic identity images that nothing is able to remove.
+## The related product question
 
-Recommended (not done here, as it is a new capability rather than this lane's work): a governed
-sweeper that deletes `ocr-documents` objects whose owning verification session no longer exists.
+A run cannot currently delete what it created. That is a fixture-ownership gap, and it is the same
+gap that makes concurrent certification runs dangerous: two sessions sharing a lane can each delete
+state the other still needs. Database cleanup is now strictly run-scoped by account prefix; the
+storage side cannot be until an authorised deletion path exists.
