@@ -277,6 +277,13 @@ export async function writeShipmentStageEvent(shipmentId, stage, notes, userCont
  * Defaults to now, accepts a stated time, and refuses the future outright: a ship has not sailed at
  * a time that has not happened, and a shipment dated forwards would make a tracking page lie about
  * where the goods are.
+ *
+ * This is applied to EVERY stage, not only the two that stamp a column. The first version guarded
+ * `IN_TRANSIT` and `ARRIVED` — the stages with a `departure_date` and an `actual_arrival_date` to
+ * write — and left every other stage's `event_time` unchecked. But the timeline is what a person
+ * reads: an unguarded stage could put "Held at customs" a week into the future and the tracking page
+ * would show it as something that had happened. A rule about observation is a rule about the whole
+ * record of observations.
  */
 function observedTime(stated, now) {
   if (!stated) return now;
@@ -286,6 +293,21 @@ function observedTime(stated, now) {
     throw new ValidationError('A shipment cannot be recorded as moving at a time in the future');
   }
   return when.toISOString();
+}
+
+/**
+ * The ONE observed time for a stage change, whatever shape the caller stated it in.
+ *
+ * Exported so the rule can be tested as a rule rather than inferred from where it happens to be
+ * called: every stated form goes through the same validation, and the same value is what both the
+ * shipment column and the timeline event are given.
+ */
+export function resolveObservedTime(payload = {}, now = new Date().toISOString()) {
+  const stated = payload.event_time
+    || payload.metadata?.event_time
+    || payload.departure_date
+    || payload.actual_arrival_date;
+  return observedTime(stated, now);
 }
 
 export async function updateShipmentStage(id, payload, userContext = {}, req = null) {
@@ -306,15 +328,25 @@ export async function updateShipmentStage(id, payload, userContext = {}, req = n
   }
 
   const now = new Date().toISOString();
+
+  // T11.1 — ONE observed time, validated once, used everywhere.
+  //
+  // It used to be read in two unrelated places: the column took `payload.event_time`, and the stage
+  // event took `payload.metadata.event_time`. Two consequences, both wrong. A caller stating the
+  // real departure time moved the column and left the timeline stamped `now`, so the shipment and
+  // its own history disagreed about when it sailed. And a stage that writes no column — a customs
+  // hold, an exception — reached the timeline through the other path, which validated nothing, so a
+  // movement could be recorded in the future after all.
+  const observedAt = resolveObservedTime(payload, now);
+
   const { data, error } = await supabase
     .from('diaspora_shipments')
     .update({
       status: nextStage,
       // T11.1 — these are OBSERVED, stamped when the movement is actually reported rather than
-      // accepted as a claim at creation. A caller may state the real time; it may not be in the
-      // future, because nothing has departed at a time that has not happened.
-      ...(nextStage === SHIPMENT_STATUSES.IN_TRANSIT ? { departure_date: observedTime(payload.event_time || payload.departure_date, now) } : {}),
-      ...(nextStage === SHIPMENT_STATUSES.ARRIVED ? { actual_arrival_date: observedTime(payload.event_time || payload.actual_arrival_date, now) } : {}),
+      // accepted as a claim at creation.
+      ...(nextStage === SHIPMENT_STATUSES.IN_TRANSIT ? { departure_date: observedAt } : {}),
+      ...(nextStage === SHIPMENT_STATUSES.ARRIVED ? { actual_arrival_date: observedAt } : {}),
       updated_by: userContext?.id,
       updated_at: now,
       metadata: { ...(previous.metadata || {}), lastStage: payload },
@@ -324,7 +356,7 @@ export async function updateShipmentStage(id, payload, userContext = {}, req = n
     .single();
   if (error) throw new DatabaseError(error.message);
 
-  const stageEvent = await writeShipmentStageEvent(id, nextStage, payload.notes || `Shipment moved to ${nextStage}`, userContext, req, payload.metadata || {});
+  const stageEvent = await writeShipmentStageEvent(id, nextStage, payload.notes || `Shipment moved to ${nextStage}`, userContext, req, { ...(payload.metadata || {}), event_time: observedAt });
   await writeDiasporaAudit({ importOrderId: data.import_order_id, tenantId: data.tenant_id, actorId: userContext?.id, action: 'SHIPMENT_STAGE_CHANGED', resourceType: 'diaspora_shipment', resourceId: id, previousState: { status: previous.status }, newState: { status: nextStage }, metadata: { stageEventId: stageEvent.id }, req });
   await emitDiasporaEvent(`DIASPORA_SHIPMENT_${nextStage}`, { shipmentId: id, importOrderId: data.import_order_id, stage: nextStage }, data.tenant_id);
 

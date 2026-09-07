@@ -15,7 +15,7 @@
  */
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { assertShipmentTransition, STAGES_HANDED_TO_T12 } from '../services/diaspora/diasporaShipmentService.js';
+import { assertShipmentTransition, resolveObservedTime, STAGES_HANDED_TO_T12 } from '../services/diaspora/diasporaShipmentService.js';
 
 // ── 3. The timeline cannot be written BACKWARDS ────────────────────────────
 //
@@ -181,11 +181,62 @@ test('T11: a departure date supplied at CREATION is kept as a PLAN, not an obser
   assert.match(source, /departure_date: null,/, 'the observed column is still populated at creation');
 });
 
-test('T11: departure and arrival are stamped when the movement is REPORTED', async () => {
+// ── 5. ONE observed time, validated once ──────────────────────────────────
+//
+// The defect these replace: the observed time was read in two unrelated places. The shipment column
+// took `payload.event_time`; the timeline event took `payload.metadata.event_time`. So a caller
+// stating the real departure moved the column and left the timeline stamped `now` — a shipment
+// disagreeing with its own history about when it sailed — and any stage that writes no column (a
+// customs hold, an exception) reached the timeline through the unvalidated path, where a movement
+// could still be dated into the future.
+
+const NOW = '2026-09-20T12:00:00.000Z';
+
+test('T11: an unstated observation is NOW, not null and not zero', () => {
+  assert.equal(resolveObservedTime({}, NOW), NOW);
+  assert.equal(resolveObservedTime({ stage: 'ARRIVED' }, NOW), NOW);
+});
+
+test('T11: every stated form of the time resolves to the SAME observed time', () => {
+  const t = '2026-09-19T06:30:00.000Z';
+  // A caller may say it four ways. All four are the same claim about when it happened, so all four
+  // must produce one answer — and be validated identically.
+  assert.equal(resolveObservedTime({ event_time: t }, NOW), t);
+  assert.equal(resolveObservedTime({ metadata: { event_time: t } }, NOW), t);
+  assert.equal(resolveObservedTime({ departure_date: t }, NOW), t);
+  assert.equal(resolveObservedTime({ actual_arrival_date: t }, NOW), t);
+});
+
+test('T11: a FUTURE observation is refused however it was stated', () => {
+  const future = '2026-09-27T00:00:00.000Z';
+  for (const payload of [
+    { event_time: future },
+    // The path that used to be unguarded. A customs hold or an exception writes no column, so it
+    // only ever reached the timeline — where nothing checked it.
+    { metadata: { event_time: future } },
+    { departure_date: future },
+    { actual_arrival_date: future },
+  ]) {
+    assert.throws(() => resolveObservedTime(payload, NOW), /cannot be recorded as moving at a time in the future/,
+      `a future time was accepted as ${JSON.stringify(payload)}`);
+  }
+});
+
+test('T11: a nonsense time is refused rather than silently becoming now', () => {
+  assert.throws(() => resolveObservedTime({ event_time: 'last tuesday' }, NOW), /not a valid date and time/);
+});
+
+test('T11: the column and the timeline are given the SAME value, from one call', async () => {
   const source = await import('node:fs').then((fs) => fs.promises.readFile('backend/services/diaspora/diasporaShipmentService.js', 'utf8'));
-  assert.match(source, /nextStage === SHIPMENT_STATUSES\.IN_TRANSIT \? \{ departure_date: observedTime/);
-  assert.match(source, /nextStage === SHIPMENT_STATUSES\.ARRIVED \? \{ actual_arrival_date: observedTime/);
-  assert.match(source, /cannot be recorded as moving at a time in the future/);
+  const code = source.replace(/^\s*(\/\/|\*|\/\*).*$/gm, '');
+  // Exactly one resolution per stage change…
+  const calls = code.match(/resolveObservedTime\(/g) || [];
+  assert.equal(calls.length, 2, `resolveObservedTime is defined once and called once; found ${calls.length} occurrences`);
+  // …and that one value reaches BOTH the observed columns and the timeline event. Point any of
+  // these three at `now` (or at a second resolution) and this goes red.
+  assert.match(code, /departure_date: observedAt/, 'the observed departure column does not use the resolved time');
+  assert.match(code, /actual_arrival_date: observedAt/, 'the observed arrival column does not use the resolved time');
+  assert.match(code, /writeShipmentStageEvent\(.*event_time: observedAt/, 'the timeline event does not use the resolved time');
 });
 
 test('T11: T10 remains the loading authority — T11 reads it and never writes it', async () => {
