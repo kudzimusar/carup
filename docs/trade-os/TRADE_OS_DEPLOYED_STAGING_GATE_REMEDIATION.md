@@ -143,18 +143,66 @@ means, so none was chosen here.
 
 ---
 
-## 6. Open — needs an owner action
+## 6. The worker secret — CLOSED (owner authorized)
 
-**`TRADEOS_WORKER_SECRET` is not configured as a repository secret**, and no workflow sets it. Two
-tests in spec 45 (D7, the organiser-directed booking notification) assert its presence, so they
-cannot pass in any CI run.
+The audit found there was **no existing value to synchronize**. The `carup-backend-staging` project's
+branch-scoped preview `COMMUNICATION_WORKER_SECRET` is an **empty quoted string**, so
+`resolveWorkerSecret()` fell through to `CRON_SECRET` — which is not set for this branch either.
+Both probes of `POST /api/internal/events/process` returned **401**: nothing could drain the outbox
+on this preview at all.
 
-The backend accepts either `COMMUNICATION_WORKER_SECRET` or `CRON_SECRET` on
-`POST /api/internal/events/process` (`backend/routes/communicationRoutes.js:26`). The repo secret must
-therefore be set to the **staging backend's** value of one of those.
+So a **new cryptographically random, staging-only** secret was created and synchronized to:
 
-It has deliberately **not** been worked around. Fabricating a value, weakening the assertion to a
-skip, or deleting the tests would each remove certification this gate is supposed to provide.
+1. the staging backend's worker-secret configuration (branch-scoped preview variable), and
+2. GitHub Actions `TRADEOS_WORKER_SECRET`.
+
+An audit of every consumer of that endpoint found exactly one other staging-only caller — spec 45 —
+which reads the GitHub secret, so (2) covers it. **Production was never read and never written.** The
+value never passed through a shell, an argv entry, a log line or stdout.
+
+Proved against the redeployed backend:
+
+| case | result |
+|---|---|
+| missing secret | **401** refused |
+| wrong secret | **401** refused |
+| correct secret, `Authorization: Bearer` | **200**, outbox drained |
+| correct secret, `x-communication-worker-secret` | **200**, outbox drained |
+| secret present in any response body or header | **no** |
+
+The shard now **fails loudly** if `TRADEOS_WORKER_SECRET` is absent, because a run without it is not
+a certification.
+
+---
+
+## 6b. Packaging — sharded by project, run serially
+
+The 35-minute ceiling is **unchanged** and no spec is narrowed. The gate is three serial shards —
+**Chromium → Tablet → Mobile** — behind one **Aggregate** job.
+
+- each shard runs **one Playwright project** from the **same unchanged `testMatch`**;
+- each shard **re-proves the governed pairing**, so a deployment that moves between shards fails
+  rather than silently certifying two candidates;
+- serial, not parallel, because the journeys mutate shared staging state;
+- `workers: 1` retained.
+
+**The aggregate is stricter than its shards.** Three green viewports are only a pass if they
+certified the same candidate: each shard writes a pairing record and
+`scripts/ci/assert-staging-shards-agree.mjs` compares branch, SHA, frontend, backend, staging project
+and `unpaired` across all three. A missing shard fails.
+
+### A failure the sharding itself caused, and its fix
+
+The first sharded run failed in **all three** shards at the identity-rotation step:
+
+```
+ECHECKOUTTIMEOUT: unable to check out connection from the pool after 15000ms in Session mode
+```
+
+No test ran. Sharding tripled the number of rotations per gate run against a **shared** Supabase
+pooler. The connection is now retried with bounded exponential backoff on transient pooler errors
+only — the **connection**, never an assertion: the rotation stays all-or-nothing inside one
+transaction, and a genuinely missing identity still fails on the first attempt.
 
 ---
 
@@ -296,7 +344,69 @@ Alternatives, none chosen here because each trades the property away: separate g
 
 ---
 
-## 12. Also recorded
+## 12. STOP — the staging environment is down, and this work caused it
+
+**Certification cannot continue. The staging Postgres is saturated and is not recovering.**
+
+Every backend deployment of `carup-backend-staging` — including the newest, which Vercel reports
+`Ready` — times out on every endpoint. The frontend is healthy (200 in 0.6s), so this is not a
+deployment failure: the backend hangs because it cannot reach the database. An independent path (the
+Supabase MCP, not the CI pooler) times out identically, which rules out a CI-only pooler problem.
+
+### The evidence, and the honest attribution
+
+`postgres_logs`, bucketed by hour:
+
+| hour (UTC) | cron startup timeouts | SSL rejects | statement timeouts |
+|---|---|---|---|
+| 2026-09-07 10:00 → 2026-09-08 05:00 | **0** (20 consecutive hours) | **0** | **0** |
+| 2026-09-08 06:00 | 28 | 13 | 7 |
+| 2026-09-08 07:00 | 108 | 57 | 102 |
+| 2026-09-08 08:00 | 138 | 77 | 37 |
+| 2026-09-08 09:00 | 96 | 43 | 22 |
+
+Twenty clean hours, then onset at **06:00 UTC** — which is when the repaired gate first ran its
+**full workload** (the 31.4m run that executed 148 passing tests instead of failing fast). Nothing
+else changed.
+
+**This remediation caused it.** Not by a defect in the changes, but by their effect: giving the gate
+its missing identities and fixing the fast-failing tests multiplied the real database work per run,
+and the shared staging project cannot absorb it. It is the same root cause as the Marketplace `429`s
+in §10, one level deeper — that was the API rate limiter, this is the database itself.
+
+### Why it is not self-healing
+
+The symptoms are connection-slot exhaustion: `could not accept SSL connection: Connection reset by
+peer`, `canceling statement due to statement timeout`, and pg_cron unable to start jobs at all
+(`cron job 1/2/8 job startup timeout`, roughly two per minute, continuously).
+
+It has stayed in that state for **30+ minutes with zero CI load and no local runs** — the shared
+preview lock is holding, and nothing was queued. A plausible sustaining mechanism: the backend
+functions hang waiting on the database, so every request that reaches them opens another connection
+attempt against an already-full pool.
+
+### What this blocks
+
+- the D7 outbox retest (§10 of the directive) — the endpoint is unreachable;
+- tablet and mobile isolation (§§11–12) — no shard can complete;
+- the full aggregate run (§22) and the Marketplace verification (§23).
+
+### What it needs — owner action
+
+1. **Recover the staging Supabase project**: restart it, or terminate the stuck backends. Neither is
+   possible from here — the database cannot be connected to in order to run
+   `pg_terminate_backend`, and restarting the project is not an authorized action for this task.
+2. **Then decide the capacity question**, because recovery alone will not stop it recurring: the gate
+   now performs several times the database work it did while it was failing fast, on a project that
+   also serves every other staging lane. Options are a larger staging instance, a dedicated
+   certification database, or a smaller certification footprint.
+
+**Nothing was worked around.** No timeout was raised, no test disabled, and no result reported as
+green. The environment cannot certify, so it does not.
+
+---
+
+## 13. Also recorded
 
 - `tests/agents/31` *"public route renders normally"* fails on Mobile Chrome. It fails **identically
   on the stashed baseline**, so it predates this work and is unrelated to it.
