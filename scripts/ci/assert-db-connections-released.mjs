@@ -14,15 +14,25 @@
  *
  * The rule: an unguarded `await client.connect()` on its own line is forbidden. Connect inside a
  * try that ends the client, or use a helper that does.
+ *
+ * It scans workflows AND `scripts/ci`. Watching only workflows would have gone blind the moment the
+ * identity provisioning moved out of the shard YAML into `bootstrap-staging-uat-identities.mjs` —
+ * the guard would still have printed a confident pass over the file it no longer read.
  */
 import { readFileSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
 
-const DIR = '.github/workflows';
+const SOURCES = [
+  { dir: '.github/workflows', ext: '.yml', label: 'workflows' },
+  { dir: 'scripts/ci', ext: '.mjs', label: 'CI scripts' },
+];
+
+const files = SOURCES.flatMap(({ dir, ext }) =>
+  readdirSync(dir).filter((f) => f.endsWith(ext)).map((f) => join(dir, f)));
+
 const problems = [];
 
-for (const file of readdirSync(DIR).filter((f) => f.endsWith('.yml'))) {
-  const path = join(DIR, file);
+for (const path of files) {
   const lines = readFileSync(path, 'utf8').split('\n');
   lines.forEach((line, i) => {
     const trimmed = line.trim();
@@ -52,4 +62,6 @@ if (problems.length) {
   process.exit(1);
 }
 
-console.log(`database client release: ${readdirSync(DIR).filter((f) => f.endsWith('.yml')).length} workflows checked, no unguarded connect()`);
+const counts = SOURCES.map(({ dir, ext, label }) =>
+  `${readdirSync(dir).filter((f) => f.endsWith(ext)).length} ${label}`).join(' + ');
+console.log(`database client release: ${counts} checked, no unguarded connect()`);

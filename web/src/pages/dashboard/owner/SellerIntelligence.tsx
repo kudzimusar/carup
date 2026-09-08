@@ -61,6 +61,14 @@ function metricCopy(metric?: MetricEnvelope | null) {
   return displayMetric(metric)
 }
 
+/**
+ * Statuses that mean "this is no longer a listing".
+ *
+ * Kept beside the page that uses it rather than inferred, because the distinction is the difference
+ * between a listing comparison and a list of everything the seller has ever touched.
+ */
+const RETIRED_LISTING_STATUSES = new Set(['sold', 'retired', 'archived', 'withdrawn'])
+
 function SignalCard({
   label,
   value,
@@ -171,9 +179,17 @@ export default function SellerIntelligence() {
     ]).then(async ([pulseResult, vehicleResult, inquiryResult, threadResult]) => {
       if (!active) return
 
-      const nextVehicles = vehicleResult.status === 'fulfilled' && Array.isArray(vehicleResult.value)
+      const ownedVehicles = vehicleResult.status === 'fulfilled' && Array.isArray(vehicleResult.value)
         ? vehicleResult.value
         : []
+      // A LISTING comparison compares listings. This used to fan out over every vehicle the seller
+      // had ever owned — including retired and sold ones — so a seller with 157 owned vehicles, 121
+      // of them `Sold`, issued 157 per-listing intelligence requests and got a 157-row table of
+      // things that are not listings. Wrong on the page, and the dominant database load in the
+      // deployed certification suite.
+      const nextVehicles = ownedVehicles.filter(
+        (vehicle) => !RETIRED_LISTING_STATUSES.has(String((vehicle as { status?: string }).status || '').toLowerCase()),
+      )
       setVehicles(nextVehicles)
       setPulse(pulseResult.status === 'fulfilled' ? pulseResult.value as SellerPulse : null)
       setInquiries(inquiryResult.status === 'fulfilled' ? (inquiryResult.value.inquiries || []) as Inquiry[] : null)
@@ -393,7 +409,8 @@ export default function SellerIntelligence() {
                   ) : vehicles.length === 0 ? (
                     <tr className="border-b border-slate-200">
                       <td colSpan={6} className="py-6 text-sm text-slate-600" data-testid="seller-intelligence-no-listings">
-                        You have no listings yet.
+                        You have no live listings. Sold and retired vehicles are not listings and
+                        are not compared here.
                       </td>
                     </tr>
                   ) : vehicles.map(vehicle => {

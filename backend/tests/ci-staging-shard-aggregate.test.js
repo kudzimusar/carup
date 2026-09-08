@@ -14,6 +14,7 @@ import { readFileSync, mkdtempSync, mkdirSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { execFileSync } from 'node:child_process';
+import yaml from 'js-yaml';
 
 const SCRIPT = 'scripts/ci/assert-staging-shards-agree.mjs';
 const PROJECTS = ['chromium', 'tablet-chromium', 'mobile-chromium'];
@@ -149,11 +150,15 @@ test('SCHEDULING: ordinary unit/lint/build CI is NOT serialised by the staging l
 test('SHARDS: all three projects are invoked, serially, from one testMatch contract', () => {
   const wf = readFileSync('.github/workflows/diaspora-deployed-staging-uat.yml', 'utf8');
   for (const p of PROJECTS) assert.ok(wf.includes(`project: ${p}`), `${p} shard is missing`);
-  // Serial: tablet waits for chromium, mobile waits for tablet.
-  assert.match(wf, /tablet:[\s\S]{0,200}needs: chromium/);
-  assert.match(wf, /mobile:[\s\S]{0,200}needs: tablet/);
-  // The aggregate depends on all three.
-  assert.match(wf, /needs: \[chromium, tablet, mobile\]/);
+  // Serial, and every shard downstream of the one-time bootstrap. Parsed, not regex-scraped: the
+  // previous assertion matched the literal text `needs: chromium` and went red the moment the same
+  // dependency was expressed as a list — it was pinning the SPELLING, not the ordering.
+  const jobs = yaml.load(wf).jobs;
+  const needs = (job) => [].concat(jobs[job].needs ?? []);
+  assert.deepEqual(needs('chromium'), ['bootstrap']);
+  assert.ok(needs('tablet').includes('chromium'), 'tablet must wait for chromium');
+  assert.ok(needs('mobile').includes('tablet'), 'mobile must wait for tablet');
+  assert.deepEqual(needs('aggregate').sort(), ['bootstrap', 'chromium', 'mobile', 'tablet']);
 
   const shard = readFileSync('.github/workflows/diaspora-deployed-staging-shard.yml', 'utf8');
   // Scanned with COMMENT LINES REMOVED. The shard's prose explains that the `testMatch` contract is
@@ -175,4 +180,62 @@ test('SHARDS: all three projects are invoked, serially, from one testMatch contr
 test('SHARDS: the 35-minute ceiling is unchanged', () => {
   const shard = readFileSync('.github/workflows/diaspora-deployed-staging-shard.yml', 'utf8');
   assert.match(shard, /timeout-minutes: 35/);
+});
+
+
+// ── The one-time bootstrap ─────────────────────────────────────────────────
+// Its whole point is that a shard needs NO database. A test that only checked the bootstrap exists
+// would still pass if a shard quietly reacquired one.
+
+test('BOOTSTRAP: identities are provisioned ONCE, before any shard runs', () => {
+  const wf = yaml.load(readFileSync('.github/workflows/diaspora-deployed-staging-uat.yml', 'utf8'));
+  const bootstrap = wf.jobs.bootstrap;
+  assert.ok(bootstrap, 'there is no bootstrap job');
+  const steps = bootstrap.steps.map((s) => `${s.name ?? ''} ${s.run ?? ''} ${s.uses ?? ''}`).join('\n');
+  assert.match(steps, /resolve-governed-preview-pair\.mjs/, 'the bootstrap must prove the governed pair');
+  assert.match(steps, /bootstrap-staging-uat-identities\.mjs/, 'the bootstrap must provision the identities');
+  assert.match(steps, /staging_run_id=\$run_id" >> "\$GITHUB_OUTPUT"/,
+    'the bootstrap must publish the aggregate run identifier');
+  // `marketplaceRoutes.js` only honours a fixture_scope matching ^seller-[0-9]+-[0-9]+$ on a preview
+  // deployment; any other prefix silently hides the Seller automation listings and spec 38 becomes
+  // unpassable. So the identifier's SHAPE is a contract, not a naming preference.
+  assert.match(steps, /run_id="seller-\$\{\{ github\.run_id \}\}-\$\{\{ github\.run_attempt \}\}"/,
+    'the run identifier does not match the fixture_scope contract');
+});
+
+test('BOOTSTRAP: NO shard opens a database connection', () => {
+  const shard = readFileSync('.github/workflows/diaspora-deployed-staging-shard.yml', 'utf8');
+  assert.ok(!/new pg\.Client/.test(shard), 'a shard opened a database client again');
+  assert.ok(!/DIASPORA_STAGING_DATABASE_URL: \$\{\{/.test(shard),
+    'a shard was given the staging database URL again — that dependency is what killed all three');
+});
+
+test('BOOTSTRAP: no plaintext credential is passed between jobs', () => {
+  const wf = yaml.load(readFileSync('.github/workflows/diaspora-deployed-staging-uat.yml', 'utf8'));
+  const outputs = JSON.stringify(wf.jobs.bootstrap.outputs ?? {});
+  assert.ok(!/PASSWORD|SECRET|password|secret/.test(outputs),
+    `a credential is exposed through a job output: ${outputs}`);
+  // The identifier is the ONLY thing that crosses the job boundary.
+  assert.deepEqual(Object.keys(wf.jobs.bootstrap.outputs ?? {}), ['staging_run_id']);
+});
+
+test('BOOTSTRAP: all three shards certify the SAME run identifier, from one source', () => {
+  const wf = yaml.load(readFileSync('.github/workflows/diaspora-deployed-staging-uat.yml', 'utf8'));
+  const ids = PROJECTS.map((p) => {
+    const job = Object.values(wf.jobs).find((j) => j.with && j.with.project === p);
+    return job.with.staging_run_id;
+  });
+  assert.equal(new Set(ids).size, 1, `shards disagree on the run identifier: ${ids.join(' · ')}`);
+  assert.match(ids[0], /needs\.bootstrap\.outputs\.staging_run_id/);
+});
+
+test('BOOTSTRAP: a failed bootstrap stops the shards rather than failing them meaninglessly', () => {
+  const wf = yaml.load(readFileSync('.github/workflows/diaspora-deployed-staging-uat.yml', 'utf8'));
+  for (const job of ['tablet', 'mobile']) {
+    // These deliberately still run when the PREVIOUS SHARD failed, so one run classifies every
+    // viewport. But with no identities provisioned they would fail for a reason that says nothing
+    // about the product.
+    assert.match(String(wf.jobs[job].if), /needs\.bootstrap\.result == 'success'/,
+      `${job} would run without a successful bootstrap`);
+  }
 });

@@ -62,45 +62,129 @@ jobs:
   #
   # Serial rather than parallel because the journeys mutate shared staging state; the gate has
   # already proved that.
+  # ── The one-time bootstrap ───────────────────────────────────────────────
+  # Everything a certification run needs to be TRUE ONCE is established here, once: the governed
+  # FE/BE pairing, the approved staging project, the 11 synthetic identities, and the single run
+  # identifier all three shards share.
+  #
+  # Before this job existed each shard re-provisioned all 11 identities itself — three pg
+  # connections, three transactions, 33 identity writes per run — which made a database connection a
+  # precondition of every shard. When the shared staging pooler saturated, all three died with
+  # ECHECKOUTTIMEOUT without running a single test. The shards now make NO database connection.
+  #
+  # Credentials are NOT passed between jobs. The password lives in a protected staging-only secret
+  # that this job writes and each shard reads independently; only the non-secret run identifier is
+  # an output.
+  bootstrap:
+    name: Bootstrap
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    outputs:
+      staging_run_id: ${{ steps.identifier.outputs.staging_run_id }}
+    env:
+      EXPECTED_HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+      CANDIDATE_BRANCH: ${{ github.event.pull_request.head.ref || github.ref_name }}
+      PAIRING_RECORD_PATH: ${{ github.workspace }}/staging-pairing.json
+      DIASPORA_STAGING_DATABASE_URL: ${{ secrets.DIASPORA_STAGING_DATABASE_URL }}
+      STAGING_UAT_PASSWORD: ${{ secrets.STAGING_UAT_PASSWORD }}
+      TRADEOS_WORKER_SECRET: ${{ secrets.TRADEOS_WORKER_SECRET }}
+      EXPECTED_STAGING_PROJECT_REF: eoyenigwevnxwwhyhaer
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+
+      - name: Assert the exact candidate checkout
+        run: test "$(git rev-parse HEAD)" = "$EXPECTED_HEAD_SHA"
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      # Fail here, not three shards deep, if a required staging-only secret is absent.
+      - name: Require the staging-only secrets
+        run: |
+          missing=''
+          [ -n "$DIASPORA_STAGING_DATABASE_URL" ] || missing="$missing DIASPORA_STAGING_DATABASE_URL"
+          [ -n "$STAGING_UAT_PASSWORD" ] || missing="$missing STAGING_UAT_PASSWORD"
+          [ -n "$TRADEOS_WORKER_SECRET" ] || missing="$missing TRADEOS_WORKER_SECRET"
+          if [ -n "$missing" ]; then
+            echo "::error::not configured;$missing — deployed acceptance cannot be certified."
+            exit 1
+          fi
+
+      # Proves the governed FE/BE pair for the candidate SHA before a single identity is written.
+      # No production contact: the resolver refuses a production origin by name.
+      - name: Prove the governed exact-head preview pair
+        run: node scripts/ci/resolve-governed-preview-pair.mjs
+
+      - name: Install dependencies
+        run: npm ci
+
+      # Proves the staging project AND provisions/repairs the 11 synthetic identities in ONE
+      # transaction. The password is never printed, never an output, never an artifact.
+      - name: Provision the staging-only UAT identities once
+        run: node scripts/ci/bootstrap-staging-uat-identities.mjs
+
+      - name: Create the aggregate run identifier
+        id: identifier
+        run: |
+          # `marketplaceRoutes.js` only honours a fixture_scope matching ^seller-[0-9]+-[0-9]+$ on a
+          # preview deployment. Any other prefix silently hides the Seller automation listings.
+          run_id="seller-${{ github.run_id }}-${{ github.run_attempt }}"
+          echo "staging_run_id=$run_id" >> "$GITHUB_OUTPUT"
+          echo "Aggregate run identifier for all three shards: $run_id"
+
+      - name: Upload the bootstrap pairing record
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: staging-pairing-bootstrap
+          path: staging-pairing.json
+          if-no-files-found: error
+          retention-days: 14
+
   chromium:
     name: Chromium
+    needs: bootstrap
     uses: ./.github/workflows/diaspora-deployed-staging-shard.yml
     with:
       project: chromium
       expected_head_sha: ${{ github.event.pull_request.head.sha || github.sha }}
       candidate_branch: ${{ github.event.pull_request.head.ref || github.ref_name }}
-      staging_run_id: seller-${{ github.run_id }}-${{ github.run_attempt }}
+      staging_run_id: ${{ needs.bootstrap.outputs.staging_run_id }}
     secrets: inherit
 
   tablet:
     name: Tablet
-    needs: chromium
-    if: always() && needs.chromium.result != 'cancelled'
+    needs: [bootstrap, chromium]
+    if: always() && needs.bootstrap.result == 'success' && needs.chromium.result != 'cancelled'
     uses: ./.github/workflows/diaspora-deployed-staging-shard.yml
     with:
       project: tablet-chromium
       expected_head_sha: ${{ github.event.pull_request.head.sha || github.sha }}
       candidate_branch: ${{ github.event.pull_request.head.ref || github.ref_name }}
-      staging_run_id: seller-${{ github.run_id }}-${{ github.run_attempt }}
+      staging_run_id: ${{ needs.bootstrap.outputs.staging_run_id }}
     secrets: inherit
 
   mobile:
     name: Mobile
-    needs: tablet
-    if: always() && needs.tablet.result != 'cancelled'
+    needs: [bootstrap, tablet]
+    if: always() && needs.bootstrap.result == 'success' && needs.tablet.result != 'cancelled'
     uses: ./.github/workflows/diaspora-deployed-staging-shard.yml
     with:
       project: mobile-chromium
       expected_head_sha: ${{ github.event.pull_request.head.sha || github.sha }}
       candidate_branch: ${{ github.event.pull_request.head.ref || github.ref_name }}
-      staging_run_id: seller-${{ github.run_id }}-${{ github.run_attempt }}
+      staging_run_id: ${{ needs.bootstrap.outputs.staging_run_id }}
     secrets: inherit
 
   aggregate:
     name: Aggregate
     # THE programme gate. One green viewport is not enough — and three green shards are only a pass
     # if they certified the SAME candidate against the SAME pairing.
-    needs: [chromium, tablet, mobile]
+    needs: [bootstrap, chromium, tablet, mobile]
     if: always()
     runs-on: ubuntu-latest
     timeout-minutes: 10
@@ -111,13 +195,13 @@ jobs:
 
       - name: Every shard must have SUCCEEDED
         run: |
-          echo "chromium=${{ needs.chromium.result }} tablet=${{ needs.tablet.result }} mobile=${{ needs.mobile.result }}"
+          echo "bootstrap=${{ needs.bootstrap.result }} chromium=${{ needs.chromium.result }} tablet=${{ needs.tablet.result }} mobile=${{ needs.mobile.result }}"
           fail=0
-          for r in "${{ needs.chromium.result }}" "${{ needs.tablet.result }}" "${{ needs.mobile.result }}"; do
+          for r in "${{ needs.bootstrap.result }}" "${{ needs.chromium.result }}" "${{ needs.tablet.result }}" "${{ needs.mobile.result }}"; do
             [ "$r" = "success" ] || fail=1
           done
           if [ "$fail" = "1" ]; then
-            echo '::error::The deployed-staging aggregate requires Chromium, Tablet AND Mobile to succeed.'
+            echo '::error::The deployed-staging aggregate requires Bootstrap, Chromium, Tablet AND Mobile to succeed.'
             exit 1
           fi
 

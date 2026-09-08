@@ -40,7 +40,8 @@ jobs:
       STAGING_RUN_ID: ${{ inputs.staging_run_id }}
       PLAYWRIGHT_PROJECT: ${{ inputs.project }}
       PAIRING_RECORD_PATH: ${{ github.workspace }}/staging-pairing.json
-      DIASPORA_STAGING_DATABASE_URL: ${{ secrets.DIASPORA_STAGING_DATABASE_URL }}
+      # No DIASPORA_STAGING_DATABASE_URL: a shard makes NO direct database connection any more.
+      STAGING_UAT_PASSWORD: ${{ secrets.STAGING_UAT_PASSWORD }}
       TRADEOS_WORKER_SECRET: ${{ secrets.TRADEOS_WORKER_SECRET }}
       EXPECTED_STAGING_PROJECT_REF: eoyenigwevnxwwhyhaer
     steps:
@@ -58,13 +59,6 @@ jobs:
         with:
           node-version: 20
           cache: npm
-
-      - name: Require the staging database operator secret
-        run: |
-          if [ -z "$DIASPORA_STAGING_DATABASE_URL" ]; then
-            echo '::error::DIASPORA_STAGING_DATABASE_URL is not configured; deployed acceptance cannot run.'
-            exit 1
-          fi
 
       # The D7 outbox tests assert this. Without it they cannot pass, so a run without it is not a
       # certification — fail loudly rather than produce a green that means less than it looks.
@@ -102,116 +96,39 @@ jobs:
           echo "STAGING_EXPECTED_BUNDLE=$bundle" >> "$GITHUB_ENV"
           echo "Frozen the exact candidate bundle for this shard: $bundle"
 
-      - name: Rotate staging-only UAT identities for this shard
+      # Credentials are DERIVED from a protected secret, not rotated here.
+      #
+      # This step used to open its own pg connection and rewrite all 11 synthetic identities — once
+      # per shard, three times per aggregate run. That is duplicated infrastructure work that adds no
+      # product coverage, and it is how all three shards died: they each needed the shared staging
+      # pooler before running a single test, and when it saturated none of them got that far.
+      #
+      # The aggregate `bootstrap` job now sets those passwords ONCE from `STAGING_UAT_PASSWORD`, and
+      # each shard derives the same value from the same protected secret. Nothing is transmitted
+      # between jobs. Identity ISOLATION is unchanged — the identities, their roles and their
+      # staging-only scope are exactly as before.
+      - name: Derive staging-only UAT credentials from the protected secret
         shell: bash
         run: |
-          node --input-type=module <<'NODE'
-          import crypto from 'node:crypto';
-          import fs from 'node:fs';
-          import pg from 'pg';
-
-          const dbUrl = process.env.DIASPORA_STAGING_DATABASE_URL || '';
-          const expectedRef = process.env.EXPECTED_STAGING_PROJECT_REF;
-          if (!dbUrl.includes(expectedRef)) {
-            throw new Error('Refusing identity setup: database URL is not the approved carup-staging project.');
-          }
-
-          const password = crypto.randomBytes(30).toString('base64url');
-          const salt = crypto.randomBytes(16).toString('hex');
-          const derived = await new Promise((resolve, reject) => {
-            crypto.scrypt(password, salt, 64, (error, key) => error ? reject(error) : resolve(key));
-          });
-          const passwordHash = `scrypt:${salt}:${derived.toString('hex')}`;
-          // The five original UAT identities, PLUS the ones the additive Trade OS specs need.
-          // Specs 45 (T5) and 46 (T2) were added to this config's testMatch without this step being
-          // widened, so they threw "TRADEOS_*_PASSWORD is not exported" on their first real action —
-          // only 2 of spec 46's 15 tests were even attempted. Provisioning them is strictly MORE
-          // certification, not less.
-          const identities = [
-            ['uat.buyer@carup-staging.test', 'owner'],
-            ['uat.seller@carup-staging.test', 'dealer'],
-            ['uat.reviewer@carup-staging.test', 'admin'],
-            ['uat.tenant-admin@carup-staging.test', 'admin'],
-            ['uat.outsider@carup-staging.test', 'owner'],
-            ['tradeos.operator@carup-staging.test', 'owner'],
-            ['tradeos.outsider@carup-staging.test', 'owner'],
-            ['tradeos.participant.a@carup-staging.test', 'owner'],
-            ['tradeos.participant.b@carup-staging.test', 'owner'],
-            ['tradeos.rfq-buyer@carup-staging.test', 'owner'],
-            ['tradeos.rfq-supplier@carup-staging.test', 'dealer'],
-          ];
-
-          // Strip any sslmode query param: it would override the explicit ssl config below and make
-          // pg verify Supabase's self-signed chain, failing the connection from CI runners.
-          const cleanedDbUrl = dbUrl.replace(/([?&])sslmode=[^&]*&?/i, '$1').replace(/[?&]$/, '');
-
-          // Connect with bounded retry. The staging pooler is SHARED, and sharding the gate tripled
-          // the number of rotations per run: all three shards failed with
-          // `ECHECKOUTTIMEOUT: unable to check out connection from the pool after 15000ms` and no
-          // test ran at all.
-          //
-          // This retries the CONNECTION, never an assertion. A saturated pooler is a transient
-          // property of shared infrastructure; the rotation itself is still all-or-nothing inside one
-          // transaction, and a genuinely missing identity still fails on the first attempt.
-          async function connectWithRetry(attempts = 6) {
-            let lastError = null;
-            for (let attempt = 1; attempt <= attempts; attempt += 1) {
-              const c = new pg.Client({
-                connectionString: cleanedDbUrl,
-                ssl: { rejectUnauthorized: false },
-                connectionTimeoutMillis: 20000,
-              });
-              try {
-                await c.connect();
-                return c;
-              } catch (error) {
-                lastError = error;
-                await c.end().catch(() => {});
-                const transient = /ECHECKOUTTIMEOUT|ETIMEDOUT|ECONNRESET|Connection terminated|too many clients/i
-                  .test(String(error && error.message));
-                if (!transient || attempt === attempts) throw error;
-                const waitMs = Math.min(2000 * (2 ** (attempt - 1)), 30000);
-                console.log(`staging pooler busy (attempt ${attempt}/${attempts}); retrying in ${waitMs}ms`);
-                await new Promise((r) => setTimeout(r, waitMs));
-              }
-            }
-            throw lastError;
-          }
-
-          const client = await connectWithRetry();
-          try {
-            await client.query('BEGIN');
-            for (const [email, role] of identities) {
-              const result = await client.query(
-                'update public.users set password_hash = $1, role = $2 where email = $3 returning id',
-                [passwordHash, role, email],
-              );
-              if (result.rowCount !== 1) throw new Error(`Missing staging UAT identity: ${email}`);
-            }
-            await client.query('COMMIT');
-          } catch (error) {
-            await client.query('ROLLBACK');
-            throw error;
-          } finally {
-            await client.end();
-          }
-
-          const envNames = [
-            'STAGING_UAT_BUYER_PASSWORD',
-            'STAGING_UAT_SELLER_PASSWORD',
-            'STAGING_UAT_REVIEWER_PASSWORD',
-            'STAGING_UAT_TENANT_ADMIN_PASSWORD',
-            'STAGING_UAT_OUTSIDER_PASSWORD',
-            'TRADEOS_UAT_OPERATOR_PASSWORD',
-            'TRADEOS_UAT_OUTSIDER_PASSWORD',
-            'TRADEOS_UAT_PARTICIPANT_A_PASSWORD',
-            'TRADEOS_UAT_PARTICIPANT_B_PASSWORD',
-            'TRADEOS_RFQ_BUYER_PASSWORD',
-            'TRADEOS_RFQ_SUPPLIER_PASSWORD',
-          ];
-          fs.appendFileSync(process.env.GITHUB_ENV, envNames.map((name) => `${name}=${password}`).join('\n') + '\n', { mode: 0o600 });
-          console.log(`${identities.length} staging-only UAT identities were rotated and role-verified without printing credentials.`);
-          NODE
+          if [ -z "$STAGING_UAT_PASSWORD" ]; then
+            echo '::error::STAGING_UAT_PASSWORD is not configured; the staging identities cannot be used.'
+            exit 1
+          fi
+          for name in \
+            STAGING_UAT_BUYER_PASSWORD \
+            STAGING_UAT_SELLER_PASSWORD \
+            STAGING_UAT_REVIEWER_PASSWORD \
+            STAGING_UAT_TENANT_ADMIN_PASSWORD \
+            STAGING_UAT_OUTSIDER_PASSWORD \
+            TRADEOS_UAT_OPERATOR_PASSWORD \
+            TRADEOS_UAT_OUTSIDER_PASSWORD \
+            TRADEOS_UAT_PARTICIPANT_A_PASSWORD \
+            TRADEOS_UAT_PARTICIPANT_B_PASSWORD \
+            TRADEOS_RFQ_BUYER_PASSWORD \
+            TRADEOS_RFQ_SUPPLIER_PASSWORD; do
+            printf '%s=%s\n' "$name" "$STAGING_UAT_PASSWORD" >> "$GITHUB_ENV"
+          done
+          echo 'Derived 11 staging-only UAT credentials from the protected secret (no database contact).'
 
       # `--project` selects ONE Playwright project. The testMatch contract is untouched, so this runs
       # every spec applicable to this viewport.
