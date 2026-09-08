@@ -144,8 +144,41 @@ jobs:
           // Strip any sslmode query param: it would override the explicit ssl config below and make
           // pg verify Supabase's self-signed chain, failing the connection from CI runners.
           const cleanedDbUrl = dbUrl.replace(/([?&])sslmode=[^&]*&?/i, '$1').replace(/[?&]$/, '');
-          const client = new pg.Client({ connectionString: cleanedDbUrl, ssl: { rejectUnauthorized: false } });
-          await client.connect();
+
+          // Connect with bounded retry. The staging pooler is SHARED, and sharding the gate tripled
+          // the number of rotations per run: all three shards failed with
+          // `ECHECKOUTTIMEOUT: unable to check out connection from the pool after 15000ms` and no
+          // test ran at all.
+          //
+          // This retries the CONNECTION, never an assertion. A saturated pooler is a transient
+          // property of shared infrastructure; the rotation itself is still all-or-nothing inside one
+          // transaction, and a genuinely missing identity still fails on the first attempt.
+          async function connectWithRetry(attempts = 6) {
+            let lastError = null;
+            for (let attempt = 1; attempt <= attempts; attempt += 1) {
+              const c = new pg.Client({
+                connectionString: cleanedDbUrl,
+                ssl: { rejectUnauthorized: false },
+                connectionTimeoutMillis: 20000,
+              });
+              try {
+                await c.connect();
+                return c;
+              } catch (error) {
+                lastError = error;
+                await c.end().catch(() => {});
+                const transient = /ECHECKOUTTIMEOUT|ETIMEDOUT|ECONNRESET|Connection terminated|too many clients/i
+                  .test(String(error && error.message));
+                if (!transient || attempt === attempts) throw error;
+                const waitMs = Math.min(2000 * (2 ** (attempt - 1)), 30000);
+                console.log(`staging pooler busy (attempt ${attempt}/${attempts}); retrying in ${waitMs}ms`);
+                await new Promise((r) => setTimeout(r, waitMs));
+              }
+            }
+            throw lastError;
+          }
+
+          const client = await connectWithRetry();
           try {
             await client.query('BEGIN');
             for (const [email, role] of identities) {
