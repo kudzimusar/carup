@@ -10,6 +10,9 @@ export const REGISTRATION_BUSINESS_TYPES = Object.freeze([
   'parts_seller',
   'insurer',
   'lender',
+  // Non-authorizing business identity for freight/container co-loading organisers (Trade OS D2).
+  // Grants no platform role; container authority comes from governed tenant membership.
+  'logistics_provider',
   'other',
 ]);
 

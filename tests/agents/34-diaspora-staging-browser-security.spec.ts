@@ -78,6 +78,10 @@ test.describe('Cross-tenant and role isolation (authenticated)', () => {
     });
     expect([401, 403, 404]).toContain(res.status());
     expect(res.status(), 'spoofed x-stakeholder-role must not grant reviewer power').not.toBe(200);
+    // A 404 is never authorization evidence on its own. Whatever the status, the response must
+    // carry no record data — the same contract the anonymous probe above already holds itself to.
+    const denied = await res.text();
+    expect(denied, 'a refused verify must not leak profile data').not.toMatch(/tenant_id|buyer_id|verification_status|trade_profile/);
   });
 
   test('outsider sees an empty imports list (no cross-tenant rows)', async ({ page }) => {

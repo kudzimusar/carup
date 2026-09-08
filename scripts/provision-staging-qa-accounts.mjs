@@ -62,10 +62,34 @@ export const ALLOWED_USER_ROLES = ['owner', 'dealer', 'mechanic', 'insurance', '
  * uat-owner@carup.local / uat-admin@carup.local documented in the companion .sql.)
  */
 export const QA_SELLER_ID = 'qa-staging-seller-73';
+
+/**
+ * Trade OS supplier fixture (Intake 2.0 closure §5).
+ *
+ * The Trade OS supplier surfaces — `/diaspora/buyer-requests`, `/diaspora/rfqs` — require the
+ * governed `dealer` platform role, and public registration deliberately refuses to grant it
+ * ("public signup can never self-grant dealer access", backend/server.js). That control is correct
+ * and is NOT weakened here.
+ *
+ * A supplier fixture is therefore provisioned the same way every other staging QA account is: by an
+ * operator, through this script, against the staging ref only, with the password supplied at
+ * runtime and hashed with the real login scheme. Nothing is committed and no role is self-granted.
+ *
+ * Run-scoped by design. `TRADEOS_SUPPLIER_RUN_TAG` makes the id and email unmistakably synthetic and
+ * attributable to one certification run, so repeated runs never collide and a fixture can always be
+ * traced back to the run that made it. It defaults to a stable tag for a reusable fixture.
+ */
+export const TRADEOS_SUPPLIER_RUN_TAG = process.env.TRADEOS_SUPPLIER_RUN_TAG || 'uat';
+export const TRADEOS_SUPPLIER_ID = `qa-tradeos-supplier-${TRADEOS_SUPPLIER_RUN_TAG}`;
+export const TRADEOS_SUPPLIER_EMAIL = `synthetic.tradeos.supplier.${TRADEOS_SUPPLIER_RUN_TAG}@carup-staging.test`;
+
 export const QA_ACCOUNTS = [
   { id: 'qa-staging-buyer-73',  email: 'qa-buyer-73@staging.carup.local',  name: 'QA Staging Buyer',  phone: '+263772000074', role: 'owner', passwordEnv: 'QA_BUYER_PASSWORD' },
   { id: QA_SELLER_ID,           email: 'qa-seller-73@staging.carup.local', name: 'QA Staging Seller', phone: '+263772000073', role: 'owner', passwordEnv: 'QA_SELLER_PASSWORD' },
   { id: 'qa-staging-admin-73',  email: 'qa-admin-73@staging.carup.local',  name: 'QA Staging Admin',  phone: '+263772000075', role: 'admin', passwordEnv: 'QA_ADMIN_PASSWORD' },
+  // Trade OS supplier — the ONLY account here with the governed `dealer` role, and the reason it
+  // exists is that no other governed path can produce one for certification.
+  { id: TRADEOS_SUPPLIER_ID, email: TRADEOS_SUPPLIER_EMAIL, name: `SYNTHETIC Trade OS Supplier ${TRADEOS_SUPPLIER_RUN_TAG}`, phone: '+263772000076', role: 'dealer', passwordEnv: 'TRADEOS_SUPPLIER_PASSWORD' },
 ];
 
 /** Fail before any DB write if a provisioned role is not in the real users role catalog/constraint. */

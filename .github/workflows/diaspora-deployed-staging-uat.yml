@@ -1,145 +1,226 @@
 name: Diaspora Deployed Staging UAT
 
-# Real Chromium acceptance against the exact PR #90 Vercel staging previews.
+# Real Chromium acceptance against the CURRENT branch's paired Vercel previews.
 # This workflow never touches production. Canonical staging-alias promotion is a separate
 # release gate after this immutable candidate proves green.
+#
+# ── Why this file was rewritten ────────────────────────────────────────────
+# It used to be pinned to `github.head_ref == 'claude/diaspora-phases-8-10-production-program'`,
+# with hardcoded `STAGING_WEB_URL`/`STAGING_API_URL` belonging to a DIFFERENT Vercel project
+# (`pay-pass-project`). That branch is long dead, so the job's `if:` was false on every pull request
+# and the workflow reported `skipped` — a green tick, for months, for a gate that had certified
+# nothing. It is the exact hazard the programme already recorded: a branch can be green for weeks
+# while a gate it never triggers is dead.
+#
+# Replacing one hardcoded branch with another would reproduce the defect on a slower clock. The pair
+# is now resolved from the governed manifests the rest of Trade OS already uses
+# (`web/preview-frontend-pairing.json` + `web/preview-backend-pairing.json`), and every way the
+# resolution can be wrong is a NAMED refusal in `scripts/ci/resolve-governed-preview-pair.mjs` —
+# ungoverned branch, production origin, stale frontend, stale backend, unpaired frontend, a frontend
+# talking to another branch's backend, and the wrong staging project. Those refusals are unit-tested
+# in `backend/tests/ci-governed-preview-pair.test.js`, because a refusal nobody can break is not a
+# gate.
+#
+# A branch with no governed pair FAILS here. It does not skip.
 on:
   pull_request:
-    branches: [main]
     paths:
       - '.github/workflows/diaspora-deployed-staging-uat.yml'
+      - 'scripts/ci/resolve-governed-preview-pair.mjs'
+      - 'web/preview-frontend-pairing.json'
+      - 'web/preview-backend-pairing.json'
       - 'backend/**'
       - 'database/**'
-      - 'docs/DIASPORA_TRADE_OS_DEPLOYED_BROWSER_UAT_REPORT.md'
       - 'playwright.staging.config.ts'
       - 'tests/agents/**'
       - 'web/**'
       - 'package.json'
       - 'package-lock.json'
+  workflow_dispatch: {}
 
 permissions:
   contents: read
 
+# ── The shared staging lock ────────────────────────────────────────────────
+# Every workflow that drives THIS branch's preview backend shares this group, so certification runs
+# QUEUE instead of colliding. The repaired gate's real workload rate-limited Marketplace Reference
+# Regression into 429s when the two overlapped — CI scheduling contention, not a product defect, and
+# this is where it is fixed.
+#
+# The key is the PREVIEW IDENTITY (the branch), so independent branches with their own preview
+# deployments still run in parallel. `cancel-in-progress: false` because a certification run must
+# never cancel another valid certification.
 concurrency:
-  group: diaspora-deployed-staging-uat
+  group: staging-preview-${{ github.event.pull_request.head.ref || github.ref_name }}
   cancel-in-progress: false
 
 jobs:
-  deployed-staging-uat:
-    if: github.head_ref == 'claude/diaspora-phases-8-10-production-program'
+  # ── Sharded by Playwright project, run SERIALLY ──────────────────────────
+  # The single-job packaging could not honestly be green: chromium alone measures ~29.7m against a
+  # 35-minute ceiling, and all three projects ran in one job. Coverage is unchanged — same testMatch,
+  # same specs, same assertions — and the aggregate below requires ALL THREE.
+  #
+  # Serial rather than parallel because the journeys mutate shared staging state; the gate has
+  # already proved that.
+  # ── The one-time bootstrap ───────────────────────────────────────────────
+  # Everything a certification run needs to be TRUE ONCE is established here, once: the governed
+  # FE/BE pairing, the approved staging project, the 11 synthetic identities, and the single run
+  # identifier all three shards share.
+  #
+  # Before this job existed each shard re-provisioned all 11 identities itself — three pg
+  # connections, three transactions, 33 identity writes per run — which made a database connection a
+  # precondition of every shard. When the shared staging pooler saturated, all three died with
+  # ECHECKOUTTIMEOUT without running a single test. The shards now make NO database connection.
+  #
+  # Credentials are NOT passed between jobs. The password lives in a protected staging-only secret
+  # that this job writes and each shard reads independently; only the non-secret run identifier is
+  # an output.
+  bootstrap:
+    name: Bootstrap
     runs-on: ubuntu-latest
-    timeout-minutes: 35
+    timeout-minutes: 10
+    outputs:
+      staging_run_id: ${{ steps.identifier.outputs.staging_run_id }}
     env:
-      STAGING_WEB_URL: https://carup-staging-git-claude-diaspora-phase-dd3d1b-pay-pass-project.vercel.app
-      STAGING_API_URL: https://carup-backend-staging-git-claude-diaspo-3f3baf-pay-pass-project.vercel.app/api
-      STAGING_RUN_ID: merge-revalidation-${{ github.sha }}
+      EXPECTED_HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+      CANDIDATE_BRANCH: ${{ github.event.pull_request.head.ref || github.ref_name }}
+      PAIRING_RECORD_PATH: ${{ github.workspace }}/staging-pairing.json
       DIASPORA_STAGING_DATABASE_URL: ${{ secrets.DIASPORA_STAGING_DATABASE_URL }}
+      STAGING_UAT_PASSWORD: ${{ secrets.STAGING_UAT_PASSWORD }}
+      TRADEOS_WORKER_SECRET: ${{ secrets.TRADEOS_WORKER_SECRET }}
       EXPECTED_STAGING_PROJECT_REF: eoyenigwevnxwwhyhaer
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+
+      - name: Assert the exact candidate checkout
+        run: test "$(git rev-parse HEAD)" = "$EXPECTED_HEAD_SHA"
 
       - uses: actions/setup-node@v4
         with:
           node-version: 20
           cache: npm
 
-      - name: Require the staging database operator secret
+      # Fail here, not three shards deep, if a required staging-only secret is absent.
+      - name: Require the staging-only secrets
         run: |
-          if [ -z "$DIASPORA_STAGING_DATABASE_URL" ]; then
-            echo '::error::DIASPORA_STAGING_DATABASE_URL is not configured; deployed acceptance cannot run.'
+          missing=''
+          [ -n "$DIASPORA_STAGING_DATABASE_URL" ] || missing="$missing DIASPORA_STAGING_DATABASE_URL"
+          [ -n "$STAGING_UAT_PASSWORD" ] || missing="$missing STAGING_UAT_PASSWORD"
+          [ -n "$TRADEOS_WORKER_SECRET" ] || missing="$missing TRADEOS_WORKER_SECRET"
+          if [ -n "$missing" ]; then
+            echo "::error::not configured;$missing — deployed acceptance cannot be certified."
             exit 1
           fi
+
+      # Proves the governed FE/BE pair for the candidate SHA before a single identity is written.
+      # No production contact: the resolver refuses a production origin by name.
+      - name: Prove the governed exact-head preview pair
+        run: node scripts/ci/resolve-governed-preview-pair.mjs
 
       - name: Install dependencies
         run: npm ci
 
-      - name: Install Chromium
-        run: npx playwright install --with-deps chromium
+      # ── Refuse to start against a database that cannot serve the run ─────
+      # On 2026-09-08 the gate ran its full workload for the first time and exhausted the staging
+      # instance's CPU allowance. Nothing ordinary showed it: 14/60 connections, zero
+      # idle-in-transaction, zero long-running queries, 99.74% cache hit, `select 1` instant. It was
+      # CPU-QUOTA throttled, so short queries were fast and long ones were stalled 14×. PostgREST
+      # could not finish its schema-cache query inside its 8s budget, retried every ~60s forever, and
+      # 148 tests failed for a reason none of them named.
+      #
+      # This measures that property directly and REFUSES. It does not retry and does not warn.
+      - name: Refuse to certify against a throttled staging database
+        run: node scripts/ci/assert-staging-capacity.mjs
 
-      - name: Freeze the exact candidate bundle for this run
+      # Proves the staging project AND provisions/repairs the 11 synthetic identities in ONE
+      # transaction. The password is never printed, never an output, never an artifact.
+      - name: Provision the staging-only UAT identities once
+        run: node scripts/ci/bootstrap-staging-uat-identities.mjs
+
+      - name: Create the aggregate run identifier
+        id: identifier
         run: |
-          html="$(curl --fail --silent --show-error --location "$STAGING_WEB_URL/")"
-          bundle="$(printf '%s' "$html" | grep -oE 'index-[A-Za-z0-9_-]+\.js' | head -1)"
-          if [ -z "$bundle" ]; then
-            echo '::error::The PR #90 staging preview did not expose a Vite entry bundle.'
-            exit 1
-          fi
-          echo "STAGING_EXPECTED_BUNDLE=$bundle" >> "$GITHUB_ENV"
-          echo "Frozen the exact PR #90 staging-preview bundle for this run: $bundle"
+          # `marketplaceRoutes.js` only honours a fixture_scope matching ^seller-[0-9]+-[0-9]+$ on a
+          # preview deployment. Any other prefix silently hides the Seller automation listings.
+          run_id="seller-${{ github.run_id }}-${{ github.run_attempt }}"
+          echo "staging_run_id=$run_id" >> "$GITHUB_OUTPUT"
+          echo "Aggregate run identifier for all three shards: $run_id"
 
-      - name: Rotate staging-only UAT identities for this run
-        shell: bash
-        run: |
-          node --input-type=module <<'NODE'
-          import crypto from 'node:crypto';
-          import fs from 'node:fs';
-          import pg from 'pg';
-
-          const dbUrl = process.env.DIASPORA_STAGING_DATABASE_URL || '';
-          const expectedRef = process.env.EXPECTED_STAGING_PROJECT_REF;
-          if (!dbUrl.includes(expectedRef)) {
-            throw new Error('Refusing identity setup: database URL is not the approved carup-staging project.');
-          }
-
-          const password = crypto.randomBytes(30).toString('base64url');
-          const salt = crypto.randomBytes(16).toString('hex');
-          const derived = await new Promise((resolve, reject) => {
-            crypto.scrypt(password, salt, 64, (error, key) => error ? reject(error) : resolve(key));
-          });
-          const passwordHash = `scrypt:${salt}:${derived.toString('hex')}`;
-          const identities = [
-            ['uat.buyer@carup-staging.test', 'owner'],
-            ['uat.seller@carup-staging.test', 'dealer'],
-            ['uat.reviewer@carup-staging.test', 'admin'],
-            ['uat.tenant-admin@carup-staging.test', 'admin'],
-            ['uat.outsider@carup-staging.test', 'owner'],
-          ];
-
-          // Strip any sslmode query param: it would override the explicit ssl config below and make
-          // pg verify Supabase's self-signed chain, failing the connection from CI runners.
-          const cleanedDbUrl = dbUrl.replace(/([?&])sslmode=[^&]*&?/i, '$1').replace(/[?&]$/, '');
-          const client = new pg.Client({ connectionString: cleanedDbUrl, ssl: { rejectUnauthorized: false } });
-          await client.connect();
-          try {
-            await client.query('BEGIN');
-            for (const [email, role] of identities) {
-              const result = await client.query(
-                'update public.users set password_hash = $1, role = $2 where email = $3 returning id',
-                [passwordHash, role, email],
-              );
-              if (result.rowCount !== 1) throw new Error(`Missing staging UAT identity: ${email}`);
-            }
-            await client.query('COMMIT');
-          } catch (error) {
-            await client.query('ROLLBACK');
-            throw error;
-          } finally {
-            await client.end();
-          }
-
-          const envNames = [
-            'STAGING_UAT_BUYER_PASSWORD',
-            'STAGING_UAT_SELLER_PASSWORD',
-            'STAGING_UAT_REVIEWER_PASSWORD',
-            'STAGING_UAT_TENANT_ADMIN_PASSWORD',
-            'STAGING_UAT_OUTSIDER_PASSWORD',
-          ];
-          fs.appendFileSync(process.env.GITHUB_ENV, envNames.map((name) => `${name}=${password}`).join('\n') + '\n', { mode: 0o600 });
-          console.log('Five staging-only UAT identities were rotated and role-verified without printing credentials.');
-          NODE
-
-      - name: Run deployed desktop and mobile Chromium acceptance
-        run: npx playwright test --config=playwright.staging.config.ts
-
-      - name: Upload deployed-UAT evidence
+      - name: Upload the bootstrap pairing record
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: diaspora-deployed-staging-uat-${{ github.run_id }}
-          path: |
-            test-results/staging-env-truth.json
-            test-results/staging-uat-results.json
-            test-results/staging-uat-html
-            test-results/staging-uat-artifacts
-          if-no-files-found: warn
+          name: staging-pairing-bootstrap
+          path: staging-pairing.json
+          if-no-files-found: error
           retention-days: 14
+
+  chromium:
+    name: Chromium
+    needs: bootstrap
+    uses: ./.github/workflows/diaspora-deployed-staging-shard.yml
+    with:
+      project: chromium
+      expected_head_sha: ${{ github.event.pull_request.head.sha || github.sha }}
+      candidate_branch: ${{ github.event.pull_request.head.ref || github.ref_name }}
+      staging_run_id: ${{ needs.bootstrap.outputs.staging_run_id }}
+    secrets: inherit
+
+  tablet:
+    name: Tablet
+    needs: [bootstrap, chromium]
+    if: always() && needs.bootstrap.result == 'success' && needs.chromium.result != 'cancelled'
+    uses: ./.github/workflows/diaspora-deployed-staging-shard.yml
+    with:
+      project: tablet-chromium
+      expected_head_sha: ${{ github.event.pull_request.head.sha || github.sha }}
+      candidate_branch: ${{ github.event.pull_request.head.ref || github.ref_name }}
+      staging_run_id: ${{ needs.bootstrap.outputs.staging_run_id }}
+    secrets: inherit
+
+  mobile:
+    name: Mobile
+    needs: [bootstrap, tablet]
+    if: always() && needs.bootstrap.result == 'success' && needs.tablet.result != 'cancelled'
+    uses: ./.github/workflows/diaspora-deployed-staging-shard.yml
+    with:
+      project: mobile-chromium
+      expected_head_sha: ${{ github.event.pull_request.head.sha || github.sha }}
+      candidate_branch: ${{ github.event.pull_request.head.ref || github.ref_name }}
+      staging_run_id: ${{ needs.bootstrap.outputs.staging_run_id }}
+    secrets: inherit
+
+  aggregate:
+    name: Aggregate
+    # THE programme gate. One green viewport is not enough — and three green shards are only a pass
+    # if they certified the SAME candidate against the SAME pairing.
+    needs: [bootstrap, chromium, tablet, mobile]
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+
+      - name: Every shard must have SUCCEEDED
+        run: |
+          echo "bootstrap=${{ needs.bootstrap.result }} chromium=${{ needs.chromium.result }} tablet=${{ needs.tablet.result }} mobile=${{ needs.mobile.result }}"
+          fail=0
+          for r in "${{ needs.bootstrap.result }}" "${{ needs.chromium.result }}" "${{ needs.tablet.result }}" "${{ needs.mobile.result }}"; do
+            [ "$r" = "success" ] || fail=1
+          done
+          if [ "$fail" = "1" ]; then
+            echo '::error::The deployed-staging aggregate requires Bootstrap, Chromium, Tablet AND Mobile to succeed.'
+            exit 1
+          fi
+
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: staging-pairing-*
+          path: pairing-records
+
+      - name: Every shard must have certified the SAME candidate and pairing
+        run: node scripts/ci/assert-staging-shards-agree.mjs pairing-records chromium tablet-chromium mobile-chromium

@@ -8,6 +8,12 @@ export interface AuthUser {
   role: UserRole;
   avatar?: string;
   active_tenant_id?: string | null;
+  /**
+   * Advisory governed-tenant membership role (e.g. 'admin') returned by login//me from the
+   * verified tenant_users row. Client hint ONLY — every request's x-tenant-id is re-verified
+   * against tenant_users server-side; sending a spoofed value grants nothing.
+   */
+  tenant_role?: string | null;
 }
 
 export interface Vehicle {

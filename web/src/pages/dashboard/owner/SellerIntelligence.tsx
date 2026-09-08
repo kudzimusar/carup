@@ -61,6 +61,14 @@ function metricCopy(metric?: MetricEnvelope | null) {
   return displayMetric(metric)
 }
 
+/**
+ * Statuses that mean "this is no longer a listing".
+ *
+ * Kept beside the page that uses it rather than inferred, because the distinction is the difference
+ * between a listing comparison and a list of everything the seller has ever touched.
+ */
+const RETIRED_LISTING_STATUSES = new Set(['sold', 'retired', 'archived', 'withdrawn'])
+
 function SignalCard({
   label,
   value,
@@ -171,29 +179,53 @@ export default function SellerIntelligence() {
     ]).then(async ([pulseResult, vehicleResult, inquiryResult, threadResult]) => {
       if (!active) return
 
-      const nextVehicles = vehicleResult.status === 'fulfilled' && Array.isArray(vehicleResult.value)
+      const ownedVehicles = vehicleResult.status === 'fulfilled' && Array.isArray(vehicleResult.value)
         ? vehicleResult.value
         : []
+      // A LISTING comparison compares listings. This used to fan out over every vehicle the seller
+      // had ever owned — including retired and sold ones — so a seller with 157 owned vehicles, 121
+      // of them `Sold`, issued 157 per-listing intelligence requests and got a 157-row table of
+      // things that are not listings. Wrong on the page, and the dominant database load in the
+      // deployed certification suite.
+      const nextVehicles = ownedVehicles.filter(
+        (vehicle) => !RETIRED_LISTING_STATUSES.has(String((vehicle as { status?: string }).status || '').toLowerCase()),
+      )
       setVehicles(nextVehicles)
       setPulse(pulseResult.status === 'fulfilled' ? pulseResult.value as SellerPulse : null)
       setInquiries(inquiryResult.status === 'fulfilled' ? (inquiryResult.value.inquiries || []) as Inquiry[] : null)
       setThreads(threadResult.status === 'fulfilled' ? (threadResult.value.threads || []) as Thread[] : null)
 
-      const insightPairs = await Promise.all(nextVehicles.map(async vehicle => {
-        try {
-          const insight = await fetchListingIntelligence(vehicle.vin, windowDays) as ListingInsight
-          return [vehicle.vin, insight] as const
-        } catch {
-          return [vehicle.vin, null] as const
-        }
-      }))
-      if (!active) return
-      setListingInsights(Object.fromEntries(insightPairs))
+      // The page is READY once its four primary reads have settled. It used to wait for the
+      // per-listing fan-out below as well, which meant a seller with a large inventory stared at
+      // "Reading Seller rollups…" until every listing had answered — 157 concurrent requests for one
+      // staging identity, and the KPI band, which needs only the pulse read, never appeared at all.
+      // The per-listing detail fills in afterwards; the comparison table already renders its own
+      // per-row unavailable state, so nothing claims a figure it does not have.
       setSettled({
         key: readKey,
         status: pulseResult.status === 'fulfilled' ? 'ready' : 'error',
         vehiclesRead: vehicleResult.status === 'fulfilled',
       })
+
+      // …and the fan-out is BOUNDED. One request per owned vehicle, all at once, is a self-inflicted
+      // load spike that a real dealer's inventory makes worse, not better.
+      const INSIGHT_CONCURRENCY = 6
+      const insightPairs: Array<readonly [string, ListingInsight | null]> = []
+      for (let i = 0; i < nextVehicles.length; i += INSIGHT_CONCURRENCY) {
+        if (!active) return
+        const batch = await Promise.all(nextVehicles.slice(i, i + INSIGHT_CONCURRENCY).map(async vehicle => {
+          try {
+            const insight = await fetchListingIntelligence(vehicle.vin, windowDays) as ListingInsight
+            return [vehicle.vin, insight] as const
+          } catch {
+            return [vehicle.vin, null] as const
+          }
+        }))
+        insightPairs.push(...batch)
+        if (!active) return
+        // Show what has arrived rather than nothing until all of it has.
+        setListingInsights(Object.fromEntries(insightPairs))
+      }
     })
 
     return () => { active = false }
@@ -377,7 +409,8 @@ export default function SellerIntelligence() {
                   ) : vehicles.length === 0 ? (
                     <tr className="border-b border-slate-200">
                       <td colSpan={6} className="py-6 text-sm text-slate-600" data-testid="seller-intelligence-no-listings">
-                        You have no listings yet.
+                        You have no live listings. Sold and retired vehicles are not listings and
+                        are not compared here.
                       </td>
                     </tr>
                   ) : vehicles.map(vehicle => {
