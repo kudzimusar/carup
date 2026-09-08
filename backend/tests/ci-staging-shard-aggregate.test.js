@@ -194,6 +194,12 @@ test('BOOTSTRAP: identities are provisioned ONCE, before any shard runs', () => 
   const steps = bootstrap.steps.map((s) => `${s.name ?? ''} ${s.run ?? ''} ${s.uses ?? ''}`).join('\n');
   assert.match(steps, /resolve-governed-preview-pair\.mjs/, 'the bootstrap must prove the governed pair');
   assert.match(steps, /bootstrap-staging-uat-identities\.mjs/, 'the bootstrap must provision the identities');
+  // Before ANY of that: refuse a database that cannot serve the run. A gate that starts against a
+  // throttled instance produces 148 failures that name nothing.
+  assert.match(steps, /assert-staging-capacity\.mjs/, 'the bootstrap must prove the database can serve the run');
+  const capacityAt = steps.indexOf('assert-staging-capacity.mjs');
+  const provisionAt = steps.indexOf('bootstrap-staging-uat-identities.mjs');
+  assert.ok(capacityAt < provisionAt, 'the capacity guard must run BEFORE anything writes to the database');
   assert.match(steps, /staging_run_id=\$run_id" >> "\$GITHUB_OUTPUT"/,
     'the bootstrap must publish the aggregate run identifier');
   // `marketplaceRoutes.js` only honours a fixture_scope matching ^seller-[0-9]+-[0-9]+$ on a preview

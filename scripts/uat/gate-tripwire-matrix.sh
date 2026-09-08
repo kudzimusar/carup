@@ -14,6 +14,7 @@ RESOLVER=scripts/ci/resolve-governed-preview-pair.mjs
 ORCH=.github/workflows/diaspora-deployed-staging-uat.yml
 SHARD=.github/workflows/diaspora-deployed-staging-shard.yml
 BOOTSTRAP=scripts/ci/bootstrap-staging-uat-identities.mjs
+CAPACITY=scripts/ci/assert-staging-capacity.mjs
 SEC=tests/agents/34-diaspora-staging-browser-security.spec.ts
 T5=tests/agents/45-trade-os-container-demo-staging.spec.ts
 T2=tests/agents/46-trade-os-rfq2-staging.spec.ts
@@ -31,6 +32,7 @@ run_assertion_guard() { node scripts/ci/assert-gate-assertions-intact.mjs >/dev/
 run_chain()     { eval "$ENVV" node --test backend/tests/ci-staging-shard-aggregate.test.js 2>&1 | grep -E "^# fail" | awk '{print $3}'; }
 run_bootstrap() { eval "$ENVV" node --test backend/tests/ci-staging-uat-bootstrap.test.js  2>&1 | grep -E "^# fail" | awk '{print $3}'; }
 run_release()   { node scripts/ci/assert-db-connections-released.mjs >/dev/null 2>&1; echo $?; }
+run_capacity()  { eval "$ENVV" node --test backend/tests/ci-staging-capacity.test.js 2>&1 | grep -E "^# fail" | awk '{print $3}'; }
 
 mutate() {
   local name="$1" file="$2" expr="$3" runner="$4"
@@ -73,6 +75,15 @@ mutate "a missing identity commits anyway"       "$BOOTSTRAP" 's|      if \(resu
 mutate "a non-staging address may be written"    "$BOOTSTRAP" 's|    if \(!/\@carup-staging\\\.test\$/\.test\(email\)\) \{|    if (false) {|'      run_bootstrap
 # The real defect shape: connect() OUTSIDE the try, so a FAILED connection never reaches end().
 mutate "the bootstrap leaks a failed connection" "$BOOTSTRAP" 's|    try \{\n      await client\.connect\(\);\n      return client;|    await client.connect();\n    try {\n      return client;|' run_release
+
+echo "── the capacity guard must see a throttled instance ──"
+# It exists because the incident's instance looked healthy by every ordinary measure. Loosening it
+# back to "looks healthy" is the exact regression it was built to stop.
+mutate "the throttle limit is loosened past the incident" "$CAPACITY" 's/export const MAX_THROTTLE_RATIO = 3\.0;/export const MAX_THROTTLE_RATIO = 20.0;/' run_capacity
+mutate "a throttled instance is merely warned about"      "$CAPACITY" 's/    throw new CapacityRefusal\(\n      .cpu-quota-throttled.,/    console.warn(`::warning::throttled`); return measurements; if (false) throw new CapacityRefusal(\x27cpu-quota-throttled\x27,/' run_capacity
+mutate "PostgREST being unable to start is ignored"       "$CAPACITY" 's/  if \(timezone_failed\) \{/  if (false) {/'                                             run_capacity
+mutate "a uniformly slow instance is accepted"            "$CAPACITY" 's/  if \(long\.ms > POSTGREST_STATEMENT_TIMEOUT_MS\) \{/  if (false) {/'                  run_capacity
+mutate "the guard measures only the SHORT probe"          "$CAPACITY" 's/  const long = await timeCpu\(client, 3\);/  const long = await timeCpu(client, 1);/'    run_capacity
 
 echo
 echo "{\"mutations\":$n,\"red\":$pass,\"survived\":$fail,\"ok\":$([ "$fail" -eq 0 ] && echo true || echo false)}"

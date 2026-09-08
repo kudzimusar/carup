@@ -414,3 +414,127 @@ green. The environment cannot certify, so it does not.
   staging state. That serialisation is the structural reason the suite approaches the 35-minute
   ceiling; it is a property of the suite's design, not waste, and it is recorded here rather than
   papered over with a larger budget.
+
+---
+
+## 14. Root cause found — the instance was CPU-quota throttled, and it looked healthy
+
+The owner restarted the staging Supabase project. The database came back; **the gate still cannot
+run**, and the reason turned out to be something no ordinary health measure reports.
+
+### The symptom chain, measured rather than inferred
+
+`/api/health` on the paired backend answered `200` with `supabase: {"status":"unhealthy"}`, and a
+DB-backed product read returned:
+
+```
+GET /api/vehicles → 500 {"error":"Could not query the database for the schema cache. Retrying."}
+```
+
+That is **PostgREST**, not Postgres. `postgres_logs` attribute it exactly — `user_name=authenticator`,
+`application_name=postgrest`, `sql_state_code=57014` (query_canceled) — and the cancelled statement is
+verbatim PostgREST's schema-cache query, plus `SELECT name FROM pg_timezone_names`. It repeated every
+60–90 seconds, continuously, for hours.
+
+### Why it could never self-heal
+
+`authenticator` carries `statement_timeout=8s`. PostgREST builds its schema cache at startup and
+retries on failure. The restart wiped the warm cache it had been serving from, so it had to rebuild
+over a schema that has grown to **302 relations / 5,931 columns / 100 functions**. Every attempt was
+cancelled at 8s, so it retried forever — and every REST call failed for as long as that lasted.
+
+### The measurement that named the cause
+
+Everything ordinary said the database was fine:
+
+| measure | value |
+|---|---|
+| sessions | 14 / 60 |
+| idle in transaction | 0 |
+| queries running > 5 min | 0 |
+| waiting on a lock | 0 |
+| buffer cache hit | 99.74% |
+| `select 1` | instant |
+
+So the cause is not connections, not stuck sessions, not the pooler, and not disk. A pure-CPU probe
+that touches no table, index or disk found it:
+
+| probe | rows | elapsed | per million |
+|---|---|---|---|
+| short | 1,000,000 | 379 ms | 379 ms |
+| long | 3,000,000 | 9,837 ms | 3,279 ms |
+| long (repeat) | 3,000,000 | 16,087 ms | 5,362 ms |
+
+On an unthrottled instance the per-row cost is constant. Here the same work cost **8–14× more per
+row** as the query ran longer. That is CPU **quota** throttling: short queries fit inside the burst
+allowance and run at full speed; long ones are stalled repeatedly once the allowance is spent.
+
+This is why the instance simultaneously passed every simple health check and could not serve
+PostgREST's one long catalog query — and why 148 tests failed for a reason none of them named.
+
+### What was deliberately NOT done
+
+Raising `authenticator`'s `statement_timeout` would let the schema-cache query grind for longer. It
+would not fix anything: the query is slow *because* CPU is scarce, and letting it run longer consumes
+more of the exact resource that is scarce, while every other query waits. It would also convert a
+loud failure into a slow one. **The timeout was left at 8s.**
+
+No session was terminated either — there was nothing stuck to terminate (0 idle-in-transaction,
+0 long-running). §7 of the directive is a no-op, on evidence, rather than an action taken for its
+own sake.
+
+### The guard that now exists
+
+`scripts/ci/assert-staging-capacity.mjs` runs in the bootstrap job, **before anything writes to the
+database**, and refuses the run when the instance cannot serve it:
+
+- **`postgrest-cannot-start`** — `pg_timezone_names` does not complete inside PostgREST's own 8s
+  budget. Not a proxy: this is literally one of the two queries that was failing.
+- **`cpu-quota-throttled`** — per-row cost degrades by more than 3× between the short and long probe
+  (measured 14.15× during the incident, ~1.0× healthy).
+- **`below-postgrest-budget`** — a uniformly slow instance, where the ratio sees nothing wrong but
+  3M rows of pure CPU still exceeds PostgREST's entire statement budget.
+
+It compares the instance **against itself, moments apart**, rather than against an absolute
+millisecond threshold that would need re-tuning per runner and would be loosened until meaningless.
+It refuses; it does not retry, and it does not warn. `gate-tripwire-matrix.sh` mutations 20–24 prove
+each of those properties fails when removed.
+
+## 15. The load the gate no longer places
+
+A structural cause sat underneath the capacity one. Every shard rotated all 11 synthetic identities
+itself, so a database connection was a **precondition of every shard** — which is why all three died
+with `ECHECKOUTTIMEOUT` without running a single test.
+
+Measured with `scripts/ci/measure-bootstrap-cost.mjs 400e283c`:
+
+| per aggregate run | before | after | change |
+|---|---|---|---|
+| pg connections | 3 | 1 | −67% |
+| identities written | 33 | 11 | −67% |
+| SQL statements | 39 | 13 | −67% |
+| scrypt derivations | 3 | 1 | −67% |
+| **shard database connections** | **3** | **0** | **eliminated** |
+
+Separately, `SellerIntelligence` fanned out over **all** owned vehicles including 121 sold ones —
+157 DB-backed requests per page load, the largest single per-run database cost in the suite. It now
+compares live listings only.
+
+## 16. What remains, and what it needs
+
+The gate is now **correct and honest, and still cannot run**, because the environment cannot serve
+it. That is a capacity decision, and it is the owner's:
+
+1. **Wait for the CPU allowance to replenish.** Free, but PostgREST's retry loop keeps consuming what
+   little there is, so recovery is slow and not guaranteed. Health is now provable rather than
+   guessed: `assert-staging-capacity.mjs` returns the numbers.
+2. **A larger staging instance.** Not authorized at this stage.
+3. **A dedicated certification project.** Not authorized at this stage.
+
+Option 1 alone will not prevent recurrence: the suite runs 13 specs × 3 viewports at `workers: 1`
+against an instance that also serves every other staging lane. The gate's own footprint is now 67%
+lighter and the shards' database dependency is gone, which buys margin — it does not create capacity
+that was never there.
+
+**Still nothing was worked around.** No timeout raised, no spec narrowed, no test disabled, no
+failure downgraded, and no result reported as green.

@@ -122,6 +122,18 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      # ── Refuse to start against a database that cannot serve the run ─────
+      # On 2026-09-08 the gate ran its full workload for the first time and exhausted the staging
+      # instance's CPU allowance. Nothing ordinary showed it: 14/60 connections, zero
+      # idle-in-transaction, zero long-running queries, 99.74% cache hit, `select 1` instant. It was
+      # CPU-QUOTA throttled, so short queries were fast and long ones were stalled 14×. PostgREST
+      # could not finish its schema-cache query inside its 8s budget, retried every ~60s forever, and
+      # 148 tests failed for a reason none of them named.
+      #
+      # This measures that property directly and REFUSES. It does not retry and does not warn.
+      - name: Refuse to certify against a throttled staging database
+        run: node scripts/ci/assert-staging-capacity.mjs
+
       # Proves the staging project AND provisions/repairs the 11 synthetic identities in ONE
       # transaction. The password is never printed, never an output, never an artifact.
       - name: Provision the staging-only UAT identities once
