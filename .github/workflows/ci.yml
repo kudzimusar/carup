@@ -184,6 +184,12 @@ jobs:
       - name: Trade OS T12 attributed customs schema verification (isolated PGlite Postgres)
         run: node database/test/trade_os_t12_customs_check.mjs
 
+      # The deployed-staging gate's product assertions must MATTER. Its own suite takes ~30 minutes
+      # on one viewport and cannot run concurrently, so the load-bearing security/T5/T2 assertions
+      # are pinned here and checked in seconds.
+      - name: Deployed-staging gate assertions intact
+        run: node scripts/ci/assert-gate-assertions-intact.mjs
+
       - name: 'Issue #101 P0 hardening behavioural proof (real PostgreSQL via PGlite)'
         run: node database/test/issue101_p0_hardening_check.mjs
 

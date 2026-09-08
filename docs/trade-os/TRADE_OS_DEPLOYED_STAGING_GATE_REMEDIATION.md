@@ -100,7 +100,50 @@ bounded concurrency.
 
 ---
 
-## 5. Open — needs an owner action
+## 5. Measured runtime — the budget is the second blocker
+
+**Do not raise the 35-minute ceiling on this evidence alone; it is offered as the evidence, not as a
+change.**
+
+Per-spec, measured in isolation against the governed pairing, **chromium only**:
+
+| spec | duration |
+|---|---|
+| `32` vehicle | 1.7m |
+| `33` parts | 0.7m |
+| `34` security | 0.9m |
+| `35` recovery | 0.6m |
+| `36` gtm | 1.3m |
+| `37` gtm-safety | 0.7m |
+| **`38` seller golden** | **8.4m** |
+| `41` seller phase E | 1.1m |
+| `42` seller media | 3.6m |
+| `43` operations serena | 1.2m |
+| **`45` T5 container demo** | **5.4m** |
+| **`46` T2 RFQ2** | **3.6m** |
+| `47` T3 | skips (unprovisioned, by its own contract) |
+| **chromium subtotal** | **≈ 29.7m** |
+
+The gate runs **three device projects at `workers: 1`**. Chromium alone is ~30 minutes, so the
+tablet and mobile projects — even with the many `runs once on desktop` skips — cannot fit inside a
+35-minute job.
+
+There is a counter-intuitive consequence worth stating plainly: **fixing failures makes this suite
+slower.** A failing test exits early; a passing one runs to the end. The run that *completed* with a
+tally (146 passed / 18 failed / 65 skipped) did so partly because 18 tests failed fast. The next run,
+with more of them fixed, reached the ceiling instead.
+
+The waste has been removed — 363 no-op round-trips per run, an unbounded per-listing fan-out, and a
+serial stale sweep. What remains is honest workload: 13 real deployed browser journeys across three
+viewports, serialised because they mutate shared staging state.
+
+**Owner decision required** on how to fit it: a larger job budget sized to the measurement above,
+sharding the projects across parallel jobs, or splitting the matrix. Each changes what a single run
+means, so none was chosen here.
+
+---
+
+## 6. Open — needs an owner action
 
 **`TRADEOS_WORKER_SECRET` is not configured as a repository secret**, and no workflow sets it. Two
 tests in spec 45 (D7, the organiser-directed booking notification) assert its presence, so they
@@ -115,7 +158,41 @@ skip, or deleting the tests would each remove certification this gate is suppose
 
 ---
 
-## 6. What was NOT done, deliberately
+## 7. Tripwire — the gate proves BOTH halves
+
+An integration gate has to demonstrate two different things, and repairing the first does not give
+the second:
+
+| # | mutation | result |
+|---|---|---|
+| 1 | the pairing manifest is missing | RED |
+| 2 | FE/BE SHA mismatch is tolerated | RED |
+| 3 | a stale BACKEND is tolerated | RED |
+| 4 | `unpaired:true` is tolerated | RED |
+| 5 | a PRODUCTION origin is accepted | RED |
+| 6 | the frontend may call ANY backend | RED |
+| 7 | **a SECURITY assertion is weakened** (the no-payload check deleted, so a bare `404` would satisfy denial) | RED |
+| 8 | **a T5 invariant is weakened** (capacity assertion negated) | RED |
+| 9 | **a T2 authority assertion is weakened** (`201` relaxed to any 2xx) | RED |
+
+**9 / 9 red.** `scripts/uat/gate-tripwire-matrix.sh`.
+
+Mutations 7–9 are proved by `scripts/ci/assert-gate-assertions-intact.mjs`, which pins the
+load-bearing security, T5 and T2 assertions and runs in seconds. Re-running the suite to prove them
+is not available: it takes ~30 minutes on one viewport and cannot run concurrently with another run
+without rotating its identities out from under it (§8). The pin is deliberately narrow — the handful
+of assertions that carry the invariants, not whole files — so ordinary maintenance stays possible and
+a silent weakening does not. It runs in ordinary CI **and** in the gate itself, before the gate
+spends 35 minutes.
+
+A related strengthening fell out of writing it: the spoofed-reviewer probe accepted `[401, 403, 404]`
+and asserted only `not.toBe(200)`. It now also asserts the refusal carries no profile data — the same
+contract the anonymous probe already held itself to, because **a 404 is never authorization evidence
+on its own.**
+
+---
+
+## 8. What was NOT done, deliberately
 
 Per the remediation constraints, none of the following was used:
 
@@ -136,7 +213,30 @@ went from 2 attempted tests to 15, and spec 45 from 1 passing to 11.
 
 ---
 
-## 7. Also recorded
+## 9. The measurement hazard this remediation surfaced
+
+**This gate cannot be measured while anything else is touching staging.**
+
+It rotates five — now eleven — shared staging identities at the start of every run, and its journeys
+mutate shared staging state. Two things follow, and both were observed:
+
+1. **A local diagnostic run and a CI run cannot coexist.** While CI ran, it rotated the passwords out
+   from under a local run, which failed with `HTTP 401` on login. Runs after that point in the same
+   window are contaminated and must be discarded, not interpreted.
+2. **Failure sets differ between overlapping runs.** The first two cancelled CI runs failed at
+   different points, and a contaminated run showed failures in specs (`32:54`, `33:117`, `37:229`)
+   that pass cleanly in isolation against the same pairing.
+
+So a result is only evidence if it comes from a run that had staging to itself. Every classification
+in §3 was taken from an isolated run for that reason.
+
+The `concurrency:` group already serialises CI runs of this gate per pull request. What is *not*
+guarded is a human or agent running the suite locally at the same time — recorded here because the
+next person to diagnose this gate will otherwise read a contaminated result as a product defect.
+
+---
+
+## 10. Also recorded
 
 - `tests/agents/31` *"public route renders normally"* fails on Mobile Chrome. It fails **identically
   on the stashed baseline**, so it predates this work and is unrelated to it.

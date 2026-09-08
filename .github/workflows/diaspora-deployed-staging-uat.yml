@@ -92,6 +92,9 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      - name: Assert the gate's own product assertions are intact
+        run: node scripts/ci/assert-gate-assertions-intact.mjs
+
       - name: Install Chromium
         run: npx playwright install --with-deps chromium
 
