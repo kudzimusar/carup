@@ -195,6 +195,11 @@ jobs:
         run: |
           node --test backend/tests/ci-staging-shard-aggregate.test.js
 
+      # A database client abandoned on a FAILED connect is how three certification shards died while
+      # the pooler was exhausted — the error path leaked the resource that was already scarce.
+      - name: Staging database clients are released on every path
+        run: node scripts/ci/assert-db-connections-released.mjs
+
       - name: 'Issue #101 P0 hardening behavioural proof (real PostgreSQL via PGlite)'
         run: node database/test/issue101_p0_hardening_check.mjs
 
