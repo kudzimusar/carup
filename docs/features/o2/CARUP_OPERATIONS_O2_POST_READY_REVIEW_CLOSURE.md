@@ -475,6 +475,15 @@ Data snapshot frozen; authority fresh.
 
 ## G-2 → closed at the canonical listing authority
 
+**This changed a pre-existing certified contract, and that is stated rather than slipped through.**
+`backend/tests/vehicle-create-eligibility.test.js` asserted *"admin listing with an explicit real
+owner_id is eligible"* under the heading *"known-limitation coverage"*. The G-round classified that
+limitation as a P1 authority defect, so the test encoded the vulnerability. It now asserts the
+closed contract — a body-supplied `owner_id` or `tenant_id` grants nothing — alongside a new
+positive control proving an admin with a **validated** tenant context still lists through it. CI
+caught this: the H-round's first push was RED on exactly that assertion.
+
+
 `buildVehicleListingCandidate`'s admin/government branch no longer reads `body.owner_id` or
 `body.tenant_id`. Role alone grants no listing subject; the tenant comes only from the
 server-validated context `authorizeRole` established. A conflicting body value is ignored rather

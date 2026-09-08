@@ -161,16 +161,43 @@ test('a stated import_source reaches the candidate verbatim, including a genuine
   assert.equal(getListingEligibility(candidate(ownerCtx, { import_source: 'Local' })).eligible, true);
 });
 
-// admin — orphan rejected / explicit context accepted (known-limitation coverage)
+// admin — a role is not a listing subject.
+//
+// CONTRACT CHANGE (O2 H-round, G-2). The second test here previously asserted that an admin
+// supplying `owner_id` in the REQUEST BODY produced an eligible listing, and its own heading
+// called that "known-limitation coverage". An independent audit classified the limitation as a
+// P1 authority defect: `/api/vehicles/add` performs no membership or ownership check on a
+// body-supplied subject, so role alone let a caller assert a subject they do not control — any
+// user id became a Private Owner listing, any tenant a Dealer one.
+//
+// The canonical rule is now: a client body may not mint owner authority, tenant membership or a
+// seller subject. The subject comes from the server-validated context `authorizeRole`
+// established, and from nowhere else. A conflicting body value is IGNORED rather than rejected,
+// so an over-eager client cannot break an otherwise legitimate submission.
 test('admin listing with no owner/tenant context is rejected (no orphan public listing)', () => {
   const r = reasonsFor(adminCtx, {});
   assert.ok(r.includes('missing_owner_for_private_listing') || r.includes('missing_tenant_for_dealer_listing'));
   assert.equal(getListingEligibility(candidate(adminCtx, {})).eligible, false);
 });
 
-test('admin listing with an explicit real owner_id is eligible', () => {
+test('admin listing CANNOT be made eligible by an owner_id in the request body', () => {
   const c = candidate(adminCtx, { owner_id: 'usr-9001', current_seller_type: 'Private Owner' });
-  assert.equal(c.owner_id, 'usr-9001');
+  assert.equal(c.owner_id, null, 'a body field must never become owner authority');
+  assert.equal(c.current_seller_type, null, 'nor a seller subject');
+  assert.equal(getListingEligibility(c).eligible, false);
+});
+
+test('admin listing CANNOT be made eligible by a tenant_id in the request body either', () => {
+  const c = candidate(adminCtx, { tenant_id: 'f47ac10b-58cc-4372-a567-0e02b2c3d479' });
+  assert.equal(c.tenant_id, null);
+  assert.equal(getListingEligibility(c).eligible, false);
+});
+
+test('an admin holding a VALIDATED tenant context still lists through it — authority, not assertion', () => {
+  const tenant = 'f47ac10b-58cc-4372-a567-0e02b2c3d479';
+  const c = buildVehicleListingCandidate({ body: baseBody, userContext: { role: 'admin', id: 'usr-admin', tenantId: tenant } });
+  assert.equal(c.tenant_id, tenant);
+  assert.equal(c.current_seller_type, 'Dealer');
   assert.equal(getListingEligibility(c).eligible, true);
 });
 
