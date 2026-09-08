@@ -257,10 +257,11 @@ export function assertMarketplaceEligible(vehicle = {}, opts = {}) {
  * status is always 'Available' (creation lists as available) — written by the application on every
  * insert rather than substituted for something a client tried and failed to say.
  */
-export function buildVehicleListingCandidate({ body = {}, userContext = {} } = {}) {
+export function buildVehicleListingCandidate({ body = {}, userContext = {}, dealerListingSubject = null } = {}) {
   const role = norm(userContext.role ?? userContext.effectiveRole);
   const userId = userContext.id ?? userContext.userId ?? null;
-  const ctxTenant = userContext.tenantId ?? null;
+  // The raw `userContext.tenantId` is deliberately NOT read here any more: it is membership, not
+  // selling authority. The dealer branch consumes the resolved subject instead (J-3).
 
   let owner_id = null;
   let tenant_id = null;
@@ -271,9 +272,26 @@ export function buildVehicleListingCandidate({ body = {}, userContext = {} } = {
     tenant_id = null;
     current_seller_type = 'Private Owner';
   } else if (role === 'dealer') {
+    // J-3 — A DEALER ROLE IS NOT A DEALERSHIP, AND MEMBERSHIP IS NOT A DEALERSHIP EITHER.
+    //
+    // This branch used `ctxTenant` directly. `authorizeRole` sets that from `x-tenant-id` on the
+    // existence of ANY `tenant_users` row, and with no `x-stakeholder-role` the effective role is
+    // the platform role — so a platform `dealer` who is a MECHANIC in a Garage was handed
+    // `current_seller_type: 'Dealer'` for that Garage. Measured, not theorised.
+    //
+    // The tenant subject now comes only from `resolveDealerListingSubject`, which requires the
+    // governed `dealer_profiles` binding (user_id + tenant_id) that CarUp already defines. The
+    // I-2 note below closed the same hole one branch down; this is the branch that actually
+    // carried it.
+    //
+    // A caller that does not resolve gets `null` — no subject — rather than an open default.
+    // Publication remains a separate question (`deriveCanPublish`); this decides only WHOSE
+    // private draft it is.
     owner_id = null;
-    tenant_id = ctxTenant;
-    current_seller_type = 'Dealer';
+    tenant_id = dealerListingSubject && dealerListingSubject.granted === true
+      ? (dealerListingSubject.tenantId ?? null)
+      : null;
+    current_seller_type = tenant_id ? 'Dealer' : null;
   } else {
     // I-2 — MEMBERSHIP IS NOT COMMERCE AUTHORITY, AND A CLIENT BODY MINTS NOTHING.
     //

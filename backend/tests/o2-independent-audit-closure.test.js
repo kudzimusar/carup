@@ -26,6 +26,18 @@ import {
 import { withUploadIdempotency } from '../services/evidence/uploadIdempotency.js';
 import { buildVehicleListingCandidate, getListingEligibility } from '../services/marketplace/marketplaceListingEligibility.js';
 
+/**
+ * J-3 — the governed dealership register for this suite. `E3_DEALER` IS the dealer for
+ * `E3_TENANT`; every other (user, tenant) pair resolves to no dealership, so a membership-only
+ * actor still gets no listing subject.
+ */
+const E3_DEALER = '9b1deb4d-3b7d-4bad-9bdd-2b0d7b3dcb6d';
+const E3_TENANT = 'f47ac10b-58cc-4372-a567-0e02b2c3d479';
+const dealershipFor = (userId, tenantId) => (
+  Boolean(tenantId) && userId === E3_DEALER && tenantId === E3_TENANT
+    ? { granted: true, tenantId, dealerProfileId: 'dp-e3', reason: null }
+    : { granted: false, tenantId: null, dealerProfileId: null, reason: 'no_governed_dealer_binding' });
+
 /* ── a client that enforces the real unique index and column types ─────────────────────── */
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -34,6 +46,12 @@ function strictClient(seed = {}) {
     diaspora_workbook_import_batches: seed.batches || [],
     diaspora_workbook_import_rows: seed.rows || [],
     diaspora_workbook_import_receipts: seed.receipts || [],
+    // J-3 — execute now resolves the dealer's tenant from the governed `dealer_profiles` binding
+    // before it revalidates any row, so the fixture must carry the dealership it trades as. Only
+    // this one (user, tenant) pair is bound; `matches` applies BOTH filters, so any other pair
+    // still resolves to no dealership.
+    dealer_profiles: seed.dealerProfiles
+      || [{ id: 'dp-e3', user_id: E3_DEALER, tenant_id: E3_TENANT, suspension_state: 'none' }],
   };
   const matches = (row, filters) => filters.every(({ column, value }) => row[column] === value);
   // H18 — an unknown table answers like real Postgres for a user with no rows: an EMPTY SET,
@@ -116,7 +134,12 @@ function contractDispatch({ memberships = {}, actor = {}, log = [], idempotencyS
     const userContext = { id: actor.id, role: requestedRole || actor.platformRole || 'owner', tenantId: requestedTenant };
 
     if (routePath === '/api/vehicles/add') {
-      const candidate = buildVehicleListingCandidate({ body, userContext });
+      // J-3 — the route resolves the dealer's tenant from the governed `dealer_profiles` binding,
+      // so a dispatcher modelling that route must too. Membership (`memberships` above) gets you
+      // past the tenant gate; only a dealership makes you the seller.
+      const candidate = buildVehicleListingCandidate({
+        body, userContext, dealerListingSubject: dealershipFor(userContext.id, userContext.tenantId),
+      });
       const eligibility = getListingEligibility(candidate);
       log.push({ route: routePath, body, tenant_id: candidate.tenant_id, current_seller_type: candidate.current_seller_type, actorRole: userContext.role, eligible: eligibility.eligible });
       if (!eligibility.eligible) {
@@ -145,7 +168,8 @@ function contractDispatch({ memberships = {}, actor = {}, log = [], idempotencyS
       const id = `ev-${evidenceRows.length + 1}`;
       evidenceRows.push({ id, class: normalized.evidenceClass, subtype: normalized.evidenceSubtype, tenant_id: requestedTenant });
       return { id };
-    }, { store: idempotencyStore });
+      // J-2: the collision domain is (actor, key), exactly as the route now supplies it.
+    }, { store: idempotencyStore, actorId: actor.id });
     // F4c — the ACTUAL outgoing body is recorded, not a hand-picked subset of its keys.
     log.push({ route: routePath, body, mime_type: mimeType, tenant_id: requestedTenant, deduped: outcome.deduped });
     return { status: 201, body: { success: true, evidence_id: outcome.evidenceId, deduped: outcome.deduped } };

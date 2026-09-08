@@ -162,14 +162,46 @@ test('F2.7: a healthy dry run can no longer call a role-forbidden row importable
 });
 
 /* ── F3 ───────────────────────────────────────────────────────────────────────────────── */
+// J-3 — `d1` is the GOVERNED dealer for DEALER_TENANT and nobody else is a dealer anywhere. Both
+// helpers below resolve the dealership the same way the deployed paths do, so the F-round's
+// assertions keep testing WHO MAY SELL rather than what a role string says.
+const DEALER_TENANT = 'f47ac10b-58cc-4372-a567-0e02b2c3d479';
+// The governed dealership register for this suite: these users ARE the dealer for that tenant.
+const GOVERNED_DEALERS = new Map([
+  ['d1', DEALER_TENANT],
+  ['9b1deb4d-3b7d-4bad-9bdd-2b0d7b3dcb6d', DEALER_TENANT],
+]);
+const isGovernedDealer = (userId, tenantId) => Boolean(tenantId) && GOVERNED_DEALERS.get(userId) === tenantId;
+const dealershipDb = {
+  from: (table) => ({
+    select: () => {
+      const f = {};
+      const chain = {
+        eq(k, v) { f[k] = v; return chain; },
+        async maybeSingle() {
+          if (table !== 'dealer_profiles') return { data: null, error: null };
+          return {
+            data: isGovernedDealer(f.user_id, f.tenant_id)
+              ? { id: 'dp-1', tenant_id: DEALER_TENANT, suspension_state: 'none' } : null,
+            error: null,
+          };
+        },
+      };
+      return chain;
+    },
+  }),
+};
 const listingFor = (userContext) => {
   const candidate = buildVehicleListingCandidate({
     body: { vin: VIN, make: 'Toyota', model: 'Hilux', year: 2019, price: 15000, currency: 'USD', mileage: 90000, city: 'Harare', description: 'A well maintained vehicle.' },
     userContext,
+    dealerListingSubject: isGovernedDealer(userContext.id, userContext.tenantId)
+      ? { granted: true, tenantId: userContext.tenantId, dealerProfileId: 'dp-1', reason: null }
+      : null,
   });
   return { candidate, eligibility: getListingEligibility(candidate) };
 };
-const catalogueFor = (actor) => resolveWorkbookCatalogue(actor, { supabaseClient: { from: () => ({ select: () => ({ eq: () => ({ maybeSingle: async () => ({ data: null, error: null }) }) }) }) } });
+const catalogueFor = (actor) => resolveWorkbookCatalogue(actor, { supabaseClient: dealershipDb });
 
 test('F3 REPRODUCTION: an ordinary Admin has no listing subject, so no valid draft is possible', () => {
   const { candidate, eligibility } = listingFor({ id: '7c9e6679-7425-40de-944b-e07fc1f90ae7', role: 'admin', tenantId: null });

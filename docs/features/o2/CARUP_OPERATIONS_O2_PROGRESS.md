@@ -370,3 +370,16 @@ closed. **`75dd17fd` is historical.**
 ## M8 tripwires log (fill only if triggered, with evidence, BEFORE building)
 
 - (none)
+
+## Round 7 — J-round closure (candidate `9014cca0` → J head)
+
+- [x] R7.1 J-1 **P1** the deployed writer's `new DatabaseError(message)` destroyed the native 23505, so the race loser got a 500 instead of the winner's id — the I-round proof only passed because its writer threw the RAW error. Closed with `toDatabaseError` (non-enumerable `cause`; public error byte-identical). Closing it exposed a SECOND bug: the guard's `code || cause.code` short-circuited on the truthy `'DATABASE_ERROR'`. Both fixed. 1 mutation red
+- [x] R7.2 J-2 **P1** a CLIENT-supplied key was globally unique: measured, a second actor's identical key returned the FIRST actor's evidence id and VIN, and 3 legitimate uploads collapsed to 1 row. Index corrected to `(uploaded_by, idempotency_key)` — CarUp's own convention, which the migration cited and then did not follow. Cross-resource reuse is now an explicit 409, never a silent dedupe. 1 mutation red
+- [x] R7.3 J-3 **P1** the `dealer` branch took `ctxTenant` unconditionally, so a platform dealer with a MECHANIC membership in a Garage minted `seller_type=Dealer` for that Garage — I-2 closed the else-branch and missed the branch that carried it. Closed via `resolveDealerListingSubject` over the EXISTING `dealer_profiles(user_id, tenant_id)` binding. No Dealer activation invented. 1 mutation red
+- [x] R7.4 J-3 honest boundary recorded: **no product path writes `dealer_profiles.tenant_id`**, so on current data NO dealer has a listing subject — fail-closed, and consistent with O2's documented activation gap
+- [x] R7.5 J-4 catalogue now consumes the SAME resolved subject instead of the role string, so it cannot advertise an import execute is certain to refuse. 1 mutation red
+- [x] R7.6 J-5 authority proven ACROSS the real Express router boundary (10 cases incl. forged tenant, forged x-user-id, withdrawn dealership); the double refuses an under-scoped dealership query
+- [x] R7.7 J-6 PR body corrected from the stale `15 success · 4 skipped · 0 failure` to the measured exact-head result
+- [x] R7.8 stale `uploadIdempotency.js` header rewritten to the actual architecture + migration gate; a stray `0x00` byte from the I-round found and removed; all touched files scanned
+- [x] R7.9 **Migration still applied NOWHERE**; corrected on the branch BECAUSE it is unapplied. Deployed concurrent idempotency remains UNCERTIFIED until a separate governed apply + verification
+- [x] R7.10 Superseded assertions in the C–I suites were UPDATED to the new contract, never deleted; each still tests who may sell / what dedupes

@@ -1069,6 +1069,8 @@ test('the new columns are declared to the read paths but kept out of the public 
 const WRITE_VIN = '1HGBH41JXMN109186';
 const OWNER_ID = 'usr-1001';
 const DEALER_ID = 'usr-2002';
+// Same platform role, same real tenant membership — but no governed dealership binding (J-3).
+const OTHER_DEALER_ID = 'usr-3003';
 const REAL_TENANT_ID = 'a1b2c3d4-1111-2222-3333-444455556666';
 
 /** The minimum a submission needs to reach the insert; each test overrides what it is about. */
@@ -1103,6 +1105,14 @@ describe('POST /api/vehicles/add — what a submitted fact is allowed to become'
     if (op.table === 'users') return { data: { role: callerRole, is_verified: true }, error: null };
     // A tenant membership for the dealer case; authorizeRole 403s without one.
     if (op.table === 'tenant_users') return { data: { role: callerRole }, error: null };
+    // J-3 — membership alone is no longer a listing subject. `/api/vehicles/add` resolves the
+    // dealer's tenant from the governed `dealer_profiles(user_id, tenant_id)` binding, so the
+    // dealer fixture needs the dealership it is meant to be trading as. Scoped to exactly that
+    // pair: any other user or tenant still resolves to no dealership.
+    if (op.table === 'dealer_profiles') {
+      const bound = op.filters.user_id === DEALER_ID && op.filters.tenant_id === REAL_TENANT_ID;
+      return { data: bound ? { id: 'dp-seller-loc', tenant_id: REAL_TENANT_ID, suspension_state: 'none' } : null, error: null };
+    }
     if (op.table === 'vehicles') {
       if (op.action === 'insert') {
         const row = Array.isArray(op.payload) ? op.payload[0] : op.payload;
@@ -1420,6 +1430,26 @@ describe('POST /api/vehicles/add — what a submitted fact is allowed to become'
     // A source records WHO said it, never how much we believe it — strength of evidence is the
     // Trust contract's business and is not restated by the provenance vocabulary.
     assert.ok(CLAIM_SOURCES.includes(row.listing_location_source));
+  });
+
+  // J-3 — THE ROUTE-LEVEL PROOF THAT MEMBERSHIP IS NOT A DEALERSHIP.
+  //
+  // This is the same real `/api/vehicles/add` handler the case above drives, with everything
+  // identical except the one fact under test: `OTHER_DEALER_ID` holds a genuine `tenant_users`
+  // membership in `REAL_TENANT_ID` (so `authorizeRole` admits the header and does NOT 403) but has
+  // no `dealer_profiles` row binding them to it. Before J-3 that actor was handed
+  // `current_seller_type: 'Dealer'` for a tenant that never authorised them to sell.
+  it('a dealer with membership but NO governed dealership is refused at the route', async () => {
+    callerRole = 'dealer';
+    const { status, body } = await submit(
+      { location: 'Harare', registration_country: 'ZW' },
+      { userId: OTHER_DEALER_ID, tenantId: REAL_TENANT_ID },
+    );
+    assert.notEqual(status, 403, 'the tenant header is valid — this is not a membership failure');
+    assert.equal(status, 400, JSON.stringify(body));
+    assert.match(JSON.stringify(body), /unknown_seller_type|missing_owner_for_private_listing/,
+      'the refusal is "you have no listing subject", not something incidental');
+    assert.equal(store.vehicles.length, 0, 'and nothing was written');
   });
 
   // -- the unapplied migration degrades honestly, and a real violation still surfaces -------------

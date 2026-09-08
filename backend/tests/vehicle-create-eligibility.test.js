@@ -12,11 +12,17 @@ import { vehicleYearBounds } from '../services/taxonomy/vehicleTaxonomyService.j
 
 const VIN = '1HGBH41JXMN109186'; // valid 17-char VIN (no I/O/Q)
 const ownerCtx = { role: 'owner', id: 'usr-1001', userId: 'usr-1001', tenantId: null };
-const dealerCtx = { role: 'dealer', id: 'usr-2002', tenantId: 'a1b2c3d4-1111-2222-3333-444455556666' };
+const DEALER_TENANT = 'a1b2c3d4-1111-2222-3333-444455556666';
+const dealerCtx = { role: 'dealer', id: 'usr-2002', tenantId: DEALER_TENANT };
+// J-3 — the dealer's tenant subject now comes from the GOVERNED `dealer_profiles` binding that
+// `resolveDealerListingSubject` returns, not from the `x-tenant-id` header. This fixture is what a
+// genuine dealership resolves to; the assertions below are unchanged in substance.
+const grantedDealership = { granted: true, tenantId: DEALER_TENANT, dealerProfileId: 'dp-1', reason: null };
 const adminCtx = { role: 'admin', id: 'usr-admin', tenantId: null };
 const baseBody = { vin: VIN, make: 'Toyota', model: 'Hilux', year: 2021, price: 25000, registration_country: 'ZW' };
 
-const candidate = (userContext, body = {}) => buildVehicleListingCandidate({ body: { ...baseBody, ...body }, userContext });
+const candidate = (userContext, body = {}, dealerListingSubject = userContext === dealerCtx ? grantedDealership : null) =>
+  buildVehicleListingCandidate({ body: { ...baseBody, ...body }, userContext, dealerListingSubject });
 const reasonsFor = (userContext, body = {}) => getListingEligibility(candidate(userContext, body)).reasons;
 
 // 1
@@ -110,7 +116,21 @@ test('a stated registration_country reaches the candidate verbatim', () => {
 
 // 14 / 15 — ownership mapping
 test('owner listing sets vehicles.owner_id from auth context', () => assert.equal(candidate(ownerCtx).owner_id, 'usr-1001'));
-test('dealer listing sets tenant_id from auth context', () => assert.equal(candidate(dealerCtx).tenant_id, dealerCtx.tenantId));
+test('dealer listing sets tenant_id from the GOVERNED dealership, not the header', () => assert.equal(candidate(dealerCtx).tenant_id, DEALER_TENANT));
+
+// J-3 — the header proves membership; only the dealership proves selling authority.
+test('a dealer with only generic tenant MEMBERSHIP gets no listing subject at all', () => {
+  const c = candidate({ role: 'dealer', id: 'usr-3003', tenantId: 'tenant-garage-1' }, {}, null);
+  assert.equal(c.tenant_id, null);
+  assert.equal(c.current_seller_type, null);
+  assert.equal(getListingEligibility(c).eligible, false);
+});
+
+test('a WITHDRAWN dealership yields no subject even with the right tenant header', () => {
+  const c = candidate(dealerCtx, {}, { granted: false, tenantId: null, dealerProfileId: null, reason: 'dealer_authority_withdrawn' });
+  assert.equal(c.tenant_id, null);
+  assert.equal(c.current_seller_type, null);
+});
 
 // 16 — stable reason codes in error result
 test('eligibility result exposes stable reason codes', () => {
@@ -207,9 +227,13 @@ test('an admin with a validated tenant context does NOT become a Dealer seller',
   assert.equal(getListingEligibility(c).eligible, false);
 });
 
-test('a genuine DEALER effective role still lists through its validated tenant', () => {
+test('a genuine DEALER effective role still lists through its governed dealership', () => {
   const tenant = 'f47ac10b-58cc-4372-a567-0e02b2c3d479';
-  const c = buildVehicleListingCandidate({ body: baseBody, userContext: { role: 'dealer', id: 'usr-dealer', tenantId: tenant } });
+  const c = buildVehicleListingCandidate({
+    body: baseBody,
+    userContext: { role: 'dealer', id: 'usr-dealer', tenantId: tenant },
+    dealerListingSubject: { granted: true, tenantId: tenant, dealerProfileId: 'dp-x', reason: null },
+  });
   assert.equal(c.tenant_id, tenant);
   assert.equal(c.current_seller_type, 'Dealer');
   assert.equal(getListingEligibility(c).eligible, true);
@@ -217,7 +241,14 @@ test('a genuine DEALER effective role still lists through its validated tenant',
 
 // dealer against the only-seeded (default) tenant is correctly blocked until a real tenant exists
 test('dealer with the default/seed tenant is rejected (real tenant required)', () => {
-  const c = buildVehicleListingCandidate({ body: baseBody, userContext: { role: 'dealer', id: 'u9', tenantId: '00000000-0000-0000-0000-000000000001' } });
+  const seed = '00000000-0000-0000-0000-000000000001';
+  // Even a GOVERNED binding to the seed tenant stays ineligible: the fixture gate is independent
+  // of the authority gate, and both must hold.
+  const c = buildVehicleListingCandidate({
+    body: baseBody,
+    userContext: { role: 'dealer', id: 'u9', tenantId: seed },
+    dealerListingSubject: { granted: true, tenantId: seed, dealerProfileId: 'dp-seed', reason: null },
+  });
   assert.ok(getListingEligibility(c).reasons.includes('seed_tenant_id'));
 });
 

@@ -630,3 +630,139 @@ history of the mistake stays legible.
 `20260908120000_vehicle_evidence_upload_idempotency.sql` is **applied nowhere**. Until it is
 applied under separate governance, the running system has only the sequential guarantee. **No
 receipt may claim deployed concurrency safety**, and none does.
+
+---
+
+# Round 7 — the J-round
+
+Six findings against `9014cca0`. Each was reproduced against the running code before anything was
+changed; the reproduction output is quoted where it is the point.
+
+## J-1 — the real writer destroyed the 23505 before the guard could see it
+
+The I-round's concurrency proof used a test writer that threw the **raw driver error**. The
+deployed writer does not: it ended in `throw new DatabaseError(insertError.message)`, and
+`DatabaseError` sets `.code = 'DATABASE_ERROR'` and carries no constraint. Reproduced through the
+canonical translation on real PostgreSQL:
+
+```
+ok       -> ev-1 deduped=false
+REJECTED -> DATABASE_ERROR / HTTP 500 :: duplicate key value violates unique constraint "uq_vehicle_e…
+isIdempotencyUniqueViolation(DatabaseError) = false
+```
+
+The loser of a genuine race got a **500**. The index was doing its job; the application threw the
+evidence away.
+
+Closed with `toDatabaseError`, which raises the same public error — same message, same status, same
+serialized body — while preserving the driver's `code` and `constraint` on a **non-enumerable**
+`cause`. Nothing new is exposed to a client.
+
+Closing it surfaced a **second** defect in the guard itself: `error?.code || error?.cause?.code`
+short-circuits on the wrapper's own truthy `'DATABASE_ERROR'` and never reads the native code. Both
+levels are now read. The J suite caught this — it was not visible by inspection.
+
+The load-bearing test drives the same propagation shape as `insertEvidenceFromRequest`: two real
+concurrent writes, one row, one dedupe, both callers on the same id, neither a 500 — and an
+unrelated 23505 (a second unique index), an FK violation and a CHECK violation all still propagate
+as ordinary database errors.
+
+## J-2 — a client-supplied key in a global namespace
+
+The migration constrained `(idempotency_key)` alone while the endpoint accepts a **client-supplied**
+key. Reproduced on real PostgreSQL:
+
+```
+same actor, VIN-B with VIN-A's key -> id=ev-101 deduped=true vin=VIN-A
+DIFFERENT actor, same raw key      -> id=ev-101 deduped=true vin=VIN-A
+rows created for 3 distinct legitimate uploads = 1
+```
+
+So one actor's raw string suppressed another's upload **and handed back that other actor's evidence
+id and VIN**.
+
+The migration cited `diaspora_stock_ledger` as its precedent and then failed to follow it. CarUp's
+convention for a client-supplied key is already scoped everywhere it appears —
+`diaspora_stock_ledger (stock_item_id, idempotency_key)`, `diaspora_workbook_import_batches
+(tenant_id, uploaded_by, idempotency_key)`, `diaspora_usage_reservation (tenant_id, feature_key,
+idempotency_key)`. The index is now **`(uploaded_by, idempotency_key)`**, and the contract is:
+
+| | |
+|---|---|
+| same actor · same key · same VIN | dedupe |
+| same actor · same key · **different** VIN | **409 conflict**, never a silent cross-resource return |
+| different actor · same raw key | independent namespace — no suppression, no leak |
+| key with no actor to scope it to | fail **open** (a duplicate is a lesser harm than suppressing someone else's upload) |
+
+The in-memory fast path is scoped identically, so it cannot collapse two actors either. Metadata
+remains a compatibility mirror for the historical corpus and is **also** actor-scoped on read.
+
+## J-3 — a dealer role plus generic membership minted Dealer authority
+
+`authorizeRole` sets `userContext.tenantId` from `x-tenant-id` on the existence of **any**
+`tenant_users` row, and with no `x-stakeholder-role` the effective role is the platform role. So:
+
+```
+platform dealer + MECHANIC membership in a Garage
+  -> seller_type=Dealer  tenant_id=tenant-garage-1
+```
+
+The I-2 comment names this hazard for the `else` branch and closed it there. The `dealer` branch —
+one line above — still took `ctxTenant` unconditionally. I-2 was not closed.
+
+**The authority already existed and was not invented.** `dealer_profiles` carries both `user_id` and
+`tenant_id`, is indexed on the tenant, is queried by tenant, and its own service states the
+contract: tenant binding *"is derived server-side from a governed organization relationship or stays
+null until one exists"* — which is why X5 deliberately excluded `tenant_id` from the client-editable
+fields. `resolveDealerListingSubject` reads exactly that binding.
+
+Two questions are kept apart: **who the seller is** (this module) and **whether the draft may be
+published** (`deriveCanPublish`, untouched). Publication compliance is not required to own a private
+draft. Withdrawal *is* a subject question, so a suspended dealership yields no subject.
+
+**HONEST BOUNDARY — no product path writes `dealer_profiles.tenant_id` today.** On current data this
+resolver therefore grants **no dealer** a listing subject. That is the correct fail-closed answer and
+it matches O2's already-documented boundary that no governed path converts an approved applicant
+into an active Dealer. Dealer activation is **not** invented here.
+
+`/api/vehicles/add` and workbook execute resolve the identical subject through the identical
+function, so the two mutation surfaces cannot drift. Execute re-resolves at execute time, so a
+dealership withdrawn after the dry run cannot still import.
+
+## J-4 — the catalogue advertised what execute would refuse
+
+`hasListingSubject = role === 'owner' || role === 'dealer'` promised "drafts under your own listing
+authority" to a dealer with no tenant and to a dealer whose only tenant was an unrelated Garage —
+for both of whom execute now deterministically refuses. The catalogue consumes the **same** resolved
+subject rather than forming a third opinion, and a dealer without a dealership is told why in the
+words of their actual situation.
+
+## J-5 — the route-level proof
+
+The I-round invoked `authorizeRole()` by hand and then called the candidate helper. That shows the
+pieces agree; it does not show the request path uses them. J-5 drives real HTTP into the real
+router, through the real middleware, into the real service:
+Owner · governed dealership · dealer with no tenant · dealer with a mechanic membership · foreign
+tenant · forged tenant · admin with generic membership · forged `x-user-id` · a role-escalation
+attempt · a withdrawn dealership. The database double **refuses** a dealership query that is not
+scoped by both `user_id` and `tenant_id`, so a weaker resolver fails there rather than passing.
+
+## J-6 — CI truth
+
+The PR body claimed `15 success · 4 skipped · 0 failure`. That was stale. It now states the measured
+result, including any red staging check and its diagnosis from **this** head.
+
+## Certification-integrity cleanup
+
+`uploadIdempotency.js`'s header had described "no migration required", metadata as the durable
+authority, and a unique index as a future recommendation — for three rounds after that design was
+replaced. It now describes the actual architecture and its migration gate. A stray `0x00` byte,
+introduced in the I-round and invisible in review, was found in that file (it made `grep` treat the
+source as binary) and removed; every file this round touched was scanned for control bytes.
+
+## Migration gate — unchanged
+
+`20260908120000_vehicle_evidence_upload_idempotency.sql` is **applied nowhere** — not staging, not
+production — and its unique contract was corrected on the branch precisely because it is unapplied.
+**Deployed concurrent idempotency is NOT certified** until the corrected migration is separately
+applied and verified on staging.

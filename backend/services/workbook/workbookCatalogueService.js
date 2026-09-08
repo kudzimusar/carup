@@ -20,6 +20,7 @@ import {
   VEHICLE_WORKBOOK_SCHEMA_VERSION,
 } from '../../constants/workbook/workbookFieldRegistry.js';
 import { XLSX_SCHEMA_VERSION } from '../../constants/diaspora/diasporaWorkbookTemplates.js';
+import { resolveDealerListingSubject } from '../dealer/dealerListingAuthority.js';
 
 export const WORKBOOK_ACTIONS = Object.freeze(['template', 'export', 'import', 'recent_imports']);
 
@@ -114,7 +115,22 @@ export async function resolveWorkbookCatalogue(actor = {}, options = {}) {
   // assumption that membership conferred Dealer selling authority. It does not: see
   // buildVehicleListingCandidate. Only an owner (their own subject) or a governed dealer role
   // (its validated tenant) has one.
-  const hasListingSubject = role === 'owner' || role === 'dealer';
+  // J-4 — THE CATALOGUE CONSUMES THE CANONICAL SUBJECT, IT DOES NOT RE-DERIVE ONE.
+  //
+  // `role === 'dealer'` advertised "drafts under your own listing authority" to a dealer with no
+  // tenant at all, and to a dealer whose only tenant was an unrelated Garage membership — for both
+  // of whom execute deterministically refuses, because `buildVehicleListingCandidate` now requires
+  // a governed dealership. Offering an action the mutation path is certain to reject is a promise
+  // the product cannot keep.
+  //
+  // The gate is therefore the SUBJECT — resolved through the same function `/api/vehicles/add` and
+  // workbook execute call — rather than a third opinion about what a role means. Template download
+  // and the dry run remain reachable for an applicant elsewhere in this catalogue; what must not be
+  // claimed is an executable Dealer listing authority they do not hold.
+  const dealerListingSubject = await resolveDealerListingSubject(client, {
+    role, userId, tenantId: actor.tenantId ?? actor.tenant_id ?? null,
+  });
+  const hasListingSubject = role === 'owner' || dealerListingSubject.granted === true;
   if (hasListingSubject) {
     available.push({
       template_key: VEHICLE_TEMPLATE_KEYS.SELLER_VEHICLES,
@@ -129,9 +145,11 @@ export async function resolveWorkbookCatalogue(actor = {}, options = {}) {
     unavailable.push({
       template_key: VEHICLE_TEMPLATE_KEYS.SELLER_VEHICLES,
       reason: UNAVAILABLE_REASONS.NO_LISTING_SUBJECT,
-      note: ['admin', 'government'].includes(role)
-        ? 'A vehicle listing is created under a seller — an owner account or a dealer organisation. This account holds neither, so an import would have no listing subject. Listing on behalf of someone else is not a workbook action.'
-        : 'Available to accounts that can list vehicles.',
+      note: role === 'dealer'
+        ? 'A dealer imports under a dealership. This account is not yet linked to a dealer organisation on CarUp, so an import would have no seller to create the drafts under. Preparing a workbook is still available; importing is not.'
+        : ['admin', 'government'].includes(role)
+          ? 'A vehicle listing is created under a seller — an owner account or a dealer organisation. This account holds neither, so an import would have no listing subject. Listing on behalf of someone else is not a workbook action.'
+          : 'Available to accounts that can list vehicles.',
     });
   }
 

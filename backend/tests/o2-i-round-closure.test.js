@@ -13,6 +13,7 @@ import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import {
   withUploadIdempotency,
+  idempotencyScopeKey,
   isIdempotencyUniqueViolation,
   isUndefinedColumnError,
   IDEMPOTENCY_CONSTRAINT,
@@ -58,20 +59,30 @@ function applyWriter(db, { withColumn = true } = {}) {
   };
 }
 
-/** A supabase double whose reads go to the REAL database. */
+/**
+ * A supabase double whose reads go to the REAL database.
+ * J-2: the lookup is ACTOR-scoped, so this double applies that filter too — a double that ignored
+ * it would let an unscoped (cross-actor leaking) lookup pass as though it were correct.
+ */
+const ACTOR = 'u1'; // the uploader `applyWriter` records on every row
 const supabaseOver = (db) => ({
   from: () => ({
-    select: () => ({
-      or: (filter) => ({
-        limit: async () => {
-          const key = String(filter).match(/idempotency_key\.eq\.([^,]+)/)?.[1];
+    select: () => {
+      const state = { actorId: undefined, key: null };
+      const chain = {
+        eq(col, value) { if (col === 'uploaded_by') state.actorId = value; return chain; },
+        or(filter) { state.key = String(filter).match(/idempotency_key\.eq\.([^,]+)/)?.[1] ?? null; return chain; },
+        async limit() {
+          if (state.actorId === undefined) return { data: null, error: { message: 'lookup was not actor-scoped' } };
           const { rows } = await db.query(
-            `SELECT id, vin, metadata, idempotency_key FROM vehicle_evidence
-              WHERE idempotency_key = $1 OR metadata->>'idempotency_key' = $1 LIMIT 1;`, [key]);
+            `SELECT id, vin, uploaded_by, metadata, idempotency_key FROM vehicle_evidence
+              WHERE uploaded_by = $2 AND (idempotency_key = $1 OR metadata->>'idempotency_key' = $1) LIMIT 1;`,
+            [state.key, state.actorId]);
           return { data: rows, error: null };
         },
-      }),
-    }),
+      };
+      return chain;
+    },
   }),
 });
 
@@ -93,8 +104,8 @@ test('I-1 (4,5): two CONCURRENT same-key writes leave ONE row, and both callers 
   // A genuine race: both callers miss the lookup, both attempt the insert, PostgreSQL decides.
   const create = () => write({ vin: 'VIN-A', key: 'wb:b1:1:0' });
   const [a, b] = await Promise.all([
-    withUploadIdempotency('wb:b1:1:0', 'VIN-A', create, { store, supabase }),
-    withUploadIdempotency('wb:b1:1:0', 'VIN-A', create, { store, supabase }),
+    withUploadIdempotency('wb:b1:1:0', 'VIN-A', create, { store, supabase, actorId: ACTOR }),
+    withUploadIdempotency('wb:b1:1:0', 'VIN-A', create, { store, supabase, actorId: ACTOR }),
   ]);
   const { rows } = await db.query(`SELECT count(*)::int c FROM vehicle_evidence WHERE idempotency_key='wb:b1:1:0';`);
   assert.equal(rows[0].c, 1, 'the database refused the loser — exactly one persistent evidence row');
@@ -108,7 +119,7 @@ test('I-1 (6,7): different keys make different rows; the collision domain suppre
   const write = applyWriter(db);
   const supabase = supabaseOver(db);
   const store = new Map();
-  const mk = (key, vin) => withUploadIdempotency(key, vin, () => write({ vin, key }), { store, supabase });
+  const mk = (key, vin) => withUploadIdempotency(key, vin, () => write({ vin, key }), { store, supabase, actorId: ACTOR });
   await mk('wb:b1:1:0', 'VIN-A');   // first evidence item on row 1
   await mk('wb:b1:1:1', 'VIN-A');   // second item on the SAME row — a distinct legitimate upload
   await mk('wb:b1:2:0', 'VIN-B');   // a different workbook row / VIN
@@ -128,7 +139,7 @@ test('I-1 (8,9): an unrelated 23505, and FK/RLS/validation failures, are NOT swa
     () => withUploadIdempotency('wb:x:1:0', 'VIN-A', async () => {
       const { rows } = await db.query(`INSERT INTO vehicle_evidence (id, vin) VALUES ('fixed-id','VIN-A') RETURNING id;`);
       return rows[0];
-    }, { store, supabase }),
+    }, { store, supabase, actorId: ACTOR }),
     (error) => { assert.equal(error.code, '23505'); assert.match(String(error.constraint || error.message), /pkey/); return true; },
     'a primary-key violation must propagate, never become a silent dedupe',
   );
@@ -139,7 +150,7 @@ test('I-1 (8,9): an unrelated 23505, and FK/RLS/validation failures, are NOT swa
   ]) {
     await assert.rejects(
       () => withUploadIdempotency('wb:y:1:0', 'VIN-A', async () => { throw Object.assign(new Error(other.message), { code: other.code }); },
-        { store: new Map(), supabase }),
+        { store: new Map(), supabase, actorId: ACTOR }),
       (e) => { assert.equal(e.code, other.code); return true; },
     );
   }
@@ -175,10 +186,10 @@ test('I-1 (10): a failure BEFORE the insert claims no key, so the retry still cr
   const supabase = supabaseOver(db);
   const store = new Map();
   await assert.rejects(() => withUploadIdempotency('wb:b3:1:0', 'VIN-A',
-    async () => { throw new Error('object storage unavailable'); }, { store, supabase }));
-  assert.equal(store.has('wb:b3:1:0'), false, 'a failed attempt must not claim the key');
+    async () => { throw new Error('object storage unavailable'); }, { store, supabase, actorId: ACTOR }));
+  assert.equal(store.has(idempotencyScopeKey(ACTOR, 'wb:b3:1:0')), false, 'a failed attempt must not claim the key');
   const after = await withUploadIdempotency('wb:b3:1:0', 'VIN-A',
-    () => applyWriter(db)({ vin: 'VIN-A', key: 'wb:b3:1:0' }), { store, supabase });
+    () => applyWriter(db)({ vin: 'VIN-A', key: 'wb:b3:1:0' }), { store, supabase, actorId: ACTOR });
   assert.equal(after.deduped, false);
   const { rows } = await db.query(`SELECT count(*)::int c FROM vehicle_evidence WHERE idempotency_key='wb:b3:1:0';`);
   assert.equal(rows[0].c, 1);
@@ -189,9 +200,9 @@ test('I-1: after a restart (cold cache) the DURABLE lookup still dedupes', async
   const db = await evidenceDb();
   const supabase = supabaseOver(db);
   await withUploadIdempotency('wb:b4:1:0', 'VIN-A', () => applyWriter(db)({ vin: 'VIN-A', key: 'wb:b4:1:0' }),
-    { store: new Map(), supabase });
+    { store: new Map(), supabase, actorId: ACTOR });
   const afterRestart = await withUploadIdempotency('wb:b4:1:0', 'VIN-A',
-    async () => { throw new Error('must not be called'); }, { store: new Map(), supabase });
+    async () => { throw new Error('must not be called'); }, { store: new Map(), supabase, actorId: ACTOR });
   assert.equal(afterRestart.deduped, true, 'the durable lookup, not the process cache, settles it');
   await db.close();
 });
@@ -201,8 +212,13 @@ const OWNER_ID = '7c9e6679-7425-40de-944b-e07fc1f90ae7';
 const TENANT_A = 'f47ac10b-58cc-4372-a567-0e02b2c3d479';
 const TENANT_B = '22222222-3333-4444-8555-666666666666';
 const body = { vin: 'JTMHY7AJ2K4012345', make: 'Toyota', model: 'Hilux', year: 2019, price: 15000, currency: 'USD', mileage: 90000, city: 'Harare', description: 'A well maintained vehicle.' };
-const subject = (extra, userContext) => {
-  const c = buildVehicleListingCandidate({ body: { ...body, ...extra }, userContext });
+// J-3 — a dealer's tenant subject now comes from the governed `dealer_profiles` binding that
+// `resolveDealerListingSubject` returns. Passing it explicitly keeps these I-2 assertions about
+// what they were always about (who may be the seller) while telling the truth about where the
+// tenant comes from.
+const grantedFor = (tenantId) => ({ granted: true, tenantId, dealerProfileId: 'dp-i2', reason: null });
+const subject = (extra, userContext, dealerListingSubject = null) => {
+  const c = buildVehicleListingCandidate({ body: { ...body, ...extra }, userContext, dealerListingSubject });
   return { owner: c.owner_id, tenant: c.tenant_id, type: c.current_seller_type, eligible: getListingEligibility(c).eligible };
 };
 const refused = { owner: null, tenant: null, type: null, eligible: false };
@@ -213,13 +229,16 @@ test('I-2 (1): Owner still lists their own vehicle under Owner authority', () =>
 });
 
 test('I-2 (2,3,4): a genuine Dealer lists for its validated tenant, and only that one', () => {
-  assert.deepEqual(subject({}, { id: 'd1', role: 'dealer', tenantId: TENANT_A }),
+  assert.deepEqual(subject({}, { id: 'd1', role: 'dealer', tenantId: TENANT_A }, grantedFor(TENANT_A)),
     { owner: null, tenant: TENANT_A, type: 'Dealer', eligible: true });
+  // J-3: the SAME dealer, same header, but no governed dealership → no subject at all.
+  assert.deepEqual(subject({}, { id: 'd1', role: 'dealer', tenantId: TENANT_A }), refused,
+    'a validated tenant header is membership, not selling authority');
   // revoked / absent membership: authorizeRole leaves tenantId null, so there is no subject
   assert.equal(subject({}, { id: 'd1', role: 'dealer', tenantId: null }).eligible, false);
   // a foreign tenant never reaches here — authorizeRole 403s on the header — and the BODY cannot
   // substitute for it either.
-  assert.equal(subject({ tenant_id: TENANT_B }, { id: 'd1', role: 'dealer', tenantId: TENANT_A }).tenant, TENANT_A);
+  assert.equal(subject({ tenant_id: TENANT_B }, { id: 'd1', role: 'dealer', tenantId: TENANT_A }, grantedFor(TENANT_A)).tenant, TENANT_A);
 });
 
 test('I-2 (5,6,7,8): an Admin is NOT a Dealer — with no tenant, or with ANY tenant membership', () => {
@@ -248,8 +267,29 @@ test('I-2 (13): an asserted x-user-id is not authority — the subject comes fro
 });
 
 test('I-2 (14): the catalogue mirrors the canonical subject exactly — no role-only offer', async () => {
-  const stub = { supabaseClient: { from: () => ({ select: () => ({ eq: () => ({ maybeSingle: async () => ({ data: null, error: null }), then: (r) => Promise.resolve({ data: [], error: null }).then(r) }) }) }) } };
-  const offered = async (actor) => (await resolveWorkbookCatalogue(actor, stub)).available.some((t) => t.template_key === 'seller_vehicles');
+  // The catalogue now consumes the governed dealership (J-4), so the double must model one:
+  // `d1` IS the dealer for TENANT_A; nobody else is a dealer anywhere.
+  const stub = (userId, tenantId) => ({
+    supabaseClient: {
+      from: (table) => ({
+        select: () => {
+          const f = {};
+          const chain = {
+            eq(k, v) { f[k] = v; return chain; },
+            async maybeSingle() {
+              if (table !== 'dealer_profiles') return { data: null, error: null };
+              const hit = f.user_id === 'd1' && f.tenant_id === TENANT_A;
+              return { data: hit ? { id: 'dp-1', tenant_id: TENANT_A, suspension_state: 'none' } : null, error: null };
+            },
+            then: (r) => Promise.resolve({ data: [], error: null }).then(r),
+          };
+          return chain;
+        },
+      }),
+    },
+  });
+  const offered = async (actor) => (await resolveWorkbookCatalogue(actor, stub(actor.id, actor.tenantId)))
+    .available.some((t) => t.template_key === 'seller_vehicles');
   assert.equal(await offered({ id: 'o1', role: 'owner' }), true);
   assert.equal(await offered({ id: 'd1', role: 'dealer', tenantId: TENANT_A }), true);
   assert.equal(await offered({ id: 'a1', role: 'admin', tenantId: TENANT_A }), false, 'the H-round offered this; I-2 removes it');
@@ -258,10 +298,16 @@ test('I-2 (14): the catalogue mirrors the canonical subject exactly — no role-
 
 test('I-2 (15): no Dealer capability, compliance state or activation is fabricated', () => {
   const source = readFileSync(fileURLToPath(new URL('../services/marketplace/marketplaceListingEligibility.js', import.meta.url)), 'utf8');
-  for (const invented of ['dealer_profiles', 'compliance_review_state', 'activateDealer', 'grantDealer', 'dealer_capability']) {
-    assert.equal(source.includes(invented), false,
+  // Comments explain WHY the authority lives elsewhere; the guard is about executable code.
+  const code = source.replace(/\/\*[\s\S]*?\*\//g, '').split('\n').filter((l) => !l.trim().startsWith('//')).join('\n');
+  for (const invented of ['compliance_review_state', 'activateDealer', 'grantDealer', 'dealer_capability']) {
+    assert.equal(code.includes(invented), false,
       `${invented} would be a new dealer authority invented to make a test pass`);
   }
+  // Stronger than the original name-check: this module decides the subject from values handed to
+  // it and queries NOTHING, so it cannot mint an authority of its own however it is called.
+  assert.equal(/\.from\(|supabase|await /.test(code), false,
+    'the listing candidate must stay a pure function over the resolved authority');
 });
 
 /* ── I-7 — the REAL middleware derivation, not a hand-built actor ───────────────────────── */

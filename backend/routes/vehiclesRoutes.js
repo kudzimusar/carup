@@ -58,7 +58,7 @@ import {
   correctEvidenceClassification,
   ClassificationCorrectionError,
 } from '../services/evidence/evidenceClassificationCorrectionService.js';
-import { withUploadIdempotency, isUndefinedColumnError } from '../services/evidence/uploadIdempotency.js';
+import { withUploadIdempotency, isUndefinedColumnError, toDatabaseError } from '../services/evidence/uploadIdempotency.js';
 import { emitDomainEvent } from '../services/eventBus/eventBusService.js';
 import {
   OPERATIONS_CAPABILITIES,
@@ -884,7 +884,16 @@ async function insertEvidenceFromRequest(req, vin, { requireVehicleId = false } 
           .select('*')
           .single());
       }
-      if (insertError) throw new DatabaseError(insertError.message);
+      // J-1 — PRESERVE THE NATIVE ERROR IDENTITY.
+      //
+      // This line was `throw new DatabaseError(insertError.message)`. `DatabaseError` overwrites
+      // `.code` with 'DATABASE_ERROR' and carries no constraint, so the native 23505 that
+      // `withUploadIdempotency` needs to recognise its own index was destroyed before the guard
+      // ran: the loser of a real concurrent race received a 500 instead of the winner's evidence
+      // id. `toDatabaseError` raises the SAME public error — same message, same status, same
+      // serialized body — while keeping the driver's code and constraint on a non-enumerable
+      // `cause`. Unrelated failures still surface through the ordinary database-error contract.
+      if (insertError) throw toDatabaseError(insertError);
 
       // Milestone 1: record the immutable chain-of-custody "uploaded" event (best-effort).
       await recordEvidenceUploadProvenance(supabase, { evidence: inserted, req, eventType: 'uploaded' });
@@ -895,7 +904,10 @@ async function insertEvidenceFromRequest(req, vin, { requireVehicleId = false } 
       });
       return inserted;
     },
-    { supabase },
+    // J-2 — the collision domain is (actor, key). A client-supplied key is only meaningful
+    // within the actor that supplied it; a global namespace let one uploader's raw string
+    // suppress another's upload and return that other actor's evidence id.
+    { supabase, actorId: activeUserId },
   );
 
   const { data: record } = await supabase.from('vehicle_evidence').select('*').eq('id', evidenceId).single();

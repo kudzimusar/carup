@@ -160,6 +160,7 @@ import {
   lookupColumnsForKind,
 } from './utils/passportLookupPolicy.js';
 import { buildVehicleListingCandidate, getListingEligibility } from './services/marketplace/marketplaceListingEligibility.js';
+import { resolveDealerListingSubject } from './services/dealer/dealerListingAuthority.js';
 import { normalizeZimbabweRegistrationStatus } from './services/registration/zimbabweRegistrationLifecycle.js';
 import { normalizeVehicleTaxonomyInput } from './services/taxonomy/vehicleTaxonomyService.js';
 import { registerCommunicationListeners } from './services/communication/communicationEventListeners.js';
@@ -2747,7 +2748,16 @@ app.post('/api/vehicles/add', authorizeRole(['dealer', 'owner', 'admin']), async
   };
 
   // Real-listing eligibility is evaluated against the canonicalized candidate actually stored.
-  const candidate = buildVehicleListingCandidate({ body: canonicalBody, userContext: req.userContext });
+  // J-3 — the dealer listing subject is a GOVERNED lookup, not a header. `x-tenant-id` proves
+  // membership; `dealer_profiles` (user_id + tenant_id) is what proves a dealership. The workbook
+  // execute path resolves the identical subject through the identical function, so the two
+  // mutation surfaces cannot drift apart.
+  const dealerListingSubject = await resolveDealerListingSubject(supabase, {
+    role: req.userContext?.role ?? req.userContext?.effectiveRole,
+    userId: req.userContext?.id ?? req.userContext?.userId,
+    tenantId: req.userContext?.tenantId ?? null,
+  });
+  const candidate = buildVehicleListingCandidate({ body: canonicalBody, userContext: req.userContext, dealerListingSubject });
   const eligibility = getListingEligibility(candidate);
   if (!eligibility.eligible) {
     return res.status(400).json({ error: 'Listing is not marketplace-eligible', reasons: eligibility.reasons });

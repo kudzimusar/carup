@@ -39,6 +39,7 @@ import {
 } from '../marketplace/marketplaceListingEligibility.js';
 // H2 — the batch's own template decides current import capability, never a client-supplied one.
 import { requireTemplateAction } from './workbookCatalogueService.js';
+import { resolveDealerListingSubject } from '../dealer/dealerListingAuthority.js';
 import {
   sha256Checksum,
   assertAllowedSpreadsheet,
@@ -1002,13 +1003,17 @@ function notImportedSheetSummary(templateKey) {
  *
  * Returns null when the row may proceed, or a deterministic refusal that names WHY.
  */
-function revalidateRowAuthority(row, actor) {
+function revalidateRowAuthority(row, actor, dealerListingSubject = null) {
   const actorRole = String(actor.role || actor.effectiveRole || actor.platformRole || '').toLowerCase();
   const payload = row.normalized_payload || {};
 
   // 1. The listing subject, re-derived from the current actor — never from the stored payload.
   //    (buildVehicleListingCandidate itself now refuses a body-supplied owner/tenant: H7.)
-  const candidate = buildVehicleListingCandidate({ body: payload, userContext: actor });
+  // J-3 — the SAME governed dealer subject `/api/vehicles/add` resolves, resolved once per
+  //    execution and passed in. Execute and the direct route must not be able to disagree about
+  //    who the seller is; a subject resolved from a header on one path and a dealership on the
+  //    other is exactly how the two would drift.
+  const candidate = buildVehicleListingCandidate({ body: payload, userContext: actor, dealerListingSubject });
   const eligibility = getListingEligibility(candidate);
   if (!eligibility.eligible) {
     return {
@@ -1085,6 +1090,15 @@ export async function executeVehicleWorkbookImport({ batchId, confirm } = {}, ac
   // never consulted.
   await requireTemplateAction(actor, batch.template_type, 'import', { supabaseClient: client });
 
+  // J-3 — resolved ONCE per execution, from the governed dealership binding, and reused for every
+  // row. Re-derived here at execute time rather than trusted from the dry run: a dealership that
+  // was withdrawn between the two must not still be able to import under it.
+  const dealerListingSubject = await resolveDealerListingSubject(client, {
+    role: actor.role || actor.effectiveRole || actor.platformRole,
+    userId,
+    tenantId: actor.tenantId ?? actor.tenant_id ?? null,
+  });
+
   const { data: rows, error: rowsError } = await client
     .from('diaspora_workbook_import_rows')
     .select('*')
@@ -1140,7 +1154,7 @@ export async function executeVehicleWorkbookImport({ batchId, confirm } = {}, ac
     // The G-round proved a role-forbidden evidence reference still produced a created vehicle,
     // because the vehicle was created first and evidence only afterwards. A refused row now
     // mutates nothing at all: no vehicle, no evidence, no link.
-    const refusal = revalidateRowAuthority(row, actor);
+    const refusal = revalidateRowAuthority(row, actor, dealerListingSubject);
     if (refusal) {
       rejected += 1;
       receipts.push({

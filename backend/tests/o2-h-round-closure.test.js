@@ -81,6 +81,18 @@ const importRow = ({ n = 1, vin = VIN, evidence = [] } = {}) => ({
 });
 
 /** A dispatcher that answers as the canonical routes do, and RECORDS every mutation attempt. */
+/**
+ * J-3 — the governed dealership register. `/api/vehicles/add` resolves the dealer's tenant from
+ * `dealer_profiles`, so a dispatcher that models that route must resolve it the same way; a
+ * dispatcher that granted Dealer authority from the header alone would model a route that no
+ * longer exists.
+ */
+const GOVERNED_DEALERSHIPS = new Map([[DEALER_ID, TENANT_A], ['d1', TENANT_A]]);
+const dealershipSubject = (userId, tenantId) => (
+  Boolean(tenantId) && GOVERNED_DEALERSHIPS.get(userId) === tenantId
+    ? { granted: true, tenantId, dealerProfileId: 'dp-1', reason: null }
+    : { granted: false, tenantId: null, dealerProfileId: null, reason: 'no_governed_dealer_binding' });
+
 function canonicalDispatch({ actor, memberships = {}, log = [], evidenceRows = [], idempotencyStore = new Map() } = {}) {
   return async (routePath, method, body, headers = {}) => {
     const tenant = headers['x-tenant-id'] || null;
@@ -89,7 +101,9 @@ function canonicalDispatch({ actor, memberships = {}, log = [], evidenceRows = [
     }
     const userContext = { id: actor.id, role: headers['x-stakeholder-role'] || actor.role, tenantId: tenant };
     if (routePath === '/api/vehicles/add') {
-      const candidate = buildVehicleListingCandidate({ body, userContext });
+      const candidate = buildVehicleListingCandidate({
+        body, userContext, dealerListingSubject: dealershipSubject(userContext.id, userContext.tenantId),
+      });
       const eligibility = getListingEligibility(candidate);
       log.push({ route: routePath, vin: body.vin, tenant_id: candidate.tenant_id, seller_type: candidate.current_seller_type });
       if (!eligibility.eligible) return { status: 400, body: { error: eligibility.reasons.join(', '), code: 'MARKETPLACE_INELIGIBLE' } };
@@ -105,7 +119,8 @@ function canonicalDispatch({ actor, memberships = {}, log = [], evidenceRows = [
       // The receiving authority's server-authored initial state (H14).
       evidenceRows.push({ id, verification_status: 'pending', trust_score_impact: 0, trust_impact: 0, class: normalized.evidenceClass });
       return { id };
-    }, { store: idempotencyStore });
+      // J-2: the collision domain is (actor, key), exactly as the route now supplies it.
+    }, { store: idempotencyStore, actorId: actor.id });
     log.push({ route: routePath, body, deduped: out.deduped });
     return { status: 201, body: { success: true, evidence_id: out.evidenceId } };
   };
@@ -213,8 +228,8 @@ test('H6: execute reads the PERSISTED batch payload — a client cannot substitu
 });
 
 /* ── H7/H8/H9 — no client field may mint a listing subject ──────────────────────────────── */
-const subjectFor = (body, userContext) => {
-  const c = buildVehicleListingCandidate({ body: { ...vehiclePayload(VIN), ...body }, userContext });
+const subjectFor = (body, userContext, dealerListingSubject = dealershipSubject(userContext.id, userContext.tenantId)) => {
+  const c = buildVehicleListingCandidate({ body: { ...vehiclePayload(VIN), ...body }, userContext, dealerListingSubject });
   return { owner: c.owner_id, tenant: c.tenant_id, type: c.current_seller_type, eligible: getListingEligibility(c).eligible };
 };
 
@@ -304,7 +319,20 @@ test('H15 (handler-level): a simulated unique violation converges on one evidenc
   const store = new Map();
   // A store that behaves like the partial unique index: the second concurrent insert violates it.
   const supabase = {
-    from: () => ({ select: () => ({ or: () => ({ limit: async () => ({ data: rows.filter((r) => r.idempotency_key === 'k1'), error: null }) }) }) }),
+    from: () => ({
+      select: () => {
+        let actorId;
+        const chain = {
+          eq(col, v) { if (col === 'uploaded_by') actorId = v; return chain; },
+          or() { return chain; },
+          async limit() {
+            if (actorId === undefined) return { data: null, error: { message: 'lookup was not actor-scoped' } };
+            return { data: rows.filter((r) => r.idempotency_key === 'k1' && r.uploaded_by === actorId), error: null };
+          },
+        };
+        return chain;
+      },
+    }),
   };
   const create = async () => {
     if (rows.some((r) => r.idempotency_key === 'k1')) {
@@ -313,13 +341,13 @@ test('H15 (handler-level): a simulated unique violation converges on one evidenc
       err.constraint = 'uq_vehicle_evidence_idempotency_key';
       throw err;
     }
-    const row = { id: `ev-${rows.length + 1}`, vin: VIN, idempotency_key: 'k1', metadata: { idempotency_key: 'k1' } };
+    const row = { id: `ev-${rows.length + 1}`, vin: VIN, uploaded_by: 'u-h15', idempotency_key: 'k1', metadata: { idempotency_key: 'k1' } };
     rows.push(row);
     return row;
   };
   const [a, b] = await Promise.all([
-    withUploadIdempotency('k1', VIN, create, { store, supabase }),
-    withUploadIdempotency('k1', VIN, create, { store, supabase }),
+    withUploadIdempotency('k1', VIN, create, { store, supabase, actorId: 'u-h15' }),
+    withUploadIdempotency('k1', VIN, create, { store, supabase, actorId: 'u-h15' }),
   ]);
   assert.equal(rows.length, 1, 'exactly one evidence row exists after a genuine race');
   assert.equal([a.deduped, b.deduped].filter(Boolean).length, 1, 'exactly one caller is told it deduped');
