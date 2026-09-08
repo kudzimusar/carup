@@ -228,4 +228,3 @@ test('J-2: two ACTORS sharing one raw key never see each other\'s evidence', asy
   assert.equal(theirs.evidenceId, 'ev-theirs');
   assert.equal(theirs.deduped, false);
 });
-
