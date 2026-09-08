@@ -152,6 +152,21 @@ if (process.argv[1] && import.meta.url.endsWith(process.argv[1].split('/').pop()
     last = verifyProvenance({ sha: resolved.sha, frontend: resolved.frontend, backend: resolved.backend, provenance, health });
     if (last.ok) {
       appendFileSync(process.env.GITHUB_ENV, `STAGING_WEB_URL=${resolved.frontend}\nSTAGING_API_URL=${resolved.backend}/api\n`);
+      // Every shard writes what it certified against. The aggregate compares them, so three green
+      // shards that ran against three different candidates cannot add up to a pass.
+      const record = {
+        branch: resolved.branch,
+        sha: resolved.sha,
+        frontend: resolved.frontend,
+        backend: resolved.backend,
+        api_base_url: provenance.api_base_url,
+        unpaired: provenance.unpaired,
+        deployment_id: last.deployment_id,
+        staging_project_ref: process.env.EXPECTED_STAGING_PROJECT_REF || null,
+        project: process.env.PLAYWRIGHT_PROJECT || null,
+      };
+      const out = process.env.PAIRING_RECORD_PATH;
+      if (out) { const { writeFileSync } = await import('node:fs'); writeFileSync(out, JSON.stringify(record, null, 2)); }
       console.log(JSON.stringify(last));
       process.exit(0);
     }

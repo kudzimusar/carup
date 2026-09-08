@@ -6,8 +6,15 @@ name: Diaspora Canonical Staging UAT
 on:
   workflow_dispatch: {}
 
+# ── Shared staging preview lock ────────────────────────────────────────────
+# This workflow drives the BRANCH PREVIEW backend, which is shared with the other deployed-staging
+# gates. Running two of them at once rate-limited Marketplace Reference Regression into real 429s.
+# They now share one group keyed on the preview identity (the branch), so certification runs QUEUE.
+#
+# `cancel-in-progress: false`: a certification run must never cancel another valid certification.
+# Independent branches own separate preview deployments and are unaffected.
 concurrency:
-  group: diaspora-canonical-staging-uat
+  group: staging-preview-${{ github.event.pull_request.head.ref || github.ref_name }}
   cancel-in-progress: false
 
 jobs:

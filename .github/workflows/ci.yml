@@ -190,6 +190,11 @@ jobs:
       - name: Deployed-staging gate assertions intact
         run: node scripts/ci/assert-gate-assertions-intact.mjs
 
+      # The aggregate must be stricter than its shards, and the preview lock must actually queue.
+      - name: Deployed-staging aggregate and scheduling tripwires
+        run: |
+          node --test backend/tests/ci-staging-shard-aggregate.test.js
+
       - name: 'Issue #101 P0 hardening behavioural proof (real PostgreSQL via PGlite)'
         run: node database/test/issue101_p0_hardening_check.mjs
 

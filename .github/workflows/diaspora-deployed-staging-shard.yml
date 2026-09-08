@@ -1,0 +1,208 @@
+name: Diaspora Deployed Staging UAT (shard)
+
+# ONE Playwright project of the deployed-staging gate, against the governed FE/BE pair.
+#
+# This is called three times — chromium, tablet-chromium, mobile-chromium — SERIALLY, by
+# diaspora-deployed-staging-uat.yml. It is not a narrowing of the gate: the `testMatch` contract is
+# unchanged, every spec still runs, and the aggregate requires all three shards.
+#
+# Sharding exists because the single-job packaging could not honestly be green: chromium alone
+# measures ~29.7m against a 35-minute ceiling, and the three projects ran inside one job. Serial
+# rather than parallel because the journeys mutate shared staging state.
+
+on:
+  workflow_call:
+    inputs:
+      project:
+        description: The Playwright project to run (chromium | tablet-chromium | mobile-chromium)
+        required: true
+        type: string
+      expected_head_sha:
+        required: true
+        type: string
+      candidate_branch:
+        required: true
+        type: string
+      staging_run_id:
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  shard:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    env:
+      EXPECTED_HEAD_SHA: ${{ inputs.expected_head_sha }}
+      CANDIDATE_BRANCH: ${{ inputs.candidate_branch }}
+      STAGING_RUN_ID: ${{ inputs.staging_run_id }}
+      PLAYWRIGHT_PROJECT: ${{ inputs.project }}
+      PAIRING_RECORD_PATH: ${{ github.workspace }}/staging-pairing.json
+      DIASPORA_STAGING_DATABASE_URL: ${{ secrets.DIASPORA_STAGING_DATABASE_URL }}
+      TRADEOS_WORKER_SECRET: ${{ secrets.TRADEOS_WORKER_SECRET }}
+      EXPECTED_STAGING_PROJECT_REF: eoyenigwevnxwwhyhaer
+    steps:
+      - name: Checkout the exact candidate head
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.expected_head_sha }}
+
+      # A PR build is a detached merge commit with no branch name, so the checked-out HEAD is not
+      # automatically the candidate. Assert it, rather than assuming the shape.
+      - name: Assert the exact candidate checkout
+        run: test "$(git rev-parse HEAD)" = "$EXPECTED_HEAD_SHA"
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Require the staging database operator secret
+        run: |
+          if [ -z "$DIASPORA_STAGING_DATABASE_URL" ]; then
+            echo '::error::DIASPORA_STAGING_DATABASE_URL is not configured; deployed acceptance cannot run.'
+            exit 1
+          fi
+
+      # The D7 outbox tests assert this. Without it they cannot pass, so a run without it is not a
+      # certification — fail loudly rather than produce a green that means less than it looks.
+      - name: Require the staging worker secret
+        run: |
+          if [ -z "$TRADEOS_WORKER_SECRET" ]; then
+            echo '::error::TRADEOS_WORKER_SECRET is not configured; the D7 outbox tests cannot be certified.'
+            exit 1
+          fi
+
+      # Resolves the governed pair AND waits for both deployments to report the candidate SHA with
+      # `unpaired:false`. Refuses by name on every failure; exports STAGING_WEB_URL/STAGING_API_URL
+      # and writes the pairing record the aggregate compares across shards. Re-proved per shard, so a
+      # deployment that moves between shards fails rather than silently certifying two candidates.
+      - name: Resolve and prove the governed exact-head preview pair
+        run: node scripts/ci/resolve-governed-preview-pair.mjs
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Assert the gate's own product assertions are intact
+        run: node scripts/ci/assert-gate-assertions-intact.mjs
+
+      - name: Install Chromium
+        run: npx playwright install --with-deps chromium
+
+      - name: Freeze the exact candidate bundle for this shard
+        run: |
+          html="$(curl --fail --silent --show-error --location "$STAGING_WEB_URL/")"
+          bundle="$(printf '%s' "$html" | grep -oE 'index-[A-Za-z0-9_-]+\.js' | head -1)"
+          if [ -z "$bundle" ]; then
+            echo '::error::The paired staging preview did not expose a Vite entry bundle.'
+            exit 1
+          fi
+          echo "STAGING_EXPECTED_BUNDLE=$bundle" >> "$GITHUB_ENV"
+          echo "Frozen the exact candidate bundle for this shard: $bundle"
+
+      - name: Rotate staging-only UAT identities for this shard
+        shell: bash
+        run: |
+          node --input-type=module <<'NODE'
+          import crypto from 'node:crypto';
+          import fs from 'node:fs';
+          import pg from 'pg';
+
+          const dbUrl = process.env.DIASPORA_STAGING_DATABASE_URL || '';
+          const expectedRef = process.env.EXPECTED_STAGING_PROJECT_REF;
+          if (!dbUrl.includes(expectedRef)) {
+            throw new Error('Refusing identity setup: database URL is not the approved carup-staging project.');
+          }
+
+          const password = crypto.randomBytes(30).toString('base64url');
+          const salt = crypto.randomBytes(16).toString('hex');
+          const derived = await new Promise((resolve, reject) => {
+            crypto.scrypt(password, salt, 64, (error, key) => error ? reject(error) : resolve(key));
+          });
+          const passwordHash = `scrypt:${salt}:${derived.toString('hex')}`;
+          // The five original UAT identities, PLUS the ones the additive Trade OS specs need.
+          // Specs 45 (T5) and 46 (T2) were added to this config's testMatch without this step being
+          // widened, so they threw "TRADEOS_*_PASSWORD is not exported" on their first real action —
+          // only 2 of spec 46's 15 tests were even attempted. Provisioning them is strictly MORE
+          // certification, not less.
+          const identities = [
+            ['uat.buyer@carup-staging.test', 'owner'],
+            ['uat.seller@carup-staging.test', 'dealer'],
+            ['uat.reviewer@carup-staging.test', 'admin'],
+            ['uat.tenant-admin@carup-staging.test', 'admin'],
+            ['uat.outsider@carup-staging.test', 'owner'],
+            ['tradeos.operator@carup-staging.test', 'owner'],
+            ['tradeos.outsider@carup-staging.test', 'owner'],
+            ['tradeos.participant.a@carup-staging.test', 'owner'],
+            ['tradeos.participant.b@carup-staging.test', 'owner'],
+            ['tradeos.rfq-buyer@carup-staging.test', 'owner'],
+            ['tradeos.rfq-supplier@carup-staging.test', 'dealer'],
+          ];
+
+          // Strip any sslmode query param: it would override the explicit ssl config below and make
+          // pg verify Supabase's self-signed chain, failing the connection from CI runners.
+          const cleanedDbUrl = dbUrl.replace(/([?&])sslmode=[^&]*&?/i, '$1').replace(/[?&]$/, '');
+          const client = new pg.Client({ connectionString: cleanedDbUrl, ssl: { rejectUnauthorized: false } });
+          await client.connect();
+          try {
+            await client.query('BEGIN');
+            for (const [email, role] of identities) {
+              const result = await client.query(
+                'update public.users set password_hash = $1, role = $2 where email = $3 returning id',
+                [passwordHash, role, email],
+              );
+              if (result.rowCount !== 1) throw new Error(`Missing staging UAT identity: ${email}`);
+            }
+            await client.query('COMMIT');
+          } catch (error) {
+            await client.query('ROLLBACK');
+            throw error;
+          } finally {
+            await client.end();
+          }
+
+          const envNames = [
+            'STAGING_UAT_BUYER_PASSWORD',
+            'STAGING_UAT_SELLER_PASSWORD',
+            'STAGING_UAT_REVIEWER_PASSWORD',
+            'STAGING_UAT_TENANT_ADMIN_PASSWORD',
+            'STAGING_UAT_OUTSIDER_PASSWORD',
+            'TRADEOS_UAT_OPERATOR_PASSWORD',
+            'TRADEOS_UAT_OUTSIDER_PASSWORD',
+            'TRADEOS_UAT_PARTICIPANT_A_PASSWORD',
+            'TRADEOS_UAT_PARTICIPANT_B_PASSWORD',
+            'TRADEOS_RFQ_BUYER_PASSWORD',
+            'TRADEOS_RFQ_SUPPLIER_PASSWORD',
+          ];
+          fs.appendFileSync(process.env.GITHUB_ENV, envNames.map((name) => `${name}=${password}`).join('\n') + '\n', { mode: 0o600 });
+          console.log(`${identities.length} staging-only UAT identities were rotated and role-verified without printing credentials.`);
+          NODE
+
+      # `--project` selects ONE Playwright project. The testMatch contract is untouched, so this runs
+      # every spec applicable to this viewport.
+      - name: Run deployed acceptance — ${{ inputs.project }}
+        run: npx playwright test --config=playwright.staging.config.ts --project=${{ inputs.project }}
+
+      - name: Upload this shard's pairing record
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: staging-pairing-${{ inputs.project }}
+          path: staging-pairing.json
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Upload deployed-UAT evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: diaspora-deployed-staging-uat-${{ inputs.project }}-${{ github.run_id }}
+          path: |
+            test-results/staging-env-truth.json
+            test-results/staging-uat-results.json
+            test-results/staging-uat-html
+            test-results/staging-uat-artifacts
+          if-no-files-found: warn
+          retention-days: 14
