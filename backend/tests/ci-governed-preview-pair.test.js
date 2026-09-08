@@ -189,3 +189,47 @@ test('CI gate: the Trade OS branch is governed in BOTH manifests', () => {
   // …and the gate would therefore actually run on it.
   assert.equal(resolvePair({ branch: BRANCH, sha: SHA, frontendPairs: fe, backendPairs: be }).ok, true);
 });
+
+// ── Liveness is not provenance ─────────────────────────────────────────────
+// `/api/health` returns `status: 'UP'` whenever the PROCESS is up, and reports the database in a
+// separate field this check used to ignore. On 2026-09-08 the paired backend served exactly the
+// payload below for hours while PostgREST could not start.
+
+/** The real payload from the paired staging backend at 12:21 UTC, 2026-09-08. */
+const HEALTH_WITH_DEAD_DATABASE = {
+  status: 'UP',
+  build: { commit_sha: SHA, commit_sha_short: SHA.slice(0, 8), deployment_id: 'dpl_9JrWrmUHDVTVT7zNu4yu88AWoW5c' },
+  supabase: { status: 'unhealthy', outboxBacklog: 0 },
+};
+
+test('a backend serving the RIGHT commit with a DEAD database is refused', () => {
+  const v = verifyProvenance(said({ health: HEALTH_WITH_DEAD_DATABASE }));
+  assert.equal(v.ok, false);
+  assert.equal(v.refusal, 'BACKEND_DATABASE_UNHEALTHY');
+  assert.equal(v.database_status, 'unhealthy');
+});
+
+test('…and every OTHER provenance check passes on that same payload', () => {
+  // This is the whole point: the deployment is genuinely the candidate. Commit, pairing and
+  // liveness of the process are all correct — so nothing except a database check can catch it, and
+  // the specs would have run against a dead database and failed as a wall of ~30s timeouts.
+  const { supabase, ...withoutDatabaseField } = HEALTH_WITH_DEAD_DATABASE;
+  const v = verifyProvenance(said({ health: withoutDatabaseField }));
+  assert.equal(v.ok, true, 'the deployment really is the candidate — only the database is dead');
+});
+
+test('a healthy database passes', () => {
+  const v = verifyProvenance(said({ health: { ...HEALTH_WITH_DEAD_DATABASE, supabase: { status: 'healthy', outboxBacklog: 0 } } }));
+  assert.equal(v.ok, true);
+});
+
+test('a backend that does not report its database at all is not blocked', () => {
+  // Not every backend in this repo's history returns the field. Absent is unknown, not unhealthy —
+  // inventing a refusal for silence would fail deployments that were never in scope.
+  const { supabase, ...withoutDatabaseField } = HEALTH_WITH_DEAD_DATABASE;
+  assert.equal(verifyProvenance(said({ health: withoutDatabaseField })).ok, true);
+});
+
+test('the refusal explains WHY provenance was not enough', () => {
+  assert.match(REFUSALS.BACKEND_DATABASE_UNHEALTHY, /provenance and liveness are different/i);
+});

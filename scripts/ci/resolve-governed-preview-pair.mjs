@@ -26,6 +26,7 @@ export const REFUSALS = Object.freeze({
   UNPAIRED: 'The frontend reports unpaired:true — it is not talking to this branch\'s backend, so anything it certifies is another candidate\'s contract.',
   PAIR_MISMATCH: 'The frontend is talking to a backend other than the one this branch is paired to.',
   WRONG_STAGING_PROJECT: 'The staging database URL is not the approved staging project.',
+  BACKEND_DATABASE_UNHEALTHY: 'The backend is serving the candidate but reports its database is unhealthy. Provenance and liveness are different questions: proving the deployment is the right CODE says nothing about whether its DEPENDENCIES answer.',
 });
 
 /**
@@ -98,6 +99,17 @@ export function verifyProvenance({ sha, frontend, backend, provenance, health })
   if (!provenance) return refuse('FRONTEND_UNREACHABLE');
   if (!health) return refuse('BACKEND_UNREACHABLE');
   if (health.status && health.status !== 'UP') return refuse('BACKEND_UNREACHABLE', { status: health.status });
+
+  // `/api/health` returns `status: 'UP'` whenever the PROCESS is up — it reports the database
+  // separately, and this check used to ignore that field. On 2026-09-08 the paired backend answered
+  // exactly `{status: 'UP', supabase: {status: 'unhealthy'}}` for hours while PostgREST could not
+  // start, and the gate would have admitted it and handed a dead database to every spec. The failure
+  // then presents as a wall of uniform ~30s `waitForResponse` timeouts, which reads like a broad
+  // product regression and is not one.
+  const databaseStatus = health.supabase?.status;
+  if (databaseStatus && databaseStatus !== 'healthy') {
+    return refuse('BACKEND_DATABASE_UNHEALTHY', { database_status: databaseStatus });
+  }
 
   if (provenance.unpaired !== false) return refuse('UNPAIRED', { unpaired: provenance.unpaired });
   if (provenance.commit_sha !== sha) return refuse('FRONTEND_STALE', { serving: provenance.commit_sha || null, expected: sha });

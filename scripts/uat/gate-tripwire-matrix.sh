@@ -51,6 +51,9 @@ mutate "a stale BACKEND is tolerated"            "$RESOLVER" 's/if \(backendSha 
 mutate "unpaired:true is tolerated"              "$RESOLVER" 's/if \(provenance\.unpaired !== false\)/if (provenance.unpaired === true)/'                     run_resolver
 mutate "a PRODUCTION origin is accepted"         "$RESOLVER" 's/const PRODUCTION_MARKERS = \[/const PRODUCTION_MARKERS = []; const UNUSED = [/'               run_resolver
 mutate "the frontend may call ANY backend"       "$RESOLVER" 's/if \(strip\(provenance\.api_base_url\) !== strip\(backend\)\)/if (false)/'                    run_resolver
+# Provenance and liveness are different questions. This one was live for hours on 2026-09-08: the
+# backend served the right commit and reported supabase:unhealthy, and the gate did not look.
+mutate "a DEAD database is admitted as a pair"   "$RESOLVER" 's/  if \(databaseStatus && databaseStatus !== .healthy.\) \{/  if (false) {/'                          run_resolver
 
 echo "── the product assertions must matter ──"
 # Deleting the no-payload assertion is the real weakening: a bare 404 would then satisfy the denial

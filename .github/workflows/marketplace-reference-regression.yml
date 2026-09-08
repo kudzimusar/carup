@@ -205,8 +205,16 @@ jobs:
                 const health = JSON.parse(fs.readFileSync("/tmp/marketplace-staging-health.json", "utf8"));
                 const expected = process.env.EXPECTED_HEAD_SHA;
                 const build = health.build || {};
-                if (build.commit_sha === expected && build.provenance_available === true) process.exit(0);
-                console.error(JSON.stringify({ expected, commit_sha: build.commit_sha, provenance_available: build.provenance_available }));
+                // Provenance and liveness are different questions. `/api/health` returns
+                // `status: "UP"` whenever the PROCESS is up and reports the database SEPARATELY.
+                // This step used to assert the commit and ignore that field, so on 2026-09-08 it
+                // would have admitted a deployment answering `supabase: {"status":"unhealthy"}` for
+                // hours — and the specs then die as a wall of uniform ~30s waitForResponse
+                // timeouts, which reads like a broad product regression and is not one.
+                const databaseStatus = (health.supabase || {}).status;
+                const databaseOk = !databaseStatus || databaseStatus === "healthy";
+                if (build.commit_sha === expected && build.provenance_available === true && databaseOk) process.exit(0);
+                console.error(JSON.stringify({ expected, commit_sha: build.commit_sha, provenance_available: build.provenance_available, database_status: databaseStatus || null }));
                 process.exit(1);
               '; then
                 backend_ok=1
