@@ -538,3 +538,107 @@ that was never there.
 
 **Still nothing was worked around.** No timeout raised, no spec narrowed, no test disabled, no
 failure downgraded, and no result reported as green.
+
+---
+
+## 17. What was tried against the live instance, and what it proved
+
+Three bounded actions were taken on staging. Two helped; one was declined on evidence.
+
+### ✅ ANALYZE on the catalogs — a durable fix, and a genuine surprise
+
+Every catalog PostgREST's schema-cache query joins had **never been analyzed**:
+
+```
+pg_class, pg_attribute, pg_type, pg_depend, pg_constraint,
+pg_description, pg_attrdef, pg_namespace, pg_proc
+  → last_analyze = NULL, last_autoanalyze = NULL, n_live_tup = 0
+```
+
+With no statistics the planner has no row estimates at all, and will choose nested loops across
+5,931 columns and 1,691 constraints where it should hash-join. `ANALYZE` was run on all nine — a
+statistics-only write that changes no data, no schema and no configuration.
+
+It measurably worked. Before, the timeouts were dominated by the schema-cache query. After, that
+query mostly succeeds and the failures moved to the **next** step of PostgREST's startup:
+
+| window | schema-cache timeouts | `pg_timezone_names` timeouts |
+|---|---|---|
+| before ANALYZE | majority | minority |
+| after ANALYZE | 3 of 13 | **10 of 13** |
+
+This is a durable improvement that also makes every future schema-cache rebuild cheaper.
+
+### ✅ Pausing three failing cron jobs — approved, recorded, must be restored
+
+`carup-communication-worker-every-minute`, `carup-events-outbox-every-minute` and
+`issue164-reservation-expiry-reconcile` all run `* * * * *` and were all failing with
+`job startup timeout` — spending the CPU allowance and completing no work. Paused with the owner's
+explicit approval via `cron.alter_job(active := false)`, **not** `cron.unschedule`, which would have
+deleted the definitions.
+
+⚠️ **This is an outstanding change to shared staging.** Restore procedure and md5 proof:
+[`scripts/ops/RESTORE-STAGING-CRON.md`](../../scripts/ops/RESTORE-STAGING-CRON.md).
+
+### ❌ Raising `authenticator`'s `statement_timeout` — declined
+
+The obvious "fix" is to let the query have longer than 8s. It was not done, and should not be. The
+query is slow *because* CPU is scarce; letting it grind for longer consumes more of the scarce
+resource while everything else waits, and turns a loud failure into a slow one. It would move the
+gate from *refusing* to *hanging*.
+
+## 18. Why it still cannot recover, and the number that explains it
+
+| setting | value |
+|---|---|
+| `shared_buffers` | 224 MB |
+| `effective_cache_size` | 384 MB |
+| `work_mem` | 2,184 kB |
+| `max_parallel_workers` | 2 |
+| `max_connections` | 60 |
+| version | PostgreSQL 17.6 (aarch64) |
+
+That is Supabase's smallest, **burstable-CPU** instance class. It is carrying the whole Trade OS
+T2–T12 schema — 302 relations, 5,931 columns, 100 functions, 1,691 constraints, 1,569 indexes —
+plus every other staging lane.
+
+The loop is self-sustaining and cannot be broken from inside the database:
+
+1. PostgREST cannot finish `SELECT name FROM pg_timezone_names` inside its 8s budget.
+2. So it retries roughly every 90 seconds, **forever**.
+3. Each attempt spends its full 8s of the scarce allowance before being cancelled.
+4. That is enough duty cycle to stop the allowance replenishing.
+
+Measured across the window, with the certification suite completely idle:
+
+| time | 1M-row pure-CPU probe |
+|---|---|
+| 12:31 | 379 ms |
+| 12:38 | 1,233 ms |
+| 13:08 (after pausing cron) | 1,231 ms |
+
+It is not recovering. Restarting the project will not break the loop either — a restart discards the
+schema cache and PostgREST begins the same failing sequence again, which is exactly what the earlier
+restart produced.
+
+## 19. The decision, and what it now rests on
+
+The gate is **correct, honest, measurably lighter, and unrunnable** — because the environment cannot
+serve it, not because the gate is wrong. Everything that could be fixed in software has been.
+
+The remaining choice is the capacity one that was deferred pending this investigation. The
+investigation is complete:
+
+- **A larger staging instance** ends it immediately and prevents recurrence. The current class cannot
+  load PostgREST's schema cache for a schema this size once its CPU credits are gone — meaning
+  staging could not have survived *any* restart, with or without this programme. That was latent
+  long before the gate ran.
+- **A dedicated certification project** additionally stops the gate competing with every other
+  staging lane, which is the second half of the recurrence risk.
+- **Waiting** is free but is not converging on the evidence above.
+
+Whichever is chosen, health is now provable rather than argued: `assert-staging-capacity.mjs` returns
+the numbers, and the gate refuses by name rather than failing 148 tests for an unstated reason.
+
+**Still nothing was worked around.** No timeout raised, no spec narrowed, no test disabled, no failure
+downgraded, and no result reported as green.
