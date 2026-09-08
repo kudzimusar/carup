@@ -338,3 +338,104 @@ cross-tenant writes blocked for vehicle **and** evidence · evidence replay keep
 No migration, no DDL, no schema change (the new workbook column is a spreadsheet field, not a
 database column). No Vercel configuration written. No provider config change. Biometrics not
 activated. `main`, #197 and #209 untouched. Nothing merged.
+
+---
+
+# Round 4 — F-round independent re-audit of `6f850163 → 23d4bfa3` (2026-09-08)
+
+Three more contract failures, plus **four corrections to my own certification claims**. All
+reproduced. `23d4bfa3` is now historical.
+
+### F1 · P1 · CONFIRMED — FIXED · the workbook classification contract did not match the canonical one
+
+**Reproduced with the real `validateEvidenceUploadPayload`, both cases:**
+
+| row | canonical validator | workbook (before) |
+|---|---|---|
+| `registration` + **blank** subtype | **REFUSED** — *"evidence_type is required (or provide evidence_class + evidence_subtype)"* | **ACCEPTED** |
+| `registration` + `export_yard_photo` (an **import**-class subtype) | **REFUSED** — *"Subtype 'export_yard_photo' is not valid for class 'registration'."* | **ACCEPTED** |
+| `registration` + `registration_book` | ACCEPTED | ACCEPTED |
+
+Canonical-first means `Boolean(class && subtype)`. The workbook made the subtype optional and gave
+it a vocabulary **flattened across every class**, so both broken shapes passed the dry run and
+failed at upload — after the vehicle had already been created.
+
+**Fix.** `evidence_subtype` is **required**, and the dry run now **calls
+`validateEvidenceUploadPayload`** per evidence row, attaching
+`EVIDENCE_CLASSIFICATION_INVALID` to that VIN with the taxonomy's own message. No legacy
+`evidence_type` column was added (that would bypass the requirement rather than meet it), no
+subtype is inferred or chosen, and no second taxonomy exists. The flat vocabulary remains
+advisory-only — a spreadsheet cell cannot be conditioned on another cell — and the **real** check
+is the class/subtype compatibility test run by the owning module.
+
+**Mutations:** skipping the classification check → 2 red; making the subtype optional → 1 red.
+
+### F2 · P1 · CONFIRMED — FIXED · the dry run enforced no evidence upload authority
+
+The route runs `canUploadEvidenceRecord(normalized, activeRole)` after validation; the dry run ran
+nothing. Reproduced against the **owning matrix**, which really does refuse:
+
+- `auction/auction_sheet` — owner **false**, dealer true
+- `dealer_listing/*` — owner **false**, dealer true
+- `registration/police_clearance_first_registration` — a **subtype-level override**: owner false,
+  dealer false, **government true**, admin true
+
+**Fix.** The dry run normalizes each row through the canonical validator and evaluates
+`canUploadEvidenceRecord` with the **server-derived** actor role, raising
+`EVIDENCE_ROLE_FORBIDDEN` on the affected VIN. The message says *"a permission rule, not a file
+problem — importing again will not change it"*, so a deterministic 403 is never presented as a
+retryable fault. No evidence role was widened, no workbook permission matrix exists, and the
+workbook grants nothing.
+
+**Mutation:** dropping the authority check → 4 red.
+
+### F3 · CONFIRMED — catalogue corrected · Admin had no listing subject
+
+**Reproduced:** an ordinary platform Admin yields `owner_id: null, tenant_id: null,
+current_seller_type: null` → **ineligible**, `missing_owner_for_private_listing |
+unknown_seller_type`. Yet the catalogue offered `seller_vehicles` and promised *"drafts under your
+own listing authority"* — an authority that actor does not have.
+
+**Disposition.** No `owner_id`/`tenant_id` field was added to the spreadsheet. Instead the gate
+moved from the **role** to the **listing subject**: an owner is one, a dealer's tenant is one, and
+an Admin or Government account is one **only when it genuinely holds a tenant** — which the
+existing `buildVehicleListingCandidate` already supports (`tenant_id = ctxTenant`, seller type
+`Dealer`, eligible). That existing governed context is used and proven; **no admin delegation was
+invented.** An Admin without one now gets `no_listing_subject` and a plain explanation.
+
+**Mutation:** re-advertising to any admin → 2 red.
+
+### F4 · certification-integrity corrections — my own claims, corrected
+
+These were overstatements in the E-round receipt. Each is now either proven properly or withdrawn.
+
+- **F4a — "real evidence validator".** The old `contractDispatch` called only
+  `isSupportedMimeType` and I described it as the real evidence validation. It was not. The
+  boundary now **invokes** `validateEvidenceUploadPayload`, `canUploadEvidenceRecord`,
+  `isSupportedMimeType`, `buildVehicleListingCandidate` + `getListingEligibility`, the tenant
+  membership rule, and `withUploadIdempotency`. Nothing is paraphrased.
+- **F4b — Admin proof.** The E-round receipt claimed an Admin-bounded proof that no committed test
+  contained. A real one now exists (F3/F4b), covering both the ordinary Admin and the
+  tenant-holding Admin.
+- **F4c — the PENDING assertion was vacuous.** It checked a *reduced log object* for keys the
+  logger never copied, which is true of any key. It now inspects the **actual outgoing body**,
+  serialized, for `verification_status` / `verified` / `is_verified` / `trust_score` / `trust` /
+  `review_outcome` / `reviewed_by` / `decision`, and asserts positively that the body carries only
+  reference facts.
+- **F4d — idempotency wording.** A stable key is not deduplication. The test now runs
+  `withUploadIdempotency` over a **shared store and a shared evidence table across two passes**:
+  first pass `deduped: false`, retry `deduped: true`, and **one** evidence record after both.
+
+Turning the boundary honest immediately exposed more of my own fixture debt — synthetic VINs and
+`u1`-style ids that the real eligibility contract refuses as `fixture_excluded | seed_owner_id`.
+Those fixtures are now realistic identities, so the tests reach the stage they claim to test.
+
+### Still unchanged
+
+No migration, no DDL, no schema change. No Vercel config. No provider change. Biometrics not
+activated. `main`, #197 and #209 untouched. Nothing merged. **Every E1–E3 closure preserved**:
+MIME required and imported, no filename guessing, no URL sniffing, `CARUP_PUBLIC_API_URL` still
+forbidden as a mutation target, immutable `VERCEL_URL` self-target, SHA/branch provenance before
+mutation, fail-closed on unknown provenance, tenant reconstruction from the validated actor, inner
+membership re-verification, `x-user-id` never forwarded, CSRF behaviour unchanged, stable evidence
+idempotency keys.

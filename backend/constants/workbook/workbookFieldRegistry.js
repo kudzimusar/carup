@@ -302,8 +302,17 @@ export const VEHICLE_WORKBOOK_SHEETS = Object.freeze({
       f({ key: 'vin', header: 'VIN / Vehicle Identifier', required: true, authority: 'evidence_ref', help: 'Must match a VEHICLES row.', example: 'JT1234567890EXMPL' }),
       f({ key: 'evidence_class', header: 'Evidence category', required: true, authority: 'evidence_ref', privacy: 'P1',
         vocabulary: EVIDENCE_CLASS_VOCAB, help: 'What kind of history this evidences.', example: 'registration' }),
-      f({ key: 'evidence_subtype', header: 'Evidence type', authority: 'evidence_ref', privacy: 'P1', vocabularyMode: 'advisory',
-        vocabulary: plainVocabulary([...EVIDENCE_SUBTYPE_VALUES]), help: 'The specific document type, if known.', example: 'registration_book' }),
+      // REQUIRED, because the canonical evidence contract has no other way to be satisfied:
+      // `validateEvidenceUploadPayload` treats an upload as canonical-first only when class AND
+      // subtype are both present, and the workbook deliberately offers no legacy `evidence_type`.
+      // The vocabulary stays the flat list of every known subtype because a spreadsheet cell
+      // cannot be conditioned on another cell — but it is ADVISORY only, and the real check is
+      // the class/subtype COMPATIBILITY test run by the owning taxonomy during the dry run
+      // (EVIDENCE_CLASSIFICATION_INVALID), so a subtype borrowed from another class is refused
+      // with the taxonomy's own message rather than silently accepted here.
+      f({ key: 'evidence_subtype', header: 'Evidence type', required: true, authority: 'evidence_ref', privacy: 'P1', vocabularyMode: 'advisory',
+        vocabulary: plainVocabulary([...EVIDENCE_SUBTYPE_VALUES]),
+        help: 'The specific document type. It must belong to the evidence category you chose.', example: 'registration_book' }),
       f({ key: 'file_url', header: 'Document/photo web address', required: true, type: 'url', authority: 'evidence_ref', privacy: 'P2', exportable: false,
         validation: { pattern: '^https?://' }, help: 'A web address CarUp can fetch the file from.', example: 'https://example.com/regbook.pdf' }),
       f({ key: 'event_date', header: 'Date of the event', type: 'date', authority: 'evidence_ref', privacy: 'P1',

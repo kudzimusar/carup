@@ -25,6 +25,7 @@ export const WORKBOOK_ACTIONS = Object.freeze(['template', 'export', 'import', '
 
 export const UNAVAILABLE_REASONS = Object.freeze({
   BUSINESS_CONTEXT_REQUIRED: 'business_context_required',
+  NO_LISTING_SUBJECT: 'no_listing_subject',
   DEALER_ACTIVATION_REQUIRED: 'dealer_activation_required',
   TRADE_PROFILE_REQUIRED: 'trade_profile_required',
   TRADE_PROFILE_ROLE_MISMATCH: 'trade_profile_role_mismatch',
@@ -93,9 +94,24 @@ export async function resolveWorkbookCatalogue(actor = {}, options = {}) {
   const available = [];
   const unavailable = [];
 
-  // ── seller_vehicles: every platform account that can list a vehicle (owner /
-  // dealer / admin — the create route's own role gate).
-  if (['owner', 'dealer', 'admin'].includes(role)) {
+  // ── seller_vehicles: an account that actually has a LISTING SUBJECT.
+  //
+  // The create route's role gate is necessary but not sufficient. `buildVehicleListingCandidate`
+  // derives the subject from the actor: an `owner` becomes the owner; a `dealer` uses their
+  // tenant; every other role takes owner/tenant from body or context — and the workbook carries
+  // NO owner_id or tenant_id column, by design, because a spreadsheet must never assert
+  // ownership or organisational scope.
+  //
+  // So an ordinary platform Admin with no governed tenant produced
+  // `owner_id: null, tenant_id: null, current_seller_type: null` — ineligible with
+  // `missing_owner_for_private_listing | unknown_seller_type`. The catalogue nonetheless offered
+  // them this template and promised "drafts under your own listing authority", which for that
+  // actor names an authority that does not exist. An Admin who genuinely holds a tenant
+  // membership IS supported by the existing contract (tenant scope, seller type Dealer), so the
+  // gate is on the SUBJECT rather than on the role — no admin delegation is invented here.
+  const hasListingSubject = role === 'owner' || role === 'dealer'
+    || (['admin', 'government'].includes(role) && Boolean(actor.tenantId));
+  if (hasListingSubject) {
     available.push({
       template_key: VEHICLE_TEMPLATE_KEYS.SELLER_VEHICLES,
       label: 'My Vehicle Listings',
@@ -106,7 +122,13 @@ export async function resolveWorkbookCatalogue(actor = {}, options = {}) {
       note: 'Imported vehicles are private DRAFTS under your own listing authority — publication stays a separate governed step.',
     });
   } else {
-    unavailable.push({ template_key: VEHICLE_TEMPLATE_KEYS.SELLER_VEHICLES, reason: UNAVAILABLE_REASONS.NO_CANONICAL_BULK_WORKFLOW, note: 'Available to accounts that can list vehicles.' });
+    unavailable.push({
+      template_key: VEHICLE_TEMPLATE_KEYS.SELLER_VEHICLES,
+      reason: UNAVAILABLE_REASONS.NO_LISTING_SUBJECT,
+      note: ['admin', 'government'].includes(role)
+        ? 'A vehicle listing is created under a seller — an owner account or a dealer organisation. This account holds neither, so an import would have no listing subject. Listing on behalf of someone else is not a workbook action.'
+        : 'Available to accounts that can list vehicles.',
+    });
   }
 
   // ── dealer_vehicle_inventory: ACTIVE dealer (governed role) or dealer APPLICANT

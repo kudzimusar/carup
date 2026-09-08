@@ -24,6 +24,13 @@ import { supabase } from '../../db/supabase.js';
 import { emitDomainEvent } from '../eventBus/eventBusService.js';
 import { ForbiddenError, NotFoundError, ValidationError } from '../../utils/errors.js';
 import { resolveBuildProvenance } from '../../config/buildProvenance.js';
+// F1/F2 — the workbook must apply the SAME canonical contracts the evidence route applies, by
+// CALLING them. A second copy of classification or role rules would drift, and the drift is the
+// defect: the dry run said "importable" for rows the canonical route always refused.
+import {
+  validateEvidenceUploadPayload,
+  canUploadEvidenceRecord,
+} from '../evidence/evidenceService.js';
 import {
   sha256Checksum,
   assertAllowedSpreadsheet,
@@ -280,7 +287,7 @@ function resolveRowValues(sheetName, row, rowIndex, errors, warnings) {
  * Validate a parsed+mapped payload into per-VIN vehicle groups.
  * Pure — no I/O except the optional existing-VIN lookup collaborator.
  */
-export async function validateVehicleWorkbookPayload({ templateKey, sheetRows }, { lookupExistingVins } = {}) {
+export async function validateVehicleWorkbookPayload({ templateKey, sheetRows }, { lookupExistingVins, actorRole = null } = {}) {
   requireVehicleTemplateKey(templateKey);
   const errors = [];
   const warnings = [];
@@ -378,7 +385,48 @@ export async function validateVehicleWorkbookPayload({ templateKey, sheetRows },
       errors.push(finding('MEDIA', rowIndex, null, 'TOO_MANY_PHOTOS', `VIN ${group.vin} has more than ${MAX_MEDIA_ROWS_PER_VIN} photos.`));
     }
   });
-  attach('EVIDENCE_NOTES', 'evidence', (group, row) => { group.evidence.push(row); });
+  attach('EVIDENCE_NOTES', 'evidence', (group, row, rowIndex) => {
+    // F1 — CANONICAL CLASSIFICATION, checked here rather than discovered at upload time.
+    //
+    // `validateEvidenceUploadPayload` treats an upload as canonical-first only when BOTH class
+    // and subtype are present (`explicitCanonical = Boolean(class && subtype)`), and refuses
+    // otherwise because there is no legacy `evidence_type` — which the workbook deliberately does
+    // not offer, and must not start offering just to slip past this requirement. It then rejects a
+    // subtype that does not belong to the class. The workbook previously accepted a blank subtype
+    // and a subtype borrowed from another class, so both shapes reached the route and failed
+    // there, after the vehicle had already been created.
+    //
+    // F2 — CANONICAL UPLOAD AUTHORITY, evaluated with the SERVER-DERIVED actor role. The route
+    // runs `canUploadEvidenceRecord(normalized, activeRole)` after validation; a role that may
+    // not file this class/subtype is a deterministic refusal, not a transient fault, so the user
+    // must learn it BEFORE confirming rather than as a failed import afterwards.
+    //
+    // Both checks CALL the owning module. Nothing is reimplemented here and no workbook-specific
+    // permission matrix exists.
+    let normalized = null;
+    try {
+      normalized = validateEvidenceUploadPayload({
+        vehicle_id: group.vin,
+        evidence_class: cellText(row.evidence_class) || null,
+        evidence_subtype: cellText(row.evidence_subtype) || null,
+        file_url: cellText(row.file_url) || null,
+        mime_type: cellText(row.file_mime_type) || null,
+      }, { requireVehicleId: true });
+    } catch (error) {
+      errors.push(finding('EVIDENCE_NOTES', rowIndex, 'evidence_subtype', 'EVIDENCE_CLASSIFICATION_INVALID',
+        `VIN ${group.vin}: ${String(error.message || error)}`));
+      return;
+    }
+    if (actorRole && !canUploadEvidenceRecord(normalized, String(actorRole).toLowerCase())) {
+      const label = normalized.explicitCanonical
+        ? `${normalized.evidenceClass}/${normalized.evidenceSubtype}`
+        : normalized.evidenceType;
+      errors.push(finding('EVIDENCE_NOTES', rowIndex, 'evidence_class', 'EVIDENCE_ROLE_FORBIDDEN',
+        `VIN ${group.vin}: your account may not file '${label}' evidence. This is a permission rule, not a file problem — importing again will not change it.`));
+      return;
+    }
+    group.evidence.push(row);
+  });
 
   // Group-level rules.
   for (const group of vehicles.values()) {
@@ -565,6 +613,8 @@ export async function runVehicleWorkbookDryRun({ file, templateKey } = {}, actor
 
   const validation = await validateVehicleWorkbookPayload({ templateKey, sheetRows }, {
     lookupExistingVins: options.lookupExistingVins || ((vins) => defaultLookupExistingVins(client, vins)),
+    // Server-derived, from the authenticated workbook route — never a client-supplied role.
+    actorRole: actor.role || actor.effectiveRole || actor.platformRole || null,
   });
 
   const dryRunId = randomUUID();
