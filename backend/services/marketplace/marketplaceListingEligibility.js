@@ -275,9 +275,28 @@ export function buildVehicleListingCandidate({ body = {}, userContext = {} } = {
     tenant_id = ctxTenant;
     current_seller_type = 'Dealer';
   } else {
-    owner_id = body.owner_id ?? null;
-    tenant_id = body.tenant_id ?? ctxTenant ?? null;
-    current_seller_type = body.current_seller_type ?? (owner_id ? 'Private Owner' : (tenant_id ? 'Dealer' : null));
+    // G-2 (H7) — A CLIENT BODY MAY NOT MINT A LISTING SUBJECT.
+    //
+    // This branch used to read `body.owner_id ?? null` and `body.tenant_id ?? ctxTenant ?? null`,
+    // so for an admin or government account the REQUEST BODY outranked the validated context —
+    // and `/api/vehicles/add` performs no `tenant_users` check on a body-supplied tenant. Role
+    // alone therefore let a caller assert a subject they do not control: any tenant became a
+    // Dealer listing, any user id became a Private Owner listing.
+    //
+    // `authorizeRole` is the only thing that establishes organisational scope: it reads
+    // `x-tenant-id`, verifies a real `tenant_users` membership row (403 without one) and only
+    // then sets `userContext.tenantId`. So the tenant may come from there and nowhere else.
+    //
+    // Role alone grants NO listing subject. An admin or government account that genuinely holds
+    // a validated tenant context lists through that tenant — the behaviour that already existed
+    // — and one that does not gets a null subject, which `sellerIdentityReasons` refuses as
+    // `missing_owner_for_private_listing | unknown_seller_type`. A conflicting body value is
+    // IGNORED rather than rejected, so an over-eager client cannot break a legitimate
+    // submission, and the refusal (when there is one) comes from the absence of authority
+    // rather than from the presence of a field.
+    owner_id = null;
+    tenant_id = ctxTenant ?? null;
+    current_seller_type = tenant_id ? 'Dealer' : null;
   }
 
   const hasText = (v) => v != null && String(v).trim() !== '';

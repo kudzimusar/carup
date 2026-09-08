@@ -89,6 +89,13 @@ export async function lookupBySupabase(supabase, idempotencyKey) {
  * @param {{ supabase?: any, store?: Map<string, IdempotencyRecord> }} [opts]
  * @returns {Promise<{ evidenceId:string, vin:(string|null), deduped:boolean }>}
  */
+/** A PostgreSQL unique violation, however the client surfaces it. */
+export function isUniqueViolation(error) {
+  const code = error?.code || error?.cause?.code || null;
+  if (code === '23505') return true;
+  return /duplicate key value violates unique constraint/i.test(String(error?.message || ''));
+}
+
 export async function withUploadIdempotency(idempotencyKey, vin, createFn, opts = {}) {
   if (typeof createFn !== 'function') {
     throw new Error('withUploadIdempotency requires a createFn');
@@ -117,8 +124,25 @@ export async function withUploadIdempotency(idempotencyKey, vin, createFn, opts 
     return { evidenceId: priorRemote.evidenceId, vin: priorRemote.vin ?? vin ?? null, deduped: true };
   }
 
-  // 3) Miss → create exactly once, then record the mapping.
-  const created = await createFn();
+  // 3) Miss → create. The two steps above are a CHECK; this is the ACT, and between them another
+  //    worker can win. That race cannot be closed in this process, so the database settles it:
+  //    `uq_vehicle_evidence_idempotency_key` is a partial unique index on the supplied key, and a
+  //    unique violation here means a concurrent request already created this exact evidence. We
+  //    then read the winner back and report `deduped`, exactly as the sequential path does — one
+  //    evidence effect for one key, whichever request got there first.
+  let created;
+  try {
+    created = await createFn();
+  } catch (error) {
+    if (isUniqueViolation(error)) {
+      const winner = await lookupBySupabase(supabase, idempotencyKey);
+      if (winner) {
+        store.set(idempotencyKey, winner);
+        return { evidenceId: winner.evidenceId, vin: winner.vin ?? vin ?? null, deduped: true };
+      }
+    }
+    throw error;
+  }
   const evidenceId = typeof created === 'string' ? created : created?.id;
   if (!evidenceId) {
     throw new Error('createFn did not return an evidence id');

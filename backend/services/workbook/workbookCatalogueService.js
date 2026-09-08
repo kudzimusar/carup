@@ -148,11 +148,17 @@ export async function resolveWorkbookCatalogue(actor = {}, options = {}) {
         ? 'Inventory preparation and migration for your dealership.'
         : 'Applicant mode: imports create DRAFT vehicles under your own listing authority — Dealer activation stays a separate governed decision.',
     });
-  } else if (role === 'owner' || role === 'admin') {
+  } else {
+    // G-6 (H17) — every role gets a disposition. A government account previously fell through
+    // BOTH branches and vanished from the catalogue entirely: neither available nor explained.
+    // The catalogue's contract is discovery WITH a reason, so silence is a defect even when the
+    // answer is no. This does not make the action available — only legible.
     unavailable.push({
       template_key: VEHICLE_TEMPLATE_KEYS.DEALER_VEHICLE_INVENTORY,
       reason: UNAVAILABLE_REASONS.BUSINESS_CONTEXT_REQUIRED,
-      note: 'Available once your registration records a dealer business (or after Dealer activation).',
+      note: role === 'government'
+        ? 'Dealer inventory belongs to a dealer business. A government account holds no dealer business, and acting on a dealership\'s behalf is not a workbook action.'
+        : 'Available once your registration records a dealer business (or after Dealer activation).',
     });
   }
 

@@ -16,6 +16,10 @@ import {
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
+// A reachable identity: the listing-eligibility contract refuses fixture VINs and seed owner ids.
+const OWNER_ID = '7c9e6679-7425-40de-944b-e07fc1f90ae7';
+const OWNER = { id: OWNER_ID, role: 'owner', platformRole: 'owner' };
+
 function strictClient(seed = {}) {
   const db = {
     diaspora_workbook_import_batches: seed.batches || [],
@@ -23,6 +27,11 @@ function strictClient(seed = {}) {
     diaspora_workbook_import_receipts: seed.receipts || [],
   };
   const matches = (row, filters) => filters.every(({ column, value }) => row[column] === value);
+  // H18 — an unknown table answers like real Postgres for a user with no rows: an EMPTY SET,
+  // not an exception. The workbook catalogue (which execute now consults for current import
+  // capability) reads dealer-onboarding and trade-profile tables; a client that threw on them
+  // was a fixture that could not reach the branch under test.
+  const tableOf = (name) => { if (!db[name]) db[name] = []; return db[name]; };
   function builder(table) {
     const state = { filters: [], insertRows: null, updatePatch: null };
     const api = {
@@ -47,11 +56,11 @@ function strictClient(seed = {}) {
               && Number(e.row_number) === Number(row.row_number)
               && Number(e.attempt) === Number(row.attempt));
             if (clash) return { data: null, error: { code: '23505', message: 'duplicate key' } };
-            db[table].push({ ...row });
+            tableOf(table).push({ ...row });
           }
           return { data: state.insertRows, error: null };
         }
-        db[table].push(...state.insertRows.map((r) => ({ ...r })));
+        tableOf(table).push(...state.insertRows.map((r) => ({ ...r })));
         return { data: state.insertRows, error: null };
       }
       if (state.updatePatch) {
@@ -60,24 +69,26 @@ function strictClient(seed = {}) {
             && !UUID.test(String(state.updatePatch.target_record_id))) {
           return { data: null, error: { code: '22P02', message: 'invalid input syntax for type uuid' } };
         }
-        for (const row of db[table]) if (matches(row, state.filters)) Object.assign(row, state.updatePatch);
+        for (const row of tableOf(table)) if (matches(row, state.filters)) Object.assign(row, state.updatePatch);
         return { data: null, error: null };
       }
-      return { data: db[table].filter((row) => matches(row, state.filters)), error: null };
+      return { data: tableOf(table).filter((row) => matches(row, state.filters)), error: null };
     }
     return api;
   }
   return { from: (table) => builder(table), _db: db };
 }
 
-function seeded({ evidence = null, importStatus = 'VALIDATED', failReceiptInsert = false } = {}) {
+function seeded({ evidence = null, importStatus = 'VALIDATED', failReceiptInsert = false, templateType = 'seller_vehicles' } = {}) {
+  // The batch's template must be one the executing actor is entitled to — execute re-checks it.
+  const template = templateType;
   return strictClient({
     failReceiptInsert,
-    batches: [{ id: 'batch-1', uploaded_by: 'u1', template_type: 'seller_vehicles', import_status: importStatus }],
+    batches: [{ id: 'batch-1', uploaded_by: OWNER_ID, template_type: template, import_status: importStatus }],
     rows: [{
       id: 'row-1', batch_id: 'batch-1', sheet_name: 'VEHICLES', workbook_row_number: 1,
-      workbook_record_id: 'JT123456789012345', validation_status: 'ACCEPTED',
-      normalized_payload: { vin: 'JT123456789012345' },
+      workbook_record_id: 'JTMHY7AJ2K4012345', validation_status: 'ACCEPTED',
+      normalized_payload: { vin: 'JTMHY7AJ2K4012345', make: 'Toyota', model: 'Hilux', year: 2019, price: 15000, currency: 'USD', mileage: 90000, city: 'Harare', description: 'A well maintained vehicle.' },
       metadata: evidence ? { evidence } : null,
     }],
   });
@@ -124,7 +135,7 @@ test('D3: an unreachable deployment REFUSES before mutating anything', async () 
   delete process.env.CARUP_PUBLIC_API_URL;
   try {
     await assert.rejects(
-      () => executeVehicleWorkbookImport({ batchId: 'batch-1', confirm: true }, { id: 'u1' }, { supabaseClient: client }),
+      () => executeVehicleWorkbookImport({ batchId: 'batch-1', confirm: true }, OWNER, { supabaseClient: client }),
       (error) => {
         assert.match(error.message, /not reachable|Nothing was imported/i);
         return true;
@@ -143,13 +154,13 @@ test('D3: an unreachable deployment REFUSES before mutating anything', async () 
 
 /* ── D4 ───────────────────────────────────────────────────────────────────────────────── */
 test('D4: an evidence failure leaves the batch PARTIALLY_IMPORTED, so it can be retried', async () => {
-  const client = seeded({ evidence: [{ evidence_class: 'service', file_url: 'https://x/y.pdf' }] });
+  const client = seeded({ evidence: [{ evidence_class: 'registration', evidence_subtype: 'registration_book', file_url: 'https://x/y.pdf', file_mime_type: 'application/pdf' }] });
   const dispatch = async (routePath, _m, body) => (
     routePath === '/api/vehicles/add'
       ? { status: 201, body: { success: true, vin: body.vin } }
       : { status: 502, body: { error: 'evidence store unavailable' } });
   const result = await executeVehicleWorkbookImport(
-    { batchId: 'batch-1', confirm: true }, { id: 'u1' }, { supabaseClient: client, dispatch });
+    { batchId: 'batch-1', confirm: true }, OWNER, { supabaseClient: client, dispatch });
 
   assert.equal(result.importStatus, 'PARTIALLY_IMPORTED', 'IMPORTED is terminal and would block the retry');
   assert.equal(client._db.diaspora_workbook_import_batches[0].import_status, 'PARTIALLY_IMPORTED');
@@ -159,9 +170,9 @@ test('D4: an evidence failure leaves the batch PARTIALLY_IMPORTED, so it can be 
 });
 
 test('D4: a fully successful import is still IMPORTED — the rule is not "never finish"', async () => {
-  const client = seeded({ evidence: [{ evidence_class: 'service', file_url: 'https://x/y.pdf' }] });
+  const client = seeded({ evidence: [{ evidence_class: 'registration', evidence_subtype: 'registration_book', file_url: 'https://x/y.pdf', file_mime_type: 'application/pdf' }] });
   const result = await executeVehicleWorkbookImport(
-    { batchId: 'batch-1', confirm: true }, { id: 'u1' }, { supabaseClient: client, dispatch: vehicleOk });
+    { batchId: 'batch-1', confirm: true }, OWNER, { supabaseClient: client, dispatch: vehicleOk });
   assert.equal(result.importStatus, 'IMPORTED');
   assert.equal(result.retryable, false);
   assert.equal(result.incomplete_reason, null);
@@ -171,7 +182,7 @@ test('D4: a fully successful import is still IMPORTED — the rule is not "never
 test('D5: receipts that never reached the store keep the batch retryable, so the audit can be repaired', async () => {
   const client = seeded({ failReceiptInsert: true });
   const result = await executeVehicleWorkbookImport(
-    { batchId: 'batch-1', confirm: true }, { id: 'u1' }, { supabaseClient: client, dispatch: vehicleOk });
+    { batchId: 'batch-1', confirm: true }, OWNER, { supabaseClient: client, dispatch: vehicleOk });
 
   assert.equal(result.receipts_recorded, false);
   assert.equal(result.importStatus, 'PARTIALLY_IMPORTED', 'a terminal status would make the missing audit permanent');
@@ -183,20 +194,20 @@ test('D5: receipts that never reached the store keep the batch retryable, so the
 /* ── D6 ───────────────────────────────────────────────────────────────────────────────── */
 test('D6: every replayed evidence upload carries a key that is stable across retries', async () => {
   const evidence = [
-    { evidence_class: 'service', file_url: 'https://x/1.pdf' },
-    { evidence_class: 'service', file_url: 'https://x/2.pdf' },
+    { evidence_class: 'registration', evidence_subtype: 'registration_book', file_url: 'https://x/1.pdf', file_mime_type: 'application/pdf' },
+    { evidence_class: 'registration', evidence_subtype: 'reregistration_record', file_url: 'https://x/2.pdf', file_mime_type: 'application/pdf' },
   ];
   const seen = [];
   const dispatch = async (routePath, _m, body) => {
     if (routePath !== '/api/vehicles/add') seen.push(body.idempotency_key);
     return { status: 201, body: { success: true, vin: body.vin } };
   };
-  await executeVehicleWorkbookImport({ batchId: 'batch-1', confirm: true }, { id: 'u1' },
+  await executeVehicleWorkbookImport({ batchId: 'batch-1', confirm: true }, OWNER,
     { supabaseClient: seeded({ evidence }), dispatch });
   const firstPass = [...seen];
   seen.length = 0;
   // A retry of the SAME batch replays the same rows.
-  await executeVehicleWorkbookImport({ batchId: 'batch-1', confirm: true }, { id: 'u1' },
+  await executeVehicleWorkbookImport({ batchId: 'batch-1', confirm: true }, OWNER,
     { supabaseClient: seeded({ evidence, importStatus: 'PARTIALLY_IMPORTED' }), dispatch });
 
   assert.equal(firstPass.length, 2);

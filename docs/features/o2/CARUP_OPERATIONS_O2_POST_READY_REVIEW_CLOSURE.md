@@ -439,3 +439,86 @@ forbidden as a mutation target, immutable `VERCEL_URL` self-target, SHA/branch p
 mutation, fail-closed on unknown provenance, tenant reconstruction from the validated actor, inner
 membership re-verification, `x-user-id` never forwarded, CSRF behaviour unchanged, stable evidence
 idempotency keys.
+
+---
+
+# Round 5 — G-round audit findings, and the H-round closure (2026-09-08)
+
+An independent read-only audit of the F-round closure returned **RE-AUDIT FAILED** with
+**2 P1, 4 P2 and 2 P3**. Every one is closed here. `d2229a5e` is historical.
+
+## The corrections to what earlier rounds claimed
+
+These stand as corrections, not erasures. The earlier text above is left intact.
+
+| earlier claim | what was actually true |
+|---|---|
+| "dry run mirrors canonical classification/authority" | True **at the dry run only**. Execute re-validated nothing, so the protections were advisory. Dry-run parity never implied apply parity. |
+| "Admin-with-tenant authority is genuinely canonical" | Weaker than stated. `buildVehicleListingCandidate` honoured a *header-validated* tenant and an *unvalidated body* tenant identically, so role alone could assert a subject. |
+| "the boundary calls the canonical contracts" | `contractDispatch` is **test-only scaffolding**. It proves the workbook's payload satisfies those contracts; it proves nothing about production composition. |
+| "a retry does not duplicate" | Proven **sequentially**. Two concurrent retries could both miss and both insert — a stable key is not concurrency safety. |
+| "the subtype vocabulary is imported from the owning module" | Imported, but **malformed**: `Object.keys` over an array of objects produced `["0","1","2",…]`, so the advisory list contained no real subtype at all. |
+
+## G-1 → closed · execute is now the authority boundary
+
+**DRY RUN MAY EXPLAIN. EXECUTE MUST AUTHORIZE.** A persisted batch is a data snapshot, never a
+capability token. `executeVehicleWorkbookImport` now, **before the first write for each row**,
+re-derives from the CURRENT actor: the listing subject and its eligibility
+(`buildVehicleListingCandidate` + `getListingEligibility`), the evidence classification
+(`validateEvidenceUploadPayload`), the content type (`isSupportedMimeType`) and the upload
+authority (`canUploadEvidenceRecord`). It also applies `requireTemplateAction` against the
+batch's **server-owned** template type — execute was the one workbook mutation route with no such
+gate. A refused row now mutates **nothing**: the G-round's "forbidden evidence still creates the
+vehicle" is closed because every deterministic check for a row completes before any write for it.
+
+Data snapshot frozen; authority fresh.
+
+## G-2 → closed at the canonical listing authority
+
+`buildVehicleListingCandidate`'s admin/government branch no longer reads `body.owner_id` or
+`body.tenant_id`. Role alone grants no listing subject; the tenant comes only from the
+server-validated context `authorizeRole` established. A conflicting body value is ignored rather
+than rejected, so an over-eager client cannot break a legitimate submission. Every caller of the
+canonical create benefits, not just the workbook.
+
+## G-3 → closed · the subtype vocabulary carries real codes
+
+Derived from the taxonomy's own objects: **68 codes**, `registration_book` and
+`export_yard_photo` present, no numeric indices, no duplicates. The list stays **advisory** — a
+spreadsheet cell cannot be conditioned on another cell — and the help text now says CarUp makes
+the class/subtype decision at import rather than implying the dropdown enforces it.
+
+## G-4 → closed · the harness is described accurately
+
+`contractDispatch` is a **test composition harness** proving the workbook-generated payload can
+satisfy the canonical component contracts. New `o2-h-round-closure.test.js` drives the real
+`executeVehicleWorkbookImport` composition for the production-path claims.
+
+## G-5 → closed · concurrency-safe idempotency
+
+The race is settled where it must be — in the database.
+`20260908120000_vehicle_evidence_upload_idempotency.sql` adds `idempotency_key` and a **partial**
+unique index (only rows that carry a key), following the repo's own stock-ledger precedent, so
+legitimate evidence history stays unconstrained. `withUploadIdempotency` now treats a unique
+violation as "a concurrent request already created this" and returns the winner.
+**The migration is NOT applied anywhere by this closure** — the apply is a separate, independently
+gated Product Owner decision.
+
+## G-6, G-7, G-8 → closed
+
+A government account now receives an explicit `dealer_vehicle_inventory` disposition with a
+truthful reason instead of vanishing from the catalogue; the catalogue tests use fixtures that
+actually reach the dealer-context and verified-trade-role branches; the route header comment now
+states where execute's gate really lives.
+
+## Fixture debt this exposed
+
+Making execute authorize immediately failed several older suites — fixture VINs, `u1`-style ids,
+evidence rows with no subtype or MIME, and batches whose template the executing actor was never
+entitled to. Every one was a fixture that could not reach the state it claimed to certify. They
+are now reachable identities with canonically complete rows.
+
+## Still unchanged
+
+No Vercel config, no provider change, biometrics not activated, `main`/#197/#209/production
+untouched, nothing merged. One additive migration written and **not applied**.

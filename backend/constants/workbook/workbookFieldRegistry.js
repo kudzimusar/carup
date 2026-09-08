@@ -130,9 +130,17 @@ const FINANCE_TYPE_LABELS = {
 };
 
 const EVIDENCE_CLASS_VOCAB = EVIDENCE_CLASSES.map((value) => ({ value, label: value.replace(/_/g, ' '), aliases: [] }));
-const EVIDENCE_SUBTYPE_VALUES = Object.freeze(
-  Object.values(CLASS_SUBTYPES).flatMap((subtypes) => Object.keys(subtypes)),
-);
+// G-3 (H10) — `CLASS_SUBTYPES[class]` is an ARRAY OF OBJECTS (`{ code, label, … }`), so the
+// previous `Object.keys(subtypes)` produced ARRAY INDICES: the advisory vocabulary was
+// ["0","1","2",…] and contained not one real subtype, while the field's own example said
+// `registration_book`. Every legitimate row therefore carried a spurious VOCABULARY_MISMATCH
+// warning, and the dropdown offered the user numbers. The code is read from the owning
+// taxonomy's own objects; nothing is hardcoded and no second taxonomy is created.
+const EVIDENCE_SUBTYPE_VALUES = Object.freeze([...new Set(
+  Object.values(CLASS_SUBTYPES).flatMap((subtypes) => (Array.isArray(subtypes) ? subtypes : Object.values(subtypes))
+    .map((entry) => (typeof entry === 'string' ? entry : entry?.code))
+    .filter((code) => typeof code === 'string' && code.length > 0)),
+)]);
 export const EVENT_DATE_PRECISIONS = Object.freeze(['day', 'month', 'year', 'unknown']);
 
 /* ------------------------------------------------------------------ *
@@ -312,7 +320,7 @@ export const VEHICLE_WORKBOOK_SHEETS = Object.freeze({
       // with the taxonomy's own message rather than silently accepted here.
       f({ key: 'evidence_subtype', header: 'Evidence type', required: true, authority: 'evidence_ref', privacy: 'P1', vocabularyMode: 'advisory',
         vocabulary: plainVocabulary([...EVIDENCE_SUBTYPE_VALUES]),
-        help: 'The specific document type. It must belong to the evidence category you chose.', example: 'registration_book' }),
+        help: 'The specific document type. This list shows every type CarUp knows; the one you pick must belong to the evidence category in the previous column, which CarUp checks when you run the import.', example: 'registration_book' }),
       f({ key: 'file_url', header: 'Document/photo web address', required: true, type: 'url', authority: 'evidence_ref', privacy: 'P2', exportable: false,
         validation: { pattern: '^https?://' }, help: 'A web address CarUp can fetch the file from.', example: 'https://example.com/regbook.pdf' }),
       f({ key: 'event_date', header: 'Date of the event', type: 'date', authority: 'evidence_ref', privacy: 'P1',

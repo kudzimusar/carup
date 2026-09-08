@@ -30,7 +30,15 @@ import { resolveBuildProvenance } from '../../config/buildProvenance.js';
 import {
   validateEvidenceUploadPayload,
   canUploadEvidenceRecord,
+  isSupportedMimeType,
 } from '../evidence/evidenceService.js';
+// H1/H7 — execute re-derives the listing subject and its eligibility from the CURRENT actor.
+import {
+  buildVehicleListingCandidate,
+  getListingEligibility,
+} from '../marketplace/marketplaceListingEligibility.js';
+// H2 — the batch's own template decides current import capability, never a client-supplied one.
+import { requireTemplateAction } from './workbookCatalogueService.js';
 import {
   sha256Checksum,
   assertAllowedSpreadsheet,
@@ -982,6 +990,68 @@ function notImportedSheetSummary(templateKey) {
   }));
 }
 
+/**
+ * DRY RUN MAY EXPLAIN. EXECUTE MUST AUTHORIZE.
+ *
+ * The G-round proved the F1/F2 protections were advisory: they ran in
+ * `validateVehicleWorkbookPayload` and never again, while the batch persisted. A batch is a
+ * DATA SNAPSHOT, not a capability token — so execute re-derives every consequential fact from
+ * the CURRENT actor before the first write for that row, by calling the same owning functions
+ * the dry run and the canonical routes call. Nothing is reimplemented and no second workbook
+ * permission model exists.
+ *
+ * Returns null when the row may proceed, or a deterministic refusal that names WHY.
+ */
+function revalidateRowAuthority(row, actor) {
+  const actorRole = String(actor.role || actor.effectiveRole || actor.platformRole || '').toLowerCase();
+  const payload = row.normalized_payload || {};
+
+  // 1. The listing subject, re-derived from the current actor — never from the stored payload.
+  //    (buildVehicleListingCandidate itself now refuses a body-supplied owner/tenant: H7.)
+  const candidate = buildVehicleListingCandidate({ body: payload, userContext: actor });
+  const eligibility = getListingEligibility(candidate);
+  if (!eligibility.eligible) {
+    return {
+      code: 'LISTING_NOT_ELIGIBLE',
+      message: `This vehicle can no longer be listed under your current account: ${eligibility.reasons.join(', ')}.`,
+    };
+  }
+
+  // 2. Every evidence reference, re-checked against the CURRENT role.
+  for (const evidence of row.metadata?.evidence || []) {
+    let normalized = null;
+    try {
+      normalized = validateEvidenceUploadPayload({
+        vehicle_id: row.workbook_record_id,
+        evidence_class: evidence.evidence_class ?? null,
+        evidence_subtype: evidence.evidence_subtype ?? null,
+        file_url: evidence.file_url ?? null,
+        mime_type: evidence.file_mime_type ?? null,
+      }, { requireVehicleId: true });
+    } catch (error) {
+      return { code: 'EVIDENCE_CLASSIFICATION_INVALID', message: String(error.message || error) };
+    }
+    if (!isSupportedMimeType(evidence.file_mime_type ?? null)) {
+      return {
+        code: 'EVIDENCE_MIME_UNSUPPORTED',
+        message: `Unsupported file type: ${evidence.file_mime_type || 'unknown'}`,
+      };
+    }
+    if (!canUploadEvidenceRecord(normalized, actorRole)) {
+      const label = normalized.explicitCanonical
+        ? `${normalized.evidenceClass}/${normalized.evidenceSubtype}`
+        : normalized.evidenceType;
+      return {
+        code: 'EVIDENCE_ROLE_FORBIDDEN',
+        // Deterministic, and explicit that CURRENT authority is what changed — never dressed as
+        // an upload or database fault.
+        message: `Your current permissions no longer allow '${label}' evidence. This is a permission rule, not a file problem.`,
+      };
+    }
+  }
+  return null;
+}
+
 export async function executeVehicleWorkbookImport({ batchId, confirm } = {}, actor = {}, options = {}) {
   const userId = actor.id || actor.userId;
   if (!userId) throw new ValidationError('Authenticated user context is required.');
@@ -1008,6 +1078,12 @@ export async function executeVehicleWorkbookImport({ batchId, confirm } = {}, ac
       && batch.import_status !== VEHICLE_IMPORT_BATCH_STATUSES.PARTIALLY_IMPORTED) {
     throw new ValidationError(`Batch is ${batch.import_status} — only a VALIDATED dry run can be imported.`);
   }
+
+  // H2 — the same fail-closed capability gate every other workbook route applies, using the
+  // batch's SERVER-OWNED template type. Execute was the one mutation route without it, so a
+  // batch kept its authority after the actor lost theirs. A client-supplied template key is
+  // never consulted.
+  await requireTemplateAction(actor, batch.template_type, 'import', { supabaseClient: client });
 
   const { data: rows, error: rowsError } = await client
     .from('diaspora_workbook_import_rows')
@@ -1059,6 +1135,29 @@ export async function executeVehicleWorkbookImport({ batchId, confirm } = {}, ac
     let errorCode = null;
     let errorMessage = null;
     const rowEvidence = [];
+
+    // H4 — every deterministic check for THIS row completes before ANY write for this row.
+    // The G-round proved a role-forbidden evidence reference still produced a created vehicle,
+    // because the vehicle was created first and evidence only afterwards. A refused row now
+    // mutates nothing at all: no vehicle, no evidence, no link.
+    const refusal = revalidateRowAuthority(row, actor);
+    if (refusal) {
+      rejected += 1;
+      receipts.push({
+        tenant_id: null,
+        batch_id: batch.id,
+        row_number: row.workbook_row_number,
+        sheet_name: 'VEHICLES',
+        outcome: 'rejected',
+        entity_type: 'vehicle',
+        entity_ref: null,
+        error_code: refusal.code,
+        error_message: String(refusal.message).slice(0, 400),
+        attempt: nextAttemptByRow(row.workbook_row_number),
+      });
+      continue;
+    }
+
     try {
       const response = await dispatch('/api/vehicles/add', 'POST', payload, actorHeaders);
       if (response.status >= 200 && response.status < 300) {

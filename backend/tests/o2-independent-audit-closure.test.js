@@ -36,6 +36,11 @@ function strictClient(seed = {}) {
     diaspora_workbook_import_receipts: seed.receipts || [],
   };
   const matches = (row, filters) => filters.every(({ column, value }) => row[column] === value);
+  // H18 — an unknown table answers like real Postgres for a user with no rows: an EMPTY SET,
+  // not an exception. The workbook catalogue (which execute now consults for current import
+  // capability) reads dealer-onboarding and trade-profile tables; a client that threw on them
+  // was a fixture that could not reach the branch under test.
+  const tableOf = (name) => { if (!db[name]) db[name] = []; return db[name]; };
   function builder(table) {
     const state = { filters: [], insertRows: null, updatePatch: null };
     const api = {
@@ -57,11 +62,11 @@ function strictClient(seed = {}) {
               && Number(e.row_number) === Number(row.row_number)
               && Number(e.attempt) === Number(row.attempt));
             if (clash) return { data: null, error: { code: '23505', message: 'duplicate key' } };
-            db[table].push({ ...row });
+            tableOf(table).push({ ...row });
           }
           return { data: state.insertRows, error: null };
         }
-        db[table].push(...state.insertRows.map((r) => ({ ...r })));
+        tableOf(table).push(...state.insertRows.map((r) => ({ ...r })));
         return { data: state.insertRows, error: null };
       }
       if (state.updatePatch) {
@@ -70,10 +75,10 @@ function strictClient(seed = {}) {
             && !UUID.test(String(state.updatePatch.target_record_id))) {
           return { data: null, error: { code: '22P02', message: 'invalid input syntax for type uuid' } };
         }
-        for (const row of db[table]) if (matches(row, state.filters)) Object.assign(row, state.updatePatch);
+        for (const row of tableOf(table)) if (matches(row, state.filters)) Object.assign(row, state.updatePatch);
         return { data: null, error: null };
       }
-      return { data: db[table].filter((row) => matches(row, state.filters)), error: null };
+      return { data: tableOf(table).filter((row) => matches(row, state.filters)), error: null };
     }
     return api;
   }
@@ -147,9 +152,12 @@ function contractDispatch({ memberships = {}, actor = {}, log = [], idempotencyS
   };
 }
 
-function seeded({ evidence = [], importStatus = 'VALIDATED', seedActorId = OWNER_ID } = {}) {
+function seeded({ evidence = [], importStatus = 'VALIDATED', seedActorId = OWNER_ID, templateType = null } = {}) {
+  // H18 — the batch's template must be one the EXECUTING actor is entitled to; execute now
+  // re-checks that, so a fixture pairing an owner with the dealer template was never realistic.
+  const template = templateType || (seedActorId === OWNER_ID ? 'seller_vehicles' : 'dealer_vehicle_inventory');
   return strictClient({
-    batches: [{ id: 'batch-1', uploaded_by: seedActorId, template_type: 'dealer_vehicle_inventory', import_status: importStatus }],
+    batches: [{ id: 'batch-1', uploaded_by: seedActorId, template_type: template, import_status: importStatus }],
     rows: [{
       id: 'row-1', batch_id: 'batch-1', sheet_name: 'VEHICLES', workbook_row_number: 1,
       workbook_record_id: 'JTMHY7AJ2K4012345', validation_status: 'ACCEPTED',
@@ -162,8 +170,8 @@ function seeded({ evidence = [], importStatus = 'VALIDATED', seedActorId = OWNER
 const OWNER_ID = '7c9e6679-7425-40de-944b-e07fc1f90ae7';
 const DEALER_ID = '9b1deb4d-3b7d-4bad-9bdd-2b0d7b3dcb6d';
 const TENANT_A = 'f47ac10b-58cc-4372-a567-0e02b2c3d479';
-const OWNER = { id: OWNER_ID, platformRole: 'owner' };
-const DEALER = { id: DEALER_ID, platformRole: 'dealer', requestedRole: 'dealer', tenantId: TENANT_A };
+const OWNER = { id: OWNER_ID, role: 'owner', platformRole: 'owner' };
+const DEALER = { id: DEALER_ID, role: 'dealer', platformRole: 'dealer', requestedRole: 'dealer', tenantId: TENANT_A };
 
 /* ── E1 ───────────────────────────────────────────────────────────────────────────────── */
 test('E1 REPRODUCTION: without a declared MIME type the canonical evidence route refuses', () => {
@@ -200,25 +208,32 @@ test('E1: a supported PDF travels through the real evidence validation and succe
   assert.equal(result.evidence[0].outcome, 'accepted');
 });
 
-test('E1: a MISSING MIME type refuses, and the batch does NOT report completion', async () => {
+test('E1/H4: a MISSING MIME type refuses the ROW before any write — no vehicle, no evidence', async () => {
+  const client = seeded({ evidence: [{ evidence_class: 'registration', evidence_subtype: 'registration_book', file_url: 'https://x/a.pdf' }] });
+  const log = [];
   const result = await executeVehicleWorkbookImport({ batchId: 'batch-1', confirm: true }, OWNER, {
-    supabaseClient: seeded({ evidence: [{ evidence_class: 'registration', evidence_subtype: 'registration_book', file_url: 'https://x/a.pdf' }] }),
-    dispatch: contractDispatch({ actor: OWNER }),
+    supabaseClient: client, dispatch: contractDispatch({ actor: OWNER, log }),
   });
-  assert.equal(result.evidence[0].outcome, 'rejected');
-  assert.match(result.evidence[0].error_message, /Unsupported file type/i);
-  assert.equal(result.importStatus, 'PARTIALLY_IMPORTED', 'a refused evidence upload is not a finished import');
+  assert.equal(result.created, 0);
+  assert.equal(result.failed, 1);
+  assert.equal(log.length, 0, 'nothing was dispatched: the refusal precedes every mutation');
+  const receipt = client._db.diaspora_workbook_import_receipts[0];
+  assert.equal(receipt.outcome, 'rejected');
+  assert.equal(receipt.error_code, 'EVIDENCE_MIME_UNSUPPORTED');
+  assert.equal(result.importStatus, 'PARTIALLY_IMPORTED');
   assert.equal(result.retryable, true);
 });
 
-test('E1: an UNSUPPORTED MIME type refuses, and the allow-list was not broadened', async () => {
+test('E1/H4: an UNSUPPORTED MIME type refuses the row, and the allow-list was not broadened', async () => {
   assert.equal(isSupportedMimeType('application/zip'), false);
+  const client = seeded({ evidence: [{ evidence_class: 'registration', evidence_subtype: 'registration_book', file_url: 'https://x/a.zip', file_mime_type: 'application/zip' }] });
+  const log = [];
   const result = await executeVehicleWorkbookImport({ batchId: 'batch-1', confirm: true }, OWNER, {
-    supabaseClient: seeded({ evidence: [{ evidence_class: 'registration', evidence_subtype: 'registration_book', file_url: 'https://x/a.zip', file_mime_type: 'application/zip' }] }),
-    dispatch: contractDispatch({ actor: OWNER }),
+    supabaseClient: client, dispatch: contractDispatch({ actor: OWNER, log }),
   });
-  assert.equal(result.evidence[0].outcome, 'rejected');
-  assert.equal(result.retryable, true);
+  assert.equal(result.created, 0);
+  assert.equal(log.length, 0, 'no vehicle is created for a row whose evidence cannot be filed');
+  assert.equal(client._db.diaspora_workbook_import_receipts[0].error_code, 'EVIDENCE_MIME_UNSUPPORTED');
   assert.deepEqual([...allowedMimeTypes], ['image/jpeg', 'image/jpg', 'image/png', 'image/webp', 'application/pdf']);
 });
 
@@ -388,9 +403,9 @@ test('E3: an ACTIVE DEALER with a valid tenant creates a DEALER-tenant-scoped dr
 
 test('E3: a DEALER WITHOUT a valid tenant is refused, not silently downgraded', async () => {
   const result = await executeVehicleWorkbookImport({ batchId: 'batch-1', confirm: true },
-    { id: DEALER_ID, platformRole: 'dealer', requestedRole: 'dealer' }, {
+    { id: DEALER_ID, role: 'dealer', platformRole: 'dealer', requestedRole: 'dealer' }, {
       supabaseClient: seeded({ seedActorId: DEALER_ID }),
-      dispatch: contractDispatch({ actor: { id: DEALER_ID, platformRole: 'dealer', requestedRole: 'dealer' } }),
+      dispatch: contractDispatch({ actor: { id: DEALER_ID, role: 'dealer', platformRole: 'dealer', requestedRole: 'dealer' } }),
     });
   assert.equal(result.created, 0);
   assert.equal(result.failed, 1);

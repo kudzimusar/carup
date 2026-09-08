@@ -28,7 +28,10 @@ import { ValidationError } from '../utils/errors.js';
  * O2-X5A — the common Workbook tools surface: Template · Export · Import ·
  * Recent Imports + the CarUp AI Workbook Assistant.
  *
- * EVERY route re-derives eligibility server-side (requireTemplateAction over
+ * EVERY route re-derives eligibility server-side. The execute route does it INSIDE the service,
+ * against the batch's own server-owned template type (it cannot be done here without first
+ * loading the batch, and a client-supplied template key must never decide it) — it was the one
+ * mutation route with no such gate at all until the H-round. (requireTemplateAction over
  * the catalogue) — a template_key in the body/query is a REQUEST, never a
  * grant. The diaspora templates keep their existing routes/pipeline; this
  * router serves the catalogue plus the NEW registry-built vehicle templates.
