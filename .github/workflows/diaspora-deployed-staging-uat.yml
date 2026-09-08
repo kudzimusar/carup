@@ -52,7 +52,13 @@ jobs:
     env:
       EXPECTED_HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
       CANDIDATE_BRANCH: ${{ github.event.pull_request.head.ref || github.ref_name }}
-      STAGING_RUN_ID: diaspora-${{ github.run_id }}-${{ github.run_attempt }}
+      # `seller-<digits>-<digits>` is a CONTRACT, not a label. `marketplaceRoutes.js` only honours a
+      # `fixture_scope` matching /^seller-[0-9]+-[0-9]+$/, and only on a preview deployment — that is
+      # how Seller automation listings are kept out of the public Marketplace. Spec 38 publishes a
+      # vehicle and then asserts it is findable with `fixture_scope=<run id>`; under the old
+      # `diaspora-…` prefix the scope was rejected, the listing stayed correctly hidden, and the spec
+      # could never pass in this gate however healthy the product was.
+      STAGING_RUN_ID: seller-${{ github.run_id }}-${{ github.run_attempt }}
       DIASPORA_STAGING_DATABASE_URL: ${{ secrets.DIASPORA_STAGING_DATABASE_URL }}
       EXPECTED_STAGING_PROJECT_REF: eoyenigwevnxwwhyhaer
     steps:
@@ -120,12 +126,23 @@ jobs:
             crypto.scrypt(password, salt, 64, (error, key) => error ? reject(error) : resolve(key));
           });
           const passwordHash = `scrypt:${salt}:${derived.toString('hex')}`;
+          // The five original UAT identities, PLUS the ones the additive Trade OS specs need.
+          // Specs 45 (T5 container demo) and 46 (T2 Request Quotes) were added to this config's
+          // testMatch without this step being widened, so they threw
+          // "TRADEOS_*_PASSWORD is not exported" on their first real action — 2 of spec 46's 15
+          // tests even attempted. Provisioning them is strictly MORE certification, not less.
           const identities = [
             ['uat.buyer@carup-staging.test', 'owner'],
             ['uat.seller@carup-staging.test', 'dealer'],
             ['uat.reviewer@carup-staging.test', 'admin'],
             ['uat.tenant-admin@carup-staging.test', 'admin'],
             ['uat.outsider@carup-staging.test', 'owner'],
+            ['tradeos.operator@carup-staging.test', 'owner'],
+            ['tradeos.outsider@carup-staging.test', 'owner'],
+            ['tradeos.participant.a@carup-staging.test', 'owner'],
+            ['tradeos.participant.b@carup-staging.test', 'owner'],
+            ['tradeos.rfq-buyer@carup-staging.test', 'owner'],
+            ['tradeos.rfq-supplier@carup-staging.test', 'dealer'],
           ];
 
           // Strip any sslmode query param: it would override the explicit ssl config below and make
@@ -156,6 +173,12 @@ jobs:
             'STAGING_UAT_REVIEWER_PASSWORD',
             'STAGING_UAT_TENANT_ADMIN_PASSWORD',
             'STAGING_UAT_OUTSIDER_PASSWORD',
+            'TRADEOS_UAT_OPERATOR_PASSWORD',
+            'TRADEOS_UAT_OUTSIDER_PASSWORD',
+            'TRADEOS_UAT_PARTICIPANT_A_PASSWORD',
+            'TRADEOS_UAT_PARTICIPANT_B_PASSWORD',
+            'TRADEOS_RFQ_BUYER_PASSWORD',
+            'TRADEOS_RFQ_SUPPLIER_PASSWORD',
           ];
           fs.appendFileSync(process.env.GITHUB_ENV, envNames.map((name) => `${name}=${password}`).join('\n') + '\n', { mode: 0o600 });
           console.log('Five staging-only UAT identities were rotated and role-verified without printing credentials.');

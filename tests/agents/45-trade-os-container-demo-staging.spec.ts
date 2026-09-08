@@ -124,6 +124,14 @@ stagingTest.describe('Trade OS container co-loading — client demo (deployed st
     await navLink.click();
     await expect(page).toHaveURL(/\/diaspora\/containers/);
 
+    // A later phase turned /diaspora/containers into a three-tab Shipping workspace
+    // (My shipping · Provider requests · Container space). A logistics provider lands on
+    // "Provider requests", so the container surface is one more real click away rather than absent.
+    // Clicking the tab keeps this test's subject — DISCOVERABILITY through normal navigation, no
+    // hidden URL — and adds the step a real operator now takes. T5 authority is unchanged.
+    await page.getByTestId('shipping-tab-containers').click();
+    await expect(page.getByTestId('shipping-tab-containers')).toHaveAttribute('aria-selected', 'true');
+
     // Owner UAT #1/#3/#7: the operational workspace shell — real trade identity, no marketing
     // chrome, no security-role label masquerading as commercial identity.
     await expect(page.getByTestId('tradeos-workspace')).toBeVisible();
@@ -174,7 +182,7 @@ stagingTest.describe('Trade OS container co-loading — client demo (deployed st
   stagingTest('participant A: discover container, request VEHICLE space with import-order link', async ({ page, request }) => {
     stagingTest.skip(stagingTest.info().project.name !== 'chromium', 'full journey runs once on desktop');
     await signIn(page, 'participantA');
-    await gotoSettled(page, '/diaspora/containers');
+    await gotoSettled(page, '/diaspora/containers?view=containers');
     await openContainerByDeparture(page, OCT_DEPARTURE);
 
     await page.getByTestId('diaspora-container-reserve-category').selectOption('vehicle');
@@ -203,7 +211,7 @@ stagingTest.describe('Trade OS container co-loading — client demo (deployed st
   stagingTest('participant B: request HOUSEHOLD space (non-vehicle eligible cargo)', async ({ page, request }) => {
     stagingTest.skip(stagingTest.info().project.name !== 'chromium', 'full journey runs once on desktop');
     await signIn(page, 'participantB');
-    await gotoSettled(page, '/diaspora/containers');
+    await gotoSettled(page, '/diaspora/containers?view=containers');
     await openContainerByDeparture(page, OCT_DEPARTURE);
 
     // The service explains its breadth BEFORE the form (owner UAT #4).
@@ -237,7 +245,7 @@ stagingTest.describe('Trade OS container co-loading — client demo (deployed st
   stagingTest('operator: sees both requests with cargo context, approves the vehicle — capacity updates', async ({ page, request }) => {
     stagingTest.skip(stagingTest.info().project.name !== 'chromium', 'full journey runs once on desktop');
     await signIn(page, 'operator');
-    await gotoSettled(page, '/diaspora/containers');
+    await gotoSettled(page, '/diaspora/containers?view=containers');
     await openContainerByDeparture(page, OCT_DEPARTURE);
 
     const rows = page.getByTestId('diaspora-container-reservation-row');
@@ -269,7 +277,7 @@ stagingTest.describe('Trade OS container co-loading — client demo (deployed st
     stagingTest.skip(stagingTest.info().project.name !== 'chromium', 'full journey runs once on desktop');
     // B requests 50 CBM (individually valid: ≤ 60 total) …
     await signIn(page, 'participantB');
-    await gotoSettled(page, '/diaspora/containers');
+    await gotoSettled(page, '/diaspora/containers?view=containers');
     await openContainerByDeparture(page, OCT_DEPARTURE);
     await page.getByTestId('diaspora-container-reserve-category').selectOption('general');
     await page.getByTestId('diaspora-container-reserve-description').fill('Overfill probe — general cargo pallets');
@@ -280,7 +288,7 @@ stagingTest.describe('Trade OS container co-loading — client demo (deployed st
     // … but approving it must fail atomically: 22 approved + 50 = 72 > 60.
     await page.context().clearCookies();
     await signIn(page, 'operator');
-    await gotoSettled(page, '/diaspora/containers');
+    await gotoSettled(page, '/diaspora/containers?view=containers');
     await openContainerByDeparture(page, OCT_DEPARTURE);
     const probeRow = page.getByTestId('diaspora-container-reservation-row').filter({ hasText: 'Overfill probe' });
     await probeRow.getByTestId('diaspora-container-approve').click();
@@ -297,7 +305,7 @@ stagingTest.describe('Trade OS container co-loading — client demo (deployed st
   stagingTest('participant A: sees APPROVED state, can cancel a second request, and has activity/communication state', async ({ page, request }) => {
     stagingTest.skip(stagingTest.info().project.name !== 'chromium', 'full journey runs once on desktop');
     await signIn(page, 'participantA');
-    await gotoSettled(page, '/diaspora/containers');
+    await gotoSettled(page, '/diaspora/containers?view=containers');
     await openContainerByDeparture(page, OCT_DEPARTURE);
     const mine = page.getByTestId('diaspora-container-reservation-row');
     await expect(mine.filter({ hasText: 'APPROVED' })).toHaveCount(1);
@@ -357,7 +365,7 @@ stagingTest.describe('Trade OS container co-loading — client demo (deployed st
   stagingTest('cross-tenant denial: a rival tenant admin cannot see, approve or close this container', async ({ page, request }) => {
     stagingTest.skip(stagingTest.info().project.name !== 'chromium', 'full journey runs once on desktop');
     await signIn(page, 'outsider');
-    await gotoSettled(page, '/diaspora/containers');
+    await gotoSettled(page, '/diaspora/containers?view=containers');
     await openContainerByDeparture(page, OCT_DEPARTURE);
 
     // Participant visibility boundary: the rival admin holds tenant authority over ANOTHER tenant,
@@ -384,7 +392,7 @@ stagingTest.describe('Trade OS container co-loading — client demo (deployed st
   stagingTest('operator: December container + booking-close semantics on a proof container', async ({ page, request }) => {
     stagingTest.skip(stagingTest.info().project.name !== 'chromium', 'full journey runs once on desktop');
     await signIn(page, 'operator');
-    await gotoSettled(page, '/diaspora/containers');
+    await gotoSettled(page, '/diaspora/containers?view=containers');
 
     // December sailing (left OPEN for the client demo).
     await page.getByTestId('diaspora-container-create-toggle').click();
@@ -406,12 +414,22 @@ stagingTest.describe('Trade OS container co-loading — client demo (deployed st
     await page.getByTestId('create-departure-date').fill('2026-11-05');
     await page.getByTestId('create-booking-deadline').fill('2026-11-01');
     await page.getByTestId('create-total-cbm').fill('10');
+    // Capture THIS run's throwaway container, the same way the October one is captured. The
+    // assertion below used to identify it by the shared departure date '2026-11-05' — which every
+    // previous run of this spec also used, so by the fourth run the closed-container check was
+    // matching three other runs' still-open sailings and failing on data that was entirely correct.
+    // A run must assert on the container it actually closed.
+    const proofCreated = page.waitForResponse((r) =>
+      r.request().method() === 'POST' && /\/container-marketplace\/containers$/.test(new URL(r.url()).pathname));
     await page.getByTestId('diaspora-container-create-submit').click();
+    const proofId = (await (await proofCreated).json())?.data?.id;
+    expect(proofId, 'created proof container id').toBeTruthy();
     await expect(page.getByTestId('diaspora-container-capacity-line')).toContainText('Used 0/10');
     await expect(page.getByText(/Closing stops new requests/i)).toBeVisible();
     await page.getByTestId('diaspora-container-close-booking').click();
     await expect(page.getByTestId('diaspora-container-detail').getByText(/BOOKING[ _]CLOSED/).first()).toBeVisible();
-    await expect(page.getByTestId('diaspora-container-card').filter({ hasText: '2026-11-05' })).toHaveCount(0);
+    // BOOKING_CLOSED leaves the open list — proved for THIS container, by its own id.
+    await expect(page.locator(`[data-testid="diaspora-container-card"][data-container-id="${proofId}"]`)).toHaveCount(0);
     await drainOutbox(request);
   });
 
@@ -430,7 +448,7 @@ stagingTest.describe('Trade OS container co-loading — client demo (deployed st
     const WIDTHS: Array<[number, number]> = [[393, 852], [820, 1180], [1024, 768], [1280, 800], [1366, 768], [1440, 900], [1536, 864]];
     for (const [width, height] of WIDTHS) {
       await page.setViewportSize({ width, height });
-      await gotoSettled(page, '/diaspora/containers');
+      await gotoSettled(page, '/diaspora/containers?view=containers');
       await openContainerByDeparture(page, OCT_DEPARTURE);
       // Manifest + booking detail open = the widest state of the page.
       await page.getByTestId('diaspora-container-open-booking').first().click();
@@ -456,14 +474,14 @@ stagingTest.describe('Trade OS container co-loading — client demo (deployed st
     await signIn(page, 'operator');
     for (const [name, width, height] of [['operator-desktop-1440', 1440, 900], ['operator-narrow-1024', 1024, 768]] as Array<[string, number, number]>) {
       await page.setViewportSize({ width, height });
-      await gotoSettled(page, '/diaspora/containers');
+      await gotoSettled(page, '/diaspora/containers?view=containers');
       await openContainerByDeparture(page, OCT_DEPARTURE);
       await testInfo.attach(`${name}.png`, { body: await page.screenshot({ fullPage: true }), contentType: 'image/png' });
     }
     await page.context().clearCookies();
     await signIn(page, 'participantA');
     await page.setViewportSize({ width: 1440, height: 900 });
-    await gotoSettled(page, '/diaspora/containers');
+    await gotoSettled(page, '/diaspora/containers?view=containers');
     await openContainerByDeparture(page, OCT_DEPARTURE);
     await testInfo.attach('participant-desktop-1440.png', { body: await page.screenshot({ fullPage: true }), contentType: 'image/png' });
   });
@@ -471,7 +489,7 @@ stagingTest.describe('Trade OS container co-loading — client demo (deployed st
   stagingTest('responsive: participant journey state on this viewport', async ({ page }, testInfo) => {
     stagingTest.skip(stagingTest.info().project.name === 'chromium', 'chromium already ran the full journey');
     await signIn(page, 'participantA');
-    await gotoSettled(page, '/diaspora/containers');
+    await gotoSettled(page, '/diaspora/containers?view=containers');
     await openContainerByDeparture(page, OCT_DEPARTURE);
     await expect(page.getByTestId('diaspora-container-capacity-line')).toContainText('Used 22/60');
     await expect(page.getByTestId('diaspora-container-reservation-row').filter({ hasText: 'APPROVED' })).toHaveCount(1);
@@ -485,7 +503,7 @@ stagingTest.describe('Trade OS container co-loading — client demo (deployed st
   stagingTest('responsive: operator view on this viewport', async ({ page }, testInfo) => {
     stagingTest.skip(stagingTest.info().project.name === 'chromium', 'chromium already ran the full journey');
     await signIn(page, 'operator');
-    await gotoSettled(page, '/diaspora/containers');
+    await gotoSettled(page, '/diaspora/containers?view=containers');
     await expect(page.getByTestId('diaspora-container-create-section')).toBeVisible();
     await openContainerByDeparture(page, OCT_DEPARTURE);
     await expect(page.getByTestId('diaspora-container-counts')).toContainText('1 approved · 1 pending');

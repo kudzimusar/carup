@@ -179,21 +179,37 @@ export default function SellerIntelligence() {
       setInquiries(inquiryResult.status === 'fulfilled' ? (inquiryResult.value.inquiries || []) as Inquiry[] : null)
       setThreads(threadResult.status === 'fulfilled' ? (threadResult.value.threads || []) as Thread[] : null)
 
-      const insightPairs = await Promise.all(nextVehicles.map(async vehicle => {
-        try {
-          const insight = await fetchListingIntelligence(vehicle.vin, windowDays) as ListingInsight
-          return [vehicle.vin, insight] as const
-        } catch {
-          return [vehicle.vin, null] as const
-        }
-      }))
-      if (!active) return
-      setListingInsights(Object.fromEntries(insightPairs))
+      // The page is READY once its four primary reads have settled. It used to wait for the
+      // per-listing fan-out below as well, which meant a seller with a large inventory stared at
+      // "Reading Seller rollups…" until every listing had answered — 157 concurrent requests for one
+      // staging identity, and the KPI band, which needs only the pulse read, never appeared at all.
+      // The per-listing detail fills in afterwards; the comparison table already renders its own
+      // per-row unavailable state, so nothing claims a figure it does not have.
       setSettled({
         key: readKey,
         status: pulseResult.status === 'fulfilled' ? 'ready' : 'error',
         vehiclesRead: vehicleResult.status === 'fulfilled',
       })
+
+      // …and the fan-out is BOUNDED. One request per owned vehicle, all at once, is a self-inflicted
+      // load spike that a real dealer's inventory makes worse, not better.
+      const INSIGHT_CONCURRENCY = 6
+      const insightPairs: Array<readonly [string, ListingInsight | null]> = []
+      for (let i = 0; i < nextVehicles.length; i += INSIGHT_CONCURRENCY) {
+        if (!active) return
+        const batch = await Promise.all(nextVehicles.slice(i, i + INSIGHT_CONCURRENCY).map(async vehicle => {
+          try {
+            const insight = await fetchListingIntelligence(vehicle.vin, windowDays) as ListingInsight
+            return [vehicle.vin, insight] as const
+          } catch {
+            return [vehicle.vin, null] as const
+          }
+        }))
+        insightPairs.push(...batch)
+        if (!active) return
+        // Show what has arrived rather than nothing until all of it has.
+        setListingInsights(Object.fromEntries(insightPairs))
+      }
     })
 
     return () => { active = false }
