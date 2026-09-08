@@ -1890,7 +1890,7 @@ with their reason in `STAGES_HANDED_TO_T12`.
 
 ## T12 — Customs and Zimbabwe destination operations
 
-**`T12-USABLE` — built and certified. Owner acceptance remains.**
+**`T12-USABLE` — OWNER ACCEPTED / FROZEN.** Runtime freeze `4d880f59`.
 Plan `docs/trade-os/T12_CUSTOMS_ZIMBABWE_DESTINATION_IMPLEMENTATION_PLAN.md`, receipt
 `docs/trade-os/receipts/T12_CUSTOMS_ZIMBABWE_DESTINATION.md`, source register
 `docs/trade-os/T12_ZIMBABWE_CUSTOMS_AUTHORITY_SOURCE_REGISTER.md`.

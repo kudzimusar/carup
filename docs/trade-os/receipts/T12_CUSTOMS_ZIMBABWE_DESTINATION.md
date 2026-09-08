@@ -1,7 +1,26 @@
 # Trade OS T12 — Attributed customs coordination & Zimbabwe destination · Receipt
 
-**Status: `T12-USABLE` — awaiting owner acceptance.**
-Runtime SHA and CI run recorded in PR #207.
+**Status: `T12-USABLE` — OWNER ACCEPTED / FROZEN.**
+
+| | SHA | why |
+|---|---|---|
+| **T12 runtime freeze** | **`4d880f59`** | the last runtime-affecting commit — see below |
+| **T12 certification head** | `4d880f59` (runtime-identical at `177371c2`) | deployed journeys, responsive and mutation evidence |
+| **T12 owner-acceptance docs** | this commit | documentation only |
+
+**Why `4d880f59` and not `177371c2`.** `177371c2` touches one file — this receipt — so it is
+**genuinely documentation-only** relative to the runtime tree: `git diff --name-only 4d880f59
+177371c2 -- . ':(exclude)docs' ':(exclude)*.md'` returns **zero** paths.
+
+`4d880f59` looks like a documentation commit and **is not.** It also regenerates
+`shared/navigation/feature-manifest.json`, and that file is read **from disk at runtime** by two
+backend services — `featureGovernanceService.js:21` and `navigationAnalyticsService.js:22`. The web
+side only mentions it in a comment. So the manifest is runtime-affecting, and the freeze SHA is
+`4d880f59`.
+
+**An honest consequence, recorded rather than glossed:** the deployed journeys and responsive
+certification were first run against `c8e416f1`, and `255d9306` changed runtime afterwards. That
+certification was therefore **re-run at the final runtime tree** — see §5.
 
 Predecessor: `T11-USABLE`, OWNER ACCEPTED / FROZEN at `9ce19115`.
 Plan: `docs/trade-os/T12_CUSTOMS_ZIMBABWE_DESTINATION_IMPLEMENTATION_PLAN.md`.
@@ -304,9 +323,23 @@ Recorded at freeze; the PR carries the exact SHA and CI run.
 
 ---
 
-## 8. Open, and carried forward
+## 8. Accepted limitations, and what is genuinely open
 
-- **Owner acceptance of T12 remains.**
+**The owner has accepted the T12 MVP scope.** Everything in the first group below is an accepted
+boundary of that scope, recorded so it is never mistaken for an outstanding defect:
+
+- CarUp coordinates customs; **CarUp is not ZIMRA**; CarUp is **not a licensed clearing agent**;
+- **no CarUp duty/tax calculator**, and **no VAT/surtax calculator** — amounts are transcribed from
+  evidence, never computed;
+- **customs FX is external-source only**, with its own effective period;
+- the **ZIMRA adapter is unverified and disabled**, and nothing calls it;
+- **no government-table writes**;
+- **production blast radius measured NIL**;
+- the **legal-source questions are retained** in the plan §4;
+- the **vehicle age policy remains `NEEDS_LEGAL_CONFIRMATION`**, with **no automatic legal rejection
+  engine** — CarUp declares no vehicle un-importable.
+
+Genuinely open:
 - **The duty-and-tax calculation boundary stays out of scope by owner ruling**, not by blockage. Nine
   questions remain in the T12 plan §4 for whenever it is opened; **nothing has been invented against
   them**, and the source register carries no rate to invent from.

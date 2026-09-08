@@ -1,7 +1,9 @@
 # Trade OS T12 — Customs & Zimbabwe destination operations · Implementation plan
 
-**Status: `T12-USABLE` — attributed customs coordination and Zimbabwe destination operations are
-BUILT and certified. Owner acceptance remains.**
+**Status: `T12-USABLE` — OWNER ACCEPTED / FROZEN.** Runtime freeze `4d880f59`.
+
+Every limitation below is a deliberate, accepted scope boundary — not a defect and not an
+outstanding item.
 
 Receipt: `docs/trade-os/receipts/T12_CUSTOMS_ZIMBABWE_DESTINATION.md`.
 
