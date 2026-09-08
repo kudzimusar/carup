@@ -112,6 +112,42 @@ nobody can test is not a gate.** Seven named refusals:
 
 **20 tests with positive controls on both sides, and 8 mutations of the refusals, all red.**
 
+### Turning it on revealed what it had been hiding
+
+The repair is proved end-to-end. On the candidate head the resolver step SUCCEEDED, pinning both
+deployments to the exact SHA:
+
+```
+{"ok":true,
+ "frontend":"https://carup-staging-git-feat-trade-os-client-demo-convergence-11-11.vercel.app",
+ "backend":"https://carup-backend-staging-git-feat-trade-os-client-dem-dbf311-11-11.vercel.app",
+ "sha":"4d880f59…","deployment_id":"dpl_B7RAkDft9CBrgxbhoRFbzJjeky3F"}
+```
+
+The job then ran real Chromium against that pairing for the first time in months — and **it does not
+pass.** It reached roughly 197 of ~200 tests across three device projects before hitting the job's
+35-minute timeout, with genuine failures in:
+
+| spec | lane |
+|---|---|
+| `33-diaspora-staging-browser-parts` | parts / seller |
+| `34-diaspora-staging-browser-security` | security |
+| `38-seller-staging-browser-golden` | seller |
+| `45-trade-os-container-demo-staging` | T5 |
+| `46-trade-os-rfq2-staging` | T2 |
+
+**None is in T11 or T12.** This is the accumulated, previously-invisible state of a gate that has not
+executed since the branch it was pinned to died — precisely the hazard the programme already
+recorded: *a branch can be green for weeks while a gate it never triggered is red, so establish the
+baseline before assuming a newly-red gate is yours.* That baseline is now established.
+
+**It has deliberately NOT been made green.** Raising the timeout would paper over it, and narrowing
+`testMatch` would change what the gate certifies — a decision that is the owner's, not this phase's.
+**Owner decision required** on how the backlog is scheduled.
+
+**T12's staging certification therefore rests on the three harnesses below**, each run against the
+same proven pairing — not on this gate.
+
 The workflow header still names the dead branch and the wrong project *in prose*, because why it was
 rewritten is the most useful thing in the file. The test therefore scans executable YAML with comment
 lines stripped: **an assertion a comment can satisfy is not an assertion.**
@@ -282,6 +318,10 @@ Recorded at freeze; the PR carries the exact SHA and CI run.
   carry private copies. Consolidating them touches frozen lanes and was not taken here.
 - **`tests/agents/31` "public route renders normally" fails on Mobile Chrome.** It fails identically
   on the stashed baseline, so it **predates this work and is unrelated to it.** Recorded, not fixed.
+- **The repaired `Diaspora Deployed Staging UAT` gate now RUNS and does not pass** — see §2. Five
+  specs across the parts, security, seller, T5 and T2 lanes fail, and the suite exceeds the job's
+  35-minute timeout at 13 specs × 3 device projects with a single worker. **Owner decision required**
+  on scheduling that backlog. It has not been hidden by raising a timeout or narrowing scope.
 - **The clearing-agent licence cannot be verified by CarUp at all.** The product says so on every
   surface; closing it needs an authority interface that does not exist.
 - Carried forward unchanged: T8's live-OCR and storage-failure residuals; T9's outbox-drain residual.
