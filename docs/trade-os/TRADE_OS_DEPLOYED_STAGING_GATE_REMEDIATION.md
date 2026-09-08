@@ -265,7 +265,38 @@ rate limit for preview deployments; or scheduling the heavy gate off the pull-re
 
 ---
 
-## 11. Also recorded
+## 11. The shared preview lock — and its one sharp edge
+
+Seven workflows that drive the same branch preview backend now share one concurrency group keyed on
+the **preview identity** (the branch), with `cancel-in-progress: false`:
+
+`diaspora-deployed-staging-uat` · `marketplace-reference-regression` · `seller-exact-head-staging-uat`
+· `seller-phase-e-staging` · `seller-media-lifecycle-staging-uat` · `operations-serena-staging-uat` ·
+`diaspora-canonical-staging-uat`
+
+Ordinary unit/lint/build CI is deliberately **not** in the lock, and independent branches keep their
+own previews and run in parallel.
+
+**Observed working on the first run:** `Operations Serena Staging UAT` held the group and
+`Diaspora Deployed Staging UAT` sat `pending` behind it instead of colliding — which is precisely the
+overlap that produced the 429s.
+
+**The sharp edge, recorded rather than discovered later.** GitHub keeps at most **one pending run per
+concurrency group**: `cancel-in-progress: false` protects the run that is *executing*, but a newer
+queued run **supersedes an older queued one**. On that same first run, `Marketplace Reference
+Regression` was cancelled while queued.
+
+So the lock delivers what it was for — no two staging gates hitting one preview backend at once — at
+the cost of a superseded queue slot. The in-progress certification is never killed. A superseded run
+must simply be re-dispatched, which is why §23's Marketplace verification is run explicitly rather
+than assumed from the push.
+
+Alternatives, none chosen here because each trades the property away: separate groups per workflow
+(restores contention), or a queue-runner outside GitHub's concurrency model.
+
+---
+
+## 12. Also recorded
 
 - `tests/agents/31` *"public route renders normally"* fails on Mobile Chrome. It fails **identically
   on the stashed baseline**, so it predates this work and is unrelated to it.
