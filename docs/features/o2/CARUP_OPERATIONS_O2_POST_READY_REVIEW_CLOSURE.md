@@ -531,3 +531,102 @@ are now reachable identities with canonically complete rows.
 
 No Vercel config, no provider change, biometrics not activated, `main`/#197/#209/production
 untouched, nothing merged. One additive migration written and **not applied**.
+
+---
+
+# Round 6 — I-round closure (2026-09-08)
+
+The independent I-round audit of the H closure returned **RE-AUDIT FAILED — 2 P1, 4 P2**.
+All closed here. `75dd17fd` is historical.
+
+Both P1s are the same species, and it is worth naming: **a fix that is correct in its own terms
+and disconnected from the thing it was supposed to affect.** One wrote a constraint the writer
+never fed; the other read a fact that did not mean what it was taken to mean.
+
+## I-1 → closed · the constraint now sees the key
+
+**Reproduced against real PostgreSQL**, with the branch's own migration DDL and the canonical
+writer's insert shape:
+
+```
+✓ a top-level key DOES trigger the unique index — the migration is structurally valid
+✓ the key lands ONLY in metadata; the indexed column is NULL
+✓ two application-shaped rows with the same key are BOTH accepted — the race was NOT closed
+```
+
+`insertData` in `vehiclesRoutes.js` set `metadata.idempotency_key` and never the column, so the
+partial predicate `WHERE idempotency_key IS NOT NULL` excluded every real row and the H-round's
+recovery branch was unreachable. The H-round "proof" threw its own `23505`.
+
+**Fix.** The canonical writer now persists the key into `vehicle_evidence.idempotency_key`, which
+is the **canonical** location; `metadata.idempotency_key` is retained as a **compatibility mirror**
+so the historical corpus stays findable by the same lookup, and the lookup reads column OR
+metadata. There are not two authorities: nothing reads metadata in preference to the column.
+
+**Rolling-deploy safety, both directions.** The migration is applied nowhere, so new code may meet
+an old database. A `42703` (undefined column) on the key write — **that one condition only** —
+degrades to the pre-migration insert, so ordinary uploads keep working; RLS, foreign-key and
+validation failures propagate untouched. Old code against a migrated database simply leaves the
+column NULL. Neither order breaks uploads.
+
+**Scoped recovery.** `isIdempotencyUniqueViolation` matches `uq_vehicle_evidence_idempotency_key`
+by constraint name (falling back to the name in the message). An unrelated `23505` — a primary-key
+clash, say — must never become a silent success handing back another row's id.
+
+**Real proof.** `o2-i-round-closure.test.js` runs the migration in PGlite and drives two genuinely
+concurrent `withUploadIdempotency` calls through the real writer: **one row, both callers the same
+evidence id, exactly one told it deduped.** Also proven: different keys make different rows;
+second-item-on-a-row, different-batch and different-VIN uploads are never suppressed; a pkey
+violation and FK/RLS/not-null errors all propagate; a pre-insert failure claims no key so the
+retry creates once; and a cold cache still dedupes durably.
+
+## I-2 → closed · membership is not commerce authority
+
+The H-round kept `tenant_id = ctxTenant` for admin/government and **certified it with a positive
+control**. The audit asked the question the H-round did not: *what governed fact means "this actor
+may sell as this Dealer tenant"?*
+
+The answer is that none exists. `authorizeRole` sets `tenantId` on the existence of **any**
+`tenant_users` row, and that table's own DDL comments its role column as `'admin', 'manager',
+'member'` — a garage mechanic is a member too. `getListingEligibility` consults no dealer profile,
+compliance state or activation. And O2's own boundary records that **Dealer activation has no
+governed path yet**.
+
+**Fix — fail closed.** Role alone grants no listing subject and neither does bare membership. A
+genuine `dealer` effective role (a governed platform role) still lists through its validated
+tenant. Everything else yields a null subject. No Dealer activation was invented; the catalogue
+was realigned to mirror the same rule.
+
+**Authority matrix, measured:**
+
+| actor | subject | eligible |
+|---|---|---|
+| Owner | own id · Private Owner | ✅ |
+| Dealer + validated tenant | tenant · Dealer | ✅ |
+| Dealer, no tenant | none | ❌ |
+| Admin + tenant-admin / manager / mechanic / member | **none** | ❌ |
+| Admin, no tenant · Government + tenant | none | ❌ |
+| any forged body `owner_id` / `tenant_id` / `current_seller_type` | none | ❌ |
+
+**Two earlier tests asserted the wrong thing and were inverted, not deleted** — the H-round
+positive control and the F-round "Admin who genuinely holds a governed tenant" case — so the
+history of the mistake stays legible.
+
+## I-3 → I-7
+
+- **I-3** PR body updated to the new candidate with the full seven-SHA history preserved.
+- **I-4** H15 relabelled **"handler-level"** and honestly scoped; the database-backed proof is I-1's.
+- **I-5** the receiving-side guarantee is now asserted on the real canonical constants as well as
+  the outgoing body.
+- **I-6** the malformed `workbookRoutes.js` header comment repaired.
+- **I-7** authority is now proven through the **real `authorizeRole` middleware** — session →
+  platform role → `tenant_users` membership → effective role — not a hand-built actor. This
+  required an **additive** `supabaseClient` seam on `authorizeRole`; production passes none and
+  uses the singleton exactly as before. Scope stated plainly: middleware-derived, not HTTP
+  transport.
+
+## Migration gate — unchanged and explicit
+
+`20260908120000_vehicle_evidence_upload_idempotency.sql` is **applied nowhere**. Until it is
+applied under separate governance, the running system has only the sequential guarantee. **No
+receipt may claim deployed concurrency safety**, and none does.

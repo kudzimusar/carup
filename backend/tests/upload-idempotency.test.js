@@ -28,11 +28,19 @@ function makeSupabaseMock(rows) {
         if (col === 'metadata->>idempotency_key') state.filterKey = val;
         return obj;
       },
+      // I-1: the lookup now reads the CANONICAL top-level column OR the metadata mirror, so the
+      // double must offer the same `.or()` chain the real code uses — a fake that only answers
+      // the old shape would report a contract break that does not exist, or hide one that does.
+      or(filter) {
+        state.filterKey = String(filter).match(/idempotency_key\.eq\.([^,]+)/)?.[1] ?? null;
+        return obj;
+      },
       limit() { return obj; },
       then(resolve) {
-        const matched = rows.filter(
-          (r) => r.metadata && r.metadata.idempotency_key === state.filterKey,
-        );
+        const matched = rows.filter((r) => (
+          (r.idempotency_key && r.idempotency_key === state.filterKey)
+          || (r.metadata && r.metadata.idempotency_key === state.filterKey)
+        ));
         return resolve({ data: matched, error: null });
       },
     };

@@ -193,9 +193,23 @@ test('admin listing CANNOT be made eligible by a tenant_id in the request body e
   assert.equal(getListingEligibility(c).eligible, false);
 });
 
-test('an admin holding a VALIDATED tenant context still lists through it — authority, not assertion', () => {
+// CONTRACT CHANGE (O2 I-round, I-2). The H-round added this test asserting that an admin with a
+// validated tenant context lists as a Dealer. An independent audit showed the assumption was
+// wrong: `authorizeRole` sets `tenantId` from ANY `tenant_users` row, whose role column is
+// generic organisational membership ('admin', 'manager', 'member' — a garage mechanic included).
+// Membership means a person belongs to an organisation, not that they may sell on its behalf, and
+// O2's own boundary records that Dealer activation has no governed path yet. So this fails closed.
+test('an admin with a validated tenant context does NOT become a Dealer seller', () => {
   const tenant = 'f47ac10b-58cc-4372-a567-0e02b2c3d479';
   const c = buildVehicleListingCandidate({ body: baseBody, userContext: { role: 'admin', id: 'usr-admin', tenantId: tenant } });
+  assert.equal(c.tenant_id, null, 'membership is not commerce authority');
+  assert.equal(c.current_seller_type, null);
+  assert.equal(getListingEligibility(c).eligible, false);
+});
+
+test('a genuine DEALER effective role still lists through its validated tenant', () => {
+  const tenant = 'f47ac10b-58cc-4372-a567-0e02b2c3d479';
+  const c = buildVehicleListingCandidate({ body: baseBody, userContext: { role: 'dealer', id: 'usr-dealer', tenantId: tenant } });
   assert.equal(c.tenant_id, tenant);
   assert.equal(c.current_seller_type, 'Dealer');
   assert.equal(getListingEligibility(c).eligible, true);

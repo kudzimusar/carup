@@ -101,7 +101,12 @@ export function resolveEffectiveRole({ userRole, tenantRole = null, requestedRol
   throw error;
 }
 
-export function authorizeRole(allowedRoles = [], { allowUserIdFallback = true } = {}) {
+export function authorizeRole(allowedRoles = [], { allowUserIdFallback = true, supabaseClient = null } = {}) {
+  // I-7 — an ADDITIVE test seam, and nothing more. Production passes no client and therefore
+  // uses the module singleton exactly as before; a test may pass one so the REAL derivation
+  // (session → platform role → tenant_users membership → effective role) can be exercised
+  // instead of hand-building a `req.userContext` and calling it proof.
+  const db = supabaseClient || supabase;
   return async (req, res, next) => {
     const sessionToken = req.headers['x-session-token'] || req.headers['authorization']?.replace('Bearer ', '');
     const tenantIdHeader = req.headers['x-tenant-id'];
@@ -113,7 +118,7 @@ export function authorizeRole(allowedRoles = [], { allowUserIdFallback = true } 
 
       // 1. Validate Session Token
       if (sessionToken) {
-        const { data: session, error: sessionError } = await supabase
+        const { data: session, error: sessionError } = await db
           .from('user_sessions')
           .select('user_id, is_valid, expires_at')
           .eq('token', sessionToken)
@@ -150,7 +155,7 @@ export function authorizeRole(allowedRoles = [], { allowUserIdFallback = true } 
       }
 
       // 2. Fetch User Profile
-      const { data: user, error: userError } = await supabase
+      const { data: user, error: userError } = await db
         .from('users')
         .select('role, is_verified')
         .eq('id', activeUserId)
@@ -165,7 +170,7 @@ export function authorizeRole(allowedRoles = [], { allowUserIdFallback = true } 
       // 3. Validate Tenant Context (Multi-Tenancy Rule)
       let tenantRole = null;
       if (tenantIdHeader) {
-        const { data: tenantUser, error: tenantError } = await supabase
+        const { data: tenantUser, error: tenantError } = await db
           .from('tenant_users')
           .select('role')
           .eq('tenant_id', tenantIdHeader)

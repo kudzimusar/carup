@@ -202,16 +202,21 @@ test('F3: the active Dealer catalogue path remains valid', async () => {
   assert.equal(listingFor({ id: 'd1', role: 'dealer', tenantId: 'f47ac10b-58cc-4372-a567-0e02b2c3d479' }).eligibility.eligible, true);
 });
 
-test('F3/F4b: an Admin who genuinely holds a governed tenant behaves EXACTLY as the canonical contract says', async () => {
+// SUPERSEDED BY I-2. The F-round wrote this as "an Admin who genuinely holds a governed tenant
+// behaves exactly as the canonical contract says" — and it did, but the canonical contract was
+// itself wrong: `authorizeRole` sets `tenantId` from any `tenant_users` row, and that membership
+// is not a governed selling capability. The assertion is inverted rather than deleted, so the
+// history of the mistake stays legible.
+test('F3/I-2: an Admin holding a tenant context is NOT a Dealer seller, and is not offered the template', async () => {
   const tenant = 'f47ac10b-58cc-4372-a567-0e02b2c3d479';
   const { candidate, eligibility } = listingFor({ id: 'a1', role: 'admin', tenantId: tenant });
-  // No delegation is invented: this is the existing `else` branch of buildVehicleListingCandidate.
-  assert.equal(candidate.tenant_id, tenant);
-  assert.equal(candidate.current_seller_type, 'Dealer');
-  assert.equal(eligibility.eligible, true);
+  assert.equal(candidate.tenant_id, null, 'membership is not commerce authority');
+  assert.equal(candidate.current_seller_type, null);
+  assert.equal(eligibility.eligible, false);
   const catalogue = await catalogueFor({ id: 'a1', role: 'admin', tenantId: tenant });
-  assert.ok(catalogue.available.find((t) => t.template_key === 'seller_vehicles'),
-    'the gate is on the listing SUBJECT, not on the role');
+  assert.equal(catalogue.available.find((t) => t.template_key === 'seller_vehicles'), undefined,
+    'the catalogue must mirror the canonical subject, not a role');
+  assert.equal(catalogue.unavailable.find((t) => t.template_key === 'seller_vehicles').reason, 'no_listing_subject');
 });
 
 test('F3: no user-supplied ownership or tenant field exists on any workbook sheet', () => {

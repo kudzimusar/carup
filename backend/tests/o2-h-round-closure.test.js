@@ -15,7 +15,7 @@ import {
 } from '../services/workbook/vehicleWorkbookImportService.js';
 import { resolveWorkbookCatalogue, UNAVAILABLE_REASONS } from '../services/workbook/workbookCatalogueService.js';
 import { buildVehicleListingCandidate, getListingEligibility } from '../services/marketplace/marketplaceListingEligibility.js';
-import { withUploadIdempotency, isUniqueViolation } from '../services/evidence/uploadIdempotency.js';
+import { withUploadIdempotency, isIdempotencyUniqueViolation } from '../services/evidence/uploadIdempotency.js';
 import { VEHICLE_WORKBOOK_SHEETS } from '../constants/workbook/workbookFieldRegistry.js';
 import { CLASS_SUBTYPES } from '../services/evidence/evidenceTaxonomy.js';
 import {
@@ -231,17 +231,21 @@ test('H8: Government cannot either', () => {
   assert.equal(subjectFor({ owner_id: OWNER_ID }, gov).eligible, false);
 });
 
-test('H9: an Admin holding tenant A cannot list as tenant B', () => {
+test('H9/I-2: an Admin cannot list as ANY tenant — neither the body\'s nor its own context\'s', () => {
   const admin = { id: 'a1', role: 'admin', tenantId: TENANT_A };
-  const subject = subjectFor({ tenant_id: TENANT_B }, admin);
-  assert.equal(subject.tenant, TENANT_A, 'the validated context wins; the body is ignored');
-  assert.equal(subject.type, 'Dealer');
+  // The H-round asserted `tenant === TENANT_A, type === 'Dealer'` here. I-2 disproved that:
+  // `authorizeRole` sets tenantId from ANY tenant_users row, and generic membership is not a
+  // governed selling capability. Both the body tenant and the context tenant now yield nothing.
+  assert.deepEqual(subjectFor({ tenant_id: TENANT_B }, admin), { owner: null, tenant: null, type: null, eligible: false });
+  assert.deepEqual(subjectFor({}, admin), { owner: null, tenant: null, type: null, eligible: false });
 });
 
 test('H8 POSITIVE CONTROLS: legitimate subjects still work', () => {
   assert.deepEqual(subjectFor({}, { id: OWNER_ID, role: 'owner', tenantId: null }), { owner: OWNER_ID, tenant: null, type: 'Private Owner', eligible: true });
   assert.deepEqual(subjectFor({}, { id: DEALER_ID, role: 'dealer', tenantId: TENANT_A }), { owner: null, tenant: TENANT_A, type: 'Dealer', eligible: true });
-  assert.equal(subjectFor({}, { id: 'a1', role: 'admin', tenantId: TENANT_A }).eligible, true);
+  // NOT a positive control any more: see H9/I-2. An admin with a tenant context is refused,
+  // because membership in an organisation is not authority to sell on its behalf.
+  assert.equal(subjectFor({}, { id: 'a1', role: 'admin', tenantId: TENANT_A }).eligible, false);
 });
 
 test('H8: a dealer cannot borrow another tenant through the body either', () => {
@@ -292,17 +296,21 @@ test('H14: workbook-imported evidence starts pending with zero trust impact, wha
 });
 
 /* ── H15/H16 — concurrency-safe idempotency ─────────────────────────────────────────────── */
-test('H15: two CONCURRENT requests with the same key produce exactly one evidence effect', async () => {
+// HANDLER-LEVEL ONLY. This drives a SIMULATED constraint (the createFn throws 23505 itself), so it
+// proves the recovery branch reacts correctly — never that the database would raise. The real
+// database-backed concurrency proof lives in o2-i-round-closure.test.js (I-4).
+test('H15 (handler-level): a simulated unique violation converges on one evidence effect', async () => {
   const rows = [];
   const store = new Map();
   // A store that behaves like the partial unique index: the second concurrent insert violates it.
   const supabase = {
-    from: () => ({ select: () => ({ eq: () => ({ limit: async () => ({ data: rows.filter((r) => r.idempotency_key === 'k1'), error: null }) }) }) }),
+    from: () => ({ select: () => ({ or: () => ({ limit: async () => ({ data: rows.filter((r) => r.idempotency_key === 'k1'), error: null }) }) }) }),
   };
   const create = async () => {
     if (rows.some((r) => r.idempotency_key === 'k1')) {
       const err = new Error('duplicate key value violates unique constraint "uq_vehicle_evidence_idempotency_key"');
       err.code = '23505';
+      err.constraint = 'uq_vehicle_evidence_idempotency_key';
       throw err;
     }
     const row = { id: `ev-${rows.length + 1}`, vin: VIN, idempotency_key: 'k1', metadata: { idempotency_key: 'k1' } };
@@ -318,15 +326,18 @@ test('H15: two CONCURRENT requests with the same key produce exactly one evidenc
   assert.equal(a.evidenceId, b.evidenceId, 'and both are given the same evidence');
 });
 
-test('H15: a unique violation is recognised however the client surfaces it', () => {
-  assert.equal(isUniqueViolation({ code: '23505' }), true);
-  assert.equal(isUniqueViolation({ message: 'duplicate key value violates unique constraint "x"' }), true);
-  assert.equal(isUniqueViolation({ code: '23502', message: 'null value' }), false);
+test('H15/I-1: ONLY the idempotency index counts as dedupe — other 23505s propagate', () => {
+  assert.equal(isIdempotencyUniqueViolation({ code: '23505', constraint: 'uq_vehicle_evidence_idempotency_key' }), true);
+  assert.equal(isIdempotencyUniqueViolation({ code: '23505', message: 'duplicate key value violates unique constraint "uq_vehicle_evidence_idempotency_key"' }), true);
+  // An unrelated unique failure must NOT become a silent success handing back another row's id.
+  assert.equal(isIdempotencyUniqueViolation({ code: '23505', constraint: 'vehicle_evidence_pkey' }), false);
+  assert.equal(isIdempotencyUniqueViolation({ code: '23505', message: 'duplicate key value violates unique constraint "some_other_idx"' }), false);
+  assert.equal(isIdempotencyUniqueViolation({ code: '23502', message: 'null value' }), false);
 });
 
 test('H15: distinct legitimate operations are NOT suppressed', async () => {
   const rows = []; const store = new Map();
-  const supabase = { from: () => ({ select: () => ({ eq: () => ({ limit: async () => ({ data: [], error: null }) }) }) }) };
+  const supabase = { from: () => ({ select: () => ({ or: () => ({ limit: async () => ({ data: [], error: null }) }) }) }) };
   const mk = (key, vin) => withUploadIdempotency(key, vin, async () => { const r = { id: `ev-${rows.length + 1}`, vin }; rows.push(r); return r; }, { store, supabase });
   await mk('workbook-evidence:b:1:0', 'VIN-A');   // same file, different VIN
   await mk('workbook-evidence:b:2:0', 'VIN-B');
@@ -337,7 +348,7 @@ test('H15: distinct legitimate operations are NOT suppressed', async () => {
 
 test('H16: a failure BEFORE the insert leaves no mapping, so the retry still creates once', async () => {
   const rows = []; const store = new Map();
-  const supabase = { from: () => ({ select: () => ({ eq: () => ({ limit: async () => ({ data: [], error: null }) }) }) }) };
+  const supabase = { from: () => ({ select: () => ({ or: () => ({ limit: async () => ({ data: [], error: null }) }) }) }) };
   await assert.rejects(() => withUploadIdempotency('k2', VIN, async () => { throw new Error('storage unavailable'); }, { store, supabase }));
   assert.equal(store.has('k2'), false, 'a failed attempt must not claim the key');
   const after = await withUploadIdempotency('k2', VIN, async () => { const r = { id: 'ev-1', vin: VIN }; rows.push(r); return r; }, { store, supabase });

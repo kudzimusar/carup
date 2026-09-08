@@ -58,7 +58,7 @@ import {
   correctEvidenceClassification,
   ClassificationCorrectionError,
 } from '../services/evidence/evidenceClassificationCorrectionService.js';
-import { withUploadIdempotency } from '../services/evidence/uploadIdempotency.js';
+import { withUploadIdempotency, isUndefinedColumnError } from '../services/evidence/uploadIdempotency.js';
 import { emitDomainEvent } from '../services/eventBus/eventBusService.js';
 import {
   OPERATIONS_CAPABILITIES,
@@ -850,11 +850,40 @@ async function insertEvidenceFromRequest(req, vin, { requireVehicleId = false } 
     clientIdempotencyKey,
     vin,
     async () => {
-      const { data: inserted, error: insertError } = await supabase
+      // I-1 — WRITE THE KEY WHERE THE DATABASE CAN SEE IT.
+      //
+      // `uq_vehicle_evidence_idempotency_key` is a partial unique index on the TOP-LEVEL
+      // `idempotency_key` column, but this writer only ever set `metadata.idempotency_key`. The
+      // column stayed NULL on every real row, the partial predicate excluded every row, and the
+      // index therefore constrained nothing: two concurrent retries could both insert. Proven
+      // against real PostgreSQL — a manually populated column IS refused, the application shape
+      // is NOT.
+      //
+      // The column is now the CANONICAL location. `metadata.idempotency_key` is retained as a
+      // compatibility mirror so the historical corpus (written before the column existed) stays
+      // findable by the same lookup; it is not a second authority, and nothing reads it in
+      // preference to the column.
+      const insertWithKey = clientIdempotencyKey
+        ? { ...insertData, idempotency_key: clientIdempotencyKey }
+        : insertData;
+      let { data: inserted, error: insertError } = await supabase
         .from('vehicle_evidence')
-        .insert(insertData)
+        .insert(insertWithKey)
         .select('*')
         .single();
+      // ROLLING-DEPLOY SAFETY: this code may run against a database that does not yet have the
+      // column, because the migration is applied separately. That ONE condition — PostgreSQL
+      // 42703, undefined column — degrades to the pre-migration write so ordinary uploads keep
+      // working; database-enforced concurrent deduplication is simply unavailable until the
+      // migration lands. No other failure is retried: an RLS refusal, a foreign-key violation or
+      // a validation error propagates exactly as before.
+      if (insertError && clientIdempotencyKey && isUndefinedColumnError(insertError, 'idempotency_key')) {
+        ({ data: inserted, error: insertError } = await supabase
+          .from('vehicle_evidence')
+          .insert(insertData)
+          .select('*')
+          .single());
+      }
       if (insertError) throw new DatabaseError(insertError.message);
 
       // Milestone 1: record the immutable chain-of-custody "uploaded" event (best-effort).

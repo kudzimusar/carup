@@ -50,7 +50,9 @@ export async function lookupBySupabase(supabase, idempotencyKey) {
     const { data, error } = await supabase
       .from('vehicle_evidence')
       .select('id, vin, metadata, idempotency_key')
-      .eq('metadata->>idempotency_key', idempotencyKey)
+      // The COLUMN is canonical; `metadata` remains a compatibility mirror so rows written
+      // before the column existed are still found by the same lookup.
+      .or(`idempotency_key.eq.${idempotencyKey},metadata->>idempotency_key.eq.${idempotencyKey}`)
       .limit(1);
 
     if (error) return null;
@@ -89,11 +91,39 @@ export async function lookupBySupabase(supabase, idempotencyKey) {
  * @param {{ supabase?: any, store?: Map<string, IdempotencyRecord> }} [opts]
  * @returns {Promise<{ evidenceId:string, vin:(string|null), deduped:boolean }>}
  */
-/** A PostgreSQL unique violation, however the client surfaces it. */
-export function isUniqueViolation(error) {
+/** The one index that expresses upload idempotency. Named once, used everywhere. */
+export const IDEMPOTENCY_CONSTRAINT = 'uq_vehicle_evidence_idempotency_key';
+
+/**
+ * A unique violation on THE IDEMPOTENCY INDEX specifically — not any unique violation.
+ *
+ * I-1: treating every 23505 in the evidence write path as "someone else already created this"
+ * would convert an unrelated constraint failure into a silent success and hand the caller
+ * another row's id. Only this index means "a concurrent request won the same key"; every other
+ * unique failure, and every FK, RLS or validation error, must propagate untouched.
+ */
+export function isIdempotencyUniqueViolation(error) {
   const code = error?.code || error?.cause?.code || null;
-  if (code === '23505') return true;
-  return /duplicate key value violates unique constraint/i.test(String(error?.message || ''));
+  if (code !== '23505') return false;
+  const constraint = error?.constraint || error?.cause?.constraint || null;
+  if (constraint) return constraint === IDEMPOTENCY_CONSTRAINT;
+  // Supabase/PostgREST does not always surface `constraint`; the message names the index.
+  const message = String(error?.message || error?.details || '');
+  return message.includes(IDEMPOTENCY_CONSTRAINT);
+}
+
+/**
+ * PostgreSQL 42703 — the column does not exist.
+ *
+ * Used for exactly one thing: letting the writer fall back to the pre-migration shape while the
+ * additive migration has not yet been applied. Deliberately narrow, and never a general retry.
+ */
+export function isUndefinedColumnError(error, columnName) {
+  const code = error?.code || error?.cause?.code || null;
+  const message = String(error?.message || error?.details || '');
+  if (code === '42703') return !columnName || message.includes(columnName);
+  return /column .* does not exist|could not find the .* column/i.test(message)
+    && (!columnName || message.includes(columnName));
 }
 
 export async function withUploadIdempotency(idempotencyKey, vin, createFn, opts = {}) {
@@ -134,7 +164,7 @@ export async function withUploadIdempotency(idempotencyKey, vin, createFn, opts 
   try {
     created = await createFn();
   } catch (error) {
-    if (isUniqueViolation(error)) {
+    if (isIdempotencyUniqueViolation(error)) {
       const winner = await lookupBySupabase(supabase, idempotencyKey);
       if (winner) {
         store.set(idempotencyKey, winner);

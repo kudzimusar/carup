@@ -109,8 +109,12 @@ export async function resolveWorkbookCatalogue(actor = {}, options = {}) {
   // actor names an authority that does not exist. An Admin who genuinely holds a tenant
   // membership IS supported by the existing contract (tenant scope, seller type Dealer), so the
   // gate is on the SUBJECT rather than on the role — no admin delegation is invented here.
-  const hasListingSubject = role === 'owner' || role === 'dealer'
-    || (['admin', 'government'].includes(role) && Boolean(actor.tenantId));
+  // I-2 — the catalogue must mirror the canonical listing subject exactly. It previously offered
+  // this template to an admin or government account that merely held a tenant CONTEXT, on the
+  // assumption that membership conferred Dealer selling authority. It does not: see
+  // buildVehicleListingCandidate. Only an owner (their own subject) or a governed dealer role
+  // (its validated tenant) has one.
+  const hasListingSubject = role === 'owner' || role === 'dealer';
   if (hasListingSubject) {
     available.push({
       template_key: VEHICLE_TEMPLATE_KEYS.SELLER_VEHICLES,

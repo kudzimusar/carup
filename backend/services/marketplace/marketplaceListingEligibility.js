@@ -275,28 +275,33 @@ export function buildVehicleListingCandidate({ body = {}, userContext = {} } = {
     tenant_id = ctxTenant;
     current_seller_type = 'Dealer';
   } else {
-    // G-2 (H7) — A CLIENT BODY MAY NOT MINT A LISTING SUBJECT.
+    // I-2 — MEMBERSHIP IS NOT COMMERCE AUTHORITY, AND A CLIENT BODY MINTS NOTHING.
     //
-    // This branch used to read `body.owner_id ?? null` and `body.tenant_id ?? ctxTenant ?? null`,
-    // so for an admin or government account the REQUEST BODY outranked the validated context —
-    // and `/api/vehicles/add` performs no `tenant_users` check on a body-supplied tenant. Role
-    // alone therefore let a caller assert a subject they do not control: any tenant became a
-    // Dealer listing, any user id became a Private Owner listing.
+    // Two separate corrections live here.
     //
-    // `authorizeRole` is the only thing that establishes organisational scope: it reads
-    // `x-tenant-id`, verifies a real `tenant_users` membership row (403 without one) and only
-    // then sets `userContext.tenantId`. So the tenant may come from there and nowhere else.
+    // (G-2, H-round) This branch once read `body.owner_id` and `body.tenant_id`, so for an admin
+    // or government account the REQUEST BODY outranked the validated context and any user id or
+    // tenant could be asserted as the seller. The body is now ignored entirely.
     //
-    // Role alone grants NO listing subject. An admin or government account that genuinely holds
-    // a validated tenant context lists through that tenant — the behaviour that already existed
-    // — and one that does not gets a null subject, which `sellerIdentityReasons` refuses as
-    // `missing_owner_for_private_listing | unknown_seller_type`. A conflicting body value is
-    // IGNORED rather than rejected, so an over-eager client cannot break a legitimate
-    // submission, and the refusal (when there is one) comes from the absence of authority
-    // rather than from the presence of a field.
+    // (I-2, this round) The H-round then kept `tenant_id = ctxTenant` here, which turned a
+    // validated tenant CONTEXT into Dealer SELLING authority. But `authorizeRole` sets
+    // `userContext.tenantId` on the existence of ANY `tenant_users` row, and that table's role is
+    // generic organisational membership — its own DDL comments it as "'admin', 'manager',
+    // 'member'", and a garage mechanic is a member too. Membership says a person belongs to an
+    // organisation; it does not say they may sell vehicles on its behalf. O2's own boundary is
+    // explicit that Dealer activation (approved applicant → active Dealer) has NO governed path
+    // yet, so there is no capability to consult and none may be invented here.
+    //
+    // Therefore: role alone grants no listing subject, and neither does bare membership. A
+    // genuine `dealer` EFFECTIVE role — which is a governed platform role, resolved by
+    // `authorizeRole`, not a spreadsheet or a body field — still lists through its validated
+    // tenant in the branch above. Everyone else gets a null subject, which
+    // `sellerIdentityReasons` refuses as `missing_owner_for_private_listing |
+    // unknown_seller_type`. Failing closed is the correct answer while the governed path is
+    // genuinely absent.
     owner_id = null;
-    tenant_id = ctxTenant ?? null;
-    current_seller_type = tenant_id ? 'Dealer' : null;
+    tenant_id = null;
+    current_seller_type = null;
   }
 
   const hasText = (v) => v != null && String(v).trim() !== '';
