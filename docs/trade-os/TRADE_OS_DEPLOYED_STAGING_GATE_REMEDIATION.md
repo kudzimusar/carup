@@ -236,7 +236,36 @@ next person to diagnose this gate will otherwise read a contaminated result as a
 
 ---
 
-## 10. Also recorded
+## 10. A consequence of this remediation, caused and recorded
+
+**`Marketplace Reference Regression` began failing on `429` rate limits**, and this remediation
+caused it.
+
+It passed on `4d880f59`, `177371c2` and `6a0c38d2`, and failed on `a167ee1e` — the first head where
+the repaired gate actually runs its full workload. Provisioning the missing identities took specs 45
+and 46 from 3 attempted tests to **28**, and fixing the fast-failing tests made the rest run to
+completion. The gate therefore holds the shared staging backend for far longer and hits it far
+harder, and the Marketplace regression — which runs concurrently against **the same preview
+backend** — is rate-limited out.
+
+The failure is `429` on the backend, not a product defect and not an assertion:
+
+```
+critical Marketplace API failures: + "429 https://carup-backend-staging-git-feat-trade-os-client-d…"
+```
+
+**Nothing was done about it here.** The staging workflows share one preview backend and have no
+cross-workflow concurrency group; adding one changes scheduling semantics for the Seller, Operations
+and Marketplace lanes as well, which is not this remediation's to decide. It belongs with the same
+owner decision as the runtime budget in §5: **the gate's cost has outgrown what the shared staging
+environment absorbs while other gates are running.**
+
+Options, none chosen: a shared concurrency group across the staging-dependent workflows; a higher
+rate limit for preview deployments; or scheduling the heavy gate off the pull-request path.
+
+---
+
+## 11. Also recorded
 
 - `tests/agents/31` *"public route renders normally"* fails on Mobile Chrome. It fails **identically
   on the stashed baseline**, so it predates this work and is unrelated to it.
