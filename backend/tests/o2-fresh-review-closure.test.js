@@ -93,10 +93,21 @@ test('D3: on Vercel there is no loopback listener, so no base URL is claimed', (
   assert.equal(resolveDispatchBaseUrl({ VERCEL: '1', PORT: '3001' }), null);
 });
 
-test('D3: an explicitly configured base URL is used, and wins over any guess', () => {
+test('D3: an explicitly configured INTERNAL base URL is used, and wins over any guess', () => {
   assert.equal(resolveDispatchBaseUrl({ VERCEL: '1', CARUP_INTERNAL_API_BASE_URL: 'https://api.example/' }),
     'https://api.example');
-  assert.equal(resolveDispatchBaseUrl({ CARUP_PUBLIC_API_URL: 'https://pub.example' }), 'https://pub.example');
+});
+
+// Superseded by E2: CARUP_PUBLIC_API_URL is the STABLE public origin (documented on staging as
+// api-staging.carup.dev). It proves nothing about which deployment or Git SHA answers it, so it is
+// no longer accepted as a mutation target at all.
+test('E2: CARUP_PUBLIC_API_URL is NOT a mutation target — a stable alias is not a candidate', () => {
+  assert.equal(resolveDispatchBaseUrl({ VERCEL: '1', CARUP_PUBLIC_API_URL: 'https://api-staging.carup.dev' }), null);
+  assert.equal(
+    resolveDispatchBaseUrl({ VERCEL: '1', VERCEL_URL: 'carup-backend-abc123.vercel.app', CARUP_PUBLIC_API_URL: 'https://api-staging.carup.dev' }),
+    'https://carup-backend-abc123.vercel.app',
+    'the per-deployment host is chosen over the stable alias',
+  );
 });
 
 test('D3: a local deployment still resolves its own listener', () => {

@@ -32,6 +32,10 @@ import {
 } from '../../services/seller/vehicleHistoryDisclosures.js';
 import { CLAIM_VISIBILITY } from '../../utils/publicVehicleProjection.js';
 import { EVIDENCE_CLASSES, CLASS_SUBTYPES } from '../../services/evidence/evidenceTaxonomy.js';
+// The evidence service OWNS which content types CarUp accepts. Imported, never retyped: a
+// workbook that advertised its own list could drift into promising an upload the canonical
+// evidence route then refuses.
+import { allowedMimeTypes } from '../../services/evidence/evidenceService.js';
 
 export const WORKBOOK_REGISTRY_VERSION = 'carup_workbook_registry.v1';
 export const VEHICLE_WORKBOOK_SCHEMA_VERSION = '2026.09.x5a.vehicle-v1';
@@ -308,6 +312,28 @@ export const VEHICLE_WORKBOOK_SHEETS = Object.freeze({
         vocabulary: plainVocabulary([...EVENT_DATE_PRECISIONS]), help: 'day, month, year or unknown.', example: 'day' }),
       f({ key: 'evidence_label', header: 'Your label for this document', authority: 'evidence_ref', privacy: 'P1',
         validation: { maxLength: 200 }, help: 'A short label so you can find it later.', example: 'Registration book (front)' }),
+      // REQUIRED, and required for a reason that is not bureaucratic.
+      //
+      // The canonical evidence route accepts either inline bytes (whose data-URI states its own
+      // type) or a remote `file_url` — and for a remote file it refuses anything whose declared
+      // `mime_type` is not supported: `else if (!isSupportedMimeType(mimeType)) throw`. A workbook
+      // row is always the remote-URL shape, so without this column EVERY imported evidence
+      // reference was refused as "Unsupported file type: unknown".
+      //
+      // It is asked of the uploader rather than guessed. Deriving it from the URL's extension
+      // would make a filename into evidence truth, and fetching the URL server-side to sniff the
+      // bytes would introduce arbitrary outbound requests — an SSRF and privacy surface that is
+      // not an approved CarUp capability and must not arrive as a side effect of a workbook fix.
+      f({ key: 'file_mime_type', header: 'File type', required: true, authority: 'evidence_ref', privacy: 'P1',
+        vocabulary: plainVocabulary([...allowedMimeTypes], {
+          'image/jpeg': 'JPEG image (image/jpeg)',
+          'image/jpg': 'JPG image (image/jpg)',
+          'image/png': 'PNG image (image/png)',
+          'image/webp': 'WebP image (image/webp)',
+          'application/pdf': 'PDF document (application/pdf)',
+        }),
+        help: 'The kind of file at that web address. CarUp accepts JPEG, PNG, WebP and PDF.',
+        example: 'application/pdf' }),
     ],
   }),
 

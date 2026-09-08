@@ -256,3 +256,85 @@ distinct between items. **Mutation:** 1 red.
 
 No migration, no DDL, no schema change. No provider or config change beyond *reading* an optional
 base-URL variable. Biometrics not activated. `main`, #197 and #209 untouched. Nothing merged.
+
+---
+
+# Round 3 — independent read-only audit of `87684c6a → 6f850163` (2026-09-08)
+
+The third Codex review was **unavailable (review quota)**, so the gate was met a different way: an
+independent read-only audit of the actual diff and the affected runtime contracts. It found
+**three P1 blockers**. All three reproduced. `6f850163` is now historical.
+
+Every one is the same species as D1/D2: a change that is correct read on its own, and wrong against
+the real contract it has to satisfy — hidden by a test dispatcher that answered `201` to anything.
+
+### E1 · P1 · CONFIRMED — FIXED · workbook evidence had no MIME type
+
+**Reproduced against the real validator**, not by reading: the exact body
+`executeVehicleWorkbookImport` builds has no inline `file` and no `mime_type`, so
+`isSupportedMimeType(null)` is `false` and the canonical route's
+`else if (!isSupportedMimeType(mimeType)) throw` refuses it — **`Unsupported file type: unknown`**.
+Every workbook evidence reference would have failed in production. The D4 success test hid it
+because its dispatcher returned 201 without running the evidence contract.
+
+**Fix — a declared column, not a guess.** `EVIDENCE_NOTES` gains a **required** `file_mime_type`
+whose vocabulary is **imported from the owning module** (`evidenceService.allowedMimeTypes`), never
+retyped. The allow-list was **not** broadened, the evidence endpoint was **not** weakened, no second
+writer was created. Deriving the type from the URL's extension was rejected — that would make a
+filename into evidence truth — and fetching the URL server-side to sniff it was rejected outright:
+arbitrary outbound requests are an SSRF and privacy surface that must not arrive as a side effect of
+a workbook fix.
+
+**Proof:** supported image succeeds · supported PDF succeeds · missing MIME refuses *and the batch
+stays `PARTIALLY_IMPORTED`* · unsupported MIME refuses with the allow-list unchanged · the dry run
+raises `REQUIRED_MISSING` **before** the user confirms · evidence stays PENDING (the workbook sends
+no `verification_status`/`verified`/`trust_score`) · a retry reuses the same idempotency key and does
+not duplicate. **Mutations:** dropping `mime_type` → 5 red; making the column optional → 2 red.
+
+### E2 · P1 · CONFIRMED — FIXED · the mutation target was not proven to be this candidate
+
+`CARUP_PUBLIC_API_URL` is the canonical **public, stable** origin — on staging documented as
+`https://api-staging.carup.dev`. It proves nothing about which deployment or Git SHA answers it, so
+a branch-preview import could have created vehicles and evidence **on stable staging**.
+
+**Fix — fail closed on candidate identity.** `CARUP_PUBLIC_API_URL` is no longer accepted as a
+mutation target at all. The resolver takes an operator-set `CARUP_INTERNAL_API_BASE_URL`, or
+Vercel's own immutable **per-deployment** `VERCEL_URL` (not `VERCEL_BRANCH_URL`, an alias that
+moves), or a loopback URL only where `app.listen` really ran. Then, **before the first mutation**,
+`assertDispatchTargetProvenance()` reads the target's `/api/health` and compares `commit_sha` and
+`branch` against the caller's own provenance — reusing the existing governed mechanism
+`backend/config/buildProvenance.js`, whose rule is already that unknown provenance is a failure.
+**No new environment variable is required:** `VERCEL_URL` is injected automatically.
+
+**Proof:** same candidate allowed · stable staging refused · production refused · same SHA on a
+different branch refused · missing provenance refused on either side · unreachable target refused ·
+on Vercel with no self-target **zero mutations** and the batch untouched · loopback still supported.
+**Mutations:** re-accepting the public URL → 1 red; skipping the provenance proof → 3 red.
+
+### E3 · P1 · CONFIRMED — FIXED · the replay lost the actor's organisational scope
+
+`authorizeRole` derives tenant scope separately from the session: it reads `x-tenant-id`, verifies a
+real `tenant_users` membership (403 without one), and only then sets `userContext.tenantId`.
+`buildVehicleListingCandidate` reads exactly that — for a dealer, `tenant_id = ctxTenant` and
+`current_seller_type = 'Dealer'`. The dispatcher forwarded only `authorization`, `x-session-token`
+and `cookie`, so an active Dealer's import replayed as a **tenant-less** listing.
+
+**Fix.** `trustedActorHeaders(actor)` re-expresses the **already-validated** scope, and is built at
+the **execution boundary** rather than inside one transport — because the previous shape lived
+inside the HTTP dispatcher where an injected test dispatcher never saw it, which is how a dealer
+losing its tenant survived a green suite. The separation is kept intact: the session proves the
+person, membership proves the organisation, the inner route re-verifies both, and the workbook
+grants nothing it was not already proven to hold. `x-user-id` is explicitly never forwarded.
+The comment claiming the internal CSRF request behaves "exactly as the browser" was **corrected** —
+the binding genuinely differs.
+
+**Proof:** Owner → owner-scoped draft, no tenant · Dealer + valid tenant → Dealer-tenant-scoped
+draft · Dealer without a tenant refused · forged tenant refused by the inner membership check ·
+cross-tenant writes blocked for vehicle **and** evidence · evidence replay keeps the same tenant ·
+`x-user-id` never sent. **Mutation:** dropping the trusted context → 2 red.
+
+### Still unchanged
+
+No migration, no DDL, no schema change (the new workbook column is a spreadsheet field, not a
+database column). No Vercel configuration written. No provider config change. Biometrics not
+activated. `main`, #197 and #209 untouched. Nothing merged.

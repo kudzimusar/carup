@@ -23,6 +23,7 @@ import { randomUUID } from 'crypto';
 import { supabase } from '../../db/supabase.js';
 import { emitDomainEvent } from '../eventBus/eventBusService.js';
 import { ForbiddenError, NotFoundError, ValidationError } from '../../utils/errors.js';
+import { resolveBuildProvenance } from '../../config/buildProvenance.js';
 import {
   sha256Checksum,
   assertAllowedSpreadsheet,
@@ -657,20 +658,97 @@ export async function runVehicleWorkbookDryRun({ file, templateKey } = {}, actor
  * ------------------------------------------------------------------ */
 
 /**
- * Where the canonical routes can actually be reached from inside this process.
+ * Where the canonical routes can be reached, AS THIS EXACT CANDIDATE.
  *
- * `backend/server.js` deliberately skips `app.listen` when `process.env.VERCEL` is set, so on the
- * deployed backend there is NO listener on 127.0.0.1 and a loopback dispatch cannot reach any
- * route. An explicit base URL is therefore required in that environment; guessing one would only
- * move the failure later. Returns null when no reachable base exists.
+ * `backend/server.js` skips `app.listen` when `process.env.VERCEL` is set, so on a deployed
+ * backend there is no listener on 127.0.0.1 and a loopback dispatch reaches nothing. But
+ * reachability alone is the wrong bar for a MUTATION target:
+ *
+ *   `CARUP_PUBLIC_API_URL` is the canonical PUBLIC origin — on staging it is documented as
+ *   `https://api-staging.carup.dev` (see CARUP_DOMAIN_CANONICALIZATION_RECEIPT). That is a
+ *   STABLE alias. It says nothing about which deployment or which Git SHA answers it, so a
+ *   branch-preview import could have created vehicles and evidence on stable staging — a
+ *   different candidate entirely. It is therefore no longer accepted here at all.
+ *
+ * What is accepted:
+ *   - `CARUP_INTERNAL_API_BASE_URL` — an operator-set, deployment-specific internal base;
+ *   - `VERCEL_URL` — Vercel's own immutable per-DEPLOYMENT host, which is by construction this
+ *     same runtime (unlike `VERCEL_BRANCH_URL`, an alias that moves between deployments);
+ *   - a loopback URL only where `app.listen` really ran.
+ *
+ * Whatever is chosen is still PROVEN against the caller's own build provenance before any
+ * mutation — see assertDispatchTargetProvenance. Returns null when nothing qualifies.
  */
 export function resolveDispatchBaseUrl(env = process.env) {
-  const configured = env.CARUP_INTERNAL_API_BASE_URL || env.CARUP_PUBLIC_API_URL;
+  const configured = env.CARUP_INTERNAL_API_BASE_URL;
   if (configured) return String(configured).replace(/\/+$/, '');
+  // Vercel's per-deployment host: same deployment, same build, by definition.
+  if (env.VERCEL_URL) return `https://${String(env.VERCEL_URL).replace(/^https?:\/\//, '').replace(/\/+$/, '')}`;
   // A loopback listener exists only where server.js actually called app.listen.
   if (env.VERCEL) return null;
-  if (env.NODE_ENV === 'test') return `http://127.0.0.1:${Number(env.PORT || 3001)}`;
   return `http://127.0.0.1:${Number(env.PORT || 3001)}`;
+}
+
+/**
+ * Prove the mutation target is the candidate the caller believes it is — BEFORE mutating.
+ *
+ * Reuses the existing governed mechanism (`backend/config/buildProvenance.js`), which exists
+ * because this programme already proved two CarUp runtimes can silently diverge. The rule it
+ * encodes is the one that matters here: unknown provenance is a FAILURE, not a pass. A runtime
+ * that cannot state its revision is exactly the case this guard exists to catch.
+ *
+ * Loopback to our own process is exempt by identity, not by leniency: it IS this runtime.
+ */
+export async function assertDispatchTargetProvenance(baseUrl, options = {}) {
+  const env = options.env || process.env;
+  const expected = options.expected || resolveBuildProvenance(env);
+  const isLoopback = /^https?:\/\/(127\.0\.0\.1|localhost)(:|\/|$)/i.test(baseUrl);
+  if (isLoopback) return { verified: true, reason: 'loopback: the target is this process' };
+
+  if (!expected.provenance_available || !expected.commit_sha) {
+    throw new ValidationError(
+      'Workbook import refused: this runtime cannot state its own build revision, so it cannot '
+      + 'prove that the import target is the same candidate. Nothing was imported.',
+    );
+  }
+
+  const fetchHealth = options.fetchHealth || (async (url) => {
+    const response = await fetch(`${url}/api/health`, { method: 'GET' });
+    return response.json();
+  });
+
+  let health = null;
+  try {
+    health = await fetchHealth(baseUrl);
+  } catch (error) {
+    throw new ValidationError(
+      `Workbook import refused: the import target could not be reached to prove which candidate it '
+      + 'is serving (${String(error?.message || error).slice(0, 160)}). Nothing was imported.`,
+    );
+  }
+
+  const target = health?.build || null;
+  if (!target || !target.commit_sha) {
+    throw new ValidationError(
+      'Workbook import refused: the import target does not report its build revision, so it cannot '
+      + 'be proven to be this candidate. Nothing was imported.',
+    );
+  }
+  if (String(target.commit_sha) !== String(expected.commit_sha)) {
+    throw new ValidationError(
+      `Workbook import refused: the import target is serving a different candidate `
+      + `(${String(target.commit_sha).slice(0, 8)}) than the one executing this import `
+      + `(${String(expected.commit_sha).slice(0, 8)}). Nothing was imported.`,
+    );
+  }
+  // A matching SHA on a different branch alias would be a coincidence worth refusing too.
+  if (expected.branch && target.branch && String(target.branch) !== String(expected.branch)) {
+    throw new ValidationError(
+      `Workbook import refused: the import target is serving branch '${target.branch}' while this `
+      + `import is running on '${expected.branch}'. Nothing was imported.`,
+    );
+  }
+  return { verified: true, targetSha: target.commit_sha, targetBranch: target.branch ?? null };
 }
 
 /**
@@ -694,6 +772,9 @@ function httpDispatch(req, baseUrl) {
   for (const name of ['authorization', 'x-session-token', 'cookie']) {
     if (req?.headers?.[name]) forwarded[name] = req.headers[name];
   }
+
+  // The organisational scope arrives per call from `trustedActorHeaders`, built at the execution
+  // boundary so an injected dispatcher sees exactly what the HTTP one sends.
 
   const send = (path, method, body, extraHeaders = {}) => new Promise((resolve, reject) => {
     const payload = body === undefined ? null : JSON.stringify(body);
@@ -722,7 +803,10 @@ function httpDispatch(req, baseUrl) {
     request.end(payload === null ? undefined : payload);
   });
 
-  // Mint one CSRF pair for this execution and reuse it, the way a browser session would.
+  // Mint one CSRF pair for this execution and reuse it. This is the double-submit pair the
+  // server requires — token header plus matching cookie — but it is NOT identical to the browser
+  // client's flow: the browser binds its token to the identity headers it sends and re-mints on a
+  // 403, while this mints once for the batch and forwards the caller's own cookie alongside.
   let csrf = null;
   const ensureCsrf = async () => {
     if (csrf) return csrf;
@@ -734,8 +818,10 @@ function httpDispatch(req, baseUrl) {
     return csrf;
   };
 
-  return async (path, method, body) => {
-    const headers = {};
+  return async (path, method, body, callerHeaders = {}) => {
+    const headers = { ...callerHeaders };
+    // Never let an asserted identity ride a writing request.
+    delete headers['x-user-id'];
     if (!['GET', 'HEAD', 'OPTIONS'].includes(String(method).toUpperCase())) {
       const pair = await ensureCsrf();
       if (pair.token) headers['x-csrf-token'] = pair.token;
@@ -758,6 +844,28 @@ function sanitizeErrorMessage(body) {
  * Stable across retries (so a replay dedupes) and distinct between items (so two references on
  * the same row do not collapse into one).
  */
+/**
+ * The organisational scope the outer authenticated route already established, expressed as the
+ * headers the canonical routes read.
+ *
+ * Built HERE, at the execution boundary, rather than inside one transport — because the previous
+ * shape put it inside the HTTP dispatcher, where an injected test dispatcher never saw it. That
+ * is precisely how a dealer losing its tenant survived a green suite.
+ *
+ * Values come from the ALREADY-VALIDATED actor context (`authorizeRole` verified the
+ * `tenant_users` membership before putting `tenantId` on it), never from raw client headers, and
+ * the inner canonical route re-verifies both independently. `x-user-id` is deliberately absent:
+ * the identity-assertion fallback must never stand in for a proven session on a writing route.
+ */
+export function trustedActorHeaders(actor = {}) {
+  const headers = {};
+  const tenantId = actor.tenantId ?? actor.tenant_id ?? null;
+  const requestedRole = actor.requestedRole ?? actor.requested_role ?? null;
+  if (tenantId) headers['x-tenant-id'] = String(tenantId);
+  if (requestedRole) headers['x-stakeholder-role'] = String(requestedRole);
+  return headers;
+}
+
 export function evidenceIdempotencyKey(batchId, rowNumber, index) {
   return `workbook-evidence:${batchId}:${rowNumber}:${index}`;
 }
@@ -867,12 +975,19 @@ export async function executeVehicleWorkbookImport({ batchId, confirm } = {}, ac
     if (!baseUrl) {
       throw new ValidationError(
         'Workbook import cannot run in this deployment: the canonical vehicle routes are not '
-        + 'reachable from the server process. Set CARUP_INTERNAL_API_BASE_URL (or '
-        + 'CARUP_PUBLIC_API_URL) to this backend\'s own base URL and retry. Nothing was imported.',
+        + 'reachable from this runtime, and no same-deployment internal base is configured. Set '
+        + 'CARUP_INTERNAL_API_BASE_URL to THIS backend deployment\'s own base URL and retry. '
+        + 'Nothing was imported.',
       );
     }
+    // E2 — prove the target is this exact candidate BEFORE the first vehicle or evidence
+    // mutation. Not "try it and see": a wrong target would already have written by then.
+    await assertDispatchTargetProvenance(baseUrl, { fetchHealth: options.fetchHealth });
     dispatch = httpDispatch(options.req, baseUrl);
   }
+  // E3 — the same trusted scope on every inner call, transport-independent.
+  const actorHeaders = trustedActorHeaders(actor);
+  const dispatchEvidence = (path, body) => dispatch(path, 'POST', body, actorHeaders);
   const receipts = [];
   const evidenceOutcomes = [];
   let accepted = 0;
@@ -895,7 +1010,7 @@ export async function executeVehicleWorkbookImport({ batchId, confirm } = {}, ac
     let errorMessage = null;
     const rowEvidence = [];
     try {
-      const response = await dispatch('/api/vehicles/add', 'POST', payload);
+      const response = await dispatch('/api/vehicles/add', 'POST', payload, actorHeaders);
       if (response.status >= 200 && response.status < 300) {
         outcome = 'accepted';
         // O2 post-Ready review C7 — the REAL POST /api/vehicles/add returns a top-level `vin`
@@ -915,13 +1030,18 @@ export async function executeVehicleWorkbookImport({ batchId, confirm } = {}, ac
         const rowEvidenceItems = row.metadata?.evidence || [];
         for (let evidenceIndex = 0; evidenceIndex < rowEvidenceItems.length; evidenceIndex += 1) {
           const evidence = rowEvidenceItems[evidenceIndex];
-          const evidenceResponse = await dispatch(
-            `/api/vehicles/${encodeURIComponent(row.workbook_record_id)}/evidence/upload`, 'POST', {
+          const evidenceResponse = await dispatchEvidence(
+            `/api/vehicles/${encodeURIComponent(row.workbook_record_id)}/evidence/upload`, {
               evidence_class: evidence.evidence_class,
               evidence_subtype: evidence.evidence_subtype,
               file_url: evidence.file_url,
               event_date: evidence.event_date,
               event_date_precision: evidence.event_date_precision,
+              // E1 — the canonical evidence route refuses a remote file whose declared content
+              // type it does not support, so the workbook must state it. The value comes from the
+              // uploader through a required, vocabulary-bound column; it is never guessed from the
+              // URL and the URL is never fetched to sniff it.
+              mime_type: evidence.file_mime_type ?? null,
               metadata: evidence.evidence_label ? { workbook_label: evidence.evidence_label } : undefined,
               // D6 — retrying a partial batch replays EVERY accepted row, including rows whose
               // evidence already landed. `withUploadIdempotency` fails open without a key, so
