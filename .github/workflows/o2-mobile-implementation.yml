@@ -34,6 +34,7 @@ jobs:
         run: |
           git show 7b03e9ffe1b659e4f4be51af9030b3090e727d30:.github/workflows/o2-mobile-implementation.yml > /tmp/o2-mobile-payload.yml
           awk "/python3 <<'PY'/{emit=1;next} emit && /^          PY$/{exit} emit{print}" /tmp/o2-mobile-payload.yml | sed 's/^          //' > /tmp/o2-mobile-implementation.py
+          python3 .github/scripts/o2-mobile-payload-fix.py
           python3 /tmp/o2-mobile-implementation.py
 
       - name: Install dependencies
